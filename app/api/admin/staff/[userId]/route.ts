@@ -53,6 +53,11 @@ const updateStaffSchema = z.object({
     .max(20)
     .optional()
     .transform((v) => v ?? []),
+  wholesaleCouponCodes: z
+    .array(couponCodeSchema)
+    .max(20)
+    .optional()
+    .transform((v) => v ?? []),
   financeLocationIds: z.array(cuidSchema).max(50).optional(),
 });
 
@@ -82,6 +87,7 @@ function serializeStaffUser(user: StaffUserWithDetails) {
     knownName: user.knownName,
     shopifyUserIds: user.shopifyUserIds,
     couponCodes: user.couponCodes,
+    wholesaleCouponCodes: user.wholesaleCouponCodes,
     companyId: user.companyId,
     userRoles: user.userRoles.map((ur) => ur.role),
     employeeProfile: user.employeeProfile
@@ -287,6 +293,7 @@ export async function PATCH(
     mobile: targetUser.mobile,
     shopifyUserIds: targetUser.shopifyUserIds,
     couponCodes: targetUser.couponCodes,
+    wholesaleCouponCodes: targetUser.wholesaleCouponCodes,
     employeeProfile: targetUser.employeeProfile,
   };
 
@@ -302,6 +309,9 @@ export async function PATCH(
         ...(data.mobile !== undefined && { mobile: data.mobile?.trim() || null }),
         ...(data.shopifyUserIds !== undefined && { shopifyUserIds: data.shopifyUserIds }),
         ...(data.couponCodes !== undefined && { couponCodes: data.couponCodes }),
+        ...(data.wholesaleCouponCodes !== undefined && {
+          wholesaleCouponCodes: data.wholesaleCouponCodes,
+        }),
       },
     });
 

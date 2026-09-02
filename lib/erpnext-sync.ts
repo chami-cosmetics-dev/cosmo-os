@@ -23,6 +23,11 @@ import {
 } from "@/lib/delivery-payment-approval";
 import { markOrderFinanciallyInvoiceComplete } from "@/lib/financial-invoice-complete";
 import { formatAppIsoDate } from "@/lib/format-datetime";
+import {
+  ERP_WHOLESALE_CUSTOMER_GROUP,
+  isWholesaleTrackingCode,
+} from "@/lib/merchant-wholesale";
+import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
 import { isCitypakCourier } from "@/lib/courier";
 import {
   APPROVAL_SPLIT_BANK_TRANSFER,
@@ -811,6 +816,7 @@ async function ensureCustomer(
   email: string | null,
   phone: string | null,
   erpnextCompany: string,
+  customerGroup?: string | null,
 ): Promise<string> {
   const displayName = customerName.trim() || "Guest";
   const canonicalMobile = phone ? canonicalPhoneForErpCustomerId(phone) : null;
@@ -847,7 +853,7 @@ async function ensureCustomer(
       customer_name: displayName,
       customer_type: "Individual",
       // New ERP customers only. Never PATCH customer_group from OS loyalty.
-      customer_group: "Individual",
+      customer_group: customerGroup?.trim() || "Individual",
       territory: "All Territories",
       default_company: erpnextCompany,
       custom_total_purchasing_value: 0,
@@ -2157,7 +2163,24 @@ export async function syncOrderToERPNext(
     null;
   const contactMobile = customerPhone ? canonicalPhoneForErpCustomerId(customerPhone) : null;
 
-  const erpCustomerName = await ensureCustomer(cfg, customerName, customerEmail, customerPhone, location.erpnextCompany);
+  const merchantTrackingCode = getMerchantCouponCode({
+    sourceName: order.sourceName,
+    discountCodes: order.discountCodes,
+    rawPayload: order.rawPayload,
+    assignedMerchantCouponCodes: null,
+  });
+  const wholesaleCustomerGroup = isWholesaleTrackingCode(merchantTrackingCode)
+    ? ERP_WHOLESALE_CUSTOMER_GROUP
+    : null;
+
+  const erpCustomerName = await ensureCustomer(
+    cfg,
+    customerName,
+    customerEmail,
+    customerPhone,
+    location.erpnextCompany,
+    wholesaleCustomerGroup,
+  );
 
   // Use shipping as fallback when billing is absent (common for digital/POS orders)
   const billingAddr = shopifyData.billing_address ?? shopifyData.shipping_address;
@@ -2411,7 +2434,24 @@ export async function syncOrderToERPNextFromOrder(order: OrderWithVaultData): Pr
   const customerPhone = order.customerPhone ?? (typeof addr?.phone === "string" ? addr.phone : null);
   const contactMobile = customerPhone ? canonicalPhoneForErpCustomerId(customerPhone) : null;
 
-  const erpCustomerName = await ensureCustomer(cfg, customerName, customerEmail, customerPhone, erpnextCompany);
+  const manualMerchantCode = getMerchantCouponCode({
+    sourceName: order.sourceName,
+    discountCodes: order.discountCodes,
+    rawPayload: order.rawPayload,
+    assignedMerchantCouponCodes: null,
+  });
+  const manualWholesaleGroup = isWholesaleTrackingCode(manualMerchantCode)
+    ? ERP_WHOLESALE_CUSTOMER_GROUP
+    : null;
+
+  const erpCustomerName = await ensureCustomer(
+    cfg,
+    customerName,
+    customerEmail,
+    customerPhone,
+    erpnextCompany,
+    manualWholesaleGroup,
+  );
 
   const [billingAddressName, shippingAddressName] = await Promise.all([
     ensureErpAddress(cfg, erpCustomerName, addr, "Billing"),

@@ -75,6 +75,18 @@ export type MerchantDashboardTargetDto = {
   assignedAt: string | null;
 };
 
+export type MerchantDashboardWholesaleTargetDto = {
+  yearMonth: string;
+  targetAmount: number;
+  achievedAmount: number;
+  percent: number | null;
+  status: "on_track" | "achieved" | "missed" | "no_target";
+  cheerBand: MerchantCheerBand;
+  cheerMessage: string;
+  assignedByName: string | null;
+  assignedAt: string | null;
+};
+
 export type MerchantDashboardHistoryRow = {
   id: string;
   yearMonth: string;
@@ -102,6 +114,7 @@ export type MerchantDashboardPageData = {
     email: string | null;
     knownName: string | null;
     couponCodes: string[];
+    wholesaleCouponCodes: string[];
   };
   sales: {
     total: number;
@@ -119,8 +132,13 @@ export type MerchantDashboardPageData = {
     dmOrderCount: number;
     merTargetPercent: number | null;
     dmTargetPercent: number | null;
+    hasWholesale: boolean;
+    wholesaleTotal: number;
+    wholesaleOrderCount: number;
+    wholesaleTargetPercent: number | null;
   };
   target: MerchantDashboardTargetDto;
+  wholesaleTarget: MerchantDashboardWholesaleTargetDto | null;
   history: MerchantDashboardHistoryRow[];
   overview: MerchantDashboardOverviewRow[] | null;
   gmPulse: GmPulseInput | null;
@@ -264,6 +282,7 @@ async function loadTargetRow(companyId: string, userId: string, yearMonth: strin
       targetAmount: true,
       shopTargetAmount: true,
       onlineTargetAmount: true,
+      wholesaleTargetAmount: true,
       assignedAt: true,
       assignedBy: {
         select: { knownName: true, name: true, email: true },
@@ -364,6 +383,7 @@ export async function getMerchantDashboardPageData(input: {
       name: true,
       email: true,
       couponCodes: true,
+      wholesaleCouponCodes: true,
       userRoles: { select: { role: { select: { name: true } } } },
     },
   });
@@ -377,13 +397,17 @@ export async function getMerchantDashboardPageData(input: {
 
   const cohortUsers = await prisma.user.findMany({
     where: { id: { in: merchants.map((m) => m.id) }, companyId: input.companyId },
-    select: { id: true, couponCodes: true },
+    select: { id: true, couponCodes: true, wholesaleCouponCodes: true },
   });
   const couponById = new Map(cohortUsers.map((u) => [u.id, u.couponCodes]));
+  const wholesaleCouponById = new Map(
+    cohortUsers.map((u) => [u.id, u.wholesaleCouponCodes]),
+  );
   const cohortInputs = merchants.map((m) => ({
     id: m.id,
     displayName: m.displayName,
     couponCodes: couponById.get(m.id) ?? [],
+    wholesaleCouponCodes: wholesaleCouponById.get(m.id) ?? [],
   }));
 
   const showCustomerLists = Boolean(input.showCustomerLists);
@@ -546,6 +570,10 @@ export async function getMerchantDashboardPageData(input: {
     dmOrderCount: mtdSales.dmOrderCount,
     merTargetPercent: null as number | null,
     dmTargetPercent: null as number | null,
+    hasWholesale: mtdSales.hasWholesale,
+    wholesaleTotal: mtdSales.wholesaleTotal,
+    wholesaleOrderCount: mtdSales.wholesaleOrderCount,
+    wholesaleTargetPercent: null as number | null,
   };
 
   const today: TodaySalesDto = {
@@ -653,6 +681,47 @@ export async function getMerchantDashboardPageData(input: {
     );
   }
 
+  const wholesaleTargetAmount = targetRow?.wholesaleTargetAmount
+    ? toNumber(targetRow.wholesaleTargetAmount)
+    : null;
+  const wholesaleBuilt =
+    sales.hasWholesale
+      ? buildTargetDto({
+          yearMonth,
+          targetAmount: wholesaleTargetAmount,
+          achievedAmount: sales.wholesaleTotal,
+          assignedByName: targetRow?.assignedBy
+            ? getMerchantDisplayName(targetRow.assignedBy)
+            : null,
+          assignedAt: targetRow?.assignedAt?.toISOString() ?? null,
+          displayName,
+          isCurrentMonth,
+        })
+      : null;
+  const wholesaleTarget: MerchantDashboardWholesaleTargetDto | null = wholesaleBuilt
+    ? {
+        yearMonth: wholesaleBuilt.yearMonth,
+        targetAmount: wholesaleBuilt.targetAmount,
+        achievedAmount: wholesaleBuilt.achievedAmount,
+        percent: wholesaleBuilt.percent,
+        status: wholesaleBuilt.status,
+        cheerBand: wholesaleBuilt.cheerBand,
+        cheerMessage: wholesaleBuilt.cheerMessage,
+        assignedByName: wholesaleBuilt.assignedByName,
+        assignedAt: wholesaleBuilt.assignedAt,
+      }
+    : null;
+  if (
+    wholesaleTargetAmount != null &&
+    wholesaleTargetAmount > 0 &&
+    sales.hasWholesale
+  ) {
+    sales.wholesaleTargetPercent = getMerchantTargetPercent(
+      sales.wholesaleTotal,
+      wholesaleTargetAmount,
+    );
+  }
+
   const history: MerchantDashboardHistoryRow[] = historyEvents.map((event) => {
     const amount = toNumber(event.targetAmount);
     const isCurrent = event.yearMonth === currentYearMonth();
@@ -712,12 +781,16 @@ export async function getMerchantDashboardPageData(input: {
         const online = tgt?.onlineTargetAmount
           ? toNumber(tgt.onlineTargetAmount)
           : null;
+        const wholesale = tgt?.wholesaleTargetAmount
+          ? toNumber(tgt.wholesaleTargetAmount)
+          : null;
         return [
           merchant.id,
           {
             targetAmount: legacy,
             shopTargetAmount: shop,
             onlineTargetAmount: online,
+            wholesaleTargetAmount: wholesale,
           },
         ] as const;
       }),
@@ -796,6 +869,7 @@ export async function getMerchantDashboardPageData(input: {
       email: profileUser.email,
       knownName: profileUser.knownName,
       couponCodes: profileUser.couponCodes,
+      wholesaleCouponCodes: profileUser.wholesaleCouponCodes,
     },
     sales: {
       total: sales.total,
@@ -808,8 +882,13 @@ export async function getMerchantDashboardPageData(input: {
       dmOrderCount: sales.dmOrderCount,
       merTargetPercent: sales.merTargetPercent,
       dmTargetPercent: sales.dmTargetPercent,
+      hasWholesale: sales.hasWholesale,
+      wholesaleTotal: sales.wholesaleTotal,
+      wholesaleOrderCount: sales.wholesaleOrderCount,
+      wholesaleTargetPercent: sales.wholesaleTargetPercent,
     },
     target,
+    wholesaleTarget,
     history,
     overview,
     gmPulse,
@@ -852,6 +931,7 @@ export async function upsertMerchantMonthlyTarget(input: {
   targetAmount?: number;
   shopTargetAmount?: number | null;
   onlineTargetAmount?: number | null;
+  wholesaleTargetAmount?: number | null;
   assignedByUserId: string;
   note?: string | null;
 }) {
@@ -868,10 +948,21 @@ export async function upsertMerchantMonthlyTarget(input: {
       targetAmount: true,
       shopTargetAmount: true,
       onlineTargetAmount: true,
+      wholesaleTargetAmount: true,
     },
   });
 
   const action = existing ? "update" : "set";
+  const regularFieldsProvided =
+    input.targetAmount !== undefined ||
+    input.shopTargetAmount !== undefined ||
+    input.onlineTargetAmount !== undefined;
+  const wholesaleProvided = input.wholesaleTargetAmount !== undefined;
+
+  if (!regularFieldsProvided && !wholesaleProvided) {
+    throw new Error("No target fields provided");
+  }
+
   const shop =
     input.shopTargetAmount !== undefined
       ? input.shopTargetAmount
@@ -884,22 +975,43 @@ export async function upsertMerchantMonthlyTarget(input: {
       : existing?.onlineTargetAmount != null
         ? toNumber(existing.onlineTargetAmount)
         : null;
-  const resolvedTotal = resolveEffectiveTotalTarget({
-    targetAmount:
-      input.targetAmount ??
-      (existing ? toNumber(existing.targetAmount) : null),
-    shopTargetAmount: shop,
-    onlineTargetAmount: online,
-  });
-  if (resolvedTotal == null || resolvedTotal <= 0) {
-    throw new Error("Target amount must be positive");
+
+  let amountDecimal: Prisma.Decimal;
+  if (regularFieldsProvided) {
+    const resolvedTotal = resolveEffectiveTotalTarget({
+      targetAmount:
+        input.targetAmount ??
+        (existing ? toNumber(existing.targetAmount) : null),
+      shopTargetAmount: shop,
+      onlineTargetAmount: online,
+    });
+    if (resolvedTotal == null || resolvedTotal <= 0) {
+      throw new Error("Target amount must be positive");
+    }
+    amountDecimal = new Prisma.Decimal(resolvedTotal);
+  } else if (existing) {
+    amountDecimal = existing.targetAmount;
+  } else {
+    amountDecimal = new Prisma.Decimal(0);
   }
 
-  const amount = new Prisma.Decimal(resolvedTotal);
   const shopDecimal =
     shop != null && shop > 0 ? new Prisma.Decimal(shop) : null;
   const onlineDecimal =
     online != null && online > 0 ? new Prisma.Decimal(online) : null;
+
+  const wholesale =
+    input.wholesaleTargetAmount !== undefined
+      ? input.wholesaleTargetAmount
+      : existing?.wholesaleTargetAmount != null
+        ? toNumber(existing.wholesaleTargetAmount)
+        : null;
+  const wholesaleDecimal =
+    wholesale != null && wholesale > 0 ? new Prisma.Decimal(wholesale) : null;
+
+  if (wholesaleProvided && wholesale != null && wholesale <= 0) {
+    throw new Error("Wholesale target amount must be positive");
+  }
 
   const [target] = await prisma.$transaction([
     prisma.merchantMonthlyTarget.upsert({
@@ -914,17 +1026,23 @@ export async function upsertMerchantMonthlyTarget(input: {
         companyId: input.companyId,
         userId: input.merchantUserId,
         yearMonth: input.yearMonth,
-        targetAmount: amount,
+        targetAmount: amountDecimal,
         shopTargetAmount: shopDecimal,
         onlineTargetAmount: onlineDecimal,
+        wholesaleTargetAmount: wholesaleDecimal,
         assignedByUserId: input.assignedByUserId,
         assignedAt: new Date(),
         note: input.note ?? null,
       },
       update: {
-        targetAmount: amount,
-        shopTargetAmount: shopDecimal,
-        onlineTargetAmount: onlineDecimal,
+        ...(regularFieldsProvided
+          ? {
+              targetAmount: amountDecimal,
+              shopTargetAmount: shopDecimal,
+              onlineTargetAmount: onlineDecimal,
+            }
+          : {}),
+        ...(wholesaleProvided ? { wholesaleTargetAmount: wholesaleDecimal } : {}),
         assignedByUserId: input.assignedByUserId,
         assignedAt: new Date(),
         note: input.note ?? null,
@@ -935,9 +1053,10 @@ export async function upsertMerchantMonthlyTarget(input: {
         companyId: input.companyId,
         userId: input.merchantUserId,
         yearMonth: input.yearMonth,
-        targetAmount: amount,
+        targetAmount: amountDecimal,
         shopTargetAmount: shopDecimal,
         onlineTargetAmount: onlineDecimal,
+        wholesaleTargetAmount: wholesaleDecimal,
         action,
         assignedByUserId: input.assignedByUserId,
         note: input.note ?? null,

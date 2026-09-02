@@ -101,6 +101,8 @@ type OrderDetail = {
   fulfillmentStatus: string | null;
   paymentGatewayNames?: string[];
   paymentGatewayPrimary?: string | null;
+  kokoRefNumber?: string;
+  kokoReferences?: Array<{ reference: string; amount: string }>;
   payments?: Array<{
     paymentEntryId: string;
     paymentType: string;
@@ -1393,6 +1395,32 @@ export function OrderInvoiceViewModal({
                         </div>
                       ) : null}
                     </div>
+                    {(() => {
+                      const kokoRows =
+                        orderDetail.kokoReferences?.length
+                          ? orderDetail.kokoReferences
+                          : orderDetail.kokoRefNumber
+                            ? [{ reference: orderDetail.kokoRefNumber, amount: "" }]
+                            : [];
+                      if (kokoRows.length === 0) return null;
+                      return (
+                        <div>
+                          <span className="text-muted-foreground text-xs">KOKO Reference</span>
+                          <div className="space-y-1">
+                            {kokoRows.map((row, index) => (
+                              <p key={`${row.reference}-${index}`} className="font-mono text-sm">
+                                {row.reference}
+                                {row.amount ? (
+                                  <span className="ml-2 font-sans text-muted-foreground">
+                                    ({formatPrice(row.amount, orderDetail.currency)})
+                                  </span>
+                                ) : null}
+                              </p>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })()}
                     <div>
                       <span className="text-muted-foreground text-xs">Location</span>
                       <p>{orderDetail.companyLocation?.name ?? "-"}</p>

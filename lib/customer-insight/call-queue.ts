@@ -13,7 +13,7 @@ import {
   findMerchantUserForFilterValue,
   resolveAssignedMerchantFilterLabels,
 } from "@/lib/customer-insight/merchant-label-aliases";
-import { merchantContactAllocationKeys } from "@/lib/customer-insight/ownership";
+import { merchantMatchKeysForUser } from "@/lib/customer-insight/ownership";
 import { findContactsByPurchasedBrandRanked } from "@/lib/page-data/contact-brand-ids";
 import { prisma } from "@/lib/prisma";
 
@@ -564,7 +564,7 @@ export async function listMerchantCallQueue(input: {
     roleNames?: string[];
   };
 }): Promise<{ items: CallQueueRowDto[] }> {
-  const keys = merchantContactAllocationKeys(input.viewer);
+  const keys = merchantMatchKeysForUser(input.viewer);
   const rows = await prisma.contactInsightCallQueue.findMany({
     where: {
       companyId: input.companyId,

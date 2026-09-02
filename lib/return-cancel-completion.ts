@@ -5,6 +5,7 @@ import {
   ensureErpnextCreditNote,
   type LocationWithErpInstance,
 } from "@/lib/erpnext-sync";
+import { releaseKokoReferencesForOrderInTx } from "@/lib/koko-approval-references";
 import { ERP_CREDIT_NOTE_ORDER_PATCH } from "@/lib/erp-credit-note-order-sync";
 import { mergeErpReturnSalesInvoiceIds } from "@/lib/erp-return-si";
 import {
@@ -272,4 +273,6 @@ export async function finalizeReturnCancelOsState(
       actionById: input.reviewerId,
     },
   });
+
+  await releaseKokoReferencesForOrderInTx(input.orderId, tx);
 }

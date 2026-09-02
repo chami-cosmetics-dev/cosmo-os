@@ -98,6 +98,7 @@ export type OrderInvoiceCsvRow = {
   coupon_code: string;
   status: string;
   payment_gateway: string;
+  koko_ref_number: string;
   payment_status: string;
   company_name: string;
   pos_profile: string;
@@ -144,6 +145,7 @@ export type OrderInvoiceItemCsvRow = {
   payment_status: string;
   fulfillment_status: string;
   payment_gateway: string;
+  koko_ref_number: string;
   merchant_name: string;
   created_by: string;
 };
@@ -167,6 +169,7 @@ const ORDER_INVOICE_HEADERS = [
   "status",
   "fulfillment_status",
   "payment_gateway",
+  "koko_ref_number",
   "payment_status",
   "company_name",
   "pos_profile",
@@ -215,6 +218,7 @@ const ORDER_INVOICE_ITEM_HEADERS = [
   "fulfillment_status",
   "payment_status",
   "payment_gateway",
+  "koko_ref_number",
   "merchant_name",
   "created_by",
 ] as const;
@@ -320,6 +324,7 @@ export function createOrderInvoiceRow(input: {
   shippingRule: string | null;
   createdBy: string;
   couponCode?: string | null;
+  kokoRefNumber?: string | null;
 }): OrderInvoiceCsvRow {
   const sourceName = formatSourceName(input.sourceName);
   const month = input.createdAt.toLocaleString("en-US", {
@@ -347,6 +352,7 @@ export function createOrderInvoiceRow(input: {
     coupon_code: input.couponCode ?? input.merchantCouponCode ?? "",
     status: resolveInvoiceStatus(input),
     payment_gateway: summarizePaymentGateway(input.paymentGateway),
+    koko_ref_number: input.kokoRefNumber?.trim() ?? "",
     payment_status: input.financialStatus ?? "",
     company_name: input.companyName,
     pos_profile: input.posProfile ?? "",
@@ -395,6 +401,7 @@ export function createOrderInvoiceItemRow(input: {
   paymentGateway: string;
   merchantName: string;
   createdBy: string;
+  kokoRefNumber?: string | null;
 }): OrderInvoiceItemCsvRow {
   return {
     invoice_no: input.invoiceNo,
@@ -421,6 +428,7 @@ export function createOrderInvoiceItemRow(input: {
     payment_status: input.financialStatus ?? "",
     fulfillment_status: input.fulfillmentStatus ?? "",
     payment_gateway: summarizePaymentGateway(input.paymentGateway),
+    koko_ref_number: input.kokoRefNumber?.trim() ?? "",
     merchant_name: input.merchantName,
     created_by: input.createdBy,
   };

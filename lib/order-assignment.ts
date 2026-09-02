@@ -37,8 +37,12 @@ export async function resolveAssignedMerchant(
     if (codes.length > 0) {
       const merchants = await prisma.user.findMany({
         where: eligibleMerchantUserWhere(companyId),
-        select: { id: true, couponCodes: true },
+        select: { id: true, couponCodes: true, wholesaleCouponCodes: true },
       });
+
+      for (const merchant of merchants) {
+        if (hasMatchingCode(merchant.wholesaleCouponCodes, codes)) return merchant.id;
+      }
 
       for (const merchant of merchants) {
         if (hasMatchingCode(merchant.couponCodes, codes)) return merchant.id;

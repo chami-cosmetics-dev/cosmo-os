@@ -54,6 +54,7 @@ import {
 import {
   findTakenKokoReferences,
   parseKokoApprovalPayload,
+  releaseKokoReferencesForOrderInTx,
   type ParsedKokoApprovalPayload,
 } from "@/lib/koko-approval-references";
 import {
@@ -765,6 +766,7 @@ export async function PATCH(
             cancelledById: reviewerId,
           },
         });
+        await releaseKokoReferencesForOrderInTx(approval.orderId!, tx);
 
         await tx.$executeRaw(
           Prisma.sql`
@@ -1013,6 +1015,7 @@ export async function PATCH(
             ...orderStageUpdate("returned", now),
           },
         });
+        await releaseKokoReferencesForOrderInTx(approval.orderId!, tx);
         await tx.orderReturn.updateMany({
           where: { orderId: approval.orderId!, remarkTemplate: "invoice_revert", actionStatus: "pending" },
           data: {
@@ -1125,6 +1128,7 @@ export async function PATCH(
             cancelReason: approval.requestNote,
           },
         });
+        await releaseKokoReferencesForOrderInTx(approval.orderId, tx);
       }
     }
 

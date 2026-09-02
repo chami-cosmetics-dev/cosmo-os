@@ -8,6 +8,7 @@ import {
   ORDER_PAYMENT_APPROVAL,
   PAYMENT_METHOD_CHANGE_APPROVAL,
 } from "@/lib/approval-workflow";
+import { loadOrderKokoRefDetail } from "@/lib/approval-koko-list";
 import { getOrderPaymentGatewayColumnState } from "@/lib/order-payment-gateway-compat";
 import { resolveOrderDiscountCouponForOrder, resolveOrderMerchantCouponForOrder } from "@/lib/order-discount-coupon";
 import { resolveOrderErpSpecialRemarksForOrder } from "@/lib/order-erp-special-remarks";
@@ -447,6 +448,8 @@ export async function GET(
     Number(details.totalPrice),
   );
 
+  const kokoRefDetail = await loadOrderKokoRefDetail(companyId, details.id);
+
   return NextResponse.json({
     id: details.id,
     shopifyOrderId: details.shopifyOrderId,
@@ -471,6 +474,8 @@ export async function GET(
     paymentGatewayPrimary: gatewayColumns.hasPaymentGatewayPrimary
       ? (details.paymentGatewayPrimary ?? null)
       : null,
+    kokoRefNumber: kokoRefDetail.kokoRefNumber,
+    kokoReferences: kokoRefDetail.kokoReferences,
     payments: details.paymentEntries.map((payment) => ({
       paymentEntryId: payment.paymentEntryId,
       paymentType: payment.paymentType,

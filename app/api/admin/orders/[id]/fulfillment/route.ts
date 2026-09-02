@@ -40,6 +40,7 @@ import {
 import { orderStageUpdate, orderStageUpdateIfChanged } from "@/lib/order-stage-timing";
 import { getErpOutOfStockFulfillmentBlock } from "@/lib/erp-fulfillment-block";
 import { isExplicitlyPackageReady } from "@/lib/fulfillment-stage-display";
+import { releaseKokoReferencesForOrder } from "@/lib/koko-approval-references";
 import { formatAppIsoCalendarDate } from "@/lib/format-datetime";
 
 const addSampleSchema = z.object({
@@ -1406,6 +1407,8 @@ export async function PATCH(
           cancelKind,
         },
       });
+
+      await releaseKokoReferencesForOrder(order.id);
 
       await writeAuditLog({
         companyId,

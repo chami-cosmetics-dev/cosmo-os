@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 
+import { loadKokoRefNumbersForOrders } from "@/lib/approval-koko-list";
 import { prisma } from "@/lib/prisma";
 import { logReportDownload } from "@/lib/report-download-log";
 import {
@@ -505,6 +506,10 @@ export async function GET(request: NextRequest) {
               companyId,
               orders.map((order) => order.id),
             );
+            const orderIdToKokoRefNumber = await loadKokoRefNumbersForOrders(
+              companyId,
+              orders.map((order) => order.id),
+            );
             await writeOrderedConcurrentLines(orders, write, async (order) => {
       const customerName =
         getCustomerName(order.shippingAddress) ||
@@ -634,6 +639,7 @@ export async function GET(request: NextRequest) {
           paymentGateway,
           merchantName,
           createdBy,
+          kokoRefNumber: orderIdToKokoRefNumber.get(order.id) ?? "",
         });
       });
             return itemRows.map((row) => formatCsvDataLine(csvHeaders, row)).join("");
@@ -654,6 +660,10 @@ export async function GET(request: NextRequest) {
             });
             if (orders.length === 0) break;
             const orderIdToManualCreatorEmail = await loadManualCreatorEmails(
+              companyId,
+              orders.map((order) => order.id),
+            );
+            const orderIdToKokoRefNumber = await loadKokoRefNumbersForOrders(
               companyId,
               orders.map((order) => order.id),
             );
@@ -774,6 +784,7 @@ export async function GET(request: NextRequest) {
       invoiceCompleteBy: getUserDisplayName(order.invoiceCompleteBy),
       shippingRule,
       createdBy,
+      kokoRefNumber: orderIdToKokoRefNumber.get(order.id) ?? "",
     }));
             });
             cursorId = orders[orders.length - 1]!.id;
