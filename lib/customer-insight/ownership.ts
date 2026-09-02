@@ -1,6 +1,11 @@
+import {
+  dmGeneralAssignedMerchantAliases,
+  findAssignedMerchantAliasGroup,
+  isDmGeneralAssignedMerchant,
+} from "@/lib/customer-insight/merchant-label-aliases";
 import type { InsightVisibility } from "@/lib/customer-insight/types";
 import { merMatchKeysFromCouponCodes } from "@/lib/merchant-allocation";
-
+import { userHasMerchantRole } from "@/lib/merchant-role";
 export type ViewerIdentity = {
   knownName?: string | null;
   name?: string | null;
@@ -57,6 +62,44 @@ export function merchantMatchKeysForUser(viewer: ViewerIdentity): string[] {
   return out;
 }
 
+function expandMerchantLabelAliases(label: string): string[] {
+  const group = findAssignedMerchantAliasGroup(label);
+  return group ? group.aliases : [label];
+}
+
+/**
+ * Contact query keys for merchant-scoped Insight lists.
+ * Expands alias groups (e.g. MER115 ↔ DM - General) and includes the shared
+ * DM-General pool for all merchant-role users.
+ */
+export function merchantContactAllocationKeys(viewer: ViewerIdentity): string[] {
+  const base = merchantMatchKeysForUser(viewer);
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const push = (label: string) => {
+    const trimmed = label.trim();
+    if (!trimmed) return;
+    const key = normalizeMerchantLabel(trimmed);
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(trimmed);
+  };
+
+  for (const key of base) {
+    for (const alias of expandMerchantLabelAliases(key)) {
+      push(alias);
+    }
+  }
+
+  if (userHasMerchantRole(viewer.roleNames)) {
+    for (const alias of dmGeneralAssignedMerchantAliases()) {
+      push(alias);
+    }
+  }
+
+  return out;
+}
+
 function viewerMerKeys(viewer: ViewerIdentity): string[] {
   return merMatchKeysFromCouponCodes(viewer.couponCodes ?? null);
 }
@@ -66,6 +109,13 @@ function viewerMerKeys(viewer: ViewerIdentity): string[] {
  * - legacy display labels (knownName/name/email), or
  * - a MER code format (e.g. "MER56") derived from the viewer's couponCodes.
  */
+function merchantLabelVariants(label: string | null | undefined): string[] {
+  const trimmed = (label ?? "").trim();
+  if (!trimmed) return [];
+  const group = findAssignedMerchantAliasGroup(trimmed);
+  return group ? group.aliases : [trimmed];
+}
+
 export function matchesMerchantAllocation(
   viewer: ViewerIdentity,
   assignedMerchant: string | null | undefined
@@ -73,18 +123,27 @@ export function matchesMerchantAllocation(
   const assigned = normalizeMerchantLabel(assignedMerchant);
   if (!assigned) return false;
 
-  // 1) Legacy match (stored label)
   if (
-    viewerMerchantLabels(viewer).some(
-      (label) => normalizeMerchantLabel(label) === assigned
-    )
+    userHasMerchantRole(viewer.roleNames) &&
+    isDmGeneralAssignedMerchant(assignedMerchant)
   ) {
     return true;
   }
 
+  const assignedKeys = new Set(
+    merchantLabelVariants(assignedMerchant).map(normalizeMerchantLabel)
+  );
+
+  // 1) Legacy match (stored label + historical aliases)
+  for (const label of viewerMerchantLabels(viewer)) {
+    for (const variant of merchantLabelVariants(label)) {
+      if (assignedKeys.has(normalizeMerchantLabel(variant))) return true;
+    }
+  }
+
   // 2) MER match (stored MER code)
   const merKeys = viewerMerKeys(viewer);
-  return merKeys.some((k) => normalizeMerchantLabel(k) === assigned);
+  return merKeys.some((k) => assignedKeys.has(normalizeMerchantLabel(k)));
 }
 
 export function isAdminOrSuperAdmin(roleNames: string[] | undefined | null): boolean {

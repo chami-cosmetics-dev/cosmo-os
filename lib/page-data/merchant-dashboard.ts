@@ -15,6 +15,7 @@ import type {
 } from "@/lib/merchant-dashboard/motivation-types";
 import { buildPeerBoard } from "@/lib/merchant-dashboard/peer-board";
 import { getMerchantDisplayName } from "@/lib/merchant-groups";
+import { canonicalizeMerchantDisplayName } from "@/lib/customer-insight/merchant-label-aliases";
 import { normalizeDashboardMerchantLabel } from "@/lib/merchant-dm-sales";
 import { isMerchantRoleName } from "@/lib/merchant-role";
 import { fetchMerchantNearestBirthdays } from "@/lib/page-data/merchant-dashboard-birthdays";
@@ -363,11 +364,14 @@ export async function getMerchantDashboardPageData(input: {
       name: true,
       email: true,
       couponCodes: true,
+      userRoles: { select: { role: { select: { name: true } } } },
     },
   });
   if (!profileUser) {
     return { error: "Merchant not found", status: 404 };
   }
+
+  const profileRoleNames = profileUser.userRoles.map((row) => row.role.name);
 
   const displayName = getMerchantDisplayName(profileUser);
 
@@ -481,6 +485,7 @@ export async function getMerchantDashboardPageData(input: {
         name: profileUser.name,
         email: profileUser.email,
         couponCodes: profileUser.couponCodes,
+        roleNames: profileRoleNames,
       },
       take: 25,
     }),
@@ -492,6 +497,7 @@ export async function getMerchantDashboardPageData(input: {
         name: profileUser.name,
         email: profileUser.email,
         couponCodes: profileUser.couponCodes,
+        roleNames: profileRoleNames,
       },
     }).then((r) => r.items),
     prisma.$queryRaw<
@@ -830,7 +836,9 @@ export async function getMerchantDashboardPageData(input: {
     loyaltyOutreach,
     callUpdateQueue: callUpdateQueueResult,
     callCenterPerformance: callCenterRaw.map((row) => ({
-      merchantName: normalizeDashboardMerchantLabel(row.merchantName),
+      merchantName: normalizeDashboardMerchantLabel(
+        canonicalizeMerchantDisplayName(row.merchantName)
+      ),
       category: row.category ?? "N/A",
       count: Number(row.count),
     })),

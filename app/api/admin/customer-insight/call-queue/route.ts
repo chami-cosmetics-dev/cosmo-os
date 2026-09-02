@@ -32,6 +32,7 @@ export async function GET() {
       name: user.name ?? null,
       email: user.email ?? null,
       couponCodes: dbUser?.couponCodes ?? null,
+      roleNames: (auth.context!.roleNames as string[]) ?? [],
     },
   });
   return NextResponse.json(result);

@@ -5,6 +5,7 @@ import {
   insightVisibility,
   isAllocatedOwner,
   isAdminOrSuperAdmin,
+  merchantContactAllocationKeys,
   viewerMerchantLabels,
 } from "@/lib/customer-insight/ownership";
 
@@ -48,6 +49,60 @@ describe("isAllocatedOwner", () => {
     ).toBe(false);
   });
 
+  it("matches historical Semini label to Sanda/semini merchant", () => {
+    expect(
+      isAllocatedOwner(
+        { knownName: "Sanda/semini", roleNames: ["merchant"] },
+        "Semini"
+      )
+    ).toBe(true);
+  });
+
+  it("matches Kaushallya aliases to the same merchant", () => {
+    expect(
+      isAllocatedOwner(
+        { knownName: "Kaushallya", roleNames: ["merchant"] },
+        "Ms Kaushallya sewwandhi"
+      )
+    ).toBe(true);
+    expect(
+      isAllocatedOwner(
+        { knownName: "Kaushallya", roleNames: ["merchant"] },
+        "Kaushalya"
+      )
+    ).toBe(true);
+  });
+
+  it("matches Naduni aliases to the same merchant", () => {
+    expect(
+      isAllocatedOwner(
+        { knownName: "Naduni", roleNames: ["merchant"] },
+        "Rukshika Naduni"
+      )
+    ).toBe(true);
+  });
+
+  it("lets any merchant update DM-General assigned contacts", () => {
+    expect(
+      isAllocatedOwner(
+        { knownName: "Dinuli", roleNames: ["merchant-level-01"] },
+        "DM - General"
+      )
+    ).toBe(true);
+    expect(
+      isAllocatedOwner(
+        { knownName: "Dinuli", roleNames: ["merchant-level-01"] },
+        "MER115"
+      )
+    ).toBe(true);
+    expect(
+      isAllocatedOwner(
+        { knownName: "Alice", roleNames: ["manager"] },
+        "DM - General"
+      )
+    ).toBe(false);
+  });
+
   it("matches assignedMerchant to MER code from couponCodes", () => {
     expect(
       isAllocatedOwner(
@@ -80,6 +135,29 @@ describe("isAllocatedOwner", () => {
         "Bob"
       )
     ).toBe(true);
+  });
+});
+
+describe("merchantContactAllocationKeys", () => {
+  it("includes DM-General aliases for merchant-role users", () => {
+    const keys = merchantContactAllocationKeys({
+      knownName: "Dinuli",
+      roleNames: ["merchant-level-01"],
+      couponCodes: ["MER56-Dinuli"],
+    });
+    expect(keys).toEqual(
+      expect.arrayContaining(["Dinuli", "MER56", "DM - General", "MER115"])
+    );
+  });
+
+  it("omits DM-General aliases for non-merchant roles", () => {
+    const keys = merchantContactAllocationKeys({
+      knownName: "Dinuli",
+      roleNames: ["manager"],
+      couponCodes: ["MER56-Dinuli"],
+    });
+    expect(keys).toEqual(expect.arrayContaining(["Dinuli", "MER56"]));
+    expect(keys).not.toContain("DM - General");
   });
 });
 
