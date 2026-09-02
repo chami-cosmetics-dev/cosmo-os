@@ -46,6 +46,21 @@ export const ASSIGNED_MERCHANT_ALIAS_GROUPS: AssignedMerchantAliasGroup[] = [
     label: "STAFF SALES",
     aliases: ["STAFF SALES"],
   },
+  {
+    value: "Sanda/semini",
+    label: "Sanda/semini",
+    aliases: ["Sanda/semini", "Semini"],
+  },
+  {
+    value: "Kaushallya",
+    label: "Kaushallya",
+    aliases: ["Kaushallya", "Kaushalya", "Ms Kaushallya sewwandhi"],
+  },
+  {
+    value: "Naduni",
+    label: "Naduni",
+    aliases: ["Naduni", "Rukshika Naduni"],
+  },
 ];
 
 /** Extra contact labels to OR with a merchant user (beyond knownName/name/MER). */
@@ -91,6 +106,28 @@ export function findAssignedMerchantAliasGroup(
   const key = norm(label ?? "");
   if (!key) return null;
   return ALIAS_INDEX.get(key) ?? null;
+}
+
+export function isDmGeneralAssignedMerchant(
+  label: string | null | undefined
+): boolean {
+  return findAssignedMerchantAliasGroup(label)?.value === "DM - General";
+}
+
+/** All stored assignedMerchant labels for the DM-General bucket. */
+export function dmGeneralAssignedMerchantAliases(): string[] {
+  const group = findAssignedMerchantAliasGroup("DM - General");
+  return group ? uniqueLabels(group.aliases) : [];
+}
+
+/** Collapse legacy / duplicate merchant labels to one roster name. */
+export function canonicalizeMerchantDisplayName(
+  name: string | null | undefined
+): string {
+  const trimmed = (name ?? "").trim();
+  if (!trimmed) return "";
+  const group = findAssignedMerchantAliasGroup(trimmed);
+  return group ? group.value : trimmed;
 }
 
 /** Static bucket expansion only (no user lookup). */

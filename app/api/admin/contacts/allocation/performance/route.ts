@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { Prisma } from "@prisma/client";
 
+import { canonicalizeMerchantDisplayName } from "@/lib/customer-insight/merchant-label-aliases";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
 
@@ -60,7 +61,8 @@ export async function GET(request: NextRequest) {
 
   // Convert BigInt counts to numbers for JSON serialisation
   const data = rows.map((row) => ({
-    merchantName: row.merchantName ?? "Unknown",
+    merchantName:
+      canonicalizeMerchantDisplayName(row.merchantName) || "Unknown",
     category: row.category ?? "N/A",
     count: Number(row.count),
   }));

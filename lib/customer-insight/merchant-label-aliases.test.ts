@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  canonicalizeMerchantDisplayName,
   expandAssignedMerchantFilter,
   findAssignedMerchantAliasGroup,
   insightMerchantOptionLabel,
   insightMerchantOptionValue,
+  isDmGeneralAssignedMerchant,
 } from "@/lib/customer-insight/merchant-label-aliases";
 
 describe("assigned merchant aliases", () => {
@@ -26,6 +28,32 @@ describe("assigned merchant aliases", () => {
       "STAFF SALES"
     );
     expect(expandAssignedMerchantFilter("STAFF SALES")).toEqual(["STAFF SALES"]);
+  });
+
+  it("treats Semini and Sanda/semini as the same merchant", () => {
+    expect(findAssignedMerchantAliasGroup("Semini")?.value).toBe("Sanda/semini");
+    expect(findAssignedMerchantAliasGroup("Sanda/semini")?.value).toBe(
+      "Sanda/semini"
+    );
+    expect(expandAssignedMerchantFilter("Semini")).toEqual(
+      expect.arrayContaining(["Sanda/semini", "Semini"])
+    );
+  });
+
+  it("canonicalizes duplicate merchant display names", () => {
+    expect(canonicalizeMerchantDisplayName("Ms Kaushallya sewwandhi")).toBe(
+      "Kaushallya"
+    );
+    expect(canonicalizeMerchantDisplayName("Kaushalya")).toBe("Kaushallya");
+    expect(canonicalizeMerchantDisplayName("Rukshika Naduni")).toBe("Naduni");
+    expect(canonicalizeMerchantDisplayName("Semini")).toBe("Sanda/semini");
+  });
+
+  it("detects DM-General assigned merchant labels", () => {
+    expect(isDmGeneralAssignedMerchant("DM - General")).toBe(true);
+    expect(isDmGeneralAssignedMerchant("MER115")).toBe(true);
+    expect(isDmGeneralAssignedMerchant("DM-General")).toBe(true);
+    expect(isDmGeneralAssignedMerchant("Dinuli")).toBe(false);
   });
 
   it("builds clear merchant option value/label from MER + knownName", () => {

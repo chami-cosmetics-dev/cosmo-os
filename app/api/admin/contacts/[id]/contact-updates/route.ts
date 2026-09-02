@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
+import { getMerchantDisplayName } from "@/lib/customer-insight/auto-allocate";
+import { canonicalizeMerchantDisplayName } from "@/lib/customer-insight/merchant-label-aliases";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
 
@@ -107,7 +109,13 @@ export async function PATCH(
       companyId,
       contactId: id,
       merchantId: auth.context!.user?.id ?? null,
-      merchantName: auth.context!.user?.name ?? null,
+      merchantName: canonicalizeMerchantDisplayName(
+        getMerchantDisplayName({
+          knownName: auth.context!.user?.knownName,
+          name: auth.context!.user?.name,
+          email: auth.context!.user?.email,
+        })
+      ) || null,
       category: effectiveCategory,
       remark: data.remarks !== undefined ? data.remarks : null,
       outcome: "general",

@@ -3,6 +3,7 @@ import {
   type CallCenterCategory,
 } from "@/lib/contact-call-center-categories";
 import { writeAuditLog } from "@/lib/audit-log";
+import { canonicalizeMerchantDisplayName } from "@/lib/customer-insight/merchant-label-aliases";
 import type { ContactEventOutcome } from "@/lib/customer-insight/types";
 import { prisma } from "@/lib/prisma";
 
@@ -93,10 +94,11 @@ export async function markContactInsightContacted(input: {
   if (!contact) return null;
 
   const now = new Date();
-  const merchantName =
+  const merchantName = canonicalizeMerchantDisplayName(
     input.merchantName?.trim() ||
-    contact.assignedMerchant?.trim() ||
-    "Unknown";
+      contact.assignedMerchant?.trim() ||
+      "Unknown"
+  );
   const remark = input.remark?.trim() || input.note?.trim() || null;
   const outcome = input.outcome ?? "general";
 

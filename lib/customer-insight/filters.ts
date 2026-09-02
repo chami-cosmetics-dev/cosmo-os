@@ -5,7 +5,7 @@ import {
   loyaltyCode,
   loyaltyLabel,
 } from "@/lib/customer-insight/loyalty-tier";
-import { merchantMatchKeysForUser } from "@/lib/customer-insight/ownership";
+import { merchantContactAllocationKeys } from "@/lib/customer-insight/ownership";
 import type { AllocatedFilterResultDto, LoyaltyTierKey } from "@/lib/customer-insight/types";
 import { findContactsByPurchasedBrandRanked } from "@/lib/page-data/contact-brand-ids";
 import { findContactsByPurchasedItemRanked } from "@/lib/customer-insight/item-filter";
@@ -235,7 +235,7 @@ async function buildAllocationWhere(input: FilterQueryInput): Promise<{
   empty: boolean;
   where: Record<string, unknown>;
 }> {
-  const labels = merchantMatchKeysForUser(input.viewer);
+  const labels = merchantContactAllocationKeys(input.viewer);
   const scopeAll = Boolean(input.scopeAllContacts ?? input.isAdmin);
 
   const where: Record<string, unknown> = {
