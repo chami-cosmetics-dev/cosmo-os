@@ -10,6 +10,7 @@ import {
 } from "@/lib/book-notes/access";
 import { sendBookNoteRowsToErp } from "@/lib/book-notes/erp-verify";
 import { loadBookNoteDayDto } from "@/lib/book-notes/load";
+import { bookNoteRowUsesSplitPayload } from "@/lib/book-notes/split-lines";
 import {
   collectBookNoteNamesFromVerifyRows,
   loadReceiptsForDay,
@@ -140,6 +141,7 @@ export async function POST(request: NextRequest) {
   }
 
   for (const r of day.rows) {
+    if (bookNoteRowUsesSplitPayload(r.split_lines)) continue;
     if (r.card > 0 && !r.card_receipt_ref_last4) {
       return NextResponse.json(
         {
@@ -167,6 +169,7 @@ export async function POST(request: NextRequest) {
       card_last_4: r.card_receipt_ref_last4,
       koko: r.koko,
       bank_transfer: r.bank_transfer,
+      split_lines: r.split_lines,
     })),
   });
 

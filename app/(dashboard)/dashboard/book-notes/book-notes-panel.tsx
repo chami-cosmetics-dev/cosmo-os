@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { ImagePlus, Loader2, Plus, Trash2, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -18,10 +18,25 @@ import type {
   BookNoteLocationOption,
   BookNoteOrderSuggestion,
   BookNoteReceiptDto,
+  BookNoteSplitLine,
 } from "@/lib/book-notes/types";
-import { isBookNoteDayLocked } from "@/lib/book-notes/lock";
+import {
+  BOOK_NOTE_ERP_PAYMENT_METHODS,
+  columnsToSplitLines,
+  rowTotalFromSplitLines,
+  type BookNoteErpPaymentMethod,
+} from "@/lib/book-notes/split-lines";
 import { notify } from "@/lib/notify";
 import { LIMITS } from "@/lib/validation";
+
+type SplitLineForm = {
+  key: string;
+  paymentMethod: BookNoteErpPaymentMethod;
+  amount: string;
+  cardLast4: string;
+  kokoReference: string;
+  bankReference: string;
+};
 
 type LedgerRow = {
   key: string;
@@ -32,6 +47,8 @@ type LedgerRow = {
   cardReceiptRefLast4: string;
   koko: string;
   bankTransfer: string;
+  splitMode: boolean;
+  splitLines: SplitLineForm[];
   orderId: string | null;
 };
 
@@ -40,6 +57,61 @@ const MAX_CREATE_ROWS = 200;
 function toNum(v: string): number {
   const n = parseFloat(v);
   return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : 0;
+}
+
+function emptySplitLine(paymentMethod: BookNoteErpPaymentMethod = "Card"): SplitLineForm {
+  return {
+    key: `sl-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    paymentMethod,
+    amount: "",
+    cardLast4: "",
+    kokoReference: "",
+    bankReference: "",
+  };
+}
+
+function splitLineToForm(sl: BookNoteSplitLine): SplitLineForm {
+  return {
+    key: `sl-${sl.paymentMethod}-${Math.random().toString(36).slice(2, 7)}`,
+    paymentMethod: sl.paymentMethod,
+    amount: sl.amount ? String(sl.amount) : "",
+    cardLast4: sl.cardLast4 ?? "",
+    kokoReference: sl.kokoReference ?? "",
+    bankReference: sl.bankReference ?? "",
+  };
+}
+
+function splitLinesToPayload(lines: SplitLineForm[]): BookNoteSplitLine[] {
+  return lines
+    .map((sl) => ({
+      paymentMethod: sl.paymentMethod,
+      amount: toNum(sl.amount),
+      cardLast4:
+        sl.paymentMethod === "Card" && sl.cardLast4.trim()
+          ? sl.cardLast4.trim()
+          : null,
+      kokoReference:
+        sl.paymentMethod === "KOKO" && sl.kokoReference.trim()
+          ? sl.kokoReference.trim()
+          : null,
+      bankReference:
+        sl.paymentMethod === "Bank Transfer" && sl.bankReference.trim()
+          ? sl.bankReference.trim()
+          : null,
+    }))
+    .filter((sl) => sl.amount > 0);
+}
+
+function rowTotal(row: LedgerRow): number {
+  if (row.splitMode) {
+    return rowTotalFromSplitLines(splitLinesToPayload(row.splitLines));
+  }
+  return (
+    toNum(row.cash) +
+    toNum(row.card) +
+    toNum(row.koko) +
+    toNum(row.bankTransfer)
+  );
 }
 
 function emptyRow(idx: number): LedgerRow {
@@ -52,6 +124,8 @@ function emptyRow(idx: number): LedgerRow {
     cardReceiptRefLast4: "",
     koko: "",
     bankTransfer: "",
+    splitMode: false,
+    splitLines: [],
     orderId: null,
   };
 }
@@ -66,22 +140,30 @@ function dayToRows(day: BookNoteDayDto | null): LedgerRow[] {
   if (!day?.rows?.length) {
     return [];
   }
-  return day.rows.map((r, i) => ({
-    key: `saved-${day.id}-${i}`,
-    idxNo: r.idx_no || String(i + 1),
-    salesInvoice: r.sales_invoice,
-    cash: r.cash ? String(r.cash) : "",
-    card: r.card ? String(r.card) : "",
-    cardReceiptRefLast4: r.card_receipt_ref_last4 ?? "",
-    koko: r.koko ? String(r.koko) : "",
-    bankTransfer: r.bank_transfer ? String(r.bank_transfer) : "",
-    orderId: r.orderId ?? null,
-  }));
+  return day.rows.map((r, i) => {
+    const splitMode = Boolean(r.split_lines && r.split_lines.length > 0);
+    return {
+      key: `saved-${day.id}-${i}`,
+      idxNo: r.idx_no || String(i + 1),
+      salesInvoice: r.sales_invoice,
+      cash: r.cash ? String(r.cash) : "",
+      card: r.card ? String(r.card) : "",
+      cardReceiptRefLast4: r.card_receipt_ref_last4 ?? "",
+      koko: r.koko ? String(r.koko) : "",
+      bankTransfer: r.bank_transfer ? String(r.bank_transfer) : "",
+      splitMode,
+      splitLines: splitMode
+        ? r.split_lines!.map(splitLineToForm)
+        : [],
+      orderId: r.orderId ?? null,
+    };
+  });
 }
 
 type BookNotesPanelProps = {
   initialLocations: BookNoteLocationOption[];
   initialCanAccessAllShops?: boolean;
+  initialCanBackdateBookNotes?: boolean;
   initialHistory?: BookNoteHistoryItem[];
   initialToday: string;
 };
@@ -89,11 +171,13 @@ type BookNotesPanelProps = {
 export function BookNotesPanel({
   initialLocations,
   initialCanAccessAllShops = false,
+  initialCanBackdateBookNotes = false,
   initialHistory = [],
   initialToday,
 }: BookNotesPanelProps) {
   const [locations] = useState(initialLocations);
   const [canAccessAllShops] = useState(initialCanAccessAllShops);
+  const [canBackdateBookNotes] = useState(initialCanBackdateBookNotes);
   const [companyLocationId, setCompanyLocationId] = useState(
     initialLocations[0]?.id ?? "",
   );
@@ -114,7 +198,14 @@ export function BookNotesPanel({
   const hydrated = useRef(false);
 
   const isBusy = busyKey !== null;
-  const readOnly = locked || isBookNoteDayLocked(postingDate);
+
+  function isPostingDateWritable(date: string): boolean {
+    if (!date || date > today) return false;
+    if (date === today) return true;
+    return canBackdateBookNotes;
+  }
+
+  const readOnly = locked || !isPostingDateWritable(postingDate);
 
   const loadDay = useCallback(async (locationId: string, date: string) => {
     if (!locationId || !date) return;
@@ -135,7 +226,7 @@ export function BookNotesPanel({
       setRows(nextRows);
       setRowCountInput(String(nextRows.length));
       setReceipts(day?.receipts ?? []);
-      setLocked(Boolean(day?.locked) || isBookNoteDayLocked(date));
+      setLocked(Boolean(day?.locked));
       setHistory((data.history as BookNoteHistoryItem[]) ?? []);
       setStatusLine(day ? `Loaded ${day.rows.length} row(s)` : "No saved rows for this day");
     } catch {
@@ -198,10 +289,122 @@ export function BookNotesPanel({
     });
   }
 
+  function toggleSplitMode(key: string) {
+    setRows((prev) =>
+      prev.map((r) => {
+        if (r.key !== key) return r;
+        if (r.splitMode) {
+          const payload = splitLinesToPayload(r.splitLines);
+          const cash = payload
+            .filter((sl) => sl.paymentMethod === "Cash")
+            .reduce((s, sl) => s + sl.amount, 0);
+          const card = payload
+            .filter((sl) => sl.paymentMethod === "Card")
+            .reduce((s, sl) => s + sl.amount, 0);
+          const koko = payload
+            .filter((sl) => sl.paymentMethod === "KOKO")
+            .reduce((s, sl) => s + sl.amount, 0);
+          const bank = payload
+            .filter((sl) => sl.paymentMethod === "Bank Transfer")
+            .reduce((s, sl) => s + sl.amount, 0);
+          const cardLines = payload.filter((sl) => sl.paymentMethod === "Card");
+          return {
+            ...r,
+            splitMode: false,
+            splitLines: [],
+            cash: cash ? String(cash) : "",
+            card: card ? String(card) : "",
+            koko: koko ? String(koko) : "",
+            bankTransfer: bank ? String(bank) : "",
+            cardReceiptRefLast4:
+              cardLines.length === 1 && cardLines[0]?.cardLast4
+                ? cardLines[0].cardLast4
+                : "",
+          };
+        }
+        const fromColumns = columnsToSplitLines({
+          cash: r.cash,
+          card: r.card,
+          cardReceiptRefLast4: r.cardReceiptRefLast4,
+          koko: r.koko,
+          bankTransfer: r.bankTransfer,
+        });
+        const splitLines =
+          fromColumns.length > 0
+            ? fromColumns.map(splitLineToForm)
+            : [emptySplitLine("Card"), emptySplitLine("Cash")];
+        return {
+          ...r,
+          splitMode: true,
+          splitLines,
+          cash: "",
+          card: "",
+          cardReceiptRefLast4: "",
+          koko: "",
+          bankTransfer: "",
+        };
+      }),
+    );
+  }
+
+  function updateSplitLine(
+    rowKey: string,
+    lineKey: string,
+    patch: Partial<SplitLineForm>,
+  ) {
+    setRows((prev) =>
+      prev.map((r) => {
+        if (r.key !== rowKey) return r;
+        return {
+          ...r,
+          splitLines: r.splitLines.map((sl) => {
+            if (sl.key !== lineKey) return sl;
+            const next = { ...sl, ...patch };
+            if ("paymentMethod" in patch && patch.paymentMethod !== "Card") {
+              next.cardLast4 = "";
+            }
+            if ("paymentMethod" in patch && patch.paymentMethod !== "KOKO") {
+              next.kokoReference = "";
+            }
+            if (
+              "paymentMethod" in patch &&
+              patch.paymentMethod !== "Bank Transfer"
+            ) {
+              next.bankReference = "";
+            }
+            return next;
+          }),
+        };
+      }),
+    );
+  }
+
+  function addSplitLine(rowKey: string) {
+    setRows((prev) =>
+      prev.map((r) => {
+        if (r.key !== rowKey) return r;
+        return { ...r, splitLines: [...r.splitLines, emptySplitLine()] };
+      }),
+    );
+  }
+
+  function removeSplitLine(rowKey: string, lineKey: string) {
+    setRows((prev) =>
+      prev.map((r) => {
+        if (r.key !== rowKey) return r;
+        const next = r.splitLines.filter((sl) => sl.key !== lineKey);
+        return {
+          ...r,
+          splitLines: next.length > 0 ? next : [emptySplitLine()],
+        };
+      }),
+    );
+  }
+
   function openHistoryDay(item: BookNoteHistoryItem) {
     setCompanyLocationId(item.companyLocationId);
     setPostingDate(item.posting_date);
-    setLocked(item.locked || isBookNoteDayLocked(item.posting_date));
+    setLocked(item.locked);
     clearError();
     void loadDay(item.companyLocationId, item.posting_date);
   }
@@ -298,6 +501,31 @@ export function BookNotesPanel({
   /** Persist current ledger to Cosmo OS. Returns saved day or null on failure. */
   async function saveCurrentDay(): Promise<BookNoteDayDto | null> {
     for (const r of rows) {
+      if (r.splitMode) {
+        const payload = splitLinesToPayload(r.splitLines);
+        if (payload.length === 0) {
+          showError(
+            `Row ${r.idxNo || "?"}: add at least one split payment line with amount`,
+          );
+          return null;
+        }
+        for (let i = 0; i < r.splitLines.length; i++) {
+          const sl = r.splitLines[i]!;
+          const amt = toNum(sl.amount);
+          if (amt <= 0) continue;
+          if (
+            sl.paymentMethod === "Card" &&
+            sl.cardLast4.trim() &&
+            !/^\d{4}$/.test(sl.cardLast4.trim())
+          ) {
+            showError(
+              `Row ${r.idxNo || "?"} split line ${i + 1}: card last 4 must be exactly 4 digits`,
+            );
+            return null;
+          }
+        }
+        continue;
+      }
       const cardAmt = toNum(r.card);
       const ref = r.cardReceiptRefLast4.trim();
       if (cardAmt > 0 && !/^\d{4}$/.test(ref)) {
@@ -311,17 +539,23 @@ export function BookNotesPanel({
     const payload = {
       companyLocationId,
       postingDate,
-      rows: rows.map((r) => ({
-        idxNo: r.idxNo,
-        salesInvoice: r.salesInvoice.trim(),
-        cash: toNum(r.cash),
-        card: toNum(r.card),
-        cardReceiptRefLast4:
-          toNum(r.card) > 0 ? r.cardReceiptRefLast4.trim() || null : null,
-        koko: toNum(r.koko),
-        bankTransfer: toNum(r.bankTransfer),
-        orderId: r.orderId,
-      })),
+      rows: rows.map((r) => {
+        const splitLines = r.splitMode ? splitLinesToPayload(r.splitLines) : null;
+        return {
+          idxNo: r.idxNo,
+          salesInvoice: r.salesInvoice.trim(),
+          cash: r.splitMode ? 0 : toNum(r.cash),
+          card: r.splitMode ? 0 : toNum(r.card),
+          cardReceiptRefLast4:
+            !r.splitMode && toNum(r.card) > 0
+              ? r.cardReceiptRefLast4.trim() || null
+              : null,
+          koko: r.splitMode ? 0 : toNum(r.koko),
+          bankTransfer: r.splitMode ? 0 : toNum(r.bankTransfer),
+          splitLines,
+          orderId: r.orderId,
+        };
+      }),
     };
     const res = await fetch("/api/admin/book-notes", {
       method: "PUT",
@@ -507,15 +741,15 @@ export function BookNotesPanel({
     if (!companyLocationId) return;
     if (readOnly) {
       showError(
-        "This sales date is locked. Only today and past history days can be saved.",
+        canBackdateBookNotes
+          ? "This sales date is locked (future dates cannot be saved)."
+          : "Past dates are locked. Only today can be edited unless you have book notes admin permission.",
       );
       return;
     }
 
     const filled = rows.some(
-      (r) =>
-        r.salesInvoice.trim() ||
-        toNum(r.cash) + toNum(r.card) + toNum(r.koko) + toNum(r.bankTransfer) > 0,
+      (r) => r.salesInvoice.trim() || rowTotal(r) > 0,
     );
     if (!filled) {
       showError("Add at least one invoice row before sending to ERP");
@@ -565,10 +799,31 @@ export function BookNotesPanel({
 
   const totals = rows.reduce(
     (acc, r) => {
-      acc.cash += toNum(r.cash);
-      acc.card += toNum(r.card);
-      acc.koko += toNum(r.koko);
-      acc.bank += toNum(r.bankTransfer);
+      if (r.splitMode) {
+        for (const sl of splitLinesToPayload(r.splitLines)) {
+          switch (sl.paymentMethod) {
+            case "Cash":
+              acc.cash += sl.amount;
+              break;
+            case "Card":
+              acc.card += sl.amount;
+              break;
+            case "KOKO":
+              acc.koko += sl.amount;
+              break;
+            case "Bank Transfer":
+              acc.bank += sl.amount;
+              break;
+            default:
+              break;
+          }
+        }
+      } else {
+        acc.cash += toNum(r.cash);
+        acc.card += toNum(r.card);
+        acc.koko += toNum(r.koko);
+        acc.bank += toNum(r.bankTransfer);
+      }
       return acc;
     },
     { cash: 0, card: 0, koko: 0, bank: 0 },
@@ -581,9 +836,12 @@ export function BookNotesPanel({
         <h1 className="text-xl font-semibold tracking-tight">Daily Book Note</h1>
         <p className="text-muted-foreground text-sm">
           Enter shop invoices and payment splits as recorded in the physical
-          book. When a row includes card payment, enter the last 4 digits of the
-          POS receipt reference. New entry uses today&apos;s date; open a history
-          day to edit or resend. History is shop-scoped
+          book. Use <span className="font-semibold text-violet-700">SPLIT</span>{" "}
+          when one invoice has multiple payment legs (e.g. two cards with
+          different receipt refs). When a normal row includes card payment,
+          enter the last 4 digits of the POS receipt reference. Merchants enter
+          today&apos;s date only; users with book notes admin permission can
+          pick older dates to upload or edit. History is shop-scoped
           {canAccessAllShops
             ? " — admins see all shops"
             : " — you only see your assigned shop(s)"}
@@ -626,18 +884,57 @@ export function BookNotesPanel({
         </div>
         <div className="space-y-2">
           <label className="text-xs font-medium text-muted-foreground">Date</label>
-          <div className="bg-muted/40 flex h-9 items-center rounded-md border px-3 text-sm font-medium tabular-nums">
-            {postingDate}
-            {postingDate === today ? (
-              <span className="text-muted-foreground ml-2 text-xs font-normal">
-                (today)
-              </span>
-            ) : null}
-          </div>
-          {postingDate !== today ? (
+          {canBackdateBookNotes ? (
+            <Input
+              type="date"
+              value={postingDate}
+              max={today}
+              disabled={isBusy}
+              className="font-medium tabular-nums"
+              onChange={(e) => {
+                const next = e.target.value;
+                if (!next || next > today) return;
+                setPostingDate(next);
+                setLocked(false);
+                clearError();
+                void loadDay(companyLocationId, next);
+              }}
+            />
+          ) : (
+            <div className="bg-muted/40 flex h-9 items-center rounded-md border px-3 text-sm font-medium tabular-nums">
+              {postingDate}
+              {postingDate === today ? (
+                <span className="text-muted-foreground ml-2 text-xs font-normal">
+                  (today)
+                </span>
+              ) : null}
+            </div>
+          )}
+          {canBackdateBookNotes && postingDate !== today ? (
             <div className="flex flex-wrap items-center gap-2">
               <p className="text-muted-foreground text-xs">
-                Editing a history day — save &amp; send updates that date.
+                Admin backdate — save &amp; send updates this date.
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={isBusy}
+                onClick={() => {
+                  setPostingDate(today);
+                  setLocked(false);
+                  clearError();
+                  void loadDay(companyLocationId, today);
+                }}
+              >
+                Back to today
+              </Button>
+            </div>
+          ) : null}
+          {!canBackdateBookNotes && postingDate !== today ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-muted-foreground text-xs">
+                View-only history day — open today to enter or edit.
               </p>
               <Button
                 type="button"
@@ -700,6 +997,7 @@ export function BookNotesPanel({
               <th className="p-2 w-28 text-right">KOKO</th>
               <th className="p-2 w-28 text-right">Bank</th>
               <th className="p-2 w-28 text-right">Row Total</th>
+              <th className="p-2 w-20 text-center">Split</th>
               <th className="p-2 w-10" />
             </tr>
           </thead>
@@ -707,7 +1005,7 @@ export function BookNotesPanel({
             {rows.length === 0 ? (
               <tr>
                 <td
-                  colSpan={8}
+                  colSpan={9}
                   className="text-muted-foreground p-6 text-center text-sm"
                 >
                   No rows yet. Enter a row count above and click Create rows, or
@@ -720,12 +1018,13 @@ export function BookNotesPanel({
               const card = toNum(row.card);
               const koko = toNum(row.koko);
               const bank = toNum(row.bankTransfer);
-              const rowTotal = cash + card + koko + bank;
+              const rowTotalAmt = rowTotal(row);
               const multi =
+                row.splitMode ||
                 [cash, card, koko, bank].filter((a) => a > 0).length > 1;
               return (
+                <Fragment key={row.key}>
                 <tr
-                  key={row.key}
                   className={
                     multi
                       ? "border-b bg-amber-50/80 dark:bg-amber-950/20"
@@ -783,7 +1082,7 @@ export function BookNotesPanel({
                     <Input
                       inputMode="decimal"
                       value={row.cash}
-                      disabled={isBusy || readOnly}
+                      disabled={isBusy || readOnly || row.splitMode}
                       className="h-8 text-right font-mono text-xs"
                       onChange={(e) =>
                         updateRow(row.key, { cash: e.target.value })
@@ -794,13 +1093,13 @@ export function BookNotesPanel({
                     <Input
                       inputMode="decimal"
                       value={row.card}
-                      disabled={isBusy || readOnly}
+                      disabled={isBusy || readOnly || row.splitMode}
                       className="h-8 text-right font-mono text-xs"
                       onChange={(e) =>
                         updateRow(row.key, { card: e.target.value })
                       }
                     />
-                    {card > 0 ? (
+                    {card > 0 && !row.splitMode ? (
                       <Input
                         inputMode="numeric"
                         maxLength={4}
@@ -829,7 +1128,7 @@ export function BookNotesPanel({
                       <Input
                         inputMode="decimal"
                         value={value}
-                        disabled={isBusy || readOnly}
+                        disabled={isBusy || readOnly || row.splitMode}
                         className="h-8 text-right font-mono text-xs"
                         onChange={(e) =>
                           updateRow(row.key, { [field]: e.target.value })
@@ -838,7 +1137,23 @@ export function BookNotesPanel({
                     </td>
                   ))}
                   <td className="p-2 text-right font-mono font-semibold">
-                    {rowTotal.toFixed(2)}
+                    {rowTotalAmt.toFixed(2)}
+                  </td>
+                  <td className="p-1 text-center">
+                    <Button
+                      type="button"
+                      variant={row.splitMode ? "default" : "outline"}
+                      size="sm"
+                      disabled={isBusy || readOnly}
+                      className={
+                        row.splitMode
+                          ? "h-7 bg-violet-600 px-2 text-[11px] font-bold tracking-wide hover:bg-violet-700"
+                          : "h-7 px-2 text-[11px] font-bold tracking-wide"
+                      }
+                      onClick={() => toggleSplitMode(row.key)}
+                    >
+                      {row.splitMode ? "SPLIT" : "Split"}
+                    </Button>
                   </td>
                   <td className="p-1">
                     <Button
@@ -854,6 +1169,153 @@ export function BookNotesPanel({
                     </Button>
                   </td>
                 </tr>
+                {row.splitMode ? (
+                  <tr key={`${row.key}-split`} className="border-b bg-violet-50/50 dark:bg-violet-950/20">
+                    <td colSpan={9} className="p-3">
+                      <div className="space-y-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-violet-800 dark:text-violet-300">
+                            Split payment lines
+                          </p>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={isBusy || readOnly}
+                            onClick={() => addSplitLine(row.key)}
+                          >
+                            <Plus className="h-3.5 w-3.5" />
+                            Add line
+                          </Button>
+                        </div>
+                        <div className="overflow-x-auto rounded-md border bg-background">
+                          <table className="w-full min-w-[640px] text-xs">
+                            <thead>
+                              <tr className="border-b text-left text-[10px] uppercase tracking-wide text-muted-foreground">
+                                <th className="p-2">Method</th>
+                                <th className="p-2 w-28 text-right">Amount</th>
+                                <th className="p-2 w-24">Card last 4</th>
+                                <th className="p-2">KOKO ref</th>
+                                <th className="p-2">Bank ref</th>
+                                <th className="p-2 w-10" />
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {row.splitLines.map((sl) => (
+                                <tr key={sl.key} className="border-b last:border-0">
+                                  <td className="p-1">
+                                    <Select
+                                      value={sl.paymentMethod}
+                                      disabled={isBusy || readOnly}
+                                      onValueChange={(v) =>
+                                        updateSplitLine(row.key, sl.key, {
+                                          paymentMethod: v as BookNoteErpPaymentMethod,
+                                        })
+                                      }
+                                    >
+                                      <SelectTrigger className="h-8 text-xs">
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        {BOOK_NOTE_ERP_PAYMENT_METHODS.map((m) => (
+                                          <SelectItem key={m} value={m}>
+                                            {m}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  </td>
+                                  <td className="p-1">
+                                    <Input
+                                      inputMode="decimal"
+                                      value={sl.amount}
+                                      disabled={isBusy || readOnly}
+                                      className="h-8 text-right font-mono"
+                                      onChange={(e) =>
+                                        updateSplitLine(row.key, sl.key, {
+                                          amount: e.target.value,
+                                        })
+                                      }
+                                    />
+                                  </td>
+                                  <td className="p-1">
+                                    {sl.paymentMethod === "Card" ? (
+                                      <Input
+                                        inputMode="numeric"
+                                        maxLength={4}
+                                        value={sl.cardLast4}
+                                        disabled={isBusy || readOnly}
+                                        placeholder="1234"
+                                        className="h-8 text-center font-mono tracking-widest"
+                                        onChange={(e) =>
+                                          updateSplitLine(row.key, sl.key, {
+                                            cardLast4: e.target.value
+                                              .replace(/\D/g, "")
+                                              .slice(0, 4),
+                                          })
+                                        }
+                                      />
+                                    ) : (
+                                      <span className="text-muted-foreground px-2">—</span>
+                                    )}
+                                  </td>
+                                  <td className="p-1">
+                                    {sl.paymentMethod === "KOKO" ? (
+                                      <Input
+                                        value={sl.kokoReference}
+                                        disabled={isBusy || readOnly}
+                                        placeholder="KOKO order ref"
+                                        className="h-8"
+                                        onChange={(e) =>
+                                          updateSplitLine(row.key, sl.key, {
+                                            kokoReference: e.target.value,
+                                          })
+                                        }
+                                      />
+                                    ) : (
+                                      <span className="text-muted-foreground px-2">—</span>
+                                    )}
+                                  </td>
+                                  <td className="p-1">
+                                    {sl.paymentMethod === "Bank Transfer" ? (
+                                      <Input
+                                        value={sl.bankReference}
+                                        disabled={isBusy || readOnly}
+                                        placeholder="Bank ref"
+                                        className="h-8"
+                                        onChange={(e) =>
+                                          updateSplitLine(row.key, sl.key, {
+                                            bankReference: e.target.value,
+                                          })
+                                        }
+                                      />
+                                    ) : (
+                                      <span className="text-muted-foreground px-2">—</span>
+                                    )}
+                                  </td>
+                                  <td className="p-1">
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-8 w-8"
+                                      disabled={isBusy || readOnly}
+                                      onClick={() => removeSplitLine(row.key, sl.key)}
+                                      aria-label="Remove split line"
+                                    >
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    </Button>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                ) : null}
+                </Fragment>
               );
             })
             )}
@@ -875,7 +1337,7 @@ export function BookNotesPanel({
               <td className="p-2 text-right font-mono font-semibold">
                 {totals.bank.toFixed(2)}
               </td>
-              <td colSpan={2} />
+              <td colSpan={3} />
             </tr>
             <tr>
               <td colSpan={6} className="p-2 text-right text-muted-foreground">
@@ -884,7 +1346,7 @@ export function BookNotesPanel({
               <td className="p-2 text-right font-mono text-base font-bold">
                 {grand.toFixed(2)}
               </td>
-              <td />
+              <td colSpan={2} />
             </tr>
           </tfoot>
         </table>

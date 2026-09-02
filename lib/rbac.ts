@@ -500,6 +500,11 @@ const DEFAULT_PERMISSIONS = [
     description: "Enter and save daily merchant book notes for company locations",
   },
   {
+    key: "book_notes.admin",
+    description:
+      "Edit past book notes and upload entries for older dates (not future dates)",
+  },
+  {
     key: "book_notes.read",
     description: "Retrieve merchant book notes for any location (finance / intern)",
   },
@@ -571,6 +576,7 @@ const DEFAULT_ROLES = [
       "merchant_reviews.read",
       "merchant_reviews.manage",
       "book_notes.manage",
+      "book_notes.admin",
       "book_notes.read",
       "finance.approvals.read",
       "finance.approvals.manage",

@@ -69,6 +69,28 @@ describe("bookNotePutBodySchema", () => {
     });
     expect(ok.success).toBe(true);
   });
+
+  it("accepts split payment rows without legacy card ref", () => {
+    const r = bookNotePutBodySchema.safeParse({
+      companyLocationId: LOC,
+      postingDate: "2026-08-03",
+      rows: [
+        {
+          idxNo: "1",
+          salesInvoice: "INV-1",
+          cash: 0,
+          card: 0,
+          koko: 0,
+          bankTransfer: 0,
+          splitLines: [
+            { paymentMethod: "Card", amount: 10000, cardLast4: "1234" },
+            { paymentMethod: "Cash", amount: 5000 },
+          ],
+        },
+      ],
+    });
+    expect(r.success).toBe(true);
+  });
 });
 
 describe("bookNoteRetrieveQuerySchema", () => {

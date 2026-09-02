@@ -85,6 +85,7 @@ export const LIMITS = {
   bookNoteSalesInvoice: { min: 1, max: 120 },
   bookNoteIdxNo: { max: 32 },
   bookNoteRowsMax: 500,
+  bookNoteSplitLinesMax: 12,
   bookNoteRetrieveMaxDays: 31,
   /** Max receipt photos per book-note day. */
   bookNoteReceiptsMax: 12,

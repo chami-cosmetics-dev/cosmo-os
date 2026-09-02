@@ -1,4 +1,5 @@
 import type { BookNoteDayDto, BookNoteHistoryItem } from "@/lib/book-notes/types";
+import type { BookNoteWriteAccess } from "@/lib/book-notes/lock";
 import { isBookNoteDayLocked } from "@/lib/book-notes/lock";
 import {
   postingDateToUtcMidnight,
@@ -32,6 +33,7 @@ export async function loadBookNoteDayDto(input: {
   companyLocationId: string;
   postingDateYmd: string;
   now?: Date;
+  writeAccess?: BookNoteWriteAccess;
 }): Promise<BookNoteDayDto | null> {
   const postingDate = postingDateToUtcMidnight(input.postingDateYmd);
   const day = await prisma.bookNoteDay.findUnique({
@@ -54,6 +56,7 @@ export async function loadBookNoteDayDto(input: {
     rows: day.rows,
     receipts: day.receipts,
     now: input.now,
+    writeAccess: input.writeAccess,
   });
 }
 
@@ -63,6 +66,7 @@ export async function loadBookNoteDaysInRange(input: {
   fromYmd: string;
   toYmd: string;
   now?: Date;
+  writeAccess?: BookNoteWriteAccess;
 }): Promise<BookNoteDayDto[]> {
   const from = postingDateToUtcMidnight(input.fromYmd);
   const to = postingDateToUtcMidnight(input.toYmd);
@@ -91,6 +95,7 @@ export async function loadBookNoteDaysInRange(input: {
       rows: day.rows,
       receipts: day.receipts,
       now: input.now,
+      writeAccess: input.writeAccess,
     }),
   );
 }
@@ -103,6 +108,7 @@ export async function loadBookNoteHistory(input: {
   companyLocationIds: string[];
   limit?: number;
   now?: Date;
+  writeAccess?: BookNoteWriteAccess;
 }): Promise<BookNoteHistoryItem[]> {
   const allowed = input.companyLocationIds.filter(Boolean);
   if (allowed.length === 0) return [];
@@ -133,6 +139,7 @@ export async function loadBookNoteHistory(input: {
   });
 
   const now = input.now ?? new Date();
+  const writeAccess = input.writeAccess ?? { canBackdate: false };
   return days.map((day) => {
     const posting_date = postingDateYmd(day.postingDate);
     const grandTotal = day.rows.reduce((sum, r) => {
@@ -154,7 +161,7 @@ export async function loadBookNoteHistory(input: {
       rowCount: day.rows.length,
       grandTotal: Math.round(grandTotal * 100) / 100,
       updatedAt: day.updatedAt.toISOString(),
-      locked: isBookNoteDayLocked(posting_date, now),
+      locked: isBookNoteDayLocked(posting_date, now, writeAccess),
     };
   });
 }

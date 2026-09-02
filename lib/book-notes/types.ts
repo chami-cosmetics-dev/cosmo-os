@@ -1,9 +1,13 @@
+import type { BookNoteSplitLine } from "@/lib/book-notes/split-lines";
+
 export type BookNotePaymentColumns = {
   cash: number;
   card: number;
   koko: number;
   bankTransfer: number;
 };
+
+export type { BookNoteSplitLine };
 
 export type BookNoteRowDto = {
   idx_no: string;
@@ -16,6 +20,8 @@ export type BookNoteRowDto = {
   bank_transfer: number;
   row_total: number;
   is_multi_method: boolean;
+  /** Present when outlet used SPLIT — sent to ERP as split_lines. */
+  split_lines: BookNoteSplitLine[] | null;
   orderId?: string | null;
 };
 
