@@ -1,8 +1,5 @@
 import { normalizeKokoReference } from "@/lib/koko-approval-reference";
 import { prisma } from "@/lib/prisma";
-
-import { normalizeKokoReference } from "@/lib/koko-approval-reference";
-import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@prisma/client";
 
 type KokoReferenceDb = Pick<

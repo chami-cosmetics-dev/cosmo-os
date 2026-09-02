@@ -5,7 +5,7 @@ import {
   pendingLoyaltySuggestion,
 } from "@/lib/customer-insight/loyalty-outreach";
 import { getLoyaltyProfileMissingFields } from "@/lib/customer-insight/loyalty-profile-complete";
-import { merchantContactAllocationKeys } from "@/lib/customer-insight/ownership";
+import { merchantMatchKeysForUser } from "@/lib/customer-insight/ownership";
 import { prisma } from "@/lib/prisma";
 
 export type MerchantLoyaltyOutreachItem = {
@@ -43,7 +43,7 @@ export async function fetchMerchantLoyaltyOutreach(input: {
   };
   take?: number;
 }): Promise<MerchantLoyaltyOutreachItem[]> {
-  const labels = merchantContactAllocationKeys(input.viewer);
+  const labels = merchantMatchKeysForUser(input.viewer);
   if (labels.length === 0) return [];
 
   const limit = input.take ?? 25;

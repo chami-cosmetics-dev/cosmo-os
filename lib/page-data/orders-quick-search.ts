@@ -32,6 +32,7 @@ export async function quickSearchOrders(params: {
 }) {
   const searchTerm = params.q.trim();
   const limit = Math.min(Math.max(params.limit ?? 20, 1), 50);
+  const pattern = `%${searchTerm}%`;
   const nameMatches = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
     SELECT id FROM "Order"
     WHERE "companyId" = ${params.companyId}
@@ -56,7 +57,6 @@ export async function quickSearchOrders(params: {
     LIMIT ${limit}
   `);
 
-  const pattern = `%${searchTerm}%`;
   const kokoRefOrderIds = await findOrderIdsByKokoReferenceSearch(params.companyId, searchTerm);
 
   const orders = await prisma.order.findMany({
