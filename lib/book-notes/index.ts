@@ -10,13 +10,16 @@ export type {
 
 export {
   DAY_LOCKED_CODE,
+  bookNoteLockMessage,
   isBookNoteDayLocked,
   isBookNoteWritable,
 } from "@/lib/book-notes/lock";
+export type { BookNoteWriteAccess } from "@/lib/book-notes/lock";
 
 export {
   resolveBookNoteShopAccess,
   assertBookNoteShopAllowed,
+  resolveBookNoteWriteAccess,
 } from "@/lib/book-notes/access";
 export type { BookNoteShopAccess } from "@/lib/book-notes/access";
 
@@ -47,6 +50,18 @@ export {
   getBookNoteVerifyMethod,
   sendBookNoteRowsToErp,
 } from "@/lib/book-notes/erp-verify";
+
+export {
+  BOOK_NOTE_ERP_PAYMENT_METHODS,
+  aggregateSplitLines,
+  buildBookNoteErpVerifyRow,
+  columnsToSplitLines,
+  normalizeBookNoteSplitLines,
+} from "@/lib/book-notes/split-lines";
+export type {
+  BookNoteErpPaymentMethod,
+  BookNoteSplitLine,
+} from "@/lib/book-notes/split-lines";
 
 export {
   BOOK_NOTE_RECEIPT_MIME_TYPES,

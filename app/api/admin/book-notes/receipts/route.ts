@@ -3,8 +3,9 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   assertBookNoteShopAllowed,
   resolveBookNoteShopAccess,
+  resolveBookNoteWriteAccess,
 } from "@/lib/book-notes/access";
-import { isBookNoteWritable, DAY_LOCKED_CODE } from "@/lib/book-notes/lock";
+import { isBookNoteWritable, DAY_LOCKED_CODE, bookNoteLockMessage } from "@/lib/book-notes/lock";
 import {
   addBookNoteReceipt,
   ensureBookNoteDay,
@@ -70,12 +71,12 @@ export async function POST(request: NextRequest) {
 
   const companyLocationId = locationParsed.data;
   const postingDate = dateParsed.data;
+  const writeAccess = resolveBookNoteWriteAccess(auth.context!);
 
-  if (!isBookNoteWritable(postingDate)) {
+  if (!isBookNoteWritable(postingDate, new Date(), writeAccess)) {
     return NextResponse.json(
       {
-        error:
-          "This sales date is locked. Merchants can only change book notes for today or past dates.",
+        error: bookNoteLockMessage(postingDate, new Date(), writeAccess),
         code: DAY_LOCKED_CODE,
       },
       { status: 409 },
@@ -113,6 +114,7 @@ export async function POST(request: NextRequest) {
       companyId,
       companyLocationId,
       postingDateYmd: postingDate,
+      writeAccess,
     });
     return NextResponse.json({ receipt, day: dayDto });
   } catch (err) {

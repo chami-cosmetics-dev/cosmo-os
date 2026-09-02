@@ -2,18 +2,26 @@ import { NextRequest, NextResponse } from "next/server";
 
 import {
   DAY_LOCKED_CODE,
+  bookNoteLockMessage,
   isBookNoteWritable,
 } from "@/lib/book-notes/lock";
 import {
   assertBookNoteShopAllowed,
   resolveBookNoteShopAccess,
+  resolveBookNoteWriteAccess,
 } from "@/lib/book-notes/access";
 import {
   loadBookNoteDayDto,
   loadBookNoteDaysInRange,
 } from "@/lib/book-notes/load";
 import { postingDateToUtcMidnight } from "@/lib/book-notes/serialize";
+import {
+  aggregateSplitLines,
+  bookNoteRowUsesSplitPayload,
+  normalizeBookNoteSplitLines,
+} from "@/lib/book-notes/split-lines";
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 import { requirePermission } from "@/lib/rbac";
 import { LIMITS } from "@/lib/validation";
 import {
@@ -121,12 +129,12 @@ export async function PUT(request: NextRequest) {
   }
 
   const { companyLocationId, postingDate, rows } = parsed.data;
+  const writeAccess = resolveBookNoteWriteAccess(auth.context!);
 
-  if (!isBookNoteWritable(postingDate)) {
+  if (!isBookNoteWritable(postingDate, new Date(), writeAccess)) {
     return NextResponse.json(
       {
-        error:
-          "This sales date is locked. Merchants can only save book notes for today or past dates.",
+        error: bookNoteLockMessage(postingDate, new Date(), writeAccess),
         code: DAY_LOCKED_CODE,
       },
       { status: 409 },
@@ -152,18 +160,39 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: "Shop not found" }, { status: 404 });
   }
 
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i]!;
+    const splitNorm = normalizeBookNoteSplitLines(r.splitLines ?? null);
+    if (!splitNorm.ok) {
+      return NextResponse.json(
+        { error: `Row ${r.idxNo || i + 1}: ${splitNorm.error}` },
+        { status: 400 },
+      );
+    }
+  }
+
   const cleaned = rows
-    .map((r, i) => ({
-      idxNo: r.idxNo || String(i + 1),
-      salesInvoice: r.salesInvoice.trim(),
-      cash: r.cash,
-      card: r.card,
-      cardReceiptRefLast4:
-        r.card > 0 && r.cardReceiptRefLast4 ? r.cardReceiptRefLast4 : null,
-      koko: r.koko,
-      bankTransfer: r.bankTransfer,
-      orderId: r.orderId ?? null,
-    }))
+    .map((r, i) => {
+      const splitNorm = normalizeBookNoteSplitLines(r.splitLines ?? null);
+      const splitLines = splitNorm.ok ? splitNorm.lines : [];
+      const usesSplit = bookNoteRowUsesSplitPayload(splitLines);
+      const agg = usesSplit ? aggregateSplitLines(splitLines) : null;
+      return {
+        idxNo: r.idxNo || String(i + 1),
+        salesInvoice: r.salesInvoice.trim(),
+        cash: agg ? agg.cash : r.cash,
+        card: agg ? agg.card : r.card,
+        cardReceiptRefLast4: usesSplit
+          ? agg!.cardReceiptRefLast4
+          : r.card > 0 && r.cardReceiptRefLast4
+            ? r.cardReceiptRefLast4
+            : null,
+        koko: agg ? agg.koko : r.koko,
+        bankTransfer: agg ? agg.bankTransfer : r.bankTransfer,
+        splitLines: usesSplit ? splitLines : null,
+        orderId: r.orderId ?? null,
+      };
+    })
     .filter((r) => {
       const total = r.cash + r.card + r.koko + r.bankTransfer;
       const hasInvoice = r.salesInvoice.length > 0;
@@ -243,6 +272,7 @@ export async function PUT(request: NextRequest) {
           cardReceiptRefLast4: r.cardReceiptRefLast4,
           koko: r.koko,
           bankTransfer: r.bankTransfer,
+          splitLines: r.splitLines ?? Prisma.JsonNull,
           orderId: r.orderId,
           sortOrder,
         })),
@@ -254,6 +284,7 @@ export async function PUT(request: NextRequest) {
     companyId,
     companyLocationId,
     postingDateYmd: postingDate,
+    writeAccess,
   });
 
   return NextResponse.json(dayDto);

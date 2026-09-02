@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   assertBookNoteShopAllowed,
   resolveBookNoteShopAccess,
+  resolveBookNoteWriteAccess,
 } from "@/lib/book-notes/access";
 import {
   loadBookNoteDayDto,
@@ -39,9 +40,11 @@ export async function GET(request: NextRequest) {
   }
 
   const access = await resolveBookNoteShopAccess(auth.context!, companyId);
+  const writeAccess = resolveBookNoteWriteAccess(auth.context!);
   const locations = access.locations;
   const allowedIds = locations.map((l) => l.id);
   const today = formatAppIsoDate(new Date());
+  const canBackdateBookNotes = writeAccess.canBackdate;
 
   let day = null;
   let history: Awaited<ReturnType<typeof loadBookNoteHistory>> = [];
@@ -66,6 +69,7 @@ export async function GET(request: NextRequest) {
             ? allowedIds[0]
             : undefined,
       companyLocationIds: allowedIds,
+      writeAccess,
     });
   }
 
@@ -74,12 +78,14 @@ export async function GET(request: NextRequest) {
       companyId,
       companyLocationId: locationId,
       postingDateYmd: parsed.data.postingDate,
+      writeAccess,
     });
   }
 
   return NextResponse.json({
     locations,
     canAccessAllShops: access.canAccessAllShops,
+    canBackdateBookNotes,
     today,
     day,
     history,

@@ -2239,6 +2239,8 @@ model BookNoteRow {
   cardReceiptRefLast4 String?
   koko           Decimal     @db.Decimal(12, 2)
   bankTransfer   Decimal     @db.Decimal(12, 2)
+  /// When set, ERP send uses split_lines payload (ss9) instead of legacy columns.
+  splitLines     Json?
   orderId        String?
   sortOrder      Int         @default(0)
   bookNoteDay    BookNoteDay @relation(fields: [bookNoteDayId], references: [id], onDelete: Cascade)

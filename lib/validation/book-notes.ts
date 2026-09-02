@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { BOOK_NOTE_ERP_PAYMENT_METHODS } from "@/lib/book-notes/split-lines";
 import { cuidSchema, LIMITS, trimmedString } from "@/lib/validation";
 
 const ymdSchema = z
@@ -24,6 +25,23 @@ export const bookNoteSuggestionsQuerySchema = z.object({
 });
 
 
+const bookNoteSplitLineSchema = z.object({
+  paymentMethod: z.enum(BOOK_NOTE_ERP_PAYMENT_METHODS),
+  amount: moneySchema,
+  cardLast4: z
+    .string()
+    .trim()
+    .max(4)
+    .optional()
+    .nullable()
+    .transform((v) => {
+      const t = (v ?? "").trim();
+      return t.length === 0 ? null : t;
+    }),
+  kokoReference: trimmedString(0, 120).optional().nullable(),
+  bankReference: trimmedString(0, 120).optional().nullable(),
+});
+
 export const bookNotePutRowSchema = z
   .object({
     idxNo: z.string().trim().max(LIMITS.bookNoteIdxNo.max).default(""),
@@ -42,9 +60,35 @@ export const bookNotePutRowSchema = z
       }),
     koko: moneySchema.default(0),
     bankTransfer: moneySchema.default(0),
+    splitLines: z.array(bookNoteSplitLineSchema).max(LIMITS.bookNoteSplitLinesMax).optional().nullable(),
     orderId: cuidSchema.nullable().optional(),
   })
   .superRefine((row, ctx) => {
+    const hasSplit =
+      Array.isArray(row.splitLines) && row.splitLines.length > 0;
+
+    if (hasSplit) {
+      const positive = row.splitLines!.filter((sl) => sl.amount > 0);
+      if (positive.length === 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Split payment row needs at least one line with amount",
+          path: ["splitLines"],
+        });
+      }
+      row.splitLines!.forEach((sl, i) => {
+        if (sl.amount <= 0) return;
+        if (sl.paymentMethod === "Card" && sl.cardLast4 && !/^\d{4}$/.test(sl.cardLast4)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Card last 4 must be exactly 4 digits",
+            path: ["splitLines", i, "cardLast4"],
+          });
+        }
+      });
+      return;
+    }
+
     if (row.card > 0) {
       if (!row.cardReceiptRefLast4 || !/^\d{4}$/.test(row.cardReceiptRefLast4)) {
         ctx.addIssue({

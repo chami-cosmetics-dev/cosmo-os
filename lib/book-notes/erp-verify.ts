@@ -1,6 +1,11 @@
 import { getErpConfig } from "@/lib/erpnext-sync";
 import type { ErpnextInstance } from "@prisma/client";
 
+import {
+  buildBookNoteErpVerifyRow,
+  type BookNoteSplitLine,
+} from "@/lib/book-notes/split-lines";
+
 /** ERP Server Script API method for ss9_verify_book_note.py (override via env). */
 export function getBookNoteVerifyMethod(): string {
   return (
@@ -17,6 +22,8 @@ export type BookNoteErpVerifyRowInput = {
   card_last_4?: string | null;
   koko: number;
   bank_transfer: number;
+  /** When set, ERP receives split_lines instead of legacy columns. */
+  split_lines?: BookNoteSplitLine[] | null;
 };
 
 export type BookNoteErpVerifySummary = {
@@ -195,15 +202,7 @@ export async function sendBookNoteRowsToErp(input: {
   }
 
   const rows_json = JSON.stringify(
-    input.rows.map((r) => ({
-      idx_no: r.idx_no,
-      sales_invoice: r.sales_invoice,
-      cash: r.cash,
-      card: r.card,
-      card_last_4: r.card_last_4 ?? null,
-      koko: r.koko,
-      bank_transfer: r.bank_transfer,
-    })),
+    input.rows.map((r) => buildBookNoteErpVerifyRow(r)),
   );
 
   const body = new URLSearchParams({

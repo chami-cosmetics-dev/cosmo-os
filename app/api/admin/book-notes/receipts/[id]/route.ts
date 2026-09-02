@@ -3,8 +3,9 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   assertBookNoteShopAllowed,
   resolveBookNoteShopAccess,
+  resolveBookNoteWriteAccess,
 } from "@/lib/book-notes/access";
-import { isBookNoteWritable, DAY_LOCKED_CODE } from "@/lib/book-notes/lock";
+import { isBookNoteWritable, DAY_LOCKED_CODE, bookNoteLockMessage } from "@/lib/book-notes/lock";
 import { deleteBookNoteReceipt } from "@/lib/book-notes/receipts";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
@@ -159,10 +160,11 @@ export async function DELETE(
   }
 
   const postingDate = postingDateYmd(receipt.bookNoteDay.postingDate);
-  if (!isBookNoteWritable(postingDate)) {
+  const writeAccess = resolveBookNoteWriteAccess(auth.context!);
+  if (!isBookNoteWritable(postingDate, new Date(), writeAccess)) {
     return NextResponse.json(
       {
-        error: "This sales date is locked.",
+        error: bookNoteLockMessage(postingDate, new Date(), writeAccess),
         code: DAY_LOCKED_CODE,
       },
       { status: 409 },
