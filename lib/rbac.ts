@@ -85,6 +85,10 @@ const DEFAULT_PERMISSIONS = [
     description: "Edit SKU reorder threshold % and purchasing tool settings",
   },
   {
+    key: "purchasing.item_trends.read",
+    description: "View Item Trends super dashboard (movement, outlets, ROP suggestions, districts)",
+  },
+  {
     key: "store.allocation.read",
     description: "Use store location allocation advisor (SKU/barcode take-qty split)",
   },
@@ -544,6 +548,7 @@ const DEFAULT_ROLES = [
       "purchasing.osf.permission",
       "purchasing.tools.read",
       "purchasing.tools.manage",
+      "purchasing.item_trends.read",
       "academy.learn",
       "academy.manage",
       "products.storage.read",
@@ -817,6 +822,8 @@ const PINNED_CUSTOM_ROLE_PERMISSIONS: { roleName: string; permissionKey: string 
   { roleName: "stores-level-02", permissionKey: "store.allocation.read" },
   { roleName: "stores-level-01", permissionKey: "store.stock_count.read" },
   { roleName: "stores-level-02", permissionKey: "store.stock_count.read" },
+  { roleName: "stores-level-01", permissionKey: "purchasing.item_trends.read" },
+  { roleName: "stores-level-02", permissionKey: "purchasing.item_trends.read" },
 ];
 
 let lastCustomRolePinAt = 0;

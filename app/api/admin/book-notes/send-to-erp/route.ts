@@ -25,7 +25,7 @@ import { bookNoteSendToErpBodySchema } from "@/lib/validation/book-notes";
  * (api_method default: verify_book_note).
  *
  * POST body: { companyLocationId, postingDate }
- * Sends form_dict: rows_json, company, posting_date
+ * Sends form_dict: book_note_id, rows_json, company, posting_date
  * (ERP script derives outlet from API user full_name).
  * Permission: book_notes.manage
  */
@@ -159,6 +159,7 @@ export async function POST(request: NextRequest) {
   const company = companyLabelForLocation(location);
   const result = await sendBookNoteRowsToErp({
     erpnextInstance: location.erpnextInstance,
+    bookNoteId: day.id,
     company,
     postingDate,
     rows: day.rows.map((r) => ({
@@ -224,6 +225,7 @@ export async function POST(request: NextRequest) {
     method: result.method,
     company: result.company,
     erpUrl: result.erpUrl,
+    book_note_id: day.id,
     posting_date: postingDate,
     locationName: shopLabel,
     summary: result.summary,

@@ -711,6 +711,7 @@ export function BookNotesPanel({
       verified_count?: number;
       mismatch_count?: number;
       not_found_count?: number;
+      deleted_count?: number;
       total_rows?: number;
     } | null;
     const receiptUpload = data.receiptUpload as {
@@ -721,7 +722,9 @@ export function BookNotesPanel({
       errors?: string[];
     } | null;
     let line = s
-      ? `ERP ${dateYmd}: ${s.verified_count ?? 0} verified, ${s.mismatch_count ?? 0} mismatch, ${s.not_found_count ?? 0} not found (of ${s.total_rows ?? 0})`
+      ? `ERP ${dateYmd}: ${s.verified_count ?? 0} verified, ${s.mismatch_count ?? 0} mismatch, ${s.not_found_count ?? 0} not found` +
+        ((s.deleted_count ?? 0) > 0 ? `, ${s.deleted_count} deleted` : "") +
+        ` (of ${s.total_rows ?? 0})`
       : `Sent ${dateYmd} to ERP`;
     if (receiptUpload && (receiptUpload.receiptCount ?? 0) > 0) {
       line += ` · receipts ${receiptUpload.uploaded ?? 0} uploaded`;

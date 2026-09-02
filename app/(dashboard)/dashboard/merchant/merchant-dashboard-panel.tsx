@@ -62,8 +62,25 @@ import { loyaltyProfileIncompleteMessage } from "@/lib/customer-insight/loyalty-
 import { buildBirthdayWishMessage } from "@/lib/page-data/merchant-birthday-wish-message";
 import type { CallQueueRowDto } from "@/lib/customer-insight/call-queue";
 import type { MerchantDashboardPageData } from "@/lib/page-data/merchant-dashboard";
+import { resolveEffectiveTotalTarget } from "@/lib/merchant-dashboard/channel-sales";
 import type { MerchantDailyInvoiceRow } from "@/lib/page-data/merchant-dashboard-sales";
 import type { MerchantSalesMovement } from "@/lib/page-data/merchant-dashboard-sales-movement";
+
+function parsePositiveTargetInput(value: string): number | null {
+  if (!value.trim()) return null;
+  const amount = Number(value);
+  return Number.isFinite(amount) && amount > 0 ? amount : null;
+}
+
+function combinedTargetFromChannelInputs(shop: string, online: string): string | null {
+  const combined = resolveEffectiveTotalTarget({
+    targetAmount: null,
+    shopTargetAmount: parsePositiveTargetInput(shop),
+    onlineTargetAmount: parsePositiveTargetInput(online),
+  });
+  if (combined == null) return null;
+  return String(Math.round(combined));
+}
 
 function formatMoney(value: number) {
   return new Intl.NumberFormat("en-LK", {
@@ -104,6 +121,36 @@ function formatScorecardTargetSubline(input: {
     return `MTD ${formatMoney(input.periodTargetAmount)}${monthly}`;
   }
   return `${input.periodLabel} ${formatMoney(input.periodTargetAmount)}`;
+}
+
+function formatGmChannelCellSubline(input: {
+  orderCount: number;
+  monthlyTargetAmount: number | null;
+  periodTargetAmount: number | null;
+  percent: number | null;
+  periodPreset: "today" | "mtd" | "custom";
+  periodLabel: string;
+}) {
+  const hasTarget =
+    input.monthlyTargetAmount != null && input.monthlyTargetAmount > 0;
+  const targetLine = hasTarget
+    ? formatScorecardTargetSubline({
+        periodPreset: input.periodPreset,
+        periodLabel: input.periodLabel,
+        periodTargetAmount: input.periodTargetAmount,
+        dailyTargetAmount: null,
+        monthlyTargetAmount: input.monthlyTargetAmount,
+      })
+    : null;
+  return formatChannelSubline([
+    `${input.orderCount} orders`,
+    targetLine,
+    formatPercentOneDecimal(input.percent),
+  ]);
+}
+
+function channelTargetProgressWidth(percent: number | null | undefined) {
+  return Math.min(100, Math.max(0, percent ?? 0));
 }
 
 /** Between primary numbers and faint footnotes — readable but clearly subordinate. */
@@ -370,6 +417,21 @@ export function MerchantDashboardPanel({ initialData }: Props) {
   const [dashboardTab, setDashboardTab] = useState<"merchant" | "admin">("merchant");
   const isBusy = busyKey !== null || isPending;
   const showAdminTab = data.viewerIsAdmin || data.canManageTargets;
+  const channelTargetsActive =
+    parsePositiveTargetInput(shopTargetInput) != null ||
+    parsePositiveTargetInput(onlineTargetInput) != null;
+
+  function handleShopTargetChange(value: string) {
+    setShopTargetInput(value);
+    const synced = combinedTargetFromChannelInputs(value, onlineTargetInput);
+    if (synced != null) setTargetInput(synced);
+  }
+
+  function handleOnlineTargetChange(value: string) {
+    setOnlineTargetInput(value);
+    const synced = combinedTargetFromChannelInputs(shopTargetInput, value);
+    if (synced != null) setTargetInput(synced);
+  }
 
   useEffect(() => {
     setData(initialData);
@@ -599,8 +661,9 @@ export function MerchantDashboardPanel({ initialData }: Props) {
       wholesaleAmount != null &&
       Number.isFinite(wholesaleAmount) &&
       wholesaleAmount > 0;
+    const sendCombined = hasCombined && !hasShop && !hasOnline;
 
-    if (!hasCombined && !hasShop && !hasOnline && !hasWholesale) {
+    if (!sendCombined && !hasShop && !hasOnline && !hasWholesale) {
       notify.error("Enter a combined target, shop/online targets, or wholesale target");
       return;
     }
@@ -624,7 +687,7 @@ export function MerchantDashboardPanel({ initialData }: Props) {
         body: JSON.stringify({
           merchantUserId: merchantId,
           yearMonth: data.yearMonth,
-          ...(hasCombined ? { targetAmount: amount } : {}),
+          ...(sendCombined ? { targetAmount: amount } : {}),
           ...(hasShop ? { shopTargetAmount: shopAmount } : {}),
           ...(hasOnline ? { onlineTargetAmount: onlineAmount } : {}),
           ...(hasWholesale ? { wholesaleTargetAmount: wholesaleAmount } : {}),
@@ -742,6 +805,13 @@ export function MerchantDashboardPanel({ initialData }: Props) {
 
   const percent = data.target.percent ?? 0;
   const progressWidth = Math.min(100, Math.max(0, percent));
+  const hasShopTarget =
+    data.target.shopTargetAmount != null && data.target.shopTargetAmount > 0;
+  const hasOnlineTarget =
+    data.target.onlineTargetAmount != null && data.target.onlineTargetAmount > 0;
+  const hasChannelTargets = hasShopTarget || hasOnlineTarget;
+  const shopProgressWidth = channelTargetProgressWidth(data.target.shopPercent);
+  const onlineProgressWidth = channelTargetProgressWidth(data.target.onlinePercent);
   const locationPie = data.sales.byLocation.map((row, i) => ({
     name: row.locationName,
     value: row.total,
@@ -945,21 +1015,28 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                 : ""}
             </p>
             {data.viewedMerchantChannelMtd.shop.amount > 0 ||
-            data.viewedMerchantChannelMtd.online.amount > 0 ? (
+            data.viewedMerchantChannelMtd.online.amount > 0 ||
+            hasChannelTargets ? (
               <div className="flex flex-wrap gap-2 pt-1">
-                {data.viewedMerchantChannelMtd.shop.amount > 0 ? (
+                {data.viewedMerchantChannelMtd.shop.amount > 0 || hasShopTarget ? (
                   <span className="bg-muted text-muted-foreground inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium tabular-nums">
                     Shop MTD {formatMoney(data.viewedMerchantChannelMtd.shop.amount)}
                     {" · "}
                     {data.viewedMerchantChannelMtd.shop.orderCount} orders
+                    {data.target.shopPercent != null
+                      ? ` · ${Math.round(data.target.shopPercent)}% of shop target`
+                      : ""}
                   </span>
                 ) : null}
-                {data.viewedMerchantChannelMtd.online.amount > 0 ? (
+                {data.viewedMerchantChannelMtd.online.amount > 0 || hasOnlineTarget ? (
                   <span className="bg-muted text-muted-foreground inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium tabular-nums">
                     Online MTD{" "}
                     {formatMoney(data.viewedMerchantChannelMtd.online.amount)}
                     {" · "}
                     {data.viewedMerchantChannelMtd.online.orderCount} orders
+                    {data.target.onlinePercent != null
+                      ? ` · ${Math.round(data.target.onlinePercent)}% of online target`
+                      : ""}
                   </span>
                 ) : null}
               </div>
@@ -1195,6 +1272,65 @@ export function MerchantDashboardPanel({ initialData }: Props) {
               </p>
             </CardContent>
           </Card>
+        </div>
+      ) : null}
+
+      {hasChannelTargets ? (
+        <div className="grid gap-3 sm:grid-cols-2">
+          {hasShopTarget ? (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+                  Shop target (MTD)
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <p className="text-xl font-semibold tabular-nums">
+                  {data.target.shopPercent != null
+                    ? `${Math.round(data.target.shopPercent)}%`
+                    : "—"}
+                </p>
+                <div className="bg-muted h-2 overflow-hidden rounded-full">
+                  <div
+                    className="h-full rounded-full bg-teal-600"
+                    style={{ width: `${shopProgressWidth}%` }}
+                  />
+                </div>
+                <p className="text-muted-foreground text-xs tabular-nums">
+                  {formatMoney(data.target.shopAchievedAmount ?? 0)} /{" "}
+                  {formatMoney(data.target.shopTargetAmount ?? 0)} ·{" "}
+                  {data.viewedMerchantChannelMtd.shop.orderCount} shop orders
+                </p>
+              </CardContent>
+            </Card>
+          ) : null}
+          {hasOnlineTarget ? (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+                  Online target (MTD)
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <p className="text-xl font-semibold tabular-nums">
+                  {data.target.onlinePercent != null
+                    ? `${Math.round(data.target.onlinePercent)}%`
+                    : "—"}
+                </p>
+                <div className="bg-muted h-2 overflow-hidden rounded-full">
+                  <div
+                    className="h-full rounded-full bg-teal-600"
+                    style={{ width: `${onlineProgressWidth}%` }}
+                  />
+                </div>
+                <p className="text-muted-foreground text-xs tabular-nums">
+                  {formatMoney(data.target.onlineAchievedAmount ?? 0)} /{" "}
+                  {formatMoney(data.target.onlineTargetAmount ?? 0)} ·{" "}
+                  {data.viewedMerchantChannelMtd.online.orderCount} online orders
+                </p>
+              </CardContent>
+            </Card>
+          ) : null}
         </div>
       ) : null}
 
@@ -1531,6 +1667,54 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                 />
               </div>
             </div>
+            {hasChannelTargets ? (
+              <div className="grid gap-3 border-t border-border/60 pt-4 sm:grid-cols-2">
+                {hasShopTarget ? (
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-medium">Shop</span>
+                      <span className="tabular-nums">
+                        {data.target.shopPercent != null
+                          ? `${Math.round(data.target.shopPercent)}%`
+                          : "—"}
+                      </span>
+                    </div>
+                    <div className="bg-muted h-2 overflow-hidden rounded-full">
+                      <div
+                        className="h-full rounded-full bg-teal-600"
+                        style={{ width: `${shopProgressWidth}%` }}
+                      />
+                    </div>
+                    <p className="text-muted-foreground text-xs tabular-nums">
+                      {formatMoney(data.target.shopAchievedAmount ?? 0)} /{" "}
+                      {formatMoney(data.target.shopTargetAmount ?? 0)}
+                    </p>
+                  </div>
+                ) : null}
+                {hasOnlineTarget ? (
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-medium">Online</span>
+                      <span className="tabular-nums">
+                        {data.target.onlinePercent != null
+                          ? `${Math.round(data.target.onlinePercent)}%`
+                          : "—"}
+                      </span>
+                    </div>
+                    <div className="bg-muted h-2 overflow-hidden rounded-full">
+                      <div
+                        className="h-full rounded-full bg-teal-600"
+                        style={{ width: `${onlineProgressWidth}%` }}
+                      />
+                    </div>
+                    <p className="text-muted-foreground text-xs tabular-nums">
+                      {formatMoney(data.target.onlineAchievedAmount ?? 0)} /{" "}
+                      {formatMoney(data.target.onlineTargetAmount ?? 0)}
+                    </p>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
             {data.target.assignedByName && !data.canManageTargets && (
               <p className="text-muted-foreground text-xs">
                 Last assigned by {data.target.assignedByName}
@@ -3416,10 +3600,14 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                             {formatMoney(row.shop.amount)}
                           </div>
                           <div className={SCORECARD_SUB}>
-                            {formatChannelSubline([
-                              `${row.shop.orderCount} orders`,
-                              formatPercentOneDecimal(row.shopPercent),
-                            ]) ?? "—"}
+                            {formatGmChannelCellSubline({
+                              orderCount: row.shop.orderCount,
+                              monthlyTargetAmount: row.shopTargetAmount,
+                              periodTargetAmount: row.shopPeriodTargetAmount,
+                              percent: row.shopPercent,
+                              periodPreset: gmPeriodPreset,
+                              periodLabel: gmPeriodLabel,
+                            }) ?? "—"}
                           </div>
                         </TableCell>
                         <TableCell className="text-right align-top tabular-nums">
@@ -3427,10 +3615,14 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                             {formatMoney(row.online.amount)}
                           </div>
                           <div className={SCORECARD_SUB}>
-                            {formatChannelSubline([
-                              `${row.online.orderCount} orders`,
-                              formatPercentOneDecimal(row.onlinePercent),
-                            ]) ?? "—"}
+                            {formatGmChannelCellSubline({
+                              orderCount: row.online.orderCount,
+                              monthlyTargetAmount: row.onlineTargetAmount,
+                              periodTargetAmount: row.onlinePeriodTargetAmount,
+                              percent: row.onlinePercent,
+                              periodPreset: gmPeriodPreset,
+                              periodLabel: gmPeriodLabel,
+                            }) ?? "—"}
                           </div>
                         </TableCell>
                         <TableCell className="text-right align-top tabular-nums">
@@ -3612,10 +3804,10 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                       type="number"
                       min={1}
                       step={1000}
-                      disabled={isBusy}
+                      disabled={isBusy || channelTargetsActive}
                       value={targetInput}
                       onChange={(e) => setTargetInput(e.target.value)}
-                      placeholder="Optional"
+                      placeholder={channelTargetsActive ? "Shop + online" : "Optional"}
                     />
                   </div>
                   <div className="space-y-1">
@@ -3628,7 +3820,7 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                       step={1000}
                       disabled={isBusy}
                       value={shopTargetInput}
-                      onChange={(e) => setShopTargetInput(e.target.value)}
+                      onChange={(e) => handleShopTargetChange(e.target.value)}
                       placeholder="Optional"
                     />
                   </div>
@@ -3642,7 +3834,7 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                       step={1000}
                       disabled={isBusy}
                       value={onlineTargetInput}
-                      onChange={(e) => setOnlineTargetInput(e.target.value)}
+                      onChange={(e) => handleOnlineTargetChange(e.target.value)}
                       placeholder="Optional"
                     />
                   </div>
@@ -3679,9 +3871,13 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                   </Button>
                 </div>
                 <p className="text-muted-foreground text-xs">
-                  Enter combined and/or shop + online targets. Combined syncs when
-                  channel targets are saved.
+                  Shop + online auto-fill combined. Enter combined alone when
+                  channel split not needed. New month copies last month until
+                  admin saves a change.
                 </p>
+                {data.target.note ? (
+                  <p className="text-muted-foreground text-xs">{data.target.note}</p>
+                ) : null}
                 {data.target.assignedByName ? (
                   <p className="text-muted-foreground text-xs">
                     Last assigned by {data.target.assignedByName}

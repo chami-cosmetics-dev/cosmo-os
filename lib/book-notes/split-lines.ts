@@ -186,29 +186,24 @@ export function normalizeBookNoteSplitLines(
   return { ok: true, lines };
 }
 
-export type BookNoteErpVerifyRowPayload =
-  | {
-      idx_no: string;
-      sales_invoice: string;
-      cash: number;
-      card: number;
-      card_last_4: string | null;
-      koko: number;
-      bank_transfer: number;
-    }
-  | {
-      idx_no: string;
-      sales_invoice: string;
-      split_lines: Array<{
-        payment_method: BookNoteErpPaymentMethod;
-        amount: number;
-        card_last_4?: string;
-        koko_reference?: string;
-        bank_reference?: string;
-      }>;
-    };
+export type BookNoteErpVerifyRowPayload = {
+  idx_no: string;
+  sales_invoice: string;
+  cash: number;
+  card: number;
+  card_last_4: string | null;
+  koko: number;
+  bank_transfer: number;
+  split_lines: Array<{
+    payment_method: BookNoteErpPaymentMethod;
+    amount: number;
+    card_last_4?: string;
+    koko_reference?: string;
+    bank_reference?: string;
+  }>;
+};
 
-/** Build one ss9 rows_json item — split_lines when stored, else legacy columns. */
+/** Build one ss9 rows_json item (legacy columns + split_lines, per ERP contract). */
 export function buildBookNoteErpVerifyRow(input: {
   idx_no: string;
   sales_invoice: string;
@@ -219,35 +214,30 @@ export function buildBookNoteErpVerifyRow(input: {
   bank_transfer: number;
   split_lines?: BookNoteSplitLine[] | null;
 }): BookNoteErpVerifyRowPayload {
-  if (bookNoteRowUsesSplitPayload(input.split_lines)) {
-    const split_lines = input.split_lines!.map((sl) => {
-      const line: {
-        payment_method: BookNoteErpPaymentMethod;
-        amount: number;
-        card_last_4?: string;
-        koko_reference?: string;
-        bank_reference?: string;
-      } = {
-        payment_method: sl.paymentMethod,
-        amount: sl.amount,
-      };
-      if (sl.paymentMethod === "Card" && sl.cardLast4) {
-        line.card_last_4 = sl.cardLast4;
-      }
-      if (sl.paymentMethod === "KOKO" && sl.kokoReference) {
-        line.koko_reference = sl.kokoReference;
-      }
-      if (sl.paymentMethod === "Bank Transfer" && sl.bankReference) {
-        line.bank_reference = sl.bankReference;
-      }
-      return line;
-    });
-    return {
-      idx_no: input.idx_no,
-      sales_invoice: input.sales_invoice,
-      split_lines,
-    };
-  }
+  const split_lines = bookNoteRowUsesSplitPayload(input.split_lines)
+    ? input.split_lines!.map((sl) => {
+        const line: {
+          payment_method: BookNoteErpPaymentMethod;
+          amount: number;
+          card_last_4?: string;
+          koko_reference?: string;
+          bank_reference?: string;
+        } = {
+          payment_method: sl.paymentMethod,
+          amount: sl.amount,
+        };
+        if (sl.paymentMethod === "Card" && sl.cardLast4) {
+          line.card_last_4 = sl.cardLast4;
+        }
+        if (sl.paymentMethod === "KOKO" && sl.kokoReference) {
+          line.koko_reference = sl.kokoReference;
+        }
+        if (sl.paymentMethod === "Bank Transfer" && sl.bankReference) {
+          line.bank_reference = sl.bankReference;
+        }
+        return line;
+      })
+    : [];
 
   return {
     idx_no: input.idx_no,
@@ -257,6 +247,7 @@ export function buildBookNoteErpVerifyRow(input: {
     card_last_4: input.card_last_4 ?? null,
     koko: input.koko,
     bank_transfer: input.bank_transfer,
+    split_lines,
   };
 }
 
