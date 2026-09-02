@@ -305,6 +305,12 @@ export function MerchantDashboardPanel({ initialData }: Props) {
       ? String(Math.round(initialData.target.onlineTargetAmount))
       : "",
   );
+  const [wholesaleTargetInput, setWholesaleTargetInput] = useState(
+    initialData.wholesaleTarget != null &&
+      initialData.wholesaleTarget.targetAmount > 0
+      ? String(Math.round(initialData.wholesaleTarget.targetAmount))
+      : "",
+  );
   const [scorecardSort, setScorecardSort] = useState<{
     key: ScorecardSortKey;
     dir: "asc" | "desc";
@@ -385,6 +391,12 @@ export function MerchantDashboardPanel({ initialData }: Props) {
         ? String(Math.round(initialData.target.onlineTargetAmount))
         : "",
     );
+    setWholesaleTargetInput(
+      initialData.wholesaleTarget != null &&
+        initialData.wholesaleTarget.targetAmount > 0
+        ? String(Math.round(initialData.wholesaleTarget.targetAmount))
+        : "",
+    );
     setShowAllToday(false);
     setShowAllLifetime(false);
     setInvoiceDay(initialData.dailyInvoicesYmd);
@@ -440,6 +452,11 @@ export function MerchantDashboardPanel({ initialData }: Props) {
           json.target.onlineTargetAmount != null &&
             json.target.onlineTargetAmount > 0
             ? String(Math.round(json.target.onlineTargetAmount))
+            : "",
+        );
+        setWholesaleTargetInput(
+          json.wholesaleTarget != null && json.wholesaleTarget.targetAmount > 0
+            ? String(Math.round(json.wholesaleTarget.targetAmount))
             : "",
         );
         setShowAllToday(false);
@@ -569,22 +586,31 @@ export function MerchantDashboardPanel({ initialData }: Props) {
     const onlineAmount = onlineTargetInput.trim()
       ? Number(onlineTargetInput)
       : null;
+    const wholesaleAmount = wholesaleTargetInput.trim()
+      ? Number(wholesaleTargetInput)
+      : null;
 
     const hasCombined = amount != null && Number.isFinite(amount) && amount > 0;
     const hasShop =
       shopAmount != null && Number.isFinite(shopAmount) && shopAmount > 0;
     const hasOnline =
       onlineAmount != null && Number.isFinite(onlineAmount) && onlineAmount > 0;
+    const hasWholesale =
+      wholesaleAmount != null &&
+      Number.isFinite(wholesaleAmount) &&
+      wholesaleAmount > 0;
 
-    if (!hasCombined && !hasShop && !hasOnline) {
-      notify.error("Enter a combined target or shop/online targets");
+    if (!hasCombined && !hasShop && !hasOnline && !hasWholesale) {
+      notify.error("Enter a combined target, shop/online targets, or wholesale target");
       return;
     }
     if (
       (amount != null && (!Number.isFinite(amount) || amount <= 0)) ||
       (shopAmount != null && (!Number.isFinite(shopAmount) || shopAmount <= 0)) ||
       (onlineAmount != null &&
-        (!Number.isFinite(onlineAmount) || onlineAmount <= 0))
+        (!Number.isFinite(onlineAmount) || onlineAmount <= 0)) ||
+      (wholesaleAmount != null &&
+        (!Number.isFinite(wholesaleAmount) || wholesaleAmount <= 0))
     ) {
       notify.error("Target amounts must be positive numbers");
       return;
@@ -601,6 +627,7 @@ export function MerchantDashboardPanel({ initialData }: Props) {
           ...(hasCombined ? { targetAmount: amount } : {}),
           ...(hasShop ? { shopTargetAmount: shopAmount } : {}),
           ...(hasOnline ? { onlineTargetAmount: onlineAmount } : {}),
+          ...(hasWholesale ? { wholesaleTargetAmount: wholesaleAmount } : {}),
         }),
       });
       const json = await res.json();
@@ -1169,6 +1196,36 @@ export function MerchantDashboardPanel({ initialData }: Props) {
             </CardContent>
           </Card>
         </div>
+      ) : null}
+
+      {data.sales.hasWholesale ? (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+              Wholesale total (MTD)
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-xl font-semibold tabular-nums">
+              {formatMoney(data.sales.wholesaleTotal)}
+            </p>
+            {data.sales.wholesaleTargetPercent != null ? (
+              <p className="text-sm font-medium tabular-nums text-teal-700 dark:text-teal-400">
+                {Math.round(data.sales.wholesaleTargetPercent)}% of wholesale target
+              </p>
+            ) : null}
+            {data.wholesaleTarget ? (
+              <p className="text-muted-foreground text-xs">
+                Target {formatMoney(data.wholesaleTarget.targetAmount)} ·{" "}
+                {data.sales.wholesaleOrderCount} WH orders
+              </p>
+            ) : (
+              <p className="text-muted-foreground text-xs">
+                {data.sales.wholesaleOrderCount} orders on your WH codes
+              </p>
+            )}
+          </CardContent>
+        </Card>
       ) : null}
 
       <Card>
@@ -3345,6 +3402,14 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                               {formatMoney(row.dmPeriodSales)}
                             </div>
                           ) : null}
+                          {row.hasWholesale ? (
+                            <div className={SCORECARD_SUB_MUTED}>
+                              WH {formatMoney(row.wholesalePeriodSales)}
+                              {row.wholesalePercent != null
+                                ? ` (${Math.round(row.wholesalePercent)}%)`
+                                : ""}
+                            </div>
+                          ) : null}
                         </TableCell>
                         <TableCell className="text-right align-top tabular-nums">
                           <div className="font-medium">
@@ -3582,6 +3647,22 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                     />
                   </div>
                 </div>
+                {data.sales.hasWholesale ? (
+                  <div className="space-y-1">
+                    <label className="text-muted-foreground text-xs font-medium">
+                      Wholesale target (LKR)
+                    </label>
+                    <Input
+                      type="number"
+                      min={1}
+                      step={1000}
+                      disabled={isBusy}
+                      value={wholesaleTargetInput}
+                      onChange={(e) => setWholesaleTargetInput(e.target.value)}
+                      placeholder="WH MER sales only"
+                    />
+                  </div>
+                ) : null}
                 <div className="flex flex-wrap items-center gap-2">
                   <Button disabled={isBusy} onClick={() => void saveTarget()}>
                     {busyKey === "save-target" ? (

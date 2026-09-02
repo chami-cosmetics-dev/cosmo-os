@@ -71,6 +71,10 @@ export type MerchantDashboardOverviewRow = {
   hasDmSplit: boolean;
   merPeriodSales: number;
   dmPeriodSales: number;
+  hasWholesale: boolean;
+  wholesalePeriodSales: number;
+  wholesaleTargetAmount: number | null;
+  wholesalePercent: number | null;
 };
 
 function parseDayStartUtc(ymd: string): Date {
@@ -107,6 +111,7 @@ type ChannelTargets = {
   targetAmount: number | null;
   shopTargetAmount: number | null;
   onlineTargetAmount: number | null;
+  wholesaleTargetAmount: number | null;
 };
 
 type StaffProfile = {
@@ -328,6 +333,7 @@ export async function buildGmOverview(input: {
         targetAmount: null,
         shopTargetAmount: null,
         onlineTargetAmount: null,
+        wholesaleTargetAmount: null,
       };
       const periodRow = input.periodCohort.byMerchant.get(merchant.id);
       const dmShare = dmBucketShareForHolder(merchant.id, input.dmHolderIds);
@@ -406,6 +412,16 @@ export async function buildGmOverview(input: {
       });
 
       const channelTotal = channel.shop.amount + channel.online.amount;
+      const wholesalePeriodSales =
+        input.periodCohort.wholesaleByMerchant.get(merchant.id)?.total ?? 0;
+      const wholesaleTargetAmount = targets.wholesaleTargetAmount;
+      const wholesalePercent = getMerchantTargetPercent(
+        wholesalePeriodSales,
+        wholesaleTargetAmount ?? 0,
+      );
+      const hasWholesale =
+        wholesaleTargetAmount != null && wholesaleTargetAmount > 0 ||
+        wholesalePeriodSales > 0;
       return {
         merchantId: merchant.id,
         displayName: merchant.displayName,
@@ -450,6 +466,13 @@ export async function buildGmOverview(input: {
         hasDmSplit: dmShare > 0,
         merPeriodSales,
         dmPeriodSales,
+        hasWholesale,
+        wholesalePeriodSales,
+        wholesaleTargetAmount,
+        wholesalePercent:
+          wholesaleTargetAmount != null && wholesaleTargetAmount > 0
+            ? wholesalePercent
+            : null,
       };
     },
   );

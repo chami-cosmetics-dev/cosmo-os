@@ -1,3 +1,4 @@
+import { findOrderIdsByKokoReferenceSearch } from "@/lib/approval-koko-list";
 import { Prisma } from "@prisma/client";
 import type { FulfillmentStage } from "@prisma/client";
 import { unstable_cache } from "next/cache";
@@ -241,6 +242,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
         )
     `);
     const returnSiIds = returnSiMatches.map((r) => r.id);
+    const kokoRefOrderIds = await findOrderIdsByKokoReferenceSearch(companyId, searchTerm);
     where.AND = [
       ...(Array.isArray(where.AND) ? where.AND : []),
       {
@@ -253,6 +255,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
           { customerEmail: { contains: searchTerm, mode: "insensitive" } },
           { customerPhone: { contains: searchTerm, mode: "insensitive" } },
           ...(returnSiIds.length > 0 ? [{ id: { in: returnSiIds } }] : []),
+          ...(kokoRefOrderIds.length > 0 ? [{ id: { in: kokoRefOrderIds } }] : []),
         ],
       },
     ];

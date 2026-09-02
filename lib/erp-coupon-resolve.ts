@@ -137,7 +137,7 @@ export async function resolveErpSalesPersonForMerchantCode(
 
   // Shopify may send "MER112-MG" (number + initials) while ERP stores "MER112-Harshani" (number + full name).
   // Fall back to matching by numeric prefix only: "MER112-MG" → search "MER112-%".
-  const numericPrefix = code.match(/^(MER\d+)/i)?.[1];
+  const numericPrefix = code.match(/^(MER\d+)/i)?.[1] ?? code.match(/^(WH\d+)/i)?.[1];
   if (numericPrefix && numericPrefix !== code) {
     const numPrefixMatches = await listErpDocuments(
       cfg,

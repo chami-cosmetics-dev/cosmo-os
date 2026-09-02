@@ -317,6 +317,7 @@ model User {
   mobile                              String?
   nicNo                               String?
   couponCodes                         String[]                  @default([])
+  wholesaleCouponCodes                String[]                  @default([])
   shopifyUserIds                      String[]                  @default([])
   erpnextUsername                     String?                   @unique
   profilePhotoUrl                     String?
@@ -393,17 +394,18 @@ model MerchantMonthlyTarget {
   companyId        String
   userId           String
   yearMonth        String
-  targetAmount       Decimal  @db.Decimal(14, 2)
-  shopTargetAmount   Decimal? @db.Decimal(14, 2)
-  onlineTargetAmount Decimal? @db.Decimal(14, 2)
-  assignedByUserId   String?
-  assignedAt         DateTime @default(now())
-  note               String?
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
-  company            Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  user               User     @relation("MerchantMonthlyTargetUser", fields: [userId], references: [id], onDelete: Cascade)
-  assignedBy         User?    @relation("MerchantMonthlyTargetAssignedBy", fields: [assignedByUserId], references: [id], onDelete: SetNull)
+  targetAmount           Decimal  @db.Decimal(14, 2)
+  shopTargetAmount       Decimal? @db.Decimal(14, 2)
+  onlineTargetAmount     Decimal? @db.Decimal(14, 2)
+  wholesaleTargetAmount  Decimal? @db.Decimal(14, 2)
+  assignedByUserId       String?
+  assignedAt             DateTime @default(now())
+  note                   String?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+  company                Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user                   User     @relation("MerchantMonthlyTargetUser", fields: [userId], references: [id], onDelete: Cascade)
+  assignedBy             User?    @relation("MerchantMonthlyTargetAssignedBy", fields: [assignedByUserId], references: [id], onDelete: SetNull)
 
   @@unique([companyId, userId, yearMonth])
   @@index([companyId, yearMonth])
@@ -416,16 +418,17 @@ model MerchantMonthlyTargetHistory {
   companyId        String
   userId           String
   yearMonth        String
-  targetAmount       Decimal  @db.Decimal(14, 2)
-  shopTargetAmount   Decimal? @db.Decimal(14, 2)
-  onlineTargetAmount Decimal? @db.Decimal(14, 2)
-  action             String
-  assignedByUserId   String?
-  note               String?
-  createdAt          DateTime @default(now())
-  company            Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  user               User     @relation("MerchantMonthlyTargetHistoryUser", fields: [userId], references: [id], onDelete: Cascade)
-  assignedBy         User?    @relation("MerchantMonthlyTargetHistoryAssignedBy", fields: [assignedByUserId], references: [id], onDelete: SetNull)
+  targetAmount           Decimal  @db.Decimal(14, 2)
+  shopTargetAmount       Decimal? @db.Decimal(14, 2)
+  onlineTargetAmount     Decimal? @db.Decimal(14, 2)
+  wholesaleTargetAmount  Decimal? @db.Decimal(14, 2)
+  action                 String
+  assignedByUserId       String?
+  note                   String?
+  createdAt              DateTime @default(now())
+  company                Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user                   User     @relation("MerchantMonthlyTargetHistoryUser", fields: [userId], references: [id], onDelete: Cascade)
+  assignedBy             User?    @relation("MerchantMonthlyTargetHistoryAssignedBy", fields: [assignedByUserId], references: [id], onDelete: SetNull)
 
   @@index([companyId, userId, yearMonth, createdAt(sort: Desc)])
   @@index([companyId, yearMonth])

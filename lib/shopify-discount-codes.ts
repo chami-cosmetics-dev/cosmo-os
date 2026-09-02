@@ -31,9 +31,11 @@ export function parseShopifyDiscountCodes(discountCodes: unknown): ParsedShopify
   return out;
 }
 
-/** MER / DM / zero-amount codes are merchant tracking only — not monetary discounts. */
+/** MER / DM / WH / zero-amount codes are merchant tracking only — not monetary discounts. */
 export function isMerchantTrackingDiscountCode(entry: ParsedShopifyDiscountCode): boolean {
-  if (entry.code.toUpperCase().startsWith("MER")) return true;
+  const upper = entry.code.toUpperCase();
+  if (upper.startsWith("MER")) return true;
+  if (upper.startsWith("WH")) return true;
   // Vault ERP Sales Person / Shopify tracking: DM_General, DM-General, etc.
   const lower = entry.code.toLowerCase();
   if (lower.includes("dm") && (lower.includes("general") || lower === "dm")) {

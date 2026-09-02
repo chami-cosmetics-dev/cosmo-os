@@ -60,6 +60,7 @@ export async function PUT(request: NextRequest) {
     targetAmount: parsed.data.targetAmount,
     shopTargetAmount: parsed.data.shopTargetAmount,
     onlineTargetAmount: parsed.data.onlineTargetAmount,
+    wholesaleTargetAmount: parsed.data.wholesaleTargetAmount,
     assignedByUserId: context.user.id,
     note: parsed.data.note ?? null,
   });
@@ -77,6 +78,9 @@ export async function PUT(request: NextRequest) {
         : null,
       onlineTargetAmount: result.target.onlineTargetAmount
         ? Number(result.target.onlineTargetAmount)
+        : null,
+      wholesaleTargetAmount: result.target.wholesaleTargetAmount
+        ? Number(result.target.wholesaleTargetAmount)
         : null,
       assignedAt: result.target.assignedAt.toISOString(),
     },

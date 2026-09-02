@@ -2,6 +2,7 @@ import "server-only";
 
 import { Prisma } from "@prisma/client";
 
+import { findOrderIdsByKokoReferenceSearch } from "@/lib/approval-koko-list";
 import { formatBusinessOrderNumber } from "@/lib/order-display-label";
 import { enrichOrdersWithReplaceLinks } from "@/lib/order-replace-link-enrich";
 import { prisma } from "@/lib/prisma";
@@ -31,8 +32,6 @@ export async function quickSearchOrders(params: {
 }) {
   const searchTerm = params.q.trim();
   const limit = Math.min(Math.max(params.limit ?? 20, 1), 50);
-  const pattern = `%${searchTerm}%`;
-
   const nameMatches = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
     SELECT id FROM "Order"
     WHERE "companyId" = ${params.companyId}
@@ -57,6 +56,9 @@ export async function quickSearchOrders(params: {
     LIMIT ${limit}
   `);
 
+  const pattern = `%${searchTerm}%`;
+  const kokoRefOrderIds = await findOrderIdsByKokoReferenceSearch(params.companyId, searchTerm);
+
   const orders = await prisma.order.findMany({
     where: {
       companyId: params.companyId,
@@ -66,6 +68,7 @@ export async function quickSearchOrders(params: {
         { customerPhone: { contains: searchTerm, mode: "insensitive" } },
         { customerEmail: { contains: searchTerm, mode: "insensitive" } },
         ...(nameMatches.length > 0 ? [{ id: { in: nameMatches.map((row) => row.id) } }] : []),
+        ...(kokoRefOrderIds.length > 0 ? [{ id: { in: kokoRefOrderIds } }] : []),
       ],
     },
     select: {

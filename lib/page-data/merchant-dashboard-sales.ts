@@ -18,6 +18,11 @@ import {
   parseOrderCouponList,
   splitMerchantCouponSets,
 } from "@/lib/merchant-dm-sales";
+import {
+  buildWholesaleCouponSet,
+  orderIsWholesale,
+  wholesaleMerchantMatchesOrder,
+} from "@/lib/merchant-wholesale";
 
 export type MerchantSalesLocationRow = {
   locationId: string;
@@ -36,6 +41,10 @@ export type MerchantDashboardSales = {
   merOrderCount: number;
   dmTotal: number;
   dmOrderCount: number;
+  /** True when user has wholesale WH codes configured. */
+  hasWholesale: boolean;
+  wholesaleTotal: number;
+  wholesaleOrderCount: number;
 };
 
 function parseDayStartUtc(ymd: string): Date {
@@ -56,6 +65,9 @@ function emptySales(): MerchantDashboardSales {
     merOrderCount: 0,
     dmTotal: 0,
     dmOrderCount: 0,
+    hasWholesale: false,
+    wholesaleTotal: 0,
+    wholesaleOrderCount: 0,
   };
 }
 
@@ -98,13 +110,15 @@ export async function fetchMerchantUserSales(
 
   const merchant = await prisma.user.findFirst({
     where: { id: merchantUserId, companyId },
-    select: { id: true, couponCodes: true },
+    select: { id: true, couponCodes: true, wholesaleCouponCodes: true },
   });
   if (!merchant) {
     return emptySales();
   }
 
   const sets = splitMerchantCouponSets(merchant.couponCodes);
+  const wholesaleCodes = buildWholesaleCouponSet(merchant.wholesaleCouponCodes);
+  const hasWholesale = wholesaleCodes.size > 0;
 
   const dateFilter = buildDashboardSalesDateFilter({
     fromDate,
@@ -153,11 +167,28 @@ export async function fetchMerchantUserSales(
   let merOrderCount = 0;
   let dmTotal = 0;
   let dmOrderCount = 0;
+  let wholesaleTotal = 0;
+  let wholesaleOrderCount = 0;
 
   for (const order of orders) {
     if (!isDashboardSalesOrderEligible(order, dateType)) continue;
 
     const orderCoupons = orderTrackingCoupons(order);
+    const amount = Number(order.totalPrice ?? 0);
+
+    if (orderIsWholesale(orderCoupons)) {
+      if (wholesaleMerchantMatchesOrder(orderCoupons, wholesaleCodes)) {
+        wholesaleTotal += amount;
+        wholesaleOrderCount += 1;
+        const locRow = byLocation.get(order.companyLocationId);
+        if (locRow) {
+          locRow.total += amount;
+          locRow.orderCount += 1;
+        }
+      }
+      continue;
+    }
+
     const bucket = classifyMerchantSalesBucket({
       orderCoupons,
       personal: sets.personal,
@@ -167,7 +198,6 @@ export async function fetchMerchantUserSales(
     });
     if (!bucket) continue;
 
-    const amount = Number(order.totalPrice ?? 0);
     if (bucket === "dm") {
       dmTotal += amount;
       dmOrderCount += 1;
@@ -197,6 +227,9 @@ export async function fetchMerchantUserSales(
     merOrderCount,
     dmTotal,
     dmOrderCount,
+    hasWholesale,
+    wholesaleTotal,
+    wholesaleOrderCount,
   };
 }
 
