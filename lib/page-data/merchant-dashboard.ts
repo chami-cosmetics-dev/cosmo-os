@@ -66,6 +66,10 @@ export type MerchantDashboardTargetDto = {
   targetAmount: number;
   shopTargetAmount: number | null;
   onlineTargetAmount: number | null;
+  shopAchievedAmount: number | null;
+  onlineAchievedAmount: number | null;
+  shopPercent: number | null;
+  onlinePercent: number | null;
   achievedAmount: number;
   percent: number | null;
   status: "on_track" | "achieved" | "missed" | "no_target";
@@ -387,6 +391,8 @@ function buildTargetDto(input: {
   targetAmount: number | null;
   shopTargetAmount?: number | null;
   onlineTargetAmount?: number | null;
+  shopAchievedAmount?: number | null;
+  onlineAchievedAmount?: number | null;
   achievedAmount: number;
   assignedByName: string | null;
   assignedAt: string | null;
@@ -409,11 +415,34 @@ function buildTargetDto(input: {
     else status = "on_track";
   }
 
+  const shopTargetAmount = input.shopTargetAmount ?? null;
+  const onlineTargetAmount = input.onlineTargetAmount ?? null;
+  const shopAchievedAmount =
+    shopTargetAmount != null && shopTargetAmount > 0
+      ? (input.shopAchievedAmount ?? 0)
+      : null;
+  const onlineAchievedAmount =
+    onlineTargetAmount != null && onlineTargetAmount > 0
+      ? (input.onlineAchievedAmount ?? 0)
+      : null;
+  const shopPercent =
+    shopTargetAmount != null && shopTargetAmount > 0
+      ? getMerchantTargetPercent(shopAchievedAmount ?? 0, shopTargetAmount)
+      : null;
+  const onlinePercent =
+    onlineTargetAmount != null && onlineTargetAmount > 0
+      ? getMerchantTargetPercent(onlineAchievedAmount ?? 0, onlineTargetAmount)
+      : null;
+
   return {
     yearMonth: input.yearMonth,
     targetAmount: input.targetAmount ?? 0,
-    shopTargetAmount: input.shopTargetAmount ?? null,
-    onlineTargetAmount: input.onlineTargetAmount ?? null,
+    shopTargetAmount,
+    onlineTargetAmount,
+    shopAchievedAmount,
+    onlineAchievedAmount,
+    shopPercent,
+    onlinePercent,
     achievedAmount: input.achievedAmount,
     percent: input.targetAmount != null && input.targetAmount > 0 ? percent : null,
     status,
@@ -746,6 +775,16 @@ export async function getMerchantDashboardPageData(input: {
     }),
   );
 
+  const viewedMerchantRow = mtdCohort.byMerchant.get(selectedMerchantId);
+  const viewedDmRow = mtdCohort.dmBucketId
+    ? mtdCohort.byMerchant.get(mtdCohort.dmBucketId)
+    : undefined;
+  const viewedMerchantChannelMtd = mergeMerchantCohortWithDmBucket({
+    merchantRow: viewedMerchantRow,
+    dmRow: viewedDmRow,
+    dmShare: dmBucketShareForHolder(selectedMerchantId, mtdCohort.dmHolderIds),
+  }).channel;
+
   const targetAmount = targetRow ? toNumber(targetRow.targetAmount) : null;
   const shopTargetAmount = targetRow?.shopTargetAmount
     ? toNumber(targetRow.shopTargetAmount)
@@ -763,6 +802,8 @@ export async function getMerchantDashboardPageData(input: {
     targetAmount: effectiveTargetAmount,
     shopTargetAmount,
     onlineTargetAmount,
+    shopAchievedAmount: viewedMerchantChannelMtd.shop.amount,
+    onlineAchievedAmount: viewedMerchantChannelMtd.online.amount,
     achievedAmount: sales.total,
     assignedByName: targetRow?.assignedBy
       ? getMerchantDisplayName(targetRow.assignedBy)
@@ -856,16 +897,6 @@ export async function getMerchantDashboardPageData(input: {
       action: event.action,
     };
   });
-
-  const viewedMerchantRow = mtdCohort.byMerchant.get(selectedMerchantId);
-  const viewedDmRow = mtdCohort.dmBucketId
-    ? mtdCohort.byMerchant.get(mtdCohort.dmBucketId)
-    : undefined;
-  const viewedMerchantChannelMtd = mergeMerchantCohortWithDmBucket({
-    merchantRow: viewedMerchantRow,
-    dmRow: viewedDmRow,
-    dmShare: dmBucketShareForHolder(selectedMerchantId, mtdCohort.dmHolderIds),
-  }).channel;
 
   let overview: MerchantDashboardOverviewRow[] | null = null;
   let gmPulse: GmPulseInput | null = null;

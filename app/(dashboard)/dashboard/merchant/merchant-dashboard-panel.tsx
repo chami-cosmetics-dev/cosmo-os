@@ -123,6 +123,36 @@ function formatScorecardTargetSubline(input: {
   return `${input.periodLabel} ${formatMoney(input.periodTargetAmount)}`;
 }
 
+function formatGmChannelCellSubline(input: {
+  orderCount: number;
+  monthlyTargetAmount: number | null;
+  periodTargetAmount: number | null;
+  percent: number | null;
+  periodPreset: "today" | "mtd" | "custom";
+  periodLabel: string;
+}) {
+  const hasTarget =
+    input.monthlyTargetAmount != null && input.monthlyTargetAmount > 0;
+  const targetLine = hasTarget
+    ? formatScorecardTargetSubline({
+        periodPreset: input.periodPreset,
+        periodLabel: input.periodLabel,
+        periodTargetAmount: input.periodTargetAmount,
+        dailyTargetAmount: null,
+        monthlyTargetAmount: input.monthlyTargetAmount,
+      })
+    : null;
+  return formatChannelSubline([
+    `${input.orderCount} orders`,
+    targetLine,
+    formatPercentOneDecimal(input.percent),
+  ]);
+}
+
+function channelTargetProgressWidth(percent: number | null | undefined) {
+  return Math.min(100, Math.max(0, percent ?? 0));
+}
+
 /** Between primary numbers and faint footnotes — readable but clearly subordinate. */
 const SCORECARD_SUB =
   "text-foreground/70 text-[11px] leading-snug tabular-nums";
@@ -775,6 +805,13 @@ export function MerchantDashboardPanel({ initialData }: Props) {
 
   const percent = data.target.percent ?? 0;
   const progressWidth = Math.min(100, Math.max(0, percent));
+  const hasShopTarget =
+    data.target.shopTargetAmount != null && data.target.shopTargetAmount > 0;
+  const hasOnlineTarget =
+    data.target.onlineTargetAmount != null && data.target.onlineTargetAmount > 0;
+  const hasChannelTargets = hasShopTarget || hasOnlineTarget;
+  const shopProgressWidth = channelTargetProgressWidth(data.target.shopPercent);
+  const onlineProgressWidth = channelTargetProgressWidth(data.target.onlinePercent);
   const locationPie = data.sales.byLocation.map((row, i) => ({
     name: row.locationName,
     value: row.total,
@@ -978,21 +1015,28 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                 : ""}
             </p>
             {data.viewedMerchantChannelMtd.shop.amount > 0 ||
-            data.viewedMerchantChannelMtd.online.amount > 0 ? (
+            data.viewedMerchantChannelMtd.online.amount > 0 ||
+            hasChannelTargets ? (
               <div className="flex flex-wrap gap-2 pt-1">
-                {data.viewedMerchantChannelMtd.shop.amount > 0 ? (
+                {data.viewedMerchantChannelMtd.shop.amount > 0 || hasShopTarget ? (
                   <span className="bg-muted text-muted-foreground inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium tabular-nums">
                     Shop MTD {formatMoney(data.viewedMerchantChannelMtd.shop.amount)}
                     {" · "}
                     {data.viewedMerchantChannelMtd.shop.orderCount} orders
+                    {data.target.shopPercent != null
+                      ? ` · ${Math.round(data.target.shopPercent)}% of shop target`
+                      : ""}
                   </span>
                 ) : null}
-                {data.viewedMerchantChannelMtd.online.amount > 0 ? (
+                {data.viewedMerchantChannelMtd.online.amount > 0 || hasOnlineTarget ? (
                   <span className="bg-muted text-muted-foreground inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium tabular-nums">
                     Online MTD{" "}
                     {formatMoney(data.viewedMerchantChannelMtd.online.amount)}
                     {" · "}
                     {data.viewedMerchantChannelMtd.online.orderCount} orders
+                    {data.target.onlinePercent != null
+                      ? ` · ${Math.round(data.target.onlinePercent)}% of online target`
+                      : ""}
                   </span>
                 ) : null}
               </div>
@@ -1228,6 +1272,65 @@ export function MerchantDashboardPanel({ initialData }: Props) {
               </p>
             </CardContent>
           </Card>
+        </div>
+      ) : null}
+
+      {hasChannelTargets ? (
+        <div className="grid gap-3 sm:grid-cols-2">
+          {hasShopTarget ? (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+                  Shop target (MTD)
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <p className="text-xl font-semibold tabular-nums">
+                  {data.target.shopPercent != null
+                    ? `${Math.round(data.target.shopPercent)}%`
+                    : "—"}
+                </p>
+                <div className="bg-muted h-2 overflow-hidden rounded-full">
+                  <div
+                    className="h-full rounded-full bg-teal-600"
+                    style={{ width: `${shopProgressWidth}%` }}
+                  />
+                </div>
+                <p className="text-muted-foreground text-xs tabular-nums">
+                  {formatMoney(data.target.shopAchievedAmount ?? 0)} /{" "}
+                  {formatMoney(data.target.shopTargetAmount ?? 0)} ·{" "}
+                  {data.viewedMerchantChannelMtd.shop.orderCount} shop orders
+                </p>
+              </CardContent>
+            </Card>
+          ) : null}
+          {hasOnlineTarget ? (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+                  Online target (MTD)
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <p className="text-xl font-semibold tabular-nums">
+                  {data.target.onlinePercent != null
+                    ? `${Math.round(data.target.onlinePercent)}%`
+                    : "—"}
+                </p>
+                <div className="bg-muted h-2 overflow-hidden rounded-full">
+                  <div
+                    className="h-full rounded-full bg-teal-600"
+                    style={{ width: `${onlineProgressWidth}%` }}
+                  />
+                </div>
+                <p className="text-muted-foreground text-xs tabular-nums">
+                  {formatMoney(data.target.onlineAchievedAmount ?? 0)} /{" "}
+                  {formatMoney(data.target.onlineTargetAmount ?? 0)} ·{" "}
+                  {data.viewedMerchantChannelMtd.online.orderCount} online orders
+                </p>
+              </CardContent>
+            </Card>
+          ) : null}
         </div>
       ) : null}
 
@@ -1564,6 +1667,54 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                 />
               </div>
             </div>
+            {hasChannelTargets ? (
+              <div className="grid gap-3 border-t border-border/60 pt-4 sm:grid-cols-2">
+                {hasShopTarget ? (
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-medium">Shop</span>
+                      <span className="tabular-nums">
+                        {data.target.shopPercent != null
+                          ? `${Math.round(data.target.shopPercent)}%`
+                          : "—"}
+                      </span>
+                    </div>
+                    <div className="bg-muted h-2 overflow-hidden rounded-full">
+                      <div
+                        className="h-full rounded-full bg-teal-600"
+                        style={{ width: `${shopProgressWidth}%` }}
+                      />
+                    </div>
+                    <p className="text-muted-foreground text-xs tabular-nums">
+                      {formatMoney(data.target.shopAchievedAmount ?? 0)} /{" "}
+                      {formatMoney(data.target.shopTargetAmount ?? 0)}
+                    </p>
+                  </div>
+                ) : null}
+                {hasOnlineTarget ? (
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-medium">Online</span>
+                      <span className="tabular-nums">
+                        {data.target.onlinePercent != null
+                          ? `${Math.round(data.target.onlinePercent)}%`
+                          : "—"}
+                      </span>
+                    </div>
+                    <div className="bg-muted h-2 overflow-hidden rounded-full">
+                      <div
+                        className="h-full rounded-full bg-teal-600"
+                        style={{ width: `${onlineProgressWidth}%` }}
+                      />
+                    </div>
+                    <p className="text-muted-foreground text-xs tabular-nums">
+                      {formatMoney(data.target.onlineAchievedAmount ?? 0)} /{" "}
+                      {formatMoney(data.target.onlineTargetAmount ?? 0)}
+                    </p>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
             {data.target.assignedByName && !data.canManageTargets && (
               <p className="text-muted-foreground text-xs">
                 Last assigned by {data.target.assignedByName}
@@ -3449,10 +3600,14 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                             {formatMoney(row.shop.amount)}
                           </div>
                           <div className={SCORECARD_SUB}>
-                            {formatChannelSubline([
-                              `${row.shop.orderCount} orders`,
-                              formatPercentOneDecimal(row.shopPercent),
-                            ]) ?? "—"}
+                            {formatGmChannelCellSubline({
+                              orderCount: row.shop.orderCount,
+                              monthlyTargetAmount: row.shopTargetAmount,
+                              periodTargetAmount: row.shopPeriodTargetAmount,
+                              percent: row.shopPercent,
+                              periodPreset: gmPeriodPreset,
+                              periodLabel: gmPeriodLabel,
+                            }) ?? "—"}
                           </div>
                         </TableCell>
                         <TableCell className="text-right align-top tabular-nums">
@@ -3460,10 +3615,14 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                             {formatMoney(row.online.amount)}
                           </div>
                           <div className={SCORECARD_SUB}>
-                            {formatChannelSubline([
-                              `${row.online.orderCount} orders`,
-                              formatPercentOneDecimal(row.onlinePercent),
-                            ]) ?? "—"}
+                            {formatGmChannelCellSubline({
+                              orderCount: row.online.orderCount,
+                              monthlyTargetAmount: row.onlineTargetAmount,
+                              periodTargetAmount: row.onlinePeriodTargetAmount,
+                              percent: row.onlinePercent,
+                              periodPreset: gmPeriodPreset,
+                              periodLabel: gmPeriodLabel,
+                            }) ?? "—"}
                           </div>
                         </TableCell>
                         <TableCell className="text-right align-top tabular-nums">
