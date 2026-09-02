@@ -107,6 +107,8 @@ describe("buildMainSheetRows", () => {
     expect(first).not.toHaveProperty("Variant SKU");
     expect(first).not.toHaveProperty("Variant SKU (-)");
     expect(first["Total Stock"]).toBe(2);
+    expect(first["LMJ ROP"]).toBe(10);
+    expect(first["Total ROP"]).toBe(10);
     expect(first["OGF Price"]).toBe(90);
     expect(first["Sales Units (2026-06)"]).toBe(7);
     expect(first["Shop Availability"]).toBe("Allowed");
@@ -299,6 +301,7 @@ describe("buildOsfWorkbookBuffer", () => {
       // Header row carries the real column names
       expect(headers).toContain("LMJ");
       expect(headers).toContain("Total Stock");
+      expect(headers).toContain("Total ROP");
       expect(headers).not.toContain("Common SKU Stock");
       expect(headers).not.toContain("Common ROP");
       expect(headers).not.toContain("Common SKU Reorder");
@@ -403,6 +406,7 @@ describe("buildOsfWorkbookBuffer", () => {
           "rop:lmj",
           "order:lmj",
           "Total Stock",
+          "Total ROP",
           "% of ROP",
           "70% OF TOTAL ROP",
           "70% OF TOTAL ROP AVAILABILITY",

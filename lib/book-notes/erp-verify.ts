@@ -30,11 +30,13 @@ export type BookNoteErpVerifySummary = {
   verified_count: number;
   mismatch_count: number;
   not_found_count: number;
+  deleted_count?: number;
   total_rows: number;
 };
 
 export type BookNoteErpFailCode =
   | "ERP_CREDENTIALS_MISSING"
+  | "BOOK_NOTE_ID_MISSING"
   | "NO_ROWS"
   | "NETWORK"
   | "ERP_HTTP"
@@ -151,14 +153,17 @@ function classifyErpFailure(
 /**
  * Push merchant book-note rows to ERP ss9 verify Server Script.
  * Script expects form_dict:
+ *   - book_note_id (Cosmo BookNoteDay id — stable across resends/edits)
  *   - rows_json (required JSON string)
- *   - company (optional soft cross-check / fallback)
+ *   - company (shop / ERP company label)
  *   - posting_date (YYYY-MM-DD — stored on Book Note Entry)
  * Outlet on ERP is derived from the API user's full_name by the script
  * (not sent from Cosmo).
  */
 export async function sendBookNoteRowsToErp(input: {
   erpnextInstance: ErpnextInstance | null;
+  /** Stable Cosmo sheet id (BookNoteDay.id) — same on resend after HR edits. */
+  bookNoteId: string;
   company: string;
   /** Colombo sales date YYYY-MM-DD. */
   postingDate: string;
@@ -169,6 +174,22 @@ export async function sendBookNoteRowsToErp(input: {
   const base = cfg.baseUrl.replace(/\/$/, "");
   const erpUrl = base ? `${base}/api/method/${method}` : undefined;
   const postingDate = input.postingDate.trim();
+  const bookNoteId = input.bookNoteId.trim();
+
+  if (!bookNoteId) {
+    return {
+      ok: false,
+      method,
+      company: input.company,
+      postingDate,
+      erpUrl,
+      summary: null,
+      rows: [],
+      rawMessage: null,
+      code: "BOOK_NOTE_ID_MISSING",
+      error: "book_note_id is required — save the day in Cosmo before Send to ERP",
+    };
+  }
 
   if (!cfg.baseUrl || !cfg.apiKey || !cfg.apiSecret) {
     return {
@@ -206,6 +227,7 @@ export async function sendBookNoteRowsToErp(input: {
   );
 
   const body = new URLSearchParams({
+    book_note_id: bookNoteId,
     rows_json,
     company: input.company,
     posting_date: postingDate,

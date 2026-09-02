@@ -32,6 +32,7 @@ import {
   NotebookPen,
   UserSearch,
   FileSpreadsheet,
+  TrendingUp,
 } from "lucide-react";
 import { usePathname } from "next/navigation";
 import {
@@ -94,7 +95,8 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
   const canViewPurchasingTools =
     hasSidebarPermission("purchasing.tools.read") ||
     hasSidebarPermission("purchasing.tools.manage");
-  const canViewPurchasing = canViewOsf || canViewPurchasingTools;
+  const canViewItemTrends = hasSidebarPermission("purchasing.item_trends.read");
+  const canViewPurchasing = canViewOsf || canViewPurchasingTools || canViewItemTrends;
   const canViewStoreAllocation = hasSidebarPermission("store.allocation.read");
   const canViewStoreStockCount = hasSidebarPermission("store.stock_count.read");
   const canViewStore = canViewStoreAllocation || canViewStoreStockCount;
@@ -553,6 +555,14 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
               )}
               {canViewPurchasingTools && (
                 <NavItem href="/dashboard/purchasing/calculator" icon={Calculator} label="SKU Calculator" isActive={pathname === "/dashboard/purchasing/calculator"} />
+              )}
+              {canViewItemTrends && (
+                <NavItem
+                  href="/dashboard/purchasing/item-trends"
+                  icon={TrendingUp}
+                  label="Item Trends"
+                  isActive={pathname === "/dashboard/purchasing/item-trends"}
+                />
               )}
             </SidebarGroupContent>
           </SidebarGroup>

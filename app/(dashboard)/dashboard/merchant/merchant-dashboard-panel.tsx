@@ -62,8 +62,25 @@ import { loyaltyProfileIncompleteMessage } from "@/lib/customer-insight/loyalty-
 import { buildBirthdayWishMessage } from "@/lib/page-data/merchant-birthday-wish-message";
 import type { CallQueueRowDto } from "@/lib/customer-insight/call-queue";
 import type { MerchantDashboardPageData } from "@/lib/page-data/merchant-dashboard";
+import { resolveEffectiveTotalTarget } from "@/lib/merchant-dashboard/channel-sales";
 import type { MerchantDailyInvoiceRow } from "@/lib/page-data/merchant-dashboard-sales";
 import type { MerchantSalesMovement } from "@/lib/page-data/merchant-dashboard-sales-movement";
+
+function parsePositiveTargetInput(value: string): number | null {
+  if (!value.trim()) return null;
+  const amount = Number(value);
+  return Number.isFinite(amount) && amount > 0 ? amount : null;
+}
+
+function combinedTargetFromChannelInputs(shop: string, online: string): string | null {
+  const combined = resolveEffectiveTotalTarget({
+    targetAmount: null,
+    shopTargetAmount: parsePositiveTargetInput(shop),
+    onlineTargetAmount: parsePositiveTargetInput(online),
+  });
+  if (combined == null) return null;
+  return String(Math.round(combined));
+}
 
 function formatMoney(value: number) {
   return new Intl.NumberFormat("en-LK", {
@@ -370,6 +387,21 @@ export function MerchantDashboardPanel({ initialData }: Props) {
   const [dashboardTab, setDashboardTab] = useState<"merchant" | "admin">("merchant");
   const isBusy = busyKey !== null || isPending;
   const showAdminTab = data.viewerIsAdmin || data.canManageTargets;
+  const channelTargetsActive =
+    parsePositiveTargetInput(shopTargetInput) != null ||
+    parsePositiveTargetInput(onlineTargetInput) != null;
+
+  function handleShopTargetChange(value: string) {
+    setShopTargetInput(value);
+    const synced = combinedTargetFromChannelInputs(value, onlineTargetInput);
+    if (synced != null) setTargetInput(synced);
+  }
+
+  function handleOnlineTargetChange(value: string) {
+    setOnlineTargetInput(value);
+    const synced = combinedTargetFromChannelInputs(shopTargetInput, value);
+    if (synced != null) setTargetInput(synced);
+  }
 
   useEffect(() => {
     setData(initialData);
@@ -599,8 +631,9 @@ export function MerchantDashboardPanel({ initialData }: Props) {
       wholesaleAmount != null &&
       Number.isFinite(wholesaleAmount) &&
       wholesaleAmount > 0;
+    const sendCombined = hasCombined && !hasShop && !hasOnline;
 
-    if (!hasCombined && !hasShop && !hasOnline && !hasWholesale) {
+    if (!sendCombined && !hasShop && !hasOnline && !hasWholesale) {
       notify.error("Enter a combined target, shop/online targets, or wholesale target");
       return;
     }
@@ -624,7 +657,7 @@ export function MerchantDashboardPanel({ initialData }: Props) {
         body: JSON.stringify({
           merchantUserId: merchantId,
           yearMonth: data.yearMonth,
-          ...(hasCombined ? { targetAmount: amount } : {}),
+          ...(sendCombined ? { targetAmount: amount } : {}),
           ...(hasShop ? { shopTargetAmount: shopAmount } : {}),
           ...(hasOnline ? { onlineTargetAmount: onlineAmount } : {}),
           ...(hasWholesale ? { wholesaleTargetAmount: wholesaleAmount } : {}),
@@ -3612,10 +3645,10 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                       type="number"
                       min={1}
                       step={1000}
-                      disabled={isBusy}
+                      disabled={isBusy || channelTargetsActive}
                       value={targetInput}
                       onChange={(e) => setTargetInput(e.target.value)}
-                      placeholder="Optional"
+                      placeholder={channelTargetsActive ? "Shop + online" : "Optional"}
                     />
                   </div>
                   <div className="space-y-1">
@@ -3628,7 +3661,7 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                       step={1000}
                       disabled={isBusy}
                       value={shopTargetInput}
-                      onChange={(e) => setShopTargetInput(e.target.value)}
+                      onChange={(e) => handleShopTargetChange(e.target.value)}
                       placeholder="Optional"
                     />
                   </div>
@@ -3642,7 +3675,7 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                       step={1000}
                       disabled={isBusy}
                       value={onlineTargetInput}
-                      onChange={(e) => setOnlineTargetInput(e.target.value)}
+                      onChange={(e) => handleOnlineTargetChange(e.target.value)}
                       placeholder="Optional"
                     />
                   </div>
@@ -3679,9 +3712,13 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                   </Button>
                 </div>
                 <p className="text-muted-foreground text-xs">
-                  Enter combined and/or shop + online targets. Combined syncs when
-                  channel targets are saved.
+                  Shop + online auto-fill combined. Enter combined alone when
+                  channel split not needed. New month copies last month until
+                  admin saves a change.
                 </p>
+                {data.target.note ? (
+                  <p className="text-muted-foreground text-xs">{data.target.note}</p>
+                ) : null}
                 {data.target.assignedByName ? (
                   <p className="text-muted-foreground text-xs">
                     Last assigned by {data.target.assignedByName}

@@ -458,3 +458,55 @@ export const riderPaydayDayOfMonthSchema = z
 export const riderPaydayUpdateSchema = z.object({
   paydayDayOfMonth: riderPaydayDayOfMonthSchema,
 });
+
+const itemTrendsYmdSchema = z
+  .string()
+  .max(10)
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date format");
+
+export const itemTrendsQuerySchema = z.object({
+  from: itemTrendsYmdSchema,
+  to: itemTrendsYmdSchema,
+  compareFrom: itemTrendsYmdSchema.optional(),
+  compareTo: itemTrendsYmdSchema.optional(),
+  priority: z.string().max(64).optional(),
+  district: z.string().max(80).optional(),
+  sections: z.string().max(200).optional(),
+  limit: z.coerce.number().int().min(1).max(100).optional().default(50),
+});
+
+export const itemTrendsDistrictsQuerySchema = z.object({
+  from: itemTrendsYmdSchema,
+  to: itemTrendsYmdSchema,
+  compareFrom: itemTrendsYmdSchema.optional(),
+  compareTo: itemTrendsYmdSchema.optional(),
+  district: z.string().max(80).optional(),
+  sortBy: z.enum(["units", "amount", "speed"]).optional().default("units"),
+  includeAreaGrowth: z
+    .enum(["true", "false"])
+    .optional()
+    .transform((v) => v !== "false"),
+});
+
+export const itemTrendsOutletsQuerySchema = z.object({
+  from: itemTrendsYmdSchema,
+  to: itemTrendsYmdSchema,
+  sku: z.string().max(80).optional(),
+  columnKey: z.string().max(64).optional(),
+  transfersOnly: z
+    .enum(["true", "false"])
+    .optional()
+    .transform((v) => v === "true"),
+});
+
+export const itemTrendsRopQuerySchema = z.object({
+  ropWindow: z.enum(["3m", "2m", "custom"]).optional().default("3m"),
+  ropFrom: itemTrendsYmdSchema.optional(),
+  ropTo: itemTrendsYmdSchema.optional(),
+  from: itemTrendsYmdSchema.optional(),
+  to: itemTrendsYmdSchema.optional(),
+  priority: z.string().max(64).optional(),
+  sku: z.string().max(80).optional(),
+  offset: z.coerce.number().int().min(0).optional().default(0),
+  limit: z.coerce.number().int().min(1).max(100).optional().default(50),
+});

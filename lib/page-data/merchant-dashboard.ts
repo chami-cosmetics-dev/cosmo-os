@@ -20,7 +20,7 @@ import { normalizeDashboardMerchantLabel } from "@/lib/merchant-dm-sales";
 import { isMerchantRoleName } from "@/lib/merchant-role";
 import { fetchMerchantNearestBirthdays } from "@/lib/page-data/merchant-dashboard-birthdays";
 import { fetchMerchantLoyaltyOutreach } from "@/lib/page-data/merchant-dashboard-loyalty";
-import { fetchMerchantSalesHistory } from "@/lib/page-data/merchant-dashboard-history";
+import { fetchMerchantSalesHistory, previousYearMonth } from "@/lib/page-data/merchant-dashboard-history";
 import {
   buildCohortPeerRows,
   buildLocationShareRows,
@@ -73,6 +73,7 @@ export type MerchantDashboardTargetDto = {
   cheerMessage: string;
   assignedByName: string | null;
   assignedAt: string | null;
+  note: string | null;
 };
 
 export type MerchantDashboardWholesaleTargetDto = {
@@ -284,11 +285,101 @@ async function loadTargetRow(companyId: string, userId: string, yearMonth: strin
       onlineTargetAmount: true,
       wholesaleTargetAmount: true,
       assignedAt: true,
+      note: true,
       assignedBy: {
         select: { knownName: true, name: true, email: true },
       },
     },
   });
+}
+
+/** Copy prior-month targets when current month has none yet (admins can edit after). */
+export async function ensureMerchantTargetsCarriedForward(input: {
+  companyId: string;
+  yearMonth: string;
+  merchantUserIds: string[];
+}): Promise<number> {
+  if (input.merchantUserIds.length === 0) return 0;
+
+  const prevMonth = previousYearMonth(input.yearMonth);
+  const existing = await prisma.merchantMonthlyTarget.findMany({
+    where: {
+      companyId: input.companyId,
+      yearMonth: input.yearMonth,
+      userId: { in: input.merchantUserIds },
+    },
+    select: { userId: true },
+  });
+  const hasTarget = new Set(existing.map((row) => row.userId));
+  const missing = input.merchantUserIds.filter((id) => !hasTarget.has(id));
+  if (missing.length === 0) return 0;
+
+  const prevTargets = await prisma.merchantMonthlyTarget.findMany({
+    where: {
+      companyId: input.companyId,
+      yearMonth: prevMonth,
+      userId: { in: missing },
+    },
+  });
+  if (prevTargets.length === 0) return 0;
+
+  let carried = 0;
+  for (const prev of prevTargets) {
+    const shop =
+      prev.shopTargetAmount != null ? toNumber(prev.shopTargetAmount) : null;
+    const online =
+      prev.onlineTargetAmount != null ? toNumber(prev.onlineTargetAmount) : null;
+    const wholesale =
+      prev.wholesaleTargetAmount != null
+        ? toNumber(prev.wholesaleTargetAmount)
+        : null;
+    const effectiveTotal = resolveEffectiveTotalTarget({
+      targetAmount: toNumber(prev.targetAmount),
+      shopTargetAmount: shop,
+      onlineTargetAmount: online,
+    });
+    if (effectiveTotal == null || effectiveTotal <= 0) continue;
+
+    const shopDecimal =
+      shop != null && shop > 0 ? new Prisma.Decimal(shop) : null;
+    const onlineDecimal =
+      online != null && online > 0 ? new Prisma.Decimal(online) : null;
+    const wholesaleDecimal =
+      wholesale != null && wholesale > 0 ? new Prisma.Decimal(wholesale) : null;
+    const amountDecimal = new Prisma.Decimal(effectiveTotal);
+    const note = `Carried forward from ${prevMonth}`;
+
+    await prisma.$transaction([
+      prisma.merchantMonthlyTarget.create({
+        data: {
+          companyId: input.companyId,
+          userId: prev.userId,
+          yearMonth: input.yearMonth,
+          targetAmount: amountDecimal,
+          shopTargetAmount: shopDecimal,
+          onlineTargetAmount: onlineDecimal,
+          wholesaleTargetAmount: wholesaleDecimal,
+          note,
+        },
+      }),
+      prisma.merchantMonthlyTargetHistory.create({
+        data: {
+          companyId: input.companyId,
+          userId: prev.userId,
+          yearMonth: input.yearMonth,
+          targetAmount: amountDecimal,
+          shopTargetAmount: shopDecimal,
+          onlineTargetAmount: onlineDecimal,
+          wholesaleTargetAmount: wholesaleDecimal,
+          action: "carry_forward",
+          note,
+        },
+      }),
+    ]);
+    carried += 1;
+  }
+
+  return carried;
 }
 
 function buildTargetDto(input: {
@@ -301,6 +392,7 @@ function buildTargetDto(input: {
   assignedAt: string | null;
   displayName: string;
   isCurrentMonth: boolean;
+  note?: string | null;
 }): MerchantDashboardTargetDto {
   const percent = getMerchantTargetPercent(
     input.achievedAmount,
@@ -329,6 +421,7 @@ function buildTargetDto(input: {
     cheerMessage: getMerchantCheerMessage(cheerBand, input.displayName),
     assignedByName: input.assignedByName,
     assignedAt: input.assignedAt,
+    note: input.note ?? null,
   };
 }
 
@@ -419,6 +512,14 @@ export async function getMerchantDashboardPageData(input: {
     input.toDate && /^\d{4}-\d{2}-\d{2}$/.test(input.toDate)
       ? input.toDate
       : rangeToYmd;
+
+  if (isCurrentMonth) {
+    await ensureMerchantTargetsCarriedForward({
+      companyId: input.companyId,
+      yearMonth,
+      merchantUserIds: merchants.map((m) => m.id),
+    });
+  }
 
   const emptyTop = {
     today: [] as Awaited<
@@ -669,6 +770,7 @@ export async function getMerchantDashboardPageData(input: {
     assignedAt: targetRow?.assignedAt?.toISOString() ?? null,
     displayName,
     isCurrentMonth,
+    note: targetRow?.note ?? null,
   });
   if (effectiveTargetAmount != null && effectiveTargetAmount > 0 && sales.hasDmSplit) {
     sales.merTargetPercent = getMerchantTargetPercent(

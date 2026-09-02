@@ -10,6 +10,7 @@ export const OSF_ACCESS_SALES_UNITS = "Sales Units";
 /** Static assignable columns (identity headers are never listed — always included). */
 export const OSF_STATIC_ASSIGNABLE_COLUMNS: OsfAccessColumnMeta[] = [
   { id: "Total Stock", label: "Total Stock" },
+  { id: "Total ROP", label: "Total ROP" },
   { id: "% of ROP", label: "% of ROP" },
   { id: "70% OF TOTAL ROP", label: "70% OF TOTAL ROP" },
   { id: "70% OF TOTAL ROP AVAILABILITY", label: "70% OF TOTAL ROP AVAILABILITY" },
@@ -86,6 +87,9 @@ export function buildOsfAccessCatalog(columns: OsfResolvedColumn[]): OsfAccessCo
   }
   for (const c of active) {
     if (c.includeInRop) push(ropAccessKey(c.key), `${c.label} ROP`);
+  }
+  for (const c of OSF_STATIC_ASSIGNABLE_COLUMNS) {
+    if (c.id === "Total ROP") push(c.id, c.label);
   }
   for (const c of OSF_STATIC_ASSIGNABLE_COLUMNS) {
     if (

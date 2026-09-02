@@ -238,6 +238,7 @@ export function buildMainSheetRows(input: BuildWorkbookInput): Record<string, st
       const label = `${col.label} ROP`;
       record[label] = rops[col.key];
     }
+    record["Total ROP"] = totalRop;
     const pct = percentOfRop(totalStock, totalRop > 0 ? totalRop : null);
     record["% of ROP"] = pct == null ? null : Math.round(pct * 10000) / 100;
     record["70% OF TOTAL ROP"] = seventyPercentOfRop(totalRop > 0 ? totalRop : null);
@@ -310,6 +311,7 @@ export function mainColumnDescriptors(input: BuildWorkbookInput): OsfColumnDef[]
       band: "rop",
     }),
   );
+  defs.push({ header: "Total ROP", sum: true, accessKey: "Total ROP", band: "rop" });
 
   defs.push({ header: "% of ROP", accessKey: "% of ROP", band: "calc" });
   defs.push({ header: "70% OF TOTAL ROP", sum: true, accessKey: "70% OF TOTAL ROP", band: "calc" });

@@ -43,6 +43,7 @@ describe("buildBookNoteErpVerifyRow", () => {
       card_last_4: "1234",
       koko: 0,
       bank_transfer: 0,
+      split_lines: [],
     });
   });
 
@@ -64,6 +65,11 @@ describe("buildBookNoteErpVerifyRow", () => {
     ).toEqual({
       idx_no: "1",
       sales_invoice: "500-000123",
+      cash: 0,
+      card: 0,
+      card_last_4: null,
+      koko: 0,
+      bank_transfer: 0,
       split_lines: [
         { payment_method: "Card", amount: 10000, card_last_4: "1234" },
         { payment_method: "Card", amount: 5000, card_last_4: "4334" },
