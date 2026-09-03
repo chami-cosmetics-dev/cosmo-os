@@ -69,7 +69,10 @@ export function ItemTrendsPanel({ canManageRop }: Props) {
   const [outlets, setOutlets] = useState<OutletBalanceRow[]>([]);
   const [transfers, setTransfers] = useState<TransferCandidate[]>([]);
   const [outletsLoading, setOutletsLoading] = useState(false);
+  const [outletsStockLoading, setOutletsStockLoading] = useState(false);
+  const [outletsStockLoaded, setOutletsStockLoaded] = useState(false);
   const [outletSku, setOutletSku] = useState("");
+  const outletsStockGen = useRef(0);
 
   const [ropRows, setRopRows] = useState<RopSuggestionRow[]>([]);
   const [ropWindowLabel, setRopWindowLabel] = useState("");
@@ -114,11 +117,19 @@ export function ItemTrendsPanel({ canManageRop }: Props) {
 
   const loadOutlets = useCallback(async () => {
     const gen = ++outletsGen.current;
+    outletsStockGen.current += 1;
     setOutletsLoading(true);
+    setOutletsStockLoading(false);
+    setOutletsStockLoaded(false);
     try {
-      const params = new URLSearchParams({ from, to, priority });
       const sku = outletSku.trim();
-      if (sku) params.set("sku", sku);
+      const params = new URLSearchParams({ from, to, priority });
+      if (sku) {
+        params.set("sku", sku);
+        params.set("includeStock", "true");
+      } else {
+        params.set("includeStock", "false");
+      }
       const res = await fetch(`/api/admin/purchasing/item-trends/outlets?${params}`);
       const data = await res.json().catch(() => ({}));
       if (gen !== outletsGen.current) return;
@@ -130,6 +141,37 @@ export function ItemTrendsPanel({ canManageRop }: Props) {
       }
       setOutlets(Array.isArray(data.outlets) ? data.outlets : []);
       setTransfers(Array.isArray(data.transfers) ? data.transfers : []);
+      const stockLoaded = Boolean(data.meta?.stockLoaded);
+      setOutletsStockLoaded(stockLoaded);
+
+      // Background: enrich stock + transfers without blocking the sales table.
+      if (!sku && !stockLoaded) {
+        const stockGen = ++outletsStockGen.current;
+        setOutletsStockLoading(true);
+        void (async () => {
+          try {
+            const stockParams = new URLSearchParams({
+              from,
+              to,
+              priority,
+              includeStock: "true",
+            });
+            const stockRes = await fetch(
+              `/api/admin/purchasing/item-trends/outlets?${stockParams}`,
+            );
+            const stockData = await stockRes.json().catch(() => ({}));
+            if (gen !== outletsGen.current || stockGen !== outletsStockGen.current) return;
+            if (!stockRes.ok) return;
+            setOutlets(Array.isArray(stockData.outlets) ? stockData.outlets : []);
+            setTransfers(Array.isArray(stockData.transfers) ? stockData.transfers : []);
+            setOutletsStockLoaded(Boolean(stockData.meta?.stockLoaded));
+          } finally {
+            if (gen === outletsGen.current && stockGen === outletsStockGen.current) {
+              setOutletsStockLoading(false);
+            }
+          }
+        })();
+      }
     } catch {
       if (gen !== outletsGen.current) return;
       notify.error("Failed to load outlets");
@@ -416,15 +458,15 @@ export function ItemTrendsPanel({ canManageRop }: Props) {
             <CardHeader>
               <CardTitle className="text-base">Item sales by shop</CardTitle>
               <CardDescription>
-                Default = today&apos;s shop POS units (From/To for any range). Type exact SKU to
-                see that item at every shop. Online ignored.
+                Default = today&apos;s shop POS units first (fast). Live stock + transfers load in
+                background. Type exact SKU for all shops. From/To for any range. Online ignored.
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {outletsLoading ? (
+              {outletsLoading && outlets.length === 0 ? (
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                  Loading outlets…
+                  Loading shop sales…
                 </div>
               ) : (
                 <OutletsPanel
@@ -432,6 +474,9 @@ export function ItemTrendsPanel({ canManageRop }: Props) {
                   transfers={transfers}
                   skuQuery={outletSku}
                   onSkuQueryChange={setOutletSku}
+                  salesLoading={outletsLoading}
+                  stockLoading={outletsStockLoading}
+                  stockLoaded={outletsStockLoaded}
                 />
               )}
             </CardContent>

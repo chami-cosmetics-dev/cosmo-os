@@ -76,6 +76,11 @@ export const merchantMonthlyTargetUpsertSchema = z.object({
   { message: "Provide targetAmount, channel targets, or wholesale target" },
 );
 
+export const merchantMonthlyTargetDeleteSchema = z.object({
+  merchantUserId: cuidSchema,
+  yearMonth: merchantDashboardYearMonthSchema,
+});
+
 export const birthdayWishSendSchema = z.object({
   contactId: cuidSchema,
   discountPercent: z.number().int().min(0).max(50),

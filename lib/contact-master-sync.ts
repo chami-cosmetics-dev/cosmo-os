@@ -1,12 +1,14 @@
 import type { ShopifyOrderWebhookPayload } from "@/lib/validation/shopify-order";
 
 import { writeAuditLog } from "@/lib/audit-log";
+import { isSharedMerchantEmail } from "@/lib/adapt-import/shared-emails";
 import {
   ensureSecondaryContactIdentifiers,
   findMatchingContacts,
   normalizeContactEmail,
   normalizeContactPhone,
 } from "@/lib/contact-identifiers";
+import { shouldPreferIncomingContactName } from "@/lib/contact-master-name";
 import { resolveAutoAllocateMerchant } from "@/lib/customer-insight/auto-allocate";
 import { buildPhoneLookupVariants } from "@/lib/phone-lookup";
 import { prisma } from "@/lib/prisma";
@@ -125,7 +127,7 @@ function emailSafeForContact(
   emailMatch: IdentityContact | null,
   emailMatchCount = emailMatch ? 1 : 0
 ) {
-  if (!email) return null;
+  if (!email || isSharedMerchantEmail(email)) return null;
   if (emailMatchCount > 1) return null;
   if (emailMatch && emailMatch.id !== matchedContact.id) return null;
   return email;
@@ -137,7 +139,7 @@ function emailForCreate(
   incomingPhone: string | null,
   emailMatchCount = emailMatch ? 1 : 0
 ) {
-  if (!email) return null;
+  if (!email || isSharedMerchantEmail(email)) return null;
   // Shared/ambiguous email already on multiple contacts → create phone-only.
   if (emailMatchCount > 1) return null;
   // Shared email already owned by a different phone → create phone-only contact.
@@ -322,6 +324,7 @@ async function syncContactMasterPrimaryOnly(input: SyncContactMasterInput): Prom
   const allocationMerchantLabel =
     input.assignedMerchantMer === undefined ? recentMerchant : assignedMerchantMer ?? null;
   const source = normalizeSource(input.source);
+  const sourceType = input.sourceType ?? "shopify_order";
 
   const candidates = await prisma.contactMaster.findMany({
     where: {
@@ -430,7 +433,7 @@ async function syncContactMasterPrimaryOnly(input: SyncContactMasterInput): Prom
 
   const updateData: {
     name?: string;
-    email?: string;
+    email?: string | null;
     phoneNumber?: string;
     recentMerchant?: string;
     assignedMerchant?: string;
@@ -439,8 +442,22 @@ async function syncContactMasterPrimaryOnly(input: SyncContactMasterInput): Prom
   } = {};
 
   const safeEmail = emailSafeForContact(email, matchedContact, emailMatch, emailMatches.length);
-  if (isBlank(matchedContact.name) && name) updateData.name = name;
-  if (isBlank(matchedContact.email) && safeEmail) updateData.email = safeEmail;
+  const phoneMatched = Boolean(phoneMatch && phoneMatch.id === matchedContact.id);
+  if (
+    shouldPreferIncomingContactName({
+      existingName: matchedContact.name,
+      incomingName: name,
+      phoneMatched,
+      sourceType,
+    })
+  ) {
+    updateData.name = name!;
+  }
+  if (matchedContact.email && isSharedMerchantEmail(matchedContact.email)) {
+    updateData.email = null;
+  } else if (isBlank(matchedContact.email) && safeEmail) {
+    updateData.email = safeEmail;
+  }
   if (isBlank(matchedContact.phoneNumber) && phoneNumber) updateData.phoneNumber = phoneNumber;
   if (isBlank(matchedContact.recentMerchant) && recentMerchant) updateData.recentMerchant = recentMerchant;
   if (isBlank(matchedContact.source) && source) updateData.source = source;
@@ -647,7 +664,7 @@ export async function syncContactMaster(input: SyncContactMasterInput): Promise<
 
   const updateData: {
     name?: string;
-    email?: string;
+    email?: string | null;
     phoneNumber?: string;
     recentMerchant?: string;
     assignedMerchant?: string;
@@ -655,10 +672,20 @@ export async function syncContactMaster(input: SyncContactMasterInput): Promise<
     source?: string;
   } = {};
 
-  if (isBlank(matchedContact.name) && name) {
-    updateData.name = name;
+  const phoneMatched = Boolean(phoneMatch && phoneMatch.id === matchedContact.id);
+  if (
+    shouldPreferIncomingContactName({
+      existingName: matchedContact.name,
+      incomingName: name,
+      phoneMatched,
+      sourceType: input.sourceType ?? "shopify_order",
+    })
+  ) {
+    updateData.name = name!;
   }
-  if (isBlank(matchedContact.email) && safeEmail) {
+  if (matchedContact.email && isSharedMerchantEmail(matchedContact.email)) {
+    updateData.email = null;
+  } else if (isBlank(matchedContact.email) && safeEmail) {
     updateData.email = safeEmail;
   }
   if (isBlank(matchedContact.phoneNumber) && phoneNumber) {

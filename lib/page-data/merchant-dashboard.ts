@@ -315,7 +315,23 @@ export async function ensureMerchantTargetsCarriedForward(input: {
     select: { userId: true },
   });
   const hasTarget = new Set(existing.map((row) => row.userId));
-  const missing = input.merchantUserIds.filter((id) => !hasTarget.has(id));
+  let missing = input.merchantUserIds.filter((id) => !hasTarget.has(id));
+  if (missing.length === 0) return 0;
+
+  // Skip merchants whose target was explicitly removed this month (do not re-carry).
+  const removedRows = await prisma.merchantMonthlyTargetHistory.findMany({
+    where: {
+      companyId: input.companyId,
+      yearMonth: input.yearMonth,
+      userId: { in: missing },
+      action: "remove",
+    },
+    select: { userId: true },
+  });
+  if (removedRows.length > 0) {
+    const removedIds = new Set(removedRows.map((row) => row.userId));
+    missing = missing.filter((id) => !removedIds.has(id));
+  }
   if (missing.length === 0) return 0;
 
   const prevTargets = await prisma.merchantMonthlyTarget.findMany({
@@ -1198,4 +1214,49 @@ export async function upsertMerchantMonthlyTarget(input: {
   ]);
 
   return { target, action };
+}
+
+export async function deleteMerchantMonthlyTarget(input: {
+  companyId: string;
+  merchantUserId: string;
+  yearMonth: string;
+  assignedByUserId: string;
+}) {
+  const existing = await prisma.merchantMonthlyTarget.findUnique({
+    where: {
+      companyId_userId_yearMonth: {
+        companyId: input.companyId,
+        userId: input.merchantUserId,
+        yearMonth: input.yearMonth,
+      },
+    },
+  });
+
+  if (!existing) {
+    return { action: "remove" as const, removed: false };
+  }
+
+  const note = `Removed for ${input.yearMonth}`;
+
+  await prisma.$transaction([
+    prisma.merchantMonthlyTargetHistory.create({
+      data: {
+        companyId: input.companyId,
+        userId: input.merchantUserId,
+        yearMonth: input.yearMonth,
+        targetAmount: existing.targetAmount,
+        shopTargetAmount: existing.shopTargetAmount,
+        onlineTargetAmount: existing.onlineTargetAmount,
+        wholesaleTargetAmount: existing.wholesaleTargetAmount,
+        action: "remove",
+        assignedByUserId: input.assignedByUserId,
+        note,
+      },
+    }),
+    prisma.merchantMonthlyTarget.delete({
+      where: { id: existing.id },
+    }),
+  ]);
+
+  return { action: "remove" as const, removed: true };
 }

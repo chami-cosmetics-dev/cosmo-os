@@ -15,6 +15,7 @@ Outlet balance, per-outlet movement, and transfer candidates.
 | `sku` | string | Optional exact SKU — returns that item at every shop (incl. zero sales) |
 | `columnKey` | string | Optional single outlet OSF column |
 | `transfersOnly` | boolean | Default false |
+| `includeStock` | boolean | Optional. Default: true when `sku` set, else false (sales-first). When true, ERP bins for sold/SKU only — never full warehouse dump |
 
 ## Behavior
 - Outlets from `OsfColumnConfig` with **shop warehouses** only

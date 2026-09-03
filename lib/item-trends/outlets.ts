@@ -1,11 +1,11 @@
 import "server-only";
 
+import { Prisma } from "@prisma/client";
+
 import { isPosChannelOrder } from "@/lib/merchant-dashboard/channel-sales";
-import { osfCompletedSalesOrderWhere } from "@/lib/osf/assist-sales";
 import { resolveOsfColumns, type OsfResolvedColumn } from "@/lib/osf/column-config";
 import {
   fetchBinActualQty,
-  fetchPositiveBinsByWarehouses,
   getAllOsfErpInstances,
   stockForColumn,
 } from "@/lib/osf/erp-stock";
@@ -20,6 +20,9 @@ import {
 } from "@/lib/item-trends/physical-shops";
 import type { ItemTrendDateRange } from "@/lib/item-trends/types";
 import type { OutletBalanceRow, StockPressure, TransferCandidate } from "@/lib/item-trends/types";
+
+/** Cap ERP bin fan-out on list view (sold SKUs only). SKU lookup ignores cap. */
+const MAX_STOCK_SKUS = 400;
 
 function normalizeWarehouse(value: string | null | undefined): string {
   return (value ?? "").trim().toLowerCase();
@@ -94,6 +97,18 @@ export function columnsForOutletOrder(input: {
   return input.locationToCols.get(locId) ?? [];
 }
 
+type SalesAggRow = {
+  sku: string;
+  warehouse: string | null;
+  locationId: string | null;
+  sourceName: string | null;
+  units: number;
+};
+
+/**
+ * Aggregate shop POS units by SKU + order attributes (one SQL round-trip).
+ * Avoids Prisma hydrating every OrderLineItem + nested Order.
+ */
 export async function salesByOsfColumnInRange(
   companyId: string,
   range: ItemTrendDateRange,
@@ -109,62 +124,70 @@ export async function salesByOsfColumnInRange(
   ];
   if (locationIds.length === 0 && shopWarehouseNames.length === 0) return result;
 
-  const skuList = skuFilter?.map((s) => s.trim()).filter(Boolean);
-  const orderScopeParts: object[] = [];
-  if (shopWarehouseNames.length > 0) {
-    orderScopeParts.push({ erpnextWarehouse: { in: shopWarehouseNames } });
-  }
-  if (locationIds.length > 0) {
-    // Trading POS at shop locations (warehouse may be blank on older rows)
-    orderScopeParts.push({
-      AND: [
-        { companyLocationId: { in: locationIds } },
-        { sourceName: { in: ["pos", "erpnext-pos"] } },
-      ],
-    });
-  }
-  const orderScope =
-    orderScopeParts.length === 1 ? orderScopeParts[0]! : { OR: orderScopeParts };
+  const skuList = skuFilter?.map((s) => s.trim()).filter(Boolean) ?? [];
+  const hasWh = shopWarehouseNames.length > 0;
+  const hasLoc = locationIds.length > 0;
 
-  const skuWhere =
-    skuList?.length === 1
-      ? { productItem: { sku: { equals: skuList[0]!, mode: "insensitive" as const } } }
-      : skuList?.length
-        ? { productItem: { sku: { in: skuList } } }
-        : {};
+  const scopeSql =
+    hasWh && hasLoc
+      ? Prisma.sql`(
+          o."erpnextWarehouse" IN (${Prisma.join(shopWarehouseNames)})
+          OR (
+            o."companyLocationId" IN (${Prisma.join(locationIds)})
+            AND o."sourceName" IN ('pos', 'erpnext-pos')
+          )
+        )`
+      : hasWh
+        ? Prisma.sql`o."erpnextWarehouse" IN (${Prisma.join(shopWarehouseNames)})`
+        : Prisma.sql`(
+            o."companyLocationId" IN (${Prisma.join(locationIds)})
+            AND o."sourceName" IN ('pos', 'erpnext-pos')
+          )`;
 
-  const lines = await prisma.orderLineItem.findMany({
-    where: {
-      order: {
-        ...osfCompletedSalesOrderWhere(companyId, range.rangeStart, range.rangeEndExclusive),
-        ...orderScope,
-      },
-      ...skuWhere,
-    },
-    select: {
-      quantity: true,
-      productItem: { select: { sku: true } },
-      order: {
-        select: {
-          companyLocationId: true,
-          erpnextWarehouse: true,
-          sourceName: true,
-          deliveryCompleteAt: true,
-          invoiceCompleteAt: true,
-        },
-      },
-    },
-  });
+  const skuSql =
+    skuList.length === 1
+      ? Prisma.sql`AND LOWER(TRIM(pi.sku)) = LOWER(${skuList[0]!})`
+      : skuList.length > 1
+        ? Prisma.sql`AND TRIM(pi.sku) IN (${Prisma.join(skuList)})`
+        : Prisma.empty;
 
-  for (const line of lines) {
-    const sku = line.productItem.sku?.trim();
+  const rows = await prisma.$queryRaw<SalesAggRow[]>`
+    SELECT
+      TRIM(pi.sku) AS sku,
+      o."erpnextWarehouse" AS warehouse,
+      o."companyLocationId" AS "locationId",
+      o."sourceName" AS "sourceName",
+      SUM(oli.quantity)::float AS units
+    FROM "OrderLineItem" oli
+    INNER JOIN "Order" o ON o.id = oli."orderId"
+    INNER JOIN "ProductItem" pi ON pi.id = oli."productItemId"
+    WHERE o."companyId" = ${companyId}
+      AND o."cancelledAt" IS NULL
+      AND o."fulfillmentStage" IN ('delivery_complete', 'invoice_complete')
+      AND (
+        (o."deliveryCompleteAt" >= ${range.rangeStart} AND o."deliveryCompleteAt" < ${range.rangeEndExclusive})
+        OR (
+          o."deliveryCompleteAt" IS NULL
+          AND o."invoiceCompleteAt" >= ${range.rangeStart}
+          AND o."invoiceCompleteAt" < ${range.rangeEndExclusive}
+        )
+      )
+      AND pi.sku IS NOT NULL
+      AND TRIM(pi.sku) <> ''
+      AND ${scopeSql}
+      ${skuSql}
+    GROUP BY TRIM(pi.sku), o."erpnextWarehouse", o."companyLocationId", o."sourceName"
+  `;
+
+  for (const row of rows) {
+    const sku = row.sku?.trim();
     if (!sku) continue;
-    const at = line.order.deliveryCompleteAt ?? line.order.invoiceCompleteAt;
-    if (!at || at < range.rangeStart || at >= range.rangeEndExclusive) continue;
+    const units = Number(row.units);
+    if (!Number.isFinite(units) || units <= 0) continue;
     const cols = columnsForOutletOrder({
-      companyLocationId: line.order.companyLocationId,
-      erpnextWarehouse: line.order.erpnextWarehouse,
-      sourceName: line.order.sourceName,
+      companyLocationId: row.locationId,
+      erpnextWarehouse: row.warehouse,
+      sourceName: row.sourceName,
       locationToCols,
       warehouseToCols,
     });
@@ -176,7 +199,7 @@ export async function salesByOsfColumnInRange(
       result.set(sku, skuMap);
     }
     for (const col of cols) {
-      skuMap.set(col.key, (skuMap.get(col.key) ?? 0) + line.quantity);
+      skuMap.set(col.key, (skuMap.get(col.key) ?? 0) + units);
     }
   }
 
@@ -190,14 +213,28 @@ function stockPressure(stock: number | null, speed: number): StockPressure {
   return "balanced";
 }
 
+function topSoldSkus(salesMap: Map<string, Map<string, number>>, limit: number): string[] {
+  const totals = [...salesMap.entries()].map(([sku, cols]) => {
+    let units = 0;
+    for (const u of cols.values()) units += u;
+    return { sku, units };
+  });
+  totals.sort((a, b) => b.units - a.units || a.sku.localeCompare(b.sku));
+  return totals.slice(0, limit).map((t) => t.sku);
+}
+
 export async function fetchOutletBalanceAndTransfers(input: {
   companyId: string;
   range: ItemTrendDateRange;
   columnKeys?: string[] | null;
   skuFilter?: string[];
   priority?: string | null;
-  limit?: number;
-}): Promise<{ outlets: OutletBalanceRow[]; transfers: TransferCandidate[] }> {
+  /** When false, skip ERP bins (fast sales list). Default: true if SKU filter, else false. */
+  includeStock?: boolean;
+}): Promise<{ outlets: OutletBalanceRow[]; transfers: TransferCandidate[]; stockLoaded: boolean }> {
+  const skuFilter = input.skuFilter?.map((s) => s.trim()).filter(Boolean);
+  const includeStock = input.includeStock ?? Boolean(skuFilter?.length);
+
   const [allColumns, physicalShops] = await Promise.all([
     resolveOsfColumns(input.companyId),
     loadPhysicalShops(input.companyId),
@@ -213,44 +250,16 @@ export async function fetchOutletBalanceAndTransfers(input: {
       columns.filter((c) => input.columnKeys!.includes(c.key))
     : columns;
 
-  if (scoped.length === 0) return { outlets: [], transfers: [] };
+  if (scoped.length === 0) {
+    return { outlets: [], transfers: [], stockLoaded: includeStock };
+  }
 
   const salesMap = await salesByOsfColumnInRange(
     input.companyId,
     input.range,
     scoped,
-    input.skuFilter,
+    skuFilter,
   );
-
-  const warehousesByInstance = new Map<string, Set<string>>();
-  for (const col of scoped) {
-    if (!col.erpnextInstanceId) continue;
-    const set = warehousesByInstance.get(col.erpnextInstanceId) ?? new Set<string>();
-    for (const wh of col.warehouses) set.add(wh);
-    warehousesByInstance.set(col.erpnextInstanceId, set);
-  }
-
-  const erpInstances = await getAllOsfErpInstances(input.companyId);
-  const binMap = new Map<string, number>();
-  const skuFilter = input.skuFilter?.map((s) => s.trim()).filter(Boolean);
-
-  await Promise.all(
-    erpInstances.map(async (inst) => {
-      const whs = [...(warehousesByInstance.get(inst.id) ?? [])];
-      if (!whs.length) return;
-      const bins =
-        skuFilter?.length ?
-          await fetchBinActualQty({ cfg: inst.cfg, warehouses: whs, itemCodes: skuFilter })
-        : await fetchPositiveBinsByWarehouses({ cfg: inst.cfg, warehouses: whs });
-      for (const [key, qty] of bins) binMap.set(key, qty);
-    }),
-  );
-
-  const stockSkus = new Set<string>();
-  for (const key of binMap.keys()) {
-    const sku = key.split("::")[1]?.trim();
-    if (sku) stockSkus.add(sku);
-  }
 
   const soldSkus =
     skuFilter?.length ?
@@ -260,7 +269,49 @@ export async function fetchOutletBalanceAndTransfers(input: {
         return fromSales.length > 0 ? fromSales : skuFilter;
       })()
     : [...salesMap.keys()];
-  const rawSkus = [...new Set([...soldSkus, ...stockSkus])];
+
+  const binMap = new Map<string, number>();
+  let stockLoaded = false;
+
+  if (includeStock) {
+    const itemCodes =
+      skuFilter?.length ? soldSkus : topSoldSkus(salesMap, MAX_STOCK_SKUS);
+
+    if (itemCodes.length > 0) {
+      const warehousesByInstance = new Map<string, Set<string>>();
+      for (const col of scoped) {
+        if (!col.erpnextInstanceId) continue;
+        const set = warehousesByInstance.get(col.erpnextInstanceId) ?? new Set<string>();
+        for (const wh of col.warehouses) set.add(wh);
+        warehousesByInstance.set(col.erpnextInstanceId, set);
+      }
+
+      const erpInstances = await getAllOsfErpInstances(input.companyId);
+      await Promise.all(
+        erpInstances.map(async (inst) => {
+          const whs = [...(warehousesByInstance.get(inst.id) ?? [])];
+          if (!whs.length) return;
+          const bins = await fetchBinActualQty({
+            cfg: inst.cfg,
+            warehouses: whs,
+            itemCodes,
+          });
+          for (const [key, qty] of bins) binMap.set(key, qty);
+        }),
+      );
+      stockLoaded = true;
+    } else {
+      stockLoaded = true;
+    }
+  }
+
+  const stockSkus = new Set<string>();
+  for (const key of binMap.keys()) {
+    const sku = key.split("::")[1]?.trim();
+    if (sku) stockSkus.add(sku);
+  }
+
+  const rawSkus = [...new Set([...soldSkus, ...(skuFilter?.length ? stockSkus : [])])];
   // Explicit SKU lookup ignores priority — show that item at every shop.
   const skus =
     skuFilter?.length ?
@@ -281,7 +332,9 @@ export async function fetchOutletBalanceAndTransfers(input: {
       const units = colSales.get(col.key) ?? 0;
       const speed = units / days;
       const stock =
-        col.warehouses.length === 0 ? null : stockForColumn(binMap, col.warehouses, sku);
+        !stockLoaded || col.warehouses.length === 0
+          ? null
+          : stockForColumn(binMap, col.warehouses, sku);
       if (!includeEmptyShops && units <= 0 && (stock == null || stock <= 0)) continue;
       outlets.push({
         sku,
@@ -297,10 +350,8 @@ export async function fetchOutletBalanceAndTransfers(input: {
       }
     }
 
-    if (speeds.length < 2) continue;
+    if (!stockLoaded || speeds.length < 2) continue;
 
-    // Shop-to-shop: sitting stock + slow counter vs faster counter elsewhere.
-    // Avoid quartile-only pairing — with few shops / short windows it rarely fires.
     const sources = speeds.filter((s) => s.stock >= 5 && s.speed < 0.5);
     const dests = speeds
       .filter((s) => s.units >= destMinUnits && s.speed >= 0.5)
@@ -329,5 +380,5 @@ export async function fetchOutletBalanceAndTransfers(input: {
     }
   }
 
-  return { outlets, transfers };
+  return { outlets, transfers, stockLoaded };
 }

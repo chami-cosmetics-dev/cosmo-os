@@ -8,6 +8,7 @@ describe("shared merchant emails", () => {
     expect(isSharedMerchantEmail("sales@cosmetics.lk")).toBe(true);
     expect(isSharedMerchantEmail("info@lmj.lk")).toBe(true);
     expect(isSharedMerchantEmail("nirukshi.cosmetics@outlook.com")).toBe(true);
+    expect(isSharedMerchantEmail("hpg.inoka@gmail.com")).toBe(true);
     expect(isSharedMerchantEmail("oshadhisakya@gmail.com")).toBe(false);
   });
 

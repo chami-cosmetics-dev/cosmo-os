@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
-import { Cake, Crown, Download, History, Loader2, Phone, Target, AlertTriangle } from "lucide-react";
+import { Cake, Crown, Download, History, Loader2, Phone, Target, Trash2, AlertTriangle } from "lucide-react";
 import {
   Bar,
   BarChart,
@@ -52,6 +52,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { useConfirmationDialog } from "@/components/providers/confirmation-dialog-provider";
 import {
   CALL_CENTER_CATEGORY_VALUES,
   callCenterCategoryColor,
@@ -330,6 +331,7 @@ type Props = {
 };
 
 export function MerchantDashboardPanel({ initialData }: Props) {
+  const { confirm } = useConfirmationDialog();
   const [data, setData] = useState(initialData);
   const [merchantId, setMerchantId] = useState(initialData.selectedMerchantId);
   const [targetInput, setTargetInput] = useState(
@@ -698,6 +700,55 @@ export function MerchantDashboardPanel({ initialData }: Props) {
       await reload(merchantId);
     } catch {
       notify.error("Failed to save target");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function removeTarget() {
+    const hasExistingTarget =
+      data.target.targetAmount > 0 ||
+      (data.target.shopTargetAmount != null &&
+        data.target.shopTargetAmount > 0) ||
+      (data.target.onlineTargetAmount != null &&
+        data.target.onlineTargetAmount > 0) ||
+      (data.wholesaleTarget != null && data.wholesaleTarget.targetAmount > 0);
+    if (!hasExistingTarget) {
+      notify.error("No target set for this month");
+      return;
+    }
+
+    const confirmed = await confirm({
+      title: "Remove monthly target?",
+      description: `Remove ${data.profile.displayName}'s target for ${data.yearMonth}? This month will not auto-copy from last month again.`,
+      confirmLabel: "Remove target",
+      variant: "destructive",
+    });
+    if (!confirmed) return;
+
+    setBusyKey("remove-target");
+    try {
+      const res = await fetch("/api/admin/merchant-dashboard/targets", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          merchantUserId: merchantId,
+          yearMonth: data.yearMonth,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        notify.error(json.error ?? "Failed to remove target");
+        return;
+      }
+      notify.success("Target removed.");
+      setTargetInput("");
+      setShopTargetInput("");
+      setOnlineTargetInput("");
+      setWholesaleTargetInput("");
+      await reload(merchantId);
+    } catch {
+      notify.error("Failed to remove target");
     } finally {
       setBusyKey(null);
     }
@@ -3913,11 +3964,36 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                       </>
                     )}
                   </Button>
+                  {(data.target.targetAmount > 0 ||
+                    (data.target.shopTargetAmount != null &&
+                      data.target.shopTargetAmount > 0) ||
+                    (data.target.onlineTargetAmount != null &&
+                      data.target.onlineTargetAmount > 0) ||
+                    (data.wholesaleTarget != null &&
+                      data.wholesaleTarget.targetAmount > 0)) && (
+                    <Button
+                      variant="outline"
+                      disabled={isBusy}
+                      onClick={() => void removeTarget()}
+                    >
+                      {busyKey === "remove-target" ? (
+                        <>
+                          <Loader2 className="animate-spin" aria-hidden />
+                          Removing...
+                        </>
+                      ) : (
+                        <>
+                          <Trash2 aria-hidden />
+                          Remove target
+                        </>
+                      )}
+                    </Button>
+                  )}
                 </div>
                 <p className="text-muted-foreground text-xs">
                   Shop + online auto-fill combined. Enter combined alone when
                   channel split not needed. New month copies last month until
-                  admin saves a change.
+                  admin saves a change or removes the target.
                 </p>
                 {data.target.note ? (
                   <p className="text-muted-foreground text-xs">{data.target.note}</p>

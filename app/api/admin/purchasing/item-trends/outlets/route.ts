@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const { from, to, sku, columnKey, transfersOnly, priority } = parsed.data;
+  const { from, to, sku, columnKey, transfersOnly, priority, includeStock } = parsed.data;
 
   try {
     const { current } = resolveItemTrendWindows({ fromYmd: from, toYmd: to });
@@ -43,17 +43,19 @@ export async function GET(request: NextRequest) {
       columnKey ? [columnKey]
       : scope.columnKeys;
 
-    const { outlets, transfers } = await fetchOutletBalanceAndTransfers({
+    const { outlets, transfers, stockLoaded } = await fetchOutletBalanceAndTransfers({
       companyId,
       range: current,
       columnKeys,
       skuFilter: sku ? [sku] : undefined,
       priority: priority ?? "all",
+      includeStock,
     });
 
     return NextResponse.json({
       outlets: transfersOnly ? [] : outlets,
       transfers,
+      meta: { stockLoaded },
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to load outlets";
