@@ -2,6 +2,7 @@ import "server-only";
 
 import type { Prisma } from "@prisma/client";
 
+import { formatAppIsoDate } from "@/lib/format-datetime";
 import { prisma } from "@/lib/prisma";
 
 /** Shared OSF completed-sale order filter for a half-open [start, end) window. */
@@ -67,4 +68,48 @@ export async function aggregateSalesBySkuInRange(
     map.set(sku, (map.get(sku) ?? 0) + line.quantity);
   }
   return map;
+}
+
+/**
+ * Units by SKU then Colombo calendar month (YYYY-MM) for [start, endExclusive).
+ */
+export async function aggregateSalesBySkuByMonthInRange(
+  companyId: string,
+  start: Date,
+  endExclusive: Date,
+  skuFilter?: string[],
+): Promise<Map<string, Map<string, number>>> {
+  const skuList = skuFilter?.map((s) => s.trim()).filter(Boolean);
+  const lines = await prisma.orderLineItem.findMany({
+    where: {
+      order: osfCompletedSalesOrderWhere(companyId, start, endExclusive),
+      ...(skuList?.length ? { productItem: { sku: { in: skuList } } } : {}),
+    },
+    select: {
+      quantity: true,
+      productItem: { select: { sku: true } },
+      order: {
+        select: {
+          deliveryCompleteAt: true,
+          invoiceCompleteAt: true,
+        },
+      },
+    },
+  });
+
+  const bySku = new Map<string, Map<string, number>>();
+  for (const line of lines) {
+    const sku = line.productItem.sku?.trim();
+    if (!sku) continue;
+    const at = line.order.deliveryCompleteAt ?? line.order.invoiceCompleteAt;
+    if (!at || at < start || at >= endExclusive) continue;
+    const month = formatAppIsoDate(at).slice(0, 7);
+    let months = bySku.get(sku);
+    if (!months) {
+      months = new Map();
+      bySku.set(sku, months);
+    }
+    months.set(month, (months.get(month) ?? 0) + line.quantity);
+  }
+  return bySku;
 }

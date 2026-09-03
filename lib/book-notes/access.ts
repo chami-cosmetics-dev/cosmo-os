@@ -16,68 +16,25 @@ const LOCATION_SELECT = {
 } as const;
 
 export type BookNoteShopAccess = {
-  /** Admin / super_admin / book_notes.read — all company shops. */
+  /** Temporary: all company shops for every book-note user. Tighten to assignment later. */
   canAccessAllShops: boolean;
   locations: BookNoteLocationOption[];
 };
 
-function isBookNotesAdmin(context: UserContext): boolean {
-  // roleNames may be inferred as never[] from empty-array return paths in getCurrentUserContext.
-  const roles = context.roleNames as string[];
-  return roles.includes("super_admin") || roles.includes("admin");
-}
-
 /**
  * Shops the current user may enter / view book notes for.
- * Merchants: EmployeeProfile.location (+ locations where they are defaultMerchant).
- * Admins / book_notes.read: all company locations.
+ * Temporary: every company location. Later: EmployeeProfile.location + defaultMerchant only.
  */
 export async function resolveBookNoteShopAccess(
-  context: UserContext,
+  _context: UserContext,
   companyId: string,
 ): Promise<BookNoteShopAccess> {
-  const canAccessAllShops = isBookNotesAdmin(context);
-
-  if (canAccessAllShops) {
-    const locations = await prisma.companyLocation.findMany({
-      where: { companyId },
-      orderBy: { name: "asc" },
-      select: LOCATION_SELECT,
-    });
-    return { canAccessAllShops: true, locations };
-  }
-
-  const userId = context.user?.id;
-  if (!userId) {
-    return { canAccessAllShops: false, locations: [] };
-  }
-
-  const [profile, defaultMerchantLocations] = await Promise.all([
-    prisma.employeeProfile.findUnique({
-      where: { userId },
-      select: { locationId: true },
-    }),
-    prisma.companyLocation.findMany({
-      where: { companyId, defaultMerchantUserId: userId },
-      select: { id: true },
-    }),
-  ]);
-
-  const allowedIds = new Set<string>();
-  if (profile?.locationId) allowedIds.add(profile.locationId);
-  for (const loc of defaultMerchantLocations) allowedIds.add(loc.id);
-
-  if (allowedIds.size === 0) {
-    return { canAccessAllShops: false, locations: [] };
-  }
-
   const locations = await prisma.companyLocation.findMany({
-    where: { companyId, id: { in: [...allowedIds] } },
+    where: { companyId },
     orderBy: { name: "asc" },
     select: LOCATION_SELECT,
   });
-
-  return { canAccessAllShops: false, locations };
+  return { canAccessAllShops: true, locations };
 }
 
 export function resolveBookNoteWriteAccess(

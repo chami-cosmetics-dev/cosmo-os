@@ -39,7 +39,7 @@ export {
 export { buildFrequencyMetrics } from "@/lib/customer-insight/frequency";
 export { aggregateTopItems } from "@/lib/customer-insight/top-items";
 export { buildMonthlySeries } from "@/lib/customer-insight/series";
-export { loadCustomerInsight } from "@/lib/customer-insight/load";
+export { loadCustomerInsight, resolveInsightLoadViewer } from "@/lib/customer-insight/load";
 export {
   isAllocatedOwner,
   insightVisibility,

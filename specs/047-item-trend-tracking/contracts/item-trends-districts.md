@@ -10,6 +10,7 @@ District leaderboard, item×district drill-down, and area growth status.
 | Param | Type | Rules |
 |-------|------|--------|
 | `from`, `to` | `YYYY-MM-DD` | Required |
+| `priority` | string | Optional filter (default `Top Priority`; `all` = no filter) |
 | `compareFrom`, `compareTo` | `YYYY-MM-DD` | Optional prior window |
 | `district` | string | Optional; when set, include `items` for that district only |
 | `sortBy` | `units` \| `amount` \| `speed` | Default `units` |

@@ -2,6 +2,7 @@ import "server-only";
 
 import { inferDistrictFromAddressText, resolveAddressDistrict } from "@/lib/address-district";
 import { osfCompletedSalesOrderWhere } from "@/lib/osf/assist-sales";
+import { matchesPriorityFilter } from "@/lib/osf/assist-window";
 import { prisma } from "@/lib/prisma";
 
 import {
@@ -101,6 +102,7 @@ async function fetchParsedLines(
   range: ItemTrendDateRange,
   locationMeta: Map<string, LocationMeta>,
   physicalShops: PhysicalShopMeta[],
+  priority?: string | null,
 ): Promise<ParsedLine[]> {
   const lines = await prisma.orderLineItem.findMany({
     where: {
@@ -109,7 +111,13 @@ async function fetchParsedLines(
     select: {
       quantity: true,
       price: true,
-      productItem: { select: { sku: true } },
+      productItem: {
+        select: {
+          sku: true,
+          erp1ProductPriority: true,
+          erp2ProductPriority: true,
+        },
+      },
       order: {
         select: {
           shippingAddress: true,
@@ -125,6 +133,15 @@ async function fetchParsedLines(
   for (const line of lines) {
     const sku = line.productItem.sku?.trim();
     if (!sku) continue;
+    if (
+      !matchesPriorityFilter(
+        line.productItem.erp1ProductPriority,
+        line.productItem.erp2ProductPriority,
+        priority,
+      )
+    ) {
+      continue;
+    }
     const at = line.order.deliveryCompleteAt ?? line.order.invoiceCompleteAt;
     if (!at || at < range.rangeStart || at >= range.rangeEndExclusive) continue;
 
@@ -199,14 +216,15 @@ export async function fetchDistrictLeaderboard(
   current: ItemTrendDateRange,
   prior: ItemTrendDateRange,
   sortBy: "units" | "amount" | "speed" = "units",
+  priority?: string | null,
 ): Promise<DistrictDemandRow[]> {
   const [locationMeta, physicalShops] = await Promise.all([
     loadLocationMeta(companyId),
     loadPhysicalShops(companyId),
   ]);
   const [currentLines, priorLines] = await Promise.all([
-    fetchParsedLines(companyId, current, locationMeta, physicalShops),
-    fetchParsedLines(companyId, prior, locationMeta, physicalShops),
+    fetchParsedLines(companyId, current, locationMeta, physicalShops, priority),
+    fetchParsedLines(companyId, prior, locationMeta, physicalShops, priority),
   ]);
 
   const currentTotals = rollupDistrictTotals(currentLines);
@@ -221,14 +239,15 @@ export async function fetchDistrictItems(
   current: ItemTrendDateRange,
   prior: ItemTrendDateRange,
   limit = 50,
+  priority?: string | null,
 ): Promise<ItemMovementRow[]> {
   const [locationMeta, physicalShops] = await Promise.all([
     loadLocationMeta(companyId),
     loadPhysicalShops(companyId),
   ]);
   const [currentLines, priorLines] = await Promise.all([
-    fetchParsedLines(companyId, current, locationMeta, physicalShops),
-    fetchParsedLines(companyId, prior, locationMeta, physicalShops),
+    fetchParsedLines(companyId, current, locationMeta, physicalShops, priority),
+    fetchParsedLines(companyId, prior, locationMeta, physicalShops, priority),
   ]);
 
   const target = district.trim();
@@ -352,14 +371,15 @@ export async function fetchExpansionOpportunities(
   current: ItemTrendDateRange,
   prior: ItemTrendDateRange,
   leaderboard: DistrictDemandRow[],
+  priority?: string | null,
 ): Promise<ExpansionOpportunityRow[]> {
   const [locationMeta, physicalShops] = await Promise.all([
     loadLocationMeta(companyId),
     loadPhysicalShops(companyId),
   ]);
   const [currentLines, priorLines] = await Promise.all([
-    fetchParsedLines(companyId, current, locationMeta, physicalShops),
-    fetchParsedLines(companyId, prior, locationMeta, physicalShops),
+    fetchParsedLines(companyId, current, locationMeta, physicalShops, priority),
+    fetchParsedLines(companyId, prior, locationMeta, physicalShops, priority),
   ]);
 
   const shopUnits = shopUnitsByDistrict(currentLines);
@@ -428,6 +448,7 @@ export async function fetchAreaGrowthStatus(
   companyId: string,
   current: ItemTrendDateRange,
   prior: ItemTrendDateRange,
+  priority?: string | null,
 ): Promise<DistrictDemandRow[]> {
-  return fetchDistrictLeaderboard(companyId, current, prior, "units");
+  return fetchDistrictLeaderboard(companyId, current, prior, "units", priority);
 }

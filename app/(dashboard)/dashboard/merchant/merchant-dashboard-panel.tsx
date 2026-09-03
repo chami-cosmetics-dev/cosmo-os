@@ -90,63 +90,59 @@ function formatMoney(value: number) {
   }).format(value);
 }
 
-function formatChannelSubline(parts: Array<string | null | undefined>) {
-  const text = parts.filter(Boolean).join(" · ");
-  return text || null;
-}
-
 function formatPercentOneDecimal(value: number | null) {
   if (value == null) return null;
   return `${Math.round(value * 10) / 10}%`;
 }
 
-function formatScorecardTargetSubline(input: {
+function formatScorecardTargetLines(input: {
   periodPreset: "today" | "mtd" | "custom";
   periodLabel: string;
   periodTargetAmount: number | null;
-  dailyTargetAmount: number | null;
   monthlyTargetAmount: number | null;
-}) {
-  if (input.periodTargetAmount == null || input.periodTargetAmount <= 0) {
-    return null;
+}): string[] {
+  const lines: string[] = [];
+  if (input.periodTargetAmount != null && input.periodTargetAmount > 0) {
+    if (input.periodPreset === "today") {
+      lines.push(`Today target ${formatMoney(input.periodTargetAmount)}`);
+    } else if (input.periodPreset === "mtd") {
+      lines.push(`MTD target ${formatMoney(input.periodTargetAmount)}`);
+    } else {
+      lines.push(`${input.periodLabel} target ${formatMoney(input.periodTargetAmount)}`);
+    }
   }
-  if (input.periodPreset === "today") {
-    return `Today ${formatMoney(input.periodTargetAmount)}`;
+  if (
+    input.monthlyTargetAmount != null &&
+    input.monthlyTargetAmount > 0 &&
+    (input.periodPreset !== "mtd" ||
+      input.periodTargetAmount == null ||
+      input.periodTargetAmount !== input.monthlyTargetAmount)
+  ) {
+    lines.push(`Month target ${formatMoney(input.monthlyTargetAmount)}`);
   }
-  if (input.periodPreset === "mtd") {
-    const monthly =
-      input.monthlyTargetAmount != null && input.monthlyTargetAmount > 0
-        ? ` · Mo ${formatMoney(input.monthlyTargetAmount)}`
-        : "";
-    return `MTD ${formatMoney(input.periodTargetAmount)}${monthly}`;
-  }
-  return `${input.periodLabel} ${formatMoney(input.periodTargetAmount)}`;
+  return lines;
 }
 
-function formatGmChannelCellSubline(input: {
+function formatGmChannelCellLines(input: {
   orderCount: number;
   monthlyTargetAmount: number | null;
   periodTargetAmount: number | null;
   percent: number | null;
   periodPreset: "today" | "mtd" | "custom";
   periodLabel: string;
-}) {
-  const hasTarget =
-    input.monthlyTargetAmount != null && input.monthlyTargetAmount > 0;
-  const targetLine = hasTarget
-    ? formatScorecardTargetSubline({
-        periodPreset: input.periodPreset,
-        periodLabel: input.periodLabel,
-        periodTargetAmount: input.periodTargetAmount,
-        dailyTargetAmount: null,
-        monthlyTargetAmount: input.monthlyTargetAmount,
-      })
-    : null;
-  return formatChannelSubline([
-    `${input.orderCount} orders`,
-    targetLine,
-    formatPercentOneDecimal(input.percent),
-  ]);
+}): string[] {
+  const lines = [`${input.orderCount} orders`];
+  lines.push(
+    ...formatScorecardTargetLines({
+      periodPreset: input.periodPreset,
+      periodLabel: input.periodLabel,
+      periodTargetAmount: input.periodTargetAmount,
+      monthlyTargetAmount: input.monthlyTargetAmount,
+    }),
+  );
+  const pct = formatPercentOneDecimal(input.percent);
+  if (pct) lines.push(pct);
+  return lines;
 }
 
 function channelTargetProgressWidth(percent: number | null | undefined) {
@@ -916,13 +912,55 @@ export function MerchantDashboardPanel({ initialData }: Props) {
     ...overviewRows.map((row) => row.mtdSales),
   );
   const hasAnyTarget = overviewRows.some(
-    (row) => row.targetAmount != null && row.targetAmount > 0,
+    (row) =>
+      (row.periodTargetAmount != null && row.periodTargetAmount > 0) ||
+      (row.effectiveTotalTarget != null && row.effectiveTotalTarget > 0) ||
+      (row.targetAmount != null && row.targetAmount > 0) ||
+      (row.shopTargetAmount != null && row.shopTargetAmount > 0) ||
+      (row.onlineTargetAmount != null && row.onlineTargetAmount > 0),
   );
-  const overviewChart = overviewChartRows.map((row) => ({
-    name: row.displayName,
-    sales: row.mtdSales,
-    ...(hasAnyTarget ? { target: row.targetAmount ?? 0 } : {}),
-  }));
+  const hasAnyShopTarget = overviewRows.some(
+    (row) =>
+      (row.shopPeriodTargetAmount != null && row.shopPeriodTargetAmount > 0) ||
+      (row.shopTargetAmount != null && row.shopTargetAmount > 0),
+  );
+  const hasAnyOnlineTarget = overviewRows.some(
+    (row) =>
+      (row.onlinePeriodTargetAmount != null &&
+        row.onlinePeriodTargetAmount > 0) ||
+      (row.onlineTargetAmount != null && row.onlineTargetAmount > 0),
+  );
+  const overviewChart = overviewChartRows.map((row) => {
+    const shopTarget =
+      row.shopPeriodTargetAmount != null && row.shopPeriodTargetAmount > 0
+        ? row.shopPeriodTargetAmount
+        : row.shopTargetAmount != null && row.shopTargetAmount > 0
+          ? row.shopTargetAmount
+          : 0;
+    const onlineTarget =
+      row.onlinePeriodTargetAmount != null && row.onlinePeriodTargetAmount > 0
+        ? row.onlinePeriodTargetAmount
+        : row.onlineTargetAmount != null && row.onlineTargetAmount > 0
+          ? row.onlineTargetAmount
+          : 0;
+    const totalTarget =
+      row.periodTargetAmount != null && row.periodTargetAmount > 0
+        ? row.periodTargetAmount
+        : row.effectiveTotalTarget != null && row.effectiveTotalTarget > 0
+          ? row.effectiveTotalTarget
+          : row.targetAmount != null && row.targetAmount > 0
+            ? row.targetAmount
+            : 0;
+    return {
+      name: row.displayName,
+      shopSales: row.shop.amount,
+      onlineSales: row.online.amount,
+      totalSales: row.mtdSales,
+      ...(hasAnyShopTarget ? { shopTarget } : {}),
+      ...(hasAnyOnlineTarget ? { onlineTarget } : {}),
+      ...(hasAnyTarget ? { totalTarget } : {}),
+    };
+  });
   const activePeerBoard =
     peerPeriod === "today" ? data.peerBoards.today : data.peerBoards.mtd;
   const peerEntriesWithSales = activePeerBoard.entries.filter(
@@ -3576,10 +3614,12 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                             Today {formatMoney(row.todaySales)} · MTD{" "}
                             {formatMoney(row.mtdSales)}
                           </div>
-                          <div className={SCORECARD_SUB_MUTED}>
-                            {gmPeriodLabel} total{" "}
-                            {formatMoney(row.periodSales)}
-                          </div>
+                          {gmPeriodPreset !== "mtd" ? (
+                            <div className={SCORECARD_SUB_MUTED}>
+                              {gmPeriodLabel} total{" "}
+                              {formatMoney(row.periodSales)}
+                            </div>
+                          ) : null}
                           {row.hasDmSplit ? (
                             <div className={SCORECARD_SUB_MUTED}>
                               MER {formatMoney(row.merPeriodSales)} · DM{" "}
@@ -3600,14 +3640,16 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                             {formatMoney(row.shop.amount)}
                           </div>
                           <div className={SCORECARD_SUB}>
-                            {formatGmChannelCellSubline({
+                            {formatGmChannelCellLines({
                               orderCount: row.shop.orderCount,
                               monthlyTargetAmount: row.shopTargetAmount,
                               periodTargetAmount: row.shopPeriodTargetAmount,
                               percent: row.shopPercent,
                               periodPreset: gmPeriodPreset,
                               periodLabel: gmPeriodLabel,
-                            }) ?? "—"}
+                            }).map((line) => (
+                              <div key={line}>{line}</div>
+                            ))}
                           </div>
                         </TableCell>
                         <TableCell className="text-right align-top tabular-nums">
@@ -3615,14 +3657,16 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                             {formatMoney(row.online.amount)}
                           </div>
                           <div className={SCORECARD_SUB}>
-                            {formatGmChannelCellSubline({
+                            {formatGmChannelCellLines({
                               orderCount: row.online.orderCount,
                               monthlyTargetAmount: row.onlineTargetAmount,
                               periodTargetAmount: row.onlinePeriodTargetAmount,
                               percent: row.onlinePercent,
                               periodPreset: gmPeriodPreset,
                               periodLabel: gmPeriodLabel,
-                            }) ?? "—"}
+                            }).map((line) => (
+                              <div key={line}>{line}</div>
+                            ))}
                           </div>
                         </TableCell>
                         <TableCell className="text-right align-top tabular-nums">
@@ -3640,14 +3684,14 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                           {row.effectiveTotalTarget != null &&
                           row.effectiveTotalTarget > 0 ? (
                             <div className={SCORECARD_SUB}>
-                              {formatScorecardTargetSubline({
+                              {formatScorecardTargetLines({
                                 periodPreset: gmPeriodPreset,
                                 periodLabel: gmPeriodLabel,
                                 periodTargetAmount: row.periodTargetAmount,
-                                dailyTargetAmount: row.dailyTargetAmount,
                                 monthlyTargetAmount: row.effectiveTotalTarget,
-                              }) ??
-                                `/ ${formatMoney(row.effectiveTotalTarget)}`}
+                              }).map((line) => (
+                                <div key={line}>{line}</div>
+                              ))}
                             </div>
                           ) : null}
                         </TableCell>
@@ -3898,20 +3942,22 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                 </CardTitle>
                 <p className="text-muted-foreground text-xs">
                   {hasAnyTarget
-                    ? "Bars = sales vs target. Cards sorted by highest target completion. Click a card to open that merchant in Merchant view."
-                    : "No targets set yet — % is share of top MTD this month. Assign targets above after selecting a merchant."}
+                    ? "Bars = Shop / Online / Total MTD sales vs MTD targets (prorated). Cards sorted by highest target completion. Click a card to open that merchant."
+                    : "No targets set yet — % is share of top MTD this month. Assign shop, online, or total targets above after selecting a merchant."}
                 </p>
               </CardHeader>
               <CardContent className="space-y-5">
                 <div
                   className="w-full"
-                  style={{ height: Math.max(220, overviewChartRows.length * 28) }}
+                  style={{ height: Math.max(280, overviewChartRows.length * 52) }}
                 >
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart
                       data={overviewChart}
                       margin={{ top: 8, right: 12, left: 4, bottom: 8 }}
                       layout="vertical"
+                      barCategoryGap="18%"
+                      barGap={2}
                     >
                       <CartesianGrid
                         strokeDasharray="3 3"
@@ -3933,19 +3979,50 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                         content={<MerchantChartTooltip />}
                         cursor={{ fill: "rgba(148, 163, 184, 0.15)" }}
                       />
-                      {hasAnyTarget ? (
+                      <Legend
+                        wrapperStyle={{ fontSize: 11, paddingTop: 4 }}
+                      />
+                      {hasAnyShopTarget ? (
                         <Bar
-                          dataKey="target"
-                          name="Target"
-                          fill="#64748b"
-                          radius={[0, 4, 4, 0]}
+                          dataKey="shopTarget"
+                          name="Shop target"
+                          fill="#94a3b8"
+                          radius={[0, 3, 3, 0]}
                         />
                       ) : null}
                       <Bar
-                        dataKey="sales"
-                        name="MTD sales"
-                        fill="#14b8a6"
-                        radius={[0, 4, 4, 0]}
+                        dataKey="shopSales"
+                        name="Shop sales"
+                        fill="#0d9488"
+                        radius={[0, 3, 3, 0]}
+                      />
+                      {hasAnyOnlineTarget ? (
+                        <Bar
+                          dataKey="onlineTarget"
+                          name="Online target"
+                          fill="#64748b"
+                          radius={[0, 3, 3, 0]}
+                        />
+                      ) : null}
+                      <Bar
+                        dataKey="onlineSales"
+                        name="Online sales"
+                        fill="#3b82f6"
+                        radius={[0, 3, 3, 0]}
+                      />
+                      {hasAnyTarget ? (
+                        <Bar
+                          dataKey="totalTarget"
+                          name="Total target"
+                          fill="#475569"
+                          radius={[0, 3, 3, 0]}
+                        />
+                      ) : null}
+                      <Bar
+                        dataKey="totalSales"
+                        name="Total sales"
+                        fill="#10b981"
+                        radius={[0, 3, 3, 0]}
                       />
                     </BarChart>
                   </ResponsiveContainer>
@@ -3953,16 +4030,21 @@ export function MerchantDashboardPanel({ initialData }: Props) {
 
                 <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
                   {overviewRows.map((row, index) => {
+                    const totalTarget =
+                      row.periodTargetAmount != null && row.periodTargetAmount > 0
+                        ? row.periodTargetAmount
+                        : row.effectiveTotalTarget != null &&
+                            row.effectiveTotalTarget > 0
+                          ? row.effectiveTotalTarget
+                          : row.targetAmount != null && row.targetAmount > 0
+                            ? row.targetAmount
+                            : null;
                     const hasTarget =
-                      hasAnyTarget &&
-                      row.targetAmount != null &&
-                      row.targetAmount > 0;
+                      hasAnyTarget && totalTarget != null && totalTarget > 0;
                     const towardTarget = hasTarget
                       ? Math.min(
                           100,
-                          Math.round(
-                            (row.mtdSales / (row.targetAmount as number)) * 1000,
-                          ) / 10,
+                          Math.round((row.mtdSales / totalTarget) * 1000) / 10,
                         )
                       : null;
                     const relativeShare =
@@ -3984,6 +4066,12 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                     const ringC = 2 * Math.PI * ringR;
                     const ringOffset =
                       ringC * (1 - Math.min(100, progressPct) / 100);
+                    const shopPct =
+                      row.shopPercent != null ? Math.round(row.shopPercent) : null;
+                    const onlinePct =
+                      row.onlinePercent != null
+                        ? Math.round(row.onlinePercent)
+                        : null;
 
                     return (
                       <li key={row.merchantId}>
@@ -3998,7 +4086,7 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                           className="hover:bg-muted/50 flex h-full w-full flex-col items-center gap-2 rounded-xl border border-border/60 px-3 py-3 text-center transition-colors disabled:opacity-60"
                           title={
                             hasTarget
-                              ? `${towardTarget}% of target`
+                              ? `${towardTarget}% of total target`
                               : `${relativeShare}% of top MTD`
                           }
                         >
@@ -4043,13 +4131,21 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                             </p>
                             {hasTarget ? (
                               <p className="text-muted-foreground truncate text-[11px] tabular-nums">
-                                / {formatMoney(row.targetAmount as number)}
+                                Total / {formatMoney(totalTarget)}
                               </p>
                             ) : (
                               <p className="text-muted-foreground text-[11px]">
                                 No target
                               </p>
                             )}
+                            <p className="text-muted-foreground truncate text-[10px] tabular-nums">
+                              Shop {formatMoney(row.shop.amount)}
+                              {shopPct != null ? ` · ${shopPct}%` : ""}
+                            </p>
+                            <p className="text-muted-foreground truncate text-[10px] tabular-nums">
+                              Online {formatMoney(row.online.amount)}
+                              {onlinePct != null ? ` · ${onlinePct}%` : ""}
+                            </p>
                           </div>
                         </button>
                       </li>

@@ -51,6 +51,8 @@ export const customerInsightInvoicesQuerySchema = z.object({
   invoicesPageSize: z.coerce.number().int().min(1).max(50).default(25),
   brand: insightFilterListSchema(200),
   item: insightFilterListSchema(500),
+  /** Admin-only: preview contact detail as this merchant would see it. */
+  viewAsMerchant: trimmedString(1, LIMITS.knownName.max).optional(),
 });
 
 export const customerInsightProfilePatchSchema = z

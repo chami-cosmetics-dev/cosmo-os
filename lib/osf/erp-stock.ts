@@ -121,6 +121,47 @@ export async function fetchBinActualQty(input: {
   return map;
 }
 
+const WAREHOUSE_BIN_PAGE = 500;
+
+/** All Bin rows with actual_qty > 0 for warehouses (paginated, no SKU list). */
+export async function fetchPositiveBinsByWarehouses(input: {
+  cfg: OsfErpCredentials;
+  warehouses: string[];
+}): Promise<Map<string, number>> {
+  const map = new Map<string, number>();
+  const warehouses = [...new Set(input.warehouses.map((w) => w.trim()).filter(Boolean))];
+  if (warehouses.length === 0) return map;
+
+  const filters = JSON.stringify([
+    ["warehouse", "in", warehouses],
+    ["actual_qty", ">", 0],
+  ]);
+  const fields = JSON.stringify(["item_code", "warehouse", "actual_qty"]);
+
+  for (let start = 0; ; start += WAREHOUSE_BIN_PAGE) {
+    const path =
+      `/api/resource/Bin?filters=${encodeURIComponent(filters)}` +
+      `&fields=${encodeURIComponent(fields)}` +
+      `&limit_start=${start}&limit_page_length=${WAREHOUSE_BIN_PAGE}`;
+    const json = await erpGetJson<{
+      data?: Array<{ item_code?: string; warehouse?: string; actual_qty?: number }>;
+    }>(input.cfg, path);
+    const rows = json.data ?? [];
+    for (const row of rows) {
+      const item = row.item_code?.trim();
+      const wh = row.warehouse?.trim();
+      if (!item || !wh) continue;
+      const qty = Number(row.actual_qty);
+      if (!Number.isFinite(qty) || qty <= 0) continue;
+      const key = `${wh}::${item}`;
+      map.set(key, (map.get(key) ?? 0) + qty);
+    }
+    if (rows.length < WAREHOUSE_BIN_PAGE) break;
+  }
+
+  return map;
+}
+
 export function stockForColumn(
   binMap: Map<string, number>,
   warehouses: string[],

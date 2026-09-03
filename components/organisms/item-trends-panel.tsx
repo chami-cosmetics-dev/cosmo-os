@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, TrendingUp } from "lucide-react";
 
 import { DistrictsTabContent } from "@/components/organisms/item-trends/districts-panel";
@@ -34,23 +34,18 @@ type Props = {
 };
 
 function defaultFromTo() {
-  const to = new Date();
-  const from = new Date();
-  from.setDate(from.getDate() - 6);
-  return {
-    from: formatAppIsoDate(from),
-    to: formatAppIsoDate(to),
-  };
+  const today = formatAppIsoDate(new Date());
+  return { from: today, to: today };
 }
 
-const PRIORITY_OPTIONS = ["Top Priority", "Newly Added", "Non Priority", "all"];
+const PRIORITY_OPTIONS = ["all", "Top Priority", "Newly Added", "Non Priority", "Vat"];
 
 export function ItemTrendsPanel({ canManageRop }: Props) {
   const defaults = defaultFromTo();
   const { isPinned, togglePin, pinned, unpin, exportCsv } = useFocusList();
   const [from, setFrom] = useState(defaults.from);
   const [to, setTo] = useState(defaults.to);
-  const [priority, setPriority] = useState("Top Priority");
+  const [priority, setPriority] = useState("all");
   const [loading, setLoading] = useState(false);
   const [tab, setTab] = useState("movement");
 
@@ -74,18 +69,25 @@ export function ItemTrendsPanel({ canManageRop }: Props) {
   const [outlets, setOutlets] = useState<OutletBalanceRow[]>([]);
   const [transfers, setTransfers] = useState<TransferCandidate[]>([]);
   const [outletsLoading, setOutletsLoading] = useState(false);
+  const [outletSku, setOutletSku] = useState("");
 
   const [ropRows, setRopRows] = useState<RopSuggestionRow[]>([]);
   const [ropWindowLabel, setRopWindowLabel] = useState("");
   const [ropWindow, setRopWindow] = useState<"3m" | "2m" | "custom">("3m");
   const [ropLoading, setRopLoading] = useState(false);
+  const mainGen = useRef(0);
+  const outletsGen = useRef(0);
+  const ropGen = useRef(0);
+  const districtsGen = useRef(0);
 
   const loadMain = useCallback(async () => {
+    const gen = ++mainGen.current;
     setLoading(true);
     try {
-      const params = new URLSearchParams({ from, to, priority, limit: "100" });
+      const params = new URLSearchParams({ from, to, priority });
       const res = await fetch(`/api/admin/purchasing/item-trends/page-data?${params}`);
       const data = await res.json().catch(() => ({}));
+      if (gen !== mainGen.current) return;
       if (!res.ok) {
         notify.error(typeof data.error === "string" ? data.error : "Failed to load trends");
         setKpis(null);
@@ -103,18 +105,23 @@ export function ItemTrendsPanel({ canManageRop }: Props) {
       setIntelligentEngine(data.meta?.intelligentEngine ?? "disabled");
       setCompanyWide(!data.meta?.scopedLocationId);
     } catch {
+      if (gen !== mainGen.current) return;
       notify.error("Failed to load trends");
     } finally {
-      setLoading(false);
+      if (gen === mainGen.current) setLoading(false);
     }
   }, [from, to, priority]);
 
   const loadOutlets = useCallback(async () => {
+    const gen = ++outletsGen.current;
     setOutletsLoading(true);
     try {
-      const params = new URLSearchParams({ from, to });
+      const params = new URLSearchParams({ from, to, priority });
+      const sku = outletSku.trim();
+      if (sku) params.set("sku", sku);
       const res = await fetch(`/api/admin/purchasing/item-trends/outlets?${params}`);
       const data = await res.json().catch(() => ({}));
+      if (gen !== outletsGen.current) return;
       if (!res.ok) {
         notify.error(typeof data.error === "string" ? data.error : "Failed to load outlets");
         setOutlets([]);
@@ -124,23 +131,26 @@ export function ItemTrendsPanel({ canManageRop }: Props) {
       setOutlets(Array.isArray(data.outlets) ? data.outlets : []);
       setTransfers(Array.isArray(data.transfers) ? data.transfers : []);
     } catch {
+      if (gen !== outletsGen.current) return;
       notify.error("Failed to load outlets");
     } finally {
-      setOutletsLoading(false);
+      if (gen === outletsGen.current) setOutletsLoading(false);
     }
-  }, [from, to]);
+  }, [from, to, priority, outletSku]);
 
   const loadRop = useCallback(async () => {
+    const gen = ++ropGen.current;
     setRopLoading(true);
     try {
       const params = new URLSearchParams({
         from,
         to,
+        priority,
         ropWindow,
-        limit: "50",
       });
       const res = await fetch(`/api/admin/purchasing/item-trends/rop?${params}`);
       const data = await res.json().catch(() => ({}));
+      if (gen !== ropGen.current) return;
       if (!res.ok) {
         notify.error(typeof data.error === "string" ? data.error : "Failed to load ROP");
         setRopRows([]);
@@ -149,19 +159,22 @@ export function ItemTrendsPanel({ canManageRop }: Props) {
       setRopRows(Array.isArray(data.rows) ? data.rows : []);
       setRopWindowLabel(typeof data.windowLabel === "string" ? data.windowLabel : "");
     } catch {
+      if (gen !== ropGen.current) return;
       notify.error("Failed to load ROP");
     } finally {
-      setRopLoading(false);
+      if (gen === ropGen.current) setRopLoading(false);
     }
-  }, [from, to, ropWindow]);
+  }, [from, to, priority, ropWindow]);
 
   const loadDistricts = useCallback(async () => {
+    const gen = ++districtsGen.current;
     setDistrictsLoading(true);
     try {
-      const params = new URLSearchParams({ from, to });
+      const params = new URLSearchParams({ from, to, priority });
       if (selectedDistrict) params.set("district", selectedDistrict);
       const res = await fetch(`/api/admin/purchasing/item-trends/districts?${params}`);
       const data = await res.json().catch(() => ({}));
+      if (gen !== districtsGen.current) return;
       if (!res.ok) {
         if (res.status !== 403) {
           notify.error(typeof data.error === "string" ? data.error : "Failed to load districts");
@@ -175,11 +188,12 @@ export function ItemTrendsPanel({ canManageRop }: Props) {
       setDistrictItems(Array.isArray(data.items) ? data.items : []);
       setExpansion(Array.isArray(data.expansion) ? data.expansion : []);
     } catch {
+      if (gen !== districtsGen.current) return;
       notify.error("Failed to load districts");
     } finally {
-      setDistrictsLoading(false);
+      if (gen === districtsGen.current) setDistrictsLoading(false);
     }
-  }, [from, to, selectedDistrict]);
+  }, [from, to, priority, selectedDistrict]);
 
   useEffect(() => {
     void loadMain();
@@ -196,6 +210,13 @@ export function ItemTrendsPanel({ canManageRop }: Props) {
   useEffect(() => {
     if (tab === "districts" && companyWide) void loadDistricts();
   }, [tab, companyWide, loadDistricts]);
+
+  const refreshVisible = useCallback(() => {
+    void loadMain();
+    if (tab === "outlets") void loadOutlets();
+    if (tab === "rop") void loadRop();
+    if (tab === "districts" && companyWide) void loadDistricts();
+  }, [tab, companyWide, loadMain, loadOutlets, loadRop, loadDistricts]);
 
   const priorityChartData = useMemo(() => {
     const counts = new Map<string, number>();
@@ -220,7 +241,10 @@ export function ItemTrendsPanel({ canManageRop }: Props) {
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Filters</CardTitle>
-          <CardDescription>Asia/Colombo calendar days — default last 7 vs prior 7</CardDescription>
+          <CardDescription>
+            Asia/Colombo calendar days — default today (change From/To for a range). Date +
+            priority apply to all tabs. Outlets: item sale counts, or type SKU for all shops.
+          </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap items-end gap-3">
           <div>
@@ -245,7 +269,7 @@ export function ItemTrendsPanel({ canManageRop }: Props) {
               ))}
             </select>
           </div>
-          <Button type="button" onClick={() => void loadMain()} disabled={loading}>
+          <Button type="button" onClick={() => refreshVisible()} disabled={loading}>
             {loading ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
@@ -335,7 +359,10 @@ export function ItemTrendsPanel({ canManageRop }: Props) {
         <TabsContent value="movement" className="space-y-4 mt-4">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Fast movers</CardTitle>
+              <CardTitle className="text-base">
+                All items ({movement.length})
+              </CardTitle>
+              <CardDescription>Full catalog for this priority — search and page 100 at a time</CardDescription>
             </CardHeader>
             <CardContent>
               {loading ? (
@@ -387,7 +414,11 @@ export function ItemTrendsPanel({ canManageRop }: Props) {
         <TabsContent value="outlets" className="mt-4">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Outlet balance & transfers</CardTitle>
+              <CardTitle className="text-base">Item sales by shop</CardTitle>
+              <CardDescription>
+                Default = today&apos;s shop POS units (From/To for any range). Type exact SKU to
+                see that item at every shop. Online ignored.
+              </CardDescription>
             </CardHeader>
             <CardContent>
               {outletsLoading ? (
@@ -396,7 +427,12 @@ export function ItemTrendsPanel({ canManageRop }: Props) {
                   Loading outlets…
                 </div>
               ) : (
-                <OutletsPanel outlets={outlets} transfers={transfers} />
+                <OutletsPanel
+                  outlets={outlets}
+                  transfers={transfers}
+                  skuQuery={outletSku}
+                  onSkuQueryChange={setOutletSku}
+                />
               )}
             </CardContent>
           </Card>
@@ -405,9 +441,10 @@ export function ItemTrendsPanel({ canManageRop }: Props) {
         <TabsContent value="rop" className="mt-4">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">ROP suggestions (window sales × 2)</CardTitle>
+              <CardTitle className="text-base">ROP suggestions (peak month × 2)</CardTitle>
               <CardDescription>
-                Review and apply via OSF — never saves without explicit Apply
+                Peak month in the ROP window × 2. Increase/Hold/Decrease overlay uses dashboard
+                From/To + priority. Review and apply via OSF — never saves without explicit Apply.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -438,7 +475,8 @@ export function ItemTrendsPanel({ canManageRop }: Props) {
               <CardHeader>
                 <CardTitle className="text-base">District demand & expansion</CardTitle>
                 <CardDescription>
-                  Shipping-address geography — 25 Sri Lanka districts + Unmapped
+                  Shipping-address geography for selected From/To + priority — 25 Sri Lanka
+                  districts + Unmapped
                 </CardDescription>
               </CardHeader>
               <CardContent>

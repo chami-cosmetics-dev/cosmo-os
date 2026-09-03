@@ -100,9 +100,11 @@ export async function loadBookNoteDaysInRange(input: {
   );
 }
 
-/** Recent saved days for allowed shop(s), newest first. */
+/** Recent saved days this user uploaded (created or last saved), newest first. */
 export async function loadBookNoteHistory(input: {
   companyId: string;
+  /** Current user — history is only sheets they created or saved. */
+  createdByUserId: string;
   /** When set, only that shop. When omitted, all `companyLocationIds`. */
   companyLocationId?: string;
   companyLocationIds: string[];
@@ -120,11 +122,15 @@ export async function loadBookNoteHistory(input: {
     : allowed;
   if (locationFilter.length === 0) return [];
 
+  const userId = input.createdByUserId;
+  if (!userId) return [];
+
   const limit = Math.min(Math.max(input.limit ?? 30, 1), 60);
   const days = await prisma.bookNoteDay.findMany({
     where: {
       companyId: input.companyId,
       companyLocationId: { in: locationFilter },
+      OR: [{ createdByUserId: userId }, { updatedByUserId: userId }],
     },
     orderBy: [{ postingDate: "desc" }, { updatedAt: "desc" }],
     take: limit,

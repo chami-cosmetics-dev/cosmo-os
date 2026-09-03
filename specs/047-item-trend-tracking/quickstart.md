@@ -47,7 +47,7 @@ RBAC sync adds `purchasing.item_trends.read` on first request boot / login flow 
 ## 4) ROP suggestion
 
 1. Open **ROP** tab; default 3-month window
-2. Pick SKU with known window sales S → suggested ROP = **S × 2**
+2. Pick SKU with known monthly units (e.g. 4000 / 1000 / 8000) → suggested ROP = **peak month × 2** (16000), not window total × 2
 3. Switch to 2-month window → values recalculate
 4. Accelerating SKU shows **increase** overlay; slowdown shows **decrease**
 5. With `purchasing.osf.manage`, apply suggestion via UI → confirm `ProductOsfRop` updated only after save

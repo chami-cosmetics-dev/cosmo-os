@@ -1,6 +1,9 @@
 "use client";
 
+import { useCallback } from "react";
+
 import type { ItemMovementRow } from "@/lib/item-trends/types";
+import { ListPager, usePagedRows } from "@/components/organisms/item-trends/list-pager";
 
 type Props = {
   rows: ItemMovementRow[];
@@ -18,6 +21,9 @@ function severityClass(row: ItemMovementRow): string {
 }
 
 export function SlowdownPanel({ rows }: Props) {
+  const fields = useCallback((row: ItemMovementRow) => [row.sku, row.title], []);
+  const paged = usePagedRows(rows, fields, 50);
+
   if (rows.length === 0) {
     return (
       <p className="text-sm text-muted-foreground">
@@ -27,24 +33,36 @@ export function SlowdownPanel({ rows }: Props) {
   }
 
   return (
-    <div className="space-y-2">
-      {rows.map((row) => (
-        <div
-          key={row.sku}
-          className={`rounded-md border px-3 py-2 text-sm ${severityClass(row)}`}
-        >
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="font-medium text-foreground">{row.sku}</span>
-            <span className="text-xs text-muted-foreground">
-              {row.unitsPrior} → {row.unitsCurrent} units
-              {row.speedChangePct != null ? ` (${row.speedChangePct}%)` : ""}
-            </span>
+    <div>
+      <ListPager
+        query={paged.query}
+        onQueryChange={paged.setQuery}
+        page={paged.page}
+        pageCount={paged.pageCount}
+        total={paged.total}
+        from={paged.from}
+        to={paged.to}
+        onPage={paged.setPage}
+      />
+      <div className="space-y-2">
+        {paged.slice.map((row) => (
+          <div
+            key={row.sku}
+            className={`rounded-md border px-3 py-2 text-sm ${severityClass(row)}`}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="font-medium text-foreground">{row.sku}</span>
+              <span className="text-xs text-muted-foreground">
+                {row.unitsPrior} → {row.unitsCurrent} units
+                {row.speedChangePct != null ? ` (${row.speedChangePct}%)` : ""}
+              </span>
+            </div>
+            {row.title ? (
+              <div className="truncate text-xs text-muted-foreground">{row.title}</div>
+            ) : null}
           </div>
-          {row.title ? (
-            <div className="truncate text-xs text-muted-foreground">{row.title}</div>
-          ) : null}
-        </div>
-      ))}
+        ))}
+      </div>
     </div>
   );
 }
