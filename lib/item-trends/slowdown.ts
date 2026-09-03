@@ -57,5 +57,5 @@ export async function fetchSlowdownAlerts(
   }
 
   rows.sort((a, b) => (a.speedChangePct ?? 0) - (b.speedChangePct ?? 0));
-  return rows.slice(0, limit);
+  return rows;
 }

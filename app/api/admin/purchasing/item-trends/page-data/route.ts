@@ -19,7 +19,7 @@ import { resolveItemTrendsScope } from "@/lib/item-trends/scope";
 import { getCurrentUserContext, requirePermission } from "@/lib/rbac";
 import { itemTrendsQuerySchema } from "@/lib/validation";
 
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 export async function GET(request: NextRequest) {
   const auth = await requirePermission("purchasing.item_trends.read");
@@ -42,7 +42,7 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const { from, to, compareFrom, compareTo, priority, limit } = parsed.data;
+  const { from, to, compareFrom, compareTo, priority } = parsed.data;
 
   try {
     const { current, prior } = resolveItemTrendWindows({
@@ -63,13 +63,12 @@ export async function GET(request: NextRequest) {
       await Promise.all([
         fetchMovementLeaderboard(companyId, current, prior, {
           priority: priorityFilter,
-          limit,
           companyLocationId: locationFilter,
         }),
-        fetchNewItemRows(companyId, current, prior, limit),
-        fetchSlowdownRows(companyId, current, prior, limit),
+        fetchNewItemRows(companyId, current, prior),
+        fetchSlowdownRows(companyId, current, prior),
         scope.companyWide
-          ? fetchDistrictLeaderboard(companyId, current, prior, "units")
+          ? fetchDistrictLeaderboard(companyId, current, prior, "units", priorityFilter)
           : Promise.resolve([]),
         patternsAvailable
           ? fetchSkuWeekdayBuckets(companyId, current)

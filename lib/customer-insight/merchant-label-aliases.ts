@@ -6,7 +6,10 @@
  */
 
 import { getMerchantDisplayName } from "@/lib/customer-insight/auto-allocate";
-import { merchantMatchKeysForUser } from "@/lib/customer-insight/ownership";
+import {
+  merchantMatchKeysForUser,
+  type ViewerIdentity,
+} from "@/lib/customer-insight/ownership";
 import {
   getPrimaryMerCode,
   merMatchKeysFromCouponCodes,
@@ -271,6 +274,71 @@ export async function findMerchantUserForFilterValue(
   const label = insightMerchantOptionLabel(hit);
   if (!value || !label) return null;
   return { id: hit.id, value, label };
+}
+
+/**
+ * Build a non-admin ViewerIdentity for Insight "view as merchant" preview.
+ * Pure helper — used by async resolver + unit tests.
+ */
+export function merchantPreviewViewerFromSelection(input: {
+  selected: string;
+  merchantUser?: {
+    knownName?: string | null;
+    name?: string | null;
+    email?: string | null;
+    couponCodes?: string[] | null;
+  } | null;
+  aliasLabels?: string[];
+}): ViewerIdentity {
+  const selected = input.selected.trim();
+  if (input.merchantUser) {
+    return {
+      knownName: input.merchantUser.knownName ?? null,
+      name: input.merchantUser.name ?? null,
+      email: input.merchantUser.email ?? null,
+      couponCodes: input.merchantUser.couponCodes ?? null,
+      roleNames: ["merchant"],
+      permissionKeys: [],
+    };
+  }
+  const primary = input.aliasLabels?.[0]?.trim() || selected;
+  const merKey = normalizeMerCodeKey(selected);
+  return {
+    knownName: primary,
+    name: null,
+    email: null,
+    couponCodes: merKey ? [merKey] : null,
+    roleNames: ["merchant"],
+    permissionKeys: [],
+  };
+}
+
+/**
+ * Resolve dropdown value → merchant-session viewer (no admin short-circuit).
+ * Fixed buckets (DM-General, STAFF SALES) use alias labels as knownName.
+ */
+export async function viewerIdentityForMerchantFilter(
+  companyId: string,
+  selected: string | null | undefined
+): Promise<ViewerIdentity | null> {
+  const trimmed = (selected ?? "").trim();
+  if (!trimmed) return null;
+
+  const users = await listCompanyMerchantFilterUsers(companyId);
+  const hit = users.find((u) => userMatchesFilterValue(u, trimmed));
+  if (hit) {
+    return merchantPreviewViewerFromSelection({
+      selected: trimmed,
+      merchantUser: hit,
+    });
+  }
+
+  const aliases = await resolveAssignedMerchantFilterLabels(companyId, trimmed);
+  if (aliases.length === 0) return null;
+  return merchantPreviewViewerFromSelection({
+    selected: trimmed,
+    aliasLabels: aliases,
+  });
 }
 
 export async function listInsightMerchantRosterOptions(

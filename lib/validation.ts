@@ -472,7 +472,7 @@ export const itemTrendsQuerySchema = z.object({
   priority: z.string().max(64).optional(),
   district: z.string().max(80).optional(),
   sections: z.string().max(200).optional(),
-  limit: z.coerce.number().int().min(1).max(100).optional().default(50),
+  limit: z.coerce.number().int().min(1).max(20000).optional(),
 });
 
 export const itemTrendsDistrictsQuerySchema = z.object({
@@ -480,6 +480,7 @@ export const itemTrendsDistrictsQuerySchema = z.object({
   to: itemTrendsYmdSchema,
   compareFrom: itemTrendsYmdSchema.optional(),
   compareTo: itemTrendsYmdSchema.optional(),
+  priority: z.string().max(64).optional(),
   district: z.string().max(80).optional(),
   sortBy: z.enum(["units", "amount", "speed"]).optional().default("units"),
   includeAreaGrowth: z
@@ -491,6 +492,7 @@ export const itemTrendsDistrictsQuerySchema = z.object({
 export const itemTrendsOutletsQuerySchema = z.object({
   from: itemTrendsYmdSchema,
   to: itemTrendsYmdSchema,
+  priority: z.string().max(64).optional(),
   sku: z.string().max(80).optional(),
   columnKey: z.string().max(64).optional(),
   transfersOnly: z
@@ -508,5 +510,5 @@ export const itemTrendsRopQuerySchema = z.object({
   priority: z.string().max(64).optional(),
   sku: z.string().max(80).optional(),
   offset: z.coerce.number().int().min(0).optional().default(0),
-  limit: z.coerce.number().int().min(1).max(100).optional().default(50),
+  limit: z.coerce.number().int().min(1).max(20000).optional(),
 });

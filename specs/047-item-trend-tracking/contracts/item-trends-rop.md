@@ -18,8 +18,10 @@ ROP suggestions for purchasing / supplier admin review.
 | `offset`, `limit` | number | Pagination; default limit 50 |
 
 ## Behavior
-- `windowSales` = units sold in ROP window via `aggregateSalesBySkuInRange`
-- `suggestedRop = round(windowSales * 2)`
+- Split completed-sale units in the ROP window into **calendar months** (Asia/Colombo)
+- `peakMonthSales` = highest month’s units in that window (e.g. 4000 / 1000 / 8000 → **8000**)
+- `windowSales` = sum of those months (shown for context)
+- `suggestedRop = round(peakMonthSales * 2)` — **not** window total × 2
 - `currentRop` from `ProductOsfRop` (primary includeInRop column)
 - `overlay`: increase | hold | decrease from movement signals vs current ROP
 
@@ -35,8 +37,10 @@ ROP suggestions for purchasing / supplier admin review.
       "sku": "ABC123",
       "priority": "Top Priority",
       "currentRop": 40,
-      "windowSales": 45,
-      "suggestedRop": 90,
+      "windowSales": 13000,
+      "peakMonthSales": 8000,
+      "peakMonth": "2026-08",
+      "suggestedRop": 16000,
       "overlay": "increase",
       "columnKey": "common_rop"
     }

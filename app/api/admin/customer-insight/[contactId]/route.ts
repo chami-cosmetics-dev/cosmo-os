@@ -3,7 +3,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { loadCustomerInsight } from "@/lib/customer-insight/load";
 import { completeCallQueueItem } from "@/lib/customer-insight/call-queue";
 import { readInsightFilterList } from "@/lib/customer-insight/filter-query-params";
-import { isAllocatedOwner } from "@/lib/customer-insight/ownership";
+import {
+  hasInsightAdminView,
+  isAllocatedOwner,
+} from "@/lib/customer-insight/ownership";
 import { updateContactInsightProfile } from "@/lib/customer-insight/profile";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
@@ -74,12 +77,20 @@ export async function GET(request: NextRequest, { params }: Params) {
     invoicesPageSize: request.nextUrl.searchParams.get("invoicesPageSize") ?? undefined,
     brand: readInsightFilterList(request.nextUrl.searchParams, "brand"),
     item: readInsightFilterList(request.nextUrl.searchParams, "item"),
+    viewAsMerchant:
+      request.nextUrl.searchParams.get("viewAsMerchant") ?? undefined,
   });
   if (!queryParsed.success) {
     return NextResponse.json(
       { error: "Validation failed", details: queryParsed.error.flatten() },
       { status: 400 }
     );
+  }
+
+  const viewer = await viewerFromAuth(auth);
+  const viewAsMerchant = queryParsed.data.viewAsMerchant?.trim() || null;
+  if (viewAsMerchant && !hasInsightAdminView(viewer)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const insight = await loadCustomerInsight({
@@ -89,7 +100,8 @@ export async function GET(request: NextRequest, { params }: Params) {
     invoicesPageSize: queryParsed.data.invoicesPageSize,
     historyBrands: queryParsed.data.brand,
     historyItems: queryParsed.data.item,
-    viewer: await viewerFromAuth(auth),
+    viewer,
+    viewAsMerchant,
   });
   if (!insight) {
     return NextResponse.json({ error: "Contact not found" }, { status: 404 });

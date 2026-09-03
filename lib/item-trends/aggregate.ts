@@ -201,13 +201,38 @@ export async function aggregateSalesBySkuInRangeForLocation(
   return map;
 }
 
+export async function filterSkusByPriority(
+  companyId: string,
+  skus: string[],
+  priority?: string | null,
+): Promise<string[]> {
+  const filter = (priority ?? "").trim();
+  if (!filter || filter.toLowerCase() === "all" || skus.length === 0) return skus;
+  const items = await prisma.productItem.findMany({
+    where: { companyId, sku: { in: skus } },
+    select: {
+      sku: true,
+      erp1ProductPriority: true,
+      erp2ProductPriority: true,
+    },
+  });
+  const keep = new Set<string>();
+  for (const item of items) {
+    const sku = item.sku?.trim();
+    if (!sku) continue;
+    if (matchesPriorityFilter(item.erp1ProductPriority, item.erp2ProductPriority, filter)) {
+      keep.add(sku);
+    }
+  }
+  return skus.filter((sku) => keep.has(sku));
+}
+
 export async function fetchMovementLeaderboard(
   companyId: string,
   current: ItemTrendDateRange,
   prior: ItemTrendDateRange,
   filters: MovementLeaderboardFilters = {},
 ): Promise<ItemMovementRow[]> {
-  const limit = Math.min(Math.max(filters.limit ?? 100, 1), 100);
   const priorityFilter = filters.priority?.trim() || "Top Priority";
   const locationId = filters.companyLocationId?.trim();
 
@@ -234,21 +259,12 @@ export async function fetchMovementLeaderboard(
     }),
   ]);
 
-  const allSkus = new Set<string>([...currentSales.keys(), ...priorSales.keys()]);
-  const sparklines = await aggregateSparklinesBySku(
-    companyId,
-    current.rangeStart,
-    current.rangeEndExclusive,
-    [...allSkus].slice(0, 200),
-  );
-
   const rows: ItemMovementRow[] = [];
   for (const item of items) {
     const sku = item.sku?.trim();
     if (!sku) continue;
     const unitsCurrent = currentSales.get(sku) ?? 0;
     const unitsPrior = priorSales.get(sku) ?? 0;
-    if (unitsCurrent === 0 && unitsPrior === 0) continue;
 
     const priority = resolveEffectivePriority(item.erp1ProductPriority, item.erp2ProductPriority);
     if (!matchesPriorityFilter(item.erp1ProductPriority, item.erp2ProductPriority, priorityFilter)) {
@@ -268,7 +284,7 @@ export async function fetchMovementLeaderboard(
       speedChangePct: percentChange(unitsCurrent, unitsPrior),
       signal,
       signalSource: "rule_based",
-      sparkline: sparklines.get(sku) ?? [],
+      sparkline: [],
     });
   }
 
@@ -279,7 +295,23 @@ export async function fetchMovementLeaderboard(
     return a.sku.localeCompare(b.sku);
   });
 
-  return rows.slice(0, limit);
+  const sparklineSkus = rows
+    .filter((row) => row.unitsCurrent > 0 || row.unitsPrior > 0)
+    .slice(0, 100)
+    .map((row) => row.sku);
+  if (sparklineSkus.length > 0) {
+    const sparklines = await aggregateSparklinesBySku(
+      companyId,
+      current.rangeStart,
+      current.rangeEndExclusive,
+      sparklineSkus,
+    );
+    for (const row of rows) {
+      row.sparkline = sparklines.get(row.sku) ?? [];
+    }
+  }
+
+  return rows;
 }
 
 export async function fetchNewItemRows(
@@ -328,7 +360,7 @@ export async function fetchNewItemRows(
   }
 
   rows.sort((a, b) => b.unitsCurrent - a.unitsCurrent);
-  return rows.slice(0, limit);
+  return rows;
 }
 
 export async function fetchSkuWeekdayBuckets(

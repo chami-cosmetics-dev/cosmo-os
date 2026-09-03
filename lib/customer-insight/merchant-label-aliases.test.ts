@@ -7,7 +7,12 @@ import {
   insightMerchantOptionLabel,
   insightMerchantOptionValue,
   isDmGeneralAssignedMerchant,
+  merchantPreviewViewerFromSelection,
 } from "@/lib/customer-insight/merchant-label-aliases";
+import {
+  hasInsightAdminView,
+  insightVisibility,
+} from "@/lib/customer-insight/ownership";
 
 describe("assigned merchant aliases", () => {
   it("treats MER115 and DM - General as the same group", () => {
@@ -71,6 +76,32 @@ describe("assigned merchant aliases", () => {
         couponCodes: ["MER91-Sandali", "MER91"],
       })
     ).toBe("sandali (MER91)");
+  });
+
+  it("builds preview viewer without admin privileges", () => {
+    const fromUser = merchantPreviewViewerFromSelection({
+      selected: "MER91",
+      merchantUser: {
+        knownName: "sandali",
+        name: "Sadali Navodya",
+        email: "s@example.com",
+        couponCodes: ["MER91"],
+      },
+    });
+    expect(fromUser.roleNames).toEqual(["merchant"]);
+    expect(fromUser.permissionKeys).toEqual([]);
+    expect(fromUser.knownName).toBe("sandali");
+    expect(fromUser.couponCodes).toEqual(["MER91"]);
+
+    const fromBucket = merchantPreviewViewerFromSelection({
+      selected: "DM - General",
+      aliasLabels: ["DM - General", "MER115"],
+    });
+    expect(fromBucket.knownName).toBe("DM - General");
+    expect(fromBucket.roleNames).toEqual(["merchant"]);
+    expect(hasInsightAdminView(fromBucket)).toBe(false);
+    expect(insightVisibility(fromBucket, "DM - General")).toBe("owner");
+    expect(insightVisibility(fromBucket, "Other Merchant")).toBe("limited");
   });
 
   it("falls back to knownName when merchant has no MER", () => {

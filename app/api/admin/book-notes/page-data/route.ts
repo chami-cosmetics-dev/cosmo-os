@@ -20,6 +20,7 @@ export async function GET(request: NextRequest) {
   }
 
   const companyId = auth.context!.user?.companyId ?? null;
+  const userId = auth.context!.user?.id ?? null;
   if (!companyId) {
     return NextResponse.json(
       { error: "No company associated with your account" },
@@ -57,17 +58,10 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  if (allowedIds.length > 0) {
+  if (allowedIds.length > 0 && userId) {
     history = await loadBookNoteHistory({
       companyId,
-      // Merchants: only the selected shop. Admins: all shops.
-      companyLocationId: access.canAccessAllShops
-        ? undefined
-        : locationId && assertBookNoteShopAllowed(access, locationId)
-          ? locationId
-          : allowedIds.length === 1
-            ? allowedIds[0]
-            : undefined,
+      createdByUserId: userId,
       companyLocationIds: allowedIds,
       writeAccess,
     });

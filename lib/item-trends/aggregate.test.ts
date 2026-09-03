@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   calendarDaysInclusive,
+  filterSkusByPriority,
   percentChange,
   resolveItemTrendWindows,
   speedPerDay,
@@ -31,5 +32,12 @@ describe("item-trends aggregate", () => {
     expect(percentChange(12, 10)).toBe(20);
     expect(percentChange(0, 10)).toBe(-100);
     expect(percentChange(5, 0)).toBe(100);
+  });
+
+  it("passes SKUs through when priority is all or empty", async () => {
+    const skus = ["A", "B"];
+    expect(await filterSkusByPriority("co", skus, "all")).toEqual(skus);
+    expect(await filterSkusByPriority("co", skus, "")).toEqual(skus);
+    expect(await filterSkusByPriority("co", [], "Top Priority")).toEqual([]);
   });
 });

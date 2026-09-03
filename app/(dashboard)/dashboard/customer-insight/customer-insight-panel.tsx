@@ -1196,7 +1196,8 @@ export function CustomerInsightPanel({
   async function loadInsight(
     contactId: string,
     page: number,
-    scopeOverride?: { brands?: string[]; items?: string[] }
+    scopeOverride?: { brands?: string[]; items?: string[] },
+    viewAsOverride?: string | null
   ) {
     setBusyKey(`insight-${contactId}`);
     setEditing(false);
@@ -1211,6 +1212,12 @@ export function CustomerInsightPanel({
       });
       appendInsightFilterList(params, "brand", brands);
       appendInsightFilterList(params, "item", items);
+      const viewAs = canExportFilteredCsv
+        ? (viewAsOverride !== undefined
+            ? (viewAsOverride ?? "").trim()
+            : filterAssignedMerchant.trim())
+        : "";
+      if (viewAs) params.set("viewAsMerchant", viewAs);
       const res = await fetch(
         `/api/admin/customer-insight/${encodeURIComponent(contactId)}?${params}`
       );
@@ -1239,8 +1246,13 @@ export function CustomerInsightPanel({
           ),
         });
         try {
+          const historyParams = new URLSearchParams();
+          if (viewAs) historyParams.set("viewAsMerchant", viewAs);
+          const historyQs = historyParams.toString();
           const hRes = await fetch(
-            `/api/admin/customer-insight/${encodeURIComponent(contactId)}/contact-history`
+            `/api/admin/customer-insight/${encodeURIComponent(contactId)}/contact-history${
+              historyQs ? `?${historyQs}` : ""
+            }`
           );
           const hData = await hRes.json().catch(() => ({}));
           if (hRes.ok && Array.isArray(hData.items)) {
@@ -1433,6 +1445,10 @@ export function CustomerInsightPanel({
   }
 
   async function runFilters(page = 1) {
+    if (canExportFilteredCsv && !filterAssignedMerchant.trim()) {
+      notify.error("Select a merchant to preview their filtered results.");
+      return;
+    }
     setBusyKey("filter");
     setFilterPage(page);
     try {
@@ -1489,6 +1505,10 @@ export function CustomerInsightPanel({
 
   async function exportFilteredCsv() {
     if (!canExportFilteredCsv) return;
+    if (!filterAssignedMerchant.trim()) {
+      notify.error("Select a merchant to preview their filtered results.");
+      return;
+    }
     setBusyKey("export-filter");
     try {
       const params = buildFilterParams(1);
@@ -1620,6 +1640,13 @@ export function CustomerInsightPanel({
       : insight?.progressBar?.tier === "gold"
         ? "Platinum"
         : "Gold";
+  const viewAsMerchantLabel = useMemo(() => {
+    const value = filterAssignedMerchant.trim();
+    if (!value) return null;
+    return (
+      merchantOptions.find((o) => o.value === value)?.label ?? value
+    );
+  }, [filterAssignedMerchant, merchantOptions]);
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-6 sm:px-6">
@@ -1628,11 +1655,24 @@ export function CustomerInsightPanel({
         <p className="text-sm text-muted-foreground">
           View customer profile, purchase history, and loyalty details. Allocated merchants and
           admins can edit profile fields.{" "}
-          {canFilterAllContacts
-            ? "Filters search all company contacts."
-            : "Filters search your allocated customers."}
+          {canExportFilteredCsv
+            ? "Pick a merchant to preview filters and contact detail as they see them."
+            : canFilterAllContacts
+              ? "Filters search all company contacts."
+              : "Filters search your allocated customers."}
         </p>
       </div>
+
+      {canExportFilteredCsv && viewAsMerchantLabel ? (
+        <div
+          className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-950 dark:text-amber-100"
+          role="status"
+        >
+          Viewing as <span className="font-medium">{viewAsMerchantLabel}</span>
+          {" — "}
+          filters and contact detail match that merchant&apos;s session (owner vs limited).
+        </div>
+      ) : null}
 
       <Tabs
         value={insightTab}
@@ -1658,9 +1698,11 @@ export function CustomerInsightPanel({
             {canFilterAllContacts ? "Customer filters" : "Allocated customer filters"}
           </CardTitle>
           <CardDescription>
-            {canFilterAllContacts
-              ? "Results include all company contacts matching your filters (allocated and unallocated)."
-              : "Results are limited to your allocated customers."}{" "}
+            {canExportFilteredCsv
+              ? "Select a merchant first. Results are scoped to their allocated contacts, and opening a contact uses their owner/limited visibility."
+              : canFilterAllContacts
+                ? "Results include all company contacts matching your filters (allocated and unallocated)."
+                : "Results are limited to your allocated customers."}{" "}
             Min/max total uses lifetime spend (completed Cosmo orders + Adapt history) across that
             full set. Without brands, highest lifetime totals first. Multiple brands = any of them
             (even one matching item). Ranked by combined spend on those brands. Multiple items =
@@ -1762,14 +1804,21 @@ export function CustomerInsightPanel({
             </label>
             {canExportFilteredCsv ? (
               <label className="space-y-1 text-sm">
-                <span className="text-muted-foreground">Allocated merchant</span>
+                <span className="text-muted-foreground">View as merchant</span>
                 <InsightSearchableSelect
                   value={filterAssignedMerchant}
                   options={merchantOptions}
-                  placeholder="Any"
+                  placeholder="Select merchant"
                   searchPlaceholder="Search merchants…"
                   disabled={isBusy}
-                  onChange={setFilterAssignedMerchant}
+                  onChange={(next) => {
+                    setFilterAssignedMerchant(next);
+                    setFilterResults(null);
+                    setFilterTotal(0);
+                    if (selectedContactId) {
+                      void loadInsight(selectedContactId, 1, undefined, next);
+                    }
+                  }}
                 />
               </label>
             ) : null}
@@ -2244,8 +2293,9 @@ export function CustomerInsightPanel({
               </CardHeader>
               <CardContent>
                 <p className="text-xs text-muted-foreground">
-                  You are not the allocated merchant. Name, phone, and email are visible.
-                  Full profile, progress bar, contacted, and spend chart stay hidden.
+                  {viewAsMerchantLabel
+                    ? `${viewAsMerchantLabel} is not the allocated merchant. Name, phone, and email are visible. Full profile, progress bar, contacted, and spend chart stay hidden.`
+                    : "You are not the allocated merchant. Name, phone, and email are visible. Full profile, progress bar, contacted, and spend chart stay hidden."}
                 </p>
               </CardContent>
             </Card>

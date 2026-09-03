@@ -121,8 +121,10 @@ No new Prisma models in v1. Read models computed from existing tables + ERP stoc
 | sku | string | |
 | priority | string | |
 | currentRop | number \| null | Per primary ROP column |
-| windowSales | number | Selected window |
-| suggestedRop | number | windowSales × 2 |
+| windowSales | number | Sum of units in selected window |
+| peakMonthSales | number | Highest calendar-month units in window |
+| peakMonth | string \| null | YYYY-MM of peak month |
+| suggestedRop | number | peakMonthSales × 2 |
 | overlay | enum | increase \| hold \| decrease |
 | windowLabel | string | e.g. "Last 3 months" |
 | columnKey | string | ROP target column |
@@ -155,7 +157,7 @@ No new Prisma models in v1. Read models computed from existing tables + ERP stoc
 - Date range: `from` ≤ `to`; max range 366 days for movement; pattern zone requires ≥28 days
 - Minimum volume: fast mover ≥3 units in current period
 - Slowdown: ≥25% unit drop, prior period ≥5 units, Top Priority default filter
-- ROP suggested: `Math.round(windowSales * 2)`; non-negative
+- ROP suggested: `Math.round(peakMonthSales * 2)`; non-negative
 - Transfer: source stock ≥5, speed gap between outlets meaningful (dest ≥2× source speed or dest top quartile + source bottom quartile)
 - District: must be non-empty string; `Unmapped` excluded from expansion rank
 

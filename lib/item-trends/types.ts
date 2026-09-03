@@ -95,6 +95,8 @@ export type RopSuggestionRow = {
   priority: string;
   currentRop: number | null;
   windowSales: number;
+  peakMonthSales: number;
+  peakMonth: string | null;
   suggestedRop: number;
   overlay: RopOverlay;
   windowLabel: string;

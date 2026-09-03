@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { ListPager, usePagedRows } from "@/components/organisms/item-trends/list-pager";
 import { notify } from "@/lib/notify";
 import type { RopSuggestionRow } from "@/lib/item-trends/types";
 
@@ -31,6 +32,8 @@ export function RopPanel({
   onRefresh,
 }: Props) {
   const [busySku, setBusySku] = useState<string | null>(null);
+  const fields = useCallback((row: RopSuggestionRow) => [row.sku, row.priority], []);
+  const paged = usePagedRows(rows, fields);
 
   async function applyRop(row: RopSuggestionRow) {
     if (!canManageRop) return;
@@ -80,13 +83,25 @@ export function RopPanel({
       {rows.length === 0 ? (
         <p className="text-sm text-muted-foreground">No ROP suggestions.</p>
       ) : (
+        <div>
+          <ListPager
+            query={paged.query}
+            onQueryChange={paged.setQuery}
+            page={paged.page}
+            pageCount={paged.pageCount}
+            total={paged.total}
+            from={paged.from}
+            to={paged.to}
+            onPage={paged.setPage}
+          />
         <div className="overflow-x-auto rounded-md border">
           <table className="w-full text-sm">
             <thead className="bg-muted/50 text-left">
               <tr>
                 <th className="px-3 py-2">SKU</th>
                 <th className="px-3 py-2">Priority</th>
-                <th className="px-3 py-2 text-right">Window sales</th>
+                <th className="px-3 py-2 text-right">Peak month</th>
+                <th className="px-3 py-2 text-right">Window total</th>
                 <th className="px-3 py-2 text-right">Current ROP</th>
                 <th className="px-3 py-2 text-right">Suggested ×2</th>
                 <th className="px-3 py-2">Overlay</th>
@@ -94,11 +109,17 @@ export function RopPanel({
               </tr>
             </thead>
             <tbody>
-              {rows.map((row) => (
+              {paged.slice.map((row) => (
                 <tr key={row.sku} className="border-t">
                   <td className="px-3 py-2 font-medium">{row.sku}</td>
                   <td className="px-3 py-2">{row.priority}</td>
-                  <td className="px-3 py-2 text-right">{row.windowSales}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">
+                    {row.peakMonthSales}
+                    {row.peakMonth ? (
+                      <span className="text-muted-foreground ml-1 text-xs">{row.peakMonth}</span>
+                    ) : null}
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums">{row.windowSales}</td>
                   <td className="px-3 py-2 text-right">{row.currentRop ?? "—"}</td>
                   <td className="px-3 py-2 text-right font-medium">{row.suggestedRop}</td>
                   <td className="px-3 py-2">{overlayBadge(row.overlay)}</td>
@@ -126,6 +147,7 @@ export function RopPanel({
               ))}
             </tbody>
           </table>
+        </div>
         </div>
       )}
     </div>

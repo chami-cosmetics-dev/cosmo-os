@@ -11,15 +11,19 @@ Outlet balance, per-outlet movement, and transfer candidates.
 | Param | Type | Rules |
 |-------|------|--------|
 | `from`, `to` | `YYYY-MM-DD` | Required |
-| `sku` | string | Optional filter |
+| `priority` | string | Optional filter (default `all`; `all` = no filter). Ignored when `sku` set |
+| `sku` | string | Optional exact SKU — returns that item at every shop (incl. zero sales) |
 | `columnKey` | string | Optional single outlet OSF column |
 | `transfersOnly` | boolean | Default false |
 
 ## Behavior
-- Outlets from `OsfColumnConfig` with stock columns
-- Stock: live ERP via `fetchSkuColumnLiveStock` (batched, max 50 SKUs per request if filtered)
-- Movement: sales attributed via `order.companyLocationId` → column key
-- `transfers`: pairs matching transfer candidate rules (see data-model.md)
+- Outlets from `OsfColumnConfig` with **shop warehouses** only
+- Cosmetics.lk **POS shops** (`cosmo_shop_*`: GCC, Pepiliyana, OGF, Kiribathgoda, Maharagama, Cool Planet)
+- Trading **Shop Warehouse - X** (LMJ, LWK, MNK, AJS, Chami, DRO, …) — Main / Stores / Website excluded
+- Cosmetics.lk website location column excluded (online sales not used)
+- Stock: live ERP bins on shop warehouses
+- Movement: `order.erpnextWarehouse` → shop column, or trading POS at shop location
+- `transfers`: same SKU slow+high stock at one shop, faster at another
 
 ## Response `200`
 

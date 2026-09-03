@@ -47,7 +47,7 @@
 
 ## R6 — ROP suggestion formula
 
-**Decision**: **Suggested ROP = round(units sold in selected window × 2)**. Windows: default last **3 calendar months** (Colombo month boundaries via existing date helpers); preset **2 months**; custom `from`/`to` dates inclusive. Read current ROP from `ProductOsfRop` (primary ROP column or sum per spec 006 conventions—use same column set as OSF assist for v1).
+**Decision**: **Suggested ROP = round(highest calendar-month units in the selected window × 2)** — not window total × 2. Example: 4000 / 1000 / 8000 → 16000. Windows: default last **3 calendar months** (Colombo month boundaries via existing date helpers); preset **2 months**; custom `from`/`to` dates inclusive. Read current ROP from `ProductOsfRop` (primary ROP column or sum per spec 006 conventions—use same column set as OSF assist for v1).
 
 **Movement overlay**:
 - **Increase**: current period speed ≥ prior period + 15% AND units ≥ 3 → badge + suggest `max(formula, currentRop)` review

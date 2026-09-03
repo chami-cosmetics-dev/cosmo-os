@@ -17,6 +17,7 @@ export default async function BookNotesPage() {
   }
 
   const companyId = auth.context!.user?.companyId ?? null;
+  const userId = auth.context!.user?.id ?? null;
   if (!companyId) {
     redirect("/dashboard");
   }
@@ -25,16 +26,13 @@ export default async function BookNotesPage() {
   const writeAccess = resolveBookNoteWriteAccess(auth.context!);
   const locations = access.locations;
   const allowedIds = locations.map((l) => l.id);
-  const initialLocationId = locations[0]?.id ?? "";
   const canBackdateBookNotes = writeAccess.canBackdate;
 
   const initialHistory =
-    allowedIds.length > 0
+    allowedIds.length > 0 && userId
       ? await loadBookNoteHistory({
           companyId,
-          companyLocationId: access.canAccessAllShops
-            ? undefined
-            : initialLocationId || undefined,
+          createdByUserId: userId,
           companyLocationIds: allowedIds,
           writeAccess,
         })

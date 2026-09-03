@@ -5,7 +5,7 @@ import { computeRopSuggestions } from "@/lib/item-trends/rop-suggest";
 import { getCurrentUserContext, requirePermission } from "@/lib/rbac";
 import { itemTrendsRopQuerySchema } from "@/lib/validation";
 
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 export async function GET(request: NextRequest) {
   const auth = await requirePermission("purchasing.item_trends.read");
@@ -45,7 +45,7 @@ export async function GET(request: NextRequest) {
       ropTo: data.ropTo,
       movementRange: current,
       priorRange: prior,
-      priority: data.priority,
+      priority: data.priority ?? "Top Priority",
       offset: data.offset,
       limit: data.limit,
     });

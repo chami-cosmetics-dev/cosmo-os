@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const { from, to, sku, columnKey, transfersOnly } = parsed.data;
+  const { from, to, sku, columnKey, transfersOnly, priority } = parsed.data;
 
   try {
     const { current } = resolveItemTrendWindows({ fromYmd: from, toYmd: to });
@@ -48,6 +48,7 @@ export async function GET(request: NextRequest) {
       range: current,
       columnKeys,
       skuFilter: sku ? [sku] : undefined,
+      priority: priority ?? "all",
     });
 
     return NextResponse.json({

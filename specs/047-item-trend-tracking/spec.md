@@ -17,7 +17,7 @@
 - Q: How should trends be detected when simple rules miss patterns? → A: **Layered approach**: v1 ships rule-based signals (speed rank, period compare, day-of-week spikes, slowdown thresholds). The product MUST also support an **intelligent trend engine** (statistical analysis, trained model, or AI agent) that can surface non-obvious emerging trends, repeat spikes, and slowdowns when rules alone are insufficient. Plan phase decides which engine fits; spec requires the capability and user-visible outcomes, not a specific technology.
 - Q: How does geography fit in? → A: Orders grouped by **customer district** (shipping address). Dashboard shows district leaderboard, item trends per district, and expansion opportunities for new outlets.
 - Q: Who is the dashboard for beyond purchasing admins? → A: **Purchasing department** (buyers, supplier coordinators) **and store/outlet teams**—anyone granted `purchasing.item_trends.read` or purchasing-admin bypass. Store users may see outlet-scoped views where applicable.
-- Q: How does ROP suggestion work on this dashboard vs OSF today? → A: Dashboard proposes **next-month ROP** using purchasing’s established rule: **units sold in a sales window × 2**. Default window = **last 3 calendar months** (2 months selectable). User may pick a **custom month range** manually. Current saved ROP is shown alongside suggestion. **Movement overlay**: accelerating/fast items get an **increase** recommendation; slow-moving items get a **decrease** recommendation—supplier admin reviews; never silent overwrite. Applying ROP uses existing OSF/item ROP save flow (`purchasing.osf.manage`).
+- Q: How does ROP suggestion work on this dashboard vs OSF today? → A: Dashboard proposes **next-month ROP** using purchasing’s established rule: **highest calendar-month units in the sales window × 2** (not window total × 2). Example: months 4000 / 1000 / 8000 → ROP = 8000 × 2. Default window = **last 3 calendar months** (2 months selectable). User may pick a **custom month range** manually. Current saved ROP is shown alongside suggestion. **Movement overlay**: accelerating/fast items get an **increase** recommendation; slow-moving items get a **decrease** recommendation—supplier admin reviews; never silent overwrite. Applying ROP uses existing OSF/item ROP save flow (`purchasing.osf.manage`).
 - Q: What is the outlet stock imbalance scenario? → A: For the same SKU, compare **movement speed and on-hand stock at each outlet/location**. Flag **transfer candidates**: high stock + slow movement at outlet A, fast movement (and optionally low stock) at outlet B—visualize side-by-side so teams can move units to where they sell faster.
 
 ## User Scenarios & Testing *(mandatory)*
@@ -179,15 +179,15 @@ A **store manager or purchasing user** opens the **outlet balance** zone and see
 
 ### User Story 10 - Suggest next-month ROP from sales window (Priority: P1)
 
-A **purchasing or supplier admin** uses the **ROP suggestion** panel to replace manual spreadsheet math. For each item (or filtered set), the system shows: **current saved ROP**, **units sold in the sales window**, **suggested next-month ROP = window sales × 2**, and whether **movement trend** says increase, hold, or decrease vs the current ROP. Default sales window is **last 3 calendar months**; the user can switch to **2 months** or pick a **custom month range**. They review suggestions and apply via existing ROP save (OSF or item editor)—nothing updates without explicit save.
+A **purchasing or supplier admin** uses the **ROP suggestion** panel to replace manual spreadsheet math. For each item (or filtered set), the system shows: **current saved ROP**, **units sold in the sales window** (split by calendar month), **suggested next-month ROP = highest month in that window × 2**, and whether **movement trend** says increase, hold, or decrease vs the current ROP. Default sales window is **last 3 calendar months**; the user can switch to **2 months** or pick a **custom month range**. They review suggestions and apply via existing ROP save (OSF or item editor)—nothing updates without explicit save.
 
 **Why this priority**: User’s core ROP logic today is manual; dashboard should encode “take 2–3 months sales, double it for next month” plus movement-based nudges.
 
-**Independent Test**: SKU sold 40 units over default 3-month window; suggested ROP = 80; movement accelerating → “increase” badge; manager saves via OSF flow; stored ROP updates only after save.
+**Independent Test**: SKU sold 4000 / 1000 / 8000 units across three months; suggested ROP = **16000** (peak 8000 × 2); movement accelerating → “increase” badge; manager saves via OSF flow; stored ROP updates only after save.
 
 **Acceptance Scenarios**:
 
-1. **Given** default ROP window (3 calendar months), **When** suggestions compute for a SKU with 40 units sold, **Then** suggested next-month ROP = **80** (40 × 2) shown next to current saved ROP.
+1. **Given** default ROP window (3 calendar months) with monthly units 4000, 1000, and 8000, **When** suggestions compute, **Then** suggested next-month ROP = **16000** (highest month 8000 × 2), not window total × 2.
 2. **Given** the user selects **2-month** window or a **custom From–To month range**, **When** suggestions refresh, **Then** window sales and suggested ROP recalculate for that range only.
 3. **Given** an item with accelerating or fast-moving signal, **When** ROP row is shown, **Then** an **increase** recommendation appears (suggested ROP may exceed base ×2 or flag “consider above formula”—documented as movement overlay in assumptions).
 4. **Given** an item with slowdown signal, **When** ROP row is shown, **Then** a **decrease** recommendation appears so supplier admin does not over-order.
@@ -330,7 +330,7 @@ A purchasing lead pins items from any dashboard zone into a **focus list**, comp
 - **FR-022**: System MUST provide an **area growth** view listing all districts with data, each with growth status and actionable hints.
 - **FR-023**: System MUST provide an **outlet balance** zone comparing the same SKU across outlets with on-hand stock, movement speed, and **transfer candidate** signals (high stock + slow at outlet A, fast movement at outlet B).
 - **FR-024**: Transfer candidates MUST show both outlets, stock quantities, speed metrics, and suggested transfer direction; v1 MUST NOT auto-move stock.
-- **FR-025**: System MUST compute **suggested next-month ROP = units sold in selected sales window × 2**, shown alongside **current saved ROP**.
+- **FR-025**: System MUST compute **suggested next-month ROP = highest calendar-month units in the selected 2- or 3-month sales window × 2**, shown alongside **current saved ROP** and window total. Example: months 4000, 1000, 8000 → suggested ROP = 16000.
 - **FR-026**: Default ROP sales window MUST be **last 3 calendar months**; user MUST be able to select **2 months** or a **custom month/date range**.
 - **FR-027**: ROP rows MUST include **movement overlay**: increase recommendation when item is accelerating/fast-moving; decrease recommendation when slow-moving—relative to current saved ROP and base formula.
 - **FR-028**: Applying ROP changes MUST require explicit user save via existing OSF/item ROP flow (`purchasing.osf.manage`); suggestions MUST NOT silently overwrite saved ROPs.
@@ -351,7 +351,7 @@ A purchasing lead pins items from any dashboard zone into a **focus list**, comp
 - **Area growth status**: Per-district classification (growing, stable, declining, emerging, expansion candidate) with suggested actions.
 - **Outlet balance record**: Per SKU × outlet: on-hand stock, movement speed, stock pressure score, and paired transfer candidate (source outlet → destination outlet).
 - **Transfer candidate**: Same SKU where source outlet has high stock + slow speed and destination outlet has fast speed; includes suggested direction and supporting metrics.
-- **ROP suggestion**: Current saved ROP, window sales, formula result (window × 2), movement overlay (increase / hold / decrease), and selected sales window (default 3 months, 2 months, or custom).
+- **ROP suggestion**: Current saved ROP, peak-month sales, window total, formula result (peak month × 2), movement overlay (increase / hold / decrease), and selected sales window (default 3 months, 2 months, or custom).
 - **Intelligent trend engine**: Automated analysis layer (statistical, model, or AI-assisted) that produces signals and explanations when rules are insufficient.
 - **Focus list**: User-curated SKU set from dashboard zones with export snapshot.
 - **Comparison window**: Current vs baseline date ranges used consistently across dashboard and detail views.
@@ -374,7 +374,7 @@ A purchasing lead pins items from any dashboard zone into a **focus list**, comp
 - **SC-012**: District drill-down shows correct top-5 items for a sample district matching manual filter of orders to that district (100% match on test set).
 - **SC-013**: Area growth view shows status for 100% of districts that have qualifying order volume in the period.
 - **SC-014**: Transfer candidate list correctly identifies sample SKU with high stock/slow at outlet A and fast at outlet B (100% on test pairs).
-- **SC-015**: ROP suggestion matches manual calculation (window sales × 2) for a sample of 20 SKUs within rounding tolerance.
+- **SC-015**: ROP suggestion matches manual calculation (highest month in window × 2) for a sample of 20 SKUs within rounding tolerance.
 - **SC-016**: ROP save path requires explicit action—no automated overwrite in permission tests.
 - **SC-017**: Store-scoped users see outlet balance for their location(s) without unauthorized company-wide export in access tests.
 
@@ -395,7 +395,7 @@ A purchasing lead pins items from any dashboard zone into a **focus list**, comp
 - **Cover every area**: Dashboard MUST NOT show only top-N districts; all districts with data appear in the full list or area growth view even when volume is small.
 - **Outlets**: Outlet = company shop/location with stock and attributed sales (OSF shop columns / `CompanyLocation`). Stock from live ERP sync; movement from order lines attributed to that outlet where attribution exists.
 - **Transfer logic (v1)**: Rule-based—source outlet in bottom movement quartile for SKU with stock above median across outlets; destination in top movement quartile; minimum stock at source and minimum speed gap configurable in plan phase.
-- **ROP formula (dashboard)**: **Suggested next-month ROP = units sold in selected window × 2**. Default window = last **3 calendar months**; preset **2 months**; optional custom month range. **Movement overlay**: if item flagged accelerating/fast → **increase** recommendation (prompt to set ROP at or above suggestion); if slowdown → **decrease** recommendation. Complements OSF ROP assist (spec 023 purchase-date window)—dashboard is the multi-month planning view for supplier admin; OSF remains operational save surface.
+- **ROP formula (dashboard)**: **Suggested next-month ROP = highest calendar-month units in the selected window × 2**. Default window = last **3 calendar months**; preset **2 months**; optional custom month range. **Movement overlay**: if item flagged accelerating/fast → **increase** recommendation (prompt to set ROP at or above suggestion); if slowdown → **decrease** recommendation. Complements OSF ROP assist (spec 023 purchase-date window)—dashboard is the multi-month planning view for supplier admin; OSF remains operational save surface.
 - **ROP apply**: Review-only on dashboard unless user has manage rights; save goes through existing `ProductOsfRop` / OSF item editor—never silent overwrite.
 
 ### Recommended rollout plan (product phases)

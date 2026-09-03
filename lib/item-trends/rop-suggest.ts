@@ -1,12 +1,12 @@
 import "server-only";
 
-import { roundHalfUp } from "@/lib/osf/assist-window";
-import { aggregateSalesBySkuInRange } from "@/lib/osf/assist-sales";
+import { aggregateSalesBySkuByMonthInRange, aggregateSalesBySkuInRange } from "@/lib/osf/assist-sales";
 import { resolveOsfColumns } from "@/lib/osf/column-config";
 import { formatAppIsoDate } from "@/lib/format-datetime";
 import { prisma } from "@/lib/prisma";
 
 import { resolveEffectivePriority } from "@/lib/item-trends/aggregate";
+import { peakMonthSales, suggestedRopFromPeakMonth } from "@/lib/item-trends/rop-formula";
 import { classifyRopOverlay } from "@/lib/item-trends/signals";
 import type { ItemTrendDateRange, RopSuggestionRow } from "@/lib/item-trends/types";
 
@@ -76,8 +76,8 @@ export async function computeRopSuggestions(input: {
   const primaryRopCol = columns.find((c) => c.active && c.includeInRop);
   const columnKey = primaryRopCol?.key ?? "common_rop";
 
-  const [windowSalesMap, movementSales, priorSales, items, ropRows] = await Promise.all([
-    aggregateSalesBySkuInRange(input.companyId, ropRange.rangeStart, ropRange.rangeEndExclusive),
+  const [monthlySalesMap, movementSales, priorSales, items, ropRows] = await Promise.all([
+    aggregateSalesBySkuByMonthInRange(input.companyId, ropRange.rangeStart, ropRange.rangeEndExclusive),
     aggregateSalesBySkuInRange(
       input.companyId,
       input.movementRange.rangeStart,
@@ -114,8 +114,10 @@ export async function computeRopSuggestions(input: {
     const priority = resolveEffectivePriority(item.erp1ProductPriority, item.erp2ProductPriority);
     if (priorityFilter && priorityFilter !== "all" && priority !== priorityFilter) continue;
 
-    const windowSales = windowSalesMap.get(sku) ?? 0;
-    const suggestedRop = roundHalfUp(windowSales * 2);
+    const { peakMonthSales: peakUnits, peakMonth, windowSales } = peakMonthSales(
+      monthlySalesMap.get(sku),
+    );
+    const suggestedRop = suggestedRopFromPeakMonth(peakUnits);
     const currentRop = ropBySku.get(sku) ?? null;
     const unitsCurrent = movementSales.get(sku) ?? 0;
     const unitsPrior = priorSales.get(sku) ?? 0;
@@ -125,6 +127,8 @@ export async function computeRopSuggestions(input: {
       priority,
       currentRop,
       windowSales,
+      peakMonthSales: peakUnits,
+      peakMonth,
       suggestedRop,
       overlay: classifyRopOverlay(unitsCurrent, unitsPrior, currentRop, suggestedRop),
       windowLabel: ropRange.windowLabel,
@@ -132,10 +136,10 @@ export async function computeRopSuggestions(input: {
     });
   }
 
-  rows.sort((a, b) => b.windowSales - a.windowSales);
+  rows.sort((a, b) => b.peakMonthSales - a.peakMonthSales || b.windowSales - a.windowSales);
   const total = rows.length;
-  const offset = input.offset ?? 0;
-  const limit = Math.min(input.limit ?? 50, 100);
+  const offset = Math.max(0, input.offset ?? 0);
+  const limit = input.limit && input.limit > 0 ? input.limit : total;
 
   return {
     rows: rows.slice(offset, offset + limit),

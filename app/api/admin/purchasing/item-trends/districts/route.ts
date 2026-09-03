@@ -41,7 +41,9 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const { from, to, compareFrom, compareTo, district, sortBy, includeAreaGrowth } = parsed.data;
+  const { from, to, compareFrom, compareTo, district, sortBy, includeAreaGrowth, priority } =
+    parsed.data;
+  const priorityFilter = priority ?? "Top Priority";
 
   try {
     const { current, prior } = resolveItemTrendWindows({
@@ -51,14 +53,20 @@ export async function GET(request: NextRequest) {
       compareToYmd: compareTo,
     });
 
-    const districts = await fetchDistrictLeaderboard(companyId, current, prior, sortBy);
+    const districts = await fetchDistrictLeaderboard(
+      companyId,
+      current,
+      prior,
+      sortBy,
+      priorityFilter,
+    );
 
     const [items, expansion] = await Promise.all([
       district?.trim()
-        ? fetchDistrictItems(companyId, district.trim(), current, prior, 50)
+        ? fetchDistrictItems(companyId, district.trim(), current, prior, 50, priorityFilter)
         : Promise.resolve([]),
       includeAreaGrowth
-        ? fetchExpansionOpportunities(companyId, current, prior, districts)
+        ? fetchExpansionOpportunities(companyId, current, prior, districts, priorityFilter)
         : Promise.resolve([]),
     ]);
 

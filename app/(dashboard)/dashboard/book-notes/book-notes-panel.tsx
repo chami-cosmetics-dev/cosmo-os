@@ -170,13 +170,12 @@ type BookNotesPanelProps = {
 
 export function BookNotesPanel({
   initialLocations,
-  initialCanAccessAllShops = false,
+  initialCanAccessAllShops: _initialCanAccessAllShops = false,
   initialCanBackdateBookNotes = false,
   initialHistory = [],
   initialToday,
 }: BookNotesPanelProps) {
   const [locations] = useState(initialLocations);
-  const [canAccessAllShops] = useState(initialCanAccessAllShops);
   const [canBackdateBookNotes] = useState(initialCanBackdateBookNotes);
   const [companyLocationId, setCompanyLocationId] = useState(
     initialLocations[0]?.id ?? "",
@@ -844,11 +843,9 @@ export function BookNotesPanel({
           different receipt refs). When a normal row includes card payment,
           enter the last 4 digits of the POS receipt reference. Merchants enter
           today&apos;s date only; users with book notes admin permission can
-          pick older dates to upload or edit. History is shop-scoped
-          {canAccessAllShops
-            ? " — admins see all shops"
-            : " — you only see your assigned shop(s)"}
-          .
+          pick older dates to upload or edit. History lists sheets you saved
+          or sent — not other users&apos; uploads. Shop dropdown lists every
+          company location.
         </p>
       </div>
 
@@ -1504,8 +1501,7 @@ export function BookNotesPanel({
 
       <div className="bg-card rounded-lg border p-4">
         <h2 className="mb-3 text-sm font-semibold tracking-wide uppercase text-muted-foreground">
-          Save history
-          {canAccessAllShops ? " (all shops)" : ""}
+          Save history (your uploads)
         </h2>
         {locations.length === 0 ? (
           <p className="text-muted-foreground text-sm">
@@ -1514,8 +1510,7 @@ export function BookNotesPanel({
           </p>
         ) : history.length === 0 ? (
           <p className="text-muted-foreground text-sm">
-            No saved book notes for{" "}
-            {canAccessAllShops ? "any shop" : "this shop"} yet.
+            No saved book notes of yours yet.
           </p>
         ) : (
           <div className="overflow-x-auto">
