@@ -99,4 +99,23 @@ describe("classifyFailedErpSyncError", () => {
       retryable: true,
     });
   });
+
+  it("marks finance-approval PE retries as non-retryable", () => {
+    expect(
+      classifyFailedErpSyncError(
+        "Split payment retry must be approved again from Finance Approvals so each payment method keeps its correct amount",
+      ),
+    ).toMatchObject({
+      type: "Pending approval",
+      retryable: false,
+    });
+    expect(
+      classifyFailedErpSyncError(
+        "Payment entry is awaiting finance approval. Invoice complete is set when finance approves.",
+      ),
+    ).toMatchObject({
+      type: "Pending approval",
+      retryable: false,
+    });
+  });
 });

@@ -9,7 +9,7 @@ import {
   runDueFailedErpSyncRetries,
   scheduleUnscheduledFailedErpSyncs,
 } from "@/lib/failed-erp-sync-auto-retry";
-import { buildFailedErpPeSyncWhere, seedSilentErpPeGaps, scheduleUnscheduledFailedErpPeSyncs, runDueFailedErpPeSyncRetries } from "@/lib/failed-erp-pe-sync";
+import { buildFailedErpPeSyncWhere, clearPendingFinanceApprovalErpPeSyncFailures, seedSilentErpPeGaps, scheduleUnscheduledFailedErpPeSyncs, runDueFailedErpPeSyncRetries } from "@/lib/failed-erp-pe-sync";
 
 const failedErpSyncSearchSchema = z.string().trim().max(100).optional();
 const failedErpSyncKindSchema = z.enum(["sales_invoice", "payment_entry"]).optional();
@@ -60,6 +60,7 @@ export async function GET(request: NextRequest) {
 
   if (kind === "payment_entry") {
     try {
+      await clearPendingFinanceApprovalErpPeSyncFailures(companyId, 50);
       await scheduleUnscheduledFailedErpPeSyncs(companyId, 50);
       await runDueFailedErpPeSyncRetries({ companyId, limit: 5 });
       await seedSilentErpPeGaps(companyId, 15);

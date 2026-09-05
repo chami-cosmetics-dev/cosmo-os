@@ -207,7 +207,8 @@ export function classifyFailedErpSyncError(message: string) {
 
   if (
     normalized.includes("awaiting finance approval") ||
-    normalized.includes("pending approval")
+    normalized.includes("pending approval") ||
+    normalized.includes("finance approval")
   ) {
     return {
       type: "Pending approval",

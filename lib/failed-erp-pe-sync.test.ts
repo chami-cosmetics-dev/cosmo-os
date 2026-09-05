@@ -6,7 +6,10 @@ import {
   buildSilentErpPeGapCandidateWhere,
   ERP_PE_SYNC_MOP_ORDER_AUTO,
   getNextFailedErpPeSyncAutoRetryAt,
+  isPendingFinanceApprovalPeRetryError,
+  PENDING_FINANCE_APPROVAL_PE_RETRY_ERROR,
   resolveFailedErpPeRetryMop,
+  SPLIT_PAYMENT_FINANCE_APPROVAL_PE_RETRY_ERROR,
 } from "@/lib/failed-erp-pe-sync";
 
 describe("isUsableErpSalesInvoiceId", () => {
@@ -28,6 +31,9 @@ describe("buildFailedErpPeSyncWhere", () => {
     expect(where).toMatchObject({
       companyId: "co1",
       erpPeSyncError: { not: null },
+      approvalRequests: {
+        none: { type: "order_payment_approval", status: "pending" },
+      },
     });
     expect(where.OR).toEqual(
       expect.arrayContaining([
@@ -45,6 +51,9 @@ describe("buildSilentErpPeGapCandidateWhere", () => {
       companyId: "co1",
       erpPeSyncError: null,
       erpnextInvoiceId: { not: null },
+      approvalRequests: {
+        none: { type: "order_payment_approval", status: "pending" },
+      },
     });
     expect(where.OR).toEqual(
       expect.arrayContaining([
@@ -114,5 +123,17 @@ describe("finance approval stage guard", () => {
 
   it("still advances first-time approvals to print", () => {
     expect(nextStage("print")).toBe("print");
+  });
+});
+
+describe("isPendingFinanceApprovalPeRetryError", () => {
+  it("matches split and pending finance PE retry messages", () => {
+    expect(isPendingFinanceApprovalPeRetryError(SPLIT_PAYMENT_FINANCE_APPROVAL_PE_RETRY_ERROR)).toBe(
+      true,
+    );
+    expect(isPendingFinanceApprovalPeRetryError(PENDING_FINANCE_APPROVAL_PE_RETRY_ERROR)).toBe(true);
+    expect(isPendingFinanceApprovalPeRetryError("ERPNext POST /api/resource/Payment Entry [502]")).toBe(
+      false,
+    );
   });
 });

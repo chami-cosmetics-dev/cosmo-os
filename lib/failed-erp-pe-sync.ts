@@ -1,6 +1,10 @@
 import { Prisma } from "@prisma/client";
 
 import {
+  FINANCE_PENDING_FULFILLMENT_EXCLUSION,
+  ORDER_PAYMENT_APPROVAL,
+} from "@/lib/approval-workflow";
+import {
   classifyFailedErpSyncError,
   formatFailedErpSyncErrorMessage,
 } from "@/lib/failed-erp-sync-classification";
@@ -69,6 +73,16 @@ export function getNextFailedErpPeSyncAutoRetryAt(
 /** Stored when invoice-complete used order payment gateways (legacy label). */
 export const ERP_PE_SYNC_MOP_ORDER_AUTO = "order payment mode";
 
+export const PENDING_FINANCE_APPROVAL_PE_RETRY_ERROR =
+  "Payment entry is awaiting finance approval. Invoice complete is set when finance approves.";
+
+export const SPLIT_PAYMENT_FINANCE_APPROVAL_PE_RETRY_ERROR =
+  "Split payment retry must be approved again from Finance Approvals so each payment method keeps its correct amount";
+
+export function isPendingFinanceApprovalPeRetryError(message: string): boolean {
+  return classifyFailedErpSyncError(message).type === "Pending approval";
+}
+
 export const ERP_PE_GAP_ERROR_PREFIX = "PE missing";
 
 function clampErrorMessage(message: string) {
@@ -81,6 +95,7 @@ export function buildFailedErpPeSyncWhere(companyId?: string, search?: string): 
     ...(companyId ? { companyId } : {}),
     financialStatus: { not: "voided" },
     erpPeSyncError: { not: null },
+    ...FINANCE_PENDING_FULFILLMENT_EXCLUSION,
     OR: [
       { fulfillmentStage: "invoice_complete" },
       { invoiceCompleteAt: { not: null } },
@@ -126,6 +141,7 @@ export function buildSilentErpPeGapCandidateWhere(
     NOT: {
       erpnextInvoiceId: { in: ["pending", "pending_approval"] },
     },
+    ...FINANCE_PENDING_FULFILLMENT_EXCLUSION,
     OR: [
       { fulfillmentStage: "invoice_complete" },
       { invoiceCompleteAt: { not: null } },
@@ -309,18 +325,19 @@ export async function retryOrderErpPeSync(input: {
     throw new Error("No failed ERP payment entry on this order");
   }
 
-  const splitApproval = await prisma.approvalRequest.findFirst({
+  const pendingApproval = await prisma.approvalRequest.findFirst({
     where: {
       orderId: order.id,
-      type: "order_payment_approval",
+      type: ORDER_PAYMENT_APPROVAL,
       status: "pending",
-      paymentLines: { some: {} },
     },
-    select: { id: true },
+    select: { id: true, paymentLines: { select: { id: true }, take: 1 } },
   });
-  if (splitApproval) {
+  if (pendingApproval) {
     throw new Error(
-      "Split payment retry must be approved again from Finance Approvals so each payment method keeps its correct amount",
+      pendingApproval.paymentLines.length > 0
+        ? SPLIT_PAYMENT_FINANCE_APPROVAL_PE_RETRY_ERROR
+        : PENDING_FINANCE_APPROVAL_PE_RETRY_ERROR,
     );
   }
 
@@ -415,6 +432,28 @@ async function claimDueFailedErpPeSyncs(companyId: string | null, limit: number)
   });
 }
 
+/** Drop PE failure rows that should wait on Finance Approvals, not Failed PE retry. */
+export async function clearPendingFinanceApprovalErpPeSyncFailures(
+  companyId: string,
+  limit = 50,
+): Promise<number> {
+  const orders = await prisma.order.findMany({
+    where: {
+      companyId,
+      erpPeSyncError: { not: null },
+      approvalRequests: {
+        some: { type: ORDER_PAYMENT_APPROVAL, status: "pending" },
+      },
+    },
+    take: limit,
+    select: { id: true },
+  });
+  for (const order of orders) {
+    await clearOrderErpPeSyncFailure(order.id);
+  }
+  return orders.length;
+}
+
 export async function scheduleUnscheduledFailedErpPeSyncs(companyId?: string, limit = 50) {
   const orders = await prisma.order.findMany({
     where: orderPeWhere({
@@ -491,6 +530,11 @@ export async function runDueFailedErpPeSyncRetries(options?: {
       resolved += 1;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
+      if (isPendingFinanceApprovalPeRetryError(errorMessage)) {
+        skipped += 1;
+        await clearOrderErpPeSyncFailure(order.id);
+        continue;
+      }
       failed += 1;
       await markOrderErpPeSyncFailed(order.id, errorMessage, mopName, new Date(), {
         incrementAutoRetryCount: true,

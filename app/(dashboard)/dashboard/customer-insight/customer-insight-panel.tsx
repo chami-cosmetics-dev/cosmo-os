@@ -836,6 +836,12 @@ export function CustomerInsightPanel({
               .filter((o): o is { value: string; label?: string } => typeof o.value === "string")
               .map((o) => ({ value: o.value, label: o.label ?? o.value }))
           );
+        } else if (!queueMerchantsRes.ok) {
+          notify.error(
+            typeof queueMerchantsData.error === "string"
+              ? queueMerchantsData.error
+              : "Failed to load merchant list."
+          );
         }
         if (locationsRes.ok && Array.isArray(locationsData.options)) {
           setLocationOptions(
@@ -1226,7 +1232,7 @@ export function CustomerInsightPanel({
         : "";
       if (viewAs) params.set("viewAsMerchant", viewAs);
       const res = await fetch(
-        `/api/admin/customer-insight/${encodeURIComponent(contactId)}?${params}`
+        `/api/admin/customer-insight/contact/${encodeURIComponent(contactId)}?${params}`
       );
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -1257,7 +1263,7 @@ export function CustomerInsightPanel({
           if (viewAs) historyParams.set("viewAsMerchant", viewAs);
           const historyQs = historyParams.toString();
           const hRes = await fetch(
-            `/api/admin/customer-insight/${encodeURIComponent(contactId)}/contact-history${
+            `/api/admin/customer-insight/contact/${encodeURIComponent(contactId)}/contact-history${
               historyQs ? `?${historyQs}` : ""
             }`
           );
@@ -1323,7 +1329,7 @@ export function CustomerInsightPanel({
         body.addPhoneNumber = addPhone;
       }
       const res = await fetch(
-        `/api/admin/customer-insight/${encodeURIComponent(selectedContactId)}`,
+        `/api/admin/customer-insight/contact/${encodeURIComponent(selectedContactId)}`,
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
@@ -1359,7 +1365,7 @@ export function CustomerInsightPanel({
     setBusyKey("contacted");
     try {
       const res = await fetch(
-        `/api/admin/customer-insight/${encodeURIComponent(selectedContactId)}/contacted`,
+        `/api/admin/customer-insight/contact/${encodeURIComponent(selectedContactId)}/contacted`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -3330,7 +3336,7 @@ export function CustomerInsightPanel({
                             setBusyKey("loyalty-assign");
                             try {
                               const res = await fetch(
-                                `/api/admin/customer-insight/${encodeURIComponent(row.contactId)}/loyalty-assign`,
+                                `/api/admin/customer-insight/contact/${encodeURIComponent(row.contactId)}/loyalty-assign`,
                                 {
                                   method: "POST",
                                   headers: { "Content-Type": "application/json" },

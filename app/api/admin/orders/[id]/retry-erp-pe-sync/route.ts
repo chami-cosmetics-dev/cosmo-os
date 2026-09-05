@@ -6,6 +6,8 @@ import {
   listCompanyErpPaymentModes,
 } from "@/lib/erp-payment-modes";
 import {
+  clearOrderErpPeSyncFailure,
+  isPendingFinanceApprovalPeRetryError,
   markOrderErpPeSyncFailed,
   resolveFailedErpPeRetryMop,
   retryOrderErpPeSync,
@@ -86,6 +88,10 @@ export async function POST(
     return NextResponse.json({ ok: true, message: "ERP payment entry created" });
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
+    if (isPendingFinanceApprovalPeRetryError(errMsg)) {
+      await clearOrderErpPeSyncFailure(order.id);
+      return NextResponse.json({ error: errMsg }, { status: 409 });
+    }
     await markOrderErpPeSyncFailed(order.id, errMsg, mopOverride ?? mopName, new Date(), {
       incrementAutoRetryCount: true,
       scheduleAutoRetry: true,

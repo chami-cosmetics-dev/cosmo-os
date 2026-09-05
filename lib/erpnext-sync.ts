@@ -17,6 +17,7 @@ import {
 } from "@/lib/erp-shopify-invoice-items";
 import { resolveShopifyShippingLineTotal } from "@/lib/order-shipping-display";
 import { orderHasFreeShippingCoupon } from "@/lib/shopify-discount-codes";
+import { isOrderPaymentRequiresApproval } from "@/lib/approval-workflow";
 import {
   isCcCheckoutGateway,
   orderHasEarlyFinancialInvoiceCompleteGateway,
@@ -198,7 +199,7 @@ function resolvePrepaidMop(cfg: ErpConfig, gateways: string[]): string | null {
 /**
  * After SI exists: create prepaid PE for paid gateways.
  * CC Checkout / WebXPay also set early `invoiceCompleteAt` so they skip manual invoice-complete.
- * KOKO / bank transfer get `invoiceCompleteAt` on finance approval instead.
+ * KOKO / bank / mintpay wait for finance approval (PE + invoiceCompleteAt), including splits.
  */
 async function syncPaidGatewayPeAndMaybeCcInvoiceComplete(input: {
   order: {
@@ -222,6 +223,8 @@ async function syncPaidGatewayPeAndMaybeCcInvoiceComplete(input: {
   };
 }): Promise<void> {
   if (input.order.financialStatus !== "paid") return;
+  // Full Koko/bank PE here would pay the SI before finance confirms split amounts.
+  if (isOrderPaymentRequiresApproval(input.order)) return;
 
   const gateways = (
     [input.order.paymentGatewayPrimary, ...input.order.paymentGatewayNames] as (string | null)[]

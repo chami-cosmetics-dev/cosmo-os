@@ -45,6 +45,8 @@ export type ItemMovementRow = {
   signal: MovementSignalKind;
   signalSource: SignalSource;
   sparkline: number[];
+  marketGapPct?: number | null;
+  isCheapestInMarket?: boolean | null;
 };
 
 export type DistrictDemandRow = {
