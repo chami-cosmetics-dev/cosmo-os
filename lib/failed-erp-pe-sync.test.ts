@@ -5,7 +5,11 @@ import {
   buildFailedErpPeSyncWhere,
   buildSilentErpPeGapCandidateWhere,
   ERP_PE_SYNC_MOP_ORDER_AUTO,
+  getNextFailedErpPeSyncAutoRetryAt,
+  isPendingFinanceApprovalPeRetryError,
+  PENDING_FINANCE_APPROVAL_PE_RETRY_ERROR,
   resolveFailedErpPeRetryMop,
+  SPLIT_PAYMENT_FINANCE_APPROVAL_PE_RETRY_ERROR,
 } from "@/lib/failed-erp-pe-sync";
 
 describe("isUsableErpSalesInvoiceId", () => {
@@ -27,6 +31,9 @@ describe("buildFailedErpPeSyncWhere", () => {
     expect(where).toMatchObject({
       companyId: "co1",
       erpPeSyncError: { not: null },
+      approvalRequests: {
+        none: { type: "order_payment_approval", status: "pending" },
+      },
     });
     expect(where.OR).toEqual(
       expect.arrayContaining([
@@ -44,6 +51,9 @@ describe("buildSilentErpPeGapCandidateWhere", () => {
       companyId: "co1",
       erpPeSyncError: null,
       erpnextInvoiceId: { not: null },
+      approvalRequests: {
+        none: { type: "order_payment_approval", status: "pending" },
+      },
     });
     expect(where.OR).toEqual(
       expect.arrayContaining([
@@ -51,6 +61,18 @@ describe("buildSilentErpPeGapCandidateWhere", () => {
         { invoiceCompleteAt: { not: null } },
       ]),
     );
+  });
+});
+
+describe("getNextFailedErpPeSyncAutoRetryAt", () => {
+  const from = new Date("2026-09-05T03:00:00.000Z");
+
+  it("schedules 1m, 3m, 10m, 30m then stops", () => {
+    expect(getNextFailedErpPeSyncAutoRetryAt(0, from)?.toISOString()).toBe("2026-09-05T03:01:00.000Z");
+    expect(getNextFailedErpPeSyncAutoRetryAt(1, from)?.toISOString()).toBe("2026-09-05T03:03:00.000Z");
+    expect(getNextFailedErpPeSyncAutoRetryAt(2, from)?.toISOString()).toBe("2026-09-05T03:10:00.000Z");
+    expect(getNextFailedErpPeSyncAutoRetryAt(3, from)?.toISOString()).toBe("2026-09-05T03:30:00.000Z");
+    expect(getNextFailedErpPeSyncAutoRetryAt(4, from)).toBeNull();
   });
 });
 
@@ -101,5 +123,17 @@ describe("finance approval stage guard", () => {
 
   it("still advances first-time approvals to print", () => {
     expect(nextStage("print")).toBe("print");
+  });
+});
+
+describe("isPendingFinanceApprovalPeRetryError", () => {
+  it("matches split and pending finance PE retry messages", () => {
+    expect(isPendingFinanceApprovalPeRetryError(SPLIT_PAYMENT_FINANCE_APPROVAL_PE_RETRY_ERROR)).toBe(
+      true,
+    );
+    expect(isPendingFinanceApprovalPeRetryError(PENDING_FINANCE_APPROVAL_PE_RETRY_ERROR)).toBe(true);
+    expect(isPendingFinanceApprovalPeRetryError("ERPNext POST /api/resource/Payment Entry [502]")).toBe(
+      false,
+    );
   });
 });

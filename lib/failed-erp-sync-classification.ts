@@ -207,7 +207,8 @@ export function classifyFailedErpSyncError(message: string) {
 
   if (
     normalized.includes("awaiting finance approval") ||
-    normalized.includes("pending approval")
+    normalized.includes("pending approval") ||
+    normalized.includes("finance approval")
   ) {
     return {
       type: "Pending approval",
@@ -249,7 +250,9 @@ export function classifyFailedErpSyncError(message: string) {
     normalized.includes("504") ||
     normalized.includes("429") ||
     normalized.includes("rate limit") ||
-    normalized.includes("fetch failed")
+    normalized.includes("fetch failed") ||
+    normalized.includes("deadlock") ||
+    normalized.includes("querydeadlockerror")
   ) {
     return {
       type: "Transient network",

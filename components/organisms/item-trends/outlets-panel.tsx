@@ -13,6 +13,9 @@ type Props = {
   transfers: TransferCandidate[];
   skuQuery: string;
   onSkuQueryChange: (sku: string) => void;
+  salesLoading?: boolean;
+  stockLoading?: boolean;
+  stockLoaded?: boolean;
 };
 
 type PressureFilter = "all" | "high_slow" | "low_fast" | "attention";
@@ -181,7 +184,15 @@ function TransferCard({ transfer }: { transfer: TransferCandidate }) {
   );
 }
 
-export function OutletsPanel({ outlets, transfers, skuQuery, onSkuQueryChange }: Props) {
+export function OutletsPanel({
+  outlets,
+  transfers,
+  skuQuery,
+  onSkuQueryChange,
+  salesLoading = false,
+  stockLoading = false,
+  stockLoaded = false,
+}: Props) {
   const [skuDraft, setSkuDraft] = useState(skuQuery);
   const activeSku = skuQuery.trim();
 
@@ -283,6 +294,9 @@ export function OutletsPanel({ outlets, transfers, skuQuery, onSkuQueryChange }:
           {activeSku
             ? `Showing ${activeSku} at all shops · ${totalUnits} units in range`
             : `Item-wise shop sales · ${itemRows.length} SKUs · ${totalUnits} units in range`}
+          {salesLoading ? " · refreshing…" : null}
+          {!activeSku && stockLoading ? " · loading live stock…" : null}
+          {!activeSku && stockLoaded && !stockLoading ? " · stock ready" : null}
         </p>
       </div>
 
@@ -385,7 +399,9 @@ export function OutletsPanel({ outlets, transfers, skuQuery, onSkuQueryChange }:
                           {row.totalUnits}
                         </td>
                         <td className="px-3 py-2 text-right tabular-nums">{row.shopCount}</td>
-                        <td className="px-3 py-2 text-right tabular-nums">{row.stockShops}</td>
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          {stockLoaded ? row.stockShops : "—"}
+                        </td>
                         <td className="px-3 py-2 text-right tabular-nums">
                           {row.maxSpeed.toFixed(2)}
                         </td>
@@ -446,9 +462,11 @@ export function OutletsPanel({ outlets, transfers, skuQuery, onSkuQueryChange }:
           </div>
         ) : (
           <p className="rounded-md border border-dashed border-border px-3 py-6 text-center text-sm text-muted-foreground">
-            {outlets.length > 0
-              ? `No move pairs yet among ${outlets.length} shop rows. Need same SKU with stock ≥5 + slow (<0.5/day) at one shop and faster counter sales at another.`
-              : "No transfer candidates — shop balance is empty for this range/priority first."}
+            {stockLoading
+              ? "Loading live stock for transfer suggestions…"
+              : outlets.length > 0
+                ? `No move pairs yet among ${outlets.length} shop rows. Need same SKU with stock ≥5 + slow (<0.5/day) at one shop and faster counter sales at another.`
+                : "No transfer candidates — shop balance is empty for this range/priority first."}
           </p>
         )}
       </section>

@@ -499,6 +499,11 @@ export const itemTrendsOutletsQuerySchema = z.object({
     .enum(["true", "false"])
     .optional()
     .transform((v) => v === "true"),
+  /** When omitted: true if sku set, else false (fast sales list). */
+  includeStock: z
+    .enum(["true", "false"])
+    .optional()
+    .transform((v) => (v === undefined ? undefined : v === "true")),
 });
 
 export const itemTrendsRopQuerySchema = z.object({

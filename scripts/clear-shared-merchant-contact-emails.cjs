@@ -23,6 +23,7 @@ const SHARED_EXACT = new Set([
   "dulshi25.cosmetics@gmail.com",
   "maheshisoysacosmetics@outlook.com",
   "nilmini.cosmetics@gmail.com",
+  "hpg.inoka@gmail.com",
 ]);
 
 const SHARED_SUFFIXES = ["@cosmetics.lk", ".cosmetics@outlook.com", ".cosmetics@gmail.com"];
@@ -75,6 +76,13 @@ async function main() {
       select: { id: true, name: true, email: true, phoneNumber: true },
     });
     const hits = contacts.filter((c) => isShared(c.email));
+
+    const secondaryEmails = await prisma.contactEmail.findMany({
+      where: { contact: { companyId } },
+      select: { id: true, email: true },
+    });
+    const secondaryHits = secondaryEmails.filter((row) => isShared(row.email));
+
     console.log(
       JSON.stringify(
         {
@@ -82,6 +90,7 @@ async function main() {
           dryRun,
           scanned: contacts.length,
           wouldClear: hits.length,
+          secondaryWouldClear: secondaryHits.length,
           samples: hits.slice(0, 20),
         },
         null,
@@ -90,15 +99,40 @@ async function main() {
     );
     if (dryRun) return;
 
+    // Fast path: exact denylist emails (covers hpg.inoka + cosmetics.lk exacts).
     let cleared = 0;
-    for (const hit of hits) {
+    for (const email of SHARED_EXACT) {
+      const result = await prisma.contactMaster.updateMany({
+        where: {
+          companyId,
+          email: { equals: email, mode: "insensitive" },
+        },
+        data: { email: null },
+      });
+      cleared += result.count;
+    }
+
+    // Suffix matches that aren't exact-list (e.g. other @cosmetics.lk).
+    const remaining = hits.filter((h) => !SHARED_EXACT.has(String(h.email || "").trim().toLowerCase()));
+    for (const hit of remaining) {
       await prisma.contactMaster.update({
         where: { id: hit.id },
         data: { email: null },
       });
       cleared += 1;
     }
-    console.log(`[clear-shared-emails] cleared=${cleared}`);
+
+    let clearedSecondary = 0;
+    if (secondaryHits.length > 0) {
+      const del = await prisma.contactEmail.deleteMany({
+        where: { id: { in: secondaryHits.map((r) => r.id) } },
+      });
+      clearedSecondary = del.count;
+    }
+
+    console.log(
+      JSON.stringify({ clearedPrimary: cleared, clearedSecondary }, null, 2)
+    );
   } finally {
     await prisma.$disconnect();
   }

@@ -6,6 +6,7 @@ import {
   mergeMerchantCohortWithDmBucket,
   resolveChannelPercent,
   resolveEffectiveTotalTarget,
+  resolveMonthlyTargetUpsert,
   splitMerchantChannelSales,
   sumChannelBuckets,
 } from "@/lib/merchant-dashboard/channel-sales";
@@ -68,6 +69,53 @@ describe("resolveEffectiveTotalTarget", () => {
         onlineTargetAmount: null,
       }),
     ).toBe(1000);
+  });
+});
+
+describe("resolveMonthlyTargetUpsert", () => {
+  const existing = {
+    targetAmount: 800_000,
+    shopTargetAmount: 500_000,
+    onlineTargetAmount: 300_000,
+  };
+
+  it("combined-only save replaces this month and clears leftover channels", () => {
+    expect(
+      resolveMonthlyTargetUpsert({
+        incoming: { targetAmount: 1_000_000 },
+        existing,
+      }),
+    ).toEqual({
+      targetAmount: 1_000_000,
+      shopTargetAmount: null,
+      onlineTargetAmount: null,
+    });
+  });
+
+  it("shop/online save updates combined to the channel sum", () => {
+    expect(
+      resolveMonthlyTargetUpsert({
+        incoming: { shopTargetAmount: 600_000, onlineTargetAmount: 400_000 },
+        existing,
+      }),
+    ).toEqual({
+      targetAmount: 1_000_000,
+      shopTargetAmount: 600_000,
+      onlineTargetAmount: 400_000,
+    });
+  });
+
+  it("shop-only save keeps existing online", () => {
+    expect(
+      resolveMonthlyTargetUpsert({
+        incoming: { shopTargetAmount: 700_000 },
+        existing,
+      }),
+    ).toEqual({
+      targetAmount: 1_000_000,
+      shopTargetAmount: 700_000,
+      onlineTargetAmount: 300_000,
+    });
   });
 });
 

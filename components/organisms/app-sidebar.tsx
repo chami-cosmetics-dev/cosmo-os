@@ -33,6 +33,7 @@ import {
   UserSearch,
   FileSpreadsheet,
   TrendingUp,
+  Scale,
 } from "lucide-react";
 import { usePathname } from "next/navigation";
 import {
@@ -96,7 +97,11 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
     hasSidebarPermission("purchasing.tools.read") ||
     hasSidebarPermission("purchasing.tools.manage");
   const canViewItemTrends = hasSidebarPermission("purchasing.item_trends.read");
-  const canViewPurchasing = canViewOsf || canViewPurchasingTools || canViewItemTrends;
+  const canViewMarketPrices =
+    hasSidebarPermission("purchasing.market_prices.read") ||
+    hasSidebarPermission("purchasing.market_prices.manage");
+  const canViewPurchasing =
+    canViewOsf || canViewPurchasingTools || canViewItemTrends || canViewMarketPrices;
   const canViewStoreAllocation = hasSidebarPermission("store.allocation.read");
   const canViewStoreStockCount = hasSidebarPermission("store.stock_count.read");
   const canViewStore = canViewStoreAllocation || canViewStoreStockCount;
@@ -562,6 +567,14 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
                   icon={TrendingUp}
                   label="Item Trends"
                   isActive={pathname === "/dashboard/purchasing/item-trends"}
+                />
+              )}
+              {canViewMarketPrices && (
+                <NavItem
+                  href="/dashboard/purchasing/market-prices"
+                  icon={Scale}
+                  label="Market Prices"
+                  isActive={pathname === "/dashboard/purchasing/market-prices"}
                 />
               )}
             </SidebarGroupContent>

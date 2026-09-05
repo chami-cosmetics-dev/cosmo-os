@@ -7,7 +7,10 @@ import {
   isoDayStartUtc,
   matchesCallQueueAssignFilters,
 } from "@/lib/customer-insight/call-queue-assign-filters";
-import { isHiddenFromCallQueueAssign } from "@/lib/customer-insight/call-queue-hide";
+import {
+  callQueueHideReason,
+  isHiddenFromCallQueueAssign,
+} from "@/lib/customer-insight/call-queue-hide";
 import { lifetimeTotalsByContactId } from "@/lib/customer-insight/lifetime-totals-batch";
 import {
   findMerchantUserForFilterValue,
@@ -25,6 +28,8 @@ export const CALL_QUEUE_ELIGIBLE_IDS_CAP = 5_000;
 
 const LAST_CONTACTED_ID_CHUNK = 4_000;
 
+export type CallQueueHideFilter = "eligible" | "hidden" | "all";
+
 export type CallQueueRowDto = {
   contactId: string;
   name: string;
@@ -34,6 +39,8 @@ export type CallQueueRowDto = {
   lastPurchaseAt: string | null;
   lastContactedAt: string | null;
   queued: boolean;
+  hidden?: boolean;
+  hideReason?: string | null;
 };
 
 export type CallQueueAssignFilters = {
@@ -44,6 +51,7 @@ export type CallQueueAssignFilters = {
   lastPurchaseFrom?: string;
   lastPurchaseTo?: string;
   brand?: string;
+  hideFilter?: CallQueueHideFilter;
 };
 
 export type CallQueueAssignResult = {
@@ -236,6 +244,9 @@ type RankedContact = {
   email: string | null;
   phones: Array<{ phoneNumber: string }>;
   emails: Array<{ email: string }>;
+  queued: boolean;
+  hidden: boolean;
+  hideReason: string | null;
 };
 
 async function listRankedEligibleContacts(input: {
@@ -306,25 +317,13 @@ async function listRankedEligibleContacts(input: {
   ]);
   const queued = new Set(queuedRows.map((r) => r.contactId));
 
-  const visible = afterBrand.filter((c) => {
-    const ev = lastEvent.get(c.id);
-    return !isHiddenFromCallQueueAssign({
-      now,
-      currentCategory: c.category,
-      allocationAt: allocated.get(c.id) ?? null,
-      lastNonAllocationAt: ev?.at ?? null,
-      lastNonAllocationCategory: ev?.category ?? c.category,
-      hasPendingQueue: queued.has(c.id),
-    });
-  });
-
   const lifetimeNeeded = callQueueNeedsLifetimeTotals(input.filters);
 
   const lifetimeById = lifetimeNeeded
-    ? await lifetimeTotalsByContactId(input.companyId, visible)
+    ? await lifetimeTotalsByContactId(input.companyId, afterBrand)
     : new Map<string, number>();
 
-  const matched = visible.filter((c) =>
+  const matched = afterBrand.filter((c) =>
     matchesCallQueueAssignFilters(
       {
         lifetimeTotal: lifetimeById.get(c.id) ?? 0,
@@ -337,14 +336,37 @@ async function listRankedEligibleContacts(input: {
   );
 
   const ranked = matched
-    .map((c) => ({
-      ...c,
-      lastContactedAt: contacted.get(c.id) ?? null,
-      lifetimeTotal: lifetimeById.get(c.id) ?? 0,
-    }))
+    .map((c) => {
+      const ev = lastEvent.get(c.id);
+      const hideReason = callQueueHideReason({
+        now,
+        currentCategory: c.category,
+        allocationAt: allocated.get(c.id) ?? null,
+        lastNonAllocationAt: ev?.at ?? null,
+        lastNonAllocationCategory: ev?.category ?? c.category,
+        hasPendingQueue: queued.has(c.id),
+      });
+      return {
+        ...c,
+        lastContactedAt: contacted.get(c.id) ?? null,
+        lifetimeTotal: lifetimeById.get(c.id) ?? 0,
+        queued: queued.has(c.id),
+        hidden: hideReason != null,
+        hideReason,
+      };
+    })
     .sort(compareCallQueueCandidateOrder);
 
   return { ranked, allocatedTotal };
+}
+
+function applyHideFilter(
+  ranked: RankedContact[],
+  hideFilter: CallQueueHideFilter | undefined
+): RankedContact[] {
+  if (hideFilter === "hidden") return ranked.filter((c) => c.hidden);
+  if (hideFilter === "eligible") return ranked.filter((c) => !c.hidden);
+  return ranked;
 }
 
 export async function listCallQueueCandidates(input: {
@@ -367,9 +389,11 @@ export async function listCallQueueCandidates(input: {
     companyId: input.companyId,
     filters: input,
   });
-  const total = ranked.length;
+  const eligibleTotal = ranked.filter((c) => !c.hidden).length;
+  const shown = applyHideFilter(ranked, input.hideFilter);
+  const total = shown.length;
   const start = (page - 1) * pageSize;
-  const pageRows = ranked.slice(start, start + pageSize);
+  const pageRows = shown.slice(start, start + pageSize);
 
   const lifetimeAlready = callQueueNeedsLifetimeTotals(input);
   const pageTotals = lifetimeAlready
@@ -385,9 +409,11 @@ export async function listCallQueueCandidates(input: {
       lifetimeTotal: pageTotals?.get(c.id) ?? c.lifetimeTotal,
       lastPurchaseAt: c.lastPurchaseAt?.toISOString() ?? null,
       lastContactedAt: c.lastContactedAt?.toISOString() ?? null,
-      queued: false,
+      queued: c.queued,
+      hidden: c.hidden,
+      hideReason: c.hideReason,
     })),
-    pagination: { page, pageSize, total, eligibleTotal: total, allocatedTotal },
+    pagination: { page, pageSize, total, eligibleTotal, allocatedTotal },
   };
 }
 
@@ -404,12 +430,13 @@ export async function listCallQueueEligibleIds(input: {
     companyId: input.companyId,
     filters: input,
   });
-  const eligibleTotal = ranked.length;
+  const eligible = ranked.filter((c) => !c.hidden);
+  const eligibleTotal = eligible.length;
   const cap = Math.min(
     CALL_QUEUE_ELIGIBLE_IDS_CAP,
     input.limit != null ? Math.max(1, input.limit) : CALL_QUEUE_ELIGIBLE_IDS_CAP
   );
-  const contactIds = ranked.slice(0, cap).map((c) => c.id);
+  const contactIds = eligible.slice(0, cap).map((c) => c.id);
   return {
     contactIds,
     eligibleTotal,

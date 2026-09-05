@@ -10,6 +10,8 @@ import {
 } from "@/lib/failed-erp-sync-auto-retry";
 import {
   buildFailedErpPeSyncWhere,
+  clearOrderErpPeSyncFailure,
+  isPendingFinanceApprovalPeRetryError,
   markOrderErpPeSyncFailed,
   resolveFailedErpPeRetryMop,
   retryOrderErpPeSync,
@@ -143,8 +145,16 @@ async function retryAllPaymentEntries(companyId: string) {
       succeeded += 1;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
+      if (isPendingFinanceApprovalPeRetryError(errorMessage)) {
+        skipped += 1;
+        await clearOrderErpPeSyncFailure(order.id);
+        continue;
+      }
       failed += 1;
-      await markOrderErpPeSyncFailed(order.id, errorMessage, mopName);
+      await markOrderErpPeSyncFailed(order.id, errorMessage, mopName, new Date(), {
+        incrementAutoRetryCount: true,
+        scheduleAutoRetry: true,
+      });
       if (sampleFailures.length < 10) {
         sampleFailures.push({
           id: order.id,

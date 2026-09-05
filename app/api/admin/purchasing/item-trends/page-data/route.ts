@@ -15,6 +15,7 @@ import {
   mergeIntelligentMovement,
 } from "@/lib/item-trends/intelligent";
 import { buildPatternAnnotations } from "@/lib/item-trends/patterns";
+import { fetchMarketGapForSkus } from "@/lib/item-trends/market-gap";
 import { resolveItemTrendsScope } from "@/lib/item-trends/scope";
 import { getCurrentUserContext, requirePermission } from "@/lib/rbac";
 import { itemTrendsQuerySchema } from "@/lib/validation";
@@ -92,6 +93,21 @@ export async function GET(request: NextRequest) {
       intelligentEngine === "active"
         ? mergeIntelligentMovement(movement, intelligentSignals)
         : movement;
+
+    // Enrich movement rows with competitor market gaps if available
+    try {
+      const movementSkus = enrichedMovement.map((m) => m.sku);
+      const marketGaps = await fetchMarketGapForSkus(companyId, movementSkus);
+      for (const row of enrichedMovement) {
+        const gap = marketGaps.get(row.sku);
+        if (gap) {
+          row.marketGapPct = gap.gapPct;
+          row.isCheapestInMarket = gap.isCheapest;
+        }
+      }
+    } catch {
+      // Non-fatal if competitor market gap enrichment fails
+    }
 
     const kpis = buildKpiSummary({
       movement: enrichedMovement,

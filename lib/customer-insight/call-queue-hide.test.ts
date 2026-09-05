@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   addCalendarMonthsUtc,
+  callQueueHideReason,
   eligibleAtStartOfUtcDayAfter,
   isHiddenFromCallQueueAssign,
 } from "@/lib/customer-insight/call-queue-hide";
@@ -121,5 +122,76 @@ describe("call-queue hide windows", () => {
         hasPendingQueue: false,
       })
     ).toBe(false);
+  });
+});
+
+describe("callQueueHideReason", () => {
+  const now = new Date("2026-12-01T00:00:00.000Z");
+
+  it("labels permanent omit, queued, and allocation cooling", () => {
+    expect(
+      callQueueHideReason({
+        now,
+        currentCategory: "Black List",
+        allocationAt: null,
+        lastNonAllocationAt: null,
+        lastNonAllocationCategory: null,
+        hasPendingQueue: false,
+      })
+    ).toBe("Black List");
+    expect(
+      callQueueHideReason({
+        now,
+        currentCategory: null,
+        allocationAt: null,
+        lastNonAllocationAt: null,
+        lastNonAllocationCategory: null,
+        hasPendingQueue: true,
+      })
+    ).toBe("Already queued");
+    expect(
+      callQueueHideReason({
+        now: new Date("2026-10-23T00:00:00.000Z"),
+        currentCategory: null,
+        allocationAt: new Date("2026-08-24T00:00:00.000Z"),
+        lastNonAllocationAt: null,
+        lastNonAllocationCategory: null,
+        hasPendingQueue: false,
+      })
+    ).toBe("Allocated < 2 months");
+  });
+
+  it("labels outreach cooling and returns null when eligible", () => {
+    const at = new Date("2026-08-24T12:00:00.000Z");
+    expect(
+      callQueueHideReason({
+        now: new Date("2026-08-30T00:00:00.000Z"),
+        currentCategory: "Not Interested",
+        allocationAt: null,
+        lastNonAllocationAt: at,
+        lastNonAllocationCategory: "Not Interested",
+        hasPendingQueue: false,
+      })
+    ).toBe("Not Interested (< 2 months)");
+    expect(
+      callQueueHideReason({
+        now: new Date("2026-08-30T00:00:00.000Z"),
+        currentCategory: "Not Responding",
+        allocationAt: null,
+        lastNonAllocationAt: at,
+        lastNonAllocationCategory: "Not Responding",
+        hasPendingQueue: false,
+      })
+    ).toBe("Not Responding (7 days)");
+    expect(
+      callQueueHideReason({
+        now: new Date("2026-08-31T00:00:00.000Z"),
+        currentCategory: "Not Responding",
+        allocationAt: null,
+        lastNonAllocationAt: at,
+        lastNonAllocationCategory: "Not Responding",
+        hasPendingQueue: false,
+      })
+    ).toBeNull();
   });
 });

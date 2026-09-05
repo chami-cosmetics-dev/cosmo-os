@@ -16,6 +16,8 @@ const SHARED_MERCHANT_EMAILS = new Set([
   "dulshi25.cosmetics@gmail.com",
   "maheshisoysacosmetics@outlook.com",
   "nilmini.cosmetics@gmail.com",
+  // Merchant/staff checkout Gmail reused on hundreds of customer Adapt/ERP rows
+  "hpg.inoka@gmail.com",
 ]);
 
 const SHARED_MERCHANT_EMAIL_SUFFIXES = [

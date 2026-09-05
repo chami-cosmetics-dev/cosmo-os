@@ -307,6 +307,10 @@ export const customerInsightCallQueueCandidatesQuerySchema = z.object({
     (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
     trimmedString(1, LIMITS.name.max).optional()
   ),
+  hideFilter: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+    z.enum(["eligible", "hidden", "all"]).optional()
+  ),
 });
 
 export const customerInsightCallQueueEligibleIdsQuerySchema = z.object({

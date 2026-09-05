@@ -45,6 +45,8 @@ export type ItemMovementRow = {
   signal: MovementSignalKind;
   signalSource: SignalSource;
   sparkline: number[];
+  marketGapPct?: number | null;
+  isCheapestInMarket?: boolean | null;
 };
 
 export type DistrictDemandRow = {
@@ -119,6 +121,9 @@ export type PatternAnnotation = {
   dominantDayLabels: string[];
   recurring: boolean;
   signalSource: SignalSource;
+  /** Units per weekday Sun→Sat for the selected range. */
+  weekdayUnits: number[];
+  totalUnits: number;
 };
 
 export type ItemTrendScope = {
