@@ -72,6 +72,7 @@ export function ItemTrendsPanel({ canManageRop }: Props) {
   const [outletsStockLoading, setOutletsStockLoading] = useState(false);
   const [outletsStockLoaded, setOutletsStockLoaded] = useState(false);
   const [outletSku, setOutletSku] = useState("");
+  const [outletsUseDateFilter, setOutletsUseDateFilter] = useState(false);
   const outletsStockGen = useRef(0);
 
   const [ropRows, setRopRows] = useState<RopSuggestionRow[]>([]);
@@ -82,6 +83,8 @@ export function ItemTrendsPanel({ canManageRop }: Props) {
   const outletsGen = useRef(0);
   const ropGen = useRef(0);
   const districtsGen = useRef(0);
+  const outletFrom = outletsUseDateFilter ? from : "";
+  const outletTo = outletsUseDateFilter ? to : "";
 
   const loadMain = useCallback(async () => {
     const gen = ++mainGen.current;
@@ -123,7 +126,11 @@ export function ItemTrendsPanel({ canManageRop }: Props) {
     setOutletsStockLoaded(false);
     try {
       const sku = outletSku.trim();
-      const params = new URLSearchParams({ from, to, priority });
+      const params = new URLSearchParams({ priority });
+      if (outletsUseDateFilter) {
+        params.set("from", outletFrom);
+        params.set("to", outletTo);
+      }
       if (sku) {
         params.set("sku", sku);
         params.set("includeStock", "true");
@@ -151,11 +158,13 @@ export function ItemTrendsPanel({ canManageRop }: Props) {
         void (async () => {
           try {
             const stockParams = new URLSearchParams({
-              from,
-              to,
               priority,
               includeStock: "true",
             });
+            if (outletsUseDateFilter) {
+              stockParams.set("from", outletFrom);
+              stockParams.set("to", outletTo);
+            }
             const stockRes = await fetch(
               `/api/admin/purchasing/item-trends/outlets?${stockParams}`,
             );
@@ -178,7 +187,7 @@ export function ItemTrendsPanel({ canManageRop }: Props) {
     } finally {
       if (gen === outletsGen.current) setOutletsLoading(false);
     }
-  }, [from, to, priority, outletSku]);
+  }, [outletFrom, outletTo, priority, outletSku, outletsUseDateFilter]);
 
   const loadRop = useCallback(async () => {
     const gen = ++ropGen.current;
@@ -285,7 +294,8 @@ export function ItemTrendsPanel({ canManageRop }: Props) {
           <CardTitle className="text-base">Filters</CardTitle>
           <CardDescription>
             Asia/Colombo calendar days — default today (change From/To for a range). Date +
-            priority apply to all tabs. Outlets: item sale counts, or type SKU for all shops.
+            priority apply to Movement, ROP, Districts. Outlets default lifetime speed; From/To
+            optional on that tab.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap items-end gap-3">
@@ -462,8 +472,9 @@ export function ItemTrendsPanel({ canManageRop }: Props) {
             <CardHeader>
               <CardTitle className="text-base">Item sales by shop</CardTitle>
               <CardDescription>
-                Default = today&apos;s shop POS units first (fast). Live stock + transfers load in
-                background. Type exact SKU for all shops. From/To for any range. Online ignored.
+                Default = lifetime shop POS speed (first sale at that shop ÷ days to today). Live
+                stock + transfers load in background. Type exact SKU for all shops. Optional
+                From/To on this tab. Online ignored.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -481,6 +492,10 @@ export function ItemTrendsPanel({ canManageRop }: Props) {
                   salesLoading={outletsLoading}
                   stockLoading={outletsStockLoading}
                   stockLoaded={outletsStockLoaded}
+                  useDateFilter={outletsUseDateFilter}
+                  onUseDateFilterChange={setOutletsUseDateFilter}
+                  filterFrom={from}
+                  filterTo={to}
                 />
               )}
             </CardContent>

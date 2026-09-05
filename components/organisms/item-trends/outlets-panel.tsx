@@ -16,6 +16,10 @@ type Props = {
   salesLoading?: boolean;
   stockLoading?: boolean;
   stockLoaded?: boolean;
+  useDateFilter: boolean;
+  onUseDateFilterChange: (value: boolean) => void;
+  filterFrom: string;
+  filterTo: string;
 };
 
 type PressureFilter = "all" | "high_slow" | "low_fast" | "attention";
@@ -192,6 +196,10 @@ export function OutletsPanel({
   salesLoading = false,
   stockLoading = false,
   stockLoaded = false,
+  useDateFilter,
+  onUseDateFilterChange,
+  filterFrom,
+  filterTo,
 }: Props) {
   const [skuDraft, setSkuDraft] = useState(skuQuery);
   const activeSku = skuQuery.trim();
@@ -256,6 +264,11 @@ export function OutletsPanel({
     [outlets],
   );
 
+  const unitsLabel = useDateFilter ? "units in range" : "lifetime units";
+  const speedHint = useDateFilter
+    ? `Speed = units in ${filterFrom} – ${filterTo} ÷ days`
+    : "Speed = lifetime units at that shop ÷ days since first sale there";
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end gap-3">
@@ -290,10 +303,29 @@ export function OutletsPanel({
             Clear
           </Button>
         ) : null}
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant={useDateFilter ? "outline" : "default"}
+            onClick={() => onUseDateFilterChange(false)}
+          >
+            Lifetime
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant={useDateFilter ? "default" : "outline"}
+            onClick={() => onUseDateFilterChange(true)}
+          >
+            From/To
+          </Button>
+        </div>
         <p className="w-full text-xs text-muted-foreground">
+          {speedHint}.{" "}
           {activeSku
-            ? `Showing ${activeSku} at all shops · ${totalUnits} units in range`
-            : `Item-wise shop sales · ${itemRows.length} SKUs · ${totalUnits} units in range`}
+            ? `Showing ${activeSku} at all shops · ${totalUnits} ${unitsLabel}`
+            : `Item-wise shop sales · ${itemRows.length} SKUs · ${totalUnits} ${unitsLabel}`}
           {salesLoading ? " · refreshing…" : null}
           {!activeSku && stockLoading ? " · loading live stock…" : null}
           {!activeSku && stockLoaded && !stockLoading ? " · stock ready" : null}
@@ -308,7 +340,8 @@ export function OutletsPanel({
           </h3>
           {locationRows.length === 0 ? (
             <p className="rounded-md border border-dashed border-border px-3 py-6 text-center text-sm text-muted-foreground">
-              No shop stock or sales for this SKU in From/To. Check spelling (exact SKU).
+              No shop stock or sales for this SKU
+              {useDateFilter ? " in From/To" : " (lifetime)"}. Check spelling (exact SKU).
             </p>
           ) : (
             <div>
@@ -359,8 +392,9 @@ export function OutletsPanel({
           <h3 className="mb-3 text-sm font-semibold text-foreground">Item-wise sale count</h3>
           {itemRows.length === 0 ? (
             <p className="rounded-md border border-dashed border-border px-3 py-6 text-center text-sm text-muted-foreground">
-              No shop stock or counter sales for this From/To + priority. Shop POS SKUs are often
-              Vat / Non Priority — set priority to all. Online ignored.
+              No shop stock or counter sales for this {useDateFilter ? "From/To + " : "lifetime + "}
+              priority. Shop POS SKUs are often Vat / Non Priority — set priority to all. Online
+              ignored.
             </p>
           ) : (
             <div>
@@ -430,7 +464,12 @@ export function OutletsPanel({
 
       <section>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <h3 className="text-sm font-semibold text-foreground">Transfer candidates</h3>
+          <h3 className="text-sm font-semibold text-foreground">
+            Transfer candidates
+            <span className="ml-2 text-xs font-normal text-muted-foreground">
+              {useDateFilter ? `${filterFrom} – ${filterTo}` : "lifetime speed"}
+            </span>
+          </h3>
           {transfers.length > 0 ? (
             <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary">
               {transfers.length} suggested
@@ -466,7 +505,7 @@ export function OutletsPanel({
               ? "Loading live stock for transfer suggestions…"
               : outlets.length > 0
                 ? `No move pairs yet among ${outlets.length} shop rows. Need same SKU with stock ≥5 + slow (<0.5/day) at one shop and faster counter sales at another.`
-                : "No transfer candidates — shop balance is empty for this range/priority first."}
+                : `No transfer candidates — shop balance empty for this ${useDateFilter ? "range" : "lifetime"}/priority first.`}
           </p>
         )}
       </section>

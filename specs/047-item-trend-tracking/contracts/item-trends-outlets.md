@@ -10,7 +10,7 @@ Outlet balance, per-outlet movement, and transfer candidates.
 
 | Param | Type | Rules |
 |-------|------|--------|
-| `from`, `to` | `YYYY-MM-DD` | Required |
+| `from`, `to` | `YYYY-MM-DD` | Optional together. Omit both = **lifetime** speed (first completed sale at that shop → today). When set, units + speed use that window |
 | `priority` | string | Optional filter (default `all`; `all` = no filter). Ignored when `sku` set |
 | `sku` | string | Optional exact SKU — returns that item at every shop (incl. zero sales) |
 | `columnKey` | string | Optional single outlet OSF column |
@@ -24,6 +24,8 @@ Outlet balance, per-outlet movement, and transfer candidates.
 - Cosmetics.lk website location column excluded (online sales not used)
 - Stock: live ERP bins on shop warehouses
 - Movement: `order.erpnextWarehouse` → shop column, or trading POS at shop location
+- Default speed: **lifetime** — units ever sold at that shop ÷ inclusive calendar days from first sale there to today
+- Optional From/To: same window for all shops (units in range ÷ range days)
 - `transfers`: same SKU slow+high stock at one shop, faster at another
 
 ## Response `200`

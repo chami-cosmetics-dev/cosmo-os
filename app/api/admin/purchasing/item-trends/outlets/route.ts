@@ -32,7 +32,8 @@ export async function GET(request: NextRequest) {
   const { from, to, sku, columnKey, transfersOnly, priority, includeStock } = parsed.data;
 
   try {
-    const { current } = resolveItemTrendWindows({ fromYmd: from, toYmd: to });
+    const range =
+      from && to ? resolveItemTrendWindows({ fromYmd: from, toYmd: to }).current : null;
     const scope = await resolveItemTrendsScope(context);
 
     if (columnKey && scope.columnKeys && !scope.columnKeys.includes(columnKey)) {
@@ -45,7 +46,7 @@ export async function GET(request: NextRequest) {
 
     const { outlets, transfers, stockLoaded } = await fetchOutletBalanceAndTransfers({
       companyId,
-      range: current,
+      range,
       columnKeys,
       skuFilter: sku ? [sku] : undefined,
       priority: priority ?? "all",
@@ -55,7 +56,12 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       outlets: transfersOnly ? [] : outlets,
       transfers,
-      meta: { stockLoaded },
+      meta: {
+        stockLoaded,
+        speedBasis: range ? "range" : "lifetime",
+        from: range?.fromYmd ?? null,
+        to: range?.toYmd ?? null,
+      },
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to load outlets";

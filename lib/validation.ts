@@ -489,22 +489,32 @@ export const itemTrendsDistrictsQuerySchema = z.object({
     .transform((v) => v !== "false"),
 });
 
-export const itemTrendsOutletsQuerySchema = z.object({
-  from: itemTrendsYmdSchema,
-  to: itemTrendsYmdSchema,
-  priority: z.string().max(64).optional(),
-  sku: z.string().max(80).optional(),
-  columnKey: z.string().max(64).optional(),
-  transfersOnly: z
-    .enum(["true", "false"])
-    .optional()
-    .transform((v) => v === "true"),
-  /** When omitted: true if sku set, else false (fast sales list). */
-  includeStock: z
-    .enum(["true", "false"])
-    .optional()
-    .transform((v) => (v === undefined ? undefined : v === "true")),
-});
+export const itemTrendsOutletsQuerySchema = z
+  .object({
+    from: itemTrendsYmdSchema.optional(),
+    to: itemTrendsYmdSchema.optional(),
+    priority: z.string().max(64).optional(),
+    sku: z.string().max(80).optional(),
+    columnKey: z.string().max(64).optional(),
+    transfersOnly: z
+      .enum(["true", "false"])
+      .optional()
+      .transform((v) => v === "true"),
+    /** When omitted: true if sku set, else false (fast sales list). */
+    includeStock: z
+      .enum(["true", "false"])
+      .optional()
+      .transform((v) => (v === undefined ? undefined : v === "true")),
+  })
+  .superRefine((data, ctx) => {
+    if (Boolean(data.from) !== Boolean(data.to)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "from and to must both be set",
+        path: data.from ? ["to"] : ["from"],
+      });
+    }
+  });
 
 export const itemTrendsRopQuerySchema = z.object({
   ropWindow: z.enum(["3m", "2m", "custom"]).optional().default("3m"),

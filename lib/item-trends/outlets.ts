@@ -11,7 +11,8 @@ import {
 } from "@/lib/osf/erp-stock";
 import { prisma } from "@/lib/prisma";
 
-import { calendarDaysInclusive, filterSkusByPriority } from "@/lib/item-trends/aggregate";
+import { formatAppIsoDate } from "@/lib/format-datetime";
+import { calendarDaysInclusive, filterSkusByPriority, outletSpeedPerDay } from "@/lib/item-trends/aggregate";
 import {
   isCosmeticsLkInternalShopColumn,
   isPhysicalShopOsfColumn,
@@ -103,19 +104,32 @@ type SalesAggRow = {
   locationId: string | null;
   sourceName: string | null;
   units: number;
+  firstSoldAt: Date | null;
 };
+
+export type OutletColumnSales = {
+  units: number;
+  firstSoldAt: Date | null;
+};
+
+function minDate(a: Date | null, b: Date | null): Date | null {
+  if (!a) return b;
+  if (!b) return a;
+  return a.getTime() <= b.getTime() ? a : b;
+}
 
 /**
  * Aggregate shop POS units by SKU + order attributes (one SQL round-trip).
  * Avoids Prisma hydrating every OrderLineItem + nested Order.
+ * `range` null = lifetime (all completed shop POS).
  */
 export async function salesByOsfColumnInRange(
   companyId: string,
-  range: ItemTrendDateRange,
+  range: ItemTrendDateRange | null,
   columns: OsfResolvedColumn[],
   skuFilter?: string[],
-): Promise<Map<string, Map<string, number>>> {
-  const result = new Map<string, Map<string, number>>();
+): Promise<Map<string, Map<string, OutletColumnSales>>> {
+  const result = new Map<string, Map<string, OutletColumnSales>>();
   const locationToCols = locationToColumns(columns);
   const warehouseToCols = warehouseToColumns(columns);
   const locationIds = [...locationToCols.keys()];
@@ -151,27 +165,32 @@ export async function salesByOsfColumnInRange(
         ? Prisma.sql`AND TRIM(pi.sku) IN (${Prisma.join(skuList)})`
         : Prisma.empty;
 
-  const rows = await prisma.$queryRaw<SalesAggRow[]>`
-    SELECT
-      TRIM(pi.sku) AS sku,
-      o."erpnextWarehouse" AS warehouse,
-      o."companyLocationId" AS "locationId",
-      o."sourceName" AS "sourceName",
-      SUM(oli.quantity)::float AS units
-    FROM "OrderLineItem" oli
-    INNER JOIN "Order" o ON o.id = oli."orderId"
-    INNER JOIN "ProductItem" pi ON pi.id = oli."productItemId"
-    WHERE o."companyId" = ${companyId}
-      AND o."cancelledAt" IS NULL
-      AND o."fulfillmentStage" IN ('delivery_complete', 'invoice_complete')
-      AND (
+  const dateSql = range
+    ? Prisma.sql`AND (
         (o."deliveryCompleteAt" >= ${range.rangeStart} AND o."deliveryCompleteAt" < ${range.rangeEndExclusive})
         OR (
           o."deliveryCompleteAt" IS NULL
           AND o."invoiceCompleteAt" >= ${range.rangeStart}
           AND o."invoiceCompleteAt" < ${range.rangeEndExclusive}
         )
-      )
+      )`
+    : Prisma.sql`AND (o."deliveryCompleteAt" IS NOT NULL OR o."invoiceCompleteAt" IS NOT NULL)`;
+
+  const rows = await prisma.$queryRaw<SalesAggRow[]>`
+    SELECT
+      TRIM(pi.sku) AS sku,
+      o."erpnextWarehouse" AS warehouse,
+      o."companyLocationId" AS "locationId",
+      o."sourceName" AS "sourceName",
+      SUM(oli.quantity)::float AS units,
+      MIN(COALESCE(o."deliveryCompleteAt", o."invoiceCompleteAt")) AS "firstSoldAt"
+    FROM "OrderLineItem" oli
+    INNER JOIN "Order" o ON o.id = oli."orderId"
+    INNER JOIN "ProductItem" pi ON pi.id = oli."productItemId"
+    WHERE o."companyId" = ${companyId}
+      AND o."cancelledAt" IS NULL
+      AND o."fulfillmentStage" IN ('delivery_complete', 'invoice_complete')
+      ${dateSql}
       AND pi.sku IS NOT NULL
       AND TRIM(pi.sku) <> ''
       AND ${scopeSql}
@@ -193,13 +212,18 @@ export async function salesByOsfColumnInRange(
     });
     if (!cols.length) continue;
 
+    const firstSoldAt = row.firstSoldAt ? new Date(row.firstSoldAt) : null;
     let skuMap = result.get(sku);
     if (!skuMap) {
       skuMap = new Map();
       result.set(sku, skuMap);
     }
     for (const col of cols) {
-      skuMap.set(col.key, (skuMap.get(col.key) ?? 0) + units);
+      const prev = skuMap.get(col.key);
+      skuMap.set(col.key, {
+        units: (prev?.units ?? 0) + units,
+        firstSoldAt: minDate(prev?.firstSoldAt ?? null, firstSoldAt),
+      });
     }
   }
 
@@ -213,10 +237,10 @@ function stockPressure(stock: number | null, speed: number): StockPressure {
   return "balanced";
 }
 
-function topSoldSkus(salesMap: Map<string, Map<string, number>>, limit: number): string[] {
+function topSoldSkus(salesMap: Map<string, Map<string, OutletColumnSales>>, limit: number): string[] {
   const totals = [...salesMap.entries()].map(([sku, cols]) => {
     let units = 0;
-    for (const u of cols.values()) units += u;
+    for (const u of cols.values()) units += u.units;
     return { sku, units };
   });
   totals.sort((a, b) => b.units - a.units || a.sku.localeCompare(b.sku));
@@ -225,7 +249,8 @@ function topSoldSkus(salesMap: Map<string, Map<string, number>>, limit: number):
 
 export async function fetchOutletBalanceAndTransfers(input: {
   companyId: string;
-  range: ItemTrendDateRange;
+  /** Null/omit = lifetime shop POS (first sale at that shop → today). */
+  range?: ItemTrendDateRange | null;
   columnKeys?: string[] | null;
   skuFilter?: string[];
   priority?: string | null;
@@ -254,9 +279,10 @@ export async function fetchOutletBalanceAndTransfers(input: {
     return { outlets: [], transfers: [], stockLoaded: includeStock };
   }
 
+  const range = input.range ?? null;
   const salesMap = await salesByOsfColumnInRange(
     input.companyId,
-    input.range,
+    range,
     scoped,
     skuFilter,
   );
@@ -321,16 +347,23 @@ export async function fetchOutletBalanceAndTransfers(input: {
 
   const outlets: OutletBalanceRow[] = [];
   const transfers: TransferCandidate[] = [];
-  const days = calendarDaysInclusive(input.range.fromYmd, input.range.toYmd);
-  const destMinUnits = days <= 7 ? 1 : 3;
+  const rangeDays = range ? calendarDaysInclusive(range.fromYmd, range.toYmd) : null;
+  const destMinUnits = rangeDays != null && rangeDays <= 7 ? 1 : 3;
+  const asOfYmd = range?.toYmd ?? formatAppIsoDate(new Date());
 
   for (const sku of skus) {
-    const colSales = salesMap.get(sku) ?? new Map<string, number>();
+    const colSales = salesMap.get(sku) ?? new Map<string, OutletColumnSales>();
     const speeds: { col: OsfResolvedColumn; stock: number; speed: number; units: number }[] = [];
 
     for (const col of scoped) {
-      const units = colSales.get(col.key) ?? 0;
-      const speed = units / days;
+      const sale = colSales.get(col.key);
+      const units = sale?.units ?? 0;
+      const speed = outletSpeedPerDay({
+        units,
+        firstSoldAt: sale?.firstSoldAt ?? null,
+        asOfYmd,
+        rangeDays,
+      });
       const stock =
         !stockLoaded || col.warehouses.length === 0
           ? null
