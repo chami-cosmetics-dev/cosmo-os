@@ -3457,7 +3457,7 @@ export function CustomerInsightPanel({
             <CardTitle className="text-base">Merchant allocations</CardTitle>
             <CardDescription>
               How many Contact Master rows are allocated to each merchant. Export
-              downloads the same counts as CSV.
+              CSV includes each allocated contact name and phone number.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
