@@ -89,6 +89,14 @@ const DEFAULT_PERMISSIONS = [
     description: "View Item Trends super dashboard (movement, outlets, ROP suggestions, districts)",
   },
   {
+    key: "purchasing.market_prices.read",
+    description: "View Market Price Compare dashboard and competitor price data",
+  },
+  {
+    key: "purchasing.market_prices.manage",
+    description: "Add/edit competitor product links and import competitor price spreadsheets",
+  },
+  {
     key: "store.allocation.read",
     description: "Use store location allocation advisor (SKU/barcode take-qty split)",
   },
@@ -549,6 +557,8 @@ const DEFAULT_ROLES = [
       "purchasing.tools.read",
       "purchasing.tools.manage",
       "purchasing.item_trends.read",
+      "purchasing.market_prices.read",
+      "purchasing.market_prices.manage",
       "academy.learn",
       "academy.manage",
       "products.storage.read",

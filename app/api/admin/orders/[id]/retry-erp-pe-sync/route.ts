@@ -86,7 +86,10 @@ export async function POST(
     return NextResponse.json({ ok: true, message: "ERP payment entry created" });
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
-    await markOrderErpPeSyncFailed(order.id, errMsg, mopOverride ?? mopName);
+    await markOrderErpPeSyncFailed(order.id, errMsg, mopOverride ?? mopName, new Date(), {
+      incrementAutoRetryCount: true,
+      scheduleAutoRetry: true,
+    });
     return NextResponse.json({ error: "Retry failed", details: errMsg }, { status: 500 });
   }
 }

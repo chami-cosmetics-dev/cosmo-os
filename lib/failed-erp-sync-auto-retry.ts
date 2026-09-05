@@ -13,14 +13,16 @@ export {
   ERP_SYNC_STUCK_PENDING_UI_LABEL,
 } from "@/lib/erp-sync-failure-copy";
 
-const AUTO_RETRY_DELAYS_MS = [
+export const ERP_SYNC_AUTO_RETRY_DELAYS_MS = [
   60_000,
   3 * 60_000,
   10 * 60_000,
   30 * 60_000,
 ] as const;
+const AUTO_RETRY_DELAYS_MS = ERP_SYNC_AUTO_RETRY_DELAYS_MS;
 const AUTO_RETRY_BATCH_LIMIT = 10;
-const AUTO_RETRY_LEASE_MS = 2 * 60_000;
+export const ERP_SYNC_AUTO_RETRY_LEASE_MS = 2 * 60_000;
+const AUTO_RETRY_LEASE_MS = ERP_SYNC_AUTO_RETRY_LEASE_MS;
 
 /** Order ERP auto-retry columns — explicit so typings stay valid before `prisma generate`. */
 type OrderErpSyncRetryPatch = {

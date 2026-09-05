@@ -144,7 +144,10 @@ async function retryAllPaymentEntries(companyId: string) {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       failed += 1;
-      await markOrderErpPeSyncFailed(order.id, errorMessage, mopName);
+      await markOrderErpPeSyncFailed(order.id, errorMessage, mopName, new Date(), {
+        incrementAutoRetryCount: true,
+        scheduleAutoRetry: true,
+      });
       if (sampleFailures.length < 10) {
         sampleFailures.push({
           id: order.id,

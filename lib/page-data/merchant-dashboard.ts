@@ -44,7 +44,13 @@ import { dmBucketShareForHolder } from "@/lib/merchant-dm-sales";
 import {
   mergeMerchantCohortWithDmBucket,
   resolveEffectiveTotalTarget,
+  resolveMonthlyTargetUpsert,
 } from "@/lib/merchant-dashboard/channel-sales";
+import {
+  carriedTargetAmountsEqual,
+  shouldSyncCarriedTarget,
+  type CarriedTargetAmounts,
+} from "@/lib/merchant-dashboard/target-carry";
 import {
   buildGmOverview,
   type GmChannelFooter,
@@ -297,7 +303,7 @@ async function loadTargetRow(companyId: string, userId: string, yearMonth: strin
   });
 }
 
-/** Copy prior-month targets when current month has none yet (admins can edit after). */
+/** Copy prior-month targets when this month was never set/updated/removed. */
 export async function ensureMerchantTargetsCarriedForward(input: {
   companyId: string;
   yearMonth: string;
@@ -306,45 +312,55 @@ export async function ensureMerchantTargetsCarriedForward(input: {
   if (input.merchantUserIds.length === 0) return 0;
 
   const prevMonth = previousYearMonth(input.yearMonth);
-  const existing = await prisma.merchantMonthlyTarget.findMany({
-    where: {
-      companyId: input.companyId,
-      yearMonth: input.yearMonth,
-      userId: { in: input.merchantUserIds },
-    },
-    select: { userId: true },
-  });
-  const hasTarget = new Set(existing.map((row) => row.userId));
-  let missing = input.merchantUserIds.filter((id) => !hasTarget.has(id));
-  if (missing.length === 0) return 0;
+  const [existingRows, historyRows, prevTargets] = await Promise.all([
+    prisma.merchantMonthlyTarget.findMany({
+      where: {
+        companyId: input.companyId,
+        yearMonth: input.yearMonth,
+        userId: { in: input.merchantUserIds },
+      },
+      select: {
+        userId: true,
+        targetAmount: true,
+        shopTargetAmount: true,
+        onlineTargetAmount: true,
+        wholesaleTargetAmount: true,
+      },
+    }),
+    prisma.merchantMonthlyTargetHistory.findMany({
+      where: {
+        companyId: input.companyId,
+        yearMonth: input.yearMonth,
+        userId: { in: input.merchantUserIds },
+      },
+      select: { userId: true, action: true },
+    }),
+    prisma.merchantMonthlyTarget.findMany({
+      where: {
+        companyId: input.companyId,
+        yearMonth: prevMonth,
+        userId: { in: input.merchantUserIds },
+      },
+    }),
+  ]);
 
-  // Skip merchants whose target was explicitly removed this month (do not re-carry).
-  const removedRows = await prisma.merchantMonthlyTargetHistory.findMany({
-    where: {
-      companyId: input.companyId,
-      yearMonth: input.yearMonth,
-      userId: { in: missing },
-      action: "remove",
-    },
-    select: { userId: true },
-  });
-  if (removedRows.length > 0) {
-    const removedIds = new Set(removedRows.map((row) => row.userId));
-    missing = missing.filter((id) => !removedIds.has(id));
+  const existingByUser = new Map(existingRows.map((row) => [row.userId, row]));
+  const actionsByUser = new Map<string, string[]>();
+  for (const row of historyRows) {
+    const list = actionsByUser.get(row.userId) ?? [];
+    list.push(row.action);
+    actionsByUser.set(row.userId, list);
   }
-  if (missing.length === 0) return 0;
 
-  const prevTargets = await prisma.merchantMonthlyTarget.findMany({
-    where: {
-      companyId: input.companyId,
-      yearMonth: prevMonth,
-      userId: { in: missing },
-    },
-  });
-  if (prevTargets.length === 0) return 0;
-
+  const ops: Prisma.PrismaPromise<unknown>[] = [];
   let carried = 0;
+  const note = `Carried forward from ${prevMonth}`;
+
   for (const prev of prevTargets) {
+    if (!shouldSyncCarriedTarget(actionsByUser.get(prev.userId) ?? [])) {
+      continue;
+    }
+
     const shop =
       prev.shopTargetAmount != null ? toNumber(prev.shopTargetAmount) : null;
     const online =
@@ -360,21 +376,70 @@ export async function ensureMerchantTargetsCarriedForward(input: {
     });
     if (effectiveTotal == null || effectiveTotal <= 0) continue;
 
-    const shopDecimal =
-      shop != null && shop > 0 ? new Prisma.Decimal(shop) : null;
-    const onlineDecimal =
-      online != null && online > 0 ? new Prisma.Decimal(online) : null;
-    const wholesaleDecimal =
-      wholesale != null && wholesale > 0 ? new Prisma.Decimal(wholesale) : null;
-    const amountDecimal = new Prisma.Decimal(effectiveTotal);
-    const note = `Carried forward from ${prevMonth}`;
+    const nextAmounts: CarriedTargetAmounts = {
+      targetAmount: effectiveTotal,
+      shopTargetAmount: shop != null && shop > 0 ? shop : null,
+      onlineTargetAmount: online != null && online > 0 ? online : null,
+      wholesaleTargetAmount:
+        wholesale != null && wholesale > 0 ? wholesale : null,
+    };
 
-    await prisma.$transaction([
-      prisma.merchantMonthlyTarget.create({
-        data: {
+    const current = existingByUser.get(prev.userId);
+    if (current) {
+      const currentAmounts: CarriedTargetAmounts = {
+        targetAmount: toNumber(current.targetAmount),
+        shopTargetAmount:
+          current.shopTargetAmount != null
+            ? toNumber(current.shopTargetAmount)
+            : null,
+        onlineTargetAmount:
+          current.onlineTargetAmount != null
+            ? toNumber(current.onlineTargetAmount)
+            : null,
+        wholesaleTargetAmount:
+          current.wholesaleTargetAmount != null
+            ? toNumber(current.wholesaleTargetAmount)
+            : null,
+      };
+      if (carriedTargetAmountsEqual(currentAmounts, nextAmounts)) {
+        continue;
+      }
+    }
+
+    const shopDecimal =
+      nextAmounts.shopTargetAmount != null
+        ? new Prisma.Decimal(nextAmounts.shopTargetAmount)
+        : null;
+    const onlineDecimal =
+      nextAmounts.onlineTargetAmount != null
+        ? new Prisma.Decimal(nextAmounts.onlineTargetAmount)
+        : null;
+    const wholesaleDecimal =
+      nextAmounts.wholesaleTargetAmount != null
+        ? new Prisma.Decimal(nextAmounts.wholesaleTargetAmount)
+        : null;
+    const amountDecimal = new Prisma.Decimal(nextAmounts.targetAmount);
+
+    ops.push(
+      prisma.merchantMonthlyTarget.upsert({
+        where: {
+          companyId_userId_yearMonth: {
+            companyId: input.companyId,
+            userId: prev.userId,
+            yearMonth: input.yearMonth,
+          },
+        },
+        create: {
           companyId: input.companyId,
           userId: prev.userId,
           yearMonth: input.yearMonth,
+          targetAmount: amountDecimal,
+          shopTargetAmount: shopDecimal,
+          onlineTargetAmount: onlineDecimal,
+          wholesaleTargetAmount: wholesaleDecimal,
+          note,
+        },
+        update: {
           targetAmount: amountDecimal,
           shopTargetAmount: shopDecimal,
           onlineTargetAmount: onlineDecimal,
@@ -395,8 +460,12 @@ export async function ensureMerchantTargetsCarriedForward(input: {
           note,
         },
       }),
-    ]);
+    );
     carried += 1;
+  }
+
+  if (ops.length > 0) {
+    await prisma.$transaction(ops);
   }
 
   return carried;
@@ -1126,18 +1195,35 @@ export async function upsertMerchantMonthlyTarget(input: {
         : null;
 
   let amountDecimal: Prisma.Decimal;
+  let shopForWrite = shop;
+  let onlineForWrite = online;
   if (regularFieldsProvided) {
-    const resolvedTotal = resolveEffectiveTotalTarget({
-      targetAmount:
-        input.targetAmount ??
-        (existing ? toNumber(existing.targetAmount) : null),
-      shopTargetAmount: shop,
-      onlineTargetAmount: online,
+    const resolved = resolveMonthlyTargetUpsert({
+      incoming: {
+        targetAmount: input.targetAmount,
+        shopTargetAmount: input.shopTargetAmount,
+        onlineTargetAmount: input.onlineTargetAmount,
+      },
+      existing: existing
+        ? {
+            targetAmount: toNumber(existing.targetAmount),
+            shopTargetAmount:
+              existing.shopTargetAmount != null
+                ? toNumber(existing.shopTargetAmount)
+                : null,
+            onlineTargetAmount:
+              existing.onlineTargetAmount != null
+                ? toNumber(existing.onlineTargetAmount)
+                : null,
+          }
+        : null,
     });
-    if (resolvedTotal == null || resolvedTotal <= 0) {
+    if (resolved?.targetAmount == null || resolved.targetAmount <= 0) {
       throw new Error("Target amount must be positive");
     }
-    amountDecimal = new Prisma.Decimal(resolvedTotal);
+    amountDecimal = new Prisma.Decimal(resolved.targetAmount);
+    shopForWrite = resolved.shopTargetAmount;
+    onlineForWrite = resolved.onlineTargetAmount;
   } else if (existing) {
     amountDecimal = existing.targetAmount;
   } else {
@@ -1145,9 +1231,13 @@ export async function upsertMerchantMonthlyTarget(input: {
   }
 
   const shopDecimal =
-    shop != null && shop > 0 ? new Prisma.Decimal(shop) : null;
+    shopForWrite != null && shopForWrite > 0
+      ? new Prisma.Decimal(shopForWrite)
+      : null;
   const onlineDecimal =
-    online != null && online > 0 ? new Prisma.Decimal(online) : null;
+    onlineForWrite != null && onlineForWrite > 0
+      ? new Prisma.Decimal(onlineForWrite)
+      : null;
 
   const wholesale =
     input.wholesaleTargetAmount !== undefined

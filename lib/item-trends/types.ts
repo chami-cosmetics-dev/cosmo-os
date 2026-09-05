@@ -119,6 +119,9 @@ export type PatternAnnotation = {
   dominantDayLabels: string[];
   recurring: boolean;
   signalSource: SignalSource;
+  /** Units per weekday Sun→Sat for the selected range. */
+  weekdayUnits: number[];
+  totalUnits: number;
 };
 
 export type ItemTrendScope = {

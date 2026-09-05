@@ -36,6 +36,7 @@ export async function GET(request: NextRequest) {
     lastPurchaseFrom: sp.get("lastPurchaseFrom") ?? undefined,
     lastPurchaseTo: sp.get("lastPurchaseTo") ?? undefined,
     brand: sp.get("brand") ?? undefined,
+    hideFilter: sp.get("hideFilter") ?? undefined,
   });
   if (!parsed.success) {
     return NextResponse.json(

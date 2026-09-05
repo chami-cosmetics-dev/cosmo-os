@@ -41,19 +41,17 @@ export function buildPatternAnnotations(
     const dominantDays = dominantWeekdays(buckets);
     if (dominantDays.length === 0) continue;
     const recurring = isRecurringWeekdayPattern(buckets, weeksInRange);
+    const totalUnits = buckets.reduce((s, v) => s + v, 0);
     rows.push({
       sku,
       dominantDays,
       dominantDayLabels: dominantDays.map((d) => DAY_NAMES[d]),
       recurring,
       signalSource: "rule_based",
+      weekdayUnits: [...buckets],
+      totalUnits,
     });
   }
-  rows.sort((a, b) => {
-    const sum = (b: number[]) => b.reduce((s, v) => s + v, 0);
-    const skuA = skuBuckets.get(a.sku) ?? [];
-    const skuB = skuBuckets.get(b.sku) ?? [];
-    return sum(skuB) - sum(skuA);
-  });
+  rows.sort((a, b) => b.totalUnits - a.totalUnits || a.sku.localeCompare(b.sku));
   return rows.slice(0, limit);
 }

@@ -5,6 +5,7 @@ import {
   buildFailedErpPeSyncWhere,
   buildSilentErpPeGapCandidateWhere,
   ERP_PE_SYNC_MOP_ORDER_AUTO,
+  getNextFailedErpPeSyncAutoRetryAt,
   resolveFailedErpPeRetryMop,
 } from "@/lib/failed-erp-pe-sync";
 
@@ -51,6 +52,18 @@ describe("buildSilentErpPeGapCandidateWhere", () => {
         { invoiceCompleteAt: { not: null } },
       ]),
     );
+  });
+});
+
+describe("getNextFailedErpPeSyncAutoRetryAt", () => {
+  const from = new Date("2026-09-05T03:00:00.000Z");
+
+  it("schedules 1m, 3m, 10m, 30m then stops", () => {
+    expect(getNextFailedErpPeSyncAutoRetryAt(0, from)?.toISOString()).toBe("2026-09-05T03:01:00.000Z");
+    expect(getNextFailedErpPeSyncAutoRetryAt(1, from)?.toISOString()).toBe("2026-09-05T03:03:00.000Z");
+    expect(getNextFailedErpPeSyncAutoRetryAt(2, from)?.toISOString()).toBe("2026-09-05T03:10:00.000Z");
+    expect(getNextFailedErpPeSyncAutoRetryAt(3, from)?.toISOString()).toBe("2026-09-05T03:30:00.000Z");
+    expect(getNextFailedErpPeSyncAutoRetryAt(4, from)).toBeNull();
   });
 });
 

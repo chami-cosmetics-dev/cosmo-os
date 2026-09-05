@@ -80,4 +80,23 @@ describe("classifyFailedErpSyncError", () => {
     expect(result.type).toBe("Out of stock");
     expect(result.retryable).toBe(false);
   });
+
+  it("marks 502, fetch failed, and deadlock as retryable", () => {
+    expect(classifyFailedErpSyncError("ERPNext POST /api/resource/Payment Entry [502]: Bad Gateway")).toMatchObject({
+      type: "Transient network",
+      retryable: true,
+    });
+    expect(classifyFailedErpSyncError("fetch failed")).toMatchObject({
+      type: "Transient network",
+      retryable: true,
+    });
+    expect(
+      classifyFailedErpSyncError(
+        'ERPNext POST /api/resource/Payment Entry [500]: {"exception":"frappe.exceptions.QueryDeadlockError: (1213, \\"Deadlock found when trying to get lock; try restarting transaction\\")"}',
+      ),
+    ).toMatchObject({
+      type: "Transient network",
+      retryable: true,
+    });
+  });
 });

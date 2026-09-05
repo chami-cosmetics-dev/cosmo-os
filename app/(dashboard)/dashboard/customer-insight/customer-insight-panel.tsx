@@ -282,6 +282,8 @@ type CallQueueRow = {
   lastPurchaseAt: string | null;
   lastContactedAt: string | null;
   queued: boolean;
+  hidden?: boolean;
+  hideReason?: string | null;
 };
 
 function formatQueueDate(value: string | null) {
@@ -663,6 +665,9 @@ export function CustomerInsightPanel({
   const [queueLastPurchaseFrom, setQueueLastPurchaseFrom] = useState("");
   const [queueLastPurchaseTo, setQueueLastPurchaseTo] = useState("");
   const [queueBrand, setQueueBrand] = useState("");
+  const [queueHideFilter, setQueueHideFilter] = useState<"all" | "eligible" | "hidden">(
+    "all"
+  );
   const [queueBrandOptions, setQueueBrandOptions] = useState<InsightSelectOption[]>([]);
   const [queueSelectCount, setQueueSelectCount] = useState("");
   const [queueEligibleTotal, setQueueEligibleTotal] = useState(0);
@@ -894,7 +899,8 @@ export function CustomerInsightPanel({
     setBusyKey("allocation-summary-export");
     try {
       const res = await fetch(
-        "/api/admin/customer-insight/allocation-summary/export"
+        "/api/admin/customer-insight/allocation-summary/export",
+        { credentials: "include" }
       );
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -942,6 +948,7 @@ export function CustomerInsightPanel({
       params.set("lastPurchaseTo", queueLastPurchaseTo.trim());
     }
     if (queueBrand.trim()) params.set("brand", queueBrand.trim());
+    params.set("hideFilter", queueHideFilter);
   }
 
   async function loadQueueCandidates(page = 1) {
@@ -3547,7 +3554,9 @@ export function CustomerInsightPanel({
             <CardDescription>
               Pick a merchant, then use any filter alone or together. Combined
               filters AND (Push to Gold + Push to Platinum = either band). Push
-              labels do not show amounts.
+              labels do not show amounts. Hidden logic is a filter: 2-month cooling
+              after allocation or outreach, 7-day Not Responding, Black List /
+              Wrong Number, already queued.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -3592,6 +3601,23 @@ export function CustomerInsightPanel({
                   disabled={isBusy}
                   onChange={setQueueBrand}
                 />
+              </label>
+              <label className="min-w-0 space-y-1 text-sm">
+                <span className="text-muted-foreground">Hidden logic</span>
+                <select
+                  className="border-input bg-background h-9 w-full rounded-md border px-2 text-sm"
+                  value={queueHideFilter}
+                  disabled={isBusy}
+                  onChange={(e) =>
+                    setQueueHideFilter(
+                      e.target.value as "all" | "eligible" | "hidden"
+                    )
+                  }
+                >
+                  <option value="all">All matching</option>
+                  <option value="eligible">Eligible only</option>
+                  <option value="hidden">Hidden only</option>
+                </select>
               </label>
               <label className="space-y-1 text-sm">
                 <span className="text-muted-foreground">Last purchase from</span>
@@ -3688,9 +3714,11 @@ export function CustomerInsightPanel({
                     {queueAllocatedTotal > 0
                       ? `${queueAllocatedTotal.toLocaleString()} allocated · `
                       : null}
-                    {queueEligibleTotal.toLocaleString()} eligible to assign · oldest/never
-                    contacted first, then oldest purchase
-                    {queueAllocatedTotal > queueEligibleTotal ? (
+                    {queueEligibleTotal.toLocaleString()} eligible to assign ·{" "}
+                    {queueCandidateTotal.toLocaleString()} shown · phone + last
+                    contacted · oldest/never contacted first, then oldest purchase
+                    {queueHideFilter === "eligible" &&
+                    queueAllocatedTotal > queueEligibleTotal ? (
                       <>
                         {" "}
                         · rest hidden (2-month cooling after allocation or outreach, already
@@ -3739,7 +3767,11 @@ export function CustomerInsightPanel({
                       variant="outline"
                       disabled={isBusy || queueCandidates.length === 0}
                       onClick={() =>
-                        setQueueSelectedIds(queueCandidates.map((row) => row.contactId))
+                        setQueueSelectedIds(
+                          queueCandidates
+                            .filter((row) => !row.hidden && !row.queued)
+                            .map((row) => row.contactId)
+                        )
                       }
                     >
                       Select page
@@ -3781,6 +3813,7 @@ export function CustomerInsightPanel({
                 </div>
                 <ul className="max-h-[28rem] divide-y overflow-auto rounded-md border">
                   {queueCandidates.map((row) => {
+                    const blocked = Boolean(row.hidden || row.queued);
                     const checked = queueSelectedIds.includes(row.contactId);
                     return (
                       <li key={row.contactId}>
@@ -3789,13 +3822,15 @@ export function CustomerInsightPanel({
                             type="checkbox"
                             className="mt-1"
                             checked={checked}
-                            onChange={() =>
+                            disabled={blocked}
+                            onChange={() => {
+                              if (blocked) return;
                               setQueueSelectedIds((prev) =>
                                 checked
                                   ? prev.filter((id) => id !== row.contactId)
                                   : [...prev, row.contactId]
-                              )
-                            }
+                              );
+                            }}
                           />
                           <span className="min-w-0 flex-1">
                             <span className="block font-medium">
@@ -3803,6 +3838,10 @@ export function CustomerInsightPanel({
                               {row.queued ? (
                                 <span className="text-muted-foreground ml-2 text-xs font-normal">
                                   already queued
+                                </span>
+                              ) : row.hideReason ? (
+                                <span className="text-muted-foreground ml-2 text-xs font-normal">
+                                  {row.hideReason}
                                 </span>
                               ) : null}
                             </span>

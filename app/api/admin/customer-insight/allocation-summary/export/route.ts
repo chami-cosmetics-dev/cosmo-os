@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
 import { listMerchantAllocationCounts } from "@/lib/customer-insight/allocation-summary";
 import { hasInsightAdminView } from "@/lib/customer-insight/ownership";
@@ -6,7 +6,9 @@ import { logReportDownload } from "@/lib/report-download-log";
 import { requirePermission } from "@/lib/rbac";
 import { buildCsv, type CsvPrimitive } from "@/lib/reports/csv";
 
-export async function GET() {
+export const dynamic = "force-dynamic";
+
+export async function GET(_request: NextRequest) {
   const auth = await requirePermission("contacts.insight.read");
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });

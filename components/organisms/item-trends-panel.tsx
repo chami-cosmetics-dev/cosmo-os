@@ -446,6 +446,10 @@ export function ItemTrendsPanel({ canManageRop }: Props) {
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Weekday patterns</CardTitle>
+              <CardDescription>
+                SKUs that concentrate sales on one weekday. Bars = Sun–Sat mix; filled peak =
+                dominant day. Recurring = holds across weeks; one-off = single-week bump.
+              </CardDescription>
             </CardHeader>
             <CardContent>
               <PatternsPanel patterns={patterns} available={patternsAvailable} />
