@@ -18,30 +18,49 @@ export type MerchantAllocationSummary = {
   contactTotal: number;
 };
 
+export type AssignedMerchantRosterMatch = {
+  value: string;
+  label: string;
+};
+
+export const ALLOCATION_EXPORT_BATCH_SIZE = 2500;
+
 function norm(value: string): string {
   return value.trim().toLowerCase();
 }
 
-/**
- * Per-merchant ContactMaster allocation counts for Insight admin.
- * Rolls alias labels into roster merchants; leftover labels stay as their own rows.
- */
-export async function listMerchantAllocationCounts(
-  companyId: string
-): Promise<MerchantAllocationSummary> {
-  const [grouped, roster] = await Promise.all([
-    prisma.contactMaster.groupBy({
-      by: ["assignedMerchant"],
-      where: { companyId },
-      _count: { _all: true },
-    }),
-    listInsightMerchantRosterOptions(companyId),
-  ]);
+export function uniqueContactPhones(
+  primary: string | null | undefined,
+  aliases: Array<{ phoneNumber: string }>
+): string[] {
+  const phones: string[] = [];
+  const seen = new Set<string>();
+  for (const value of [primary, ...aliases.map((p) => p.phoneNumber)]) {
+    const phone = value?.trim();
+    if (!phone || seen.has(phone)) continue;
+    seen.add(phone);
+    phones.push(phone);
+  }
+  return phones;
+}
 
-  const aliasToRoster = new Map<
-    string,
-    { value: string; label: string }
-  >();
+export function resolveAllocatedMerchant(
+  rawAssigned: string,
+  aliasToRoster: Map<string, AssignedMerchantRosterMatch>
+): AssignedMerchantRosterMatch {
+  const raw = rawAssigned.trim();
+  const matched = aliasToRoster.get(norm(raw));
+  return {
+    value: matched?.value ?? raw,
+    label: matched?.label ?? raw,
+  };
+}
+
+export async function loadAssignedMerchantAliasMap(
+  companyId: string
+): Promise<Map<string, AssignedMerchantRosterMatch>> {
+  const roster = await listInsightMerchantRosterOptions(companyId);
+  const aliasToRoster = new Map<string, AssignedMerchantRosterMatch>();
   await Promise.all(
     roster.map(async (opt) => {
       const aliases = await resolveAssignedMerchantFilterLabels(
@@ -59,6 +78,24 @@ export async function listMerchantAllocationCounts(
       }
     })
   );
+  return aliasToRoster;
+}
+
+/**
+ * Per-merchant ContactMaster allocation counts for Insight admin.
+ * Rolls alias labels into roster merchants; leftover labels stay as their own rows.
+ */
+export async function listMerchantAllocationCounts(
+  companyId: string
+): Promise<MerchantAllocationSummary> {
+  const [grouped, aliasToRoster] = await Promise.all([
+    prisma.contactMaster.groupBy({
+      by: ["assignedMerchant"],
+      where: { companyId },
+      _count: { _all: true },
+    }),
+    loadAssignedMerchantAliasMap(companyId),
+  ]);
 
   const counts = new Map<string, MerchantAllocationCountRow>();
   let unallocatedCount = 0;
@@ -70,9 +107,9 @@ export async function listMerchantAllocationCounts(
       unallocatedCount += n;
       continue;
     }
-    const matched = aliasToRoster.get(norm(raw));
-    const merchantValue = matched?.value ?? raw;
-    const merchantLabel = matched?.label ?? raw;
+    const matched = resolveAllocatedMerchant(raw, aliasToRoster);
+    const merchantValue = matched.value;
+    const merchantLabel = matched.label;
     const existing = counts.get(norm(merchantValue));
     if (existing) {
       existing.count += n;
