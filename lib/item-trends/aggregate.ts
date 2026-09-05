@@ -78,6 +78,22 @@ export function speedPerDay(units: number, fromYmd: string, toYmd: string): numb
   return units / days;
 }
 
+/** Shop speed: range days, or lifetime (first sale at that shop → asOf). */
+export function outletSpeedPerDay(input: {
+  units: number;
+  firstSoldAt: Date | null;
+  asOfYmd: string;
+  /** Inclusive From/To days. Null = lifetime. */
+  rangeDays: number | null;
+}): number {
+  if (input.units <= 0) return 0;
+  if (input.rangeDays != null) return input.units / Math.max(1, input.rangeDays);
+  if (!input.firstSoldAt) return input.units;
+  const firstYmd = formatAppIsoDate(input.firstSoldAt);
+  if (!firstYmd) return input.units;
+  return input.units / calendarDaysInclusive(firstYmd, input.asOfYmd);
+}
+
 export function percentChange(current: number, prior: number): number | null {
   if (prior <= 0) return current > 0 ? 100 : null;
   return Math.round(((current - prior) / prior) * 1000) / 10;
