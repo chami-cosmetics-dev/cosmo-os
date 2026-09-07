@@ -3,30 +3,28 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, TrendingUp } from "lucide-react";
 
+import { CoverPanel } from "@/components/organisms/item-trends/cover-panel";
 import { DistrictsTabContent } from "@/components/organisms/item-trends/districts-panel";
-import { FocusListPanel, useFocusList } from "@/components/organisms/item-trends/focus-list";
-import { PatternsPanel } from "@/components/organisms/item-trends/patterns-panel";
-import { ItemTrendsKpiCharts } from "@/components/organisms/item-trends/kpi-charts";
+import { LocationComparePanel } from "@/components/organisms/item-trends/location-compare-panel";
 import { MovementTable } from "@/components/organisms/item-trends/movement-table";
-import { NewItemsPanel } from "@/components/organisms/item-trends/new-items-panel";
-import { OutletsPanel } from "@/components/organisms/item-trends/outlets-panel";
 import { RopPanel } from "@/components/organisms/item-trends/rop-panel";
-import { SlowdownPanel } from "@/components/organisms/item-trends/slowdown-panel";
+import { ItemTrendsSectionFilters } from "@/components/organisms/item-trends/section-filters";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatAppIsoDate } from "@/lib/format-datetime";
 import { notify } from "@/lib/notify";
+import { filterRowsByBrand, type SkuGrain } from "@/lib/item-trends/sku-group";
+import { yesterdaySnapshotDate } from "@/lib/item-trends/snapshot-date";
+import type { ErpStockScope } from "@/lib/item-trends/erp-scope";
 import type {
+  CoverRow,
   DistrictDemandRow,
   ExpansionOpportunityRow,
   ItemMovementRow,
-  ItemTrendKpiSummary,
-  OutletBalanceRow,
+  ItemTrendFilterLocation,
   RopSuggestionRow,
-  TransferCandidate,
-  PatternAnnotation,
 } from "@/lib/item-trends/types";
 
 type Props = {
@@ -42,23 +40,39 @@ const PRIORITY_OPTIONS = ["all", "Top Priority", "Newly Added", "Non Priority", 
 
 export function ItemTrendsPanel({ canManageRop }: Props) {
   const defaults = defaultFromTo();
-  const { isPinned, togglePin, pinned, unpin, exportCsv } = useFocusList();
   const [from, setFrom] = useState(defaults.from);
   const [to, setTo] = useState(defaults.to);
   const [priority, setPriority] = useState("all");
+  const [tab, setTab] = useState("location");
   const [loading, setLoading] = useState(false);
-  const [tab, setTab] = useState("movement");
-
-  const [kpis, setKpis] = useState<ItemTrendKpiSummary | null>(null);
-  const [movement, setMovement] = useState<ItemMovementRow[]>([]);
-  const [newItems, setNewItems] = useState<ItemMovementRow[]>([]);
-  const [slowdowns, setSlowdowns] = useState<ItemMovementRow[]>([]);
-  const [patterns, setPatterns] = useState<PatternAnnotation[]>([]);
-  const [patternsAvailable, setPatternsAvailable] = useState(false);
-  const [intelligentEngine, setIntelligentEngine] = useState<
-    "disabled" | "active" | "degraded"
-  >("disabled");
   const [companyWide, setCompanyWide] = useState(true);
+
+  const [movement, setMovement] = useState<ItemMovementRow[]>([]);
+  const [brands, setBrands] = useState<string[]>([]);
+  const [filterLocations, setFilterLocations] = useState<ItemTrendFilterLocation[]>([]);
+  const [erpScope, setErpScope] = useState<ErpStockScope>("both");
+  const [erpScopes, setErpScopes] = useState<Array<{ value: ErpStockScope; label: string; instanceId: string | null }>>([
+    { value: "both", label: "Both ERPs", instanceId: null },
+  ]);
+  const [grain, setGrain] = useState<SkuGrain>("common");
+  const [brand, setBrand] = useState("");
+  const [skuQuery, setSkuQuery] = useState("");
+  const [columnKeys, setColumnKeys] = useState<string[]>([]);
+  const [oosOnly, setOosOnly] = useState(false);
+  const [sendOnly, setSendOnly] = useState(false);
+
+  const [snapshotDate, setSnapshotDate] = useState(yesterdaySnapshotDate());
+  const [snapshotDates, setSnapshotDates] = useState<Array<{ snapshotDate: string; capturedAt: string }>>([]);
+  const [usedFallback, setUsedFallback] = useState(false);
+
+  const [coverRows, setCoverRows] = useState<CoverRow[]>([]);
+  const [coverSnapshotDate, setCoverSnapshotDate] = useState<string | null>(null);
+  const [coverCapturedAt, setCoverCapturedAt] = useState<string | null>(null);
+  const [coverLoading, setCoverLoading] = useState(false);
+  const [capturing, setCapturing] = useState(false);
+
+  const [itemSku, setItemSku] = useState<string | null>(null);
+  const [itemCommonKey, setItemCommonKey] = useState<string | null>(null);
 
   const [districts, setDistricts] = useState<DistrictDemandRow[]>([]);
   const [districtItems, setDistrictItems] = useState<ItemMovementRow[]>([]);
@@ -66,139 +80,105 @@ export function ItemTrendsPanel({ canManageRop }: Props) {
   const [selectedDistrict, setSelectedDistrict] = useState<string | null>(null);
   const [districtsLoading, setDistrictsLoading] = useState(false);
 
-  const [outlets, setOutlets] = useState<OutletBalanceRow[]>([]);
-  const [transfers, setTransfers] = useState<TransferCandidate[]>([]);
-  const [outletsLoading, setOutletsLoading] = useState(false);
-  const [outletsStockLoading, setOutletsStockLoading] = useState(false);
-  const [outletsStockLoaded, setOutletsStockLoaded] = useState(false);
-  const [outletSku, setOutletSku] = useState("");
-  const [outletsUseDateFilter, setOutletsUseDateFilter] = useState(false);
-  const outletsStockGen = useRef(0);
-
   const [ropRows, setRopRows] = useState<RopSuggestionRow[]>([]);
   const [ropWindowLabel, setRopWindowLabel] = useState("");
   const [ropWindow, setRopWindow] = useState<"3m" | "2m" | "custom">("3m");
   const [ropLoading, setRopLoading] = useState(false);
+
   const mainGen = useRef(0);
-  const outletsGen = useRef(0);
+  const coverGen = useRef(0);
   const ropGen = useRef(0);
   const districtsGen = useRef(0);
-  const outletFrom = outletsUseDateFilter ? from : "";
-  const outletTo = outletsUseDateFilter ? to : "";
+
+  const openItem = useCallback((sku: string, commonSkuKey: string | null) => {
+    setItemSku(sku);
+    setItemCommonKey(grain === "common" ? commonSkuKey : null);
+    setTab("item");
+  }, [grain]);
+
+  const loadSnapshotDates = useCallback(async () => {
+    const res = await fetch("/api/admin/purchasing/item-trends/stock-snapshot");
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return;
+    const dates = Array.isArray(data.dates) ? data.dates : [];
+    setSnapshotDates(dates);
+    const defaultDate = typeof data.defaultDate === "string" ? data.defaultDate : "";
+    if (defaultDate) {
+      setSnapshotDate((current) =>
+        dates.some((d: { snapshotDate: string }) => d.snapshotDate === current)
+          ? current
+          : defaultDate,
+      );
+    }
+  }, []);
 
   const loadMain = useCallback(async () => {
     const gen = ++mainGen.current;
     setLoading(true);
     try {
       const params = new URLSearchParams({ from, to, priority });
+      if (brand) params.set("brand", brand);
       const res = await fetch(`/api/admin/purchasing/item-trends/page-data?${params}`);
       const data = await res.json().catch(() => ({}));
       if (gen !== mainGen.current) return;
       if (!res.ok) {
-        notify.error(typeof data.error === "string" ? data.error : "Failed to load trends");
-        setKpis(null);
-        setMovement([]);
-        setNewItems([]);
-        setSlowdowns([]);
+        notify.error(typeof data.error === "string" ? data.error : "Failed to load items");
         return;
       }
-      setKpis(data.kpis ?? null);
       setMovement(Array.isArray(data.movement) ? data.movement : []);
-      setNewItems(Array.isArray(data.newItems) ? data.newItems : []);
-      setSlowdowns(Array.isArray(data.slowdowns) ? data.slowdowns : []);
-      setPatterns(Array.isArray(data.patterns) ? data.patterns : []);
-      setPatternsAvailable(Boolean(data.meta?.patternsAvailable));
-      setIntelligentEngine(data.meta?.intelligentEngine ?? "disabled");
-      setCompanyWide(!data.meta?.scopedLocationId);
+      setCompanyWide(data.meta?.scopedLocationId == null);
     } catch {
       if (gen !== mainGen.current) return;
-      notify.error("Failed to load trends");
+      notify.error("Failed to load items");
     } finally {
       if (gen === mainGen.current) setLoading(false);
     }
-  }, [from, to, priority]);
+  }, [from, to, priority, brand]);
 
-  const loadOutlets = useCallback(async () => {
-    const gen = ++outletsGen.current;
-    outletsStockGen.current += 1;
-    setOutletsLoading(true);
-    setOutletsStockLoading(false);
-    setOutletsStockLoaded(false);
+  const loadCover = useCallback(async () => {
+    const gen = ++coverGen.current;
+    setCoverLoading(true);
     try {
-      const sku = outletSku.trim();
-      const params = new URLSearchParams({ priority });
-      if (outletsUseDateFilter) {
-        params.set("from", outletFrom);
-        params.set("to", outletTo);
-      }
-      if (sku) {
-        params.set("sku", sku);
-        params.set("includeStock", "true");
+      const params = new URLSearchParams({ from, to, priority });
+      if (brand) params.set("brand", brand);
+      if (snapshotDate) params.set("snapshotDate", snapshotDate);
+      if (erpScope !== "both") params.set("erpScope", erpScope);
+      const itemMode = tab === "item" && itemSku;
+      if (itemMode) {
+        params.set("sku", itemSku);
+        if (itemCommonKey) params.set("commonSkuKey", itemCommonKey);
       } else {
-        params.set("includeStock", "false");
+        if (skuQuery.trim()) params.set("sku", skuQuery.trim());
+        if (columnKeys.length) params.set("columnKeys", columnKeys.join(","));
+        if (oosOnly) params.set("oosOnly", "true");
+        if (sendOnly) params.set("sendOnly", "true");
       }
-      const res = await fetch(`/api/admin/purchasing/item-trends/outlets?${params}`);
+      const res = await fetch(`/api/admin/purchasing/item-trends/cover?${params}`);
       const data = await res.json().catch(() => ({}));
-      if (gen !== outletsGen.current) return;
+      if (gen !== coverGen.current) return;
       if (!res.ok) {
-        notify.error(typeof data.error === "string" ? data.error : "Failed to load outlets");
-        setOutlets([]);
-        setTransfers([]);
+        notify.error(typeof data.error === "string" ? data.error : "Failed to load stock cover");
+        setCoverRows([]);
         return;
       }
-      setOutlets(Array.isArray(data.outlets) ? data.outlets : []);
-      setTransfers(Array.isArray(data.transfers) ? data.transfers : []);
-      const stockLoaded = Boolean(data.meta?.stockLoaded);
-      setOutletsStockLoaded(stockLoaded);
-
-      // Background: enrich stock + transfers without blocking the sales table.
-      if (!sku && !stockLoaded) {
-        const stockGen = ++outletsStockGen.current;
-        setOutletsStockLoading(true);
-        void (async () => {
-          try {
-            const stockParams = new URLSearchParams({
-              priority,
-              includeStock: "true",
-            });
-            if (outletsUseDateFilter) {
-              stockParams.set("from", outletFrom);
-              stockParams.set("to", outletTo);
-            }
-            const stockRes = await fetch(
-              `/api/admin/purchasing/item-trends/outlets?${stockParams}`,
-            );
-            const stockData = await stockRes.json().catch(() => ({}));
-            if (gen !== outletsGen.current || stockGen !== outletsStockGen.current) return;
-            if (!stockRes.ok) return;
-            setOutlets(Array.isArray(stockData.outlets) ? stockData.outlets : []);
-            setTransfers(Array.isArray(stockData.transfers) ? stockData.transfers : []);
-            setOutletsStockLoaded(Boolean(stockData.meta?.stockLoaded));
-          } finally {
-            if (gen === outletsGen.current && stockGen === outletsStockGen.current) {
-              setOutletsStockLoading(false);
-            }
-          }
-        })();
-      }
+      setCoverRows(Array.isArray(data.rows) ? data.rows : []);
+      setCoverSnapshotDate(typeof data.snapshotDate === "string" ? data.snapshotDate : null);
+      setCoverCapturedAt(typeof data.capturedAt === "string" ? data.capturedAt : null);
+      setUsedFallback(Boolean(data.usedFallback));
     } catch {
-      if (gen !== outletsGen.current) return;
-      notify.error("Failed to load outlets");
+      if (gen !== coverGen.current) return;
+      notify.error("Failed to load stock cover");
     } finally {
-      if (gen === outletsGen.current) setOutletsLoading(false);
+      if (gen === coverGen.current) setCoverLoading(false);
     }
-  }, [outletFrom, outletTo, priority, outletSku, outletsUseDateFilter]);
+  }, [from, to, priority, brand, snapshotDate, erpScope, skuQuery, columnKeys, oosOnly, sendOnly, tab, itemSku, itemCommonKey]);
 
   const loadRop = useCallback(async () => {
     const gen = ++ropGen.current;
     setRopLoading(true);
     try {
-      const params = new URLSearchParams({
-        from,
-        to,
-        priority,
-        ropWindow,
-      });
+      const params = new URLSearchParams({ from, to, priority, ropWindow });
+      if (brand) params.set("brand", brand);
       const res = await fetch(`/api/admin/purchasing/item-trends/rop?${params}`);
       const data = await res.json().catch(() => ({}));
       if (gen !== ropGen.current) return;
@@ -215,7 +195,7 @@ export function ItemTrendsPanel({ canManageRop }: Props) {
     } finally {
       if (gen === ropGen.current) setRopLoading(false);
     }
-  }, [from, to, priority, ropWindow]);
+  }, [from, to, priority, ropWindow, brand]);
 
   const loadDistricts = useCallback(async () => {
     const gen = ++districtsGen.current;
@@ -246,13 +226,45 @@ export function ItemTrendsPanel({ canManageRop }: Props) {
     }
   }, [from, to, priority, selectedDistrict]);
 
-  useEffect(() => {
-    void loadMain();
-  }, [loadMain]);
+  const captureSnapshot = useCallback(async () => {
+    setCapturing(true);
+    try {
+      const res = await fetch("/api/admin/purchasing/item-trends/stock-snapshot", { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        notify.error(typeof data.error === "string" ? data.error : "Failed to capture snapshot");
+        return;
+      }
+      notify.success(`Snapshot saved (${typeof data.rowCount === "number" ? data.rowCount : 0} bins)`);
+      await loadSnapshotDates();
+      if (typeof data.snapshotDate === "string") setSnapshotDate(data.snapshotDate);
+      await loadCover();
+    } catch {
+      notify.error("Failed to capture snapshot");
+    } finally {
+      setCapturing(false);
+    }
+  }, [loadCover, loadSnapshotDates]);
 
   useEffect(() => {
-    if (tab === "outlets") void loadOutlets();
-  }, [tab, loadOutlets]);
+    void fetch("/api/admin/purchasing/item-trends/filter-options")
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data.brands)) setBrands(data.brands);
+        if (Array.isArray(data.locations)) setFilterLocations(data.locations);
+        if (Array.isArray(data.erpScopes) && data.erpScopes.length) setErpScopes(data.erpScopes);
+      })
+      .catch(() => undefined);
+    void loadSnapshotDates();
+  }, [loadSnapshotDates]);
+
+  useEffect(() => {
+    if (tab === "item") void loadMain();
+  }, [tab, loadMain]);
+
+  useEffect(() => {
+    if (tab === "location" || (tab === "item" && itemSku)) void loadCover();
+  }, [tab, itemSku, loadCover]);
 
   useEffect(() => {
     if (tab === "rop") void loadRop();
@@ -262,20 +274,25 @@ export function ItemTrendsPanel({ canManageRop }: Props) {
     if (tab === "districts" && companyWide) void loadDistricts();
   }, [tab, companyWide, loadDistricts]);
 
-  const refreshVisible = useCallback(() => {
-    void loadMain();
-    if (tab === "outlets") void loadOutlets();
-    if (tab === "rop") void loadRop();
-    if (tab === "districts" && companyWide) void loadDistricts();
-  }, [tab, companyWide, loadMain, loadOutlets, loadRop, loadDistricts]);
+  const districtItemsView = useMemo(
+    () => filterRowsByBrand(districtItems, brand),
+    [districtItems, brand],
+  );
 
-  const priorityChartData = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const row of movement) {
-      counts.set(row.priority, (counts.get(row.priority) ?? 0) + 1);
-    }
-    return [...counts.entries()].map(([priority, count]) => ({ priority, count }));
-  }, [movement]);
+  const scopedLocations = useMemo(() => {
+    if (erpScope === "both") return filterLocations;
+    const instanceId = erpScopes.find((s) => s.value === erpScope)?.instanceId;
+    if (!instanceId) return [];
+    return filterLocations.filter((loc) => loc.erpnextInstanceId === instanceId);
+  }, [erpScope, erpScopes, filterLocations]);
+
+  function onErpScopeChange(value: ErpStockScope) {
+    setErpScope(value);
+    setColumnKeys([]);
+  }
+
+  const itemLabel =
+    coverRows[0]?.commonSkuTitle ?? coverRows[0]?.title ?? itemSku ?? "";
 
   return (
     <div className="space-y-6 p-4 md:p-6">
@@ -284,45 +301,64 @@ export function ItemTrendsPanel({ canManageRop }: Props) {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Item Trends</h1>
           <p className="text-sm text-muted-foreground">
-            Movement, outlet balance, and ROP suggestions for purchasing and stores
+            Location, item, districts. Stock is an overnight snapshot (pick a date; default yesterday).
           </p>
         </div>
       </div>
 
       <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Filters</CardTitle>
-          <CardDescription>
-            Asia/Colombo calendar days — default today (change From/To for a range). Date +
-            priority apply to Movement, ROP, Districts. Outlets default lifetime speed; From/To
-            optional on that tab.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-wrap items-end gap-3">
+        <CardContent className="flex flex-wrap items-end gap-3 pt-6">
           <div>
             <label className="mb-1 block text-xs text-muted-foreground">From</label>
-            <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+            <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="h-9 w-[150px]" />
           </div>
           <div>
             <label className="mb-1 block text-xs text-muted-foreground">To</label>
-            <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+            <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="h-9 w-[150px]" />
           </div>
           <div>
             <label className="mb-1 block text-xs text-muted-foreground">Priority</label>
             <select
-              className="flex h-9 w-[160px] rounded-md border border-input bg-background px-3 text-sm"
+              className="flex h-9 min-w-[140px] rounded-md border border-input bg-background px-3 text-sm"
               value={priority}
               onChange={(e) => setPriority(e.target.value)}
             >
-              {PRIORITY_OPTIONS.map((p) => (
-                <option key={p} value={p}>
-                  {p}
+              {PRIORITY_OPTIONS.map((opt) => (
+                <option key={opt} value={opt}>
+                  {opt}
                 </option>
               ))}
             </select>
           </div>
-          <Button type="button" onClick={() => refreshVisible()} disabled={loading}>
-            {loading ? (
+          <div>
+            <label className="mb-1 block text-xs text-muted-foreground">Stock night</label>
+            <select
+              className="flex h-9 min-w-[150px] rounded-md border border-input bg-background px-3 text-sm"
+              value={snapshotDate}
+              onChange={(e) => setSnapshotDate(e.target.value)}
+            >
+              {snapshotDates.length === 0 ? (
+                <option value={snapshotDate}>{snapshotDate || "No snapshots"}</option>
+              ) : (
+                snapshotDates.map((d) => (
+                  <option key={d.snapshotDate} value={d.snapshotDate}>
+                    {d.snapshotDate}
+                  </option>
+                ))
+              )}
+            </select>
+          </div>
+          <Button
+            type="button"
+            onClick={() => {
+              if (tab === "location" || (tab === "item" && itemSku)) void loadCover();
+              if (tab === "item") void loadMain();
+              if (tab === "rop") void loadRop();
+              if (tab === "districts") void loadDistricts();
+            }}
+            disabled={loading || coverLoading}
+          >
+            {loading || coverLoading ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
                 Loading
@@ -334,182 +370,165 @@ export function ItemTrendsPanel({ canManageRop }: Props) {
         </CardContent>
       </Card>
 
-      {intelligentEngine === "degraded" ? (
-        <div className="rounded-md border border-amber-200 bg-amber-50/60 px-3 py-2 text-sm text-amber-900">
-          Intelligent trend engine unavailable — showing rule-based signals only.
-        </div>
+      {usedFallback && coverSnapshotDate && coverSnapshotDate !== snapshotDate ? (
+        <p className="text-sm text-amber-800 dark:text-amber-200">
+          No snapshot for {snapshotDate}. Showing {coverSnapshotDate}.
+        </p>
       ) : null}
-
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>Fast movers</CardDescription>
-            <CardTitle className="text-2xl">{kpis?.fastMoverCount ?? "—"}</CardTitle>
-          </CardHeader>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>New item signals</CardDescription>
-            <CardTitle className="text-2xl">{kpis?.newItemSignalCount ?? "—"}</CardTitle>
-          </CardHeader>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>Slowdown alerts</CardDescription>
-            <CardTitle className="text-2xl">{kpis?.slowdownCount ?? "—"}</CardTitle>
-          </CardHeader>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>Total units</CardDescription>
-            <CardTitle className="text-2xl">{kpis?.totalUnitsTracked ?? "—"}</CardTitle>
-          </CardHeader>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>Top district</CardDescription>
-            <CardTitle className="text-lg">{kpis?.topDistrict ?? "—"}</CardTitle>
-          </CardHeader>
-        </Card>
-      </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Priority breakdown</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <ItemTrendsKpiCharts data={priorityChartData} />
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Focus list</CardTitle>
-          <CardDescription>Pin SKUs for weekly review and CSV export</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <FocusListPanel
-            pinned={pinned}
-            compareRows={movement}
-            compareLabel="Current units"
-            onUnpin={unpin}
-            onExport={exportCsv}
-          />
-        </CardContent>
-      </Card>
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
-          <TabsTrigger value="movement">Movement</TabsTrigger>
-          <TabsTrigger value="outlets">Outlets</TabsTrigger>
+          <TabsTrigger value="location">Location</TabsTrigger>
+          <TabsTrigger value="item">Item</TabsTrigger>
+          {companyWide ? <TabsTrigger value="districts">Districts</TabsTrigger> : null}
           <TabsTrigger value="rop">ROP</TabsTrigger>
-          {companyWide ? (
-            <TabsTrigger value="districts">Districts</TabsTrigger>
-          ) : null}
         </TabsList>
 
-        <TabsContent value="movement" className="space-y-4 mt-4">
+        <TabsContent value="location" className="mt-4 space-y-4">
+          <ItemTrendsSectionFilters
+            brands={brands}
+            brand={brand}
+            onBrandChange={setBrand}
+            grain={grain}
+            onGrainChange={setGrain}
+            locations={scopedLocations}
+            selectedColumnKeys={columnKeys}
+            onColumnKeysChange={setColumnKeys}
+            erpScope={erpScope}
+            erpScopes={erpScopes}
+            onErpScopeChange={onErpScopeChange}
+            oosOnly={oosOnly}
+            onOosOnlyChange={setOosOnly}
+            sendOnly={sendOnly}
+            onSendOnlyChange={setSendOnly}
+            sku={skuQuery}
+            onSkuChange={setSkuQuery}
+          />
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">
-                All items ({movement.length})
-              </CardTitle>
-              <CardDescription>Full catalog for this priority — search and page 100 at a time</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {loading ? (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                  Loading movement…
-                </div>
-              ) : (
-                <MovementTable
-                  rows={movement}
-                  pinContext="movement"
-                  isPinned={isPinned}
-                  onTogglePin={togglePin}
-                />
-              )}
-            </CardContent>
-          </Card>
-
-          <div className="grid gap-4 lg:grid-cols-2">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Newly Added</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <NewItemsPanel rows={newItems} />
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Top Priority slowdowns</CardTitle>
-                <CardDescription>Red = severe drop; amber = ≥25% decline</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <SlowdownPanel rows={slowdowns} />
-              </CardContent>
-            </Card>
-          </div>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Weekday patterns</CardTitle>
+              <CardTitle className="text-base">Sale vs stock</CardTitle>
               <CardDescription>
-                SKUs that concentrate sales on one weekday. Bars = Sun–Sat mix; filled peak =
-                dominant day. Recurring = holds across weeks; one-off = single-week bump.
+                Shop send = stock below 50% of next-week need. OOS = sold in range and snapshot 0.
+                One name per warehouse. Item opens warehouses.
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <PatternsPanel patterns={patterns} available={patternsAvailable} />
+              <CoverPanel
+                rows={coverRows}
+                grain={grain}
+                snapshotDate={coverSnapshotDate}
+                capturedAt={coverCapturedAt}
+                loading={coverLoading}
+                canCapture={canManageRop}
+                capturing={capturing}
+                onCapture={() => void captureSnapshot()}
+                onOpenItem={openItem}
+              />
             </CardContent>
           </Card>
         </TabsContent>
 
-        <TabsContent value="outlets" className="mt-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Item sales by shop</CardTitle>
-              <CardDescription>
-                Default = lifetime shop POS speed (first sale at that shop ÷ days to today). Live
-                stock + transfers load in background. Type exact SKU for all shops. Optional
-                From/To on this tab. Online ignored.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {outletsLoading && outlets.length === 0 ? (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                  Loading shop sales…
-                </div>
-              ) : (
-                <OutletsPanel
-                  outlets={outlets}
-                  transfers={transfers}
-                  skuQuery={outletSku}
-                  onSkuQueryChange={setOutletSku}
-                  salesLoading={outletsLoading}
-                  stockLoading={outletsStockLoading}
-                  stockLoaded={outletsStockLoaded}
-                  useDateFilter={outletsUseDateFilter}
-                  onUseDateFilterChange={setOutletsUseDateFilter}
-                  filterFrom={from}
-                  filterTo={to}
-                />
-              )}
-            </CardContent>
-          </Card>
+        <TabsContent value="item" className="mt-4 space-y-4">
+          <ItemTrendsSectionFilters
+            brands={brands}
+            brand={brand}
+            onBrandChange={setBrand}
+            grain={grain}
+            onGrainChange={setGrain}
+            erpScope={erpScope}
+            erpScopes={erpScopes}
+            onErpScopeChange={onErpScopeChange}
+            sku={skuQuery}
+            onSkuChange={setSkuQuery}
+          />
+          {itemSku ? (
+            coverLoading ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                Loading warehouses…
+              </div>
+            ) : (
+              <LocationComparePanel
+                key={`${itemSku}:${itemCommonKey ?? ""}:${coverSnapshotDate ?? ""}`}
+                itemLabel={itemLabel || itemSku}
+                rows={coverRows}
+                onClose={() => {
+                  setItemSku(null);
+                  setItemCommonKey(null);
+                }}
+              />
+            )
+          ) : (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Pick an item</CardTitle>
+                <CardDescription>
+                  Search common SKU (ORD04) or a variant (ORD04_1). Then see stock vs sale by warehouse.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {loading ? (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                    Loading items…
+                  </div>
+                ) : (
+                  <MovementTable
+                    rows={
+                      skuQuery.trim()
+                        ? movement.filter(
+                            (row) =>
+                              row.sku.toLowerCase().includes(skuQuery.trim().toLowerCase()) ||
+                              (row.commonSkuKey ?? "").toLowerCase().includes(skuQuery.trim().toLowerCase()),
+                          )
+                        : movement
+                    }
+                    grain={grain}
+                    onCompareLocations={openItem}
+                  />
+                )}
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
-        <TabsContent value="rop" className="mt-4">
+        {companyWide ? (
+          <TabsContent value="districts" className="mt-4 space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">District demand</CardTitle>
+                <CardDescription>
+                  Order district if marked; else shipping address. Unmapped if neither.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {districtsLoading ? (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                    Loading districts…
+                  </div>
+                ) : (
+                  <DistrictsTabContent
+                    districts={districts}
+                    items={districtItemsView}
+                    expansion={expansion}
+                    selectedDistrict={selectedDistrict}
+                    onSelectDistrict={setSelectedDistrict}
+                    loading={districtsLoading}
+                    grain={grain}
+                    onCompareLocations={openItem}
+                  />
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+        ) : null}
+
+        <TabsContent value="rop" className="mt-4 space-y-4">
           <Card>
             <CardHeader>
               <CardTitle className="text-base">ROP suggestions (peak month × 2)</CardTitle>
-              <CardDescription>
-                Peak month in the ROP window × 2. Increase/Hold/Decrease overlay uses dashboard
-                From/To + priority. Review and apply via OSF — never saves without explicit Apply.
-              </CardDescription>
+              <CardDescription>Total ROP = sum of saved OSF columns. Export CSV.</CardDescription>
             </CardHeader>
             <CardContent>
               {ropLoading ? (
@@ -522,9 +541,7 @@ export function ItemTrendsPanel({ canManageRop }: Props) {
                   rows={ropRows}
                   windowLabel={ropWindowLabel}
                   ropWindow={ropWindow}
-                  onWindowChange={(w) => {
-                    setRopWindow(w);
-                  }}
+                  onWindowChange={setRopWindow}
                   canManageRop={canManageRop}
                   onRefresh={() => void loadRop()}
                 />
@@ -532,37 +549,6 @@ export function ItemTrendsPanel({ canManageRop }: Props) {
             </CardContent>
           </Card>
         </TabsContent>
-
-        {companyWide ? (
-          <TabsContent value="districts" className="mt-4">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">District demand & expansion</CardTitle>
-                <CardDescription>
-                  Shipping-address geography for selected From/To + priority — 25 Sri Lanka
-                  districts + Unmapped
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                {districtsLoading ? (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                    Loading districts…
-                  </div>
-                ) : (
-                  <DistrictsTabContent
-                    districts={districts}
-                    items={districtItems}
-                    expansion={expansion}
-                    selectedDistrict={selectedDistrict}
-                    onSelectDistrict={setSelectedDistrict}
-                    loading={districtsLoading}
-                  />
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-        ) : null}
       </Tabs>
     </div>
   );

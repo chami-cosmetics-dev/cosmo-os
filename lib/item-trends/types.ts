@@ -38,6 +38,10 @@ export type ItemMovementRow = {
   sku: string;
   title: string | null;
   priority: string;
+  brand: string | null;
+  commonSkuKey: string;
+  commonSkuTitle: string | null;
+  variantTitle: string | null;
   unitsCurrent: number;
   unitsPrior: number;
   speedPerDay: number;
@@ -69,10 +73,13 @@ export type ExpansionOpportunityRow = {
   reasons: string[];
 };
 
+export type OutletChannelKind = "online" | "physical";
+
 export type OutletBalanceRow = {
   sku: string;
   columnKey: string;
   outletName: string;
+  channelKind: OutletChannelKind;
   stockQty: number | null;
   unitsInRange: number;
   speedPerDay: number;
@@ -95,6 +102,7 @@ export type TransferCandidate = {
 export type RopSuggestionRow = {
   sku: string;
   priority: string;
+  brand: string | null;
   currentRop: number | null;
   windowSales: number;
   peakMonthSales: number;
@@ -103,6 +111,39 @@ export type RopSuggestionRow = {
   overlay: RopOverlay;
   windowLabel: string;
   columnKey: string;
+};
+
+export type CoverRow = {
+  sku: string;
+  title: string | null;
+  variantTitle: string | null;
+  brand: string | null;
+  commonSkuKey: string;
+  commonSkuTitle: string | null;
+  priority: string;
+  columnKey: string;
+  outletName: string;
+  channelKind: OutletChannelKind;
+  unitsInRange: number;
+  daysInRange: number;
+  avgDaily: number;
+  weekNeed: number;
+  stockQty: number;
+  stockPctOfSale: number | null;
+  stockPctOfWeek: number | null;
+  coverDays: number | null;
+  shouldSend: boolean;
+  suggestedSendQty: number;
+  isOosInRange: boolean;
+  marketGapPct?: number | null;
+  isCheapestInMarket?: boolean;
+};
+
+export type ItemTrendFilterLocation = {
+  columnKey: string;
+  label: string;
+  channelKind: OutletChannelKind;
+  erpnextInstanceId: string | null;
 };
 
 export type ItemTrendPageMeta = {
@@ -136,4 +177,5 @@ export type MovementLeaderboardFilters = {
   priority?: string | null;
   limit?: number;
   companyLocationId?: string | null;
+  brand?: string | null;
 };

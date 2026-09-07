@@ -6,11 +6,13 @@ import { matchesPriorityFilter } from "@/lib/osf/assist-window";
 import { formatAppIsoDate, parseAppCalendarDayEnd, parseAppCalendarDayStart } from "@/lib/format-datetime";
 import { prisma } from "@/lib/prisma";
 
+import { applyCatalogToMovement, loadSkuCatalog } from "@/lib/item-trends/catalog";
 import {
   classifyMovementSignal,
   classifyNewItemSignal,
   rankPriority,
 } from "@/lib/item-trends/signals";
+import { defaultSkuMeta } from "@/lib/item-trends/sku-group";
 import { fetchSlowdownAlerts } from "@/lib/item-trends/slowdown";
 import type {
   ItemMovementRow,
@@ -294,6 +296,7 @@ export async function fetchMovementLeaderboard(
       sku,
       title: item.productTitle,
       priority,
+      ...defaultSkuMeta(sku, item.productTitle),
       unitsCurrent,
       unitsPrior,
       speedPerDay: Math.round(spd * 100) / 100,
@@ -327,7 +330,11 @@ export async function fetchMovementLeaderboard(
     }
   }
 
-  return rows;
+  const catalog = await loadSkuCatalog(companyId);
+  const branded = rows.map((row) => applyCatalogToMovement(row, catalog));
+  const brand = filters.brand?.trim().toLowerCase();
+  if (!brand) return branded;
+  return branded.filter((row) => (row.brand ?? "").trim().toLowerCase() === brand);
 }
 
 export async function fetchNewItemRows(
@@ -365,6 +372,7 @@ export async function fetchNewItemRows(
       sku,
       title: item.productTitle,
       priority,
+      ...defaultSkuMeta(sku, item.productTitle),
       unitsCurrent,
       unitsPrior,
       speedPerDay: speedPerDay(unitsCurrent, current.fromYmd, current.toYmd),
@@ -376,7 +384,8 @@ export async function fetchNewItemRows(
   }
 
   rows.sort((a, b) => b.unitsCurrent - a.unitsCurrent);
-  return rows;
+  const catalog = await loadSkuCatalog(companyId);
+  return rows.map((row) => applyCatalogToMovement(row, catalog));
 }
 
 export async function fetchSkuWeekdayBuckets(

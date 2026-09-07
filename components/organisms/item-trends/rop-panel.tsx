@@ -5,6 +5,7 @@ import { Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { ListPager, usePagedRows } from "@/components/organisms/item-trends/list-pager";
+import { buildRopSuggestionCsv, downloadCsv } from "@/lib/item-trends/export";
 import { notify } from "@/lib/notify";
 import type { RopSuggestionRow } from "@/lib/item-trends/types";
 
@@ -32,7 +33,7 @@ export function RopPanel({
   onRefresh,
 }: Props) {
   const [busySku, setBusySku] = useState<string | null>(null);
-  const fields = useCallback((row: RopSuggestionRow) => [row.sku, row.priority], []);
+  const fields = useCallback((row: RopSuggestionRow) => [row.sku, row.priority, row.brand], []);
   const paged = usePagedRows(rows, fields);
 
   async function applyRop(row: RopSuggestionRow) {
@@ -78,6 +79,15 @@ export function RopPanel({
         >
           2 months
         </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={rows.length === 0}
+          onClick={() => downloadCsv("item-trends-rop.csv", buildRopSuggestionCsv(rows))}
+        >
+          Export
+        </Button>
       </div>
 
       {rows.length === 0 ? (
@@ -100,9 +110,10 @@ export function RopPanel({
               <tr>
                 <th className="px-3 py-2">SKU</th>
                 <th className="px-3 py-2">Priority</th>
+                <th className="px-3 py-2">Brand</th>
                 <th className="px-3 py-2 text-right">Peak month</th>
                 <th className="px-3 py-2 text-right">Window total</th>
-                <th className="px-3 py-2 text-right">Current ROP</th>
+                <th className="px-3 py-2 text-right">Total ROP</th>
                 <th className="px-3 py-2 text-right">Suggested ×2</th>
                 <th className="px-3 py-2">Overlay</th>
                 {canManageRop ? <th className="px-3 py-2" /> : null}
@@ -113,6 +124,7 @@ export function RopPanel({
                 <tr key={row.sku} className="border-t">
                   <td className="px-3 py-2 font-medium">{row.sku}</td>
                   <td className="px-3 py-2">{row.priority}</td>
+                  <td className="px-3 py-2">{row.brand ?? "—"}</td>
                   <td className="px-3 py-2 text-right tabular-nums">
                     {row.peakMonthSales}
                     {row.peakMonth ? (

@@ -40,6 +40,10 @@
     {
       "path": "/api/cron/sticker-batch-retention",
       "schedule": "15 * * * *"
+    },
+    {
+      "path": "/api/cron/erp-stock-snapshot",
+      "schedule": "30 17 * * *"
     }
   ],
   "ignoreCommand": "node scripts/vercel-should-build.mjs",

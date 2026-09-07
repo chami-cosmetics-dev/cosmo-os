@@ -470,6 +470,7 @@ export const itemTrendsQuerySchema = z.object({
   compareFrom: itemTrendsYmdSchema.optional(),
   compareTo: itemTrendsYmdSchema.optional(),
   priority: z.string().max(64).optional(),
+  brand: z.string().max(120).optional(),
   district: z.string().max(80).optional(),
   sections: z.string().max(200).optional(),
   limit: z.coerce.number().int().min(1).max(20000).optional(),
@@ -505,6 +506,7 @@ export const itemTrendsOutletsQuerySchema = z
       .enum(["true", "false"])
       .optional()
       .transform((v) => (v === undefined ? undefined : v === "true")),
+    brand: z.string().max(120).optional(),
   })
   .superRefine((data, ctx) => {
     if (Boolean(data.from) !== Boolean(data.to)) {
@@ -523,7 +525,28 @@ export const itemTrendsRopQuerySchema = z.object({
   from: itemTrendsYmdSchema.optional(),
   to: itemTrendsYmdSchema.optional(),
   priority: z.string().max(64).optional(),
+  brand: z.string().max(120).optional(),
   sku: z.string().max(80).optional(),
   offset: z.coerce.number().int().min(0).optional().default(0),
   limit: z.coerce.number().int().min(1).max(20000).optional(),
+});
+
+export const itemTrendsCoverQuerySchema = z.object({
+  from: itemTrendsYmdSchema,
+  to: itemTrendsYmdSchema,
+  priority: z.string().max(64).optional(),
+  brand: z.string().max(120).optional(),
+  sku: z.string().max(80).optional(),
+  commonSkuKey: z.string().max(200).optional(),
+  snapshotDate: itemTrendsYmdSchema.optional(),
+  erpScope: z.enum(["both", "erp1", "erp2"]).optional().default("both"),
+  columnKeys: z.string().max(2000).optional(),
+  oosOnly: z
+    .enum(["true", "false"])
+    .optional()
+    .transform((v) => v === "true"),
+  sendOnly: z
+    .enum(["true", "false"])
+    .optional()
+    .transform((v) => v === "true"),
 });

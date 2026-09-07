@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   isShopifyOrderFullyRefunded,
+  resolveShopifyWebhookFinancialStatus,
   shouldVoidShopifyOrder,
 } from "@/lib/shopify-order-financial-status";
 
@@ -24,5 +25,55 @@ describe("Shopify order financial status", () => {
 
   it("does not void ordinary paid orders", () => {
     expect(shouldVoidShopifyOrder({ financialStatus: "paid" })).toBe(false);
+  });
+});
+
+describe("resolveShopifyWebhookFinancialStatus", () => {
+  it("keeps local paid when Shopify still says pending", () => {
+    expect(
+      resolveShopifyWebhookFinancialStatus({
+        existingStatus: "paid",
+        incomingStatus: "pending",
+        shouldVoid: false,
+      }),
+    ).toBe("paid");
+  });
+
+  it("keeps local partially_paid when Shopify still says pending", () => {
+    expect(
+      resolveShopifyWebhookFinancialStatus({
+        existingStatus: "partially_paid",
+        incomingStatus: "pending",
+        shouldVoid: false,
+      }),
+    ).toBe("partially_paid");
+  });
+
+  it("restores paid after invoice complete even if Shopify already overwrote pending", () => {
+    expect(
+      resolveShopifyWebhookFinancialStatus({
+        existingStatus: "pending",
+        incomingStatus: "pending",
+        invoiceCompleteAt: new Date("2026-06-17T00:00:00Z"),
+        shouldVoid: false,
+      }),
+    ).toBe("paid");
+  });
+
+  it("still takes Shopify paid and void paths", () => {
+    expect(
+      resolveShopifyWebhookFinancialStatus({
+        existingStatus: "pending",
+        incomingStatus: "paid",
+        shouldVoid: false,
+      }),
+    ).toBe("paid");
+    expect(
+      resolveShopifyWebhookFinancialStatus({
+        existingStatus: "paid",
+        incomingStatus: "pending",
+        shouldVoid: true,
+      }),
+    ).toBe("voided");
   });
 });

@@ -200,3 +200,19 @@ export function resolveAddressDistrict(address: unknown): string {
 
   return getAddressField(address, "province_code");
 }
+
+/** Persistable district: null when address cannot be resolved. */
+export function storedDistrictFromAddress(address: unknown): string | null {
+  const value = resolveAddressDistrict(address).trim();
+  return value || null;
+}
+
+/** Stored district wins; otherwise shipping address. Empty string if still unknown. */
+export function resolveOrderDistrict(
+  stored: string | null | undefined,
+  shippingAddress: unknown,
+): string {
+  const marked = (stored ?? "").trim();
+  if (marked) return marked;
+  return resolveAddressDistrict(shippingAddress).trim();
+}

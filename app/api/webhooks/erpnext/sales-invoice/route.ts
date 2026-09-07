@@ -28,7 +28,10 @@ import { syncContactMasterSafely } from "@/lib/contact-master-sync";
 import { erpSlotSourceFromLabel } from "@/lib/erpnext-contact-sync";
 import { normalizeMerCodeKey } from "@/lib/merchant-allocation";
 import { linkedVaultOrderSubmittedInvoicePatch } from "@/lib/erp-fulfillment-block";
-import { resolveErpSalesInvoiceFinancialStatus } from "@/lib/erp-sales-invoice-financial-status";
+import {
+  linkedVaultOrderErpPaymentStatusPatch,
+  resolveErpSalesInvoiceFinancialStatus,
+} from "@/lib/erp-sales-invoice-financial-status";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -58,6 +61,7 @@ async function findLinkedVaultOrderForErpInvoice(data: {
       name: true,
       orderNumber: true,
       companyId: true,
+      financialStatus: true,
       assignedMerchant: { select: { name: true } },
     },
   });
@@ -389,10 +393,16 @@ export async function POST(request: NextRequest) {
 
     await prisma.order.update({
       where: { id: linkedVaultOrder.id },
-      data: linkedVaultOrderSubmittedInvoicePatch({
-        invoiceName: data.name,
-        customer: data.customer,
-      }),
+      data: {
+        ...linkedVaultOrderSubmittedInvoicePatch({
+          invoiceName: data.name,
+          customer: data.customer,
+        }),
+        ...linkedVaultOrderErpPaymentStatusPatch({
+          currentStatus: linkedVaultOrder.financialStatus,
+          erpFinancialStatus: financialStatus,
+        }),
+      },
     });
 
     if (linkedEmail || linkedPhone) {

@@ -93,6 +93,7 @@ model Company {
   merchantMonthlyTargets        MerchantMonthlyTarget[]
   merchantMonthlyTargetHistory  MerchantMonthlyTargetHistory[]
   marketCompetitorLinks         MarketCompetitorLink[]
+  erpStockSnapshots             ErpStockSnapshot[]
 }
 
 model PrintFormat {
@@ -722,6 +723,8 @@ model Order {
   deliveryFailedReason            String?
   customerEmail                   String?
   customerPhone                   String?
+  /// Sri Lanka district from shipping address (province / inferred). Blank if unknown.
+  district                        String?
   shippingAddress                 Json?
   billingAddress                  Json?
   discountCodes                   Json?
@@ -831,6 +834,7 @@ model Order {
   @@index([companyId, erpnextSyncNextAutoRetryAt])
   @@index([companyId, erpPeSyncNextAutoRetryAt])
   @@index([companyId, replacedByOrderId])
+  @@index([companyId, district])
 }
 
 model PickListGroup {
@@ -2042,6 +2046,21 @@ model ProductOsfRop {
   @@unique([companyId, sku, columnKey])
   @@index([companyId, sku])
   @@index([companyId, columnKey])
+}
+
+model ErpStockSnapshot {
+  id           String   @id @default(cuid())
+  companyId    String
+  snapshotDate String
+  capturedAt   DateTime
+  sku          String
+  warehouse    String
+  qty          Float
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, snapshotDate, sku, warehouse])
+  @@index([companyId, snapshotDate])
+  @@index([companyId, sku, snapshotDate])
 }
 
 model OsfColumnConfig {

@@ -1,18 +1,27 @@
 "use client";
 
-import { useCallback } from "react";
+import { Fragment, useCallback, useMemo, useState } from "react";
 import Link from "next/link";
+
+import { Button } from "@/components/ui/button";
 
 import type { ItemMovementRow } from "@/lib/item-trends/types";
 import { resolveMarketGapBadge } from "@/lib/item-trends/market-gap-badge";
 import { PinButton } from "@/components/organisms/item-trends/focus-list";
 import { ListPager, usePagedRows } from "@/components/organisms/item-trends/list-pager";
+import {
+  childrenForCommonSku,
+  groupRowsByCommonSku,
+  type SkuGrain,
+} from "@/lib/item-trends/sku-group";
 
 type Props = {
   rows: ItemMovementRow[];
+  grain?: SkuGrain;
   pinContext?: string;
   isPinned?: (sku: string) => boolean;
   onTogglePin?: (row: ItemMovementRow, context: string) => void;
+  onCompareLocations?: (sku: string, commonSkuKey: string | null) => void;
 };
 
 function signalLabel(signal: ItemMovementRow["signal"]) {
@@ -37,12 +46,24 @@ function changeArrow(pct: number | null) {
   return "— 0%";
 }
 
-export function MovementTable({ rows, pinContext, isPinned, onTogglePin }: Props) {
+export function MovementTable({
+  rows,
+  grain = "variant",
+  pinContext,
+  isPinned,
+  onTogglePin,
+  onCompareLocations,
+}: Props) {
+  const [openKey, setOpenKey] = useState<string | null>(null);
+  const displayRows = useMemo(() => {
+    if (grain !== "common") return rows.map((r) => ({ ...r, childCount: 1 }));
+    return groupRowsByCommonSku(rows);
+  }, [grain, rows]);
   const fields = useCallback(
-    (row: ItemMovementRow) => [row.sku, row.title, row.priority],
+    (row: ItemMovementRow) => [row.sku, row.title, row.priority, row.brand, row.commonSkuTitle],
     [],
   );
-  const paged = usePagedRows(rows, fields);
+  const paged = usePagedRows(displayRows, fields);
 
   if (rows.length === 0) {
     return (
@@ -71,6 +92,7 @@ export function MovementTable({ rows, pinContext, isPinned, onTogglePin }: Props
             <thead className="bg-muted/50 text-left">
               <tr>
                 <th className="px-3 py-2 font-medium">SKU</th>
+                <th className="px-3 py-2 font-medium">Brand</th>
                 <th className="px-3 py-2 font-medium">Priority</th>
                 <th className="px-3 py-2 font-medium text-right">Units</th>
                 <th className="px-3 py-2 font-medium text-right">Speed/day</th>
@@ -78,6 +100,7 @@ export function MovementTable({ rows, pinContext, isPinned, onTogglePin }: Props
                 <th className="px-3 py-2 font-medium">Signal</th>
                 <th className="px-3 py-2 font-medium text-center">Market Gap</th>
                 {onTogglePin && pinContext ? <th className="px-3 py-2 w-8" /> : null}
+                {onCompareLocations ? <th className="px-3 py-2" /> : null}
               </tr>
             </thead>
             <tbody>
@@ -86,17 +109,39 @@ export function MovementTable({ rows, pinContext, isPinned, onTogglePin }: Props
                   row.marketGapPct,
                   row.isCheapestInMarket,
                 );
+                const grouped = grain === "common";
+                const open = openKey === (row.commonSkuKey ?? row.sku);
+                const children =
+                  grouped && open ? childrenForCommonSku(rows, row.commonSkuKey ?? row.sku) : [];
 
                 return (
-                  <tr key={row.sku} className="border-t">
+                  <Fragment key={row.sku}>
+                    <tr className="border-t">
                     <td className="px-3 py-2">
-                      <div className="font-medium">{row.sku}</div>
-                      {row.title ? (
-                        <div className="text-xs text-muted-foreground truncate max-w-[200px]">
-                          {row.title}
-                        </div>
-                      ) : null}
+                      {grouped && (row.childCount ?? 1) > 1 ? (
+                        <button
+                          type="button"
+                          className="text-left font-medium underline-offset-2 hover:underline"
+                          onClick={() =>
+                            setOpenKey(open ? null : (row.commonSkuKey ?? row.sku))
+                          }
+                        >
+                          {row.commonSkuTitle ?? row.title ?? row.sku}{" "}
+                          <span className="text-xs text-muted-foreground">({row.childCount} SKUs)</span>
+                        </button>
+                      ) : (
+                        <>
+                          <div className="font-medium">{row.sku}</div>
+                          {row.title ? (
+                            <div className="text-xs text-muted-foreground truncate max-w-[200px]">
+                              {row.title}
+                              {row.variantTitle ? ` · ${row.variantTitle}` : ""}
+                            </div>
+                          ) : null}
+                        </>
+                      )}
                     </td>
+                    <td className="px-3 py-2">{row.brand ?? "—"}</td>
                     <td className="px-3 py-2">{row.priority}</td>
                     <td className="px-3 py-2 text-right">{row.unitsCurrent}</td>
                     <td className="px-3 py-2 text-right">{row.speedPerDay.toFixed(2)}</td>
@@ -133,7 +178,50 @@ export function MovementTable({ rows, pinContext, isPinned, onTogglePin }: Props
                         />
                       </td>
                     ) : null}
+                    {onCompareLocations ? (
+                      <td className="px-3 py-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => onCompareLocations(row.sku, row.commonSkuKey ?? null)}
+                        >
+                          Compare
+                        </Button>
+                      </td>
+                    ) : null}
                   </tr>
+                  {children.map((child) => (
+                    <tr key={child.sku} className="border-t bg-muted/20">
+                      <td className="px-3 py-2 pl-8">
+                        <div className="font-medium">{child.sku}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {child.variantTitle ?? child.title}
+                        </div>
+                      </td>
+                      <td className="px-3 py-2">{child.brand ?? "—"}</td>
+                      <td className="px-3 py-2">{child.priority}</td>
+                      <td className="px-3 py-2 text-right">{child.unitsCurrent}</td>
+                      <td className="px-3 py-2 text-right">{child.speedPerDay.toFixed(2)}</td>
+                      <td className="px-3 py-2 text-right">{changeArrow(child.speedChangePct)}</td>
+                      <td className="px-3 py-2">{signalLabel(child.signal)}</td>
+                      <td className="px-3 py-2" />
+                      {onTogglePin && pinContext ? <td className="px-3 py-2" /> : null}
+                      {onCompareLocations ? (
+                        <td className="px-3 py-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => onCompareLocations(child.sku, child.commonSkuKey ?? null)}
+                          >
+                            Compare
+                          </Button>
+                        </td>
+                      ) : null}
+                    </tr>
+                  ))}
+                  </Fragment>
                 );
               })}
             </tbody>

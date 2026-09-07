@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const { from, to, compareFrom, compareTo, priority } = parsed.data;
+    const { from, to, compareFrom, compareTo, priority, brand } = parsed.data;
 
   try {
     const { current, prior } = resolveItemTrendWindows({
@@ -65,6 +65,7 @@ export async function GET(request: NextRequest) {
         fetchMovementLeaderboard(companyId, current, prior, {
           priority: priorityFilter,
           companyLocationId: locationFilter,
+          brand,
         }),
         fetchNewItemRows(companyId, current, prior),
         fetchSlowdownRows(companyId, current, prior),
