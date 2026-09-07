@@ -693,11 +693,56 @@ export function CustomerInsightPanel({
       salesAfterContact: number;
     }>;
   } | null>(null);
+  const todayIsoDate = () => {
+    const now = new Date();
+    const offset = now.getTimezoneOffset();
+    const local = new Date(now.getTime() - offset * 60 * 1000);
+    return local.toISOString().slice(0, 10);
+  };
+  const [allocationDateFrom, setAllocationDateFrom] = useState(todayIsoDate);
+  const [allocationDateTo, setAllocationDateTo] = useState(todayIsoDate);
   const [allocationSummary, setAllocationSummary] = useState<{
-    rows: Array<{ merchantValue: string; merchantLabel: string; count: number }>;
+    rows: Array<{
+      merchantValue: string;
+      merchantLabel: string;
+      platinum: number;
+      gold: number;
+      other: number;
+      total: number;
+      completeCount: number;
+      completePercent: number;
+      dateRangeStats?: {
+        callsTaken: number;
+        birthdayCount: number;
+        birthdayPercent: number;
+        emailCount: number;
+        emailPercent: number;
+      };
+    }>;
     allocatedTotal: number;
     unallocatedCount: number;
     contactTotal: number;
+  } | null>(null);
+
+  type PurchaseCountPreset =
+    | "today"
+    | "1-30"
+    | "31-90"
+    | "91-180"
+    | "181-365"
+    | "over-365"
+    | "custom";
+
+  const [purchasePreset, setPurchasePreset] = useState<PurchaseCountPreset>("today");
+  const [purchaseCustomFrom, setPurchaseCustomFrom] = useState("");
+  const [purchaseCustomTo, setPurchaseCustomTo] = useState("");
+  const [purchaseCountSummary, setPurchaseCountSummary] = useState<{
+    rows: Array<{
+      merchantValue: string;
+      merchantLabel: string;
+      allocation: { platinum: number; gold: number; other: number; total: number };
+      purchaseCount: { platinum: number; gold: number; other: number; total: number };
+    }>;
   } | null>(null);
   const invoicesRef = useRef<HTMLDivElement>(null);
   const detailsRef = useRef<HTMLDivElement>(null);
@@ -872,11 +917,28 @@ export function CustomerInsightPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- load once for admin
   }, [canExportFilteredCsv]);
 
+  useEffect(() => {
+    if (!canExportFilteredCsv) return;
+    const timer = window.setTimeout(() => {
+      void loadPurchaseCountSummary({ silent: true });
+    }, 500);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- load once for admin
+  }, [canExportFilteredCsv]);
+
   async function loadAllocationSummary(opts?: { silent?: boolean }) {
     if (!canExportFilteredCsv) return;
     if (!opts?.silent) setBusyKey("allocation-summary");
     try {
-      const res = await fetch("/api/admin/customer-insight/allocation-summary");
+      const params = new URLSearchParams();
+      const from = allocationDateFrom.trim() || todayIsoDate();
+      const to = allocationDateTo.trim() || todayIsoDate();
+      params.set("from", from);
+      params.set("to", to);
+      const qs = params.toString();
+      const res = await fetch(
+        `/api/admin/customer-insight/allocation-summary${qs ? `?${qs}` : ""}`
+      );
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         if (!opts?.silent) {
@@ -900,12 +962,53 @@ export function CustomerInsightPanel({
     }
   }
 
+  function buildPurchaseCountParams() {
+    const params = new URLSearchParams();
+    params.set("purchasePreset", purchasePreset);
+    if (purchasePreset === "custom") {
+      if (purchaseCustomFrom.trim()) params.set("purchaseFrom", purchaseCustomFrom.trim());
+      if (purchaseCustomTo.trim()) params.set("purchaseTo", purchaseCustomTo.trim());
+    }
+    return params;
+  }
+
+  async function loadPurchaseCountSummary(opts?: { silent?: boolean }) {
+    if (!canExportFilteredCsv) return;
+    if (!opts?.silent) setBusyKey("purchase-count-summary");
+    try {
+      const params = buildPurchaseCountParams();
+      const res = await fetch(
+        `/api/admin/customer-insight/allocation-summary?${params.toString()}`
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (!opts?.silent) {
+          notify.error(data.error ?? "Failed to load purchase counts.");
+        }
+        return;
+      }
+      setPurchaseCountSummary({
+        rows: Array.isArray(data.purchaseCount?.rows) ? data.purchaseCount.rows : [],
+      });
+    } catch {
+      if (!opts?.silent) notify.error("Failed to load purchase counts.");
+    } finally {
+      if (!opts?.silent) setBusyKey(null);
+    }
+  }
+
   async function exportAllocationSummaryCsv() {
     if (!canExportFilteredCsv) return;
     setBusyKey("allocation-summary-export");
     try {
+      const params = new URLSearchParams();
+      const from = allocationDateFrom.trim() || todayIsoDate();
+      const to = allocationDateTo.trim() || todayIsoDate();
+      params.set("from", from);
+      params.set("to", to);
+      const qs = params.toString();
       const res = await fetch(
-        "/api/admin/customer-insight/allocation-summary/export",
+        `/api/admin/customer-insight/allocation-summary/export${qs ? `?${qs}` : ""}`,
         { credentials: "include" }
       );
       if (!res.ok) {
@@ -921,6 +1024,62 @@ export function CustomerInsightPanel({
       a.click();
       URL.revokeObjectURL(url);
       notify.success("Allocation summary downloaded.");
+    } catch {
+      notify.error("Export failed");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function exportAllocationContactsCsv() {
+    if (!canExportFilteredCsv) return;
+    setBusyKey("allocation-contacts-export");
+    try {
+      const res = await fetch(
+        "/api/admin/customer-insight/allocation-summary/export?format=contacts",
+        { credentials: "include" }
+      );
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        notify.error(data.error ?? "Export failed");
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "insight-merchant-allocation-contacts.csv";
+      a.click();
+      URL.revokeObjectURL(url);
+      notify.success("Allocation contacts downloaded.");
+    } catch {
+      notify.error("Export failed");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function exportPurchaseCountCsv() {
+    if (!canExportFilteredCsv) return;
+    setBusyKey("purchase-count-export");
+    try {
+      const params = buildPurchaseCountParams();
+      const res = await fetch(
+        `/api/admin/customer-insight/allocation-summary/export?${params.toString()}`
+      );
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        notify.error(data.error ?? "Export failed");
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "insight-merchant-allocation-summary.csv";
+      a.click();
+      URL.revokeObjectURL(url);
+      notify.success("Purchase performance downloaded.");
     } catch {
       notify.error("Export failed");
     } finally {
@@ -3454,13 +3613,67 @@ export function CustomerInsightPanel({
       {canExportFilteredCsv ? (
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">Merchant allocations</CardTitle>
+            <CardTitle className="text-base">Merchant Allocation - Data Collection</CardTitle>
             <CardDescription>
-              How many Contact Master rows are allocated to each merchant. Export
-              CSV includes each allocated contact name and phone number.
+              How many Contact Master rows are allocated to each merchant, split
+              by loyalty tier, with the count that have both email and birthday
+              on file. Pick a date range to also see calls taken and birthday /
+              email collected in that window. Export CSV downloads the table.
+              Export contacts includes each allocated contact name and phone number.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
+            <div className="flex flex-wrap items-end gap-2">
+              <label className="space-y-1 text-sm">
+                <span className="text-muted-foreground">From</span>
+                <Input
+                  type="date"
+                  value={allocationDateFrom}
+                  disabled={isBusy}
+                  onChange={(e) => setAllocationDateFrom(e.target.value)}
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="text-muted-foreground">To</span>
+                <Input
+                  type="date"
+                  value={allocationDateTo}
+                  disabled={isBusy}
+                  onChange={(e) => setAllocationDateTo(e.target.value)}
+                />
+              </label>
+              <Button
+                type="button"
+                size="sm"
+                disabled={isBusy}
+                onClick={() => void loadAllocationSummary()}
+              >
+                {busyKey === "allocation-summary" ? (
+                  <>
+                    <Loader2 className="animate-spin" aria-hidden />
+                    Loading...
+                  </>
+                ) : (
+                  "Apply range"
+                )}
+              </Button>
+              {allocationDateFrom || allocationDateTo ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={isBusy}
+                  onClick={() => {
+                    const today = todayIsoDate();
+                    setAllocationDateFrom(today);
+                    setAllocationDateTo(today);
+                    void loadAllocationSummary();
+                  }}
+                >
+                  Clear range
+                </Button>
+              ) : null}
+            </div>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-xs text-muted-foreground">
                 {allocationSummary
@@ -3502,6 +3715,25 @@ export function CustomerInsightPanel({
                     </>
                   )}
                 </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={isBusy}
+                  onClick={() => void exportAllocationContactsCsv()}
+                >
+                  {busyKey === "allocation-contacts-export" ? (
+                    <>
+                      <Loader2 className="animate-spin" aria-hidden />
+                      Exporting...
+                    </>
+                  ) : (
+                    <>
+                      <Download aria-hidden />
+                      Export contacts
+                    </>
+                  )}
+                </Button>
               </div>
             </div>
             {allocationSummary && allocationSummary.rows.length === 0 ? (
@@ -3514,9 +3746,70 @@ export function CustomerInsightPanel({
                 <table className="w-full text-sm">
                   <thead className="sticky top-0 bg-background">
                     <tr className="border-b text-left text-muted-foreground">
-                      <th className="px-3 py-2 font-medium">Merchant</th>
+                      <th className="w-48 px-3 py-2 font-medium" rowSpan={2}>
+                        Merchant
+                      </th>
+                      <th
+                        className="border-l px-3 py-2 text-center font-medium"
+                        colSpan={4}
+                      >
+                        Allocation
+                      </th>
+                      {allocationSummary.rows.some((r) => r.dateRangeStats) ? (
+                        <>
+                          <th
+                            className="border-l px-3 py-2 text-right font-medium"
+                            rowSpan={2}
+                          >
+                            Number of calls taken
+                          </th>
+                          <th
+                            className="border-l px-3 py-2 text-center font-medium"
+                            colSpan={2}
+                          >
+                            Birthday
+                          </th>
+                          <th
+                            className="border-l px-3 py-2 text-center font-medium"
+                            colSpan={2}
+                          >
+                            Email
+                          </th>
+                        </>
+                      ) : null}
+                      <th
+                        className="border-l px-3 py-2 text-center font-medium"
+                        colSpan={2}
+                      >
+                        Profile complete
+                      </th>
+                    </tr>
+                    <tr className="border-b text-left text-muted-foreground">
+                      <th className="border-l px-3 py-2 text-right font-medium">Platinum</th>
+                      <th className="px-3 py-2 text-right font-medium">Gold</th>
+                      <th className="px-3 py-2 text-right font-medium">Other</th>
+                      <th className="px-3 py-2 text-right font-medium">Total</th>
+                      {allocationSummary.rows.some((r) => r.dateRangeStats) ? (
+                        <>
+                          <th className="border-l px-3 py-2 text-right font-medium">
+                            Count collected
+                          </th>
+                          <th className="px-3 py-2 text-right font-medium">
+                            Percentage
+                          </th>
+                          <th className="border-l px-3 py-2 text-right font-medium">
+                            Count collected
+                          </th>
+                          <th className="px-3 py-2 text-right font-medium">
+                            Percentage
+                          </th>
+                        </>
+                      ) : null}
+                      <th className="border-l px-3 py-2 text-right font-medium">
+                        Complete count
+                      </th>
                       <th className="px-3 py-2 text-right font-medium">
-                        Allocated
+                        Percentage
                       </th>
                     </tr>
                   </thead>
@@ -3532,8 +3825,52 @@ export function CustomerInsightPanel({
                         }}
                       >
                         <td className="px-3 py-2">{row.merchantLabel}</td>
+                        <td className="border-l px-3 py-2 text-right tabular-nums">
+                          {row.platinum.toLocaleString()}
+                        </td>
                         <td className="px-3 py-2 text-right tabular-nums">
-                          {row.count.toLocaleString()}
+                          {row.gold.toLocaleString()}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          {row.other.toLocaleString()}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums font-medium">
+                          {row.total.toLocaleString()}
+                        </td>
+                        {allocationSummary.rows.some((r) => r.dateRangeStats) ? (
+                          row.dateRangeStats ? (
+                            <>
+                              <td className="border-l px-3 py-2 text-right tabular-nums">
+                                {row.dateRangeStats.callsTaken.toLocaleString()}
+                              </td>
+                              <td className="border-l px-3 py-2 text-right tabular-nums">
+                                {row.dateRangeStats.birthdayCount.toLocaleString()}
+                              </td>
+                              <td className="px-3 py-2 text-right tabular-nums">
+                                {row.dateRangeStats.birthdayPercent}%
+                              </td>
+                              <td className="border-l px-3 py-2 text-right tabular-nums">
+                                {row.dateRangeStats.emailCount.toLocaleString()}
+                              </td>
+                              <td className="px-3 py-2 text-right tabular-nums">
+                                {row.dateRangeStats.emailPercent}%
+                              </td>
+                            </>
+                          ) : (
+                            <>
+                              <td className="border-l px-3 py-2 text-right text-muted-foreground"></td>
+                              <td className="border-l px-3 py-2 text-right text-muted-foreground"></td>
+                              <td className="px-3 py-2 text-right text-muted-foreground"></td>
+                              <td className="border-l px-3 py-2 text-right text-muted-foreground"></td>
+                              <td className="px-3 py-2 text-right text-muted-foreground"></td>
+                            </>
+                          )
+                        ) : null}
+                        <td className="border-l px-3 py-2 text-right tabular-nums font-medium">
+                          {row.completeCount.toLocaleString()}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          {row.completePercent}%
                         </td>
                       </tr>
                     ))}
@@ -3541,10 +3878,201 @@ export function CustomerInsightPanel({
                       <td className="px-3 py-2 text-muted-foreground">
                         Unallocated
                       </td>
+                      <td className="border-l px-3 py-2 text-right text-muted-foreground"></td>
+                      <td className="px-3 py-2 text-right text-muted-foreground"></td>
+                      <td className="px-3 py-2 text-right text-muted-foreground"></td>
                       <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
                         {allocationSummary.unallocatedCount.toLocaleString()}
                       </td>
+                      {allocationSummary.rows.some((r) => r.dateRangeStats) ? (
+                        <>
+                          <td className="border-l px-3 py-2 text-right text-muted-foreground"></td>
+                          <td className="border-l px-3 py-2 text-right text-muted-foreground"></td>
+                          <td className="px-3 py-2 text-right text-muted-foreground"></td>
+                          <td className="border-l px-3 py-2 text-right text-muted-foreground"></td>
+                          <td className="px-3 py-2 text-right text-muted-foreground"></td>
+                        </>
+                      ) : null}
+                      <td className="border-l px-3 py-2 text-right text-muted-foreground"></td>
+                      <td className="px-3 py-2 text-right text-muted-foreground"></td>
                     </tr>
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {canExportFilteredCsv ? (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Merchant Allocation - Purchase Performance</CardTitle>
+            <CardDescription>
+              Allocation split by loyalty tier, next to how many of those contacts
+              purchased in the selected window. Export downloads the same table as CSV.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex flex-wrap items-end gap-2">
+              <label className="space-y-1 text-sm">
+                <span className="text-muted-foreground">Range</span>
+                <select
+                  className="border-input bg-background flex h-9 w-full min-w-[10rem] rounded-md border px-3 text-sm"
+                  value={purchasePreset}
+                  disabled={isBusy}
+                  onChange={(e) => setPurchasePreset(e.target.value as PurchaseCountPreset)}
+                >
+                  <option value="today">Today</option>
+                  <option value="1-30">1 – 30 days</option>
+                  <option value="31-90">31 – 90 days</option>
+                  <option value="91-180">91 – 180 days</option>
+                  <option value="181-365">181 – 365 days</option>
+                  <option value="over-365">Over 365 days</option>
+                  <option value="custom">Custom Range</option>
+                </select>
+              </label>
+              {purchasePreset === "custom" ? (
+                <>
+                  <label className="space-y-1 text-sm">
+                    <span className="text-muted-foreground">From</span>
+                    <Input
+                      type="date"
+                      value={purchaseCustomFrom}
+                      disabled={isBusy}
+                      onChange={(e) => setPurchaseCustomFrom(e.target.value)}
+                    />
+                  </label>
+                  <label className="space-y-1 text-sm">
+                    <span className="text-muted-foreground">To</span>
+                    <Input
+                      type="date"
+                      value={purchaseCustomTo}
+                      disabled={isBusy}
+                      onChange={(e) => setPurchaseCustomTo(e.target.value)}
+                    />
+                  </label>
+                </>
+              ) : null}
+              <Button
+                type="button"
+                size="sm"
+                disabled={isBusy}
+                onClick={() => void loadPurchaseCountSummary()}
+              >
+                {busyKey === "purchase-count-summary" ? (
+                  <>
+                    <Loader2 className="animate-spin" aria-hidden />
+                    Loading...
+                  </>
+                ) : (
+                  "Apply range"
+                )}
+              </Button>
+            </div>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={isBusy}
+                onClick={() => void loadPurchaseCountSummary()}
+              >
+                {busyKey === "purchase-count-summary" ? (
+                  <>
+                    <Loader2 className="animate-spin" aria-hidden />
+                    Refreshing...
+                  </>
+                ) : (
+                  "Refresh"
+                )}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                disabled={isBusy || !purchaseCountSummary}
+                onClick={() => void exportPurchaseCountCsv()}
+              >
+                {busyKey === "purchase-count-export" ? (
+                  <>
+                    <Loader2 className="animate-spin" aria-hidden />
+                    Exporting...
+                  </>
+                ) : (
+                  <>
+                    <Download aria-hidden />
+                    Export CSV
+                  </>
+                )}
+              </Button>
+            </div>
+            {purchaseCountSummary && purchaseCountSummary.rows.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No allocated contacts yet.</p>
+            ) : null}
+            {purchaseCountSummary && purchaseCountSummary.rows.length > 0 ? (
+              <div className="max-h-[28rem] overflow-auto rounded-md border">
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 bg-background">
+                    <tr className="border-b text-left text-muted-foreground">
+                      <th className="w-48 px-3 py-2 font-medium" rowSpan={2}>
+                        Merchant
+                      </th>
+                      <th className="border-l px-3 py-2 text-center font-medium" colSpan={4}>
+                        Allocation
+                      </th>
+                      <th className="border-l px-3 py-2 text-center font-medium" colSpan={4}>
+                        Purchase Count
+                      </th>
+                    </tr>
+                    <tr className="border-b text-left text-muted-foreground">
+                      <th className="border-l px-3 py-2 text-right font-medium">Platinum</th>
+                      <th className="px-3 py-2 text-right font-medium">Gold</th>
+                      <th className="px-3 py-2 text-right font-medium">Other</th>
+                      <th className="px-3 py-2 text-right font-medium">Total</th>
+                      <th className="border-l px-3 py-2 text-right font-medium">Platinum</th>
+                      <th className="px-3 py-2 text-right font-medium">Gold</th>
+                      <th className="px-3 py-2 text-right font-medium">Other</th>
+                      <th className="px-3 py-2 text-right font-medium">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {purchaseCountSummary.rows.map((row) => (
+                      <tr
+                        key={row.merchantValue}
+                        className="cursor-pointer hover:bg-muted/40"
+                        onClick={() => {
+                          setQueueMerchant(row.merchantValue);
+                          setQueueCandidates(null);
+                          setQueueSelectedIds([]);
+                        }}
+                      >
+                        <td className="px-3 py-2">{row.merchantLabel}</td>
+                        <td className="border-l px-3 py-2 text-right tabular-nums">
+                          {row.allocation.platinum.toLocaleString()}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          {row.allocation.gold.toLocaleString()}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          {row.allocation.other.toLocaleString()}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums font-medium">
+                          {row.allocation.total.toLocaleString()}
+                        </td>
+                        <td className="border-l px-3 py-2 text-right tabular-nums">
+                          {row.purchaseCount.platinum.toLocaleString()}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          {row.purchaseCount.gold.toLocaleString()}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          {row.purchaseCount.other.toLocaleString()}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums font-medium">
+                          {row.purchaseCount.total.toLocaleString()}
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>

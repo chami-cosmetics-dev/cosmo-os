@@ -1738,6 +1738,8 @@ model ContactMaster {
   birthYear         Int?
   birthMonth        Int?
   birthDay          Int?
+  birthdayUpdatedAt DateTime?
+  emailUpdatedAt    DateTime?
   // Segmentation fields
   serviceProvider   String?
   district          String?

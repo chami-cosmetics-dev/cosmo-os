@@ -1,0 +1,3 @@
+ALTER TABLE "ContactMaster"
+  ADD COLUMN IF NOT EXISTS "birthdayUpdatedAt" TIMESTAMP(3),
+  ADD COLUMN IF NOT EXISTS "emailUpdatedAt" TIMESTAMP(3);
