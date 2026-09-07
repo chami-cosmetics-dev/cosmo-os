@@ -1,12 +1,63 @@
 import { NextResponse } from "next/server";
 
-import { listMerchantAllocationCounts } from "@/lib/customer-insight/allocation-summary";
+import {
+  listMerchantAllocationCounts,
+  listMerchantPurchaseCountSummary,
+  type MerchantPurchaseCountRow,
+  type PurchaseCountFilter,
+} from "@/lib/customer-insight/allocation-summary";
 import { hasInsightAdminView } from "@/lib/customer-insight/ownership";
 import { logReportDownload } from "@/lib/report-download-log";
 import { requirePermission } from "@/lib/rbac";
 import { buildCsv, type CsvPrimitive } from "@/lib/reports/csv";
 
-export async function GET() {
+function parseDateRange(
+  searchParams: URLSearchParams
+): { from: Date; to: Date } | null {
+  const fromRaw = searchParams.get("from");
+  const toRaw = searchParams.get("to");
+  if (!fromRaw || !toRaw) return null;
+
+  const from = new Date(fromRaw);
+  const to = new Date(toRaw);
+  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) return null;
+
+  to.setUTCHours(23, 59, 59, 999);
+
+  return { from, to };
+}
+
+function parsePurchaseCountFilter(
+  searchParams: URLSearchParams
+): PurchaseCountFilter {
+  const preset = searchParams.get("purchasePreset");
+
+  if (preset === "custom") {
+    const fromRaw = searchParams.get("purchaseFrom");
+    const toRaw = searchParams.get("purchaseTo");
+    if (fromRaw && toRaw) {
+      const from = new Date(fromRaw);
+      const to = new Date(toRaw);
+      if (!Number.isNaN(from.getTime()) && !Number.isNaN(to.getTime())) {
+        to.setUTCHours(23, 59, 59, 999);
+        return { preset: "custom", from, to };
+      }
+    }
+  } else if (
+    preset === "today" ||
+    preset === "1-30" ||
+    preset === "31-90" ||
+    preset === "91-180" ||
+    preset === "181-365" ||
+    preset === "over-365"
+  ) {
+    return { preset };
+  }
+
+  return { preset: "today" };
+}
+
+export async function GET(request: Request) {
   const auth = await requirePermission("contacts.insight.read");
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
@@ -27,23 +78,102 @@ export async function GET() {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const summary = await listMerchantAllocationCounts(companyId);
+  const { searchParams } = new URL(request.url);
+  const dateRange = parseDateRange(searchParams);
+  const purchaseCountFilter = parsePurchaseCountFilter(searchParams);
+
+  const [summary, purchaseCountSummary] = await Promise.all([
+    listMerchantAllocationCounts(companyId, dateRange ?? undefined),
+    listMerchantPurchaseCountSummary(companyId, purchaseCountFilter),
+  ]);
+
+  const purchaseByMerchant = new Map<string, MerchantPurchaseCountRow>();
+  for (const row of purchaseCountSummary.rows) {
+    purchaseByMerchant.set(row.merchantValue.trim().toLowerCase(), row);
+  }
+
   const fileName = "insight-merchant-allocation-summary.csv";
-  const headers = [
+
+  const baseHeaders = [
     "merchant",
     "merchant_value",
-    "allocated_contacts",
+    "platinum",
+    "gold",
+    "other",
+    "total",
   ] as const;
-  const rows: Array<Record<(typeof headers)[number], CsvPrimitive>> = [
-    ...summary.rows.map((r) => ({
-      merchant: r.merchantLabel,
-      merchant_value: r.merchantValue,
-      allocated_contacts: r.count,
-    })),
+  const rangeHeaders = [
+    "calls_taken",
+    "birthday_count",
+    "birthday_percent",
+    "email_count",
+    "email_percent",
+  ] as const;
+  const completeHeaders = ["complete_count", "complete_percent"] as const;
+  const purchaseHeaders = [
+    "purchase_platinum",
+    "purchase_gold",
+    "purchase_other",
+    "purchase_total",
+  ] as const;
+  const headers = [
+    ...baseHeaders,
+    ...(dateRange ? rangeHeaders : []),
+    ...completeHeaders,
+    ...purchaseHeaders,
+  ];
+
+  const rows: Array<Record<string, CsvPrimitive>> = [
+    ...summary.rows.map((r) => {
+      const purchase = purchaseByMerchant.get(
+        r.merchantValue.trim().toLowerCase()
+      );
+      return {
+        merchant: r.merchantLabel,
+        merchant_value: r.merchantValue,
+        platinum: r.platinum,
+        gold: r.gold,
+        other: r.other,
+        total: r.total,
+        ...(dateRange
+          ? {
+              calls_taken: r.dateRangeStats?.callsTaken ?? 0,
+              birthday_count: r.dateRangeStats?.birthdayCount ?? 0,
+              birthday_percent: r.dateRangeStats?.birthdayPercent ?? 0,
+              email_count: r.dateRangeStats?.emailCount ?? 0,
+              email_percent: r.dateRangeStats?.emailPercent ?? 0,
+            }
+          : {}),
+        complete_count: r.completeCount,
+        complete_percent: r.completePercent,
+        purchase_platinum: purchase?.purchaseCount.platinum ?? 0,
+        purchase_gold: purchase?.purchaseCount.gold ?? 0,
+        purchase_other: purchase?.purchaseCount.other ?? 0,
+        purchase_total: purchase?.purchaseCount.total ?? 0,
+      };
+    }),
     {
       merchant: "Unallocated",
       merchant_value: "",
-      allocated_contacts: summary.unallocatedCount,
+      platinum: "",
+      gold: "",
+      other: "",
+      total: summary.unallocatedCount,
+      ...(dateRange
+        ? {
+            calls_taken: "",
+            birthday_count: "",
+            birthday_percent: "",
+            email_count: "",
+            email_percent: "",
+          }
+        : {}),
+      complete_count: "",
+      complete_percent: "",
+      purchase_platinum: "",
+      purchase_gold: "",
+      purchase_other: "",
+      purchase_total: "",
     },
   ];
 
@@ -55,7 +185,7 @@ export async function GET() {
     fileName,
   });
 
-  const csv = buildCsv(headers, rows);
+  const csv = buildCsv(headers as unknown as readonly string[], rows);
   return new NextResponse(csv, {
     headers: {
       "Content-Type": "text/csv; charset=utf-8",

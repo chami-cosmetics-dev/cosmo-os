@@ -32,6 +32,9 @@ export async function updateContactInsightProfile(input: {
       id: true,
       email: true,
       phoneNumber: true,
+      birthYear: true,
+      birthMonth: true,
+      birthDay: true,
       phones: { select: { phoneNumber: true } },
     },
   });
@@ -48,6 +51,8 @@ export async function updateContactInsightProfile(input: {
     birthYear?: number | null;
     birthMonth?: number | null;
     birthDay?: number | null;
+    birthdayUpdatedAt?: Date;
+    emailUpdatedAt?: Date;
   } = {};
 
   const previousPhone = existing.phoneNumber;
@@ -71,6 +76,17 @@ export async function updateContactInsightProfile(input: {
   if (input.patch.birthYear !== undefined) data.birthYear = input.patch.birthYear;
   if (input.patch.birthMonth !== undefined) data.birthMonth = input.patch.birthMonth;
   if (input.patch.birthDay !== undefined) data.birthDay = input.patch.birthDay;
+
+  const birthdayChanged =
+    (input.patch.birthYear !== undefined && input.patch.birthYear !== existing.birthYear) ||
+    (input.patch.birthMonth !== undefined && input.patch.birthMonth !== existing.birthMonth) ||
+    (input.patch.birthDay !== undefined && input.patch.birthDay !== existing.birthDay);
+  const nextEmail = data.email;
+  const emailChanged =
+    input.patch.email !== undefined &&
+    (nextEmail ?? null) !== (existing.email ?? null);
+  if (birthdayChanged) data.birthdayUpdatedAt = new Date();
+  if (emailChanged) data.emailUpdatedAt = new Date();
 
   let phoneToPromote: string | null = null;
   if (input.patch.addPhoneNumber !== undefined) {

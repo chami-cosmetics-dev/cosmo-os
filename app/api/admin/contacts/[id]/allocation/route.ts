@@ -50,7 +50,14 @@ export async function PATCH(
   const existing = await prisma.contactMaster.findFirst({
     where: { id, companyId },
     // category is fetched so we can record the effective value in ContactAllocationUpdate
-    select: { id: true, category: true },
+    select: {
+      id: true,
+      category: true,
+      email: true,
+      birthYear: true,
+      birthMonth: true,
+      birthDay: true,
+    },
   });
   if (!existing) {
     return NextResponse.json({ error: "Contact not found" }, { status: 404 });
@@ -66,6 +73,11 @@ export async function PATCH(
   }
 
   const data = parsed.data;
+  const birthdayChanged =
+    (data.birthYear !== undefined && data.birthYear !== existing.birthYear) ||
+    (data.birthMonth !== undefined && data.birthMonth !== existing.birthMonth) ||
+    (data.birthDay !== undefined && data.birthDay !== existing.birthDay);
+  const emailChanged = data.email !== undefined && data.email !== existing.email;
 
   await prisma.contactMaster.update({
     where: { id },
@@ -80,6 +92,8 @@ export async function PATCH(
       ...(data.birthYear !== undefined && { birthYear: data.birthYear }),
       ...(data.birthMonth !== undefined && { birthMonth: data.birthMonth }),
       ...(data.birthDay !== undefined && { birthDay: data.birthDay }),
+      ...(birthdayChanged && { birthdayUpdatedAt: new Date() }),
+      ...(emailChanged && { emailUpdatedAt: new Date() }),
       ...(data.mainProfileNo !== undefined && { phoneNumber: data.mainProfileNo }),
       ...(data.serviceProvider !== undefined && { serviceProvider: data.serviceProvider }),
       ...(data.district !== undefined && { district: data.district }),
