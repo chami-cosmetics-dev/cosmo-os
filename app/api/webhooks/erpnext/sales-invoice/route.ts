@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Decimal } from "@prisma/client/runtime/library";
+import { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
 import { getShadowSourceLocationId } from "@/lib/shadow-location-products";
@@ -693,7 +694,7 @@ export async function POST(request: NextRequest) {
       customerEmail,
       customerPhone,
       district,
-      shippingAddress: shippingAddressObj,
+      shippingAddress: shippingAddressObj as Prisma.InputJsonValue,
       rawPayload: rawPayload as object,
       ...(erpDiscountCodes ? { discountCodes: erpDiscountCodes } : {}),
       ...(resolvedPaymentMethods.length > 0
@@ -722,7 +723,7 @@ export async function POST(request: NextRequest) {
       customerEmail,
       customerPhone,
       district,
-      shippingAddress: shippingAddressObj,
+      shippingAddress: shippingAddressObj as Prisma.InputJsonValue,
       rawPayload: rawPayload as object,
       ...(erpDiscountCodes ? { discountCodes: erpDiscountCodes } : {}),
       ...(resolvedPaymentMethods.length > 0

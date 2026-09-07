@@ -92,7 +92,8 @@ export async function fetchCoverRows(input: {
   rows: CoverRow[];
 }> {
   const daysInRange = calendarDaysInclusive(input.range.fromYmd, input.range.toYmd);
-  const stockSource = input.stockSource === "snapshot" ? "snapshot" : "live";
+  const stockSource: "live" | "snapshot" =
+    input.stockSource === "snapshot" ? "snapshot" : "live";
   const [allColumns, shops, catalog, slotIds] = await Promise.all([
     resolveOsfColumns(input.companyId),
     loadPhysicalShops(input.companyId),
