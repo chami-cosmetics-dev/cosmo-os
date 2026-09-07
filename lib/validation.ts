@@ -539,6 +539,7 @@ export const itemTrendsCoverQuerySchema = z.object({
   sku: z.string().max(80).optional(),
   commonSkuKey: z.string().max(200).optional(),
   snapshotDate: itemTrendsYmdSchema.optional(),
+  stockSource: z.enum(["live", "snapshot"]).optional().default("live"),
   erpScope: z.enum(["both", "erp1", "erp2"]).optional().default("both"),
   columnKeys: z.string().max(2000).optional(),
   oosOnly: z

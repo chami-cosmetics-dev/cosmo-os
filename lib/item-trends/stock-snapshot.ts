@@ -82,18 +82,16 @@ export async function pruneErpStockSnapshots(companyId: string, asOf = new Date(
   return result.count;
 }
 
-export async function captureErpStockSnapshot(companyId: string): Promise<{
-  snapshotDate: string;
-  capturedAt: Date;
-  rowCount: number;
-}> {
-  const capturedAt = new Date();
-  const snapshotDate = formatAppIsoDate(capturedAt);
-  const [columns, erpInstances] = await Promise.all([
-    resolveOsfColumns(companyId),
-    getAllOsfErpInstances(companyId),
-  ]);
-
+export async function loadLiveBinMapForColumns(
+  companyId: string,
+  columns: Array<{
+    active: boolean;
+    includeInStock: boolean;
+    erpnextInstanceId: string | null;
+    warehouses: string[];
+  }>,
+): Promise<Map<string, number>> {
+  const erpInstances = await getAllOsfErpInstances(companyId);
   const warehousesByInstance = new Map<string, Set<string>>();
   for (const col of columns) {
     if (!col.active || !col.includeInStock || !col.erpnextInstanceId) continue;
@@ -115,6 +113,18 @@ export async function captureErpStockSnapshot(companyId: string): Promise<{
       }
     }),
   );
+  return binMap;
+}
+
+export async function captureErpStockSnapshot(companyId: string): Promise<{
+  snapshotDate: string;
+  capturedAt: Date;
+  rowCount: number;
+}> {
+  const capturedAt = new Date();
+  const snapshotDate = formatAppIsoDate(capturedAt);
+  const columns = await resolveOsfColumns(companyId);
+  const binMap = await loadLiveBinMapForColumns(companyId, columns);
 
   const rows: Array<{
     companyId: string;

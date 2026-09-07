@@ -16,7 +16,7 @@ import {
 } from "@/lib/item-trends/physical-shops";
 import { allowedInstanceIds, columnMatchesErpScope, type ErpStockScope } from "@/lib/item-trends/erp-scope";
 import { skuMatchesSearch } from "@/lib/item-trends/sku-group";
-import { loadSnapshotBinMap, resolveSnapshotMeta } from "@/lib/item-trends/stock-snapshot";
+import { loadLiveBinMapForColumns, loadSnapshotBinMap, resolveSnapshotMeta } from "@/lib/item-trends/stock-snapshot";
 import type { CoverRow, ItemTrendDateRange, ItemTrendFilterLocation } from "@/lib/item-trends/types";
 
 function stockColumns(all: OsfResolvedColumn[]) {
@@ -77,12 +77,14 @@ export async function fetchCoverRows(input: {
   skuFilter?: string[];
   commonSkuKey?: string | null;
   snapshotDate?: string | null;
+  stockSource?: "live" | "snapshot";
   priority?: string | null;
   brand?: string | null;
   oosOnly?: boolean;
   sendOnly?: boolean;
   erpScope?: ErpStockScope;
 }): Promise<{
+  stockSource: "live" | "snapshot";
   snapshotDate: string | null;
   capturedAt: string | null;
   usedFallback: boolean;
@@ -90,11 +92,11 @@ export async function fetchCoverRows(input: {
   rows: CoverRow[];
 }> {
   const daysInRange = calendarDaysInclusive(input.range.fromYmd, input.range.toYmd);
-  const [allColumns, shops, catalog, meta, slotIds] = await Promise.all([
+  const stockSource = input.stockSource === "snapshot" ? "snapshot" : "live";
+  const [allColumns, shops, catalog, slotIds] = await Promise.all([
     resolveOsfColumns(input.companyId),
     loadPhysicalShops(input.companyId),
     loadSkuCatalog(input.companyId),
-    resolveSnapshotMeta(input.companyId, input.snapshotDate),
     erpSlotIds(input.companyId),
   ]);
 
@@ -105,12 +107,39 @@ export async function fetchCoverRows(input: {
   const scoped =
     input.columnKeys?.length ? columns.filter((c) => input.columnKeys!.includes(c.key)) : columns;
 
-  const snapshotDate = meta.snapshotDate;
-  const capturedAt = meta.capturedAt ? meta.capturedAt.toISOString() : null;
-  const usedFallback = meta.usedFallback;
+  const empty = {
+    stockSource,
+    snapshotDate: null as string | null,
+    capturedAt: null as string | null,
+    usedFallback: false,
+    daysInRange,
+    rows: [] as CoverRow[],
+  };
 
   if (scoped.length === 0) {
-    return { snapshotDate, capturedAt, usedFallback, daysInRange, rows: [] };
+    return empty;
+  }
+
+  let snapshotDate: string | null = null;
+  let capturedAt: string | null = null;
+  let usedFallback = false;
+  let binMap = new Map<string, number>();
+  let stockReady = false;
+
+  if (stockSource === "live") {
+    const fetchedAt = new Date();
+    binMap = await loadLiveBinMapForColumns(input.companyId, scoped);
+    capturedAt = fetchedAt.toISOString();
+    stockReady = true;
+  } else {
+    const meta = await resolveSnapshotMeta(input.companyId, input.snapshotDate);
+    snapshotDate = meta.snapshotDate;
+    capturedAt = meta.capturedAt ? meta.capturedAt.toISOString() : null;
+    usedFallback = meta.usedFallback;
+    if (snapshotDate) {
+      binMap = await loadSnapshotBinMap(input.companyId, snapshotDate);
+      stockReady = true;
+    }
   }
 
   const skuFilter = [
@@ -135,7 +164,7 @@ export async function fetchCoverRows(input: {
     uniqueSkuFilter.length ? uniqueSkuFilter : undefined,
   );
 
-  const binMap = snapshotDate ? await loadSnapshotBinMap(input.companyId, snapshotDate) : new Map<string, number>();
+  const binMapReady = stockReady;
   const soldSkus = uniqueSkuFilter.length ? uniqueSkuFilter : [...salesMap.keys()];
   const prioritySkus = uniqueSkuFilter.length
     ? soldSkus
@@ -154,7 +183,7 @@ export async function fetchCoverRows(input: {
     const colSales = salesMap.get(sku) ?? new Map();
     for (const col of scoped) {
       const units = colSales.get(col.key)?.units ?? 0;
-      const stock = snapshotDate ? (stockForColumn(binMap, col.warehouses, sku) ?? 0) : 0;
+      const stock = binMapReady ? (stockForColumn(binMap, col.warehouses, sku) ?? 0) : 0;
       const math = computeCoverMath({
         stockQty: stock,
         unitsInRange: units,
@@ -182,7 +211,7 @@ export async function fetchCoverRows(input: {
         daysInRange,
         avgDaily: math.avgDaily,
         weekNeed: math.weekNeed,
-        stockQty: snapshotDate ? stock : 0,
+        stockQty: binMapReady ? stock : 0,
         stockPctOfSale: math.stockPctOfSale,
         stockPctOfWeek: math.stockPctOfWeek,
         coverDays: math.coverDays,
@@ -201,5 +230,5 @@ export async function fetchCoverRows(input: {
       b.unitsInRange - a.unitsInRange,
   );
 
-  return { snapshotDate, capturedAt, usedFallback, daysInRange, rows };
+  return { stockSource, snapshotDate, capturedAt, usedFallback, daysInRange, rows };
 }

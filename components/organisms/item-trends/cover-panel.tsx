@@ -53,6 +53,7 @@ type Props = {
   grain: SkuGrain;
   snapshotDate: string | null;
   capturedAt: string | null;
+  stockSource?: "live" | "snapshot";
   loading?: boolean;
   canCapture?: boolean;
   capturing?: boolean;
@@ -91,6 +92,7 @@ export function CoverPanel({
   grain,
   snapshotDate,
   capturedAt,
+  stockSource = "snapshot",
   loading,
   canCapture,
   capturing,
@@ -122,9 +124,20 @@ export function CoverPanel({
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm">
         <p>
-          {snapshotDate ? (
+          {stockSource === "live" ? (
             <>
-              Stock snapshot <span className="font-medium">{snapshotDate}</span>
+              Live ERP stock
+              {capturedAt ? (
+                <span className="text-muted-foreground">
+                  {" "}
+                  as of {new Date(capturedAt).toLocaleString("en-LK", { timeZone: "Asia/Colombo" })}
+                </span>
+              ) : null}
+              . Night snapshot not used.
+            </>
+          ) : snapshotDate ? (
+            <>
+              Night snapshot <span className="font-medium">{snapshotDate}</span>
               {capturedAt ? (
                 <span className="text-muted-foreground">
                   {" "}
