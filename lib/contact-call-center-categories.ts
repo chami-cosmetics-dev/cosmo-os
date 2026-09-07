@@ -33,11 +33,15 @@ const FALLBACK_COLORS = [
   "#64748b",
 ];
 
-/** Bulk assign / system noise — hide from performance chart. */
-export const CALL_CENTER_CHART_EXCLUDED_CATEGORIES = new Set([
-  "allocation",
-  "Contacted",
-]);
+/** Chart-only series (not a call-outcome dropdown). Loyalty outreach logs this. */
+export const CALL_CENTER_CONTACTED_CATEGORY = "Contacted";
+
+const CHART_ONLY_CATEGORY_COLORS: Record<string, string> = {
+  [CALL_CENTER_CONTACTED_CATEGORY]: "#38bdf8",
+};
+
+/** Bulk assign noise only — loyalty `Contacted` counts as a call (same as GM). */
+export const CALL_CENTER_CHART_EXCLUDED_CATEGORIES = new Set(["allocation"]);
 
 export function isCallCenterCategory(value: string): value is CallCenterCategory {
   return (CALL_CENTER_CATEGORY_VALUES as readonly string[]).includes(value);
@@ -47,13 +51,17 @@ export function callCenterCategoryColor(category: string, index = 0): string {
   if (isCallCenterCategory(category)) {
     return CALL_CENTER_CATEGORY_COLORS[category];
   }
+  const chartOnly = CHART_ONLY_CATEGORY_COLORS[category];
+  if (chartOnly) return chartOnly;
   return FALLBACK_COLORS[index % FALLBACK_COLORS.length]!;
 }
 
-/** Stable legend/series order: template first, then any extras A–Z. */
+/** Stable legend/series order: template first, Contacted, then extras A–Z. */
 export function sortCallCenterCategories(categories: string[]): string[] {
   const rank = new Map(
-    CALL_CENTER_CATEGORY_VALUES.map((value, i) => [value.toLowerCase(), i]),
+    [...CALL_CENTER_CATEGORY_VALUES, CALL_CENTER_CONTACTED_CATEGORY].map(
+      (value, i) => [value.toLowerCase(), i],
+    ),
   );
   return [...categories].sort((a, b) => {
     const ai = rank.get(a.trim().toLowerCase());

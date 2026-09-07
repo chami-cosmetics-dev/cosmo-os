@@ -116,13 +116,15 @@ function CustomTooltip({
   label?: string;
 }) {
   if (!active || !payload?.length) return null;
-  const total = payload.reduce((s, p) => s + Number(p.value ?? 0), 0);
+  const series = payload.filter(
+    (p) => p.dataKey !== "total" && Number(p.value ?? 0) > 0,
+  );
+  const total = series.reduce((s, p) => s + Number(p.value ?? 0), 0);
+  if (series.length === 0 && total === 0) return null;
   return (
     <div className="rounded-lg border border-border bg-background p-3 text-sm shadow-md">
       <p className="mb-1 font-semibold">{label}</p>
-      {payload
-        .filter((p) => Number(p.value ?? 0) > 0)
-        .map((p) => (
+      {series.map((p) => (
           <div key={p.dataKey} className="flex items-center gap-2">
             <span
               className="inline-block h-2 w-2 shrink-0 rounded-[2px]"
@@ -238,6 +240,17 @@ export function CallCenterPerformanceChart({
   }, []);
 
   const visibleCategories = categories.filter((c) => !hidden.has(c));
+  const stackedChartData = useMemo(
+    () =>
+      chartData.map((row) => {
+        const total = visibleCategories.reduce(
+          (sum, cat) => sum + Number(row[cat] ?? 0),
+          0,
+        );
+        return { ...row, total };
+      }),
+    [chartData, visibleCategories],
+  );
 
   const gridProps = { strokeDasharray: "3 3", stroke: "hsl(var(--border))" } as const;
   const xAxisProps = {
@@ -259,30 +272,48 @@ export function CallCenterPerformanceChart({
     },
   } as const;
 
-  function renderSeries(cat: string) {
+  function renderSeries(cat: string, isLast = false) {
     const color = colorMap.get(cat) ?? "#888";
 
     if (chartType === "column") {
       return (
-        <Bar key={cat} dataKey={cat} name={cat} fill={color} maxBarSize={28}>
-          <LabelList
-            dataKey={cat}
-            position="top"
-            style={{ fontSize: 10, fontWeight: 700, fill: color }}
-            formatter={(v: number) => (v > 0 ? String(v) : "")}
-          />
+        <Bar
+          key={cat}
+          dataKey={cat}
+          name={cat}
+          fill={color}
+          stackId="calls"
+          maxBarSize={28}
+        >
+          {isLast ? (
+            <LabelList
+              dataKey="total"
+              position="top"
+              style={{ fontSize: 10, fontWeight: 700, fill: "hsl(var(--foreground))" }}
+              formatter={(v: number) => (v > 0 ? String(v) : "")}
+            />
+          ) : null}
         </Bar>
       );
     }
     if (chartType === "bar") {
       return (
-        <Bar key={cat} dataKey={cat} name={cat} fill={color} maxBarSize={20}>
-          <LabelList
-            dataKey={cat}
-            position="right"
-            style={{ fontSize: 10, fontWeight: 700, fill: color }}
-            formatter={(v: number) => (v > 0 ? String(v) : "")}
-          />
+        <Bar
+          key={cat}
+          dataKey={cat}
+          name={cat}
+          fill={color}
+          stackId="calls"
+          maxBarSize={20}
+        >
+          {isLast ? (
+            <LabelList
+              dataKey="total"
+              position="right"
+              style={{ fontSize: 10, fontWeight: 700, fill: "hsl(var(--foreground))" }}
+              formatter={(v: number) => (v > 0 ? String(v) : "")}
+            />
+          ) : null}
         </Bar>
       );
     }
@@ -318,7 +349,7 @@ export function CallCenterPerformanceChart({
 
   function renderChart() {
     const commonProps = {
-      data: chartData,
+      data: stackedChartData,
       margin: { top: 18, right: 16, left: 8, bottom: 8 },
     };
 
@@ -343,7 +374,9 @@ export function CallCenterPerformanceChart({
               />
             }
           />
-          {visibleCategories.map((cat) => renderSeries(cat))}
+          {visibleCategories.map((cat, i) =>
+            renderSeries(cat, i === visibleCategories.length - 1),
+          )}
         </BarChart>
       );
     }
@@ -364,7 +397,9 @@ export function CallCenterPerformanceChart({
               />
             }
           />
-          {visibleCategories.map((cat) => renderSeries(cat))}
+          {visibleCategories.map((cat, i) =>
+            renderSeries(cat, i === visibleCategories.length - 1),
+          )}
         </LineChart>
       );
     }
@@ -385,7 +420,9 @@ export function CallCenterPerformanceChart({
               />
             }
           />
-          {visibleCategories.map((cat) => renderSeries(cat))}
+          {visibleCategories.map((cat, i) =>
+            renderSeries(cat, i === visibleCategories.length - 1),
+          )}
         </AreaChart>
       );
     }
@@ -405,7 +442,9 @@ export function CallCenterPerformanceChart({
             />
           }
         />
-        {visibleCategories.map((cat) => renderSeries(cat))}
+        {visibleCategories.map((cat, i) =>
+          renderSeries(cat, i === visibleCategories.length - 1),
+        )}
       </BarChart>
     );
   }
@@ -417,8 +456,9 @@ export function CallCenterPerformanceChart({
           <div>
             <CardTitle>Call Center Performance Analysis</CardTitle>
             <CardDescription className="mt-1">
-              Assessing Customer Interactions and Response Metrics — outcomes
-              merchants set on Contact Updates / Customer Insight.
+              Same counter as GM Calls today — contact updates plus loyalty
+              outreach (Contacted). Stacked total is the call count. Bulk
+              allocation is excluded.
             </CardDescription>
           </div>
 
