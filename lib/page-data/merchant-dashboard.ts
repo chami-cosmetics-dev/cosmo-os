@@ -15,9 +15,8 @@ import type {
 } from "@/lib/merchant-dashboard/motivation-types";
 import { buildPeerBoard } from "@/lib/merchant-dashboard/peer-board";
 import { getMerchantDisplayName } from "@/lib/merchant-groups";
-import { canonicalizeMerchantDisplayName } from "@/lib/customer-insight/merchant-label-aliases";
-import { normalizeDashboardMerchantLabel } from "@/lib/merchant-dm-sales";
 import { isMerchantRoleName } from "@/lib/merchant-role";
+import { fetchCallCenterPerformanceRows } from "@/lib/page-data/call-center-performance";
 import { fetchMerchantNearestBirthdays } from "@/lib/page-data/merchant-dashboard-birthdays";
 import { fetchMerchantLoyaltyOutreach } from "@/lib/page-data/merchant-dashboard-loyalty";
 import { fetchMerchantSalesHistory, previousYearMonth } from "@/lib/page-data/merchant-dashboard-history";
@@ -739,24 +738,12 @@ export async function getMerchantDashboardPageData(input: {
         roleNames: profileRoleNames,
       },
     }).then((r) => r.items),
-    prisma.$queryRaw<
-      Array<{ merchantName: string | null; category: string | null; count: bigint }>
-    >`
-      SELECT
-        "merchantName",
-        "category",
-        COUNT(*) AS "count"
-      FROM "ContactAllocationUpdate"
-      WHERE "companyId" = ${input.companyId}
-        AND "createdAt" >= ${new Date(`${rangeFromYmd}T00:00:00+05:30`)}
-        AND "createdAt" <= ${new Date(`${chartRangeToYmd}T23:59:59.999+05:30`)}
-        AND (
-          "merchantId" = ${selectedMerchantId}
-          OR lower(coalesce("merchantName", '')) = lower(${displayName})
-        )
-      GROUP BY "merchantName", "category"
-      ORDER BY "count" DESC
-    `,
+    fetchCallCenterPerformanceRows({
+      companyId: input.companyId,
+      fromYmd: rangeFromYmd,
+      toYmd: chartRangeToYmd,
+      merchantUserId: selectedMerchantId,
+    }),
     fetchMerchantCosmeticsLkBreakdown(input.companyId, selectedMerchantId, {
       fromYmd,
       toYmd: rangeToYmd,
@@ -1132,13 +1119,7 @@ export async function getMerchantDashboardPageData(input: {
     rangeToYmd: chartRangeToYmd,
     loyaltyOutreach,
     callUpdateQueue: callUpdateQueueResult,
-    callCenterPerformance: callCenterRaw.map((row) => ({
-      merchantName: normalizeDashboardMerchantLabel(
-        canonicalizeMerchantDisplayName(row.merchantName)
-      ),
-      category: row.category ?? "N/A",
-      count: Number(row.count),
-    })),
+    callCenterPerformance: callCenterRaw,
   };
 }
 

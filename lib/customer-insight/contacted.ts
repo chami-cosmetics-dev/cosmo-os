@@ -1,4 +1,5 @@
 import {
+  CALL_CENTER_CONTACTED_CATEGORY,
   isCallCenterCategory,
   type CallCenterCategory,
 } from "@/lib/contact-call-center-categories";
@@ -7,8 +8,8 @@ import { canonicalizeMerchantDisplayName } from "@/lib/customer-insight/merchant
 import type { ContactEventOutcome } from "@/lib/customer-insight/types";
 import { prisma } from "@/lib/prisma";
 
-/** Legacy Insight marker — still counts as last-contacted, excluded from chart. */
-export const CONTACTED_ALLOCATION_CATEGORY = "Contacted";
+/** Loyalty / last-contacted marker. Counts as a call on GM + Call Center chart. */
+export const CONTACTED_ALLOCATION_CATEGORY = CALL_CENTER_CONTACTED_CATEGORY;
 
 export async function getLastContactedAt(input: {
   companyId: string;
