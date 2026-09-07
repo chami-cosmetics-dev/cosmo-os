@@ -46,6 +46,7 @@ export async function GET(request: NextRequest) {
       movementRange: current,
       priorRange: prior,
       priority: data.priority ?? "Top Priority",
+      brand: data.brand,
       offset: data.offset,
       limit: data.limit,
     });

@@ -74,3 +74,20 @@ export function resolveErpSalesInvoiceFinancialStatus(input: {
   if (erpStatus === "partly paid" || outstandingShort) return "partially_paid";
   return "pending";
 }
+
+/**
+ * Apply ERP Paid / Partly Paid onto a Shopify-linked Vault order.
+ * Never overwrite voided, never downgrade paid → pending / partial.
+ */
+export function linkedVaultOrderErpPaymentStatusPatch(input: {
+  currentStatus?: string | null;
+  erpFinancialStatus: ErpSalesInvoiceFinancialStatus;
+}): { financialStatus: ErpSalesInvoiceFinancialStatus } | Record<string, never> {
+  const current = input.currentStatus?.trim().toLowerCase() ?? "";
+  if (current === "voided") return {};
+  if (input.erpFinancialStatus === "voided") return { financialStatus: "voided" };
+  if (input.erpFinancialStatus === "pending") return {};
+  if (current === "paid" && input.erpFinancialStatus === "partially_paid") return {};
+  if (current === input.erpFinancialStatus) return {};
+  return { financialStatus: input.erpFinancialStatus };
+}

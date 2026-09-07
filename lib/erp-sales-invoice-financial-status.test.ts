@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveErpSalesInvoiceFinancialStatus } from "@/lib/erp-sales-invoice-financial-status";
+import {
+  linkedVaultOrderErpPaymentStatusPatch,
+  resolveErpSalesInvoiceFinancialStatus,
+} from "@/lib/erp-sales-invoice-financial-status";
 
 describe("resolveErpSalesInvoiceFinancialStatus", () => {
   it("voids cancelled invoices", () => {
@@ -96,5 +99,37 @@ describe("resolveErpSalesInvoiceFinancialStatus", () => {
         payments: [{ amount: 5000 }],
       }),
     ).toBe("partially_paid");
+  });
+});
+
+describe("linkedVaultOrderErpPaymentStatusPatch", () => {
+  it("marks pending Shopify-linked orders paid when ERP SI is paid", () => {
+    expect(
+      linkedVaultOrderErpPaymentStatusPatch({
+        currentStatus: "pending",
+        erpFinancialStatus: "paid",
+      }),
+    ).toEqual({ financialStatus: "paid" });
+  });
+
+  it("does not clobber voided or downgrade paid", () => {
+    expect(
+      linkedVaultOrderErpPaymentStatusPatch({
+        currentStatus: "voided",
+        erpFinancialStatus: "paid",
+      }),
+    ).toEqual({});
+    expect(
+      linkedVaultOrderErpPaymentStatusPatch({
+        currentStatus: "paid",
+        erpFinancialStatus: "pending",
+      }),
+    ).toEqual({});
+    expect(
+      linkedVaultOrderErpPaymentStatusPatch({
+        currentStatus: "paid",
+        erpFinancialStatus: "partially_paid",
+      }),
+    ).toEqual({});
   });
 });

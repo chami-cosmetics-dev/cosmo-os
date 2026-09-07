@@ -63,6 +63,7 @@ export async function computeRopSuggestions(input: {
   movementRange: ItemTrendDateRange;
   priorRange: ItemTrendDateRange;
   priority?: string | null;
+  brand?: string | null;
   offset?: number;
   limit?: number;
 }): Promise<{ rows: RopSuggestionRow[]; total: number; windowLabel: string }> {
@@ -94,6 +95,7 @@ export async function computeRopSuggestions(input: {
         sku: true,
         erp1ProductPriority: true,
         erp2ProductPriority: true,
+        vendor: { select: { name: true } },
       },
       orderBy: { updatedAt: "desc" },
     }),
@@ -102,17 +104,22 @@ export async function computeRopSuggestions(input: {
 
   const ropBySku = new Map<string, number>();
   for (const row of ropRows) {
-    if (row.columnKey === columnKey) ropBySku.set(row.sku, row.ropQty);
+    ropBySku.set(row.sku, (ropBySku.get(row.sku) ?? 0) + row.ropQty);
   }
 
   const priorityFilter = input.priority?.trim();
+  const brandFilter = input.brand?.trim().toLowerCase();
+  const seen = new Set<string>();
   const rows: RopSuggestionRow[] = [];
 
   for (const item of items) {
     const sku = item.sku?.trim();
-    if (!sku) continue;
+    if (!sku || seen.has(sku)) continue;
+    seen.add(sku);
     const priority = resolveEffectivePriority(item.erp1ProductPriority, item.erp2ProductPriority);
     if (priorityFilter && priorityFilter !== "all" && priority !== priorityFilter) continue;
+    const brand = item.vendor?.name ?? null;
+    if (brandFilter && (brand ?? "").trim().toLowerCase() !== brandFilter) continue;
 
     const { peakMonthSales: peakUnits, peakMonth, windowSales } = peakMonthSales(
       monthlySalesMap.get(sku),
@@ -125,6 +132,7 @@ export async function computeRopSuggestions(input: {
     rows.push({
       sku,
       priority,
+      brand,
       currentRop,
       windowSales,
       peakMonthSales: peakUnits,

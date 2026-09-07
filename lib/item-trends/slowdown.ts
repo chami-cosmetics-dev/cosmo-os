@@ -8,7 +8,9 @@ import {
   resolveEffectivePriority,
   speedPerDay,
 } from "@/lib/item-trends/aggregate";
+import { applyCatalogToMovement, loadSkuCatalog } from "@/lib/item-trends/catalog";
 import { isSlowdown } from "@/lib/item-trends/signals";
+import { defaultSkuMeta } from "@/lib/item-trends/sku-group";
 import type { ItemMovementRow, ItemTrendDateRange } from "@/lib/item-trends/types";
 
 export async function fetchSlowdownAlerts(
@@ -46,6 +48,7 @@ export async function fetchSlowdownAlerts(
       sku,
       title: item.productTitle,
       priority,
+      ...defaultSkuMeta(sku, item.productTitle),
       unitsCurrent,
       unitsPrior,
       speedPerDay: speedPerDay(unitsCurrent, current.fromYmd, current.toYmd),
@@ -57,5 +60,6 @@ export async function fetchSlowdownAlerts(
   }
 
   rows.sort((a, b) => (a.speedChangePct ?? 0) - (b.speedChangePct ?? 0));
-  return rows;
+  const catalog = await loadSkuCatalog(companyId);
+  return rows.map((row) => applyCatalogToMovement(row, catalog));
 }

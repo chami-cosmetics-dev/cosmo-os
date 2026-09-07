@@ -19,8 +19,10 @@ import { orderHasFreeShippingCoupon } from "@/lib/shopify-discount-codes";
 import { shouldSkipShopifyOrderErpSync } from "@/lib/erp-shopify-sync-eligibility";
 import { shouldSkipShopifyOrderWebhookForMissingOrder } from "@/lib/shopify-order-webhook-topic";
 import { normalizeOrderCustomerPhone } from "@/lib/phone-lookup";
+import { storedDistrictFromAddress } from "@/lib/address-district";
 import {
   isShopifyOrderFullyRefunded,
+  resolveShopifyWebhookFinancialStatus,
   shouldVoidShopifyOrder,
 } from "@/lib/shopify-order-financial-status";
 
@@ -175,15 +177,19 @@ export async function processOrderWebhook(
     totalTax,
     totalShipping,
     currency: data.currency?.slice(0, 10) ?? null,
-    financialStatus: shouldVoidFromShopify
-      ? "voided"
-      : data.financial_status?.slice(0, 50) ?? null,
+    financialStatus: resolveShopifyWebhookFinancialStatus({
+      existingStatus: existingOrder?.financialStatus,
+      incomingStatus: data.financial_status,
+      invoiceCompleteAt: existingOrder?.invoiceCompleteAt,
+      shouldVoid: shouldVoidFromShopify,
+    }),
     fulfillmentStatus: data.fulfillment_status?.slice(0, 50) ?? null,
     paymentGatewayNames: paymentGateways.names,
     paymentGatewayPrimary: paymentGateways.primary,
     createdAt: orderCreatedAt,
     customerEmail: customerEmail?.slice(0, LIMITS.email.max) ?? null,
     customerPhone: normalizeOrderCustomerPhone(customerPhone),
+    district: storedDistrictFromAddress(data.shipping_address),
     shippingAddress: data.shipping_address
       ? (data.shipping_address as Prisma.InputJsonValue)
       : Prisma.JsonNull,

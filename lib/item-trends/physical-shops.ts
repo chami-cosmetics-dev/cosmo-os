@@ -77,6 +77,18 @@ export function isCosmeticsLkLocationColumn(col: {
   );
 }
 
+export function osfColumnChannelKind(col: {
+  label: string;
+  companyLocationId: string | null;
+  companyLocationName?: string | null;
+}): "online" | "physical" {
+  if (isOnlineChannelName(col.label) || isOnlineChannelName(col.companyLocationName)) {
+    return "online";
+  }
+  if (isCosmeticsLkLocationColumn(col)) return "online";
+  return "physical";
+}
+
 /** Shop-floor warehouses only for this OSF column (outlet balance / transfers). */
 export function shopWarehousesForColumn(col: {
   warehouses?: string[];

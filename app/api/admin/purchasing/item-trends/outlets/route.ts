@@ -44,7 +44,7 @@ export async function GET(request: NextRequest) {
       columnKey ? [columnKey]
       : scope.columnKeys;
 
-    const { outlets, transfers, stockLoaded } = await fetchOutletBalanceAndTransfers({
+    const { outlets, transfers, stockLoaded, snapshotDate, capturedAt } = await fetchOutletBalanceAndTransfers({
       companyId,
       range,
       columnKeys,
@@ -58,6 +58,8 @@ export async function GET(request: NextRequest) {
       transfers,
       meta: {
         stockLoaded,
+        snapshotDate,
+        capturedAt,
         speedBasis: range ? "range" : "lifetime",
         from: range?.fromYmd ?? null,
         to: range?.toYmd ?? null,

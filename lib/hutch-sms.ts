@@ -100,6 +100,27 @@ async function sendSmsOnce(
     };
   }
 
+  // After a 401, skip Hutch until SMS Portal creds are saved again.
+  // Stops Cosmo from hammering /api/login and locking the API user.
+  const last401 = await prisma.smsLog.findFirst({
+    where: {
+      companyId,
+      status: "failed",
+      sentAt: { gte: config.updatedAt },
+      message: { contains: "Hutch login rejected (401" },
+    },
+    orderBy: { sentAt: "desc" },
+    select: { id: true },
+  });
+  if (last401) {
+    return {
+      success: false,
+      message:
+        "SMS paused after Hutch login 401. Update SMS Portal password, then Test SMS.",
+      retryable: false,
+    };
+  }
+
   const formattedNumber = formatPhoneNumber(phoneNumber);
 
   try {

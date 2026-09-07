@@ -4,11 +4,7 @@ import { Prisma } from "@prisma/client";
 
 import { isPosChannelOrder } from "@/lib/merchant-dashboard/channel-sales";
 import { resolveOsfColumns, type OsfResolvedColumn } from "@/lib/osf/column-config";
-import {
-  fetchBinActualQty,
-  getAllOsfErpInstances,
-  stockForColumn,
-} from "@/lib/osf/erp-stock";
+import { stockForColumn } from "@/lib/osf/erp-stock";
 import { prisma } from "@/lib/prisma";
 
 import { formatAppIsoDate } from "@/lib/format-datetime";
@@ -17,13 +13,13 @@ import {
   isCosmeticsLkInternalShopColumn,
   isPhysicalShopOsfColumn,
   loadPhysicalShops,
+  osfColumnChannelKind,
   shopWarehousesForColumn,
 } from "@/lib/item-trends/physical-shops";
+import { latestStockSnapshotMeta, loadSnapshotBinMap } from "@/lib/item-trends/stock-snapshot";
+import { compareChannelKind } from "@/lib/item-trends/cover";
 import type { ItemTrendDateRange } from "@/lib/item-trends/types";
 import type { OutletBalanceRow, StockPressure, TransferCandidate } from "@/lib/item-trends/types";
-
-/** Cap ERP bin fan-out on list view (sold SKUs only). SKU lookup ignores cap. */
-const MAX_STOCK_SKUS = 400;
 
 function normalizeWarehouse(value: string | null | undefined): string {
   return (value ?? "").trim().toLowerCase();
@@ -237,16 +233,6 @@ function stockPressure(stock: number | null, speed: number): StockPressure {
   return "balanced";
 }
 
-function topSoldSkus(salesMap: Map<string, Map<string, OutletColumnSales>>, limit: number): string[] {
-  const totals = [...salesMap.entries()].map(([sku, cols]) => {
-    let units = 0;
-    for (const u of cols.values()) units += u.units;
-    return { sku, units };
-  });
-  totals.sort((a, b) => b.units - a.units || a.sku.localeCompare(b.sku));
-  return totals.slice(0, limit).map((t) => t.sku);
-}
-
 export async function fetchOutletBalanceAndTransfers(input: {
   companyId: string;
   /** Null/omit = lifetime shop POS (first sale at that shop → today). */
@@ -254,9 +240,15 @@ export async function fetchOutletBalanceAndTransfers(input: {
   columnKeys?: string[] | null;
   skuFilter?: string[];
   priority?: string | null;
-  /** When false, skip ERP bins (fast sales list). Default: true if SKU filter, else false. */
+  /** When false, skip snapshot bins (fast sales list). Default: true if SKU filter, else false. */
   includeStock?: boolean;
-}): Promise<{ outlets: OutletBalanceRow[]; transfers: TransferCandidate[]; stockLoaded: boolean }> {
+}): Promise<{
+  outlets: OutletBalanceRow[];
+  transfers: TransferCandidate[];
+  stockLoaded: boolean;
+  snapshotDate: string | null;
+  capturedAt: string | null;
+}> {
   const skuFilter = input.skuFilter?.map((s) => s.trim()).filter(Boolean);
   const includeStock = input.includeStock ?? Boolean(skuFilter?.length);
 
@@ -276,7 +268,7 @@ export async function fetchOutletBalanceAndTransfers(input: {
     : columns;
 
   if (scoped.length === 0) {
-    return { outlets: [], transfers: [], stockLoaded: includeStock };
+    return { outlets: [], transfers: [], stockLoaded: includeStock, snapshotDate: null, capturedAt: null };
   }
 
   const range = input.range ?? null;
@@ -298,35 +290,16 @@ export async function fetchOutletBalanceAndTransfers(input: {
 
   const binMap = new Map<string, number>();
   let stockLoaded = false;
+  let snapshotDate: string | null = null;
+  let capturedAt: string | null = null;
 
   if (includeStock) {
-    const itemCodes =
-      skuFilter?.length ? soldSkus : topSoldSkus(salesMap, MAX_STOCK_SKUS);
-
-    if (itemCodes.length > 0) {
-      const warehousesByInstance = new Map<string, Set<string>>();
-      for (const col of scoped) {
-        if (!col.erpnextInstanceId) continue;
-        const set = warehousesByInstance.get(col.erpnextInstanceId) ?? new Set<string>();
-        for (const wh of col.warehouses) set.add(wh);
-        warehousesByInstance.set(col.erpnextInstanceId, set);
-      }
-
-      const erpInstances = await getAllOsfErpInstances(input.companyId);
-      await Promise.all(
-        erpInstances.map(async (inst) => {
-          const whs = [...(warehousesByInstance.get(inst.id) ?? [])];
-          if (!whs.length) return;
-          const bins = await fetchBinActualQty({
-            cfg: inst.cfg,
-            warehouses: whs,
-            itemCodes,
-          });
-          for (const [key, qty] of bins) binMap.set(key, qty);
-        }),
-      );
-      stockLoaded = true;
-    } else {
+    const meta = await latestStockSnapshotMeta(input.companyId);
+    if (meta) {
+      snapshotDate = meta.snapshotDate;
+      capturedAt = meta.capturedAt.toISOString();
+      const snap = await loadSnapshotBinMap(input.companyId, meta.snapshotDate);
+      for (const [key, qty] of snap) binMap.set(key, qty);
       stockLoaded = true;
     }
   }
@@ -373,6 +346,7 @@ export async function fetchOutletBalanceAndTransfers(input: {
         sku,
         columnKey: col.key,
         outletName: col.label,
+        channelKind: osfColumnChannelKind(col),
         stockQty: stock,
         unitsInRange: units,
         speedPerDay: Math.round(speed * 100) / 100,
@@ -413,5 +387,12 @@ export async function fetchOutletBalanceAndTransfers(input: {
     }
   }
 
-  return { outlets, transfers, stockLoaded };
+  outlets.sort(
+    (a, b) =>
+      compareChannelKind(a.channelKind, b.channelKind) ||
+      a.outletName.localeCompare(b.outletName) ||
+      a.sku.localeCompare(b.sku),
+  );
+
+  return { outlets, transfers, stockLoaded, snapshotDate, capturedAt };
 }

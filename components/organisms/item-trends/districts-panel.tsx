@@ -3,6 +3,7 @@
 import type { DistrictDemandRow, ItemMovementRow } from "@/lib/item-trends/types";
 import { MovementTable } from "@/components/organisms/item-trends/movement-table";
 import { ExpansionPanel } from "@/components/organisms/item-trends/expansion-panel";
+import type { SkuGrain } from "@/lib/item-trends/sku-group";
 
 type Props = {
   districts: DistrictDemandRow[];
@@ -10,6 +11,8 @@ type Props = {
   selectedDistrict: string | null;
   onSelectDistrict: (district: string | null) => void;
   loading: boolean;
+  grain?: SkuGrain;
+  onCompareLocations?: (sku: string, commonSkuKey: string | null) => void;
 };
 
 function growthBadge(status: DistrictDemandRow["growthStatus"]) {
@@ -40,6 +43,8 @@ export function DistrictsPanel({
   selectedDistrict,
   onSelectDistrict,
   loading,
+  grain,
+  onCompareLocations,
 }: Props) {
   if (loading) {
     return <p className="text-sm text-muted-foreground">Loading districts…</p>;
@@ -98,7 +103,7 @@ export function DistrictsPanel({
       {selectedDistrict ? (
         <div>
           <h3 className="mb-2 text-sm font-semibold">Fast movers in {selectedDistrict}</h3>
-          <MovementTable rows={items} />
+          <MovementTable rows={items} grain={grain} onCompareLocations={onCompareLocations} />
         </div>
       ) : null}
 
@@ -130,6 +135,8 @@ export function DistrictsTabContent({
   selectedDistrict,
   onSelectDistrict,
   loading,
+  grain,
+  onCompareLocations,
 }: Props & { expansion: import("@/lib/item-trends/types").ExpansionOpportunityRow[] }) {
   return (
     <div className="space-y-6">
@@ -139,6 +146,8 @@ export function DistrictsTabContent({
         selectedDistrict={selectedDistrict}
         onSelectDistrict={onSelectDistrict}
         loading={loading}
+        grain={grain}
+        onCompareLocations={onCompareLocations}
       />
       <ExpansionPanel rows={expansion} />
     </div>

@@ -40,6 +40,7 @@ const PRESSURE_RANK: Record<StockPressure, number> = {
 
 function sortOutletRows(rows: OutletBalanceRow[]): OutletBalanceRow[] {
   return [...rows].sort((a, b) => {
+    if (a.channelKind !== b.channelKind) return a.channelKind === "online" ? -1 : 1;
     const unitsDiff = b.unitsInRange - a.unitsInRange;
     if (unitsDiff !== 0) return unitsDiff;
     const rankDiff = PRESSURE_RANK[a.stockPressure] - PRESSURE_RANK[b.stockPressure];

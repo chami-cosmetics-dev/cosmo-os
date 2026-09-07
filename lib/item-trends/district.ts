@@ -1,6 +1,6 @@
 import "server-only";
 
-import { inferDistrictFromAddressText, resolveAddressDistrict } from "@/lib/address-district";
+import { inferDistrictFromAddressText, resolveOrderDistrict } from "@/lib/address-district";
 import { osfCompletedSalesOrderWhere } from "@/lib/osf/assist-sales";
 import { matchesPriorityFilter } from "@/lib/osf/assist-window";
 import { prisma } from "@/lib/prisma";
@@ -17,7 +17,9 @@ import {
   shopDistrictForLocation,
   type PhysicalShopMeta,
 } from "@/lib/item-trends/physical-shops";
+import { applyCatalogToMovement, loadSkuCatalog } from "@/lib/item-trends/catalog";
 import { classifyMovementSignal } from "@/lib/item-trends/signals";
+import { defaultSkuMeta } from "@/lib/item-trends/sku-group";
 import type {
   DistrictDemandRow,
   ExpansionOpportunityRow,
@@ -120,6 +122,7 @@ async function fetchParsedLines(
       },
       order: {
         select: {
+          district: true,
           shippingAddress: true,
           companyLocationId: true,
           deliveryCompleteAt: true,
@@ -145,7 +148,7 @@ async function fetchParsedLines(
     const at = line.order.deliveryCompleteAt ?? line.order.invoiceCompleteAt;
     if (!at || at < range.rangeStart || at >= range.rangeEndExclusive) continue;
 
-    const district = resolveAddressDistrict(line.order.shippingAddress) || UNMAPPED_DISTRICT;
+    const district = resolveOrderDistrict(line.order.district, line.order.shippingAddress) || UNMAPPED_DISTRICT;
     const amount = line.quantity * Number(line.price);
     const locId = line.order.companyLocationId;
     const locationDistricts = new Map(
@@ -294,6 +297,7 @@ export async function fetchDistrictItems(
       sku,
       title: item.productTitle,
       priority,
+      ...defaultSkuMeta(sku, item.productTitle),
       unitsCurrent,
       unitsPrior,
       speedPerDay: speedPerDay(unitsCurrent, current.fromYmd, current.toYmd),
@@ -305,7 +309,8 @@ export async function fetchDistrictItems(
   }
 
   rows.sort((a, b) => b.unitsCurrent - a.unitsCurrent);
-  return rows.slice(0, limit);
+  const catalog = await loadSkuCatalog(companyId);
+  return rows.map((row) => applyCatalogToMovement(row, catalog)).slice(0, limit);
 }
 
 function shopUnitsByDistrict(lines: ParsedLine[]): Map<string, number> {

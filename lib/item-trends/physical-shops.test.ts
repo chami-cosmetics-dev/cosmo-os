@@ -6,6 +6,7 @@ import {
   isShopWarehouseName,
   matchOutletToLocationIds,
   nearestPhysicalShopName,
+  osfColumnChannelKind,
   shopDistrictForLocation,
   shopWarehousesForColumn,
 } from "@/lib/item-trends/physical-shops";
@@ -138,5 +139,27 @@ describe("shopDistrictForLocation", () => {
     const fallback = new Map([["loc-ajs", "Colombo"]]);
     expect(shopDistrictForLocation("loc-lmj", shops, fallback)).toBe("Gampaha");
     expect(shopDistrictForLocation("loc-ajs", shops, fallback)).toBeNull();
+  });
+});
+
+describe("osfColumnChannelKind", () => {
+  it("marks cosmetics.lk as online", () => {
+    expect(
+      osfColumnChannelKind({
+        label: "Cosmetics.lk",
+        companyLocationId: "loc-web",
+        companyLocationName: "cosmetics.lk",
+      }),
+    ).toBe("online");
+  });
+
+  it("marks shop columns as physical", () => {
+    expect(
+      osfColumnChannelKind({
+        label: "Shop Warehouse - MNK",
+        companyLocationId: "loc-mnk",
+        companyLocationName: "MNK",
+      }),
+    ).toBe("physical");
   });
 });
