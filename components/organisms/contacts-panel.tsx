@@ -324,7 +324,12 @@ export function ContactsPanel({
   async function downloadContactExport(mode: "contacts" | "purchase_summary" = "contacts") {
     setExportBusyKey(mode);
     const toastId = `contact-export-${mode}`;
-    notify.loading("Preparing contact export…", toastId);
+    notify.loading(
+      mode === "purchase_summary"
+        ? "Building purchase summary…"
+        : "Preparing contact export…",
+      toastId
+    );
     try {
       const params = new URLSearchParams();
       if (effectiveSearch) params.set("search", effectiveSearch);
