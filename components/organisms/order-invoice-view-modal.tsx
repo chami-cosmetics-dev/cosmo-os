@@ -62,7 +62,7 @@ import {
 } from "@/lib/shopify-admin";
 import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 import { formatAppStoredDateTime } from "@/lib/format-datetime";
-import { getAddressDistrict } from "@/lib/reports/csv";
+import { resolveOrderDistrict } from "@/lib/address-district";
 import { OrderReplaceLinkPanel } from "@/components/molecules/order-replace-link-panel";
 
 const STAGE_LABELS: Record<string, string> = {
@@ -124,6 +124,7 @@ type OrderDetail = {
   erpWebhookCustomerName?: string | null;
   /** How customerName was resolved for ERP orders (shown in Order JSON for debugging). */
   customerNameSource?: "stored" | "erp_customer_api" | null;
+  district?: string | null;
   shippingAddress: unknown;
   billingAddress: unknown;
   discountCodes: unknown;
@@ -1330,7 +1331,7 @@ export function OrderInvoiceViewModal({
                     </div>
                     <div>
                       <span className="text-muted-foreground text-xs">District</span>
-                      <p>{getAddressDistrict(orderDetail.shippingAddress) || "-"}</p>
+                      <p>{resolveOrderDistrict(orderDetail.district, orderDetail.shippingAddress) || "-"}</p>
                     </div>
                     <div>
                       <span className="text-muted-foreground text-xs">Shipping address</span>

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Decimal } from "@prisma/client/runtime/library";
+import { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
 import { getShadowSourceLocationId } from "@/lib/shadow-location-products";
@@ -27,6 +28,7 @@ import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 import { syncContactMasterSafely } from "@/lib/contact-master-sync";
 import { erpSlotSourceFromLabel } from "@/lib/erpnext-contact-sync";
 import { normalizeMerCodeKey } from "@/lib/merchant-allocation";
+import { parseErpShippingAddress, storedDistrictFromAddress } from "@/lib/address-district";
 import { linkedVaultOrderSubmittedInvoicePatch } from "@/lib/erp-fulfillment-block";
 import {
   linkedVaultOrderErpPaymentStatusPatch,
@@ -507,35 +509,6 @@ export async function POST(request: NextRequest) {
   const customerPhone = nullIfNone(data.contact_mobile);
   const erpnextCustomerId = data.customer?.trim() || null;
 
-  function parseErpAddress(
-    html: string | null | undefined,
-    customerName: string,
-    phone?: string | null,
-  ): object {
-    const phoneField = phone?.trim() ? { phone: phone.trim() } : {};
-    if (!html?.trim()) return { name: customerName, ...phoneField };
-    // Strip HTML tags, split on <br> variants into lines
-    const lines = html
-      .replace(/<br\s*\/?>/gi, "\n")
-      .replace(/<[^>]+>/g, "")
-      .split("\n")
-      .map((l) => l.trim())
-      .filter(Boolean);
-    // Skip leading line if it's the customer name (ERP sometimes prepends it)
-    const addrLines =
-      lines[0]?.toLowerCase() === customerName.toLowerCase()
-        ? lines.slice(1)
-        : lines;
-    return {
-      name: customerName,
-      address1: addrLines[0] ?? null,
-      address2: addrLines.length > 2 ? addrLines[1] : null,
-      city: addrLines.length > 1 ? addrLines[addrLines.length - 2] : null,
-      country: addrLines.length > 1 ? addrLines[addrLines.length - 1] : null,
-      ...phoneField,
-    };
-  }
-
   // Prefer ERPNext's display name (customer_name); fall back to the customer ID
   // (which is often just a phone number when customers are keyed by mobile).
   const customerNameResolution = await resolveErpWebhookCustomerName(data, {
@@ -549,11 +522,12 @@ export async function POST(request: NextRequest) {
       `resolved display name: ${erpCustomerName} (source: ${customerNameResolution.source})`,
   );
 
-  const shippingAddressObj = parseErpAddress(
+  const shippingAddressObj = parseErpShippingAddress(
     nullIfNone(data.shipping_address) ?? nullIfNone(data.address_display),
     erpCustomerName,
     customerPhone,
   );
+  const district = storedDistrictFromAddress(shippingAddressObj);
 
   // Try to match the owner (cashier for POS, merchant for non-POS) to a vault os user
   // Fall back to location default merchant
@@ -719,7 +693,8 @@ export async function POST(request: NextRequest) {
           : orderStageUpdate("order_received", new Date())),
       customerEmail,
       customerPhone,
-      shippingAddress: shippingAddressObj,
+      district,
+      shippingAddress: shippingAddressObj as Prisma.InputJsonValue,
       rawPayload: rawPayload as object,
       ...(erpDiscountCodes ? { discountCodes: erpDiscountCodes } : {}),
       ...(resolvedPaymentMethods.length > 0
@@ -747,7 +722,8 @@ export async function POST(request: NextRequest) {
       ...(isCreditNoted ? orderStageUpdate("returned", new Date()) : {}),
       customerEmail,
       customerPhone,
-      shippingAddress: shippingAddressObj,
+      district,
+      shippingAddress: shippingAddressObj as Prisma.InputJsonValue,
       rawPayload: rawPayload as object,
       ...(erpDiscountCodes ? { discountCodes: erpDiscountCodes } : {}),
       ...(resolvedPaymentMethods.length > 0

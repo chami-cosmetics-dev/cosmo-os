@@ -30,7 +30,7 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const { from, to, priority, brand, sku, commonSkuKey, snapshotDate, erpScope, columnKeys, oosOnly, sendOnly } = parsed.data;
+  const { from, to, priority, brand, sku, commonSkuKey, snapshotDate, stockSource, erpScope, columnKeys, oosOnly, sendOnly } = parsed.data;
   const keys = columnKeys
     ?.split(",")
     .map((k) => k.trim())
@@ -50,6 +50,7 @@ export async function GET(request: NextRequest) {
       skuFilter: sku ? [sku] : undefined,
       commonSkuKey,
       snapshotDate,
+      stockSource,
       erpScope,
       priority: priority ?? "all",
       brand,

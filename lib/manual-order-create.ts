@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { Decimal } from "@prisma/client/runtime/library";
 import { randomUUID } from "crypto";
 
+import { storedDistrictFromAddress } from "@/lib/address-district";
 import type { CreateManualOrderBody } from "@/lib/validation/manual-order";
 import { syncContactMasterSafely } from "@/lib/contact-master-sync";
 import { assertEligibleMerchantUser } from "@/lib/merchant-eligibility";
@@ -199,6 +200,9 @@ export async function createManualOrder(
         paymentGatewayPrimary: "cod",
         customerEmail,
         customerPhone,
+        district: storedDistrictFromAddress(
+          shippingAddressJson === Prisma.JsonNull ? null : shippingAddressJson,
+        ),
         shippingAddress: shippingAddressJson,
         billingAddress: billingAddressJson,
         discountCodes: Prisma.JsonNull,

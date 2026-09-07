@@ -60,6 +60,7 @@ export function ItemTrendsPanel({ canManageRop }: Props) {
   const [columnKeys, setColumnKeys] = useState<string[]>([]);
   const [oosOnly, setOosOnly] = useState(false);
   const [sendOnly, setSendOnly] = useState(false);
+  const [stockSource, setStockSource] = useState<"live" | "snapshot">("live");
 
   const [snapshotDate, setSnapshotDate] = useState(yesterdaySnapshotDate());
   const [snapshotDates, setSnapshotDates] = useState<Array<{ snapshotDate: string; capturedAt: string }>>([]);
@@ -68,6 +69,7 @@ export function ItemTrendsPanel({ canManageRop }: Props) {
   const [coverRows, setCoverRows] = useState<CoverRow[]>([]);
   const [coverSnapshotDate, setCoverSnapshotDate] = useState<string | null>(null);
   const [coverCapturedAt, setCoverCapturedAt] = useState<string | null>(null);
+  const [coverStockSource, setCoverStockSource] = useState<"live" | "snapshot">("live");
   const [coverLoading, setCoverLoading] = useState(false);
   const [capturing, setCapturing] = useState(false);
 
@@ -139,9 +141,9 @@ export function ItemTrendsPanel({ canManageRop }: Props) {
     const gen = ++coverGen.current;
     setCoverLoading(true);
     try {
-      const params = new URLSearchParams({ from, to, priority });
+      const params = new URLSearchParams({ from, to, priority, stockSource });
       if (brand) params.set("brand", brand);
-      if (snapshotDate) params.set("snapshotDate", snapshotDate);
+      if (stockSource === "snapshot" && snapshotDate) params.set("snapshotDate", snapshotDate);
       if (erpScope !== "both") params.set("erpScope", erpScope);
       const itemMode = tab === "item" && itemSku;
       if (itemMode) {
@@ -164,6 +166,7 @@ export function ItemTrendsPanel({ canManageRop }: Props) {
       setCoverRows(Array.isArray(data.rows) ? data.rows : []);
       setCoverSnapshotDate(typeof data.snapshotDate === "string" ? data.snapshotDate : null);
       setCoverCapturedAt(typeof data.capturedAt === "string" ? data.capturedAt : null);
+      setCoverStockSource(data.stockSource === "snapshot" ? "snapshot" : "live");
       setUsedFallback(Boolean(data.usedFallback));
     } catch {
       if (gen !== coverGen.current) return;
@@ -171,7 +174,7 @@ export function ItemTrendsPanel({ canManageRop }: Props) {
     } finally {
       if (gen === coverGen.current) setCoverLoading(false);
     }
-  }, [from, to, priority, brand, snapshotDate, erpScope, skuQuery, columnKeys, oosOnly, sendOnly, tab, itemSku, itemCommonKey]);
+  }, [from, to, priority, brand, stockSource, snapshotDate, erpScope, skuQuery, columnKeys, oosOnly, sendOnly, tab, itemSku, itemCommonKey]);
 
   const loadRop = useCallback(async () => {
     const gen = ++ropGen.current;
@@ -301,7 +304,7 @@ export function ItemTrendsPanel({ canManageRop }: Props) {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Item Trends</h1>
           <p className="text-sm text-muted-foreground">
-            Location, item, districts. Stock is an overnight snapshot (pick a date; default yesterday).
+            Location, item, districts. Stock defaults to live ERP. Night snapshot is optional history.
           </p>
         </div>
       </div>
@@ -331,6 +334,18 @@ export function ItemTrendsPanel({ canManageRop }: Props) {
             </select>
           </div>
           <div>
+            <label className="mb-1 block text-xs text-muted-foreground">Stock</label>
+            <select
+              className="flex h-9 min-w-[150px] rounded-md border border-input bg-background px-3 text-sm"
+              value={stockSource}
+              onChange={(e) => setStockSource(e.target.value as "live" | "snapshot")}
+            >
+              <option value="live">Live ERP</option>
+              <option value="snapshot">Night snapshot</option>
+            </select>
+          </div>
+          {stockSource === "snapshot" ? (
+          <div>
             <label className="mb-1 block text-xs text-muted-foreground">Stock night</label>
             <select
               className="flex h-9 min-w-[150px] rounded-md border border-input bg-background px-3 text-sm"
@@ -348,6 +363,7 @@ export function ItemTrendsPanel({ canManageRop }: Props) {
               )}
             </select>
           </div>
+          ) : null}
           <Button
             type="button"
             onClick={() => {
@@ -370,7 +386,7 @@ export function ItemTrendsPanel({ canManageRop }: Props) {
         </CardContent>
       </Card>
 
-      {usedFallback && coverSnapshotDate && coverSnapshotDate !== snapshotDate ? (
+      {stockSource === "snapshot" && usedFallback && coverSnapshotDate && coverSnapshotDate !== snapshotDate ? (
         <p className="text-sm text-amber-800 dark:text-amber-200">
           No snapshot for {snapshotDate}. Showing {coverSnapshotDate}.
         </p>
@@ -416,6 +432,7 @@ export function ItemTrendsPanel({ canManageRop }: Props) {
               <CoverPanel
                 rows={coverRows}
                 grain={grain}
+                stockSource={coverStockSource}
                 snapshotDate={coverSnapshotDate}
                 capturedAt={coverCapturedAt}
                 loading={coverLoading}

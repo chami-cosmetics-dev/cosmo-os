@@ -15,7 +15,7 @@ function row(
     quantity: string;
     manufactureDate: string;
     expireDate: string;
-  }>
+  }> = {}
 ) {
   return {
     locationId: "",
