@@ -1284,13 +1284,15 @@ export function OrderFulfillmentDetail({
         ]}
         confirming={busyKey === "dispatch"}
         onOpenChange={setCitypakReviewOpen}
-        onConfirm={(shipments) => {
+        onConfirm={(payload) => {
           if (!selectedDispatchService) return;
+          const shipment = payload.orderShipments[0];
+          if (!shipment) return;
           setCitypakReviewOpen(false);
           void doFulfillmentAction("dispatch", {
             action: "dispatch",
             ...dispatchSelectionToApiBody(selectedDispatchService),
-            citypakShipment: shipments[0],
+            citypakShipment: shipment,
           });
         }}
       />

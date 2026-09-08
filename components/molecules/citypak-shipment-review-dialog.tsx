@@ -456,19 +456,23 @@ function InspectCells({
 export function CitypakShipmentReviewDialog({
   open,
   rows,
+  accounts = [],
+  allowManual = false,
   confirming,
   onOpenChange,
   onConfirm,
 }: {
   open: boolean;
   rows: CitypakReviewRow[];
+  accounts?: CitypakAccountOption[];
+  allowManual?: boolean;
   confirming?: boolean;
   onOpenChange: (open: boolean) => void;
-  onConfirm: (shipments: Array<CitypakShipmentOverride & { orderId: string }>) => void;
+  onConfirm: (payload: CitypakReviewConfirm) => void;
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] max-w-5xl overflow-y-auto">
+      <DialogContent className="flex max-h-[90vh] w-[min(96vw,72rem)] max-w-6xl flex-col gap-4 overflow-hidden">
         <DialogHeader>
           <DialogTitle>Review CityPak shipments</DialogTitle>
           <DialogDescription>
@@ -476,12 +480,16 @@ export function CitypakShipmentReviewDialog({
           </DialogDescription>
         </DialogHeader>
         {open && (
-          <CitypakShipmentReview
-            rows={rows}
-            confirming={confirming}
-            onCancel={() => onOpenChange(false)}
-            onConfirm={(payload) => onConfirm(payload.orderShipments)}
-          />
+          <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+            <CitypakShipmentReview
+              rows={rows}
+              accounts={accounts}
+              allowManual={allowManual}
+              confirming={confirming}
+              onCancel={() => onOpenChange(false)}
+              onConfirm={onConfirm}
+            />
+          </div>
         )}
       </DialogContent>
     </Dialog>
