@@ -9,6 +9,7 @@ import { prisma } from "@/lib/prisma";
 
 import { formatAppIsoDate } from "@/lib/format-datetime";
 import { calendarDaysInclusive, filterSkusByPriority, outletSpeedPerDay } from "@/lib/item-trends/aggregate";
+import { displayWarehouseName } from "@/lib/item-trends/location-name";
 import {
   isCosmeticsLkInternalShopColumn,
   isPhysicalShopOsfColumn,
@@ -345,7 +346,7 @@ export async function fetchOutletBalanceAndTransfers(input: {
       outlets.push({
         sku,
         columnKey: col.key,
-        outletName: col.label,
+        outletName: displayWarehouseName(col.label),
         channelKind: osfColumnChannelKind(col),
         stockQty: stock,
         unitsInRange: units,

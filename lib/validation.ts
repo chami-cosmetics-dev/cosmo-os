@@ -76,6 +76,10 @@ export const LIMITS = {
   kokoCompanyLabel: { max: 100 },
   kokoCompanyName: { max: 200 },
   kokoCompanyPrefix: { max: 50 },
+  citypakAccountLabel: { max: 100 },
+  citypakAccountId: { max: 32 },
+  citypakApiToken: { min: 8, max: 200 },
+  citypakInvoicePrefix: { max: 20 },
   contactAllocationOptionValue: { max: 100 },
   /** Max order IDs accepted by merchant review bulk mark-follow-up */
   merchantReviewBulkMark: { maxOrderIds: 500 },

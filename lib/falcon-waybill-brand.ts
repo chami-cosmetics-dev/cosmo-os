@@ -9,6 +9,7 @@ export type FalconCompanyGroup = {
 /** Cosmo OS: one Falcon file per Shopify order-series prefix. */
 export const COSMO_ORDER_SERIES_PREFIXES = [
   "100",
+  "110",
   "200",
   "300",
   "400",

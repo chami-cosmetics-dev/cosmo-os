@@ -22,7 +22,7 @@ export default async function FulfillmentSettingsPage() {
           Fulfillment
         </h1>
         <p className="text-muted-foreground mt-2 max-w-3xl text-sm sm:text-base">
-          Manage fulfillment support data like samples, hold reasons, and courier services in one place.
+          Manage samples, hold reasons, courier services, and CityPak API accounts in one place.
         </p>
       </section>
       <FulfillmentSettingsData canEdit={canManageFulfillment} />

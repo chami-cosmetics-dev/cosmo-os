@@ -59,6 +59,7 @@ model Company {
   shippingChargeOptions    ShippingChargeOption[]
   erpWarehouses            CompanyLocationWarehouse[]
   kokoCompanies            KokoCompany[]
+  citypakAccounts          CitypakAccount[]
   dashboardBrandConfigs    DashboardBrandConfig[]
   contactAllocationOptions ContactAllocationOption[]
   productItemAssets        ProductItemAsset[]
@@ -1936,6 +1937,24 @@ model KokoCompany {
   company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
   @@unique([companyId, label])
+  @@index([companyId, createdAt(sort: Desc)])
+}
+
+/// CityPak Falcon client-panel account. One token per invoice-series prefix (100, 110, SV200, …).
+model CitypakAccount {
+  id             String   @id @default(cuid())
+  companyId      String
+  label          String
+  accountId      String
+  apiToken       String
+  invoicePrefix  String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  company        Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, label])
+  @@unique([companyId, invoicePrefix])
+  @@unique([companyId, accountId])
   @@index([companyId, createdAt(sort: Desc)])
 }
 
