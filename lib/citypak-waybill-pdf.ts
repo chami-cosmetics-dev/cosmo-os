@@ -163,52 +163,13 @@ export async function loadCitypakWaybillPdfForOrder(input: {
   return loadCitypakWaybillPdf({ companyId: input.companyId, orderId: input.orderId });
 }
 
-/** A4 points (pdf-lib / PDF spec). */
-const A4_WIDTH = 595.28;
-const A4_HEIGHT = 841.89;
-
-/**
- * Merge waybill PDFs onto A4 sheets — 4 waybills per page (2×2).
- */
+/** Append waybill PDFs as-is — one CityPak A4 page per waybill. */
 export async function mergeCitypakWaybillPdfs(parts: Buffer[]) {
-  const perPage = 4;
-  const cols = 2;
-  const rows = 2;
-  const cellW = A4_WIDTH / cols;
-  const cellH = A4_HEIGHT / rows;
-
   const merged = await PDFDocument.create();
-  const sourcePages: Awaited<ReturnType<PDFDocument["embedPages"]>> = [];
-
   for (const part of parts) {
     const doc = await PDFDocument.load(part);
-    const embedded = await merged.embedPages(doc.getPages());
-    sourcePages.push(...embedded);
+    const pages = await merged.copyPages(doc, doc.getPageIndices());
+    for (const page of pages) merged.addPage(page);
   }
-
-  if (sourcePages.length === 0) {
-    return Buffer.from(await merged.save());
-  }
-
-  for (let offset = 0; offset < sourcePages.length; offset += perPage) {
-    const sheet = merged.addPage([A4_WIDTH, A4_HEIGHT]);
-    const chunk = sourcePages.slice(offset, offset + perPage);
-    chunk.forEach((embedded, index) => {
-      const col = index % cols;
-      const row = Math.floor(index / cols);
-      const scale = Math.min(cellW / embedded.width, cellH / embedded.height) * 0.98;
-      const drawW = embedded.width * scale;
-      const drawH = embedded.height * scale;
-      const x = col * cellW + (cellW - drawW) / 2;
-      const y = A4_HEIGHT - (row + 1) * cellH + (cellH - drawH) / 2;
-      sheet.drawPage(embedded, {
-        x,
-        y,
-        xScale: scale,
-        yScale: scale,
-      });
-    });
-  }
-
   return Buffer.from(await merged.save());
 }
