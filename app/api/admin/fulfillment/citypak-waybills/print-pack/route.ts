@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { parseCitypakWaybillPrintSize } from "@/lib/citypak-api";
 import { loadCitypakWaybillPdf, mergeCitypakWaybillPdfs } from "@/lib/citypak-waybill-pdf";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
@@ -30,6 +31,10 @@ export async function GET(request: NextRequest) {
   const companyId = auth.context!.user!.companyId;
   if (!companyId) return NextResponse.json({ error: "No company associated with your account" }, { status: 404 });
 
+  const printSize = parseCitypakWaybillPrintSize(request.nextUrl.searchParams.get("printSize"));
+  // Both layouts use Falcon 4×6 label PDFs; A4 tiles 4 labels per sheet.
+  const sourceSize = "4x6" as const;
+
   // Order ids are CUID; OrderWaybill ids from saveOrderWaybill use randomUUID().
   const orderIds = parseIdList(request.nextUrl.searchParams.get("orderIds")).filter(
     (id) => cuidSchema.safeParse(id).success
@@ -46,7 +51,7 @@ export async function GET(request: NextRequest) {
   const errors: string[] = [];
 
   for (const orderId of orderIds) {
-    const loaded = await loadCitypakWaybillPdf({ companyId, orderId });
+    const loaded = await loadCitypakWaybillPdf({ companyId, orderId, printSize: sourceSize });
     if (loaded.ok) parts.push(loaded.bytes);
     else errors.push(loaded.error);
   }
@@ -60,7 +65,7 @@ export async function GET(request: NextRequest) {
       errors.push("Waybill not found");
       continue;
     }
-    const loaded = await loadCitypakWaybillPdf({ companyId, waybillId });
+    const loaded = await loadCitypakWaybillPdf({ companyId, waybillId, printSize: sourceSize });
     if (loaded.ok) parts.push(loaded.bytes);
     else errors.push(loaded.error);
   }
@@ -72,12 +77,14 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const merged = parts.length === 1 ? parts[0]! : await mergeCitypakWaybillPdfs(parts);
+  const merged = await mergeCitypakWaybillPdfs(parts, { printSize });
+  const filename =
+    printSize === "4x6" ? "citypak-waybills-4x6.pdf" : "citypak-waybills-A4.pdf";
   return new NextResponse(new Uint8Array(merged), {
     status: 200,
     headers: {
       "Content-Type": "application/pdf",
-      "Content-Disposition": `inline; filename="citypak-waybills.pdf"`,
+      "Content-Disposition": `inline; filename="${filename}"`,
       "Cache-Control": "private, max-age=60",
     },
   });

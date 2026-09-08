@@ -8,10 +8,21 @@ import { getAddressField, resolveOrderCustomerName } from "@/lib/reports/csv";
 export const CITYPAK_WAYBILL_SOURCE = "citypak_api";
 /** WaybillUpload.fileType for OS→CityPak API dispatch batches (bulk history). */
 export const CITYPAK_API_BATCH_FILE_TYPE = "citypak_api";
+/** Falcon Client Panel print sizes: A4 sheet or 4×6 thermal labels. */
+export type CitypakWaybillPrintSize = "A4" | "4x6";
+export const CITYPAK_WAYBILL_PRINT_SIZES: CitypakWaybillPrintSize[] = ["A4", "4x6"];
+export const CITYPAK_DEFAULT_WAYBILL_PRINT_SIZE: CitypakWaybillPrintSize = "4x6";
 export const CITYPAK_DEFAULT_WEIGHT_G = 500;
 export const CITYPAK_DEFAULT_BASE_URL = "https://falcon.citypak.lk";
 /** Gap between CityPak create-order calls in bulk dispatch. CityPak has no bulk endpoint. */
 export const CITYPAK_BULK_CREATE_GAP_MS = 500;
+
+export function parseCitypakWaybillPrintSize(value: unknown): CitypakWaybillPrintSize {
+  const text = typeof value === "string" ? value.trim() : "";
+  if (text === "A4" || text === "a4") return "A4";
+  if (text === "4x6" || text === "4X6" || text === "4×6") return "4x6";
+  return CITYPAK_DEFAULT_WAYBILL_PRINT_SIZE;
+}
 
 export type CitypakSender = {
   name: string;
@@ -316,10 +327,10 @@ export type CitypakShipmentOverride = {
 export function citypakWaybillPdfRequestUrl(
   baseUrl: string,
   citypakOrderId: string,
-  pageSize: "A4" | "A5" | "A6" = "A4"
+  pageSize: CitypakWaybillPrintSize = "4x6"
 ) {
   const params = new URLSearchParams({
-    page_size: pageSize,
+    page_size: pageSize === "4x6" ? "4x6" : "A4",
     per_page_waybill_count: "1",
   });
   return `${baseUrl.replace(/\/+$/, "")}/customer_api/v1/orders/${encodeURIComponent(citypakOrderId)}/waybills?${params}`;
@@ -393,43 +404,66 @@ export type CitypakWaybillPdfSuccess = { ok: true; bytes: Buffer };
 export type CitypakWaybillPdfFailure = { ok: false; error: string; status?: number };
 
 export async function downloadCitypakWaybillPdf(
-  input: { token: string; citypakOrderId: string; pageSize?: "A4" | "A5" | "A6" },
+  input: { token: string; citypakOrderId: string; pageSize?: CitypakWaybillPrintSize },
   options?: { baseUrl?: string }
 ): Promise<CitypakWaybillPdfSuccess | CitypakWaybillPdfFailure> {
   const citypakOrderId = input.citypakOrderId.trim();
   if (!citypakOrderId) return { ok: false, error: "CityPak waybill download needs order_id" };
 
   const baseUrl = (options?.baseUrl ?? getCitypakApiBaseUrl()).replace(/\/+$/, "");
-  const url = citypakWaybillPdfRequestUrl(baseUrl, citypakOrderId, input.pageSize ?? "A4");
+  const preferred = input.pageSize ?? CITYPAK_DEFAULT_WAYBILL_PRINT_SIZE;
+  // Falcon Client Panel: A4 vs 4×6 Labels. Try 4x6 then A6 (near same physical size).
+  const urls =
+    preferred === "4x6"
+      ? [
+          citypakWaybillPdfRequestUrl(baseUrl, citypakOrderId, "4x6"),
+          `${baseUrl}/customer_api/v1/orders/${encodeURIComponent(citypakOrderId)}/waybills?page_size=A6&per_page_waybill_count=1`,
+        ]
+      : [citypakWaybillPdfRequestUrl(baseUrl, citypakOrderId, "A4")];
 
-  try {
-    const response = await fetch(url, {
-      method: "GET",
-      headers: { Authorization: `Bearer ${input.token}` },
-      signal: AbortSignal.timeout(15000),
-    });
-    const bytes = Buffer.from(await response.arrayBuffer());
-    const contentType = response.headers.get("content-type") ?? "";
+  let lastError = "CityPak waybill download failed";
+  let lastStatus: number | undefined;
 
-    if (!response.ok) {
-      let message = `CityPak waybill download failed (HTTP ${response.status})`;
-      try {
-        const payload = JSON.parse(bytes.toString("utf8")) as { message?: unknown; error?: unknown };
-        if (typeof payload.message === "string" && payload.message.trim()) message = payload.message.trim();
-        else if (typeof payload.error === "string" && payload.error.trim()) message = payload.error.trim();
-      } catch {
-        /* keep default */
+  for (const url of urls) {
+    try {
+      const response = await fetch(url, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${input.token}` },
+        signal: AbortSignal.timeout(15000),
+      });
+      const bytes = Buffer.from(await response.arrayBuffer());
+      const contentType = response.headers.get("content-type") ?? "";
+
+      if (!response.ok) {
+        lastStatus = response.status;
+        let message = `CityPak waybill download failed (HTTP ${response.status})`;
+        try {
+          const payload = JSON.parse(bytes.toString("utf8")) as {
+            message?: unknown;
+            error?: unknown;
+          };
+          if (typeof payload.message === "string" && payload.message.trim()) {
+            message = payload.message.trim();
+          } else if (typeof payload.error === "string" && payload.error.trim()) {
+            message = payload.error.trim();
+          }
+        } catch {
+          /* keep default */
+        }
+        lastError = message;
+        continue;
       }
-      return { ok: false, error: message, status: response.status };
-    }
 
-    if (!isPdfBytes(bytes, contentType)) {
-      return { ok: false, error: "CityPak waybill download did not return a PDF" };
-    }
+      if (!isPdfBytes(bytes, contentType)) {
+        lastError = "CityPak waybill download did not return a PDF";
+        continue;
+      }
 
-    return { ok: true, bytes };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "CityPak waybill download failed";
-    return { ok: false, error: message };
+      return { ok: true, bytes };
+    } catch (err) {
+      lastError = err instanceof Error ? err.message : "CityPak waybill download failed";
+    }
   }
+
+  return { ok: false, error: lastError, status: lastStatus };
 }
