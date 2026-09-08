@@ -22,23 +22,21 @@ import { renderPrintFormatHtml } from "@/lib/print-format-renderer";
 import { orderStageUpdate } from "@/lib/order-stage-timing";
 import { prisma } from "@/lib/prisma";
 import { cuidSchema } from "@/lib/validation";
+import { resolveOrderDistrict } from "@/lib/address-district";
 import { formatAppDateTime, formatAppIsoDate } from "@/lib/format-datetime";
+import { formatAddress as formatCsvAddress } from "@/lib/reports/csv";
 
 export type RenderOrderInvoiceResult =
   | { ok: true; html: string }
   | { ok: false; status: number; message: string };
 
-function formatAddress(addr: unknown): string {
-  if (!addr || typeof addr !== "object") return "";
-  const a = addr as Record<string, unknown>;
-  const parts = [
-    a.address1,
-    a.address2,
-    [a.city, a.province_code].filter(Boolean).join(", "),
-    a.country,
-    a.zip,
-  ].filter(Boolean) as string[];
-  return parts.join(", ") || "";
+function formatAddress(addr: unknown, storedDistrict?: string | null): string {
+  const district = resolveOrderDistrict(storedDistrict, addr);
+  const formatted = formatCsvAddress(addr);
+  if (district && !formatted.toLowerCase().includes(district.toLowerCase())) {
+    return formatted ? `${formatted}, ${district}` : district;
+  }
+  return formatted;
 }
 
 /** Shopify-style addresses: prefer `name`, then first + last. */
@@ -282,8 +280,9 @@ export async function renderOrderInvoice(input: {
     order.customerEmail?.trim() ||
     "";
   const customerName = stripManualInvoiceNumberAsName(order, customerNameRaw);
+  const district = resolveOrderDistrict(order.district, order.shippingAddress);
   const billingAddr = formatAddress(order.billingAddress);
-  const shippingAddr = formatAddress(order.shippingAddress);
+  const shippingAddr = formatAddress(order.shippingAddress, order.district);
   const billingName = stripManualInvoiceNumberAsName(order, pickAddrName(order.billingAddress));
   const shippingName = stripManualInvoiceNumberAsName(order, pickAddrName(order.shippingAddress));
   const invoicePhones = resolveInvoicePrintPhones({
@@ -507,6 +506,7 @@ export async function renderOrderInvoice(input: {
       billingAddress: billingAddr,
       shippingAddress: shippingAddr,
       shippingCity,
+      district,
     },
     totals: {
       totalQuantity,

@@ -48,6 +48,7 @@ const STARTER_HTML = `<!doctype html>
   <p>Date: {{order.invoiceDate}} | Printed: {{print.printedDate}}</p>
   <p>Customer: <strong>{{customer.name}}</strong> | {{customer.phones}}</p>
   <p>Ship to: {{customer.shippingAddress}}</p>
+  {{#if customer.district}}<p>District: {{customer.district}}</p>{{/if}}
 
   <table>
     <thead>
@@ -87,7 +88,7 @@ const VARIABLES = [
   "company.name, company.address, company.logoUrl",
   "location.name, location.logoUrl, location.invoicePhone",
   "order.invoiceNumber, order.invoiceDate, order.paymentMethod",
-  "customer.name, customer.phones, customer.shippingAddress",
+  "customer.name, customer.phones, customer.shippingAddress, customer.district",
   "customer.billingName, customer.billingPhone, customer.shippingName, customer.shippingPhone",
   "orderData.billingAddress.name, orderData.billingAddress.phone, orderData.shippingAddress.name, orderData.shippingAddress.phone",
   "totals.productTotalFormatted, totals.shippingTotalFormatted, totals.grandTotalFormatted",
