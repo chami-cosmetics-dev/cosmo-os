@@ -3,7 +3,10 @@ import { describe, expect, it } from "vitest";
 import {
   buildCitypakCreateOrderBody,
   citypakCodAmount,
+  citypakWaybillPdfRequestUrl,
+  draftCitypakShipmentFields,
   matchCitypakAccount,
+  mergeShippingAddressWithCitypakOverride,
   normalizeCitypakPrefix,
   toCitypakAscii,
   toCitypakPhone,
@@ -27,13 +30,31 @@ describe("toCitypakPhone", () => {
 });
 
 describe("citypakCodAmount", () => {
-  it("is 0 for prepaid", () => {
+  it("is 0 for paid financial status", () => {
     expect(citypakCodAmount("paid", 2500)).toBe(0);
-    expect(citypakCodAmount("partially_refunded", "900")).toBe(0);
   });
 
-  it("uses order total for COD", () => {
+  it("does not treat refund statuses as prepaid (those orders skip dispatch)", () => {
+    expect(citypakCodAmount("refunded", "900")).toBe(900);
+    expect(citypakCodAmount("partially_refunded", "900")).toBe(900);
+  });
+
+  it("is 0 for bank transfer and Koko even if pending", () => {
+    expect(
+      citypakCodAmount("pending", "2500", { paymentGatewayPrimary: "Bank Transfer" })
+    ).toBe(0);
+    expect(citypakCodAmount("pending", "1800", { paymentGatewayPrimary: "KOKO" })).toBe(0);
+    expect(citypakCodAmount("pending", "900", { paymentGatewayPrimary: "Mintpay" })).toBe(0);
+  });
+
+  it("uses order total for COD / cash / card on delivery", () => {
     expect(citypakCodAmount("pending", "1250.50")).toBe(1250.5);
+    expect(
+      citypakCodAmount("pending", "1250", { paymentGatewayPrimary: "Cash on Delivery (COD)" })
+    ).toBe(1250);
+    expect(
+      citypakCodAmount("pending", "900", { paymentGatewayPrimary: "Card on Delivery" })
+    ).toBe(900);
   });
 });
 
@@ -96,5 +117,57 @@ describe("buildCitypakCreateOrderBody", () => {
       cashOnDeliveryAmount: 0,
     });
     expect(built.ok).toBe(false);
+  });
+});
+
+describe("citypakWaybillPdfRequestUrl", () => {
+  it("builds the Falcon waybill PDF path", () => {
+    expect(citypakWaybillPdfRequestUrl("https://falcon.citypak.lk", "12345")).toBe(
+      "https://falcon.citypak.lk/customer_api/v1/orders/12345/waybills?page_size=A4&per_page_waybill_count=1"
+    );
+  });
+});
+
+describe("mergeShippingAddressWithCitypakOverride", () => {
+  it("keeps extra fields and overwrites receiver lines", () => {
+    const merged = mergeShippingAddressWithCitypakOverride(
+      { name: "Old", address1: "Old st", city: "Colombo", country: "LK" },
+      {
+        receiverName: "New Name",
+        receiverAddress1: "12 Main",
+        receiverAddress2: "Near temple",
+        receiverCity: "Kandy",
+        receiverPhone: "0771111111",
+      }
+    );
+    expect(merged.name).toBe("New Name");
+    expect(merged.address1).toBe("12 Main");
+    expect(merged.address2).toBe("Near temple");
+    expect(merged.city).toBe("Kandy");
+    expect(merged.phone).toBe("0771111111");
+    expect(merged.country).toBe("LK");
+  });
+});
+
+describe("draftCitypakShipmentFields", () => {
+  it("prefers shipping name and prepaid COD 0", () => {
+    const draft = draftCitypakShipmentFields({
+      shippingAddress: {
+        name: "Amal",
+        address1: "12 Main",
+        address2: "Lane 2",
+        city: "Kandy",
+        phone: "077-222 3333",
+      },
+      customerPhone: null,
+      financialStatus: "pending",
+      paymentGatewayPrimary: "Bank Transfer",
+      totalPrice: "2500",
+    });
+    expect(draft.receiverName).toBe("Amal");
+    expect(draft.receiverAddress1).toBe("12 Main");
+    expect(draft.receiverCity).toBe("Kandy");
+    expect(draft.receiverPhone).toBe("0772223333");
+    expect(draft.cashOnDeliveryAmount).toBe(0);
   });
 });

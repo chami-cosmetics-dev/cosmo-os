@@ -5,13 +5,17 @@ import {
   createCitypakOrder,
   getCitypakSender,
   matchCitypakAccount,
+  mergeShippingAddressWithCitypakOverride,
   normalizeCitypakPrefix,
+  type CitypakShipmentOverride,
 } from "@/lib/citypak-api";
 import { resolveFalconExportGroupKey } from "@/lib/falcon-waybill-brand";
 import { formatFulfillmentOrderReferenceText } from "@/lib/fulfillment-order-reference";
 import { saveOrderWaybill } from "@/lib/order-waybills";
 import { prisma } from "@/lib/prisma";
 import { getAddressField, resolveOrderCustomerName } from "@/lib/reports/csv";
+
+export type { CitypakShipmentOverride };
 
 export { CITYPAK_WAYBILL_SOURCE };
 
@@ -23,6 +27,8 @@ export type CitypakDispatchOrder = {
   erpnextInvoiceId: string | null;
   sourceName?: string | null;
   financialStatus: string | null;
+  paymentGatewayPrimary?: string | null;
+  paymentGatewayNames?: string[] | null;
   totalPrice: { toString(): string } | string | number;
   customerPhone: string | null;
   shippingAddress: unknown;
@@ -33,13 +39,27 @@ export type CitypakDispatchOrder = {
 
 export type CitypakShipmentAttempt =
   | { status: "skipped" }
-  | { status: "booked"; trackingNumber: string | null }
+  | { status: "booked"; trackingNumber: string | null; waybillId?: string | null }
   | { status: "falcon"; error: string };
+
+export function citypakOverrideOrderPatch(input: {
+  shippingAddress: unknown;
+  override: CitypakShipmentOverride;
+}) {
+  return {
+    shippingAddress: mergeShippingAddressWithCitypakOverride(
+      input.shippingAddress,
+      input.override
+    ),
+    customerPhone: input.override.receiverPhone,
+  };
+}
 
 export async function ensureCitypakShipmentForDispatch(input: {
   companyId: string;
   courierServiceName: string | null | undefined;
   order: CitypakDispatchOrder;
+  shipmentOverride?: CitypakShipmentOverride | null;
 }): Promise<CitypakShipmentAttempt> {
   if (!isCitypakCourier(input.courierServiceName)) {
     return { status: "skipped" };
@@ -71,7 +91,7 @@ export async function ensureCitypakShipmentForDispatch(input: {
     ]);
 
     if (existingWaybill) {
-      return { status: "booked", trackingNumber: existingWaybill.waybillNo };
+      return { status: "booked", trackingNumber: existingWaybill.waybillNo, waybillId: existingWaybill.id };
     }
 
     const reference = formatFulfillmentOrderReferenceText(input.order);
@@ -94,29 +114,42 @@ export async function ensureCitypakShipmentForDispatch(input: {
       };
     }
 
-    const shippingAddress = input.order.shippingAddress;
-    const receiverName = resolveOrderCustomerName({
-      shippingAddress,
-      billingAddress: input.order.billingAddress,
-      rawPayload: input.order.rawPayload,
-    });
+    const override = input.shipmentOverride;
+    const shippingAddress = override
+      ? mergeShippingAddressWithCitypakOverride(input.order.shippingAddress, override)
+      : input.order.shippingAddress;
+    const receiverName = override?.receiverName
+      || resolveOrderCustomerName({
+        shippingAddress,
+        billingAddress: input.order.billingAddress,
+        rawPayload: input.order.rawPayload,
+      });
     const receiverPhone =
+      override?.receiverPhone ||
       input.order.customerPhone ||
       getAddressField(shippingAddress, "phone") ||
       getAddressField(input.order.billingAddress, "phone");
+    const cashOnDeliveryAmount =
+      override?.cashOnDeliveryAmount != null
+        ? override.cashOnDeliveryAmount
+        : citypakCodAmount(
+            input.order.financialStatus,
+            typeof input.order.totalPrice === "object" ? input.order.totalPrice.toString() : input.order.totalPrice,
+            {
+              paymentGatewayPrimary: input.order.paymentGatewayPrimary,
+              paymentGatewayNames: input.order.paymentGatewayNames,
+            }
+          );
 
     const created = await createCitypakOrder({
       token: account.apiToken,
       reference,
       receiverName,
-      receiverAddress1: getAddressField(shippingAddress, "address1"),
-      receiverAddress2: getAddressField(shippingAddress, "address2"),
-      receiverCity: getAddressField(shippingAddress, "city"),
+      receiverAddress1: override?.receiverAddress1 || getAddressField(shippingAddress, "address1"),
+      receiverAddress2: override?.receiverAddress2 ?? getAddressField(shippingAddress, "address2"),
+      receiverCity: override?.receiverCity || getAddressField(shippingAddress, "city"),
       receiverPhone,
-      cashOnDeliveryAmount: citypakCodAmount(
-        input.order.financialStatus,
-        typeof input.order.totalPrice === "object" ? input.order.totalPrice.toString() : input.order.totalPrice
-      ),
+      cashOnDeliveryAmount,
       description: getCitypakSender().description,
     });
 
@@ -124,7 +157,7 @@ export async function ensureCitypakShipmentForDispatch(input: {
       return { status: "falcon", error: created.error };
     }
 
-    await saveOrderWaybill({
+    const waybillId = await saveOrderWaybill({
       companyId: input.companyId,
       orderId: input.order.id,
       invoiceNumber: reference,
@@ -133,6 +166,7 @@ export async function ensureCitypakShipmentForDispatch(input: {
       source: CITYPAK_WAYBILL_SOURCE,
       rawPayload: {
         citypakAccountId: account.accountId,
+        citypakAccountDbId: account.id,
         citypakOrderId: created.orderId,
         trackingNumber: created.trackingNumber,
         reference,
@@ -140,10 +174,72 @@ export async function ensureCitypakShipmentForDispatch(input: {
       },
     });
 
-    return { status: "booked", trackingNumber: created.trackingNumber };
+    return { status: "booked", trackingNumber: created.trackingNumber, waybillId };
   } catch (err) {
     const message = err instanceof Error ? err.message : "CityPak API failed";
     console.error("[citypak-dispatch]", message, err);
+    return { status: "falcon", error: message };
+  }
+}
+
+export async function createCitypakManualShipment(input: {
+  companyId: string;
+  courierServiceName: string | null | undefined;
+  accountDbId: string;
+  reference: string;
+  shipment: CitypakShipmentOverride;
+}): Promise<CitypakShipmentAttempt & { waybillId?: string | null }> {
+  try {
+  const account = await prisma.citypakAccount.findFirst({
+    where: { id: input.accountDbId, companyId: input.companyId },
+    select: { id: true, accountId: true, apiToken: true, invoicePrefix: true, label: true },
+  });
+  if (!account?.apiToken) {
+    return { status: "falcon", error: "CityPak account not found or token missing" };
+  }
+
+  const created = await createCitypakOrder({
+    token: account.apiToken,
+    reference: input.reference,
+    receiverName: input.shipment.receiverName,
+    receiverAddress1: input.shipment.receiverAddress1,
+    receiverAddress2: input.shipment.receiverAddress2,
+    receiverCity: input.shipment.receiverCity,
+    receiverPhone: input.shipment.receiverPhone,
+    cashOnDeliveryAmount: input.shipment.cashOnDeliveryAmount ?? 0,
+    description: getCitypakSender().description,
+  });
+
+  if (!created.ok) {
+    return { status: "falcon", error: created.error };
+  }
+
+  const waybillId = await saveOrderWaybill({
+    companyId: input.companyId,
+    orderId: null,
+    invoiceNumber: input.reference,
+    waybillNo: created.trackingNumber,
+    courierName: input.courierServiceName ?? "City Pack",
+    source: CITYPAK_WAYBILL_SOURCE,
+    rawPayload: {
+      manual: true,
+      citypakAccountId: account.accountId,
+      citypakAccountDbId: account.id,
+      citypakOrderId: created.orderId,
+      trackingNumber: created.trackingNumber,
+      reference: input.reference,
+      response: created.raw,
+    },
+  });
+
+  return {
+    status: "booked",
+    trackingNumber: created.trackingNumber,
+    waybillId,
+  };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "CityPak API failed";
+    console.error("[citypak-dispatch] manual", message, err);
     return { status: "falcon", error: message };
   }
 }

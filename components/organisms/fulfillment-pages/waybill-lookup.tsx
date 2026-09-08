@@ -5,6 +5,7 @@ import { Eye, Loader2, PackageSearch, Plus, RefreshCw, Search, Trash2, Upload } 
 
 import { Button } from "@/components/ui/button";
 import { FulfillmentOrderReference } from "@/components/molecules/fulfillment-order-reference";
+import { PrintCitypakWaybillButton } from "@/components/molecules/print-citypak-waybill-button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
@@ -16,6 +17,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { notify } from "@/lib/notify";
 import { formatAppDateTime } from "@/lib/format-datetime";
+import { CITYPAK_WAYBILL_SOURCE } from "@/lib/citypak-api";
 import type {
   WaybillLookupPageData,
   WaybillPendingRow,
@@ -572,20 +574,30 @@ export function WaybillLookupFulfillmentPage({
                           <td className="px-3 py-2 font-medium">{waybill.waybillNo}</td>
                           <td className="px-3 py-2">{waybill.invoiceNumber}</td>
                           <td className="px-3 py-2 text-right">
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              className="gap-2"
-                              disabled={isBusy}
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                setSelectedDetails({ kind: "search", waybill });
-                              }}
-                            >
-                              <Eye className="size-4" aria-hidden />
-                              View
-                            </Button>
+                            <div className="flex justify-end gap-2">
+                              {waybill.source === CITYPAK_WAYBILL_SOURCE && matchedOrder?.id && (
+                                <span onClick={(event) => event.stopPropagation()}>
+                                  <PrintCitypakWaybillButton
+                                    orderId={matchedOrder.id}
+                                    tracking={waybill.waybillNo}
+                                  />
+                                </span>
+                              )}
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="gap-2"
+                                disabled={isBusy}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setSelectedDetails({ kind: "search", waybill });
+                                }}
+                              >
+                                <Eye className="size-4" aria-hidden />
+                                View
+                              </Button>
+                            </div>
                           </td>
                         </tr>
                       ))}
