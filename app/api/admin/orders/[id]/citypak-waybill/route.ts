@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { parseCitypakWaybillPrintSize } from "@/lib/citypak-api";
 import { loadCitypakWaybillPdfForOrder } from "@/lib/citypak-waybill-pdf";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
@@ -37,7 +36,6 @@ export async function GET(request: NextRequest, context: RouteContext) {
   const loaded = await loadCitypakWaybillPdfForOrder({
     companyId,
     orderId: order.id,
-    printSize: parseCitypakWaybillPrintSize(request.nextUrl.searchParams.get("printSize")),
   });
   if (!loaded.ok) {
     return NextResponse.json({ error: loaded.error }, { status: loaded.status });
