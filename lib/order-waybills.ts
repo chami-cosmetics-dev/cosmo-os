@@ -256,7 +256,7 @@ export async function saveOrderWaybill(input: {
   courierName?: string | null;
   source?: string;
   uploadId?: string | null;
-  rawPayload?: Record<string, string> | null;
+  rawPayload?: Record<string, unknown> | null;
 }) {
   const now = new Date();
   const rawPayloadSql = input.rawPayload

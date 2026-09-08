@@ -158,6 +158,7 @@ if (instance && process.env.NODE_ENV !== "production") {
   if (
     !("smsNotificationConfig" in instance) ||
     !("shopifyAbandonedCheckout" in instance) ||
+    !("citypakAccount" in instance) ||
     !hasModelField(instance, "CompanyLocation", "manualInvoicePrefix")
   ) {
     void (instance as PrismaClient).$disconnect();
