@@ -40,6 +40,7 @@ export function FalconUploadFulfillmentPage() {
       orderPrefix: string;
       itemName: string;
       courierName: string;
+      apiBooked: boolean;
     }>;
     error: string | null;
   }>({ loading: true, totalRows: 0, groupCount: 0, groups: [], orders: [], error: null });
@@ -79,6 +80,7 @@ export function FalconUploadFulfillmentPage() {
             orderPrefix?: string;
             itemName?: string;
             courierName?: string;
+            apiBooked?: boolean;
           }>;
           error?: string;
         } | null;
@@ -112,6 +114,7 @@ export function FalconUploadFulfillmentPage() {
               orderPrefix: order.orderPrefix ?? "unknown",
               itemName: order.itemName ?? "",
               courierName: order.courierName ?? "",
+              apiBooked: Boolean(order.apiBooked),
             })),
           error: null,
         });
@@ -287,7 +290,11 @@ export function FalconUploadFulfillmentPage() {
           <div>
             <p className="font-medium">City Pack dispatched orders</p>
             <p className="text-sm text-muted-foreground">
-              {selectedOrderIds.size} selected from {countState.totalRows} orders.
+              {selectedOrderIds.size} selected from {countState.totalRows} orders
+              {countState.orders.some((order) => order.apiBooked)
+                ? ` · ${countState.orders.filter((order) => !order.apiBooked).length} need Falcon`
+                : ""}
+              .
             </p>
           </div>
           <div className="relative w-full lg:max-w-sm">
@@ -322,6 +329,24 @@ export function FalconUploadFulfillmentPage() {
           >
             Clear Visible
           </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={filteredOrders.filter((order) => !order.apiBooked).length === 0}
+            onClick={() => {
+              setSelectedOrderIds((current) => {
+                const next = new Set(current);
+                for (const order of filteredOrders) {
+                  if (!order.apiBooked) next.add(order.id);
+                }
+                return next;
+              });
+            }}
+            className="border-border/70 bg-background/85 hover:bg-secondary/10"
+          >
+            Select Falcon only
+          </Button>
         </div>
 
         <div className="overflow-hidden rounded-md border border-border/70">
@@ -331,6 +356,7 @@ export function FalconUploadFulfillmentPage() {
                 <tr className="border-b border-border/70">
                   <th className="w-12 px-3 py-2 text-left font-medium">Pick</th>
                   <th className="px-3 py-2 text-left font-medium">Order</th>
+                  <th className="px-3 py-2 text-left font-medium">CityPak</th>
                   <th className="px-3 py-2 text-left font-medium">Courier</th>
                   <th className="px-3 py-2 text-left font-medium">Prefix</th>
                   <th className="px-3 py-2 text-left font-medium">Receiver</th>
@@ -368,6 +394,9 @@ export function FalconUploadFulfillmentPage() {
                       />
                     </td>
                     <td className="px-3 py-2 font-medium">{order.reference}</td>
+                    <td className="px-3 py-2 text-muted-foreground">
+                      {order.apiBooked ? "API booked" : "Falcon"}
+                    </td>
                     <td className="px-3 py-2 text-muted-foreground">{order.courierName || "-"}</td>
                     <td className="px-3 py-2 text-muted-foreground">{order.orderPrefix}</td>
                     <td className="px-3 py-2">{order.receiverName || "-"}</td>
@@ -378,14 +407,14 @@ export function FalconUploadFulfillmentPage() {
                 })}
                 {!countState.loading && filteredOrders.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="px-3 py-8 text-center text-muted-foreground">
+                    <td colSpan={8} className="px-3 py-8 text-center text-muted-foreground">
                       {countState.totalRows === 0 ? "No courier-dispatched orders found for this date." : "No orders match the search."}
                     </td>
                   </tr>
                 )}
                 {countState.loading && (
                   <tr>
-                    <td colSpan={7} className="px-3 py-8 text-center text-muted-foreground">
+                    <td colSpan={8} className="px-3 py-8 text-center text-muted-foreground">
                       Loading City Pack orders...
                     </td>
                   </tr>

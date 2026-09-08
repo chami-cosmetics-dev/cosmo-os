@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { randomBytes } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
@@ -7,10 +8,17 @@ import { getDeliveryUrl, resolveCustomerPhone, resolveOrderInvoiceNumber, resolv
 import { DISPATCHABLE_STAGES, printFieldsOnDispatchIfUnprinted } from "@/lib/fulfillment-permissions";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
-import { cuidSchema } from "@/lib/validation";
+import { citypakBulkShipmentOverrideSchema, citypakManualShipmentSchema, cuidSchema } from "@/lib/validation";
 import { orderStageUpdate } from "@/lib/order-stage-timing";
 import { getErpOutOfStockFulfillmentBlock } from "@/lib/erp-fulfillment-block";
 import { isExplicitlyPackageReady } from "@/lib/fulfillment-stage-display";
+import { CITYPAK_BULK_CREATE_GAP_MS } from "@/lib/citypak-api";
+import {
+  citypakOverrideOrderPatch,
+  createCitypakManualShipment,
+  ensureCitypakShipmentForDispatch,
+} from "@/lib/citypak-dispatch";
+import { isCitypakCourier } from "@/lib/courier";
 import {
   createOrGetOrderPaymentApproval,
   getFinancePaymentApprovalBlockReason,
@@ -18,14 +26,16 @@ import {
 } from "@/lib/approval-workflow";
 
 const schema = z.object({
-  orderIds: z.array(cuidSchema).min(1).max(50),
+  orderIds: z.array(cuidSchema).max(50).default([]),
   riderId: cuidSchema.optional(),
   courierServiceId: cuidSchema.optional(),
   dispatchToCustomer: z.boolean().optional(),
+  citypakShipments: z.array(citypakBulkShipmentOverrideSchema).max(50).optional(),
+  citypakManualShipments: z.array(citypakManualShipmentSchema).max(20).optional(),
 });
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 async function getCompanyId(userId: string) {
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { companyId: true } });
@@ -43,17 +53,29 @@ export async function POST(request: NextRequest) {
   const parsed = schema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: "Invalid request", details: parsed.error.flatten() }, { status: 400 });
 
-  const { orderIds, riderId, courierServiceId, dispatchToCustomer: dispatchToCustomerRaw } = parsed.data;
+  const { orderIds, riderId, courierServiceId, dispatchToCustomer: dispatchToCustomerRaw, citypakShipments, citypakManualShipments } = parsed.data;
   const dispatchToCustomer = dispatchToCustomerRaw === true;
+  const manuals = citypakManualShipments ?? [];
+  const citypakByOrderId = new Map(
+    (citypakShipments ?? []).map((shipment) => [shipment.orderId, shipment])
+  );
+
+  if (orderIds.length === 0 && manuals.length === 0) {
+    return NextResponse.json({ error: "Select orders or add a manual CityPak row" }, { status: 400 });
+  }
 
   if (riderId && courierServiceId) return NextResponse.json({ error: "Select either rider, courier, or customer pickup" }, { status: 400 });
   const dispatchModes = [Boolean(riderId), Boolean(courierServiceId), dispatchToCustomer].filter(Boolean).length;
-  if (dispatchModes !== 1) {
+  if (orderIds.length > 0 && dispatchModes !== 1) {
     return NextResponse.json({ error: "Select rider, courier service, or customer pickup" }, { status: 400 });
+  }
+  if (orderIds.length === 0 && !courierServiceId) {
+    return NextResponse.json({ error: "Select City Pack to send manual CityPak rows" }, { status: 400 });
   }
 
   // Validate rider / courier once up front
   let riderMobile: string | null = null;
+  let courierServiceName: string | null = null;
   if (riderId) {
     const rider = await prisma.user.findFirst({
       where: { id: riderId, companyId },
@@ -67,11 +89,23 @@ export async function POST(request: NextRequest) {
   if (courierServiceId) {
     const svc = await prisma.courierService.findFirst({ where: { id: courierServiceId, companyId } });
     if (!svc) return NextResponse.json({ error: "Courier service not found" }, { status: 400 });
+    courierServiceName = svc.name;
   }
 
   const now = new Date();
-  const results: Array<{ orderId: string; ref: string; success: boolean; error?: string }> = [];
+  const results: Array<{
+    orderId: string;
+    waybillId?: string | null;
+    ref: string;
+    success: boolean;
+    error?: string;
+    citypakStatus?: "skipped" | "booked" | "falcon";
+    citypakError?: string;
+    citypakTracking?: string | null;
+    manual?: boolean;
+  }> = [];
   const smsTasks: Promise<void>[] = [];
+  let citypakCreates = 0;
 
   for (const orderId of orderIds) {
     try {
@@ -89,6 +123,10 @@ export async function POST(request: NextRequest) {
           packageOnHoldAt: true,
           customerPhone: true,
           shippingAddress: true,
+          billingAddress: true,
+          rawPayload: true,
+          sourceName: true,
+          financialStatus: true,
           erpnextInvoiceId: true,
           erpnextSyncError: true,
           paymentGatewayPrimary: true,
@@ -160,6 +198,17 @@ export async function POST(request: NextRequest) {
       }
 
       const riderDeliveryToken = riderId ? randomBytes(16).toString("hex") : null;
+      const citypakShipment = citypakByOrderId.get(orderId);
+      const citypakAddressPatch = citypakShipment
+        ? citypakOverrideOrderPatch({
+            shippingAddress: order.shippingAddress,
+            override: citypakShipment,
+          })
+        : null;
+      if (citypakAddressPatch) {
+        order.shippingAddress = citypakAddressPatch.shippingAddress as typeof order.shippingAddress;
+        order.customerPhone = citypakAddressPatch.customerPhone;
+      }
 
       // Auto-mark ready if not already — same as single dispatch
       const needsMarkReady =
@@ -189,6 +238,12 @@ export async function POST(request: NextRequest) {
           deliveryFailedReason: null,
           lastRiderUpdateAt: riderId ? now : null,
           riderDeliveryToken: dispatchToCustomer ? null : riderDeliveryToken,
+          ...(citypakAddressPatch
+            ? {
+                shippingAddress: citypakAddressPatch.shippingAddress as Prisma.InputJsonValue,
+                customerPhone: citypakAddressPatch.customerPhone,
+              }
+            : {}),
         },
       });
 
@@ -293,10 +348,89 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      results.push({ orderId, ref, success: true });
+      let citypakStatus: "skipped" | "booked" | "falcon" | undefined;
+      let citypakError: string | undefined;
+      let citypakTracking: string | null | undefined;
+      let citypakWaybillId: string | null | undefined;
+      if (courierServiceId) {
+        if (isCitypakCourier(courierServiceName) && citypakCreates > 0) {
+          await new Promise((resolve) => setTimeout(resolve, CITYPAK_BULK_CREATE_GAP_MS));
+        }
+        const citypak = await ensureCitypakShipmentForDispatch({
+          companyId,
+          courierServiceName,
+          order,
+          shipmentOverride: citypakShipment,
+        });
+        if (isCitypakCourier(courierServiceName) && citypak.status !== "skipped") {
+          citypakCreates += 1;
+        }
+        citypakStatus = citypak.status;
+        if (citypak.status === "booked") {
+          citypakTracking = citypak.trackingNumber;
+          citypakWaybillId = citypak.waybillId ?? null;
+        }
+        if (citypak.status === "falcon") citypakError = citypak.error;
+      }
+
+      results.push({
+        orderId,
+        waybillId: citypakWaybillId,
+        ref,
+        success: true,
+        citypakStatus,
+        citypakError,
+        citypakTracking,
+      });
     } catch (err) {
       console.error("[bulk-dispatch] error for orderId", orderId, err);
       results.push({ orderId, ref: orderId, success: false, error: "Internal error" });
+    }
+  }
+
+  for (const manual of manuals) {
+    try {
+      if (!isCitypakCourier(courierServiceName)) {
+        results.push({
+          orderId: "",
+          ref: manual.reference,
+          success: false,
+          error: "Select City Pack to send manual rows",
+          manual: true,
+        });
+        continue;
+      }
+      if (citypakCreates > 0) {
+        await new Promise((resolve) => setTimeout(resolve, CITYPAK_BULK_CREATE_GAP_MS));
+      }
+      const citypak = await createCitypakManualShipment({
+        companyId,
+        courierServiceName,
+        accountDbId: manual.citypakAccountDbId,
+        reference: manual.reference,
+        shipment: manual,
+      });
+      citypakCreates += 1;
+      results.push({
+        orderId: "",
+        waybillId: citypak.status === "booked" ? citypak.waybillId ?? null : null,
+        ref: manual.reference,
+        success: citypak.status === "booked",
+        citypakStatus: citypak.status,
+        citypakError: citypak.status === "falcon" ? citypak.error : undefined,
+        citypakTracking: citypak.status === "booked" ? citypak.trackingNumber : null,
+        error: citypak.status === "falcon" ? citypak.error : undefined,
+        manual: true,
+      });
+    } catch (err) {
+      console.error("[bulk-dispatch] manual CityPak error", err);
+      results.push({
+        orderId: "",
+        ref: manual.reference,
+        success: false,
+        error: "Internal error",
+        manual: true,
+      });
     }
   }
 

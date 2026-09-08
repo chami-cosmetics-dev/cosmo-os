@@ -298,6 +298,29 @@ export const trimmedString = (min: number, max: number) =>
     .refine((s) => s.length >= min, `Minimum ${min} character(s)`)
     .refine((s) => s.length <= max, `Maximum ${max} character(s)`);
 
+/** Editable CityPak receiver fields sent with City Pack dispatch. */
+export const citypakShipmentOverrideSchema = z.object({
+  receiverName: trimmedString(1, 80),
+  receiverAddress1: trimmedString(1, 120),
+  receiverAddress2: z
+    .string()
+    .max(120)
+    .optional()
+    .transform((value) => (value ?? "").trim()),
+  receiverCity: trimmedString(1, 80),
+  receiverPhone: trimmedString(9, 20),
+  cashOnDeliveryAmount: z.coerce.number().min(0).max(1_000_000).optional(),
+});
+
+export const citypakBulkShipmentOverrideSchema = citypakShipmentOverrideSchema.extend({
+  orderId: cuidSchema,
+});
+
+export const citypakManualShipmentSchema = citypakShipmentOverrideSchema.extend({
+  reference: trimmedString(1, 64),
+  citypakAccountDbId: cuidSchema,
+});
+
 /** Required rejection reason for ORDER_PAYMENT_APPROVAL reject. */
 export const orderPaymentRejectionReasonSchema = trimmedString(
   LIMITS.orderPaymentRejectionReason.min,

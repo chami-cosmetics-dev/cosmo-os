@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Loader2, Truck } from "lucide-react";
 
 import { useFulfillmentPermissions } from "@/components/contexts/fulfillment-permissions-context";
+import { CitypakShipmentReviewDialog } from "@/components/molecules/citypak-shipment-review-dialog";
 import { FulfillmentOrderReference } from "@/components/molecules/fulfillment-order-reference";
 import { OrderShippingLine } from "@/components/molecules/order-shipping-line";
 import { Button } from "@/components/ui/button";
@@ -15,6 +16,8 @@ import {
   parseDispatchService,
 } from "@/lib/order-dispatch";
 import { isExplicitlyPackageReady } from "@/lib/fulfillment-stage-display";
+import { draftCitypakShipmentFields, type CitypakShipmentOverride } from "@/lib/citypak-api";
+import { isCitypakCourier } from "@/lib/courier";
 import type { FulfillmentOrder } from "./fulfillment-order-selector";
 
 type OrderPackageStatus = {
@@ -30,9 +33,13 @@ type DispatchOrderDetail = {
   orderNumber: string | null;
   totalPrice: string;
   currency: string | null;
+  financialStatus?: string | null;
+  paymentGatewayPrimary?: string | null;
+  paymentGatewayNames?: string[] | null;
   customerEmail: string | null;
   customerPhone: string | null;
   shippingAddress: unknown;
+  billingAddress?: unknown;
   totalShipping?: string | null;
   shippingRuleLabel?: string | null;
   lineItems: Array<{
@@ -72,6 +79,7 @@ export function FulfillmentDispatchPanel({
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [detail, setDetail] = useState<DispatchOrderDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [citypakReviewOpen, setCitypakReviewOpen] = useState(false);
 
   const isBusy = busyKey !== null;
   const isOnHold = !!packageStatus?.packageOnHoldAt;
@@ -123,12 +131,31 @@ export function FulfillmentDispatchPanel({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body ?? { action }),
       });
-      const data = (await res.json()) as { error?: string };
+      const data = (await res.json()) as {
+        error?: string;
+        citypakStatus?: "skipped" | "booked" | "falcon";
+        citypakError?: string;
+        citypakTracking?: string | null;
+      };
       if (!res.ok) {
         notify.error(data.error ?? "Action failed");
         return false;
       }
-      if (!opts?.silent) notify.success("Updated.");
+      if (!opts?.silent) {
+        if (action === "dispatch" && data.citypakStatus === "falcon") {
+          notify.error(
+            `Dispatched. CityPak API failed — use Falcon Upload. ${data.citypakError ?? ""}`.trim()
+          );
+        } else if (action === "dispatch" && data.citypakStatus === "booked") {
+          notify.success(
+            data.citypakTracking
+              ? `Dispatched. CityPak waybill ${data.citypakTracking}. Open Print waybill on the order.`
+              : "Dispatched to CityPak."
+          );
+        } else {
+          notify.success(action === "dispatch" ? "Dispatched." : "Updated.");
+        }
+      }
       setHoldReasonId("");
       setDispatchService("");
       if (action === "dispatch") {
@@ -174,9 +201,27 @@ export function FulfillmentDispatchPanel({
 
   async function handleDispatch() {
     if (!orderId || !lookups || !selectedDispatchService) return;
+    const courierName =
+      selectedDispatchService.type === "courier"
+        ? lookups.courierServices.find((courier) => courier.id === selectedDispatchService.id)?.name
+        : null;
+    if (isCitypakCourier(courierName)) {
+      setCitypakReviewOpen(true);
+      return;
+    }
     await doAction("dispatch", {
       action: "dispatch",
       ...dispatchSelectionToApiBody(selectedDispatchService),
+    });
+  }
+
+  async function confirmCitypakDispatch(shipments: Array<CitypakShipmentOverride & { orderId: string }>) {
+    if (!orderId || !lookups || !selectedDispatchService) return;
+    setCitypakReviewOpen(false);
+    await doAction("dispatch", {
+      action: "dispatch",
+      ...dispatchSelectionToApiBody(selectedDispatchService),
+      citypakShipment: shipments[0],
     });
   }
 
@@ -202,6 +247,34 @@ export function FulfillmentDispatchPanel({
 
   const currency = detail?.currency ?? order?.currency;
   const selectedDispatchService = parseDispatchService(dispatchService);
+  const citypakDispatchSelected =
+    selectedDispatchService?.type === "courier" &&
+    isCitypakCourier(
+      lookups?.courierServices.find((courier) => courier.id === selectedDispatchService.id)?.name
+    );
+  const citypakReview = orderId ? (
+    <CitypakShipmentReviewDialog
+      open={citypakReviewOpen}
+      rows={[
+        {
+          orderId,
+          ref: order?.name ?? order?.orderNumber ?? orderId,
+          draft: draftCitypakShipmentFields({
+            shippingAddress: detail?.shippingAddress,
+            billingAddress: detail?.billingAddress,
+            customerPhone: detail?.customerPhone ?? order?.customerPhone,
+            financialStatus: detail?.financialStatus,
+            paymentGatewayPrimary: detail?.paymentGatewayPrimary ?? order?.paymentGatewayPrimary,
+            paymentGatewayNames: detail?.paymentGatewayNames ?? order?.paymentGatewayNames,
+            totalPrice: detail?.totalPrice ?? order?.totalPrice,
+          }),
+        },
+      ]}
+      confirming={busyKey === "dispatch"}
+      onOpenChange={setCitypakReviewOpen}
+      onConfirm={(shipments) => void confirmCitypakDispatch(shipments)}
+    />
+  ) : null;
 
   const actionBar = lookups && (!orderId || packageStatus !== null) ? (
     <div className="flex flex-wrap items-end gap-3 rounded-md border border-border/70 p-3">
@@ -304,7 +377,7 @@ export function FulfillmentDispatchPanel({
                   {busyKey === "dispatch"
                     ? <Loader2 className="size-4 animate-spin" />
                     : <Truck className="size-4" />}
-                  Dispatch
+                  {citypakDispatchSelected ? "Review CityPak" : "Dispatch"}
                 </Button>
               )}
               {!actionsOnly && !perms.canDispatch && (
@@ -318,7 +391,12 @@ export function FulfillmentDispatchPanel({
   ) : null;
 
   if (actionsOnly) {
-    return actionBar;
+    return (
+      <>
+        {actionBar}
+        {citypakReview}
+      </>
+    );
   }
 
   return (
@@ -404,6 +482,7 @@ export function FulfillmentDispatchPanel({
       </div>
 
       {actionBar}
+      {citypakReview}
     </div>
   );
 }

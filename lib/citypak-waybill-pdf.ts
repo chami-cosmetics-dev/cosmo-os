@@ -1,0 +1,170 @@
+import { put } from "@vercel/blob";
+import { Prisma } from "@prisma/client";
+import { PDFDocument } from "pdf-lib";
+
+import {
+  CITYPAK_WAYBILL_SOURCE,
+  downloadCitypakWaybillPdf,
+} from "@/lib/citypak-api";
+import { prisma } from "@/lib/prisma";
+
+function asRecord(value: Prisma.JsonValue | null | undefined): Record<string, unknown> {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return {};
+}
+
+function readString(record: Record<string, unknown>, key: string) {
+  const value = record[key];
+  return typeof value === "string" && value.trim() ? value.trim() : "";
+}
+
+async function fetchBlobBytes(blobUrl: string): Promise<Buffer | null> {
+  try {
+    const blobRes = await fetch(
+      blobUrl,
+      process.env.BLOB_READ_WRITE_TOKEN
+        ? { headers: { Authorization: `Bearer ${process.env.BLOB_READ_WRITE_TOKEN}` } }
+        : undefined,
+    );
+    if (!blobRes.ok) return null;
+    return Buffer.from(await blobRes.arrayBuffer());
+  } catch {
+    return null;
+  }
+}
+
+export async function cacheCitypakWaybillPdf(input: {
+  companyId: string;
+  folderKey: string;
+  trackingNumber: string;
+  bytes: Buffer;
+}): Promise<string | null> {
+  try {
+    const blob = await put(
+      `citypak-waybills/${input.companyId}/${input.folderKey}/${input.trackingNumber}.pdf`,
+      input.bytes,
+      {
+        access: "private",
+        addRandomSuffix: true,
+        contentType: "application/pdf",
+      },
+    );
+    return blob.url;
+  } catch (err) {
+    console.error("[citypak-waybill-pdf] blob put failed", err);
+    return null;
+  }
+}
+
+export async function loadCitypakWaybillPdf(input: {
+  companyId: string;
+  orderId?: string;
+  waybillId?: string;
+}): Promise<
+  | { ok: true; bytes: Buffer; trackingNumber: string; filename: string }
+  | { ok: false; error: string; status: number }
+> {
+  const waybill = input.waybillId
+    ? await prisma.orderWaybill.findFirst({
+        where: {
+          id: input.waybillId,
+          companyId: input.companyId,
+          source: CITYPAK_WAYBILL_SOURCE,
+        },
+        select: { id: true, waybillNo: true, orderId: true, rawPayload: true },
+      })
+    : input.orderId
+      ? await prisma.orderWaybill.findFirst({
+          where: {
+            companyId: input.companyId,
+            orderId: input.orderId,
+            source: CITYPAK_WAYBILL_SOURCE,
+          },
+          orderBy: { createdAt: "desc" },
+          select: { id: true, waybillNo: true, orderId: true, rawPayload: true },
+        })
+      : null;
+
+  if (!waybill) {
+    return { ok: false, error: "No CityPak waybill booked for this request", status: 404 };
+  }
+
+  const payload = asRecord(waybill.rawPayload);
+  const trackingNumber = waybill.waybillNo;
+  const filename = `citypak-waybill-${trackingNumber}.pdf`;
+
+  const storedUrl = readString(payload, "waybillPdfUrl");
+  if (storedUrl) {
+    const cached = await fetchBlobBytes(storedUrl);
+    if (cached) {
+      return { ok: true, bytes: cached, trackingNumber, filename };
+    }
+  }
+
+  const citypakOrderId = readString(payload, "citypakOrderId");
+  if (!citypakOrderId) {
+    return { ok: false, error: "CityPak order id missing — cannot download waybill PDF", status: 404 };
+  }
+
+  const accountDbId = readString(payload, "citypakAccountDbId");
+  const accountId = readString(payload, "citypakAccountId");
+  const account = accountDbId
+    ? await prisma.citypakAccount.findFirst({
+        where: { id: accountDbId, companyId: input.companyId },
+        select: { apiToken: true },
+      })
+    : accountId
+      ? await prisma.citypakAccount.findFirst({
+          where: { companyId: input.companyId, accountId },
+          select: { apiToken: true },
+        })
+      : null;
+
+  if (!account?.apiToken) {
+    return { ok: false, error: "CityPak API token not found for this waybill", status: 404 };
+  }
+
+  const downloaded = await downloadCitypakWaybillPdf({
+    token: account.apiToken,
+    citypakOrderId,
+  });
+  if (!downloaded.ok) {
+    return { ok: false, error: downloaded.error, status: downloaded.status ?? 502 };
+  }
+
+  const blobUrl = await cacheCitypakWaybillPdf({
+    companyId: input.companyId,
+    folderKey: waybill.orderId ?? waybill.id,
+    trackingNumber,
+    bytes: downloaded.bytes,
+  });
+  if (blobUrl) {
+    await prisma.orderWaybill.update({
+      where: { id: waybill.id },
+      data: {
+        rawPayload: { ...payload, waybillPdfUrl: blobUrl } as Prisma.InputJsonValue,
+      },
+    });
+  }
+
+  return { ok: true, bytes: downloaded.bytes, trackingNumber, filename };
+}
+
+export async function loadCitypakWaybillPdfForOrder(input: {
+  companyId: string;
+  orderId: string;
+}) {
+  return loadCitypakWaybillPdf({ companyId: input.companyId, orderId: input.orderId });
+}
+
+export async function mergeCitypakWaybillPdfs(parts: Buffer[]) {
+  const merged = await PDFDocument.create();
+  for (const part of parts) {
+    const doc = await PDFDocument.load(part);
+    const pages = await merged.copyPages(doc, doc.getPageIndices());
+    for (const page of pages) merged.addPage(page);
+  }
+  return Buffer.from(await merged.save());
+}

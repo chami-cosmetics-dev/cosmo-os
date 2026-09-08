@@ -55,7 +55,11 @@ import {
   shouldBlockShopifyCancelInOs,
   VAULT_SHOPIFY_CANCEL_BLOCKED_MESSAGE,
 } from "@/lib/shopify-admin";
+import { draftCitypakShipmentFields } from "@/lib/citypak-api";
+import { isCitypakCourier } from "@/lib/courier";
 import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
+import { CitypakShipmentReviewDialog } from "@/components/molecules/citypak-shipment-review-dialog";
+import { PrintCitypakWaybillButton } from "@/components/molecules/print-citypak-waybill-button";
 import { OrderReplaceLinkPanel } from "@/components/molecules/order-replace-link-panel";
 
 const STAGES = [
@@ -107,6 +111,8 @@ type OrderDetail = {
   shippingRuleLabel?: string | null;
   currency: string | null;
   financialStatus: string | null;
+  paymentGatewayPrimary?: string | null;
+  paymentGatewayNames?: string[] | null;
   fulfillmentStatus: string | null;
   deliveryOutcome?: "pending" | "delivered" | "failed" | null;
   deliveryFailedReason?: string | null;
@@ -289,6 +295,7 @@ export function OrderFulfillmentDetail({
   const [showCancelDialog, setShowCancelDialog] = useState(false);
   const [cancelOrderReason, setCancelOrderReason] = useState("");
   const [cancelKind, setCancelKind] = useState<OrderCancelKindChoice | "">("");
+  const [citypakReviewOpen, setCitypakReviewOpen] = useState(false);
 
   const isBusy = busyKey !== null;
   const stage = (orderDetail?.fulfillmentStage ?? "order_received") as FulfillmentStage;
@@ -317,12 +324,30 @@ export function OrderFulfillmentDetail({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body ?? { action }),
       });
-      const data = (await res.json()) as { success?: boolean; error?: string };
+      const data = (await res.json()) as {
+        success?: boolean;
+        error?: string;
+        citypakStatus?: "skipped" | "booked" | "falcon";
+        citypakError?: string;
+        citypakTracking?: string | null;
+      };
       if (!res.ok) {
         notify.error(data.error ?? "Action failed");
         return;
       }
-      notify.success("Updated.");
+      if (action === "dispatch" && data.citypakStatus === "falcon") {
+        notify.error(
+          `Dispatched. CityPak API failed — use Falcon Upload. ${data.citypakError ?? ""}`.trim()
+        );
+      } else if (action === "dispatch" && data.citypakStatus === "booked") {
+        notify.success(
+          data.citypakTracking
+            ? `Dispatched. CityPak waybill ${data.citypakTracking}. Print waybill below.`
+            : "Dispatched to CityPak."
+        );
+      } else {
+        notify.success(action === "dispatch" ? "Dispatched." : "Updated.");
+      }
       onRefresh();
     } catch {
       notify.error("Action failed");
@@ -672,16 +697,29 @@ export function OrderFulfillmentDetail({
                     )}
                   </select>
                   <Button
-                    onClick={() =>
-                      doFulfillmentAction("dispatch", {
+                    onClick={() => {
+                      if (!selectedDispatchService) return;
+                      const courierName =
+                        selectedDispatchService.type === "courier"
+                          ? lookups.courierServices.find((c) => c.id === selectedDispatchService.id)?.name
+                          : null;
+                      if (isCitypakCourier(courierName)) {
+                        setCitypakReviewOpen(true);
+                        return;
+                      }
+                      void doFulfillmentAction("dispatch", {
                         action: "dispatch",
-                        ...dispatchSelectionToApiBody(selectedDispatchService!),
-                      })
-                    }
+                        ...dispatchSelectionToApiBody(selectedDispatchService),
+                      });
+                    }}
                     disabled={isBusy || !selectedDispatchService}
                   >
                     {busyKey === "dispatch" ? <Loader2 className="size-4 animate-spin" /> : <Truck className="size-4" />}
-                    Dispatch
+                    {lookups && selectedDispatchService?.type === "courier" && isCitypakCourier(
+                      lookups.courierServices.find((c) => c.id === selectedDispatchService.id)?.name
+                    )
+                      ? "Review CityPak"
+                      : "Dispatch"}
                   </Button>
                 </div>
               </div>
@@ -691,6 +729,11 @@ export function OrderFulfillmentDetail({
             {!isPos && (stage === "dispatched" || stage === "delivery_complete") && (
               <div className="rounded-lg border p-4">
                 <h4 className="mb-2 text-sm font-medium">Delivery Complete</h4>
+                {isCitypakCourier(orderDetail.dispatchedByCourierService?.name) && orderId && (
+                  <div className="mb-3">
+                    <PrintCitypakWaybillButton orderId={orderId} />
+                  </div>
+                )}
                 {orderDetail.deliveryCompleteAt ? (
                   <p className="text-muted-foreground text-sm">
                     {formatDeliveredTimelineWho({
@@ -1221,6 +1264,37 @@ export function OrderFulfillmentDetail({
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+    {orderDetail && (
+      <CitypakShipmentReviewDialog
+        open={citypakReviewOpen}
+        rows={[
+          {
+            orderId: orderDetail.id,
+            ref: orderDetail.name ?? orderDetail.orderNumber ?? orderDetail.shopifyOrderId,
+            draft: draftCitypakShipmentFields({
+              shippingAddress: orderDetail.shippingAddress,
+              billingAddress: orderDetail.billingAddress,
+              customerPhone: orderDetail.customerPhone,
+              financialStatus: orderDetail.financialStatus,
+              paymentGatewayPrimary: orderDetail.paymentGatewayPrimary,
+              paymentGatewayNames: orderDetail.paymentGatewayNames,
+              totalPrice: orderDetail.totalPrice,
+            }),
+          },
+        ]}
+        confirming={busyKey === "dispatch"}
+        onOpenChange={setCitypakReviewOpen}
+        onConfirm={(shipments) => {
+          if (!selectedDispatchService) return;
+          setCitypakReviewOpen(false);
+          void doFulfillmentAction("dispatch", {
+            action: "dispatch",
+            ...dispatchSelectionToApiBody(selectedDispatchService),
+            citypakShipment: shipments[0],
+          });
+        }}
+      />
+    )}
     </>
   );
 }

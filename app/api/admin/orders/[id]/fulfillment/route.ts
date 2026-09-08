@@ -5,14 +5,14 @@ import { randomBytes } from "crypto";
 import { prisma } from "@/lib/prisma";
 import { writeAuditLog } from "@/lib/audit-log";
 import { hasPermission, requireAnyPermission } from "@/lib/rbac";
-import { cuidSchema } from "@/lib/validation";
+import { citypakShipmentOverrideSchema, cuidSchema } from "@/lib/validation";
 import { getDeliveryUrl, resolveCustomerPhone, resolveOrderInvoiceNumber, resolveOrderNumber, sendOrderSms } from "@/lib/order-sms";
 import { DISPATCHABLE_STAGES, printFieldsOnDispatchIfUnprinted } from "@/lib/fulfillment-permissions";
 import {
   buildReturnRemarkText,
   RETURN_REMARK_TEMPLATE_CODES,
 } from "@/lib/return-remark-templates";
-import type { FulfillmentStage } from "@prisma/client";
+import { Prisma, type FulfillmentStage } from "@prisma/client";
 import {
   calculateExchangePaymentDifference,
   orderDisplayLabel,
@@ -42,6 +42,7 @@ import { getErpOutOfStockFulfillmentBlock } from "@/lib/erp-fulfillment-block";
 import { isExplicitlyPackageReady } from "@/lib/fulfillment-stage-display";
 import { releaseKokoReferencesForOrder } from "@/lib/koko-approval-references";
 import { formatAppIsoCalendarDate } from "@/lib/format-datetime";
+import { citypakOverrideOrderPatch, ensureCitypakShipmentForDispatch } from "@/lib/citypak-dispatch";
 
 const addSampleSchema = z.object({
   sampleFreeIssueItemId: cuidSchema,
@@ -81,6 +82,7 @@ const fulfillmentActionSchema = z.discriminatedUnion("action", [
     riderId: cuidSchema.optional(),
     courierServiceId: cuidSchema.optional(),
     dispatchToCustomer: z.boolean().optional(),
+    citypakShipment: citypakShipmentOverrideSchema.optional(),
   }),
   z.object({
     action: z.literal("mark_invoice_complete"),
@@ -746,6 +748,7 @@ export async function PATCH(
       }
 
       let riderDeliveryToken: string | null = null;
+      let courierServiceName: string | null = null;
       if (data.riderId) {
         const rider = await prisma.user.findFirst({
           where: { id: data.riderId, companyId },
@@ -765,6 +768,7 @@ export async function PATCH(
         if (!svc) {
           return NextResponse.json({ error: "Courier service not found" }, { status: 400 });
         }
+        courierServiceName = svc.name;
       }
 
       const [rearrangedReturn, exchange] = data.riderId
@@ -864,6 +868,17 @@ export async function PATCH(
           lastPrintedAt: order.lastPrintedAt,
         });
       const userId = auth.context!.user!.id;
+      const citypakShipment = data.citypakShipment;
+      const citypakAddressPatch = citypakShipment
+        ? citypakOverrideOrderPatch({
+            shippingAddress: order.shippingAddress,
+            override: citypakShipment,
+          })
+        : null;
+      if (citypakAddressPatch) {
+        order.shippingAddress = citypakAddressPatch.shippingAddress as typeof order.shippingAddress;
+        order.customerPhone = citypakAddressPatch.customerPhone;
+      }
 
       const updated = await prisma.order.update({
         where: { id: order.id },
@@ -885,6 +900,12 @@ export async function PATCH(
           deliveryFailedReason: null,
           lastRiderUpdateAt: data.riderId ? now : null,
           riderDeliveryToken: dispatchToCustomer ? null : riderDeliveryToken,
+          ...(citypakAddressPatch
+            ? {
+                shippingAddress: citypakAddressPatch.shippingAddress as Prisma.InputJsonValue,
+                customerPhone: citypakAddressPatch.customerPhone,
+              }
+            : {}),
         },
         include: {
           companyLocation: true,
@@ -984,7 +1005,22 @@ export async function PATCH(
         },
       });
       await Promise.allSettled(smsTasks);
-      return NextResponse.json({ success: true });
+      const citypak = data.courierServiceId
+        ? await ensureCitypakShipmentForDispatch({
+            companyId,
+            courierServiceName,
+            order,
+            shipmentOverride: citypakShipment,
+          })
+        : { status: "skipped" as const };
+      return NextResponse.json({
+        success: true,
+        citypakStatus: citypak.status,
+        ...(citypak.status === "booked"
+          ? { citypakTracking: citypak.trackingNumber, citypakWaybillId: citypak.waybillId ?? null }
+          : {}),
+        ...(citypak.status === "falcon" ? { citypakError: citypak.error } : {}),
+      });
     }
 
     if (data.action === "mark_invoice_complete") {
