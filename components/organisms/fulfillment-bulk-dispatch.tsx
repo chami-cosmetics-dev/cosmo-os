@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Check, ChevronsUpDown, Loader2, Truck, X } from "lucide-react";
 
 import { useFulfillmentPermissions } from "@/components/contexts/fulfillment-permissions-context";
-import { CitypakShipmentReview, type CitypakReviewConfirm, type CitypakReviewRow } from "@/components/molecules/citypak-shipment-review-dialog";
+import { CitypakShipmentReviewDialog, type CitypakReviewConfirm, type CitypakReviewRow } from "@/components/molecules/citypak-shipment-review-dialog";
 import { FulfillmentOrderReference } from "@/components/molecules/fulfillment-order-reference";
 import { OrderShippingLine } from "@/components/molecules/order-shipping-line";
 import { PrintCitypakWaybillButton, PrintCitypakWaybillPackButton } from "@/components/molecules/print-citypak-waybill-button";
@@ -843,22 +843,19 @@ export function FulfillmentBulkDispatch({
         </div>
       )}
 
-      {citypakReviewOpen && citypakReviewRows.length > 0 && (
-        <div className="rounded-md border border-primary/40 bg-muted/10 p-3">
-          <CitypakShipmentReview
-            key={citypakReviewNonce}
-            rows={citypakReviewRows}
-            accounts={lookups?.citypakAccounts ?? []}
-            allowManual
-            confirming={dispatching}
-            onCancel={() => setCitypakReviewOpen(false)}
-            onConfirm={(payload) => {
-              setCitypakReviewOpen(false);
-              void executeDispatch(payload);
-            }}
-          />
-        </div>
-      )}
+      <CitypakShipmentReviewDialog
+        key={citypakReviewNonce}
+        open={citypakReviewOpen}
+        rows={citypakReviewRows}
+        accounts={lookups?.citypakAccounts ?? []}
+        allowManual
+        confirming={dispatching}
+        onOpenChange={setCitypakReviewOpen}
+        onConfirm={(payload) => {
+          setCitypakReviewOpen(false);
+          void executeDispatch(payload);
+        }}
+      />
 
       {/* Detail panel — always visible, static structure, data swaps per active order */}
       {(() => {

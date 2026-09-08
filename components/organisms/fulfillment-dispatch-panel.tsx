@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Loader2, Truck } from "lucide-react";
 
 import { useFulfillmentPermissions } from "@/components/contexts/fulfillment-permissions-context";
-import { CitypakShipmentReviewDialog } from "@/components/molecules/citypak-shipment-review-dialog";
+import { CitypakShipmentReviewDialog, type CitypakReviewConfirm } from "@/components/molecules/citypak-shipment-review-dialog";
 import { FulfillmentOrderReference } from "@/components/molecules/fulfillment-order-reference";
 import { OrderShippingLine } from "@/components/molecules/order-shipping-line";
 import { Button } from "@/components/ui/button";
@@ -16,7 +16,7 @@ import {
   parseDispatchService,
 } from "@/lib/order-dispatch";
 import { isExplicitlyPackageReady } from "@/lib/fulfillment-stage-display";
-import { draftCitypakShipmentFields, type CitypakShipmentOverride } from "@/lib/citypak-api";
+import { draftCitypakShipmentFields } from "@/lib/citypak-api";
 import { isCitypakCourier } from "@/lib/courier";
 import type { FulfillmentOrder } from "./fulfillment-order-selector";
 
@@ -215,13 +215,15 @@ export function FulfillmentDispatchPanel({
     });
   }
 
-  async function confirmCitypakDispatch(shipments: Array<CitypakShipmentOverride & { orderId: string }>) {
+  async function confirmCitypakDispatch(payload: CitypakReviewConfirm) {
     if (!orderId || !lookups || !selectedDispatchService) return;
+    const shipment = payload.orderShipments[0];
+    if (!shipment) return;
     setCitypakReviewOpen(false);
     await doAction("dispatch", {
       action: "dispatch",
       ...dispatchSelectionToApiBody(selectedDispatchService),
-      citypakShipment: shipments[0],
+      citypakShipment: shipment,
     });
   }
 
