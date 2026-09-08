@@ -11,7 +11,6 @@ import { cuidSchema } from "@/lib/validation";
 import { orderStageUpdate } from "@/lib/order-stage-timing";
 import { getErpOutOfStockFulfillmentBlock } from "@/lib/erp-fulfillment-block";
 import { isExplicitlyPackageReady } from "@/lib/fulfillment-stage-display";
-import { ensureCitypakShipmentForDispatch } from "@/lib/citypak-dispatch";
 import {
   createOrGetOrderPaymentApproval,
   getFinancePaymentApprovalBlockReason,
@@ -26,7 +25,7 @@ const schema = z.object({
 });
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 120;
+export const maxDuration = 60;
 
 async function getCompanyId(userId: string) {
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { companyId: true } });
@@ -55,7 +54,6 @@ export async function POST(request: NextRequest) {
 
   // Validate rider / courier once up front
   let riderMobile: string | null = null;
-  let courierServiceName: string | null = null;
   if (riderId) {
     const rider = await prisma.user.findFirst({
       where: { id: riderId, companyId },
@@ -69,7 +67,6 @@ export async function POST(request: NextRequest) {
   if (courierServiceId) {
     const svc = await prisma.courierService.findFirst({ where: { id: courierServiceId, companyId } });
     if (!svc) return NextResponse.json({ error: "Courier service not found" }, { status: 400 });
-    courierServiceName = svc.name;
   }
 
   const now = new Date();
@@ -92,10 +89,6 @@ export async function POST(request: NextRequest) {
           packageOnHoldAt: true,
           customerPhone: true,
           shippingAddress: true,
-          billingAddress: true,
-          rawPayload: true,
-          sourceName: true,
-          financialStatus: true,
           erpnextInvoiceId: true,
           erpnextSyncError: true,
           paymentGatewayPrimary: true,
@@ -167,18 +160,6 @@ export async function POST(request: NextRequest) {
       }
 
       const riderDeliveryToken = riderId ? randomBytes(16).toString("hex") : null;
-
-      if (courierServiceId) {
-        const citypak = await ensureCitypakShipmentForDispatch({
-          companyId,
-          courierServiceName,
-          order,
-        });
-        if (!citypak.ok) {
-          results.push({ orderId, ref, success: false, error: citypak.error });
-          continue;
-        }
-      }
 
       // Auto-mark ready if not already — same as single dispatch
       const needsMarkReady =
