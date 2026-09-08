@@ -37,14 +37,17 @@ export function PrintCitypakWaybillButton({
 export function PrintCitypakWaybillPackButton({
   orderIds,
   waybillIds,
+  label,
 }: {
   orderIds: string[];
   waybillIds: string[];
+  label?: string;
 }) {
   const params = new URLSearchParams();
   if (orderIds.length) params.set("orderIds", orderIds.join(","));
   if (waybillIds.length) params.set("waybillIds", waybillIds.join(","));
   if (!orderIds.length && !waybillIds.length) return null;
+  const count = orderIds.length + waybillIds.length;
   return (
     <Button asChild className="gap-2">
       <a
@@ -53,7 +56,7 @@ export function PrintCitypakWaybillPackButton({
         rel="noreferrer"
       >
         <Printer className="size-4" aria-hidden />
-        Print all waybills
+        {label ?? `Print all waybills (${count})`}
       </a>
     </Button>
   );

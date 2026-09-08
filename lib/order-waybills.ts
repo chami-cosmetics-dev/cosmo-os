@@ -3,11 +3,14 @@ import { randomUUID } from "crypto";
 
 import { resolveSourcePrimaryOrderRef } from "@/lib/fulfillment-order-reference";
 import type {
+  CitypakApiWaybillBatchRow,
+  CitypakApiWaybillHistoryRow,
   WaybillLookupPageData,
   WaybillPendingRow,
   WaybillRematchSummary,
   WaybillUploadHistoryRow,
 } from "@/lib/page-data/waybill-lookup-types";
+import { CITYPAK_API_BATCH_FILE_TYPE, CITYPAK_WAYBILL_SOURCE } from "@/lib/citypak-api";
 import { prisma } from "@/lib/prisma";
 
 /** Default batch size for interactive rematch (button / optional rematch=1). */
@@ -350,6 +353,7 @@ export async function listWaybillUploads(
       FROM "WaybillUpload" wu
       LEFT JOIN "User" u ON u."id" = wu."uploadedById"
       WHERE wu."companyId" = ${companyId}
+        AND wu."fileType" <> ${CITYPAK_API_BATCH_FILE_TYPE}
       ORDER BY wu."createdAt" DESC
       LIMIT ${take}
     `
@@ -571,6 +575,299 @@ export async function deleteWaybillUpload(input: {
   };
 }
 
+export async function createCitypakApiDispatchBatch(input: {
+  companyId: string;
+  uploadedById: string | null;
+  plannedTotal: number;
+}): Promise<string> {
+  const uploadId = randomUUID();
+  const now = new Date();
+  const stamp = now.toISOString().slice(0, 16).replace("T", " ");
+  const fileName = `CityPak API · ${stamp}`;
+  await prisma.$executeRaw(
+    Prisma.sql`
+      INSERT INTO "WaybillUpload" (
+        "id",
+        "companyId",
+        "uploadedById",
+        "fileName",
+        "fileType",
+        "totalRows",
+        "status",
+        "createdAt",
+        "updatedAt"
+      )
+      VALUES (
+        ${uploadId},
+        ${input.companyId},
+        ${input.uploadedById},
+        ${fileName},
+        ${CITYPAK_API_BATCH_FILE_TYPE},
+        ${Math.max(input.plannedTotal, 0)},
+        ${"processing"},
+        ${now},
+        ${now}
+      )
+    `
+  );
+  return uploadId;
+}
+
+export async function finalizeCitypakApiDispatchBatch(input: {
+  companyId: string;
+  uploadId: string;
+  booked: number;
+  falconFallback: number;
+  plannedTotal: number;
+  dispatchedByName?: string | null;
+}): Promise<void> {
+  if (input.booked <= 0) {
+    await prisma.$executeRaw(
+      Prisma.sql`
+        DELETE FROM "WaybillUpload"
+        WHERE "id" = ${input.uploadId}
+          AND "companyId" = ${input.companyId}
+          AND "fileType" = ${CITYPAK_API_BATCH_FILE_TYPE}
+      `
+    );
+    return;
+  }
+
+  const now = new Date();
+  const stamp = now.toISOString().slice(0, 16).replace("T", " ");
+  const byLabel = input.dispatchedByName?.trim()
+    ? ` · by ${input.dispatchedByName.trim()}`
+    : "";
+  const fileName = `CityPak API · ${stamp}${byLabel} · ${input.booked} booked`;
+  const summary = {
+    booked: input.booked,
+    falconFallback: input.falconFallback,
+    plannedTotal: input.plannedTotal,
+    dispatchedByName: input.dispatchedByName?.trim() || null,
+  };
+  await prisma.$executeRaw(
+    Prisma.sql`
+      UPDATE "WaybillUpload"
+      SET
+        "fileName" = ${fileName},
+        "totalRows" = ${input.plannedTotal},
+        "importedRows" = ${input.booked},
+        "invalidRows" = ${input.falconFallback},
+        "unmatchedRows" = 0,
+        "status" = ${"completed"},
+        "summary" = ${JSON.stringify(summary)}::jsonb,
+        "updatedAt" = ${now}
+      WHERE "id" = ${input.uploadId}
+        AND "companyId" = ${input.companyId}
+    `
+  );
+}
+
+function mapCitypakApiWaybillRow(row: {
+  id: string;
+  waybillNo: string;
+  invoiceNumber: string;
+  courierName: string | null;
+  orderId: string | null;
+  rawPayload: Prisma.JsonValue | null;
+  createdAt: Date;
+  order: {
+    id: string;
+    name: string | null;
+    orderNumber: string | null;
+    shopifyOrderId: string | null;
+    erpnextInvoiceId: string | null;
+    sourceName: string | null;
+  } | null;
+}): CitypakApiWaybillHistoryRow {
+  const payload =
+    row.rawPayload && typeof row.rawPayload === "object" && !Array.isArray(row.rawPayload)
+      ? (row.rawPayload as Record<string, unknown>)
+      : null;
+  const manual = payload?.manual === true;
+  const orderLabel = row.order
+    ? resolveSourcePrimaryOrderRef({
+        id: row.order.id,
+        name: row.order.name,
+        orderNumber: row.order.orderNumber,
+        shopifyOrderId: row.order.shopifyOrderId,
+        erpnextInvoiceId: row.order.erpnextInvoiceId,
+        sourceName: row.order.sourceName,
+      })
+    : null;
+  return {
+    id: row.id,
+    waybillNo: row.waybillNo,
+    invoiceNumber: row.invoiceNumber,
+    courierName: row.courierName,
+    orderId: row.orderId,
+    orderLabel,
+    manual,
+    createdAt: toIso(row.createdAt) ?? new Date().toISOString(),
+  };
+}
+
+export async function listCitypakApiWaybillBatches(
+  companyId: string,
+  options?: { take?: number }
+): Promise<CitypakApiWaybillBatchRow[]> {
+  const take = Math.min(Math.max(options?.take ?? 40, 1), 100);
+
+  const batches = await prisma.$queryRaw<
+    Array<{
+      id: string;
+      fileName: string;
+      importedRows: number;
+      createdAt: Date;
+      summary: Prisma.JsonValue | null;
+      uploadedById: string | null;
+      uploadedByName: string | null;
+      uploadedByEmail: string | null;
+    }>
+  >(
+    Prisma.sql`
+      SELECT
+        wu."id",
+        wu."fileName",
+        wu."importedRows",
+        wu."createdAt",
+        wu."summary",
+        wu."uploadedById",
+        u."name" AS "uploadedByName",
+        u."email" AS "uploadedByEmail"
+      FROM "WaybillUpload" wu
+      LEFT JOIN "User" u ON u."id" = wu."uploadedById"
+      WHERE wu."companyId" = ${companyId}
+        AND wu."fileType" = ${CITYPAK_API_BATCH_FILE_TYPE}
+        AND wu."status" = ${"completed"}
+      ORDER BY wu."createdAt" DESC
+      LIMIT ${take}
+    `
+  );
+
+  const batchIds = batches.map((batch) => batch.id);
+  const waybills =
+    batchIds.length === 0
+      ? []
+      : await prisma.orderWaybill.findMany({
+          where: {
+            companyId,
+            source: CITYPAK_WAYBILL_SOURCE,
+            uploadId: { in: batchIds },
+          },
+          orderBy: { createdAt: "asc" },
+          select: {
+            id: true,
+            uploadId: true,
+            waybillNo: true,
+            invoiceNumber: true,
+            courierName: true,
+            orderId: true,
+            rawPayload: true,
+            createdAt: true,
+            order: {
+              select: {
+                id: true,
+                name: true,
+                orderNumber: true,
+                shopifyOrderId: true,
+                erpnextInvoiceId: true,
+                sourceName: true,
+              },
+            },
+          },
+        });
+
+  const byUpload = new Map<string, CitypakApiWaybillHistoryRow[]>();
+  for (const row of waybills) {
+    if (!row.uploadId) continue;
+    const mapped = mapCitypakApiWaybillRow(row);
+    const list = byUpload.get(row.uploadId) ?? [];
+    list.push(mapped);
+    byUpload.set(row.uploadId, list);
+  }
+
+  const result: CitypakApiWaybillBatchRow[] = batches.map((batch) => {
+    const batchWaybills = byUpload.get(batch.id) ?? [];
+    const summary =
+      batch.summary && typeof batch.summary === "object" && !Array.isArray(batch.summary)
+        ? (batch.summary as Record<string, unknown>)
+        : null;
+    const summaryName =
+      typeof summary?.dispatchedByName === "string" ? summary.dispatchedByName.trim() : "";
+    const name = batch.uploadedByName?.trim() || summaryName || null;
+    const email = batch.uploadedByEmail?.trim() || null;
+    return {
+      id: batch.id,
+      label: batch.fileName,
+      bookedCount: batchWaybills.length || batch.importedRows,
+      createdAt: toIso(batch.createdAt) ?? new Date().toISOString(),
+      uploadedBy:
+        batch.uploadedById || name || email
+          ? {
+              id: batch.uploadedById ?? "",
+              name,
+              email,
+            }
+          : null,
+      waybills: batchWaybills,
+    };
+  });
+
+  // Older API waybills saved before batching — group by calendar day so history still usable.
+  const orphans = await prisma.orderWaybill.findMany({
+    where: {
+      companyId,
+      source: CITYPAK_WAYBILL_SOURCE,
+      uploadId: null,
+    },
+    orderBy: { createdAt: "desc" },
+    take: 200,
+    select: {
+      id: true,
+      waybillNo: true,
+      invoiceNumber: true,
+      courierName: true,
+      orderId: true,
+      rawPayload: true,
+      createdAt: true,
+      order: {
+        select: {
+          id: true,
+          name: true,
+          orderNumber: true,
+          shopifyOrderId: true,
+          erpnextInvoiceId: true,
+          sourceName: true,
+        },
+      },
+    },
+  });
+
+  if (orphans.length > 0) {
+    const byDay = new Map<string, CitypakApiWaybillHistoryRow[]>();
+    for (const row of orphans) {
+      const day = (toIso(row.createdAt) ?? "").slice(0, 10) || "unknown";
+      const list = byDay.get(day) ?? [];
+      list.push(mapCitypakApiWaybillRow(row));
+      byDay.set(day, list);
+    }
+    for (const [day, dayWaybills] of byDay) {
+      result.push({
+        id: `legacy-${day}`,
+        label: `CityPak API · ${day} · ${dayWaybills.length} booked (before batch history)`,
+        bookedCount: dayWaybills.length,
+        createdAt: dayWaybills[0]?.createdAt ?? new Date().toISOString(),
+        uploadedBy: null,
+        waybills: dayWaybills,
+      });
+    }
+    result.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  return result.slice(0, take);
+}
+
 export async function getWaybillLookupPageData(input: {
   companyId: string;
   page: number;
@@ -586,9 +883,10 @@ export async function getWaybillLookupPageData(input: {
     });
   }
 
-  const [pendingResult, uploads] = await Promise.all([
+  const [pendingResult, uploads, citypakApiBatches] = await Promise.all([
     listPendingWaybills(input.companyId, { page: input.page, limit: input.limit }),
     listWaybillUploads(input.companyId),
+    listCitypakApiWaybillBatches(input.companyId),
   ]);
 
   return {
@@ -599,6 +897,7 @@ export async function getWaybillLookupPageData(input: {
       total: pendingResult.total,
     },
     uploads,
+    citypakApiBatches,
     rematch: rematchSummary,
     canImport: input.canImport,
   };

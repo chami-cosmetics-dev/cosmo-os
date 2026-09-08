@@ -60,6 +60,8 @@ export async function ensureCitypakShipmentForDispatch(input: {
   courierServiceName: string | null | undefined;
   order: CitypakDispatchOrder;
   shipmentOverride?: CitypakShipmentOverride | null;
+  /** Links booked waybill into a bulk WaybillUpload history batch. */
+  uploadId?: string | null;
 }): Promise<CitypakShipmentAttempt> {
   if (!isCitypakCourier(input.courierServiceName)) {
     return { status: "skipped" };
@@ -91,6 +93,16 @@ export async function ensureCitypakShipmentForDispatch(input: {
     ]);
 
     if (existingWaybill) {
+      if (input.uploadId) {
+        await prisma.orderWaybill.updateMany({
+          where: {
+            id: existingWaybill.id,
+            companyId: input.companyId,
+            uploadId: null,
+          },
+          data: { uploadId: input.uploadId },
+        });
+      }
       return { status: "booked", trackingNumber: existingWaybill.waybillNo, waybillId: existingWaybill.id };
     }
 
@@ -164,6 +176,7 @@ export async function ensureCitypakShipmentForDispatch(input: {
       waybillNo: created.trackingNumber,
       courierName: input.courierServiceName ?? "City Pack",
       source: CITYPAK_WAYBILL_SOURCE,
+      uploadId: input.uploadId ?? null,
       rawPayload: {
         citypakAccountId: account.accountId,
         citypakAccountDbId: account.id,
@@ -188,6 +201,7 @@ export async function createCitypakManualShipment(input: {
   accountDbId: string;
   reference: string;
   shipment: CitypakShipmentOverride;
+  uploadId?: string | null;
 }): Promise<CitypakShipmentAttempt & { waybillId?: string | null }> {
   try {
   const account = await prisma.citypakAccount.findFirst({
@@ -221,6 +235,7 @@ export async function createCitypakManualShipment(input: {
     waybillNo: created.trackingNumber,
     courierName: input.courierServiceName ?? "City Pack",
     source: CITYPAK_WAYBILL_SOURCE,
+    uploadId: input.uploadId ?? null,
     rawPayload: {
       manual: true,
       citypakAccountId: account.accountId,
