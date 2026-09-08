@@ -243,6 +243,7 @@ export async function createCitypakOrder(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(built.body),
+      signal: AbortSignal.timeout(15000),
     });
     const text = await response.text();
     let payload: unknown = text;

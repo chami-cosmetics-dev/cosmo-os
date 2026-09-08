@@ -317,12 +317,30 @@ export function OrderFulfillmentDetail({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body ?? { action }),
       });
-      const data = (await res.json()) as { success?: boolean; error?: string };
+      const data = (await res.json()) as {
+        success?: boolean;
+        error?: string;
+        citypakStatus?: "skipped" | "booked" | "falcon";
+        citypakError?: string;
+        citypakTracking?: string | null;
+      };
       if (!res.ok) {
         notify.error(data.error ?? "Action failed");
         return;
       }
-      notify.success("Updated.");
+      if (action === "dispatch" && data.citypakStatus === "falcon") {
+        notify.error(
+          `Dispatched. CityPak API failed — use Falcon Upload. ${data.citypakError ?? ""}`.trim()
+        );
+      } else if (action === "dispatch" && data.citypakStatus === "booked") {
+        notify.success(
+          data.citypakTracking
+            ? `Dispatched. CityPak waybill ${data.citypakTracking}.`
+            : "Dispatched to CityPak."
+        );
+      } else {
+        notify.success(action === "dispatch" ? "Dispatched." : "Updated.");
+      }
       onRefresh();
     } catch {
       notify.error("Action failed");

@@ -62,7 +62,15 @@ type ReadyOrder = {
   packageHoldReason?: { id: string; name: string } | null;
 };
 
-type DispatchResult = { orderId: string; ref: string; success: boolean; error?: string };
+type DispatchResult = {
+  orderId: string;
+  ref: string;
+  success: boolean;
+  error?: string;
+  citypakStatus?: "skipped" | "booked" | "falcon";
+  citypakError?: string;
+  citypakTracking?: string | null;
+};
 
 type ShippingAddress = {
   name?: string | null;
@@ -354,14 +362,41 @@ export function FulfillmentBulkDispatch({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(dispatchBody),
         });
-        const data = (await res.json()) as { error?: string };
+        const data = (await res.json()) as {
+          error?: string;
+          citypakStatus?: DispatchResult["citypakStatus"];
+          citypakError?: string;
+          citypakTracking?: string | null;
+        };
         const ref = orderLabel(order);
         if (!res.ok) {
           setResults([{ orderId: order.id, ref, success: false, error: data.error }]);
           notify.error(data.error ?? "Dispatch failed.");
           return;
         }
-        notify.success("Dispatched.");
+        setResults([
+          {
+            orderId: order.id,
+            ref,
+            success: true,
+            citypakStatus: data.citypakStatus,
+            citypakError: data.citypakError,
+            citypakTracking: data.citypakTracking,
+          },
+        ]);
+        if (data.citypakStatus === "falcon") {
+          notify.error(
+            `Dispatched. CityPak API failed — use Falcon Upload for ${ref}. ${data.citypakError ?? ""}`.trim()
+          );
+        } else if (data.citypakStatus === "booked") {
+          notify.success(
+            data.citypakTracking
+              ? `Dispatched. CityPak waybill ${data.citypakTracking}.`
+              : "Dispatched to CityPak."
+          );
+        } else {
+          notify.success("Dispatched.");
+        }
         setSelectedOrders([]);
         setActiveOrderId(null);
         onRefresh();
@@ -383,8 +418,18 @@ export function FulfillmentBulkDispatch({
       setResults(all);
       const succeeded = all.filter((r) => r.success).length;
       const failed = all.filter((r) => !r.success).length;
+      const falconNeeded = all.filter((r) => r.success && r.citypakStatus === "falcon");
+      const citypakBooked = all.filter((r) => r.success && r.citypakStatus === "booked").length;
       if (succeeded > 0) {
-        notify.success(`Dispatched ${succeeded} order${succeeded > 1 ? "s" : ""}${failed > 0 ? `, ${failed} failed` : ""}.`);
+        if (falconNeeded.length > 0) {
+          notify.error(
+            `Dispatched ${succeeded}. ${citypakBooked} sent to CityPak. ${falconNeeded.length} need Falcon Upload: ${falconNeeded.map((r) => r.ref).join(", ")}`
+          );
+        } else if (citypakBooked > 0) {
+          notify.success(`Dispatched ${succeeded} to CityPak${failed > 0 ? `, ${failed} failed` : ""}.`);
+        } else {
+          notify.success(`Dispatched ${succeeded} order${succeeded > 1 ? "s" : ""}${failed > 0 ? `, ${failed} failed` : ""}.`);
+        }
         setSelectedOrders((prev) => prev.filter((o) => !all.find((r) => r.orderId === o.id && r.success)));
         onRefresh();
       } else {
@@ -856,6 +901,19 @@ export function FulfillmentBulkDispatch({
               ✗ {r.ref}{r.error ? ` — ${r.error}` : ""}
             </p>
           ))}
+        </div>
+      )}
+      {results && results.some((r) => r.success && r.citypakStatus === "falcon") && (
+        <div className="space-y-1 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+          <p className="font-medium">CityPak API failed — use Falcon Upload for these</p>
+          {results
+            .filter((r) => r.success && r.citypakStatus === "falcon")
+            .map((r) => (
+              <p key={r.orderId}>
+                {r.ref}
+                {r.citypakError ? ` — ${r.citypakError}` : ""}
+              </p>
+            ))}
         </div>
       )}
     </div>

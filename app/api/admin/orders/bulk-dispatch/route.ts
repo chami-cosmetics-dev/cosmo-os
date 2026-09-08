@@ -11,6 +11,7 @@ import { cuidSchema } from "@/lib/validation";
 import { orderStageUpdate } from "@/lib/order-stage-timing";
 import { getErpOutOfStockFulfillmentBlock } from "@/lib/erp-fulfillment-block";
 import { isExplicitlyPackageReady } from "@/lib/fulfillment-stage-display";
+import { ensureCitypakShipmentForDispatch } from "@/lib/citypak-dispatch";
 import {
   createOrGetOrderPaymentApproval,
   getFinancePaymentApprovalBlockReason,
@@ -25,7 +26,7 @@ const schema = z.object({
 });
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 async function getCompanyId(userId: string) {
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { companyId: true } });
@@ -54,6 +55,7 @@ export async function POST(request: NextRequest) {
 
   // Validate rider / courier once up front
   let riderMobile: string | null = null;
+  let courierServiceName: string | null = null;
   if (riderId) {
     const rider = await prisma.user.findFirst({
       where: { id: riderId, companyId },
@@ -67,10 +69,19 @@ export async function POST(request: NextRequest) {
   if (courierServiceId) {
     const svc = await prisma.courierService.findFirst({ where: { id: courierServiceId, companyId } });
     if (!svc) return NextResponse.json({ error: "Courier service not found" }, { status: 400 });
+    courierServiceName = svc.name;
   }
 
   const now = new Date();
-  const results: Array<{ orderId: string; ref: string; success: boolean; error?: string }> = [];
+  const results: Array<{
+    orderId: string;
+    ref: string;
+    success: boolean;
+    error?: string;
+    citypakStatus?: "skipped" | "booked" | "falcon";
+    citypakError?: string;
+    citypakTracking?: string | null;
+  }> = [];
   const smsTasks: Promise<void>[] = [];
 
   for (const orderId of orderIds) {
@@ -89,6 +100,10 @@ export async function POST(request: NextRequest) {
           packageOnHoldAt: true,
           customerPhone: true,
           shippingAddress: true,
+          billingAddress: true,
+          rawPayload: true,
+          sourceName: true,
+          financialStatus: true,
           erpnextInvoiceId: true,
           erpnextSyncError: true,
           paymentGatewayPrimary: true,
@@ -293,7 +308,28 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      results.push({ orderId, ref, success: true });
+      let citypakStatus: "skipped" | "booked" | "falcon" | undefined;
+      let citypakError: string | undefined;
+      let citypakTracking: string | null | undefined;
+      if (courierServiceId) {
+        const citypak = await ensureCitypakShipmentForDispatch({
+          companyId,
+          courierServiceName,
+          order,
+        });
+        citypakStatus = citypak.status;
+        if (citypak.status === "booked") citypakTracking = citypak.trackingNumber;
+        if (citypak.status === "falcon") citypakError = citypak.error;
+      }
+
+      results.push({
+        orderId,
+        ref,
+        success: true,
+        citypakStatus,
+        citypakError,
+        citypakTracking,
+      });
     } catch (err) {
       console.error("[bulk-dispatch] error for orderId", orderId, err);
       results.push({ orderId, ref: orderId, success: false, error: "Internal error" });

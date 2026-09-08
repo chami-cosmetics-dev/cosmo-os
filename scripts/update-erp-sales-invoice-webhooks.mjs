@@ -1,19 +1,24 @@
 #!/usr/bin/env node
 /**
- * Update Sales Invoice webhooks on Cosmetics + Vault ERP sites.
+ * Update Sales Invoice webhooks on Cosmo / Vault ERP sites.
  * Discovers Sales Invoice Webhook docs per site (hook names differ).
- * Usage: node scripts/update-erp-sales-invoice-webhooks.mjs [--dry-run]
+ * Usage:
+ *   node scripts/update-erp-sales-invoice-webhooks.mjs [--dry-run]
+ *   node scripts/with-env.mjs cosmo-prod node scripts/update-erp-sales-invoice-webhooks.mjs
  */
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { PrismaClient } from "@prisma/client";
 import { buildSalesInvoiceWebhookJson } from "./erp-webhook-sales-invoice-json.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const dryRun = process.argv.includes("--dry-run");
 
 function loadMcpEnvBlocks() {
-  const raw = readFileSync(join(__dirname, "..", ".mcp.json"), "utf8");
+  const mcpPath = join(__dirname, "..", ".mcp.json");
+  if (!existsSync(mcpPath)) return [];
+  const raw = readFileSync(mcpPath, "utf8");
   const matches = [
     ...raw.matchAll(
       /"ERPNEXT_URL":\s*"([^"]+)"\s*,\s*"ERPNEXT_API_KEY":\s*"([^"]+)"\s*,\s*"ERPNEXT_API_SECRET":\s*"([^"]+)"/g,
@@ -44,6 +49,33 @@ function sitesFromMcp() {
   return sites;
 }
 
+async function sitesFromDb() {
+  if (!process.env.DATABASE_URL) return [];
+  const prisma = new PrismaClient();
+  try {
+    const instances = await prisma.erpnextInstance.findMany({
+      select: { label: true, baseUrl: true, apiKey: true, apiSecret: true },
+    });
+    const seen = new Set();
+    const sites = [];
+    for (const row of instances) {
+      const host = row.baseUrl.replace(/^https?:\/\//, "").replace(/\/$/, "");
+      if (seen.has(host)) continue;
+      seen.add(host);
+      sites.push({
+        label: row.label || host.split(".")[0] || host,
+        url: row.baseUrl,
+        key: row.apiKey,
+        secret: row.apiSecret,
+        vaultStyle: host.includes("supplement-vault"),
+      });
+    }
+    return sites;
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
 async function listSalesInvoiceHooks(creds) {
   const base = creds.url.replace(/\/$/, "");
   const filters = encodeURIComponent(JSON.stringify([["webhook_doctype", "=", "Sales Invoice"]]));
@@ -67,7 +99,7 @@ async function updateHook(creds, name, webhookJson) {
       Authorization: `token ${creds.key}:${creds.secret}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ webhook_json: webhookJson }),
+    body: JSON.stringify({ webhook_json: webhookJson, timeout: 20 }),
   });
   if (!res.ok) {
     const body = await res.text();
@@ -77,9 +109,12 @@ async function updateHook(creds, name, webhookJson) {
 }
 
 async function main() {
-  const sites = sitesFromMcp();
+  let sites = sitesFromMcp();
   if (sites.length === 0) {
-    throw new Error("No ERPNext credentials found in .mcp.json");
+    sites = await sitesFromDb();
+  }
+  if (sites.length === 0) {
+    throw new Error("No ERPNext credentials found in .mcp.json or DATABASE_URL instances");
   }
 
   for (const site of sites) {
