@@ -5,7 +5,6 @@ import {
   buildGroupedFalconUploadZip,
   type FalconWaybillRow,
 } from "@/lib/falcon-upload";
-import { CITYPAK_WAYBILL_SOURCE } from "@/lib/citypak-api";
 import { isCitypakCourier } from "@/lib/courier";
 import { resolveFalconCompanyGroup, resolveFalconExportGroupKey } from "@/lib/falcon-waybill-brand";
 import { formatFulfillmentOrderReferenceText } from "@/lib/fulfillment-order-reference";
@@ -111,21 +110,6 @@ async function getCitypakWaybillRows(
     },
   });
 
-  const apiBookedIds = new Set(
-    (
-      await prisma.orderWaybill.findMany({
-        where: {
-          companyId,
-          orderId: { in: orders.map((order) => order.id) },
-          source: CITYPAK_WAYBILL_SOURCE,
-        },
-        select: { orderId: true },
-      })
-    )
-      .map((row) => row.orderId)
-      .filter((id): id is string => Boolean(id))
-  );
-
   const allRows: (FalconWaybillRow & { courierName: string })[] = orders.map((order) => {
     const shippingAddress = order.shippingAddress;
     const reference = formatFulfillmentOrderReferenceText(order);
@@ -181,9 +165,7 @@ async function getCitypakWaybillRows(
     };
   });
 
-  const waybillRows = allRows.filter(
-    (row) => isCitypakCourier(row.courierName) && !(row.orderId && apiBookedIds.has(row.orderId))
-  );
+  const waybillRows = allRows.filter((row) => isCitypakCourier(row.courierName));
   return waybillRows;
 }
 

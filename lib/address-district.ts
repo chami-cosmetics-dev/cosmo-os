@@ -241,6 +241,7 @@ const CITY_TO_DISTRICT: Record<string, string> = {
   Diyatalawa: "Badulla",
   Ambalantota: "Hambantota",
   Beliatta: "Hambantota",
+  Beliatte: "Hambantota",
   Weeraketiya: "Hambantota",
   Thanamalwila: "Monaragala",
   Galewela: "Matale",
@@ -259,6 +260,7 @@ const TOWN_ALIASES: Record<string, string> = {
   kaluthara: "Kalutara",
   rathnapura: "Ratnapura",
   divlapitiya: "Gampaha",
+  beliatte: "Hambantota",
   thambuththegama: "Anuradhapura",
   tambuttegama: "Anuradhapura",
   jaela: "Gampaha",
@@ -382,6 +384,9 @@ export function inferDistrictFromAddressText(text: string | null | undefined): s
 export function resolveAddressDistrict(address: unknown): string {
   const province = normalizeDistrictLabel(getAddressField(address, "province"));
   if (province) return province;
+
+  const fromCity = inferDistrictFromAddressText(getAddressField(address, "city"));
+  if (fromCity) return fromCity;
 
   const text = [
     buildAddressSearchText(address),

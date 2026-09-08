@@ -36,6 +36,7 @@ describe("inferDistrictFromAddressText", () => {
     expect(inferDistrictFromAddressText("Kaluthara")).toBe("Kalutara");
     expect(inferDistrictFromAddressText("Makola")).toBe("Gampaha");
     expect(inferDistrictFromAddressText("Pitakotte")).toBe("Colombo");
+    expect(inferDistrictFromAddressText("Beliatte")).toBe("Hambantota");
   });
 });
 
@@ -56,6 +57,17 @@ describe("resolveAddressDistrict", () => {
         city: "Nugegoda",
       })
     ).toBe("Colombo");
+  });
+
+  it("uses city Beliatte even when street names another town", () => {
+    expect(
+      resolveAddressDistrict({
+        address1: "Sasip ,Infront of garment ,",
+        address2: "Winsent Road ,Beliatte, Sasip edu center Beliatte - 82400",
+        city: "Beliatte",
+        country: "Sri Lanka",
+      })
+    ).toBe("Hambantota");
   });
 });
 

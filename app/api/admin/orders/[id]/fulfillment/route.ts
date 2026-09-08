@@ -42,7 +42,6 @@ import { getErpOutOfStockFulfillmentBlock } from "@/lib/erp-fulfillment-block";
 import { isExplicitlyPackageReady } from "@/lib/fulfillment-stage-display";
 import { releaseKokoReferencesForOrder } from "@/lib/koko-approval-references";
 import { formatAppIsoCalendarDate } from "@/lib/format-datetime";
-import { ensureCitypakShipmentForDispatch } from "@/lib/citypak-dispatch";
 
 const addSampleSchema = z.object({
   sampleFreeIssueItemId: cuidSchema,
@@ -747,7 +746,6 @@ export async function PATCH(
       }
 
       let riderDeliveryToken: string | null = null;
-      let courierServiceName: string | null = null;
       if (data.riderId) {
         const rider = await prisma.user.findFirst({
           where: { id: data.riderId, companyId },
@@ -766,15 +764,6 @@ export async function PATCH(
         });
         if (!svc) {
           return NextResponse.json({ error: "Courier service not found" }, { status: 400 });
-        }
-        courierServiceName = svc.name;
-        const citypak = await ensureCitypakShipmentForDispatch({
-          companyId,
-          courierServiceName,
-          order,
-        });
-        if (!citypak.ok) {
-          return NextResponse.json({ error: citypak.error }, { status: 422 });
         }
       }
 
