@@ -18,6 +18,10 @@ import {
   createCitypakManualShipment,
   ensureCitypakShipmentForDispatch,
 } from "@/lib/citypak-dispatch";
+import {
+  createCitypakApiDispatchBatch,
+  finalizeCitypakApiDispatchBatch,
+} from "@/lib/order-waybills";
 import { isCitypakCourier } from "@/lib/courier";
 import {
   createOrGetOrderPaymentApproval,
@@ -106,6 +110,18 @@ export async function POST(request: NextRequest) {
   }> = [];
   const smsTasks: Promise<void>[] = [];
   let citypakCreates = 0;
+  const plannedCitypak =
+    isCitypakCourier(courierServiceName) ? orderIds.length + manuals.length : 0;
+  const citypakBatchId =
+    plannedCitypak > 0
+      ? await createCitypakApiDispatchBatch({
+          companyId,
+          uploadedById: auth.context!.user!.id,
+          plannedTotal: plannedCitypak,
+        })
+      : null;
+  let citypakBooked = 0;
+  let citypakFalcon = 0;
 
   for (const orderId of orderIds) {
     try {
@@ -361,6 +377,7 @@ export async function POST(request: NextRequest) {
           courierServiceName,
           order,
           shipmentOverride: citypakShipment,
+          uploadId: citypakBatchId,
         });
         if (isCitypakCourier(courierServiceName) && citypak.status !== "skipped") {
           citypakCreates += 1;
@@ -369,8 +386,12 @@ export async function POST(request: NextRequest) {
         if (citypak.status === "booked") {
           citypakTracking = citypak.trackingNumber;
           citypakWaybillId = citypak.waybillId ?? null;
+          citypakBooked += 1;
         }
-        if (citypak.status === "falcon") citypakError = citypak.error;
+        if (citypak.status === "falcon") {
+          citypakError = citypak.error;
+          citypakFalcon += 1;
+        }
       }
 
       results.push({
@@ -409,8 +430,11 @@ export async function POST(request: NextRequest) {
         accountDbId: manual.citypakAccountDbId,
         reference: manual.reference,
         shipment: manual,
+        uploadId: citypakBatchId,
       });
       citypakCreates += 1;
+      if (citypak.status === "booked") citypakBooked += 1;
+      if (citypak.status === "falcon") citypakFalcon += 1;
       results.push({
         orderId: "",
         waybillId: citypak.status === "booked" ? citypak.waybillId ?? null : null,
@@ -435,6 +459,18 @@ export async function POST(request: NextRequest) {
   }
 
   await Promise.allSettled(smsTasks);
+
+  if (citypakBatchId) {
+    const dispatcher = auth.context!.user!;
+    await finalizeCitypakApiDispatchBatch({
+      companyId,
+      uploadId: citypakBatchId,
+      booked: citypakBooked,
+      falconFallback: citypakFalcon,
+      plannedTotal: plannedCitypak,
+      dispatchedByName: dispatcher.name ?? dispatcher.email ?? null,
+    });
+  }
 
   return NextResponse.json({ results });
 }

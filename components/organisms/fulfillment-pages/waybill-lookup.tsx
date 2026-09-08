@@ -1,11 +1,11 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, Fragment, useEffect, useState } from "react";
 import { Eye, Loader2, PackageSearch, Plus, RefreshCw, Search, Trash2, Upload } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { FulfillmentOrderReference } from "@/components/molecules/fulfillment-order-reference";
-import { PrintCitypakWaybillButton } from "@/components/molecules/print-citypak-waybill-button";
+import { PrintCitypakWaybillButton, PrintCitypakWaybillPackButton } from "@/components/molecules/print-citypak-waybill-button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
@@ -19,6 +19,8 @@ import { notify } from "@/lib/notify";
 import { formatAppDateTime } from "@/lib/format-datetime";
 import { CITYPAK_WAYBILL_SOURCE } from "@/lib/citypak-api";
 import type {
+  CitypakApiWaybillBatchRow,
+  CitypakApiWaybillHistoryRow,
   WaybillLookupPageData,
   WaybillPendingRow,
 } from "@/lib/page-data/waybill-lookup-types";
@@ -114,6 +116,8 @@ export function WaybillLookupFulfillmentPage({
   const [rematching, setRematching] = useState(false);
   const [deletingUploadId, setDeletingUploadId] = useState<string | null>(null);
   const [selectedDetails, setSelectedDetails] = useState<DetailsTarget | null>(null);
+  const [selectedCitypakIds, setSelectedCitypakIds] = useState<string[]>([]);
+  const [expandedCitypakBatchId, setExpandedCitypakBatchId] = useState<string | null>(null);
 
   const isBusy = loading || saving || importing || pageLoading || rematching || Boolean(deletingUploadId);
 
@@ -325,8 +329,18 @@ export function WaybillLookupFulfillmentPage({
   const waybills = result?.waybills ?? [];
   const pending = pageData?.pending ?? [];
   const uploads = pageData?.uploads ?? [];
+  const citypakApiBatches = pageData?.citypakApiBatches ?? [];
+  const allCitypakWaybillIds = citypakApiBatches.flatMap((batch) =>
+    batch.waybills.map((row) => row.id)
+  );
   const pagination = pageData?.pagination;
   const totalPages = pagination ? Math.max(1, Math.ceil(pagination.total / pagination.limit)) : 1;
+
+  function toggleCitypakSelect(id: string) {
+    setSelectedCitypakIds((prev) =>
+      prev.includes(id) ? prev.filter((rowId) => rowId !== id) : [...prev, id]
+    );
+  }
 
   const selectedRawEntries = selectedDetails
     ? Object.entries(
@@ -461,6 +475,167 @@ export function WaybillLookupFulfillmentPage({
                       )}
                     </tr>
                   ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="border-border/70 shadow-xs">
+        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 border-b border-border/50">
+          <div>
+            <CardTitle>CityPak API waybill history</CardTitle>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Bulk dispatch batches with who dispatched and when. Expand a row to reprint.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {selectedCitypakIds.length > 0 && (
+              <PrintCitypakWaybillPackButton
+                orderIds={[]}
+                waybillIds={selectedCitypakIds}
+                label={`Print selected (${selectedCitypakIds.length})`}
+              />
+            )}
+            {allCitypakWaybillIds.length > 0 && (
+              <PrintCitypakWaybillPackButton
+                orderIds={[]}
+                waybillIds={allCitypakWaybillIds}
+                label={`Print all (${allCitypakWaybillIds.length})`}
+              />
+            )}
+          </div>
+        </CardHeader>
+        <CardContent>
+          {pageLoading && !pageData ? (
+            <p className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="size-4 animate-spin" aria-hidden />
+              Loading CityPak history...
+            </p>
+          ) : citypakApiBatches.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No CityPak API batches yet. They appear here after a successful City Pack API dispatch.
+            </p>
+          ) : (
+            <div className="overflow-hidden rounded-md border border-border/70">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/50 text-left text-muted-foreground">
+                  <tr>
+                    <th className="px-3 py-2 font-medium">Batch</th>
+                    <th className="px-3 py-2 font-medium">Dispatched</th>
+                    <th className="px-3 py-2 font-medium">By</th>
+                    <th className="px-3 py-2 font-medium">Waybills</th>
+                    <th className="px-3 py-2 font-medium text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {citypakApiBatches.map((batch: CitypakApiWaybillBatchRow) => {
+                    const expanded = expandedCitypakBatchId === batch.id;
+                    const batchWaybillIds = batch.waybills.map((row) => row.id);
+                    const dispatcher =
+                      batch.uploadedBy?.name?.trim() ||
+                      batch.uploadedBy?.email?.trim() ||
+                      "—";
+                    return (
+                      <Fragment key={batch.id}>
+                        <tr className="border-t border-border/60">
+                          <td className="px-3 py-2 font-medium">
+                            <button
+                              type="button"
+                              className="text-left hover:underline"
+                              onClick={() =>
+                                setExpandedCitypakBatchId((current) =>
+                                  current === batch.id ? null : batch.id
+                                )
+                              }
+                            >
+                              {batch.bookedCount} CityPak API waybill
+                              {batch.bookedCount === 1 ? "" : "s"}
+                              <span className="ml-2 text-xs font-normal text-muted-foreground">
+                                {expanded ? "hide" : "show"}
+                              </span>
+                            </button>
+                          </td>
+                          <td className="px-3 py-2 whitespace-nowrap">
+                            {formatDate(batch.createdAt)}
+                          </td>
+                          <td className="px-3 py-2">{dispatcher}</td>
+                          <td className="px-3 py-2">{batch.bookedCount}</td>
+                          <td className="px-3 py-2 text-right">
+                            {batchWaybillIds.length > 0 ? (
+                              <PrintCitypakWaybillPackButton
+                                orderIds={[]}
+                                waybillIds={batchWaybillIds}
+                                label="Print batch"
+                              />
+                            ) : (
+                              "—"
+                            )}
+                          </td>
+                        </tr>
+                        {expanded && (
+                          <tr className="border-t border-border/40 bg-muted/20">
+                            <td colSpan={5} className="p-0">
+                              <table className="w-full text-sm">
+                                <thead className="bg-muted/30 text-left text-muted-foreground">
+                                  <tr>
+                                    <th className="px-3 py-2 font-medium w-10"> </th>
+                                    <th className="px-3 py-2 font-medium">Tracking</th>
+                                    <th className="px-3 py-2 font-medium">Reference</th>
+                                    <th className="px-3 py-2 font-medium">Order</th>
+                                    <th className="px-3 py-2 font-medium">Booked</th>
+                                    <th className="px-3 py-2 font-medium text-right">Print</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {batch.waybills.map((row: CitypakApiWaybillHistoryRow) => (
+                                    <tr key={row.id} className="border-t border-border/60">
+                                      <td className="px-3 py-2">
+                                        <input
+                                          type="checkbox"
+                                          checked={selectedCitypakIds.includes(row.id)}
+                                          onChange={() => toggleCitypakSelect(row.id)}
+                                          aria-label={`Select ${row.waybillNo}`}
+                                        />
+                                      </td>
+                                      <td className="px-3 py-2 font-medium">{row.waybillNo}</td>
+                                      <td className="px-3 py-2">{row.invoiceNumber}</td>
+                                      <td className="px-3 py-2">
+                                        {row.manual
+                                          ? "Manual"
+                                          : row.orderLabel ?? row.orderId ?? "—"}
+                                      </td>
+                                      <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">
+                                        {formatDate(row.createdAt)}
+                                      </td>
+                                      <td className="px-3 py-2 text-right">
+                                        <PrintCitypakWaybillButton
+                                          waybillId={row.id}
+                                          orderId={row.orderId}
+                                          tracking={row.waybillNo}
+                                        />
+                                      </td>
+                                    </tr>
+                                  ))}
+                                  {batch.waybills.length === 0 && (
+                                    <tr>
+                                      <td
+                                        colSpan={6}
+                                        className="px-3 py-4 text-center text-muted-foreground"
+                                      >
+                                        No waybill rows linked to this batch.
+                                      </td>
+                                    </tr>
+                                  )}
+                                </tbody>
+                              </table>
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

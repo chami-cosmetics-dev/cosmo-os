@@ -166,8 +166,28 @@ async function getCitypakWaybillRows(
     };
   });
 
-  const waybillRows = allRows.filter((row) => isCitypakCourier(row.courierName));
-  return waybillRows;
+  const citypakRows = allRows.filter((row) => isCitypakCourier(row.courierName));
+  const dispatchedOrderIds = citypakRows
+    .map((row) => row.orderId)
+    .filter((id): id is string => Boolean(id));
+  // API-booked dispatches already have CityPak waybills — keep them out of Falcon Upload.
+  const apiBookedIds = new Set(
+    dispatchedOrderIds.length === 0
+      ? []
+      : (
+          await prisma.orderWaybill.findMany({
+            where: {
+              companyId,
+              source: CITYPAK_WAYBILL_SOURCE,
+              orderId: { in: dispatchedOrderIds },
+            },
+            select: { orderId: true },
+          })
+        )
+          .map((row) => row.orderId)
+          .filter((id): id is string => Boolean(id))
+  );
+  return citypakRows.filter((row) => !row.orderId || !apiBookedIds.has(row.orderId));
 }
 
 export async function GET(request: NextRequest) {
@@ -180,25 +200,6 @@ export async function GET(request: NextRequest) {
   }
 
   const waybillRows = await getCitypakWaybillRows(auth.companyId, dispatchDate);
-  const dispatchedOrderIds = waybillRows
-    .map((row) => row.orderId)
-    .filter((id): id is string => Boolean(id));
-  const apiBookedIds = new Set(
-    dispatchedOrderIds.length === 0
-      ? []
-      : (
-          await prisma.orderWaybill.findMany({
-            where: {
-              companyId: auth.companyId,
-              source: CITYPAK_WAYBILL_SOURCE,
-              orderId: { in: dispatchedOrderIds },
-            },
-            select: { orderId: true },
-          })
-        )
-          .map((row) => row.orderId)
-          .filter((id): id is string => Boolean(id))
-  );
   const grouped = buildGroupedFalconUploadZip(waybillRows, dispatchDate.label);
 
   return NextResponse.json({
@@ -215,7 +216,6 @@ export async function GET(request: NextRequest) {
       orderPrefix: row.exportGroupKey ?? resolveFalconExportGroupKey(row),
       itemName: row.itemName,
       courierName: row.courierName,
-      apiBooked: Boolean(row.orderId && apiBookedIds.has(row.orderId)),
     })),
   });
 }

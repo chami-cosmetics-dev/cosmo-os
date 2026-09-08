@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { loadCitypakWaybillPdf } from "@/lib/citypak-waybill-pdf";
 import { requireAnyPermission } from "@/lib/rbac";
-import { cuidSchema } from "@/lib/validation";
+import { cuidOrUuidSchema } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -23,7 +23,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
   if (!companyId) return NextResponse.json({ error: "No company associated with your account" }, { status: 404 });
 
   const { id } = await context.params;
-  const parsed = cuidSchema.safeParse(id);
+  const parsed = cuidOrUuidSchema.safeParse(id);
   if (!parsed.success) return NextResponse.json({ error: "Invalid waybill id" }, { status: 400 });
 
   const loaded = await loadCitypakWaybillPdf({

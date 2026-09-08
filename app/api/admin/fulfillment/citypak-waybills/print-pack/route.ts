@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { loadCitypakWaybillPdf, mergeCitypakWaybillPdfs } from "@/lib/citypak-waybill-pdf";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
-import { cuidSchema } from "@/lib/validation";
+import { cuidOrUuidSchema, cuidSchema } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -30,11 +30,12 @@ export async function GET(request: NextRequest) {
   const companyId = auth.context!.user!.companyId;
   if (!companyId) return NextResponse.json({ error: "No company associated with your account" }, { status: 404 });
 
+  // Order ids are CUID; OrderWaybill ids from saveOrderWaybill use randomUUID().
   const orderIds = parseIdList(request.nextUrl.searchParams.get("orderIds")).filter(
     (id) => cuidSchema.safeParse(id).success
   );
   const waybillIds = parseIdList(request.nextUrl.searchParams.get("waybillIds")).filter(
-    (id) => cuidSchema.safeParse(id).success
+    (id) => cuidOrUuidSchema.safeParse(id).success
   );
 
   if (orderIds.length === 0 && waybillIds.length === 0) {

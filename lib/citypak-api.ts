@@ -6,6 +6,8 @@ import {
 import { getAddressField, resolveOrderCustomerName } from "@/lib/reports/csv";
 
 export const CITYPAK_WAYBILL_SOURCE = "citypak_api";
+/** WaybillUpload.fileType for OS→CityPak API dispatch batches (bulk history). */
+export const CITYPAK_API_BATCH_FILE_TYPE = "citypak_api";
 export const CITYPAK_DEFAULT_WEIGHT_G = 500;
 export const CITYPAK_DEFAULT_BASE_URL = "https://falcon.citypak.lk";
 /** Gap between CityPak create-order calls in bulk dispatch. CityPak has no bulk endpoint. */

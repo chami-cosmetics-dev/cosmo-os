@@ -43,6 +43,11 @@ import { isExplicitlyPackageReady } from "@/lib/fulfillment-stage-display";
 import { releaseKokoReferencesForOrder } from "@/lib/koko-approval-references";
 import { formatAppIsoCalendarDate } from "@/lib/format-datetime";
 import { citypakOverrideOrderPatch, ensureCitypakShipmentForDispatch } from "@/lib/citypak-dispatch";
+import { isCitypakCourier } from "@/lib/courier";
+import {
+  createCitypakApiDispatchBatch,
+  finalizeCitypakApiDispatchBatch,
+} from "@/lib/order-waybills";
 
 const addSampleSchema = z.object({
   sampleFreeIssueItemId: cuidSchema,
@@ -1005,14 +1010,34 @@ export async function PATCH(
         },
       });
       await Promise.allSettled(smsTasks);
+      let citypakBatchId: string | null = null;
+      if (data.courierServiceId && isCitypakCourier(courierServiceName)) {
+        citypakBatchId = await createCitypakApiDispatchBatch({
+          companyId,
+          uploadedById: auth.context!.user!.id,
+          plannedTotal: 1,
+        });
+      }
       const citypak = data.courierServiceId
         ? await ensureCitypakShipmentForDispatch({
             companyId,
             courierServiceName,
             order,
             shipmentOverride: citypakShipment,
+            uploadId: citypakBatchId,
           })
         : { status: "skipped" as const };
+      if (citypakBatchId) {
+        const dispatcher = auth.context!.user!;
+        await finalizeCitypakApiDispatchBatch({
+          companyId,
+          uploadId: citypakBatchId,
+          booked: citypak.status === "booked" ? 1 : 0,
+          falconFallback: citypak.status === "falcon" ? 1 : 0,
+          plannedTotal: 1,
+          dispatchedByName: dispatcher.name ?? dispatcher.email ?? null,
+        });
+      }
       return NextResponse.json({
         success: true,
         citypakStatus: citypak.status,
