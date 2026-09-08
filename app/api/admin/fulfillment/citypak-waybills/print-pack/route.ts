@@ -72,7 +72,7 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const merged = await mergeCitypakWaybillPdfs(parts);
+  const merged = parts.length === 1 ? parts[0]! : await mergeCitypakWaybillPdfs(parts);
   return new NextResponse(new Uint8Array(merged), {
     status: 200,
     headers: {
