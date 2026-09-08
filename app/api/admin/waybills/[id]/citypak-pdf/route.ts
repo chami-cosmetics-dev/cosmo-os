@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { parseCitypakWaybillPrintSize } from "@/lib/citypak-api";
 import { loadCitypakWaybillPdf } from "@/lib/citypak-waybill-pdf";
 import { requireAnyPermission } from "@/lib/rbac";
 import { cuidOrUuidSchema } from "@/lib/validation";
@@ -26,9 +27,11 @@ export async function GET(request: NextRequest, context: RouteContext) {
   const parsed = cuidOrUuidSchema.safeParse(id);
   if (!parsed.success) return NextResponse.json({ error: "Invalid waybill id" }, { status: 400 });
 
+  const printSize = parseCitypakWaybillPrintSize(request.nextUrl.searchParams.get("printSize"));
   const loaded = await loadCitypakWaybillPdf({
     companyId,
     waybillId: parsed.data,
+    printSize,
   });
   if (!loaded.ok) {
     return NextResponse.json({ error: loaded.error }, { status: loaded.status });

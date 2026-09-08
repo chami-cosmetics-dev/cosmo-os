@@ -123,6 +123,9 @@ describe("buildCitypakCreateOrderBody", () => {
 describe("citypakWaybillPdfRequestUrl", () => {
   it("builds the Falcon waybill PDF path", () => {
     expect(citypakWaybillPdfRequestUrl("https://falcon.citypak.lk", "12345")).toBe(
+      "https://falcon.citypak.lk/customer_api/v1/orders/12345/waybills?page_size=4x6&per_page_waybill_count=1"
+    );
+    expect(citypakWaybillPdfRequestUrl("https://falcon.citypak.lk", "12345", "A4")).toBe(
       "https://falcon.citypak.lk/customer_api/v1/orders/12345/waybills?page_size=A4&per_page_waybill_count=1"
     );
   });
