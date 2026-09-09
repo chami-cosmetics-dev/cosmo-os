@@ -316,9 +316,21 @@ export async function saveOrderWaybill(input: {
 
 export async function listWaybillUploads(
   companyId: string,
-  options?: { take?: number }
-): Promise<WaybillUploadHistoryRow[]> {
-  const take = Math.min(Math.max(options?.take ?? WAYBILL_UPLOAD_HISTORY_TAKE, 1), 100);
+  options?: { page?: number; limit?: number }
+): Promise<{ items: WaybillUploadHistoryRow[]; total: number }> {
+  const page = Math.max(options?.page ?? 1, 1);
+  const limit = Math.min(Math.max(options?.limit ?? WAYBILL_UPLOAD_HISTORY_TAKE, 1), 100);
+  const offset = (page - 1) * limit;
+
+  const countRows = await prisma.$queryRaw<Array<{ total: bigint | number }>>(
+    Prisma.sql`
+      SELECT COUNT(*)::bigint AS total
+      FROM "WaybillUpload" wu
+      WHERE wu."companyId" = ${companyId}
+        AND wu."fileType" <> ${CITYPAK_API_BATCH_FILE_TYPE}
+    `
+  );
+  const total = Number(countRows[0]?.total ?? 0);
 
   const rows = await prisma.$queryRaw<
     Array<{
@@ -355,11 +367,12 @@ export async function listWaybillUploads(
       WHERE wu."companyId" = ${companyId}
         AND wu."fileType" <> ${CITYPAK_API_BATCH_FILE_TYPE}
       ORDER BY wu."createdAt" DESC
-      LIMIT ${take}
+      LIMIT ${limit}
+      OFFSET ${offset}
     `
   );
 
-  return rows.map((row) => ({
+  const items = rows.map((row) => ({
     id: row.id,
     fileName: row.fileName,
     fileType: row.fileType,
@@ -377,6 +390,8 @@ export async function listWaybillUploads(
         }
       : null,
   }));
+
+  return { items, total };
 }
 
 export async function listPendingWaybills(
@@ -1098,6 +1113,8 @@ export async function getWaybillLookupPageData(input: {
   companyId: string;
   page: number;
   limit: number;
+  uploadsPage?: number;
+  uploadsLimit?: number;
   canImport: boolean;
   rematch?: boolean;
   rematchLimit?: number;
@@ -1109,9 +1126,12 @@ export async function getWaybillLookupPageData(input: {
     });
   }
 
-  const [pendingResult, uploads] = await Promise.all([
+  const uploadsPage = Math.max(input.uploadsPage ?? 1, 1);
+  const uploadsLimit = input.uploadsLimit ?? 20;
+
+  const [pendingResult, uploadsResult] = await Promise.all([
     listPendingWaybills(input.companyId, { page: input.page, limit: input.limit }),
-    listWaybillUploads(input.companyId),
+    listWaybillUploads(input.companyId, { page: uploadsPage, limit: uploadsLimit }),
   ]);
 
   return {
@@ -1121,7 +1141,12 @@ export async function getWaybillLookupPageData(input: {
       limit: input.limit,
       total: pendingResult.total,
     },
-    uploads,
+    uploads: uploadsResult.items,
+    uploadsPagination: {
+      page: uploadsPage,
+      limit: uploadsLimit,
+      total: uploadsResult.total,
+    },
     rematch: rematchSummary,
     canImport: input.canImport,
   };

@@ -511,3 +511,289 @@ export async function downloadCitypakWaybillPdf(
     return { ok: false, error: message };
   }
 }
+
+/* -------------------------------------------------------------------------- */
+/* Order tracking                                                             */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Normalized delivery state derived from CityPak's latest scan.
+ * `attempt_failed` (CityPak "NOT DELIVERED") is not terminal — the parcel is
+ * re-attempted, so sweeps keep polling it. Terminal: `delivered`, `returned`.
+ */
+export type CitypakShipmentStatus =
+  | "booked"
+  | "in_transit"
+  | "out_for_delivery"
+  | "attempt_failed"
+  | "delivered"
+  | "returned"
+  | "unknown";
+
+export const CITYPAK_TERMINAL_STATUSES: readonly CitypakShipmentStatus[] = [
+  "delivered",
+  "returned",
+];
+
+export function isCitypakTerminalStatus(status: CitypakShipmentStatus) {
+  return CITYPAK_TERMINAL_STATUSES.includes(status);
+}
+
+export type CitypakTrackingCheckpoint = {
+  /** ISO-8601 in Asia/Colombo offset, or the raw string when unparseable. */
+  at: string;
+  /** CityPak scan label, e.g. "OUT FOR DELIVERY". */
+  label: string;
+  /** CityPak status code: UD (undelivered/in transit), DL (delivered), RTM (returned). */
+  code: string;
+  location: string;
+  description: string;
+  status: CitypakShipmentStatus;
+};
+
+export type CitypakTrackingResult =
+  | {
+      ok: true;
+      status: CitypakShipmentStatus;
+      statusLabel: string;
+      isDelivered: boolean;
+      deliveredAt: string | null;
+      receiverName: string;
+      podImageUrl: string;
+      checkpoints: CitypakTrackingCheckpoint[];
+      raw: unknown;
+    }
+  | { ok: false; error: string; status?: number };
+
+/** CityPak dates are `d-m-Y` and times `H:i:s`, Sri Lanka local (+05:30). */
+export function parseCitypakDateTime(date: string, time?: string): string | null {
+  const dateMatch = date.trim().match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
+  if (!dateMatch) return null;
+  const [, dd, mm, yyyy] = dateMatch;
+  const timePart = (time ?? "00:00:00").trim();
+  const timeMatch = timePart.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (!timeMatch) return null;
+  const [, hh, min, ss = "00"] = timeMatch;
+  const pad = (value: string, len = 2) => value.padStart(len, "0");
+  const iso = `${yyyy}-${pad(mm)}-${pad(dd)}T${pad(hh)}:${pad(min)}:${pad(ss)}+05:30`;
+  const parsed = new Date(iso);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+}
+
+/** CityPak "19-06-2024 13:30:59" (push API) → ISO. */
+export function parseCitypakPushDateTime(value: string): string | null {
+  const trimmed = value.trim();
+  const [date, ...rest] = trimmed.split(/\s+/);
+  return parseCitypakDateTime(date ?? "", rest.join(" ") || undefined);
+}
+
+/** Map a CityPak scan (label + code) to our normalized status. */
+export function classifyCitypakScan(label: string, code: string): CitypakShipmentStatus {
+  const normalizedCode = code.trim().toUpperCase();
+  const normalizedLabel = label.trim().toUpperCase();
+
+  if (normalizedCode === "DL") return "delivered";
+  if (normalizedCode === "RTM") return "returned";
+
+  if (normalizedLabel.includes("DELIVERED") && !normalizedLabel.includes("NOT")) {
+    return "delivered";
+  }
+  if (normalizedLabel.includes("RETURN")) return "returned";
+  if (normalizedLabel.includes("NOT DELIVERED") || normalizedLabel.includes("FAILED")) {
+    return "attempt_failed";
+  }
+  if (normalizedLabel.includes("OUT FOR DELIVERY")) return "out_for_delivery";
+  if (
+    normalizedLabel.includes("RECEIVE") ||
+    normalizedLabel.includes("SCAN") ||
+    normalizedLabel.includes("FACILITY") ||
+    normalizedLabel.includes("DISPATCH") ||
+    normalizedLabel.includes("TRANSIT")
+  ) {
+    return "in_transit";
+  }
+  return "unknown";
+}
+
+export function citypakStatusLabel(status: CitypakShipmentStatus): string {
+  switch (status) {
+    case "booked":
+      return "Booked";
+    case "in_transit":
+      return "In transit";
+    case "out_for_delivery":
+      return "Out for delivery";
+    case "attempt_failed":
+      return "Delivery attempt failed";
+    case "delivered":
+      return "Delivered";
+    case "returned":
+      return "Returned to merchant";
+    default:
+      return "Unknown";
+  }
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function readString(record: Record<string, unknown>, ...keys: string[]): string {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+    if (typeof value === "number") return String(value);
+  }
+  return "";
+}
+
+export function parseCitypakTrackingResponse(payload: unknown): CitypakTrackingResult {
+  const root = asRecord(payload);
+  const success = root.is_success ?? root.success;
+  if (success === false) {
+    return { ok: false, error: readString(root, "message") || "CityPak tracking failed" };
+  }
+
+  const data = asRecord(root.data);
+  const historyRaw = Array.isArray(data.tracking_history) ? data.tracking_history : [];
+  const checkpoints: CitypakTrackingCheckpoint[] = historyRaw.map((entry) => {
+    const row = asRecord(entry);
+    const label = readString(row, "status_type", "status");
+    const code = readString(row, "status_code", "status_type");
+    const date = readString(row, "date");
+    const time = readString(row, "time");
+    return {
+      at: parseCitypakDateTime(date, time) ?? `${date} ${time}`.trim(),
+      label,
+      code,
+      location: readString(row, "location"),
+      description: readString(row, "description", "reason"),
+      status: classifyCitypakScan(label, code),
+    };
+  });
+
+  const last = checkpoints[checkpoints.length - 1] ?? null;
+  const isDeliveredFlag = data.is_delivered === true;
+  const status: CitypakShipmentStatus = isDeliveredFlag
+    ? "delivered"
+    : last?.status ?? (checkpoints.length === 0 ? "booked" : "unknown");
+  const deliveredAt =
+    status === "delivered"
+      ? [...checkpoints].reverse().find((cp) => cp.status === "delivered")?.at ?? last?.at ?? null
+      : null;
+
+  return {
+    ok: true,
+    status,
+    statusLabel: citypakStatusLabel(status),
+    isDelivered: status === "delivered",
+    deliveredAt,
+    receiverName: readString(data, "receiver_name"),
+    podImageUrl: readString(data, "pod_image_url"),
+    checkpoints,
+    raw: payload,
+  };
+}
+
+/** Status fields we stamp onto OrderWaybill.rawPayload for CityPak shipments. */
+export type CitypakWaybillStatusSnapshot = {
+  status: CitypakShipmentStatus | null;
+  statusLabel: string | null;
+  checkedAt: string | null;
+  deliveredAt: string | null;
+  podImageUrl: string | null;
+  checkpoints: CitypakTrackingCheckpoint[];
+};
+
+/** Read the status snapshot back off a stored rawPayload (safe on the client). */
+export function readCitypakWaybillStatus(payload: unknown): CitypakWaybillStatusSnapshot {
+  const record = asRecord(payload);
+  const status = readString(record, "citypakStatus") as CitypakShipmentStatus | "";
+  const checkpoints = Array.isArray(record.citypakStatusCheckpoints)
+    ? (record.citypakStatusCheckpoints as CitypakTrackingCheckpoint[])
+    : [];
+  return {
+    status: status || null,
+    statusLabel: readString(record, "citypakStatusLabel") || (status ? citypakStatusLabel(status) : null),
+    checkedAt: readString(record, "citypakStatusCheckedAt") || null,
+    deliveredAt: readString(record, "citypakDeliveredAt") || null,
+    podImageUrl: readString(record, "citypakPodImageUrl") || null,
+    checkpoints,
+  };
+}
+
+export function citypakTrackRequestUrl(baseUrl: string, trackingNumber: string) {
+  const params = new URLSearchParams({ tracking_number: trackingNumber });
+  return `${baseUrl.replace(/\/+$/, "")}/customer_api/v1/track?${params}`;
+}
+
+export async function trackCitypakShipment(
+  input: { token: string; trackingNumber: string },
+  options?: { baseUrl?: string }
+): Promise<CitypakTrackingResult> {
+  const trackingNumber = input.trackingNumber.trim();
+  if (!trackingNumber) return { ok: false, error: "CityPak tracking needs a tracking number" };
+
+  const baseUrl = (options?.baseUrl ?? getCitypakApiBaseUrl()).replace(/\/+$/, "");
+  const url = citypakTrackRequestUrl(baseUrl, trackingNumber);
+
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${input.token}` },
+      signal: AbortSignal.timeout(15000),
+    });
+    const text = await response.text();
+    let payload: unknown = text;
+    try {
+      payload = text ? JSON.parse(text) : null;
+    } catch {
+      /* keep raw text */
+    }
+
+    if (!response.ok) {
+      const parsed = parseCitypakTrackingResponse(payload);
+      const error = parsed.ok ? `CityPak tracking failed (HTTP ${response.status})` : parsed.error;
+      return { ok: false, error, status: response.status };
+    }
+
+    return parseCitypakTrackingResponse(payload);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "CityPak tracking request failed";
+    return { ok: false, error: message };
+  }
+}
+
+/** Push API payload CityPak POSTs to our webhook on each scan. */
+export type CitypakPushPayload = {
+  trackingNumber: string;
+  reference: string;
+  itemId: string;
+  label: string;
+  code: string;
+  reason: string;
+  at: string | null;
+  status: CitypakShipmentStatus;
+};
+
+export function parseCitypakPushPayload(payload: unknown): CitypakPushPayload | null {
+  const row = asRecord(payload);
+  const trackingNumber = readString(row, "tracking_number");
+  if (!trackingNumber) return null;
+  const label = readString(row, "status");
+  const code = readString(row, "status_type");
+  const at =
+    parseCitypakPushDateTime(readString(row, "delivered_datetime", "action_datetime")) || null;
+  return {
+    trackingNumber,
+    reference: readString(row, "reference"),
+    itemId: readString(row, "item_id"),
+    label,
+    code,
+    reason: readString(row, "reason"),
+    at,
+    status: classifyCitypakScan(label, code),
+  };
+}

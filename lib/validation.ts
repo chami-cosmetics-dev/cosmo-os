@@ -416,6 +416,8 @@ export const abandonedOrderFollowUpPatchBodySchema = z.object({
 export const waybillLookupPageDataQuerySchema = z.object({
   page: pageSchema.optional().transform((v) => v ?? 1),
   limit: limitSchema.optional().transform((v) => v ?? 50),
+  uploadsPage: pageSchema.optional().transform((v) => v ?? 1),
+  uploadsLimit: limitSchema.optional().transform((v) => v ?? 20),
   rematch: z
     .string()
     .optional()

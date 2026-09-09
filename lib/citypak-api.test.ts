@@ -3,11 +3,16 @@ import { describe, expect, it } from "vitest";
 import {
   buildCitypakCreateOrderBody,
   citypakCodAmount,
+  citypakTrackRequestUrl,
   citypakWaybillPdfRequestUrl,
+  classifyCitypakScan,
   draftCitypakShipmentFields,
   matchCitypakAccount,
   mergeShippingAddressWithCitypakOverride,
   normalizeCitypakPrefix,
+  parseCitypakDateTime,
+  parseCitypakPushPayload,
+  parseCitypakTrackingResponse,
   toCitypakAscii,
   toCitypakPhone,
 } from "@/lib/citypak-api";
@@ -146,6 +151,130 @@ describe("mergeShippingAddressWithCitypakOverride", () => {
     expect(merged.city).toBe("Kandy");
     expect(merged.phone).toBe("0771111111");
     expect(merged.country).toBe("LK");
+  });
+});
+
+describe("parseCitypakDateTime", () => {
+  it("parses d-m-Y H:i:s in Sri Lanka time", () => {
+    expect(parseCitypakDateTime("04-11-2022", "13:45:12")).toBe("2022-11-04T08:15:12.000Z");
+  });
+
+  it("defaults missing time to midnight and rejects junk", () => {
+    expect(parseCitypakDateTime("14-12-2022")).toBe("2022-12-13T18:30:00.000Z");
+    expect(parseCitypakDateTime("not-a-date", "10:00:00")).toBeNull();
+  });
+});
+
+describe("classifyCitypakScan", () => {
+  it("maps status codes and labels to normalized status", () => {
+    expect(classifyCitypakScan("DELIVERED", "DL")).toBe("delivered");
+    expect(classifyCitypakScan("", "RTM")).toBe("returned");
+    expect(classifyCitypakScan("OUT FOR DELIVERY", "UD")).toBe("out_for_delivery");
+    expect(classifyCitypakScan("NOT DELIVERED", "UD")).toBe("attempt_failed");
+    expect(classifyCitypakScan("FIRST MILE RECEIVE SCAN", "UD")).toBe("in_transit");
+    expect(classifyCitypakScan("SOMETHING NEW", "UD")).toBe("unknown");
+  });
+});
+
+describe("citypakTrackRequestUrl", () => {
+  it("builds the Falcon track path", () => {
+    expect(citypakTrackRequestUrl("https://falcon.citypak.lk", "D00008977")).toBe(
+      "https://falcon.citypak.lk/customer_api/v1/track?tracking_number=D00008977"
+    );
+  });
+});
+
+describe("parseCitypakTrackingResponse", () => {
+  const delivered = {
+    is_success: true,
+    data: {
+      tracking_number: "D00008977",
+      reference: "REF1",
+      is_delivered: true,
+      receiver_name: "Nimal",
+      pod_image_url: "https://falcon.citypak.lk/pod/1.jpg",
+      tracking_history: [
+        { date: "04-11-2022", time: "13:45:12", status_type: "FIRST MILE RECEIVE SCAN", status_code: "UD", location: "COLOMBO" },
+        { date: "14-12-2022", time: "13:49:23", status_type: "OUT FOR DELIVERY", status_code: "UD", location: "KANDY" },
+        { date: "14-12-2022", time: "13:49:36", status_type: "DELIVERED", status_code: "DL", location: "KANDY" },
+      ],
+    },
+  };
+
+  it("derives delivered status, timestamp, and checkpoints", () => {
+    const result = parseCitypakTrackingResponse(delivered);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.status).toBe("delivered");
+    expect(result.isDelivered).toBe(true);
+    expect(result.deliveredAt).toBe("2022-12-14T08:19:36.000Z");
+    expect(result.receiverName).toBe("Nimal");
+    expect(result.checkpoints).toHaveLength(3);
+    expect(result.checkpoints[1]?.status).toBe("out_for_delivery");
+  });
+
+  it("uses the latest scan when not yet delivered", () => {
+    const result = parseCitypakTrackingResponse({
+      is_success: true,
+      data: {
+        tracking_number: "D1",
+        is_delivered: false,
+        tracking_history: [
+          { date: "04-11-2022", time: "13:45:12", status_type: "RECEIVED IN FACILITY", status_code: "UD", location: "KANDY" },
+        ],
+      },
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.status).toBe("in_transit");
+    expect(result.deliveredAt).toBeNull();
+  });
+
+  it("reports failure bodies", () => {
+    const result = parseCitypakTrackingResponse({ success: false, message: "Invalid Tracking Number." });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toBe("Invalid Tracking Number.");
+  });
+});
+
+describe("parseCitypakPushPayload", () => {
+  it("parses an OUT FOR DELIVERY push", () => {
+    const parsed = parseCitypakPushPayload({
+      tracking_number: "D00010032",
+      reference: "MI-129496",
+      item_id: 10032,
+      status_type: "UD",
+      status: "OUT FOR DELIVERY",
+      action_datetime: "19-06-2024 13:30:59",
+    });
+    expect(parsed?.trackingNumber).toBe("D00010032");
+    expect(parsed?.status).toBe("out_for_delivery");
+    expect(parsed?.at).toBe("2024-06-19T08:00:59.000Z");
+  });
+
+  it("parses a DELIVERED push with delivered_datetime and reason on failures", () => {
+    expect(
+      parseCitypakPushPayload({
+        tracking_number: "D1",
+        status_type: "DL",
+        status: "DELIVERED",
+        delivered_datetime: "19-06-2024 13:30:59",
+      })?.status
+    ).toBe("delivered");
+    expect(
+      parseCitypakPushPayload({
+        tracking_number: "D1",
+        status_type: "UD",
+        status: "NOT DELIVERED",
+        reason: "Unable to contact",
+        action_datetime: "19-06-2024 13:30:59",
+      })?.reason
+    ).toBe("Unable to contact");
+  });
+
+  it("returns null without a tracking number", () => {
+    expect(parseCitypakPushPayload({ status: "DELIVERED" })).toBeNull();
   });
 });
 
