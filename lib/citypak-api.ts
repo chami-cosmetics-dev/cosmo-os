@@ -697,6 +697,33 @@ export function parseCitypakTrackingResponse(payload: unknown): CitypakTrackingR
   };
 }
 
+/** Status fields we stamp onto OrderWaybill.rawPayload for CityPak shipments. */
+export type CitypakWaybillStatusSnapshot = {
+  status: CitypakShipmentStatus | null;
+  statusLabel: string | null;
+  checkedAt: string | null;
+  deliveredAt: string | null;
+  podImageUrl: string | null;
+  checkpoints: CitypakTrackingCheckpoint[];
+};
+
+/** Read the status snapshot back off a stored rawPayload (safe on the client). */
+export function readCitypakWaybillStatus(payload: unknown): CitypakWaybillStatusSnapshot {
+  const record = asRecord(payload);
+  const status = readString(record, "citypakStatus") as CitypakShipmentStatus | "";
+  const checkpoints = Array.isArray(record.citypakStatusCheckpoints)
+    ? (record.citypakStatusCheckpoints as CitypakTrackingCheckpoint[])
+    : [];
+  return {
+    status: status || null,
+    statusLabel: readString(record, "citypakStatusLabel") || (status ? citypakStatusLabel(status) : null),
+    checkedAt: readString(record, "citypakStatusCheckedAt") || null,
+    deliveredAt: readString(record, "citypakDeliveredAt") || null,
+    podImageUrl: readString(record, "citypakPodImageUrl") || null,
+    checkpoints,
+  };
+}
+
 export function citypakTrackRequestUrl(baseUrl: string, trackingNumber: string) {
   const params = new URLSearchParams({ tracking_number: trackingNumber });
   return `${baseUrl.replace(/\/+$/, "")}/customer_api/v1/track?${params}`;

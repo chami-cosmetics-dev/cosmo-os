@@ -48,6 +48,10 @@
     {
       "path": "/api/cron/erp-stock-snapshot",
       "schedule": "30 17 * * *"
+    },
+    {
+      "path": "/api/cron/citypak-waybill-status-sync",
+      "schedule": "0 */6 * * *"
     }
   ],
   "ignoreCommand": "node scripts/vercel-should-build.mjs",
