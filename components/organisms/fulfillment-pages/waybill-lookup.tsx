@@ -158,6 +158,7 @@ export function WaybillLookupFulfillmentPage({
   const [rematching, setRematching] = useState(false);
   const [deletingUploadId, setDeletingUploadId] = useState<string | null>(null);
   const [refreshingStatusId, setRefreshingStatusId] = useState<string | null>(null);
+  const [checkingAllStatuses, setCheckingAllStatuses] = useState(false);
   const [selectedDetails, setSelectedDetails] = useState<DetailsTarget | null>(null);
   const [activeTab, setActiveTab] = useState<"pending" | "uploads">("pending");
 
@@ -168,7 +169,8 @@ export function WaybillLookupFulfillmentPage({
     pageLoading ||
     rematching ||
     Boolean(deletingUploadId) ||
-    Boolean(refreshingStatusId);
+    Boolean(refreshingStatusId) ||
+    checkingAllStatuses;
 
   async function loadPageData(options?: { page?: number; uploadsPage?: number }) {
     const page = options?.page ?? pendingPage;
@@ -403,10 +405,48 @@ export function WaybillLookupFulfillmentPage({
     }
   }
 
+  /** Poll CityPak once for every CityPak row on this page — no row-by-row clicking. */
+  async function handleCheckAllStatuses(waybillIds: string[]) {
+    if (waybillIds.length === 0) {
+      notify.error("No CityPak waybills on this page to check.");
+      return;
+    }
+
+    setCheckingAllStatuses(true);
+    try {
+      const response = await fetch("/api/admin/waybills/citypak-status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ waybillIds }),
+      });
+      const data = (await response.json().catch(() => null)) as
+        | { checked?: number; updated?: number; delivered?: number; failed?: number; skipped?: number; error?: string }
+        | null;
+      if (!response.ok || data?.checked == null) {
+        notify.error(data?.error ?? "Could not check CityPak statuses.");
+        return;
+      }
+      notify.success(
+        `Checked ${data.checked} waybill(s): ${data.updated ?? 0} updated, ${data.delivered ?? 0} delivered` +
+          (data.failed ? `, ${data.failed} failed` : "") +
+          (data.skipped ? `, ${data.skipped} already final` : "") +
+          "."
+      );
+      await loadPageData({ page: pendingPage, uploadsPage });
+    } catch {
+      notify.error("Could not check CityPak statuses.");
+    } finally {
+      setCheckingAllStatuses(false);
+    }
+  }
+
   const matchedOrder = result?.order ?? null;
   const waybills = result?.waybills ?? [];
   const pending = pageData?.pending ?? [];
   const uploads = pageData?.uploads ?? [];
+  const pendingCitypakIds = pending
+    .filter((row) => row.source === CITYPAK_WAYBILL_SOURCE)
+    .map((row) => row.id);
   const pagination = pageData?.pagination;
   const uploadsPagination = pageData?.uploadsPagination;
   const totalPages = pagination ? Math.max(1, Math.ceil(pagination.total / pagination.limit)) : 1;
@@ -670,23 +710,42 @@ export function WaybillLookupFulfillmentPage({
 
         <TabsContent value="pending">
           <Card className="border-border/70 shadow-xs">
-            <CardHeader className="flex flex-row items-center justify-between gap-3 border-b border-border/50">
+            <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 border-b border-border/50">
               <CardTitle>Pending Waybills</CardTitle>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="gap-2"
-                disabled={isBusy}
-                onClick={() => void handleRematch()}
-              >
-                {rematching ? (
-                  <Loader2 className="size-4 animate-spin" aria-hidden />
-                ) : (
-                  <RefreshCw className="size-4" aria-hidden />
-                )}
-                {rematching ? "Re-checking..." : "Re-check matches"}
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="gap-2"
+                  disabled={isBusy || pendingCitypakIds.length === 0}
+                  onClick={() => void handleCheckAllStatuses(pendingCitypakIds)}
+                >
+                  {checkingAllStatuses ? (
+                    <Loader2 className="size-4 animate-spin" aria-hidden />
+                  ) : (
+                    <Truck className="size-4" aria-hidden />
+                  )}
+                  {checkingAllStatuses
+                    ? "Checking statuses..."
+                    : `Check all statuses (${pendingCitypakIds.length})`}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="gap-2"
+                  disabled={isBusy}
+                  onClick={() => void handleRematch()}
+                >
+                  {rematching ? (
+                    <Loader2 className="size-4 animate-spin" aria-hidden />
+                  ) : (
+                    <RefreshCw className="size-4" aria-hidden />
+                  )}
+                  {rematching ? "Re-checking..." : "Re-check matches"}
+                </Button>
+              </div>
             </CardHeader>
             <CardContent className="space-y-4">
               <p className="text-xs text-muted-foreground">
