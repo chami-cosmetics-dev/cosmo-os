@@ -8,7 +8,7 @@ import {
   resolveOrderInvoiceNumber,
   resolveOrderNumber,
 } from "@/lib/order-sms-resolvers";
-import { sendOrderSms, type SmsTrigger } from "@/lib/order-sms";
+import { orderSmsFailureReason, sendOrderSms, type SmsTrigger } from "@/lib/order-sms";
 import { requirePermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
 
@@ -151,7 +151,7 @@ export async function POST(
   const rider = order.dispatchedByRider;
 
   try {
-    await sendOrderSms(companyId, order.id, trigger, {
+    const result = await sendOrderSms(companyId, order.id, trigger, {
       orderNumber: orderNum,
       invoiceNumber,
       customerPhone,
@@ -160,7 +160,14 @@ export async function POST(
       riderName: rider?.name ?? undefined,
       riderPhone: rider?.mobile ?? undefined,
     });
-    return NextResponse.json({ success: true });
+    // sendOrderSms resolves even when the provider rejects, so report the real outcome
+    // instead of a blanket success the operator cannot trust.
+    const failure = orderSmsFailureReason(result);
+    if (failure) {
+      console.error(`[Resend SMS] ${trigger} order ${order.id} not sent: ${failure}`);
+      return NextResponse.json({ error: failure }, { status: result.skipped ? 400 : 502 });
+    }
+    return NextResponse.json({ success: true, sent: result.sent });
   } catch (err) {
     console.error(`[Resend SMS] ${trigger} failed:`, err);
     return NextResponse.json({ error: "Failed to send SMS" }, { status: 500 });

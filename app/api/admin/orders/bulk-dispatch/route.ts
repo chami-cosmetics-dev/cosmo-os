@@ -109,7 +109,7 @@ export async function POST(request: NextRequest) {
     citypakAttempts?: number;
     manual?: boolean;
   }> = [];
-  const smsTasks: Promise<void>[] = [];
+  const smsTasks: Promise<unknown>[] = [];
   let citypakCreates = 0;
   const plannedCitypak =
     isCitypakCourier(courierServiceName) ? orderIds.length + manuals.length : 0;
