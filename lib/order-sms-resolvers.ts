@@ -129,6 +129,38 @@ export function resolveCustomerPhone(order: {
   return undefined;
 }
 
+/** Delivery/shipping phone only: stored shipping address, then the Shopify/ERP raw payload shipping address. */
+export function resolveShippingPhone(order: {
+  shippingAddress?: unknown;
+  rawPayload?: unknown;
+}): string | undefined {
+  const addr = order.shippingAddress;
+  if (addr && typeof addr === "object" && !Array.isArray(addr)) {
+    const phone = coercePhoneString((addr as Record<string, unknown>).phone);
+    if (phone) return phone;
+  }
+
+  if (order.rawPayload && typeof order.rawPayload === "object" && !Array.isArray(order.rawPayload)) {
+    const raw = order.rawPayload as Record<string, unknown>;
+
+    const shipping = raw.shipping_address as Record<string, unknown> | null | undefined;
+    const shippingPhone = coercePhoneString(shipping?.phone);
+    if (shippingPhone) return shippingPhone;
+
+    const dataObj = raw.data;
+    if (dataObj && typeof dataObj === "object" && !Array.isArray(dataObj)) {
+      const nested = (dataObj as Record<string, unknown>).shipping_address as
+        | Record<string, unknown>
+        | null
+        | undefined;
+      const nestedPhone = coercePhoneString(nested?.phone);
+      if (nestedPhone) return nestedPhone;
+    }
+  }
+
+  return undefined;
+}
+
 export function getDeliveryUrl(order: { riderDeliveryToken: string | null }): string {
   if (!order.riderDeliveryToken) return "";
   return `${getAppBaseUrl()}/r/d/${order.riderDeliveryToken}`;

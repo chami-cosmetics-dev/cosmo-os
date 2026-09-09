@@ -157,6 +157,21 @@ function formatMemberSince(iso: string | null | undefined) {
   return d.toLocaleDateString("en-LK", { month: "short", year: "numeric" });
 }
 
+/**
+ * ContactMaster.lastPurchaseAt only ever moves forward, so it can sit ahead of
+ * the invoice list on this same page (cancelled or re-dated invoices, merged
+ * contacts). Prefer the history-derived date so the card agrees with the orders
+ * it shows; fall back to the column only when there is no history.
+ */
+function formatLastPurchased(
+  frequency: { lastOrderAt: string | null } | null | undefined,
+  lastPurchaseAt: string | null,
+  emptyLabel: string
+) {
+  const iso = frequency?.lastOrderAt ?? lastPurchaseAt;
+  return iso ? formatAppDate(iso, "—") : emptyLabel;
+}
+
 function truncateLabel(value: string, max = 18) {
   const t = value.trim();
   if (t.length <= max) return t;
@@ -2393,9 +2408,11 @@ export function CustomerInsightPanel({
                             <Calendar className="size-3.5 shrink-0" aria-hidden />
                             Last purchased{" "}
                             <span className="text-foreground">
-                              {insight.contact.lastPurchaseAt
-                                ? formatAppDate(insight.contact.lastPurchaseAt, "—")
-                                : "never"}
+                              {formatLastPurchased(
+                                insight.frequency,
+                                insight.contact.lastPurchaseAt,
+                                "never"
+                              )}
                             </span>
                           </span>
                         </div>
@@ -2409,9 +2426,11 @@ export function CustomerInsightPanel({
                         <DetailField
                           label="Last purchased"
                           value={
-                            insight.contact.lastPurchaseAt
-                              ? formatAppDate(insight.contact.lastPurchaseAt, "—")
-                              : "Never"
+                            formatLastPurchased(
+                              insight.frequency,
+                              insight.contact.lastPurchaseAt,
+                              "Never"
+                            )
                           }
                         />
                         <DetailField
