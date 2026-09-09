@@ -15,6 +15,7 @@ import { isBelowReorderThreshold } from "@/lib/osf/threshold";
 import { prisma } from "@/lib/prisma";
 import { formatAppIsoDate } from "@/lib/format-datetime";
 import { getCurrentUserContext, hasPermission, requirePermission } from "@/lib/rbac";
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 import { osfGenerateBodySchema } from "@/lib/validation/osf";
 
 function todayColombo(): string {
@@ -49,6 +50,16 @@ export async function POST(request: NextRequest) {
     if (!auth.ok) {
       return NextResponse.json({ error: auth.error }, { status: auth.status });
     }
+  }
+
+  if (isVaultOsDeployment()) {
+    return NextResponse.json(
+      {
+        error: "Cosmo OSF is not available on Vault OS",
+        code: "COSMO_OSF_NOT_ON_VAULT",
+      },
+      { status: 409 },
+    );
   }
 
   const context = await getCurrentUserContext();
