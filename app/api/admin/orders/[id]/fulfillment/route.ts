@@ -953,7 +953,7 @@ export async function PATCH(
 
       // Await SMS before responding — fire-and-forget is killed by Vercel when the response returns
       // (same bug previously fixed for bulk-dispatch in cd8dc61).
-      const smsTasks: Promise<void>[] = [];
+      const smsTasks: Promise<unknown>[] = [];
 
       if (needsMarkReady) {
         smsTasks.push(
