@@ -79,6 +79,7 @@ model Company {
   productOsfProfiles            ProductOsfProfile[]
   productOsfRops                ProductOsfRop[]
   osfColumnConfigs              OsfColumnConfig[]
+  osfMonthlySalesHistories      OsfMonthlySalesHistory[]
   osfBuyers                     OsfBuyer[]
   osfUserColumnAccess           OsfUserColumnAccess[]
   storeStockCountReports        StoreStockCountReport[]
@@ -2092,6 +2093,8 @@ model OsfColumnConfig {
   // in this ERP instance instead of (or in addition to) the mapped location.
   // Used for warehouses that are not their own Cosmo location (e.g. Cosmo shops).
   erpnextInstanceId String?
+  /// ERP company name that scopes sales/purchase docs (Vault OSF). Null for Cosmo.
+  erpCompany        String?
   directWarehouses  String[]         @default([])
   includeInStock    Boolean          @default(true)
   includeInRop      Boolean          @default(true)
@@ -2104,6 +2107,26 @@ model OsfColumnConfig {
 
   @@unique([companyId, key])
   @@index([companyId, sortOrder])
+}
+
+/// Imported monthly sales for months ERP cannot supply (e.g. April/May 2026).
+model OsfMonthlySalesHistory {
+  id        String   @id @default(cuid())
+  companyId String
+  sku       String
+  /// Matches OsfColumnConfig.key (sv / ori / ae).
+  columnKey String
+  /// Calendar month in Asia/Colombo, YYYY-MM.
+  month     String
+  /// Units sold. 0 means a genuine zero-sale month; missing row means not loaded.
+  qty       Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, sku, columnKey, month])
+  @@index([companyId, month])
+  @@index([companyId, sku])
 }
 
 model OsfBuyer {
