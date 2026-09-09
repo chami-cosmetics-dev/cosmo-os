@@ -8,6 +8,14 @@ import { getAddressField, resolveOrderCustomerName } from "@/lib/reports/csv";
 export const CITYPAK_WAYBILL_SOURCE = "citypak_api";
 /** WaybillUpload.fileType for OS→CityPak API dispatch batches (bulk history). */
 export const CITYPAK_API_BATCH_FILE_TYPE = "citypak_api";
+
+/** Print layout for waybill PDFs: A4 holds 4 waybills, A5 holds 1. */
+export type CitypakPrintLayout = "A4" | "A5";
+export const CITYPAK_DEFAULT_PRINT_LAYOUT: CitypakPrintLayout = "A4";
+
+export function parseCitypakPrintLayout(value: unknown): CitypakPrintLayout {
+  return typeof value === "string" && value.trim().toUpperCase() === "A5" ? "A5" : "A4";
+}
 export const CITYPAK_DEFAULT_WEIGHT_G = 500;
 export const CITYPAK_DEFAULT_BASE_URL = "https://falcon.citypak.lk";
 /** Gap between CityPak create-order calls in bulk dispatch. CityPak has no bulk endpoint. */
@@ -304,6 +312,47 @@ export async function createCitypakOrder(
   }
 }
 
+/**
+ * Best-effort cancel of a booked CityPak order before re-booking with corrected details.
+ * CityPak exposes no documented cancel call, so we try the two usual shapes and report back;
+ * callers must tell staff to void the old waybill in the Falcon panel when this fails.
+ */
+export async function cancelCitypakOrder(
+  input: { token: string; citypakOrderId: string },
+  options?: { baseUrl?: string }
+): Promise<{ cancelled: boolean; error?: string }> {
+  const citypakOrderId = input.citypakOrderId.trim();
+  if (!citypakOrderId) return { cancelled: false, error: "No CityPak order id on this waybill" };
+
+  const baseUrl = (options?.baseUrl ?? getCitypakApiBaseUrl()).replace(/\/+$/, "");
+  const orderUrl = `${baseUrl}/customer_api/v1/orders/${encodeURIComponent(citypakOrderId)}`;
+  const attempts: Array<{ url: string; method: "DELETE" | "POST" }> = [
+    { url: orderUrl, method: "DELETE" },
+    { url: `${orderUrl}/cancel`, method: "POST" },
+  ];
+
+  let lastError = "CityPak cancel failed";
+  for (const attempt of attempts) {
+    try {
+      const response = await fetch(attempt.url, {
+        method: attempt.method,
+        headers: {
+          Authorization: `Bearer ${input.token}`,
+          "Content-Type": "application/json",
+        },
+        body: attempt.method === "POST" ? JSON.stringify({ token: input.token }) : undefined,
+        signal: AbortSignal.timeout(15000),
+      });
+      if (response.ok) return { cancelled: true };
+      lastError = `CityPak cancel failed (HTTP ${response.status})`;
+    } catch (err) {
+      lastError = err instanceof Error ? err.message : lastError;
+    }
+  }
+
+  return { cancelled: false, error: lastError };
+}
+
 export type CitypakShipmentOverride = {
   receiverName: string;
   receiverAddress1: string;
@@ -312,6 +361,35 @@ export type CitypakShipmentOverride = {
   receiverPhone: string;
   cashOnDeliveryAmount?: number;
 };
+
+export function parseCitypakShipment(value: unknown): CitypakShipmentOverride | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const row = value as Record<string, unknown>;
+  const receiverName = typeof row.receiverName === "string" ? row.receiverName.trim() : "";
+  const receiverAddress1 = typeof row.receiverAddress1 === "string" ? row.receiverAddress1.trim() : "";
+  const receiverAddress2 = typeof row.receiverAddress2 === "string" ? row.receiverAddress2.trim() : "";
+  const receiverCity = typeof row.receiverCity === "string" ? row.receiverCity.trim() : "";
+  const receiverPhone = typeof row.receiverPhone === "string" ? row.receiverPhone.trim() : "";
+  const cashOnDeliveryAmount =
+    typeof row.cashOnDeliveryAmount === "number" && Number.isFinite(row.cashOnDeliveryAmount)
+      ? row.cashOnDeliveryAmount
+      : 0;
+  if (!receiverName || !receiverAddress1 || !receiverCity) return null;
+  return {
+    receiverName,
+    receiverAddress1,
+    receiverAddress2,
+    receiverCity,
+    receiverPhone,
+    cashOnDeliveryAmount,
+  };
+}
+
+/** Edited details stamped on reprint. Tracking / CityPak booking stay unchanged. */
+export function readCitypakPrintOverride(payload: Record<string, unknown>): CitypakShipmentOverride | null {
+  if (payload.printOverride !== true) return null;
+  return parseCitypakShipment(payload.shipment);
+}
 
 export function citypakWaybillPdfRequestUrl(
   baseUrl: string,

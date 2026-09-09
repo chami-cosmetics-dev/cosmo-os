@@ -103,9 +103,10 @@ export async function POST(request: NextRequest) {
     ref: string;
     success: boolean;
     error?: string;
-    citypakStatus?: "skipped" | "booked" | "falcon";
+    citypakStatus?: "skipped" | "booked" | "falcon" | "retry";
     citypakError?: string;
     citypakTracking?: string | null;
+    citypakAttempts?: number;
     manual?: boolean;
   }> = [];
   const smsTasks: Promise<void>[] = [];
@@ -122,6 +123,7 @@ export async function POST(request: NextRequest) {
       : null;
   let citypakBooked = 0;
   let citypakFalcon = 0;
+  let citypakRetry = 0;
 
   for (const orderId of orderIds) {
     try {
@@ -364,10 +366,11 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      let citypakStatus: "skipped" | "booked" | "falcon" | undefined;
+      let citypakStatus: "skipped" | "booked" | "falcon" | "retry" | undefined;
       let citypakError: string | undefined;
       let citypakTracking: string | null | undefined;
       let citypakWaybillId: string | null | undefined;
+      let citypakAttempts: number | undefined;
       if (courierServiceId) {
         if (isCitypakCourier(courierServiceName) && citypakCreates > 0) {
           await new Promise((resolve) => setTimeout(resolve, CITYPAK_BULK_CREATE_GAP_MS));
@@ -392,6 +395,11 @@ export async function POST(request: NextRequest) {
           citypakError = citypak.error;
           citypakFalcon += 1;
         }
+        if (citypak.status === "retry") {
+          citypakError = citypak.error;
+          citypakAttempts = citypak.attempts;
+          citypakRetry += 1;
+        }
       }
 
       results.push({
@@ -402,6 +410,7 @@ export async function POST(request: NextRequest) {
         citypakStatus,
         citypakError,
         citypakTracking,
+        citypakAttempts,
       });
     } catch (err) {
       console.error("[bulk-dispatch] error for orderId", orderId, err);
@@ -466,7 +475,7 @@ export async function POST(request: NextRequest) {
       companyId,
       uploadId: citypakBatchId,
       booked: citypakBooked,
-      falconFallback: citypakFalcon,
+      falconFallback: citypakFalcon + citypakRetry,
       plannedTotal: plannedCitypak,
       dispatchedByName: dispatcher.name ?? dispatcher.email ?? null,
     });

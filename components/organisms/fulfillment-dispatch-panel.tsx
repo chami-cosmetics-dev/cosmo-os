@@ -133,7 +133,7 @@ export function FulfillmentDispatchPanel({
       });
       const data = (await res.json()) as {
         error?: string;
-        citypakStatus?: "skipped" | "booked" | "falcon";
+        citypakStatus?: "skipped" | "booked" | "falcon" | "retry";
         citypakError?: string;
         citypakTracking?: string | null;
       };
@@ -142,9 +142,13 @@ export function FulfillmentDispatchPanel({
         return false;
       }
       if (!opts?.silent) {
-        if (action === "dispatch" && data.citypakStatus === "falcon") {
+        if (action === "dispatch" && data.citypakStatus === "retry") {
           notify.error(
-            `Dispatched. CityPak API failed — use Falcon Upload. ${data.citypakError ?? ""}`.trim()
+            `Dispatched. CityPak API failed — held for retry (not Falcon). ${data.citypakError ?? ""}`.trim()
+          );
+        } else if (action === "dispatch" && data.citypakStatus === "falcon") {
+          notify.error(
+            `Dispatched. CityPak API not available — use Falcon Upload. ${data.citypakError ?? ""}`.trim()
           );
         } else if (action === "dispatch" && data.citypakStatus === "booked") {
           notify.success(
