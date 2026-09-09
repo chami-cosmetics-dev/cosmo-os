@@ -51,8 +51,8 @@ export const ASSIGNED_MERCHANT_ALIAS_GROUPS: AssignedMerchantAliasGroup[] = [
   },
   {
     value: "Sanda/semini",
-    label: "Sanda/semini",
-    aliases: ["Sanda/semini", "Semini"],
+    label: "Sanda/semini (MER103)",
+    aliases: ["Sanda/semini", "Semini", "MER103"],
   },
   {
     value: "Kaushallya",
@@ -144,6 +144,18 @@ export function expandAssignedMerchantFilter(
   return uniqueLabels(group.aliases);
 }
 
+/**
+ * Collapse a list of stored assignedMerchant labels to one entry per merchant.
+ * Legacy duplicates ("Semini", "MER103") fold into the canonical bucket name.
+ */
+export function canonicalizeAssignedMerchantLabels(
+  labels: Array<string | null | undefined>
+): string[] {
+  return uniqueLabels(
+    labels.map((label) => canonicalizeMerchantDisplayName(label))
+  );
+}
+
 export function canonicalizeAssignedMerchantOption(
   rawLabel: string
 ): { value: string; label: string } | null {
@@ -220,6 +232,26 @@ function userMatchesFilterValue(
   return merchantMatchKeysForUser(user).some((k) => norm(k) === selectedNorm);
 }
 
+/**
+ * Alias group a roster merchant belongs to (matched on MER code, display name,
+ * or any legacy match key). Used to fold the user into the bucket instead of
+ * listing them twice (e.g. "Semini (MER103)" + "Sanda/semini").
+ */
+function aliasGroupForMerchantUser(
+  user: MerchantFilterUser
+): AssignedMerchantAliasGroup | null {
+  const candidates = [
+    getPrimaryMerCode(user.couponCodes),
+    getMerchantDisplayName(user),
+    ...merchantMatchKeysForUser(user),
+  ];
+  for (const candidate of candidates) {
+    const group = findAssignedMerchantAliasGroup(candidate);
+    if (group) return group;
+  }
+  return null;
+}
+
 function labelsForMerchantUser(user: MerchantFilterUser): string[] {
   const mer = getPrimaryMerCode(user.couponCodes);
   const extras = mer ? EXTRA_MERCHANT_CONTACT_ALIASES[mer] ?? [] : [];
@@ -241,11 +273,18 @@ export async function resolveAssignedMerchantFilterLabels(
   const trimmed = (selected ?? "").trim();
   if (!trimmed) return [];
 
-  if (findAssignedMerchantAliasGroup(trimmed)) {
-    return expandAssignedMerchantFilter(trimmed);
+  const users = await listCompanyMerchantFilterUsers(companyId);
+
+  const group = findAssignedMerchantAliasGroup(trimmed);
+  if (group) {
+    // Bucket picks also cover the roster merchant folded into the group, so
+    // contacts stored under that user's MER / display name still match.
+    const memberLabels = users
+      .filter((u) => aliasGroupForMerchantUser(u)?.value === group.value)
+      .flatMap(labelsForMerchantUser);
+    return uniqueLabels([...group.aliases, ...memberLabels]);
   }
 
-  const users = await listCompanyMerchantFilterUsers(companyId);
   const hit = users.find((u) => userMatchesFilterValue(u, trimmed));
   if (hit) return labelsForMerchantUser(hit);
 
@@ -367,6 +406,8 @@ export async function listInsightMerchantRosterOptions(
   }
 
   for (const user of users) {
+    // Already listed as an alias group (same person, legacy duplicate labels).
+    if (aliasGroupForMerchantUser(user)) continue;
     const value = insightMerchantOptionValue(user);
     const label = insightMerchantOptionLabel(user);
     if (!value || !label) continue;

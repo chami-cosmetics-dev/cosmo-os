@@ -34,6 +34,22 @@ export function customerLifetimeTotalOrderWhere() {
 }
 
 /**
+ * An order that was undone: cancelled, voided or returned.
+ * A reversed order is never a purchase, so it can never date one. Everything else
+ * counts the moment it is placed \x{2014} waiting for delivery does not make it less of a sale.
+ */
+export function isOrderReversed(order: {
+  cancelledAt: Date | string | null;
+  financialStatus?: string | null;
+  fulfillmentStage?: string | null;
+}): boolean {
+  if (order.cancelledAt) return true;
+  if (normalizeStatus(order.financialStatus) === "voided") return true;
+  const stage = normalizeStatus(order.fulfillmentStage);
+  return stage === "returned" || stage === "returned_to_store";
+}
+
+/**
  * Only delivery-complete / invoice-complete Cosmo orders count.
  * Voids, returns, and cancelled rows are excluded.
  */
