@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { parseCitypakPrintLayout, type CitypakShipmentOverride } from "@/lib/citypak-api";
 import { loadCitypakWaybillPdf, mergeCitypakWaybillPdfs } from "@/lib/citypak-waybill-pdf";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
@@ -43,12 +44,15 @@ export async function GET(request: NextRequest) {
   }
 
   const parts: Buffer[] = [];
+  const overlays: Array<CitypakShipmentOverride | null> = [];
   const errors: string[] = [];
 
   for (const orderId of orderIds) {
     const loaded = await loadCitypakWaybillPdf({ companyId, orderId });
-    if (loaded.ok) parts.push(loaded.bytes);
-    else errors.push(loaded.error);
+    if (loaded.ok) {
+      parts.push(loaded.bytes);
+      overlays.push(loaded.printOverride);
+    } else errors.push(loaded.error);
   }
 
   for (const waybillId of waybillIds) {
@@ -61,8 +65,10 @@ export async function GET(request: NextRequest) {
       continue;
     }
     const loaded = await loadCitypakWaybillPdf({ companyId, waybillId });
-    if (loaded.ok) parts.push(loaded.bytes);
-    else errors.push(loaded.error);
+    if (loaded.ok) {
+      parts.push(loaded.bytes);
+      overlays.push(loaded.printOverride);
+    } else errors.push(loaded.error);
   }
 
   if (parts.length === 0) {
@@ -72,13 +78,14 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const merged = parts.length === 1 ? parts[0]! : await mergeCitypakWaybillPdfs(parts);
+  const layout = parseCitypakPrintLayout(request.nextUrl.searchParams.get("layout"));
+  const merged = await mergeCitypakWaybillPdfs(parts, { layout, overlays });
   return new NextResponse(new Uint8Array(merged), {
     status: 200,
     headers: {
       "Content-Type": "application/pdf",
       "Content-Disposition": `inline; filename="citypak-waybills.pdf"`,
-      "Cache-Control": "private, max-age=60",
+      "Cache-Control": "private, no-store",
     },
   });
 }

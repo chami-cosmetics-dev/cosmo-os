@@ -349,13 +349,42 @@ export function CitypakShipmentReview({
   );
 }
 
-function ReceiverFields({
+export function ReceiverFields({
   value,
   onChange,
+  codLocked = false,
 }: {
   value: CitypakShipmentOverride;
   onChange: (next: Partial<CitypakShipmentOverride>) => void;
+  /** When true, COD is read-only until staff unlocks it. */
+  codLocked?: boolean;
 }) {
+  const [codUnlocked, setCodUnlocked] = useState(!codLocked);
+  const [codText, setCodText] = useState(
+    String(value.cashOnDeliveryAmount ?? 0)
+  );
+
+  useEffect(() => {
+    setCodUnlocked(!codLocked);
+  }, [codLocked]);
+
+  useEffect(() => {
+    setCodText(String(value.cashOnDeliveryAmount ?? 0));
+  }, [value.cashOnDeliveryAmount]);
+
+  function onCodTextChange(raw: string) {
+    // Digits + optional one decimal only — no spinner / scroll steps.
+    const cleaned = raw.replace(/[^\d.]/g, "");
+    const parts = cleaned.split(".");
+    const next =
+      parts.length <= 1 ? cleaned : `${parts[0]}.${parts.slice(1).join("").slice(0, 2)}`;
+    setCodText(next);
+    const amount = next === "" || next === "." ? 0 : Number.parseFloat(next);
+    if (Number.isFinite(amount) && amount >= 0) {
+      onChange({ cashOnDeliveryAmount: amount });
+    }
+  }
+
   return (
     <div className="grid gap-2 sm:grid-cols-2">
       <label className="space-y-1 text-xs text-muted-foreground">
@@ -398,18 +427,33 @@ function ReceiverFields({
           maxLength={80}
         />
       </label>
-      <label className="space-y-1 text-xs text-muted-foreground">
-        COD amount
+      <div className="space-y-1 text-xs text-muted-foreground">
+        <div className="flex items-center justify-between gap-2">
+          <span>COD amount</span>
+          {codLocked && !codUnlocked && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 gap-1 px-2 text-xs"
+              onClick={() => setCodUnlocked(true)}
+            >
+              <Pencil className="size-3" aria-hidden />
+              Edit COD
+            </Button>
+          )}
+        </div>
         <Input
-          type="number"
-          min={0}
-          step="0.01"
-          value={value.cashOnDeliveryAmount ?? 0}
-          onChange={(event) =>
-            onChange({ cashOnDeliveryAmount: Number.parseFloat(event.target.value) || 0 })
-          }
+          type="text"
+          inputMode="decimal"
+          autoComplete="off"
+          readOnly={codLocked && !codUnlocked}
+          value={codText}
+          onChange={(event) => onCodTextChange(event.target.value)}
+          onWheel={(event) => event.currentTarget.blur()}
+          className={codLocked && !codUnlocked ? "bg-muted/40" : undefined}
         />
-      </label>
+      </div>
     </div>
   );
 }

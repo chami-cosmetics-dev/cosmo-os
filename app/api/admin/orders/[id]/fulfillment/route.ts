@@ -1033,7 +1033,7 @@ export async function PATCH(
           companyId,
           uploadId: citypakBatchId,
           booked: citypak.status === "booked" ? 1 : 0,
-          falconFallback: citypak.status === "falcon" ? 1 : 0,
+          falconFallback: citypak.status === "falcon" || citypak.status === "retry" ? 1 : 0,
           plannedTotal: 1,
           dispatchedByName: dispatcher.name ?? dispatcher.email ?? null,
         });
@@ -1044,7 +1044,10 @@ export async function PATCH(
         ...(citypak.status === "booked"
           ? { citypakTracking: citypak.trackingNumber, citypakWaybillId: citypak.waybillId ?? null }
           : {}),
-        ...(citypak.status === "falcon" ? { citypakError: citypak.error } : {}),
+        ...(citypak.status === "falcon" || citypak.status === "retry"
+          ? { citypakError: citypak.error }
+          : {}),
+        ...(citypak.status === "retry" ? { citypakAttempts: citypak.attempts } : {}),
       });
     }
 

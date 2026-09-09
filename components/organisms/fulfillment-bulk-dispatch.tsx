@@ -73,9 +73,10 @@ type DispatchResult = {
   ref: string;
   success: boolean;
   error?: string;
-  citypakStatus?: "skipped" | "booked" | "falcon";
+  citypakStatus?: "skipped" | "booked" | "falcon" | "retry";
   citypakError?: string;
   citypakTracking?: string | null;
+  citypakAttempts?: number;
   manual?: boolean;
 };
 
@@ -157,6 +158,7 @@ export function FulfillmentBulkDispatch({
   const [holdReasonByOrderId, setHoldReasonByOrderId] = useState<Record<string, string>>({});
   const [citypakReviewOpen, setCitypakReviewOpen] = useState(false);
   const [citypakReviewRows, setCitypakReviewRows] = useState<CitypakReviewRow[]>([]);
+  const [citypakRetryBusy, setCitypakRetryBusy] = useState(false);
   const [citypakReviewNonce, setCitypakReviewNonce] = useState(0);
 
   useEffect(() => {
@@ -459,9 +461,13 @@ export function FulfillmentBulkDispatch({
             citypakTracking: data.citypakTracking,
           },
         ]);
-        if (data.citypakStatus === "falcon") {
+        if (data.citypakStatus === "retry") {
           notify.error(
-            `Dispatched. CityPak API failed — use Falcon Upload for ${ref}. ${data.citypakError ?? ""}`.trim()
+            `Dispatched. CityPak API failed after retries — held for another try (not Falcon). ${data.citypakError ?? ""}`.trim()
+          );
+        } else if (data.citypakStatus === "falcon") {
+          notify.error(
+            `Dispatched. CityPak API not available — use Falcon Upload for ${ref}. ${data.citypakError ?? ""}`.trim()
           );
         } else if (data.citypakStatus === "booked") {
           notify.success(
@@ -496,9 +502,14 @@ export function FulfillmentBulkDispatch({
       const succeeded = all.filter((r) => r.success).length;
       const failed = all.filter((r) => !r.success).length;
       const falconNeeded = all.filter((r) => r.success && r.citypakStatus === "falcon");
+      const retryHeld = all.filter((r) => r.success && r.citypakStatus === "retry");
       const citypakBooked = all.filter((r) => r.success && r.citypakStatus === "booked").length;
       if (succeeded > 0) {
-        if (falconNeeded.length > 0) {
+        if (retryHeld.length > 0) {
+          notify.error(
+            `Dispatched ${succeeded}. ${citypakBooked} booked on CityPak. ${retryHeld.length} held for CityPak retry (not Falcon): ${retryHeld.map((r) => r.ref).join(", ")}`
+          );
+        } else if (falconNeeded.length > 0) {
           notify.error(
             `Dispatched ${succeeded}. ${citypakBooked} sent to CityPak. ${falconNeeded.length} need Falcon Upload: ${falconNeeded.map((r) => r.ref).join(", ")}`
           );
@@ -516,6 +527,87 @@ export function FulfillmentBulkDispatch({
       notify.error("Bulk dispatch failed.");
     } finally {
       setDispatching(false);
+    }
+  }
+
+  async function retryCitypak(orderId: string, ref: string) {
+    if (!orderId) return;
+    setCitypakRetryBusy(true);
+    try {
+      const response = await fetch(`/api/admin/orders/${orderId}/citypak-retry`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "retry" }),
+      });
+      const data = (await response.json().catch(() => null)) as {
+        message?: string;
+        error?: string;
+        citypakStatus?: DispatchResult["citypakStatus"];
+        citypakError?: string;
+        citypakTracking?: string | null;
+        citypakWaybillId?: string | null;
+      } | null;
+      if (!response.ok || !data) {
+        notify.error(data?.error ?? data?.message ?? "CityPak retry failed.");
+        return;
+      }
+      setResults((current) =>
+        (current ?? []).map((row) =>
+          row.orderId === orderId
+            ? {
+                ...row,
+                citypakStatus: data.citypakStatus,
+                citypakError: data.citypakError,
+                citypakTracking: data.citypakTracking ?? row.citypakTracking,
+                waybillId: data.citypakWaybillId ?? row.waybillId,
+                error: data.citypakStatus === "booked" ? undefined : data.citypakError ?? row.error,
+              }
+            : row
+        )
+      );
+      if (data.citypakStatus === "booked") {
+        notify.success(data.message ?? `Booked ${ref}.`);
+        onRefresh();
+      } else {
+        notify.error(data.message ?? data.citypakError ?? "Still held for retry.");
+      }
+    } catch {
+      notify.error("CityPak retry failed.");
+    } finally {
+      setCitypakRetryBusy(false);
+    }
+  }
+
+  async function releaseToFalcon(orderId: string, ref: string) {
+    if (!orderId) return;
+    if (!window.confirm(`Release ${ref} to Falcon Upload? CityPak API hold will end.`)) return;
+    setCitypakRetryBusy(true);
+    try {
+      const response = await fetch(`/api/admin/orders/${orderId}/citypak-retry`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "release_to_falcon" }),
+      });
+      const data = (await response.json().catch(() => null)) as {
+        message?: string;
+        error?: string;
+        citypakStatus?: DispatchResult["citypakStatus"];
+      } | null;
+      if (!response.ok || !data) {
+        notify.error(data?.error ?? "Could not release to Falcon.");
+        return;
+      }
+      setResults((current) =>
+        (current ?? []).map((row) =>
+          row.orderId === orderId ? { ...row, citypakStatus: "falcon", citypakError: undefined } : row
+        )
+      );
+      notify.success(data.message ?? `${ref} released to Falcon Upload.`);
+      onRefresh();
+    } catch {
+      notify.error("Could not release to Falcon.");
+    } finally {
+      setCitypakRetryBusy(false);
     }
   }
 
@@ -1005,13 +1097,51 @@ export function FulfillmentBulkDispatch({
           ))}
         </div>
       )}
+      {results && results.some((r) => r.success && r.citypakStatus === "retry") && (
+        <div className="space-y-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+          <p className="font-medium">CityPak API failed — held for retry (not sent to Falcon)</p>
+          <p className="text-xs text-muted-foreground">
+            Auto-retried up to 3 times. Order stays dispatched. Retry CityPak, or release to Falcon
+            Upload only if you want the manual file flow.
+          </p>
+          {results
+            .filter((r) => r.success && r.citypakStatus === "retry" && r.orderId)
+            .map((r) => (
+              <div key={r.orderId} className="flex flex-wrap items-center justify-between gap-2">
+                <p>
+                  {r.ref}
+                  {r.citypakError ? ` — ${r.citypakError}` : ""}
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={citypakRetryBusy}
+                    onClick={() => void retryCitypak(r.orderId, r.ref)}
+                  >
+                    Retry CityPak
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={citypakRetryBusy}
+                    onClick={() => void releaseToFalcon(r.orderId, r.ref)}
+                  >
+                    Send to Falcon
+                  </Button>
+                </div>
+              </div>
+            ))}
+        </div>
+      )}
       {results && results.some((r) => r.success && r.citypakStatus === "falcon") && (
         <div className="space-y-1 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
-          <p className="font-medium">CityPak API failed — use Falcon Upload for these</p>
+          <p className="font-medium">CityPak API not configured — use Falcon Upload for these</p>
           {results
             .filter((r) => r.success && r.citypakStatus === "falcon")
             .map((r) => (
-              <p key={r.orderId}>
+              <p key={r.orderId || r.ref}>
                 {r.ref}
                 {r.citypakError ? ` — ${r.citypakError}` : ""}
               </p>

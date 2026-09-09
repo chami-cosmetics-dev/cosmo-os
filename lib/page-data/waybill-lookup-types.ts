@@ -73,7 +73,6 @@ export type WaybillLookupPageData = {
   pending: WaybillPendingRow[];
   pagination: WaybillLookupPagination;
   uploads: WaybillUploadHistoryRow[];
-  citypakApiBatches: CitypakApiWaybillBatchRow[];
   rematch: WaybillRematchSummary | null;
   canImport: boolean;
 };

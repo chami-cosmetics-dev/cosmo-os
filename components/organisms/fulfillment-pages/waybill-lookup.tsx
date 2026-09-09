@@ -6,7 +6,6 @@ import { Eye, Loader2, PackageSearch, Plus, RefreshCw, Search, Trash2, Upload } 
 import { Button } from "@/components/ui/button";
 import { FulfillmentOrderReference } from "@/components/molecules/fulfillment-order-reference";
 import { PrintCitypakWaybillButton } from "@/components/molecules/print-citypak-waybill-button";
-import { CitypakApiWaybillHistoryPanel } from "@/components/organisms/fulfillment-pages/citypak-api-waybill-history";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
@@ -468,9 +467,6 @@ export function WaybillLookupFulfillmentPage({
           )}
         </CardContent>
       </Card>
-
-      <CitypakApiWaybillHistoryPanel initialBatches={pageData?.citypakApiBatches} />
-
       <Card className="border-border/70 shadow-xs">
         <CardHeader className="flex flex-row items-center justify-between gap-3 border-b border-border/50">
           <CardTitle>Pending Waybills</CardTitle>

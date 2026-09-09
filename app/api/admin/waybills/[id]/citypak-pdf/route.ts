@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { loadCitypakWaybillPdf } from "@/lib/citypak-waybill-pdf";
+import { parseCitypakPrintLayout } from "@/lib/citypak-api";
+import { loadCitypakWaybillPdf, mergeCitypakWaybillPdfs } from "@/lib/citypak-waybill-pdf";
 import { requireAnyPermission } from "@/lib/rbac";
 import { cuidOrUuidSchema } from "@/lib/validation";
 
@@ -34,13 +35,19 @@ export async function GET(request: NextRequest, context: RouteContext) {
     return NextResponse.json({ error: loaded.error }, { status: loaded.status });
   }
 
+  const layout = parseCitypakPrintLayout(request.nextUrl.searchParams.get("layout"));
+  const bytes = await mergeCitypakWaybillPdfs([loaded.bytes], {
+    layout,
+    overlays: [loaded.printOverride],
+  });
+
   const download = request.nextUrl.searchParams.get("download") === "1";
-  return new NextResponse(new Uint8Array(loaded.bytes), {
+  return new NextResponse(new Uint8Array(bytes), {
     status: 200,
     headers: {
       "Content-Type": "application/pdf",
       "Content-Disposition": `${download ? "attachment" : "inline"}; filename="${loaded.filename}"`,
-      "Cache-Control": "private, max-age=120",
+      "Cache-Control": "private, no-store",
     },
   });
 }
