@@ -18,6 +18,8 @@ export const CITYPAK_STATUS_SWEEP_GAP_MS = 400;
 export const CITYPAK_STATUS_STALE_MS = 6 * 60 * 60 * 1000;
 export const CITYPAK_STATUS_SWEEP_DEFAULT_LIMIT = 200;
 export const CITYPAK_STATUS_SWEEP_MAX_LIMIT = 1000;
+/** Cap for one interactive "check all" run so the request stays inside maxDuration. */
+export const CITYPAK_STATUS_BULK_MAX_LIMIT = 100;
 
 /** Fields we stamp onto OrderWaybill.rawPayload for CityPak shipments. */
 export type CitypakWaybillStatusFields = {
@@ -147,6 +149,67 @@ export type CitypakStatusSweepResult = {
   failed: number;
 };
 
+/** CityPak has no bulk tracking endpoint — poll one waybill at a time with a small gap. */
+async function refreshSequentially(
+  rows: Array<{ id: string; companyId: string }>
+): Promise<CitypakStatusSweepResult> {
+  const result: CitypakStatusSweepResult = { checked: 0, updated: 0, delivered: 0, failed: 0 };
+
+  for (const row of rows) {
+    result.checked += 1;
+    const refreshed = await refreshCitypakWaybillStatus({
+      companyId: row.companyId,
+      waybillId: row.id,
+    });
+    if (!refreshed.ok) {
+      result.failed += 1;
+    } else {
+      result.updated += 1;
+      if (refreshed.status === "delivered") result.delivered += 1;
+    }
+    if (rows.length > 1) {
+      await new Promise((resolve) => setTimeout(resolve, CITYPAK_STATUS_SWEEP_GAP_MS));
+    }
+  }
+
+  return result;
+}
+
+/**
+ * On-demand refresh for a set of waybills — the "Check all statuses" button on
+ * Waybill Lookup. Delivered / returned rows are skipped by default: their status
+ * can no longer change, so polling them only burns time.
+ */
+export async function refreshCitypakWaybillStatusesByIds(input: {
+  companyId: string;
+  waybillIds: string[];
+  includeTerminal?: boolean;
+}): Promise<CitypakStatusSweepResult & { skipped: number }> {
+  const ids = Array.from(new Set(input.waybillIds)).slice(0, CITYPAK_STATUS_BULK_MAX_LIMIT);
+  if (ids.length === 0) {
+    return { checked: 0, updated: 0, delivered: 0, failed: 0, skipped: 0 };
+  }
+
+  const rows = await prisma.orderWaybill.findMany({
+    where: {
+      id: { in: ids },
+      companyId: input.companyId,
+      source: CITYPAK_WAYBILL_SOURCE,
+    },
+    select: { id: true, companyId: true, rawPayload: true },
+  });
+
+  const due = input.includeTerminal
+    ? rows
+    : rows.filter((row) => {
+        const { status } = readCitypakWaybillStatus(row.rawPayload);
+        return !status || !isCitypakTerminalStatus(status);
+      });
+
+  const result = await refreshSequentially(due);
+  return { ...result, skipped: rows.length - due.length };
+}
+
 /**
  * Poll CityPak for every active (non-terminal) API waybill whose status is
  * missing or older than {@link CITYPAK_STATUS_STALE_MS}. Runs sequentially with
@@ -186,26 +249,7 @@ export async function sweepCitypakWaybillStatuses(input?: {
     })
     .slice(0, limit);
 
-  const result: CitypakStatusSweepResult = { checked: 0, updated: 0, delivered: 0, failed: 0 };
-
-  for (const row of due) {
-    result.checked += 1;
-    const refreshed = await refreshCitypakWaybillStatus({
-      companyId: row.companyId,
-      waybillId: row.id,
-    });
-    if (!refreshed.ok) {
-      result.failed += 1;
-    } else {
-      result.updated += 1;
-      if (refreshed.status === "delivered") result.delivered += 1;
-    }
-    if (due.length > 1) {
-      await new Promise((resolve) => setTimeout(resolve, CITYPAK_STATUS_SWEEP_GAP_MS));
-    }
-  }
-
-  return result;
+  return refreshSequentially(due);
 }
 
 export type ApplyCitypakPushResult =
