@@ -157,6 +157,14 @@ function formatMemberSince(iso: string | null | undefined) {
   return d.toLocaleDateString("en-LK", { month: "short", year: "numeric" });
 }
 
+/**
+ * `contact.lastPurchaseAt` is derived in loadCustomerInsight from the purchase history
+ * this page shows, not read from the drifting ContactMaster column.
+ */
+function formatLastPurchased(lastPurchaseAt: string | null, emptyLabel: string) {
+  return lastPurchaseAt ? formatAppDate(lastPurchaseAt, "—") : emptyLabel;
+}
+
 function truncateLabel(value: string, max = 18) {
   const t = value.trim();
   if (t.length <= max) return t;
@@ -2552,9 +2560,7 @@ export function CustomerInsightPanel({
                             <Calendar className="size-3.5 shrink-0" aria-hidden />
                             Last purchased{" "}
                             <span className="text-foreground">
-                              {insight.contact.lastPurchaseAt
-                                ? formatAppDate(insight.contact.lastPurchaseAt, "—")
-                                : "never"}
+                              {formatLastPurchased(insight.contact.lastPurchaseAt, "never")}
                             </span>
                           </span>
                         </div>
@@ -2568,9 +2574,7 @@ export function CustomerInsightPanel({
                         <DetailField
                           label="Last purchased"
                           value={
-                            insight.contact.lastPurchaseAt
-                              ? formatAppDate(insight.contact.lastPurchaseAt, "—")
-                              : "Never"
+                            formatLastPurchased(insight.contact.lastPurchaseAt, "Never")
                           }
                         />
                         <DetailField

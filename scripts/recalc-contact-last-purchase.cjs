@@ -63,16 +63,84 @@ function sameInstant(a, b) {
   return a.getTime() === b.getTime();
 }
 
+// Mirror of lib/adapt-import/shared-emails.ts — keep the two in step.
+// Company/staff addresses sit on thousands of unrelated customer orders.
+const SHARED_MERCHANT_EMAILS = new Set([
+  "sales@cosmetics.lk",
+  "info@lmj.lk",
+  "info@cosmetics.lk",
+  "shammi@cosmetics.lk",
+  "dharshika@cosmetics.lk",
+  "ruwini@cosmetics.lk",
+  "nirukshi.cosmetics@outlook.com",
+  "sachini.cosmetics@outlook.com",
+  "ishadi.cosmetics@outlook.com",
+  "venushka.cosmetics@outlook.com",
+  "sandali.cosmetics@outlook.com",
+  "dulshi25.cosmetics@gmail.com",
+  "maheshisoysacosmetics@outlook.com",
+  "nilmini.cosmetics@gmail.com",
+  "hpg.inoka@gmail.com",
+]);
+
+const SHARED_MERCHANT_EMAIL_SUFFIXES = [
+  "@cosmetics.lk",
+  ".cosmetics@outlook.com",
+  ".cosmetics@gmail.com",
+];
+
+function isSharedMerchantEmail(value) {
+  const email = String(value ?? "").trim().toLowerCase();
+  if (!email) return false;
+  if (SHARED_MERCHANT_EMAILS.has(email)) return true;
+  return SHARED_MERCHANT_EMAIL_SUFFIXES.some((suffix) => email.endsWith(suffix));
+}
+
+/** Same rule as lib/orders-last-purchase.ts: phone whenever there is one, never a company email. */
+function buildOrderMatch(phoneVariants, email) {
+  if (phoneVariants.length > 0) {
+    return [
+      { customerPhone: { in: phoneVariants } },
+      { erpnextCustomerId: { in: phoneVariants } },
+    ];
+  }
+  if (!email || isSharedMerchantEmail(email)) return [];
+  return [{ customerEmail: { equals: email, mode: "insensitive" } }];
+}
+
+/**
+ * Mirror of isOrderReversed in lib/customer-insight/lifetime-total.ts.
+ * A placed order counts from the day it is placed; only cancelled, voided and
+ * returned orders are excluded. Checked in JS so a NULL status is never dropped
+ * by SQL three-valued logic.
+ */
+function isOrderReversed(order) {
+  if (order.cancelledAt) return true;
+  const financial = String(order.financialStatus ?? "").trim().toLowerCase();
+  if (financial === "voided") return true;
+  const stage = String(order.fulfillmentStage ?? "").trim().toLowerCase();
+  return stage === "returned" || stage === "returned_to_store";
+}
+
+/** Contacts checked in parallel. Independent read pairs, so this is round-trip bound. */
+const CONCURRENCY = 20;
+
+/** Newest orders are re-checked in JS, so a run of reversals cannot hide a real sale. */
+const REVERSAL_SCAN_DEPTH = 50;
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const companyId = typeof args["company-id"] === "string" ? args["company-id"] : null;
   const dryRun = Boolean(args["dry-run"]);
   const limit =
     typeof args.limit === "string" && args.limit ? Number(args.limit) : null;
+  // Check one customer without scanning the whole company.
+  const onlyPhone = typeof args.phone === "string" ? args.phone : null;
+  const onlyContactId = typeof args["contact-id"] === "string" ? args["contact-id"] : null;
 
   if (!companyId) {
     console.error(
-      "Usage: node scripts/recalc-contact-last-purchase.cjs --company-id <cuid> [--dry-run] [--limit N]"
+      "Usage: node scripts/recalc-contact-last-purchase.cjs --company-id <cuid> [--dry-run] [--limit N] [--phone 07xxxxxxxx] [--contact-id <cuid>]"
     );
     process.exit(1);
   }
@@ -85,8 +153,22 @@ async function main() {
   });
 
   try {
+    const phoneFilter = onlyPhone ? buildPhoneLookupVariants(onlyPhone) : [];
+    const contactWhere = {
+      companyId,
+      ...(onlyContactId ? { id: onlyContactId } : {}),
+      ...(phoneFilter.length > 0
+        ? {
+            OR: [
+              { phoneNumber: { in: phoneFilter } },
+              { phones: { some: { phoneNumber: { in: phoneFilter } } } },
+            ],
+          }
+        : {}),
+    };
+
     const contacts = await prisma.contactMaster.findMany({
-      where: { companyId },
+      where: contactWhere,
       select: {
         id: true,
         name: true,
@@ -94,6 +176,7 @@ async function main() {
         phoneNumber: true,
         lastPurchaseAt: true,
         recentMerchant: true,
+        phones: { select: { phoneNumber: true } },
       },
       orderBy: { updatedAt: "desc" },
       ...(limit ? { take: limit } : {}),
@@ -104,33 +187,42 @@ async function main() {
     let cleared = 0;
     const samples = [];
 
-    for (const contact of contacts) {
-      const phoneVariants = contact.phoneNumber
-        ? buildPhoneLookupVariants(contact.phoneNumber)
-        : [];
-      const email = contact.email?.trim().toLowerCase() || null;
+    const targeted = Boolean(onlyPhone || onlyContactId);
+    console.error(`[recalc-last-purchase] scanning ${contacts.length} contacts...`);
 
-      const [cosmoOrder, adaptPurchase] = await Promise.all([
-        phoneVariants.length > 0 || email
-          ? prisma.order.findFirst({
-              where: {
-                companyId,
-                OR: [
-                  ...(email
-                    ? [{ customerEmail: { equals: email, mode: "insensitive" } }]
-                    : []),
-                  ...(phoneVariants.length > 0
-                    ? [{ customerPhone: { in: phoneVariants } }]
-                    : []),
-                ],
-              },
+    let scanned = 0;
+    const processContact = async (contact) => {
+      scanned += 1;
+      if (!targeted && scanned % 500 === 0) {
+        console.error(
+          `[recalc-last-purchase] ${scanned}/${contacts.length} scanned, ${wouldUpdate} to change`
+        );
+      }
+      const contactPhones = [
+        contact.phoneNumber,
+        ...contact.phones.map((p) => p.phoneNumber),
+      ].filter(Boolean);
+      const phoneVariants = [
+        ...new Set(contactPhones.flatMap((p) => buildPhoneLookupVariants(p))),
+      ];
+      const email = contact.email?.trim().toLowerCase() || null;
+      const orderMatch = buildOrderMatch(phoneVariants, email);
+
+      const [cosmoOrders, adaptPurchase] = await Promise.all([
+        orderMatch.length > 0
+          ? prisma.order.findMany({
+              where: { companyId, cancelledAt: null, OR: orderMatch },
               orderBy: { createdAt: "desc" },
+              take: REVERSAL_SCAN_DEPTH,
               select: {
                 createdAt: true,
+                cancelledAt: true,
+                financialStatus: true,
+                fulfillmentStage: true,
                 assignedMerchant: { select: { name: true, email: true } },
               },
             })
-          : Promise.resolve(null),
+          : Promise.resolve([]),
         prisma.adaptPurchaseHistory.findFirst({
           where: { companyId, contactId: contact.id },
           orderBy: { invoiceDate: "desc" },
@@ -138,6 +230,7 @@ async function main() {
         }),
       ]);
 
+      const cosmoOrder = cosmoOrders.find((order) => !isOrderReversed(order)) ?? null;
       const cosmoAt = cosmoOrder?.createdAt ?? null;
       const adaptAt = adaptPurchase?.invoiceDate ?? null;
 
@@ -175,10 +268,51 @@ async function main() {
       const merchantChanged =
         (contact.recentMerchant || null) !== (nextMerchant || null);
 
-      if (!atChanged && !merchantChanged) continue;
+      if (targeted) {
+        // Show every document the contact could be dated from, completed or not,
+        // so an excluded order is visible rather than silently dropped.
+        const allOrders =
+          orderMatch.length > 0
+            ? await prisma.order.findMany({
+                where: { companyId, OR: orderMatch },
+                orderBy: { createdAt: "desc" },
+                take: 5,
+                select: {
+                  name: true,
+                  createdAt: true,
+                  cancelledAt: true,
+                  financialStatus: true,
+                  fulfillmentStage: true,
+                  sourceName: true,
+                },
+              })
+            : [];
+        const allAdapt = await prisma.adaptPurchaseHistory.findMany({
+          where: { companyId, contactId: contact.id },
+          orderBy: { invoiceDate: "desc" },
+          take: 5,
+          select: { salesInvoiceNo: true, invoiceDate: true, ttlAmount: true },
+        });
+        console.error("newest orders (any status):", JSON.stringify(allOrders, null, 2));
+        console.error("newest adapt invoices:", JSON.stringify(allAdapt, null, 2));
+        console.error(
+          JSON.stringify({
+            id: contact.id,
+            name: contact.name,
+            phone: contact.phoneNumber,
+            email: contact.email,
+            storedLastPurchaseAt: contact.lastPurchaseAt,
+            recalculated: nextAt,
+            source,
+            changed: atChanged || merchantChanged,
+          })
+        );
+      }
+
+      if (!atChanged && !merchantChanged) return;
 
       wouldUpdate += 1;
-      if (samples.length < 12) {
+      if (samples.length < 12 || targeted) {
         samples.push({
           id: contact.id,
           name: contact.name,
@@ -191,7 +325,7 @@ async function main() {
         });
       }
 
-      if (dryRun) continue;
+      if (dryRun) return;
 
       await prisma.contactMaster.update({
         where: { id: contact.id },
@@ -202,6 +336,12 @@ async function main() {
       });
       updated += 1;
       if (!nextAt) cleared += 1;
+    };
+
+    // One contact at a time against a remote database turns a large company into an
+    // hours-long run; the queries are independent, so walk them a chunk at a time.
+    for (let i = 0; i < contacts.length; i += CONCURRENCY) {
+      await Promise.all(contacts.slice(i, i + CONCURRENCY).map(processContact));
     }
 
     console.log(

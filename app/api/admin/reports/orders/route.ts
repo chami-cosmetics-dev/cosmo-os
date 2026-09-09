@@ -40,7 +40,7 @@ import {
 import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
 import { resolveOrderLineItemsPricing } from "@/lib/order-line-item-pricing";
 import { resolveOrderShippingDisplayForOrder } from "@/lib/order-shipping-display";
-import { resolveCustomerPhone } from "@/lib/order-sms-resolvers";
+import { resolveCustomerPhone, resolveShippingPhone } from "@/lib/order-sms-resolvers";
 import { getOrderDumpPermission, getUtilityOrderDumpPermission } from "@/lib/report-permissions";
 import { requirePermission } from "@/lib/rbac";
 
@@ -761,6 +761,7 @@ export async function GET(request: NextRequest) {
       customerName,
       customerEmail: order.customerEmail,
       customerPhone: resolveCustomerPhone(order) ?? null,
+      shippingPhone: resolveShippingPhone(order) ?? null,
       billingAddress: formatAddress(order.billingAddress),
       shippingAddress,
       financialStatus: order.financialStatus,

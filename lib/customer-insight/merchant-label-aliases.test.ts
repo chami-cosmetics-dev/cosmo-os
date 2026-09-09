@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  canonicalizeAssignedMerchantLabels,
   canonicalizeMerchantDisplayName,
   expandAssignedMerchantFilter,
   findAssignedMerchantAliasGroup,
@@ -35,14 +36,45 @@ describe("assigned merchant aliases", () => {
     expect(expandAssignedMerchantFilter("STAFF SALES")).toEqual(["STAFF SALES"]);
   });
 
-  it("treats Semini and Sanda/semini as the same merchant", () => {
+  it("treats Semini, MER103 and Sanda/semini as the same merchant", () => {
     expect(findAssignedMerchantAliasGroup("Semini")?.value).toBe("Sanda/semini");
+    expect(findAssignedMerchantAliasGroup("MER103")?.value).toBe("Sanda/semini");
     expect(findAssignedMerchantAliasGroup("Sanda/semini")?.value).toBe(
       "Sanda/semini"
     );
-    expect(expandAssignedMerchantFilter("Semini")).toEqual(
-      expect.arrayContaining(["Sanda/semini", "Semini"])
+    expect(expandAssignedMerchantFilter("MER103")).toEqual(
+      expect.arrayContaining(["Sanda/semini", "Semini", "MER103"])
     );
+  });
+
+  it("keeps the Semini merchant session owning Sanda/semini contacts", () => {
+    const semini = merchantPreviewViewerFromSelection({
+      selected: "MER103",
+      merchantUser: {
+        knownName: "Semini",
+        name: "Semini",
+        email: "semini@example.com",
+        couponCodes: ["MER103"],
+      },
+    });
+    expect(insightVisibility(semini, "Sanda/semini")).toBe("owner");
+    expect(insightVisibility(semini, "MER103")).toBe("owner");
+    expect(insightVisibility(semini, "Kaushallya")).toBe("limited");
+  });
+
+  it("collapses stored labels into a single allocation option", () => {
+    expect(
+      canonicalizeAssignedMerchantLabels([
+        "Semini",
+        "Sanda/semini",
+        "MER103",
+        "Kaushalya",
+        "Kaushallya",
+        "Zeenath",
+        "  ",
+        null,
+      ])
+    ).toEqual(["Sanda/semini", "Kaushallya", "Zeenath"]);
   });
 
   it("canonicalizes duplicate merchant display names", () => {

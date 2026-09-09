@@ -70,10 +70,6 @@ export function vaultColumnDefs(units: VaultBusinessUnit[], asOfDate: string): V
   });
   defs.push({ key: "stockTotal", header: "Total" });
 
-  defs.push({ key: "remark", header: "remark", section: "Notes" });
-  defs.push({ key: "ak1", header: "AK1" });
-  defs.push({ key: "ak2", header: "AK2" });
-
   for (const month of monthKeysInWindow(asOfDate)) {
     const section = monthSectionLabel(month, asOfDate);
     ordered.forEach((u, i) => {
@@ -126,9 +122,6 @@ export function buildVaultMainRows(input: VaultWorkbookInput): Array<Record<stri
       category: cell(item.category),
       brand: cell(item.brand),
       itemName: item.itemName,
-      remark: null,
-      ak1: null,
-      ak2: null,
     };
 
     const ropMap = input.rops.get(item.sku) ?? {};

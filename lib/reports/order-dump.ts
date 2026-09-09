@@ -83,6 +83,7 @@ export type OrderInvoiceCsvRow = {
   source_name: string;
   customer_name: string;
   customer_phone: string;
+  shipping_phone: string;
   customer_email: string;
   billing_address: string;
   shipping_address: string;
@@ -156,6 +157,7 @@ const ORDER_INVOICE_HEADERS = [
   "source_name",
   "customer_name",
   "customer_phone",
+  "shipping_phone",
   "subtotal",
   "discounts",
   "shipping_total",
@@ -301,6 +303,7 @@ export function createOrderInvoiceRow(input: {
   customerName: string;
   customerEmail: string | null;
   customerPhone: string | null;
+  shippingPhone: string | null;
   billingAddress: string;
   shippingAddress: string;
   fulfillmentStatus: string | null;
@@ -337,6 +340,7 @@ export function createOrderInvoiceRow(input: {
     source_name: sourceName,
     customer_name: input.customerName,
     customer_phone: input.customerPhone ?? "",
+    shipping_phone: input.shippingPhone ?? "",
     customer_email: input.customerEmail ?? "",
     billing_address: input.billingAddress,
     shipping_address: input.shippingAddress,

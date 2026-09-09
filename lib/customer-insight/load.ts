@@ -12,7 +12,11 @@ import {
 import { effectiveLoyaltyTierKey } from "@/lib/customer-insight/erp-loyalty";
 import { buildFrequencyMetrics } from "@/lib/customer-insight/frequency";
 import { mergeAndPaginateInvoices } from "@/lib/customer-insight/invoices";
-import { computeLifetimeTotal, isOrderIncludedInCustomerLifetimeTotal } from "@/lib/customer-insight/lifetime-total";
+import {
+  computeLifetimeTotal,
+  isOrderIncludedInCustomerLifetimeTotal,
+  isOrderReversed,
+} from "@/lib/customer-insight/lifetime-total";
 import { loyaltyCode, loyaltyLabel } from "@/lib/customer-insight/loyalty-tier";
 import { viewerIdentityForMerchantFilter } from "@/lib/customer-insight/merchant-label-aliases";
 import {
@@ -231,6 +235,19 @@ export async function loadCustomerInsight(input: {
     loyaltyEligibleDates.push(r.invoiceDate);
   }
 
+  // "Last purchased" is derived here rather than read from ContactMaster.lastPurchaseAt:
+  // that column only ever moves forward, so it drifts ahead of the history this page
+  // shows. A placed order counts from the day it is placed; reversals never do.
+  const purchaseDates: number[] = [];
+  for (const o of orders) {
+    if (!isOrderReversed(o)) purchaseDates.push(o.createdAt.getTime());
+  }
+  for (const r of adaptRows) {
+    purchaseDates.push(r.invoiceDate.getTime());
+  }
+  const lastPurchaseAt =
+    purchaseDates.length > 0 ? new Date(Math.max(...purchaseDates)) : null;
+
   const seriesEvents = [
     ...historyOrders.map((o) => ({
       date: o.createdAt,
@@ -344,7 +361,7 @@ export async function loadCustomerInsight(input: {
       birthDay: contact.birthDay,
       assignedMerchant: contact.assignedMerchant,
       category: contact.category,
-      lastPurchaseAt: contact.lastPurchaseAt,
+      lastPurchaseAt,
       removedEmails: includeRemovedEmails ? removedEmailRows : undefined,
     }),
     loyalty: (() => {
