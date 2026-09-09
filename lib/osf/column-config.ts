@@ -12,6 +12,8 @@ export type OsfResolvedColumn = {
   erpnextInstanceId: string | null;
   /** Direct ERP warehouse names set on the column (overrides the location) */
   directWarehouses: string[];
+  /** ERP company name for sales/purchase scope (Vault OSF). Null/omit for Cosmo. */
+  erpCompany?: string | null;
   includeInStock: boolean;
   includeInRop: boolean;
   sortOrder: number;
@@ -65,6 +67,7 @@ export async function resolveOsfColumns(companyId: string): Promise<OsfResolvedC
       companyLocationName: loc?.shortName || loc?.name || null,
       erpnextInstanceId: col.erpnextInstanceId ?? loc?.erpnextInstanceId ?? null,
       directWarehouses: direct,
+      erpCompany: col.erpCompany?.trim() || null,
       includeInStock: col.includeInStock,
       includeInRop: col.includeInRop,
       sortOrder: col.sortOrder,
@@ -84,6 +87,7 @@ export async function listOsfColumnsForApi(companyId: string) {
     companyLocationName: c.companyLocationName,
     erpnextInstanceId: c.erpnextInstanceId,
     directWarehouses: c.directWarehouses,
+    erpCompany: c.erpCompany,
     warehouses: c.warehouses,
     includeInStock: c.includeInStock,
     includeInRop: c.includeInRop,

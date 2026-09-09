@@ -104,6 +104,8 @@ describe("buildMainSheetRows", () => {
     expect(first).not.toHaveProperty("Common SKU Stock");
     expect(first).not.toHaveProperty("Common ROP");
     expect(first).not.toHaveProperty("Common SKU Reorder");
+    expect(first).toHaveProperty("OGF Price");
+    expect(first).toHaveProperty("% of ROP");
     expect(first).not.toHaveProperty("Variant SKU");
     expect(first).not.toHaveProperty("Variant SKU (-)");
     expect(first["Total Stock"]).toBe(2);

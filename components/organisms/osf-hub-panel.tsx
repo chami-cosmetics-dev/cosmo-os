@@ -8,6 +8,7 @@ import { OsfGeneratePanel } from "@/components/organisms/osf-generate-panel";
 import { OsfProductEditor } from "@/components/organisms/osf-product-editor";
 import { OsfRopImportPanel } from "@/components/organisms/osf-rop-import-panel";
 import { OsfSupplierOrdersPanel } from "@/components/organisms/osf-supplier-orders-panel";
+import { VaultOsfGeneratePanel } from "@/components/organisms/vault-osf-generate-panel";
 
 type LocationOption = { id: string; name: string; shortName: string | null };
 
@@ -80,6 +81,9 @@ export function OsfHubPanel({
       >
         <HubCard>
           <OsfGeneratePanel canReorderOnly={canReorderOnly} />
+        </HubCard>
+        <HubCard>
+          <VaultOsfGeneratePanel canManage={canManage} />
         </HubCard>
       </HubSection>
 
