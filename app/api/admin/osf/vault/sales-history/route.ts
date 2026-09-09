@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 import { resolveOsfColumns } from "@/lib/osf/column-config";
 import { getAllOsfErpInstances, OsfErpError } from "@/lib/osf/erp-stock";
 import { prisma } from "@/lib/prisma";
@@ -34,6 +35,12 @@ export async function GET(request: NextRequest) {
   const auth = await requirePermission("purchasing.osf.manage");
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
+  if (!isVaultOsDeployment()) {
+    return NextResponse.json(
+      { error: "Vault OSF is not available on Cosmo OS", code: "VAULT_OSF_NOT_ON_COSMO" },
+      { status: 409 },
+    );
   }
   const companyId = auth.context!.user!.companyId;
   if (!companyId) {
@@ -112,6 +119,12 @@ export async function POST(request: NextRequest) {
   const auth = await requirePermission("purchasing.osf.manage");
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
+  if (!isVaultOsDeployment()) {
+    return NextResponse.json(
+      { error: "Vault OSF is not available on Cosmo OS", code: "VAULT_OSF_NOT_ON_COSMO" },
+      { status: 409 },
+    );
   }
   const companyId = auth.context!.user!.companyId;
   if (!companyId) {

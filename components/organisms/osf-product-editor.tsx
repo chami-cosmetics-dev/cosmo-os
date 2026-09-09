@@ -23,7 +23,12 @@ type ProfileItem = {
   totalRop?: number;
 };
 
-type Props = { canManage: boolean; canManageThreshold?: boolean };
+type Props = {
+  canManage: boolean;
+  canManageThreshold?: boolean;
+  /** Vault OSF: hide Cosmo-only OGF / shop / threshold fields. */
+  hideCosmoFields?: boolean;
+};
 
 const SEARCH_DEBOUNCE_MS = 400;
 const SEARCH_MIN_CHARS = 3;
@@ -35,7 +40,11 @@ function parseRopInput(raw: string): number | null {
   return Number.isFinite(n) ? Math.max(0, n) : null;
 }
 
-export function OsfProductEditor({ canManage, canManageThreshold = false }: Props) {
+export function OsfProductEditor({
+  canManage,
+  canManageThreshold = false,
+  hideCosmoFields = false,
+}: Props) {
   const [q, setQ] = useState("");
   const [maxStockPct, setMaxStockPct] = useState("");
   const [items, setItems] = useState<ProfileItem[]>([]);
@@ -154,7 +163,7 @@ export function OsfProductEditor({ canManage, canManageThreshold = false }: Prop
     try {
       const thresholdTrimmed = thresholdPercent.trim();
       let reorderThresholdPercent: number | null | undefined = undefined;
-      if (canManageThreshold || canManage) {
+      if (!hideCosmoFields && (canManageThreshold || canManage)) {
         if (thresholdTrimmed === "") reorderThresholdPercent = null;
         else {
           const n = Math.floor(Number(thresholdTrimmed));
@@ -173,10 +182,12 @@ export function OsfProductEditor({ canManage, canManageThreshold = false }: Prop
           if (trimmed === "") ropsPayload[key] = null;
           else ropsPayload[key] = Math.max(0, Math.floor(Number(trimmed)) || 0);
         }
-        const ogfTrimmed = ogfPrice.trim();
-        payload.shopAvailability = shopAvailability === "" ? null : shopAvailability;
-        payload.ogfPrice = ogfTrimmed === "" ? null : Number(ogfTrimmed);
         payload.rops = ropsPayload;
+        if (!hideCosmoFields) {
+          const ogfTrimmed = ogfPrice.trim();
+          payload.shopAvailability = shopAvailability === "" ? null : shopAvailability;
+          payload.ogfPrice = ogfTrimmed === "" ? null : Number(ogfTrimmed);
+        }
       }
       if (reorderThresholdPercent !== undefined) {
         payload.reorderThresholdPercent = reorderThresholdPercent;
@@ -209,8 +220,9 @@ export function OsfProductEditor({ canManage, canManageThreshold = false }: Prop
       <div>
         <h3 className="font-medium">Product OSF editor</h3>
         <p className="text-sm text-muted-foreground">
-          Shop Availability, per-column ROP, OGF Price, and reorder threshold %. Enter a %
-          to list SKUs that already have ROP and whose stock is below that share of ROP.
+          {hideCosmoFields
+            ? "Per-column ROP for SV, ORI and AE. Search a SKU to edit, or use the Excel import."
+            : "Shop Availability, per-column ROP, OGF Price, and reorder threshold %. Enter a % to list SKUs that already have ROP and whose stock is below that share of ROP."}
         </p>
       </div>
 
@@ -224,18 +236,20 @@ export function OsfProductEditor({ canManage, canManageThreshold = false }: Prop
             if (e.key === "Enter") void runSearch(q, maxStockPct);
           }}
         />
-        <Input
-          type="number"
-          min={1}
-          max={100}
-          className="w-36"
-          placeholder="Below % of ROP"
-          value={maxStockPct}
-          onChange={(e) => setMaxStockPct(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") void runSearch(q, maxStockPct);
-          }}
-        />
+        {hideCosmoFields ? null : (
+          <Input
+            type="number"
+            min={1}
+            max={100}
+            className="w-36"
+            placeholder="Below % of ROP"
+            value={maxStockPct}
+            onChange={(e) => setMaxStockPct(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void runSearch(q, maxStockPct);
+            }}
+          />
+        )}
         <Button
           type="button"
           variant="outline"
@@ -297,47 +311,51 @@ export function OsfProductEditor({ canManage, canManageThreshold = false }: Prop
                 <div className="font-mono text-sm font-medium">{selected.sku}</div>
                 <div className="text-sm text-muted-foreground">{selected.productTitle}</div>
               </div>
-              <label className="block text-xs font-medium">
-                Shop Availability
-                <select
-                  className="mt-1 h-9 w-full rounded-md border bg-background px-2 text-sm"
-                  disabled={!canManage || isBusy}
-                  value={shopAvailability}
-                  onChange={(e) => setShopAvailability(e.target.value)}
-                >
-                  <option value="">— blank —</option>
-                  <option value="allowed">Allowed</option>
-                  <option value="not_allowed">Not Allowed</option>
-                </select>
-              </label>
-              <label className="block text-xs font-medium">
-                OGF Price (LWK)
-                <Input
-                  type="number"
-                  step="0.01"
-                  className="mt-1"
-                  disabled={!canManage || isBusy}
-                  value={ogfPrice}
-                  placeholder="From ERP OGF Price List"
-                  onChange={(e) => setOgfPrice(e.target.value)}
-                />
-                <span className="mt-1 block text-[11px] font-normal text-muted-foreground">
-                  Synced from Cosmo ERP OGF Price List. Online Cosmetics.lk price is separate.
-                </span>
-              </label>
-              <label className="block text-xs font-medium">
-                Reorder threshold % (blank = 70)
-                <Input
-                  type="number"
-                  min={1}
-                  max={100}
-                  className="mt-1"
-                  disabled={(!canManage && !canManageThreshold) || isBusy}
-                  value={thresholdPercent}
-                  placeholder="70"
-                  onChange={(e) => setThresholdPercent(e.target.value)}
-                />
-              </label>
+              {hideCosmoFields ? null : (
+                <>
+                  <label className="block text-xs font-medium">
+                    Shop Availability
+                    <select
+                      className="mt-1 h-9 w-full rounded-md border bg-background px-2 text-sm"
+                      disabled={!canManage || isBusy}
+                      value={shopAvailability}
+                      onChange={(e) => setShopAvailability(e.target.value)}
+                    >
+                      <option value="">— blank —</option>
+                      <option value="allowed">Allowed</option>
+                      <option value="not_allowed">Not Allowed</option>
+                    </select>
+                  </label>
+                  <label className="block text-xs font-medium">
+                    OGF Price (LWK)
+                    <Input
+                      type="number"
+                      step="0.01"
+                      className="mt-1"
+                      disabled={!canManage || isBusy}
+                      value={ogfPrice}
+                      placeholder="From ERP OGF Price List"
+                      onChange={(e) => setOgfPrice(e.target.value)}
+                    />
+                    <span className="mt-1 block text-[11px] font-normal text-muted-foreground">
+                      Synced from Cosmo ERP OGF Price List. Online Cosmetics.lk price is separate.
+                    </span>
+                  </label>
+                  <label className="block text-xs font-medium">
+                    Reorder threshold % (blank = 70)
+                    <Input
+                      type="number"
+                      min={1}
+                      max={100}
+                      className="mt-1"
+                      disabled={(!canManage && !canManageThreshold) || isBusy}
+                      value={thresholdPercent}
+                      placeholder="70"
+                      onChange={(e) => setThresholdPercent(e.target.value)}
+                    />
+                  </label>
+                </>
+              )}
               <div className="space-y-2">
                 <div className="flex items-center justify-between gap-2">
                   <div className="text-xs font-medium">ROP by column</div>

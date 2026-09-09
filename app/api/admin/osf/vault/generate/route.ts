@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 import { formatAppIsoDate } from "@/lib/format-datetime";
 import { resolveOsfColumns } from "@/lib/osf/column-config";
 import { fetchBinActualQty, getAllOsfErpInstances, OsfErpError } from "@/lib/osf/erp-stock";
@@ -26,6 +27,16 @@ export async function POST(request: NextRequest) {
   const auth = await requirePermission("purchasing.osf.read");
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
+
+  if (!isVaultOsDeployment()) {
+    return NextResponse.json(
+      {
+        error: "Vault OSF is not available on Cosmo OS",
+        code: "VAULT_OSF_NOT_ON_COSMO",
+      },
+      { status: 409 },
+    );
   }
 
   const context = await getCurrentUserContext();
