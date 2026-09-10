@@ -1157,39 +1157,11 @@ export function CustomerInsightPanel({
     setBusyKey("allocation-summary-export");
     try {
       const params = new URLSearchParams();
+      params.set("report", "data-collection");
       const from = allocationDateFrom.trim() || todayIsoDate();
       const to = allocationDateTo.trim() || todayIsoDate();
       params.set("from", from);
       params.set("to", to);
-      const qs = params.toString();
-      const res = await fetch(
-        `/api/admin/customer-insight/allocation-summary/export${qs ? `?${qs}` : ""}`
-      );
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        notify.error(data.error ?? "Export failed");
-        return;
-      }
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "insight-merchant-allocation-summary.csv";
-      a.click();
-      URL.revokeObjectURL(url);
-      notify.success("Allocation summary downloaded.");
-    } catch {
-      notify.error("Export failed");
-    } finally {
-      setBusyKey(null);
-    }
-  }
-
-  async function exportPurchaseCountCsv() {
-    if (!canExportFilteredCsv) return;
-    setBusyKey("purchase-count-export");
-    try {
-      const params = buildPurchaseCountParams();
       const res = await fetch(
         `/api/admin/customer-insight/allocation-summary/export?${params.toString()}`
       );
@@ -1202,7 +1174,36 @@ export function CustomerInsightPanel({
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = "insight-merchant-allocation-summary.csv";
+      a.download = "insight-merchant-data-collection.csv";
+      a.click();
+      URL.revokeObjectURL(url);
+      notify.success("Data collection downloaded.");
+    } catch {
+      notify.error("Export failed");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function exportPurchaseCountCsv() {
+    if (!canExportFilteredCsv) return;
+    setBusyKey("purchase-count-export");
+    try {
+      const params = buildPurchaseCountParams();
+      params.set("report", "purchase-performance");
+      const res = await fetch(
+        `/api/admin/customer-insight/allocation-summary/export?${params.toString()}`
+      );
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        notify.error(data.error ?? "Export failed");
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "insight-merchant-purchase-performance.csv";
       a.click();
       URL.revokeObjectURL(url);
       notify.success("Purchase performance downloaded.");

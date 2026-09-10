@@ -3,7 +3,6 @@ import { NextResponse } from "next/server";
 import {
   listMerchantAllocationCounts,
   listMerchantPurchaseCountSummary,
-  type MerchantPurchaseCountRow,
   type PurchaseCountFilter,
 } from "@/lib/customer-insight/allocation-summary";
 import { hasInsightAdminView } from "@/lib/customer-insight/ownership";
@@ -79,56 +78,79 @@ export async function GET(request: Request) {
   }
 
   const { searchParams } = new URL(request.url);
-  const dateRange = parseDateRange(searchParams);
-  const purchaseCountFilter = parsePurchaseCountFilter(searchParams);
+  const report =
+    searchParams.get("report") === "purchase-performance"
+      ? "purchase-performance"
+      : "data-collection";
 
-  const [summary, purchaseCountSummary] = await Promise.all([
-    listMerchantAllocationCounts(companyId, dateRange ?? undefined),
-    listMerchantPurchaseCountSummary(companyId, purchaseCountFilter),
-  ]);
+  let headers: readonly string[];
+  let rows: Array<Record<string, CsvPrimitive>>;
+  let fileName: string;
 
-  const purchaseByMerchant = new Map<string, MerchantPurchaseCountRow>();
-  for (const row of purchaseCountSummary.rows) {
-    purchaseByMerchant.set(row.merchantValue.trim().toLowerCase(), row);
-  }
+  if (report === "purchase-performance") {
+    const purchaseCountFilter = parsePurchaseCountFilter(searchParams);
+    const purchaseCountSummary = await listMerchantPurchaseCountSummary(
+      companyId,
+      purchaseCountFilter
+    );
 
-  const fileName = "insight-merchant-allocation-summary.csv";
+    fileName = "insight-merchant-purchase-performance.csv";
+    headers = [
+      "merchant",
+      "merchant_value",
+      "platinum",
+      "gold",
+      "other",
+      "total",
+      "purchase_platinum",
+      "purchase_gold",
+      "purchase_other",
+      "purchase_total",
+    ];
+    rows = purchaseCountSummary.rows.map((r) => ({
+      merchant: r.merchantLabel,
+      merchant_value: r.merchantValue,
+      platinum: r.allocation.platinum,
+      gold: r.allocation.gold,
+      other: r.allocation.other,
+      total: r.allocation.total,
+      purchase_platinum: r.purchaseCount.platinum,
+      purchase_gold: r.purchaseCount.gold,
+      purchase_other: r.purchaseCount.other,
+      purchase_total: r.purchaseCount.total,
+    }));
+  } else {
+    const dateRange = parseDateRange(searchParams);
+    const summary = await listMerchantAllocationCounts(
+      companyId,
+      dateRange ?? undefined
+    );
 
-  const baseHeaders = [
-    "merchant",
-    "merchant_value",
-    "platinum",
-    "gold",
-    "other",
-    "total",
-  ] as const;
-  const rangeHeaders = [
-    "calls_taken",
-    "birthday_count",
-    "birthday_percent",
-    "email_count",
-    "email_percent",
-  ] as const;
-  const completeHeaders = ["complete_count", "complete_percent"] as const;
-  const purchaseHeaders = [
-    "purchase_platinum",
-    "purchase_gold",
-    "purchase_other",
-    "purchase_total",
-  ] as const;
-  const headers = [
-    ...baseHeaders,
-    ...(dateRange ? rangeHeaders : []),
-    ...completeHeaders,
-    ...purchaseHeaders,
-  ];
+    fileName = "insight-merchant-data-collection.csv";
+    const baseHeaders = [
+      "merchant",
+      "merchant_value",
+      "platinum",
+      "gold",
+      "other",
+      "total",
+    ] as const;
+    const rangeHeaders = [
+      "calls_taken",
+      "birthday_count",
+      "birthday_percent",
+      "email_count",
+      "email_percent",
+    ] as const;
+    const completeHeaders = ["complete_count", "complete_percent"] as const;
+    headers = [
+      ...baseHeaders,
+      ...(dateRange ? rangeHeaders : []),
+      ...completeHeaders,
+    ];
 
-  const rows: Array<Record<string, CsvPrimitive>> = [
-    ...summary.rows.map((r) => {
-      const purchase = purchaseByMerchant.get(
-        r.merchantValue.trim().toLowerCase()
-      );
-      return {
+    rows = [
+      ...summary.rows.map((r) => ({
         merchant: r.merchantLabel,
         merchant_value: r.merchantValue,
         platinum: r.platinum,
@@ -146,36 +168,28 @@ export async function GET(request: Request) {
           : {}),
         complete_count: r.completeCount,
         complete_percent: r.completePercent,
-        purchase_platinum: purchase?.purchaseCount.platinum ?? 0,
-        purchase_gold: purchase?.purchaseCount.gold ?? 0,
-        purchase_other: purchase?.purchaseCount.other ?? 0,
-        purchase_total: purchase?.purchaseCount.total ?? 0,
-      };
-    }),
-    {
-      merchant: "Unallocated",
-      merchant_value: "",
-      platinum: "",
-      gold: "",
-      other: "",
-      total: summary.unallocatedCount,
-      ...(dateRange
-        ? {
-            calls_taken: "",
-            birthday_count: "",
-            birthday_percent: "",
-            email_count: "",
-            email_percent: "",
-          }
-        : {}),
-      complete_count: "",
-      complete_percent: "",
-      purchase_platinum: "",
-      purchase_gold: "",
-      purchase_other: "",
-      purchase_total: "",
-    },
-  ];
+      })),
+      {
+        merchant: "Unallocated",
+        merchant_value: "",
+        platinum: "",
+        gold: "",
+        other: "",
+        total: summary.unallocatedCount,
+        ...(dateRange
+          ? {
+              calls_taken: "",
+              birthday_count: "",
+              birthday_percent: "",
+              email_count: "",
+              email_percent: "",
+            }
+          : {}),
+        complete_count: "",
+        complete_percent: "",
+      },
+    ];
+  }
 
   await logReportDownload({
     companyId,
@@ -185,7 +199,7 @@ export async function GET(request: Request) {
     fileName,
   });
 
-  const csv = buildCsv(headers as unknown as readonly string[], rows);
+  const csv = buildCsv(headers, rows);
   return new NextResponse(csv, {
     headers: {
       "Content-Type": "text/csv; charset=utf-8",
