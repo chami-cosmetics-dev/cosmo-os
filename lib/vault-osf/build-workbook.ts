@@ -70,18 +70,17 @@ export function vaultColumnDefs(units: VaultBusinessUnit[], asOfDate: string): V
   });
   defs.push({ key: "stockTotal", header: "Total" });
 
+  // Months carry the SV/ORI/AE combined total only; the per-unit split lives in
+  // ROP / Stock / Reorder, which is where it drives a decision.
   for (const month of monthKeysInWindow(asOfDate)) {
     const section = monthSectionLabel(month, asOfDate);
-    ordered.forEach((u, i) => {
-      defs.push({
-        key: `sales:${month}:${u.key}`,
-        header: u.label,
-        section: i === 0 ? section : undefined,
-      });
+    defs.push({
+      key: `sales:${month}:total`,
+      header: `Total ${section.split(" ")[0]}`,
+      section,
     });
-    defs.push({ key: `sales:${month}:total`, header: `Total ${section.split(" ")[0]}` });
-    defs.push({ key: `purchQty:${month}`, header: "Purch Qty" });
-    defs.push({ key: `purchValue:${month}`, header: "Purch Value" });
+    defs.push({ key: `purchQty:${month}`, header: "Purch Qty (All)" });
+    defs.push({ key: `purchValue:${month}`, header: "Purch Value (All)" });
   }
 
   defs.push({ key: "mrp", header: "MRP", section: "Pricing" });
@@ -145,12 +144,9 @@ export function buildVaultMainRows(input: VaultWorkbookInput): Array<Record<stri
     const salesByMonth = input.sales.get(item.sku) ?? {};
     const purchByMonth = input.purchases.get(item.sku) ?? {};
     for (const month of months) {
-      const unitQtys: Array<number | null> = [];
-      for (const u of units) {
-        const qty = salesByMonth[month]?.[u.key]?.qty ?? null;
-        unitQtys.push(qty);
-        row[`sales:${month}:${u.key}`] = qty;
-      }
+      // Per-unit sales are still summed per unit — ERP and imported cells are
+      // stored that way — but only the total is written to the sheet.
+      const unitQtys = units.map((u) => salesByMonth[month]?.[u.key]?.qty ?? null);
       const total = sumNullable(unitQtys);
       row[`sales:${month}:total`] = total;
       monthTotals.push(total);

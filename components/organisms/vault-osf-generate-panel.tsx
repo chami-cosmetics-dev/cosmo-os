@@ -114,7 +114,8 @@ export function VaultOsfGeneratePanel({ canManage = false }: { canManage?: boole
       <div>
         <h3 className="font-medium">Generate OSF</h3>
         <p className="text-sm text-muted-foreground">
-          SV / ORI / AE stock and sales from April through the as-of date. Prices from ERP1.
+          SV / ORI / AE stock and sales from April through the as-of date. Prices from all ERP
+          instances, newest effective price wins.
           Internal transfers are excluded.
         </p>
       </div>

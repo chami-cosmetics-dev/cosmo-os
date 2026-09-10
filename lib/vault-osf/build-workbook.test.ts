@@ -105,7 +105,26 @@ describe("vault OSF workbook", () => {
 
   it("leaves April sales blank when no ERP/import cell", () => {
     const row = buildVaultMainRows(input())[0]!;
-    expect(row["sales:2026-04:sv"]).toBeNull();
+    expect(row["sales:2026-04:total"]).toBeNull();
     expect(row["purchQty:2026-06"]).toBeNull();
+  });
+
+  it("gives each month a total plus the two combined purchase columns only", () => {
+    const defs = vaultColumnDefs(units, "2026-09-07");
+    const june = defs.findIndex((d) => d.key === "sales:2026-06:total");
+    expect(defs[june]!.section).toBe("JUNE");
+    expect(defs.slice(june, june + 3).map((d) => d.header)).toEqual([
+      "Total JUNE",
+      "Purch Qty (All)",
+      "Purch Value (All)",
+    ]);
+    // No per-unit sales column survives inside a month block.
+    for (const u of units) {
+      expect(defs.some((d) => d.key === `sales:2026-06:${u.key}`)).toBe(false);
+    }
+    // The per-unit split is still there where it drives reordering.
+    expect(defs.some((d) => d.key === "stock:sv")).toBe(true);
+    expect(defs.some((d) => d.key === "rop:sv")).toBe(true);
+    expect(defs.some((d) => d.key === "reorder:sv")).toBe(true);
   });
 });

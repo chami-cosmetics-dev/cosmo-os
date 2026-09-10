@@ -78,4 +78,22 @@ export type BookNoteHistoryItem = {
   grandTotal: number;
   updatedAt: string;
   locked: boolean;
+  /** Who last saved the sheet — shown when same-outlet colleagues share history. */
+  enteredBy: string | null;
+  /** True when the viewer created or last saved this sheet themselves. */
+  isOwn: boolean;
+};
+
+/** One receipt photo in the finance gallery, with its book-note day context. */
+export type BookNoteReceiptGalleryItem = {
+  id: string;
+  bookNoteDayId: string;
+  companyLocationId: string;
+  shopName: string;
+  posting_date: string;
+  fileName: string;
+  mimeType: string | null;
+  fileSize: number | null;
+  url: string;
+  createdAt: string;
 };

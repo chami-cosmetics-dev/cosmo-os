@@ -58,13 +58,7 @@ warehouses are never queried.
 
 Dropped vs the manual sheet: New Malinda, New USA, Buffer stock.
 
-### Manual notes
-
-| Header | Value |
-|--------|-------|
-| remark | empty |
-| AK1 | empty |
-| AK2 | empty |
+Dropped from the manual sheet: the `remark` / `AK1` / `AK2` note columns.
 
 ### Per-month sales group
 
@@ -75,22 +69,26 @@ current (truncated) month. Example: `SEPTEMBER 07.09.2026`.
 
 | Header | Source |
 |--------|--------|
-| SV / ORI / AE | ERP Sales Invoice signed qty for that company, else imported history |
-| Total {Month} | sum of the three; blank if all three blank |
+| Total {Month} | SV + ORI + AE ERP Sales Invoice signed qty (else imported history); blank if all three blank |
+
+Sales are still read and stored per company — that is how ERP and the history
+import supply them — but only the combined total is written to the sheet. The
+per-unit split appears in ROP / Stock / Reorder Quantity, where it drives a
+purchasing decision.
 
 Current month covers 1st through `asOfDate` inclusive. Returns net via negative
 qty. Empty history → blank cells, not 0.
 
 ### Per-month purchase pair
 
-Immediately after each month's sales group (or as a trailing pair-per-month
-block after all sales groups — implementer picks one and keeps it consistent;
-prefer **after each sales group** so April sales sit next to April purchases).
+Immediately after each month's total, so April sales sit next to April
+purchases. A month block is exactly three columns:
+`Total {Month} | Purch Qty (All) | Purch Value (All)`.
 
 | Header | Source |
 |--------|--------|
-| Purch Qty | Sum of allowlisted Purchase Invoice line qty |
-| Purch Value | Sum of line `net_amount` (ex-tax) |
+| Purch Qty (All) | Sum of allowlisted Purchase Invoice line qty, SV+ORI+AE combined |
+| Purch Value (All) | Sum of line `net_amount` (ex-tax), SV+ORI+AE combined |
 
 No supplier allowlist match → blank. Internal / intercompany lines excluded.
 
@@ -98,7 +96,7 @@ No supplier allowlist match → blank. Internal / intercompany lines excluded.
 
 | Header | Source |
 |--------|--------|
-| MRP | ERP1 Standard Selling |
+| MRP | Standard Selling across **all** ERP instances; rows outside their validity window, customer-specific rows and rate <= 0 are skipped; newest `valid_from` then newest `modified` wins |
 | Discounted Price | MRP × (1 − item-code pricing rule %). Blank if no applicable rule |
 
 Transaction / coupon / item-group / brand rules ignored. Disabled or out-of-date

@@ -200,7 +200,11 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const prices = await fetchVaultPrices(erp1.cfg, skus, asOfDate);
+    const prices = await fetchVaultPrices(
+      erpInstances.map((i) => i.cfg),
+      skus,
+      asOfDate,
+    );
 
     const buffer = await buildVaultOsfWorkbookBuffer({
       catalog,
