@@ -105,6 +105,44 @@ export function takeFirstEligibleContactIds(
   return out;
 }
 
+/**
+ * Postgres refuses a prepared statement with more than 32,767 bind variables, so every
+ * id list has to be sliced before it reaches an `in` filter. A merchant with tens of
+ * thousands of allocated contacts hits this on the assign-queue screen.
+ */
+function idChunks(ids: string[]): string[][] {
+  const chunks: string[][] = [];
+  for (let i = 0; i < ids.length; i += LAST_CONTACTED_ID_CHUNK) {
+    chunks.push(ids.slice(i, i + LAST_CONTACTED_ID_CHUNK));
+  }
+  return chunks;
+}
+
+/** Contacts already sitting in the pending queue. */
+async function pendingQueuedContactIds(
+  companyId: string,
+  contactIds: string[]
+): Promise<Set<string>> {
+  const queued = new Set<string>();
+  if (contactIds.length === 0) return queued;
+  const pages = await Promise.all(
+    idChunks(contactIds).map((slice) =>
+      prisma.contactInsightCallQueue.findMany({
+        where: {
+          companyId,
+          contactId: { in: slice },
+          status: CALL_QUEUE_STATUS_PENDING,
+        },
+        select: { contactId: true },
+      })
+    )
+  );
+  for (const rows of pages) {
+    for (const row of rows) queued.add(row.contactId);
+  }
+  return queued;
+}
+
 async function lastContactedMap(
   companyId: string,
   contactIds: string[]
@@ -302,20 +340,12 @@ async function listRankedEligibleContacts(input: {
   const allocatedTotal = afterBrand.length;
   const ids = afterBrand.map((c) => c.id);
   const now = new Date();
-  const [contacted, queuedRows, allocated, lastEvent] = await Promise.all([
+  const [contacted, queued, allocated, lastEvent] = await Promise.all([
     lastContactedMap(input.companyId, ids),
-    prisma.contactInsightCallQueue.findMany({
-      where: {
-        companyId: input.companyId,
-        contactId: { in: ids },
-        status: CALL_QUEUE_STATUS_PENDING,
-      },
-      select: { contactId: true },
-    }),
+    pendingQueuedContactIds(input.companyId, ids),
     allocationAtMap(input.companyId, ids),
     lastNonAllocationEventMap(input.companyId, ids),
   ]);
-  const queued = new Set(queuedRows.map((r) => r.contactId));
 
   const lifetimeNeeded = callQueueNeedsLifetimeTotals(input.filters);
 
@@ -475,21 +505,26 @@ export async function assignCallQueue(input: {
   );
   const merchantLabel = merchantUser?.value ?? input.merchantValue.trim();
 
-  const contacts = await prisma.contactMaster.findMany({
-    where: {
-      ...assignedMerchantWhere(input.companyId, aliases),
-      id: { in: uniqueIds },
-    },
-    select: {
-      id: true,
-      name: true,
-      category: true,
-      email: true,
-      phoneNumber: true,
-      phones: { select: { phoneNumber: true } },
-      emails: { select: { email: true } },
-    },
-  });
+  const contactPages = await Promise.all(
+    idChunks(uniqueIds).map((slice) =>
+      prisma.contactMaster.findMany({
+        where: {
+          ...assignedMerchantWhere(input.companyId, aliases),
+          id: { in: slice },
+        },
+        select: {
+          id: true,
+          name: true,
+          category: true,
+          email: true,
+          phoneNumber: true,
+          phones: { select: { phoneNumber: true } },
+          emails: { select: { email: true } },
+        },
+      })
+    )
+  );
+  const contacts = contactPages.flat();
   const allocatedIds = new Set(contacts.map((c) => c.id));
   let skippedNotAllocated = 0;
   for (const id of uniqueIds) {
@@ -501,20 +536,12 @@ export async function assignCallQueue(input: {
 
   const ids = contacts.map((c) => c.id);
   const now = new Date();
-  const [queuedRows, allocated, lastEvent, lifetimeById] = await Promise.all([
-    prisma.contactInsightCallQueue.findMany({
-      where: {
-        companyId: input.companyId,
-        contactId: { in: ids },
-        status: CALL_QUEUE_STATUS_PENDING,
-      },
-      select: { contactId: true },
-    }),
+  const [queued, allocated, lastEvent, lifetimeById] = await Promise.all([
+    pendingQueuedContactIds(input.companyId, ids),
     allocationAtMap(input.companyId, ids),
     lastNonAllocationEventMap(input.companyId, ids),
     lifetimeTotalsByContactId(input.companyId, contacts),
   ]);
-  const queued = new Set(queuedRows.map((r) => r.contactId));
 
   const toCreate: typeof contacts = [];
   let skippedQueued = 0;
