@@ -20,8 +20,8 @@ export const bookNotePageDataQuerySchema = z.object({
   q: z.string().trim().max(120).optional(),
 });
 
-/** Finance receipt gallery: outlet (optional = all) over a date range. */
-export const bookNoteReceiptGalleryQuerySchema = z
+/** Finance review: outlet (optional = all) over a posting-date range. */
+export const bookNoteFinanceReviewQuerySchema = z
   .object({
     companyLocationId: cuidSchema.optional(),
     from: ymdSchema,

@@ -32,7 +32,6 @@ import {
   NotebookPen,
   UserSearch,
   FileSpreadsheet,
-  Images,
   TrendingUp,
   Scale,
 } from "lucide-react";
@@ -337,10 +336,10 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
               )}
               {canReadBookNotes && (
                 <NavItem
-                  href="/dashboard/book-notes/receipts"
-                  icon={Images}
-                  label="Book Note Receipts"
-                  isActive={pathname === "/dashboard/book-notes/receipts"}
+                  href="/dashboard/book-notes/review"
+                  icon={Scale}
+                  label="Book Notes (Finance)"
+                  isActive={pathname === "/dashboard/book-notes/review"}
                 />
               )}
               {canViewReturns && (
