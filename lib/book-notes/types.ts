@@ -1,4 +1,5 @@
 import type { BookNoteSplitLine } from "@/lib/book-notes/split-lines";
+import type { BookNoteMethodTotal } from "@/lib/book-notes/summary";
 
 export type BookNotePaymentColumns = {
   cash: number;
@@ -92,16 +93,36 @@ export type BookNoteHistoryItem = {
   isOwn: boolean;
 };
 
-/** One receipt photo in the finance gallery, with its book-note day context. */
-export type BookNoteReceiptGalleryItem = {
+/** Who created or last saved a sheet, for the finance audit column. */
+export type BookNoteActor = {
+  name: string;
+  at: string;
+};
+
+/** One book note day as finance reviews it: totals, rows, photos, authorship. */
+export type BookNoteFinanceDay = {
   id: string;
-  bookNoteDayId: string;
   companyLocationId: string;
   shopName: string;
+  /** ERPNext company for the shop, when mapped. */
+  company: string;
   posting_date: string;
-  fileName: string;
-  mimeType: string | null;
-  fileSize: number | null;
-  url: string;
-  createdAt: string;
+  submittedBy: BookNoteActor | null;
+  lastUpdatedBy: BookNoteActor | null;
+  rowCount: number;
+  methods: BookNoteMethodTotal[];
+  entryCount: number;
+  grandTotal: number;
+  rows: BookNoteRowDto[];
+  receipts: BookNoteReceiptDto[];
+};
+
+/** Range roll-up shown above the day list. */
+export type BookNoteFinanceSummary = {
+  dayCount: number;
+  rowCount: number;
+  receiptCount: number;
+  methods: BookNoteMethodTotal[];
+  entryCount: number;
+  grandTotal: number;
 };

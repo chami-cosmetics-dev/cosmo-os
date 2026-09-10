@@ -1,15 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { resolveBookNoteShopAccess } from "@/lib/book-notes/access";
-import { loadBookNoteReceiptGallery } from "@/lib/book-notes/load";
+import { loadBookNoteFinanceReview } from "@/lib/book-notes/finance-review";
 import { requirePermission } from "@/lib/rbac";
-import { bookNoteReceiptGalleryQuerySchema } from "@/lib/validation/book-notes";
+import { bookNoteFinanceReviewQuerySchema } from "@/lib/validation/book-notes";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Finance view of merchant-uploaded receipt photos, filtered by outlet and
- * posting-date range. Read-only — uploading and deleting stay with merchants.
+ * Finance review of merchant book notes: per-day payment totals, invoice rows,
+ * uploaded slips and who submitted each sheet, filtered by outlet and
+ * posting-date range. Read-only — entry and ERP send stay with merchants.
  */
 export async function GET(request: NextRequest) {
   const auth = await requirePermission("book_notes.read");
@@ -26,7 +27,7 @@ export async function GET(request: NextRequest) {
   }
 
   const raw = Object.fromEntries(request.nextUrl.searchParams.entries());
-  const parsed = bookNoteReceiptGalleryQuerySchema.safeParse({
+  const parsed = bookNoteFinanceReviewQuerySchema.safeParse({
     companyLocationId: raw.companyLocationId || undefined,
     from: raw.from,
     to: raw.to,
@@ -51,12 +52,12 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const items = await loadBookNoteReceiptGallery({
+  const review = await loadBookNoteFinanceReview({
     companyId,
     companyLocationId,
     fromYmd: from,
     toYmd: to,
   });
 
-  return NextResponse.json({ locations: access.locations, items });
+  return NextResponse.json({ locations: access.locations, ...review });
 }

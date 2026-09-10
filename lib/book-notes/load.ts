@@ -4,7 +4,6 @@ import { canViewBookNoteDay, type BookNoteViewScope } from "@/lib/book-notes/acc
 import type {
   BookNoteDayDto,
   BookNoteHistoryItem,
-  BookNoteReceiptGalleryItem,
 } from "@/lib/book-notes/types";
 import type { BookNoteWriteAccess } from "@/lib/book-notes/lock";
 import { isBookNoteDayLocked } from "@/lib/book-notes/lock";
@@ -301,66 +300,4 @@ export async function loadBookNoteHistory(input: {
         day.createdByUserId === userId || day.updatedByUserId === userId,
     };
   });
-}
-
-/**
- * Receipt photos for the finance gallery: every slip uploaded against a shop's
- * book-note days inside a posting-date range, newest day first.
- * Callers must have already checked `book_notes.read`.
- */
-export async function loadBookNoteReceiptGallery(input: {
-  companyId: string;
-  /** Omit for every shop in the company. */
-  companyLocationId?: string;
-  fromYmd: string;
-  toYmd: string;
-  limit?: number;
-}): Promise<BookNoteReceiptGalleryItem[]> {
-  const limit = Math.min(Math.max(input.limit ?? 300, 1), 500);
-  const receipts = await prisma.bookNoteReceipt.findMany({
-    where: {
-      bookNoteDay: {
-        companyId: input.companyId,
-        ...(input.companyLocationId
-          ? { companyLocationId: input.companyLocationId }
-          : {}),
-        postingDate: {
-          gte: postingDateToUtcMidnight(input.fromYmd),
-          lte: postingDateToUtcMidnight(input.toYmd),
-        },
-      },
-    },
-    orderBy: [{ bookNoteDay: { postingDate: "desc" } }, { sortOrder: "asc" }],
-    take: limit,
-    select: {
-      id: true,
-      fileName: true,
-      mimeType: true,
-      fileSize: true,
-      createdAt: true,
-      bookNoteDayId: true,
-      bookNoteDay: {
-        select: {
-          companyLocationId: true,
-          postingDate: true,
-          companyLocation: { select: { name: true, shortName: true } },
-        },
-      },
-    },
-  });
-
-  return receipts.map((r) => ({
-    id: r.id,
-    bookNoteDayId: r.bookNoteDayId,
-    companyLocationId: r.bookNoteDay.companyLocationId,
-    shopName:
-      r.bookNoteDay.companyLocation.shortName?.trim() ||
-      r.bookNoteDay.companyLocation.name,
-    posting_date: postingDateYmd(r.bookNoteDay.postingDate),
-    fileName: r.fileName,
-    mimeType: r.mimeType,
-    fileSize: r.fileSize,
-    url: `/api/admin/book-notes/receipts/${r.id}`,
-    createdAt: r.createdAt.toISOString(),
-  }));
 }

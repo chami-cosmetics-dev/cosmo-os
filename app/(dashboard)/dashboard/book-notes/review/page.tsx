@@ -1,9 +1,9 @@
 import { redirect } from "next/navigation";
 
-import { BookNoteReceiptGalleryPanel } from "@/app/(dashboard)/dashboard/book-notes/receipts/receipt-gallery-panel";
+import { BookNoteFinancePanel } from "@/app/(dashboard)/dashboard/book-notes/review/finance-panel";
 import { PermissionDeniedCard } from "@/components/molecules/permission-denied-card";
 import { resolveBookNoteShopAccess } from "@/lib/book-notes/access";
-import { loadBookNoteReceiptGallery } from "@/lib/book-notes/load";
+import { loadBookNoteFinanceReview } from "@/lib/book-notes/finance-review";
 import { formatAppIsoDate } from "@/lib/format-datetime";
 import { requirePermission } from "@/lib/rbac";
 
@@ -17,7 +17,7 @@ function defaultRange(): { from: string; to: string } {
   return { from: formatAppIsoDate(from), to: formatAppIsoDate(to) };
 }
 
-export default async function BookNoteReceiptsPage() {
+export default async function BookNoteReviewPage() {
   const auth = await requirePermission("book_notes.read");
   if (!auth.ok) {
     if (auth.status === 401) redirect("/login");
@@ -31,16 +31,18 @@ export default async function BookNoteReceiptsPage() {
 
   const access = await resolveBookNoteShopAccess(auth.context!, companyId);
   const { from, to } = defaultRange();
-  const initialItems = await loadBookNoteReceiptGallery({
+  const review = await loadBookNoteFinanceReview({
     companyId,
     fromYmd: from,
     toYmd: to,
   });
 
   return (
-    <BookNoteReceiptGalleryPanel
+    <BookNoteFinancePanel
       initialLocations={access.locations}
-      initialItems={initialItems}
+      initialDays={review.days}
+      initialSummary={review.summary}
+      initialTruncated={review.truncated}
       initialFrom={from}
       initialTo={to}
       today={formatAppIsoDate(new Date())}
