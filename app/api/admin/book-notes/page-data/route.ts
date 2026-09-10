@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   assertBookNoteShopAllowed,
   resolveBookNoteShopAccess,
+  resolveBookNoteViewScope,
   resolveBookNoteWriteAccess,
 } from "@/lib/book-notes/access";
 import {
@@ -32,6 +33,7 @@ export async function GET(request: NextRequest) {
   const parsed = bookNotePageDataQuerySchema.safeParse({
     companyLocationId: raw.companyLocationId || undefined,
     postingDate: raw.postingDate || undefined,
+    q: raw.q || undefined,
   });
   if (!parsed.success) {
     return NextResponse.json(
@@ -41,6 +43,7 @@ export async function GET(request: NextRequest) {
   }
 
   const access = await resolveBookNoteShopAccess(auth.context!, companyId);
+  const viewScope = await resolveBookNoteViewScope(auth.context!, companyId);
   const writeAccess = resolveBookNoteWriteAccess(auth.context!);
   const locations = access.locations;
   const allowedIds = locations.map((l) => l.id);
@@ -63,6 +66,8 @@ export async function GET(request: NextRequest) {
       companyId,
       createdByUserId: userId,
       companyLocationIds: allowedIds,
+      viewScope,
+      search: parsed.data.q,
       writeAccess,
     });
   }
@@ -73,6 +78,8 @@ export async function GET(request: NextRequest) {
       companyLocationId: locationId,
       postingDateYmd: parsed.data.postingDate,
       writeAccess,
+      viewScope,
+      viewerUserId: userId,
     });
   }
 

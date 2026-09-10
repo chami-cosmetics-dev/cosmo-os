@@ -91,6 +91,31 @@ export async function resolveBookNoteViewScope(
   return { canViewAllShops: false, assignedLocationIds: [...ids] };
 }
 
+/**
+ * May this user read (and therefore overwrite) an existing saved day?
+ *
+ * Matches the history rule: their own sheets, any sheet for an outlet they are
+ * posted to, everything for finance / admin. A day they cannot see must stay
+ * read-only — `PUT /api/admin/book-notes` replaces every row of a day, so
+ * letting it through would silently destroy a colleague's entry.
+ */
+export function canViewBookNoteDay(input: {
+  viewScope: BookNoteViewScope;
+  userId: string | null;
+  day: {
+    companyLocationId: string;
+    createdByUserId: string | null;
+    updatedByUserId: string | null;
+  };
+}): boolean {
+  if (input.viewScope.canViewAllShops) return true;
+  const { userId, day } = input;
+  if (userId && (day.createdByUserId === userId || day.updatedByUserId === userId)) {
+    return true;
+  }
+  return input.viewScope.assignedLocationIds.includes(day.companyLocationId);
+}
+
 export function resolveBookNoteWriteAccess(
   context: UserContext,
 ): BookNoteWriteAccess {

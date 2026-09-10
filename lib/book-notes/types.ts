@@ -46,6 +46,14 @@ export type BookNoteDayDto = {
   locked: boolean;
   rows: BookNoteRowDto[];
   receipts: BookNoteReceiptDto[];
+  /**
+   * Another merchant already keyed this day at an outlet the viewer is not
+   * posted to. Rows and receipts are withheld and the sheet stays read-only so
+   * a save cannot replace their entry.
+   */
+  restricted?: boolean;
+  /** Who owns the sheet, shown with the restricted notice. */
+  enteredBy?: string | null;
 };
 
 export type BookNoteOrderSuggestion = {

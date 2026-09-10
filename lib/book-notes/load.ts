@@ -1,7 +1,11 @@
 import type { Prisma } from "@prisma/client";
 
-import type { BookNoteViewScope } from "@/lib/book-notes/access";
-import type { BookNoteDayDto, BookNoteHistoryItem } from "@/lib/book-notes/types";
+import { canViewBookNoteDay, type BookNoteViewScope } from "@/lib/book-notes/access";
+import type {
+  BookNoteDayDto,
+  BookNoteHistoryItem,
+  BookNoteReceiptGalleryItem,
+} from "@/lib/book-notes/types";
 import type { BookNoteWriteAccess } from "@/lib/book-notes/lock";
 import { isBookNoteDayLocked } from "@/lib/book-notes/lock";
 import {
@@ -27,6 +31,8 @@ const dayInclude = {
   companyLocation: {
     select: { name: true, erpnextCompany: true, companyId: true },
   },
+  createdBy: { select: { name: true, email: true } },
+  updatedBy: { select: { name: true, email: true } },
   rows: { orderBy: { sortOrder: "asc" as const } },
   receipts: { orderBy: { sortOrder: "asc" as const } },
 };
@@ -37,6 +43,9 @@ export async function loadBookNoteDayDto(input: {
   postingDateYmd: string;
   now?: Date;
   writeAccess?: BookNoteWriteAccess;
+  /** Supply both to withhold days this user may not see. */
+  viewScope?: BookNoteViewScope;
+  viewerUserId?: string | null;
 }): Promise<BookNoteDayDto | null> {
   const postingDate = postingDateToUtcMidnight(input.postingDateYmd);
   const day = await prisma.bookNoteDay.findUnique({
@@ -50,6 +59,37 @@ export async function loadBookNoteDayDto(input: {
   });
 
   if (!day || day.companyId !== input.companyId) return null;
+
+  if (
+    input.viewScope &&
+    !canViewBookNoteDay({
+      viewScope: input.viewScope,
+      userId: input.viewerUserId ?? null,
+      day: {
+        companyLocationId: day.companyLocationId,
+        createdByUserId: day.createdByUserId,
+        updatedByUserId: day.updatedByUserId,
+      },
+    })
+  ) {
+    const author = day.updatedBy ?? day.createdBy;
+    const base = serializeBookNoteDay({
+      id: day.id,
+      companyLocationId: day.companyLocationId,
+      postingDate: day.postingDate,
+      location: day.companyLocation,
+      rows: [],
+      receipts: [],
+      now: input.now,
+      writeAccess: input.writeAccess,
+    });
+    return {
+      ...base,
+      locked: true,
+      restricted: true,
+      enteredBy: author?.name?.trim() || author?.email || null,
+    };
+  }
 
   return serializeBookNoteDay({
     id: day.id,
@@ -261,4 +301,66 @@ export async function loadBookNoteHistory(input: {
         day.createdByUserId === userId || day.updatedByUserId === userId,
     };
   });
+}
+
+/**
+ * Receipt photos for the finance gallery: every slip uploaded against a shop's
+ * book-note days inside a posting-date range, newest day first.
+ * Callers must have already checked `book_notes.read`.
+ */
+export async function loadBookNoteReceiptGallery(input: {
+  companyId: string;
+  /** Omit for every shop in the company. */
+  companyLocationId?: string;
+  fromYmd: string;
+  toYmd: string;
+  limit?: number;
+}): Promise<BookNoteReceiptGalleryItem[]> {
+  const limit = Math.min(Math.max(input.limit ?? 300, 1), 500);
+  const receipts = await prisma.bookNoteReceipt.findMany({
+    where: {
+      bookNoteDay: {
+        companyId: input.companyId,
+        ...(input.companyLocationId
+          ? { companyLocationId: input.companyLocationId }
+          : {}),
+        postingDate: {
+          gte: postingDateToUtcMidnight(input.fromYmd),
+          lte: postingDateToUtcMidnight(input.toYmd),
+        },
+      },
+    },
+    orderBy: [{ bookNoteDay: { postingDate: "desc" } }, { sortOrder: "asc" }],
+    take: limit,
+    select: {
+      id: true,
+      fileName: true,
+      mimeType: true,
+      fileSize: true,
+      createdAt: true,
+      bookNoteDayId: true,
+      bookNoteDay: {
+        select: {
+          companyLocationId: true,
+          postingDate: true,
+          companyLocation: { select: { name: true, shortName: true } },
+        },
+      },
+    },
+  });
+
+  return receipts.map((r) => ({
+    id: r.id,
+    bookNoteDayId: r.bookNoteDayId,
+    companyLocationId: r.bookNoteDay.companyLocationId,
+    shopName:
+      r.bookNoteDay.companyLocation.shortName?.trim() ||
+      r.bookNoteDay.companyLocation.name,
+    posting_date: postingDateYmd(r.bookNoteDay.postingDate),
+    fileName: r.fileName,
+    mimeType: r.mimeType,
+    fileSize: r.fileSize,
+    url: `/api/admin/book-notes/receipts/${r.id}`,
+    createdAt: r.createdAt.toISOString(),
+  }));
 }
