@@ -32,6 +32,7 @@ import {
   NotebookPen,
   UserSearch,
   FileSpreadsheet,
+  Images,
   TrendingUp,
   Scale,
 } from "lucide-react";
@@ -142,6 +143,7 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
     hasSidebarPermission("outlets.read.assigned");
   const canViewMerchantReviews = hasSidebarPermission("merchant_reviews.read");
   const canManageBookNotes = hasSidebarPermission("book_notes.manage");
+  const canReadBookNotes = hasSidebarPermission("book_notes.read");
   const canViewCustomerInsight = hasSidebarPermission("contacts.insight.read");
   const fulfillmentLinks = [
     {
@@ -331,6 +333,14 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
                   icon={NotebookPen}
                   label="Book Notes"
                   isActive={pathname === "/dashboard/book-notes"}
+                />
+              )}
+              {canReadBookNotes && (
+                <NavItem
+                  href="/dashboard/book-notes/receipts"
+                  icon={Images}
+                  label="Book Note Receipts"
+                  isActive={pathname === "/dashboard/book-notes/receipts"}
                 />
               )}
               {canViewReturns && (

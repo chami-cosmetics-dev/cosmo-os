@@ -46,6 +46,14 @@ export type BookNoteDayDto = {
   locked: boolean;
   rows: BookNoteRowDto[];
   receipts: BookNoteReceiptDto[];
+  /**
+   * Another merchant already keyed this day at an outlet the viewer is not
+   * posted to. Rows and receipts are withheld and the sheet stays read-only so
+   * a save cannot replace their entry.
+   */
+  restricted?: boolean;
+  /** Who owns the sheet, shown with the restricted notice. */
+  enteredBy?: string | null;
 };
 
 export type BookNoteOrderSuggestion = {
@@ -78,4 +86,22 @@ export type BookNoteHistoryItem = {
   grandTotal: number;
   updatedAt: string;
   locked: boolean;
+  /** Who last saved the sheet — shown when same-outlet colleagues share history. */
+  enteredBy: string | null;
+  /** True when the viewer created or last saved this sheet themselves. */
+  isOwn: boolean;
+};
+
+/** One receipt photo in the finance gallery, with its book-note day context. */
+export type BookNoteReceiptGalleryItem = {
+  id: string;
+  bookNoteDayId: string;
+  companyLocationId: string;
+  shopName: string;
+  posting_date: string;
+  fileName: string;
+  mimeType: string | null;
+  fileSize: number | null;
+  url: string;
+  createdAt: string;
 };

@@ -7,6 +7,7 @@ import {
 import {
   assertBookNoteShopAllowed,
   resolveBookNoteShopAccess,
+  resolveBookNoteViewScope,
 } from "@/lib/book-notes/access";
 import { sendBookNoteRowsToErp } from "@/lib/book-notes/erp-verify";
 import { loadBookNoteDayDto } from "@/lib/book-notes/load";
@@ -122,11 +123,28 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Withheld days come back with no rows, so a merchant cannot push a sheet
+  // they were never allowed to see.
+  const viewScope = await resolveBookNoteViewScope(auth.context!, companyId);
   const day = await loadBookNoteDayDto({
     companyId,
     companyLocationId,
     postingDateYmd: postingDate,
+    viewScope,
+    viewerUserId: auth.context!.user?.id ?? null,
   });
+  if (day?.restricted) {
+    return NextResponse.json(
+      {
+        error: `${day.enteredBy ?? "Another merchant"} entered this shop's book note for ${postingDate}. Only they or finance can send it to ERP.`,
+        code: "DAY_NOT_YOURS",
+        step: "load_day",
+        locationName: shopLabel,
+        postingDate,
+      },
+      { status: 403 },
+    );
+  }
   if (!day || day.rows.length === 0) {
     return NextResponse.json(
       {

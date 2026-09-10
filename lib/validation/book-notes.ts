@@ -16,7 +16,26 @@ const moneySchema = z.coerce
 export const bookNotePageDataQuerySchema = z.object({
   companyLocationId: cuidSchema.optional(),
   postingDate: ymdSchema.optional(),
+  /** History search: shop name, posting date, or sales invoice number. */
+  q: z.string().trim().max(120).optional(),
 });
+
+/** Finance receipt gallery: outlet (optional = all) over a date range. */
+export const bookNoteReceiptGalleryQuerySchema = z
+  .object({
+    companyLocationId: cuidSchema.optional(),
+    from: ymdSchema,
+    to: ymdSchema,
+  })
+  .superRefine((val, ctx) => {
+    if (val.from > val.to) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "from must be on or before to",
+        path: ["from"],
+      });
+    }
+  });
 
 export const bookNoteSuggestionsQuerySchema = z.object({
   companyLocationId: cuidSchema,

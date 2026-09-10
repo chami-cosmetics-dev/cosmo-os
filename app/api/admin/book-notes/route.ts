@@ -7,7 +7,9 @@ import {
 } from "@/lib/book-notes/lock";
 import {
   assertBookNoteShopAllowed,
+  canViewBookNoteDay,
   resolveBookNoteShopAccess,
+  resolveBookNoteViewScope,
   resolveBookNoteWriteAccess,
 } from "@/lib/book-notes/access";
 import {
@@ -98,6 +100,60 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({ days });
 }
 
+/**
+ * Refuse to touch a saved day the user is not allowed to see. Saving replaces
+ * every row of the day, so without this a merchant keying another outlet could
+ * wipe a colleague's sheet they were never shown.
+ */
+async function assertDayWritableByViewer(input: {
+  context: Parameters<typeof resolveBookNoteViewScope>[0];
+  companyId: string;
+  userId: string;
+  companyLocationId: string;
+  postingDate: string;
+}): Promise<NextResponse | null> {
+  const existing = await prisma.bookNoteDay.findUnique({
+    where: {
+      companyLocationId_postingDate: {
+        companyLocationId: input.companyLocationId,
+        postingDate: postingDateToUtcMidnight(input.postingDate),
+      },
+    },
+    select: {
+      companyId: true,
+      companyLocationId: true,
+      createdByUserId: true,
+      updatedByUserId: true,
+      createdBy: { select: { name: true, email: true } },
+      updatedBy: { select: { name: true, email: true } },
+    },
+  });
+  if (!existing || existing.companyId !== input.companyId) return null;
+
+  const viewScope = await resolveBookNoteViewScope(input.context, input.companyId);
+  const allowed = canViewBookNoteDay({
+    viewScope,
+    userId: input.userId,
+    day: {
+      companyLocationId: existing.companyLocationId,
+      createdByUserId: existing.createdByUserId,
+      updatedByUserId: existing.updatedByUserId,
+    },
+  });
+  if (allowed) return null;
+
+  const author = existing.updatedBy ?? existing.createdBy;
+  const who = author?.name?.trim() || author?.email || "another merchant";
+  return NextResponse.json(
+    {
+      error: `${who} already entered this shop's book note for ${input.postingDate}. Ask them or finance to update it.`,
+      code: "DAY_NOT_YOURS",
+      enteredBy: who,
+    },
+    { status: 403 },
+  );
+}
+
 export async function PUT(request: NextRequest) {
   const auth = await requirePermission("book_notes.manage");
   if (!auth.ok) {
@@ -151,6 +207,15 @@ export async function PUT(request: NextRequest) {
       { status: 403 },
     );
   }
+
+  const notYours = await assertDayWritableByViewer({
+    context: auth.context!,
+    companyId,
+    userId,
+    companyLocationId,
+    postingDate,
+  });
+  if (notYours) return notYours;
 
   const location = await prisma.companyLocation.findFirst({
     where: { id: companyLocationId, companyId },

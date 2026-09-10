@@ -1,8 +1,18 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useRef, useState } from "react";
-import { ImagePlus, Loader2, Plus, Trash2, X } from "lucide-react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ImagePlus, Loader2, Plus, Search, Trash2, X } from "lucide-react";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -160,6 +170,38 @@ function dayToRows(day: BookNoteDayDto | null): LedgerRow[] {
   });
 }
 
+/**
+ * Stable signature of everything a merchant types into the ledger. Compared
+ * against the signature captured at load/save time to know whether switching
+ * shop would throw away unsaved keying.
+ */
+function rowsFingerprint(rows: LedgerRow[]): string {
+  return JSON.stringify(
+    rows.map((r) => [
+      r.idxNo,
+      r.salesInvoice.trim(),
+      r.cash,
+      r.card,
+      r.cardReceiptRefLast4,
+      r.koko,
+      r.bankTransfer,
+      r.splitMode,
+      r.splitLines.map((sl) => [
+        sl.paymentMethod,
+        sl.amount,
+        sl.cardLast4,
+        sl.kokoReference,
+        sl.bankReference,
+      ]),
+    ]),
+  );
+}
+
+/** True when the sheet holds anything worth warning about before discarding. */
+function hasEnteredData(rows: LedgerRow[]): boolean {
+  return rows.some((r) => r.salesInvoice.trim() !== "" || rowTotal(r) > 0);
+}
+
 type BookNotesPanelProps = {
   initialLocations: BookNoteLocationOption[];
   initialCanAccessAllShops?: boolean;
@@ -195,6 +237,23 @@ export function BookNotesPanel({
   const suggestTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const receiptInputRef = useRef<HTMLInputElement>(null);
   const hydrated = useRef(false);
+  /** Ledger signature as last loaded or saved — anything else means unsaved work. */
+  const [savedFingerprint, setSavedFingerprint] = useState(() =>
+    rowsFingerprint([]),
+  );
+  /** Sheet the user navigated to while unsaved rows are on screen. */
+  const [pendingTarget, setPendingTarget] = useState<{
+    companyLocationId: string;
+    postingDate: string;
+    shopLabel: string;
+  } | null>(null);
+  /** Row count waiting on confirmation because Create rows would wipe entries. */
+  const [pendingRowCount, setPendingRowCount] = useState<number | null>(null);
+  /** Set when the loaded day belongs to a merchant outside the viewer's outlet. */
+  const [restrictedBy, setRestrictedBy] = useState<string | null>(null);
+  const [historyQuery, setHistoryQuery] = useState("");
+  const [historySearching, setHistorySearching] = useState(false);
+  const historyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isBusy = busyKey !== null;
 
@@ -204,7 +263,19 @@ export function BookNotesPanel({
     return canBackdateBookNotes;
   }
 
-  const readOnly = locked || !isPostingDateWritable(postingDate);
+  const readOnly =
+    locked || restrictedBy !== null || !isPostingDateWritable(postingDate);
+
+  const currentFingerprint = useMemo(() => rowsFingerprint(rows), [rows]);
+  /** Unsaved keying is on screen — used to gate the "you will lose this" prompts. */
+  const isDirty =
+    currentFingerprint !== savedFingerprint && hasEnteredData(rows);
+
+  function shopLabelFor(id: string): string {
+    const loc = locations.find((l) => l.id === id);
+    if (!loc) return "the selected shop";
+    return loc.shortName ? `${loc.shortName} — ${loc.name}` : loc.name;
+  }
 
   const loadDay = useCallback(async (locationId: string, date: string) => {
     if (!locationId || !date) return;
@@ -223,11 +294,19 @@ export function BookNotesPanel({
       const day = data.day as BookNoteDayDto | null;
       const nextRows = dayToRows(day);
       setRows(nextRows);
+      setSavedFingerprint(rowsFingerprint(nextRows));
       setRowCountInput(String(nextRows.length));
       setReceipts(day?.receipts ?? []);
       setLocked(Boolean(day?.locked));
+      setRestrictedBy(day?.restricted ? (day.enteredBy ?? "another merchant") : null);
       setHistory((data.history as BookNoteHistoryItem[]) ?? []);
-      setStatusLine(day ? `Loaded ${day.rows.length} row(s)` : "No saved rows for this day");
+      setStatusLine(
+        day?.restricted
+          ? "Already entered by another merchant — read-only"
+          : day
+            ? `Loaded ${day.rows.length} row(s)`
+            : "No saved rows for this day",
+      );
     } catch {
       notify.error("Failed to load book note");
     } finally {
@@ -243,6 +322,17 @@ export function BookNotesPanel({
     }
   }, [companyLocationId, postingDate, loadDay]);
 
+  /** Also catch a tab close / browser refresh while rows are unsaved. */
+  useEffect(() => {
+    if (!isDirty) return;
+    const handler = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [isDirty]);
+
   function updateRow(key: string, patch: Partial<LedgerRow>) {
     setRows((prev) =>
       prev.map((r) => {
@@ -256,6 +346,17 @@ export function BookNotesPanel({
     );
   }
 
+  /** Blank out the ledger and lay down `n` fresh rows. */
+  function applyCreateRows(n: number) {
+    setRows(makeBlankRows(n));
+    setRowCountInput(String(n));
+    setStatusLine(n === 0 ? "Cleared rows" : `Created ${n} blank row(s)`);
+  }
+
+  /**
+   * Create rows replaces the whole sheet, so ask first when that would throw
+   * away entries the merchant has already keyed but not saved.
+   */
   function createRowsFromCount() {
     if (readOnly) return;
     const n = parseInt(rowCountInput, 10);
@@ -267,9 +368,11 @@ export function BookNotesPanel({
       notify.error(`Maximum ${MAX_CREATE_ROWS} rows`);
       return;
     }
-    setRows(makeBlankRows(n));
-    setRowCountInput(String(n));
-    setStatusLine(n === 0 ? "Cleared rows" : `Created ${n} blank row(s)`);
+    if (hasEnteredData(rows)) {
+      setPendingRowCount(n);
+      return;
+    }
+    applyCreateRows(n);
   }
 
   function addRow() {
@@ -400,12 +503,51 @@ export function BookNotesPanel({
     );
   }
 
-  function openHistoryDay(item: BookNoteHistoryItem) {
-    setCompanyLocationId(item.companyLocationId);
-    setPostingDate(item.posting_date);
-    setLocked(item.locked);
+  /** Load another shop/date sheet, discarding whatever is on screen. */
+  function applySheetChange(id: string, date: string) {
+    setCompanyLocationId(id);
+    setPostingDate(date);
+    setLocked(false);
+    setRestrictedBy(null);
+    setRows([]);
+    setSavedFingerprint(rowsFingerprint([]));
+    setRowCountInput("0");
+    setReceipts([]);
+    setSuggestions([]);
+    setSuggestForKey(null);
     clearError();
-    void loadDay(item.companyLocationId, item.posting_date);
+    void loadDay(id, date);
+  }
+
+  /**
+   * Switching shop or date reloads the sheet from scratch. Warn first when the
+   * merchant keyed rows that were never saved — they are gone once we reload.
+   */
+  function requestSheetChange(id: string, date: string) {
+    if (id === companyLocationId && date === postingDate) return;
+    if (isDirty) {
+      setPendingTarget({
+        companyLocationId: id,
+        postingDate: date,
+        shopLabel: shopLabelFor(id),
+      });
+      return;
+    }
+    applySheetChange(id, date);
+  }
+
+  /** Debounced history search — shop name, posting date, or invoice number. */
+  function searchHistory(q: string) {
+    setHistoryQuery(q);
+    if (historyTimer.current) clearTimeout(historyTimer.current);
+    setHistorySearching(true);
+    historyTimer.current = setTimeout(() => {
+      void refreshHistory(q).finally(() => setHistorySearching(false));
+    }, 300);
+  }
+
+  function openHistoryDay(item: BookNoteHistoryItem) {
+    requestSheetChange(item.companyLocationId, item.posting_date);
   }
 
   function fetchSuggestions(rowKey: string, q: string) {
@@ -481,12 +623,13 @@ export function BookNotesPanel({
     setLastError(null);
   }
 
-  async function refreshHistory() {
+  async function refreshHistory(search: string = historyQuery) {
     try {
       const histParams = new URLSearchParams({
         companyLocationId,
         postingDate,
       });
+      if (search.trim()) histParams.set("q", search.trim());
       const histRes = await fetch(`/api/admin/book-notes/page-data?${histParams}`);
       const histData = await histRes.json();
       if (histRes.ok) {
@@ -573,7 +716,9 @@ export function BookNotesPanel({
     }
     clearError();
     const day = data as BookNoteDayDto;
-    setRows(dayToRows(day));
+    const savedRows = dayToRows(day);
+    setRows(savedRows);
+    setSavedFingerprint(rowsFingerprint(savedRows));
     setRowCountInput(String(day.rows.length));
     setReceipts(day.receipts ?? []);
     setLocked(day.locked);
@@ -743,9 +888,11 @@ export function BookNotesPanel({
     if (!companyLocationId) return;
     if (readOnly) {
       showError(
-        canBackdateBookNotes
-          ? "This sales date is locked (future dates cannot be saved)."
-          : "Past dates are locked. Only today can be edited unless you have book notes admin permission.",
+        restrictedBy
+          ? `${restrictedBy} entered this shop's book note for ${postingDate}. Only they or finance can change it.`
+          : canBackdateBookNotes
+            ? "This sales date is locked (future dates cannot be saved)."
+            : "Past dates are locked. Only today can be edited unless you have book notes admin permission.",
       );
       return;
     }
@@ -799,38 +946,62 @@ export function BookNotesPanel({
     }
   }
 
-  const totals = rows.reduce(
-    (acc, r) => {
+  /**
+   * Per-payment-method entry count and money total across the sheet, counting
+   * each split leg separately — 4 cash entries and 5 card entries read as
+   * "Cash x4" and "Card x5", and the four totals add up to the grand total.
+   */
+  const summary = useMemo(() => {
+    const blank = () => ({ count: 0, total: 0 });
+    const acc: Record<BookNoteErpPaymentMethod, { count: number; total: number }> = {
+      Cash: blank(),
+      Card: blank(),
+      KOKO: blank(),
+      "Bank Transfer": blank(),
+    };
+    for (const r of rows) {
       if (r.splitMode) {
         for (const sl of splitLinesToPayload(r.splitLines)) {
-          switch (sl.paymentMethod) {
-            case "Cash":
-              acc.cash += sl.amount;
-              break;
-            case "Card":
-              acc.card += sl.amount;
-              break;
-            case "KOKO":
-              acc.koko += sl.amount;
-              break;
-            case "Bank Transfer":
-              acc.bank += sl.amount;
-              break;
-            default:
-              break;
-          }
+          const bucket = acc[sl.paymentMethod];
+          if (!bucket) continue;
+          bucket.count += 1;
+          bucket.total += sl.amount;
         }
-      } else {
-        acc.cash += toNum(r.cash);
-        acc.card += toNum(r.card);
-        acc.koko += toNum(r.koko);
-        acc.bank += toNum(r.bankTransfer);
+        continue;
       }
-      return acc;
-    },
-    { cash: 0, card: 0, koko: 0, bank: 0 },
-  );
-  const grand = totals.cash + totals.card + totals.koko + totals.bank;
+      const legs: [BookNoteErpPaymentMethod, number][] = [
+        ["Cash", toNum(r.cash)],
+        ["Card", toNum(r.card)],
+        ["KOKO", toNum(r.koko)],
+        ["Bank Transfer", toNum(r.bankTransfer)],
+      ];
+      for (const [method, amount] of legs) {
+        if (amount <= 0) continue;
+        acc[method].count += 1;
+        acc[method].total += amount;
+      }
+    }
+    const methods = BOOK_NOTE_ERP_PAYMENT_METHODS.map((method) => ({
+      method,
+      count: acc[method].count,
+      total: Math.round(acc[method].total * 100) / 100,
+    }));
+    const grandTotal = methods.reduce((sum, m) => sum + m.total, 0);
+    const entryCount = methods.reduce((sum, m) => sum + m.count, 0);
+    return {
+      methods,
+      entryCount,
+      grandTotal: Math.round(grandTotal * 100) / 100,
+    };
+  }, [rows]);
+
+  const totals = {
+    cash: summary.methods[0]!.total,
+    card: summary.methods[1]!.total,
+    koko: summary.methods[2]!.total,
+    bank: summary.methods[3]!.total,
+  };
+  const grand = summary.grandTotal;
 
   return (
     <div className="space-y-6 p-4 md:p-6">
@@ -862,13 +1033,7 @@ export function BookNotesPanel({
           <Select
             value={companyLocationId}
             disabled={isBusy}
-            onValueChange={(id) => {
-              setCompanyLocationId(id);
-              setPostingDate(today);
-              setLocked(false);
-              clearError();
-              void loadDay(id, today);
-            }}
+            onValueChange={(id) => requestSheetChange(id, today)}
           >
             <SelectTrigger>
               <SelectValue placeholder="Select shop" />
@@ -894,10 +1059,7 @@ export function BookNotesPanel({
               onChange={(e) => {
                 const next = e.target.value;
                 if (!next || next > today) return;
-                setPostingDate(next);
-                setLocked(false);
-                clearError();
-                void loadDay(companyLocationId, next);
+                requestSheetChange(companyLocationId, next);
               }}
             />
           ) : (
@@ -920,12 +1082,7 @@ export function BookNotesPanel({
                 variant="outline"
                 size="sm"
                 disabled={isBusy}
-                onClick={() => {
-                  setPostingDate(today);
-                  setLocked(false);
-                  clearError();
-                  void loadDay(companyLocationId, today);
-                }}
+                onClick={() => requestSheetChange(companyLocationId, today)}
               >
                 Back to today
               </Button>
@@ -941,12 +1098,7 @@ export function BookNotesPanel({
                 variant="outline"
                 size="sm"
                 disabled={isBusy}
-                onClick={() => {
-                  setPostingDate(today);
-                  setLocked(false);
-                  clearError();
-                  void loadDay(companyLocationId, today);
-                }}
+                onClick={() => requestSheetChange(companyLocationId, today)}
               >
                 Back to today
               </Button>
@@ -986,7 +1138,38 @@ export function BookNotesPanel({
         </div>
       </div>
 
-      <div className="bg-card overflow-x-auto rounded-lg border">
+      {restrictedBy ? (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200">
+          <p className="font-medium">
+            {restrictedBy} already entered this shop&apos;s book note for{" "}
+            {postingDate}.
+          </p>
+          <p className="mt-1 text-xs">
+            You are not posted to this outlet, so the rows and photos are hidden
+            and the sheet is read-only — saving here would replace their entry.
+            Ask them or finance if you need a change.
+          </p>
+        </div>
+      ) : null}
+
+      <div className="bg-card rounded-lg border">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b px-3 py-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={isBusy || readOnly}
+            onClick={addRow}
+          >
+            <Plus className="h-4 w-4" />
+            Add row
+          </Button>
+          <span className="text-muted-foreground text-xs">
+            {rows.length} row{rows.length === 1 ? "" : "s"}
+            {isDirty ? " · unsaved changes" : ""}
+          </span>
+        </div>
+        <div className="overflow-x-auto">
         <table className="w-full min-w-[720px] text-sm">
           <thead>
             <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
@@ -1350,6 +1533,43 @@ export function BookNotesPanel({
             </tr>
           </tfoot>
         </table>
+        </div>
+      </div>
+
+      <div className="bg-card rounded-lg border p-4">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="text-sm font-semibold tracking-wide uppercase text-muted-foreground">
+            Payment summary
+          </h2>
+          <span className="text-muted-foreground text-xs">
+            {summary.entryCount} payment entr{summary.entryCount === 1 ? "y" : "ies"}{" "}
+            across {rows.length} invoice row{rows.length === 1 ? "" : "s"}
+          </span>
+        </div>
+        <dl className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          {summary.methods.map((m) => (
+            <div
+              key={m.method}
+              className="bg-muted/30 rounded-md border px-3 py-2"
+            >
+              <dt className="text-muted-foreground flex items-baseline justify-between gap-2 text-xs font-medium">
+                <span>{m.method}</span>
+                <span className="tabular-nums">x{m.count}</span>
+              </dt>
+              <dd className="mt-1 font-mono text-lg font-semibold tabular-nums">
+                {m.total.toFixed(2)}
+              </dd>
+            </div>
+          ))}
+          <div className="border-primary/40 bg-primary/5 rounded-md border px-3 py-2">
+            <dt className="text-xs font-semibold uppercase tracking-wide">
+              Grand total
+            </dt>
+            <dd className="mt-1 font-mono text-lg font-bold tabular-nums">
+              {summary.grandTotal.toFixed(2)}
+            </dd>
+          </div>
+        </dl>
       </div>
 
       <div className="bg-card space-y-3 rounded-lg border p-4">
@@ -1449,16 +1669,7 @@ export function BookNotesPanel({
         </p>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <Button
-          type="button"
-          variant="outline"
-          disabled={isBusy || readOnly}
-          onClick={addRow}
-        >
-          <Plus className="h-4 w-4" />
-          Add row
-        </Button>
+      <div className="flex flex-wrap items-center justify-end gap-3">
         <div className="flex max-w-full flex-1 flex-col items-end gap-2 sm:max-w-xl">
           {lastError ? (
             <div
@@ -1500,9 +1711,45 @@ export function BookNotesPanel({
       </div>
 
       <div className="bg-card rounded-lg border p-4">
-        <h2 className="mb-3 text-sm font-semibold tracking-wide uppercase text-muted-foreground">
-          Save history (your uploads)
-        </h2>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold tracking-wide uppercase text-muted-foreground">
+              Save history
+            </h2>
+            <p className="text-muted-foreground mt-1 text-xs">
+              Sheets you saved, plus sheets anyone saved for the outlet you are
+              posted to.
+            </p>
+          </div>
+          <div className="relative w-full sm:w-72">
+            <Search
+              className="text-muted-foreground pointer-events-none absolute top-1/2 left-2 h-4 w-4 -translate-y-1/2"
+              aria-hidden
+            />
+            <Input
+              value={historyQuery}
+              placeholder="Search shop, date or invoice no…"
+              aria-label="Search book note history"
+              className="pl-8"
+              onChange={(e) => searchHistory(e.target.value)}
+            />
+            {historySearching ? (
+              <Loader2
+                className="text-muted-foreground absolute top-1/2 right-2 h-4 w-4 -translate-y-1/2 animate-spin"
+                aria-hidden
+              />
+            ) : historyQuery ? (
+              <button
+                type="button"
+                aria-label="Clear search"
+                className="text-muted-foreground hover:text-foreground absolute top-1/2 right-2 -translate-y-1/2"
+                onClick={() => searchHistory("")}
+              >
+                <X className="h-4 w-4" />
+              </button>
+            ) : null}
+          </div>
+        </div>
         {locations.length === 0 ? (
           <p className="text-muted-foreground text-sm">
             No shop assigned to your account. Ask an admin to set your employee
@@ -1510,7 +1757,9 @@ export function BookNotesPanel({
           </p>
         ) : history.length === 0 ? (
           <p className="text-muted-foreground text-sm">
-            No saved book notes of yours yet.
+            {historyQuery.trim()
+              ? `No saved book notes match "${historyQuery.trim()}".`
+              : "No saved book notes yet."}
           </p>
         ) : (
           <div className="overflow-x-auto">
@@ -1519,6 +1768,7 @@ export function BookNotesPanel({
                 <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
                   <th className="p-2">Shop</th>
                   <th className="p-2">Date</th>
+                  <th className="p-2">Entered by</th>
                   <th className="p-2 text-right">Rows</th>
                   <th className="p-2 text-right">Total</th>
                   <th className="p-2">Status</th>
@@ -1544,6 +1794,13 @@ export function BookNotesPanel({
                     >
                       <td className="p-2 font-medium">{item.shopName}</td>
                       <td className="p-2 font-mono">{item.posting_date}</td>
+                      <td className="p-2 text-xs">
+                        {item.isOwn ? (
+                          <span className="text-muted-foreground">You</span>
+                        ) : (
+                          (item.enteredBy ?? "—")
+                        )}
+                      </td>
                       <td className="p-2 text-right font-mono">{item.rowCount}</td>
                       <td className="p-2 text-right font-mono">
                         {item.grandTotal.toFixed(2)}
@@ -1588,6 +1845,70 @@ export function BookNotesPanel({
           </div>
         )}
       </div>
+
+      <AlertDialog
+        open={pendingTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingTarget(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Entered data will not be saved</AlertDialogTitle>
+            <AlertDialogDescription>
+              This book note has {rows.length} row
+              {rows.length === 1 ? "" : "s"} that were never saved. Opening{" "}
+              {pendingTarget?.shopLabel} ({pendingTarget?.postingDate}) reloads
+              the sheet and discards them. Cancel and press Send to ERP first if
+              you want to keep this entry.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Stay on this sheet</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                const target = pendingTarget;
+                setPendingTarget(null);
+                if (target) {
+                  applySheetChange(target.companyLocationId, target.postingDate);
+                }
+              }}
+            >
+              Discard and switch
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={pendingRowCount !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingRowCount(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Replace all rows?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Create rows clears the sheet and lays down {pendingRowCount ?? 0}{" "}
+              blank row{pendingRowCount === 1 ? "" : "s"}. Everything you have
+              typed will be lost. Use Add row instead to keep what is entered.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep my rows</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                const n = pendingRowCount;
+                setPendingRowCount(null);
+                if (n !== null) applyCreateRows(n);
+              }}
+            >
+              Replace rows
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

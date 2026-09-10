@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 
 import {
   assertBookNoteShopAllowed,
+  canViewBookNoteDay,
   resolveBookNoteShopAccess,
+  resolveBookNoteViewScope,
   resolveBookNoteWriteAccess,
 } from "@/lib/book-notes/access";
 import { isBookNoteWritable, DAY_LOCKED_CODE, bookNoteLockMessage } from "@/lib/book-notes/lock";
@@ -11,6 +13,7 @@ import {
   ensureBookNoteDay,
 } from "@/lib/book-notes/receipts";
 import { loadBookNoteDayDto } from "@/lib/book-notes/load";
+import { postingDateToUtcMidnight } from "@/lib/book-notes/serialize";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
@@ -97,6 +100,44 @@ export async function POST(request: NextRequest) {
   });
   if (!location) {
     return NextResponse.json({ error: "Shop not found" }, { status: 404 });
+  }
+
+  // Photos belong to the whole day — do not let a merchant attach slips to a
+  // sheet another outlet's merchant entered and this user cannot see.
+  const existingDay = await prisma.bookNoteDay.findUnique({
+    where: {
+      companyLocationId_postingDate: {
+        companyLocationId,
+        postingDate: postingDateToUtcMidnight(postingDate),
+      },
+    },
+    select: {
+      companyId: true,
+      companyLocationId: true,
+      createdByUserId: true,
+      updatedByUserId: true,
+    },
+  });
+  if (existingDay && existingDay.companyId === companyId) {
+    const viewScope = await resolveBookNoteViewScope(auth.context!, companyId);
+    const allowed = canViewBookNoteDay({
+      viewScope,
+      userId,
+      day: {
+        companyLocationId: existingDay.companyLocationId,
+        createdByUserId: existingDay.createdByUserId,
+        updatedByUserId: existingDay.updatedByUserId,
+      },
+    });
+    if (!allowed) {
+      return NextResponse.json(
+        {
+          error: `Another merchant already entered this shop's book note for ${postingDate}. Ask them or finance to add the photo.`,
+          code: "DAY_NOT_YOURS",
+        },
+        { status: 403 },
+      );
+    }
   }
 
   try {
