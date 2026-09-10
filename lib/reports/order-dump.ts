@@ -12,6 +12,15 @@ function formatSourceName(sourceName: string): string {
   }
 }
 
+function isPosSaleSource(sourceName: string): boolean {
+  const normalized = sourceName.toLowerCase();
+  return normalized === "pos" || normalized === "erpnext-pos";
+}
+
+function isReturnedToStoreStage(fulfillmentStage: string | null): boolean {
+  return fulfillmentStage?.toLowerCase() === "returned_to_store";
+}
+
 function formatIsoTime(value: Date | null | undefined) {
   return formatAppIsoTime(value, "");
 }
@@ -46,6 +55,32 @@ function summarizePaymentGateway(value: string) {
   return trimmed;
 }
 
+function resolveCompletionStatus(input: {
+  sourceName: string;
+  financialStatus: string | null;
+  fulfillmentStage: string | null;
+  deliveryCompleteAt: Date | null;
+  invoiceCompleteAt: Date | null;
+}) {
+  if (input.financialStatus?.toLowerCase() === "voided") return "voided";
+  if (isReturnedToStoreStage(input.fulfillmentStage)) return "Returned to Store";
+  if (isPosSaleSource(input.sourceName)) return "Completed";
+  if (input.deliveryCompleteAt && input.invoiceCompleteAt) return "Completed";
+  if (input.deliveryCompleteAt) return "Delivery Completed";
+  if (input.invoiceCompleteAt) return "Invoice Completed";
+  return null;
+}
+
+function resolveExportFulfillmentStatus(input: {
+  financialStatus: string | null;
+  fulfillmentStage: string | null;
+  fulfillmentStatus: string | null;
+}) {
+  if (input.financialStatus?.toLowerCase() === "voided") return "voided";
+  if (isReturnedToStoreStage(input.fulfillmentStage)) return "Returned to Store";
+  return input.fulfillmentStatus ?? "";
+}
+
 function resolveInvoiceStatus(input: {
   sourceName: string;
   financialStatus: string | null;
@@ -59,13 +94,8 @@ function resolveInvoiceStatus(input: {
   deliveryCompleteAt: Date | null;
   invoiceCompleteAt: Date | null;
 }) {
-  if (input.financialStatus?.toLowerCase() === "voided") return "voided";
-  if (input.sourceName.toLowerCase() === "pos" || input.sourceName.toLowerCase() === "erpnext-pos") {
-    return "Completed";
-  }
-  if (input.deliveryCompleteAt && input.invoiceCompleteAt) return "Completed";
-  if (input.deliveryCompleteAt) return "Delivery Completed";
-  if (input.invoiceCompleteAt) return "Invoice Completed";
+  const completionStatus = resolveCompletionStatus(input);
+  if (completionStatus) return completionStatus;
   return getOrderListFulfillmentStageBadges({
     fulfillmentStage: input.fulfillmentStage,
     totalPrice: input.grandTotal,
@@ -149,6 +179,9 @@ export type OrderInvoiceItemCsvRow = {
   koko_ref_number: string;
   merchant_name: string;
   created_by: string;
+  delivered_by: string;
+  delivery_completed_date: string;
+  pos_sale: string;
 };
 
 const ORDER_INVOICE_HEADERS = [
@@ -223,6 +256,9 @@ const ORDER_INVOICE_ITEM_HEADERS = [
   "koko_ref_number",
   "merchant_name",
   "created_by",
+  "delivered_by",
+  "delivery_completed_date",
+  "pos_sale",
 ] as const;
 
 export function getOrderInvoiceCsvHeaders(omitCustomerPhone = false) {
@@ -344,7 +380,7 @@ export function createOrderInvoiceRow(input: {
     customer_email: input.customerEmail ?? "",
     billing_address: input.billingAddress,
     shipping_address: input.shippingAddress,
-    fulfillment_status: input.fulfillmentStatus ?? "",
+    fulfillment_status: resolveExportFulfillmentStatus(input),
     subtotal: input.subtotalPrice ?? "",
     discounts: input.discounts ?? "",
     shipping_total: input.shippingTotal ?? "",
@@ -373,7 +409,7 @@ export function createOrderInvoiceRow(input: {
     completed_date: formatIsoDate(input.invoiceCompleteAt),
     completed_time: formatIsoTime(input.invoiceCompleteAt),
     completed_by: input.invoiceCompleteBy,
-    pos_sale: sourceName === "ERPNext POS" ? "1" : "0",
+    pos_sale: isPosSaleSource(input.sourceName) ? "1" : "0",
     shipping_rule: input.shippingRule ?? "",
     created_by: input.createdBy,
   };
@@ -401,6 +437,9 @@ export function createOrderInvoiceItemRow(input: {
   lineTotal: string;
   fulfillmentStage: string | null;
   financialStatus: string | null;
+  deliveryCompleteAt: Date | null;
+  deliveryCompleteBy: string;
+  invoiceCompleteAt: Date | null;
   fulfillmentStatus: string | null;
   paymentGateway: string;
   merchantName: string;
@@ -428,12 +467,15 @@ export function createOrderInvoiceItemRow(input: {
     discounted_price: input.discountedPrice ?? "",
     after_discount_total: input.afterDiscountTotal ?? "",
     grand_total: input.afterDiscountTotal ?? input.lineTotal,
-    status: input.financialStatus?.toLowerCase() === "voided" ? "voided" : (input.fulfillmentStage ?? ""),
+    status: resolveCompletionStatus(input) ?? input.fulfillmentStage ?? "",
     payment_status: input.financialStatus ?? "",
-    fulfillment_status: input.fulfillmentStatus ?? "",
+    fulfillment_status: resolveExportFulfillmentStatus(input),
     payment_gateway: summarizePaymentGateway(input.paymentGateway),
     koko_ref_number: input.kokoRefNumber?.trim() ?? "",
     merchant_name: input.merchantName,
     created_by: input.createdBy,
+    delivered_by: input.deliveryCompleteBy,
+    delivery_completed_date: formatIsoDate(input.deliveryCompleteAt),
+    pos_sale: isPosSaleSource(input.sourceName) ? "1" : "0",
   };
 }

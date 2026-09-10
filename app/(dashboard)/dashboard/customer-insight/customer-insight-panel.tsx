@@ -1010,13 +1010,13 @@ export function CustomerInsightPanel({
     setBusyKey("allocation-summary-export");
     try {
       const params = new URLSearchParams();
+      params.set("report", "data-collection");
       const from = allocationDateFrom.trim() || todayIsoDate();
       const to = allocationDateTo.trim() || todayIsoDate();
       params.set("from", from);
       params.set("to", to);
-      const qs = params.toString();
       const res = await fetch(
-        `/api/admin/customer-insight/allocation-summary/export${qs ? `?${qs}` : ""}`,
+        `/api/admin/customer-insight/allocation-summary/export?${params.toString()}`,
         { credentials: "include" }
       );
       if (!res.ok) {
@@ -1028,10 +1028,10 @@ export function CustomerInsightPanel({
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = "insight-merchant-allocation-summary.csv";
+      a.download = "insight-merchant-data-collection.csv";
       a.click();
       URL.revokeObjectURL(url);
-      notify.success("Allocation summary downloaded.");
+      notify.success("Data collection downloaded.");
     } catch {
       notify.error("Export failed");
     } finally {
@@ -1072,6 +1072,7 @@ export function CustomerInsightPanel({
     setBusyKey("purchase-count-export");
     try {
       const params = buildPurchaseCountParams();
+      params.set("report", "purchase-performance");
       const res = await fetch(
         `/api/admin/customer-insight/allocation-summary/export?${params.toString()}`
       );
@@ -1084,7 +1085,7 @@ export function CustomerInsightPanel({
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = "insight-merchant-allocation-summary.csv";
+      a.download = "insight-merchant-purchase-performance.csv";
       a.click();
       URL.revokeObjectURL(url);
       notify.success("Purchase performance downloaded.");
