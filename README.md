@@ -58,7 +58,7 @@ Why this split matters:
 
 - the pooled Neon host works best for the app at runtime
 - the direct Neon host is more reliable for Prisma migrations and restore scripts
-- [`lib/prisma.ts`](/Users/chamigunawardane/Documents/Shopify/cosmo-os/lib/prisma.ts) automatically adds Neon-friendly pooled settings at runtime, including `pgbouncer=true`, `connect_timeout=15`, and removing `channel_binding=require` from pooled URLs
+- [`lib/prisma.ts`](/Users/chamigunawardane/Documents/Shopify/cosmo-os/lib/prisma.ts) automatically adds Neon-friendly pooled settings at runtime, including `pgbouncer=true`, `connect_timeout=15`, default `connection_limit=10` and `pool_timeout=20` when those query params are missing, and removing `channel_binding=require` from pooled URLs. Override with `PRISMA_CONNECTION_LIMIT` or by setting the params on `DATABASE_URL`. Do not point `DATABASE_URL` at the Neon compute host (no `-pooler`) — that is `DIRECT_URL` for migrations only.
 
 If you are moving data from Supabase into Neon, use [`scripts/migrate-supabase-to-neon.sh`](/Users/chamigunawardane/Documents/Shopify/cosmo-os/scripts/migrate-supabase-to-neon.sh). It already restores into `DIRECT_URL`.
 

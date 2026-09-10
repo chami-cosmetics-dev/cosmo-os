@@ -3,15 +3,16 @@ import type { Prisma } from "@prisma/client";
 import * as XLSX from "xlsx";
 
 import { supportsMerchantOrderReviews } from "@/lib/merchant-order-reviews";
-import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
+import {
+  buildReviewCouponToMerchantMap,
+  resolveReviewMerchant,
+} from "@/lib/merchant-review-attribution";
 import { prisma } from "@/lib/prisma";
 import { logReportDownload } from "@/lib/report-download-log";
 import { formatAddress, getCustomerName } from "@/lib/reports/csv";
 import { formatAppIsoDate } from "@/lib/format-datetime";
 import { requirePermission } from "@/lib/rbac";
 
-const DM_GENERAL_MERCHANT_ID = "__dm_general";
-const DM_GENERAL_MERCHANT_NAME = "DM General";
 const ORDER_DATE_OFFSET = "+05:30";
 const ORDER_DATE_TIME_ZONE = "Asia/Colombo";
 
@@ -100,55 +101,6 @@ function getOrderDateRange(searchParams: URLSearchParams) {
   };
 }
 
-function getUserDisplayName(user: {
-  knownName?: string | null;
-  name?: string | null;
-  email?: string | null;
-}) {
-  return user.knownName?.trim() || user.name?.trim() || user.email?.trim() || null;
-}
-
-function buildCouponToUserMap(
-  users: Array<{ id: string; knownName: string | null; name: string | null; email: string | null; couponCodes: string[] }>
-) {
-  const couponToUser = new Map<string, { id: string; name: string }>();
-  for (const user of users) {
-    const name = getUserDisplayName(user) ?? "Unknown";
-    for (const code of user.couponCodes) {
-      const normalized = code.trim().toLowerCase();
-      if (normalized && !couponToUser.has(normalized)) {
-        couponToUser.set(normalized, { id: user.id, name });
-      }
-    }
-  }
-  return couponToUser;
-}
-
-function resolveReviewMerchant(input: {
-  sourceName: string | null;
-  discountCodes: unknown;
-  rawPayload: unknown;
-  couponToUser: Map<string, { id: string; name: string }>;
-}) {
-  const merchantCouponCode = getMerchantCouponCode({
-    sourceName: input.sourceName,
-    discountCodes: input.discountCodes,
-    rawPayload: input.rawPayload,
-  });
-  const merchantCoupons = (merchantCouponCode ?? "")
-    .split(",")
-    .map((coupon) => coupon.trim().toLowerCase())
-    .filter(Boolean);
-
-  for (const code of merchantCoupons) {
-    const matchedUser = input.couponToUser.get(code);
-    if (matchedUser) {
-      return matchedUser;
-    }
-  }
-
-  return { id: DM_GENERAL_MERCHANT_ID, name: DM_GENERAL_MERCHANT_NAME };
-}
 
 function pickCustomerName(order: {
   customer?: { firstName: string | null; lastName: string | null } | null;
@@ -291,7 +243,15 @@ export async function GET(request: NextRequest) {
         shippingAddress: true,
         discountCodes: true,
         rawPayload: true,
-        assignedMerchant: { select: { id: true, name: true, email: true } },
+        assignedMerchant: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            knownName: true,
+            couponCodes: true,
+          },
+        },
         companyLocation: { select: { id: true, name: true } },
         customer: { select: { firstName: true, lastName: true } },
         lineItems: {
@@ -323,7 +283,7 @@ export async function GET(request: NextRequest) {
     }),
   ]);
 
-  const couponToUser = buildCouponToUserMap(usersWithCoupons);
+  const couponToMerchant = buildReviewCouponToMerchantMap(usersWithCoupons);
   const filteredOrders = orders
     .map((order) => ({
       order,
@@ -331,7 +291,9 @@ export async function GET(request: NextRequest) {
         sourceName: order.sourceName,
         discountCodes: order.discountCodes,
         rawPayload: order.rawPayload,
-        couponToUser,
+        assignedMerchantId: order.assignedMerchant?.id ?? null,
+        assignedMerchant: order.assignedMerchant,
+        couponToMerchant,
       }),
     }))
     .filter((item) => {

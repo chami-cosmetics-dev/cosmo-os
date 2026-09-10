@@ -8,6 +8,7 @@ type FulfillmentLookupsPayload = {
   packageHoldReasons: Array<{ id: string; name: string }>;
   courierServices: Array<{ id: string; name: string }>;
   riders: Array<{ id: string; name: string | null; mobile: string | null }>;
+  citypakAccounts: Array<{ id: string; label: string; invoicePrefix: string; accountId: string }>;
 };
 
 const LOOKUPS_TTL_MS = 30_000;
@@ -43,11 +44,11 @@ export async function GET() {
   }
 
   const cached = lookupsCache.get(companyId);
-  if (cached && cached.expiresAt > Date.now()) {
+  if (cached && cached.expiresAt > Date.now() && cached.payload.citypakAccounts) {
     return NextResponse.json(cached.payload);
   }
 
-  const [samplesFreeIssues, packageHoldReasons, courierServices, riders] =
+  const [samplesFreeIssues, packageHoldReasons, courierServices, riders, citypakAccounts] =
     await Promise.all([
       prisma.sampleFreeIssueItem.findMany({
         where: { companyId },
@@ -72,6 +73,11 @@ export async function GET() {
         orderBy: { name: "asc" },
         select: { id: true, name: true, mobile: true },
       }),
+      prisma.citypakAccount.findMany({
+        where: { companyId },
+        orderBy: { invoicePrefix: "asc" },
+        select: { id: true, label: true, invoicePrefix: true, accountId: true },
+      }),
     ]);
 
   const payload: FulfillmentLookupsPayload = {
@@ -79,6 +85,7 @@ export async function GET() {
     packageHoldReasons,
     courierServices,
     riders,
+    citypakAccounts,
   };
   lookupsCache.set(companyId, {
     expiresAt: Date.now() + LOOKUPS_TTL_MS,

@@ -85,6 +85,18 @@ const DEFAULT_PERMISSIONS = [
     description: "Edit SKU reorder threshold % and purchasing tool settings",
   },
   {
+    key: "purchasing.item_trends.read",
+    description: "View Item Trends super dashboard (movement, outlets, ROP suggestions, districts)",
+  },
+  {
+    key: "purchasing.market_prices.read",
+    description: "View Market Price Compare dashboard and competitor price data",
+  },
+  {
+    key: "purchasing.market_prices.manage",
+    description: "Add/edit competitor product links and import competitor price spreadsheets",
+  },
+  {
     key: "store.allocation.read",
     description: "Use store location allocation advisor (SKU/barcode take-qty split)",
   },
@@ -500,6 +512,11 @@ const DEFAULT_PERMISSIONS = [
     description: "Enter and save daily merchant book notes for company locations",
   },
   {
+    key: "book_notes.admin",
+    description:
+      "Edit past book notes and upload entries for older dates (not future dates)",
+  },
+  {
     key: "book_notes.read",
     description: "Retrieve merchant book notes for any location (finance / intern)",
   },
@@ -539,6 +556,9 @@ const DEFAULT_ROLES = [
       "purchasing.osf.permission",
       "purchasing.tools.read",
       "purchasing.tools.manage",
+      "purchasing.item_trends.read",
+      "purchasing.market_prices.read",
+      "purchasing.market_prices.manage",
       "academy.learn",
       "academy.manage",
       "products.storage.read",
@@ -571,6 +591,7 @@ const DEFAULT_ROLES = [
       "merchant_reviews.read",
       "merchant_reviews.manage",
       "book_notes.manage",
+      "book_notes.admin",
       "book_notes.read",
       "finance.approvals.read",
       "finance.approvals.manage",
@@ -811,6 +832,8 @@ const PINNED_CUSTOM_ROLE_PERMISSIONS: { roleName: string; permissionKey: string 
   { roleName: "stores-level-02", permissionKey: "store.allocation.read" },
   { roleName: "stores-level-01", permissionKey: "store.stock_count.read" },
   { roleName: "stores-level-02", permissionKey: "store.stock_count.read" },
+  { roleName: "stores-level-01", permissionKey: "purchasing.item_trends.read" },
+  { roleName: "stores-level-02", permissionKey: "purchasing.item_trends.read" },
 ];
 
 let lastCustomRolePinAt = 0;

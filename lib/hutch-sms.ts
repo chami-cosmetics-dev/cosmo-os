@@ -1,3 +1,5 @@
+import type { SmsPortalConfig } from "@prisma/client";
+
 import { prisma } from "@/lib/prisma";
 
 // Cache auth tokens per company for the duration of the serverless function execution.
@@ -6,29 +8,112 @@ const tokenCache = new Map<string, { token: string; expiresAt: number }>();
 
 const MAX_SEND_ATTEMPTS = 3;
 
+/**
+ * How long to stop calling Hutch after a login 401.
+ *
+ * Hutch blocks the API user when it sees a flood of failed logins, so we must back off.
+ * But the pause has to lift on its own: it previously cleared only when someone re-saved
+ * SMS Portal settings, which left Cosmo silently dark for hours after Hutch had already
+ * restored the account (2026-09-09: account recovered 15:06, Cosmo stayed paused to 16:35).
+ */
+export const AUTH_COOLDOWN_MS = 15 * 60 * 1000;
+
+/**
+ * Serialises the probe that follows a lifted cooldown, per company, within this process.
+ * A bulk dispatch queues every message at once; without this each one would fire its own
+ * login the moment the cooldown expires — the exact burst that gets the account blocked.
+ * Cross-instance bursts still cost one probe per serverless instance, which is a handful
+ * rather than one per message.
+ */
+const recoveryChains = new Map<string, Promise<unknown>>();
+
+function runExclusive<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const previous = recoveryChains.get(key) ?? Promise.resolve();
+  const next = previous.then(fn, fn);
+  recoveryChains.set(
+    key,
+    next.then(
+      () => undefined,
+      () => undefined,
+    ),
+  );
+  return next;
+}
+
+/** Timestamp of the most recent real login 401 since the credentials were last saved. */
+async function lastAuth401At(companyId: string, since: Date): Promise<Date | null> {
+  const row = await prisma.smsLog.findFirst({
+    where: {
+      companyId,
+      status: "failed",
+      sentAt: { gte: since },
+      message: { contains: "Hutch login rejected (401" },
+    },
+    orderBy: { sentAt: "desc" },
+    select: { sentAt: true },
+  });
+  return row?.sentAt ?? null;
+}
+
+function authPaused(remainingMs: number): SendSmsResult {
+  const minutes = Math.max(1, Math.ceil(remainingMs / 60000));
+  return {
+    success: false,
+    message:
+      `SMS paused after Hutch login 401 — will retry automatically in ~${minutes} min. ` +
+      "If it stays paused, update the SMS Portal password and run Test SMS.",
+    retryable: false,
+  };
+}
+
+type HutchAuthResult =
+  | { ok: true; token: string }
+  | { ok: false; message: string; retryable: boolean };
+
 async function getHutchToken(config: {
   companyId: string;
   authUrl: string;
   username: string;
   password: string;
-}): Promise<string | null> {
+}): Promise<HutchAuthResult> {
   const cached = tokenCache.get(config.companyId);
-  if (cached && cached.expiresAt > Date.now()) return cached.token;
+  if (cached && cached.expiresAt > Date.now()) return { ok: true, token: cached.token };
 
   const authResponse = await fetch(config.authUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "*/*", "X-API-VERSION": "v1" },
     body: JSON.stringify({ username: config.username, password: config.password }),
   });
-  const authData = (await authResponse.json()) as { accessToken?: string };
-  if (!authData.accessToken) return null;
+
+  let authData: { accessToken?: string; error?: string; message?: string } = {};
+  try {
+    authData = (await authResponse.json()) as typeof authData;
+  } catch {
+    const retryable = authResponse.status >= 500 || authResponse.status === 429;
+    return {
+      ok: false,
+      message: `Hutch login rejected (${authResponse.status} non-JSON body)`,
+      retryable,
+    };
+  }
+
+  if (!authResponse.ok || !authData.accessToken) {
+    const detail =
+      authData.error ?? authData.message ?? (authResponse.statusText || "no access token");
+    console.error(`Hutch SMS login failed: ${authResponse.status} ${detail}`);
+    return {
+      ok: false,
+      message: `Hutch login rejected (${authResponse.status} ${detail})`,
+      retryable: authResponse.status >= 500 || authResponse.status === 429,
+    };
+  }
 
   // Cache for 4 minutes (tokens typically valid for 5+)
   tokenCache.set(config.companyId, {
     token: authData.accessToken,
     expiresAt: Date.now() + 4 * 60 * 1000,
   });
-  return authData.accessToken;
+  return { ok: true, token: authData.accessToken };
 }
 
 function formatPhoneNumber(tpNo: string): string {
@@ -56,35 +141,25 @@ function sleep(ms: number): Promise<void> {
 
 export type SendSmsResult =
   | { success: true }
-  | { success: false; message: string };
+  | { success: false; message: string; retryable?: boolean };
 
 async function sendSmsOnce(
+  config: SmsPortalConfig,
   companyId: string,
   phoneNumber: string,
   message: string,
   sentById?: string,
 ): Promise<SendSmsResult> {
-  const config = await prisma.smsPortalConfig.findUnique({
-    where: { companyId },
-  });
-
-  if (!config) {
-    return {
-      success: false,
-      message: "SMS portal not configured for this company",
-    };
-  }
-
   const formattedNumber = formatPhoneNumber(phoneNumber);
 
   try {
-    const accessToken = await getHutchToken(config);
+    const auth = await getHutchToken(config);
 
-    if (!accessToken) {
-      console.error("Hutch SMS: No access token in auth response");
+    if (!auth.ok) {
       tokenCache.delete(companyId);
-      return { success: false, message: "Failed to authenticate with SMS provider" };
+      return { success: false, message: auth.message, retryable: auth.retryable };
     }
+    const accessToken = auth.token;
 
     const smsResponse = await fetch(config.smsUrl, {
       method: "POST",
@@ -156,7 +231,8 @@ async function sendSmsOnce(
   }
 }
 
-export async function sendSms(
+async function sendWithRetries(
+  config: SmsPortalConfig,
   companyId: string,
   phoneNumber: string,
   message: string,
@@ -168,11 +244,14 @@ export async function sendSms(
   };
 
   for (let attempt = 1; attempt <= MAX_SEND_ATTEMPTS; attempt++) {
-    lastResult = await sendSmsOnce(companyId, phoneNumber, message, sentById);
+    lastResult = await sendSmsOnce(config, companyId, phoneNumber, message, sentById);
     if (lastResult.success) return lastResult;
 
-    // Don't retry permanent config errors
-    if (lastResult.message.includes("not configured")) {
+    // Don't retry permanent config / credential errors
+    if (
+      lastResult.message.includes("not configured") ||
+      lastResult.retryable === false
+    ) {
       break;
     }
 
@@ -200,4 +279,36 @@ export async function sendSms(
   }
 
   return lastResult;
+}
+
+export async function sendSms(
+  companyId: string,
+  phoneNumber: string,
+  message: string,
+  sentById?: string,
+): Promise<SendSmsResult> {
+  const config = await prisma.smsPortalConfig.findUnique({ where: { companyId } });
+  if (!config) {
+    return { success: false, message: "SMS portal not configured for this company" };
+  }
+
+  const last401 = await lastAuth401At(companyId, config.updatedAt);
+  if (!last401) {
+    return sendWithRetries(config, companyId, phoneNumber, message, sentById);
+  }
+
+  const remaining = AUTH_COOLDOWN_MS - (Date.now() - last401.getTime());
+  if (remaining > 0) return authPaused(remaining);
+
+  // Cooldown has lifted, so one send may probe Hutch. Anything queued behind the probe
+  // re-reads the gate first: the probe's own failure row is written before this resolves,
+  // so a still-broken account pauses the rest instead of each retrying its own login.
+  return runExclusive(companyId, async () => {
+    const fresh = await lastAuth401At(companyId, config.updatedAt);
+    if (fresh) {
+      const left = AUTH_COOLDOWN_MS - (Date.now() - fresh.getTime());
+      if (left > 0) return authPaused(left);
+    }
+    return sendWithRetries(config, companyId, phoneNumber, message, sentById);
+  });
 }

@@ -32,6 +32,8 @@ import {
   NotebookPen,
   UserSearch,
   FileSpreadsheet,
+  TrendingUp,
+  Scale,
 } from "lucide-react";
 import { usePathname } from "next/navigation";
 import {
@@ -94,7 +96,12 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
   const canViewPurchasingTools =
     hasSidebarPermission("purchasing.tools.read") ||
     hasSidebarPermission("purchasing.tools.manage");
-  const canViewPurchasing = canViewOsf || canViewPurchasingTools;
+  const canViewItemTrends = hasSidebarPermission("purchasing.item_trends.read");
+  const canViewMarketPrices =
+    hasSidebarPermission("purchasing.market_prices.read") ||
+    hasSidebarPermission("purchasing.market_prices.manage");
+  const canViewPurchasing =
+    canViewOsf || canViewPurchasingTools || canViewItemTrends || canViewMarketPrices;
   const canViewStoreAllocation = hasSidebarPermission("store.allocation.read");
   const canViewStoreStockCount = hasSidebarPermission("store.stock_count.read");
   const canViewStore = canViewStoreAllocation || canViewStoreStockCount;
@@ -135,6 +142,7 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
     hasSidebarPermission("outlets.read.assigned");
   const canViewMerchantReviews = hasSidebarPermission("merchant_reviews.read");
   const canManageBookNotes = hasSidebarPermission("book_notes.manage");
+  const canReadBookNotes = hasSidebarPermission("book_notes.read");
   const canViewCustomerInsight = hasSidebarPermission("contacts.insight.read");
   const fulfillmentLinks = [
     {
@@ -324,6 +332,14 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
                   icon={NotebookPen}
                   label="Book Notes"
                   isActive={pathname === "/dashboard/book-notes"}
+                />
+              )}
+              {canReadBookNotes && (
+                <NavItem
+                  href="/dashboard/book-notes/review"
+                  icon={Scale}
+                  label="Book Notes (Finance)"
+                  isActive={pathname === "/dashboard/book-notes/review"}
                 />
               )}
               {canViewReturns && (
@@ -553,6 +569,22 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
               )}
               {canViewPurchasingTools && (
                 <NavItem href="/dashboard/purchasing/calculator" icon={Calculator} label="SKU Calculator" isActive={pathname === "/dashboard/purchasing/calculator"} />
+              )}
+              {canViewItemTrends && (
+                <NavItem
+                  href="/dashboard/purchasing/item-trends"
+                  icon={TrendingUp}
+                  label="Item Trends"
+                  isActive={pathname === "/dashboard/purchasing/item-trends"}
+                />
+              )}
+              {canViewMarketPrices && (
+                <NavItem
+                  href="/dashboard/purchasing/market-prices"
+                  icon={Scale}
+                  label="Market Prices"
+                  isActive={pathname === "/dashboard/purchasing/market-prices"}
+                />
               )}
             </SidebarGroupContent>
           </SidebarGroup>

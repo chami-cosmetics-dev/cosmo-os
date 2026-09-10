@@ -8,6 +8,8 @@ import {
 import { hasInsightAdminView } from "@/lib/customer-insight/ownership";
 import { requirePermission } from "@/lib/rbac";
 
+export const dynamic = "force-dynamic";
+
 function parseDateRange(
   searchParams: URLSearchParams
 ): { from: Date; to: Date } | null {

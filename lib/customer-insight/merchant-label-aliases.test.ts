@@ -1,11 +1,19 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  canonicalizeAssignedMerchantLabels,
+  canonicalizeMerchantDisplayName,
   expandAssignedMerchantFilter,
   findAssignedMerchantAliasGroup,
   insightMerchantOptionLabel,
   insightMerchantOptionValue,
+  isDmGeneralAssignedMerchant,
+  merchantPreviewViewerFromSelection,
 } from "@/lib/customer-insight/merchant-label-aliases";
+import {
+  hasInsightAdminView,
+  insightVisibility,
+} from "@/lib/customer-insight/ownership";
 
 describe("assigned merchant aliases", () => {
   it("treats MER115 and DM - General as the same group", () => {
@@ -28,6 +36,63 @@ describe("assigned merchant aliases", () => {
     expect(expandAssignedMerchantFilter("STAFF SALES")).toEqual(["STAFF SALES"]);
   });
 
+  it("treats Semini, MER103 and Sanda/semini as the same merchant", () => {
+    expect(findAssignedMerchantAliasGroup("Semini")?.value).toBe("Sanda/semini");
+    expect(findAssignedMerchantAliasGroup("MER103")?.value).toBe("Sanda/semini");
+    expect(findAssignedMerchantAliasGroup("Sanda/semini")?.value).toBe(
+      "Sanda/semini"
+    );
+    expect(expandAssignedMerchantFilter("MER103")).toEqual(
+      expect.arrayContaining(["Sanda/semini", "Semini", "MER103"])
+    );
+  });
+
+  it("keeps the Semini merchant session owning Sanda/semini contacts", () => {
+    const semini = merchantPreviewViewerFromSelection({
+      selected: "MER103",
+      merchantUser: {
+        knownName: "Semini",
+        name: "Semini",
+        email: "semini@example.com",
+        couponCodes: ["MER103"],
+      },
+    });
+    expect(insightVisibility(semini, "Sanda/semini")).toBe("owner");
+    expect(insightVisibility(semini, "MER103")).toBe("owner");
+    expect(insightVisibility(semini, "Kaushallya")).toBe("limited");
+  });
+
+  it("collapses stored labels into a single allocation option", () => {
+    expect(
+      canonicalizeAssignedMerchantLabels([
+        "Semini",
+        "Sanda/semini",
+        "MER103",
+        "Kaushalya",
+        "Kaushallya",
+        "Zeenath",
+        "  ",
+        null,
+      ])
+    ).toEqual(["Sanda/semini", "Kaushallya", "Zeenath"]);
+  });
+
+  it("canonicalizes duplicate merchant display names", () => {
+    expect(canonicalizeMerchantDisplayName("Ms Kaushallya sewwandhi")).toBe(
+      "Kaushallya"
+    );
+    expect(canonicalizeMerchantDisplayName("Kaushalya")).toBe("Kaushallya");
+    expect(canonicalizeMerchantDisplayName("Rukshika Naduni")).toBe("Naduni");
+    expect(canonicalizeMerchantDisplayName("Semini")).toBe("Sanda/semini");
+  });
+
+  it("detects DM-General assigned merchant labels", () => {
+    expect(isDmGeneralAssignedMerchant("DM - General")).toBe(true);
+    expect(isDmGeneralAssignedMerchant("MER115")).toBe(true);
+    expect(isDmGeneralAssignedMerchant("DM-General")).toBe(true);
+    expect(isDmGeneralAssignedMerchant("Dinuli")).toBe(false);
+  });
+
   it("builds clear merchant option value/label from MER + knownName", () => {
     expect(
       insightMerchantOptionValue({
@@ -43,6 +108,32 @@ describe("assigned merchant aliases", () => {
         couponCodes: ["MER91-Sandali", "MER91"],
       })
     ).toBe("sandali (MER91)");
+  });
+
+  it("builds preview viewer without admin privileges", () => {
+    const fromUser = merchantPreviewViewerFromSelection({
+      selected: "MER91",
+      merchantUser: {
+        knownName: "sandali",
+        name: "Sadali Navodya",
+        email: "s@example.com",
+        couponCodes: ["MER91"],
+      },
+    });
+    expect(fromUser.roleNames).toEqual(["merchant"]);
+    expect(fromUser.permissionKeys).toEqual([]);
+    expect(fromUser.knownName).toBe("sandali");
+    expect(fromUser.couponCodes).toEqual(["MER91"]);
+
+    const fromBucket = merchantPreviewViewerFromSelection({
+      selected: "DM - General",
+      aliasLabels: ["DM - General", "MER115"],
+    });
+    expect(fromBucket.knownName).toBe("DM - General");
+    expect(fromBucket.roleNames).toEqual(["merchant"]);
+    expect(hasInsightAdminView(fromBucket)).toBe(false);
+    expect(insightVisibility(fromBucket, "DM - General")).toBe("owner");
+    expect(insightVisibility(fromBucket, "Other Merchant")).toBe("limited");
   });
 
   it("falls back to knownName when merchant has no MER", () => {

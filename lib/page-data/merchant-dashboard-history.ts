@@ -28,6 +28,13 @@ function parseDayEndUtc(ymd: string): Date {
   return new Date(`${ymd}T23:59:59.999+05:30`);
 }
 
+/** Previous calendar month (YYYY-MM). */
+export function previousYearMonth(yearMonth: string): string {
+  const [y, m] = yearMonth.split("-").map(Number);
+  const date = new Date(Date.UTC(y, m - 2, 1));
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
 /** Last N calendar months ending at `endYearMonth` (inclusive), oldest first. */
 export function listLastYearMonths(endYearMonth: string, count: number): string[] {
   const [y, m] = endYearMonth.split("-").map(Number);

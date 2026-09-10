@@ -1,5 +1,48 @@
 import { normalizeKokoReference } from "@/lib/koko-approval-reference";
 import { prisma } from "@/lib/prisma";
+import type { Prisma } from "@prisma/client";
+
+type KokoReferenceDb = Pick<
+  typeof prisma,
+  "approvalRequest" | "approvalKokoReference"
+>;
+
+const activeKokoOrderWhere = {
+  orderId: { not: null },
+  order: {
+    NOT: {
+      financialStatus: { equals: "voided", mode: "insensitive" as const },
+    },
+  },
+};
+
+/** Drop stored KOKO refs for an order so the same reference can be reused. */
+export async function releaseKokoReferencesForOrder(
+  orderId: string,
+  db: KokoReferenceDb = prisma,
+): Promise<void> {
+  const approvals = await db.approvalRequest.findMany({
+    where: { orderId },
+    select: { id: true },
+  });
+  if (approvals.length === 0) return;
+
+  const approvalIds = approvals.map((row) => row.id);
+  await db.approvalKokoReference.deleteMany({
+    where: { approvalRequestId: { in: approvalIds } },
+  });
+  await db.approvalRequest.updateMany({
+    where: { id: { in: approvalIds }, kokoReference: { not: null } },
+    data: { kokoReference: null },
+  });
+}
+
+export async function releaseKokoReferencesForOrderInTx(
+  orderId: string,
+  tx: Prisma.TransactionClient,
+): Promise<void> {
+  await releaseKokoReferencesForOrder(orderId, tx);
+}
 
 export async function findTakenKokoReferences(
   companyId: string,
@@ -12,9 +55,10 @@ export async function findTakenKokoReferences(
     where: {
       companyId,
       reference: { in: normalizedReferences },
-      ...(excludeApprovalId
-        ? { approvalRequestId: { not: excludeApprovalId } }
-        : {}),
+      approvalRequest: {
+        ...activeKokoOrderWhere,
+        ...(excludeApprovalId ? { id: { not: excludeApprovalId } } : {}),
+      },
     },
     select: { reference: true },
   });
@@ -23,6 +67,7 @@ export async function findTakenKokoReferences(
     where: {
       companyId,
       kokoReference: { in: normalizedReferences },
+      ...activeKokoOrderWhere,
       ...(excludeApprovalId ? { id: { not: excludeApprovalId } } : {}),
     },
     select: { kokoReference: true },

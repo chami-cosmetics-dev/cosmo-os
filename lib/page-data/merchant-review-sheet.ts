@@ -2,11 +2,13 @@ import type { Prisma } from "@prisma/client";
 
 import { maybeLogSlowDbRequest } from "@/lib/dbObservability";
 import { listMerchantOrderReviewsByOrderIds } from "@/lib/merchant-order-reviews";
-import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
+import {
+  buildReviewCouponToMerchantMap,
+  resolveReviewMerchant,
+  REVIEW_DM_GENERAL_MERCHANT_ID,
+  REVIEW_DM_GENERAL_MERCHANT_NAME,
+} from "@/lib/merchant-review-attribution";
 import { prisma } from "@/lib/prisma";
-
-const DM_GENERAL_MERCHANT_ID = "__dm_general";
-const DM_GENERAL_MERCHANT_NAME = "DM General";
 const ORDER_DATE_TIME_ZONE = "Asia/Colombo";
 
 export type MerchantReviewQueueItem = {
@@ -89,48 +91,6 @@ function getUserDisplayName(user: {
   email?: string | null;
 }) {
   return user.knownName?.trim() || user.name?.trim() || user.email?.trim() || null;
-}
-
-function buildCouponToUserMap(
-  users: Array<{ id: string; knownName: string | null; name: string | null; email: string | null; couponCodes: string[] }>
-) {
-  const couponToUser = new Map<string, { id: string; name: string }>();
-  for (const user of users) {
-    const name = getUserDisplayName(user) ?? "Unknown";
-    for (const code of user.couponCodes) {
-      const normalized = code.trim().toLowerCase();
-      if (normalized && !couponToUser.has(normalized)) {
-        couponToUser.set(normalized, { id: user.id, name });
-      }
-    }
-  }
-  return couponToUser;
-}
-
-function resolveReviewMerchant(input: {
-  sourceName: string | null;
-  discountCodes: unknown;
-  rawPayload: unknown;
-  couponToUser: Map<string, { id: string; name: string }>;
-}) {
-  const merchantCouponCode = getMerchantCouponCode({
-    sourceName: input.sourceName,
-    discountCodes: input.discountCodes,
-    rawPayload: input.rawPayload,
-  });
-  const merchantCoupons = (merchantCouponCode ?? "")
-    .split(",")
-    .map((coupon) => coupon.trim().toLowerCase())
-    .filter(Boolean);
-
-  for (const code of merchantCoupons) {
-    const matchedUser = input.couponToUser.get(code);
-    if (matchedUser) {
-      return matchedUser;
-    }
-  }
-
-  return { id: DM_GENERAL_MERCHANT_ID, name: DM_GENERAL_MERCHANT_NAME };
 }
 
 function formatDateInTimeZone(date: Date, timeZone: string) {
@@ -247,13 +207,21 @@ export async function fetchMerchantReviewSheetData(input: {
         sourceName: true,
         discountCodes: true,
         rawPayload: true,
-        assignedMerchant: { select: { id: true, name: true, email: true } },
+        assignedMerchant: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            knownName: true,
+            couponCodes: true,
+          },
+        },
         customer: { select: { firstName: true, lastName: true } },
       },
     }),
   ]);
 
-  const couponToUser = buildCouponToUserMap(usersWithCoupons);
+  const couponToMerchant = buildReviewCouponToMerchantMap(usersWithCoupons);
   const reviews = await listMerchantOrderReviewsByOrderIds(orders.map((order) => order.id));
   const returns = await listReturnedOrders(input);
 
@@ -263,7 +231,9 @@ export async function fetchMerchantReviewSheetData(input: {
       sourceName: order.sourceName,
       discountCodes: order.discountCodes,
       rawPayload: order.rawPayload,
-      couponToUser,
+      assignedMerchantId: order.assignedMerchant?.id ?? null,
+      assignedMerchant: order.assignedMerchant,
+      couponToMerchant,
     });
     return {
       orderId: order.id,
@@ -290,14 +260,14 @@ export async function fetchMerchantReviewSheetData(input: {
       name: getUserDisplayName(user) ?? "Unknown",
     });
   }
-  merchantOptionsById.set(DM_GENERAL_MERCHANT_ID, {
-    id: DM_GENERAL_MERCHANT_ID,
-    name: DM_GENERAL_MERCHANT_NAME,
+  merchantOptionsById.set(REVIEW_DM_GENERAL_MERCHANT_ID, {
+    id: REVIEW_DM_GENERAL_MERCHANT_ID,
+    name: REVIEW_DM_GENERAL_MERCHANT_NAME,
   });
 
   const merchantOptions = Array.from(merchantOptionsById.values()).sort((a, b) => {
-    if (a.id === DM_GENERAL_MERCHANT_ID) return 1;
-    if (b.id === DM_GENERAL_MERCHANT_ID) return -1;
+    if (a.id === REVIEW_DM_GENERAL_MERCHANT_ID) return 1;
+    if (b.id === REVIEW_DM_GENERAL_MERCHANT_ID) return -1;
     return a.name.localeCompare(b.name);
   });
   const defaultDateRange = getDefaultOrderDateRange();

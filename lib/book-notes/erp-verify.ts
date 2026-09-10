@@ -1,6 +1,11 @@
 import { getErpConfig } from "@/lib/erpnext-sync";
 import type { ErpnextInstance } from "@prisma/client";
 
+import {
+  buildBookNoteErpVerifyRow,
+  type BookNoteSplitLine,
+} from "@/lib/book-notes/split-lines";
+
 /** ERP Server Script API method for ss9_verify_book_note.py (override via env). */
 export function getBookNoteVerifyMethod(): string {
   return (
@@ -17,17 +22,21 @@ export type BookNoteErpVerifyRowInput = {
   card_last_4?: string | null;
   koko: number;
   bank_transfer: number;
+  /** When set, ERP receives split_lines instead of legacy columns. */
+  split_lines?: BookNoteSplitLine[] | null;
 };
 
 export type BookNoteErpVerifySummary = {
   verified_count: number;
   mismatch_count: number;
   not_found_count: number;
+  deleted_count?: number;
   total_rows: number;
 };
 
 export type BookNoteErpFailCode =
   | "ERP_CREDENTIALS_MISSING"
+  | "BOOK_NOTE_ID_MISSING"
   | "NO_ROWS"
   | "NETWORK"
   | "ERP_HTTP"
@@ -144,14 +153,17 @@ function classifyErpFailure(
 /**
  * Push merchant book-note rows to ERP ss9 verify Server Script.
  * Script expects form_dict:
+ *   - book_note_id (Cosmo BookNoteDay id — stable across resends/edits)
  *   - rows_json (required JSON string)
- *   - company (optional soft cross-check / fallback)
+ *   - company (shop / ERP company label)
  *   - posting_date (YYYY-MM-DD — stored on Book Note Entry)
  * Outlet on ERP is derived from the API user's full_name by the script
  * (not sent from Cosmo).
  */
 export async function sendBookNoteRowsToErp(input: {
   erpnextInstance: ErpnextInstance | null;
+  /** Stable Cosmo sheet id (BookNoteDay.id) — same on resend after HR edits. */
+  bookNoteId: string;
   company: string;
   /** Colombo sales date YYYY-MM-DD. */
   postingDate: string;
@@ -162,6 +174,22 @@ export async function sendBookNoteRowsToErp(input: {
   const base = cfg.baseUrl.replace(/\/$/, "");
   const erpUrl = base ? `${base}/api/method/${method}` : undefined;
   const postingDate = input.postingDate.trim();
+  const bookNoteId = input.bookNoteId.trim();
+
+  if (!bookNoteId) {
+    return {
+      ok: false,
+      method,
+      company: input.company,
+      postingDate,
+      erpUrl,
+      summary: null,
+      rows: [],
+      rawMessage: null,
+      code: "BOOK_NOTE_ID_MISSING",
+      error: "book_note_id is required — save the day in Cosmo before Send to ERP",
+    };
+  }
 
   if (!cfg.baseUrl || !cfg.apiKey || !cfg.apiSecret) {
     return {
@@ -195,18 +223,11 @@ export async function sendBookNoteRowsToErp(input: {
   }
 
   const rows_json = JSON.stringify(
-    input.rows.map((r) => ({
-      idx_no: r.idx_no,
-      sales_invoice: r.sales_invoice,
-      cash: r.cash,
-      card: r.card,
-      card_last_4: r.card_last_4 ?? null,
-      koko: r.koko,
-      bank_transfer: r.bank_transfer,
-    })),
+    input.rows.map((r) => buildBookNoteErpVerifyRow(r)),
   );
 
   const body = new URLSearchParams({
+    book_note_id: bookNoteId,
     rows_json,
     company: input.company,
     posting_date: postingDate,

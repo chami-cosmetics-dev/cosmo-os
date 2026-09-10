@@ -1,6 +1,10 @@
 import { Prisma } from "@prisma/client";
 
 import { ensureDefaultCallCenterCategories } from "@/lib/contact-call-center-categories-server";
+import {
+  canonicalizeAssignedMerchantLabels,
+  expandAssignedMerchantFilter,
+} from "@/lib/customer-insight/merchant-label-aliases";
 import { prisma } from "@/lib/prisma";
 
 const PREVIEW_LIMIT = 200;
@@ -132,7 +136,6 @@ export function buildContactAllocationWhereSql(
     ["category", Prisma.sql`c."category"`],
     ["customerType", Prisma.sql`c."customerType"`],
     ["recentMerchant", Prisma.sql`c."recentMerchant"`],
-    ["allocatedTo", Prisma.sql`c."assignedMerchant"`],
   ];
 
   for (const [filterKey, column] of equalsFilters) {
@@ -140,6 +143,17 @@ export function buildContactAllocationWhereSql(
     if (value) {
       conditions.push(Prisma.sql`${column} = ${value}`);
     }
+  }
+
+  // One merchant can have several stored labels (e.g. Sanda/semini = Semini = MER103).
+  const allocatedTo = clean(filters.allocatedTo);
+  if (allocatedTo) {
+    const aliases = expandAssignedMerchantFilter(allocatedTo).map((a) =>
+      a.toLowerCase()
+    );
+    conditions.push(
+      Prisma.sql`lower(c."assignedMerchant") IN (${Prisma.join(aliases)})`
+    );
   }
 
   const source = clean(filters.source);
@@ -233,9 +247,10 @@ async function fetchAssignedMerchantOptions(companyId: string) {
     ORDER BY c."assignedMerchant" ASC
     LIMIT 250
   `;
-  return rows
-    .map((row) => row.assignedMerchant)
-    .filter((value): value is string => Boolean(value?.trim()));
+  // Collapse legacy duplicates so one merchant is one option.
+  return canonicalizeAssignedMerchantLabels(
+    rows.map((row) => row.assignedMerchant)
+  ).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
 }
 
 async function fetchConfiguredAllocationOptions(companyId: string) {

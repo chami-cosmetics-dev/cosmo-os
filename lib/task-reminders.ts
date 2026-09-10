@@ -481,29 +481,38 @@ async function fetchReturnActionReminders(companyId: string, now: Date): Promise
 
 async function fetchErpSyncWarnings(companyId: string, userId: string, now: Date): Promise<TaskReminder[]> {
   const alerts = await prisma.$queryRaw<
-    Array<{ id: string; title: string; body: string | null; createdAt: Date }>
+    Array<{
+      id: string;
+      title: string;
+      body: string | null;
+      createdAt: Date;
+      entityId: string | null;
+    }>
   >(
     Prisma.sql`
-      SELECT "id", "title", "body", "createdAt"
+      SELECT "id", "title", "body", "createdAt", "entityId"
       FROM "Notification"
       WHERE "companyId" = ${companyId}
         AND "userId" = ${userId}
         AND "type" = 'erp_sync_failure'
         AND "readAt" IS NULL
       ORDER BY "createdAt" DESC
-      LIMIT 10
+      LIMIT 20
     `
   );
 
-  return alerts.map((alert) => ({
-    id: `erp_sync_warning:${alert.id}`,
-    category: "erp_sync_warning" as const,
-    title: alert.title,
-    body: alert.body ?? "ERP sync failed. Dismiss when reviewed.",
-    href: "/dashboard",
-    waitingHours: waitingHoursSince(alert.createdAt, now),
-    invoiceLabel: "ERP sync",
-  }));
+  return alerts.map((alert) => {
+    const invoiceLabel = alert.entityId?.trim() || "ERP sync";
+    return {
+      id: `erp_sync_warning:${alert.id}`,
+      category: "erp_sync_warning" as const,
+      title: alert.title,
+      body: alert.body ?? "ERP sync failed. Dismiss when reviewed.",
+      href: "/dashboard/orders",
+      waitingHours: waitingHoursSince(alert.createdAt, now),
+      invoiceLabel,
+    };
+  });
 }
 
 async function fetchDeliveryPendingReminders(

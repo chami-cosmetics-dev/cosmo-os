@@ -3,11 +3,14 @@ import { randomUUID } from "crypto";
 
 import { resolveSourcePrimaryOrderRef } from "@/lib/fulfillment-order-reference";
 import type {
+  CitypakApiWaybillBatchRow,
+  CitypakApiWaybillHistoryRow,
   WaybillLookupPageData,
   WaybillPendingRow,
   WaybillRematchSummary,
   WaybillUploadHistoryRow,
 } from "@/lib/page-data/waybill-lookup-types";
+import { CITYPAK_API_BATCH_FILE_TYPE, CITYPAK_WAYBILL_SOURCE } from "@/lib/citypak-api";
 import { prisma } from "@/lib/prisma";
 
 /** Default batch size for interactive rematch (button / optional rematch=1). */
@@ -256,7 +259,7 @@ export async function saveOrderWaybill(input: {
   courierName?: string | null;
   source?: string;
   uploadId?: string | null;
-  rawPayload?: Record<string, string> | null;
+  rawPayload?: Record<string, unknown> | null;
 }) {
   const now = new Date();
   const rawPayloadSql = input.rawPayload
@@ -313,9 +316,21 @@ export async function saveOrderWaybill(input: {
 
 export async function listWaybillUploads(
   companyId: string,
-  options?: { take?: number }
-): Promise<WaybillUploadHistoryRow[]> {
-  const take = Math.min(Math.max(options?.take ?? WAYBILL_UPLOAD_HISTORY_TAKE, 1), 100);
+  options?: { page?: number; limit?: number }
+): Promise<{ items: WaybillUploadHistoryRow[]; total: number }> {
+  const page = Math.max(options?.page ?? 1, 1);
+  const limit = Math.min(Math.max(options?.limit ?? WAYBILL_UPLOAD_HISTORY_TAKE, 1), 100);
+  const offset = (page - 1) * limit;
+
+  const countRows = await prisma.$queryRaw<Array<{ total: bigint | number }>>(
+    Prisma.sql`
+      SELECT COUNT(*)::bigint AS total
+      FROM "WaybillUpload" wu
+      WHERE wu."companyId" = ${companyId}
+        AND wu."fileType" <> ${CITYPAK_API_BATCH_FILE_TYPE}
+    `
+  );
+  const total = Number(countRows[0]?.total ?? 0);
 
   const rows = await prisma.$queryRaw<
     Array<{
@@ -350,12 +365,14 @@ export async function listWaybillUploads(
       FROM "WaybillUpload" wu
       LEFT JOIN "User" u ON u."id" = wu."uploadedById"
       WHERE wu."companyId" = ${companyId}
+        AND wu."fileType" <> ${CITYPAK_API_BATCH_FILE_TYPE}
       ORDER BY wu."createdAt" DESC
-      LIMIT ${take}
+      LIMIT ${limit}
+      OFFSET ${offset}
     `
   );
 
-  return rows.map((row) => ({
+  const items = rows.map((row) => ({
     id: row.id,
     fileName: row.fileName,
     fileType: row.fileType,
@@ -373,6 +390,8 @@ export async function listWaybillUploads(
         }
       : null,
   }));
+
+  return { items, total };
 }
 
 export async function listPendingWaybills(
@@ -571,10 +590,531 @@ export async function deleteWaybillUpload(input: {
   };
 }
 
+export async function createCitypakApiDispatchBatch(input: {
+  companyId: string;
+  uploadedById: string | null;
+  plannedTotal: number;
+}): Promise<string> {
+  const uploadId = randomUUID();
+  const now = new Date();
+  const stamp = now.toISOString().slice(0, 16).replace("T", " ");
+  const fileName = `CityPak API · ${stamp}`;
+  await prisma.$executeRaw(
+    Prisma.sql`
+      INSERT INTO "WaybillUpload" (
+        "id",
+        "companyId",
+        "uploadedById",
+        "fileName",
+        "fileType",
+        "totalRows",
+        "status",
+        "createdAt",
+        "updatedAt"
+      )
+      VALUES (
+        ${uploadId},
+        ${input.companyId},
+        ${input.uploadedById},
+        ${fileName},
+        ${CITYPAK_API_BATCH_FILE_TYPE},
+        ${Math.max(input.plannedTotal, 0)},
+        ${"processing"},
+        ${now},
+        ${now}
+      )
+    `
+  );
+  return uploadId;
+}
+
+export async function finalizeCitypakApiDispatchBatch(input: {
+  companyId: string;
+  uploadId: string;
+  booked: number;
+  falconFallback: number;
+  plannedTotal: number;
+  dispatchedByName?: string | null;
+}): Promise<void> {
+  if (input.booked <= 0) {
+    await prisma.$executeRaw(
+      Prisma.sql`
+        DELETE FROM "WaybillUpload"
+        WHERE "id" = ${input.uploadId}
+          AND "companyId" = ${input.companyId}
+          AND "fileType" = ${CITYPAK_API_BATCH_FILE_TYPE}
+      `
+    );
+    return;
+  }
+
+  const now = new Date();
+  const stamp = now.toISOString().slice(0, 16).replace("T", " ");
+  const byLabel = input.dispatchedByName?.trim()
+    ? ` · by ${input.dispatchedByName.trim()}`
+    : "";
+  const fileName = `CityPak API · ${stamp}${byLabel} · ${input.booked} booked`;
+  const summary = {
+    booked: input.booked,
+    falconFallback: input.falconFallback,
+    plannedTotal: input.plannedTotal,
+    dispatchedByName: input.dispatchedByName?.trim() || null,
+  };
+  await prisma.$executeRaw(
+    Prisma.sql`
+      UPDATE "WaybillUpload"
+      SET
+        "fileName" = ${fileName},
+        "totalRows" = ${input.plannedTotal},
+        "importedRows" = ${input.booked},
+        "invalidRows" = ${input.falconFallback},
+        "unmatchedRows" = 0,
+        "status" = ${"completed"},
+        "summary" = ${JSON.stringify(summary)}::jsonb,
+        "updatedAt" = ${now}
+      WHERE "id" = ${input.uploadId}
+        AND "companyId" = ${input.companyId}
+    `
+  );
+}
+
+/** Cached CityPak PDF URLs kept on OrderWaybill.rawPayload. */
+const CITYPAK_PDF_CACHE_KEYS = ["waybillPdfUrl", "waybillPdfUrlA4", "waybillPdfUrl4x6"];
+
+async function resolveCitypakWaybillIds(input: {
+  companyId: string;
+  waybillIds?: string[];
+  batchId?: string;
+  all?: boolean;
+}): Promise<string[]> {
+  if (input.waybillIds?.length) {
+    const rows = await prisma.orderWaybill.findMany({
+      where: {
+        companyId: input.companyId,
+        source: CITYPAK_WAYBILL_SOURCE,
+        id: { in: input.waybillIds },
+      },
+      select: { id: true },
+    });
+    return rows.map((row) => row.id);
+  }
+
+  if (!input.batchId && !input.all) return [];
+
+  const rows = await prisma.orderWaybill.findMany({
+    where: {
+      companyId: input.companyId,
+      source: CITYPAK_WAYBILL_SOURCE,
+      ...(input.batchId ? { uploadId: input.batchId } : {}),
+    },
+    select: { id: true },
+  });
+  return rows.map((row) => row.id);
+}
+
+/**
+ * Drop cached waybill PDFs so the next print pulls a fresh copy from CityPak.
+ * History rows and tracking numbers are kept.
+ */
+export async function clearCitypakWaybillPdfCache(input: {
+  companyId: string;
+  waybillIds?: string[];
+  batchId?: string;
+  all?: boolean;
+}): Promise<number> {
+  const ids = await resolveCitypakWaybillIds(input);
+  if (ids.length === 0) return 0;
+
+  const rows = await prisma.orderWaybill.findMany({
+    where: { id: { in: ids }, companyId: input.companyId },
+    select: { id: true, rawPayload: true },
+  });
+
+  let cleared = 0;
+  for (const row of rows) {
+    const payload = parseRawPayload(row.rawPayload);
+    if (!payload) continue;
+    const next = { ...payload };
+    let changed = false;
+    for (const key of CITYPAK_PDF_CACHE_KEYS) {
+      if (key in next) {
+        delete next[key];
+        changed = true;
+      }
+    }
+    if (!changed) continue;
+    await prisma.orderWaybill.update({
+      where: { id: row.id },
+      data: { rawPayload: next as Prisma.InputJsonValue },
+    });
+    cleared += 1;
+  }
+
+  return cleared;
+}
+
+/**
+ * Hide CityPak API waybills from history UI without deleting them.
+ * Orders stay API-booked (still excluded from Falcon Upload). Trace stays for date-range lookup.
+ */
+export async function archiveCitypakApiWaybills(input: {
+  companyId: string;
+  waybillIds?: string[];
+  batchId?: string;
+  all?: boolean;
+}): Promise<{ archivedWaybills: number; archivedBatches: number }> {
+  const ids = await resolveCitypakWaybillIds(input);
+  const nowIso = new Date().toISOString();
+  let archivedWaybills = 0;
+
+  if (ids.length > 0) {
+    const rows = await prisma.orderWaybill.findMany({
+      where: { id: { in: ids }, companyId: input.companyId },
+      select: { id: true, rawPayload: true },
+    });
+    for (const row of rows) {
+      const payload = parseRawPayload(row.rawPayload) ?? {};
+      if (payload.historyArchived === true) continue;
+      await prisma.orderWaybill.update({
+        where: { id: row.id },
+        data: {
+          rawPayload: {
+            ...payload,
+            historyArchived: true,
+            historyArchivedAt: nowIso,
+          } as Prisma.InputJsonValue,
+        },
+      });
+      archivedWaybills += 1;
+    }
+  }
+
+  let archivedBatches = 0;
+  if (input.batchId && !input.batchId.startsWith("legacy-")) {
+    archivedBatches = Number(
+      await prisma.$executeRaw(
+        Prisma.sql`
+          UPDATE "WaybillUpload"
+          SET "status" = ${"archived"}, "updatedAt" = ${new Date()}
+          WHERE "id" = ${input.batchId}
+            AND "companyId" = ${input.companyId}
+            AND "fileType" = ${CITYPAK_API_BATCH_FILE_TYPE}
+            AND "status" = ${"completed"}
+        `
+      )
+    );
+  } else if (input.all) {
+    archivedBatches = Number(
+      await prisma.$executeRaw(
+        Prisma.sql`
+          UPDATE "WaybillUpload"
+          SET "status" = ${"archived"}, "updatedAt" = ${new Date()}
+          WHERE "companyId" = ${input.companyId}
+            AND "fileType" = ${CITYPAK_API_BATCH_FILE_TYPE}
+            AND "status" = ${"completed"}
+        `
+      )
+    );
+  } else if (input.waybillIds?.length) {
+    // Archive empty completed batches after their waybills were hidden.
+    const emptyBatches = await prisma.$queryRaw<Array<{ id: string }>>(
+      Prisma.sql`
+        SELECT wu."id"
+        FROM "WaybillUpload" wu
+        WHERE wu."companyId" = ${input.companyId}
+          AND wu."fileType" = ${CITYPAK_API_BATCH_FILE_TYPE}
+          AND wu."status" = ${"completed"}
+          AND NOT EXISTS (
+            SELECT 1
+            FROM "OrderWaybill" ow
+            WHERE ow."uploadId" = wu."id"
+              AND COALESCE((ow."rawPayload"->>'historyArchived')::boolean, false) = false
+          )
+      `
+    );
+    if (emptyBatches.length > 0) {
+      archivedBatches = Number(
+        await prisma.$executeRaw(
+          Prisma.sql`
+            UPDATE "WaybillUpload"
+            SET "status" = ${"archived"}, "updatedAt" = ${new Date()}
+            WHERE "companyId" = ${input.companyId}
+              AND "fileType" = ${CITYPAK_API_BATCH_FILE_TYPE}
+              AND "id" IN (${Prisma.join(emptyBatches.map((row) => row.id))})
+          `
+        )
+      );
+    }
+  }
+
+  return { archivedWaybills, archivedBatches };
+}
+
+/** @deprecated Prefer archiveCitypakApiWaybills — hard delete removed so traces stay. */
+export async function deleteCitypakApiWaybills(input: {
+  companyId: string;
+  waybillIds?: string[];
+  batchId?: string;
+  all?: boolean;
+}): Promise<{ deletedWaybills: number; deletedBatches: number }> {
+  const result = await archiveCitypakApiWaybills(input);
+  return { deletedWaybills: result.archivedWaybills, deletedBatches: result.archivedBatches };
+}
+
+function mapCitypakApiWaybillRow(row: {
+  id: string;
+  waybillNo: string;
+  invoiceNumber: string;
+  courierName: string | null;
+  orderId: string | null;
+  rawPayload: Prisma.JsonValue | null;
+  createdAt: Date;
+  order: {
+    id: string;
+    name: string | null;
+    orderNumber: string | null;
+    shopifyOrderId: string | null;
+    erpnextInvoiceId: string | null;
+    sourceName: string | null;
+  } | null;
+}): CitypakApiWaybillHistoryRow {
+  const payload =
+    row.rawPayload && typeof row.rawPayload === "object" && !Array.isArray(row.rawPayload)
+      ? (row.rawPayload as Record<string, unknown>)
+      : null;
+  const manual = payload?.manual === true;
+  const orderLabel = row.order
+    ? resolveSourcePrimaryOrderRef({
+        id: row.order.id,
+        name: row.order.name,
+        orderNumber: row.order.orderNumber,
+        shopifyOrderId: row.order.shopifyOrderId,
+        erpnextInvoiceId: row.order.erpnextInvoiceId,
+        sourceName: row.order.sourceName,
+      })
+    : null;
+  return {
+    id: row.id,
+    waybillNo: row.waybillNo,
+    invoiceNumber: row.invoiceNumber,
+    courierName: row.courierName,
+    orderId: row.orderId,
+    orderLabel,
+    manual,
+    createdAt: toIso(row.createdAt) ?? new Date().toISOString(),
+  };
+}
+
+export async function listCitypakApiWaybillBatches(
+  companyId: string,
+  options?: {
+    take?: number;
+    from?: Date | null;
+    to?: Date | null;
+    includeArchived?: boolean;
+  }
+): Promise<CitypakApiWaybillBatchRow[]> {
+  const take = Math.min(Math.max(options?.take ?? 40, 1), 100);
+  const from = options?.from ?? null;
+  const to = options?.to ?? null;
+  const includeArchived = options?.includeArchived === true;
+  const statusFilter = includeArchived
+    ? Prisma.sql`AND wu."status" IN (${"completed"}, ${"archived"})`
+    : Prisma.sql`AND wu."status" = ${"completed"}`;
+  const dateFilter =
+    from && to
+      ? Prisma.sql`AND wu."createdAt" >= ${from} AND wu."createdAt" <= ${to}`
+      : from
+        ? Prisma.sql`AND wu."createdAt" >= ${from}`
+        : to
+          ? Prisma.sql`AND wu."createdAt" <= ${to}`
+          : Prisma.empty;
+
+  const batches = await prisma.$queryRaw<
+    Array<{
+      id: string;
+      fileName: string;
+      importedRows: number;
+      createdAt: Date;
+      summary: Prisma.JsonValue | null;
+      uploadedById: string | null;
+      uploadedByName: string | null;
+      uploadedByEmail: string | null;
+      status: string;
+    }>
+  >(
+    Prisma.sql`
+      SELECT
+        wu."id",
+        wu."fileName",
+        wu."importedRows",
+        wu."createdAt",
+        wu."summary",
+        wu."uploadedById",
+        wu."status",
+        u."name" AS "uploadedByName",
+        u."email" AS "uploadedByEmail"
+      FROM "WaybillUpload" wu
+      LEFT JOIN "User" u ON u."id" = wu."uploadedById"
+      WHERE wu."companyId" = ${companyId}
+        AND wu."fileType" = ${CITYPAK_API_BATCH_FILE_TYPE}
+        ${statusFilter}
+        ${dateFilter}
+      ORDER BY wu."createdAt" DESC
+      LIMIT ${take}
+    `
+  );
+
+  const batchIds = batches.map((batch) => batch.id);
+  const waybills =
+    batchIds.length === 0
+      ? []
+      : await prisma.orderWaybill.findMany({
+          where: {
+            companyId,
+            source: CITYPAK_WAYBILL_SOURCE,
+            uploadId: { in: batchIds },
+            ...(from || to
+              ? {
+                  createdAt: {
+                    ...(from ? { gte: from } : {}),
+                    ...(to ? { lte: to } : {}),
+                  },
+                }
+              : {}),
+          },
+          orderBy: { createdAt: "asc" },
+          select: {
+            id: true,
+            uploadId: true,
+            waybillNo: true,
+            invoiceNumber: true,
+            courierName: true,
+            orderId: true,
+            rawPayload: true,
+            createdAt: true,
+            order: {
+              select: {
+                id: true,
+                name: true,
+                orderNumber: true,
+                shopifyOrderId: true,
+                erpnextInvoiceId: true,
+                sourceName: true,
+              },
+            },
+          },
+        });
+
+  const byUpload = new Map<string, CitypakApiWaybillHistoryRow[]>();
+  for (const row of waybills) {
+    if (!row.uploadId) continue;
+    const payload = parseRawPayload(row.rawPayload);
+    if (!includeArchived && payload?.historyArchived === true) continue;
+    const mapped = mapCitypakApiWaybillRow(row);
+    const list = byUpload.get(row.uploadId) ?? [];
+    list.push(mapped);
+    byUpload.set(row.uploadId, list);
+  }
+
+  const result: CitypakApiWaybillBatchRow[] = batches.map((batch) => {
+    const batchWaybills = byUpload.get(batch.id) ?? [];
+    const summary =
+      batch.summary && typeof batch.summary === "object" && !Array.isArray(batch.summary)
+        ? (batch.summary as Record<string, unknown>)
+        : null;
+    const summaryName =
+      typeof summary?.dispatchedByName === "string" ? summary.dispatchedByName.trim() : "";
+    const name = batch.uploadedByName?.trim() || summaryName || null;
+    const email = batch.uploadedByEmail?.trim() || null;
+    return {
+      id: batch.id,
+      label: batch.status === "archived" ? `${batch.fileName} (cleared)` : batch.fileName,
+      bookedCount: batchWaybills.length || batch.importedRows,
+      createdAt: toIso(batch.createdAt) ?? new Date().toISOString(),
+      uploadedBy:
+        batch.uploadedById || name || email
+          ? {
+              id: batch.uploadedById ?? "",
+              name,
+              email,
+            }
+          : null,
+      waybills: batchWaybills,
+    };
+  });
+
+  // Older API waybills saved before batching — group by calendar day so history still usable.
+  const orphans = await prisma.orderWaybill.findMany({
+    where: {
+      companyId,
+      source: CITYPAK_WAYBILL_SOURCE,
+      uploadId: null,
+      ...(from || to
+        ? {
+            createdAt: {
+              ...(from ? { gte: from } : {}),
+              ...(to ? { lte: to } : {}),
+            },
+          }
+        : {}),
+    },
+    orderBy: { createdAt: "desc" },
+    take: 200,
+    select: {
+      id: true,
+      waybillNo: true,
+      invoiceNumber: true,
+      courierName: true,
+      orderId: true,
+      rawPayload: true,
+      createdAt: true,
+      order: {
+        select: {
+          id: true,
+          name: true,
+          orderNumber: true,
+          shopifyOrderId: true,
+          erpnextInvoiceId: true,
+          sourceName: true,
+        },
+      },
+    },
+  });
+
+  if (orphans.length > 0) {
+    const byDay = new Map<string, CitypakApiWaybillHistoryRow[]>();
+    for (const row of orphans) {
+      const payload = parseRawPayload(row.rawPayload);
+      if (!includeArchived && payload?.historyArchived === true) continue;
+      const day = (toIso(row.createdAt) ?? "").slice(0, 10) || "unknown";
+      const list = byDay.get(day) ?? [];
+      list.push(mapCitypakApiWaybillRow(row));
+      byDay.set(day, list);
+    }
+    for (const [day, dayWaybills] of byDay) {
+      if (dayWaybills.length === 0) continue;
+      result.push({
+        id: `legacy-${day}`,
+        label: `CityPak API · ${day} · ${dayWaybills.length} booked (before batch history)`,
+        bookedCount: dayWaybills.length,
+        createdAt: dayWaybills[0]?.createdAt ?? new Date().toISOString(),
+        uploadedBy: null,
+        waybills: dayWaybills,
+      });
+    }
+    result.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  return result.slice(0, take);
+}
+
 export async function getWaybillLookupPageData(input: {
   companyId: string;
   page: number;
   limit: number;
+  uploadsPage?: number;
+  uploadsLimit?: number;
   canImport: boolean;
   rematch?: boolean;
   rematchLimit?: number;
@@ -586,9 +1126,12 @@ export async function getWaybillLookupPageData(input: {
     });
   }
 
-  const [pendingResult, uploads] = await Promise.all([
+  const uploadsPage = Math.max(input.uploadsPage ?? 1, 1);
+  const uploadsLimit = input.uploadsLimit ?? 20;
+
+  const [pendingResult, uploadsResult] = await Promise.all([
     listPendingWaybills(input.companyId, { page: input.page, limit: input.limit }),
-    listWaybillUploads(input.companyId),
+    listWaybillUploads(input.companyId, { page: uploadsPage, limit: uploadsLimit }),
   ]);
 
   return {
@@ -598,7 +1141,12 @@ export async function getWaybillLookupPageData(input: {
       limit: input.limit,
       total: pendingResult.total,
     },
-    uploads,
+    uploads: uploadsResult.items,
+    uploadsPagination: {
+      page: uploadsPage,
+      limit: uploadsLimit,
+      total: uploadsResult.total,
+    },
     rematch: rematchSummary,
     canImport: input.canImport,
   };

@@ -76,6 +76,10 @@ export const LIMITS = {
   kokoCompanyLabel: { max: 100 },
   kokoCompanyName: { max: 200 },
   kokoCompanyPrefix: { max: 50 },
+  citypakAccountLabel: { max: 100 },
+  citypakAccountId: { max: 32 },
+  citypakApiToken: { min: 8, max: 200 },
+  citypakInvoicePrefix: { max: 20 },
   contactAllocationOptionValue: { max: 100 },
   /** Max order IDs accepted by merchant review bulk mark-follow-up */
   merchantReviewBulkMark: { maxOrderIds: 500 },
@@ -85,6 +89,7 @@ export const LIMITS = {
   bookNoteSalesInvoice: { min: 1, max: 120 },
   bookNoteIdxNo: { max: 32 },
   bookNoteRowsMax: 500,
+  bookNoteSplitLinesMax: 12,
   bookNoteRetrieveMaxDays: 31,
   /** Max receipt photos per book-note day. */
   bookNoteReceiptsMax: 12,
@@ -293,6 +298,29 @@ export const trimmedString = (min: number, max: number) =>
     .refine((s) => s.length >= min, `Minimum ${min} character(s)`)
     .refine((s) => s.length <= max, `Maximum ${max} character(s)`);
 
+/** Editable CityPak receiver fields sent with City Pack dispatch. */
+export const citypakShipmentOverrideSchema = z.object({
+  receiverName: trimmedString(1, 80),
+  receiverAddress1: trimmedString(1, 120),
+  receiverAddress2: z
+    .string()
+    .max(120)
+    .optional()
+    .transform((value) => (value ?? "").trim()),
+  receiverCity: trimmedString(1, 80),
+  receiverPhone: trimmedString(9, 20),
+  cashOnDeliveryAmount: z.coerce.number().min(0).max(1_000_000).optional(),
+});
+
+export const citypakBulkShipmentOverrideSchema = citypakShipmentOverrideSchema.extend({
+  orderId: cuidSchema,
+});
+
+export const citypakManualShipmentSchema = citypakShipmentOverrideSchema.extend({
+  reference: trimmedString(1, 64),
+  citypakAccountDbId: cuidSchema,
+});
+
 /** Required rejection reason for ORDER_PAYMENT_APPROVAL reject. */
 export const orderPaymentRejectionReasonSchema = trimmedString(
   LIMITS.orderPaymentRejectionReason.min,
@@ -388,6 +416,8 @@ export const abandonedOrderFollowUpPatchBodySchema = z.object({
 export const waybillLookupPageDataQuerySchema = z.object({
   page: pageSchema.optional().transform((v) => v ?? 1),
   limit: limitSchema.optional().transform((v) => v ?? 50),
+  uploadsPage: pageSchema.optional().transform((v) => v ?? 1),
+  uploadsLimit: limitSchema.optional().transform((v) => v ?? 20),
   rematch: z
     .string()
     .optional()
@@ -456,4 +486,97 @@ export const riderPaydayDayOfMonthSchema = z
 
 export const riderPaydayUpdateSchema = z.object({
   paydayDayOfMonth: riderPaydayDayOfMonthSchema,
+});
+
+const itemTrendsYmdSchema = z
+  .string()
+  .max(10)
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date format");
+
+export const itemTrendsQuerySchema = z.object({
+  from: itemTrendsYmdSchema,
+  to: itemTrendsYmdSchema,
+  compareFrom: itemTrendsYmdSchema.optional(),
+  compareTo: itemTrendsYmdSchema.optional(),
+  priority: z.string().max(64).optional(),
+  brand: z.string().max(120).optional(),
+  district: z.string().max(80).optional(),
+  sections: z.string().max(200).optional(),
+  limit: z.coerce.number().int().min(1).max(20000).optional(),
+});
+
+export const itemTrendsDistrictsQuerySchema = z.object({
+  from: itemTrendsYmdSchema,
+  to: itemTrendsYmdSchema,
+  compareFrom: itemTrendsYmdSchema.optional(),
+  compareTo: itemTrendsYmdSchema.optional(),
+  priority: z.string().max(64).optional(),
+  district: z.string().max(80).optional(),
+  sortBy: z.enum(["units", "amount", "speed"]).optional().default("units"),
+  includeAreaGrowth: z
+    .enum(["true", "false"])
+    .optional()
+    .transform((v) => v !== "false"),
+});
+
+export const itemTrendsOutletsQuerySchema = z
+  .object({
+    from: itemTrendsYmdSchema.optional(),
+    to: itemTrendsYmdSchema.optional(),
+    priority: z.string().max(64).optional(),
+    sku: z.string().max(80).optional(),
+    columnKey: z.string().max(64).optional(),
+    transfersOnly: z
+      .enum(["true", "false"])
+      .optional()
+      .transform((v) => v === "true"),
+    /** When omitted: true if sku set, else false (fast sales list). */
+    includeStock: z
+      .enum(["true", "false"])
+      .optional()
+      .transform((v) => (v === undefined ? undefined : v === "true")),
+    brand: z.string().max(120).optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (Boolean(data.from) !== Boolean(data.to)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "from and to must both be set",
+        path: data.from ? ["to"] : ["from"],
+      });
+    }
+  });
+
+export const itemTrendsRopQuerySchema = z.object({
+  ropWindow: z.enum(["3m", "2m", "custom"]).optional().default("3m"),
+  ropFrom: itemTrendsYmdSchema.optional(),
+  ropTo: itemTrendsYmdSchema.optional(),
+  from: itemTrendsYmdSchema.optional(),
+  to: itemTrendsYmdSchema.optional(),
+  priority: z.string().max(64).optional(),
+  brand: z.string().max(120).optional(),
+  sku: z.string().max(80).optional(),
+  offset: z.coerce.number().int().min(0).optional().default(0),
+  limit: z.coerce.number().int().min(1).max(20000).optional(),
+});
+
+export const itemTrendsCoverQuerySchema = z.object({
+  from: itemTrendsYmdSchema,
+  to: itemTrendsYmdSchema,
+  priority: z.string().max(64).optional(),
+  brand: z.string().max(120).optional(),
+  sku: z.string().max(80).optional(),
+  commonSkuKey: z.string().max(200).optional(),
+  snapshotDate: itemTrendsYmdSchema.optional(),
+  stockSource: z.enum(["live", "snapshot"]).optional().default("live"),
+  erpScope: z.enum(["both", "erp1", "erp2"]).optional().default("both"),
+  columnKeys: z.string().max(2000).optional(),
+  oosOnly: z
+    .enum(["true", "false"])
+    .optional()
+    .transform((v) => v === "true"),
+  sendOnly: z
+    .enum(["true", "false"])
+    .optional()
+    .transform((v) => v === "true"),
 });

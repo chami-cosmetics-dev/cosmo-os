@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { runDueFailedErpSyncRetries } from "@/lib/failed-erp-sync-auto-retry";
+import {
+  runDueFailedErpPeSyncRetries,
+  scheduleUnscheduledFailedErpPeSyncs,
+} from "@/lib/failed-erp-pe-sync";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -19,10 +23,14 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const result = await runDueFailedErpSyncRetries({ limit: 25 });
+  const siResult = await runDueFailedErpSyncRetries({ limit: 25 });
+  await scheduleUnscheduledFailedErpPeSyncs(undefined, 50);
+  const peResult = await runDueFailedErpPeSyncRetries({ limit: 25 });
 
   return NextResponse.json({
     ok: true,
-    ...result,
+    ...siResult,
+    salesInvoice: siResult,
+    paymentEntry: peResult,
   });
 }

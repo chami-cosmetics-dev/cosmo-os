@@ -80,4 +80,42 @@ describe("classifyFailedErpSyncError", () => {
     expect(result.type).toBe("Out of stock");
     expect(result.retryable).toBe(false);
   });
+
+  it("marks 502, fetch failed, and deadlock as retryable", () => {
+    expect(classifyFailedErpSyncError("ERPNext POST /api/resource/Payment Entry [502]: Bad Gateway")).toMatchObject({
+      type: "Transient network",
+      retryable: true,
+    });
+    expect(classifyFailedErpSyncError("fetch failed")).toMatchObject({
+      type: "Transient network",
+      retryable: true,
+    });
+    expect(
+      classifyFailedErpSyncError(
+        'ERPNext POST /api/resource/Payment Entry [500]: {"exception":"frappe.exceptions.QueryDeadlockError: (1213, \\"Deadlock found when trying to get lock; try restarting transaction\\")"}',
+      ),
+    ).toMatchObject({
+      type: "Transient network",
+      retryable: true,
+    });
+  });
+
+  it("marks finance-approval PE retries as non-retryable", () => {
+    expect(
+      classifyFailedErpSyncError(
+        "Split payment retry must be approved again from Finance Approvals so each payment method keeps its correct amount",
+      ),
+    ).toMatchObject({
+      type: "Pending approval",
+      retryable: false,
+    });
+    expect(
+      classifyFailedErpSyncError(
+        "Payment entry is awaiting finance approval. Invoice complete is set when finance approves.",
+      ),
+    ).toMatchObject({
+      type: "Pending approval",
+      retryable: false,
+    });
+  });
 });

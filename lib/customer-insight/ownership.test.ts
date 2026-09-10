@@ -48,6 +48,54 @@ describe("isAllocatedOwner", () => {
     ).toBe(false);
   });
 
+  it("matches historical Semini label to Sanda/semini merchant", () => {
+    expect(
+      isAllocatedOwner(
+        { knownName: "Sanda/semini", roleNames: ["merchant"] },
+        "Semini"
+      )
+    ).toBe(true);
+  });
+
+  it("matches Kaushallya aliases to the same merchant", () => {
+    expect(
+      isAllocatedOwner(
+        { knownName: "Kaushallya", roleNames: ["merchant"] },
+        "Ms Kaushallya sewwandhi"
+      )
+    ).toBe(true);
+    expect(
+      isAllocatedOwner(
+        { knownName: "Kaushallya", roleNames: ["merchant"] },
+        "Kaushalya"
+      )
+    ).toBe(true);
+  });
+
+  it("matches Naduni aliases to the same merchant", () => {
+    expect(
+      isAllocatedOwner(
+        { knownName: "Naduni", roleNames: ["merchant"] },
+        "Rukshika Naduni"
+      )
+    ).toBe(true);
+  });
+
+  it("does not grant DM-General contacts to unrelated merchants", () => {
+    expect(
+      isAllocatedOwner(
+        { knownName: "Dinuli", roleNames: ["merchant-level-01"] },
+        "DM - General"
+      )
+    ).toBe(false);
+    expect(
+      isAllocatedOwner(
+        { knownName: "Dinuli", roleNames: ["merchant-level-01"], couponCodes: ["MER56-Dinuli"] },
+        "MER115"
+      )
+    ).toBe(false);
+  });
+
   it("matches assignedMerchant to MER code from couponCodes", () => {
     expect(
       isAllocatedOwner(

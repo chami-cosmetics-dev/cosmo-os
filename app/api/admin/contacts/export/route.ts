@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { logReportDownload } from "@/lib/report-download-log";
 import {
-  buildPhoneLookupVariants,
-  canonicalPhoneForErpCustomerId,
-} from "@/lib/phone-lookup";
+  loadOrderPurchaseAggregates,
+  purchaseSummaryForPhone,
+} from "@/lib/contacts/purchase-summary-export";
+import { logReportDownload } from "@/lib/report-download-log";
 import { findContactsByPurchasedBrandRanked } from "@/lib/page-data/contact-brand-ids";
 import { buildContactsListWhere } from "@/lib/page-data/contacts";
 import {
@@ -39,12 +39,6 @@ type ContactExportRow = {
   updatedAt: Date;
 };
 
-type PurchaseSummary = {
-  orderCount: number;
-  totalSpent: number;
-  lastOrderAt: Date | null;
-};
-
 function parseStatus(value: string | null): ContactStatusFilter {
   if (value === "active" || value === "inactive" || value === "never_purchased") {
     return value;
@@ -57,126 +51,8 @@ function parseMode(value: string | null): ContactExportMode {
   return "contacts";
 }
 
-function normalizePhone(value: string | null | undefined) {
-  return value?.trim() || "";
-}
-
-function phoneMatchKeys(raw: string | null | undefined): string[] {
-  const phone = normalizePhone(raw);
-  if (!phone) return [];
-  const keys = new Set<string>();
-  const canonical = canonicalPhoneForErpCustomerId(phone);
-  if (canonical) keys.add(canonical);
-  for (const variant of buildPhoneLookupVariants(phone)) {
-    keys.add(variant);
-    const variantCanonical = canonicalPhoneForErpCustomerId(variant);
-    if (variantCanonical) keys.add(variantCanonical);
-  }
-  return [...keys];
-}
-
-/**
- * Match orders → contacts by phone without a huge SQL `IN (...)` of every contact variant.
- * Orders are small (~thousands); contacts are large (~tens of thousands).
- */
-async function buildPurchaseSummaryByContactId(
-  companyId: string,
-  contacts: Array<{ id: string; phoneNumber: string | null }>
-) {
-  const contactIdsByPhoneKey = new Map<string, Set<string>>();
-  for (const contact of contacts) {
-    for (const key of phoneMatchKeys(contact.phoneNumber)) {
-      const ids = contactIdsByPhoneKey.get(key) ?? new Set<string>();
-      ids.add(contact.id);
-      contactIdsByPhoneKey.set(key, ids);
-    }
-  }
-
-  if (contactIdsByPhoneKey.size === 0) {
-    return new Map<string, PurchaseSummary>();
-  }
-
-  const orders = await prisma.order.findMany({
-    where: {
-      companyId,
-      customerPhone: { not: null },
-    },
-    select: {
-      customerPhone: true,
-      totalPrice: true,
-      createdAt: true,
-    },
-  });
-
-  const summary = new Map<string, PurchaseSummary>();
-
-  for (const order of orders) {
-    const phone = normalizePhone(order.customerPhone);
-    if (!phone) continue;
-
-    const matchingContactIds = new Set<string>();
-    for (const key of phoneMatchKeys(phone)) {
-      const ids = contactIdsByPhoneKey.get(key);
-      if (!ids) continue;
-      for (const id of ids) matchingContactIds.add(id);
-    }
-    if (matchingContactIds.size !== 1) continue;
-
-    const [contactId] = matchingContactIds;
-    const current = summary.get(contactId) ?? {
-      orderCount: 0,
-      totalSpent: 0,
-      lastOrderAt: null,
-    };
-    current.orderCount += 1;
-    current.totalSpent += Number(order.totalPrice);
-    if (!current.lastOrderAt || order.createdAt > current.lastOrderAt) {
-      current.lastOrderAt = order.createdAt;
-    }
-    summary.set(contactId, current);
-  }
-
-  return summary;
-}
-
 function csvLine(headers: readonly string[], row: Record<string, CsvPrimitive>) {
   return headers.map((header) => escapeCsvCell(row[header])).join(",");
-}
-
-async function loadFilteredPhoneRows(
-  where: Awaited<ReturnType<typeof buildContactsListWhere>>,
-  brandOrderedIds: string[] | null
-) {
-  const phoneRows: Array<{ id: string; phoneNumber: string | null }> = [];
-
-  if (brandOrderedIds) {
-    for (let i = 0; i < brandOrderedIds.length; i += CONTACT_BATCH_SIZE) {
-      const idChunk = brandOrderedIds.slice(i, i + CONTACT_BATCH_SIZE);
-      const batch = await prisma.contactMaster.findMany({
-        where: { ...where, id: { in: idChunk } },
-        select: { id: true, phoneNumber: true },
-      });
-      phoneRows.push(...batch);
-    }
-    return phoneRows;
-  }
-
-  let cursor: string | undefined;
-  for (;;) {
-    const batch = await prisma.contactMaster.findMany({
-      where,
-      take: CONTACT_BATCH_SIZE,
-      ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
-      orderBy: { id: "asc" },
-      select: { id: true, phoneNumber: true },
-    });
-    if (batch.length === 0) break;
-    phoneRows.push(...batch);
-    cursor = batch[batch.length - 1]!.id;
-    if (batch.length < CONTACT_BATCH_SIZE) break;
-  }
-
-  return phoneRows;
 }
 
 async function* iterateExportContacts(
@@ -266,6 +142,9 @@ export async function GET(request: NextRequest) {
     { brandContactIds: brand ? brandRanks.map((r) => r.contactId) : undefined }
   );
 
+  const purchaseSummaryPromise =
+    mode === "purchase_summary" ? loadOrderPurchaseAggregates(companyId) : Promise.resolve(null);
+
   const expectedRows = await prisma.contactMaster.count({ where });
 
   const fileName =
@@ -327,11 +206,7 @@ export async function GET(request: NextRequest) {
           encoder.encode(`\uFEFF${headers.map(formatCsvHeader).join(",")}\r\n`)
         );
 
-        let purchaseSummary: Map<string, PurchaseSummary> | null = null;
-        if (mode === "purchase_summary") {
-          const phoneRows = await loadFilteredPhoneRows(where, brandOrderedIds);
-          purchaseSummary = await buildPurchaseSummaryByContactId(companyId, phoneRows);
-        }
+        const purchaseSummaryByPhone = await purchaseSummaryPromise;
 
         let contactNo = 0;
         for await (const batch of iterateExportContacts(where, brandOrderedIds)) {
@@ -341,7 +216,9 @@ export async function GET(request: NextRequest) {
           const lines: string[] = [];
           for (const contact of batch) {
             contactNo += 1;
-            const summary = purchaseSummary?.get(contact.id);
+            const summary = purchaseSummaryByPhone
+              ? purchaseSummaryForPhone(purchaseSummaryByPhone, contact.phoneNumber)
+              : undefined;
             const row: Record<string, CsvPrimitive> = {
               contact_no: contactNo,
               name: contact.name,

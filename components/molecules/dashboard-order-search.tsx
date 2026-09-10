@@ -65,7 +65,7 @@ export function DashboardOrderSearch() {
         <Input
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search orders by number, phone, or customer name"
+          placeholder="Search orders by number, KOKO ref, phone, or customer name"
           className="bg-background/90 pl-9"
           aria-label="Search orders"
         />

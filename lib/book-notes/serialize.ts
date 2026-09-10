@@ -1,4 +1,11 @@
-import { isBookNoteDayLocked } from "@/lib/book-notes/lock";
+import {
+  isBookNoteDayLocked,
+  type BookNoteWriteAccess,
+} from "@/lib/book-notes/lock";
+import {
+  aggregateSplitLines,
+  parseStoredSplitLines,
+} from "@/lib/book-notes/split-lines";
 import type {
   BookNoteDayDto,
   BookNoteReceiptDto,
@@ -48,24 +55,33 @@ export function serializeBookNoteRow(row: {
   cardReceiptRefLast4?: string | null;
   koko: unknown;
   bankTransfer: unknown;
+  splitLines?: unknown;
   orderId?: string | null;
 }): BookNoteRowDto {
-  const cash = money(row.cash);
-  const card = money(row.card);
-  const koko = money(row.koko);
-  const bank_transfer = money(row.bankTransfer);
-  const nonzero = [cash, card, koko, bank_transfer].filter((a) => a > 0).length;
-  const ref = row.cardReceiptRefLast4?.trim() ?? "";
+  const split_lines = parseStoredSplitLines(row.splitLines);
+  const fromSplit = split_lines ? aggregateSplitLines(split_lines) : null;
+  const cash = fromSplit ? fromSplit.cash : money(row.cash);
+  const card = fromSplit ? fromSplit.card : money(row.card);
+  const koko = fromSplit ? fromSplit.koko : money(row.koko);
+  const bank_transfer = fromSplit ? fromSplit.bankTransfer : money(row.bankTransfer);
+  const ref = fromSplit
+    ? fromSplit.cardReceiptRefLast4
+    : (row.cardReceiptRefLast4?.trim() ?? "");
+  const card_receipt_ref_last4 = ref && ref.length > 0 ? ref : null;
+  const nonzero = split_lines
+    ? split_lines.filter((sl) => sl.amount > 0).length
+    : [cash, card, koko, bank_transfer].filter((a) => a > 0).length;
   return {
     idx_no: row.idxNo,
     sales_invoice: row.salesInvoice,
     cash,
     card,
-    card_receipt_ref_last4: ref.length > 0 ? ref : null,
+    card_receipt_ref_last4,
     koko,
     bank_transfer,
     row_total: Math.round((cash + card + koko + bank_transfer) * 100) / 100,
     is_multi_method: nonzero > 1,
+    split_lines,
     orderId: row.orderId ?? null,
   };
 }
@@ -105,6 +121,7 @@ export function serializeBookNoteDay(input: {
     cardReceiptRefLast4?: string | null;
     koko: unknown;
     bankTransfer: unknown;
+    splitLines?: unknown;
     orderId?: string | null;
   }>;
   receipts?: Array<{
@@ -116,15 +133,17 @@ export function serializeBookNoteDay(input: {
     createdAt: Date | string;
   }>;
   now?: Date;
+  writeAccess?: BookNoteWriteAccess;
 }): BookNoteDayDto {
   const posting_date = postingDateYmd(input.postingDate);
+  const writeAccess = input.writeAccess ?? { canBackdate: false };
   return {
     id: input.id,
     companyLocationId: input.companyLocationId,
     company: companyLabelForLocation(input.location),
     locationName: input.location.name,
     posting_date,
-    locked: isBookNoteDayLocked(posting_date, input.now),
+    locked: isBookNoteDayLocked(posting_date, input.now, writeAccess),
     rows: input.rows.map(serializeBookNoteRow),
     receipts: (input.receipts ?? []).map(serializeBookNoteReceipt),
   };

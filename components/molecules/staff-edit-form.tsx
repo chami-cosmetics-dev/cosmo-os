@@ -40,6 +40,7 @@ type StaffMember = {
   knownName: string | null;
   shopifyUserIds?: string[];
   couponCodes?: string[];
+  wholesaleCouponCodes?: string[];
   financeLocationIds?: string[];
   outlets?: Outlet[];
   employeeProfile: {
@@ -112,6 +113,7 @@ export function StaffEditForm({
   const [appointmentDate, setAppointmentDate] = useState("");
   const [shopifyUserIds, setShopifyUserIds] = useState("");
   const [couponCodes, setCouponCodes] = useState("");
+  const [wholesaleCouponCodes, setWholesaleCouponCodes] = useState("");
   const [isRider, setIsRider] = useState(false);
   const [isShopMerchant, setIsShopMerchant] = useState(false);
   const [financeLocationIds, setFinanceLocationIds] = useState<string[]>([]);
@@ -212,6 +214,9 @@ export function StaffEditForm({
       setCouponCodes(
         (initialData as StaffMember).couponCodes?.join(", ") ?? ""
       );
+      setWholesaleCouponCodes(
+        (initialData as StaffMember).wholesaleCouponCodes?.join(", ") ?? ""
+      );
       setIsRider(initialData.employeeProfile?.isRider ?? false);
       setIsShopMerchant(initialData.employeeProfile?.isShopMerchant ?? false);
       setFinanceLocationIds(initialData.financeLocationIds ?? []);
@@ -250,6 +255,10 @@ export function StaffEditForm({
             .map((s) => s.trim())
             .filter(Boolean),
           couponCodes: couponCodes
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean),
+          wholesaleCouponCodes: wholesaleCouponCodes
             .split(",")
             .map((s) => s.trim())
             .filter(Boolean),
@@ -554,6 +563,22 @@ export function StaffEditForm({
         />
         <p className="text-muted-foreground text-xs">
           Comma-separated. Web orders with these Shopify discount or MER codes will be assigned to this user.
+        </p>
+      </div>
+      <div className="space-y-2">
+        <label htmlFor="staff-wholesaleCouponCodes" className="text-sm font-medium">
+          Wholesale MER codes
+        </label>
+        <Input
+          id="staff-wholesaleCouponCodes"
+          value={wholesaleCouponCodes}
+          onChange={(e) => setWholesaleCouponCodes(e.target.value)}
+          disabled={!canEdit || isBusy}
+          placeholder="e.g. WH56, WH99"
+        />
+        <p className="text-muted-foreground text-xs">
+          Comma-separated WH codes (e.g. WH56). Wholesale orders use these for merchant assignment,
+          ERP Wholesale customer group, and a separate wholesale sales target on the merchant dashboard.
         </p>
       </div>
 

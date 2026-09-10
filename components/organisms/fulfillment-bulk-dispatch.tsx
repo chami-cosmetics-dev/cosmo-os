@@ -5,8 +5,10 @@ import Link from "next/link";
 import { Check, ChevronsUpDown, Loader2, Truck, X } from "lucide-react";
 
 import { useFulfillmentPermissions } from "@/components/contexts/fulfillment-permissions-context";
+import { CitypakShipmentReviewDialog, type CitypakReviewConfirm, type CitypakReviewRow } from "@/components/molecules/citypak-shipment-review-dialog";
 import { FulfillmentOrderReference } from "@/components/molecules/fulfillment-order-reference";
 import { OrderShippingLine } from "@/components/molecules/order-shipping-line";
+import { PrintCitypakWaybillButton, PrintCitypakWaybillPackButton } from "@/components/molecules/print-citypak-waybill-button";
 import { Button } from "@/components/ui/button";
 import {
   Command,
@@ -30,11 +32,14 @@ import {
 import { notify } from "@/lib/notify";
 import { formatAppDate, formatAppDateTime } from "@/lib/format-datetime";
 import { isExplicitlyPackageReady } from "@/lib/fulfillment-stage-display";
+import { draftCitypakShipmentFields } from "@/lib/citypak-api";
+import { isCitypakCourier } from "@/lib/courier";
 
 type Lookups = {
   courierServices: Array<{ id: string; name: string }>;
   riders: Array<{ id: string; name: string | null; mobile: string | null }>;
   packageHoldReasons: Array<{ id: string; name: string }>;
+  citypakAccounts: Array<{ id: string; label: string; invoicePrefix: string; accountId: string }>;
 };
 
 type ReadyOrder = {
@@ -62,7 +67,18 @@ type ReadyOrder = {
   packageHoldReason?: { id: string; name: string } | null;
 };
 
-type DispatchResult = { orderId: string; ref: string; success: boolean; error?: string };
+type DispatchResult = {
+  orderId: string;
+  waybillId?: string | null;
+  ref: string;
+  success: boolean;
+  error?: string;
+  citypakStatus?: "skipped" | "booked" | "falcon" | "retry";
+  citypakError?: string;
+  citypakTracking?: string | null;
+  citypakAttempts?: number;
+  manual?: boolean;
+};
 
 type ShippingAddress = {
   name?: string | null;
@@ -78,11 +94,13 @@ type OrderDetail = {
   customerEmail: string | null;
   customerPhone: string | null;
   shippingAddress: ShippingAddress | null;
+  billingAddress?: unknown;
   createdAt: string;
   totalShipping: string | null;
   shippingRuleLabel?: string | null;
   currency?: string | null;
   totalPrice: string;
+  financialStatus?: string | null;
   discountCodes: Array<{ code: string }> | null;
   lineItems: Array<{
     id: string;
@@ -138,6 +156,10 @@ export function FulfillmentBulkDispatch({
   const [markingReadyId, setMarkingReadyId] = useState<string | null>(null);
   const [holdBusyId, setHoldBusyId] = useState<string | null>(null);
   const [holdReasonByOrderId, setHoldReasonByOrderId] = useState<Record<string, string>>({});
+  const [citypakReviewOpen, setCitypakReviewOpen] = useState(false);
+  const [citypakReviewRows, setCitypakReviewRows] = useState<CitypakReviewRow[]>([]);
+  const [citypakRetryBusy, setCitypakRetryBusy] = useState(false);
+  const [citypakReviewNonce, setCitypakReviewNonce] = useState(0);
 
   useEffect(() => {
     fetch("/api/admin/orders/fulfillment-lookups")
@@ -147,10 +169,11 @@ export function FulfillmentBulkDispatch({
           courierServices: data.courierServices ?? [],
           riders: data.riders ?? [],
           packageHoldReasons: data.packageHoldReasons ?? [],
+          citypakAccounts: data.citypakAccounts ?? [],
         })
       )
       .catch(() => {
-        setLookups({ courierServices: [], riders: [], packageHoldReasons: [] });
+        setLookups({ courierServices: [], riders: [], packageHoldReasons: [], citypakAccounts: [] });
       });
   }, []);
 
@@ -176,6 +199,11 @@ export function FulfillmentBulkDispatch({
   }, [comboSearch, returnFilter, refreshTrigger]);
 
   const selectedDispatch = parseDispatchService(dispatchService);
+  const selectedCourierName =
+    selectedDispatch?.type === "courier"
+      ? lookups?.courierServices.find((courier) => courier.id === selectedDispatch.id)?.name ?? null
+      : null;
+  const citypakSelected = isCitypakCourier(selectedCourierName);
 
   function orderLabel(order: ReadyOrder) {
     return formatFulfillmentOrderReferenceText(order);
@@ -211,6 +239,11 @@ export function FulfillmentBulkDispatch({
       return next;
     });
     setOrderDetails((prev) => { const next = { ...prev }; delete next[id]; return next; });
+    setCitypakReviewRows((prev) => {
+      const next = prev.filter((row) => row.orderId !== id);
+      if (next.length === 0) setCitypakReviewOpen(false);
+      return next;
+    });
     setResults(null);
   }
 
@@ -337,31 +370,114 @@ export function FulfillmentBulkDispatch({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- seed deep-link order once
   }, [initialOrderId]);
 
+  async function loadOrderDetailsMap() {
+    const next = { ...orderDetails };
+    await Promise.all(
+      selectedOrders.map(async (order) => {
+        if (next[order.id]) return;
+        const res = await fetch(`/api/admin/orders/${order.id}`);
+        if (!res.ok) return;
+        next[order.id] = (await res.json()) as OrderDetail;
+      })
+    );
+    setOrderDetails(next);
+    return next;
+  }
+
   async function handleDispatch() {
-    if (!selectedDispatch || selectedOrders.length === 0) return;
+    if (!selectedDispatch) return;
+    if (!citypakSelected && selectedOrders.length === 0) return;
+    if (citypakSelected) {
+      setDispatching(true);
+      try {
+        const details = selectedOrders.length > 0 ? await loadOrderDetailsMap() : orderDetails;
+        setCitypakReviewRows(
+          selectedOrders.map((order) => ({
+            orderId: order.id,
+            ref: orderLabel(order),
+            draft: draftCitypakShipmentFields({
+              shippingAddress: details[order.id]?.shippingAddress ?? order.shippingAddress,
+              billingAddress: details[order.id]?.billingAddress,
+              customerPhone: order.customerPhone ?? details[order.id]?.customerPhone,
+              financialStatus: order.financialStatus ?? details[order.id]?.financialStatus,
+              paymentGatewayPrimary: order.paymentGatewayPrimary,
+              paymentGatewayNames: order.paymentGatewayNames,
+              totalPrice: order.totalPrice,
+            }),
+          }))
+        );
+        setCitypakReviewOpen(true);
+        setCitypakReviewNonce(Date.now());
+      } finally {
+        setDispatching(false);
+      }
+      return;
+    }
+    await executeDispatch();
+  }
+
+  async function executeDispatch(payload?: CitypakReviewConfirm) {
+    if (!selectedDispatch) return;
+    const orderShipments = payload?.orderShipments ?? [];
+    const manualShipments = payload?.manualShipments ?? [];
+    if (selectedOrders.length === 0 && manualShipments.length === 0) return;
     setDispatching(true);
     setResults(null);
     try {
-      const dispatchBody = {
-        action: "dispatch" as const,
-        ...dispatchSelectionToApiBody(selectedDispatch),
-      };
+      const useBulk = selectedOrders.length !== 1 || manualShipments.length > 0;
 
-      if (selectedOrders.length === 1) {
+      if (!useBulk && selectedOrders.length === 1) {
         const order = selectedOrders[0]!;
         const res = await fetch(`/api/admin/orders/${order.id}/fulfillment`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(dispatchBody),
+          body: JSON.stringify({
+            action: "dispatch",
+            ...dispatchSelectionToApiBody(selectedDispatch),
+            ...(orderShipments[0] ? { citypakShipment: orderShipments[0] } : {}),
+          }),
         });
-        const data = (await res.json()) as { error?: string };
+        const data = (await res.json()) as {
+          error?: string;
+          citypakStatus?: DispatchResult["citypakStatus"];
+          citypakError?: string;
+          citypakTracking?: string | null;
+          citypakWaybillId?: string | null;
+        };
         const ref = orderLabel(order);
         if (!res.ok) {
           setResults([{ orderId: order.id, ref, success: false, error: data.error }]);
           notify.error(data.error ?? "Dispatch failed.");
           return;
         }
-        notify.success("Dispatched.");
+        setResults([
+          {
+            orderId: order.id,
+            waybillId: data.citypakWaybillId,
+            ref,
+            success: true,
+            citypakStatus: data.citypakStatus,
+            citypakError: data.citypakError,
+            citypakTracking: data.citypakTracking,
+          },
+        ]);
+        if (data.citypakStatus === "retry") {
+          notify.error(
+            `Dispatched. CityPak API failed after retries — held for another try (not Falcon). ${data.citypakError ?? ""}`.trim()
+          );
+        } else if (data.citypakStatus === "falcon") {
+          notify.error(
+            `Dispatched. CityPak API not available — use Falcon Upload for ${ref}. ${data.citypakError ?? ""}`.trim()
+          );
+        } else if (data.citypakStatus === "booked") {
+          notify.success(
+            data.citypakTracking
+              ? `Dispatched. CityPak waybill ${data.citypakTracking}. Print waybills below.`
+              : "Dispatched to CityPak."
+          );
+        } else {
+          notify.success("Dispatched.");
+        }
         setSelectedOrders([]);
         setActiveOrderId(null);
         onRefresh();
@@ -374,6 +490,8 @@ export function FulfillmentBulkDispatch({
         body: JSON.stringify({
           orderIds: selectedOrders.map((o) => o.id),
           ...dispatchSelectionToApiBody(selectedDispatch),
+          ...(orderShipments.length > 0 ? { citypakShipments: orderShipments } : {}),
+          ...(manualShipments.length > 0 ? { citypakManualShipments: manualShipments } : {}),
         }),
       });
       const data = (await res.json()) as { results?: DispatchResult[]; error?: string };
@@ -383,8 +501,23 @@ export function FulfillmentBulkDispatch({
       setResults(all);
       const succeeded = all.filter((r) => r.success).length;
       const failed = all.filter((r) => !r.success).length;
+      const falconNeeded = all.filter((r) => r.success && r.citypakStatus === "falcon");
+      const retryHeld = all.filter((r) => r.success && r.citypakStatus === "retry");
+      const citypakBooked = all.filter((r) => r.success && r.citypakStatus === "booked").length;
       if (succeeded > 0) {
-        notify.success(`Dispatched ${succeeded} order${succeeded > 1 ? "s" : ""}${failed > 0 ? `, ${failed} failed` : ""}.`);
+        if (retryHeld.length > 0) {
+          notify.error(
+            `Dispatched ${succeeded}. ${citypakBooked} booked on CityPak. ${retryHeld.length} held for CityPak retry (not Falcon): ${retryHeld.map((r) => r.ref).join(", ")}`
+          );
+        } else if (falconNeeded.length > 0) {
+          notify.error(
+            `Dispatched ${succeeded}. ${citypakBooked} sent to CityPak. ${falconNeeded.length} need Falcon Upload: ${falconNeeded.map((r) => r.ref).join(", ")}`
+          );
+        } else if (citypakBooked > 0) {
+          notify.success(`Sent ${citypakBooked} to CityPak${failed > 0 ? `, ${failed} failed` : ""}. Print waybills below.`);
+        } else {
+          notify.success(`Dispatched ${succeeded} order${succeeded > 1 ? "s" : ""}${failed > 0 ? `, ${failed} failed` : ""}.`);
+        }
         setSelectedOrders((prev) => prev.filter((o) => !all.find((r) => r.orderId === o.id && r.success)));
         onRefresh();
       } else {
@@ -394,6 +527,87 @@ export function FulfillmentBulkDispatch({
       notify.error("Bulk dispatch failed.");
     } finally {
       setDispatching(false);
+    }
+  }
+
+  async function retryCitypak(orderId: string, ref: string) {
+    if (!orderId) return;
+    setCitypakRetryBusy(true);
+    try {
+      const response = await fetch(`/api/admin/orders/${orderId}/citypak-retry`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "retry" }),
+      });
+      const data = (await response.json().catch(() => null)) as {
+        message?: string;
+        error?: string;
+        citypakStatus?: DispatchResult["citypakStatus"];
+        citypakError?: string;
+        citypakTracking?: string | null;
+        citypakWaybillId?: string | null;
+      } | null;
+      if (!response.ok || !data) {
+        notify.error(data?.error ?? data?.message ?? "CityPak retry failed.");
+        return;
+      }
+      setResults((current) =>
+        (current ?? []).map((row) =>
+          row.orderId === orderId
+            ? {
+                ...row,
+                citypakStatus: data.citypakStatus,
+                citypakError: data.citypakError,
+                citypakTracking: data.citypakTracking ?? row.citypakTracking,
+                waybillId: data.citypakWaybillId ?? row.waybillId,
+                error: data.citypakStatus === "booked" ? undefined : data.citypakError ?? row.error,
+              }
+            : row
+        )
+      );
+      if (data.citypakStatus === "booked") {
+        notify.success(data.message ?? `Booked ${ref}.`);
+        onRefresh();
+      } else {
+        notify.error(data.message ?? data.citypakError ?? "Still held for retry.");
+      }
+    } catch {
+      notify.error("CityPak retry failed.");
+    } finally {
+      setCitypakRetryBusy(false);
+    }
+  }
+
+  async function releaseToFalcon(orderId: string, ref: string) {
+    if (!orderId) return;
+    if (!window.confirm(`Release ${ref} to Falcon Upload? CityPak API hold will end.`)) return;
+    setCitypakRetryBusy(true);
+    try {
+      const response = await fetch(`/api/admin/orders/${orderId}/citypak-retry`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "release_to_falcon" }),
+      });
+      const data = (await response.json().catch(() => null)) as {
+        message?: string;
+        error?: string;
+        citypakStatus?: DispatchResult["citypakStatus"];
+      } | null;
+      if (!response.ok || !data) {
+        notify.error(data?.error ?? "Could not release to Falcon.");
+        return;
+      }
+      setResults((current) =>
+        (current ?? []).map((row) =>
+          row.orderId === orderId ? { ...row, citypakStatus: "falcon", citypakError: undefined } : row
+        )
+      );
+      notify.success(data.message ?? `${ref} released to Falcon Upload.`);
+      onRefresh();
+    } catch {
+      notify.error("Could not release to Falcon.");
+    } finally {
+      setCitypakRetryBusy(false);
     }
   }
 
@@ -412,7 +626,7 @@ export function FulfillmentBulkDispatch({
           <p className="text-sm font-medium">Dispatch via</p>
           <select
             value={dispatchService}
-            onChange={(e) => { setDispatchService(e.target.value); setResults(null); }}
+            onChange={(e) => { setDispatchService(e.target.value); setResults(null); setCitypakReviewOpen(false); }}
             disabled={dispatching}
             className="h-9 w-full rounded-md border border-border/70 bg-background/90 px-3 text-sm"
           >
@@ -511,16 +725,25 @@ export function FulfillmentBulkDispatch({
 
         {/* Dispatch button */}
         <Button
-          disabled={!perms.canDispatch || !selectedDispatch || selectedOrders.length === 0 || dispatching}
+          disabled={
+            !perms.canDispatch ||
+            !selectedDispatch ||
+            dispatching ||
+            (!citypakSelected && selectedOrders.length === 0)
+          }
           onClick={() => void handleDispatch()}
           className="h-9 gap-2"
         >
           {dispatching
             ? <Loader2 className="size-4 animate-spin" />
             : <Truck className="size-4" />}
-          {selectedOrders.length > 0
-            ? `Dispatch ${selectedOrders.length} order${selectedOrders.length > 1 ? "s" : ""}`
-            : "Dispatch"}
+          {citypakSelected
+            ? selectedOrders.length > 0
+              ? `Review ${selectedOrders.length} CityPak`
+              : "Review CityPak"
+            : selectedOrders.length > 0
+              ? `Dispatch ${selectedOrders.length} order${selectedOrders.length > 1 ? "s" : ""}`
+              : "Dispatch"}
         </Button>
       </div>
 
@@ -537,6 +760,8 @@ export function FulfillmentBulkDispatch({
                 setSelectedOrders([]);
                 setActiveOrderId(null);
                 setResults(null);
+                setCitypakReviewOpen(false);
+                setCitypakReviewRows([]);
               }}
               disabled={dispatching || markingReadyId !== null || holdBusyId !== null}
               className="h-7 text-xs"
@@ -710,6 +935,20 @@ export function FulfillmentBulkDispatch({
         </div>
       )}
 
+      <CitypakShipmentReviewDialog
+        key={citypakReviewNonce}
+        open={citypakReviewOpen}
+        rows={citypakReviewRows}
+        accounts={lookups?.citypakAccounts ?? []}
+        allowManual
+        confirming={dispatching}
+        onOpenChange={setCitypakReviewOpen}
+        onConfirm={(payload) => {
+          setCitypakReviewOpen(false);
+          void executeDispatch(payload);
+        }}
+      />
+
       {/* Detail panel — always visible, static structure, data swaps per active order */}
       {(() => {
         const activeOrder = selectedOrders.find((o) => o.id === activeOrderId) ?? null;
@@ -856,6 +1095,84 @@ export function FulfillmentBulkDispatch({
               ✗ {r.ref}{r.error ? ` — ${r.error}` : ""}
             </p>
           ))}
+        </div>
+      )}
+      {results && results.some((r) => r.success && r.citypakStatus === "retry") && (
+        <div className="space-y-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+          <p className="font-medium">CityPak API failed — held for retry (not sent to Falcon)</p>
+          <p className="text-xs text-muted-foreground">
+            Auto-retried up to 3 times. Order stays dispatched. Retry CityPak, or release to Falcon
+            Upload only if you want the manual file flow.
+          </p>
+          {results
+            .filter((r) => r.success && r.citypakStatus === "retry" && r.orderId)
+            .map((r) => (
+              <div key={r.orderId} className="flex flex-wrap items-center justify-between gap-2">
+                <p>
+                  {r.ref}
+                  {r.citypakError ? ` — ${r.citypakError}` : ""}
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={citypakRetryBusy}
+                    onClick={() => void retryCitypak(r.orderId, r.ref)}
+                  >
+                    Retry CityPak
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={citypakRetryBusy}
+                    onClick={() => void releaseToFalcon(r.orderId, r.ref)}
+                  >
+                    Send to Falcon
+                  </Button>
+                </div>
+              </div>
+            ))}
+        </div>
+      )}
+      {results && results.some((r) => r.success && r.citypakStatus === "falcon") && (
+        <div className="space-y-1 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+          <p className="font-medium">CityPak API not configured — use Falcon Upload for these</p>
+          {results
+            .filter((r) => r.success && r.citypakStatus === "falcon")
+            .map((r) => (
+              <p key={r.orderId || r.ref}>
+                {r.ref}
+                {r.citypakError ? ` — ${r.citypakError}` : ""}
+              </p>
+            ))}
+        </div>
+      )}
+      {results && results.some((r) => r.success && r.citypakStatus === "booked") && (
+        <div className="space-y-2 rounded-md border border-border/70 bg-muted/20 p-3 text-sm">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="font-medium">Print CityPak waybills</p>
+            <PrintCitypakWaybillPackButton
+              orderIds={results
+                .filter((r) => r.success && r.citypakStatus === "booked" && r.orderId && !r.waybillId)
+                .map((r) => r.orderId)}
+              waybillIds={results
+                .filter((r) => r.success && r.citypakStatus === "booked" && r.waybillId)
+                .map((r) => r.waybillId as string)}
+            />
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {results
+              .filter((r) => r.success && r.citypakStatus === "booked")
+              .map((r) => (
+                <PrintCitypakWaybillButton
+                  key={`${r.orderId}-${r.waybillId ?? r.ref}`}
+                  orderId={r.orderId || undefined}
+                  waybillId={r.waybillId}
+                  tracking={r.citypakTracking ?? r.ref}
+                />
+              ))}
+          </div>
         </div>
       )}
     </div>

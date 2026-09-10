@@ -514,7 +514,7 @@ export function OrdersPanel({
             <div className="relative min-w-0">
               <Search className="text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2" />
               <Input
-                placeholder="Search by order name (e.g. 6008699), #, or customer..."
+                placeholder="Search by order name (e.g. 6008699), KOKO ref, #, or customer..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="border-border/70 bg-background/90 pl-9"

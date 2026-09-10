@@ -48,10 +48,32 @@ export type WaybillRematchSummary = {
   matched: number;
 };
 
+export type CitypakApiWaybillHistoryRow = {
+  id: string;
+  waybillNo: string;
+  invoiceNumber: string;
+  courierName: string | null;
+  orderId: string | null;
+  orderLabel: string | null;
+  manual: boolean;
+  createdAt: string;
+};
+
+/** One CityPak API dispatch run (bulk or single), linked via WaybillUpload. */
+export type CitypakApiWaybillBatchRow = {
+  id: string;
+  label: string;
+  bookedCount: number;
+  createdAt: string;
+  uploadedBy: { id: string; name: string | null; email: string | null } | null;
+  waybills: CitypakApiWaybillHistoryRow[];
+};
+
 export type WaybillLookupPageData = {
   pending: WaybillPendingRow[];
   pagination: WaybillLookupPagination;
   uploads: WaybillUploadHistoryRow[];
+  uploadsPagination: WaybillLookupPagination;
   rematch: WaybillRematchSummary | null;
   canImport: boolean;
 };

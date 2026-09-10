@@ -2,7 +2,11 @@ import { redirect } from "next/navigation";
 
 import { BookNotesPanel } from "@/app/(dashboard)/dashboard/book-notes/book-notes-panel";
 import { PermissionDeniedCard } from "@/components/molecules/permission-denied-card";
-import { resolveBookNoteShopAccess } from "@/lib/book-notes/access";
+import {
+  resolveBookNoteShopAccess,
+  resolveBookNoteViewScope,
+  resolveBookNoteWriteAccess,
+} from "@/lib/book-notes/access";
 import { loadBookNoteHistory } from "@/lib/book-notes/load";
 import { formatAppIsoDate } from "@/lib/format-datetime";
 import { requirePermission } from "@/lib/rbac";
@@ -17,23 +21,26 @@ export default async function BookNotesPage() {
   }
 
   const companyId = auth.context!.user?.companyId ?? null;
+  const userId = auth.context!.user?.id ?? null;
   if (!companyId) {
     redirect("/dashboard");
   }
 
   const access = await resolveBookNoteShopAccess(auth.context!, companyId);
+  const viewScope = await resolveBookNoteViewScope(auth.context!, companyId);
+  const writeAccess = resolveBookNoteWriteAccess(auth.context!);
   const locations = access.locations;
   const allowedIds = locations.map((l) => l.id);
-  const initialLocationId = locations[0]?.id ?? "";
+  const canBackdateBookNotes = writeAccess.canBackdate;
 
   const initialHistory =
-    allowedIds.length > 0
+    allowedIds.length > 0 && userId
       ? await loadBookNoteHistory({
           companyId,
-          companyLocationId: access.canAccessAllShops
-            ? undefined
-            : initialLocationId || undefined,
+          createdByUserId: userId,
           companyLocationIds: allowedIds,
+          viewScope,
+          writeAccess,
         })
       : [];
 
@@ -41,6 +48,7 @@ export default async function BookNotesPage() {
     <BookNotesPanel
       initialLocations={locations}
       initialCanAccessAllShops={access.canAccessAllShops}
+      initialCanBackdateBookNotes={canBackdateBookNotes}
       initialHistory={initialHistory}
       initialToday={formatAppIsoDate(new Date())}
     />

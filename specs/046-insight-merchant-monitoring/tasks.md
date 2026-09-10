@@ -24,8 +24,8 @@ Cosmo OS Next.js app at repo root (`app/`, `lib/`). **No Prisma migration** for 
 
 **Purpose**: Confirm feature docs; Constitution I — no schema work
 
-- [x] T001 Confirm docs exist under `specs/046-insight-merchant-monitoring/` (plan.md, spec.md, research.md, data-model.md, contracts/merchant-monitoring.md, quickstart.md)
-- [x] T002 [P] Confirm no Prisma changes needed for this feature (Constitution I — read-only rollups from `ContactMaster`)
+- [ ] T001 Confirm docs exist under `specs/046-insight-merchant-monitoring/` (plan.md, spec.md, research.md, data-model.md, contracts/merchant-monitoring.md, quickstart.md)
+- [ ] T002 [P] Confirm no Prisma changes needed for this feature (Constitution I — read-only rollups from `ContactMaster`)
 
 ---
 
@@ -35,12 +35,12 @@ Cosmo OS Next.js app at repo root (`app/`, `lib/`). **No Prisma migration** for 
 
 **⚠️ CRITICAL**: No user story work until this phase completes
 
-- [x] T003 [P] Add `classifyPurchaseRecencyBucket` and `recencyBucketToLastPurchaseRange` in `lib/customer-insight/merchant-monitoring-recency.ts` per `specs/046-insight-merchant-monitoring/research.md` R2
-- [x] T004 [P] Add Vitest for recency boundaries (today, 1–30, 31–90, 91–180, 181–365, 365+, never) in `lib/customer-insight/merchant-monitoring-recency.test.ts`
-- [x] T005 [P] Add `resolveMerchantMonitoringPeriod` (clamp future `toYmd`, reject `fromYmd > toYmd`, period labels) in `lib/customer-insight/merchant-monitoring-period.ts`
-- [x] T006 [P] Add Vitest for period validation and clamping in `lib/customer-insight/merchant-monitoring-period.test.ts`
-- [x] T007 Add `customerInsightMerchantMonitoringQuerySchema` (`fromYmd`, `toYmd`, optional `assignedMerchant`, optional `preset`) in `lib/validation/customer-insight.ts` per `specs/046-insight-merchant-monitoring/contracts/merchant-monitoring.md`
-- [x] T008 Add DTO types and `buildMerchantMonitoringReport` skeleton (empty portfolio/recency stubs) in `lib/customer-insight/merchant-monitoring.ts`; export from `lib/customer-insight/index.ts` if needed
+- [ ] T003 [P] Add `classifyPurchaseRecencyBucket` and `recencyBucketToLastPurchaseRange` in `lib/customer-insight/merchant-monitoring-recency.ts` per `specs/046-insight-merchant-monitoring/research.md` R2
+- [ ] T004 [P] Add Vitest for recency boundaries (today, 1–30, 31–90, 91–180, 181–365, 365+, never) in `lib/customer-insight/merchant-monitoring-recency.test.ts`
+- [ ] T005 [P] Add `resolveMerchantMonitoringPeriod` (clamp future `toYmd`, reject `fromYmd > toYmd`, period labels) in `lib/customer-insight/merchant-monitoring-period.ts`
+- [ ] T006 [P] Add Vitest for period validation and clamping in `lib/customer-insight/merchant-monitoring-period.test.ts`
+- [ ] T007 Add `customerInsightMerchantMonitoringQuerySchema` (`fromYmd`, `toYmd`, optional `assignedMerchant`, optional `preset`) in `lib/validation/customer-insight.ts` per `specs/046-insight-merchant-monitoring/contracts/merchant-monitoring.md`
+- [ ] T008 Add DTO types and `buildMerchantMonitoringReport` skeleton (empty portfolio/recency stubs) in `lib/customer-insight/merchant-monitoring.ts`; export from `lib/customer-insight/index.ts` if needed
 
 **Checkpoint**: Helpers + schema + report entry point ready — user stories can start
 
@@ -54,13 +54,13 @@ Cosmo OS Next.js app at repo root (`app/`, `lib/`). **No Prisma migration** for 
 
 ### Tests for User Story 1
 
-- [x] T009 [P] [US1] Add Vitest for portfolio rollup invariants (tier sum, DOB/email counts, alias rollup) in `lib/customer-insight/merchant-monitoring.test.ts`
+- [ ] T009 [P] [US1] Add Vitest for portfolio rollup invariants (tier sum, DOB/email counts, alias rollup) in `lib/customer-insight/merchant-monitoring.test.ts`
 
 ### Implementation for User Story 1
 
-- [x] T010 [US1] Implement portfolio rollup in `buildMerchantMonitoringReport` in `lib/customer-insight/merchant-monitoring.ts` — batched `contactMaster.findMany`, alias map from `lib/customer-insight/allocation-summary.ts`, `effectiveLoyaltyTierKey`, DOB/email completeness from `lib/customer-insight/loyalty-profile-complete.ts`
-- [x] T011 [US1] Add `GET` `app/api/admin/customer-insight/merchant-monitoring/route.ts` — `requirePermission("contacts.insight.read")`, `hasInsightAdminView`, return portfolio rows + `companyPortfolio` + `unallocatedCount` per contract
-- [x] T012 [US1] Add **Merchant monitoring** card with portfolio table (Merchant, Allocated, Gold, Plat, Standard, DOB %, Email %) in `app/(dashboard)/dashboard/customer-insight/customer-insight-panel.tsx` — gate on `canExportFilteredCsv`; fetch on mount with default MTD dates
+- [ ] T010 [US1] Implement portfolio rollup in `buildMerchantMonitoringReport` in `lib/customer-insight/merchant-monitoring.ts` — batched `contactMaster.findMany`, alias map from `lib/customer-insight/allocation-summary.ts`, `effectiveLoyaltyTierKey`, DOB/email completeness from `lib/customer-insight/loyalty-profile-complete.ts`
+- [ ] T011 [US1] Add `GET` `app/api/admin/customer-insight/merchant-monitoring/route.ts` — `requirePermission("contacts.insight.read")`, `hasInsightAdminView`, return portfolio rows + `companyPortfolio` + `unallocatedCount` per contract
+- [ ] T012 [US1] Add **Merchant monitoring** card with portfolio table (Merchant, Allocated, Gold, Plat, Standard, DOB %, Email %) in `app/(dashboard)/dashboard/customer-insight/customer-insight-panel.tsx` — gate on `canExportFilteredCsv`; fetch on mount with default MTD dates
 
 **Checkpoint**: US1 portfolio table independently testable (no period chips or recency yet — use fixed default dates in fetch)
 
@@ -74,10 +74,10 @@ Cosmo OS Next.js app at repo root (`app/`, `lib/`). **No Prisma migration** for 
 
 ### Implementation for User Story 2
 
-- [x] T013 [US2] Implement `purchasedInPeriodCount` in `buildMerchantMonitoringReport` in `lib/customer-insight/merchant-monitoring.ts` — batched Adapt `invoiceDate` + Cosmo orders per `specs/046-insight-merchant-monitoring/research.md` R3/R4
-- [x] T014 [US2] Add period preset chips (Today / MTD / Custom) and date inputs in Merchant monitoring card in `app/(dashboard)/dashboard/customer-insight/customer-insight-panel.tsx` — mirror `app/(dashboard)/dashboard/merchant/merchant-dashboard-panel.tsx` pattern
-- [x] T015 [US2] Wire period change to re-fetch `GET /api/admin/customer-insight/merchant-monitoring` with resolved `fromYmd`/`toYmd`; show `periodLabel` in card header
-- [x] T016 [US2] Add **Purchased in period** column to portfolio table in `app/(dashboard)/dashboard/customer-insight/customer-insight-panel.tsx`
+- [ ] T013 [US2] Implement `purchasedInPeriodCount` in `buildMerchantMonitoringReport` in `lib/customer-insight/merchant-monitoring.ts` — batched Adapt `invoiceDate` + Cosmo orders per `specs/046-insight-merchant-monitoring/research.md` R3/R4
+- [ ] T014 [US2] Add period preset chips (Today / MTD / Custom) and date inputs in Merchant monitoring card in `app/(dashboard)/dashboard/customer-insight/customer-insight-panel.tsx` — mirror `app/(dashboard)/dashboard/merchant/merchant-dashboard-panel.tsx` pattern
+- [ ] T015 [US2] Wire period change to re-fetch `GET /api/admin/customer-insight/merchant-monitoring` with resolved `fromYmd`/`toYmd`; show `periodLabel` in card header
+- [ ] T016 [US2] Add **Purchased in period** column to portfolio table in `app/(dashboard)/dashboard/customer-insight/customer-insight-panel.tsx`
 
 **Checkpoint**: US1 + US2 period behavior independently testable
 
@@ -91,13 +91,13 @@ Cosmo OS Next.js app at repo root (`app/`, `lib/`). **No Prisma migration** for 
 
 ### Tests for User Story 3
 
-- [x] T017 [P] [US3] Extend `lib/customer-insight/merchant-monitoring.test.ts` — one contact → exactly one recency bucket; `companyRecency` equals sum of merchant rows
+- [ ] T017 [P] [US3] Extend `lib/customer-insight/merchant-monitoring.test.ts` — one contact → exactly one recency bucket; `companyRecency` equals sum of merchant rows
 
 ### Implementation for User Story 3
 
-- [x] T018 [US3] Implement recency + tier accumulators in `buildMerchantMonitoringReport` in `lib/customer-insight/merchant-monitoring.ts` using `classifyPurchaseRecencyBucket` and `lastPurchaseAt`
-- [x] T019 [US3] Return `recencyRows` and `companyRecency` from `app/api/admin/customer-insight/merchant-monitoring/route.ts`
-- [x] T020 [US3] Add recency bucket matrix UI (rows = buckets, columns = Gold / Plat / Standard / Total) in `app/(dashboard)/dashboard/customer-insight/customer-insight-panel.tsx` — company totals when all merchants; per-merchant when filtered
+- [ ] T018 [US3] Implement recency + tier accumulators in `buildMerchantMonitoringReport` in `lib/customer-insight/merchant-monitoring.ts` using `classifyPurchaseRecencyBucket` and `lastPurchaseAt`
+- [ ] T019 [US3] Return `recencyRows` and `companyRecency` from `app/api/admin/customer-insight/merchant-monitoring/route.ts`
+- [ ] T020 [US3] Add recency bucket matrix UI (rows = buckets, columns = Gold / Plat / Standard / Total) in `app/(dashboard)/dashboard/customer-insight/customer-insight-panel.tsx` — company totals when all merchants; per-merchant when filtered
 
 **Checkpoint**: P1 complete — portfolio + period + recency all working in one view
 
@@ -111,11 +111,11 @@ Cosmo OS Next.js app at repo root (`app/`, `lib/`). **No Prisma migration** for 
 
 ### Implementation for User Story 4
 
-- [x] T021 [P] [US4] Extend `customerInsightFilterFieldsSchema` with `lastPurchaseFrom`, `lastPurchaseTo`, `loyalty`, `hasLastPurchase` in `lib/validation/customer-insight.ts` per contract
-- [x] T022 [US4] Apply new filter fields in `filterAllocatedContacts` in `lib/customer-insight/filters.ts` — loyalty via `effectiveLoyaltyTierKey`; last purchase inclusive Colombo bounds; `hasLastPurchase=false` → `lastPurchaseAt` null
-- [x] T023 [US4] Pass optional `assignedMerchant` query param through `app/api/admin/customer-insight/merchant-monitoring/route.ts` and `buildMerchantMonitoringReport` in `lib/customer-insight/merchant-monitoring.ts`
-- [x] T024 [US4] Add merchant dropdown (reuse call-queue merchant options pattern) to Merchant monitoring card in `app/(dashboard)/dashboard/customer-insight/customer-insight-panel.tsx`
-- [x] T025 [US4] On recency/portfolio cell click, switch to Filter tab with `assignedMerchant`, `loyalty`, and `recencyBucketToLastPurchaseRange` params in `app/(dashboard)/dashboard/customer-insight/customer-insight-panel.tsx`
+- [ ] T021 [P] [US4] Extend `customerInsightFilterFieldsSchema` with `lastPurchaseFrom`, `lastPurchaseTo`, `loyalty`, `hasLastPurchase` in `lib/validation/customer-insight.ts` per contract
+- [ ] T022 [US4] Apply new filter fields in `filterAllocatedContacts` in `lib/customer-insight/filters.ts` — loyalty via `effectiveLoyaltyTierKey`; last purchase inclusive Colombo bounds; `hasLastPurchase=false` → `lastPurchaseAt` null
+- [ ] T023 [US4] Pass optional `assignedMerchant` query param through `app/api/admin/customer-insight/merchant-monitoring/route.ts` and `buildMerchantMonitoringReport` in `lib/customer-insight/merchant-monitoring.ts`
+- [ ] T024 [US4] Add merchant dropdown (reuse call-queue merchant options pattern) to Merchant monitoring card in `app/(dashboard)/dashboard/customer-insight/customer-insight-panel.tsx`
+- [ ] T025 [US4] On recency/portfolio cell click, switch to Filter tab with `assignedMerchant`, `loyalty`, and `recencyBucketToLastPurchaseRange` params in `app/(dashboard)/dashboard/customer-insight/customer-insight-panel.tsx`
 
 **Checkpoint**: US4 drill-down independently testable
 
@@ -129,9 +129,9 @@ Cosmo OS Next.js app at repo root (`app/`, `lib/`). **No Prisma migration** for 
 
 ### Implementation for User Story 5
 
-- [x] T026 [P] [US5] Implement `generateMerchantMonitoringPdf` (landscape tables, period header) in `lib/customer-insight/merchant-monitoring-pdf.ts` — follow `lib/dispatch-pdf.ts` pdfmake pattern
-- [x] T027 [US5] Add `GET` `app/api/admin/customer-insight/merchant-monitoring/export/route.ts` — same auth/query as JSON route; `Content-Type: application/pdf`
-- [x] T028 [US5] Add **Export PDF** button with `busyKey` loading UX in Merchant monitoring card in `app/(dashboard)/dashboard/customer-insight/customer-insight-panel.tsx`
+- [ ] T026 [P] [US5] Implement `generateMerchantMonitoringPdf` (landscape tables, period header) in `lib/customer-insight/merchant-monitoring-pdf.ts` — follow `lib/dispatch-pdf.ts` pdfmake pattern
+- [ ] T027 [US5] Add `GET` `app/api/admin/customer-insight/merchant-monitoring/export/route.ts` — same auth/query as JSON route; `Content-Type: application/pdf`
+- [ ] T028 [US5] Add **Export PDF** button with `busyKey` loading UX in Merchant monitoring card in `app/(dashboard)/dashboard/customer-insight/customer-insight-panel.tsx`
 
 **Checkpoint**: US5 PDF export independently testable
 
@@ -145,8 +145,8 @@ Cosmo OS Next.js app at repo root (`app/`, `lib/`). **No Prisma migration** for 
 
 ### Implementation for User Story 6
 
-- [x] T029 [US6] When insight loads from call-queue context, show `Alert` for missing **Email** and **Birth date** only (subset of `getLoyaltyProfileMissingFields`) in `app/(dashboard)/dashboard/customer-insight/customer-insight-panel.tsx`
-- [x] T030 [US6] Hide banner when profile save succeeds and both fields complete — reuse existing profile PATCH flow; no new API
+- [ ] T029 [US6] When insight loads from call-queue context, show `Alert` for missing **Email** and **Birth date** only (subset of `getLoyaltyProfileMissingFields`) in `app/(dashboard)/dashboard/customer-insight/customer-insight-panel.tsx`
+- [ ] T030 [US6] Hide banner when profile save succeeds and both fields complete — reuse existing profile PATCH flow; no new API
 
 **Checkpoint**: US6 banner independently testable
 
@@ -156,10 +156,10 @@ Cosmo OS Next.js app at repo root (`app/`, `lib/`). **No Prisma migration** for 
 
 **Purpose**: Regression, UX, validation
 
-- [x] T031 [P] Keep existing **Merchant allocations** CSV export (`app/api/admin/customer-insight/allocation-summary/export/route.ts`) and Refresh — do not remove FR-011
-- [x] T032 [P] Apply `busyKey` / spinner / disable pattern on Refresh and Export PDF in Merchant monitoring card per `.cursor/rules/action-loading-ux.mdc` in `app/(dashboard)/dashboard/customer-insight/customer-insight-panel.tsx`
-- [x] T033 Run `npm test -- lib/customer-insight/merchant-monitoring` and fix failures; lint changed files
-- [x] T034 Run manual scenarios in `specs/046-insight-merchant-monitoring/quickstart.md` (portfolio, period, recency, drill-down, PDF, CSV retained, permission gate)
+- [ ] T031 [P] Keep existing **Merchant allocations** CSV export (`app/api/admin/customer-insight/allocation-summary/export/route.ts`) and Refresh — do not remove FR-011
+- [ ] T032 [P] Apply `busyKey` / spinner / disable pattern on Refresh and Export PDF in Merchant monitoring card per `.cursor/rules/action-loading-ux.mdc` in `app/(dashboard)/dashboard/customer-insight/customer-insight-panel.tsx`
+- [ ] T033 Run `npm test -- lib/customer-insight/merchant-monitoring` and fix failures; lint changed files
+- [ ] T034 Run manual scenarios in `specs/046-insight-merchant-monitoring/quickstart.md` (portfolio, period, recency, drill-down, PDF, CSV retained, permission gate)
 
 ---
 

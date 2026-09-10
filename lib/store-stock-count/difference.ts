@@ -1,5 +1,5 @@
 /**
- * Difference = count − live stock sum.
+ * Difference = count − ERP stock snapshotted at report create.
  * null count → not counted (null).
  * null stockSum → unavailable (null).
  */

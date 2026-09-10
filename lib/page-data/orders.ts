@@ -1,3 +1,4 @@
+import { findOrderIdsByKokoReferenceSearch } from "@/lib/approval-koko-list";
 import { Prisma } from "@prisma/client";
 import type { FulfillmentStage } from "@prisma/client";
 import { unstable_cache } from "next/cache";
@@ -123,31 +124,31 @@ async function fetchDistinctPaymentGatewayNames(companyId: string): Promise<stri
 const getOrdersPageLookups = unstable_cache(
   async (companyId: string) => {
     const gatewayColumns = await getOrderPaymentGatewayColumnState();
-    const [locations, merchants, paymentGatewayOptions] = await Promise.all([
-      prisma.companyLocation.findMany({
-        where: { companyId },
-        orderBy: { name: "asc" },
-        select: { id: true, name: true },
-      }),
-      prisma.user.findMany({
-        where: {
-          AND: [
-            eligibleMerchantUserWhere(companyId),
-            {
-              OR: [
-                { shopifyUserIds: { isEmpty: false } },
-                { couponCodes: { isEmpty: false } },
-              ],
-            },
-          ],
-        },
-        orderBy: { name: "asc" },
-        select: { id: true, name: true, email: true },
-      }),
-      gatewayColumns.hasPaymentGatewayNames
-        ? fetchDistinctPaymentGatewayNames(companyId)
-        : Promise.resolve([]),
-    ]);
+    // Sequential: Prisma pool is small; parallel lookups plus a DISTINCT on Order
+    // starve other requests (P2024). This cache revalidates in the background.
+    const locations = await prisma.companyLocation.findMany({
+      where: { companyId },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true },
+    });
+    const merchants = await prisma.user.findMany({
+      where: {
+        AND: [
+          eligibleMerchantUserWhere(companyId),
+          {
+            OR: [
+              { shopifyUserIds: { isEmpty: false } },
+              { couponCodes: { isEmpty: false } },
+            ],
+          },
+        ],
+      },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true, email: true },
+    });
+    const paymentGatewayOptions = gatewayColumns.hasPaymentGatewayNames
+      ? await fetchDistinctPaymentGatewayNames(companyId)
+      : [];
 
     return {
       locations,
@@ -241,6 +242,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
         )
     `);
     const returnSiIds = returnSiMatches.map((r) => r.id);
+    const kokoRefOrderIds = await findOrderIdsByKokoReferenceSearch(companyId, searchTerm);
     where.AND = [
       ...(Array.isArray(where.AND) ? where.AND : []),
       {
@@ -253,6 +255,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
           { customerEmail: { contains: searchTerm, mode: "insensitive" } },
           { customerPhone: { contains: searchTerm, mode: "insensitive" } },
           ...(returnSiIds.length > 0 ? [{ id: { in: returnSiIds } }] : []),
+          ...(kokoRefOrderIds.length > 0 ? [{ id: { in: kokoRefOrderIds } }] : []),
         ],
       },
     ];

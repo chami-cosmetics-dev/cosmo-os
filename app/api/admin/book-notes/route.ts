@@ -2,18 +2,28 @@ import { NextRequest, NextResponse } from "next/server";
 
 import {
   DAY_LOCKED_CODE,
+  bookNoteLockMessage,
   isBookNoteWritable,
 } from "@/lib/book-notes/lock";
 import {
   assertBookNoteShopAllowed,
+  canViewBookNoteDay,
   resolveBookNoteShopAccess,
+  resolveBookNoteViewScope,
+  resolveBookNoteWriteAccess,
 } from "@/lib/book-notes/access";
 import {
   loadBookNoteDayDto,
   loadBookNoteDaysInRange,
 } from "@/lib/book-notes/load";
 import { postingDateToUtcMidnight } from "@/lib/book-notes/serialize";
+import {
+  aggregateSplitLines,
+  bookNoteRowUsesSplitPayload,
+  normalizeBookNoteSplitLines,
+} from "@/lib/book-notes/split-lines";
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 import { requirePermission } from "@/lib/rbac";
 import { LIMITS } from "@/lib/validation";
 import {
@@ -90,6 +100,60 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({ days });
 }
 
+/**
+ * Refuse to touch a saved day the user is not allowed to see. Saving replaces
+ * every row of the day, so without this a merchant keying another outlet could
+ * wipe a colleague's sheet they were never shown.
+ */
+async function assertDayWritableByViewer(input: {
+  context: Parameters<typeof resolveBookNoteViewScope>[0];
+  companyId: string;
+  userId: string;
+  companyLocationId: string;
+  postingDate: string;
+}): Promise<NextResponse | null> {
+  const existing = await prisma.bookNoteDay.findUnique({
+    where: {
+      companyLocationId_postingDate: {
+        companyLocationId: input.companyLocationId,
+        postingDate: postingDateToUtcMidnight(input.postingDate),
+      },
+    },
+    select: {
+      companyId: true,
+      companyLocationId: true,
+      createdByUserId: true,
+      updatedByUserId: true,
+      createdBy: { select: { name: true, email: true } },
+      updatedBy: { select: { name: true, email: true } },
+    },
+  });
+  if (!existing || existing.companyId !== input.companyId) return null;
+
+  const viewScope = await resolveBookNoteViewScope(input.context, input.companyId);
+  const allowed = canViewBookNoteDay({
+    viewScope,
+    userId: input.userId,
+    day: {
+      companyLocationId: existing.companyLocationId,
+      createdByUserId: existing.createdByUserId,
+      updatedByUserId: existing.updatedByUserId,
+    },
+  });
+  if (allowed) return null;
+
+  const author = existing.updatedBy ?? existing.createdBy;
+  const who = author?.name?.trim() || author?.email || "another merchant";
+  return NextResponse.json(
+    {
+      error: `${who} already entered this shop's book note for ${input.postingDate}. Ask them or finance to update it.`,
+      code: "DAY_NOT_YOURS",
+      enteredBy: who,
+    },
+    { status: 403 },
+  );
+}
+
 export async function PUT(request: NextRequest) {
   const auth = await requirePermission("book_notes.manage");
   if (!auth.ok) {
@@ -121,12 +185,12 @@ export async function PUT(request: NextRequest) {
   }
 
   const { companyLocationId, postingDate, rows } = parsed.data;
+  const writeAccess = resolveBookNoteWriteAccess(auth.context!);
 
-  if (!isBookNoteWritable(postingDate)) {
+  if (!isBookNoteWritable(postingDate, new Date(), writeAccess)) {
     return NextResponse.json(
       {
-        error:
-          "This sales date is locked. Merchants can only save book notes for today or past dates.",
+        error: bookNoteLockMessage(postingDate, new Date(), writeAccess),
         code: DAY_LOCKED_CODE,
       },
       { status: 409 },
@@ -144,6 +208,15 @@ export async function PUT(request: NextRequest) {
     );
   }
 
+  const notYours = await assertDayWritableByViewer({
+    context: auth.context!,
+    companyId,
+    userId,
+    companyLocationId,
+    postingDate,
+  });
+  if (notYours) return notYours;
+
   const location = await prisma.companyLocation.findFirst({
     where: { id: companyLocationId, companyId },
     select: { id: true, name: true, shortName: true, erpnextCompany: true },
@@ -152,18 +225,39 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: "Shop not found" }, { status: 404 });
   }
 
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i]!;
+    const splitNorm = normalizeBookNoteSplitLines(r.splitLines ?? null);
+    if (!splitNorm.ok) {
+      return NextResponse.json(
+        { error: `Row ${r.idxNo || i + 1}: ${splitNorm.error}` },
+        { status: 400 },
+      );
+    }
+  }
+
   const cleaned = rows
-    .map((r, i) => ({
-      idxNo: r.idxNo || String(i + 1),
-      salesInvoice: r.salesInvoice.trim(),
-      cash: r.cash,
-      card: r.card,
-      cardReceiptRefLast4:
-        r.card > 0 && r.cardReceiptRefLast4 ? r.cardReceiptRefLast4 : null,
-      koko: r.koko,
-      bankTransfer: r.bankTransfer,
-      orderId: r.orderId ?? null,
-    }))
+    .map((r, i) => {
+      const splitNorm = normalizeBookNoteSplitLines(r.splitLines ?? null);
+      const splitLines = splitNorm.ok ? splitNorm.lines : [];
+      const usesSplit = bookNoteRowUsesSplitPayload(splitLines);
+      const agg = usesSplit ? aggregateSplitLines(splitLines) : null;
+      return {
+        idxNo: r.idxNo || String(i + 1),
+        salesInvoice: r.salesInvoice.trim(),
+        cash: agg ? agg.cash : r.cash,
+        card: agg ? agg.card : r.card,
+        cardReceiptRefLast4: usesSplit
+          ? agg!.cardReceiptRefLast4
+          : r.card > 0 && r.cardReceiptRefLast4
+            ? r.cardReceiptRefLast4
+            : null,
+        koko: agg ? agg.koko : r.koko,
+        bankTransfer: agg ? agg.bankTransfer : r.bankTransfer,
+        splitLines: usesSplit ? splitLines : null,
+        orderId: r.orderId ?? null,
+      };
+    })
     .filter((r) => {
       const total = r.cash + r.card + r.koko + r.bankTransfer;
       const hasInvoice = r.salesInvoice.length > 0;
@@ -243,6 +337,7 @@ export async function PUT(request: NextRequest) {
           cardReceiptRefLast4: r.cardReceiptRefLast4,
           koko: r.koko,
           bankTransfer: r.bankTransfer,
+          splitLines: r.splitLines ?? Prisma.JsonNull,
           orderId: r.orderId,
           sortOrder,
         })),
@@ -254,6 +349,7 @@ export async function PUT(request: NextRequest) {
     companyId,
     companyLocationId,
     postingDateYmd: postingDate,
+    writeAccess,
   });
 
   return NextResponse.json(dayDto);

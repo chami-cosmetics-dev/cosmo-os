@@ -1,7 +1,9 @@
 import {
   getCurrentUserContext,
+  hasPermission,
 } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
+import type { BookNoteWriteAccess } from "@/lib/book-notes/lock";
 import type { BookNoteLocationOption } from "@/lib/book-notes/types";
 
 type UserContext = NonNullable<Awaited<ReturnType<typeof getCurrentUserContext>>>;
@@ -14,46 +16,63 @@ const LOCATION_SELECT = {
 } as const;
 
 export type BookNoteShopAccess = {
-  /** Admin / super_admin / book_notes.read — all company shops. */
+  /** Every user may still *enter* a book note against any company shop. */
   canAccessAllShops: boolean;
   locations: BookNoteLocationOption[];
 };
 
-function isBookNotesAdmin(context: UserContext): boolean {
-  // roleNames may be inferred as never[] from empty-array return paths in getCurrentUserContext.
-  const roles = context.roleNames as string[];
-  return roles.includes("super_admin") || roles.includes("admin");
-}
+/**
+ * Which saved book notes a user may *read back*.
+ *
+ * Entry is deliberately unrestricted (a merchant covering another shop still
+ * needs to key its book), but history is outlet-scoped: two merchants in the
+ * same outlet see each other's sheets, a merchant in another outlet does not.
+ * Finance / admin (`book_notes.read` or `book_notes.admin`) see everything.
+ */
+export type BookNoteViewScope = {
+  canViewAllShops: boolean;
+  /** Shops this user is posted to (employee location + default merchant). */
+  assignedLocationIds: string[];
+};
 
 /**
  * Shops the current user may enter / view book notes for.
- * Merchants: EmployeeProfile.location (+ locations where they are defaultMerchant).
- * Admins / book_notes.read: all company locations.
+ * Every company location — visibility is narrowed by `resolveBookNoteViewScope`.
  */
 export async function resolveBookNoteShopAccess(
-  context: UserContext,
+  _context: UserContext,
   companyId: string,
 ): Promise<BookNoteShopAccess> {
-  const canAccessAllShops = isBookNotesAdmin(context);
+  const locations = await prisma.companyLocation.findMany({
+    where: { companyId },
+    orderBy: { name: "asc" },
+    select: LOCATION_SELECT,
+  });
+  return { canAccessAllShops: true, locations };
+}
 
-  if (canAccessAllShops) {
-    const locations = await prisma.companyLocation.findMany({
-      where: { companyId },
-      orderBy: { name: "asc" },
-      select: LOCATION_SELECT,
-    });
-    return { canAccessAllShops: true, locations };
-  }
+/**
+ * Outlets whose saved book notes this user may see, plus the finance/admin
+ * override. A user always also sees sheets they created or last saved
+ * themselves, which `loadBookNoteHistory` adds on top of these ids.
+ */
+export async function resolveBookNoteViewScope(
+  context: UserContext,
+  companyId: string,
+): Promise<BookNoteViewScope> {
+  const canViewAllShops =
+    hasPermission(context, "book_notes.read") ||
+    hasPermission(context, "book_notes.admin");
 
-  const userId = context.user?.id;
-  if (!userId) {
-    return { canAccessAllShops: false, locations: [] };
+  const userId = context.user?.id ?? null;
+  if (canViewAllShops || !userId) {
+    return { canViewAllShops, assignedLocationIds: [] };
   }
 
   const [profile, defaultMerchantLocations] = await Promise.all([
     prisma.employeeProfile.findUnique({
       where: { userId },
-      select: { locationId: true },
+      select: { locationId: true, companyId: true },
     }),
     prisma.companyLocation.findMany({
       where: { companyId, defaultMerchantUserId: userId },
@@ -61,21 +80,48 @@ export async function resolveBookNoteShopAccess(
     }),
   ]);
 
-  const allowedIds = new Set<string>();
-  if (profile?.locationId) allowedIds.add(profile.locationId);
-  for (const loc of defaultMerchantLocations) allowedIds.add(loc.id);
-
-  if (allowedIds.size === 0) {
-    return { canAccessAllShops: false, locations: [] };
+  const ids = new Set<string>();
+  if (profile?.locationId && profile.companyId === companyId) {
+    ids.add(profile.locationId);
+  }
+  for (const loc of defaultMerchantLocations) {
+    ids.add(loc.id);
   }
 
-  const locations = await prisma.companyLocation.findMany({
-    where: { companyId, id: { in: [...allowedIds] } },
-    orderBy: { name: "asc" },
-    select: LOCATION_SELECT,
-  });
+  return { canViewAllShops: false, assignedLocationIds: [...ids] };
+}
 
-  return { canAccessAllShops: false, locations };
+/**
+ * May this user read (and therefore overwrite) an existing saved day?
+ *
+ * Matches the history rule: their own sheets, any sheet for an outlet they are
+ * posted to, everything for finance / admin. A day they cannot see must stay
+ * read-only — `PUT /api/admin/book-notes` replaces every row of a day, so
+ * letting it through would silently destroy a colleague's entry.
+ */
+export function canViewBookNoteDay(input: {
+  viewScope: BookNoteViewScope;
+  userId: string | null;
+  day: {
+    companyLocationId: string;
+    createdByUserId: string | null;
+    updatedByUserId: string | null;
+  };
+}): boolean {
+  if (input.viewScope.canViewAllShops) return true;
+  const { userId, day } = input;
+  if (userId && (day.createdByUserId === userId || day.updatedByUserId === userId)) {
+    return true;
+  }
+  return input.viewScope.assignedLocationIds.includes(day.companyLocationId);
+}
+
+export function resolveBookNoteWriteAccess(
+  context: UserContext,
+): BookNoteWriteAccess {
+  return {
+    canBackdate: hasPermission(context, "book_notes.admin"),
+  };
 }
 
 export function assertBookNoteShopAllowed(

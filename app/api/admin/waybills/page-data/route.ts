@@ -24,6 +24,8 @@ export async function GET(request: NextRequest) {
   const parsed = waybillLookupPageDataQuerySchema.safeParse({
     page: request.nextUrl.searchParams.get("page") ?? undefined,
     limit: request.nextUrl.searchParams.get("limit") ?? undefined,
+    uploadsPage: request.nextUrl.searchParams.get("uploadsPage") ?? undefined,
+    uploadsLimit: request.nextUrl.searchParams.get("uploadsLimit") ?? undefined,
     rematch: request.nextUrl.searchParams.get("rematch") ?? undefined,
   });
   if (!parsed.success) {
@@ -36,6 +38,8 @@ export async function GET(request: NextRequest) {
     companyId,
     page: parsed.data.page,
     limit: parsed.data.limit,
+    uploadsPage: parsed.data.uploadsPage,
+    uploadsLimit: parsed.data.uploadsLimit,
     canImport,
     rematch: parsed.data.rematch === true,
   });

@@ -12,8 +12,13 @@ import {
 import { effectiveLoyaltyTierKey } from "@/lib/customer-insight/erp-loyalty";
 import { buildFrequencyMetrics } from "@/lib/customer-insight/frequency";
 import { mergeAndPaginateInvoices } from "@/lib/customer-insight/invoices";
-import { computeLifetimeTotal, isOrderIncludedInCustomerLifetimeTotal } from "@/lib/customer-insight/lifetime-total";
+import {
+  computeLifetimeTotal,
+  isOrderIncludedInCustomerLifetimeTotal,
+  isOrderReversed,
+} from "@/lib/customer-insight/lifetime-total";
 import { loyaltyCode, loyaltyLabel } from "@/lib/customer-insight/loyalty-tier";
+import { viewerIdentityForMerchantFilter } from "@/lib/customer-insight/merchant-label-aliases";
 import {
   hasInsightAdminView,
   insightVisibility,
@@ -30,6 +35,26 @@ import type { CustomerInsightDto, InvoiceLineDto } from "@/lib/customer-insight/
 import { getOrderDiscountCouponCode } from "@/lib/order-discount-coupon";
 import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
 import { prisma } from "@/lib/prisma";
+
+/**
+ * When admin passes viewAsMerchant, ownership/visibility use that merchant's
+ * session identity (no admin short-circuit). Non-admins ignore the param.
+ */
+export async function resolveInsightLoadViewer(input: {
+  companyId: string;
+  viewer: ViewerIdentity;
+  viewAsMerchant?: string | null;
+}): Promise<ViewerIdentity> {
+  const selected = input.viewAsMerchant?.trim();
+  if (!selected || !hasInsightAdminView(input.viewer)) {
+    return input.viewer;
+  }
+  const asMerchant = await viewerIdentityForMerchantFilter(
+    input.companyId,
+    selected
+  );
+  return asMerchant ?? input.viewer;
+}
 
 function uniqueDisplayPhones(values: Array<string | null>) {
   const phones: string[] = [];
@@ -51,6 +76,8 @@ export async function loadCustomerInsight(input: {
   viewer: ViewerIdentity;
   historyBrands?: string[];
   historyItems?: string[];
+  /** Admin-only: evaluate visibility as this merchant. */
+  viewAsMerchant?: string | null;
 }): Promise<CustomerInsightDto | null> {
   const contact = await prisma.contactMaster.findFirst({
     where: { id: input.contactId, companyId: input.companyId },
@@ -80,8 +107,13 @@ export async function loadCustomerInsight(input: {
   });
   if (!contact) return null;
 
-  const visibility = insightVisibility(input.viewer, contact.assignedMerchant);
-  const includeRemovedEmails = hasInsightAdminView(input.viewer);
+  const viewer = await resolveInsightLoadViewer({
+    companyId: input.companyId,
+    viewer: input.viewer,
+    viewAsMerchant: input.viewAsMerchant,
+  });
+  const visibility = insightVisibility(viewer, contact.assignedMerchant);
+  const includeRemovedEmails = hasInsightAdminView(viewer);
   const emails = await listContactEmails(contact.id, contact.email);
   const phones = await listContactPhones(contact.id, contact.phoneNumber);
   const orderLookupOr = buildContactOrderLookupOr({ phones, emails });
@@ -203,6 +235,19 @@ export async function loadCustomerInsight(input: {
     loyaltyEligibleDates.push(r.invoiceDate);
   }
 
+  // "Last purchased" is derived here rather than read from ContactMaster.lastPurchaseAt:
+  // that column only ever moves forward, so it drifts ahead of the history this page
+  // shows. A placed order counts from the day it is placed; reversals never do.
+  const purchaseDates: number[] = [];
+  for (const o of orders) {
+    if (!isOrderReversed(o)) purchaseDates.push(o.createdAt.getTime());
+  }
+  for (const r of adaptRows) {
+    purchaseDates.push(r.invoiceDate.getTime());
+  }
+  const lastPurchaseAt =
+    purchaseDates.length > 0 ? new Date(Math.max(...purchaseDates)) : null;
+
   const seriesEvents = [
     ...historyOrders.map((o) => ({
       date: o.createdAt,
@@ -316,7 +361,7 @@ export async function loadCustomerInsight(input: {
       birthDay: contact.birthDay,
       assignedMerchant: contact.assignedMerchant,
       category: contact.category,
-      lastPurchaseAt: contact.lastPurchaseAt,
+      lastPurchaseAt,
       removedEmails: includeRemovedEmails ? removedEmailRows : undefined,
     }),
     loyalty: (() => {

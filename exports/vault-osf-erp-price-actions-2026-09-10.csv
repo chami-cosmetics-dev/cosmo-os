@@ -1,0 +1,13 @@
+﻿sku,item,instance,issue,current_state,action
+CT037-1,Centrum Men 50+ Multivitamins & Minerals  30 Tablets,ERP_1,No Standard Selling price anywhere,Standard Buying 2337.27 (from 2026-07-31),Add Standard Selling price
+KS008-1,Kirkland Signature Quick Dissolve B-12 5000 mcg 300 Tablets,ERP_1,No Standard Selling price anywhere,Standard Buying 13500 (from 2026-08-03),Add Standard Selling price
+OR001-1,Orgain Collagen Peptides Unflavored 454g (16oz),ERP_1,No Standard Selling price anywhere,Standard Buying 17500 (from 2026-08-03),Add Standard Selling price
+OR002-1,Orgain Organic Protein 50 Superfoods  Powder Creamy Chocolate Fudge Protein Powder 1.2kg (42.3oz),ERP_1,No Standard Selling price anywhere,Standard Buying 28900 (from 2026-08-03),Add Standard Selling price
+ME002-1,Menopace Original 30 Tablets,either,No Item Price row at all,(nothing),Add Standard Selling price
+OS002-1,Osteocare Original Calcium & Vitamin D 90 Tablets,either,No Item Price row at all,(nothing),Add Standard Selling price
+SC006-1,Seven Seas Women 50+ Complete Multivitamins 28 Tablets,either,No Item Price row at all,(nothing),Add Standard Selling price
+SC007-1,Seven Seas Omega-3 & Multivitamins Men 50+ 30 Day Duo Pack,either,No Item Price row at all,(nothing),Add Standard Selling price
+CT027-1,Centrum Women Multivitamins & Mineral 30 Tablets,ERP_1,Standard Selling row with rate = 0,0 valid from 2026-07-28 (ERP_2 has 7950 same date),Delete the zero row or set the real rate
+JS012-1,Jamieson Multivitamin Gummies For Adults 150 Gummies,ERP_1,Stale duplicate Standard Selling row,"9950 no valid_from, alongside 12950 from 2026-07-31",Delete the stale 9950 row
+NW023-1,"Now Vegan Hair, Skin & Nails 90 Veg Capsules",both,Instances disagree; ERP_1 price is BELOW cost,ERP_1 10900 vs ERP_2 18500; purchase cost 14700,"Decide true price, align both instances"
+SW005-1,Swisse Beauty Bright Skin Booster 60 Capsules,both,Instances disagree,ERP_1 14850 vs ERP_2 12500,"Decide true price, align both instances"

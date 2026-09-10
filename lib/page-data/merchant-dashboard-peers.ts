@@ -20,11 +20,17 @@ import {
   resolveCohortMerchantId,
   splitMerchantCouponSets,
 } from "@/lib/merchant-dm-sales";
+import {
+  buildWholesaleCouponSet,
+  orderIsWholesale,
+  wholesaleMerchantMatchesOrder,
+} from "@/lib/merchant-wholesale";
 
 export type CohortMerchantInput = {
   id: string;
   displayName: string;
   couponCodes: string[];
+  wholesaleCouponCodes?: string[];
 };
 
 export type CohortMerchantTotals = {
@@ -52,6 +58,7 @@ export type CohortSalesResult = {
   dmBucketId: string | null;
   /** Merchant user ids who hold DM coupon codes (DM-General attributees). */
   dmHolderIds: string[];
+  wholesaleByMerchant: Map<string, { total: number; orderCount: number }>;
 };
 
 function resolveDmHolderIds(merchants: CohortMerchantInput[]): string[] {
@@ -111,6 +118,11 @@ export async function fetchMerchantCohortSales(
 
   const locationNames = new Map<string, string>();
   const dmHolderIds = resolveDmHolderIds(merchants);
+  const wholesaleByMerchant = new Map<string, { total: number; orderCount: number }>();
+  const wholesaleSetsByMerchant = new Map(
+    merchants.map((m) => [m.id, buildWholesaleCouponSet(m.wholesaleCouponCodes)]),
+  );
+
   if (fromDate > toDate || merchants.length === 0) {
     return {
       fromYmd: params.fromYmd,
@@ -119,6 +131,7 @@ export async function fetchMerchantCohortSales(
       locationNames,
       dmBucketId: null,
       dmHolderIds,
+      wholesaleByMerchant,
     };
   }
 
@@ -192,6 +205,19 @@ export async function fetchMerchantCohortSales(
       joinAllDiscountCodes: true,
     });
     const orderCoupons = parseOrderCouponList(merchantCouponCode);
+    const amount = Number(order.totalPrice ?? 0);
+    if (orderIsWholesale(orderCoupons)) {
+      for (const m of merchants) {
+        const whSet = wholesaleSetsByMerchant.get(m.id);
+        if (!whSet || whSet.size === 0) continue;
+        if (!wholesaleMerchantMatchesOrder(orderCoupons, whSet)) continue;
+        const whRow = wholesaleByMerchant.get(m.id) ?? { total: 0, orderCount: 0 };
+        whRow.total += amount;
+        whRow.orderCount += 1;
+        wholesaleByMerchant.set(m.id, whRow);
+      }
+      continue;
+    }
     const merchantId = resolveCohortMerchantId({
       orderCoupons,
       couponToMerchantId,
@@ -204,7 +230,6 @@ export async function fetchMerchantCohortSales(
     const row = byMerchant.get(merchantId);
     if (!row) continue;
 
-    const amount = Number(order.totalPrice ?? 0);
     row.total += amount;
     row.orderCount += 1;
 
@@ -240,6 +265,7 @@ export async function fetchMerchantCohortSales(
     locationNames,
     dmBucketId,
     dmHolderIds,
+    wholesaleByMerchant,
   };
 }
 

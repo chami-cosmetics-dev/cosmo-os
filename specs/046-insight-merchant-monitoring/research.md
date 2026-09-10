@@ -130,3 +130,16 @@ For **never purchased**: add optional `hasLastPurchase: "false"` to filter schem
 **Rationale**: Spec assumption: Admin tab extension; existing `canExportFilteredCsv` / `hasInsightAdminView` gating.
 
 **Alternatives considered**: New sidebar route — rejected (spec). Embed in Merchant Dashboard — rejected (spec says Insight page).
+
+---
+
+## R10 — Performance pitfalls (first implementation review)
+
+**Decision**: When implementing `buildMerchantMonitoringReport`, follow R4 batched queries strictly. Avoid these anti-patterns that caused slow loads:
+
+1. **Do not** load `phones` / `emails` relations on every allocated contact for portfolio rollup — DOB/email completeness uses `birthMonth`, `birthDay`, and `email` on `ContactMaster` only.
+2. **Do not** fetch all company orders for the period when lookup key count exceeds a threshold — always filter Adapt/Cosmo queries to the allocated contact id / phone / email key set (chunked `IN` batches).
+3. **Prefer** one `groupBy` or batched `findMany` over per-contact Adapt calls (N+1).
+4. **Test** with realistic data: monitoring must return in <5s (SC-004). If slow, profile `buildMerchantMonitoringReport` before adding UI polish.
+
+**Rationale**: First pass hung on "Loading monitoring…" due to unfiltered order scan + heavy relation joins.

@@ -39,6 +39,7 @@ export async function fetchMerchantLoyaltyOutreach(input: {
     name?: string | null;
     email?: string | null;
     couponCodes?: string[] | null;
+    roleNames?: string[];
   };
   take?: number;
 }): Promise<MerchantLoyaltyOutreachItem[]> {

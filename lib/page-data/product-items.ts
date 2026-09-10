@@ -155,33 +155,31 @@ function sortGroupedItems<T extends ReturnType<typeof groupProductItems>[number]
 
 const getProductItemsPageLookups = unstable_cache(
   async (companyId: string) => {
-    const [locations, vendors, categories, familyRows, priorityRows] = await Promise.all([
-      prisma.companyLocation.findMany({
-        where: { companyId },
-        orderBy: { name: "asc" },
-        select: { id: true, name: true },
-      }),
-      prisma.vendor.findMany({
-        where: { companyId },
-        orderBy: { name: "asc" },
-        select: { id: true, name: true },
-      }),
-      prisma.category.findMany({
-        where: { companyId },
-        orderBy: { name: "asc" },
-        select: { id: true, name: true },
-      }),
-      prisma.productItem.findMany({
-        where: { companyId },
-        orderBy: { productTitle: "asc" },
-        distinct: ["productTitle"],
-        select: { productTitle: true },
-      }),
-      prisma.productItem.findMany({
-        where: { companyId },
-        select: { erp1ProductPriority: true, erp2ProductPriority: true },
-      }),
-    ]);
+    const locations = await prisma.companyLocation.findMany({
+      where: { companyId },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true },
+    });
+    const vendors = await prisma.vendor.findMany({
+      where: { companyId },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true },
+    });
+    const categories = await prisma.category.findMany({
+      where: { companyId },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true },
+    });
+    const familyRows = await prisma.productItem.findMany({
+      where: { companyId },
+      orderBy: { productTitle: "asc" },
+      distinct: ["productTitle"],
+      select: { productTitle: true },
+    });
+    const priorityRows = await prisma.productItem.findMany({
+      where: { companyId },
+      select: { erp1ProductPriority: true, erp2ProductPriority: true },
+    });
     const familyNames = Array.from(
       new Set(familyRows.map((row) => getProductFamilyName(row.productTitle)))
     ).sort((a, b) => a.localeCompare(b, "en", { sensitivity: "base", numeric: true }));

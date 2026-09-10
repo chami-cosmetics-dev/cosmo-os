@@ -7,7 +7,7 @@ import {
   splitMerchantCouponSets,
 } from "@/lib/merchant-dm-sales";
 
-type MerchantUser = {
+export type MerchantUser = {
   id: string;
   knownName?: string | null;
   name?: string | null;

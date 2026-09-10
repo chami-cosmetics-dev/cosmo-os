@@ -1,9 +1,14 @@
+import type { BookNoteSplitLine } from "@/lib/book-notes/split-lines";
+import type { BookNoteMethodTotal } from "@/lib/book-notes/summary";
+
 export type BookNotePaymentColumns = {
   cash: number;
   card: number;
   koko: number;
   bankTransfer: number;
 };
+
+export type { BookNoteSplitLine };
 
 export type BookNoteRowDto = {
   idx_no: string;
@@ -16,6 +21,8 @@ export type BookNoteRowDto = {
   bank_transfer: number;
   row_total: number;
   is_multi_method: boolean;
+  /** Present when outlet used SPLIT — sent to ERP as split_lines. */
+  split_lines: BookNoteSplitLine[] | null;
   orderId?: string | null;
 };
 
@@ -40,6 +47,14 @@ export type BookNoteDayDto = {
   locked: boolean;
   rows: BookNoteRowDto[];
   receipts: BookNoteReceiptDto[];
+  /**
+   * Another merchant already keyed this day at an outlet the viewer is not
+   * posted to. Rows and receipts are withheld and the sheet stays read-only so
+   * a save cannot replace their entry.
+   */
+  restricted?: boolean;
+  /** Who owns the sheet, shown with the restricted notice. */
+  enteredBy?: string | null;
 };
 
 export type BookNoteOrderSuggestion = {
@@ -72,4 +87,42 @@ export type BookNoteHistoryItem = {
   grandTotal: number;
   updatedAt: string;
   locked: boolean;
+  /** Who last saved the sheet — shown when same-outlet colleagues share history. */
+  enteredBy: string | null;
+  /** True when the viewer created or last saved this sheet themselves. */
+  isOwn: boolean;
+};
+
+/** Who created or last saved a sheet, for the finance audit column. */
+export type BookNoteActor = {
+  name: string;
+  at: string;
+};
+
+/** One book note day as finance reviews it: totals, rows, photos, authorship. */
+export type BookNoteFinanceDay = {
+  id: string;
+  companyLocationId: string;
+  shopName: string;
+  /** ERPNext company for the shop, when mapped. */
+  company: string;
+  posting_date: string;
+  submittedBy: BookNoteActor | null;
+  lastUpdatedBy: BookNoteActor | null;
+  rowCount: number;
+  methods: BookNoteMethodTotal[];
+  entryCount: number;
+  grandTotal: number;
+  rows: BookNoteRowDto[];
+  receipts: BookNoteReceiptDto[];
+};
+
+/** Range roll-up shown above the day list. */
+export type BookNoteFinanceSummary = {
+  dayCount: number;
+  rowCount: number;
+  receiptCount: number;
+  methods: BookNoteMethodTotal[];
+  entryCount: number;
+  grandTotal: number;
 };

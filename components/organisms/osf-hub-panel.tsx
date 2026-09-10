@@ -8,6 +8,8 @@ import { OsfGeneratePanel } from "@/components/organisms/osf-generate-panel";
 import { OsfProductEditor } from "@/components/organisms/osf-product-editor";
 import { OsfRopImportPanel } from "@/components/organisms/osf-rop-import-panel";
 import { OsfSupplierOrdersPanel } from "@/components/organisms/osf-supplier-orders-panel";
+import { VaultOsfGeneratePanel } from "@/components/organisms/vault-osf-generate-panel";
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 
 type LocationOption = { id: string; name: string; shortName: string | null };
 
@@ -50,22 +52,33 @@ export function OsfHubPanel({
   canAssignColumns = false,
   initialLocations,
 }: Props) {
+  const vault = isVaultOsDeployment();
+
   return (
     <div className="space-y-10 p-4 md:p-6">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Order Support File</h1>
         <p className="text-sm text-muted-foreground">
-          Set ROP, shop availability, OGF price, and threshold, then download the workbook
-          and build supplier orders.
+          {vault
+            ? "Set SV / ORI / AE reorder points, then download the workbook. April–May sales can be uploaded if ERP has no history yet."
+            : "Set ROP, shop availability, OGF price, and threshold, then download the workbook and build supplier orders."}
         </p>
       </div>
 
       <HubSection
         title="1. Maintain products"
-        description="Edit SKUs on this page, or bulk-update warehouse ROPs from Excel."
+        description={
+          vault
+            ? "Edit SV / ORI / AE ROP on this page, or bulk-update from Excel."
+            : "Edit SKUs on this page, or bulk-update warehouse ROPs from Excel."
+        }
       >
         <HubCard>
-          <OsfProductEditor canManage={canManage} canManageThreshold={canManageThreshold} />
+          <OsfProductEditor
+            canManage={canManage}
+            canManageThreshold={vault ? false : canManageThreshold}
+            hideCosmoFields={vault}
+          />
         </HubCard>
         {canManage ? (
           <HubCard>
@@ -76,25 +89,39 @@ export function OsfHubPanel({
 
       <HubSection
         title="2. Generate workbook"
-        description="Download Main OSF (or reorder-only when permitted). Missing ERP stock/cost stays blank."
+        description={
+          vault
+            ? "Download the SV / ORI / AE order support file. Missing ERP figures stay blank."
+            : "Download Main OSF (or reorder-only when permitted). Missing ERP stock/cost stays blank."
+        }
       >
         <HubCard>
-          <OsfGeneratePanel canReorderOnly={canReorderOnly} />
+          {vault ? (
+            <VaultOsfGeneratePanel canManage={canManage} />
+          ) : (
+            <OsfGeneratePanel canReorderOnly={canReorderOnly} />
+          )}
         </HubCard>
       </HubSection>
 
-      <HubSection
-        title="3. Supplier orders"
-        description="Allocate reorder qty across suppliers and export order files."
-      >
-        <HubCard>
-          <OsfSupplierOrdersPanel />
-        </HubCard>
-      </HubSection>
+      {vault ? null : (
+        <HubSection
+          title="3. Supplier orders"
+          description="Allocate reorder qty across suppliers and export order files."
+        >
+          <HubCard>
+            <OsfSupplierOrdersPanel />
+          </HubCard>
+        </HubSection>
+      )}
 
       <HubSection
-        title="4. Setup"
-        description="Warehouse/shop columns in the Excel file, and which columns each buyer receives."
+        title={vault ? "3. Setup" : "4. Setup"}
+        description={
+          vault
+            ? "SV / ORI / AE columns in the Excel file, and which columns each buyer receives."
+            : "Warehouse/shop columns in the Excel file, and which columns each buyer receives."
+        }
       >
         <HubCard>
           <OsfColumnsSettings canManage={canManage} initialLocations={initialLocations} />

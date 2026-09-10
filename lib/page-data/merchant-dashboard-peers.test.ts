@@ -20,6 +20,7 @@ function emptyCohort(
     ]),
     dmBucketId: null,
     dmHolderIds: [],
+    wholesaleByMerchant: new Map(),
   };
 }
 

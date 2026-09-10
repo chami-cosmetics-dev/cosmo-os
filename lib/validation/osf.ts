@@ -17,6 +17,7 @@ export const osfColumnUpsertSchema = z.object({
         label: trimmedString(1, LIMITS.locationShortName.max),
         companyLocationId: cuidSchema.nullable().optional(),
         erpnextInstanceId: cuidSchema.nullable().optional(),
+        erpCompany: trimmedString(1, 140).nullable().optional(),
         directWarehouses: z.array(trimmedString(1, 200)).max(50).optional(),
         includeInStock: z.boolean().optional().default(true),
         includeInRop: z.boolean().optional().default(true),
@@ -177,3 +178,17 @@ export type OsfSupplierOrdersPageDataQuery = z.infer<typeof osfSupplierOrdersPag
 export type OsfSupplierOrdersItemsQuery = z.infer<typeof osfSupplierOrdersItemsQuerySchema>;
 export type OsfSupplierOrdersSuppliersQuery = z.infer<typeof osfSupplierOrdersSuppliersQuerySchema>;
 export type OsfSupplierOrdersGenerateBodyInput = z.infer<typeof osfSupplierOrdersGenerateBodySchema>;
+
+export const vaultOsfGenerateBodySchema = z.object({
+  asOfDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "asOfDate must be YYYY-MM-DD")
+    .optional(),
+});
+
+export const vaultOsfSalesHistoryQuerySchema = z.object({
+  month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "month must be YYYY-MM"),
+});
+
+export type VaultOsfGenerateBodyInput = z.infer<typeof vaultOsfGenerateBodySchema>;
+export type VaultOsfSalesHistoryQuery = z.infer<typeof vaultOsfSalesHistoryQuerySchema>;

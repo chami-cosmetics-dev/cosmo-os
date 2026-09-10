@@ -1,6 +1,13 @@
 import { Prisma } from "@prisma/client";
 
-import { formatFailedErpSyncErrorMessage } from "@/lib/failed-erp-sync-classification";
+import {
+  FINANCE_PENDING_FULFILLMENT_EXCLUSION,
+  ORDER_PAYMENT_APPROVAL,
+} from "@/lib/approval-workflow";
+import {
+  classifyFailedErpSyncError,
+  formatFailedErpSyncErrorMessage,
+} from "@/lib/failed-erp-sync-classification";
 import { markOrderFinanciallyInvoiceComplete } from "@/lib/financial-invoice-complete";
 import {
   syncOrderDeliveryPaymentEntriesToErp,
@@ -9,8 +16,72 @@ import {
 } from "@/lib/erpnext-sync";
 import { prisma } from "@/lib/prisma";
 
+const PE_AUTO_RETRY_DELAYS_MS = [
+  60_000,
+  3 * 60_000,
+  10 * 60_000,
+  30 * 60_000,
+] as const;
+const PE_AUTO_RETRY_BATCH_LIMIT = 10;
+const PE_AUTO_RETRY_LEASE_MS = 2 * 60_000;
+
+type OrderErpPeSyncRetryPatch = {
+  erpPeSyncError?: string | null;
+  erpPeSyncFailedAt?: Date | null;
+  erpPeSyncMop?: string | null;
+  erpPeSyncAutoRetryCount?: number;
+  erpPeSyncLastAutoRetryAt?: Date | null;
+  erpPeSyncNextAutoRetryAt?: Date | null;
+  erpPeSyncRetryLeaseExpiresAt?: Date | null;
+};
+
+function orderPeUpdate(patch: OrderErpPeSyncRetryPatch): Prisma.OrderUpdateInput {
+  return patch as Prisma.OrderUpdateInput;
+}
+
+function orderPeUpdateMany(patch: OrderErpPeSyncRetryPatch): Prisma.OrderUpdateManyMutationInput {
+  return patch as Prisma.OrderUpdateManyMutationInput;
+}
+
+function orderPeWhere(patch: Record<string, unknown>): Prisma.OrderWhereInput {
+  return patch as Prisma.OrderWhereInput;
+}
+
+function orderPeOrderBy(patch: Record<string, unknown>): Prisma.OrderOrderByWithRelationInput {
+  return patch as Prisma.OrderOrderByWithRelationInput;
+}
+
+export const ERP_PE_SYNC_SUCCESS_CLEAR = {
+  erpPeSyncError: null,
+  erpPeSyncFailedAt: null,
+  erpPeSyncMop: null,
+  erpPeSyncAutoRetryCount: 0,
+  erpPeSyncLastAutoRetryAt: null,
+  erpPeSyncNextAutoRetryAt: null,
+  erpPeSyncRetryLeaseExpiresAt: null,
+} as const;
+
+export function getNextFailedErpPeSyncAutoRetryAt(
+  autoRetryCount: number,
+  from: Date = new Date(),
+) {
+  const delayMs = PE_AUTO_RETRY_DELAYS_MS[autoRetryCount];
+  if (delayMs == null) return null;
+  return new Date(from.getTime() + delayMs);
+}
+
 /** Stored when invoice-complete used order payment gateways (legacy label). */
 export const ERP_PE_SYNC_MOP_ORDER_AUTO = "order payment mode";
+
+export const PENDING_FINANCE_APPROVAL_PE_RETRY_ERROR =
+  "Payment entry is awaiting finance approval. Invoice complete is set when finance approves.";
+
+export const SPLIT_PAYMENT_FINANCE_APPROVAL_PE_RETRY_ERROR =
+  "Split payment retry must be approved again from Finance Approvals so each payment method keeps its correct amount";
+
+export function isPendingFinanceApprovalPeRetryError(message: string): boolean {
+  return classifyFailedErpSyncError(message).type === "Pending approval";
+}
 
 export const ERP_PE_GAP_ERROR_PREFIX = "PE missing";
 
@@ -24,6 +95,7 @@ export function buildFailedErpPeSyncWhere(companyId?: string, search?: string): 
     ...(companyId ? { companyId } : {}),
     financialStatus: { not: "voided" },
     erpPeSyncError: { not: null },
+    ...FINANCE_PENDING_FULFILLMENT_EXCLUSION,
     OR: [
       { fulfillmentStage: "invoice_complete" },
       { invoiceCompleteAt: { not: null } },
@@ -69,6 +141,7 @@ export function buildSilentErpPeGapCandidateWhere(
     NOT: {
       erpnextInvoiceId: { in: ["pending", "pending_approval"] },
     },
+    ...FINANCE_PENDING_FULFILLMENT_EXCLUSION,
     OR: [
       { fulfillmentStage: "invoice_complete" },
       { invoiceCompleteAt: { not: null } },
@@ -140,30 +213,60 @@ export async function seedSilentErpPeGaps(companyId: string, limit = 15): Promis
   return seeded;
 }
 
+async function getOrderErpPeSyncAutoRetryCount(orderId: string): Promise<number> {
+  const rows = await prisma.$queryRaw<Array<{ erpPeSyncAutoRetryCount: number }>>(
+    Prisma.sql`
+      SELECT COALESCE("erpPeSyncAutoRetryCount", 0) AS "erpPeSyncAutoRetryCount"
+      FROM "Order"
+      WHERE "id" = ${orderId}
+      LIMIT 1
+    `,
+  );
+  return Number(rows[0]?.erpPeSyncAutoRetryCount ?? 0);
+}
+
 export async function markOrderErpPeSyncFailed(
   orderId: string,
   errorMessage: string,
   mopName: string,
   attemptedAt: Date = new Date(),
+  options?: {
+    scheduleAutoRetry?: boolean;
+    incrementAutoRetryCount?: boolean;
+  },
 ) {
+  let autoRetryCount = await getOrderErpPeSyncAutoRetryCount(orderId);
+  if (options?.incrementAutoRetryCount) {
+    autoRetryCount += 1;
+  }
+  const classification = classifyFailedErpSyncError(errorMessage);
+  const isSilentGap = clampErrorMessage(errorMessage).startsWith(ERP_PE_GAP_ERROR_PREFIX);
+  const shouldSchedule =
+    (options?.scheduleAutoRetry ?? true) &&
+    !isSilentGap &&
+    classification.retryable &&
+    autoRetryCount < PE_AUTO_RETRY_DELAYS_MS.length;
+
   await prisma.order.update({
     where: { id: orderId },
-    data: {
+    data: orderPeUpdate({
       erpPeSyncError: clampErrorMessage(errorMessage),
       erpPeSyncFailedAt: attemptedAt,
       erpPeSyncMop: mopName.trim().slice(0, 200),
-    },
+      erpPeSyncLastAutoRetryAt: autoRetryCount > 0 ? attemptedAt : undefined,
+      erpPeSyncNextAutoRetryAt: shouldSchedule
+        ? getNextFailedErpPeSyncAutoRetryAt(autoRetryCount, attemptedAt)
+        : null,
+      erpPeSyncRetryLeaseExpiresAt: null,
+      erpPeSyncAutoRetryCount: autoRetryCount,
+    }),
   });
 }
 
 export async function clearOrderErpPeSyncFailure(orderId: string) {
   await prisma.order.update({
     where: { id: orderId },
-    data: {
-      erpPeSyncError: null,
-      erpPeSyncFailedAt: null,
-      erpPeSyncMop: null,
-    },
+    data: orderPeUpdate(ERP_PE_SYNC_SUCCESS_CLEAR),
   });
 }
 
@@ -222,18 +325,19 @@ export async function retryOrderErpPeSync(input: {
     throw new Error("No failed ERP payment entry on this order");
   }
 
-  const splitApproval = await prisma.approvalRequest.findFirst({
+  const pendingApproval = await prisma.approvalRequest.findFirst({
     where: {
       orderId: order.id,
-      type: "order_payment_approval",
+      type: ORDER_PAYMENT_APPROVAL,
       status: "pending",
-      paymentLines: { some: {} },
     },
-    select: { id: true },
+    select: { id: true, paymentLines: { select: { id: true }, take: 1 } },
   });
-  if (splitApproval) {
+  if (pendingApproval) {
     throw new Error(
-      "Split payment retry must be approved again from Finance Approvals so each payment method keeps its correct amount",
+      pendingApproval.paymentLines.length > 0
+        ? SPLIT_PAYMENT_FINANCE_APPROVAL_PE_RETRY_ERROR
+        : PENDING_FINANCE_APPROVAL_PE_RETRY_ERROR,
     );
   }
 
@@ -270,4 +374,174 @@ export async function retryOrderErpPeSync(input: {
   }
 
   await clearOrderErpPeSyncFailure(order.id);
+}
+
+async function claimDueFailedErpPeSyncs(companyId: string | null, limit: number) {
+  const now = new Date();
+  const leaseUntil = new Date(now.getTime() + PE_AUTO_RETRY_LEASE_MS);
+  const where: Prisma.OrderWhereInput = {
+    AND: [
+      buildFailedErpPeSyncWhere(companyId ?? undefined),
+      orderPeWhere({ erpPeSyncNextAutoRetryAt: { lte: now } }),
+      orderPeWhere({
+        OR: [
+          { erpPeSyncRetryLeaseExpiresAt: null },
+          { erpPeSyncRetryLeaseExpiresAt: { lte: now } },
+        ],
+      }),
+    ],
+  };
+
+  const candidates = await prisma.order.findMany({
+    where,
+    orderBy: [
+      orderPeOrderBy({ erpPeSyncNextAutoRetryAt: "asc" }),
+      orderPeOrderBy({ erpPeSyncFailedAt: "asc" }),
+    ],
+    take: limit * 2,
+    select: { id: true },
+  });
+
+  const claimedIds: string[] = [];
+
+  for (const candidate of candidates) {
+    const claimResult = await prisma.order.updateMany({
+      where: orderPeWhere({
+        id: candidate.id,
+        erpPeSyncNextAutoRetryAt: { lte: now },
+        OR: [
+          { erpPeSyncRetryLeaseExpiresAt: null },
+          { erpPeSyncRetryLeaseExpiresAt: { lte: now } },
+        ],
+      }),
+      data: orderPeUpdateMany({ erpPeSyncRetryLeaseExpiresAt: leaseUntil }),
+    });
+
+    if (claimResult.count === 1) {
+      claimedIds.push(candidate.id);
+    }
+    if (claimedIds.length >= limit) break;
+  }
+
+  if (claimedIds.length === 0) return [];
+
+  return prisma.order.findMany({
+    where: { id: { in: claimedIds } },
+    include: { companyLocation: { include: { erpnextInstance: true } } },
+    orderBy: { erpPeSyncFailedAt: "asc" },
+  });
+}
+
+/** Drop PE failure rows that should wait on Finance Approvals, not Failed PE retry. */
+export async function clearPendingFinanceApprovalErpPeSyncFailures(
+  companyId: string,
+  limit = 50,
+): Promise<number> {
+  const orders = await prisma.order.findMany({
+    where: {
+      companyId,
+      erpPeSyncError: { not: null },
+      approvalRequests: {
+        some: { type: ORDER_PAYMENT_APPROVAL, status: "pending" },
+      },
+    },
+    take: limit,
+    select: { id: true },
+  });
+  for (const order of orders) {
+    await clearOrderErpPeSyncFailure(order.id);
+  }
+  return orders.length;
+}
+
+export async function scheduleUnscheduledFailedErpPeSyncs(companyId?: string, limit = 50) {
+  const orders = await prisma.order.findMany({
+    where: orderPeWhere({
+      AND: [
+        buildFailedErpPeSyncWhere(companyId),
+        { erpPeSyncNextAutoRetryAt: null },
+      ],
+    }),
+    take: limit,
+    select: {
+      id: true,
+      erpPeSyncError: true,
+    },
+  });
+
+  for (const order of orders) {
+    const errorText = order.erpPeSyncError ?? "";
+    if (!errorText || errorText.startsWith(ERP_PE_GAP_ERROR_PREFIX)) continue;
+    const classification = classifyFailedErpSyncError(errorText);
+    if (!classification.retryable) continue;
+
+    const autoRetryCount = await getOrderErpPeSyncAutoRetryCount(order.id);
+    await prisma.order.update({
+      where: { id: order.id },
+      data: orderPeUpdate({
+        erpPeSyncNextAutoRetryAt: getNextFailedErpPeSyncAutoRetryAt(autoRetryCount),
+      }),
+    });
+  }
+}
+
+export async function runDueFailedErpPeSyncRetries(options?: {
+  companyId?: string | null;
+  limit?: number;
+}) {
+  const claimed = await claimDueFailedErpPeSyncs(
+    options?.companyId ?? null,
+    Math.max(1, Math.min(options?.limit ?? PE_AUTO_RETRY_BATCH_LIMIT, 50)),
+  );
+
+  let processed = 0;
+  let resolved = 0;
+  let failed = 0;
+  let skipped = 0;
+
+  for (const order of claimed) {
+    processed += 1;
+    const errorText = order.erpPeSyncError ?? "";
+    if (errorText.startsWith(ERP_PE_GAP_ERROR_PREFIX)) {
+      skipped += 1;
+      await prisma.order.update({
+        where: { id: order.id },
+        data: orderPeUpdate({ erpPeSyncRetryLeaseExpiresAt: null, erpPeSyncNextAutoRetryAt: null }),
+      });
+      continue;
+    }
+
+    const mopName = resolveFailedErpPeRetryMop(order);
+    if (!mopName) {
+      skipped += 1;
+      await prisma.order.update({
+        where: { id: order.id },
+        data: orderPeUpdate({ erpPeSyncRetryLeaseExpiresAt: null }),
+      });
+      continue;
+    }
+
+    try {
+      await retryOrderErpPeSync({
+        orderId: order.id,
+        companyId: order.companyId,
+        mopName,
+      });
+      resolved += 1;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (isPendingFinanceApprovalPeRetryError(errorMessage)) {
+        skipped += 1;
+        await clearOrderErpPeSyncFailure(order.id);
+        continue;
+      }
+      failed += 1;
+      await markOrderErpPeSyncFailed(order.id, errorMessage, mopName, new Date(), {
+        incrementAutoRetryCount: true,
+        scheduleAutoRetry: true,
+      });
+    }
+  }
+
+  return { processed, resolved, failed, skipped };
 }

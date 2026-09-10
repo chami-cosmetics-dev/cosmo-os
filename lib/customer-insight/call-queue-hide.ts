@@ -39,26 +39,35 @@ export type CallQueueHideInput = {
   hasPendingQueue: boolean;
 };
 
-export function isHiddenFromCallQueueAssign(input: CallQueueHideInput): boolean {
+/** Short label when hide rules apply; null when eligible to assign. */
+export function callQueueHideReason(input: CallQueueHideInput): string | null {
   const category = (input.currentCategory ?? "").trim();
-  if (PERMANENT_OMIT.has(category)) return true;
-  if (input.hasPendingQueue) return true;
+  if (PERMANENT_OMIT.has(category)) return category;
+  if (input.hasPendingQueue) return "Already queued";
 
   if (input.allocationAt && input.now < addCalendarMonthsUtc(input.allocationAt, 2)) {
-    return true;
+    return "Allocated < 2 months";
   }
 
   const lastAt = input.lastNonAllocationAt;
   const lastCat = (input.lastNonAllocationCategory ?? "").trim();
-  if (!lastAt || !lastCat) return false;
+  if (!lastAt || !lastCat) return null;
 
   if (lastCat === NOT_RESPONDING) {
-    return input.now < eligibleAtStartOfUtcDayAfter(lastAt, 7);
+    return input.now < eligibleAtStartOfUtcDayAfter(lastAt, 7)
+      ? "Not Responding (7 days)"
+      : null;
   }
 
-  if (PERMANENT_OMIT.has(lastCat)) return true;
+  if (PERMANENT_OMIT.has(lastCat)) return lastCat;
 
-  return input.now < addCalendarMonthsUtc(lastAt, 2);
+  return input.now < addCalendarMonthsUtc(lastAt, 2)
+    ? `${lastCat} (< 2 months)`
+    : null;
+}
+
+export function isHiddenFromCallQueueAssign(input: CallQueueHideInput): boolean {
+  return callQueueHideReason(input) != null;
 }
 
 export function isCallCenterTemplateCategory(value: string): boolean {

@@ -54,6 +54,7 @@ import {
 import {
   findTakenKokoReferences,
   parseKokoApprovalPayload,
+  releaseKokoReferencesForOrderInTx,
   type ParsedKokoApprovalPayload,
 } from "@/lib/koko-approval-references";
 import {
@@ -629,12 +630,16 @@ export async function PATCH(
             requestNote: defaultRequestNote,
             reviewNote: `Split payment rejected: ${reviewNote}`,
             kokoReference: null,
+            multipleKokoPayments: false,
             reviewedById: null,
             reviewedAt: null,
             updatedAt: now,
           },
         });
         if (updated.count === 0) throw new ConcurrentApprovalDecisionError();
+        await tx.approvalKokoReference.deleteMany({
+          where: { approvalRequestId: approval.id },
+        });
         await tx.approvalPaymentLine.deleteMany({
           where: { approvalRequestId: approval.id },
         });
@@ -765,6 +770,7 @@ export async function PATCH(
             cancelledById: reviewerId,
           },
         });
+        await releaseKokoReferencesForOrderInTx(approval.orderId!, tx);
 
         await tx.$executeRaw(
           Prisma.sql`
@@ -901,6 +907,11 @@ export async function PATCH(
     }
 
     if (nextStatus === "approved" && kokoApprovalPayload) {
+      // Retry after split ERP PE revert leaves child rows. Unique (companyId, reference)
+      // would otherwise reject the same two KOKO payments as "already used".
+      await tx.approvalKokoReference.deleteMany({
+        where: { approvalRequestId: approval.id },
+      });
       await tx.approvalKokoReference.createMany({
         data: kokoApprovalPayload.entries.map((entry, sortOrder) => ({
           companyId,
@@ -1013,6 +1024,7 @@ export async function PATCH(
             ...orderStageUpdate("returned", now),
           },
         });
+        await releaseKokoReferencesForOrderInTx(approval.orderId!, tx);
         await tx.orderReturn.updateMany({
           where: { orderId: approval.orderId!, remarkTemplate: "invoice_revert", actionStatus: "pending" },
           data: {
@@ -1125,6 +1137,7 @@ export async function PATCH(
             cancelReason: approval.requestNote,
           },
         });
+        await releaseKokoReferencesForOrderInTx(approval.orderId, tx);
       }
     }
 

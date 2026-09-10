@@ -3,8 +3,9 @@
 import { SamplesFreeIssuesSettingsForm } from "@/components/molecules/samples-free-issues-settings-form";
 import { PackageHoldReasonsSettingsForm } from "@/components/molecules/package-hold-reasons-settings-form";
 import { CourierServicesSettingsForm } from "@/components/molecules/courier-services-settings-form";
+import { CitypakAccountsSettingsForm } from "@/components/molecules/citypak-accounts-settings-form";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Package, Truck, Gift } from "lucide-react";
+import { KeyRound, Package, Truck, Gift } from "lucide-react";
 
 interface FulfillmentSettingsDataProps {
   canEdit: boolean;
@@ -30,7 +31,7 @@ export function FulfillmentSettingsData({ canEdit }: FulfillmentSettingsDataProp
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-3 md:grid-cols-3">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <div className="rounded-2xl border border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_95%,white),color-mix(in_srgb,var(--secondary)_8%,transparent))] p-4 shadow-xs">
           <p className="flex items-center gap-2 text-sm font-semibold">
             <Gift className="size-4 text-muted-foreground" aria-hidden />
@@ -58,10 +59,20 @@ export function FulfillmentSettingsData({ canEdit }: FulfillmentSettingsDataProp
             Define external delivery partners used during fulfillment operations.
           </p>
         </div>
+        <div className="rounded-2xl border border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_95%,white),color-mix(in_srgb,var(--primary)_8%,transparent))] p-4 shadow-xs">
+          <p className="flex items-center gap-2 text-sm font-semibold">
+            <KeyRound className="size-4 text-muted-foreground" aria-hidden />
+            CityPak API
+          </p>
+          <p className="text-muted-foreground mt-1 text-xs">
+            Map each brand invoice prefix to a CityPak account token for auto waybills.
+          </p>
+        </div>
       </div>
       <SamplesFreeIssuesSettingsForm canEdit={canEdit} />
       <PackageHoldReasonsSettingsForm canEdit={canEdit} />
       <CourierServicesSettingsForm canEdit={canEdit} />
+      <CitypakAccountsSettingsForm canEdit={canEdit} />
     </div>
   );
 }

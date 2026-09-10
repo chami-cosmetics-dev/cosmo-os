@@ -214,12 +214,16 @@ export async function persistAdaptPurchaseRow(input: {
     select: { id: true },
   });
 
-  await updatePurchaseSnapshot({
-    contactId: contactId!,
-    occurredAt: classified.invoiceDate,
-    recentMerchant: classified.merchantKnownName,
-    db,
-  });
+  // Phone-only: a row with no phone was matched by email, and an email is never
+  // enough to date a purchase (staff/company addresses are reused across customers).
+  if (phone) {
+    await updatePurchaseSnapshot({
+      contactId: contactId!,
+      occurredAt: classified.invoiceDate,
+      recentMerchant: classified.merchantKnownName,
+      db,
+    });
+  }
 
   return {
     status: "upserted",

@@ -1,4 +1,5 @@
 import { isMerchantTrackingRow } from "@/lib/shopify-discount-codes";
+import { isWholesaleTrackingCode } from "@/lib/merchant-wholesale";
 
 export function getMerchantCouponCode(params: {
   sourceName: string | null | undefined;
@@ -32,6 +33,13 @@ export function getMerchantCouponCode(params: {
     // ERP inbound webhook stores the coupon in discountCodes — prefer MER-prefixed code
     if (Array.isArray(discountCodes) && discountCodes.length > 0) {
       const codes = discountCodes as Array<Record<string, unknown>>;
+      const whEntry = codes.find((d) => {
+        const c = typeof d?.code === "string" ? d.code.trim() : "";
+        return isWholesaleTrackingCode(c);
+      });
+      if (whEntry && typeof whEntry.code === "string" && whEntry.code.trim()) {
+        return whEntry.code.trim();
+      }
       const merEntry = codes.find((d) => {
         const c = typeof d?.code === "string" ? d.code.trim() : "";
         return c.toUpperCase().startsWith("MER");
@@ -71,6 +79,13 @@ export function getMerchantCouponCode(params: {
       const codes = discountCodes as Array<Record<string, unknown>>;
       const merchantOnly = codes.filter(isMerchantTrackingRow);
       if (merchantOnly.length > 0) {
+        const whCode = merchantOnly.find((d) => {
+          const c = typeof d?.code === "string" ? d.code.trim() : "";
+          return isWholesaleTrackingCode(c);
+        });
+        if (whCode && typeof whCode.code === "string" && whCode.code.trim()) {
+          return whCode.code.trim();
+        }
         const merCode = merchantOnly.find((d) => {
           const c = typeof d?.code === "string" ? d.code.trim() : "";
           return c.toUpperCase().startsWith("MER");

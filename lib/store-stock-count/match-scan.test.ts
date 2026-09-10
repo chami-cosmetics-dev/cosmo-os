@@ -33,6 +33,20 @@ describe("matchScan", () => {
     });
   });
 
+  it("matches UPC with or without leading zero", () => {
+    expect(
+      matchScan("022796976703", [
+        { skuKey: "X", sku: "X", barcodes: ["22796976703"] },
+      ]),
+    ).toEqual({ kind: "unique", skuKey: "X" });
+  });
+
+  it("matches SKU when barcodes empty", () => {
+    expect(
+      matchScan("ABC-1", [{ skuKey: "ABC-1", sku: "ABC-1", barcodes: [] }]),
+    ).toEqual({ kind: "unique", skuKey: "ABC-1" });
+  });
+
   it("unknown", () => {
     expect(matchScan("0000", rows)).toEqual({ kind: "none" });
   });

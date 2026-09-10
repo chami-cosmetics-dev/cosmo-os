@@ -39,6 +39,13 @@ export type MerchantAllocationSummary = {
   contactTotal: number;
 };
 
+export type AssignedMerchantRosterMatch = {
+  value: string;
+  label: string;
+};
+
+export const ALLOCATION_EXPORT_BATCH_SIZE = 2500;
+
 export type MerchantAllocationDateRange = {
   from: Date;
   to: Date;
@@ -51,6 +58,58 @@ function norm(value: string): string {
 function pct(numerator: number, denominator: number): number {
   if (denominator <= 0) return 0;
   return Math.min(100, Math.round((numerator / denominator) * 100));
+}
+
+export function uniqueContactPhones(
+  primary: string | null | undefined,
+  aliases: Array<{ phoneNumber: string }>
+): string[] {
+  const phones: string[] = [];
+  const seen = new Set<string>();
+  for (const value of [primary, ...aliases.map((p) => p.phoneNumber)]) {
+    const phone = value?.trim();
+    if (!phone || seen.has(phone)) continue;
+    seen.add(phone);
+    phones.push(phone);
+  }
+  return phones;
+}
+
+export function resolveAllocatedMerchant(
+  rawAssigned: string,
+  aliasToRoster: Map<string, AssignedMerchantRosterMatch>
+): AssignedMerchantRosterMatch {
+  const raw = rawAssigned.trim();
+  const matched = aliasToRoster.get(norm(raw));
+  return {
+    value: matched?.value ?? raw,
+    label: matched?.label ?? raw,
+  };
+}
+
+export async function loadAssignedMerchantAliasMap(
+  companyId: string
+): Promise<Map<string, AssignedMerchantRosterMatch>> {
+  const roster = await listInsightMerchantRosterOptions(companyId);
+  const aliasToRoster = new Map<string, AssignedMerchantRosterMatch>();
+  await Promise.all(
+    roster.map(async (opt) => {
+      const aliases = await resolveAssignedMerchantFilterLabels(
+        companyId,
+        opt.value
+      );
+      for (const alias of aliases) {
+        const key = norm(alias);
+        if (!key || aliasToRoster.has(key)) continue;
+        aliasToRoster.set(key, { value: opt.value, label: opt.label });
+      }
+      const valueKey = norm(opt.value);
+      if (valueKey && !aliasToRoster.has(valueKey)) {
+        aliasToRoster.set(valueKey, { value: opt.value, label: opt.label });
+      }
+    })
+  );
+  return aliasToRoster;
 }
 
 /**
@@ -77,7 +136,7 @@ export async function listMerchantAllocationCounts(
   companyId: string,
   dateRange?: MerchantAllocationDateRange
 ): Promise<MerchantAllocationSummary> {
-  const [grouped, completeGrouped, roster] = await Promise.all([
+  const [grouped, completeGrouped, aliasToRoster] = await Promise.all([
     prisma.contactMaster.groupBy({
       by: ["assignedMerchant", "loyaltyAssignedTier"],
       where: { companyId },
@@ -96,30 +155,8 @@ export async function listMerchantAllocationCounts(
       },
       _count: { _all: true },
     }),
-    listInsightMerchantRosterOptions(companyId),
+    loadAssignedMerchantAliasMap(companyId),
   ]);
-
-  const aliasToRoster = new Map<
-    string,
-    { value: string; label: string }
-  >();
-  await Promise.all(
-    roster.map(async (opt) => {
-      const aliases = await resolveAssignedMerchantFilterLabels(
-        companyId,
-        opt.value
-      );
-      for (const alias of aliases) {
-        const key = norm(alias);
-        if (!key || aliasToRoster.has(key)) continue;
-        aliasToRoster.set(key, { value: opt.value, label: opt.label });
-      }
-      const valueKey = norm(opt.value);
-      if (valueKey && !aliasToRoster.has(valueKey)) {
-        aliasToRoster.set(valueKey, { value: opt.value, label: opt.label });
-      }
-    })
-  );
 
   const counts = new Map<string, MerchantAllocationCountRow>();
   let unallocatedCount = 0;
@@ -415,33 +452,14 @@ export async function listMerchantPurchaseCountSummary(
   companyId: string,
   filter: PurchaseCountFilter = { preset: "today" }
 ): Promise<MerchantPurchaseCountSummary> {
-  const [allocationGrouped, roster] = await Promise.all([
+  const [allocationGrouped, aliasToRoster] = await Promise.all([
     prisma.contactMaster.groupBy({
       by: ["assignedMerchant", "loyaltyAssignedTier"],
       where: { companyId },
       _count: { _all: true },
     }),
-    listInsightMerchantRosterOptions(companyId),
+    loadAssignedMerchantAliasMap(companyId),
   ]);
-
-  const aliasToRoster = new Map<string, { value: string; label: string }>();
-  await Promise.all(
-    roster.map(async (opt) => {
-      const aliases = await resolveAssignedMerchantFilterLabels(
-        companyId,
-        opt.value
-      );
-      for (const alias of aliases) {
-        const key = norm(alias);
-        if (!key || aliasToRoster.has(key)) continue;
-        aliasToRoster.set(key, { value: opt.value, label: opt.label });
-      }
-      const valueKey = norm(opt.value);
-      if (valueKey && !aliasToRoster.has(valueKey)) {
-        aliasToRoster.set(valueKey, { value: opt.value, label: opt.label });
-      }
-    })
-  );
 
   const rowsByKey = new Map<string, MerchantPurchaseCountRow>();
 

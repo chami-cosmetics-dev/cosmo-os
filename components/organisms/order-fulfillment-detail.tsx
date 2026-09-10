@@ -16,6 +16,7 @@ import {
 import { OrderShippingLine } from "@/components/molecules/order-shipping-line";
 import { OrderLineItemPrice } from "@/components/molecules/order-line-item-price";
 import { OrderLineItemsTotals } from "@/components/molecules/order-line-items-totals";
+import { OrderCancelKindSelect, type OrderCancelKindChoice } from "@/components/molecules/order-cancel-kind-select";
 import { Button } from "@/components/ui/button";
 import { useFulfillmentPermissions } from "@/components/contexts/fulfillment-permissions-context";
 import { FulfillmentOrderReference } from "@/components/molecules/fulfillment-order-reference";
@@ -54,7 +55,11 @@ import {
   shouldBlockShopifyCancelInOs,
   VAULT_SHOPIFY_CANCEL_BLOCKED_MESSAGE,
 } from "@/lib/shopify-admin";
+import { draftCitypakShipmentFields } from "@/lib/citypak-api";
+import { isCitypakCourier } from "@/lib/courier";
 import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
+import { CitypakShipmentReviewDialog } from "@/components/molecules/citypak-shipment-review-dialog";
+import { PrintCitypakWaybillButton } from "@/components/molecules/print-citypak-waybill-button";
 import { OrderReplaceLinkPanel } from "@/components/molecules/order-replace-link-panel";
 
 const STAGES = [
@@ -106,6 +111,8 @@ type OrderDetail = {
   shippingRuleLabel?: string | null;
   currency: string | null;
   financialStatus: string | null;
+  paymentGatewayPrimary?: string | null;
+  paymentGatewayNames?: string[] | null;
   fulfillmentStatus: string | null;
   deliveryOutcome?: "pending" | "delivered" | "failed" | null;
   deliveryFailedReason?: string | null;
@@ -221,6 +228,7 @@ type OrderDetail = {
   cancelledAt?: string | null;
   cancelledBy?: { id: string; name: string | null; email: string | null } | null;
   cancelReason?: string | null;
+  cancelKind?: "customer_cancel" | "replacement" | null;
   hasPendingCancelApproval?: boolean;
   replacedByOrder?: {
     id: string;
@@ -286,6 +294,8 @@ export function OrderFulfillmentDetail({
   const [remarkStage, setRemarkStage] = useState<FulfillmentStage>("order_received");
   const [showCancelDialog, setShowCancelDialog] = useState(false);
   const [cancelOrderReason, setCancelOrderReason] = useState("");
+  const [cancelKind, setCancelKind] = useState<OrderCancelKindChoice | "">("");
+  const [citypakReviewOpen, setCitypakReviewOpen] = useState(false);
 
   const isBusy = busyKey !== null;
   const stage = (orderDetail?.fulfillmentStage ?? "order_received") as FulfillmentStage;
@@ -314,12 +324,34 @@ export function OrderFulfillmentDetail({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body ?? { action }),
       });
-      const data = (await res.json()) as { success?: boolean; error?: string };
+      const data = (await res.json()) as {
+        success?: boolean;
+        error?: string;
+        citypakStatus?: "skipped" | "booked" | "falcon" | "retry";
+        citypakError?: string;
+        citypakTracking?: string | null;
+      };
       if (!res.ok) {
         notify.error(data.error ?? "Action failed");
         return;
       }
-      notify.success("Updated.");
+      if (action === "dispatch" && data.citypakStatus === "retry") {
+        notify.error(
+          `Dispatched. CityPak API failed — held for retry (not Falcon). ${data.citypakError ?? ""}`.trim()
+        );
+      } else if (action === "dispatch" && data.citypakStatus === "falcon") {
+        notify.error(
+          `Dispatched. CityPak API not available — use Falcon Upload. ${data.citypakError ?? ""}`.trim()
+        );
+      } else if (action === "dispatch" && data.citypakStatus === "booked") {
+        notify.success(
+          data.citypakTracking
+            ? `Dispatched. CityPak waybill ${data.citypakTracking}. Print waybill below.`
+            : "Dispatched to CityPak."
+        );
+      } else {
+        notify.success(action === "dispatch" ? "Dispatched." : "Updated.");
+      }
       onRefresh();
     } catch {
       notify.error("Action failed");
@@ -357,7 +389,7 @@ export function OrderFulfillmentDetail({
   }
 
   async function handleCancelOrder() {
-    if (!orderId || cancelOrderReason.trim().length < 5) return;
+    if (!orderId || cancelOrderReason.trim().length < 5 || !cancelKind) return;
     if (shouldBlockShopifyCancelInOs(orderDetail?.shopifyOrderId)) {
       notify.error(VAULT_SHOPIFY_CANCEL_BLOCKED_MESSAGE);
       return;
@@ -367,7 +399,7 @@ export function OrderFulfillmentDetail({
       const res = await fetch(`/api/admin/orders/${orderId}/fulfillment`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "cancel_order", reason: cancelOrderReason.trim() }),
+        body: JSON.stringify({ action: "cancel_order", reason: cancelOrderReason.trim(), cancelKind }),
       });
       const data = (await res.json()) as { success?: boolean; requiresApproval?: boolean; error?: string };
       if (!res.ok) { notify.error(data.error ?? "Failed to cancel order"); return; }
@@ -378,6 +410,7 @@ export function OrderFulfillmentDetail({
       }
       setShowCancelDialog(false);
       setCancelOrderReason("");
+      setCancelKind("");
       onRefresh();
     } catch {
       notify.error("Failed to cancel order");
@@ -668,16 +701,29 @@ export function OrderFulfillmentDetail({
                     )}
                   </select>
                   <Button
-                    onClick={() =>
-                      doFulfillmentAction("dispatch", {
+                    onClick={() => {
+                      if (!selectedDispatchService) return;
+                      const courierName =
+                        selectedDispatchService.type === "courier"
+                          ? lookups.courierServices.find((c) => c.id === selectedDispatchService.id)?.name
+                          : null;
+                      if (isCitypakCourier(courierName)) {
+                        setCitypakReviewOpen(true);
+                        return;
+                      }
+                      void doFulfillmentAction("dispatch", {
                         action: "dispatch",
-                        ...dispatchSelectionToApiBody(selectedDispatchService!),
-                      })
-                    }
+                        ...dispatchSelectionToApiBody(selectedDispatchService),
+                      });
+                    }}
                     disabled={isBusy || !selectedDispatchService}
                   >
                     {busyKey === "dispatch" ? <Loader2 className="size-4 animate-spin" /> : <Truck className="size-4" />}
-                    Dispatch
+                    {lookups && selectedDispatchService?.type === "courier" && isCitypakCourier(
+                      lookups.courierServices.find((c) => c.id === selectedDispatchService.id)?.name
+                    )
+                      ? "Review CityPak"
+                      : "Dispatch"}
                   </Button>
                 </div>
               </div>
@@ -687,6 +733,11 @@ export function OrderFulfillmentDetail({
             {!isPos && (stage === "dispatched" || stage === "delivery_complete") && (
               <div className="rounded-lg border p-4">
                 <h4 className="mb-2 text-sm font-medium">Delivery Complete</h4>
+                {isCitypakCourier(orderDetail.dispatchedByCourierService?.name) && orderId && (
+                  <div className="mb-3">
+                    <PrintCitypakWaybillButton orderId={orderId} />
+                  </div>
+                )}
                 {orderDetail.deliveryCompleteAt ? (
                   <p className="text-muted-foreground text-sm">
                     {formatDeliveredTimelineWho({
@@ -912,6 +963,11 @@ export function OrderFulfillmentDetail({
                     orderDetail.cancelledBy?.email?.trim() ||
                     "ERP"}
                 </p>
+                {orderDetail.cancelKind === "replacement" ? (
+                  <p className="mt-1 text-muted-foreground">Type: Replacement (no customer SMS)</p>
+                ) : orderDetail.cancelKind === "customer_cancel" ? (
+                  <p className="mt-1 text-muted-foreground">Type: Cancel (customer SMS)</p>
+                ) : null}
                 {orderDetail.cancelReason && (
                   <p className="mt-1 text-muted-foreground">Reason: {orderDetail.cancelReason}</p>
                 )}
@@ -948,7 +1004,7 @@ export function OrderFulfillmentDetail({
                   variant="outline"
                   size="sm"
                   className="gap-1.5 border-destructive/50 text-destructive hover:bg-destructive/10 hover:text-destructive"
-                  onClick={() => { setCancelOrderReason(""); setShowCancelDialog(true); }}
+                  onClick={() => { setCancelOrderReason(""); setCancelKind(""); setShowCancelDialog(true); }}
                   disabled={isBusy}
                 >
                   <XCircle className="size-4" />
@@ -1160,7 +1216,7 @@ export function OrderFulfillmentDetail({
       </DialogContent>
     </Dialog>
 
-    <AlertDialog open={showCancelDialog} onOpenChange={(open) => { if (!open) { setShowCancelDialog(false); setCancelOrderReason(""); } }}>
+    <AlertDialog open={showCancelDialog} onOpenChange={(open) => { if (!open) { setShowCancelDialog(false); setCancelOrderReason(""); setCancelKind(""); } }}>
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>Cancel Order {orderDetail ? (orderDetail.name ?? orderDetail.orderNumber ?? orderDetail.shopifyOrderId) : ""}</AlertDialogTitle>
@@ -1172,7 +1228,13 @@ export function OrderFulfillmentDetail({
             )}
           </AlertDialogDescription>
         </AlertDialogHeader>
-        <div className="py-1">
+        <div className="space-y-3 py-1">
+          <OrderCancelKindSelect
+            value={cancelKind}
+            onChange={setCancelKind}
+            disabled={busyKey === "cancel_order"}
+          />
+          <div>
           <label className="mb-1.5 block text-sm font-medium" htmlFor="cancel-order-reason">
             Cancellation reason <span className="text-destructive">*</span>
           </label>
@@ -1186,12 +1248,13 @@ export function OrderFulfillmentDetail({
             disabled={busyKey === "cancel_order"}
           />
           <p className="mt-1 text-xs text-muted-foreground">{cancelOrderReason.trim().length}/500 — minimum 5 characters</p>
+          </div>
         </div>
         <AlertDialogFooter>
           <AlertDialogCancel disabled={busyKey === "cancel_order"}>Back</AlertDialogCancel>
           <Button
             variant="destructive"
-            disabled={busyKey === "cancel_order" || cancelOrderReason.trim().length < 5}
+            disabled={busyKey === "cancel_order" || cancelOrderReason.trim().length < 5 || !cancelKind}
             onClick={() => void handleCancelOrder()}
           >
             {busyKey === "cancel_order" ? (
@@ -1205,6 +1268,39 @@ export function OrderFulfillmentDetail({
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+    {orderDetail && (
+      <CitypakShipmentReviewDialog
+        open={citypakReviewOpen}
+        rows={[
+          {
+            orderId: orderDetail.id,
+            ref: orderDetail.name ?? orderDetail.orderNumber ?? orderDetail.shopifyOrderId,
+            draft: draftCitypakShipmentFields({
+              shippingAddress: orderDetail.shippingAddress,
+              billingAddress: orderDetail.billingAddress,
+              customerPhone: orderDetail.customerPhone,
+              financialStatus: orderDetail.financialStatus,
+              paymentGatewayPrimary: orderDetail.paymentGatewayPrimary,
+              paymentGatewayNames: orderDetail.paymentGatewayNames,
+              totalPrice: orderDetail.totalPrice,
+            }),
+          },
+        ]}
+        confirming={busyKey === "dispatch"}
+        onOpenChange={setCitypakReviewOpen}
+        onConfirm={(payload) => {
+          if (!selectedDispatchService) return;
+          const shipment = payload.orderShipments[0];
+          if (!shipment) return;
+          setCitypakReviewOpen(false);
+          void doFulfillmentAction("dispatch", {
+            action: "dispatch",
+            ...dispatchSelectionToApiBody(selectedDispatchService),
+            citypakShipment: shipment,
+          });
+        }}
+      />
+    )}
     </>
   );
 }

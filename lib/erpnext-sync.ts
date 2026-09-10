@@ -17,12 +17,24 @@ import {
 } from "@/lib/erp-shopify-invoice-items";
 import { resolveShopifyShippingLineTotal } from "@/lib/order-shipping-display";
 import { orderHasFreeShippingCoupon } from "@/lib/shopify-discount-codes";
+import { isOrderPaymentRequiresApproval } from "@/lib/approval-workflow";
 import {
   isCcCheckoutGateway,
   orderHasEarlyFinancialInvoiceCompleteGateway,
 } from "@/lib/delivery-payment-approval";
 import { markOrderFinanciallyInvoiceComplete } from "@/lib/financial-invoice-complete";
 import { formatAppIsoDate } from "@/lib/format-datetime";
+import {
+  clearOrderErpPeSyncFailure,
+  ERP_PE_SYNC_MOP_ORDER_AUTO,
+  markOrderErpPeSyncFailed,
+} from "@/lib/failed-erp-pe-sync";
+import { retryTransientErpOperation } from "@/lib/erpnext-transient-retry";
+import {
+  ERP_WHOLESALE_CUSTOMER_GROUP,
+  isWholesaleTrackingCode,
+} from "@/lib/merchant-wholesale";
+import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
 import { isCitypakCourier } from "@/lib/courier";
 import {
   APPROVAL_SPLIT_BANK_TRANSFER,
@@ -187,7 +199,7 @@ function resolvePrepaidMop(cfg: ErpConfig, gateways: string[]): string | null {
 /**
  * After SI exists: create prepaid PE for paid gateways.
  * CC Checkout / WebXPay also set early `invoiceCompleteAt` so they skip manual invoice-complete.
- * KOKO / bank transfer get `invoiceCompleteAt` on finance approval instead.
+ * KOKO / bank / mintpay wait for finance approval (PE + invoiceCompleteAt), including splits.
  */
 async function syncPaidGatewayPeAndMaybeCcInvoiceComplete(input: {
   order: {
@@ -211,6 +223,8 @@ async function syncPaidGatewayPeAndMaybeCcInvoiceComplete(input: {
   };
 }): Promise<void> {
   if (input.order.financialStatus !== "paid") return;
+  // Full Koko/bank PE here would pay the SI before finance confirms split amounts.
+  if (isOrderPaymentRequiresApproval(input.order)) return;
 
   const gateways = (
     [input.order.paymentGatewayPrimary, ...input.order.paymentGatewayNames] as (string | null)[]
@@ -222,13 +236,8 @@ async function syncPaidGatewayPeAndMaybeCcInvoiceComplete(input: {
   if (!mopName) {
     if (earlyInvoiceComplete) {
       const errMsg = "No WebXPay ERP payment mode configured for CC Checkout / WebXPay";
-      await prisma.order.update({
-        where: { id: input.order.id },
-        data: {
-          erpPeSyncError: errMsg.slice(0, 10_000),
-          erpPeSyncFailedAt: new Date(),
-          erpPeSyncMop: null,
-        },
+      await markOrderErpPeSyncFailed(input.order.id, errMsg, ERP_PE_SYNC_MOP_ORDER_AUTO, new Date(), {
+        scheduleAutoRetry: false,
       });
     }
     return;
@@ -265,26 +274,14 @@ async function syncPaidGatewayPeAndMaybeCcInvoiceComplete(input: {
 
     if (earlyInvoiceComplete) {
       await markOrderFinanciallyInvoiceComplete({ orderId: input.order.id, at: input.paidAt });
-      await prisma.order.update({
-        where: { id: input.order.id },
-        data: {
-          erpPeSyncError: null,
-          erpPeSyncFailedAt: null,
-          erpPeSyncMop: null,
-        },
-      });
+      await clearOrderErpPeSyncFailure(input.order.id);
     }
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     console.error("[ERPNext] Payment Entry creation failed after SI sync (SI was created):", err);
-    await prisma.order.update({
-      where: { id: input.order.id },
-      data: {
-        erpPeSyncError: errMsg.slice(0, 10_000),
-        erpPeSyncFailedAt: new Date(),
-        erpPeSyncMop: mopName.slice(0, 200),
-      },
-    }).catch((e) => console.error("[ERPNext] Failed to record PE sync error on order:", e));
+    await markOrderErpPeSyncFailed(input.order.id, errMsg, mopName).catch((e) =>
+      console.error("[ERPNext] Failed to record PE sync error on order:", e),
+    );
   }
 }
 
@@ -341,11 +338,17 @@ async function ensureErpAddress(
 }
 
 async function erpnextPost<T>(cfg: ErpConfig, path: string, body: unknown): Promise<T> {
-  const res = await fetch(`${cfg.baseUrl}${path}`, {
-    method: "POST",
-    headers: authHeaders(cfg),
-    body: JSON.stringify(body),
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${cfg.baseUrl}${path}`, {
+      method: "POST",
+      headers: authHeaders(cfg),
+      body: JSON.stringify(body),
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(`ERPNext POST ${path}: ${msg}`);
+  }
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(`ERPNext POST ${path} [${res.status}]: ${text.slice(0, 500)}`);
@@ -355,7 +358,13 @@ async function erpnextPost<T>(cfg: ErpConfig, path: string, body: unknown): Prom
 }
 
 async function erpnextGet<T>(cfg: ErpConfig, path: string): Promise<T | null> {
-  const res = await fetch(`${cfg.baseUrl}${path}`, { headers: authHeaders(cfg) });
+  let res: Response;
+  try {
+    res = await fetch(`${cfg.baseUrl}${path}`, { headers: authHeaders(cfg) });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(`ERPNext GET ${path}: ${msg}`);
+  }
   if (res.status === 404) return null;
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -676,7 +685,7 @@ async function buildErpSalesInvoiceCouponFields(
   };
 }
 
-async function erpnextSetDocumentField(
+export async function erpnextSetDocumentField(
   cfg: ErpConfig,
   doctype: string,
   name: string,
@@ -811,6 +820,7 @@ async function ensureCustomer(
   email: string | null,
   phone: string | null,
   erpnextCompany: string,
+  customerGroup?: string | null,
 ): Promise<string> {
   const displayName = customerName.trim() || "Guest";
   const canonicalMobile = phone ? canonicalPhoneForErpCustomerId(phone) : null;
@@ -847,7 +857,7 @@ async function ensureCustomer(
       customer_name: displayName,
       customer_type: "Individual",
       // New ERP customers only. Never PATCH customer_group from OS loyalty.
-      customer_group: "Individual",
+      customer_group: customerGroup?.trim() || "Individual",
       territory: "All Territories",
       default_company: erpnextCompany,
       custom_total_purchasing_value: 0,
@@ -885,43 +895,58 @@ async function createPrepaidPaymentEntry(
   dateStr: string,
   mopName: string,
 ): Promise<void> {
-  const mop = await erpnextGet<{
-    name: string;
-    accounts: Array<{ company: string; default_account: string }>;
-  }>(cfg, `/api/resource/Mode%20of%20Payment/${encodeURIComponent(mopName)}`);
+  await retryTransientErpOperation(`prepaid PE ${invoiceName}`, async () => {
+    const invoice = await erpnextGet<{ outstanding_amount: number }>(
+      cfg,
+      `/api/resource/Sales Invoice/${encodeURIComponent(invoiceName)}`,
+    );
+    if (invoice && invoice.outstanding_amount <= 0) {
+      console.log(`[ERPNext] Sales Invoice ${invoiceName} already fully paid — skipping prepaid PE`);
+      return;
+    }
 
-  const paidTo = mop?.accounts?.find((a) => a.company === company)?.default_account;
-  if (!paidTo) {
-    throw new Error(`No account mapped for "${mopName}" mode of payment under company "${company}"`);
-  }
+    const mop = await erpnextGet<{
+      name: string;
+      accounts: Array<{ company: string; default_account: string }>;
+    }>(cfg, `/api/resource/Mode%20of%20Payment/${encodeURIComponent(mopName)}`);
 
-  const pe = await erpnextPost<{ name: string }>(cfg, "/api/resource/Payment Entry", {
-    doctype: "Payment Entry",
-    payment_type: "Receive",
-    company,
-    posting_date: dateStr,
-    mode_of_payment: mop.name,
-    party_type: "Customer",
-    party: customerName,
-    paid_from: debitTo,
-    paid_to: paidTo,
-    reference_no: invoiceName,
-    reference_date: dateStr,
-    paid_amount: totalAmount,
-    received_amount: totalAmount,
-    source_exchange_rate: 1,
-    target_exchange_rate: 1,
-    references: [
-      {
-        reference_doctype: "Sales Invoice",
-        reference_name: invoiceName,
-        allocated_amount: totalAmount,
-      },
-    ],
-    docstatus: 1,
+    const paidTo = mop?.accounts?.find((a) => a.company === company)?.default_account;
+    if (!paidTo) {
+      throw new Error(`No account mapped for "${mopName}" mode of payment under company "${company}"`);
+    }
+
+    const amount = invoice?.outstanding_amount && invoice.outstanding_amount > 0
+      ? Math.min(totalAmount, invoice.outstanding_amount)
+      : totalAmount;
+
+    const pe = await erpnextPost<{ name: string }>(cfg, "/api/resource/Payment Entry", {
+      doctype: "Payment Entry",
+      payment_type: "Receive",
+      company,
+      posting_date: dateStr,
+      mode_of_payment: mop!.name,
+      party_type: "Customer",
+      party: customerName,
+      paid_from: debitTo,
+      paid_to: paidTo,
+      reference_no: invoiceName,
+      reference_date: dateStr,
+      paid_amount: amount,
+      received_amount: amount,
+      source_exchange_rate: 1,
+      target_exchange_rate: 1,
+      references: [
+        {
+          reference_doctype: "Sales Invoice",
+          reference_name: invoiceName,
+          allocated_amount: amount,
+        },
+      ],
+      docstatus: 1,
+    });
+
+    console.log(`[ERPNext] Payment Entry ${pe.name} created for Sales Invoice ${invoiceName} (${mopName})`);
   });
-
-  console.log(`[ERPNext] Payment Entry ${pe.name} created for Sales Invoice ${invoiceName} (${mopName})`);
 }
 
 function detectDeliveryMop(
@@ -1026,6 +1051,25 @@ export function isUsableErpSalesInvoiceId(value: string | null | undefined): boo
 }
 
 export async function createDeliveryPaymentEntry(
+  order: {
+    name: string | null;
+    shopifyOrderId: string;
+    sourceName: string | null;
+    paymentGatewayPrimary: string | null;
+    paymentGatewayNames: string[];
+    erpnextInvoiceId?: string | null;
+    courierServiceName?: string | null;
+  },
+  location: LocationWithErpInstance,
+  completedAt: Date,
+  options?: CreateDeliveryPaymentEntryOptions,
+): Promise<CreateDeliveryPaymentEntryResult> {
+  return retryTransientErpOperation("delivery PE", () =>
+    createDeliveryPaymentEntryOnce(order, location, completedAt, options),
+  );
+}
+
+async function createDeliveryPaymentEntryOnce(
   order: {
     name: string | null;
     shopifyOrderId: string;
@@ -1736,6 +1780,36 @@ export async function ensureErpnextCreditNote(
   };
 }
 
+export const ERP_SI_CANCEL_KIND_FIELD = "custom_cancel_kind";
+
+export function erpCancelKindLabel(kind: "customer_cancel" | "replacement"): string {
+  return kind === "replacement" ? "Replacement" : "Customer Cancel";
+}
+
+/** Stamp Cosmo cancel kind on submitted SI so ERP Auto SMS can skip replacement CNs. Non-fatal. */
+export async function setErpSalesInvoiceCancelKind(
+  location: LocationWithErpInstance,
+  invoiceName: string | null | undefined,
+  kind: "customer_cancel" | "replacement",
+): Promise<void> {
+  const name = invoiceName?.trim();
+  if (!name || name === "pending" || name === "pending_approval") return;
+  const cfg = getErpConfig(location.erpnextInstance);
+  if (!cfg.baseUrl || !cfg.apiKey || !cfg.apiSecret) return;
+  const ok = await erpnextSetDocumentField(
+    cfg,
+    "Sales Invoice",
+    name,
+    ERP_SI_CANCEL_KIND_FIELD,
+    erpCancelKindLabel(kind),
+  );
+  if (ok) {
+    console.log(`[ERPNext] Set ${ERP_SI_CANCEL_KIND_FIELD}=${erpCancelKindLabel(kind)} on ${name}`);
+  } else {
+    console.warn(`[ERPNext] Could not set ${ERP_SI_CANCEL_KIND_FIELD} on Sales Invoice ${name}`);
+  }
+}
+
 export type SalesInvoiceCancellationResult = {
   outcome: "cancelled" | "already_cancelled" | "not_found";
   invoiceName?: string;
@@ -1854,6 +1928,16 @@ export async function cancelErpnextSalesInvoice(
 }
 
 export async function syncBankTransferPaymentToERPNext(
+  orderPoNo: string,
+  location: LocationWithErpInstance,
+  dateStr: string,
+): Promise<void> {
+  await retryTransientErpOperation(`bank transfer PE ${orderPoNo}`, () =>
+    syncBankTransferPaymentToERPNextOnce(orderPoNo, location, dateStr),
+  );
+}
+
+async function syncBankTransferPaymentToERPNextOnce(
   orderPoNo: string,
   location: LocationWithErpInstance,
   dateStr: string,
@@ -2127,7 +2211,24 @@ export async function syncOrderToERPNext(
     null;
   const contactMobile = customerPhone ? canonicalPhoneForErpCustomerId(customerPhone) : null;
 
-  const erpCustomerName = await ensureCustomer(cfg, customerName, customerEmail, customerPhone, location.erpnextCompany);
+  const merchantTrackingCode = getMerchantCouponCode({
+    sourceName: order.sourceName,
+    discountCodes: order.discountCodes,
+    rawPayload: order.rawPayload,
+    assignedMerchantCouponCodes: null,
+  });
+  const wholesaleCustomerGroup = isWholesaleTrackingCode(merchantTrackingCode)
+    ? ERP_WHOLESALE_CUSTOMER_GROUP
+    : null;
+
+  const erpCustomerName = await ensureCustomer(
+    cfg,
+    customerName,
+    customerEmail,
+    customerPhone,
+    location.erpnextCompany,
+    wholesaleCustomerGroup,
+  );
 
   // Use shipping as fallback when billing is absent (common for digital/POS orders)
   const billingAddr = shopifyData.billing_address ?? shopifyData.shipping_address;
@@ -2381,7 +2482,24 @@ export async function syncOrderToERPNextFromOrder(order: OrderWithVaultData): Pr
   const customerPhone = order.customerPhone ?? (typeof addr?.phone === "string" ? addr.phone : null);
   const contactMobile = customerPhone ? canonicalPhoneForErpCustomerId(customerPhone) : null;
 
-  const erpCustomerName = await ensureCustomer(cfg, customerName, customerEmail, customerPhone, erpnextCompany);
+  const manualMerchantCode = getMerchantCouponCode({
+    sourceName: order.sourceName,
+    discountCodes: order.discountCodes,
+    rawPayload: order.rawPayload,
+    assignedMerchantCouponCodes: null,
+  });
+  const manualWholesaleGroup = isWholesaleTrackingCode(manualMerchantCode)
+    ? ERP_WHOLESALE_CUSTOMER_GROUP
+    : null;
+
+  const erpCustomerName = await ensureCustomer(
+    cfg,
+    customerName,
+    customerEmail,
+    customerPhone,
+    erpnextCompany,
+    manualWholesaleGroup,
+  );
 
   const [billingAddressName, shippingAddressName] = await Promise.all([
     ensureErpAddress(cfg, erpCustomerName, addr, "Billing"),

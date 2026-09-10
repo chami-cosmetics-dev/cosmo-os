@@ -3,11 +3,13 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   assertBookNoteShopAllowed,
   resolveBookNoteShopAccess,
+  resolveBookNoteViewScope,
+  resolveBookNoteWriteAccess,
 } from "@/lib/book-notes/access";
-import { isBookNoteWritable, DAY_LOCKED_CODE } from "@/lib/book-notes/lock";
+import { isBookNoteWritable, DAY_LOCKED_CODE, bookNoteLockMessage } from "@/lib/book-notes/lock";
 import { deleteBookNoteReceipt } from "@/lib/book-notes/receipts";
 import { prisma } from "@/lib/prisma";
-import { requirePermission } from "@/lib/rbac";
+import { requireAnyPermission, requirePermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
@@ -21,12 +23,17 @@ function postingDateYmd(value: Date): string {
 
 /**
  * Stream a private receipt blob for authenticated book-note users.
+ * Finance (`book_notes.read`) may view any shop's slips from the gallery;
+ * merchants (`book_notes.manage`) only shops on their own list.
  */
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const auth = await requirePermission("book_notes.manage");
+  const auth = await requireAnyPermission([
+    "book_notes.manage",
+    "book_notes.read",
+  ]);
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
@@ -61,17 +68,20 @@ export async function GET(
     return NextResponse.json({ error: "Receipt not found" }, { status: 404 });
   }
 
-  const access = await resolveBookNoteShopAccess(auth.context!, companyId);
-  if (
-    !assertBookNoteShopAllowed(
-      access,
-      receipt.bookNoteDay.companyLocationId,
-    )
-  ) {
-    return NextResponse.json(
-      { error: "Shop not allowed for your account", code: "SHOP_FORBIDDEN" },
-      { status: 403 },
-    );
+  const viewScope = await resolveBookNoteViewScope(auth.context!, companyId);
+  if (!viewScope.canViewAllShops) {
+    const access = await resolveBookNoteShopAccess(auth.context!, companyId);
+    if (
+      !assertBookNoteShopAllowed(
+        access,
+        receipt.bookNoteDay.companyLocationId,
+      )
+    ) {
+      return NextResponse.json(
+        { error: "Shop not allowed for your account", code: "SHOP_FORBIDDEN" },
+        { status: 403 },
+      );
+    }
   }
 
   const blobRes = await fetch(
@@ -159,10 +169,11 @@ export async function DELETE(
   }
 
   const postingDate = postingDateYmd(receipt.bookNoteDay.postingDate);
-  if (!isBookNoteWritable(postingDate)) {
+  const writeAccess = resolveBookNoteWriteAccess(auth.context!);
+  if (!isBookNoteWritable(postingDate, new Date(), writeAccess)) {
     return NextResponse.json(
       {
-        error: "This sales date is locked.",
+        error: bookNoteLockMessage(postingDate, new Date(), writeAccess),
         code: DAY_LOCKED_CODE,
       },
       { status: 409 },

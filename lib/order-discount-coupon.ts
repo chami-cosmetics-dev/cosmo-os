@@ -72,6 +72,22 @@ export function buildErpOrderDiscountCodes(data: {
   return rows.length > 0 ? rows : null;
 }
 
+/** Append a customer coupon into stored discountCodes without duplicating. */
+export function mergeDiscountCouponIntoCodes(existing: unknown, coupon: string): unknown {
+  const code = coupon.trim();
+  if (!code) return existing;
+  const rows = Array.isArray(existing) ? [...existing] : [];
+  const already = rows.some((row) => {
+    if (typeof row === "string") return row.trim().toLowerCase() === code.toLowerCase();
+    if (!row || typeof row !== "object") return false;
+    const value = (row as { code?: unknown }).code;
+    return typeof value === "string" && value.trim().toLowerCase() === code.toLowerCase();
+  });
+  if (already) return existing ?? rows;
+  rows.push({ code });
+  return rows;
+}
+
 function resolveErpApiCreds(instance: ErpInstanceLike): ErpApiCreds | null {
   const baseUrl = (instance?.baseUrl ?? process.env.ERPNEXT_BASE_URL ?? "").replace(/\/$/, "");
   const apiKey = instance?.apiKey ?? process.env.ERPNEXT_API_KEY ?? "";

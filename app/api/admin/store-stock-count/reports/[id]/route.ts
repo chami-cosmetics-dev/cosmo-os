@@ -17,7 +17,11 @@ export async function GET(_request: NextRequest, context: Ctx) {
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   const { id } = await context.params;
-  const report = await getStoreStockCountReport({ companyId: auth.companyId, reportId: id });
+  const report = await getStoreStockCountReport({
+    companyId: auth.companyId,
+    reportId: id,
+    viewerUserId: auth.context.user.id,
+  });
   if (!report) return NextResponse.json({ error: "Report not found" }, { status: 404 });
 
   return NextResponse.json({ report });

@@ -3,7 +3,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
-import { getDeliveryUrl, resolveOrderInvoiceNumber, resolveOrderNumber, sendOrderSms } from "@/lib/order-sms";
+import {
+  getDeliveryUrl,
+  orderSmsFailureReason,
+  resolveOrderInvoiceNumber,
+  resolveOrderNumber,
+  sendOrderSms,
+} from "@/lib/order-sms";
 
 export async function POST(
   _request: NextRequest,
@@ -90,7 +96,7 @@ export async function POST(
   const deliveryUrl = getDeliveryUrl(order);
 
   try {
-    await sendOrderSms(companyId, order.id, "rider_dispatched", {
+    const result = await sendOrderSms(companyId, order.id, "rider_dispatched", {
       orderNumber: orderNum,
       invoiceNumber,
       orderReference: [orderNum, invoiceNumber].filter(Boolean).join(" / "),
@@ -98,7 +104,14 @@ export async function POST(
       riderPhone,
       deliveryUrl,
     });
-    return NextResponse.json({ success: true });
+    // sendOrderSms resolves even when the provider rejects, so report the real outcome
+    // instead of a blanket success the operator cannot trust.
+    const failure = orderSmsFailureReason(result);
+    if (failure) {
+      console.error(`[Resend rider SMS] order ${order.id} not sent: ${failure}`);
+      return NextResponse.json({ error: failure }, { status: result.skipped ? 400 : 502 });
+    }
+    return NextResponse.json({ success: true, sent: result.sent });
   } catch (err) {
     console.error("[Resend rider SMS] failed:", err);
     return NextResponse.json(

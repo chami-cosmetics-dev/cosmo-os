@@ -5,20 +5,20 @@ import { randomBytes } from "crypto";
 import { prisma } from "@/lib/prisma";
 import { writeAuditLog } from "@/lib/audit-log";
 import { hasPermission, requireAnyPermission } from "@/lib/rbac";
-import { cuidSchema } from "@/lib/validation";
+import { citypakShipmentOverrideSchema, cuidSchema } from "@/lib/validation";
 import { getDeliveryUrl, resolveCustomerPhone, resolveOrderInvoiceNumber, resolveOrderNumber, sendOrderSms } from "@/lib/order-sms";
 import { DISPATCHABLE_STAGES, printFieldsOnDispatchIfUnprinted } from "@/lib/fulfillment-permissions";
 import {
   buildReturnRemarkText,
   RETURN_REMARK_TEMPLATE_CODES,
 } from "@/lib/return-remark-templates";
-import type { FulfillmentStage } from "@prisma/client";
+import { Prisma, type FulfillmentStage } from "@prisma/client";
 import {
   calculateExchangePaymentDifference,
   orderDisplayLabel,
   requiresOldItemCollection,
 } from "@/lib/rider-delivery-special";
-import { createErpnextCreditNote, cancelErpnextSalesInvoice } from "@/lib/erpnext-sync";
+import { createErpnextCreditNote, cancelErpnextSalesInvoice, setErpSalesInvoiceCancelKind } from "@/lib/erpnext-sync";
 import {
   cancelShopifyOrder,
   isRealShopifyOrderId,
@@ -40,7 +40,14 @@ import {
 import { orderStageUpdate, orderStageUpdateIfChanged } from "@/lib/order-stage-timing";
 import { getErpOutOfStockFulfillmentBlock } from "@/lib/erp-fulfillment-block";
 import { isExplicitlyPackageReady } from "@/lib/fulfillment-stage-display";
+import { releaseKokoReferencesForOrder } from "@/lib/koko-approval-references";
 import { formatAppIsoCalendarDate } from "@/lib/format-datetime";
+import { citypakOverrideOrderPatch, ensureCitypakShipmentForDispatch } from "@/lib/citypak-dispatch";
+import { isCitypakCourier } from "@/lib/courier";
+import {
+  createCitypakApiDispatchBatch,
+  finalizeCitypakApiDispatchBatch,
+} from "@/lib/order-waybills";
 
 const addSampleSchema = z.object({
   sampleFreeIssueItemId: cuidSchema,
@@ -80,6 +87,7 @@ const fulfillmentActionSchema = z.discriminatedUnion("action", [
     riderId: cuidSchema.optional(),
     courierServiceId: cuidSchema.optional(),
     dispatchToCustomer: z.boolean().optional(),
+    citypakShipment: citypakShipmentOverrideSchema.optional(),
   }),
   z.object({
     action: z.literal("mark_invoice_complete"),
@@ -94,6 +102,7 @@ const fulfillmentActionSchema = z.discriminatedUnion("action", [
   z.object({
     action: z.literal("cancel_order"),
     reason: z.string().trim().min(5).max(500),
+    cancelKind: z.enum(["customer_cancel", "replacement"]),
   }),
   z.object({
     action: z.literal("revert_to_stage"),
@@ -744,6 +753,7 @@ export async function PATCH(
       }
 
       let riderDeliveryToken: string | null = null;
+      let courierServiceName: string | null = null;
       if (data.riderId) {
         const rider = await prisma.user.findFirst({
           where: { id: data.riderId, companyId },
@@ -763,6 +773,7 @@ export async function PATCH(
         if (!svc) {
           return NextResponse.json({ error: "Courier service not found" }, { status: 400 });
         }
+        courierServiceName = svc.name;
       }
 
       const [rearrangedReturn, exchange] = data.riderId
@@ -862,6 +873,17 @@ export async function PATCH(
           lastPrintedAt: order.lastPrintedAt,
         });
       const userId = auth.context!.user!.id;
+      const citypakShipment = data.citypakShipment;
+      const citypakAddressPatch = citypakShipment
+        ? citypakOverrideOrderPatch({
+            shippingAddress: order.shippingAddress,
+            override: citypakShipment,
+          })
+        : null;
+      if (citypakAddressPatch) {
+        order.shippingAddress = citypakAddressPatch.shippingAddress as typeof order.shippingAddress;
+        order.customerPhone = citypakAddressPatch.customerPhone;
+      }
 
       const updated = await prisma.order.update({
         where: { id: order.id },
@@ -883,6 +905,12 @@ export async function PATCH(
           deliveryFailedReason: null,
           lastRiderUpdateAt: data.riderId ? now : null,
           riderDeliveryToken: dispatchToCustomer ? null : riderDeliveryToken,
+          ...(citypakAddressPatch
+            ? {
+                shippingAddress: citypakAddressPatch.shippingAddress as Prisma.InputJsonValue,
+                customerPhone: citypakAddressPatch.customerPhone,
+              }
+            : {}),
         },
         include: {
           companyLocation: true,
@@ -925,7 +953,7 @@ export async function PATCH(
 
       // Await SMS before responding — fire-and-forget is killed by Vercel when the response returns
       // (same bug previously fixed for bulk-dispatch in cd8dc61).
-      const smsTasks: Promise<void>[] = [];
+      const smsTasks: Promise<unknown>[] = [];
 
       if (needsMarkReady) {
         smsTasks.push(
@@ -982,7 +1010,45 @@ export async function PATCH(
         },
       });
       await Promise.allSettled(smsTasks);
-      return NextResponse.json({ success: true });
+      let citypakBatchId: string | null = null;
+      if (data.courierServiceId && isCitypakCourier(courierServiceName)) {
+        citypakBatchId = await createCitypakApiDispatchBatch({
+          companyId,
+          uploadedById: auth.context!.user!.id,
+          plannedTotal: 1,
+        });
+      }
+      const citypak = data.courierServiceId
+        ? await ensureCitypakShipmentForDispatch({
+            companyId,
+            courierServiceName,
+            order,
+            shipmentOverride: citypakShipment,
+            uploadId: citypakBatchId,
+          })
+        : { status: "skipped" as const };
+      if (citypakBatchId) {
+        const dispatcher = auth.context!.user!;
+        await finalizeCitypakApiDispatchBatch({
+          companyId,
+          uploadId: citypakBatchId,
+          booked: citypak.status === "booked" ? 1 : 0,
+          falconFallback: citypak.status === "falcon" || citypak.status === "retry" ? 1 : 0,
+          plannedTotal: 1,
+          dispatchedByName: dispatcher.name ?? dispatcher.email ?? null,
+        });
+      }
+      return NextResponse.json({
+        success: true,
+        citypakStatus: citypak.status,
+        ...(citypak.status === "booked"
+          ? { citypakTracking: citypak.trackingNumber, citypakWaybillId: citypak.waybillId ?? null }
+          : {}),
+        ...(citypak.status === "falcon" || citypak.status === "retry"
+          ? { citypakError: citypak.error }
+          : {}),
+        ...(citypak.status === "retry" ? { citypakAttempts: citypak.attempts } : {}),
+      });
     }
 
     if (data.action === "mark_invoice_complete") {
@@ -1317,8 +1383,19 @@ export async function PATCH(
       const requiresFinanceApproval =
         order.financialStatus?.toLowerCase() === "paid" && isPaidCancelableGateway;
 
+      const cancelKind = data.cancelKind;
+
       if (requiresFinanceApproval) {
         const invoiceLabel = order.name ?? order.orderNumber ?? order.shopifyOrderId ?? order.id;
+        if (location) {
+          await setErpSalesInvoiceCancelKind(location, order.erpnextInvoiceId, cancelKind).catch((err) =>
+            console.warn(`[Cancel] Could not stamp ERP cancel kind for order ${order.id}:`, err),
+          );
+        }
+        await prisma.order.update({
+          where: { id: order.id },
+          data: { cancelKind, cancelReason: data.reason },
+        });
         const approval = await createOrGetOrderCancelApproval({
           companyId,
           orderId: order.id,
@@ -1338,7 +1415,7 @@ export async function PATCH(
           entityId: order.id,
           summary: `Cancel approval requested for order ${invoiceLabel}: ${data.reason}`,
           beforeData: { fulfillmentStage: order.fulfillmentStage, financialStatus: order.financialStatus },
-          afterData: { cancelReason: data.reason, approvalId: approval.id },
+          afterData: { cancelReason: data.reason, cancelKind, approvalId: approval.id },
         });
 
         return NextResponse.json({ requiresApproval: true, approvalId: approval.id });
@@ -1354,18 +1431,33 @@ export async function PATCH(
         console.warn(`[Cancel] Skipping Shopify cancel for order ${order.id} (ERP-native or no store handle)`);
       }
 
-      // Cancel ERP Sales Invoice if one exists — non-fatal
+      // ERP Sales Invoice — non-fatal. Cancel SMS is ERP Auto SMS (credit-note After Submit), not Cosmo OS.
+      // customer_cancel → credit note so ERP sends SMS. Replacement → SI cancel, no CN, no SMS.
       if (location && order.erpnextInvoiceId && order.erpnextInvoiceId !== "pending" && order.erpnextInvoiceId !== "pending_approval") {
         try {
-          const isErpNative = order.shopifyOrderId?.startsWith("erp-");
-          await cancelErpnextSalesInvoice(
-            order.name ?? order.shopifyOrderId,
-            location,
-            isErpNative ? { directInvoiceName: order.erpnextInvoiceId } : undefined,
-          );
-          console.log(`[Cancel] ERP SI cancelled for order ${order.id}`);
+          await setErpSalesInvoiceCancelKind(location, order.erpnextInvoiceId, cancelKind);
+          if (cancelKind === "customer_cancel") {
+            const cn = await createErpnextCreditNote(
+              {
+                id: order.id,
+                name: order.name,
+                orderNumber: order.orderNumber,
+                erpnextInvoiceId: order.erpnextInvoiceId,
+              },
+              location,
+            );
+            console.log(`[Cancel] ERP credit note ${cn.creditNoteName} for order ${order.id} (SMS via ERP)`);
+          } else {
+            const isErpNative = order.shopifyOrderId?.startsWith("erp-");
+            await cancelErpnextSalesInvoice(
+              order.name ?? order.shopifyOrderId,
+              location,
+              isErpNative ? { directInvoiceName: order.erpnextInvoiceId } : undefined,
+            );
+            console.log(`[Cancel] ERP SI cancelled for order ${order.id} (replacement — no SMS)`);
+          }
         } catch (err) {
-          console.error(`[Cancel] ERP SI cancel failed (non-fatal) for order ${order.id}:`, err);
+          console.error(`[Cancel] ERP SI cancel/CN failed (non-fatal) for order ${order.id}:`, err);
         }
       }
 
@@ -1376,8 +1468,11 @@ export async function PATCH(
           cancelledAt: now,
           cancelledById: auth.context!.user!.id,
           cancelReason: data.reason,
+          cancelKind,
         },
       });
+
+      await releaseKokoReferencesForOrder(order.id);
 
       await writeAuditLog({
         companyId,
@@ -1388,7 +1483,7 @@ export async function PATCH(
         entityId: order.id,
         summary: `Cancelled order ${order.orderNumber ?? order.name ?? order.id}: ${data.reason}`,
         beforeData: { fulfillmentStage: order.fulfillmentStage, financialStatus: order.financialStatus },
-        afterData: { financialStatus: "voided", cancelReason: data.reason },
+        afterData: { financialStatus: "voided", cancelReason: data.reason, cancelKind },
       });
 
       return NextResponse.json({ success: true });

@@ -1,12 +1,14 @@
 import type { ShopifyOrderWebhookPayload } from "@/lib/validation/shopify-order";
 
 import { writeAuditLog } from "@/lib/audit-log";
+import { isSharedMerchantEmail } from "@/lib/adapt-import/shared-emails";
 import {
   ensureSecondaryContactIdentifiers,
   findMatchingContacts,
   normalizeContactEmail,
   normalizeContactPhone,
 } from "@/lib/contact-identifiers";
+import { shouldPreferIncomingContactName } from "@/lib/contact-master-name";
 import { resolveAutoAllocateMerchant } from "@/lib/customer-insight/auto-allocate";
 import { buildPhoneLookupVariants } from "@/lib/phone-lookup";
 import { prisma } from "@/lib/prisma";
@@ -125,7 +127,7 @@ function emailSafeForContact(
   emailMatch: IdentityContact | null,
   emailMatchCount = emailMatch ? 1 : 0
 ) {
-  if (!email) return null;
+  if (!email || isSharedMerchantEmail(email)) return null;
   if (emailMatchCount > 1) return null;
   if (emailMatch && emailMatch.id !== matchedContact.id) return null;
   return email;
@@ -137,7 +139,7 @@ function emailForCreate(
   incomingPhone: string | null,
   emailMatchCount = emailMatch ? 1 : 0
 ) {
-  if (!email) return null;
+  if (!email || isSharedMerchantEmail(email)) return null;
   // Shared/ambiguous email already on multiple contacts → create phone-only.
   if (emailMatchCount > 1) return null;
   // Shared email already owned by a different phone → create phone-only contact.
@@ -187,9 +189,27 @@ function pickPhoneMatchForIdentity(phoneMatches: IdentityContact[], phoneNumber:
   return null;
 }
 
+/** Sources whose occurredAt is an actual sale. */
+const PURCHASE_SOURCE_TYPES: ReadonlySet<ContactMasterSyncSourceType> = new Set([
+  "shopify_order",
+  "order_backfill",
+  "manual_order",
+  "erpnext_si",
+]);
+
 /**
- * lastPurchaseAt is phone-keyed only. Shared checkout emails must never bump
- * purchase dates on unrelated contacts that happen to share that email.
+ * An ERP Customer record is a profile, not a sale. Its `creation` timestamp is the
+ * moment the customer was added to ERP, so letting it date a purchase puts a
+ * last-purchase date on contacts that have no invoice behind it.
+ */
+function datesPurchase(sourceType: ContactMasterSyncSourceType | undefined): boolean {
+  return sourceType === undefined || PURCHASE_SOURCE_TYPES.has(sourceType);
+}
+
+/**
+ * lastPurchaseAt is phone-keyed only, and only a purchase may set it. Shared checkout
+ * emails must never bump purchase dates on unrelated contacts that happen to share
+ * that email.
  */
 function canUpdateLastPurchaseAt(input: {
   phoneNumber: string | null;
@@ -197,7 +217,9 @@ function canUpdateLastPurchaseAt(input: {
   contactId: string;
   currentLastPurchaseAt: Date | null;
   occurredAt: Date;
+  sourceType: ContactMasterSyncSourceType | undefined;
 }) {
+  if (!datesPurchase(input.sourceType)) return false;
   if (!input.phoneNumber || !input.phoneMatchedContactId) return false;
   if (input.phoneMatchedContactId !== input.contactId) return false;
   return !input.currentLastPurchaseAt || input.occurredAt > input.currentLastPurchaseAt;
@@ -322,6 +344,7 @@ async function syncContactMasterPrimaryOnly(input: SyncContactMasterInput): Prom
   const allocationMerchantLabel =
     input.assignedMerchantMer === undefined ? recentMerchant : assignedMerchantMer ?? null;
   const source = normalizeSource(input.source);
+  const sourceType = input.sourceType ?? "shopify_order";
 
   const candidates = await prisma.contactMaster.findMany({
     where: {
@@ -417,8 +440,11 @@ async function syncContactMasterPrimaryOnly(input: SyncContactMasterInput): Prom
           phoneNumber,
           recentMerchant,
           ...(autoAssigned ? { assignedMerchant: autoAssigned } : {}),
-          // Phone-only: email-only creates must not invent a purchase date.
-          ...(phoneNumber ? { lastPurchaseAt: input.occurredAt } : {}),
+          // Phone-only, purchase-only: an email-only create, or an ERP customer
+          // record, must not invent a purchase date.
+          ...(phoneNumber && datesPurchase(input.sourceType)
+            ? { lastPurchaseAt: input.occurredAt }
+            : {}),
           ...(source ? { source } : {}),
         },
         select: { id: true },
@@ -430,7 +456,7 @@ async function syncContactMasterPrimaryOnly(input: SyncContactMasterInput): Prom
 
   const updateData: {
     name?: string;
-    email?: string;
+    email?: string | null;
     phoneNumber?: string;
     recentMerchant?: string;
     assignedMerchant?: string;
@@ -439,8 +465,22 @@ async function syncContactMasterPrimaryOnly(input: SyncContactMasterInput): Prom
   } = {};
 
   const safeEmail = emailSafeForContact(email, matchedContact, emailMatch, emailMatches.length);
-  if (isBlank(matchedContact.name) && name) updateData.name = name;
-  if (isBlank(matchedContact.email) && safeEmail) updateData.email = safeEmail;
+  const phoneMatched = Boolean(phoneMatch && phoneMatch.id === matchedContact.id);
+  if (
+    shouldPreferIncomingContactName({
+      existingName: matchedContact.name,
+      incomingName: name,
+      phoneMatched,
+      sourceType,
+    })
+  ) {
+    updateData.name = name!;
+  }
+  if (matchedContact.email && isSharedMerchantEmail(matchedContact.email)) {
+    updateData.email = null;
+  } else if (isBlank(matchedContact.email) && safeEmail) {
+    updateData.email = safeEmail;
+  }
   if (isBlank(matchedContact.phoneNumber) && phoneNumber) updateData.phoneNumber = phoneNumber;
   if (isBlank(matchedContact.recentMerchant) && recentMerchant) updateData.recentMerchant = recentMerchant;
   if (isBlank(matchedContact.source) && source) updateData.source = source;
@@ -451,6 +491,7 @@ async function syncContactMasterPrimaryOnly(input: SyncContactMasterInput): Prom
       contactId: matchedContact.id,
       currentLastPurchaseAt: matchedContact.lastPurchaseAt,
       occurredAt: input.occurredAt,
+      sourceType: input.sourceType,
     })
   ) {
     updateData.lastPurchaseAt = input.occurredAt;
@@ -495,8 +536,11 @@ export async function syncContactMaster(input: SyncContactMasterInput): Promise<
   const { emailMatches, phoneMatches } = await findMatchingContacts(input.companyId, email, phoneNumber);
 
   if (shouldHardConflictOnDuplicates(emailMatches, phoneMatches, phoneNumber)) {
-    // Phone-only snapshot: never fan-out lastPurchaseAt across shared-email matches.
-    const purchaseSnapshotContactIds = phoneMatches.map((contact) => contact.id);
+    // Phone-only snapshot: never fan-out lastPurchaseAt across shared-email matches,
+    // and never from a source that is not a purchase.
+    const purchaseSnapshotContactIds = datesPurchase(input.sourceType)
+      ? phoneMatches.map((contact) => contact.id)
+      : [];
     const purchaseSnapshotUpdatedCount = await updatePurchaseSnapshotForContacts({
       contactIds: purchaseSnapshotContactIds,
       occurredAt: input.occurredAt,
@@ -579,8 +623,11 @@ export async function syncContactMaster(input: SyncContactMasterInput): Promise<
           phoneNumber,
           recentMerchant,
           ...(autoAssigned ? { assignedMerchant: autoAssigned } : {}),
-          // Phone-only: email-only creates must not invent a purchase date.
-          ...(phoneNumber ? { lastPurchaseAt: input.occurredAt } : {}),
+          // Phone-only, purchase-only: an email-only create, or an ERP customer
+          // record, must not invent a purchase date.
+          ...(phoneNumber && datesPurchase(input.sourceType)
+            ? { lastPurchaseAt: input.occurredAt }
+            : {}),
           ...(source ? { source } : {}),
         },
         select: {
@@ -647,7 +694,7 @@ export async function syncContactMaster(input: SyncContactMasterInput): Promise<
 
   const updateData: {
     name?: string;
-    email?: string;
+    email?: string | null;
     phoneNumber?: string;
     recentMerchant?: string;
     assignedMerchant?: string;
@@ -655,10 +702,20 @@ export async function syncContactMaster(input: SyncContactMasterInput): Promise<
     source?: string;
   } = {};
 
-  if (isBlank(matchedContact.name) && name) {
-    updateData.name = name;
+  const phoneMatched = Boolean(phoneMatch && phoneMatch.id === matchedContact.id);
+  if (
+    shouldPreferIncomingContactName({
+      existingName: matchedContact.name,
+      incomingName: name,
+      phoneMatched,
+      sourceType: input.sourceType ?? "shopify_order",
+    })
+  ) {
+    updateData.name = name!;
   }
-  if (isBlank(matchedContact.email) && safeEmail) {
+  if (matchedContact.email && isSharedMerchantEmail(matchedContact.email)) {
+    updateData.email = null;
+  } else if (isBlank(matchedContact.email) && safeEmail) {
     updateData.email = safeEmail;
   }
   if (isBlank(matchedContact.phoneNumber) && phoneNumber) {
@@ -677,6 +734,7 @@ export async function syncContactMaster(input: SyncContactMasterInput): Promise<
       contactId: matchedContact.id,
       currentLastPurchaseAt: matchedContact.lastPurchaseAt,
       occurredAt: input.occurredAt,
+      sourceType: input.sourceType,
     })
   ) {
     updateData.lastPurchaseAt = input.occurredAt;

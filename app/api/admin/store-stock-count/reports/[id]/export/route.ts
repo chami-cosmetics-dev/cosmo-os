@@ -1,9 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
+import * as XLSX from "xlsx";
 
-import { getStoreStockCountReport } from "@/lib/store-stock-count/reports";
 import { requireStoreStockCountAccess } from "@/lib/store-stock-count/auth";
+import { buildStockCountPdfBuffer } from "@/lib/store-stock-count/export-pdf";
+import {
+  buildStockCountSnapshot,
+  filenameSafe,
+  snapshotRowValues,
+  type StockCountSnapshot,
+} from "@/lib/store-stock-count/export-snapshot";
+import { getStoreStockCountReport } from "@/lib/store-stock-count/reports";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -12,27 +21,63 @@ function csvCell(value: unknown) {
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
-function filenameSafe(value: string) {
-  return (
-    value.replace(/[^a-z0-9-_]+/gi, "-").replace(/^-+|-+$/g, "") ||
-    "stock-count"
-  );
+function buildCsv(snapshot: StockCountSnapshot) {
+  const lines = [
+    csvCell(snapshot.title),
+    [
+      "Ongoing",
+      snapshot.ongoing,
+      "Done",
+      snapshot.done,
+      "Difference",
+      snapshot.difference,
+      "Pending",
+      snapshot.pending,
+    ]
+      .map(csvCell)
+      .join(","),
+    "",
+    snapshot.headers.map(csvCell).join(","),
+  ];
+  for (const row of snapshot.countedRows) {
+    lines.push(snapshotRowValues(snapshot, row).map(csvCell).join(","));
+  }
+  return `${lines.join("\r\n")}\r\n`;
 }
 
-function itemStatus(
-  reportStatus: string,
-  manualCount: number | null,
-  stockSum: number | null,
-) {
-  if (manualCount == null) return "Pending";
-  if (stockSum == null) return "Difference";
-  const diff = manualCount - stockSum;
-  if (diff === 0) return "Done";
-  if (diff < 0 && reportStatus !== "submitted") return "Ongoing";
-  return "Difference";
+function buildXlsx(snapshot: StockCountSnapshot) {
+  const workbook = XLSX.utils.book_new();
+  const items = XLSX.utils.aoa_to_sheet([
+    [snapshot.title],
+    ["Status", snapshot.status],
+    ["Captured at", snapshot.capturedAt],
+    [
+      "Note",
+      snapshot.countView === "personal"
+        ? snapshot.viewerLabel
+          ? `Your counts only (${snapshot.viewerLabel}). Other counters are not in this file.`
+          : "Your counts only. Other counters are not in this file."
+        : snapshot.isDraft
+          ? "Combined counts. Counting can continue after this download."
+          : "Submitted report. Counts are locked.",
+    ],
+    [],
+    ["Ongoing", snapshot.ongoing],
+    ["Done", snapshot.done],
+    ["Difference", snapshot.difference],
+    ["Pending omitted", snapshot.pending],
+    ["Counted items", snapshot.counted],
+    ["Total items", snapshot.itemCount],
+    ["Total manual count", snapshot.totalManualCount],
+    [],
+    snapshot.headers,
+    ...snapshot.countedRows.map((row) => snapshotRowValues(snapshot, row)),
+  ]);
+  XLSX.utils.book_append_sheet(workbook, items, "Items");
+  return XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer;
 }
 
-export async function GET(_request: NextRequest, context: Ctx) {
+export async function GET(request: NextRequest, context: Ctx) {
   const auth = await requireStoreStockCountAccess();
   if (!auth.ok)
     return NextResponse.json({ error: auth.error }, { status: auth.status });
@@ -41,55 +86,55 @@ export async function GET(_request: NextRequest, context: Ctx) {
   const report = await getStoreStockCountReport({
     companyId: auth.companyId,
     reportId: id,
+    viewerUserId: auth.context.user.id,
   });
   if (!report)
     return NextResponse.json({ error: "Report not found" }, { status: 404 });
 
-  const hasQbStock = report.items.some((item) => item.qbStock != null);
-  const header = [
-    "Item Code",
-    "Name",
-    "Barcode",
-    ...report.warehouses.map((w) => w.label),
-    "Total Quantity",
-    ...(hasQbStock ? ["QB Stock"] : []),
-    "Manual Count",
-    "Difference",
-    "Status",
-  ];
-  const lines = [header.map(csvCell).join(",")];
+  const formatParam = request.nextUrl.searchParams.get("format")?.toLowerCase();
+  const format =
+    formatParam === "pdf" || formatParam === "csv" ? formatParam : "xlsx";
+  const viewerLabel =
+    auth.context.user.name?.trim() ||
+    auth.context.user.email?.trim() ||
+    null;
+  const snapshot = buildStockCountSnapshot(report, new Date(), viewerLabel);
+  const suffix =
+    snapshot.countView === "personal"
+      ? filenameSafe(viewerLabel ?? "my-counts")
+      : "combined";
+  const stamp = snapshot.capturedAt.slice(0, 16).replace(/[:T]/g, "-");
+  const base = `${filenameSafe(report.title)}-${suffix}-${stamp}`;
 
-  for (const item of report.items) {
-    const warehouseStocks = report.warehouses.map(
-      (w) => item.stockByWarehouse[w.key] ?? "",
-    );
-    const diff =
-      item.manualCount == null || item.stockSum == null
-        ? ""
-        : item.manualCount - item.stockSum;
-    const status = itemStatus(report.status, item.manualCount, item.stockSum);
-    lines.push(
-      [
-        item.sku,
-        item.name,
-        item.barcodes.join(" | "),
-        ...warehouseStocks,
-        item.stockSum ?? "",
-        ...(hasQbStock ? [item.qbStock ?? ""] : []),
-        item.manualCount ?? "",
-        diff,
-        status,
-      ]
-        .map(csvCell)
-        .join(","),
-    );
+  if (format === "pdf") {
+    const buffer = await buildStockCountPdfBuffer(snapshot);
+    return new NextResponse(new Uint8Array(buffer), {
+      headers: {
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `attachment; filename="${base}.pdf"`,
+        "Cache-Control": "no-store",
+      },
+    });
   }
 
-  const csv = `${lines.join("\r\n")}\r\n`;
+  if (format === "xlsx") {
+    const buffer = buildXlsx(snapshot);
+    return new NextResponse(new Uint8Array(buffer), {
+      headers: {
+        "Content-Type":
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "Content-Disposition": `attachment; filename="${base}.xlsx"`,
+        "Cache-Control": "no-store",
+      },
+    });
+  }
+
+  const csv = buildCsv(snapshot);
   return new NextResponse(csv, {
     headers: {
       "Content-Type": "text/csv; charset=utf-8",
-      "Content-Disposition": `attachment; filename="${filenameSafe(report.title)}.csv"`,
+      "Content-Disposition": `attachment; filename="${base}.csv"`,
+      "Cache-Control": "no-store",
     },
   });
 }

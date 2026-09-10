@@ -1,10 +1,11 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { Eye, Loader2, PackageSearch, Plus, RefreshCw, Search, Trash2, Upload } from "lucide-react";
+import { Eye, Loader2, PackageSearch, Plus, RefreshCw, Search, Trash2, Truck, Upload } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { FulfillmentOrderReference } from "@/components/molecules/fulfillment-order-reference";
+import { PrintCitypakWaybillButton } from "@/components/molecules/print-citypak-waybill-button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
@@ -14,12 +15,31 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { notify } from "@/lib/notify";
 import { formatAppDateTime } from "@/lib/format-datetime";
+import {
+  CITYPAK_WAYBILL_SOURCE,
+  readCitypakWaybillStatus,
+  type CitypakShipmentStatus,
+  type CitypakTrackingCheckpoint,
+} from "@/lib/citypak-api";
 import type {
   WaybillLookupPageData,
   WaybillPendingRow,
 } from "@/lib/page-data/waybill-lookup-types";
+
+type LookupWaybill = {
+  id: string;
+  invoiceNumber: string;
+  waybillNo: string;
+  courierName: string | null;
+  source: string;
+  rawPayload: Record<string, unknown> | null;
+  uploadedAt: string | null;
+  uploadFileName: string | null;
+  createdAt: string;
+};
 
 type LookupResult = {
   order: {
@@ -39,17 +59,7 @@ type LookupResult = {
     courierName: string | null;
     locationName: string;
   } | null;
-  waybills: Array<{
-    id: string;
-    invoiceNumber: string;
-    waybillNo: string;
-    courierName: string | null;
-    source: string;
-    rawPayload: Record<string, unknown> | null;
-    uploadedAt: string | null;
-    uploadFileName: string | null;
-    createdAt: string;
-  }>;
+  waybills: LookupWaybill[];
 };
 
 type ImportSummary = {
@@ -62,7 +72,7 @@ type ImportSummary = {
 type DetailsTarget =
   | {
       kind: "search";
-      waybill: LookupResult["waybills"][number];
+      waybill: LookupWaybill;
       matchStatus?: undefined;
       order?: undefined;
     }
@@ -90,6 +100,41 @@ function hasDisplayValue(value: unknown) {
   return true;
 }
 
+const STATUS_TONE: Record<CitypakShipmentStatus, string> = {
+  booked: "bg-muted text-muted-foreground",
+  in_transit: "bg-blue-500/15 text-blue-600 dark:text-blue-400",
+  out_for_delivery: "bg-amber-500/15 text-amber-600 dark:text-amber-400",
+  attempt_failed: "bg-orange-500/15 text-orange-600 dark:text-orange-400",
+  delivered: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
+  returned: "bg-red-500/15 text-red-600 dark:text-red-400",
+  unknown: "bg-muted text-muted-foreground",
+};
+
+function CitypakStatusBadge({
+  rawPayload,
+}: {
+  rawPayload: Record<string, unknown> | null;
+}) {
+  const snapshot = readCitypakWaybillStatus(rawPayload);
+  if (!snapshot.status) {
+    return <span className="text-xs text-muted-foreground">Not checked</span>;
+  }
+  return (
+    <span className="inline-flex flex-col gap-0.5">
+      <span
+        className={`inline-flex w-fit items-center rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_TONE[snapshot.status]}`}
+      >
+        {snapshot.statusLabel ?? snapshot.status}
+      </span>
+      {snapshot.checkedAt && (
+        <span className="text-[11px] text-muted-foreground">
+          {formatDate(snapshot.checkedAt)}
+        </span>
+      )}
+    </span>
+  );
+}
+
 export function WaybillLookupFulfillmentPage({
   canImportWaybills,
   initialData = null,
@@ -109,19 +154,34 @@ export function WaybillLookupFulfillmentPage({
   const [pageData, setPageData] = useState<WaybillLookupPageData | null>(initialData);
   const [pageLoading, setPageLoading] = useState(!initialData);
   const [pendingPage, setPendingPage] = useState(initialData?.pagination.page ?? 1);
+  const [uploadsPage, setUploadsPage] = useState(initialData?.uploadsPagination.page ?? 1);
   const [rematching, setRematching] = useState(false);
   const [deletingUploadId, setDeletingUploadId] = useState<string | null>(null);
+  const [refreshingStatusId, setRefreshingStatusId] = useState<string | null>(null);
+  const [checkingAllStatuses, setCheckingAllStatuses] = useState(false);
   const [selectedDetails, setSelectedDetails] = useState<DetailsTarget | null>(null);
+  const [activeTab, setActiveTab] = useState<"pending" | "uploads">("pending");
 
-  const isBusy = loading || saving || importing || pageLoading || rematching || Boolean(deletingUploadId);
+  const isBusy =
+    loading ||
+    saving ||
+    importing ||
+    pageLoading ||
+    rematching ||
+    Boolean(deletingUploadId) ||
+    Boolean(refreshingStatusId) ||
+    checkingAllStatuses;
 
-  async function loadPageData(options?: { page?: number }) {
+  async function loadPageData(options?: { page?: number; uploadsPage?: number }) {
     const page = options?.page ?? pendingPage;
+    const nextUploadsPage = options?.uploadsPage ?? uploadsPage;
     setPageLoading(true);
     try {
       const params = new URLSearchParams({
         page: String(page),
         limit: String(pageData?.pagination.limit ?? 50),
+        uploadsPage: String(nextUploadsPage),
+        uploadsLimit: String(pageData?.uploadsPagination.limit ?? 20),
       });
       const response = await fetch(`/api/admin/waybills/page-data?${params.toString()}`);
       const data = (await response.json().catch(() => null)) as
@@ -133,6 +193,7 @@ export function WaybillLookupFulfillmentPage({
       }
       setPageData(data);
       setPendingPage(data.pagination.page);
+      setUploadsPage(data.uploadsPagination.page);
     } catch {
       notify.error("Could not load waybill queue.");
     } finally {
@@ -142,7 +203,7 @@ export function WaybillLookupFulfillmentPage({
 
   useEffect(() => {
     if (initialData) return;
-    void loadPageData({ page: 1 });
+    void loadPageData({ page: 1, uploadsPage: 1 });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- initial fetch only when no server data
   }, [initialData]);
 
@@ -254,7 +315,7 @@ export function WaybillLookupFulfillmentPage({
         `Imported ${data.summary.imported} waybill(s)` +
           (unmatched > 0 ? ` (${unmatched} unmatched).` : ".")
       );
-      await loadPageData({ page: 1 });
+      await loadPageData({ page: 1, uploadsPage: 1 });
     } catch {
       notify.error("Could not import waybill file.");
     } finally {
@@ -311,7 +372,7 @@ export function WaybillLookupFulfillmentPage({
         `Deleted ${fileName}` +
           (data?.deletedWaybills != null ? ` (${data.deletedWaybills} waybill row(s)).` : ".")
       );
-      await loadPageData({ page: pendingPage });
+      await loadPageData({ page: pendingPage, uploadsPage });
     } catch {
       notify.error("Could not delete upload.");
     } finally {
@@ -319,20 +380,88 @@ export function WaybillLookupFulfillmentPage({
     }
   }
 
+  async function handleRefreshStatus(waybillId: string) {
+    setRefreshingStatusId(waybillId);
+    try {
+      const response = await fetch(`/api/admin/waybills/${waybillId}/citypak-status`, {
+        method: "POST",
+      });
+      const data = (await response.json().catch(() => null)) as
+        | { statusLabel?: string; error?: string }
+        | null;
+      if (!response.ok) {
+        notify.error(data?.error ?? "Could not refresh CityPak status.");
+        return;
+      }
+      notify.success(`CityPak status: ${data?.statusLabel ?? "updated"}.`);
+      await Promise.all([
+        loadPageData({ page: pendingPage, uploadsPage }),
+        result ? searchInvoice(invoice) : Promise.resolve(),
+      ]);
+    } catch {
+      notify.error("Could not refresh CityPak status.");
+    } finally {
+      setRefreshingStatusId(null);
+    }
+  }
+
+  /** Poll CityPak once for every CityPak row on this page — no row-by-row clicking. */
+  async function handleCheckAllStatuses(waybillIds: string[]) {
+    if (waybillIds.length === 0) {
+      notify.error("No CityPak waybills on this page to check.");
+      return;
+    }
+
+    setCheckingAllStatuses(true);
+    try {
+      const response = await fetch("/api/admin/waybills/citypak-status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ waybillIds }),
+      });
+      const data = (await response.json().catch(() => null)) as
+        | { checked?: number; updated?: number; delivered?: number; failed?: number; skipped?: number; error?: string }
+        | null;
+      if (!response.ok || data?.checked == null) {
+        notify.error(data?.error ?? "Could not check CityPak statuses.");
+        return;
+      }
+      notify.success(
+        `Checked ${data.checked} waybill(s): ${data.updated ?? 0} updated, ${data.delivered ?? 0} delivered` +
+          (data.failed ? `, ${data.failed} failed` : "") +
+          (data.skipped ? `, ${data.skipped} already final` : "") +
+          "."
+      );
+      await loadPageData({ page: pendingPage, uploadsPage });
+    } catch {
+      notify.error("Could not check CityPak statuses.");
+    } finally {
+      setCheckingAllStatuses(false);
+    }
+  }
+
   const matchedOrder = result?.order ?? null;
   const waybills = result?.waybills ?? [];
   const pending = pageData?.pending ?? [];
   const uploads = pageData?.uploads ?? [];
+  const pendingCitypakIds = pending
+    .filter((row) => row.source === CITYPAK_WAYBILL_SOURCE)
+    .map((row) => row.id);
   const pagination = pageData?.pagination;
+  const uploadsPagination = pageData?.uploadsPagination;
   const totalPages = pagination ? Math.max(1, Math.ceil(pagination.total / pagination.limit)) : 1;
+  const uploadsTotalPages = uploadsPagination
+    ? Math.max(1, Math.ceil(uploadsPagination.total / uploadsPagination.limit))
+    : 1;
 
   const selectedRawEntries = selectedDetails
-    ? Object.entries(
-        selectedDetails.kind === "pending"
-          ? selectedDetails.waybill.rawPayload ?? {}
-          : selectedDetails.waybill.rawPayload ?? {}
-      ).filter(([, value]) => hasDisplayValue(value))
+    ? Object.entries(selectedDetails.waybill.rawPayload ?? {}).filter(([, value]) =>
+        hasDisplayValue(value)
+      )
     : [];
+  const selectedStatus = selectedDetails
+    ? readCitypakWaybillStatus(selectedDetails.waybill.rawPayload)
+    : null;
 
   return (
     <div className="space-y-5">
@@ -342,8 +471,8 @@ export function WaybillLookupFulfillmentPage({
           Waybill Lookup
         </h1>
         <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-          Upload courier files (each upload adds to the queue — prior files are kept), work pending
-          waybills, and search invoice or waybill numbers when customers ask for delivery details.
+          Search invoice or waybill numbers for delivery details, work the pending queue, and review
+          upload history. CityPak API waybills carry live courier status.
         </p>
       </div>
 
@@ -397,93 +526,7 @@ export function WaybillLookupFulfillmentPage({
 
       <Card className="border-border/70 shadow-xs">
         <CardHeader className="border-b border-border/50">
-          <CardTitle>Upload History</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {pageLoading && !pageData ? (
-            <p className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="size-4 animate-spin" aria-hidden />
-              Loading upload history...
-            </p>
-          ) : uploads.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No waybill files uploaded yet.</p>
-          ) : (
-            <div className="overflow-hidden rounded-md border border-border/70">
-              <table className="w-full text-sm">
-                <thead className="bg-muted/50 text-left text-muted-foreground">
-                  <tr>
-                    <th className="px-3 py-2 font-medium">File</th>
-                    <th className="px-3 py-2 font-medium">Uploaded</th>
-                    <th className="px-3 py-2 font-medium">By</th>
-                    <th className="px-3 py-2 font-medium">Total</th>
-                    <th className="px-3 py-2 font-medium">Imported</th>
-                    <th className="px-3 py-2 font-medium">Invalid</th>
-                    <th className="px-3 py-2 font-medium">Unmatched</th>
-                    <th className="px-3 py-2 font-medium">Status</th>
-                    {canImportWaybills && (
-                      <th className="px-3 py-2 font-medium text-right">Actions</th>
-                    )}
-                  </tr>
-                </thead>
-                <tbody>
-                  {uploads.map((upload) => (
-                    <tr key={upload.id} className="border-t border-border/60">
-                      <td className="px-3 py-2 font-medium">{upload.fileName}</td>
-                      <td className="px-3 py-2">{formatDate(upload.createdAt)}</td>
-                      <td className="px-3 py-2">
-                        {upload.uploadedBy?.name || upload.uploadedBy?.email || "—"}
-                      </td>
-                      <td className="px-3 py-2">{upload.totalRows}</td>
-                      <td className="px-3 py-2">{upload.importedRows}</td>
-                      <td className="px-3 py-2">{upload.invalidRows}</td>
-                      <td className="px-3 py-2">{upload.unmatchedRows}</td>
-                      <td className="px-3 py-2 capitalize">{upload.status}</td>
-                      {canImportWaybills && (
-                        <td className="px-3 py-2 text-right">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className="gap-2 text-destructive hover:text-destructive"
-                            disabled={isBusy}
-                            onClick={() => void handleDeleteUpload(upload.id, upload.fileName)}
-                          >
-                            {deletingUploadId === upload.id ? (
-                              <Loader2 className="size-4 animate-spin" aria-hidden />
-                            ) : (
-                              <Trash2 className="size-4" aria-hidden />
-                            )}
-                            {deletingUploadId === upload.id ? "Deleting..." : "Delete"}
-                          </Button>
-                        </td>
-                      )}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card className="border-border/70 shadow-xs">
-        <CardHeader className="flex flex-row items-center justify-between gap-3 border-b border-border/50">
-          <CardTitle>Pending Waybills</CardTitle>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="gap-2"
-            disabled={isBusy}
-            onClick={() => void handleRematch()}
-          >
-            {rematching ? (
-              <Loader2 className="size-4 animate-spin" aria-hidden />
-            ) : (
-              <RefreshCw className="size-4" aria-hidden />
-            )}
-            {rematching ? "Re-checking..." : "Re-check matches"}
-          </Button>
+          <CardTitle>Search</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <form onSubmit={handleSearch} className="flex flex-col gap-3 sm:flex-row">
@@ -543,12 +586,13 @@ export function WaybillLookupFulfillmentPage({
             <div className="space-y-3">
               <p className="text-sm font-medium">Waybill Results</p>
               {waybills.length > 0 ? (
-                <div className="overflow-hidden rounded-md border border-border/70">
+                <div className="overflow-x-auto rounded-md border border-border/70">
                   <table className="w-full text-sm">
                     <thead className="bg-muted/50 text-left text-muted-foreground">
                       <tr>
                         <th className="px-3 py-2 font-medium">Waybill No</th>
                         <th className="px-3 py-2 font-medium">Invoice</th>
+                        <th className="px-3 py-2 font-medium">Delivery status</th>
                         <th className="px-3 py-2 font-medium text-right">Details</th>
                       </tr>
                     </thead>
@@ -559,9 +603,7 @@ export function WaybillLookupFulfillmentPage({
                           tabIndex={0}
                           role="button"
                           className="border-t border-border/60 transition-colors hover:bg-muted/35 focus:bg-muted/35 focus:outline-none focus:ring-2 focus:ring-ring/60"
-                          onClick={() =>
-                            setSelectedDetails({ kind: "search", waybill })
-                          }
+                          onClick={() => setSelectedDetails({ kind: "search", waybill })}
                           onKeyDown={(event) => {
                             if (event.key === "Enter" || event.key === " ") {
                               event.preventDefault();
@@ -571,21 +613,58 @@ export function WaybillLookupFulfillmentPage({
                         >
                           <td className="px-3 py-2 font-medium">{waybill.waybillNo}</td>
                           <td className="px-3 py-2">{waybill.invoiceNumber}</td>
+                          <td className="px-3 py-2">
+                            {waybill.source === CITYPAK_WAYBILL_SOURCE ? (
+                              <CitypakStatusBadge rawPayload={waybill.rawPayload} />
+                            ) : (
+                              <span className="text-xs text-muted-foreground">—</span>
+                            )}
+                          </td>
                           <td className="px-3 py-2 text-right">
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              className="gap-2"
-                              disabled={isBusy}
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                setSelectedDetails({ kind: "search", waybill });
-                              }}
-                            >
-                              <Eye className="size-4" aria-hidden />
-                              View
-                            </Button>
+                            <div className="flex justify-end gap-2">
+                              {waybill.source === CITYPAK_WAYBILL_SOURCE && (
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  className="gap-2"
+                                  disabled={isBusy}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    void handleRefreshStatus(waybill.id);
+                                  }}
+                                >
+                                  {refreshingStatusId === waybill.id ? (
+                                    <Loader2 className="size-4 animate-spin" aria-hidden />
+                                  ) : (
+                                    <Truck className="size-4" aria-hidden />
+                                  )}
+                                  Status
+                                </Button>
+                              )}
+                              {waybill.source === CITYPAK_WAYBILL_SOURCE && matchedOrder?.id && (
+                                <span onClick={(event) => event.stopPropagation()}>
+                                  <PrintCitypakWaybillButton
+                                    orderId={matchedOrder.id}
+                                    tracking={waybill.waybillNo}
+                                  />
+                                </span>
+                              )}
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="gap-2"
+                                disabled={isBusy}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setSelectedDetails({ kind: "search", waybill });
+                                }}
+                              >
+                                <Eye className="size-4" aria-hidden />
+                                View
+                              </Button>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -620,129 +699,309 @@ export function WaybillLookupFulfillmentPage({
               )}
             </div>
           )}
+        </CardContent>
+      </Card>
 
-          <p className="text-xs text-muted-foreground">
-            Shows unmatched waybills and matched orders that are not delivery-complete. Completed
-            deliveries leave this list but remain findable via Search.
-          </p>
-          {pageLoading && !pageData ? (
-            <p className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="size-4 animate-spin" aria-hidden />
-              Loading pending waybills...
-            </p>
-          ) : pending.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No pending waybills.</p>
-          ) : (
-            <div className="overflow-hidden rounded-md border border-border/70">
-              <table className="w-full text-sm">
-                <thead className="bg-muted/50 text-left text-muted-foreground">
-                  <tr>
-                    <th className="px-3 py-2 font-medium">Waybill No</th>
-                    <th className="px-3 py-2 font-medium">Invoice</th>
-                    <th className="px-3 py-2 font-medium">Courier</th>
-                    <th className="px-3 py-2 font-medium">Match</th>
-                    <th className="px-3 py-2 font-medium">OS order</th>
-                    <th className="px-3 py-2 font-medium">Upload</th>
-                    <th className="px-3 py-2 font-medium text-right">Details</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {pending.map((row) => (
-                    <tr
-                      key={row.id}
-                      tabIndex={0}
-                      role="button"
-                      className="border-t border-border/60 transition-colors hover:bg-muted/35 focus:bg-muted/35 focus:outline-none focus:ring-2 focus:ring-ring/60"
-                      onClick={() =>
-                        setSelectedDetails({
-                          kind: "pending",
-                          waybill: row,
-                          matchStatus: row.matchStatus,
-                          order: row.order,
-                        })
-                      }
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          setSelectedDetails({
-                            kind: "pending",
-                            waybill: row,
-                            matchStatus: row.matchStatus,
-                            order: row.order,
-                          });
-                        }
-                      }}
-                    >
-                      <td className="px-3 py-2 font-medium">{row.waybillNo}</td>
-                      <td className="px-3 py-2">{row.invoiceNumber}</td>
-                      <td className="px-3 py-2">{row.courierName ?? "—"}</td>
-                      <td className="px-3 py-2 capitalize">{row.matchStatus}</td>
-                      <td className="px-3 py-2">{row.order?.displayId ?? "—"}</td>
-                      <td className="px-3 py-2">
-                        <div className="flex flex-col">
-                          <span>{row.uploadFileName ?? "—"}</span>
-                          <span className="text-xs text-muted-foreground">
-                            {formatDate(row.uploadedAt)}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="px-3 py-2 text-right">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="gap-2"
-                          disabled={isBusy}
-                          onClick={(event) => {
-                            event.stopPropagation();
+      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as "pending" | "uploads")}>
+        <TabsList>
+          <TabsTrigger value="pending">Pending Waybills</TabsTrigger>
+          <TabsTrigger value="uploads">Upload History</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="pending">
+          <Card className="border-border/70 shadow-xs">
+            <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 border-b border-border/50">
+              <CardTitle>Pending Waybills</CardTitle>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="gap-2"
+                  disabled={isBusy || pendingCitypakIds.length === 0}
+                  onClick={() => void handleCheckAllStatuses(pendingCitypakIds)}
+                >
+                  {checkingAllStatuses ? (
+                    <Loader2 className="size-4 animate-spin" aria-hidden />
+                  ) : (
+                    <Truck className="size-4" aria-hidden />
+                  )}
+                  {checkingAllStatuses
+                    ? "Checking statuses..."
+                    : `Check all statuses (${pendingCitypakIds.length})`}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="gap-2"
+                  disabled={isBusy}
+                  onClick={() => void handleRematch()}
+                >
+                  {rematching ? (
+                    <Loader2 className="size-4 animate-spin" aria-hidden />
+                  ) : (
+                    <RefreshCw className="size-4" aria-hidden />
+                  )}
+                  {rematching ? "Re-checking..." : "Re-check matches"}
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-xs text-muted-foreground">
+                Shows unmatched waybills and matched orders that are not delivery-complete. Completed
+                deliveries leave this list but remain findable via Search.
+              </p>
+              {pageLoading && !pageData ? (
+                <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="size-4 animate-spin" aria-hidden />
+                  Loading pending waybills...
+                </p>
+              ) : pending.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No pending waybills.</p>
+              ) : (
+                <div className="overflow-x-auto rounded-md border border-border/70">
+                  <table className="w-full text-sm">
+                    <thead className="bg-muted/50 text-left text-muted-foreground">
+                      <tr>
+                        <th className="px-3 py-2 font-medium">Waybill No</th>
+                        <th className="px-3 py-2 font-medium">Invoice</th>
+                        <th className="px-3 py-2 font-medium">Courier</th>
+                        <th className="px-3 py-2 font-medium">Match</th>
+                        <th className="px-3 py-2 font-medium">OS order</th>
+                        <th className="px-3 py-2 font-medium">Delivery status</th>
+                        <th className="px-3 py-2 font-medium">Upload</th>
+                        <th className="px-3 py-2 font-medium text-right">Details</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pending.map((row) => (
+                        <tr
+                          key={row.id}
+                          tabIndex={0}
+                          role="button"
+                          className="border-t border-border/60 transition-colors hover:bg-muted/35 focus:bg-muted/35 focus:outline-none focus:ring-2 focus:ring-ring/60"
+                          onClick={() =>
                             setSelectedDetails({
                               kind: "pending",
                               waybill: row,
                               matchStatus: row.matchStatus,
                               order: row.order,
-                            });
+                            })
+                          }
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              setSelectedDetails({
+                                kind: "pending",
+                                waybill: row,
+                                matchStatus: row.matchStatus,
+                                order: row.order,
+                              });
+                            }
                           }}
                         >
-                          <Eye className="size-4" aria-hidden />
-                          View
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+                          <td className="px-3 py-2 font-medium">{row.waybillNo}</td>
+                          <td className="px-3 py-2">{row.invoiceNumber}</td>
+                          <td className="px-3 py-2">{row.courierName ?? "—"}</td>
+                          <td className="px-3 py-2 capitalize">{row.matchStatus}</td>
+                          <td className="px-3 py-2">{row.order?.displayId ?? "—"}</td>
+                          <td className="px-3 py-2">
+                            {row.source === CITYPAK_WAYBILL_SOURCE ? (
+                              <div className="flex items-center gap-2">
+                                <CitypakStatusBadge rawPayload={row.rawPayload} />
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  className="size-7"
+                                  disabled={isBusy}
+                                  aria-label="Refresh CityPak status"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    void handleRefreshStatus(row.id);
+                                  }}
+                                >
+                                  {refreshingStatusId === row.id ? (
+                                    <Loader2 className="size-4 animate-spin" aria-hidden />
+                                  ) : (
+                                    <RefreshCw className="size-4" aria-hidden />
+                                  )}
+                                </Button>
+                              </div>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">—</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2">
+                            <div className="flex flex-col">
+                              <span>{row.uploadFileName ?? "—"}</span>
+                              <span className="text-xs text-muted-foreground">
+                                {formatDate(row.uploadedAt)}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="px-3 py-2 text-right">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="gap-2"
+                              disabled={isBusy}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setSelectedDetails({
+                                  kind: "pending",
+                                  waybill: row,
+                                  matchStatus: row.matchStatus,
+                                  order: row.order,
+                                });
+                              }}
+                            >
+                              <Eye className="size-4" aria-hidden />
+                              View
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
 
-          {pagination && pagination.total > pagination.limit && (
-            <div className="flex items-center justify-between gap-3 text-sm">
-              <p className="text-muted-foreground">
-                Page {pagination.page} of {totalPages} ({pagination.total} pending)
-              </p>
-              <div className="flex gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={isBusy || pendingPage <= 1}
-                  onClick={() => void loadPageData({ page: pendingPage - 1 })}
-                >
-                  Previous
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={isBusy || pendingPage >= totalPages}
-                  onClick={() => void loadPageData({ page: pendingPage + 1 })}
-                >
-                  Next
-                </Button>
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+              {pagination && pagination.total > pagination.limit && (
+                <div className="flex items-center justify-between gap-3 text-sm">
+                  <p className="text-muted-foreground">
+                    Page {pagination.page} of {totalPages} ({pagination.total} pending)
+                  </p>
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={isBusy || pendingPage <= 1}
+                      onClick={() => void loadPageData({ page: pendingPage - 1 })}
+                    >
+                      Previous
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={isBusy || pendingPage >= totalPages}
+                      onClick={() => void loadPageData({ page: pendingPage + 1 })}
+                    >
+                      Next
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="uploads">
+          <Card className="border-border/70 shadow-xs">
+            <CardHeader className="border-b border-border/50">
+              <CardTitle>Upload History</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {pageLoading && !pageData ? (
+                <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="size-4 animate-spin" aria-hidden />
+                  Loading upload history...
+                </p>
+              ) : uploads.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No waybill files uploaded yet.</p>
+              ) : (
+                <div className="overflow-x-auto rounded-md border border-border/70">
+                  <table className="w-full text-sm">
+                    <thead className="bg-muted/50 text-left text-muted-foreground">
+                      <tr>
+                        <th className="px-3 py-2 font-medium">File</th>
+                        <th className="px-3 py-2 font-medium">Uploaded</th>
+                        <th className="px-3 py-2 font-medium">By</th>
+                        <th className="px-3 py-2 font-medium">Total</th>
+                        <th className="px-3 py-2 font-medium">Imported</th>
+                        <th className="px-3 py-2 font-medium">Invalid</th>
+                        <th className="px-3 py-2 font-medium">Unmatched</th>
+                        <th className="px-3 py-2 font-medium">Status</th>
+                        {canImportWaybills && (
+                          <th className="px-3 py-2 font-medium text-right">Actions</th>
+                        )}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {uploads.map((upload) => (
+                        <tr key={upload.id} className="border-t border-border/60">
+                          <td className="px-3 py-2 font-medium">{upload.fileName}</td>
+                          <td className="px-3 py-2">{formatDate(upload.createdAt)}</td>
+                          <td className="px-3 py-2">
+                            {upload.uploadedBy?.name || upload.uploadedBy?.email || "—"}
+                          </td>
+                          <td className="px-3 py-2">{upload.totalRows}</td>
+                          <td className="px-3 py-2">{upload.importedRows}</td>
+                          <td className="px-3 py-2">{upload.invalidRows}</td>
+                          <td className="px-3 py-2">{upload.unmatchedRows}</td>
+                          <td className="px-3 py-2 capitalize">{upload.status}</td>
+                          {canImportWaybills && (
+                            <td className="px-3 py-2 text-right">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="gap-2 text-destructive hover:text-destructive"
+                                disabled={isBusy}
+                                onClick={() => void handleDeleteUpload(upload.id, upload.fileName)}
+                              >
+                                {deletingUploadId === upload.id ? (
+                                  <Loader2 className="size-4 animate-spin" aria-hidden />
+                                ) : (
+                                  <Trash2 className="size-4" aria-hidden />
+                                )}
+                                {deletingUploadId === upload.id ? "Deleting..." : "Delete"}
+                              </Button>
+                            </td>
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {uploadsPagination && uploadsPagination.total > uploadsPagination.limit && (
+                <div className="flex items-center justify-between gap-3 text-sm">
+                  <p className="text-muted-foreground">
+                    Page {uploadsPagination.page} of {uploadsTotalPages} ({uploadsPagination.total}{" "}
+                    uploads)
+                  </p>
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={isBusy || uploadsPage <= 1}
+                      onClick={() => void loadPageData({ uploadsPage: uploadsPage - 1 })}
+                    >
+                      Previous
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={isBusy || uploadsPage >= uploadsTotalPages}
+                      onClick={() => void loadPageData({ uploadsPage: uploadsPage + 1 })}
+                    >
+                      Next
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
 
       <Dialog
         open={Boolean(selectedDetails)}
@@ -773,13 +1032,7 @@ export function WaybillLookupFulfillmentPage({
                 </div>
                 <div>
                   <p className="text-muted-foreground">Uploaded</p>
-                  <p className="font-medium">
-                    {formatDate(
-                      selectedDetails.kind === "pending"
-                        ? selectedDetails.waybill.uploadedAt
-                        : selectedDetails.waybill.uploadedAt
-                    )}
-                  </p>
+                  <p className="font-medium">{formatDate(selectedDetails.waybill.uploadedAt)}</p>
                 </div>
                 {selectedDetails.kind === "pending" && (
                   <>
@@ -804,6 +1057,56 @@ export function WaybillLookupFulfillmentPage({
                 )}
               </div>
 
+              {selectedStatus?.status && (
+                <div className="space-y-3 rounded-md border border-border/70 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-sm font-medium">CityPak delivery status</p>
+                    <span
+                      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_TONE[selectedStatus.status]}`}
+                    >
+                      {selectedStatus.statusLabel ?? selectedStatus.status}
+                    </span>
+                  </div>
+                  <div className="grid gap-2 text-sm sm:grid-cols-2">
+                    <div>
+                      <p className="text-muted-foreground">Last checked</p>
+                      <p className="font-medium">{formatDate(selectedStatus.checkedAt)}</p>
+                    </div>
+                    {selectedStatus.deliveredAt && (
+                      <div>
+                        <p className="text-muted-foreground">Delivered</p>
+                        <p className="font-medium">{formatDate(selectedStatus.deliveredAt)}</p>
+                      </div>
+                    )}
+                  </div>
+                  {selectedStatus.podImageUrl && (
+                    <a
+                      href={selectedStatus.podImageUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-sm text-primary underline"
+                    >
+                      View proof of delivery
+                    </a>
+                  )}
+                  {selectedStatus.checkpoints.length > 0 && (
+                    <ol className="space-y-2 border-l border-border/60 pl-4 text-sm">
+                      {selectedStatus.checkpoints.map((checkpoint: CitypakTrackingCheckpoint, index) => (
+                        <li key={`${checkpoint.at}-${index}`} className="relative">
+                          <span className="absolute -left-[21px] top-1 size-2 rounded-full bg-border" />
+                          <p className="font-medium">{checkpoint.label || checkpoint.status}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {formatDate(checkpoint.at)}
+                            {checkpoint.location ? ` · ${checkpoint.location}` : ""}
+                            {checkpoint.description ? ` · ${checkpoint.description}` : ""}
+                          </p>
+                        </li>
+                      ))}
+                    </ol>
+                  )}
+                </div>
+              )}
+
               {selectedRawEntries.length > 0 ? (
                 <div className="overflow-hidden rounded-md border border-border/70">
                   <table className="w-full text-sm">
@@ -811,7 +1114,9 @@ export function WaybillLookupFulfillmentPage({
                       {selectedRawEntries.map(([key, value]) => (
                         <tr key={key} className="border-t border-border/60 first:border-t-0">
                           <td className="w-2/5 bg-muted/35 px-3 py-2 font-medium">{key}</td>
-                          <td className="px-3 py-2 text-muted-foreground">{String(value ?? "-")}</td>
+                          <td className="px-3 py-2 text-muted-foreground">
+                            {typeof value === "object" ? JSON.stringify(value) : String(value ?? "-")}
+                          </td>
                         </tr>
                       ))}
                     </tbody>

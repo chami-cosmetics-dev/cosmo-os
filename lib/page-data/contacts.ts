@@ -2,6 +2,10 @@ import type { Prisma } from "@prisma/client";
 
 import { dedupeContactsForDisplay } from "@/lib/contact-display-dedupe";
 import {
+  canonicalizeAssignedMerchantLabels,
+  expandAssignedMerchantFilter,
+} from "@/lib/customer-insight/merchant-label-aliases";
+import {
   findContactIdsByPurchasedBrand,
   findContactsByPurchasedBrandRanked,
 } from "@/lib/page-data/contact-brand-ids";
@@ -98,8 +102,11 @@ export async function buildContactsListWhere(
       OR: [{ assignedMerchant: null }, { assignedMerchant: "" }],
     });
   } else if (allocatedTo) {
+    // One merchant can have several stored labels (e.g. Sanda/semini = Semini = MER103).
     andWhere(where, {
-      assignedMerchant: { equals: allocatedTo, mode: "insensitive" },
+      OR: expandAssignedMerchantFilter(allocatedTo).map((alias) => ({
+        assignedMerchant: { equals: alias, mode: "insensitive" as const },
+      })),
     });
   }
 
@@ -163,9 +170,10 @@ async function fetchContactsPageOptions(companyId: string): Promise<ContactsPage
     }),
   ]);
 
-  const assignedMerchants = assignedRows
-    .map((r) => r.assignedMerchant?.trim())
-    .filter((v): v is string => Boolean(v));
+  // Collapse legacy duplicates so one merchant is one option.
+  const assignedMerchants = canonicalizeAssignedMerchantLabels(
+    assignedRows.map((r) => r.assignedMerchant)
+  ).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
 
   // Dashboard brand configs first (e.g. Anua), then Vendor names.
   const seenBrands = new Set<string>();

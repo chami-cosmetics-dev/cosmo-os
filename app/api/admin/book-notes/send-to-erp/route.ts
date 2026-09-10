@@ -7,9 +7,11 @@ import {
 import {
   assertBookNoteShopAllowed,
   resolveBookNoteShopAccess,
+  resolveBookNoteViewScope,
 } from "@/lib/book-notes/access";
 import { sendBookNoteRowsToErp } from "@/lib/book-notes/erp-verify";
 import { loadBookNoteDayDto } from "@/lib/book-notes/load";
+import { bookNoteRowUsesSplitPayload } from "@/lib/book-notes/split-lines";
 import {
   collectBookNoteNamesFromVerifyRows,
   loadReceiptsForDay,
@@ -24,7 +26,7 @@ import { bookNoteSendToErpBodySchema } from "@/lib/validation/book-notes";
  * (api_method default: verify_book_note).
  *
  * POST body: { companyLocationId, postingDate }
- * Sends form_dict: rows_json, company, posting_date
+ * Sends form_dict: book_note_id, rows_json, company, posting_date
  * (ERP script derives outlet from API user full_name).
  * Permission: book_notes.manage
  */
@@ -121,11 +123,28 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Withheld days come back with no rows, so a merchant cannot push a sheet
+  // they were never allowed to see.
+  const viewScope = await resolveBookNoteViewScope(auth.context!, companyId);
   const day = await loadBookNoteDayDto({
     companyId,
     companyLocationId,
     postingDateYmd: postingDate,
+    viewScope,
+    viewerUserId: auth.context!.user?.id ?? null,
   });
+  if (day?.restricted) {
+    return NextResponse.json(
+      {
+        error: `${day.enteredBy ?? "Another merchant"} entered this shop's book note for ${postingDate}. Only they or finance can send it to ERP.`,
+        code: "DAY_NOT_YOURS",
+        step: "load_day",
+        locationName: shopLabel,
+        postingDate,
+      },
+      { status: 403 },
+    );
+  }
   if (!day || day.rows.length === 0) {
     return NextResponse.json(
       {
@@ -140,6 +159,7 @@ export async function POST(request: NextRequest) {
   }
 
   for (const r of day.rows) {
+    if (bookNoteRowUsesSplitPayload(r.split_lines)) continue;
     if (r.card > 0 && !r.card_receipt_ref_last4) {
       return NextResponse.json(
         {
@@ -157,6 +177,7 @@ export async function POST(request: NextRequest) {
   const company = companyLabelForLocation(location);
   const result = await sendBookNoteRowsToErp({
     erpnextInstance: location.erpnextInstance,
+    bookNoteId: day.id,
     company,
     postingDate,
     rows: day.rows.map((r) => ({
@@ -167,6 +188,7 @@ export async function POST(request: NextRequest) {
       card_last_4: r.card_receipt_ref_last4,
       koko: r.koko,
       bank_transfer: r.bank_transfer,
+      split_lines: r.split_lines,
     })),
   });
 
@@ -221,6 +243,7 @@ export async function POST(request: NextRequest) {
     method: result.method,
     company: result.company,
     erpUrl: result.erpUrl,
+    book_note_id: day.id,
     posting_date: postingDate,
     locationName: shopLabel,
     summary: result.summary,

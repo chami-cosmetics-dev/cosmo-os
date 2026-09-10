@@ -8,6 +8,7 @@ import {
   ORDER_PAYMENT_APPROVAL,
   PAYMENT_METHOD_CHANGE_APPROVAL,
 } from "@/lib/approval-workflow";
+import { loadOrderKokoRefDetail } from "@/lib/approval-koko-list";
 import { getOrderPaymentGatewayColumnState } from "@/lib/order-payment-gateway-compat";
 import { resolveOrderDiscountCouponForOrder, resolveOrderMerchantCouponForOrder } from "@/lib/order-discount-coupon";
 import { resolveOrderErpSpecialRemarksForOrder } from "@/lib/order-erp-special-remarks";
@@ -49,6 +50,7 @@ const orderSelect = {
   fulfillmentStatus: true,
   customerEmail: true,
   customerPhone: true,
+  district: true,
   shippingAddress: true,
   billingAddress: true,
   discountCodes: true,
@@ -147,6 +149,7 @@ const orderSelect = {
   },
   cancelledAt: true,
   cancelReason: true,
+  cancelKind: true,
   cancelledBy: { select: { id: true, name: true, email: true } },
   replacedByOrderId: true,
   replacedByOrder: {
@@ -446,6 +449,8 @@ export async function GET(
     Number(details.totalPrice),
   );
 
+  const kokoRefDetail = await loadOrderKokoRefDetail(companyId, details.id);
+
   return NextResponse.json({
     id: details.id,
     shopifyOrderId: details.shopifyOrderId,
@@ -470,6 +475,8 @@ export async function GET(
     paymentGatewayPrimary: gatewayColumns.hasPaymentGatewayPrimary
       ? (details.paymentGatewayPrimary ?? null)
       : null,
+    kokoRefNumber: kokoRefDetail.kokoRefNumber,
+    kokoReferences: kokoRefDetail.kokoReferences,
     payments: details.paymentEntries.map((payment) => ({
       paymentEntryId: payment.paymentEntryId,
       paymentType: payment.paymentType,
@@ -499,6 +506,7 @@ export async function GET(
         billingAddress: details.billingAddress,
         rawPayload: details.rawPayload,
       }) ?? null,
+    district: details.district,
     shippingAddress: details.shippingAddress,
     billingAddress: details.billingAddress,
     discountCodes: details.discountCodes,
@@ -758,6 +766,7 @@ export async function GET(
       ? { id: details.cancelledBy.id, name: details.cancelledBy.name, email: details.cancelledBy.email }
       : null,
     cancelReason: details.cancelReason ?? null,
+    cancelKind: details.cancelKind ?? null,
     hasPendingCancelApproval: details.approvalRequests.some(
       (a) => a.type === ORDER_CANCEL_APPROVAL && a.status === "pending"
     ),

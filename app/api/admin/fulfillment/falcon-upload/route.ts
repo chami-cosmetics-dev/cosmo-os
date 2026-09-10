@@ -5,6 +5,8 @@ import {
   buildGroupedFalconUploadZip,
   type FalconWaybillRow,
 } from "@/lib/falcon-upload";
+import { CITYPAK_WAYBILL_SOURCE } from "@/lib/citypak-api";
+import { isCitypakApiRetryPending } from "@/lib/citypak-dispatch";
 import { isCitypakCourier } from "@/lib/courier";
 import { resolveFalconCompanyGroup, resolveFalconExportGroupKey } from "@/lib/falcon-waybill-brand";
 import { formatFulfillmentOrderReferenceText } from "@/lib/fulfillment-order-reference";
@@ -165,8 +167,35 @@ async function getCitypakWaybillRows(
     };
   });
 
-  const waybillRows = allRows.filter((row) => isCitypakCourier(row.courierName));
-  return waybillRows;
+  const citypakRows = allRows.filter((row) => isCitypakCourier(row.courierName));
+  const dispatchedOrderIds = citypakRows
+    .map((row) => row.orderId)
+    .filter((id): id is string => Boolean(id));
+  // API-booked + API-retry-held stay out of Falcon until staff releases them.
+  const apiBookedIds = new Set(
+    dispatchedOrderIds.length === 0
+      ? []
+      : (
+          await prisma.orderWaybill.findMany({
+            where: {
+              companyId,
+              source: CITYPAK_WAYBILL_SOURCE,
+              orderId: { in: dispatchedOrderIds },
+            },
+            select: { orderId: true },
+          })
+        )
+          .map((row) => row.orderId)
+          .filter((id): id is string => Boolean(id))
+  );
+  const retryPendingIds = new Set(
+    orders.filter((order) => isCitypakApiRetryPending(order.rawPayload)).map((order) => order.id)
+  );
+  return citypakRows.filter(
+    (row) =>
+      !row.orderId ||
+      (!apiBookedIds.has(row.orderId) && !retryPendingIds.has(row.orderId))
+  );
 }
 
 export async function GET(request: NextRequest) {

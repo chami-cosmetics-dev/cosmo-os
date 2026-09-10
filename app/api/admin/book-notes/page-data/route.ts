@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   assertBookNoteShopAllowed,
   resolveBookNoteShopAccess,
+  resolveBookNoteViewScope,
+  resolveBookNoteWriteAccess,
 } from "@/lib/book-notes/access";
 import {
   loadBookNoteDayDto,
@@ -19,6 +21,7 @@ export async function GET(request: NextRequest) {
   }
 
   const companyId = auth.context!.user?.companyId ?? null;
+  const userId = auth.context!.user?.id ?? null;
   if (!companyId) {
     return NextResponse.json(
       { error: "No company associated with your account" },
@@ -30,6 +33,7 @@ export async function GET(request: NextRequest) {
   const parsed = bookNotePageDataQuerySchema.safeParse({
     companyLocationId: raw.companyLocationId || undefined,
     postingDate: raw.postingDate || undefined,
+    q: raw.q || undefined,
   });
   if (!parsed.success) {
     return NextResponse.json(
@@ -39,9 +43,12 @@ export async function GET(request: NextRequest) {
   }
 
   const access = await resolveBookNoteShopAccess(auth.context!, companyId);
+  const viewScope = await resolveBookNoteViewScope(auth.context!, companyId);
+  const writeAccess = resolveBookNoteWriteAccess(auth.context!);
   const locations = access.locations;
   const allowedIds = locations.map((l) => l.id);
   const today = formatAppIsoDate(new Date());
+  const canBackdateBookNotes = writeAccess.canBackdate;
 
   let day = null;
   let history: Awaited<ReturnType<typeof loadBookNoteHistory>> = [];
@@ -54,18 +61,14 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  if (allowedIds.length > 0) {
+  if (allowedIds.length > 0 && userId) {
     history = await loadBookNoteHistory({
       companyId,
-      // Merchants: only the selected shop. Admins: all shops.
-      companyLocationId: access.canAccessAllShops
-        ? undefined
-        : locationId && assertBookNoteShopAllowed(access, locationId)
-          ? locationId
-          : allowedIds.length === 1
-            ? allowedIds[0]
-            : undefined,
+      createdByUserId: userId,
       companyLocationIds: allowedIds,
+      viewScope,
+      search: parsed.data.q,
+      writeAccess,
     });
   }
 
@@ -74,12 +77,16 @@ export async function GET(request: NextRequest) {
       companyId,
       companyLocationId: locationId,
       postingDateYmd: parsed.data.postingDate,
+      writeAccess,
+      viewScope,
+      viewerUserId: userId,
     });
   }
 
   return NextResponse.json({
     locations,
     canAccessAllShops: access.canAccessAllShops,
+    canBackdateBookNotes,
     today,
     day,
     history,

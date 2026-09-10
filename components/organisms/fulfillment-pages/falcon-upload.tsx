@@ -287,7 +287,8 @@ export function FalconUploadFulfillmentPage() {
           <div>
             <p className="font-medium">City Pack dispatched orders</p>
             <p className="text-sm text-muted-foreground">
-              {selectedOrderIds.size} selected from {countState.totalRows} orders.
+              {selectedOrderIds.size} selected from {countState.totalRows} City Pack orders that still need Falcon
+              (API-booked excluded).
             </p>
           </div>
           <div className="relative w-full lg:max-w-sm">
@@ -379,7 +380,9 @@ export function FalconUploadFulfillmentPage() {
                 {!countState.loading && filteredOrders.length === 0 && (
                   <tr>
                     <td colSpan={7} className="px-3 py-8 text-center text-muted-foreground">
-                      {countState.totalRows === 0 ? "No courier-dispatched orders found for this date." : "No orders match the search."}
+                      {countState.totalRows === 0
+                        ? "No Falcon-needed City Pack dispatches for this date (API-booked hidden)."
+                        : "No orders match the search."}
                     </td>
                   </tr>
                 )}

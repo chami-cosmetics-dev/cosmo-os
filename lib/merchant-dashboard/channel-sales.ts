@@ -126,6 +126,69 @@ export function resolveEffectiveTotalTarget(input: {
   return null;
 }
 
+function positiveTargetOrNull(value: number | null | undefined): number | null {
+  return value != null && value > 0 ? value : null;
+}
+
+export type MonthlyTargetAmounts = {
+  targetAmount: number | null;
+  shopTargetAmount: number | null;
+  onlineTargetAmount: number | null;
+};
+
+/**
+ * Next persisted month target after a save.
+ * Combined-only payload clears leftover shop/online so the new total actually replaces this month.
+ */
+export function resolveMonthlyTargetUpsert(input: {
+  incoming: {
+    targetAmount?: number;
+    shopTargetAmount?: number | null;
+    onlineTargetAmount?: number | null;
+  };
+  existing: MonthlyTargetAmounts | null;
+}): MonthlyTargetAmounts | null {
+  const combinedOnly =
+    input.incoming.targetAmount !== undefined &&
+    input.incoming.shopTargetAmount === undefined &&
+    input.incoming.onlineTargetAmount === undefined;
+
+  if (combinedOnly) {
+    const amount = positiveTargetOrNull(input.incoming.targetAmount);
+    if (amount == null) return null;
+    return {
+      targetAmount: amount,
+      shopTargetAmount: null,
+      onlineTargetAmount: null,
+    };
+  }
+
+  const shop =
+    input.incoming.shopTargetAmount !== undefined
+      ? positiveTargetOrNull(input.incoming.shopTargetAmount)
+      : positiveTargetOrNull(input.existing?.shopTargetAmount);
+  const online =
+    input.incoming.onlineTargetAmount !== undefined
+      ? positiveTargetOrNull(input.incoming.onlineTargetAmount)
+      : positiveTargetOrNull(input.existing?.onlineTargetAmount);
+  const combinedHint =
+    input.incoming.targetAmount !== undefined
+      ? positiveTargetOrNull(input.incoming.targetAmount)
+      : positiveTargetOrNull(input.existing?.targetAmount);
+
+  const resolved = resolveEffectiveTotalTarget({
+    targetAmount: combinedHint,
+    shopTargetAmount: shop,
+    onlineTargetAmount: online,
+  });
+  if (resolved == null) return null;
+  return {
+    targetAmount: resolved,
+    shopTargetAmount: shop,
+    onlineTargetAmount: online,
+  };
+}
+
 export function computeChannelPercent(
   actual: number,
   target: number | null,

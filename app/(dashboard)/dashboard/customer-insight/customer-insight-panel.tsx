@@ -58,14 +58,9 @@ import {
   goldMilestoneRatio,
   progressBarFillRatio,
 } from "@/lib/customer-insight/progress-bar";
-import {
-  recencyBucketToLastPurchaseRange,
-  type PurchaseRecencyBucketKey,
-} from "@/lib/customer-insight/merchant-monitoring-recency";
 import type {
   AllocatedFilterItemDto,
   CustomerInsightDto,
-  LoyaltyTierKey,
   SearchMatchDto,
   SeriesPointDto,
   TopItemDto,
@@ -160,6 +155,14 @@ function formatMemberSince(iso: string | null | undefined) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return null;
   return d.toLocaleDateString("en-LK", { month: "short", year: "numeric" });
+}
+
+/**
+ * `contact.lastPurchaseAt` is derived in loadCustomerInsight from the purchase history
+ * this page shows, not read from the drifting ContactMaster column.
+ */
+function formatLastPurchased(lastPurchaseAt: string | null, emptyLabel: string) {
+  return lastPurchaseAt ? formatAppDate(lastPurchaseAt, "—") : emptyLabel;
 }
 
 function truncateLabel(value: string, max = 18) {
@@ -287,63 +290,9 @@ type CallQueueRow = {
   lastPurchaseAt: string | null;
   lastContactedAt: string | null;
   queued: boolean;
+  hidden?: boolean;
+  hideReason?: string | null;
 };
-
-type MerchantMonitoringTierCounts = {
-  gold: number;
-  platinum: number;
-  standard: number;
-  total: number;
-};
-
-type MerchantMonitoringPortfolioRow = {
-  merchantValue: string;
-  merchantLabel: string;
-  allocatedTotal: number;
-  tiers: MerchantMonitoringTierCounts;
-  dobCompleteCount: number;
-  dobCompletePercent: number;
-  emailCompleteCount: number;
-  emailCompletePercent: number;
-  purchasedInPeriodCount: number;
-};
-
-type MerchantMonitoringRecencyCell = {
-  bucket: PurchaseRecencyBucketKey;
-  label: string;
-  tiers: MerchantMonitoringTierCounts;
-};
-
-type MerchantMonitoringReportDto = {
-  period: {
-    preset: string;
-    fromYmd: string;
-    toYmd: string;
-    periodEndYmd: string;
-    periodLabel: string;
-  };
-  portfolioRows: MerchantMonitoringPortfolioRow[];
-  companyPortfolio: MerchantMonitoringPortfolioRow;
-  recencyRows: Array<{
-    merchantValue: string;
-    merchantLabel: string;
-    buckets: MerchantMonitoringRecencyCell[];
-  }>;
-  companyRecency: MerchantMonitoringRecencyCell[];
-};
-
-function colomboTodayYmd(): string {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Colombo",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date());
-}
-
-function monthStartYmdFrom(ymd: string): string {
-  return `${ymd.slice(0, 7)}-01`;
-}
 
 function formatQueueDate(value: string | null) {
   return value ? formatAppDate(value) : "Never";
@@ -675,10 +624,6 @@ export function CustomerInsightPanel({
   const [filterLoyaltyRegTo, setFilterLoyaltyRegTo] = useState("");
   const [filterNoPurchaseFrom, setFilterNoPurchaseFrom] = useState("");
   const [filterNoPurchaseTo, setFilterNoPurchaseTo] = useState("");
-  const [filterLastPurchaseFrom, setFilterLastPurchaseFrom] = useState("");
-  const [filterLastPurchaseTo, setFilterLastPurchaseTo] = useState("");
-  const [filterLoyalty, setFilterLoyalty] = useState("");
-  const [filterHasLastPurchase, setFilterHasLastPurchase] = useState("");
   const [filterMin, setFilterMin] = useState("");
   const [filterMax, setFilterMax] = useState("");
   const [filterResults, setFilterResults] = useState<AllocatedFilterItemDto[] | null>(
@@ -728,6 +673,9 @@ export function CustomerInsightPanel({
   const [queueLastPurchaseFrom, setQueueLastPurchaseFrom] = useState("");
   const [queueLastPurchaseTo, setQueueLastPurchaseTo] = useState("");
   const [queueBrand, setQueueBrand] = useState("");
+  const [queueHideFilter, setQueueHideFilter] = useState<"all" | "eligible" | "hidden">(
+    "all"
+  );
   const [queueBrandOptions, setQueueBrandOptions] = useState<InsightSelectOption[]>([]);
   const [queueSelectCount, setQueueSelectCount] = useState("");
   const [queueEligibleTotal, setQueueEligibleTotal] = useState(0);
@@ -804,17 +752,6 @@ export function CustomerInsightPanel({
       purchaseCount: { platinum: number; gold: number; other: number; total: number };
     }>;
   } | null>(null);
-  const [monitoringMerchant, setMonitoringMerchant] = useState("");
-  const [monitoringPreset, setMonitoringPreset] = useState<"today" | "mtd" | "custom">(
-    "mtd"
-  );
-  const [monitoringFrom, setMonitoringFrom] = useState(() =>
-    monthStartYmdFrom(colomboTodayYmd())
-  );
-  const [monitoringTo, setMonitoringTo] = useState(() => colomboTodayYmd());
-  const [monitoringReport, setMonitoringReport] =
-    useState<MerchantMonitoringReportDto | null>(null);
-  const [openedFromCallQueue, setOpenedFromCallQueue] = useState(false);
   const invoicesRef = useRef<HTMLDivElement>(null);
   const detailsRef = useRef<HTMLDivElement>(null);
 
@@ -952,6 +889,12 @@ export function CustomerInsightPanel({
               .filter((o): o is { value: string; label?: string } => typeof o.value === "string")
               .map((o) => ({ value: o.value, label: o.label ?? o.value }))
           );
+        } else if (!queueMerchantsRes.ok) {
+          notify.error(
+            typeof queueMerchantsData.error === "string"
+              ? queueMerchantsData.error
+              : "Failed to load merchant list."
+          );
         }
         if (locationsRes.ok && Array.isArray(locationsData.options)) {
           setLocationOptions(
@@ -979,7 +922,6 @@ export function CustomerInsightPanel({
   useEffect(() => {
     if (!canExportFilteredCsv) return;
     void loadAllocationSummary({ silent: true });
-    void loadMerchantMonitoring({ silent: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- load once for admin
   }, [canExportFilteredCsv]);
 
@@ -991,95 +933,6 @@ export function CustomerInsightPanel({
     return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- load once for admin
   }, [canExportFilteredCsv]);
-
-  function monitoringQueryParams() {
-    const params = new URLSearchParams({
-      fromYmd: monitoringFrom,
-      toYmd: monitoringTo,
-      preset: monitoringPreset,
-    });
-    if (monitoringMerchant.trim()) {
-      params.set("assignedMerchant", monitoringMerchant.trim());
-    }
-    return params;
-  }
-
-  async function loadMerchantMonitoring(opts?: { silent?: boolean }) {
-    if (!canExportFilteredCsv) return;
-    if (!opts?.silent) setBusyKey("merchant-monitoring");
-    try {
-      const res = await fetch(
-        `/api/admin/customer-insight/merchant-monitoring?${monitoringQueryParams().toString()}`
-      );
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        if (!opts?.silent) {
-          notify.error(data.error ?? "Failed to load merchant monitoring.");
-        }
-        return;
-      }
-      setMonitoringReport(data as MerchantMonitoringReportDto);
-    } catch {
-      if (!opts?.silent) notify.error("Failed to load merchant monitoring.");
-    } finally {
-      if (!opts?.silent) setBusyKey(null);
-    }
-  }
-
-  async function exportMerchantMonitoringPdf() {
-    if (!canExportFilteredCsv || !monitoringReport) return;
-    setBusyKey("merchant-monitoring-pdf");
-    try {
-      const res = await fetch(
-        `/api/admin/customer-insight/merchant-monitoring/export?${monitoringQueryParams().toString()}`
-      );
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        notify.error(data.error ?? "PDF export failed.");
-        return;
-      }
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "insight-merchant-monitoring.pdf";
-      a.click();
-      URL.revokeObjectURL(url);
-      notify.success("PDF exported.");
-    } catch {
-      notify.error("PDF export failed.");
-    } finally {
-      setBusyKey(null);
-    }
-  }
-
-  function applyMonitoringPeriod(preset: "today" | "mtd") {
-    const today = colomboTodayYmd();
-    setMonitoringPreset(preset);
-    if (preset === "today") {
-      setMonitoringFrom(today);
-      setMonitoringTo(today);
-    } else {
-      setMonitoringFrom(monthStartYmdFrom(today));
-      setMonitoringTo(today);
-    }
-  }
-
-  function applyMonitoringDrillDown(opts: {
-    merchantValue: string;
-    bucket: PurchaseRecencyBucketKey;
-    loyalty?: LoyaltyTierKey;
-  }) {
-    const asOf = monitoringReport?.period.periodEndYmd ?? monitoringTo;
-    const range = recencyBucketToLastPurchaseRange(opts.bucket, asOf);
-    setFilterAssignedMerchant(opts.merchantValue);
-    setFilterLoyalty(opts.loyalty ?? "");
-    setFilterLastPurchaseFrom(range.lastPurchaseFrom ?? "");
-    setFilterLastPurchaseTo(range.lastPurchaseTo ?? "");
-    setFilterHasLastPurchase(range.hasLastPurchase === false ? "false" : "");
-    setInsightTab("filters");
-    void runFilters(1);
-  }
 
   async function loadAllocationSummary(opts?: { silent?: boolean }) {
     if (!canExportFilteredCsv) return;
@@ -1163,7 +1016,8 @@ export function CustomerInsightPanel({
       params.set("from", from);
       params.set("to", to);
       const res = await fetch(
-        `/api/admin/customer-insight/allocation-summary/export?${params.toString()}`
+        `/api/admin/customer-insight/allocation-summary/export?${params.toString()}`,
+        { credentials: "include" }
       );
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -1178,6 +1032,34 @@ export function CustomerInsightPanel({
       a.click();
       URL.revokeObjectURL(url);
       notify.success("Data collection downloaded.");
+    } catch {
+      notify.error("Export failed");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function exportAllocationContactsCsv() {
+    if (!canExportFilteredCsv) return;
+    setBusyKey("allocation-contacts-export");
+    try {
+      const res = await fetch(
+        "/api/admin/customer-insight/allocation-summary/export?format=contacts",
+        { credentials: "include" }
+      );
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        notify.error(data.error ?? "Export failed");
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "insight-merchant-allocation-contacts.csv";
+      a.click();
+      URL.revokeObjectURL(url);
+      notify.success("Allocation contacts downloaded.");
     } catch {
       notify.error("Export failed");
     } finally {
@@ -1240,6 +1122,7 @@ export function CustomerInsightPanel({
       params.set("lastPurchaseTo", queueLastPurchaseTo.trim());
     }
     if (queueBrand.trim()) params.set("brand", queueBrand.trim());
+    params.set("hideFilter", queueHideFilter);
   }
 
   async function loadQueueCandidates(page = 1) {
@@ -1414,9 +1297,8 @@ export function CustomerInsightPanel({
   }
 
   async function openQueueContact(contactId: string) {
-    setOpenedFromCallQueue(true);
     setInsightTab("filters");
-    await loadInsight(contactId, 1, undefined, { fromCallQueue: true });
+    await loadInsight(contactId, 1);
     setEditing(true);
   }
 
@@ -1496,13 +1378,12 @@ export function CustomerInsightPanel({
     contactId: string,
     page: number,
     scopeOverride?: { brands?: string[]; items?: string[] },
-    opts?: { fromCallQueue?: boolean }
+    viewAsOverride?: string | null
   ) {
     setBusyKey(`insight-${contactId}`);
     setEditing(false);
     setSelectedContactId(contactId);
     setItemFilter(null);
-    if (!opts?.fromCallQueue) setOpenedFromCallQueue(false);
     try {
       const brands = scopeOverride?.brands ?? filterBrands;
       const items = scopeOverride?.items ?? filterItems;
@@ -1512,8 +1393,14 @@ export function CustomerInsightPanel({
       });
       appendInsightFilterList(params, "brand", brands);
       appendInsightFilterList(params, "item", items);
+      const viewAs = canExportFilteredCsv
+        ? (viewAsOverride !== undefined
+            ? (viewAsOverride ?? "").trim()
+            : filterAssignedMerchant.trim())
+        : "";
+      if (viewAs) params.set("viewAsMerchant", viewAs);
       const res = await fetch(
-        `/api/admin/customer-insight/${encodeURIComponent(contactId)}?${params}`
+        `/api/admin/customer-insight/contact/${encodeURIComponent(contactId)}?${params}`
       );
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -1540,8 +1427,13 @@ export function CustomerInsightPanel({
           ),
         });
         try {
+          const historyParams = new URLSearchParams();
+          if (viewAs) historyParams.set("viewAsMerchant", viewAs);
+          const historyQs = historyParams.toString();
           const hRes = await fetch(
-            `/api/admin/customer-insight/${encodeURIComponent(contactId)}/contact-history`
+            `/api/admin/customer-insight/contact/${encodeURIComponent(contactId)}/contact-history${
+              historyQs ? `?${historyQs}` : ""
+            }`
           );
           const hData = await hRes.json().catch(() => ({}));
           if (hRes.ok && Array.isArray(hData.items)) {
@@ -1605,7 +1497,7 @@ export function CustomerInsightPanel({
         body.addPhoneNumber = addPhone;
       }
       const res = await fetch(
-        `/api/admin/customer-insight/${encodeURIComponent(selectedContactId)}`,
+        `/api/admin/customer-insight/contact/${encodeURIComponent(selectedContactId)}`,
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
@@ -1641,7 +1533,7 @@ export function CustomerInsightPanel({
     setBusyKey("contacted");
     try {
       const res = await fetch(
-        `/api/admin/customer-insight/${encodeURIComponent(selectedContactId)}/contacted`,
+        `/api/admin/customer-insight/contact/${encodeURIComponent(selectedContactId)}/contacted`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1734,6 +1626,10 @@ export function CustomerInsightPanel({
   }
 
   async function runFilters(page = 1) {
+    if (canExportFilteredCsv && !filterAssignedMerchant.trim()) {
+      notify.error("Select a merchant to preview their filtered results.");
+      return;
+    }
     setBusyKey("filter");
     setFilterPage(page);
     try {
@@ -1781,15 +1677,6 @@ export function CustomerInsightPanel({
       params.set("noPurchaseFrom", filterNoPurchaseFrom.trim());
       params.set("noPurchaseTo", filterNoPurchaseTo.trim());
     }
-    if (filterLastPurchaseFrom.trim()) {
-      params.set("lastPurchaseFrom", filterLastPurchaseFrom.trim());
-    }
-    if (filterLastPurchaseTo.trim()) {
-      params.set("lastPurchaseTo", filterLastPurchaseTo.trim());
-    }
-    if (filterLoyalty.trim()) params.set("loyalty", filterLoyalty.trim());
-    if (filterHasLastPurchase === "false") params.set("hasLastPurchase", "false");
-    else if (filterHasLastPurchase === "true") params.set("hasLastPurchase", "true");
     if (filterMin.trim()) params.set("minTotal", filterMin.trim());
     if (filterMax.trim()) params.set("maxTotal", filterMax.trim());
     params.set("page", String(page));
@@ -1799,6 +1686,10 @@ export function CustomerInsightPanel({
 
   async function exportFilteredCsv() {
     if (!canExportFilteredCsv) return;
+    if (!filterAssignedMerchant.trim()) {
+      notify.error("Select a merchant to preview their filtered results.");
+      return;
+    }
     setBusyKey("export-filter");
     try {
       const params = buildFilterParams(1);
@@ -1930,6 +1821,13 @@ export function CustomerInsightPanel({
       : insight?.progressBar?.tier === "gold"
         ? "Platinum"
         : "Gold";
+  const viewAsMerchantLabel = useMemo(() => {
+    const value = filterAssignedMerchant.trim();
+    if (!value) return null;
+    return (
+      merchantOptions.find((o) => o.value === value)?.label ?? value
+    );
+  }, [filterAssignedMerchant, merchantOptions]);
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-6 sm:px-6">
@@ -1938,11 +1836,24 @@ export function CustomerInsightPanel({
         <p className="text-sm text-muted-foreground">
           View customer profile, purchase history, and loyalty details. Allocated merchants and
           admins can edit profile fields.{" "}
-          {canFilterAllContacts
-            ? "Filters search all company contacts."
-            : "Filters search your allocated customers."}
+          {canExportFilteredCsv
+            ? "Pick a merchant to preview filters and contact detail as they see them."
+            : canFilterAllContacts
+              ? "Filters search all company contacts."
+              : "Filters search your allocated customers."}
         </p>
       </div>
+
+      {canExportFilteredCsv && viewAsMerchantLabel ? (
+        <div
+          className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-950 dark:text-amber-100"
+          role="status"
+        >
+          Viewing as <span className="font-medium">{viewAsMerchantLabel}</span>
+          {" — "}
+          filters and contact detail match that merchant&apos;s session (owner vs limited).
+        </div>
+      ) : null}
 
       <Tabs
         value={insightTab}
@@ -1968,9 +1879,11 @@ export function CustomerInsightPanel({
             {canFilterAllContacts ? "Customer filters" : "Allocated customer filters"}
           </CardTitle>
           <CardDescription>
-            {canFilterAllContacts
-              ? "Results include all company contacts matching your filters (allocated and unallocated)."
-              : "Results are limited to your allocated customers."}{" "}
+            {canExportFilteredCsv
+              ? "Select a merchant first. Results are scoped to their allocated contacts, and opening a contact uses their owner/limited visibility."
+              : canFilterAllContacts
+                ? "Results include all company contacts matching your filters (allocated and unallocated)."
+                : "Results are limited to your allocated customers."}{" "}
             Min/max total uses lifetime spend (completed Cosmo orders + Adapt history) across that
             full set. Without brands, highest lifetime totals first. Multiple brands = any of them
             (even one matching item). Ranked by combined spend on those brands. Multiple items =
@@ -2072,14 +1985,21 @@ export function CustomerInsightPanel({
             </label>
             {canExportFilteredCsv ? (
               <label className="space-y-1 text-sm">
-                <span className="text-muted-foreground">Allocated merchant</span>
+                <span className="text-muted-foreground">View as merchant</span>
                 <InsightSearchableSelect
                   value={filterAssignedMerchant}
                   options={merchantOptions}
-                  placeholder="Any"
+                  placeholder="Select merchant"
                   searchPlaceholder="Search merchants…"
                   disabled={isBusy}
-                  onChange={setFilterAssignedMerchant}
+                  onChange={(next) => {
+                    setFilterAssignedMerchant(next);
+                    setFilterResults(null);
+                    setFilterTotal(0);
+                    if (selectedContactId) {
+                      void loadInsight(selectedContactId, 1, undefined, next);
+                    }
+                  }}
                 />
               </label>
             ) : null}
@@ -2435,24 +2355,6 @@ export function CustomerInsightPanel({
 
       {insight && (
         <div ref={detailsRef} className="scroll-mt-4 space-y-6">
-          {openedFromCallQueue && isOwner && insight.contact ? (() => {
-            const missing: string[] = [];
-            if (!insight.contact.email?.trim()) missing.push("Email");
-            const bm = insight.contact.birthMonth;
-            const bd = insight.contact.birthDay;
-            if (!(bm != null && bm >= 1 && bm <= 12 && bd != null && bd >= 1 && bd <= 31)) {
-              missing.push("Birth date (month & day)");
-            }
-            if (missing.length === 0) return null;
-            return (
-              <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm">
-                <p className="font-medium">Collect on this call</p>
-                <p className="text-xs text-muted-foreground">
-                  Missing: {missing.join(", ")} — update profile below while on the call.
-                </p>
-              </div>
-            );
-          })() : null}
           {insight.historyScope ? (
             <div className="rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm">
               <div className="flex flex-wrap items-start justify-between gap-3">
@@ -2572,8 +2474,9 @@ export function CustomerInsightPanel({
               </CardHeader>
               <CardContent>
                 <p className="text-xs text-muted-foreground">
-                  You are not the allocated merchant. Name, phone, and email are visible.
-                  Full profile, progress bar, contacted, and spend chart stay hidden.
+                  {viewAsMerchantLabel
+                    ? `${viewAsMerchantLabel} is not the allocated merchant. Name, phone, and email are visible. Full profile, progress bar, contacted, and spend chart stay hidden.`
+                    : "You are not the allocated merchant. Name, phone, and email are visible. Full profile, progress bar, contacted, and spend chart stay hidden."}
                 </p>
               </CardContent>
             </Card>
@@ -2658,9 +2561,7 @@ export function CustomerInsightPanel({
                             <Calendar className="size-3.5 shrink-0" aria-hidden />
                             Last purchased{" "}
                             <span className="text-foreground">
-                              {insight.contact.lastPurchaseAt
-                                ? formatAppDate(insight.contact.lastPurchaseAt, "—")
-                                : "never"}
+                              {formatLastPurchased(insight.contact.lastPurchaseAt, "never")}
                             </span>
                           </span>
                         </div>
@@ -2674,9 +2575,7 @@ export function CustomerInsightPanel({
                         <DetailField
                           label="Last purchased"
                           value={
-                            insight.contact.lastPurchaseAt
-                              ? formatAppDate(insight.contact.lastPurchaseAt, "—")
-                              : "Never"
+                            formatLastPurchased(insight.contact.lastPurchaseAt, "Never")
                           }
                         />
                         <DetailField
@@ -3601,7 +3500,7 @@ export function CustomerInsightPanel({
                             setBusyKey("loyalty-assign");
                             try {
                               const res = await fetch(
-                                `/api/admin/customer-insight/${encodeURIComponent(row.contactId)}/loyalty-assign`,
+                                `/api/admin/customer-insight/contact/${encodeURIComponent(row.contactId)}/loyalty-assign`,
                                 {
                                   method: "POST",
                                   headers: { "Content-Type": "application/json" },
@@ -3719,251 +3618,13 @@ export function CustomerInsightPanel({
       {canExportFilteredCsv ? (
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">Merchant monitoring</CardTitle>
-            <CardDescription>
-              Portfolio and purchase recency for allocated contacts.
-              {monitoringReport
-                ? ` · ${monitoringReport.period.periodLabel} (${monitoringReport.period.fromYmd} – ${monitoringReport.period.toYmd})`
-                : null}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex flex-wrap items-end gap-2">
-              <div className="flex flex-wrap gap-1">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={monitoringPreset === "today" ? "default" : "outline"}
-                  disabled={isBusy}
-                  onClick={() => {
-                    applyMonitoringPeriod("today");
-                  }}
-                >
-                  Today
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={monitoringPreset === "mtd" ? "default" : "outline"}
-                  disabled={isBusy}
-                  onClick={() => {
-                    applyMonitoringPeriod("mtd");
-                  }}
-                >
-                  MTD
-                </Button>
-              </div>
-              <Input
-                type="date"
-                className="w-[10.5rem]"
-                value={monitoringFrom}
-                disabled={isBusy}
-                onChange={(e) => {
-                  setMonitoringPreset("custom");
-                  setMonitoringFrom(e.target.value);
-                }}
-              />
-              <span className="text-xs text-muted-foreground">to</span>
-              <Input
-                type="date"
-                className="w-[10.5rem]"
-                value={monitoringTo}
-                disabled={isBusy}
-                onChange={(e) => {
-                  setMonitoringPreset("custom");
-                  setMonitoringTo(e.target.value);
-                }}
-              />
-              <select
-                className="h-9 rounded-md border bg-background px-2 text-sm"
-                value={monitoringMerchant}
-                disabled={isBusy}
-                onChange={(e) => setMonitoringMerchant(e.target.value)}
-              >
-                <option value="">All merchants</option>
-                {queueMerchantOptions.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={isBusy}
-                onClick={() => void loadMerchantMonitoring()}
-              >
-                {busyKey === "merchant-monitoring" ? (
-                  <>
-                    <Loader2 className="animate-spin" aria-hidden />
-                    Refreshing...
-                  </>
-                ) : (
-                  "Refresh"
-                )}
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                disabled={isBusy || !monitoringReport}
-                onClick={() => void exportMerchantMonitoringPdf()}
-              >
-                {busyKey === "merchant-monitoring-pdf" ? (
-                  <>
-                    <Loader2 className="animate-spin" aria-hidden />
-                    Exporting...
-                  </>
-                ) : (
-                  <>
-                    <Download aria-hidden />
-                    Export PDF
-                  </>
-                )}
-              </Button>
-            </div>
-            {!monitoringReport ? (
-              <p className="text-sm text-muted-foreground">Loading monitoring…</p>
-            ) : null}
-            {monitoringReport && monitoringReport.portfolioRows.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                No allocated contacts for this filter.
-              </p>
-            ) : null}
-            {monitoringReport && monitoringReport.portfolioRows.length > 0 ? (
-              <div className="max-h-[24rem] overflow-auto rounded-md border">
-                <table className="w-full text-sm">
-                  <thead className="sticky top-0 bg-background">
-                    <tr className="border-b text-left text-muted-foreground">
-                      <th className="px-3 py-2 font-medium">Merchant</th>
-                      <th className="px-3 py-2 text-right font-medium">Alloc</th>
-                      <th className="px-3 py-2 text-right font-medium">Gold</th>
-                      <th className="px-3 py-2 text-right font-medium">Plat</th>
-                      <th className="px-3 py-2 text-right font-medium">Std</th>
-                      <th className="px-3 py-2 text-right font-medium">DOB %</th>
-                      <th className="px-3 py-2 text-right font-medium">Email %</th>
-                      <th className="px-3 py-2 text-right font-medium">Bought</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y">
-                    {monitoringReport.portfolioRows.map((row) => (
-                      <tr key={row.merchantValue}>
-                        <td className="px-3 py-2">{row.merchantLabel}</td>
-                        <td className="px-3 py-2 text-right tabular-nums">
-                          {row.allocatedTotal.toLocaleString()}
-                        </td>
-                        <td className="px-3 py-2 text-right tabular-nums">
-                          {row.tiers.gold.toLocaleString()}
-                        </td>
-                        <td className="px-3 py-2 text-right tabular-nums">
-                          {row.tiers.platinum.toLocaleString()}
-                        </td>
-                        <td className="px-3 py-2 text-right tabular-nums">
-                          {row.tiers.standard.toLocaleString()}
-                        </td>
-                        <td
-                          className="cursor-pointer px-3 py-2 text-right tabular-nums hover:bg-muted/40"
-                          title={`${row.dobCompleteCount} of ${row.allocatedTotal}`}
-                        >
-                          {row.dobCompletePercent}%
-                        </td>
-                        <td
-                          className="cursor-pointer px-3 py-2 text-right tabular-nums hover:bg-muted/40"
-                          title={`${row.emailCompleteCount} of ${row.allocatedTotal}`}
-                        >
-                          {row.emailCompletePercent}%
-                        </td>
-                        <td className="px-3 py-2 text-right tabular-nums">
-                          {row.purchasedInPeriodCount.toLocaleString()}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : null}
-            {monitoringReport ? (
-              <div className="space-y-2">
-                <p className="text-sm font-medium">
-                  Purchase recency
-                  {monitoringMerchant.trim()
-                    ? ` · ${monitoringReport.portfolioRows.find((r) => r.merchantValue === monitoringMerchant)?.merchantLabel ?? monitoringMerchant}`
-                    : " · All merchants"}
-                </p>
-                <div className="overflow-auto rounded-md border">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b text-left text-muted-foreground">
-                        <th className="px-3 py-2 font-medium">Bucket</th>
-                        <th className="px-3 py-2 text-right font-medium">Gold</th>
-                        <th className="px-3 py-2 text-right font-medium">Plat</th>
-                        <th className="px-3 py-2 text-right font-medium">Std</th>
-                        <th className="px-3 py-2 text-right font-medium">Total</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y">
-                      {(monitoringMerchant.trim()
-                        ? monitoringReport.recencyRows.find(
-                            (r) => r.merchantValue === monitoringMerchant
-                          )?.buckets
-                        : monitoringReport.companyRecency
-                      )?.map((cell) => (
-                        <tr key={cell.bucket}>
-                          <td className="px-3 py-2">{cell.label}</td>
-                          {(["gold", "platinum", "standard"] as const).map((tier) => (
-                            <td
-                              key={tier}
-                              className="cursor-pointer px-3 py-2 text-right tabular-nums hover:bg-muted/40"
-                              onClick={() => {
-                                if (!monitoringMerchant.trim()) {
-                                  notify.error("Select a merchant to drill into contacts.");
-                                  return;
-                                }
-                                applyMonitoringDrillDown({
-                                  merchantValue: monitoringMerchant.trim(),
-                                  bucket: cell.bucket,
-                                  loyalty: tier,
-                                });
-                              }}
-                            >
-                              {cell.tiers[tier].toLocaleString()}
-                            </td>
-                          ))}
-                          <td
-                            className="cursor-pointer px-3 py-2 text-right tabular-nums hover:bg-muted/40"
-                            onClick={() => {
-                              if (!monitoringMerchant.trim()) {
-                                notify.error("Select a merchant to drill into contacts.");
-                                return;
-                              }
-                              applyMonitoringDrillDown({
-                                merchantValue: monitoringMerchant.trim(),
-                                bucket: cell.bucket,
-                              });
-                            }}
-                          >
-                            {cell.tiers.total.toLocaleString()}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            ) : null}
-          </CardContent>
-        </Card>
-      ) : null}
-      {canExportFilteredCsv ? (
-        <Card>
-          <CardHeader className="pb-2">
             <CardTitle className="text-base">Merchant Allocation - Data Collection</CardTitle>
             <CardDescription>
               How many Contact Master rows are allocated to each merchant, split
               by loyalty tier, with the count that have both email and birthday
               on file. Pick a date range to also see calls taken and birthday /
-              email collected in that window. Export downloads the same table as
-              CSV.
+              email collected in that window. Export CSV downloads the table.
+              Export contacts includes each allocated contact name and phone number.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -4056,6 +3717,25 @@ export function CustomerInsightPanel({
                     <>
                       <Download aria-hidden />
                       Export CSV
+                    </>
+                  )}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={isBusy}
+                  onClick={() => void exportAllocationContactsCsv()}
+                >
+                  {busyKey === "allocation-contacts-export" ? (
+                    <>
+                      <Loader2 className="animate-spin" aria-hidden />
+                      Exporting...
+                    </>
+                  ) : (
+                    <>
+                      <Download aria-hidden />
+                      Export contacts
                     </>
                   )}
                 </Button>
@@ -4413,7 +4093,9 @@ export function CustomerInsightPanel({
             <CardDescription>
               Pick a merchant, then use any filter alone or together. Combined
               filters AND (Push to Gold + Push to Platinum = either band). Push
-              labels do not show amounts.
+              labels do not show amounts. Hidden logic is a filter: 2-month cooling
+              after allocation or outreach, 7-day Not Responding, Black List /
+              Wrong Number, already queued.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -4458,6 +4140,23 @@ export function CustomerInsightPanel({
                   disabled={isBusy}
                   onChange={setQueueBrand}
                 />
+              </label>
+              <label className="min-w-0 space-y-1 text-sm">
+                <span className="text-muted-foreground">Hidden logic</span>
+                <select
+                  className="border-input bg-background h-9 w-full rounded-md border px-2 text-sm"
+                  value={queueHideFilter}
+                  disabled={isBusy}
+                  onChange={(e) =>
+                    setQueueHideFilter(
+                      e.target.value as "all" | "eligible" | "hidden"
+                    )
+                  }
+                >
+                  <option value="all">All matching</option>
+                  <option value="eligible">Eligible only</option>
+                  <option value="hidden">Hidden only</option>
+                </select>
               </label>
               <label className="space-y-1 text-sm">
                 <span className="text-muted-foreground">Last purchase from</span>
@@ -4554,9 +4253,11 @@ export function CustomerInsightPanel({
                     {queueAllocatedTotal > 0
                       ? `${queueAllocatedTotal.toLocaleString()} allocated · `
                       : null}
-                    {queueEligibleTotal.toLocaleString()} eligible to assign · oldest/never
-                    contacted first, then oldest purchase
-                    {queueAllocatedTotal > queueEligibleTotal ? (
+                    {queueEligibleTotal.toLocaleString()} eligible to assign ·{" "}
+                    {queueCandidateTotal.toLocaleString()} shown · phone + last
+                    contacted · oldest/never contacted first, then oldest purchase
+                    {queueHideFilter === "eligible" &&
+                    queueAllocatedTotal > queueEligibleTotal ? (
                       <>
                         {" "}
                         · rest hidden (2-month cooling after allocation or outreach, already
@@ -4605,7 +4306,11 @@ export function CustomerInsightPanel({
                       variant="outline"
                       disabled={isBusy || queueCandidates.length === 0}
                       onClick={() =>
-                        setQueueSelectedIds(queueCandidates.map((row) => row.contactId))
+                        setQueueSelectedIds(
+                          queueCandidates
+                            .filter((row) => !row.hidden && !row.queued)
+                            .map((row) => row.contactId)
+                        )
                       }
                     >
                       Select page
@@ -4647,6 +4352,7 @@ export function CustomerInsightPanel({
                 </div>
                 <ul className="max-h-[28rem] divide-y overflow-auto rounded-md border">
                   {queueCandidates.map((row) => {
+                    const blocked = Boolean(row.hidden || row.queued);
                     const checked = queueSelectedIds.includes(row.contactId);
                     return (
                       <li key={row.contactId}>
@@ -4655,13 +4361,15 @@ export function CustomerInsightPanel({
                             type="checkbox"
                             className="mt-1"
                             checked={checked}
-                            onChange={() =>
+                            disabled={blocked}
+                            onChange={() => {
+                              if (blocked) return;
                               setQueueSelectedIds((prev) =>
                                 checked
                                   ? prev.filter((id) => id !== row.contactId)
                                   : [...prev, row.contactId]
-                              )
-                            }
+                              );
+                            }}
                           />
                           <span className="min-w-0 flex-1">
                             <span className="block font-medium">
@@ -4669,6 +4377,10 @@ export function CustomerInsightPanel({
                               {row.queued ? (
                                 <span className="text-muted-foreground ml-2 text-xs font-normal">
                                   already queued
+                                </span>
+                              ) : row.hideReason ? (
+                                <span className="text-muted-foreground ml-2 text-xs font-normal">
+                                  {row.hideReason}
                                 </span>
                               ) : null}
                             </span>

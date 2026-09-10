@@ -24,6 +24,7 @@ import {
   dailyWorkingTarget,
   prorateMonthlyTargetForPeriod,
 } from "@/lib/merchant-dashboard/target-prorate";
+import { fetchCallCenterAggRows } from "@/lib/page-data/call-center-performance";
 import type { CohortSalesResult } from "@/lib/page-data/merchant-dashboard-peers";
 import { prisma } from "@/lib/prisma";
 
@@ -71,6 +72,10 @@ export type MerchantDashboardOverviewRow = {
   hasDmSplit: boolean;
   merPeriodSales: number;
   dmPeriodSales: number;
+  hasWholesale: boolean;
+  wholesalePeriodSales: number;
+  wholesaleTargetAmount: number | null;
+  wholesalePercent: number | null;
 };
 
 function parseDayStartUtc(ymd: string): Date {
@@ -107,6 +112,7 @@ type ChannelTargets = {
   targetAmount: number | null;
   shopTargetAmount: number | null;
   onlineTargetAmount: number | null;
+  wholesaleTargetAmount: number | null;
 };
 
 type StaffProfile = {
@@ -120,33 +126,23 @@ async function fetchCallAgg(input: {
   fromYmd: string;
   toYmd: string;
 }): Promise<CallAggRow[]> {
-  if (input.merchantIds.length === 0) return [];
-
-  const fromDate = parseDayStartUtc(input.fromYmd);
-  const toDate = parseDayEndUtc(input.toYmd);
-  if (fromDate > toDate) return [];
-
-  const rows = await prisma.$queryRaw<
-    Array<{ merchantId: string; category: string | null; count: bigint }>
-  >`
-    SELECT
-      "merchantId",
-      "category",
-      COUNT(*)::bigint AS "count"
-    FROM "ContactAllocationUpdate"
-    WHERE "companyId" = ${input.companyId}
-      AND "merchantId" = ANY(${input.merchantIds})
-      AND "createdAt" >= ${fromDate}
-      AND "createdAt" <= ${toDate}
-      AND "category" IS DISTINCT FROM 'allocation'
-    GROUP BY "merchantId", "category"
-  `;
-
-  return rows.map((row) => ({
-    merchantId: row.merchantId,
-    category: row.category,
-    count: Number(row.count),
-  }));
+  const rows = await fetchCallCenterAggRows({
+    companyId: input.companyId,
+    merchantIds: input.merchantIds,
+    fromYmd: input.fromYmd,
+    toYmd: input.toYmd,
+  });
+  return rows.flatMap((row) =>
+    row.merchantId
+      ? [
+          {
+            merchantId: row.merchantId,
+            category: row.category,
+            count: row.count,
+          },
+        ]
+      : [],
+  );
 }
 
 function summarizeCalls(rows: CallAggRow[]): Map<
@@ -328,6 +324,7 @@ export async function buildGmOverview(input: {
         targetAmount: null,
         shopTargetAmount: null,
         onlineTargetAmount: null,
+        wholesaleTargetAmount: null,
       };
       const periodRow = input.periodCohort.byMerchant.get(merchant.id);
       const dmShare = dmBucketShareForHolder(merchant.id, input.dmHolderIds);
@@ -406,6 +403,16 @@ export async function buildGmOverview(input: {
       });
 
       const channelTotal = channel.shop.amount + channel.online.amount;
+      const wholesalePeriodSales =
+        input.periodCohort.wholesaleByMerchant.get(merchant.id)?.total ?? 0;
+      const wholesaleTargetAmount = targets.wholesaleTargetAmount;
+      const wholesalePercent = getMerchantTargetPercent(
+        wholesalePeriodSales,
+        wholesaleTargetAmount ?? 0,
+      );
+      const hasWholesale =
+        wholesaleTargetAmount != null && wholesaleTargetAmount > 0 ||
+        wholesalePeriodSales > 0;
       return {
         merchantId: merchant.id,
         displayName: merchant.displayName,
@@ -450,6 +457,13 @@ export async function buildGmOverview(input: {
         hasDmSplit: dmShare > 0,
         merPeriodSales,
         dmPeriodSales,
+        hasWholesale,
+        wholesalePeriodSales,
+        wholesaleTargetAmount,
+        wholesalePercent:
+          wholesaleTargetAmount != null && wholesaleTargetAmount > 0
+            ? wholesalePercent
+            : null,
       };
     },
   );

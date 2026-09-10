@@ -11,25 +11,58 @@ export {
 
 import type { SmsContext, SmsTrigger } from "@/lib/order-sms-resolvers";
 
+export type SendOrderSmsResult = {
+  /** Recipients the SMS provider accepted. */
+  sent: number;
+  /** Recipients the provider rejected. */
+  failed: number;
+  /** Set when nothing was attempted at all (trigger off, or required data missing). */
+  skipped?: string;
+  /** Provider messages for the recipients that failed. */
+  errors: string[];
+};
+
+/**
+ * Why a send produced no delivered message, or null when at least one went out.
+ * Callers that report back to a user (manual re-send endpoints) must check this —
+ * sendOrderSms resolves normally on provider failure, so awaiting it is not proof
+ * anything was actually sent.
+ */
+export function orderSmsFailureReason(result: SendOrderSmsResult): string | null {
+  if (result.sent > 0) return null;
+  if (result.skipped) return result.skipped;
+  return result.errors[0] ?? "SMS provider did not accept the message";
+}
+
 export async function sendOrderSms(
   companyId: string,
   orderId: string,
   trigger: SmsTrigger,
   context: SmsContext,
-): Promise<void> {
+): Promise<SendOrderSmsResult> {
   const config = await prisma.smsNotificationConfig.findUnique({
     where: { companyId_trigger: { companyId, trigger } },
   });
 
   if (!config) {
     console.warn(`[Order SMS] ${trigger}: No config found for company ${companyId}. Enable and save in Settings > SMS Notifications.`);
-    return;
+    return {
+      sent: 0,
+      failed: 0,
+      skipped: "No SMS settings for this trigger. Enable and save it in Settings > SMS Notifications.",
+      errors: [],
+    };
   }
   if (!config.enabled) {
     console.warn(
       `[Order SMS] ${trigger} order ${orderId}: skipped — trigger disabled in Settings > SMS Notifications.`,
     );
-    return;
+    return {
+      sent: 0,
+      failed: 0,
+      skipped: "This SMS trigger is disabled in Settings > SMS Notifications.",
+      errors: [],
+    };
   }
 
   const sendToCustomer = config.sendToCustomer ?? true;
@@ -74,7 +107,13 @@ export async function sendOrderSms(
         `[Order SMS] rider_dispatched order ${orderId}: skipped — no ERP invoice number or order number. ` +
           "Ensure the order is synced to ERPNext (erpnextInvoiceId) before assigning a rider.",
       );
-      return;
+      return {
+        sent: 0,
+        failed: 0,
+        skipped:
+          "No ERP invoice number or order number on this order. Sync it to ERPNext before assigning a rider.",
+        errors: [],
+      };
     }
     if (sendToRider && context.riderPhone?.trim()) {
       recipients.push(context.riderPhone.trim());
@@ -98,19 +137,35 @@ export async function sendOrderSms(
           ? "Rider needs a phone number in their profile."
           : `Customer phone missing (sendToCustomer=${sendToCustomer}). Add a phone on the order or additional recipients in SMS settings.`),
     );
-    return;
+    return {
+      sent: 0,
+      failed: 0,
+      skipped:
+        trigger === "rider_dispatched"
+          ? "Rider has no phone number in their profile."
+          : "No customer phone on this order, and no additional recipients configured.",
+      errors: [],
+    };
   }
 
   console.info(
     `[Order SMS] ${trigger} order ${orderId}: sending to ${uniqueRecipients.length} recipient(s)`,
   );
 
+  let sent = 0;
+  const errors: string[] = [];
+
   for (const phone of uniqueRecipients) {
     const result = await sendSms(companyId, phone, message);
     if (!result.success) {
+      errors.push(result.message);
       console.error(`[Order SMS] ${trigger} order ${orderId} to ${phone}: ${result.message}`);
     } else {
+      sent++;
       console.info(`[Order SMS] ${trigger} order ${orderId} to ${phone}: sent`);
     }
   }
+
+  return { sent, failed: errors.length, errors };
 }
+
