@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { companyLocationId, postingDate } = parsed.data;
+  const { companyLocationId, postingDate, bookNoteDayId } = parsed.data;
 
   const access = await resolveBookNoteShopAccess(auth.context!, companyId);
   if (!assertBookNoteShopAllowed(access, companyLocationId)) {
@@ -125,13 +125,17 @@ export async function POST(request: NextRequest) {
 
   // Withheld days come back with no rows, so a merchant cannot push a sheet
   // they were never allowed to see.
-  const viewScope = await resolveBookNoteViewScope(auth.context!, companyId);
+  const viewScope = await resolveBookNoteViewScope(auth.context!);
+  const viewerUserId = auth.context!.user?.id ?? null;
   const day = await loadBookNoteDayDto({
     companyId,
     companyLocationId,
     postingDateYmd: postingDate,
+    // Sheets are per merchant: without an explicit id, push the caller's own.
+    bookNoteDayId,
+    ownerUserId: bookNoteDayId ? undefined : viewerUserId,
     viewScope,
-    viewerUserId: auth.context!.user?.id ?? null,
+    viewerUserId,
   });
   if (day?.restricted) {
     return NextResponse.json(

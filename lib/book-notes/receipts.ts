@@ -180,7 +180,13 @@ export async function pushDayReceiptsToErp(input: {
   return summary;
 }
 
-/** Ensure BookNoteDay exists (empty rows ok) so receipts can attach before first ledger save. */
+/**
+ * The user's own sheet for a shop and date, created empty if they have none
+ * yet, so photos can attach before the ledger is first saved.
+ *
+ * Scoped to the submitter: a merchant uploading a slip must never land on a
+ * colleague's book note for the same shop and day.
+ */
 export async function ensureBookNoteDay(input: {
   companyId: string;
   companyLocationId: string;
@@ -188,26 +194,34 @@ export async function ensureBookNoteDay(input: {
   userId: string;
 }): Promise<{ id: string }> {
   const postingDate = postingDateToUtcMidnight(input.postingDateYmd);
-  const day = await prisma.bookNoteDay.upsert({
+
+  const existing = await prisma.bookNoteDay.findFirst({
     where: {
-      companyLocationId_postingDate: {
-        companyLocationId: input.companyLocationId,
-        postingDate,
-      },
+      companyId: input.companyId,
+      companyLocationId: input.companyLocationId,
+      postingDate,
+      createdByUserId: input.userId,
     },
-    create: {
+    select: { id: true },
+  });
+  if (existing) {
+    await prisma.bookNoteDay.update({
+      where: { id: existing.id },
+      data: { updatedByUserId: input.userId },
+    });
+    return existing;
+  }
+
+  return prisma.bookNoteDay.create({
+    data: {
       companyId: input.companyId,
       companyLocationId: input.companyLocationId,
       postingDate,
       createdByUserId: input.userId,
       updatedByUserId: input.userId,
     },
-    update: {
-      updatedByUserId: input.userId,
-    },
     select: { id: true },
   });
-  return day;
 }
 
 export async function addBookNoteReceipt(input: {

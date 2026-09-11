@@ -36,10 +36,22 @@ const dayInclude = {
   receipts: { orderBy: { sortOrder: "asc" as const } },
 };
 
+/**
+ * The sheet a given user keeps for one shop and date.
+ *
+ * Sheets are per merchant, so `ownerUserId` is what picks between two
+ * merchants' book notes for the same shop and day. Pass it for the entry page
+ * (a merchant only ever opens their own); omit it for finance, which reads
+ * whichever sheet exists — `bookNoteDayId` addresses one exactly.
+ */
 export async function loadBookNoteDayDto(input: {
   companyId: string;
   companyLocationId: string;
   postingDateYmd: string;
+  /** Load this user's own sheet for the shop/date. */
+  ownerUserId?: string | null;
+  /** Load one specific sheet, whoever owns it. */
+  bookNoteDayId?: string;
   now?: Date;
   writeAccess?: BookNoteWriteAccess;
   /** Supply both to withhold days this user may not see. */
@@ -47,13 +59,17 @@ export async function loadBookNoteDayDto(input: {
   viewerUserId?: string | null;
 }): Promise<BookNoteDayDto | null> {
   const postingDate = postingDateToUtcMidnight(input.postingDateYmd);
-  const day = await prisma.bookNoteDay.findUnique({
-    where: {
-      companyLocationId_postingDate: {
-        companyLocationId: input.companyLocationId,
-        postingDate,
-      },
-    },
+  const day = await prisma.bookNoteDay.findFirst({
+    where: input.bookNoteDayId
+      ? { id: input.bookNoteDayId }
+      : {
+          companyLocationId: input.companyLocationId,
+          postingDate,
+          ...(input.ownerUserId
+            ? { createdByUserId: input.ownerUserId }
+            : {}),
+        },
+    orderBy: { updatedAt: "desc" },
     include: dayInclude,
   });
 
@@ -215,21 +231,14 @@ export async function loadBookNoteHistory(input: {
   const userId = input.createdByUserId;
   if (!userId) return [];
 
-  const viewScope = input.viewScope ?? {
-    canViewAllShops: false,
-    assignedLocationIds: [],
-  };
+  const viewScope = input.viewScope ?? { canViewAllShops: false };
 
-  const visibleLocationIds = viewScope.assignedLocationIds.filter((id) =>
-    locationFilter.includes(id),
-  );
+  // Strictly the sheets this user submitted. A colleague at the same shop keeps
+  // their own sheet and it never appears here.
   const visibility: Prisma.BookNoteDayWhereInput[] = [
     { createdByUserId: userId },
     { updatedByUserId: userId },
   ];
-  if (visibleLocationIds.length > 0) {
-    visibility.push({ companyLocationId: { in: visibleLocationIds } });
-  }
 
   const search = (input.search ?? "").trim();
   const searchClauses: Prisma.BookNoteDayWhereInput[] = [];

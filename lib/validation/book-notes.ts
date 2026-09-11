@@ -16,6 +16,12 @@ const moneySchema = z.coerce
 export const bookNotePageDataQuerySchema = z.object({
   companyLocationId: cuidSchema.optional(),
   postingDate: ymdSchema.optional(),
+  /**
+   * Open this exact sheet instead of the caller's own one for the shop/date.
+   * Sent when a row is opened from history, so an admin lands on the merchant's
+   * sheet rather than starting a second one of their own.
+   */
+  bookNoteDayId: cuidSchema.optional(),
   /** History search: shop name, posting date, or sales invoice number. */
   q: z.string().trim().max(120).optional(),
 });
@@ -128,6 +134,12 @@ export const bookNotePutRowSchema = z
 export const bookNotePutBodySchema = z.object({
   companyLocationId: cuidSchema,
   postingDate: ymdSchema,
+  /**
+   * Save onto this exact sheet. Omitted for a merchant's own book note, which
+   * is found by shop + date + submitter; sent when a sheet was opened from a
+   * history row so the save lands on that one.
+   */
+  bookNoteDayId: cuidSchema.optional(),
   rows: z.array(bookNotePutRowSchema).max(LIMITS.bookNoteRowsMax),
 });
 
@@ -167,6 +179,8 @@ export const bookNoteRetrieveQuerySchema = z
 export const bookNoteSendToErpBodySchema = z.object({
   companyLocationId: cuidSchema,
   postingDate: ymdSchema,
+  /** Push this exact sheet; defaults to the caller's own for the shop/date. */
+  bookNoteDayId: cuidSchema.optional(),
 });
 
 export type BookNotePutBody = z.infer<typeof bookNotePutBodySchema>;
