@@ -68,7 +68,7 @@ export async function GET(
     return NextResponse.json({ error: "Receipt not found" }, { status: 404 });
   }
 
-  const viewScope = await resolveBookNoteViewScope(auth.context!, companyId);
+  const viewScope = await resolveBookNoteViewScope(auth.context!);
   if (!viewScope.canViewAllShops) {
     const access = await resolveBookNoteShopAccess(auth.context!, companyId);
     if (

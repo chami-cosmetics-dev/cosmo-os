@@ -24,15 +24,12 @@ export type BookNoteShopAccess = {
 /**
  * Which saved book notes a user may *read back*.
  *
- * Entry is deliberately unrestricted (a merchant covering another shop still
- * needs to key its book), but history is outlet-scoped: two merchants in the
- * same outlet see each other's sheets, a merchant in another outlet does not.
- * Finance / admin (`book_notes.read` or `book_notes.admin`) see everything.
+ * A merchant sees only the sheets they submitted — not a colleague's, even at
+ * the same shop on the same day, because each merchant now keeps their own.
+ * Finance (`book_notes.read`) sees every sheet from every shop.
  */
 export type BookNoteViewScope = {
   canViewAllShops: boolean;
-  /** Shops this user is posted to (employee location + default merchant). */
-  assignedLocationIds: string[];
 };
 
 /**
@@ -52,53 +49,24 @@ export async function resolveBookNoteShopAccess(
 }
 
 /**
- * Outlets whose saved book notes this user may see, plus the finance/admin
- * override. A user always also sees sheets they created or last saved
- * themselves, which `loadBookNoteHistory` adds on top of these ids.
+ * Read scope for the current user. Merchants get nothing beyond their own
+ * sheets; only the finance/intern retrieve permission opens the whole company.
+ * `book_notes.admin` is a *write* scope (backdating) and deliberately grants
+ * no extra visibility.
  */
 export async function resolveBookNoteViewScope(
   context: UserContext,
-  companyId: string,
 ): Promise<BookNoteViewScope> {
-  // Only the finance/intern retrieve permission grants company-wide read.
-  // `book_notes.admin` is a *write* scope (backdating) — granting a merchant
-  // the right to fix yesterday's sheet must not show them every other outlet.
-  const canViewAllShops = hasPermission(context, "book_notes.read");
-
-  const userId = context.user?.id ?? null;
-  if (canViewAllShops || !userId) {
-    return { canViewAllShops, assignedLocationIds: [] };
-  }
-
-  const [profile, defaultMerchantLocations] = await Promise.all([
-    prisma.employeeProfile.findUnique({
-      where: { userId },
-      select: { locationId: true, companyId: true },
-    }),
-    prisma.companyLocation.findMany({
-      where: { companyId, defaultMerchantUserId: userId },
-      select: { id: true },
-    }),
-  ]);
-
-  const ids = new Set<string>();
-  if (profile?.locationId && profile.companyId === companyId) {
-    ids.add(profile.locationId);
-  }
-  for (const loc of defaultMerchantLocations) {
-    ids.add(loc.id);
-  }
-
-  return { canViewAllShops: false, assignedLocationIds: [...ids] };
+  return Promise.resolve({
+    canViewAllShops: hasPermission(context, "book_notes.read"),
+  });
 }
 
 /**
  * May this user read (and therefore overwrite) an existing saved day?
  *
- * Matches the history rule: their own sheets, any sheet for an outlet they are
- * posted to, everything for finance / admin. A day they cannot see must stay
- * read-only — `PUT /api/admin/book-notes` replaces every row of a day, so
- * letting it through would silently destroy a colleague's entry.
+ * Their own sheets only, plus everything for finance. Saving replaces every
+ * row of a sheet, so anyone who cannot see one must not be able to write it.
  */
 export function canViewBookNoteDay(input: {
   viewScope: BookNoteViewScope;
@@ -111,10 +79,10 @@ export function canViewBookNoteDay(input: {
 }): boolean {
   if (input.viewScope.canViewAllShops) return true;
   const { userId, day } = input;
-  if (userId && (day.createdByUserId === userId || day.updatedByUserId === userId)) {
-    return true;
-  }
-  return input.viewScope.assignedLocationIds.includes(day.companyLocationId);
+  return Boolean(
+    userId &&
+      (day.createdByUserId === userId || day.updatedByUserId === userId),
+  );
 }
 
 export function resolveBookNoteWriteAccess(

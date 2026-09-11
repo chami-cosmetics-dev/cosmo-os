@@ -27,7 +27,7 @@ export default async function BookNotesPage() {
   }
 
   const access = await resolveBookNoteShopAccess(auth.context!, companyId);
-  const viewScope = await resolveBookNoteViewScope(auth.context!, companyId);
+  const viewScope = await resolveBookNoteViewScope(auth.context!);
   const writeAccess = resolveBookNoteWriteAccess(auth.context!);
   const locations = access.locations;
   const allowedIds = locations.map((l) => l.id);

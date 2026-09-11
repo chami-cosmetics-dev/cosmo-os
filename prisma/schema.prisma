@@ -2296,8 +2296,12 @@ model BookNoteDay {
   rows               BookNoteRow[]
   receipts           BookNoteReceipt[]
 
-  @@unique([companyLocationId, postingDate])
+  /// One sheet per shop, per day, PER MERCHANT. Two merchants working the same
+  /// shop on the same day each keep their own book note; neither can open or
+  /// overwrite the other's.
+  @@unique([companyLocationId, postingDate, createdByUserId])
   @@index([companyId, postingDate])
+  @@index([companyLocationId, postingDate])
 }
 
 model BookNoteRow {

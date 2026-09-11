@@ -33,6 +33,7 @@ export async function GET(request: NextRequest) {
   const parsed = bookNotePageDataQuerySchema.safeParse({
     companyLocationId: raw.companyLocationId || undefined,
     postingDate: raw.postingDate || undefined,
+    bookNoteDayId: raw.bookNoteDayId || undefined,
     q: raw.q || undefined,
   });
   if (!parsed.success) {
@@ -43,7 +44,7 @@ export async function GET(request: NextRequest) {
   }
 
   const access = await resolveBookNoteShopAccess(auth.context!, companyId);
-  const viewScope = await resolveBookNoteViewScope(auth.context!, companyId);
+  const viewScope = await resolveBookNoteViewScope(auth.context!);
   const writeAccess = resolveBookNoteWriteAccess(auth.context!);
   const locations = access.locations;
   const allowedIds = locations.map((l) => l.id);
@@ -77,6 +78,10 @@ export async function GET(request: NextRequest) {
       companyId,
       companyLocationId: locationId,
       postingDateYmd: parsed.data.postingDate,
+      // Without an explicit sheet id, a merchant gets their own book note for
+      // the shop and day — never a colleague's.
+      bookNoteDayId: parsed.data.bookNoteDayId,
+      ownerUserId: parsed.data.bookNoteDayId ? undefined : userId,
       writeAccess,
       viewScope,
       viewerUserId: userId,

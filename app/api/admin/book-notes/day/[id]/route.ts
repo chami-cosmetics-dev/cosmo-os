@@ -93,7 +93,7 @@ export async function DELETE(
     );
   }
 
-  const viewScope = await resolveBookNoteViewScope(auth.context!, companyId);
+  const viewScope = await resolveBookNoteViewScope(auth.context!);
   const visible = canViewBookNoteDay({
     viewScope,
     userId,

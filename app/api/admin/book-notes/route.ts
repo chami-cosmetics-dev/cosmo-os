@@ -101,42 +101,68 @@ export async function GET(request: NextRequest) {
 }
 
 /**
- * Refuse to touch a saved day the user is not allowed to see. Saving replaces
- * every row of the day, so without this a merchant keying another outlet could
- * wipe a colleague's sheet they were never shown.
+ * Find which sheet a save should land on.
+ *
+ * Sheets are per merchant, so a save without an explicit `bookNoteDayId`
+ * targets the caller's *own* sheet for that shop and date — never a
+ * colleague's. An explicit id (finance or an admin opening a sheet from the
+ * review/history list) is honoured only if the caller may see that sheet,
+ * because saving replaces every row on it.
  */
-async function assertDayWritableByViewer(input: {
+async function resolveSaveTarget(input: {
   context: Parameters<typeof resolveBookNoteViewScope>[0];
   companyId: string;
   userId: string;
   companyLocationId: string;
   postingDate: string;
-}): Promise<{ denied: NextResponse | null; isOwner: boolean }> {
-  const existing = await prisma.bookNoteDay.findUnique({
-    where: {
-      companyLocationId_postingDate: {
-        companyLocationId: input.companyLocationId,
-        postingDate: postingDateToUtcMidnight(input.postingDate),
-      },
-    },
+  bookNoteDayId?: string | null;
+}): Promise<{
+  denied: NextResponse | null;
+  existingId: string | null;
+  isOwner: boolean;
+}> {
+  const postingDate = postingDateToUtcMidnight(input.postingDate);
+
+  const existing = await prisma.bookNoteDay.findFirst({
+    where: input.bookNoteDayId
+      ? { id: input.bookNoteDayId }
+      : {
+          companyLocationId: input.companyLocationId,
+          postingDate,
+          createdByUserId: input.userId,
+        },
     select: {
+      id: true,
       companyId: true,
       companyLocationId: true,
+      postingDate: true,
       createdByUserId: true,
       updatedByUserId: true,
       createdBy: { select: { name: true, email: true } },
       updatedBy: { select: { name: true, email: true } },
     },
   });
+
   if (!existing || existing.companyId !== input.companyId) {
-    return { denied: null, isOwner: false };
+    // Nothing of theirs yet — this save starts a fresh sheet.
+    if (input.bookNoteDayId) {
+      return {
+        denied: NextResponse.json(
+          { error: "Book note not found" },
+          { status: 404 },
+        ),
+        existingId: null,
+        isOwner: false,
+      };
+    }
+    return { denied: null, existingId: null, isOwner: false };
   }
 
   const isOwner =
     existing.createdByUserId === input.userId ||
     existing.updatedByUserId === input.userId;
 
-  const viewScope = await resolveBookNoteViewScope(input.context, input.companyId);
+  const viewScope = await resolveBookNoteViewScope(input.context);
   const allowed = canViewBookNoteDay({
     viewScope,
     userId: input.userId,
@@ -146,21 +172,45 @@ async function assertDayWritableByViewer(input: {
       updatedByUserId: existing.updatedByUserId,
     },
   });
-  if (allowed) return { denied: null, isOwner };
+  if (!allowed) {
+    const author = existing.updatedBy ?? existing.createdBy;
+    const who = author?.name?.trim() || author?.email || "another merchant";
+    return {
+      denied: NextResponse.json(
+        {
+          error: `${who} submitted this book note. Only they or finance can change it.`,
+          code: "DAY_NOT_YOURS",
+          enteredBy: who,
+        },
+        { status: 403 },
+      ),
+      existingId: existing.id,
+      isOwner,
+    };
+  }
 
-  const author = existing.updatedBy ?? existing.createdBy;
-  const who = author?.name?.trim() || author?.email || "another merchant";
-  return {
-    denied: NextResponse.json(
-      {
-        error: `${who} already entered this shop's book note for ${input.postingDate}. Ask them or finance to update it.`,
-        code: "DAY_NOT_YOURS",
-        enteredBy: who,
-      },
-      { status: 403 },
-    ),
-    isOwner,
-  };
+  // An explicit id must still match the shop and date being saved, or a save
+  // would quietly move someone's sheet to another shop or day.
+  if (
+    input.bookNoteDayId &&
+    (existing.companyLocationId !== input.companyLocationId ||
+      existing.postingDate.getTime() !== postingDate.getTime())
+  ) {
+    return {
+      denied: NextResponse.json(
+        {
+          error:
+            "This book note belongs to a different shop or date. Reopen it from history and try again.",
+          code: "DAY_MISMATCH",
+        },
+        { status: 409 },
+      ),
+      existingId: existing.id,
+      isOwner,
+    };
+  }
+
+  return { denied: null, existingId: existing.id, isOwner };
 }
 
 export async function PUT(request: NextRequest) {
@@ -193,7 +243,7 @@ export async function PUT(request: NextRequest) {
     );
   }
 
-  const { companyLocationId, postingDate, rows } = parsed.data;
+  const { companyLocationId, postingDate, rows, bookNoteDayId } = parsed.data;
 
   const access = await resolveBookNoteShopAccess(auth.context!, companyId);
   if (!assertBookNoteShopAllowed(access, companyLocationId)) {
@@ -208,18 +258,19 @@ export async function PUT(request: NextRequest) {
 
   // Ownership decides the lock: the merchant who submitted a past sheet may
   // reopen it, so this has to run before the writable check.
-  const viewerCheck = await assertDayWritableByViewer({
+  const target = await resolveSaveTarget({
     context: auth.context!,
     companyId,
     userId,
     companyLocationId,
     postingDate,
+    bookNoteDayId,
   });
-  if (viewerCheck.denied) return viewerCheck.denied;
+  if (target.denied) return target.denied;
 
   const writeAccess = {
     ...resolveBookNoteWriteAccess(auth.context!),
-    isOwner: viewerCheck.isOwner,
+    isOwner: target.isOwner,
   };
 
   if (!isBookNoteWritable(postingDate, new Date(), writeAccess)) {
@@ -319,25 +370,26 @@ export async function PUT(request: NextRequest) {
     }
   }
 
-  await prisma.$transaction(async (tx) => {
-    const day = await tx.bookNoteDay.upsert({
-      where: {
-        companyLocationId_postingDate: {
-          companyLocationId,
-          postingDate: postingDateUtc,
-        },
-      },
-      create: {
-        companyId,
-        companyLocationId,
-        postingDate: postingDateUtc,
-        createdByUserId: userId,
-        updatedByUserId: userId,
-      },
-      update: {
-        updatedByUserId: userId,
-      },
-    });
+  const savedDayId = await prisma.$transaction(async (tx) => {
+    // Target is resolved above: the caller's own sheet, or the one they opened
+    // by id. Never an upsert on shop + date, which would collide with whichever
+    // merchant happened to save that shop first.
+    const day = target.existingId
+      ? await tx.bookNoteDay.update({
+          where: { id: target.existingId },
+          data: { updatedByUserId: userId },
+          select: { id: true },
+        })
+      : await tx.bookNoteDay.create({
+          data: {
+            companyId,
+            companyLocationId,
+            postingDate: postingDateUtc,
+            createdByUserId: userId,
+            updatedByUserId: userId,
+          },
+          select: { id: true },
+        });
 
     await tx.bookNoteRow.deleteMany({ where: { bookNoteDayId: day.id } });
 
@@ -358,12 +410,15 @@ export async function PUT(request: NextRequest) {
         })),
       });
     }
+
+    return day.id;
   });
 
   const dayDto = await loadBookNoteDayDto({
     companyId,
     companyLocationId,
     postingDateYmd: postingDate,
+    bookNoteDayId: savedDayId,
     writeAccess,
     viewerUserId: userId,
   });

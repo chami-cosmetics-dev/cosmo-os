@@ -253,6 +253,7 @@ export function BookNotesPanel({
   const [pendingTarget, setPendingTarget] = useState<{
     companyLocationId: string;
     postingDate: string;
+    bookNoteDayId: string | null;
     shopLabel: string;
   } | null>(null);
   /** Row count waiting on confirmation because Create rows would wipe entries. */
@@ -262,6 +263,12 @@ export function BookNotesPanel({
     useState<BookNoteHistoryItem | null>(null);
   /** Set when the loaded day belongs to a merchant outside the viewer's outlet. */
   const [restrictedBy, setRestrictedBy] = useState<string | null>(null);
+  /**
+   * The sheet currently open, when it was opened from history. Sheets are per
+   * merchant, so saving has to land on this exact one rather than on whatever
+   * sheet the shop and date resolve to for the person saving.
+   */
+  const [openDayId, setOpenDayId] = useState<string | null>(null);
   const [historyQuery, setHistoryQuery] = useState("");
   const [historySearching, setHistorySearching] = useState(false);
   const historyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -288,7 +295,8 @@ export function BookNotesPanel({
     return loc.shortName ? `${loc.shortName} — ${loc.name}` : loc.name;
   }
 
-  const loadDay = useCallback(async (locationId: string, date: string) => {
+  const loadDay = useCallback(
+    async (locationId: string, date: string, bookNoteDayId?: string | null) => {
     if (!locationId || !date) return;
     setBusyKey("load");
     try {
@@ -296,6 +304,7 @@ export function BookNotesPanel({
         companyLocationId: locationId,
         postingDate: date,
       });
+      if (bookNoteDayId) params.set("bookNoteDayId", bookNoteDayId);
       const res = await fetch(`/api/admin/book-notes/page-data?${params}`);
       const data = await res.json();
       if (!res.ok) {
@@ -303,6 +312,7 @@ export function BookNotesPanel({
         return;
       }
       const day = data.day as BookNoteDayDto | null;
+      setOpenDayId(day?.id ?? null);
       const nextRows = dayToRows(day);
       setRows(nextRows);
       setSavedFingerprint(rowsFingerprint(nextRows));
@@ -323,7 +333,9 @@ export function BookNotesPanel({
     } finally {
       setBusyKey(null);
     }
-  }, []);
+    },
+    [],
+  );
 
   useEffect(() => {
     if (hydrated.current) return;
@@ -514,12 +526,22 @@ export function BookNotesPanel({
     );
   }
 
-  /** Load another shop/date sheet, discarding whatever is on screen. */
-  function applySheetChange(id: string, date: string) {
+  /**
+   * Load another sheet, discarding whatever is on screen. Pass `bookNoteDayId`
+   * to open one exact sheet (a history row); leave it out to open this user's
+   * own book note for that shop and date, creating a blank one if they have
+   * none yet.
+   */
+  function applySheetChange(
+    id: string,
+    date: string,
+    bookNoteDayId?: string | null,
+  ) {
     setCompanyLocationId(id);
     setPostingDate(date);
     setLocked(false);
     setRestrictedBy(null);
+    setOpenDayId(bookNoteDayId ?? null);
     setRows([]);
     setSavedFingerprint(rowsFingerprint([]));
     setRowCountInput("0");
@@ -527,24 +549,33 @@ export function BookNotesPanel({
     setSuggestions([]);
     setSuggestForKey(null);
     clearError();
-    void loadDay(id, date);
+    void loadDay(id, date, bookNoteDayId);
   }
 
   /**
    * Switching shop or date reloads the sheet from scratch. Warn first when the
    * merchant keyed rows that were never saved — they are gone once we reload.
    */
-  function requestSheetChange(id: string, date: string) {
-    if (id === companyLocationId && date === postingDate) return;
+  function requestSheetChange(
+    id: string,
+    date: string,
+    bookNoteDayId?: string | null,
+  ) {
+    const sameSheet =
+      id === companyLocationId &&
+      date === postingDate &&
+      (bookNoteDayId ?? null) === openDayId;
+    if (sameSheet) return;
     if (isDirty) {
       setPendingTarget({
         companyLocationId: id,
         postingDate: date,
+        bookNoteDayId: bookNoteDayId ?? null,
         shopLabel: shopLabelFor(id),
       });
       return;
     }
-    applySheetChange(id, date);
+    applySheetChange(id, date, bookNoteDayId);
   }
 
   /** Debounced history search — shop name, posting date, or invoice number. */
@@ -558,7 +589,7 @@ export function BookNotesPanel({
   }
 
   function openHistoryDay(item: BookNoteHistoryItem) {
-    requestSheetChange(item.companyLocationId, item.posting_date);
+    requestSheetChange(item.companyLocationId, item.posting_date, item.id);
   }
 
   function fetchSuggestions(rowKey: string, q: string) {
@@ -692,6 +723,9 @@ export function BookNotesPanel({
     const payload = {
       companyLocationId,
       postingDate,
+      // Save onto the sheet that is actually open, not whatever sheet this
+      // shop and date resolve to for whoever is saving.
+      ...(openDayId ? { bookNoteDayId: openDayId } : {}),
       rows: rows.map((r) => {
         const splitLines = r.splitMode ? splitLinesToPayload(r.splitLines) : null;
         return {
@@ -727,6 +761,7 @@ export function BookNotesPanel({
     }
     clearError();
     const day = data as BookNoteDayDto;
+    setOpenDayId(day.id);
     const savedRows = dayToRows(day);
     setRows(savedRows);
     setSavedFingerprint(rowsFingerprint(savedRows));
@@ -823,6 +858,7 @@ export function BookNotesPanel({
   async function sendDayToErp(
     dateYmd: string,
     locationId: string = companyLocationId,
+    bookNoteDayId: string | null = openDayId,
   ): Promise<boolean> {
     const res = await fetch("/api/admin/book-notes/send-to-erp", {
       method: "POST",
@@ -830,6 +866,7 @@ export function BookNotesPanel({
       body: JSON.stringify({
         companyLocationId: locationId,
         postingDate: dateYmd,
+        ...(bookNoteDayId ? { bookNoteDayId } : {}),
       }),
     });
     let data: Record<string, unknown> = {};
@@ -926,7 +963,9 @@ export function BookNotesPanel({
         showError("Nothing to send — add invoice rows first");
         return;
       }
-      await sendDayToErp(postingDate);
+      // Use the id the save returned: setOpenDayId has not landed yet, and on
+      // a brand new sheet the state is still null.
+      await sendDayToErp(postingDate, companyLocationId, day.id);
     } catch (err) {
       showError(
         err instanceof Error
@@ -945,7 +984,7 @@ export function BookNotesPanel({
     clearError();
     setStatusLine(`Sending ${item.shopName} ${item.posting_date} to ERP...`);
     try {
-      await sendDayToErp(item.posting_date, item.companyLocationId);
+      await sendDayToErp(item.posting_date, item.companyLocationId, item.id);
     } catch (err) {
       showError(
         err instanceof Error
@@ -1080,8 +1119,9 @@ export function BookNotesPanel({
           enter the last 4 digits of the POS receipt reference. You can enter
           today&apos;s book note, and reopen a past one you submitted yourself
           to correct or delete it — editing updates that same book note rather
-          than creating a new one. History shows sheets you saved plus sheets
-          anyone saved for the outlet you are posted to.
+          than creating a new one. Your book note is your own: another merchant
+          entering the same shop on the same day keeps a separate sheet, and
+          history shows only what you saved.
         </p>
       </div>
 
@@ -1208,13 +1248,12 @@ export function BookNotesPanel({
       {restrictedBy ? (
         <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200">
           <p className="font-medium">
-            {restrictedBy} already entered this shop&apos;s book note for{" "}
-            {postingDate}.
+            This book note was submitted by {restrictedBy}.
           </p>
           <p className="mt-1 text-xs">
-            You are not posted to this outlet, so the rows and photos are hidden
-            and the sheet is read-only — saving here would replace their entry.
-            Ask them or finance if you need a change.
+            Its rows and photos are hidden and the sheet is read-only. To enter
+            your own book note for this shop and day, go back to today — yours
+            is kept separately from theirs.
           </p>
         </div>
       ) : null}
@@ -1784,8 +1823,8 @@ export function BookNotesPanel({
               Save history
             </h2>
             <p className="text-muted-foreground mt-1 text-xs">
-              Sheets you saved, plus sheets anyone saved for the outlet you are
-              posted to.
+              Only the book notes you saved. A colleague&apos;s sheet for the
+              same shop and day is theirs and does not appear here.
             </p>
           </div>
           <div className="relative w-full sm:w-72">
@@ -1964,7 +2003,11 @@ export function BookNotesPanel({
                 const target = pendingTarget;
                 setPendingTarget(null);
                 if (target) {
-                  applySheetChange(target.companyLocationId, target.postingDate);
+                  applySheetChange(
+                    target.companyLocationId,
+                    target.postingDate,
+                    target.bookNoteDayId,
+                  );
                 }
               }}
             >
