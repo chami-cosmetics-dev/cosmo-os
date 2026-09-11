@@ -29,7 +29,6 @@ export async function GET(request: NextRequest) {
   const raw = Object.fromEntries(request.nextUrl.searchParams.entries());
   const parsed = bookNoteFinanceReviewQuerySchema.safeParse({
     companyLocationId: raw.companyLocationId || undefined,
-    company: raw.company || undefined,
     from: raw.from,
     to: raw.to,
   });
@@ -41,7 +40,7 @@ export async function GET(request: NextRequest) {
   }
 
   const access = await resolveBookNoteShopAccess(auth.context!, companyId);
-  const { companyLocationId, company, from, to } = parsed.data;
+  const { companyLocationId, from, to } = parsed.data;
 
   if (
     companyLocationId &&
@@ -56,7 +55,6 @@ export async function GET(request: NextRequest) {
   const review = await loadBookNoteFinanceReview({
     companyId,
     companyLocationId,
-    company,
     fromYmd: from,
     toYmd: to,
   });

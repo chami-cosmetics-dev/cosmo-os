@@ -20,12 +20,10 @@ export const bookNotePageDataQuerySchema = z.object({
   q: z.string().trim().max(120).optional(),
 });
 
-/** Finance review: outlet (optional = all) over a posting-date range. */
+/** Finance review: shop (optional = all) over a posting-date range. */
 export const bookNoteFinanceReviewQuerySchema = z
   .object({
     companyLocationId: cuidSchema.optional(),
-    /** ERPNext company label — merchants send book notes company-wise. */
-    company: z.string().trim().max(200).optional(),
     from: ymdSchema,
     to: ymdSchema,
   })
