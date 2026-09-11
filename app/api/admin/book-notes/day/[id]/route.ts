@@ -8,11 +8,16 @@ import {
   resolveBookNoteWriteAccess,
 } from "@/lib/book-notes/access";
 import {
+  deleteBookNoteFromErp,
+  erpDeletedCount,
+} from "@/lib/book-notes/erp-verify";
+import {
   bookNoteLockMessage,
   DAY_LOCKED_CODE,
   isBookNoteWritable,
 } from "@/lib/book-notes/lock";
 import { deleteBookNoteDay } from "@/lib/book-notes/receipts";
+import { companyLabelForLocation } from "@/lib/book-notes/serialize";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
@@ -67,6 +72,13 @@ export async function DELETE(
       updatedByUserId: true,
       createdBy: { select: { name: true, email: true } },
       updatedBy: { select: { name: true, email: true } },
+      companyLocation: {
+        select: {
+          name: true,
+          erpnextCompany: true,
+          erpnextInstance: true,
+        },
+      },
     },
   });
   if (!day) {
@@ -133,6 +145,46 @@ export async function DELETE(
     );
   }
 
+  // Clear ERP first. ss9 removes the Book Note Entries, their payment links,
+  // split rows and attached files when it receives an empty rows_json. If that
+  // fails we stop, so Cosmo never drops the only record of an ERP sheet whose
+  // docs are still standing.
+  let erpDeleted = 0;
+  let erpSkipped: string | null = null;
+
+  if (!day.companyLocation.erpnextInstance) {
+    erpSkipped = "This shop has no ERP instance linked — nothing to clear there.";
+  } else {
+    const erp = await deleteBookNoteFromErp({
+      erpnextInstance: day.companyLocation.erpnextInstance,
+      bookNoteId: day.id,
+      company: companyLabelForLocation(day.companyLocation),
+      postingDate,
+    });
+
+    if (!erp.ok) {
+      if (erp.code === "ERP_CREDENTIALS_MISSING") {
+        erpSkipped = "ERP credentials are missing for this shop — nothing was cleared there.";
+      } else {
+        return NextResponse.json(
+          {
+            error: `Could not delete this book note from ERP, so nothing was removed from Cosmo either: ${erp.error ?? "ERP delete failed"}`,
+            code: erp.code ?? "ERP_UNKNOWN",
+            step: "erp_delete",
+            method: erp.method,
+            erpUrl: erp.erpUrl,
+            httpStatus: erp.httpStatus,
+            postingDate,
+            raw: erp.rawMessage,
+          },
+          { status: 502 },
+        );
+      }
+    } else {
+      erpDeleted = erpDeletedCount(erp);
+    }
+  }
+
   const result = await deleteBookNoteDay({ companyId, bookNoteDayId: day.id });
   if (!result.deleted) {
     return NextResponse.json({ error: "Book note not found" }, { status: 404 });
@@ -142,5 +194,7 @@ export async function DELETE(
     deleted: true,
     postingDate,
     receiptCount: result.receiptCount,
+    erpDeletedCount: erpDeleted,
+    erpSkipped,
   });
 }

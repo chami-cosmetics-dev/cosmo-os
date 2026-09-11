@@ -150,25 +150,34 @@ function classifyErpFailure(
   return "ERP_HTTP";
 }
 
+type BookNoteErpPostInput = {
+  erpnextInstance: ErpnextInstance | null;
+  /** Stable Cosmo sheet id (BookNoteDay.id) — same on resend after edits. */
+  bookNoteId: string;
+  company: string;
+  /** Colombo sales date YYYY-MM-DD. */
+  postingDate: string;
+  /** JSON array string. `"[]"` tells ss9 to delete the sheet from ERP. */
+  rowsJson: string;
+  /**
+   * Verify pushes expect `{ rows, summary }` back and treat anything else as a
+   * failure. A delete legitimately returns no rows, so it opts out.
+   */
+  expectRows?: boolean;
+};
+
 /**
- * Push merchant book-note rows to ERP ss9 verify Server Script.
- * Script expects form_dict:
+ * Shared transport for the ss9 verify Server Script. Script expects form_dict:
  *   - book_note_id (Cosmo BookNoteDay id — stable across resends/edits)
- *   - rows_json (required JSON string)
+ *   - rows_json (JSON string; empty array = delete this sheet in ERP)
  *   - company (shop / ERP company label)
  *   - posting_date (YYYY-MM-DD — stored on Book Note Entry)
  * Outlet on ERP is derived from the API user's full_name by the script
  * (not sent from Cosmo).
  */
-export async function sendBookNoteRowsToErp(input: {
-  erpnextInstance: ErpnextInstance | null;
-  /** Stable Cosmo sheet id (BookNoteDay.id) — same on resend after HR edits. */
-  bookNoteId: string;
-  company: string;
-  /** Colombo sales date YYYY-MM-DD. */
-  postingDate: string;
-  rows: BookNoteErpVerifyRowInput[];
-}): Promise<BookNoteErpVerifyResult> {
+async function postBookNoteToErp(
+  input: BookNoteErpPostInput,
+): Promise<BookNoteErpVerifyResult> {
   const cfg = getErpConfig(input.erpnextInstance);
   const method = getBookNoteVerifyMethod();
   const base = cfg.baseUrl.replace(/\/$/, "");
@@ -207,28 +216,9 @@ export async function sendBookNoteRowsToErp(input: {
     };
   }
 
-  if (input.rows.length === 0) {
-    return {
-      ok: false,
-      method,
-      company: input.company,
-      postingDate,
-      erpUrl,
-      summary: null,
-      rows: [],
-      rawMessage: null,
-      code: "NO_ROWS",
-      error: "No rows to send to ERP",
-    };
-  }
-
-  const rows_json = JSON.stringify(
-    input.rows.map((r) => buildBookNoteErpVerifyRow(r)),
-  );
-
   const body = new URLSearchParams({
     book_note_id: bookNoteId,
-    rows_json,
+    rows_json: input.rowsJson,
     company: input.company,
     posting_date: postingDate,
   });
@@ -312,7 +302,7 @@ export async function sendBookNoteRowsToErp(input: {
       : [];
 
   // HTTP 200 but unexpected shape — still report clearly
-  if (!summary && rows.length === 0) {
+  if (input.expectRows !== false && !summary && rows.length === 0) {
     return {
       ok: false,
       method,
@@ -339,4 +329,75 @@ export async function sendBookNoteRowsToErp(input: {
     rows,
     rawMessage: message,
   };
+}
+
+/** Push merchant book-note rows to ERP for verification against invoices. */
+export async function sendBookNoteRowsToErp(input: {
+  erpnextInstance: ErpnextInstance | null;
+  /** Stable Cosmo sheet id (BookNoteDay.id) — same on resend after HR edits. */
+  bookNoteId: string;
+  company: string;
+  /** Colombo sales date YYYY-MM-DD. */
+  postingDate: string;
+  rows: BookNoteErpVerifyRowInput[];
+}): Promise<BookNoteErpVerifyResult> {
+  if (input.rows.length === 0) {
+    return {
+      ok: false,
+      method: getBookNoteVerifyMethod(),
+      company: input.company,
+      postingDate: input.postingDate.trim(),
+      summary: null,
+      rows: [],
+      rawMessage: null,
+      code: "NO_ROWS",
+      error: "No rows to send to ERP",
+    };
+  }
+
+  return postBookNoteToErp({
+    erpnextInstance: input.erpnextInstance,
+    bookNoteId: input.bookNoteId,
+    company: input.company,
+    postingDate: input.postingDate,
+    rowsJson: JSON.stringify(
+      input.rows.map((r) => buildBookNoteErpVerifyRow(r)),
+    ),
+  });
+}
+
+/**
+ * Delete a sheet from ERP by sending the same verify method an empty
+ * `rows_json`. ss9 then removes every matching Book Note Entry along with its
+ * payment links, split rows and attached receipt files, reporting how many
+ * went in `summary.deleted_count`.
+ */
+export async function deleteBookNoteFromErp(input: {
+  erpnextInstance: ErpnextInstance | null;
+  bookNoteId: string;
+  company: string;
+  postingDate: string;
+}): Promise<BookNoteErpVerifyResult> {
+  return postBookNoteToErp({
+    erpnextInstance: input.erpnextInstance,
+    bookNoteId: input.bookNoteId,
+    company: input.company,
+    postingDate: input.postingDate,
+    rowsJson: "[]",
+    expectRows: false,
+  });
+}
+
+/**
+ * How many ERP docs a verify/delete call removed. ss9 reports this inside
+ * `summary`, but tolerate a bare `deleted_count` on the message too.
+ */
+export function erpDeletedCount(result: BookNoteErpVerifyResult): number {
+  const fromSummary = result.summary?.deleted_count;
+  if (typeof fromSummary === "number" && Number.isFinite(fromSummary)) {
+    return fromSummary;
+  }
+  const root = asRecord(result.rawMessage);
+  const bare = root?.deleted_count;
+  return typeof bare === "number" && Number.isFinite(bare) ? bare : 0;
 }

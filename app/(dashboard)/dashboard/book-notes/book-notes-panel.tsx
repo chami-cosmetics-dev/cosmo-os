@@ -1026,7 +1026,17 @@ export function BookNotesPanel({
         );
         return;
       }
-      notify.success(`Deleted ${item.shopName} ${item.posting_date}`);
+      const erpCount =
+        typeof data.erpDeletedCount === "number" ? data.erpDeletedCount : 0;
+      const erpSkipped =
+        typeof data.erpSkipped === "string" ? data.erpSkipped : null;
+      let line = `Deleted ${item.shopName} ${item.posting_date}`;
+      if (erpCount > 0) {
+        line += ` · ${erpCount} ERP entr${erpCount === 1 ? "y" : "ies"} removed`;
+      } else if (erpSkipped) {
+        line += ` · ${erpSkipped}`;
+      }
+      notify.success(line);
       // Clear the ledger when the sheet on screen is the one that just went.
       if (
         item.companyLocationId === companyLocationId &&
@@ -1038,8 +1048,8 @@ export function BookNotesPanel({
         setReceipts([]);
         setLocked(false);
         setRestrictedBy(null);
-        setStatusLine("Book note deleted");
       }
+      setStatusLine(line);
       await refreshHistory();
     } catch (err) {
       showError(
@@ -1977,9 +1987,9 @@ export function BookNotesPanel({
               {pendingDelete?.shopName} — {pendingDelete?.posting_date}, with{" "}
               {pendingDelete?.rowCount ?? 0} invoice row
               {pendingDelete?.rowCount === 1 ? "" : "s"} and its uploaded
-              photos, will be removed from Cosmo permanently. If this day was
-              already sent to ERP, the Book Note Entry stays there — tell
-              finance so they can remove it on the ERP side.
+              photos, will be removed permanently. If this day was already sent
+              to ERP, its Book Note Entries and attached slips are deleted there
+              too. This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
