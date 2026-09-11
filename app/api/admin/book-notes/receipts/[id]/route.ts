@@ -147,6 +147,8 @@ export async function DELETE(
         select: {
           companyLocationId: true,
           postingDate: true,
+          createdByUserId: true,
+          updatedByUserId: true,
         },
       },
     },
@@ -169,7 +171,15 @@ export async function DELETE(
   }
 
   const postingDate = postingDateYmd(receipt.bookNoteDay.postingDate);
-  const writeAccess = resolveBookNoteWriteAccess(auth.context!);
+  const userId = auth.context!.user?.id ?? null;
+  const writeAccess = {
+    ...resolveBookNoteWriteAccess(auth.context!),
+    isOwner: Boolean(
+      userId &&
+        (receipt.bookNoteDay.createdByUserId === userId ||
+          receipt.bookNoteDay.updatedByUserId === userId),
+    ),
+  };
   if (!isBookNoteWritable(postingDate, new Date(), writeAccess)) {
     return NextResponse.json(
       {

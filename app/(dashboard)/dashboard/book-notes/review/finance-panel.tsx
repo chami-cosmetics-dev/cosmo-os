@@ -35,6 +35,7 @@ import { formatAppDateTimeShort } from "@/lib/format-datetime";
 import { notify } from "@/lib/notify";
 
 const ALL_SHOPS = "__all__";
+const ALL_COMPANIES = "__all_companies__";
 
 function money(value: number): string {
   return value.toLocaleString("en-LK", {
@@ -80,6 +81,7 @@ export function BookNoteFinancePanel({
   const [summary, setSummary] = useState(initialSummary);
   const [truncated, setTruncated] = useState(initialTruncated);
   const [companyLocationId, setCompanyLocationId] = useState(ALL_SHOPS);
+  const [company, setCompany] = useState(ALL_COMPANIES);
   const [from, setFrom] = useState(initialFrom);
   const [to, setTo] = useState(initialTo);
   const [appliedRange, setAppliedRange] = useState({
@@ -92,12 +94,23 @@ export function BookNoteFinancePanel({
   const [preview, setPreview] = useState<PhotoItem | null>(null);
   const [filterText, setFilterText] = useState("");
 
+  /** ERP companies merchants submit under, taken from the shop list. */
+  const companyOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const loc of locations) {
+      const label = loc.erpnextCompany?.trim();
+      if (label) set.add(label);
+    }
+    return [...set].sort((a, b) => a.localeCompare(b));
+  }, [locations]);
+
   /** Client-side narrowing of the loaded range — shop, date, or invoice no. */
   const visibleDays = useMemo(() => {
     const q = filterText.trim().toLowerCase();
     if (!q) return days;
     return days.filter((day) => {
       if (day.shopName.toLowerCase().includes(q)) return true;
+      if (day.company.toLowerCase().includes(q)) return true;
       if (day.posting_date.includes(q)) return true;
       if (day.submittedBy?.name.toLowerCase().includes(q)) return true;
       return day.rows.some((r) =>
@@ -137,6 +150,9 @@ export function BookNoteFinancePanel({
       if (companyLocationId !== ALL_SHOPS) {
         params.set("companyLocationId", companyLocationId);
       }
+      if (company !== ALL_COMPANIES) {
+        params.set("company", company);
+      }
       const res = await fetch(`/api/admin/book-notes/review?${params}`);
       const data = await res.json();
       if (!res.ok) {
@@ -169,7 +185,29 @@ export function BookNoteFinancePanel({
         </p>
       </div>
 
-      <div className="bg-card grid gap-4 rounded-lg border p-4 md:grid-cols-4">
+      <div className="bg-card grid gap-4 rounded-lg border p-4 md:grid-cols-5">
+        <div className="space-y-2">
+          <label className="text-muted-foreground text-xs font-medium">
+            Company
+          </label>
+          <Select
+            value={company}
+            disabled={loading || companyOptions.length === 0}
+            onValueChange={setCompany}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="All companies" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL_COMPANIES}>All companies</SelectItem>
+              {companyOptions.map((c) => (
+                <SelectItem key={c} value={c}>
+                  {c}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
         <div className="space-y-2">
           <label className="text-muted-foreground text-xs font-medium">
             Outlet
@@ -281,6 +319,76 @@ export function BookNoteFinancePanel({
         ) : null}
       </div>
 
+      {summary.companies.length > 0 ? (
+        <div className="bg-card rounded-lg border p-4">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="text-sm font-semibold tracking-wide uppercase text-muted-foreground">
+              By company
+            </h2>
+            <span className="text-muted-foreground text-xs">
+              Merchants submit company-wise — these are the totals per ERP
+              company
+            </span>
+          </div>
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full min-w-[720px] text-sm">
+              <thead>
+                <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
+                  <th className="p-2">Company</th>
+                  <th className="p-2 text-right">Book notes</th>
+                  <th className="p-2 text-right">Rows</th>
+                  <th className="p-2 text-right">Cash</th>
+                  <th className="p-2 text-right">Card</th>
+                  <th className="p-2 text-right">KOKO</th>
+                  <th className="p-2 text-right">Bank</th>
+                  <th className="p-2 text-right">Total</th>
+                  <th className="p-2 text-center">Photos</th>
+                </tr>
+              </thead>
+              <tbody>
+                {summary.companies.map((c) => (
+                  <tr key={c.company} className="border-b last:border-0">
+                    <td className="p-2 font-medium">{c.company}</td>
+                    <td className="p-2 text-right font-mono">{c.dayCount}</td>
+                    <td className="p-2 text-right font-mono">{c.rowCount}</td>
+                    {["Cash", "Card", "KOKO", "Bank Transfer"].map((m) => {
+                      const bucket = c.methods.find((x) => x.method === m);
+                      return (
+                        <td
+                          key={m}
+                          className="p-2 text-right font-mono tabular-nums"
+                        >
+                          {bucket && bucket.total > 0 ? (
+                            <>
+                              {money(bucket.total)}
+                              <span className="text-muted-foreground ml-1 text-[10px]">
+                                x{bucket.count}
+                              </span>
+                            </>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </td>
+                      );
+                    })}
+                    <td className="p-2 text-right font-mono font-semibold tabular-nums">
+                      {money(c.grandTotal)}
+                    </td>
+                    <td className="p-2 text-center text-xs">
+                      {c.receiptCount > 0 ? (
+                        c.receiptCount
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : null}
+
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex gap-1">
           <Button
@@ -324,10 +432,11 @@ export function BookNoteFinancePanel({
           </div>
         ) : (
           <div className="bg-card overflow-x-auto rounded-lg border">
-            <table className="w-full min-w-[880px] text-sm">
+            <table className="w-full min-w-[1000px] text-sm">
               <thead>
                 <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
                   <th className="p-2 w-8" />
+                  <th className="p-2">Company</th>
                   <th className="p-2">Outlet</th>
                   <th className="p-2">Date</th>
                   <th className="p-2">Submitted by</th>
@@ -362,6 +471,7 @@ export function BookNoteFinancePanel({
                             {day.posting_date}
                           </span>
                         </td>
+                        <td className="p-2 text-xs">{day.company || "—"}</td>
                         <td className="p-2 font-medium">{day.shopName}</td>
                         <td className="p-2 font-mono">{day.posting_date}</td>
                         <td className="p-2 text-xs">
@@ -415,7 +525,7 @@ export function BookNoteFinancePanel({
                       </tr>
                       {open ? (
                         <tr className="border-b bg-muted/20">
-                          <td colSpan={11} className="p-4">
+                          <td colSpan={12} className="p-4">
                             <div className="space-y-4">
                               <div className="overflow-x-auto rounded-md border bg-background">
                                 <table className="w-full min-w-[720px] text-xs">

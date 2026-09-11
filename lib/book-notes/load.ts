@@ -90,6 +90,12 @@ export async function loadBookNoteDayDto(input: {
     };
   }
 
+  const isOwner = Boolean(
+    input.viewerUserId &&
+      (day.createdByUserId === input.viewerUserId ||
+        day.updatedByUserId === input.viewerUserId),
+  );
+
   return serializeBookNoteDay({
     id: day.id,
     companyLocationId: day.companyLocationId,
@@ -98,7 +104,10 @@ export async function loadBookNoteDayDto(input: {
     rows: day.rows,
     receipts: day.receipts,
     now: input.now,
-    writeAccess: input.writeAccess,
+    writeAccess: {
+      canBackdate: input.writeAccess?.canBackdate ?? false,
+      isOwner,
+    },
   });
 }
 
@@ -286,6 +295,8 @@ export async function loadBookNoteHistory(input: {
     const shopName =
       day.companyLocation.shortName?.trim() || day.companyLocation.name;
     const author = day.updatedBy ?? day.createdBy;
+    const isOwn =
+      day.createdByUserId === userId || day.updatedByUserId === userId;
     return {
       id: day.id,
       companyLocationId: day.companyLocationId,
@@ -294,10 +305,12 @@ export async function loadBookNoteHistory(input: {
       rowCount: day.rows.length,
       grandTotal: Math.round(grandTotal * 100) / 100,
       updatedAt: day.updatedAt.toISOString(),
-      locked: isBookNoteDayLocked(posting_date, now, writeAccess),
+      locked: isBookNoteDayLocked(posting_date, now, {
+        canBackdate: writeAccess.canBackdate,
+        isOwner: isOwn,
+      }),
       enteredBy: author?.name?.trim() || author?.email || null,
-      isOwn:
-        day.createdByUserId === userId || day.updatedByUserId === userId,
+      isOwn,
     };
   });
 }

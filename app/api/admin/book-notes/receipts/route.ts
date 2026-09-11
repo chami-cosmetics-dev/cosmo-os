@@ -74,17 +74,6 @@ export async function POST(request: NextRequest) {
 
   const companyLocationId = locationParsed.data;
   const postingDate = dateParsed.data;
-  const writeAccess = resolveBookNoteWriteAccess(auth.context!);
-
-  if (!isBookNoteWritable(postingDate, new Date(), writeAccess)) {
-    return NextResponse.json(
-      {
-        error: bookNoteLockMessage(postingDate, new Date(), writeAccess),
-        code: DAY_LOCKED_CODE,
-      },
-      { status: 409 },
-    );
-  }
 
   const access = await resolveBookNoteShopAccess(auth.context!, companyId);
   if (!assertBookNoteShopAllowed(access, companyLocationId)) {
@@ -118,6 +107,7 @@ export async function POST(request: NextRequest) {
       updatedByUserId: true,
     },
   });
+  let isOwner = false;
   if (existingDay && existingDay.companyId === companyId) {
     const viewScope = await resolveBookNoteViewScope(auth.context!, companyId);
     const allowed = canViewBookNoteDay({
@@ -138,6 +128,24 @@ export async function POST(request: NextRequest) {
         { status: 403 },
       );
     }
+    isOwner =
+      existingDay.createdByUserId === userId ||
+      existingDay.updatedByUserId === userId;
+  }
+
+  // Owner-aware: a merchant correcting their own past sheet may restate photos.
+  const writeAccess = {
+    ...resolveBookNoteWriteAccess(auth.context!),
+    isOwner,
+  };
+  if (!isBookNoteWritable(postingDate, new Date(), writeAccess)) {
+    return NextResponse.json(
+      {
+        error: bookNoteLockMessage(postingDate, new Date(), writeAccess),
+        code: DAY_LOCKED_CODE,
+      },
+      { status: 409 },
+    );
   }
 
   try {
@@ -156,6 +164,7 @@ export async function POST(request: NextRequest) {
       companyLocationId,
       postingDateYmd: postingDate,
       writeAccess,
+      viewerUserId: userId,
     });
     return NextResponse.json({ receipt, day: dayDto });
   } catch (err) {

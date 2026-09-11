@@ -10,6 +10,7 @@ import {
 } from "@/lib/book-notes/summary";
 import type {
   BookNoteActor,
+  BookNoteCompanyTotal,
   BookNoteFinanceDay,
   BookNoteFinanceSummary,
 } from "@/lib/book-notes/types";
@@ -55,6 +56,8 @@ export async function loadBookNoteFinanceReview(input: {
   companyId: string;
   /** Omit for every shop in the company. */
   companyLocationId?: string;
+  /** ERPNext company label — narrows to the shops that submit under it. */
+  company?: string;
   fromYmd: string;
   toYmd: string;
 }): Promise<BookNoteFinanceReview> {
@@ -63,6 +66,13 @@ export async function loadBookNoteFinanceReview(input: {
       companyId: input.companyId,
       ...(input.companyLocationId
         ? { companyLocationId: input.companyLocationId }
+        : {}),
+      ...(input.company
+        ? {
+            companyLocation: {
+              is: { erpnextCompany: input.company },
+            },
+          }
         : {}),
       postingDate: {
         gte: postingDateToUtcMidnight(input.fromYmd),
@@ -127,7 +137,44 @@ export async function loadBookNoteFinanceReview(input: {
       methods: merged.methods,
       entryCount: merged.entryCount,
       grandTotal: merged.grandTotal,
+      companies: rollUpByCompany(financeDays),
     },
     truncated,
   };
+}
+
+/**
+ * Group the range by ERP company. Merchants submit book notes company-wise, so
+ * finance reconciles the same way — one block per company, newest first by
+ * total.
+ */
+export function rollUpByCompany(days: BookNoteFinanceDay[]): BookNoteCompanyTotal[] {
+  const byCompany = new Map<string, BookNoteFinanceDay[]>();
+  for (const day of days) {
+    const key = day.company || "(no ERP company)";
+    const list = byCompany.get(key);
+    if (list) list.push(day);
+    else byCompany.set(key, [day]);
+  }
+
+  const totals: BookNoteCompanyTotal[] = [];
+  for (const [company, companyDays] of byCompany) {
+    const merged = mergeBookNoteSummaries(
+      companyDays.map((d) => ({
+        methods: d.methods,
+        entryCount: d.entryCount,
+        grandTotal: d.grandTotal,
+      })),
+    );
+    totals.push({
+      company,
+      dayCount: companyDays.length,
+      rowCount: companyDays.reduce((sum, d) => sum + d.rowCount, 0),
+      receiptCount: companyDays.reduce((sum, d) => sum + d.receipts.length, 0),
+      methods: merged.methods,
+      grandTotal: merged.grandTotal,
+    });
+  }
+
+  return totals.sort((a, b) => b.grandTotal - a.grandTotal);
 }

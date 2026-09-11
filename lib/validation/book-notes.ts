@@ -24,6 +24,8 @@ export const bookNotePageDataQuerySchema = z.object({
 export const bookNoteFinanceReviewQuerySchema = z
   .object({
     companyLocationId: cuidSchema.optional(),
+    /** ERPNext company label — merchants send book notes company-wise. */
+    company: z.string().trim().max(200).optional(),
     from: ymdSchema,
     to: ymdSchema,
   })
