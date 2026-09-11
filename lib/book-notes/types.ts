@@ -117,9 +117,14 @@ export type BookNoteFinanceDay = {
   receipts: BookNoteReceiptDto[];
 };
 
-/** One ERP company's slice of the range — merchants submit company-wise. */
-export type BookNoteCompanyTotal = {
-  company: string;
+/**
+ * One shop's slice of the range. Each shop is its own ERP company here, so
+ * this is both the outlet total and the company total — there is no second
+ * grouping to make.
+ */
+export type BookNoteShopTotal = {
+  companyLocationId: string;
+  shopName: string;
   dayCount: number;
   rowCount: number;
   receiptCount: number;
@@ -135,6 +140,6 @@ export type BookNoteFinanceSummary = {
   methods: BookNoteMethodTotal[];
   entryCount: number;
   grandTotal: number;
-  /** Same range broken down by ERP company, the way merchants submit it. */
-  companies: BookNoteCompanyTotal[];
+  /** Same range broken down by shop. */
+  shops: BookNoteShopTotal[];
 };
