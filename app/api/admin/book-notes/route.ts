@@ -111,7 +111,7 @@ async function assertDayWritableByViewer(input: {
   userId: string;
   companyLocationId: string;
   postingDate: string;
-}): Promise<NextResponse | null> {
+}): Promise<{ denied: NextResponse | null; isOwner: boolean }> {
   const existing = await prisma.bookNoteDay.findUnique({
     where: {
       companyLocationId_postingDate: {
@@ -128,7 +128,13 @@ async function assertDayWritableByViewer(input: {
       updatedBy: { select: { name: true, email: true } },
     },
   });
-  if (!existing || existing.companyId !== input.companyId) return null;
+  if (!existing || existing.companyId !== input.companyId) {
+    return { denied: null, isOwner: false };
+  }
+
+  const isOwner =
+    existing.createdByUserId === input.userId ||
+    existing.updatedByUserId === input.userId;
 
   const viewScope = await resolveBookNoteViewScope(input.context, input.companyId);
   const allowed = canViewBookNoteDay({
@@ -140,18 +146,21 @@ async function assertDayWritableByViewer(input: {
       updatedByUserId: existing.updatedByUserId,
     },
   });
-  if (allowed) return null;
+  if (allowed) return { denied: null, isOwner };
 
   const author = existing.updatedBy ?? existing.createdBy;
   const who = author?.name?.trim() || author?.email || "another merchant";
-  return NextResponse.json(
-    {
-      error: `${who} already entered this shop's book note for ${input.postingDate}. Ask them or finance to update it.`,
-      code: "DAY_NOT_YOURS",
-      enteredBy: who,
-    },
-    { status: 403 },
-  );
+  return {
+    denied: NextResponse.json(
+      {
+        error: `${who} already entered this shop's book note for ${input.postingDate}. Ask them or finance to update it.`,
+        code: "DAY_NOT_YOURS",
+        enteredBy: who,
+      },
+      { status: 403 },
+    ),
+    isOwner,
+  };
 }
 
 export async function PUT(request: NextRequest) {
@@ -185,17 +194,6 @@ export async function PUT(request: NextRequest) {
   }
 
   const { companyLocationId, postingDate, rows } = parsed.data;
-  const writeAccess = resolveBookNoteWriteAccess(auth.context!);
-
-  if (!isBookNoteWritable(postingDate, new Date(), writeAccess)) {
-    return NextResponse.json(
-      {
-        error: bookNoteLockMessage(postingDate, new Date(), writeAccess),
-        code: DAY_LOCKED_CODE,
-      },
-      { status: 409 },
-    );
-  }
 
   const access = await resolveBookNoteShopAccess(auth.context!, companyId);
   if (!assertBookNoteShopAllowed(access, companyLocationId)) {
@@ -208,14 +206,31 @@ export async function PUT(request: NextRequest) {
     );
   }
 
-  const notYours = await assertDayWritableByViewer({
+  // Ownership decides the lock: the merchant who submitted a past sheet may
+  // reopen it, so this has to run before the writable check.
+  const viewerCheck = await assertDayWritableByViewer({
     context: auth.context!,
     companyId,
     userId,
     companyLocationId,
     postingDate,
   });
-  if (notYours) return notYours;
+  if (viewerCheck.denied) return viewerCheck.denied;
+
+  const writeAccess = {
+    ...resolveBookNoteWriteAccess(auth.context!),
+    isOwner: viewerCheck.isOwner,
+  };
+
+  if (!isBookNoteWritable(postingDate, new Date(), writeAccess)) {
+    return NextResponse.json(
+      {
+        error: bookNoteLockMessage(postingDate, new Date(), writeAccess),
+        code: DAY_LOCKED_CODE,
+      },
+      { status: 409 },
+    );
+  }
 
   const location = await prisma.companyLocation.findFirst({
     where: { id: companyLocationId, companyId },
@@ -350,6 +365,7 @@ export async function PUT(request: NextRequest) {
     companyLocationId,
     postingDateYmd: postingDate,
     writeAccess,
+    viewerUserId: userId,
   });
 
   return NextResponse.json(dayDto);

@@ -5,6 +5,12 @@ export const DAY_LOCKED_CODE = "DAY_LOCKED" as const;
 export type BookNoteWriteAccess = {
   /** `book_notes.admin` — edit/upload past dates (not future). */
   canBackdate: boolean;
+  /**
+   * This user submitted the saved day, so they may reopen it to correct it.
+   * Without this merchants re-key an old sheet under today's date, which
+   * creates a second book note instead of updating the original.
+   */
+  isOwner?: boolean;
 };
 
 function postingDateTodayYmd(now: Date): string | null {
@@ -12,8 +18,8 @@ function postingDateTodayYmd(now: Date): string | null {
 }
 
 /**
- * Merchants (`book_notes.manage`): today only.
- * Admins (`book_notes.admin`): today and past dates.
+ * Merchants (`book_notes.manage`): today, plus past sheets they submitted.
+ * Admins (`book_notes.admin`): today and any past date.
  * Future dates are locked for everyone (Asia/Colombo).
  */
 export function isBookNoteWritable(
@@ -26,7 +32,7 @@ export function isBookNoteWritable(
   if (!today) return false;
   if (postingDateYmd > today) return false;
   if (postingDateYmd === today) return true;
-  return access.canBackdate;
+  return access.canBackdate || access.isOwner === true;
 }
 
 /** True when the current user cannot save this posting date. */
@@ -48,8 +54,8 @@ export function bookNoteLockMessage(
   if (today && postingDateYmd > today) {
     return "This sales date is in the future and cannot be saved.";
   }
-  if (!access.canBackdate) {
-    return "Past dates are locked. Only today can be saved unless you have book notes admin permission.";
+  if (!access.canBackdate && !access.isOwner) {
+    return "Past dates are locked. You can edit today, or a past book note you submitted yourself.";
   }
   return "This sales date is locked.";
 }

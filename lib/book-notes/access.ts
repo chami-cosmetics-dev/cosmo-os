@@ -60,9 +60,10 @@ export async function resolveBookNoteViewScope(
   context: UserContext,
   companyId: string,
 ): Promise<BookNoteViewScope> {
-  const canViewAllShops =
-    hasPermission(context, "book_notes.read") ||
-    hasPermission(context, "book_notes.admin");
+  // Only the finance/intern retrieve permission grants company-wide read.
+  // `book_notes.admin` is a *write* scope (backdating) — granting a merchant
+  // the right to fix yesterday's sheet must not show them every other outlet.
+  const canViewAllShops = hasPermission(context, "book_notes.read");
 
   const userId = context.user?.id ?? null;
   if (canViewAllShops || !userId) {

@@ -117,6 +117,16 @@ export type BookNoteFinanceDay = {
   receipts: BookNoteReceiptDto[];
 };
 
+/** One ERP company's slice of the range — merchants submit company-wise. */
+export type BookNoteCompanyTotal = {
+  company: string;
+  dayCount: number;
+  rowCount: number;
+  receiptCount: number;
+  methods: BookNoteMethodTotal[];
+  grandTotal: number;
+};
+
 /** Range roll-up shown above the day list. */
 export type BookNoteFinanceSummary = {
   dayCount: number;
@@ -125,4 +135,6 @@ export type BookNoteFinanceSummary = {
   methods: BookNoteMethodTotal[];
   entryCount: number;
   grandTotal: number;
+  /** Same range broken down by ERP company, the way merchants submit it. */
+  companies: BookNoteCompanyTotal[];
 };

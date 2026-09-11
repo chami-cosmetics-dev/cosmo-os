@@ -1,7 +1,15 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ImagePlus, Loader2, Plus, Search, Trash2, X } from "lucide-react";
+import {
+  ImagePlus,
+  Loader2,
+  Pencil,
+  Plus,
+  Search,
+  Trash2,
+  X,
+} from "lucide-react";
 
 import {
   AlertDialog,
@@ -249,6 +257,9 @@ export function BookNotesPanel({
   } | null>(null);
   /** Row count waiting on confirmation because Create rows would wipe entries. */
   const [pendingRowCount, setPendingRowCount] = useState<number | null>(null);
+  /** Saved sheet the user asked to delete, pending confirmation. */
+  const [pendingDelete, setPendingDelete] =
+    useState<BookNoteHistoryItem | null>(null);
   /** Set when the loaded day belongs to a merchant outside the viewer's outlet. */
   const [restrictedBy, setRestrictedBy] = useState<string | null>(null);
   const [historyQuery, setHistoryQuery] = useState("");
@@ -995,6 +1006,50 @@ export function BookNotesPanel({
     };
   }, [rows]);
 
+  /**
+   * Remove a saved sheet from Cosmo. ERP keeps any Book Note Entry already
+   * pushed for that day — the confirmation says so before we get here.
+   */
+  async function handleDeleteHistoryDay(item: BookNoteHistoryItem) {
+    setBusyKey(`del:${item.id}`);
+    clearError();
+    try {
+      const res = await fetch(`/api/admin/book-notes/day/${item.id}`, {
+        method: "DELETE",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showError(
+          typeof data.error === "string"
+            ? data.error
+            : "Failed to delete book note",
+        );
+        return;
+      }
+      notify.success(`Deleted ${item.shopName} ${item.posting_date}`);
+      // Clear the ledger when the sheet on screen is the one that just went.
+      if (
+        item.companyLocationId === companyLocationId &&
+        item.posting_date === postingDate
+      ) {
+        setRows([]);
+        setSavedFingerprint(rowsFingerprint([]));
+        setRowCountInput("0");
+        setReceipts([]);
+        setLocked(false);
+        setRestrictedBy(null);
+        setStatusLine("Book note deleted");
+      }
+      await refreshHistory();
+    } catch (err) {
+      showError(
+        err instanceof Error ? err.message : "Failed to delete book note",
+      );
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
   const totals = {
     cash: summary.methods[0]!.total,
     card: summary.methods[1]!.total,
@@ -1012,11 +1067,11 @@ export function BookNotesPanel({
           book. Use <span className="font-semibold text-violet-700">SPLIT</span>{" "}
           when one invoice has multiple payment legs (e.g. two cards with
           different receipt refs). When a normal row includes card payment,
-          enter the last 4 digits of the POS receipt reference. Merchants enter
-          today&apos;s date only; users with book notes admin permission can
-          pick older dates to upload or edit. History lists sheets you saved
-          or sent — not other users&apos; uploads. Shop dropdown lists every
-          company location.
+          enter the last 4 digits of the POS receipt reference. You can enter
+          today&apos;s book note, and reopen a past one you submitted yourself
+          to correct or delete it — editing updates that same book note rather
+          than creating a new one. History shows sheets you saved plus sheets
+          anyone saved for the outlet you are posted to.
         </p>
       </div>
 
@@ -1091,7 +1146,9 @@ export function BookNotesPanel({
           {!canBackdateBookNotes && postingDate !== today ? (
             <div className="flex flex-wrap items-center gap-2">
               <p className="text-muted-foreground text-xs">
-                View-only history day — open today to enter or edit.
+                {readOnly
+                  ? "View-only history day — open today to enter or edit."
+                  : "Editing your own past book note — saving updates this sheet."}
               </p>
               <Button
                 type="button"
@@ -1817,7 +1874,14 @@ export function BookNotesPanel({
                             disabled={isBusy || active}
                             onClick={() => openHistoryDay(item)}
                           >
-                            Open
+                            {item.locked ? (
+                              "View"
+                            ) : (
+                              <>
+                                <Pencil className="h-3.5 w-3.5" />
+                                Edit
+                              </>
+                            )}
                           </Button>
                           <Button
                             type="button"
@@ -1835,6 +1899,26 @@ export function BookNotesPanel({
                               "Resend to ERP"
                             )}
                           </Button>
+                          {item.isOwn && !item.locked ? (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="text-destructive hover:text-destructive h-8 w-8"
+                              disabled={isBusy}
+                              aria-label={`Delete ${item.shopName} ${item.posting_date}`}
+                              onClick={() => setPendingDelete(item)}
+                            >
+                              {busyKey === `del:${item.id}` ? (
+                                <Loader2
+                                  className="h-3.5 w-3.5 animate-spin"
+                                  aria-hidden
+                                />
+                              ) : (
+                                <Trash2 className="h-3.5 w-3.5" />
+                              )}
+                            </Button>
+                          ) : null}
                         </div>
                       </td>
                     </tr>
@@ -1875,6 +1959,40 @@ export function BookNotesPanel({
               }}
             >
               Discard and switch
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingDelete(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this book note?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingDelete?.shopName} — {pendingDelete?.posting_date}, with{" "}
+              {pendingDelete?.rowCount ?? 0} invoice row
+              {pendingDelete?.rowCount === 1 ? "" : "s"} and its uploaded
+              photos, will be removed from Cosmo permanently. If this day was
+              already sent to ERP, the Book Note Entry stays there — tell
+              finance so they can remove it on the ERP side.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep it</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                const target = pendingDelete;
+                setPendingDelete(null);
+                if (target) void handleDeleteHistoryDay(target);
+              }}
+            >
+              Delete book note
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
