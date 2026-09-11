@@ -10,6 +10,7 @@ import {
   type CitypakShipmentStatus,
   type CitypakTrackingCheckpoint,
 } from "@/lib/citypak-api";
+import { invoiceCandidates } from "@/lib/order-waybills";
 import { prisma } from "@/lib/prisma";
 
 /** Gap between CityPak track calls in a sweep — the API has no bulk endpoint. */
@@ -256,10 +257,55 @@ export type ApplyCitypakPushResult =
   | { ok: true; matched: number; status: CitypakShipmentStatus }
   | { ok: false; error: string };
 
+type PushWaybillMatch = {
+  id: string;
+  waybillNo: string;
+  rawPayload: Prisma.JsonValue;
+};
+
 /**
- * Apply one CityPak push-API scan to the matching waybill(s). Matches on
- * tracking number; appends the scan to the checkpoint list and updates the
- * current status only when the push is newer than what we last recorded.
+ * Resolve OrderWaybill rows for a CityPak push.
+ * 1) Exact tracking (`waybillNo`) — any source (API + Falcon/manual imports).
+ * 2) Else invoice `reference` — prefer empty/matching waybillNo; single hit OK.
+ */
+export async function findWaybillsForCitypakPush(input: {
+  trackingNumber: string;
+  reference: string;
+  companyId?: string;
+}): Promise<PushWaybillMatch[]> {
+  const companyFilter = input.companyId ? { companyId: input.companyId } : {};
+  const select = { id: true, waybillNo: true, rawPayload: true } as const;
+
+  const byTracking = await prisma.orderWaybill.findMany({
+    where: { waybillNo: input.trackingNumber, ...companyFilter },
+    select,
+  });
+  if (byTracking.length > 0) return byTracking;
+
+  const reference = input.reference.trim();
+  if (!reference) return [];
+
+  const byReference = await prisma.orderWaybill.findMany({
+    where: {
+      invoiceNumber: { in: invoiceCandidates(reference) },
+      ...companyFilter,
+    },
+    select,
+  });
+  if (byReference.length === 0) return [];
+
+  const preferred = byReference.filter(
+    (row) => !row.waybillNo.trim() || row.waybillNo === input.trackingNumber
+  );
+  if (preferred.length > 0) return preferred;
+  if (byReference.length === 1) return byReference;
+  return [];
+}
+
+/**
+ * Apply one CityPak push-API scan to the matching waybill(s). Matches tracking
+ * number (any source), then falls back to invoice reference for pre-API Falcon
+ * rows. Appends the scan to checkpoints and stamps current status.
  */
 export async function applyCitypakPushUpdate(input: {
   payload: unknown;
@@ -270,17 +316,18 @@ export async function applyCitypakPushUpdate(input: {
     return { ok: false, error: "Push payload missing tracking_number" };
   }
 
-  const waybills = await prisma.orderWaybill.findMany({
-    where: {
-      source: CITYPAK_WAYBILL_SOURCE,
-      waybillNo: push.trackingNumber,
-      ...(input.companyId ? { companyId: input.companyId } : {}),
-    },
-    select: { id: true, rawPayload: true },
+  const waybills = await findWaybillsForCitypakPush({
+    trackingNumber: push.trackingNumber,
+    reference: push.reference,
+    companyId: input.companyId,
   });
 
   if (waybills.length === 0) {
-    return { ok: false, error: `No CityPak waybill for tracking number ${push.trackingNumber}` };
+    const refHint = push.reference.trim() ? ` / reference ${push.reference.trim()}` : "";
+    return {
+      ok: false,
+      error: `No Cosmo waybill for tracking number ${push.trackingNumber}${refHint}`,
+    };
   }
 
   const scanAt = push.at ?? new Date().toISOString();
@@ -314,9 +361,17 @@ export async function applyCitypakPushUpdate(input: {
       fields.citypakDeliveredAt = scanAt;
     }
 
+    const stampWaybillNo =
+      !waybill.waybillNo.trim() && push.trackingNumber
+        ? { waybillNo: push.trackingNumber }
+        : {};
+
     await prisma.orderWaybill.update({
       where: { id: waybill.id },
-      data: { rawPayload: mergeStatusFields(payload, fields) },
+      data: {
+        ...stampWaybillNo,
+        rawPayload: mergeStatusFields(payload, fields),
+      },
     });
   }
 
