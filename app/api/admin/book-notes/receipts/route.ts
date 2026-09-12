@@ -101,7 +101,8 @@ export async function POST(request: NextRequest) {
     select: { id: true },
   });
 
-  // Owner-aware: a merchant correcting their own past sheet may restate photos.
+  // Past dates stay locked for merchants. Admins (`book_notes.admin`) may
+  // replace photos on an old sheet.
   const isOwner = Boolean(existingDay);
   const writeAccess = {
     ...resolveBookNoteWriteAccess(auth.context!),

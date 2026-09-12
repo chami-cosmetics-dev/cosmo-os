@@ -53,6 +53,35 @@ export function skuMatchesSearch(
   return s === q || s.startsWith(`${q}_`) || k === q || s.startsWith(q);
 }
 
+/**
+ * Resolve typed SKU / common-key filters to catalog SKUs only.
+ * Never keeps the raw typed string — avoids ghost rows like `ord04_1` beside `ORD04_1`.
+ */
+export function resolveCoverSkuFilter(input: {
+  skuFilter?: string[] | null;
+  commonSkuKey?: string | null;
+  catalog: Iterable<{ sku: string; commonSkuKey: string }>;
+}): string[] {
+  const searchTerms = input.skuFilter?.map((s) => s.trim()).filter(Boolean) ?? [];
+  const commonKey = input.commonSkuKey?.trim() || "";
+  const out: string[] = [];
+  const seen = new Set<string>();
+
+  for (const entry of input.catalog) {
+    const sku = entry.sku.trim();
+    if (!sku || seen.has(sku)) continue;
+    const byCommon = commonKey.length > 0 && entry.commonSkuKey === commonKey;
+    const bySearch =
+      searchTerms.length > 0 &&
+      searchTerms.some((q) => skuMatchesSearch(entry.sku, entry.commonSkuKey, q));
+    if (!byCommon && !bySearch) continue;
+    seen.add(sku);
+    out.push(sku);
+  }
+
+  return out;
+}
+
 export function filterRowsByBrand<T extends { brand?: string | null }>(
   rows: T[],
   brand: string | null | undefined,

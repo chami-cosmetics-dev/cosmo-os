@@ -24,9 +24,9 @@ describe("book-notes lock", () => {
     expect(isBookNoteDayLocked("2026-08-31", now, admin)).toBe(false);
   });
 
-  it("lets the submitter reopen their own past sheet", () => {
-    expect(isBookNoteWritable("2026-08-31", now, owner)).toBe(true);
-    expect(isBookNoteDayLocked("2026-08-31", now, owner)).toBe(false);
+  it("locks a merchant's own past sheet — only book_notes.admin may edit old notes", () => {
+    expect(isBookNoteWritable("2026-08-31", now, owner)).toBe(false);
+    expect(isBookNoteDayLocked("2026-08-31", now, owner)).toBe(true);
   });
 
   it("still locks a past sheet the user did not submit", () => {

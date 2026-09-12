@@ -197,16 +197,16 @@ export function postingDateRangeFromQuery(
 }
 
 /**
- * Saved book-note days this user created, newest first.
+ * Saved book-note days, newest first.
  *
- * Merchant Daily Book Note history is always the caller's own sheets — never a
- * colleague's, and never expanded by `book_notes.read`. Finance reviews every
- * shop on `/dashboard/book-notes/review`.
+ * Merchants (`book_notes.manage`) see only sheets they created.
+ * Book-note admins (`book_notes.admin` / canBackdate) see every upload.
+ * Finance reviews every shop on `/dashboard/book-notes/review`.
  * `search` matches shop name, posting date, and sales invoice numbers.
  */
 export async function loadBookNoteHistory(input: {
   companyId: string;
-  /** Current user — history lists only sheets they created. */
+  /** Current user — merchant history lists only sheets they created. */
   createdByUserId: string;
   /** When set, only that shop. When omitted, all `companyLocationIds`. */
   companyLocationId?: string;
@@ -229,6 +229,8 @@ export async function loadBookNoteHistory(input: {
 
   const userId = input.createdByUserId;
   if (!userId) return [];
+
+  const canViewAllHistory = input.writeAccess?.canBackdate === true;
 
   const search = (input.search ?? "").trim();
   const searchClauses: Prisma.BookNoteDayWhereInput[] = [];
@@ -257,7 +259,7 @@ export async function loadBookNoteHistory(input: {
   const where: Prisma.BookNoteDayWhereInput = {
     companyId: input.companyId,
     companyLocationId: { in: locationFilter },
-    createdByUserId: userId,
+    ...(canViewAllHistory ? {} : { createdByUserId: userId }),
     ...(searchClauses.length > 0 ? { AND: [{ OR: searchClauses }] } : {}),
   };
 
