@@ -372,10 +372,17 @@ export async function PUT(request: NextRequest) {
     // Target is resolved above: the caller's own sheet, or the one they opened
     // by id. Never an upsert on shop + date, which would collide with whichever
     // merchant happened to save that shop first.
+    // Row edits invalidate ERP sync — clear status so admin bulk / resend
+    // picks the sheet up again.
     const day = target.existingId
       ? await tx.bookNoteDay.update({
           where: { id: target.existingId },
-          data: { updatedByUserId: userId },
+          data: {
+            updatedByUserId: userId,
+            erpSyncedAt: null,
+            erpSyncFailedAt: null,
+            erpSyncError: null,
+          },
           select: { id: true },
         })
       : await tx.bookNoteDay.create({

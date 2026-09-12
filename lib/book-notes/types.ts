@@ -91,6 +91,10 @@ export type BookNoteHistoryItem = {
   enteredBy: string | null;
   /** True when the viewer created this sheet. */
   isOwn: boolean;
+  /** Cosmo → ERP push status. */
+  erpSyncStatus: "synced" | "failed" | "pending";
+  /** Short error from last failed ERP push. */
+  erpSyncError: string | null;
 };
 
 /** Who created or last saved a sheet, for the finance audit column. */

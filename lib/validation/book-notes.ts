@@ -183,5 +183,31 @@ export const bookNoteSendToErpBodySchema = z.object({
   bookNoteDayId: cuidSchema.optional(),
 });
 
+/** Admin bulk push of saved sheets to ERP (date range + mode). */
+export const bookNoteBulkSyncToErpBodySchema = z
+  .object({
+    from: ymdSchema,
+    to: ymdSchema,
+    /**
+     * unsynced — never successfully synced (includes failed)
+     * failed — last push failed only
+     * all — full re-sync of every sheet with rows in range
+     */
+    mode: z.enum(["unsynced", "failed", "all"]),
+    companyLocationId: cuidSchema.optional(),
+  })
+  .superRefine((val, ctx) => {
+    if (val.from > val.to) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "from must be on or before to",
+        path: ["from"],
+      });
+    }
+  });
+
 export type BookNotePutBody = z.infer<typeof bookNotePutBodySchema>;
 export type BookNotePutRow = z.infer<typeof bookNotePutRowSchema>;
+export type BookNoteBulkSyncToErpBody = z.infer<
+  typeof bookNoteBulkSyncToErpBodySchema
+>;

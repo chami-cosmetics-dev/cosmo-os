@@ -5,6 +5,7 @@ import {
   isBookNoteCreator,
   type BookNoteViewScope,
 } from "@/lib/book-notes/access";
+import { bookNoteErpSyncStatus } from "@/lib/book-notes/erp-sync-status";
 import type {
   BookNoteDayDto,
   BookNoteHistoryItem,
@@ -311,6 +312,8 @@ export async function loadBookNoteHistory(input: {
       }),
       enteredBy: author?.name?.trim() || author?.email || null,
       isOwn,
+      erpSyncStatus: bookNoteErpSyncStatus(day),
+      erpSyncError: day.erpSyncError,
     };
   });
 }
