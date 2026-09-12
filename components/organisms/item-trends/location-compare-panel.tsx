@@ -81,7 +81,13 @@ export function LocationComparePanel({ itemLabel, rows, onClose }: Props) {
               checked={picked.includes(loc.columnKey)}
               onChange={() => toggle(loc.columnKey)}
             />
-            <span className="text-muted-foreground">{loc.channelKind === "online" ? "Online" : "Shop"}</span>
+            <span className="text-muted-foreground">
+              {loc.locationGroup === "cosmetics_lk"
+                ? loc.channelKind === "online"
+                  ? "Online"
+                  : "Shop"
+                : "Company"}
+            </span>
             {loc.label}
           </label>
         ))}
@@ -108,7 +114,11 @@ export function LocationComparePanel({ itemLabel, rows, onClose }: Props) {
                 <tr key={row.columnKey} className="border-t">
                   <td className="px-3 py-2">
                     <span className="text-xs text-muted-foreground">
-                      {row.channelKind === "online" ? "Online" : "Shop"}
+                      {row.locationGroup === "cosmetics_lk"
+                        ? row.channelKind === "online"
+                          ? "Online"
+                          : "Shop"
+                        : "Company"}
                     </span>{" "}
                     {row.outletName}
                   </td>

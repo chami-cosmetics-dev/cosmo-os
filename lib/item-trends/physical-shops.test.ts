@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  coverLocationOwner,
+  coverOutletDisplayName,
   isCosmeticsLkInternalShopColumn,
   isPhysicalShopOsfColumn,
   isShopWarehouseName,
@@ -161,5 +163,71 @@ describe("osfColumnChannelKind", () => {
         companyLocationName: "MNK",
       }),
     ).toBe("physical");
+  });
+});
+
+describe("coverLocationOwner", () => {
+  it("labels Cosmo POS shops as Cosmetics.lk", () => {
+    expect(
+      coverLocationOwner({
+        key: "cosmo_shop_gcc",
+        label: "GCC Shop",
+        companyLocationId: null,
+        warehouses: ["GCC Shop Warehouse - Cosmo"],
+      }),
+    ).toEqual({ group: "cosmetics_lk", ownerLabel: "Cosmetics.lk" });
+  });
+
+  it("labels trading columns by OSF company code", () => {
+    expect(
+      coverLocationOwner({
+        key: "chami",
+        label: "Chami",
+        companyLocationId: "loc-chami",
+        companyLocationName: "Cool Planet",
+      }),
+    ).toEqual({ group: "trading", ownerLabel: "Chami" });
+
+    expect(
+      coverLocationOwner({
+        key: "mnk",
+        label: "MNK",
+        companyLocationId: "loc-mnk",
+        companyLocationName: "Cool Planet",
+      }),
+    ).toEqual({ group: "trading", ownerLabel: "MNK" });
+  });
+});
+
+describe("coverOutletDisplayName", () => {
+  const shopName = (label: string) =>
+    label.replace(/\s+Shop$/i, "").trim() || label;
+
+  it("uses shop name for Cosmetics.lk columns", () => {
+    expect(
+      coverOutletDisplayName(
+        {
+          key: "cosmo_shop_coolplanet",
+          label: "Cool Planet Shop",
+          companyLocationId: null,
+          warehouses: ["Cool Planet Nugegoda Shop Warehouse - Cosmo"],
+        },
+        shopName,
+      ),
+    ).toBe("Cool Planet");
+  });
+
+  it("uses company code for trading columns", () => {
+    expect(
+      coverOutletDisplayName(
+        {
+          key: "mnk",
+          label: "MNK",
+          companyLocationId: "loc-mnk",
+          companyLocationName: "Cool Planet",
+        },
+        shopName,
+      ),
+    ).toBe("MNK");
   });
 });

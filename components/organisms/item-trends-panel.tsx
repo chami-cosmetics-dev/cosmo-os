@@ -425,7 +425,7 @@ export function ItemTrendsPanel({ canManageRop }: Props) {
               <CardTitle className="text-base">Sale vs stock</CardTitle>
               <CardDescription>
                 Shop send = stock below 50% of next-week need. OOS = sold in range and snapshot 0.
-                One name per warehouse. Item opens warehouses.
+                ERP1 = Cosmetics.lk shops. ERP2 = company names. Item opens warehouses.
               </CardDescription>
             </CardHeader>
             <CardContent>

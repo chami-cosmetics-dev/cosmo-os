@@ -20,19 +20,32 @@ export function availableCompareLocations(rows: CoverRow[]): Array<{
   columnKey: string;
   label: string;
   channelKind: CoverRow["channelKind"];
+  locationGroup: CoverRow["locationGroup"];
 }> {
-  const seen = new Map<string, { columnKey: string; label: string; channelKind: CoverRow["channelKind"] }>();
+  const seen = new Map<
+    string,
+    {
+      columnKey: string;
+      label: string;
+      channelKind: CoverRow["channelKind"];
+      locationGroup: CoverRow["locationGroup"];
+    }
+  >();
   for (const row of rows) {
     if (!seen.has(row.columnKey)) {
       seen.set(row.columnKey, {
         columnKey: row.columnKey,
         label: row.outletName,
         channelKind: row.channelKind,
+        locationGroup: row.locationGroup,
       });
     }
   }
   return [...seen.values()].sort(
-    (a, b) => compareChannelKind(a.channelKind, b.channelKind) || a.label.localeCompare(b.label),
+    (a, b) =>
+      (a.locationGroup === b.locationGroup ? 0 : a.locationGroup === "cosmetics_lk" ? -1 : 1) ||
+      compareChannelKind(a.channelKind, b.channelKind) ||
+      a.label.localeCompare(b.label),
   );
 }
 
@@ -83,6 +96,7 @@ export function compareCoverByLocation(input: {
 
   return out.sort(
     (a, b) =>
+      (a.locationGroup === b.locationGroup ? 0 : a.locationGroup === "cosmetics_lk" ? -1 : 1) ||
       compareChannelKind(a.channelKind, b.channelKind) ||
       b.unitsInRange - a.unitsInRange ||
       a.outletName.localeCompare(b.outletName),

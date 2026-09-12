@@ -242,7 +242,11 @@ export function CoverPanel({
                         </td>
                         <td className="px-3 py-2">
                           <span className="text-xs text-muted-foreground">
-                            {row.channelKind === "online" ? "Online" : "Shop"}
+                            {row.locationGroup === "cosmetics_lk"
+                              ? row.channelKind === "online"
+                                ? "Online"
+                                : "Shop"
+                              : "Company"}
                           </span>{" "}
                           {row.outletName}
                         </td>
