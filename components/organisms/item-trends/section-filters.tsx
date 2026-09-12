@@ -117,7 +117,11 @@ export function ItemTrendsSectionFilters({
             <option value="">All locations</option>
             {locations.map((loc) => (
               <option key={loc.columnKey} value={loc.columnKey}>
-                {loc.channelKind === "online" ? "Online · " : "Shop · "}
+                {loc.locationGroup === "cosmetics_lk"
+                  ? loc.channelKind === "online"
+                    ? "Online · "
+                    : "Shop · "
+                  : "Company · "}
                 {loc.label}
               </option>
             ))}

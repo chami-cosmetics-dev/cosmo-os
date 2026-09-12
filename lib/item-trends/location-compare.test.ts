@@ -16,6 +16,7 @@ function row(partial: Partial<CoverRow> & Pick<CoverRow, "sku" | "columnKey" | "
     commonSkuTitle: "Lipstick",
     priority: "Top Priority",
     channelKind: "physical",
+    locationGroup: "cosmetics_lk",
     unitsInRange: 0,
     daysInRange: 7,
     avgDaily: 0,

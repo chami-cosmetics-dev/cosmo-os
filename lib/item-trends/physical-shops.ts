@@ -133,6 +133,60 @@ export function isPhysicalShopOsfColumn(
   return Boolean(col.companyLocationId);
 }
 
+export type CoverLocationGroup = "cosmetics_lk" | "trading";
+
+/**
+ * ERP1 Cosmetics.lk → shop nicknames. ERP2 trading → company codes (MNK, Chami).
+ * Avoids Both-ERPs rows sharing the same display name.
+ */
+export function coverLocationOwner(col: {
+  key?: string;
+  label: string;
+  companyLocationId: string | null;
+  companyLocationName?: string | null;
+  erpCompany?: string | null;
+  warehouses?: string[];
+  directWarehouses?: string[];
+}): { group: CoverLocationGroup; ownerLabel: string } {
+  if (
+    isCosmeticsLkLocationColumn(col) ||
+    isOnlineChannelName(col.label) ||
+    isOnlineChannelName(col.companyLocationName) ||
+    isCosmeticsLkInternalShopColumn(col)
+  ) {
+    return { group: "cosmetics_lk", ownerLabel: "Cosmetics.lk" };
+  }
+  const owner =
+    col.label.trim() ||
+    col.companyLocationName?.trim() ||
+    col.erpCompany?.trim() ||
+    "Trading";
+  return { group: "trading", ownerLabel: owner };
+}
+
+/** ERP1: shop name. ERP2: company name. */
+export function coverOutletDisplayName(
+  col: {
+    key?: string;
+    label: string;
+    companyLocationId: string | null;
+    companyLocationName?: string | null;
+    erpCompany?: string | null;
+    warehouses?: string[];
+    directWarehouses?: string[];
+  },
+  displayShopName: (label: string) => string,
+): string {
+  const { group, ownerLabel } = coverLocationOwner(col);
+  if (group === "cosmetics_lk") return displayShopName(col.label);
+  return ownerLabel;
+}
+
+export function compareCoverLocationGroup(a: CoverLocationGroup, b: CoverLocationGroup): number {
+  if (a === b) return 0;
+  return a === "cosmetics_lk" ? -1 : 1;
+}
+
 /** Match staff outlet name to a company location / OSF shop column. */
 export function matchOutletToLocationIds(
   outletName: string,

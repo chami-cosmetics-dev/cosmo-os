@@ -122,7 +122,9 @@ export type CoverRow = {
   commonSkuTitle: string | null;
   priority: string;
   columnKey: string;
+  /** ERP1 Cosmetics.lk shop name, or ERP2 trading company name. */
   outletName: string;
+  locationGroup: "cosmetics_lk" | "trading";
   channelKind: OutletChannelKind;
   unitsInRange: number;
   daysInRange: number;
@@ -144,6 +146,7 @@ export type ItemTrendFilterLocation = {
   label: string;
   channelKind: OutletChannelKind;
   erpnextInstanceId: string | null;
+  locationGroup: "cosmetics_lk" | "trading";
 };
 
 export type ItemTrendPageMeta = {

@@ -10,6 +10,9 @@ import { compareChannelKind, computeCoverMath } from "@/lib/item-trends/cover";
 import { displayWarehouseName } from "@/lib/item-trends/location-name";
 import { salesByOsfColumnInRange } from "@/lib/item-trends/outlets";
 import {
+  coverLocationOwner,
+  coverOutletDisplayName,
+  compareCoverLocationGroup,
   isPhysicalShopOsfColumn,
   loadPhysicalShops,
   osfColumnChannelKind,
@@ -62,12 +65,16 @@ export async function listItemTrendErpScopes(companyId: string): Promise<
 
 export async function listItemTrendFilterLocations(companyId: string): Promise<ItemTrendFilterLocation[]> {
   const columns = await resolveOsfColumns(companyId);
-  return stockColumns(columns).map((col) => ({
-    columnKey: col.key,
-    label: displayWarehouseName(col.label),
-    channelKind: osfColumnChannelKind(col),
-    erpnextInstanceId: col.erpnextInstanceId,
-  }));
+  return stockColumns(columns).map((col) => {
+    const owner = coverLocationOwner(col);
+    return {
+      columnKey: col.key,
+      label: coverOutletDisplayName(col, displayWarehouseName),
+      channelKind: osfColumnChannelKind(col),
+      erpnextInstanceId: col.erpnextInstanceId,
+      locationGroup: owner.group,
+    };
+  });
 }
 
 export async function fetchCoverRows(input: {
@@ -202,6 +209,7 @@ export async function fetchCoverRows(input: {
         continue;
       }
 
+      const owner = coverLocationOwner(col);
       rows.push({
         sku,
         title: entry?.title ?? null,
@@ -211,7 +219,8 @@ export async function fetchCoverRows(input: {
         commonSkuTitle: entry?.commonSkuTitle ?? entry?.title ?? null,
         priority: resolveEffectivePriority(entry?.erp1ProductPriority, entry?.erp2ProductPriority),
         columnKey: col.key,
-        outletName: displayWarehouseName(col.label),
+        outletName: coverOutletDisplayName(col, displayWarehouseName),
+        locationGroup: owner.group,
         channelKind: osfColumnChannelKind(col),
         unitsInRange: units,
         daysInRange,
@@ -231,6 +240,7 @@ export async function fetchCoverRows(input: {
   rows.sort(
     (a, b) =>
       Number(b.shouldSend) - Number(a.shouldSend) ||
+      compareCoverLocationGroup(a.locationGroup, b.locationGroup) ||
       compareChannelKind(a.channelKind, b.channelKind) ||
       a.outletName.localeCompare(b.outletName) ||
       b.unitsInRange - a.unitsInRange,
