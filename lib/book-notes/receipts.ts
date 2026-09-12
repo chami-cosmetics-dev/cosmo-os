@@ -330,6 +330,8 @@ export async function loadReceiptsForDay(input: {
   companyId: string;
   companyLocationId: string;
   postingDateYmd: string;
+  /** Prefer this exact sheet when multiple merchants share the shop/date. */
+  bookNoteDayId?: string;
 }): Promise<
   Array<{
     id: string;
@@ -340,11 +342,13 @@ export async function loadReceiptsForDay(input: {
 > {
   const postingDate = postingDateToUtcMidnight(input.postingDateYmd);
   const day = await prisma.bookNoteDay.findFirst({
-    where: {
-      companyId: input.companyId,
-      companyLocationId: input.companyLocationId,
-      postingDate,
-    },
+    where: input.bookNoteDayId
+      ? { id: input.bookNoteDayId, companyId: input.companyId }
+      : {
+          companyId: input.companyId,
+          companyLocationId: input.companyLocationId,
+          postingDate,
+        },
     select: {
       receipts: {
         orderBy: { sortOrder: "asc" },

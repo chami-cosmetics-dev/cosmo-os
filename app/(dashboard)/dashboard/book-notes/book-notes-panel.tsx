@@ -261,6 +261,13 @@ export function BookNotesPanel({
   /** Saved sheet the user asked to delete, pending confirmation. */
   const [pendingDelete, setPendingDelete] =
     useState<BookNoteHistoryItem | null>(null);
+  /** Admin bulk ERP sync (book_notes.admin only). */
+  const [bulkFrom, setBulkFrom] = useState(initialToday);
+  const [bulkTo, setBulkTo] = useState(initialToday);
+  const [bulkMode, setBulkMode] = useState<"unsynced" | "failed" | "all">(
+    "unsynced",
+  );
+  const [bulkShopId, setBulkShopId] = useState("__all__");
   /** Set when the loaded day belongs to a merchant outside the viewer's outlet. */
   const [restrictedBy, setRestrictedBy] = useState<string | null>(null);
   /**
@@ -928,7 +935,76 @@ export function BookNotesPanel({
     }
     setStatusLine(line);
     notify.success(line);
+    await refreshHistory();
     return true;
+  }
+
+  /** Admin: push many saved sheets to ERP in one go. */
+  async function handleBulkSyncToErp() {
+    if (!canBackdateBookNotes) return;
+    if (bulkFrom > bulkTo) {
+      showError("Bulk sync: From date must be on or before To date.");
+      return;
+    }
+    setBusyKey("bulk-erp");
+    clearError();
+    setStatusLine(`Bulk ERP sync (${bulkMode}) ${bulkFrom} → ${bulkTo}...`);
+    try {
+      const res = await fetch("/api/admin/book-notes/sync-to-erp-bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          from: bulkFrom,
+          to: bulkTo,
+          mode: bulkMode,
+          ...(bulkShopId !== "__all__"
+            ? { companyLocationId: bulkShopId }
+            : {}),
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        matched?: number;
+        succeeded?: number;
+        failed?: number;
+        truncated?: boolean;
+        failures?: Array<{
+          shopName: string;
+          postingDate: string;
+          error: string;
+        }>;
+      };
+      if (!res.ok) {
+        showError(
+          typeof data.error === "string"
+            ? data.error
+            : "Bulk ERP sync failed",
+        );
+        return;
+      }
+      const line = `Bulk ERP: ${data.succeeded ?? 0} ok, ${data.failed ?? 0} failed of ${data.matched ?? 0}` +
+        (data.truncated ? " (hit limit — run again for rest)" : "");
+      if ((data.failed ?? 0) > 0) {
+        const first = data.failures?.[0];
+        const detail = first
+          ? ` — e.g. ${first.shopName} ${first.postingDate}: ${first.error}`
+          : "";
+        showError(`${line}${detail}`);
+      } else {
+        clearError();
+        setStatusLine(line);
+        notify.success(line);
+      }
+      await refreshHistory();
+    } catch (err) {
+      showError(
+        err instanceof Error
+          ? `Bulk sync network error: ${err.message}`
+          : "Bulk ERP sync failed (network)",
+      );
+    } finally {
+      setBusyKey(null);
+    }
   }
 
   /** Save then push to ERP (today or a history day). */
@@ -985,6 +1061,7 @@ export function BookNotesPanel({
     setStatusLine(`Sending ${item.shopName} ${item.posting_date} to ERP...`);
     try {
       await sendDayToErp(item.posting_date, item.companyLocationId, item.id);
+      await refreshHistory();
     } catch (err) {
       showError(
         err instanceof Error
@@ -1130,6 +1207,117 @@ export function BookNotesPanel({
         <div className="border-destructive/40 bg-destructive/10 text-destructive rounded-lg border px-4 py-3 text-sm">
           No shop assigned to your account. Ask an admin to set your employee
           location (or default merchant) before entering book notes.
+        </div>
+      ) : null}
+
+      {canBackdateBookNotes ? (
+        <div className="bg-card space-y-3 rounded-lg border p-4">
+          <div>
+            <h2 className="text-sm font-semibold tracking-wide uppercase text-muted-foreground">
+              Admin — sync to ERP
+            </h2>
+            <p className="text-muted-foreground mt-1 text-xs">
+              Push old or failed book notes to ERP in one run. Unsynced =
+              never synced successfully (includes failed). Failed = last push
+              failed. Re-sync all = every sheet with rows in the date range.
+            </p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">
+                From
+              </label>
+              <Input
+                type="date"
+                value={bulkFrom}
+                max={today}
+                disabled={isBusy}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  if (!next || next > today) return;
+                  setBulkFrom(next);
+                }}
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">
+                To
+              </label>
+              <Input
+                type="date"
+                value={bulkTo}
+                max={today}
+                disabled={isBusy}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  if (!next || next > today) return;
+                  setBulkTo(next);
+                }}
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">
+                Shop
+              </label>
+              <Select
+                value={bulkShopId}
+                disabled={isBusy}
+                onValueChange={setBulkShopId}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="All shops" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">All shops</SelectItem>
+                  {locations.map((loc) => (
+                    <SelectItem key={loc.id} value={loc.id}>
+                      {loc.shortName
+                        ? `${loc.shortName} — ${loc.name}`
+                        : loc.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">
+                Mode
+              </label>
+              <Select
+                value={bulkMode}
+                disabled={isBusy}
+                onValueChange={(v) =>
+                  setBulkMode(v as "unsynced" | "failed" | "all")
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="unsynced">Unsynced (old + failed)</SelectItem>
+                  <SelectItem value="failed">Failed only</SelectItem>
+                  <SelectItem value="all">Re-sync all</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-end">
+              <Button
+                type="button"
+                className="w-full"
+                disabled={isBusy}
+                onClick={() => void handleBulkSyncToErp()}
+              >
+                {busyKey === "bulk-erp" ? (
+                  <>
+                    <Loader2 className="animate-spin" aria-hidden />
+                    Syncing...
+                  </>
+                ) : (
+                  "Sync to ERP"
+                )}
+              </Button>
+            </div>
+          </div>
         </div>
       ) : null}
 
@@ -1879,7 +2067,8 @@ export function BookNotesPanel({
                   <th className="p-2">Entered by</th>
                   <th className="p-2 text-right">Rows</th>
                   <th className="p-2 text-right">Total</th>
-                  <th className="p-2">Status</th>
+                  <th className="p-2">Edit</th>
+                  <th className="p-2">ERP</th>
                   <th className="p-2 text-right">Actions</th>
                 </tr>
               </thead>
@@ -1916,6 +2105,20 @@ export function BookNotesPanel({
                       <td className="p-2 text-xs text-muted-foreground">
                         {item.locked ? "Locked" : "Editable"}
                       </td>
+                      <td className="p-2 text-xs">
+                        {item.erpSyncStatus === "synced" ? (
+                          <span className="text-emerald-700">Synced</span>
+                        ) : item.erpSyncStatus === "failed" ? (
+                          <span
+                            className="text-destructive"
+                            title={item.erpSyncError ?? undefined}
+                          >
+                            Failed
+                          </span>
+                        ) : (
+                          <span className="text-amber-700">Pending</span>
+                        )}
+                      </td>
                       <td className="p-2">
                         <div className="flex justify-end gap-1">
                           <Button
@@ -1946,8 +2149,12 @@ export function BookNotesPanel({
                                 <Loader2 className="animate-spin" aria-hidden />
                                 Sending...
                               </>
-                            ) : (
+                            ) : item.erpSyncStatus === "failed" ? (
+                              "Retry ERP"
+                            ) : item.erpSyncStatus === "synced" ? (
                               "Resend to ERP"
+                            ) : (
+                              "Send to ERP"
                             )}
                           </Button>
                           {item.isOwn && !item.locked ? (

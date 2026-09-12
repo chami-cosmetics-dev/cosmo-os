@@ -1,22 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import {
-  companyLabelForLocation,
-  shopLabelForLocation,
-} from "@/lib/book-notes/serialize";
-import {
   assertBookNoteShopAllowed,
   resolveBookNoteShopAccess,
   resolveBookNoteViewScope,
 } from "@/lib/book-notes/access";
-import { sendBookNoteRowsToErp } from "@/lib/book-notes/erp-verify";
 import { loadBookNoteDayDto } from "@/lib/book-notes/load";
-import { bookNoteRowUsesSplitPayload } from "@/lib/book-notes/split-lines";
-import {
-  collectBookNoteNamesFromVerifyRows,
-  loadReceiptsForDay,
-  pushDayReceiptsToErp,
-} from "@/lib/book-notes/receipts";
+import { pushBookNoteDayToErp } from "@/lib/book-notes/push-day";
+import { shopLabelForLocation } from "@/lib/book-notes/serialize";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { bookNoteSendToErpBodySchema } from "@/lib/validation/book-notes";
@@ -25,9 +16,7 @@ import { bookNoteSendToErpBodySchema } from "@/lib/validation/book-notes";
  * Push a saved book-note day to ERP ss9 verify Server Script
  * (api_method default: verify_book_note).
  *
- * POST body: { companyLocationId, postingDate }
- * Sends form_dict: book_note_id, rows_json, company, posting_date
- * (ERP script derives outlet from API user full_name).
+ * POST body: { companyLocationId, postingDate, bookNoteDayId? }
  * Permission: book_notes.manage
  */
 export async function POST(request: NextRequest) {
@@ -94,8 +83,6 @@ export async function POST(request: NextRequest) {
       id: true,
       name: true,
       shortName: true,
-      erpnextCompany: true,
-      erpnextInstance: true,
     },
   });
   if (!location) {
@@ -111,18 +98,6 @@ export async function POST(request: NextRequest) {
 
   const shopLabel = shopLabelForLocation(location);
 
-  if (!location.erpnextInstance) {
-    return NextResponse.json(
-      {
-        error: `Shop "${shopLabel}" has no ErpnextInstance linked. Link ERP credentials on this shop before Send to ERP.`,
-        code: "ERP_INSTANCE_MISSING",
-        step: "load_location",
-        locationName: shopLabel,
-      },
-      { status: 400 },
-    );
-  }
-
   // Withheld days come back with no rows, so a merchant cannot push a sheet
   // they were never allowed to see.
   const viewScope = await resolveBookNoteViewScope(auth.context!);
@@ -131,7 +106,6 @@ export async function POST(request: NextRequest) {
     companyId,
     companyLocationId,
     postingDateYmd: postingDate,
-    // Sheets are per merchant: without an explicit id, push the caller's own.
     bookNoteDayId,
     ownerUserId: bookNoteDayId ? undefined : viewerUserId,
     viewScope,
@@ -162,84 +136,30 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  for (const r of day.rows) {
-    if (bookNoteRowUsesSplitPayload(r.split_lines)) continue;
-    if (r.card > 0 && !r.card_receipt_ref_last4) {
-      return NextResponse.json(
-        {
-          error: `Row ${r.idx_no || "?"} (${r.sales_invoice || "no invoice"}): card amount entered but card receipt last 4 digits missing. Open the day, fill Last 4 ref, save, then send again.`,
-          code: "CARD_REF_MISSING",
-          step: "validate",
-          locationName: shopLabel,
-          postingDate,
-        },
-        { status: 400 },
-      );
-    }
-  }
-
-  const company = companyLabelForLocation(location);
-  const result = await sendBookNoteRowsToErp({
-    erpnextInstance: location.erpnextInstance,
-    bookNoteId: day.id,
-    company,
-    postingDate,
-    rows: day.rows.map((r) => ({
-      idx_no: r.idx_no,
-      sales_invoice: r.sales_invoice,
-      cash: r.cash,
-      card: r.card,
-      card_last_4: r.card_receipt_ref_last4,
-      koko: r.koko,
-      bank_transfer: r.bank_transfer,
-      split_lines: r.split_lines,
-    })),
+  const result = await pushBookNoteDayToErp({
+    companyId,
+    companyLocationId,
+    postingDateYmd: postingDate,
+    bookNoteDayId: day.id,
   });
 
   if (!result.ok) {
     return NextResponse.json(
       {
-        error: result.error ?? "ERP verify failed",
-        code: result.code ?? "ERP_UNKNOWN",
-        step: "erp_call",
+        error: result.error,
+        code: result.code,
+        step: result.step,
         method: result.method,
         company: result.company,
         erpUrl: result.erpUrl,
         httpStatus: result.httpStatus,
-        locationName: shopLabel,
-        postingDate,
-        rowCount: day.rows.length,
-        raw: result.rawMessage,
+        locationName: result.locationName ?? shopLabel,
+        postingDate: result.postingDate ?? postingDate,
+        rowCount: result.rowCount,
+        raw: result.raw,
       },
-      { status: 502 },
+      { status: result.status },
     );
-  }
-
-  // After verify, attach day-level receipt photos to each Book Note Entry
-  // docname (ss9 book_note_name) so bank-recon INFO can show them (ss5).
-  const bookNoteNames = collectBookNoteNamesFromVerifyRows(result.rows);
-  const receipts = await loadReceiptsForDay({
-    companyId,
-    companyLocationId,
-    postingDateYmd: postingDate,
-  });
-  let receiptUpload = null;
-  if (receipts.length > 0 && bookNoteNames.length > 0) {
-    receiptUpload = await pushDayReceiptsToErp({
-      erpnextInstance: location.erpnextInstance,
-      bookNoteNames,
-      receipts,
-    });
-  } else if (receipts.length > 0 && bookNoteNames.length === 0) {
-    receiptUpload = {
-      receiptCount: receipts.length,
-      bookNoteCount: 0,
-      uploaded: 0,
-      failed: 0,
-      errors: [
-        "Receipts saved in Cosmo but ERP returned no book_note_name — deploy updated ss9_verify_book_note.py",
-      ],
-    };
   }
 
   return NextResponse.json({
@@ -247,11 +167,11 @@ export async function POST(request: NextRequest) {
     method: result.method,
     company: result.company,
     erpUrl: result.erpUrl,
-    book_note_id: day.id,
-    posting_date: postingDate,
-    locationName: shopLabel,
+    book_note_id: result.bookNoteDayId,
+    posting_date: result.postingDate,
+    locationName: result.locationName,
     summary: result.summary,
     rows: result.rows,
-    receiptUpload,
+    receiptUpload: result.receiptUpload,
   });
 }

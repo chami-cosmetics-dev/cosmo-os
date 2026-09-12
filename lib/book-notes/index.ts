@@ -47,6 +47,16 @@ export {
 } from "@/lib/book-notes/load";
 
 export {
+  bookNoteErpSyncStatus,
+  clearBookNoteErpSyncStatus,
+  markBookNoteErpSynced,
+  markBookNoteErpSyncFailed,
+} from "@/lib/book-notes/erp-sync-status";
+export type { BookNoteErpSyncStatus } from "@/lib/book-notes/erp-sync-status";
+
+export { pushBookNoteDayToErp } from "@/lib/book-notes/push-day";
+
+export {
   getBookNoteVerifyMethod,
   sendBookNoteRowsToErp,
 } from "@/lib/book-notes/erp-verify";

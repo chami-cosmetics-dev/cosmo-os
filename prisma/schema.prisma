@@ -2287,6 +2287,12 @@ model BookNoteDay {
   postingDate        DateTime
   createdByUserId    String?
   updatedByUserId    String?
+  /// Last successful push to ERP ss9 verify (null = never synced / needs sync).
+  erpSyncedAt        DateTime?
+  /// Last ERP push failure time (cleared on success).
+  erpSyncFailedAt    DateTime?
+  /// Short error from last failed ERP push.
+  erpSyncError       String?
   createdAt          DateTime          @default(now())
   updatedAt          DateTime          @updatedAt
   company            Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -2302,6 +2308,8 @@ model BookNoteDay {
   @@unique([companyLocationId, postingDate, createdByUserId])
   @@index([companyId, postingDate])
   @@index([companyLocationId, postingDate])
+  @@index([companyId, erpSyncedAt])
+  @@index([companyId, erpSyncFailedAt])
 }
 
 model BookNoteRow {
