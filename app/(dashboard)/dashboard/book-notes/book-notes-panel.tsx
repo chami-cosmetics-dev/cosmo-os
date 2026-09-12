@@ -1116,12 +1116,13 @@ export function BookNotesPanel({
           book. Use <span className="font-semibold text-violet-700">SPLIT</span>{" "}
           when one invoice has multiple payment legs (e.g. two cards with
           different receipt refs). When a normal row includes card payment,
-          enter the last 4 digits of the POS receipt reference. You can enter
-          today&apos;s book note, and reopen a past one you submitted yourself
-          to correct or delete it — editing updates that same book note rather
-          than creating a new one. Your book note is your own: another merchant
-          entering the same shop on the same day keeps a separate sheet, and
-          history shows only what you saved.
+          enter the last 4 digits of the POS receipt reference. Merchants can
+          enter and send today&apos;s book note, and edit it only on that same
+          date. Past notes stay view-only. Another merchant at the same shop
+          keeps a separate sheet.
+          {canBackdateBookNotes
+            ? " Admins can edit old dates, and history lists every merchant's uploads."
+            : " History shows only what you uploaded."}
         </p>
       </div>
 
@@ -1197,8 +1198,8 @@ export function BookNotesPanel({
             <div className="flex flex-wrap items-center gap-2">
               <p className="text-muted-foreground text-xs">
                 {readOnly
-                  ? "View-only history day — open today to enter or edit."
-                  : "Editing your own past book note — saving updates this sheet."}
+                  ? "View-only — past notes cannot be edited. Open today to enter or send."
+                  : "Editing your book note for this date."}
               </p>
               <Button
                 type="button"
@@ -1823,8 +1824,9 @@ export function BookNotesPanel({
               Save history
             </h2>
             <p className="text-muted-foreground mt-1 text-xs">
-              Only the book notes you saved. A colleague&apos;s sheet for the
-              same shop and day is theirs and does not appear here.
+              {canBackdateBookNotes
+                ? "Every saved book note. Merchants only see the sheets they uploaded."
+                : "Only the book notes you saved. A colleague's sheet for the same shop and day is theirs and does not appear here."}
             </p>
           </div>
           <div className="relative w-full sm:w-72">

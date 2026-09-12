@@ -67,6 +67,16 @@ describe("canViewBookNoteDay", () => {
     ).toBe(true);
   });
 
+  it("shows a book_notes.admin every sheet regardless of submitter", () => {
+    expect(
+      canViewBookNoteDay({
+        viewScope: { canViewAllShops: true },
+        userId: "user_admin",
+        day: sheetBy(MER1),
+      }),
+    ).toBe(true);
+  });
+
   it("hides an unowned sheet from an anonymous caller", () => {
     expect(
       canViewBookNoteDay({

@@ -15,7 +15,7 @@ import {
   osfColumnChannelKind,
 } from "@/lib/item-trends/physical-shops";
 import { allowedInstanceIds, columnMatchesErpScope, type ErpStockScope } from "@/lib/item-trends/erp-scope";
-import { skuMatchesSearch } from "@/lib/item-trends/sku-group";
+import { resolveCoverSkuFilter } from "@/lib/item-trends/sku-group";
 import { loadLiveBinMapForColumns, loadSnapshotBinMap, resolveSnapshotMeta } from "@/lib/item-trends/stock-snapshot";
 import type { CoverRow, ItemTrendDateRange, ItemTrendFilterLocation } from "@/lib/item-trends/types";
 
@@ -143,21 +143,26 @@ export async function fetchCoverRows(input: {
     }
   }
 
-  const skuFilter = [
-    ...(input.skuFilter?.map((s) => s.trim()).filter(Boolean) ?? []),
-    ...[...catalog.values()]
-      .filter((entry) => input.commonSkuKey && entry.commonSkuKey === input.commonSkuKey)
-      .map((entry) => entry.sku),
-  ];
   const searchTerms = input.skuFilter?.map((s) => s.trim()).filter(Boolean) ?? [];
-  if (searchTerms.length) {
-    for (const entry of catalog.values()) {
-      if (searchTerms.some((q) => skuMatchesSearch(entry.sku, entry.commonSkuKey, q))) {
-        skuFilter.push(entry.sku);
-      }
-    }
+  const hasSkuConstraint = searchTerms.length > 0 || Boolean(input.commonSkuKey?.trim());
+  const uniqueSkuFilter = resolveCoverSkuFilter({
+    skuFilter: input.skuFilter,
+    commonSkuKey: input.commonSkuKey,
+    catalog: catalog.values(),
+  });
+
+  // Typed SKU with no catalog hit → empty list (not all SKUs, not a ghost casing row).
+  if (hasSkuConstraint && uniqueSkuFilter.length === 0) {
+    return {
+      stockSource,
+      snapshotDate,
+      capturedAt,
+      usedFallback,
+      daysInRange,
+      rows: [],
+    };
   }
-  const uniqueSkuFilter = [...new Set(skuFilter)];
+
   const salesMap = await salesByOsfColumnInRange(
     input.companyId,
     input.range,

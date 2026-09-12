@@ -26,7 +26,8 @@ export type BookNoteShopAccess = {
  *
  * A merchant sees only the sheets they submitted — not a colleague's, even at
  * the same shop on the same day, because each merchant now keeps their own.
- * Finance (`book_notes.read`) sees every sheet from every shop.
+ * Finance (`book_notes.read`) and book-note admins (`book_notes.admin`) see
+ * every sheet from every shop.
  */
 export type BookNoteViewScope = {
   canViewAllShops: boolean;
@@ -50,15 +51,16 @@ export async function resolveBookNoteShopAccess(
 
 /**
  * Read scope for the current user. Merchants get nothing beyond their own
- * sheets; only the finance/intern retrieve permission opens the whole company.
- * `book_notes.admin` is a *write* scope (backdating) and deliberately grants
- * no extra visibility.
+ * sheets. Finance (`book_notes.read`) and book-note admins (`book_notes.admin`)
+ * may open every sheet.
  */
 export async function resolveBookNoteViewScope(
   context: UserContext,
 ): Promise<BookNoteViewScope> {
   return Promise.resolve({
-    canViewAllShops: hasPermission(context, "book_notes.read"),
+    canViewAllShops:
+      hasPermission(context, "book_notes.read") ||
+      hasPermission(context, "book_notes.admin"),
   });
 }
 
@@ -74,8 +76,9 @@ export function isBookNoteCreator(
  * May this user read (and therefore overwrite) an existing saved day?
  *
  * Merchants see the sheets they created — not a colleague's, even if they
- * later touched it. Finance (`book_notes.read`) sees every sheet. Saving
- * replaces every row, so anyone who cannot see one must not be able to write it.
+ * later touched it. Finance (`book_notes.read`) and book-note admins
+ * (`book_notes.admin`) see every sheet. Saving replaces every row, so anyone
+ * who cannot see one must not be able to write it.
  */
 export function canViewBookNoteDay(input: {
   viewScope: BookNoteViewScope;
