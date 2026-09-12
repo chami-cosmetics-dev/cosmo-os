@@ -67,7 +67,6 @@ export async function GET(request: NextRequest) {
       companyId,
       createdByUserId: userId,
       companyLocationIds: allowedIds,
-      viewScope,
       search: parsed.data.q,
       writeAccess,
     });

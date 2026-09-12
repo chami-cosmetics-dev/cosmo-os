@@ -115,8 +115,7 @@ export async function DELETE(
     );
   }
 
-  const isOwner =
-    day.createdByUserId === userId || day.updatedByUserId === userId;
+  const isOwner = day.createdByUserId === userId;
   const writeAccess = {
     ...resolveBookNoteWriteAccess(auth.context!),
     isOwner,

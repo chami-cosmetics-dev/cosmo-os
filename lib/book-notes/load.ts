@@ -1,6 +1,10 @@
 import type { Prisma } from "@prisma/client";
 
-import { canViewBookNoteDay, type BookNoteViewScope } from "@/lib/book-notes/access";
+import {
+  canViewBookNoteDay,
+  isBookNoteCreator,
+  type BookNoteViewScope,
+} from "@/lib/book-notes/access";
 import type {
   BookNoteDayDto,
   BookNoteHistoryItem,
@@ -106,11 +110,7 @@ export async function loadBookNoteDayDto(input: {
     };
   }
 
-  const isOwner = Boolean(
-    input.viewerUserId &&
-      (day.createdByUserId === input.viewerUserId ||
-        day.updatedByUserId === input.viewerUserId),
-  );
+  const isOwner = isBookNoteCreator(input.viewerUserId ?? null, day.createdByUserId);
 
   return serializeBookNoteDay({
     id: day.id,
@@ -197,21 +197,20 @@ export function postingDateRangeFromQuery(
 }
 
 /**
- * Saved book-note days this user is allowed to see, newest first.
+ * Saved book-note days this user created, newest first.
  *
- * Visibility: sheets they created or last saved, plus every sheet for the
- * outlets they are posted to (so two merchants in one shop share a history),
- * plus everything when `viewScope.canViewAllShops` (finance / admin).
+ * Merchant Daily Book Note history is always the caller's own sheets — never a
+ * colleague's, and never expanded by `book_notes.read`. Finance reviews every
+ * shop on `/dashboard/book-notes/review`.
  * `search` matches shop name, posting date, and sales invoice numbers.
  */
 export async function loadBookNoteHistory(input: {
   companyId: string;
-  /** Current user — always sees their own sheets. */
+  /** Current user — history lists only sheets they created. */
   createdByUserId: string;
   /** When set, only that shop. When omitted, all `companyLocationIds`. */
   companyLocationId?: string;
   companyLocationIds: string[];
-  viewScope?: BookNoteViewScope;
   /** Free text: shop name, posting date (YYYY, YYYY-MM, YYYY-MM-DD), invoice no. */
   search?: string;
   limit?: number;
@@ -230,15 +229,6 @@ export async function loadBookNoteHistory(input: {
 
   const userId = input.createdByUserId;
   if (!userId) return [];
-
-  const viewScope = input.viewScope ?? { canViewAllShops: false };
-
-  // Strictly the sheets this user submitted. A colleague at the same shop keeps
-  // their own sheet and it never appears here.
-  const visibility: Prisma.BookNoteDayWhereInput[] = [
-    { createdByUserId: userId },
-    { updatedByUserId: userId },
-  ];
 
   const search = (input.search ?? "").trim();
   const searchClauses: Prisma.BookNoteDayWhereInput[] = [];
@@ -267,7 +257,7 @@ export async function loadBookNoteHistory(input: {
   const where: Prisma.BookNoteDayWhereInput = {
     companyId: input.companyId,
     companyLocationId: { in: locationFilter },
-    ...(viewScope.canViewAllShops ? {} : { OR: visibility }),
+    createdByUserId: userId,
     ...(searchClauses.length > 0 ? { AND: [{ OR: searchClauses }] } : {}),
   };
 
@@ -304,8 +294,7 @@ export async function loadBookNoteHistory(input: {
     const shopName =
       day.companyLocation.shortName?.trim() || day.companyLocation.name;
     const author = day.updatedBy ?? day.createdBy;
-    const isOwn =
-      day.createdByUserId === userId || day.updatedByUserId === userId;
+    const isOwn = isBookNoteCreator(userId, day.createdByUserId);
     return {
       id: day.id,
       companyLocationId: day.companyLocationId,
