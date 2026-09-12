@@ -50,6 +50,7 @@ function happyProvider() {
 beforeEach(() => {
   vi.restoreAllMocks();
   vi.useRealTimers();
+  delete process.env.HUTCH_SMS_PAUSED;
   companyId = `c${++companySeq}`;
   mocks.portalFindUnique.mockReset().mockResolvedValue(portal());
   mocks.smsLogFindFirst.mockReset().mockResolvedValue(null);
@@ -64,6 +65,39 @@ describe("sendSms auth cooldown", () => {
     const result = await sendSms(companyId, "0771234567", "hi");
 
     expect(result).toEqual({ success: false, message: "SMS portal not configured for this company" });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("honors HUTCH_SMS_PAUSED without contacting the provider", async () => {
+    process.env.HUTCH_SMS_PAUSED = "1";
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+    const result = await sendSms(companyId, "0771234567", "hi");
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.retryable).toBe(false);
+      expect(result.message).toContain("HUTCH_SMS_PAUSED");
+    }
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(mocks.portalFindUnique).not.toHaveBeenCalled();
+  });
+
+  it("honors paused portal URLs without contacting the provider", async () => {
+    mocks.portalFindUnique.mockResolvedValue({
+      ...portal(),
+      authUrl: "https://hutch-sms-paused.invalid/api/login",
+      smsUrl: "https://hutch-sms-paused.invalid/api/sendsms",
+    });
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+    const result = await sendSms(companyId, "0771234567", "hi");
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.retryable).toBe(false);
+      expect(result.message).toContain("hutch-sms-paused");
+    }
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
