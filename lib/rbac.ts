@@ -509,32 +509,39 @@ const DEFAULT_PERMISSIONS = [
   },
   {
     key: "book_notes.manage",
-    description: "Enter and save daily merchant book notes for company locations",
+    description:
+      "Book Notes — merchant entry. Save daily sheets. Does not open Book Notes (Finance).",
   },
   {
     key: "book_notes.admin",
     description:
-      "Edit past book notes and upload entries for older dates (not future dates)",
+      "Book Notes — edit past merchant sheets and upload older dates (not future). Not the finance review page.",
   },
   {
     key: "book_notes.read",
-    description: "Retrieve merchant book notes for any location (finance / intern)",
+    description:
+      "Book Notes (Finance) — review every shop's sheets. Finance only; does not open merchant Book Notes.",
   },
 ] as const;
 
 const ALL_DEFAULT_PERMISSION_KEYS = DEFAULT_PERMISSIONS.map((p) => p.key);
 
+/** Admin keeps merchant Book Notes; finance review stays on finance / hod. */
+const ADMIN_PERMISSION_KEYS = ALL_DEFAULT_PERMISSION_KEYS.filter(
+  (key) => key !== "book_notes.read",
+);
+
 const DEFAULT_ROLES = [
   {
     name: "super_admin",
     description: "Full system access including company setup",
-    // All default permissions, including reminder bubbles.
-    permissionKeys: ALL_DEFAULT_PERMISSION_KEYS,
+    // All default permissions except Book Notes (Finance), which is finance/hod only.
+    permissionKeys: ADMIN_PERMISSION_KEYS,
   },
   {
     name: "admin",
     description: "Full access to user and role management",
-    permissionKeys: ALL_DEFAULT_PERMISSION_KEYS,
+    permissionKeys: ADMIN_PERMISSION_KEYS,
   },
   {
     name: "manager",
@@ -592,7 +599,6 @@ const DEFAULT_ROLES = [
       "merchant_reviews.manage",
       "book_notes.manage",
       "book_notes.admin",
-      "book_notes.read",
       "finance.approvals.read",
       "finance.approvals.manage",
       "finance.hod.revert_paid_to_unpaid",
@@ -844,6 +850,7 @@ async function pinCustomRolePermissionsIfNeeded() {
     return;
   }
   await pinCustomRolePermissions();
+  await splitBookNoteRolePermissions();
   lastCustomRolePinAt = Date.now();
 }
 
@@ -880,6 +887,69 @@ async function pinCustomRolePermissions() {
   }
   await prisma.rolePermission.createMany({ data, skipDuplicates: true });
   lastCustomRolePinAt = Date.now();
+}
+
+/**
+ * Merchant Book Notes (`book_notes.manage`) and Book Notes (Finance)
+ * (`book_notes.read`) stay on separate roles. Setup only adds grants, so
+ * leftover overlap from older defaults must be deleted or both nav items show.
+ *
+ * A single role is merchant *or* finance, not both. Users who need both pages
+ * get both roles.
+ */
+async function splitBookNoteRolePermissions() {
+  const [manage, read, adminWrite] = await Promise.all([
+    prisma.permission.findUnique({
+      where: { key: "book_notes.manage" },
+      select: { id: true },
+    }),
+    prisma.permission.findUnique({
+      where: { key: "book_notes.read" },
+      select: { id: true },
+    }),
+    prisma.permission.findUnique({
+      where: { key: "book_notes.admin" },
+      select: { id: true },
+    }),
+  ]);
+  if (!manage || !read) return;
+
+  const financeRoleNames = ["finance", "hod"];
+
+  const merchantGrants = await prisma.rolePermission.findMany({
+    where: { permissionId: manage.id },
+    select: { roleId: true, role: { select: { name: true } } },
+  });
+  const merchantRoleIds = merchantGrants
+    .filter((row) => !financeRoleNames.includes(row.role.name))
+    .map((row) => row.roleId);
+  if (merchantRoleIds.length > 0) {
+    await prisma.rolePermission.deleteMany({
+      where: {
+        roleId: { in: merchantRoleIds },
+        permissionId: read.id,
+      },
+    });
+  }
+
+  const financeRoles = await prisma.role.findMany({
+    where: { name: { in: financeRoleNames } },
+    select: { id: true },
+  });
+  const merchantWriteIds = [manage.id, adminWrite?.id].filter(
+    (id): id is string => Boolean(id),
+  );
+  if (financeRoles.length > 0 && merchantWriteIds.length > 0) {
+    await prisma.rolePermission.deleteMany({
+      where: {
+        roleId: { in: financeRoles.map((role) => role.id) },
+        permissionId: { in: merchantWriteIds },
+      },
+    });
+  }
+
+  rolePermissionCache.clear();
+  userContextCache.clear();
 }
 
 export async function ensureDefaultRbacSetup() {
@@ -929,6 +999,7 @@ export async function ensureDefaultRbacSetup() {
     // deleteMany-s unknown Permission keys cascade-wipes these grants. Re-attach
     // after every setup so Location allocation stays on stores-level-01/02.
     await pinCustomRolePermissions();
+    await splitBookNoteRolePermissions();
 
     // Do not auto-delete Permission rows missing from DEFAULT_PERMISSIONS.
     // An older app process (pre-new-permission deploy) calling this would wipe

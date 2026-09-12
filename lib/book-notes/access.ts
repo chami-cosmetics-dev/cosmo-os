@@ -62,11 +62,20 @@ export async function resolveBookNoteViewScope(
   });
 }
 
+/** True when this user is the merchant who first saved the sheet. */
+export function isBookNoteCreator(
+  userId: string | null,
+  createdByUserId: string | null,
+): boolean {
+  return Boolean(userId && createdByUserId && userId === createdByUserId);
+}
+
 /**
  * May this user read (and therefore overwrite) an existing saved day?
  *
- * Their own sheets only, plus everything for finance. Saving replaces every
- * row of a sheet, so anyone who cannot see one must not be able to write it.
+ * Merchants see the sheets they created — not a colleague's, even if they
+ * later touched it. Finance (`book_notes.read`) sees every sheet. Saving
+ * replaces every row, so anyone who cannot see one must not be able to write it.
  */
 export function canViewBookNoteDay(input: {
   viewScope: BookNoteViewScope;
@@ -74,15 +83,11 @@ export function canViewBookNoteDay(input: {
   day: {
     companyLocationId: string;
     createdByUserId: string | null;
-    updatedByUserId: string | null;
+    updatedByUserId?: string | null;
   };
 }): boolean {
   if (input.viewScope.canViewAllShops) return true;
-  const { userId, day } = input;
-  return Boolean(
-    userId &&
-      (day.createdByUserId === userId || day.updatedByUserId === userId),
-  );
+  return isBookNoteCreator(input.userId, input.day.createdByUserId);
 }
 
 export function resolveBookNoteWriteAccess(

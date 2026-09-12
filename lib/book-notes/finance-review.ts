@@ -158,6 +158,7 @@ export function rollUpByShop(days: BookNoteFinanceDay[]): BookNoteShopTotal[] {
     totals.push({
       companyLocationId,
       shopName: shopDays[0]!.shopName,
+      company: shopDays[0]!.company,
       dayCount: shopDays.length,
       rowCount: shopDays.reduce((sum, d) => sum + d.rowCount, 0),
       receiptCount: shopDays.reduce((sum, d) => sum + d.receipts.length, 0),

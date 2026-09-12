@@ -87,9 +87,9 @@ export type BookNoteHistoryItem = {
   grandTotal: number;
   updatedAt: string;
   locked: boolean;
-  /** Who last saved the sheet — shown when same-outlet colleagues share history. */
+  /** Who last saved the sheet. Merchant history only lists the viewer's own. */
   enteredBy: string | null;
-  /** True when the viewer created or last saved this sheet themselves. */
+  /** True when the viewer created this sheet. */
   isOwn: boolean;
 };
 
@@ -125,6 +125,8 @@ export type BookNoteFinanceDay = {
 export type BookNoteShopTotal = {
   companyLocationId: string;
   shopName: string;
+  /** ERPNext company the shop submits under. */
+  company: string;
   dayCount: number;
   rowCount: number;
   receiptCount: number;

@@ -52,6 +52,7 @@ function formatBytes(bytes: number | null): string {
 /** A receipt plus the day it belongs to, for the flat photo view. */
 type PhotoItem = BookNoteReceiptDto & {
   shopName: string;
+  company: string;
   posting_date: string;
   submittedBy: string;
 };
@@ -112,6 +113,7 @@ export function BookNoteFinancePanel({
       day.receipts.map((r) => ({
         ...r,
         shopName: day.shopName,
+        company: day.company,
         posting_date: day.posting_date,
         submittedBy: day.submittedBy?.name ?? "Unknown",
       })),
@@ -310,7 +312,14 @@ export function BookNoteFinancePanel({
               <tbody>
                 {summary.shops.map((c) => (
                   <tr key={c.companyLocationId} className="border-b last:border-0">
-                    <td className="p-2 font-medium">{c.shopName}</td>
+                    <td className="p-2">
+                      <span className="font-medium">{c.shopName}</span>
+                      {c.company && c.company !== c.shopName ? (
+                        <span className="text-muted-foreground block text-xs">
+                          {c.company}
+                        </span>
+                      ) : null}
+                    </td>
                     <td className="p-2 text-right font-mono">{c.dayCount}</td>
                     <td className="p-2 text-right font-mono">{c.rowCount}</td>
                     {["Cash", "Card", "KOKO", "Bank Transfer"].map((m) => {
@@ -432,7 +441,14 @@ export function BookNoteFinancePanel({
                             {day.posting_date}
                           </span>
                         </td>
-                        <td className="p-2 font-medium">{day.shopName}</td>
+                        <td className="p-2">
+                          <span className="font-medium">{day.shopName}</span>
+                          {day.company && day.company !== day.shopName ? (
+                            <span className="text-muted-foreground block text-xs">
+                              {day.company}
+                            </span>
+                          ) : null}
+                        </td>
                         <td className="p-2 font-mono">{day.posting_date}</td>
                         <td className="p-2 text-xs">
                           <span className="font-medium">
@@ -613,6 +629,7 @@ export function BookNoteFinancePanel({
                                             setPreview({
                                               ...r,
                                               shopName: day.shopName,
+                                              company: day.company,
                                               posting_date: day.posting_date,
                                               submittedBy:
                                                 day.submittedBy?.name ??
@@ -694,6 +711,11 @@ export function BookNoteFinancePanel({
           <DialogHeader>
             <DialogTitle className="text-sm">
               {preview?.shopName}
+              {preview?.company && preview.company !== preview.shopName ? (
+                <span className="text-muted-foreground ml-2 text-xs font-normal">
+                  {preview.company}
+                </span>
+              ) : null}
               <span className="text-muted-foreground ml-2 font-mono text-xs font-normal">
                 {preview?.posting_date}
               </span>

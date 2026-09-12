@@ -158,9 +158,7 @@ async function resolveSaveTarget(input: {
     return { denied: null, existingId: null, isOwner: false };
   }
 
-  const isOwner =
-    existing.createdByUserId === input.userId ||
-    existing.updatedByUserId === input.userId;
+  const isOwner = existing.createdByUserId === input.userId;
 
   const viewScope = await resolveBookNoteViewScope(input.context);
   const allowed = canViewBookNoteDay({

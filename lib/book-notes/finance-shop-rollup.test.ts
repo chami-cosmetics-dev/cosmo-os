@@ -64,6 +64,7 @@ describe("rollUpByShop", () => {
 
     const ajs = totals.find((t) => t.companyLocationId === "loc_ajs")!;
     expect(ajs.shopName).toBe("AJS");
+    expect(ajs.company).toBe("AJS Trading Lanka Pvt Ltd");
     expect(ajs.dayCount).toBe(2);
     expect(ajs.rowCount).toBe(3);
     expect(ajs.receiptCount).toBe(3);
