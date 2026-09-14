@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { CUSTOMER_RESPONSES, FILTER_CUSTOMER_RESPONSES, FOLLOW_UP_STATUSES } from "@/lib/abandoned-orders-constants";
+import { CUSTOMER_RESPONSES, FILTER_CUSTOMER_RESPONSES, FOLLOW_UP_STATUSES, ABANDONMENT_REASONS } from "@/lib/abandoned-orders-constants";
 
 /**
  * Application-wide validation constants.
@@ -341,6 +341,7 @@ export function isReservedRoleName(name: string): boolean {
 
 export const abandonedOrdersFollowUpStatusSchema = z.enum(FOLLOW_UP_STATUSES);
 export const abandonedOrdersCustomerResponseSchema = z.enum(CUSTOMER_RESPONSES);
+export const abandonedOrdersAbandonmentReasonSchema = z.enum(ABANDONMENT_REASONS);
 
 const optionalYmdDateQuerySchema = ymdQuerySchema
   .optional()
@@ -410,6 +411,7 @@ export const abandonedOrderFollowUpPatchBodySchema = z.object({
       (s) => !s || s.length <= LIMITS.orderRemarkContent.max,
       "Remark is too long"
     ),
+  abandonmentReason: abandonedOrdersAbandonmentReasonSchema.nullish(),
 });
 
 /** Waybill Lookup page-data query (pending queue + upload history). */

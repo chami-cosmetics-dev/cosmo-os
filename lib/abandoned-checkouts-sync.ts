@@ -1,6 +1,7 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
 
 import { formatAbandonedCheckoutAddress } from "@/lib/abandoned-checkout-address";
+import { dedupeAbandonedCheckoutsForCompany } from "@/lib/abandoned-checkout-dedupe";
 import { prisma as prismaClient } from "@/lib/prisma";
 import { formatAppIsoDate } from "@/lib/format-datetime";
 import { LIMITS } from "@/lib/validation";
@@ -16,6 +17,7 @@ type ShopifyMoney = { amount: string; currencyCode: string };
 type ShopifyLineItem = {
   title: string | null;
   quantity: number | null;
+  variant: { id: string | null; product: { id: string | null } | null } | null;
   discountedTotalPriceSet: { shopMoney: ShopifyMoney } | null;
 };
 
@@ -307,6 +309,12 @@ async function fetchAbandonedCheckoutsPage({
             nodes {
               title
               quantity
+              variant {
+                id
+                product {
+                  id
+                }
+              }
               discountedTotalPriceSet {
                 shopMoney {
                   amount
@@ -680,6 +688,15 @@ export async function syncAbandonedCheckoutsForCompany(companyId: string): Promi
       create: { companyId, lastSyncedAt: now, lastSyncError: partialError },
       update: { lastSyncedAt: now, lastSyncError: partialError },
     });
+
+    try {
+      await dedupeAbandonedCheckoutsForCompany(companyId);
+    } catch (dedupeErr) {
+      console.error("[Shopify abandonedCheckouts] dedupe failed", {
+        companyId,
+        error: dedupeErr instanceof Error ? dedupeErr.message : String(dedupeErr),
+      });
+    }
 
     return { upserted, updated, recoveredDetected };
   } catch (err) {
