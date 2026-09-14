@@ -114,7 +114,7 @@ describe("vault OSF workbook", () => {
     const june = defs.findIndex((d) => d.key === "sales:2026-06:total");
     expect(defs[june]!.section).toBe("JUNE");
     expect(defs.slice(june, june + 3).map((d) => d.header)).toEqual([
-      "Total JUNE",
+      "June total sale",
       "Purch Qty (All)",
       "Purch Value (All)",
     ]);

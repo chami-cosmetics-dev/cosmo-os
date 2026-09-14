@@ -130,12 +130,22 @@ export type CoverRow = {
   daysInRange: number;
   avgDaily: number;
   weekNeed: number;
+  last30Units: number;
+  last30AvgDaily: number;
   stockQty: number;
-  stockPctOfSale: number | null;
-  stockPctOfWeek: number | null;
+  /** @deprecated Removed from UI; kept optional for transitional callers. */
+  stockPctOfSale?: number | null;
+  /** @deprecated Removed from UI. */
+  stockPctOfWeek?: number | null;
   coverDays: number | null;
-  shouldSend: boolean;
-  suggestedSendQty: number;
+  /** Saved ROP for this SKU × location column. */
+  ropQty: number | null;
+  /** Saved ROP for commonSkuKey × location (for common-grain parent cell). */
+  commonRopQty: number | null;
+  /** @deprecated Send column removed from UI. */
+  shouldSend?: boolean;
+  /** @deprecated Send column removed from UI. */
+  suggestedSendQty?: number;
   isOosInRange: boolean;
   marketGapPct?: number | null;
   isCheapestInMarket?: boolean;

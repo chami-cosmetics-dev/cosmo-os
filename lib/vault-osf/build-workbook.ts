@@ -1,7 +1,11 @@
 import type { VaultBusinessUnit, VaultCatalogRow } from "@/lib/vault-osf/types";
 import type { LatestPurchase, PriceInfo, PurchaseCell, SalesCell } from "@/lib/vault-osf/types";
 import { maxSale, monthsOfCover, reorderQty, sumNullable } from "@/lib/vault-osf/formulas";
-import { monthKeysInWindow, monthSectionLabel } from "@/lib/vault-osf/months";
+import {
+  monthKeysInWindow,
+  monthSectionLabel,
+  monthTotalSaleHeader,
+} from "@/lib/vault-osf/months";
 import { stockForColumn } from "@/lib/osf/erp-stock";
 
 export type VaultOsfColDef = {
@@ -76,7 +80,7 @@ export function vaultColumnDefs(units: VaultBusinessUnit[], asOfDate: string): V
     const section = monthSectionLabel(month, asOfDate);
     defs.push({
       key: `sales:${month}:total`,
-      header: `Total ${section.split(" ")[0]}`,
+      header: monthTotalSaleHeader(month),
       section,
     });
     defs.push({ key: `purchQty:${month}`, header: "Purch Qty (All)" });

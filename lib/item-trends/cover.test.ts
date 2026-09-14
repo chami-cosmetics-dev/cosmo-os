@@ -1,39 +1,66 @@
 import { describe, expect, it } from "vitest";
 
-import { compareChannelKind, computeCoverMath } from "@/lib/item-trends/cover";
+import {
+  compareChannelKind,
+  computeCoverMath,
+  trailing30Window,
+  TRAILING_COVER_DAYS,
+} from "@/lib/item-trends/cover";
+import { addUtcDays } from "@/lib/osf/assist-window";
+import { formatAppIsoDate } from "@/lib/format-datetime";
 
 describe("computeCoverMath", () => {
-  it("flags send when stock is below 50% of next-week need", () => {
-    // 14 units in 7 days → avg 2/day → week need 14 → 50% = 7. Stock 3 → send 11.
-    const result = computeCoverMath({ stockQty: 3, unitsInRange: 14, daysInRange: 7 });
+  it("keeps week need from range and cover days from last-30 avg", () => {
+    // Range: 14 units / 7 days → week need 14. Last 30: 60 → avg 2. Stock 10 → cover 5.
+    const result = computeCoverMath({
+      stockQty: 10,
+      unitsInRange: 14,
+      daysInRange: 7,
+      last30Units: 60,
+    });
     expect(result.avgDaily).toBe(2);
     expect(result.weekNeed).toBe(14);
-    expect(result.minStock).toBe(7);
+    expect(result.last30AvgDaily).toBe(2);
+    expect(result.coverDays).toBe(5);
+    expect(result.isOosInRange).toBe(false);
+  });
+
+  it("still computes legacy send math from range (unused in UI)", () => {
+    const result = computeCoverMath({
+      stockQty: 3,
+      unitsInRange: 14,
+      daysInRange: 7,
+      last30Units: 60,
+    });
     expect(result.shouldSend).toBe(true);
     expect(result.suggestedSendQty).toBe(11);
     expect(result.coverDays).toBe(1.5);
-    expect(result.isOosInRange).toBe(false);
   });
 
-  it("does not flag when stock covers at least 50% of the week", () => {
-    const result = computeCoverMath({ stockQty: 7, unitsInRange: 14, daysInRange: 7 });
-    expect(result.shouldSend).toBe(false);
-    expect(result.suggestedSendQty).toBe(0);
-    expect(result.stockPctOfWeek).toBe(50);
-  });
-
-  it("skips send when there are no sales", () => {
-    const result = computeCoverMath({ stockQty: 0, unitsInRange: 0, daysInRange: 7 });
-    expect(result.shouldSend).toBe(false);
-    expect(result.suggestedSendQty).toBe(0);
+  it("returns null cover days when last-30 avg is zero", () => {
+    const result = computeCoverMath({
+      stockQty: 10,
+      unitsInRange: 14,
+      daysInRange: 7,
+      last30Units: 0,
+    });
+    expect(result.last30AvgDaily).toBe(0);
     expect(result.coverDays).toBeNull();
-    expect(result.isOosInRange).toBe(false);
+    expect(result.weekNeed).toBe(14);
   });
 
   it("marks OOS when sold in range and stock is zero", () => {
-    const result = computeCoverMath({ stockQty: 0, unitsInRange: 5, daysInRange: 10 });
+    const result = computeCoverMath({ stockQty: 0, unitsInRange: 5, daysInRange: 10, last30Units: 5 });
     expect(result.isOosInRange).toBe(true);
-    expect(result.shouldSend).toBe(true);
+  });
+});
+
+describe("trailing30Window", () => {
+  it(`spans ${TRAILING_COVER_DAYS} inclusive Colombo days ending today`, () => {
+    const now = new Date("2026-09-14T12:00:00+05:30");
+    const { fromYmd, toYmd } = trailing30Window(now);
+    expect(toYmd).toBe(formatAppIsoDate(now));
+    expect(fromYmd).toBe(addUtcDays(toYmd, -(TRAILING_COVER_DAYS - 1)));
   });
 });
 

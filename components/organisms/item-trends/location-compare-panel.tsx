@@ -15,11 +15,6 @@ type Props = {
   onClose?: () => void;
 };
 
-function pct(n: number | null) {
-  if (n == null) return "—";
-  return `${n.toFixed(0)}%`;
-}
-
 export function LocationComparePanel({ itemLabel, rows, onClose }: Props) {
   const locations = useMemo(() => availableCompareLocations(rows), [rows]);
   const [picked, setPicked] = useState<string[]>([]);
@@ -43,9 +38,8 @@ export function LocationComparePanel({ itemLabel, rows, onClose }: Props) {
     (acc, row) => ({
       units: acc.units + row.unitsInRange,
       stock: acc.stock + row.stockQty,
-      send: acc.send + row.suggestedSendQty,
     }),
-    { units: 0, stock: 0, send: 0 },
+    { units: 0, stock: 0 },
   );
 
   return (
@@ -101,12 +95,12 @@ export function LocationComparePanel({ itemLabel, rows, onClose }: Props) {
             <thead className="bg-muted/50 text-left">
               <tr>
                 <th className="px-3 py-2">Location</th>
+                <th className="px-3 py-2 text-right">ROP</th>
                 <th className="px-3 py-2 text-right">Sale</th>
                 <th className="px-3 py-2 text-right">Stock</th>
-                <th className="px-3 py-2 text-right">Stock/sale</th>
                 <th className="px-3 py-2 text-right">Week need</th>
+                <th className="px-3 py-2 text-right">Last 30d avg</th>
                 <th className="px-3 py-2 text-right">Cover days</th>
-                <th className="px-3 py-2">Send</th>
               </tr>
             </thead>
             <tbody>
@@ -122,34 +116,26 @@ export function LocationComparePanel({ itemLabel, rows, onClose }: Props) {
                     </span>{" "}
                     {row.outletName}
                   </td>
+                  <td className="px-3 py-2 text-right tabular-nums">
+                    {row.ropQty == null ? "—" : row.ropQty}
+                  </td>
                   <td className="px-3 py-2 text-right tabular-nums">{row.unitsInRange}</td>
                   <td className="px-3 py-2 text-right tabular-nums">{row.stockQty}</td>
-                  <td className="px-3 py-2 text-right tabular-nums">{pct(row.stockPctOfSale)}</td>
                   <td className="px-3 py-2 text-right tabular-nums">{row.weekNeed}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{row.last30AvgDaily ?? 0}</td>
                   <td className="px-3 py-2 text-right tabular-nums">
                     {row.coverDays == null ? "—" : row.coverDays}
-                  </td>
-                  <td className="px-3 py-2">
-                    {row.shouldSend ? (
-                      <span className="font-medium text-amber-700 dark:text-amber-300">
-                        Send {row.suggestedSendQty}
-                      </span>
-                    ) : row.isOosInRange ? (
-                      <span className="text-rose-700 dark:text-rose-300">OOS</span>
-                    ) : (
-                      "—"
-                    )}
                   </td>
                 </tr>
               ))}
               <tr className="border-t bg-muted/40 font-medium">
                 <td className="px-3 py-2">Selected total</td>
+                <td className="px-3 py-2 text-right">—</td>
                 <td className="px-3 py-2 text-right tabular-nums">{totals.units}</td>
                 <td className="px-3 py-2 text-right tabular-nums">{totals.stock}</td>
                 <td className="px-3 py-2 text-right">—</td>
                 <td className="px-3 py-2 text-right">—</td>
                 <td className="px-3 py-2 text-right">—</td>
-                <td className="px-3 py-2">{totals.send > 0 ? `Send ${totals.send}` : "—"}</td>
               </tr>
             </tbody>
           </table>
