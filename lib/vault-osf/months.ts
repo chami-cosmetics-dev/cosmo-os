@@ -54,14 +54,23 @@ export function monthPostingBounds(
   return { start, end };
 }
 
-export function monthSectionLabel(monthKey: string, asOfDate: string): string {
+export function monthLongName(monthKey: string): string {
   const { year, month } = parseYearMonth(monthKey);
-  const name = new Date(Date.UTC(year, month - 1, 1)).toLocaleString("en-US", {
+  return new Date(Date.UTC(year, month - 1, 1)).toLocaleString("en-US", {
     month: "long",
     timeZone: "UTC",
   });
+}
+
+export function monthSectionLabel(monthKey: string, asOfDate: string): string {
+  const name = monthLongName(monthKey);
   const current = monthKeyFromDate(asOfDate);
   if (monthKey !== current) return name.toUpperCase();
   const [yy, mm, dd] = asOfDate.split("-");
   return `${name.toUpperCase()} ${dd}.${mm}.${yy}`;
+}
+
+/** Column header for the month's combined sale count, e.g. "April total sale". */
+export function monthTotalSaleHeader(monthKey: string): string {
+  return `${monthLongName(monthKey)} total sale`;
 }

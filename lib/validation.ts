@@ -575,6 +575,7 @@ export const itemTrendsCoverQuerySchema = z.object({
     .enum(["true", "false"])
     .optional()
     .transform((v) => v === "true"),
+  /** @deprecated Send filter removed from Item Trends UI; accepted and ignored. */
   sendOnly: z
     .enum(["true", "false"])
     .optional()

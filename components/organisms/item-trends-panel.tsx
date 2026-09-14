@@ -59,7 +59,6 @@ export function ItemTrendsPanel({ canManageRop }: Props) {
   const [skuQuery, setSkuQuery] = useState("");
   const [columnKeys, setColumnKeys] = useState<string[]>([]);
   const [oosOnly, setOosOnly] = useState(false);
-  const [sendOnly, setSendOnly] = useState(false);
   const [stockSource, setStockSource] = useState<"live" | "snapshot">("live");
 
   const [snapshotDate, setSnapshotDate] = useState(yesterdaySnapshotDate());
@@ -153,7 +152,6 @@ export function ItemTrendsPanel({ canManageRop }: Props) {
         if (skuQuery.trim()) params.set("sku", skuQuery.trim());
         if (columnKeys.length) params.set("columnKeys", columnKeys.join(","));
         if (oosOnly) params.set("oosOnly", "true");
-        if (sendOnly) params.set("sendOnly", "true");
       }
       const res = await fetch(`/api/admin/purchasing/item-trends/cover?${params}`);
       const data = await res.json().catch(() => ({}));
@@ -174,7 +172,7 @@ export function ItemTrendsPanel({ canManageRop }: Props) {
     } finally {
       if (gen === coverGen.current) setCoverLoading(false);
     }
-  }, [from, to, priority, brand, stockSource, snapshotDate, erpScope, skuQuery, columnKeys, oosOnly, sendOnly, tab, itemSku, itemCommonKey]);
+  }, [from, to, priority, brand, stockSource, snapshotDate, erpScope, skuQuery, columnKeys, oosOnly, tab, itemSku, itemCommonKey]);
 
   const loadRop = useCallback(async () => {
     const gen = ++ropGen.current;
@@ -415,8 +413,6 @@ export function ItemTrendsPanel({ canManageRop }: Props) {
             onErpScopeChange={onErpScopeChange}
             oosOnly={oosOnly}
             onOosOnlyChange={setOosOnly}
-            sendOnly={sendOnly}
-            onSendOnlyChange={setSendOnly}
             sku={skuQuery}
             onSkuChange={setSkuQuery}
           />

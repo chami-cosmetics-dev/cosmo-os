@@ -15,7 +15,19 @@ const MAX_PAGES = 60;
 export type PurchaseInvoiceLine = PurchaseRow & {
   company?: string | null;
   net_amount?: number | string | null;
+  docstatus?: number | null;
+  status?: string | null;
 };
+
+/** Submitted only — cancelled (2) / draft (0) never feed OSF purchase columns. */
+export function isSubmittedPurchase(
+  row: Pick<PurchaseInvoiceLine, "docstatus" | "status">,
+): boolean {
+  if (row.docstatus != null && row.docstatus !== 1) return false;
+  const status = (row.status ?? "").trim().toLowerCase();
+  if (status === "cancelled" || status === "draft") return false;
+  return true;
+}
 
 export function accumulateMonthlyPurchases(input: {
   rows: PurchaseInvoiceLine[];
@@ -25,6 +37,7 @@ export function accumulateMonthlyPurchases(input: {
   const allowlist = buildSupplierAllowlist(input.allowedSuppliers);
   const map = new Map<string, { qty: number; netValue: number }>();
   for (const row of input.rows) {
+    if (!isSubmittedPurchase(row)) continue;
     if (isExcludedErpCompany(row.company ?? "")) continue;
     if (!isAllowedSupplier(row, allowlist)) continue;
     const date = row.posting_date?.trim() ?? "";
@@ -73,17 +86,19 @@ export function accumulateLatestPurchase(input: {
   const allowlist = buildSupplierAllowlist(input.allowedSuppliers);
   const result = input.existing ?? new Map<string, LatestPurchase>();
   for (const row of input.rows) {
+    if (!isSubmittedPurchase(row)) continue;
     if (isExcludedErpCompany(row.company ?? "")) continue;
     if (!isAllowedSupplier(row, allowlist)) continue;
     const sku = row.item_code?.trim();
     if (!sku) continue;
     const date = row.posting_date?.trim() || null;
     const rateNum = row.rate != null ? Number(row.rate) : NaN;
-    const rate = Number.isFinite(rateNum) && rateNum > 0 ? rateNum : null;
+    // Zero/blank rates are placeholders on amended noise — skip for latest price.
+    if (!Number.isFinite(rateNum) || rateNum <= 0) continue;
     const supplier = row.supplier_name?.trim() || row.supplier?.trim() || null;
     const prev = result.get(sku);
     if (!prev || (date != null && (prev.date == null || date > prev.date))) {
-      result.set(sku, { rate, supplier, date });
+      result.set(sku, { rate: rateNum, supplier, date });
     }
   }
   return result;
@@ -95,6 +110,8 @@ const PI_FIELDS = JSON.stringify([
   "supplier_name",
   "posting_date",
   "company",
+  "docstatus",
+  "status",
   "`tabPurchase Invoice Item`.item_code",
   "`tabPurchase Invoice Item`.qty",
   "`tabPurchase Invoice Item`.rate",

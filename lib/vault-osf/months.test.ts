@@ -4,6 +4,7 @@ import {
   monthKeysInWindow,
   monthPostingBounds,
   monthSectionLabel,
+  monthTotalSaleHeader,
   reportingAprilStart,
 } from "@/lib/vault-osf/months";
 
@@ -44,5 +45,7 @@ describe("vault OSF month window", () => {
     });
     expect(monthSectionLabel("2026-09", "2026-09-07")).toBe("SEPTEMBER 07.09.2026");
     expect(monthSectionLabel("2026-04", "2026-09-07")).toBe("APRIL");
+    expect(monthTotalSaleHeader("2026-04")).toBe("April total sale");
+    expect(monthTotalSaleHeader("2026-09")).toBe("September total sale");
   });
 });

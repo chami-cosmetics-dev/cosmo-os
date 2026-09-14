@@ -3,10 +3,16 @@ import "server-only";
 import { resolveOsfColumns, type OsfResolvedColumn } from "@/lib/osf/column-config";
 import { getAllOsfErpInstances, stockForColumn } from "@/lib/osf/erp-stock";
 import { resolveErpSlots } from "@/lib/product-items/erp-priority-sync";
+import { prisma } from "@/lib/prisma";
 
-import { calendarDaysInclusive, filterSkusByPriority, resolveEffectivePriority } from "@/lib/item-trends/aggregate";
+import {
+  calendarDaysInclusive,
+  filterSkusByPriority,
+  resolveEffectivePriority,
+  resolveItemTrendWindows,
+} from "@/lib/item-trends/aggregate";
 import { loadSkuCatalog } from "@/lib/item-trends/catalog";
-import { compareChannelKind, computeCoverMath } from "@/lib/item-trends/cover";
+import { compareChannelKind, computeCoverMath, trailing30Window } from "@/lib/item-trends/cover";
 import { displayWarehouseName } from "@/lib/item-trends/location-name";
 import { salesByOsfColumnInRange } from "@/lib/item-trends/outlets";
 import {
@@ -18,6 +24,7 @@ import {
   osfColumnChannelKind,
 } from "@/lib/item-trends/physical-shops";
 import { allowedInstanceIds, columnMatchesErpScope, type ErpStockScope } from "@/lib/item-trends/erp-scope";
+import { ropMapKey } from "@/lib/item-trends/rop-resolve";
 import { resolveCoverSkuFilter } from "@/lib/item-trends/sku-group";
 import { loadLiveBinMapForColumns, loadSnapshotBinMap, resolveSnapshotMeta } from "@/lib/item-trends/stock-snapshot";
 import type { CoverRow, ItemTrendDateRange, ItemTrendFilterLocation } from "@/lib/item-trends/types";
@@ -96,11 +103,16 @@ export async function fetchCoverRows(input: {
   capturedAt: string | null;
   usedFallback: boolean;
   daysInRange: number;
+  trailing30From: string;
+  trailing30To: string;
   rows: CoverRow[];
 }> {
   const daysInRange = calendarDaysInclusive(input.range.fromYmd, input.range.toYmd);
   const stockSource: "live" | "snapshot" =
     input.stockSource === "snapshot" ? "snapshot" : "live";
+  const trailYmd = trailing30Window();
+  const trailing = resolveItemTrendWindows({ fromYmd: trailYmd.fromYmd, toYmd: trailYmd.toYmd }).current;
+
   const [allColumns, shops, catalog, slotIds] = await Promise.all([
     resolveOsfColumns(input.companyId),
     loadPhysicalShops(input.companyId),
@@ -121,6 +133,8 @@ export async function fetchCoverRows(input: {
     capturedAt: null as string | null,
     usedFallback: false,
     daysInRange,
+    trailing30From: trailYmd.fromYmd,
+    trailing30To: trailYmd.toYmd,
     rows: [] as CoverRow[],
   };
 
@@ -158,7 +172,6 @@ export async function fetchCoverRows(input: {
     catalog: catalog.values(),
   });
 
-  // Typed SKU with no catalog hit → empty list (not all SKUs, not a ghost casing row).
   if (hasSkuConstraint && uniqueSkuFilter.length === 0) {
     return {
       stockSource,
@@ -166,16 +179,26 @@ export async function fetchCoverRows(input: {
       capturedAt,
       usedFallback,
       daysInRange,
+      trailing30From: trailYmd.fromYmd,
+      trailing30To: trailYmd.toYmd,
       rows: [],
     };
   }
 
-  const salesMap = await salesByOsfColumnInRange(
-    input.companyId,
-    input.range,
-    scoped,
-    uniqueSkuFilter.length ? uniqueSkuFilter : undefined,
-  );
+  const [salesMap, last30Map] = await Promise.all([
+    salesByOsfColumnInRange(
+      input.companyId,
+      input.range,
+      scoped,
+      uniqueSkuFilter.length ? uniqueSkuFilter : undefined,
+    ),
+    salesByOsfColumnInRange(
+      input.companyId,
+      trailing,
+      scoped,
+      uniqueSkuFilter.length ? uniqueSkuFilter : undefined,
+    ),
+  ]);
 
   const binMapReady = stockReady;
   const soldSkus = uniqueSkuFilter.length ? uniqueSkuFilter : [...salesMap.keys()];
@@ -183,10 +206,25 @@ export async function fetchCoverRows(input: {
     ? soldSkus
     : await filterSkusByPriority(input.companyId, soldSkus, input.priority);
 
-  const shopKeys = new Set(
-    scoped.filter((c) => isPhysicalShopOsfColumn(c, shops)).map((c) => c.key),
-  );
   const brand = input.brand?.trim().toLowerCase();
+
+  const ropSkuSet = new Set<string>();
+  for (const sku of prioritySkus) {
+    ropSkuSet.add(sku);
+    const entry = catalog.get(sku);
+    if (entry?.commonSkuKey) ropSkuSet.add(entry.commonSkuKey);
+  }
+  const ropRows =
+    ropSkuSet.size > 0
+      ? await prisma.productOsfRop.findMany({
+          where: { companyId: input.companyId, sku: { in: [...ropSkuSet] } },
+          select: { sku: true, columnKey: true, ropQty: true },
+        })
+      : [];
+  const ropBySkuColumn = new Map<string, number>();
+  for (const row of ropRows) {
+    ropBySkuColumn.set(ropMapKey(row.sku, row.columnKey), row.ropQty);
+  }
 
   const rows: CoverRow[] = [];
   for (const sku of prioritySkus) {
@@ -194,28 +232,38 @@ export async function fetchCoverRows(input: {
     if (brand && (entry?.brand ?? "").trim().toLowerCase() !== brand) continue;
 
     const colSales = salesMap.get(sku) ?? new Map();
+    const colLast30 = last30Map.get(sku) ?? new Map();
     for (const col of scoped) {
       const units = colSales.get(col.key)?.units ?? 0;
+      const last30Units = colLast30.get(col.key)?.units ?? 0;
       const stock = binMapReady ? (stockForColumn(binMap, col.warehouses, sku) ?? 0) : 0;
       const math = computeCoverMath({
         stockQty: stock,
         unitsInRange: units,
         daysInRange,
+        last30Units,
       });
-      const shouldSend = math.shouldSend && shopKeys.has(col.key);
       if (input.oosOnly && !math.isOosInRange) continue;
-      if (input.sendOnly && !shouldSend) continue;
-      if (!input.oosOnly && !input.sendOnly && units <= 0 && stock <= 0 && uniqueSkuFilter.length === 0) {
+      // sendOnly deprecated — ignored
+      if (!input.oosOnly && units <= 0 && stock <= 0 && uniqueSkuFilter.length === 0) {
         continue;
       }
 
       const owner = coverLocationOwner(col);
+      const commonKey = entry?.commonSkuKey ?? sku;
+      const skuRopKey = ropMapKey(sku, col.key);
+      const parentRopKey = ropMapKey(commonKey, col.key);
+      const ropQty = ropBySkuColumn.has(skuRopKey) ? (ropBySkuColumn.get(skuRopKey) as number) : null;
+      const commonRopQty = ropBySkuColumn.has(parentRopKey)
+        ? (ropBySkuColumn.get(parentRopKey) as number)
+        : null;
+
       rows.push({
         sku,
         title: entry?.title ?? null,
         variantTitle: entry?.variantTitle ?? null,
         brand: entry?.brand ?? null,
-        commonSkuKey: entry?.commonSkuKey ?? sku,
+        commonSkuKey: commonKey,
         commonSkuTitle: entry?.commonSkuTitle ?? entry?.title ?? null,
         priority: resolveEffectivePriority(entry?.erp1ProductPriority, entry?.erp2ProductPriority),
         columnKey: col.key,
@@ -226,12 +274,12 @@ export async function fetchCoverRows(input: {
         daysInRange,
         avgDaily: math.avgDaily,
         weekNeed: math.weekNeed,
+        last30Units,
+        last30AvgDaily: math.last30AvgDaily,
         stockQty: binMapReady ? stock : 0,
-        stockPctOfSale: math.stockPctOfSale,
-        stockPctOfWeek: math.stockPctOfWeek,
         coverDays: math.coverDays,
-        shouldSend,
-        suggestedSendQty: shouldSend ? math.suggestedSendQty : 0,
+        ropQty,
+        commonRopQty,
         isOosInRange: math.isOosInRange,
       });
     }
@@ -239,12 +287,20 @@ export async function fetchCoverRows(input: {
 
   rows.sort(
     (a, b) =>
-      Number(b.shouldSend) - Number(a.shouldSend) ||
       compareCoverLocationGroup(a.locationGroup, b.locationGroup) ||
       compareChannelKind(a.channelKind, b.channelKind) ||
       a.outletName.localeCompare(b.outletName) ||
       b.unitsInRange - a.unitsInRange,
   );
 
-  return { stockSource, snapshotDate, capturedAt, usedFallback, daysInRange, rows };
+  return {
+    stockSource,
+    snapshotDate,
+    capturedAt,
+    usedFallback,
+    daysInRange,
+    trailing30From: trailYmd.fromYmd,
+    trailing30To: trailYmd.toYmd,
+    rows,
+  };
 }
