@@ -34,6 +34,7 @@ import {
   FileSpreadsheet,
   TrendingUp,
   Scale,
+  ReceiptText,
 } from "lucide-react";
 import { usePathname } from "next/navigation";
 import {
@@ -100,8 +101,9 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
   const canViewMarketPrices =
     hasSidebarPermission("purchasing.market_prices.read") ||
     hasSidebarPermission("purchasing.market_prices.manage");
+  const canViewGrn = hasSidebarPermission("purchasing.grn.read");
   const canViewPurchasing =
-    canViewOsf || canViewPurchasingTools || canViewItemTrends || canViewMarketPrices;
+    canViewOsf || canViewPurchasingTools || canViewItemTrends || canViewMarketPrices || canViewGrn;
   const canViewStoreAllocation = hasSidebarPermission("store.allocation.read");
   const canViewStoreStockCount = hasSidebarPermission("store.stock_count.read");
   const canViewStore = canViewStoreAllocation || canViewStoreStockCount;
@@ -584,6 +586,14 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
                   icon={Scale}
                   label="Market Prices"
                   isActive={pathname === "/dashboard/purchasing/market-prices"}
+                />
+              )}
+              {canViewGrn && (
+                <NavItem
+                  href="/dashboard/purchasing/grn"
+                  icon={ReceiptText}
+                  label="GRN"
+                  isActive={pathname === "/dashboard/purchasing/grn"}
                 />
               )}
             </SidebarGroupContent>

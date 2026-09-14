@@ -69,6 +69,8 @@ model Company {
   // in the allocation panel — drives the dashboard performance analysis chart
   contactAllocationUpdates ContactAllocationUpdate[]
   erpnextInstances         ErpnextInstance[]
+  grnPurchaseReceipts      GrnPurchaseReceipt[]
+  grnSupplierStockReturns  GrnSupplierStockReturn[]
   pickListGroups           PickListGroup[]
   ogfEmailLogs             OgfEmailLog[]
   financeScopes            UserFinanceScope[]
@@ -2147,6 +2149,96 @@ model OsfBuyer {
 
   @@unique([companyId, name])
   @@index([companyId, sortOrder])
+}
+
+model GrnPurchaseReceipt {
+  id                      String                   @id @default(cuid())
+  companyId               String
+  name                    String
+  supplier                String
+  supplierName            String?
+  postingDate             DateTime?
+  postingTime             String?
+  docstatus               Int?
+  status                  String?
+  amendedFrom             String?
+  owner                   String?
+  creation                DateTime?
+  handoverAt              DateTime?
+  valuedAt                DateTime?
+  receivedAt              DateTime?
+  supplierStockReturnName String?
+  rawPayload              Json
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
+  company                 Company                  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  items                   GrnPurchaseReceiptItem[]
+
+  @@unique([companyId, name])
+  @@index([companyId, creation(sort: Desc)])
+  @@index([companyId, supplier])
+  @@index([companyId, amendedFrom])
+  @@index([companyId, supplierStockReturnName])
+}
+
+model GrnPurchaseReceiptItem {
+  id                String             @id @default(cuid())
+  companyId         String
+  purchaseReceiptId String
+  name              String
+  itemCode          String
+  itemName          String?
+  qty               Decimal            @db.Decimal(18, 6)
+  stockQty          Decimal?           @db.Decimal(18, 6)
+  warehouse         String?
+  stockUom          String?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  purchaseReceipt   GrnPurchaseReceipt @relation(fields: [purchaseReceiptId], references: [id], onDelete: Cascade)
+
+  @@unique([purchaseReceiptId, name])
+  @@index([companyId, itemCode])
+}
+
+model GrnSupplierStockReturn {
+  id                  String                       @id @default(cuid())
+  companyId           String
+  name                String
+  supplier            String
+  returnDate          DateTime?
+  docstatus           Int?
+  amendedFrom         String?
+  owner               String?
+  creation            DateTime?
+  purchaseReceiptName String?
+  rawPayload          Json
+  createdAt           DateTime                     @default(now())
+  updatedAt           DateTime                     @updatedAt
+  company             Company                      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  items               GrnSupplierStockReturnItem[]
+
+  @@unique([companyId, name])
+  @@index([companyId, creation(sort: Desc)])
+  @@index([companyId, supplier])
+  @@index([companyId, amendedFrom])
+  @@index([companyId, purchaseReceiptName])
+}
+
+model GrnSupplierStockReturnItem {
+  id                    String                 @id @default(cuid())
+  companyId             String
+  supplierStockReturnId String
+  name                  String
+  itemCode              String
+  itemName              String?
+  qty                   Decimal                @db.Decimal(18, 6)
+  stockUom              String?
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+  supplierStockReturn   GrnSupplierStockReturn @relation(fields: [supplierStockReturnId], references: [id], onDelete: Cascade)
+
+  @@unique([supplierStockReturnId, name])
+  @@index([companyId, itemCode])
 }
 
 /// Per-user OSF Excel column marks (company-scoped). Keys are stable access ids.

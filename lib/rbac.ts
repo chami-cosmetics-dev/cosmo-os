@@ -97,6 +97,10 @@ const DEFAULT_PERMISSIONS = [
     description: "Add/edit competitor product links and import competitor price spreadsheets",
   },
   {
+    key: "purchasing.grn.read",
+    description: "View Goods Received Note (GRN) purchasing page",
+  },
+  {
     key: "store.allocation.read",
     description: "Use store location allocation advisor (SKU/barcode take-qty split)",
   },
