@@ -180,7 +180,9 @@ reorder quantities.
 #### Scope and rows
 
 - **FR-001**: The workbook MUST contain one row per enabled item in ERP1 (the
-  SupplementVault.lk ERP), which is the catalog master for this report.
+  SupplementVault.lk ERP), which is the catalog master for this report, minus
+  SKUs marked Remove on the purchasing team's checked OSF workbook, plus any
+  force-included SKUs (e.g. newly added items still disabled in ERP).
 - **FR-002**: The report MUST apply to the Supplement Vault tenant only and MUST
   NOT change the Order Support File produced for the Cosmo tenant.
 

@@ -26,4 +26,18 @@ describe("vault OSF catalog filters", () => {
     expect(isVaultStockItem({ item_code: "NW004-2", disabled: 1, is_stock_item: 1 })).toBe(false);
     expect(isVaultStockItem({ item_code: "NW004-2", disabled: 0, is_stock_item: 0 })).toBe(false);
   });
+
+  it("keeps force-included NTC03-1 even when ERP disabled", () => {
+    expect(isVaultStockItem({ item_code: "NTC03-1", disabled: 1, is_stock_item: 1 })).toBe(true);
+    const row = mapErpItemToCatalogRow({
+      name: "NTC03-1",
+      item_code: "NTC03-1",
+      item_name: "Natural Calm Magnesium Powder Raspberry-Lemon Flavor 226g",
+      brand: "Natural Calm",
+      item_group: "Vitamins",
+      disabled: 1,
+      is_stock_item: 1,
+    });
+    expect(row?.sku).toBe("NTC03-1");
+  });
 });

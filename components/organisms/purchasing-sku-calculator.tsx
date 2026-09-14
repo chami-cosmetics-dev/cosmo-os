@@ -310,8 +310,9 @@ export function PurchasingSkuCalculator() {
                   Supplier compare
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  Informational only — does not change margin cost (uses latest purchase
-                  cost above). Ranked by best-ever purchase price.
+                  Every supplier you bought this SKU from (submitted purchase invoices).
+                  Best Option 1 = lowest best-ever unit price. Does not change margin cost
+                  above (that stays latest purchase).
                 </p>
                 {suppliersLoading ? (
                   <p className="flex items-center gap-2 text-muted-foreground">

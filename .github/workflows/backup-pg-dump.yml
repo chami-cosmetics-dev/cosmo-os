@@ -1,0 +1,93 @@
+name: Backup pg_dump
+
+on:
+  schedule:
+    - cron: "30 20 * * *"
+  workflow_dispatch:
+    inputs:
+      system:
+        description: Which protected system to dump
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - vault
+          - cosmo-dev
+          - cosmo-prod
+
+concurrency:
+  group: backup-pg-dump
+  cancel-in-progress: false
+
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      BACKUP_AGE_RECIPIENT: ${{ secrets.BACKUP_AGE_RECIPIENT }}
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      R2_BUCKET: ${{ secrets.R2_BUCKET }}
+      R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+      BACKUP_DIRECT_URL_VAULT: ${{ secrets.BACKUP_DIRECT_URL_VAULT }}
+      BACKUP_DIRECT_URL_COSMO_DEV: ${{ secrets.BACKUP_DIRECT_URL_COSMO_DEV }}
+      BACKUP_DIRECT_URL_COSMO_PROD: ${{ secrets.BACKUP_DIRECT_URL_COSMO_PROD }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install pg_dump, age, awscli
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client age awscli
+
+      - name: Dump vault
+        id: vault
+        if: github.event_name == 'schedule' || inputs.system == 'all' || inputs.system == 'vault'
+        continue-on-error: true
+        run: bash scripts/backup/dump.sh --system vault
+
+      - name: Dump cosmo-dev
+        id: cosmo_dev
+        if: github.event_name == 'schedule' || inputs.system == 'all' || inputs.system == 'cosmo-dev'
+        continue-on-error: true
+        run: bash scripts/backup/dump.sh --system cosmo-dev
+
+      - name: Dump cosmo-prod
+        id: cosmo_prod
+        if: github.event_name == 'schedule' || inputs.system == 'all' || inputs.system == 'cosmo-prod'
+        continue-on-error: true
+        run: bash scripts/backup/dump.sh --system cosmo-prod
+
+      - name: Fail if any required dump failed
+        run: |
+          fail=0
+          check() {
+            local name="$1"
+            local outcome="$2"
+            local requested="$3"
+            if [[ "$requested" != "true" ]]; then
+              return 0
+            fi
+            if [[ "$outcome" == "failure" ]]; then
+              echo "$name dump failed"
+              fail=1
+            fi
+          }
+          VAULT_REQ="${{ github.event_name == 'schedule' || inputs.system == 'all' || inputs.system == 'vault' }}"
+          DEV_REQ="${{ github.event_name == 'schedule' || inputs.system == 'all' || inputs.system == 'cosmo-dev' }}"
+          PROD_REQ="${{ github.event_name == 'schedule' || inputs.system == 'all' || inputs.system == 'cosmo-prod' }}"
+          check vault "${{ steps.vault.outcome }}" "$VAULT_REQ"
+          check cosmo-dev "${{ steps.cosmo_dev.outcome }}" "$DEV_REQ"
+          check cosmo-prod "${{ steps.cosmo_prod.outcome }}" "$PROD_REQ"
+          exit "$fail"

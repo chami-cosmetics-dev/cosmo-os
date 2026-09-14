@@ -31,6 +31,8 @@ export type PurchaseRow = {
   rate?: number | string | null;
   docstatus?: number | null;
   status?: string | null;
+  /** ERP Purchase Invoice return flag (1 = credit note / stock return). */
+  is_return?: number | boolean | string | null;
 };
 
 /** Receipt (Cosmo default) vs Invoice (Vault — PR rates often placeholder/stale). */
@@ -55,13 +57,18 @@ function purchaseDocMeta(source: PurchaseDocSource): {
   };
 }
 
-/** Submitted only — cancelled / draft never feed cost or supplier compare. */
+function isReturnFlag(value: PurchaseRow["is_return"]): boolean {
+  return value === 1 || value === true || value === "1";
+}
+
+/** Submitted purchase only — cancelled / draft / return never feed cost or compare. */
 export function isUsablePurchaseDoc(
-  row: Pick<PurchaseRow, "docstatus" | "status">,
+  row: Pick<PurchaseRow, "docstatus" | "status" | "is_return">,
 ): boolean {
   if (row.docstatus != null && row.docstatus !== 1) return false;
+  if (isReturnFlag(row.is_return)) return false;
   const status = (row.status ?? "").trim().toLowerCase();
-  if (status === "cancelled" || status === "draft") return false;
+  if (status === "cancelled" || status === "draft" || status === "return") return false;
   return true;
 }
 
@@ -82,6 +89,15 @@ const MAX_PAGES = 60;
 /** Trim + lowercase for supplier name/code matching. */
 export function normalizeSupplierKey(value: string | null | undefined): string {
   return (value ?? "").trim().toLowerCase();
+}
+
+/** Sync / test ERP suppliers — never show in OS cost or supplier compare. */
+export function isNoisePurchaseSupplier(
+  row: Pick<PurchaseRow, "supplier" | "supplier_name">,
+): boolean {
+  const id = normalizeSupplierKey(row.supplier);
+  const name = normalizeSupplierKey(row.supplier_name);
+  return id.includes("sync-test") || name.includes("sync-test");
 }
 
 /** Build allowlist from Cosmo/Vault company Supplier name + code. */
@@ -133,6 +149,7 @@ export function accumulateLastPurchasesFromRows(input: {
 
   for (const row of input.rows) {
     if (!isUsablePurchaseDoc(row)) continue;
+    if (isNoisePurchaseSupplier(row)) continue;
     const item = row.item_code?.trim();
     if (!item || !input.itemCodes.has(item)) continue;
     if (!isAllowedSupplier(row, allowlist)) continue;
@@ -146,7 +163,9 @@ export function accumulateLastPurchasesFromRows(input: {
 
     let entry = result.get(item);
     if (!entry) {
-      // First allowed (newest) row for this item fixes the "latest purchase".
+      // Skip zero/blank rates — walk back to a real priced purchase (placeholders).
+      if (rateVal == null) continue;
+      // First allowed (newest) priced row for this item fixes the "latest purchase".
       entry = {
         supplier: row.supplier_name?.trim() || row.supplier?.trim() || null,
         qty: qtyVal,
@@ -188,6 +207,7 @@ export function accumulateSupplierPurchasesFromRows(input: {
 
   for (const row of input.rows) {
     if (!isUsablePurchaseDoc(row)) continue;
+    if (isNoisePurchaseSupplier(row)) continue;
     const item = row.item_code?.trim();
     if (!item || item !== sku) continue;
     if (!isAllowedSupplier(row, allowlist)) continue;
@@ -275,6 +295,8 @@ export async function fetchLastPurchaseByItem(input: {
   if (needed.size === 0) return new Map();
 
   const meta = purchaseDocMeta(input.source ?? "receipt");
+  const parentExtra =
+    input.source === "invoice" ? (["is_return"] as const) : ([] as const);
   const fields = JSON.stringify([
     "name",
     "supplier",
@@ -282,6 +304,7 @@ export async function fetchLastPurchaseByItem(input: {
     "posting_date",
     "docstatus",
     "status",
+    ...parentExtra,
     `\`${meta.childTable}\`.item_code`,
     `\`${meta.childTable}\`.qty`,
     `\`${meta.childTable}\`.rate`,
@@ -334,6 +357,8 @@ export async function fetchSupplierPurchasesBySku(input: {
   if (!sku) return new Map();
 
   const meta = purchaseDocMeta(input.source ?? "receipt");
+  const parentExtra =
+    input.source === "invoice" ? (["is_return"] as const) : ([] as const);
   const fields = JSON.stringify([
     "name",
     "supplier",
@@ -341,6 +366,7 @@ export async function fetchSupplierPurchasesBySku(input: {
     "posting_date",
     "docstatus",
     "status",
+    ...parentExtra,
     `\`${meta.childTable}\`.item_code`,
     `\`${meta.childTable}\`.qty`,
     `\`${meta.childTable}\`.rate`,

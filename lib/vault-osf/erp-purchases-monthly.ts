@@ -19,13 +19,14 @@ export type PurchaseInvoiceLine = PurchaseRow & {
   status?: string | null;
 };
 
-/** Submitted only — cancelled (2) / draft (0) never feed OSF purchase columns. */
+/** Submitted only — cancelled (2) / draft (0) / returns never feed OSF purchase columns. */
 export function isSubmittedPurchase(
-  row: Pick<PurchaseInvoiceLine, "docstatus" | "status">,
+  row: Pick<PurchaseInvoiceLine, "docstatus" | "status" | "is_return">,
 ): boolean {
   if (row.docstatus != null && row.docstatus !== 1) return false;
+  if (row.is_return === 1 || row.is_return === true || row.is_return === "1") return false;
   const status = (row.status ?? "").trim().toLowerCase();
-  if (status === "cancelled" || status === "draft") return false;
+  if (status === "cancelled" || status === "draft" || status === "return") return false;
   return true;
 }
 
@@ -112,6 +113,7 @@ const PI_FIELDS = JSON.stringify([
   "company",
   "docstatus",
   "status",
+  "is_return",
   "`tabPurchase Invoice Item`.item_code",
   "`tabPurchase Invoice Item`.qty",
   "`tabPurchase Invoice Item`.rate",

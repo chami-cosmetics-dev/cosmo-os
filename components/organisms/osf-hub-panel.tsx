@@ -69,14 +69,14 @@ export function OsfHubPanel({
         title="1. Maintain products"
         description={
           vault
-            ? "Edit SV / ORI / AE ROP on this page, or bulk-update from Excel."
+            ? "Edit SV / ORI / AE ROP and reorder threshold % on this page, or bulk-update from Excel."
             : "Edit SKUs on this page, or bulk-update warehouse ROPs from Excel."
         }
       >
         <HubCard>
           <OsfProductEditor
             canManage={canManage}
-            canManageThreshold={vault ? false : canManageThreshold}
+            canManageThreshold={canManageThreshold}
             hideCosmoFields={vault}
           />
         </HubCard>
