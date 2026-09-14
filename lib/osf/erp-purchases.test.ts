@@ -5,6 +5,7 @@ import {
   accumulateSupplierPurchasesFromRows,
   buildSupplierAllowlist,
   isAllowedSupplier,
+  isUsablePurchaseDoc,
   normalizeSupplierKey,
   type PurchaseRow,
 } from "@/lib/osf/erp-purchases";
@@ -195,6 +196,60 @@ describe("accumulateLastPurchasesFromRows", () => {
     });
     expect(result.get("CAN07")!.qty).toBe(12);
   });
+
+  it("skips draft/cancelled even when docstatus=1", () => {
+    const rows: PurchaseRow[] = [
+      {
+        name: "PR-BAD",
+        supplier: "ACME",
+        supplier_name: "Acme",
+        posting_date: "2026-08-05",
+        item_code: "CAN07",
+        qty: 1,
+        rate: 100,
+        docstatus: 1,
+        status: "Draft",
+      },
+      {
+        name: "PR-CANCEL",
+        supplier: "ACME",
+        supplier_name: "Acme",
+        posting_date: "2026-08-04",
+        item_code: "CAN07",
+        qty: 1,
+        rate: 50,
+        docstatus: 2,
+        status: "Cancelled",
+      },
+      {
+        name: "PR-OK",
+        supplier: "ACME",
+        supplier_name: "Acme",
+        posting_date: "2026-07-01",
+        item_code: "CAN07",
+        qty: 8,
+        rate: 4650,
+        docstatus: 1,
+        status: "Completed",
+      },
+    ];
+    const { result } = accumulateLastPurchasesFromRows({
+      rows,
+      itemCodes: items,
+      allowedSuppliers: [{ name: "Acme", code: "ACME" }],
+    });
+    expect(result.get("CAN07")!.rate).toBe(4650);
+    expect(result.get("CAN07")!.date).toBe("2026-07-01");
+  });
+});
+
+describe("isUsablePurchaseDoc", () => {
+  it("rejects cancelled and draft status", () => {
+    expect(isUsablePurchaseDoc({ docstatus: 1, status: "Draft" })).toBe(false);
+    expect(isUsablePurchaseDoc({ docstatus: 2, status: "Cancelled" })).toBe(false);
+    expect(isUsablePurchaseDoc({ docstatus: 1, status: "Completed" })).toBe(true);
+    expect(isUsablePurchaseDoc({ docstatus: 1, status: "Paid" })).toBe(true);
+  });
 });
 
 describe("accumulateSupplierPurchasesFromRows", () => {
@@ -298,5 +353,40 @@ describe("accumulateSupplierPurchasesFromRows", () => {
     expect(acme.bestEverRate).toBeNull();
     expect(acme.lastRate).toBeNull();
     expect(acme.lastDate).toBe("2026-07-01");
+  });
+
+  it("skips draft status rows for supplier compare", () => {
+    const rows: PurchaseRow[] = [
+      {
+        name: "PR-DRAFT",
+        supplier: "SACH",
+        supplier_name: "Sachintha",
+        posting_date: "2026-08-05",
+        item_code: "BV001-1",
+        qty: 1,
+        rate: 100,
+        docstatus: 1,
+        status: "Draft",
+      },
+      {
+        name: "PI-OK",
+        supplier: "SACH",
+        supplier_name: "Sachintha",
+        posting_date: "2026-06-01",
+        item_code: "BV001-1",
+        qty: 10,
+        rate: 4650,
+        docstatus: 1,
+        status: "Paid",
+      },
+    ];
+    const result = accumulateSupplierPurchasesFromRows({
+      rows,
+      sku: "BV001-1",
+      allowedSuppliers: [],
+    });
+    const s = result.get("sachintha")!;
+    expect(s.lastRate).toBe(4650);
+    expect(s.bestEverRate).toBe(4650);
   });
 });

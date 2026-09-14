@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 import { OsfErpError } from "@/lib/osf/erp-cost-supplier";
 import { mergeInstanceSupplierPurchases } from "@/lib/osf/erp-merge";
 import { fetchSupplierPurchasesBySku } from "@/lib/osf/erp-purchases";
@@ -54,6 +55,8 @@ export async function GET(request: NextRequest) {
     });
   }
 
+  const purchaseSource = isVaultOsDeployment() ? "invoice" : "receipt";
+
   try {
     const perInstance = await Promise.all(
       erpInstances.map((inst) =>
@@ -61,6 +64,7 @@ export async function GET(request: NextRequest) {
           cfg: inst.cfg,
           sku,
           allowedSuppliers: suppliers,
+          source: purchaseSource,
         }),
       ),
     );
