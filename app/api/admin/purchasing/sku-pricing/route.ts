@@ -114,7 +114,9 @@ export async function GET(request: NextRequest) {
             fetchLastPurchaseByItem({
               cfg: inst.cfg,
               itemCodes: skus,
-              allowedSuppliers: suppliers,
+              // Vault: show every real PI supplier (Cash AE etc.), not only OS allowlist.
+              // Cosmo: keep Supplier allowlist (skips intercompany).
+              allowedSuppliers: vault ? [] : suppliers,
               source: purchaseSource,
             }),
           ]);

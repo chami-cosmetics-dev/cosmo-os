@@ -19,6 +19,9 @@
 .DS_Store
 *.pem
 supabase_dump.bak
+*.dump
+*.dump.age
+*.bak
 
 # debug
 npm-debug.log*

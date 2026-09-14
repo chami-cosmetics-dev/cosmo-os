@@ -56,6 +56,7 @@ export async function GET(request: NextRequest) {
   }
 
   const purchaseSource = isVaultOsDeployment() ? "invoice" : "receipt";
+  const vault = purchaseSource === "invoice";
 
   try {
     const perInstance = await Promise.all(
@@ -63,7 +64,8 @@ export async function GET(request: NextRequest) {
         fetchSupplierPurchasesBySku({
           cfg: inst.cfg,
           sku,
-          allowedSuppliers: suppliers,
+          // Vault: all real PI suppliers for this SKU (best/last ranking).
+          allowedSuppliers: vault ? [] : suppliers,
           source: purchaseSource,
         }),
       ),

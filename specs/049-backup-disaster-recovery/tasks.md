@@ -17,8 +17,8 @@
 
 **Purpose**: Ignore dump artifacts; create ops/script folders so later tasks have a home.
 
-- [ ] T001 Add `*.dump`, `*.dump.age`, and `*.bak` ignore rules in `.gitignore`
-- [ ] T002 [P] Create `lib/backup/` and `scripts/backup/` directories with a short operator pointer in `scripts/backup/README.md`
+- [X] T001 Add `*.dump`, `*.dump.age`, and `*.bak` ignore rules in `.gitignore`
+- [X] T002 [P] Create `lib/backup/` and `scripts/backup/` directories with a short operator pointer in `scripts/backup/README.md`
 
 ---
 
@@ -28,10 +28,10 @@
 
 **⚠️ CRITICAL**: No user story implementation until this phase is complete.
 
-- [ ] T003 Implement protected-system enum (`vault` | `cosmo-dev` | `cosmo-prod`), R2 key builder, and Asia/Colombo Sunday/1st retention-class rules in `lib/backup/object-key.ts`
-- [ ] T004 Add unit tests for object keys (invalid system rejected, daily always, weekly only Sunday, monthly only day 1, `cosmo-dev` daily-only) in `lib/backup/object-key.test.ts`
-- [ ] T005 Implement status snapshot merge (preserve `lastSuccessAt` on failure; never embed connection strings) in `lib/backup/status.ts`
-- [ ] T006 Add unit tests for status merge and overdue (>24h) helper in `lib/backup/status.test.ts`
+- [X] T003 Implement protected-system enum (`vault` | `cosmo-dev` | `cosmo-prod`), R2 key builder, and Asia/Colombo Sunday/1st retention-class rules in `lib/backup/object-key.ts`
+- [X] T004 Add unit tests for object keys (invalid system rejected, daily always, weekly only Sunday, monthly only day 1, `cosmo-dev` daily-only) in `lib/backup/object-key.test.ts`
+- [X] T005 Implement status snapshot merge (preserve `lastSuccessAt` on failure; never embed connection strings) in `lib/backup/status.ts`
+- [X] T006 Add unit tests for status merge and overdue (>24h) helper in `lib/backup/status.test.ts`
 
 **Checkpoint**: `npm test -- lib/backup` green. Ready for dump/restore/runbook stories.
 
@@ -45,12 +45,12 @@
 
 ### Implementation for User Story 1
 
-- [ ] T007 [P] [US1] Add CLI that prints object keys / retention class for bash using `lib/backup/object-key.ts` in `scripts/backup/print-object-key.ts`
-- [ ] T008 [US1] Implement dump pipeline (`DIRECT_URL` only, reject `-pooler`, `pg_dump -Fc`, `age` encrypt, PUT daily + weekly/monthly copies, write status JSON) in `scripts/backup/dump.sh`
-- [ ] T009 [US1] Add `backup:dump` npm script wrapper in `package.json` (local: `--system` required; default must not be `cosmo-prod`)
-- [ ] T010 [US1] Add scheduled + `workflow_dispatch` workflow with `concurrency.group: backup-pg-dump`, `cancel-in-progress: false`, per-system secrets, continue-after-one-failure then upload successes in `.github/workflows/backup-pg-dump.yml`
-- [ ] T011 [US1] Implement `backup:status` that lists `status/{system}.json` from R2 (lastSuccessAt, ok, overdue) in `scripts/backup/status.ts` and wire `backup:status` in `package.json`
-- [ ] T012 [P] [US1] Document required GitHub/R2/`BACKUP_AGE_RECIPIENT` secret *names* (no values) and bucket lifecycle table in `docs/ops/backup-disaster-recovery.md`
+- [X] T007 [P] [US1] Add CLI that prints object keys / retention class for bash using `lib/backup/object-key.ts` in `scripts/backup/print-object-key.ts`
+- [X] T008 [US1] Implement dump pipeline (`DIRECT_URL` only, reject `-pooler`, `pg_dump -Fc`, `age` encrypt, PUT daily + weekly/monthly copies, write status JSON) in `scripts/backup/dump.sh`
+- [X] T009 [US1] Add `backup:dump` npm script wrapper in `package.json` (local: `--system` required; default must not be `cosmo-prod`)
+- [X] T010 [US1] Add scheduled + `workflow_dispatch` workflow with `concurrency.group: backup-pg-dump`, `cancel-in-progress: false`, per-system secrets, continue-after-one-failure then upload successes in `.github/workflows/backup-pg-dump.yml`
+- [X] T011 [US1] Implement `backup:status` that lists `status/{system}.json` from R2 (lastSuccessAt, ok, overdue) in `scripts/backup/status.ts` and wire `backup:status` in `package.json`
+- [X] T012 [P] [US1] Document required GitHub/R2/`BACKUP_AGE_RECIPIENT` secret *names* (no values) and bucket lifecycle table in `docs/ops/backup-disaster-recovery.md`
 
 **Checkpoint**: One successful `cosmo-dev` encrypted object in R2; status JSON readable without Neon/Vercel consoles.
 
@@ -64,9 +64,9 @@
 
 ### Implementation for User Story 4
 
-- [ ] T013 [US4] Fail `.github/workflows/backup-pg-dump.yml` at end if any required system failed (`vault`, `cosmo-prod`, `cosmo-dev`) after all systems attempted
-- [ ] T014 [US4] Ensure `scripts/backup/dump.sh` loads existing status, updates `lastAttemptAt`/`error`, and does not clear `lastSuccessAt` on failure (uses `lib/backup/status.ts`)
-- [ ] T015 [P] [US4] Document GitHub failed-workflow notification (watch repo / Actions email) and 24h overdue meaning of `backup:status` in `docs/ops/backup-disaster-recovery.md`
+- [X] T013 [US4] Fail `.github/workflows/backup-pg-dump.yml` at end if any required system failed (`vault`, `cosmo-prod`, `cosmo-dev`) after all systems attempted
+- [X] T014 [US4] Ensure `scripts/backup/dump.sh` loads existing status, updates `lastAttemptAt`/`error`, and does not clear `lastSuccessAt` on failure (uses `lib/backup/status.ts`)
+- [X] T015 [P] [US4] Document GitHub failed-workflow notification (watch repo / Actions email) and 24h overdue meaning of `backup:status` in `docs/ops/backup-disaster-recovery.md`
 
 **Checkpoint**: Simulated dump failure is visible the same day and does not erase the last good copy pointer.
 
@@ -80,10 +80,10 @@
 
 ### Implementation for User Story 3
 
-- [ ] T016 [US3] Implement GET → `age -d` → `pg_restore --no-owner --no-acl --clean --if-exists` plus `--system` / `--object-key` / `--from-latest-daily` in `scripts/backup/restore.sh`
-- [ ] T017 [US3] Enforce restore safety gates in `scripts/backup/restore.sh`: reject `-pooler`, system must match key, live-host denylist via `BACKUP_LIVE_HOST_*`, require `CONFIRM_PRODUCTION_RESTORE=<system>` for live, refuse Vault object onto Cosmo live (and reverse)
-- [ ] T018 [P] [US3] Add `backup:restore` wrapper in `package.json` and document throwaway-only default in `scripts/backup/README.md`
-- [ ] T019 [US3] After restore, run `npx prisma migrate status` against target and warn/non-zero on drift (no `db push`) inside `scripts/backup/restore.sh`
+- [X] T016 [US3] Implement GET → `age -d` → `pg_restore --no-owner --no-acl --clean --if-exists` plus `--system` / `--object-key` / `--from-latest-daily` in `scripts/backup/restore.sh`
+- [X] T017 [US3] Enforce restore safety gates in `scripts/backup/restore.sh`: reject `-pooler`, system must match key, live-host denylist via `BACKUP_LIVE_HOST_*`, require `CONFIRM_PRODUCTION_RESTORE=<system>` for live, refuse Vault object onto Cosmo live (and reverse)
+- [X] T018 [P] [US3] Add `backup:restore` wrapper in `package.json` and document throwaway-only default in `scripts/backup/README.md`
+- [X] T019 [US3] After restore, run `npx prisma migrate status` against target and warn/non-zero on drift (no `db push`) inside `scripts/backup/restore.sh`
 
 **Checkpoint**: Throwaway restore works; live prod restore is blocked without explicit env.
 
@@ -97,9 +97,9 @@
 
 ### Implementation for User Story 2
 
-- [ ] T020 [US2] Write Neon history-window + scheduled-snapshot + Time Travel preview + in-place restore steps (root branch only) in `docs/ops/backup-disaster-recovery.md`
-- [ ] T021 [P] [US2] Add a console checklist (Launch 7d / Scale 30d window, daily snapshots on vault and cosmo-prod roots) in `docs/ops/backup-disaster-recovery.md`
-- [ ] T022 [US2] If rewind window expired or Neon gone, runbook MUST send operator to independent-copy restore (`scripts/backup/restore.sh`) in `docs/ops/backup-disaster-recovery.md`
+- [X] T020 [US2] Write Neon history-window + scheduled-snapshot + Time Travel preview + in-place restore steps (root branch only) in `docs/ops/backup-disaster-recovery.md`
+- [X] T021 [P] [US2] Add a console checklist (Launch 7d / Scale 30d window, daily snapshots on vault and cosmo-prod roots) in `docs/ops/backup-disaster-recovery.md`
+- [X] T022 [US2] If rewind window expired or Neon gone, runbook MUST send operator to independent-copy restore (`scripts/backup/restore.sh`) in `docs/ops/backup-disaster-recovery.md`
 
 **Checkpoint**: Accidental-delete path is documented without automating prod rewind.
 
@@ -113,10 +113,10 @@
 
 ### Implementation for User Story 5
 
-- [ ] T023 [US5] Complete scenario sections (a)–(g) from spec FR-010 in `docs/ops/backup-disaster-recovery.md`
-- [ ] T024 [P] [US5] Add post-restore verification checklist (login, recent orders/Vault records, product-line not swapped, schema match) in `docs/ops/backup-disaster-recovery.md`
-- [ ] T025 [P] [US5] Name at least two roles/people who may confirm production restore in `docs/ops/backup-disaster-recovery.md`
-- [ ] T026 [US5] Explicitly out-of-scope ERPNext, Shopify, Auth0 recovery (use vendor backups; do not rebuild Cosmo from SI) in `docs/ops/backup-disaster-recovery.md`
+- [X] T023 [US5] Complete scenario sections (a)–(g) from spec FR-010 in `docs/ops/backup-disaster-recovery.md`
+- [X] T024 [P] [US5] Add post-restore verification checklist (login, recent orders/Vault records, product-line not swapped, schema match) in `docs/ops/backup-disaster-recovery.md`
+- [X] T025 [P] [US5] Name at least two roles/people who may confirm production restore in `docs/ops/backup-disaster-recovery.md`
+- [X] T026 [US5] Explicitly out-of-scope ERPNext, Shopify, Auth0 recovery (use vendor backups; do not rebuild Cosmo from SI) in `docs/ops/backup-disaster-recovery.md`
 
 **Checkpoint**: Second operator can pick the right path from the runbook alone.
 
@@ -130,7 +130,7 @@
 
 ### Implementation for User Story 6
 
-- [ ] T027 [US6] Add file-store stub: Vercel Blob (book notes, admin files, academy) and Cloudinary (logos/media) vendor recovery plus row-vs-file mismatch rule in `docs/ops/backup-disaster-recovery.md`
+- [X] T027 [US6] Add file-store stub: Vercel Blob (book notes, admin files, academy) and Cloudinary (logos/media) vendor recovery plus row-vs-file mismatch rule in `docs/ops/backup-disaster-recovery.md`
 
 **Checkpoint**: Operators know files are not in the Postgres dump.
 
@@ -144,8 +144,8 @@
 
 ### Implementation for User Story 7
 
-- [ ] T028 [US7] Add secret-inventory table (DIRECT_URLs, Auth0, Blob, Cloudinary, R2, age private key) with “value lives in 1Password” in `docs/ops/backup-disaster-recovery.md`
-- [ ] T029 [P] [US7] Cross-check names against `.env.example` (do not add secret values) in `.env.example`
+- [X] T028 [US7] Add secret-inventory table (DIRECT_URLs, Auth0, Blob, Cloudinary, R2, age private key) with “value lives in 1Password” in `docs/ops/backup-disaster-recovery.md`
+- [X] T029 [P] [US7] Cross-check names against `.env.example` (do not add secret values) in `.env.example`
 
 **Checkpoint**: Rebuild of Vercel+env can proceed from inventory names + 1Password.
 
@@ -159,8 +159,8 @@
 
 ### Implementation for User Story 8
 
-- [ ] T030 [US8] Add restore-drill log table and quarterly instructions (never live prod) in `docs/ops/backup-disaster-recovery.md`
-- [ ] T031 [P] [US8] Point `specs/049-backup-disaster-recovery/quickstart.md` section 4 at the drill log so the first recorded drill has a place to write
+- [X] T030 [US8] Add restore-drill log table and quarterly instructions (never live prod) in `docs/ops/backup-disaster-recovery.md`
+- [X] T031 [P] [US8] Point `specs/049-backup-disaster-recovery/quickstart.md` section 4 at the drill log so the first recorded drill has a place to write
 
 **Checkpoint**: First drill can be recorded without inventing a format.
 
@@ -170,10 +170,10 @@
 
 **Purpose**: Validate the feature as specified; keep dumps and prod safety tight.
 
-- [ ] T032 [P] Confirm `.gitignore` covers local dump leftovers after a dry-run of `scripts/backup/dump.sh`
-- [ ] T033 Confirm no Prisma schema/migration was added (constitution I) — `prisma/schema.prisma` unchanged by this feature
-- [ ] T034 Run `npm test` (includes `lib/backup`) and walk [quickstart.md](./quickstart.md) scenarios 1–5, 7 on **non-prod** only
-- [ ] T035 [P] Add a one-line pointer from root `README.md` Database setup section to `docs/ops/backup-disaster-recovery.md`
+- [X] T032 [P] Confirm `.gitignore` covers local dump leftovers after a dry-run of `scripts/backup/dump.sh`
+- [X] T033 Confirm no Prisma schema/migration was added (constitution I) — `prisma/schema.prisma` unchanged by this feature
+- [X] T034 Run `npm test` (includes `lib/backup`) and walk [quickstart.md](./quickstart.md) scenarios 1–5, 7 on **non-prod** only
+- [X] T035 [P] Add a one-line pointer from root `README.md` Database setup section to `docs/ops/backup-disaster-recovery.md`
 
 ---
 

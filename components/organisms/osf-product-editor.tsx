@@ -163,7 +163,7 @@ export function OsfProductEditor({
     try {
       const thresholdTrimmed = thresholdPercent.trim();
       let reorderThresholdPercent: number | null | undefined = undefined;
-      if (!hideCosmoFields && (canManageThreshold || canManage)) {
+      if (canManageThreshold || canManage) {
         if (thresholdTrimmed === "") reorderThresholdPercent = null;
         else {
           const n = Math.floor(Number(thresholdTrimmed));
@@ -221,7 +221,7 @@ export function OsfProductEditor({
         <h3 className="font-medium">Product OSF editor</h3>
         <p className="text-sm text-muted-foreground">
           {hideCosmoFields
-            ? "Per-column ROP for SV, ORI and AE. Search a SKU to edit, or use the Excel import."
+            ? "Per-column ROP for SV, ORI and AE, plus reorder threshold %. Search a SKU to edit, or use the Excel import."
             : "Shop Availability, per-column ROP, OGF Price, and reorder threshold %. Enter a % to list SKUs that already have ROP and whose stock is below that share of ROP."}
         </p>
       </div>
@@ -236,20 +236,18 @@ export function OsfProductEditor({
             if (e.key === "Enter") void runSearch(q, maxStockPct);
           }}
         />
-        {hideCosmoFields ? null : (
-          <Input
-            type="number"
-            min={1}
-            max={100}
-            className="w-36"
-            placeholder="Below % of ROP"
-            value={maxStockPct}
-            onChange={(e) => setMaxStockPct(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") void runSearch(q, maxStockPct);
-            }}
-          />
-        )}
+        <Input
+          type="number"
+          min={1}
+          max={100}
+          className="w-36"
+          placeholder="Below % of ROP"
+          value={maxStockPct}
+          onChange={(e) => setMaxStockPct(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") void runSearch(q, maxStockPct);
+          }}
+        />
         <Button
           type="button"
           variant="outline"
@@ -341,21 +339,25 @@ export function OsfProductEditor({
                       Synced from Cosmo ERP OGF Price List. Online Cosmetics.lk price is separate.
                     </span>
                   </label>
-                  <label className="block text-xs font-medium">
-                    Reorder threshold % (blank = 70)
-                    <Input
-                      type="number"
-                      min={1}
-                      max={100}
-                      className="mt-1"
-                      disabled={(!canManage && !canManageThreshold) || isBusy}
-                      value={thresholdPercent}
-                      placeholder="70"
-                      onChange={(e) => setThresholdPercent(e.target.value)}
-                    />
-                  </label>
                 </>
               )}
+              <label className="block text-xs font-medium">
+                Reorder threshold % (blank = 70)
+                <Input
+                  type="number"
+                  min={1}
+                  max={100}
+                  className="mt-1"
+                  disabled={(!canManage && !canManageThreshold) || isBusy}
+                  value={thresholdPercent}
+                  placeholder="70"
+                  onChange={(e) => setThresholdPercent(e.target.value)}
+                />
+                <span className="mt-1 block text-[11px] font-normal text-muted-foreground">
+                  Alert when total stock is below this % of total ROP. One value per SKU (not per
+                  location).
+                </span>
+              </label>
               <div className="space-y-2">
                 <div className="flex items-center justify-between gap-2">
                   <div className="text-xs font-medium">ROP by column</div>

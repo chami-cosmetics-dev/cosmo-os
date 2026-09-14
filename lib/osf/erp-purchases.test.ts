@@ -5,6 +5,7 @@ import {
   accumulateSupplierPurchasesFromRows,
   buildSupplierAllowlist,
   isAllowedSupplier,
+  isNoisePurchaseSupplier,
   isUsablePurchaseDoc,
   normalizeSupplierKey,
   type PurchaseRow,
@@ -241,14 +242,65 @@ describe("accumulateLastPurchasesFromRows", () => {
     expect(result.get("CAN07")!.rate).toBe(4650);
     expect(result.get("CAN07")!.date).toBe("2026-07-01");
   });
+
+  it("walks past zero-rate lines to next priced purchase", () => {
+    const rows: PurchaseRow[] = [
+      {
+        name: "PI-FREE",
+        supplier: "ACME",
+        supplier_name: "Acme",
+        posting_date: "2026-08-01",
+        item_code: "CAN07",
+        qty: 25,
+        rate: 0,
+        docstatus: 1,
+        status: "Paid",
+      },
+      {
+        name: "PI-OK",
+        supplier: "ACME",
+        supplier_name: "Acme",
+        posting_date: "2026-07-01",
+        item_code: "CAN07",
+        qty: 8,
+        rate: 4650,
+        docstatus: 1,
+        status: "Paid",
+      },
+    ];
+    const { result } = accumulateLastPurchasesFromRows({
+      rows,
+      itemCodes: items,
+      allowedSuppliers: [],
+    });
+    expect(result.get("CAN07")!.rate).toBe(4650);
+    expect(result.get("CAN07")!.date).toBe("2026-07-01");
+  });
 });
 
 describe("isUsablePurchaseDoc", () => {
-  it("rejects cancelled and draft status", () => {
+  it("rejects cancelled, draft, and return status", () => {
     expect(isUsablePurchaseDoc({ docstatus: 1, status: "Draft" })).toBe(false);
     expect(isUsablePurchaseDoc({ docstatus: 2, status: "Cancelled" })).toBe(false);
+    expect(isUsablePurchaseDoc({ docstatus: 1, status: "Return", is_return: 1 })).toBe(
+      false,
+    );
     expect(isUsablePurchaseDoc({ docstatus: 1, status: "Completed" })).toBe(true);
     expect(isUsablePurchaseDoc({ docstatus: 1, status: "Paid" })).toBe(true);
+  });
+});
+
+describe("isNoisePurchaseSupplier", () => {
+  it("flags sync-test suppliers", () => {
+    expect(
+      isNoisePurchaseSupplier({
+        supplier: "SYNC-TEST Supplier",
+        supplier_name: "SYNC-TEST Supplier",
+      }),
+    ).toBe(true);
+    expect(
+      isNoisePurchaseSupplier({ supplier: "SV005", supplier_name: "Sachintha" }),
+    ).toBe(false);
   });
 });
 
@@ -388,5 +440,67 @@ describe("accumulateSupplierPurchasesFromRows", () => {
     const s = result.get("sachintha")!;
     expect(s.lastRate).toBe(4650);
     expect(s.bestEverRate).toBe(4650);
+  });
+
+  it("lists every real supplier and ranks by best-ever (Cash AE + Sachintha)", () => {
+    const rows: PurchaseRow[] = [
+      {
+        name: "PI-CASH",
+        supplier: "SV030",
+        supplier_name: "Cash AE 001",
+        posting_date: "2026-09-11",
+        item_code: "BV001-1",
+        qty: 5,
+        rate: 5990,
+        docstatus: 1,
+        status: "Overdue",
+        is_return: 0,
+      },
+      {
+        name: "PI-RET",
+        supplier: "SV029",
+        supplier_name: "Cash OR 001",
+        posting_date: "2026-08-24",
+        item_code: "BV001-1",
+        qty: -7,
+        rate: 5103,
+        docstatus: 1,
+        status: "Return",
+        is_return: 1,
+      },
+      {
+        name: "PI-SACH",
+        supplier: "SV005",
+        supplier_name: "Sachintha",
+        posting_date: "2026-08-05",
+        item_code: "BV001-1",
+        qty: 20,
+        rate: 4650,
+        docstatus: 1,
+        status: "Paid",
+        is_return: 0,
+      },
+      {
+        name: "PI-SYNC",
+        supplier: "SYNC-TEST Supplier",
+        supplier_name: "SYNC-TEST Supplier",
+        posting_date: "2026-08-03",
+        item_code: "BV001-1",
+        qty: 1,
+        rate: 1,
+        docstatus: 1,
+        status: "Paid",
+      },
+    ];
+    const result = accumulateSupplierPurchasesFromRows({
+      rows,
+      sku: "BV001-1",
+      allowedSuppliers: [],
+    });
+    expect(result.size).toBe(2);
+    expect(result.get("sachintha")!.bestEverRate).toBe(4650);
+    expect(result.get("cash ae 001")!.lastRate).toBe(5990);
+    expect(result.has("cash or 001")).toBe(false);
+    expect(result.has("sync-test supplier")).toBe(false);
   });
 });

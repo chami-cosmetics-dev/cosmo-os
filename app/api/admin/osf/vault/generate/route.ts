@@ -10,6 +10,7 @@ import { getCurrentUserContext, requirePermission } from "@/lib/rbac";
 import { attachOsPriority, fetchVaultCatalog } from "@/lib/vault-osf/catalog";
 import { isVaultOsfConfigured, resolveVaultBusinessUnits, vaultOsfNotConfiguredMessage } from "@/lib/vault-osf/columns";
 import { buildVaultOsfWorkbookBuffer } from "@/lib/vault-osf/build-workbook";
+import { ensureVaultForceIncludedRops } from "@/lib/vault-osf/ensure-force-included-rops";
 import { fetchLatestPurchases, fetchMonthlyPurchases, mergePurchaseMaps } from "@/lib/vault-osf/erp-purchases-monthly";
 import { fetchVaultPrices } from "@/lib/vault-osf/erp-pricing";
 import { fetchSalesMonth, salesQtyForSku } from "@/lib/vault-osf/erp-sales";
@@ -99,6 +100,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    await ensureVaultForceIncludedRops(companyId);
     const [catalogRaw, ropRows, historyRows, allowedSuppliers] = await Promise.all([
       fetchVaultCatalog(erp1.cfg),
       prisma.productOsfRop.findMany({ where: { companyId } }),
