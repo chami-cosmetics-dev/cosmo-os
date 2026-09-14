@@ -110,6 +110,13 @@ export async function GET(request: NextRequest) {
       purchaseReceiptName: row.purchaseReceiptName,
       canTally: row.docstatus !== 2 && (!row.purchaseReceiptName || activePurchaseReceiptNames.has(row.purchaseReceiptName)),
       itemCount: row.items.length,
+      items: row.items.map((item) => ({
+        name: item.name,
+        itemCode: item.itemCode,
+        itemName: item.itemName,
+        qty: Number(item.qty),
+        stockUom: item.stockUom,
+      })),
     })),
   });
 }

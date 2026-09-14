@@ -1,9 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CheckCircle2, Link2, Loader2, RefreshCw, TriangleAlert } from "lucide-react";
+import { CheckCircle2, Eye, Link2, Loader2, RefreshCw, TriangleAlert } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
   Tabs,
@@ -49,6 +56,13 @@ type SupplierStockReturnRow = {
   amendedFrom: string | null;
   canTally: boolean;
   itemCount: number;
+  items: {
+    name: string;
+    itemCode: string;
+    itemName: string | null;
+    qty: number;
+    stockUom: string | null;
+  }[];
 };
 
 type PageData = {
@@ -111,6 +125,7 @@ export function GrnPanel() {
   const [activeTab, setActiveTab] = useState("grn");
   const [dateRange, setDateRange] = useState(() => getCurrentMonthRange());
   const [selectedPrBySsr, setSelectedPrBySsr] = useState<Record<string, string>>({});
+  const [selectedSsr, setSelectedSsr] = useState<SupplierStockReturnRow | null>(null);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -364,7 +379,7 @@ export function GrnPanel() {
                 <TableHead>SSR No</TableHead>
                 <TableHead>Return Date</TableHead>
                 <TableHead>Supplier</TableHead>
-                <TableHead>Items</TableHead>
+                <TableHead>Details</TableHead>
                 <TableHead>Purchase Receipt</TableHead>
                 <TableHead className="w-24">Link</TableHead>
               </TableRow>
@@ -388,7 +403,17 @@ export function GrnPanel() {
                     </TableCell>
                     <TableCell>{formatDate(row.returnDate ?? row.creation)}</TableCell>
                     <TableCell>{row.supplier}</TableCell>
-                    <TableCell>{row.itemCount}</TableCell>
+                    <TableCell>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setSelectedSsr(row)}
+                      >
+                        <Eye className="size-4" />
+                        View
+                      </Button>
+                    </TableCell>
                     <TableCell>
                       <select
                         className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
@@ -427,6 +452,49 @@ export function GrnPanel() {
         </div>
         </TabsContent>
       </Tabs>
+
+      <Dialog open={Boolean(selectedSsr)} onOpenChange={(open) => !open && setSelectedSsr(null)}>
+        <DialogContent className="flex max-h-[85vh] max-w-3xl flex-col overflow-hidden border-border/70 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_94%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))]">
+          <DialogHeader>
+            <DialogTitle>{selectedSsr?.name ?? "Supplier stock return"}</DialogTitle>
+            <DialogDescription>
+              {selectedSsr
+                ? `${selectedSsr.supplier} · ${formatDate(selectedSsr.returnDate ?? selectedSsr.creation)}`
+                : "Supplier stock return details"}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="overflow-auto rounded-lg border bg-background/60">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Item Code</TableHead>
+                  <TableHead>Item Name</TableHead>
+                  <TableHead className="text-right">Qty</TableHead>
+                  <TableHead>UOM</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {!selectedSsr || selectedSsr.items.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={4} className="h-20 text-center text-muted-foreground">
+                      No items found.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  selectedSsr.items.map((item) => (
+                    <TableRow key={item.name}>
+                      <TableCell className="font-medium">{item.itemCode}</TableCell>
+                      <TableCell>{item.itemName ?? "-"}</TableCell>
+                      <TableCell className="text-right">{item.qty}</TableCell>
+                      <TableCell>{item.stockUom ?? "-"}</TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
