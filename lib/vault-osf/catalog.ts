@@ -9,6 +9,7 @@ import {
   VAULT_OSF_FORCE_INCLUDED_SKUS,
 } from "@/lib/vault-osf/sku-policy";
 import type { VaultCatalogRow } from "@/lib/vault-osf/types";
+import { applyVaultWorkbookUploadToCatalogRow } from "@/lib/vault-osf/workbook-upload-overlay";
 
 const PAGE = 500;
 const MAX_PAGES = 80;
@@ -91,7 +92,7 @@ export async function fetchVaultCatalog(cfg: OsfErpCredentials): Promise<VaultCa
     const mapped = mapErpItemToCatalogRow(row, {
       barcode: barcodes.get((row.item_code ?? row.name ?? "").trim()) ?? null,
     });
-    if (mapped) bySku.set(mapped.sku, mapped);
+    if (mapped) bySku.set(mapped.sku, applyVaultWorkbookUploadToCatalogRow(mapped));
   }
 
   // Pull force-included SKUs that ERP list skipped (disabled=1).
@@ -103,7 +104,7 @@ export async function fetchVaultCatalog(cfg: OsfErpCredentials): Promise<VaultCa
       barcode: barcodes.get(sku) ?? forced.barcodes?.[0]?.barcode ?? null,
       priorityStatus: "Newly added",
     });
-    if (mapped) bySku.set(mapped.sku, mapped);
+    if (mapped) bySku.set(mapped.sku, applyVaultWorkbookUploadToCatalogRow(mapped));
   }
 
   const mapped = applyVaultOsfSkuPolicy([...bySku.values()]);
@@ -176,7 +177,7 @@ export async function attachOsPriority(
   }
   return rows.map((row) => {
     const extra = bySku.get(row.sku);
-    return {
+    const merged = {
       ...row,
       priorityStatus:
         extra?.priority ??
@@ -185,5 +186,6 @@ export async function attachOsPriority(
           : row.priorityStatus),
       barcode: row.barcode || extra?.barcode || null,
     };
+    return applyVaultWorkbookUploadToCatalogRow(merged);
   });
 }

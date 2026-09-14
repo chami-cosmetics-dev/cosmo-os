@@ -10,6 +10,7 @@ import {
 } from "@/lib/osf/erp-stock";
 import { resolveErpSlots, normalizeSkuKey } from "@/lib/product-items/erp-priority-sync";
 import { isVaultOsfForceIncludedSku, VAULT_OSF_FORCE_INCLUDED_SKUS } from "@/lib/vault-osf/sku-policy";
+import { vaultWorkbookUploadExtras } from "@/lib/vault-osf/workbook-upload-overlay";
 
 const PAGE = 500;
 const MAX_PAGES = 80;
@@ -279,13 +280,18 @@ export async function syncVaultErpCatalogToProductItems(
     const chunk = entries.slice(i, i + WRITE_CHUNK);
     await Promise.all(
       chunk.map(async ([key, item]) => {
+        // File barcode wins until ERP has barcodes uploaded.
+        const uploadBarcode =
+          vaultWorkbookUploadExtras(item.sku)?.barcode?.trim() ||
+          item.barcode?.trim() ||
+          null;
         const ids = existingByKey.get(key);
         if (ids?.length) {
           const result = await prisma.productItem.updateMany({
             where: { companyId, id: { in: ids } },
             data: {
               productTitle: item.itemName,
-              barcode: item.barcode,
+              barcode: uploadBarcode,
               ...(item.standardRate > 0
                 ? { price: new Prisma.Decimal(item.standardRate) }
                 : {}),
@@ -304,7 +310,7 @@ export async function syncVaultErpCatalogToProductItems(
             shopifyVariantId: `vault-erp-variant:${key}`,
             productTitle: item.itemName,
             sku: item.sku,
-            barcode: item.barcode,
+            barcode: uploadBarcode,
             price: new Prisma.Decimal(item.standardRate > 0 ? item.standardRate : 0),
             status: "active",
             productType: item.category,

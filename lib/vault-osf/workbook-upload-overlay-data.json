@@ -1,0 +1,1419 @@
+{
+  "BG004-1": {
+    "barcode": "9323503023675",
+    "priorityStatus": "Non Priority"
+  },
+  "BG005-1": {
+    "barcode": "9323503022494",
+    "priorityStatus": "Discontinue"
+  },
+  "BM001-1": {
+    "barcode": "9300807287439",
+    "priorityStatus": "Top Priority"
+  },
+  "BM002-1": {
+    "barcode": "9300807287378",
+    "priorityStatus": "Top Priority"
+  },
+  "BM002-2": {
+    "barcode": "9300807287354",
+    "priorityStatus": "Newly Added"
+  },
+  "BM004-1": {
+    "barcode": "93807357",
+    "priorityStatus": "Non Priority"
+  },
+  "BM008-1": {
+    "barcode": "9300807325698",
+    "priorityStatus": "Non Priority"
+  },
+  "BM009-1": {
+    "barcode": "9300807232422",
+    "priorityStatus": "Non Priority"
+  },
+  "BM010-1": {
+    "barcode": "9300807287446",
+    "priorityStatus": "Non Priority"
+  },
+  "BS001-1": {
+    "barcode": "5045095439019",
+    "priorityStatus": "Non Priority"
+  },
+  "BV001-1": {
+    "barcode": "0",
+    "priorityStatus": "Top Priority"
+  },
+  "CG001-1": {
+    "barcode": "898220010332",
+    "priorityStatus": "Non Priority"
+  },
+  "CG002-1": {
+    "barcode": "898220009527",
+    "priorityStatus": "Newly Added"
+  },
+  "CG003-1": {
+    "barcode": "898220014095",
+    "priorityStatus": "Non Priority"
+  },
+  "CT001-1": {
+    "barcode": "062107084505",
+    "priorityStatus": "Top Priority"
+  },
+  "CT001-2": {
+    "barcode": "9310488003198",
+    "priorityStatus": "Non Priority"
+  },
+  "CT002-1": {
+    "barcode": "062107084703",
+    "priorityStatus": "Top Priority"
+  },
+  "CT002-2": {
+    "barcode": "9310488003211",
+    "priorityStatus": "Top Priority"
+  },
+  "CT003-1": {
+    "barcode": "062107084604",
+    "priorityStatus": "Non Priority"
+  },
+  "CT003-2": {
+    "barcode": "9310488003259",
+    "priorityStatus": "Newly Added"
+  },
+  "CT006-1": {
+    "barcode": "062107084802",
+    "priorityStatus": "Non Priority"
+  },
+  "CT006-2": {
+    "barcode": "9310488003235",
+    "priorityStatus": "Newly Added"
+  },
+  "CT013-1": {
+    "barcode": "062107085007",
+    "priorityStatus": "Non Priority"
+  },
+  "CT021-1": {
+    "barcode": "5054563126658",
+    "priorityStatus": "Non Priority"
+  },
+  "CT022-1": {
+    "barcode": "5054563126610",
+    "priorityStatus": "Discontinue"
+  },
+  "CT023-1": {
+    "barcode": "5054563126719",
+    "priorityStatus": "Discontinue"
+  },
+  "CT024-2": {
+    "barcode": "5054563296108",
+    "priorityStatus": "Non Priority"
+  },
+  "CT025-1": {
+    "barcode": "5054563948656",
+    "priorityStatus": "Discontinue"
+  },
+  "CT026-1": {
+    "barcode": "5054563232878",
+    "priorityStatus": "Discontinue"
+  },
+  "CT027-1": {
+    "barcode": "5054563126672",
+    "priorityStatus": "Non Priority"
+  },
+  "CT028-1": {
+    "barcode": "9300673891136",
+    "priorityStatus": "Newly Added"
+  },
+  "CT029-1": {
+    "barcode": "9300673890962",
+    "priorityStatus": "Newly Added"
+  },
+  "CT030-1": {
+    "barcode": "5054563129826",
+    "priorityStatus": "Non Priority"
+  },
+  "CT031-1": {
+    "barcode": "5054563129734",
+    "priorityStatus": "Non Priority"
+  },
+  "CT032-1": {
+    "barcode": "5054563274618",
+    "priorityStatus": "Non Priority"
+  },
+  "CT033-1": {
+    "barcode": "305734755920",
+    "priorityStatus": "Non Priority"
+  },
+  "CT034-1": {
+    "barcode": "5054563129703",
+    "priorityStatus": "Non Priority"
+  },
+  "CT035-1": {
+    "barcode": "5054563129765",
+    "priorityStatus": "Non Priority"
+  },
+  "CT036-1": {
+    "barcode": "5054563295927",
+    "priorityStatus": "Non Priority"
+  },
+  "CT037-1": {
+    "barcode": "5054563126696",
+    "priorityStatus": "Non Priority"
+  },
+  "CT038-1": {
+    "barcode": "50309610",
+    "priorityStatus": "Non Priority"
+  },
+  "FE001-1": {
+    "barcode": "5021265220076",
+    "priorityStatus": "Non Priority"
+  },
+  "GEH01-1": {
+    "barcode": "624777000904",
+    "priorityStatus": "Non Priority"
+  },
+  "GEH10-1": {
+    "barcode": "624777012921",
+    "priorityStatus": "Discontinue"
+  },
+  "GEN003-1": {
+    "barcode": "828875003007",
+    "priorityStatus": "Discontinue"
+  },
+  "GN001-1": {
+    "barcode": "627987249637",
+    "priorityStatus": "Top Priority"
+  },
+  "GN001-2": {
+    "barcode": "627987249620",
+    "priorityStatus": "Non Priority"
+  },
+  "HC001-1": {
+    "barcode": "9316254898982",
+    "priorityStatus": "Non Priority"
+  },
+  "HC001-2": {
+    "barcode": "9316254892607",
+    "priorityStatus": "Newly Added"
+  },
+  "HC002-1": {
+    "barcode": "9316254893727",
+    "priorityStatus": "Non Priority"
+  },
+  "HC003-1": {
+    "barcode": "9316254893734",
+    "priorityStatus": "Non Priority"
+  },
+  "HC005-1": {
+    "barcode": "9316254892065",
+    "priorityStatus": "Top Priority"
+  },
+  "HC006-1": {
+    "barcode": "9316254898418",
+    "priorityStatus": "Non Priority"
+  },
+  "HC007-1": {
+    "barcode": "9316254892102",
+    "priorityStatus": "Non Priority"
+  },
+  "HC008-2": {
+    "barcode": "9316254893574",
+    "priorityStatus": "Non Priority"
+  },
+  "HC009-1": {
+    "barcode": "9316254892652",
+    "priorityStatus": "Non Priority"
+  },
+  "HC010-1": {
+    "barcode": "9316254894502",
+    "priorityStatus": "Non Priority"
+  },
+  "HC011-1": {
+    "barcode": "9316254892508",
+    "priorityStatus": "Non Priority"
+  },
+  "HC012-2": {
+    "barcode": "9316254894113",
+    "priorityStatus": "Non Priority"
+  },
+  "HC013-1": {
+    "barcode": "9316254892034",
+    "priorityStatus": "Non Priority"
+  },
+  "HC015-1": {
+    "barcode": "9316254893130",
+    "priorityStatus": "Newly Added"
+  },
+  "HC016-1": {
+    "barcode": "9316254892126",
+    "priorityStatus": "Non Priority"
+  },
+  "HC017-1": {
+    "barcode": "9316254893314",
+    "priorityStatus": "Non Priority"
+  },
+  "HC018-1": {
+    "barcode": "9316254895295",
+    "priorityStatus": "Non Priority"
+  },
+  "HC019-1": {
+    "barcode": "9316254895318",
+    "priorityStatus": "Non Priority"
+  },
+  "HC020-1": {
+    "barcode": "9316254892638",
+    "priorityStatus": "Non Priority"
+  },
+  "HC021-1": {
+    "barcode": "9316254893260",
+    "priorityStatus": "Non Priority"
+  },
+  "HC022-1": {
+    "barcode": "9316254893222",
+    "priorityStatus": "Non Priority"
+  },
+  "JE003-1": {
+    "barcode": "5021265222407",
+    "priorityStatus": "Non Priority"
+  },
+  "JS001-1": {
+    "barcode": "064642062314",
+    "priorityStatus": "Non Priority"
+  },
+  "JS002-1": {
+    "barcode": "064642078667",
+    "priorityStatus": "Non Priority"
+  },
+  "JS003-1": {
+    "barcode": "064642058706",
+    "priorityStatus": "Non Priority"
+  },
+  "JS004-1": {
+    "barcode": "064642022363"
+  },
+  "JS005-1": {
+    "barcode": "064642021250",
+    "priorityStatus": "Non Priority"
+  },
+  "JS007-1": {
+    "barcode": "064642079572",
+    "priorityStatus": "Non Priority"
+  },
+  "JS009-1": {
+    "barcode": "064642078575",
+    "priorityStatus": "Non Priority"
+  },
+  "JS010-1": {
+    "barcode": "064642065995",
+    "priorityStatus": "Non Priority"
+  },
+  "JS011-1": {
+    "barcode": "064642079206",
+    "priorityStatus": "Non Priority"
+  },
+  "JS012-1": {
+    "barcode": "064642091635",
+    "priorityStatus": "Non Priority"
+  },
+  "JS013-1": {
+    "barcode": "064642090287",
+    "priorityStatus": "Non Priority"
+  },
+  "JS016-1": {
+    "barcode": "064642079930",
+    "priorityStatus": "Non Priority"
+  },
+  "JS017-1": {
+    "barcode": "064642062321",
+    "priorityStatus": "Non Priority"
+  },
+  "KS002-1": {
+    "barcode": "096619280667",
+    "priorityStatus": "Newly Added"
+  },
+  "KS002-2": {
+    "barcode": "096619982684",
+    "priorityStatus": "Discontinue"
+  },
+  "KS003-1": {
+    "barcode": "096619393916",
+    "priorityStatus": "Newly Added"
+  },
+  "KS004-1": {
+    "barcode": "096619929214",
+    "priorityStatus": "Non Priority"
+  },
+  "KS006-1": {
+    "barcode": "096619926626",
+    "priorityStatus": "Newly Added"
+  },
+  "KS007-1": {
+    "barcode": "096619928118",
+    "priorityStatus": "Newly Added"
+  },
+  "KS008-1": {
+    "barcode": "096619879526",
+    "priorityStatus": "Non Priority"
+  },
+  "MD001-1": {
+    "barcode": "9421027843660",
+    "priorityStatus": "Discontinue"
+  },
+  "ME002-1": {
+    "barcode": "5021265221004"
+  },
+  "ME003-1": {
+    "barcode": "5021265221073",
+    "priorityStatus": "Non Priority"
+  },
+  "NB001-1": {
+    "barcode": "029537276832",
+    "priorityStatus": "Non Priority"
+  },
+  "NB008-1": {
+    "barcode": "029537171397",
+    "priorityStatus": "Non Priority"
+  },
+  "NB009-1": {
+    "barcode": "029537534895",
+    "priorityStatus": "Non Priority"
+  },
+  "NB010-1": {
+    "barcode": "029537301602",
+    "priorityStatus": "Non Priority"
+  },
+  "NB012-1": {
+    "barcode": "029537000239",
+    "priorityStatus": "Non Priority"
+  },
+  "NB013-1": {
+    "barcode": "029537544269"
+  },
+  "NB015-1": {
+    "barcode": "029537019477",
+    "priorityStatus": "Non Priority"
+  },
+  "NB016-1": {
+    "barcode": "029537296342",
+    "priorityStatus": "Non Priority"
+  },
+  "NB017-1": {
+    "barcode": "029537792011",
+    "priorityStatus": "Non Priority"
+  },
+  "NB018-1": {
+    "barcode": "029537194051",
+    "priorityStatus": "Non Priority"
+  },
+  "NB019-1": {
+    "barcode": "029537000512",
+    "priorityStatus": "Non Priority"
+  },
+  "NC001-1": {
+    "barcode": "016185400351",
+    "priorityStatus": "Top Priority"
+  },
+  "NC001-2": {
+    "barcode": "016185019867",
+    "priorityStatus": "Top Priority"
+  },
+  "NC003-1": {
+    "barcode": "016185400269"
+  },
+  "NC004-1": {
+    "barcode": "016185132627",
+    "priorityStatus": "Top Priority"
+  },
+  "NC006-1": {
+    "barcode": "016185129313",
+    "priorityStatus": "Top Priority"
+  },
+  "NC007-1": {
+    "barcode": "016185129481",
+    "priorityStatus": "Non Priority"
+  },
+  "NC008-1": {
+    "barcode": "016185129238",
+    "priorityStatus": "Top Priority"
+  },
+  "NC008-2": {
+    "barcode": "016185400399",
+    "priorityStatus": "Top Priority"
+  },
+  "NC012-1": {
+    "barcode": "016185129009",
+    "priorityStatus": "Non Priority"
+  },
+  "NC013-1": {
+    "barcode": "016185400245",
+    "priorityStatus": "Top Priority"
+  },
+  "NC014-1": {
+    "barcode": "016185129580",
+    "priorityStatus": "Top Priority"
+  },
+  "NC016-1": {
+    "barcode": "016185132603",
+    "priorityStatus": "Top Priority"
+  },
+  "NC017-1": {
+    "barcode": "016185130166",
+    "priorityStatus": "Non Priority"
+  },
+  "NC018-1": {
+    "barcode": "016185129290",
+    "priorityStatus": "Non Priority"
+  },
+  "NC019-1": {
+    "barcode": "016185132535",
+    "priorityStatus": "Discontinue"
+  },
+  "NC020-1": {
+    "barcode": "016185129658",
+    "priorityStatus": "Non Priority"
+  },
+  "NC022-1": {
+    "barcode": "016185129863",
+    "priorityStatus": "Non Priority"
+  },
+  "NC023-1": {
+    "barcode": "016185129429",
+    "priorityStatus": "Non Priority"
+  },
+  "NC024-1": {
+    "barcode": "016185128965",
+    "priorityStatus": "Non Priority"
+  },
+  "NC025-1": {
+    "barcode": "850068585496",
+    "priorityStatus": "Non Priority"
+  },
+  "NC026-1": {
+    "barcode": "016185132665",
+    "priorityStatus": "Non Priority"
+  },
+  "NC027-1": {
+    "barcode": "016185132559",
+    "priorityStatus": "Non Priority"
+  },
+  "NC028-1": {
+    "barcode": "850068585052",
+    "priorityStatus": "Non Priority"
+  },
+  "NC029-1": {
+    "barcode": "016185132566",
+    "priorityStatus": "Non Priority"
+  },
+  "NC030-1": {
+    "barcode": "850068585090",
+    "priorityStatus": "Non Priority"
+  },
+  "NC031-1": {
+    "barcode": "016185132597",
+    "priorityStatus": "Non Priority"
+  },
+  "NC032-1": {
+    "barcode": "016185129559",
+    "priorityStatus": "Non Priority"
+  },
+  "NC033-1": {
+    "barcode": "016185132955",
+    "priorityStatus": "Non Priority"
+  },
+  "NC034-1": {
+    "barcode": "016185132702",
+    "priorityStatus": "Non Priority"
+  },
+  "NC036-1": {
+    "barcode": "016185128958",
+    "priorityStatus": "Newly Added"
+  },
+  "NC037-1": {
+    "barcode": "850068585809",
+    "priorityStatus": "Newly Added"
+  },
+  "NC038-1": {
+    "barcode": "850068585182"
+  },
+  "NC039-1": {
+    "barcode": "850068585717",
+    "priorityStatus": "Non Priority"
+  },
+  "NC040-1": {
+    "barcode": "850068585014",
+    "priorityStatus": "Non Priority"
+  },
+  "NC041-1": {
+    "barcode": "850068585038",
+    "priorityStatus": "Non Priority"
+  },
+  "NC042-1": {
+    "barcode": "850078466242",
+    "priorityStatus": "Non Priority"
+  },
+  "NC043-1": {
+    "barcode": "850068585915",
+    "priorityStatus": "Non Priority"
+  },
+  "NO006-1": {
+    "barcode": "9316090019916",
+    "priorityStatus": "Discontinue"
+  },
+  "NT011-1": {
+    "barcode": "9314807088729",
+    "priorityStatus": "Non Priority"
+  },
+  "NT012-1": {
+    "barcode": "9314807088736",
+    "priorityStatus": "Newly Added"
+  },
+  "NT013-1": {
+    "barcode": "9314807078621",
+    "priorityStatus": "Non Priority"
+  },
+  "NT015-1": {
+    "barcode": "9314807068073",
+    "priorityStatus": "Discontinue"
+  },
+  "NT016-1": {
+    "barcode": "9314807067298",
+    "priorityStatus": "Discontinue"
+  },
+  "NT017-1": {
+    "barcode": "9314807008048",
+    "priorityStatus": "Discontinue"
+  },
+  "NT020-1": {
+    "barcode": "9314807087067",
+    "priorityStatus": "Non Priority"
+  },
+  "NT022-1": {
+    "barcode": "9314807006709",
+    "priorityStatus": "Non Priority"
+  },
+  "NT024-1": {
+    "barcode": "9314807088279",
+    "priorityStatus": "Non Priority"
+  },
+  "NTC02-1": {
+    "barcode": "183405043763",
+    "priorityStatus": "Non Priority"
+  },
+  "NTC04-1": {
+    "barcode": "183405043756",
+    "priorityStatus": "Non Priority"
+  },
+  "NU001-2": {
+    "barcode": "5404024901599",
+    "priorityStatus": "Newly Added"
+  },
+  "NU002-1": {
+    "barcode": "5425032391011",
+    "priorityStatus": "Non Priority"
+  },
+  "NU003-1": {
+    "barcode": "5425032391035",
+    "priorityStatus": "Non Priority"
+  },
+  "NU004-1": {
+    "barcode": "X000ES0NAN",
+    "priorityStatus": "Non Priority"
+  },
+  "NU005-1": {
+    "barcode": "X0018XPU4H",
+    "priorityStatus": "Non Priority"
+  },
+  "NW001-1": {
+    "barcode": "733739033789",
+    "priorityStatus": "Non Priority"
+  },
+  "NW002-1": {
+    "barcode": "733739016492",
+    "priorityStatus": "Non Priority"
+  },
+  "NW003-1": {
+    "barcode": "733739016508",
+    "priorityStatus": "Top Priority"
+  },
+  "NW004-1": {
+    "barcode": "733739006806",
+    "priorityStatus": "Top Priority"
+  },
+  "NW004-2": {
+    "barcode": "733739006851",
+    "priorityStatus": "Top Priority"
+  },
+  "NW005-1": {
+    "barcode": "733739001757",
+    "priorityStatus": "Non Priority"
+  },
+  "NW006-1": {
+    "barcode": "733739006905",
+    "priorityStatus": "Top Priority"
+  },
+  "NW007-1": {
+    "barcode": "733739804716",
+    "priorityStatus": "Non Priority"
+  },
+  "NW007-2": {
+    "barcode": "733739004710",
+    "priorityStatus": "Non Priority"
+  },
+  "NW010-1": {
+    "barcode": "733739001047",
+    "priorityStatus": "Top Priority"
+  },
+  "NW011-1": {
+    "barcode": "733739003720",
+    "priorityStatus": "Non Priority"
+  },
+  "NW012-1": {
+    "barcode": "733739006707",
+    "priorityStatus": "Top Priority"
+  },
+  "NW013-1": {
+    "barcode": "733739003676",
+    "priorityStatus": "Discontinue"
+  },
+  "NW015-1": {
+    "barcode": "733739016539",
+    "priorityStatus": "Non Priority"
+  },
+  "NW016-1": {
+    "barcode": "733739003553",
+    "priorityStatus": "Non Priority"
+  },
+  "NW017-1": {
+    "barcode": "733739003652",
+    "priorityStatus": "Non Priority"
+  },
+  "NW019-1": {
+    "barcode": "733739003201",
+    "priorityStatus": "Non Priority"
+  },
+  "NW020-1": {
+    "barcode": "733739006899",
+    "priorityStatus": "Top Priority"
+  },
+  "NW021-1": {
+    "barcode": "733739038029",
+    "priorityStatus": "Newly Added"
+  },
+  "NW023-1": {
+    "barcode": "733739033819",
+    "priorityStatus": "Non Priority"
+  },
+  "NW024-2": {
+    "barcode": "733739004789",
+    "priorityStatus": "Discontinue"
+  },
+  "NW025-1": {
+    "barcode": "733739903563",
+    "priorityStatus": "Non Priority"
+  },
+  "NW026-2": {
+    "barcode": "733739004475",
+    "priorityStatus": "Newly Added"
+  },
+  "NW028-2": {
+    "barcode": "733739009906",
+    "priorityStatus": "Non Priority"
+  },
+  "NW031-1": {
+    "barcode": "733739804662"
+  },
+  "NW031-2": {
+    "barcode": "733739004666",
+    "priorityStatus": "Newly Added"
+  },
+  "NW033-2": {
+    "barcode": "733739004567",
+    "priorityStatus": "Newly Added"
+  },
+  "NW035-2": {
+    "barcode": "733739000965",
+    "priorityStatus": "Newly Added"
+  },
+  "NW036-1": {
+    "barcode": "733739806901",
+    "priorityStatus": "Top Priority"
+  },
+  "NW041-1": {
+    "barcode": "733739016614",
+    "priorityStatus": "Non Priority"
+  },
+  "NW042-1": {
+    "barcode": "733739003300",
+    "priorityStatus": "Non Priority"
+  },
+  "NW045-2": {
+    "barcode": "733739004680",
+    "priorityStatus": "Newly Added"
+  },
+  "NW047-2": {
+    "barcode": "733739016522",
+    "priorityStatus": "Non Priority"
+  },
+  "NW049-1": {
+    "barcode": "733739800893",
+    "priorityStatus": "Discontinue"
+  },
+  "NW049-2": {
+    "barcode": "733739000897",
+    "priorityStatus": "Newly Added"
+  },
+  "NW050-1": {
+    "barcode": "733739001764",
+    "priorityStatus": "Non Priority"
+  },
+  "NW052-1": {
+    "barcode": "733739003690",
+    "priorityStatus": "Top Priority"
+  },
+  "NW053-1": {
+    "barcode": "733739037961",
+    "priorityStatus": "Non Priority"
+  },
+  "NW054-1": {
+    "barcode": "733739006721",
+    "priorityStatus": "Non Priority"
+  },
+  "NW057-1": {
+    "barcode": "733739003775",
+    "priorityStatus": "Non Priority"
+  },
+  "NW058-1": {
+    "barcode": "733739032102",
+    "priorityStatus": "Newly Added"
+  },
+  "NW059-1": {
+    "barcode": "733739046031",
+    "priorityStatus": "Newly Added"
+  },
+  "NW060-1": {
+    "barcode": "733739030863",
+    "priorityStatus": "Newly Added"
+  },
+  "NW061-1": {
+    "barcode": "733739015501",
+    "priorityStatus": "Newly Added"
+  },
+  "NW062-1": {
+    "barcode": "733739012913",
+    "priorityStatus": "Newly Added"
+  },
+  "NW063-1": {
+    "barcode": "733739016102",
+    "priorityStatus": "Newly Added"
+  },
+  "NW064-1": {
+    "barcode": "733739029263",
+    "priorityStatus": "Newly Added"
+  },
+  "NW065-1": {
+    "barcode": "733739003584",
+    "priorityStatus": "Non Priority"
+  },
+  "NW066-1": {
+    "barcode": "733739030085",
+    "priorityStatus": "Non Priority"
+  },
+  "OR001-1": {
+    "barcode": "851770007276",
+    "priorityStatus": "Non Priority"
+  },
+  "OR002-1": {
+    "barcode": "851770008631",
+    "priorityStatus": "Non Priority"
+  },
+  "OS001-1": {
+    "barcode": "5021265249282",
+    "priorityStatus": "Non Priority"
+  },
+  "OS002-1": {
+    "barcode": "5021265249305"
+  },
+  "PF001-1": {
+    "priorityStatus": "Discontinue"
+  },
+  "PF002-1": {
+    "barcode": "5021265245741",
+    "priorityStatus": "Non Priority"
+  },
+  "PF003-1": {
+    "barcode": "5021265223350",
+    "priorityStatus": "Top Priority"
+  },
+  "PF004-1": {
+    "priorityStatus": "Top Priority"
+  },
+  "PF007-1": {
+    "barcode": "5021265223398",
+    "priorityStatus": "Non Priority"
+  },
+  "RE001-1": {
+    "barcode": "855681006038",
+    "priorityStatus": "Top Priority"
+  },
+  "RE002-1": {
+    "barcode": "850015199646",
+    "priorityStatus": "Top Priority"
+  },
+  "RE003-1": {
+    "barcode": "855681006007",
+    "priorityStatus": "Non Priority"
+  },
+  "RE004-1": {
+    "barcode": "855681006021",
+    "priorityStatus": "Non Priority"
+  },
+  "RE007-1": {
+    "barcode": "855681006014",
+    "priorityStatus": "Non Priority"
+  },
+  "RE008-1": {
+    "barcode": "855681006298",
+    "priorityStatus": "Non Priority"
+  },
+  "RE010-1": {
+    "barcode": "855681006137",
+    "priorityStatus": "Non Priority"
+  },
+  "RW001-1": {
+    "priorityStatus": "Non Priority"
+  },
+  "SC001-1": {
+    "barcode": "8006540687444",
+    "priorityStatus": "Non Priority"
+  },
+  "SC002-1": {
+    "barcode": "8700216433280",
+    "priorityStatus": "Non Priority"
+  },
+  "SC003-1": {
+    "barcode": "5012335872608",
+    "priorityStatus": "Non Priority"
+  },
+  "SC004-1": {
+    "barcode": "8700216433242",
+    "priorityStatus": "Non Priority"
+  },
+  "SC005-1": {
+    "barcode": "8700216436342",
+    "priorityStatus": "Non Priority"
+  },
+  "SC006-1": {
+    "barcode": "5012335873100"
+  },
+  "SC007-1": {
+    "barcode": "8006540687475"
+  },
+  "SO002-1": {
+    "barcode": "033984033160",
+    "priorityStatus": "Discontinue"
+  },
+  "SS006-1": {
+    "barcode": "631656320053",
+    "priorityStatus": "Discontinue"
+  },
+  "SW001-1": {
+    "priorityStatus": "Non Priority"
+  },
+  "SW002-1": {
+    "barcode": "9311770602907",
+    "priorityStatus": "Non Priority"
+  },
+  "SW003-1": {
+    "priorityStatus": "Non Priority"
+  },
+  "SW005-1": {
+    "barcode": "9311770605274",
+    "priorityStatus": "Top Priority"
+  },
+  "SW007-1": {
+    "barcode": "9311770592475",
+    "priorityStatus": "Non Priority"
+  },
+  "SW008-1": {
+    "barcode": "9311770605953",
+    "priorityStatus": "Non Priority"
+  },
+  "SW009-1": {
+    "barcode": "9311770588218",
+    "priorityStatus": "Non Priority"
+  },
+  "SW010-1": {
+    "priorityStatus": "Non Priority"
+  },
+  "SW012-1": {
+    "barcode": "9311770589383",
+    "priorityStatus": "Non Priority"
+  },
+  "SW013-1": {
+    "priorityStatus": "Non Priority"
+  },
+  "SW014-1": {
+    "priorityStatus": "Non Priority"
+  },
+  "SW014-2": {
+    "barcode": "9311770607605",
+    "priorityStatus": "Non Priority"
+  },
+  "SW017-1": {
+    "barcode": "9311770606226",
+    "priorityStatus": "Non Priority"
+  },
+  "SW018-1": {
+    "barcode": "9311770610193",
+    "priorityStatus": "Non Priority"
+  },
+  "SW019-1": {
+    "barcode": "9311770610209",
+    "priorityStatus": "Non Priority"
+  },
+  "SW020-1": {
+    "barcode": "9311770614870",
+    "priorityStatus": "Non Priority"
+  },
+  "SW021-1": {
+    "barcode": "9311770615068",
+    "priorityStatus": "Non Priority"
+  },
+  "SW022-1": {
+    "barcode": "9311770614979",
+    "priorityStatus": "Non Priority"
+  },
+  "SW023-1": {
+    "barcode": "9311770608787",
+    "priorityStatus": "Non Priority"
+  },
+  "SW023-2": {
+    "barcode": "9311770608817",
+    "priorityStatus": "Non Priority"
+  },
+  "SW024-1": {
+    "barcode": "9311770597050",
+    "priorityStatus": "Non Priority"
+  },
+  "SW025-1": {
+    "barcode": "9311770596268",
+    "priorityStatus": "Non Priority"
+  },
+  "SW026-1": {
+    "barcode": "93566728",
+    "priorityStatus": "Non Priority"
+  },
+  "SW027-1": {
+    "barcode": "9311770611596",
+    "priorityStatus": "Non Priority"
+  },
+  "SW028-1": {
+    "barcode": "9311770596398",
+    "priorityStatus": "Non Priority"
+  },
+  "SW029-1": {
+    "barcode": "9311770605304",
+    "priorityStatus": "Non Priority"
+  },
+  "SW030-1": {
+    "barcode": "9311770607759",
+    "priorityStatus": "Non Priority"
+  },
+  "SW031-1": {
+    "priorityStatus": "Discontinue"
+  },
+  "SW032-1": {
+    "priorityStatus": "Discontinue"
+  },
+  "SW033-1": {
+    "barcode": "9311770612524",
+    "priorityStatus": "Non Priority"
+  },
+  "SW034-1": {
+    "priorityStatus": "Non Priority"
+  },
+  "SW034-2": {
+    "barcode": "9311770601153",
+    "priorityStatus": "Non Priority"
+  },
+  "SW035-1": {
+    "priorityStatus": "Non Priority"
+  },
+  "SW036-1": {
+    "barcode": "9311770612258",
+    "priorityStatus": "Non Priority"
+  },
+  "SW037-1": {
+    "barcode": "9311770598200",
+    "priorityStatus": "Non Priority"
+  },
+  "SW037-2": {
+    "barcode": "9311770599573",
+    "priorityStatus": "Non Priority"
+  },
+  "SW038-1": {
+    "barcode": "9311770608800",
+    "priorityStatus": "Non Priority"
+  },
+  "SW038-2": {
+    "barcode": "9311770608831",
+    "priorityStatus": "Non Priority"
+  },
+  "SW039-1": {
+    "barcode": "9311770615259",
+    "priorityStatus": "Non Priority"
+  },
+  "SW040-1": {
+    "barcode": "9311770604246",
+    "priorityStatus": "Newly Added"
+  },
+  "SW041-1": {
+    "barcode": "93566766",
+    "priorityStatus": "Newly Added"
+  },
+  "SW042-1": {
+    "priorityStatus": "Newly Added"
+  },
+  "TE001-1": {
+    "barcode": "5000462313590",
+    "priorityStatus": "Non Priority"
+  },
+  "TE002-1": {
+    "barcode": "5059512727481",
+    "priorityStatus": "Non Priority"
+  },
+  "TQ001-1": {
+    "barcode": "858111007599",
+    "priorityStatus": "Top Priority"
+  },
+  "TV001-1": {
+    "barcode": "X001U8S14B",
+    "priorityStatus": "Non Priority"
+  },
+  "UA002-1": {
+    "barcode": "5021265245697",
+    "priorityStatus": "Non Priority"
+  },
+  "VE002-1": {
+    "barcode": "5021265222605",
+    "priorityStatus": "Non Priority"
+  },
+  "VP001-1": {
+    "barcode": "857273008529",
+    "priorityStatus": "Top Priority"
+  },
+  "VP001-2": {
+    "barcode": "850005892663",
+    "priorityStatus": "Non Priority"
+  },
+  "VP003-1": {
+    "barcode": "857273008512",
+    "priorityStatus": "Top Priority"
+  },
+  "VP004-2": {
+    "barcode": "8445291871731",
+    "priorityStatus": "Non Priority"
+  },
+  "VP004-3": {
+    "barcode": "8445290486462",
+    "priorityStatus": "Non Priority"
+  },
+  "VP005-1": {
+    "barcode": "X000NWX3R3",
+    "priorityStatus": "Non Priority"
+  },
+  "VP005-2": {
+    "barcode": "X0030ZVF0R",
+    "priorityStatus": "Non Priority"
+  },
+  "VP007-1": {
+    "barcode": "X00474TICR",
+    "priorityStatus": "Non Priority"
+  },
+  "VP008-1": {
+    "barcode": "X004H8GS8F",
+    "priorityStatus": "Non Priority"
+  },
+  "VP009-1": {
+    "barcode": "X000NWVP9B",
+    "priorityStatus": "Non Priority"
+  },
+  "VP010-1": {
+    "barcode": "628063075911",
+    "priorityStatus": "Non Priority"
+  },
+  "VP011-1": {
+    "barcode": "857273008666",
+    "priorityStatus": "Non Priority"
+  },
+  "VP012-1": {
+    "barcode": "X004H8GI85",
+    "priorityStatus": "Newly Added"
+  },
+  "VP013-1": {
+    "barcode": "810089956361",
+    "priorityStatus": "Newly Added"
+  },
+  "VP014-1": {
+    "barcode": "850232005157",
+    "priorityStatus": "Non Priority"
+  },
+  "VP015-1": {
+    "barcode": "810089956552",
+    "priorityStatus": "Non Priority"
+  },
+  "VP017-1": {
+    "barcode": "810089956613",
+    "priorityStatus": "Non Priority"
+  },
+  "VP018-1": {
+    "barcode": "810089956545",
+    "priorityStatus": "Non Priority"
+  },
+  "VP019-1": {
+    "barcode": "810089956538",
+    "priorityStatus": "Non Priority"
+  },
+  "VP020-1": {
+    "barcode": "8445291192096",
+    "priorityStatus": "Non Priority"
+  },
+  "VP021-1": {
+    "barcode": "810089956675",
+    "priorityStatus": "Non Priority"
+  },
+  "VP022-1": {
+    "barcode": "8445291269552",
+    "priorityStatus": "Non Priority"
+  },
+  "VS001-1": {
+    "barcode": "022600000563",
+    "priorityStatus": "Top Priority"
+  },
+  "VS001-2": {
+    "barcode": "022600100003",
+    "priorityStatus": "Non Priority"
+  },
+  "VS001-3": {
+    "barcode": "022600000389",
+    "priorityStatus": "Non Priority"
+  },
+  "VS001-4": {
+    "barcode": "022600978213",
+    "priorityStatus": "Non Priority"
+  },
+  "VS003-1": {
+    "barcode": "022600003199",
+    "priorityStatus": "Non Priority"
+  },
+  "WG001-1": {
+    "barcode": "9400581050981",
+    "priorityStatus": "Non Priority"
+  },
+  "WG002-1": {
+    "barcode": "9345156216143",
+    "priorityStatus": "Non Priority"
+  },
+  "WG003-1": {
+    "barcode": "9400581048315",
+    "priorityStatus": "Top Priority"
+  },
+  "WG005-1": {
+    "barcode": "9400581048223",
+    "priorityStatus": "Non Priority"
+  },
+  "WG006-1": {
+    "barcode": "9400581048216",
+    "priorityStatus": "Non Priority"
+  },
+  "WG007-1": {
+    "barcode": "9400581045024",
+    "priorityStatus": "Non Priority"
+  },
+  "WG008-1": {
+    "barcode": "9400581044881",
+    "priorityStatus": "Non Priority"
+  },
+  "WG010-1": {
+    "barcode": "9400581048155",
+    "priorityStatus": "Non Priority"
+  },
+  "WG012-1": {
+    "barcode": "9345156216167",
+    "priorityStatus": "Non Priority"
+  },
+  "WG013-1": {
+    "barcode": "9400581048209",
+    "priorityStatus": "Non Priority"
+  },
+  "WG014-1": {
+    "barcode": "9345156208124",
+    "priorityStatus": "Non Priority"
+  },
+  "WG015-1": {
+    "barcode": "9400581044904",
+    "priorityStatus": "Non Priority"
+  },
+  "WG016-1": {
+    "barcode": "9400581051513",
+    "priorityStatus": "Non Priority"
+  },
+  "WG017-1": {
+    "barcode": "9345156216181",
+    "priorityStatus": "Non Priority"
+  },
+  "WG018-1": {
+    "barcode": "9345156211315",
+    "priorityStatus": "Non Priority"
+  },
+  "WM001-1": {
+    "barcode": "5021265221301",
+    "priorityStatus": "Top Priority"
+  },
+  "WM002-1": {
+    "barcode": "5021265223510",
+    "priorityStatus": "Non Priority"
+  },
+  "WM003-1": {
+    "barcode": "5021265244164",
+    "priorityStatus": "Non Priority"
+  },
+  "WM005-1": {
+    "barcode": "5021265223534",
+    "priorityStatus": "Newly Added"
+  },
+  "WN001-1": {
+    "barcode": "625273036657",
+    "priorityStatus": "Non Priority"
+  },
+  "WN002-1": {
+    "barcode": "625273036893",
+    "priorityStatus": "Non Priority"
+  },
+  "WN003-1": {
+    "barcode": "625273038798",
+    "priorityStatus": "Non Priority"
+  },
+  "WN006-1": {
+    "barcode": "625273033779",
+    "priorityStatus": "Non Priority"
+  },
+  "WN007-1": {
+    "barcode": "625273033953",
+    "priorityStatus": "Non Priority"
+  },
+  "WN008-1": {
+    "barcode": "625273039078",
+    "priorityStatus": "Non Priority"
+  },
+  "WN011-1": {
+    "barcode": "625273033977",
+    "priorityStatus": "Non Priority"
+  },
+  "WN012-1": {
+    "barcode": "625273031706",
+    "priorityStatus": "Non Priority"
+  },
+  "WN014-1": {
+    "barcode": "625273036640",
+    "priorityStatus": "Non Priority"
+  },
+  "WN015-1": {
+    "barcode": "625273034776",
+    "priorityStatus": "Non Priority"
+  },
+  "WN016-1": {
+    "barcode": "625273031751",
+    "priorityStatus": "Non Priority"
+  },
+  "WN017-1": {
+    "barcode": "625273039092",
+    "priorityStatus": "Non Priority"
+  },
+  "WN018-1": {
+    "barcode": "625273039085",
+    "priorityStatus": "Non Priority"
+  },
+  "WN019-1": {
+    "barcode": "625273030761",
+    "priorityStatus": "Non Priority"
+  },
+  "WN020-1": {
+    "barcode": "625273030778",
+    "priorityStatus": "Non Priority"
+  },
+  "WN021-1": {
+    "barcode": "625273033755",
+    "priorityStatus": "Non Priority"
+  },
+  "WN022-1": {
+    "barcode": "625273038767",
+    "priorityStatus": "Non Priority"
+  },
+  "WN023-1": {
+    "barcode": "625273039504",
+    "priorityStatus": "Non Priority"
+  },
+  "WN024-1": {
+    "barcode": "625273039245",
+    "priorityStatus": "Non Priority"
+  },
+  "WN025-1": {
+    "barcode": "625273038224",
+    "priorityStatus": "Non Priority"
+  },
+  "WN026-1": {
+    "barcode": "625273039252",
+    "priorityStatus": "Non Priority"
+  },
+  "WN027-1": {
+    "barcode": "625273039269",
+    "priorityStatus": "Non Priority"
+  },
+  "WU001-1": {
+    "barcode": "627843568889",
+    "priorityStatus": "Discontinue"
+  },
+  "WW001-1": {
+    "barcode": "5021265222001",
+    "priorityStatus": "Top Priority"
+  },
+  "WW002-1": {
+    "priorityStatus": "Non Priority"
+  },
+  "WW003-1": {
+    "barcode": "5021265243792",
+    "priorityStatus": "Non Priority"
+  },
+  "WW004-1": {
+    "barcode": "5021265246298",
+    "priorityStatus": "Non Priority"
+  },
+  "YT003-1": {
+    "barcode": "817598000011",
+    "priorityStatus": "Non Priority"
+  },
+  "YT004-1": {
+    "barcode": "817598000028",
+    "priorityStatus": "Non Priority"
+  },
+  "YT007-1": {
+    "barcode": "817598000356",
+    "priorityStatus": "Non Priority"
+  },
+  "YT010-1": {
+    "barcode": "850021920098",
+    "priorityStatus": "Non Priority"
+  },
+  "YT011-1": {
+    "barcode": "850021920876",
+    "priorityStatus": "Non Priority"
+  },
+  "YT013-1": {
+    "barcode": "817598001605",
+    "priorityStatus": "Non Priority"
+  },
+  "YT014-1": {
+    "barcode": "817598001735",
+    "priorityStatus": "Non Priority"
+  }
+}
