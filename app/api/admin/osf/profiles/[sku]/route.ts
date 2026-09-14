@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserContext, hasPermission } from "@/lib/rbac";
+import { ensureVaultForceIncludedRops } from "@/lib/vault-osf/ensure-force-included-rops";
+import { resolveVaultOsfManualSkuKey } from "@/lib/vault-osf/sku-policy";
 import { osfProfilePatchSchema } from "@/lib/validation/osf";
 
 const skuParamSchema = z.string().trim().min(1).max(100);
@@ -30,7 +33,9 @@ export async function PATCH(
   if (!skuParsed.success) {
     return NextResponse.json({ error: "Invalid SKU" }, { status: 400 });
   }
-  const sku = skuParsed.data;
+  let sku = skuParsed.data;
+  const manualKey = resolveVaultOsfManualSkuKey(sku);
+  if (manualKey) sku = manualKey;
 
   const body = await request.json().catch(() => ({}));
   const parsed = osfProfilePatchSchema.safeParse(body);
@@ -62,8 +67,13 @@ export async function PATCH(
     where: { companyId, sku },
     select: { sku: true },
   });
-  if (!catalog) {
+  // Vault yellow/blue SKUs may exist only in ERP / checked workbook, not ProductItem.
+  if (!catalog && !(isVaultOsDeployment() && manualKey)) {
     return NextResponse.json({ error: "SKU not found in catalog" }, { status: 404 });
+  }
+
+  if (isVaultOsDeployment()) {
+    await ensureVaultForceIncludedRops(companyId);
   }
 
   const profile = await prisma.productOsfProfile.upsert({
