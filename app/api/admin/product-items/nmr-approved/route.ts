@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 import { writeAuditLog } from "@/lib/audit-log";
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 import { normalizeNmrItemCode } from "@/lib/nmr-approved-items";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
@@ -11,11 +12,22 @@ const createSchema = z.object({
   itemCode: trimmedString(1, LIMITS.sku.max),
 });
 
+function vaultBlocked() {
+  return NextResponse.json(
+    {
+      error: "NMRA-approved items are Cosmo OS only",
+      code: "NMRA_COSMO_ONLY",
+    },
+    { status: 409 },
+  );
+}
+
 export async function GET() {
   const auth = await requirePermission("products.read");
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
+  if (isVaultOsDeployment()) return vaultBlocked();
 
   const companyId = auth.context!.user!.companyId;
   if (!companyId) {
@@ -36,6 +48,7 @@ export async function POST(request: NextRequest) {
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
+  if (isVaultOsDeployment()) return vaultBlocked();
 
   const companyId = auth.context!.user!.companyId;
   if (!companyId) {

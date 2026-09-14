@@ -21,6 +21,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SortableColumnHeader } from "@/components/ui/sortable-column-header";
 import { TableSkeleton } from "@/components/skeletons/table-skeleton";
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 import { createClientPerfLogger } from "@/lib/client-perf";
 import { notify } from "@/lib/notify";
 import { mergeErpPriorityFilterOptions } from "@/lib/product-items/erp-priority-options";
@@ -190,6 +191,7 @@ export function ProductItemsPanel({ initialData, canManage = false }: ProductIte
   );
   const [loading, setLoading] = useState(!initialData);
   const [syncing, setSyncing] = useState(false);
+  const vault = isVaultOsDeployment();
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [locationFilter, setLocationFilter] = useState("");
@@ -288,7 +290,11 @@ export function ProductItemsPanel({ initialData, canManage = false }: ProductIte
     setSyncing(true);
     try {
       if (!opts?.silent) {
-        notify.success("Syncing priorities and prices from ERP…");
+        notify.success(
+          vault
+            ? "Syncing all items + priorities from ERP1 / ERP2…"
+            : "Syncing priorities and prices from ERP…",
+        );
       }
       const res = await fetch("/api/admin/product-items/sync-erp-priorities", { method: "POST" });
       const data = (await res.json()) as {
@@ -297,6 +303,15 @@ export function ProductItemsPanel({ initialData, canManage = false }: ProductIte
         sources?: Array<{ id: string; label: string; status: string; error?: string | null }>;
         prices?: { status?: string; updated?: number; error?: string | null };
         ogfPrices?: { status?: string; updated?: number; error?: string | null };
+        catalog?: {
+          status?: string;
+          created?: number;
+          updated?: number;
+          catalogSize?: number;
+          erp1Count?: number;
+          erp2Count?: number;
+          error?: string | null;
+        };
       };
       if (!res.ok) {
         notify.error(data.error ?? "ERP sync failed");
@@ -308,24 +323,30 @@ export function ProductItemsPanel({ initialData, canManage = false }: ProductIte
           `Partial priority sync: ${failed.map((s) => s.label).join(", ")} unavailable. Other ERP updated.`,
         );
       }
-      if (data.prices?.status === "failed") {
+      if (!vault && data.prices?.status === "failed") {
         notify.error(data.prices.error ?? "Price sync failed");
-      } else if (data.prices?.status === "not_configured") {
+      } else if (!vault && data.prices?.status === "not_configured") {
         notify.error(data.prices.error ?? "No Cosmo ERP instance for price sync");
       }
-      if (data.ogfPrices?.status === "failed") {
+      if (!vault && data.ogfPrices?.status === "failed") {
         notify.error(data.ogfPrices.error ?? "LWK OGF price sync failed");
-      } else if (data.ogfPrices?.status === "not_configured") {
+      } else if (!vault && data.ogfPrices?.status === "not_configured") {
         notify.error(data.ogfPrices.error ?? "No LWK ERP instance for OGF price sync");
       }
-      const catalogOk =
-        data.prices?.status !== "failed" && data.prices?.status !== "not_configured";
-      if (failed.length === 0 && catalogOk) {
+      if (vault && data.catalog?.status === "ok") {
         notify.success(
-          `Priorities synced (${data.updatedRows?.toLocaleString() ?? 0} rows). Standard Selling (${(data.prices?.updated ?? 0).toLocaleString()}). LWK OGF (${(data.ogfPrices?.updated ?? 0).toLocaleString()}).`,
+          `Catalog synced from ERP1 (${data.catalog.erp1Count?.toLocaleString() ?? 0}) + ERP2 (${data.catalog.erp2Count?.toLocaleString() ?? 0}). Added ${(data.catalog.created ?? 0).toLocaleString()}, updated ${(data.catalog.updated ?? 0).toLocaleString()}. Priorities: ${(data.updatedRows ?? 0).toLocaleString()} rows.`,
         );
-      } else if (failed.length === 0) {
-        notify.success(`Priorities synced (${data.updatedRows?.toLocaleString() ?? 0} rows).`);
+      } else if (!vault) {
+        const catalogOk =
+          data.prices?.status !== "failed" && data.prices?.status !== "not_configured";
+        if (failed.length === 0 && catalogOk) {
+          notify.success(
+            `Priorities synced (${data.updatedRows?.toLocaleString() ?? 0} rows). Standard Selling (${(data.prices?.updated ?? 0).toLocaleString()}). LWK OGF (${(data.ogfPrices?.updated ?? 0).toLocaleString()}).`,
+          );
+        } else if (failed.length === 0) {
+          notify.success(`Priorities synced (${data.updatedRows?.toLocaleString() ?? 0} rows).`);
+        }
       }
       await fetchPageData();
     } catch {
@@ -333,7 +354,7 @@ export function ProductItemsPanel({ initialData, canManage = false }: ProductIte
     } finally {
       setSyncing(false);
     }
-  }, [fetchPageData]);
+  }, [fetchPageData, vault]);
 
   const skippedInitialFetch = useRef(false);
   const syncedOnce = useRef(false);
@@ -413,8 +434,9 @@ export function ProductItemsPanel({ initialData, canManage = false }: ProductIte
             Product Items
           </h1>
           <p className="text-muted-foreground mt-1 text-xs">
-            Product Priority from ERP1 / ERP2 (Manufacturing). LWK location = OGF Price List. Other locations = Cosmo Standard Selling.
-            Syncs when you open this page.
+            {vault
+              ? "Sync from ERP pulls all stock Items from ERP1 + ERP2 into this list, then Product Priority. Search works for every supplement SKU after sync."
+              : "Product Priority from ERP1 / ERP2 (Manufacturing). LWK location = OGF Price List. Other locations = Cosmo Standard Selling. Syncs when you open this page."}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-sm">
@@ -451,7 +473,7 @@ export function ProductItemsPanel({ initialData, canManage = false }: ProductIte
         </div>
       </div>
 
-      <NmrApprovedItemsForm canEdit={canManage} />
+      {isVaultOsDeployment() ? null : <NmrApprovedItemsForm canEdit={canManage} />}
 
       <div className="rounded-lg border border-border/70 bg-background/80 p-3">
         <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-[minmax(220px,1.4fr)_minmax(130px,0.8fr)_minmax(130px,0.8fr)_minmax(150px,1fr)_minmax(170px,1fr)_minmax(160px,1fr)_auto]">
