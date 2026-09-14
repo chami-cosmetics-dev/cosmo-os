@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import {
   FOLLOW_UP_STATUS_LABELS,
+  getAbandonmentReasonLabel,
   getCustomerResponseLabel,
 } from "@/lib/abandoned-orders-constants";
 import { requirePermission } from "@/lib/rbac";
@@ -88,6 +89,7 @@ export async function GET(request: NextRequest) {
       "Currency",
       "Store",
       "Follow-up Status",
+      "Abandonment Reason",
       "Customer Response",
       "Remark",
       "Last Updated By",
@@ -108,6 +110,10 @@ export async function GET(request: NextRequest) {
       "Follow-up Status":
         item.followUpStatus
           ? (FOLLOW_UP_STATUS_LABELS[item.followUpStatus] ?? item.followUpStatus)
+          : "",
+      "Abandonment Reason":
+        item.abandonmentReason && item.abandonmentReason !== null
+          ? getAbandonmentReasonLabel(item.abandonmentReason)
           : "",
       "Customer Response":
         item.customerResponse && item.customerResponse !== "recovered_sale"

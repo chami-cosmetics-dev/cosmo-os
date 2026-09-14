@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 
 import { addressFromShopifyRest } from "@/lib/abandoned-checkout-address";
+import { refreshCheckoutDedupeFields } from "@/lib/abandoned-checkout-dedupe";
 import { prisma } from "@/lib/prisma";
 import { LIMITS } from "@/lib/validation";
 import type { ShopifyCheckoutWebhookPayload } from "@/lib/validation/shopify-checkout";
@@ -228,6 +229,32 @@ export async function upsertAbandonedCheckoutFromWebhook(input: {
         lastFollowUpAt: null,
       },
     });
+  }
+
+  const upsertedRow = await prisma.shopifyAbandonedCheckout.findUnique({
+    where: {
+      companyId_shopifyCheckoutGid: {
+        companyId: input.companyId,
+        shopifyCheckoutGid,
+      },
+    },
+    select: { id: true, customerPhone: true, lineItemsJson: true },
+  });
+  if (upsertedRow) {
+    try {
+      await refreshCheckoutDedupeFields({
+        id: upsertedRow.id,
+        companyId: input.companyId,
+        customerPhone: upsertedRow.customerPhone,
+        lineItemsJson: upsertedRow.lineItemsJson,
+      });
+    } catch (dedupeErr) {
+      console.error("[Shopify abandonedCheckout webhook] dedupe failed", {
+        companyId: input.companyId,
+        shopifyCheckoutGid,
+        error: dedupeErr instanceof Error ? dedupeErr.message : String(dedupeErr),
+      });
+    }
   }
 
   await prisma.companyAbandonedCheckoutSync.upsert({

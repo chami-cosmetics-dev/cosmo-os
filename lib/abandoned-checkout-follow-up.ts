@@ -1,8 +1,12 @@
 import { prisma } from "@/lib/prisma";
 import { writeAuditLog } from "@/lib/audit-log";
 import { abandonedOrderFollowUpPatchBodySchema } from "@/lib/validation";
-import type { CustomerResponse, FollowUpStatus } from "@/lib/abandoned-orders-constants";
-import { FOLLOW_UP_STATUSES } from "@/lib/abandoned-orders-constants";
+import type {
+  AbandonmentReason,
+  CustomerResponse,
+  FollowUpStatus,
+} from "@/lib/abandoned-orders-constants";
+import { ABANDONMENT_REASONS, FOLLOW_UP_STATUSES } from "@/lib/abandoned-orders-constants";
 import type { AbandonedOrdersListItem } from "@/lib/page-data/abandoned-orders-types";
 
 type CheckoutRow = {
@@ -21,6 +25,8 @@ type CheckoutRow = {
   followUpStatus: string;
   customerResponse: string | null;
   remark: string | null;
+  abandonmentReason: string | null;
+  exactDuplicateGroupId: string | null;
   lastFollowUpAt: Date | null;
   shopifyRecoveredAt: Date | null;
   lastFollowUpBy: { id: string; name: string | null; email: string | null } | null;
@@ -37,7 +43,21 @@ function parseCustomerResponse(value: string | null): CustomerResponse | null {
   return value as CustomerResponse;
 }
 
-function toListItem(row: CheckoutRow): AbandonedOrdersListItem {
+function parseAbandonmentReason(value: string | null): AbandonmentReason | null {
+  if (!value) return null;
+  return (ABANDONMENT_REASONS as readonly string[]).includes(value)
+    ? (value as AbandonmentReason)
+    : null;
+}
+
+function toListItem(
+  row: CheckoutRow,
+  meta?: {
+    exactDuplicateCount?: number;
+    sameDaySiblingCount?: number;
+    sameDaySiblings?: AbandonedOrdersListItem["sameDaySiblings"];
+  }
+): AbandonedOrdersListItem {
   return {
     id: row.id,
     shopifyCheckoutId: row.shopifyCheckoutId,
@@ -54,6 +74,11 @@ function toListItem(row: CheckoutRow): AbandonedOrdersListItem {
     followUpStatus: parseFollowUpStatus(row.followUpStatus),
     customerResponse: parseCustomerResponse(row.customerResponse),
     remark: row.remark ?? null,
+    abandonmentReason: parseAbandonmentReason(row.abandonmentReason),
+    exactDuplicateGroupId: row.exactDuplicateGroupId,
+    exactDuplicateCount: meta?.exactDuplicateCount ?? 1,
+    sameDaySiblingCount: meta?.sameDaySiblingCount ?? 0,
+    sameDaySiblings: meta?.sameDaySiblings ?? [],
     lastFollowUpBy: row.lastFollowUpBy
       ? {
           id: row.lastFollowUpBy.id,
@@ -65,6 +90,33 @@ function toListItem(row: CheckoutRow): AbandonedOrdersListItem {
     shopifyRecoveredAt: row.shopifyRecoveredAt ? row.shopifyRecoveredAt.toISOString() : null,
   };
 }
+
+const followUpSelect = {
+  id: true,
+  companyId: true,
+  shopifyCheckoutId: true,
+  abandonedAt: true,
+  customerName: true,
+  customerPhone: true,
+  customerEmail: true,
+  billingAddressText: true,
+  shippingAddressText: true,
+  lineItemsSummary: true,
+  totalPrice: true,
+  currency: true,
+  shopifyAdminStoreHandle: true,
+  followUpStatus: true,
+  customerResponse: true,
+  remark: true,
+  abandonmentReason: true,
+  exactDuplicateGroupId: true,
+  lastFollowUpById: true,
+  lastFollowUpAt: true,
+  shopifyRecoveredAt: true,
+  lastFollowUpBy: {
+    select: { id: true, name: true, email: true },
+  },
+} as const;
 
 export async function updateAbandonedCheckoutFollowUp(input: {
   id: string;
@@ -78,34 +130,11 @@ export async function updateAbandonedCheckoutFollowUp(input: {
     throw new Error(first?.message ?? "Invalid follow-up payload");
   }
 
-  const { followUpStatus, customerResponse, remark } = parsedBody.data;
+  const { followUpStatus, customerResponse, remark, abandonmentReason } = parsedBody.data;
 
   const row = await prisma.shopifyAbandonedCheckout.findUnique({
     where: { id: input.id },
-    select: {
-      id: true,
-      companyId: true,
-      shopifyCheckoutId: true,
-      abandonedAt: true,
-      customerName: true,
-      customerPhone: true,
-      customerEmail: true,
-      billingAddressText: true,
-      shippingAddressText: true,
-      lineItemsSummary: true,
-      totalPrice: true,
-      currency: true,
-      shopifyAdminStoreHandle: true,
-      followUpStatus: true,
-      customerResponse: true,
-      remark: true,
-      lastFollowUpById: true,
-      lastFollowUpAt: true,
-      shopifyRecoveredAt: true,
-      lastFollowUpBy: {
-        select: { id: true, name: true, email: true },
-      },
-    },
+    select: followUpSelect,
   });
 
   if (!row || row.companyId !== input.companyId) {
@@ -113,26 +142,50 @@ export async function updateAbandonedCheckoutFollowUp(input: {
   }
 
   const nextCustomerResponse =
-    followUpStatus === "closed"
-      ? customerResponse ?? null
-      : null;
+    followUpStatus === "closed" ? customerResponse ?? null : null;
 
   const nextRemark = remark === undefined ? row.remark : remark ?? null;
+  const nextAbandonmentReason =
+    abandonmentReason === undefined ? row.abandonmentReason : abandonmentReason;
 
-  const updated = await prisma.shopifyAbandonedCheckout.update({
-    where: { id: input.id },
-    data: {
-      followUpStatus,
-      customerResponse: nextCustomerResponse,
-      remark: nextRemark,
-      lastFollowUpById: input.actorUserId,
-      lastFollowUpAt: new Date(),
-    },
-    include: {
-      lastFollowUpBy: {
-        select: { id: true, name: true, email: true },
+  const now = new Date();
+  const updateData = {
+    followUpStatus,
+    customerResponse: nextCustomerResponse,
+    remark: nextRemark,
+    abandonmentReason: nextAbandonmentReason,
+    lastFollowUpById: input.actorUserId,
+    lastFollowUpAt: now,
+  };
+
+  let peerIds: string[] = [];
+  if (row.exactDuplicateGroupId) {
+    const peers = await prisma.shopifyAbandonedCheckout.findMany({
+      where: {
+        companyId: input.companyId,
+        exactDuplicateGroupId: row.exactDuplicateGroupId,
       },
-    },
+      select: { id: true },
+    });
+    peerIds = peers.map((p) => p.id);
+    await prisma.shopifyAbandonedCheckout.updateMany({
+      where: {
+        companyId: input.companyId,
+        exactDuplicateGroupId: row.exactDuplicateGroupId,
+      },
+      data: updateData,
+    });
+  } else {
+    peerIds = [row.id];
+    await prisma.shopifyAbandonedCheckout.update({
+      where: { id: row.id },
+      data: updateData,
+    });
+  }
+
+  const updated = await prisma.shopifyAbandonedCheckout.findUniqueOrThrow({
+    where: { id: row.id },
+    select: followUpSelect,
   });
 
   await writeAuditLog({
@@ -147,16 +200,21 @@ export async function updateAbandonedCheckoutFollowUp(input: {
       followUpStatus: row.followUpStatus,
       customerResponse: row.customerResponse,
       remark: row.remark,
+      abandonmentReason: row.abandonmentReason,
     },
     afterData: {
       followUpStatus: updated.followUpStatus,
       customerResponse: updated.customerResponse,
       remark: updated.remark,
+      abandonmentReason: updated.abandonmentReason,
     },
     metadata: {
       companyId: input.companyId,
+      exactDuplicateGroupId: row.exactDuplicateGroupId,
+      peerCount: peerIds.length,
+      peerIds,
     },
   });
 
-  return toListItem(updated);
+  return toListItem(updated, { exactDuplicateCount: peerIds.length });
 }

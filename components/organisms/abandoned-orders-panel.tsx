@@ -18,6 +18,7 @@ import type {
 import {
   FOLLOW_UP_STATUS_LABELS,
   getAbandonedOrdersResponseDisplay,
+  getAbandonmentReasonLabel,
   MANUAL_CUSTOMER_RESPONSES,
   CUSTOMER_RESPONSE_LABELS,
   type FollowUpStatus,
@@ -157,6 +158,7 @@ export function AbandonedOrdersPanel({
     followUpStatus: AbandonedOrdersListItem["followUpStatus"];
     customerResponse: AbandonedOrdersListItem["customerResponse"];
     remark: string | undefined;
+    abandonmentReason: AbandonedOrdersListItem["abandonmentReason"];
   }) {
     if (!selectedItem) return;
 
@@ -166,6 +168,7 @@ export function AbandonedOrdersPanel({
         followUpStatus: values.followUpStatus,
         customerResponse:
           values.followUpStatus === "closed" ? values.customerResponse : null,
+        abandonmentReason: values.abandonmentReason,
       };
 
       if (values.remark !== undefined) payload.remark = values.remark;
@@ -191,6 +194,19 @@ export function AbandonedOrdersPanel({
     } finally {
       setSaveBusy(false);
     }
+  }
+
+  function jumpToSibling(siblingId: string) {
+    const el = document.getElementById(`abandoned-order-${siblingId}`);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      el.classList.add("ring-2", "ring-primary");
+      window.setTimeout(() => {
+        el.classList.remove("ring-2", "ring-primary");
+      }, 1600);
+      return;
+    }
+    notify.error("Sibling cart not on this page — search by phone or widen filters.");
   }
 
   async function exportCsv() {
@@ -382,11 +398,13 @@ export function AbandonedOrdersPanel({
               <div className="space-y-2">
                 {items.map((item) => {
                   const responseText = getAbandonedOrdersResponseDisplay(item);
+                  const abandonmentLabel = getAbandonmentReasonLabel(item.abandonmentReason);
                   return (
                     <div
+                      id={`abandoned-order-${item.id}`}
                       key={item.id}
                       className={cn(
-                        "rounded-md border-2 p-3",
+                        "rounded-md border-2 p-3 scroll-mt-24",
                         followUpRowBorderClass(item.followUpStatus)
                       )}
                       title={`Follow-up: ${FOLLOW_UP_STATUS_LABELS[item.followUpStatus] ?? item.followUpStatus}`}
@@ -406,6 +424,39 @@ export function AbandonedOrdersPanel({
                               {item.lastFollowUpAt
                                 ? ` · ${formatAppDateTime(new Date(item.lastFollowUpAt))}`
                                 : ""}
+                            </div>
+                          )}
+                          <div className="flex flex-wrap gap-1.5 pt-1">
+                            {item.exactDuplicateCount > 1 && (
+                              <span
+                                className="inline-flex items-center rounded border border-border bg-muted/60 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
+                                title="Exact duplicate carts share follow-up updates"
+                              >
+                                Linked ×{item.exactDuplicateCount}
+                              </span>
+                            )}
+                            {item.sameDaySiblingCount > 0 && (
+                              <span
+                                className="inline-flex items-center rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-800 dark:text-amber-200"
+                                title="Other carts abandoned by this phone today"
+                              >
+                                +{item.sameDaySiblingCount} same day
+                              </span>
+                            )}
+                          </div>
+                          {item.sameDaySiblings.length > 0 && (
+                            <div className="space-y-1 pt-1">
+                              {item.sameDaySiblings.map((sibling) => (
+                                <button
+                                  key={sibling.id}
+                                  type="button"
+                                  className="block w-full truncate text-left text-[11px] text-primary hover:underline"
+                                  onClick={() => jumpToSibling(sibling.id)}
+                                  title={sibling.lineItemsSummary || sibling.id}
+                                >
+                                  → {sibling.lineItemsSummary || "Other cart"}
+                                </button>
+                              ))}
                             </div>
                           )}
                         </div>
@@ -474,6 +525,13 @@ export function AbandonedOrdersPanel({
                             </div>
                           </div>
 
+                          <div className="min-w-0 space-y-1">
+                            <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                              Abandonment reason
+                            </div>
+                            <div className="text-sm break-words leading-snug">{abandonmentLabel}</div>
+                          </div>
+
                           <div className="min-w-0 space-y-1 sm:col-span-2 xl:col-span-1">
                             <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                               Response
@@ -539,7 +597,8 @@ export function AbandonedOrdersPanel({
           <DialogHeader>
             <DialogTitle>Follow-up update</DialogTitle>
             <DialogDescription>
-              Update follow-up status, customer response (when closing), and optional remark.
+              Update follow-up status, optional abandonment reason, customer response (when
+              closing), and optional remark. Exact duplicate carts share these updates.
             </DialogDescription>
           </DialogHeader>
 
@@ -565,6 +624,7 @@ export function AbandonedOrdersPanel({
                 initialFollowUpStatus={selectedItem.followUpStatus}
                 initialCustomerResponse={selectedItem.customerResponse}
                 initialRemark={selectedItem.remark}
+                initialAbandonmentReason={selectedItem.abandonmentReason}
                 busy={saveBusy}
                 onSubmit={submitFollowUp}
               />

@@ -468,6 +468,13 @@ model ShopifyAbandonedCheckout {
   followUpStatus           String   @default("pending")
   customerResponse         String?
   remark                   String?
+  abandonmentReason        String?
+
+  phoneNormalized          String?
+  cartFingerprint          String?
+  exactDuplicateGroupId    String?
+  supersededByCheckoutId   String?
+  supersededAt             DateTime?
 
   lastFollowUpById         String?
   lastFollowUpAt           DateTime?
@@ -478,12 +485,18 @@ model ShopifyAbandonedCheckout {
   company                   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   companyLocation          CompanyLocation? @relation(fields: [companyLocationId], references: [id], onDelete: SetNull)
   lastFollowUpBy           User?  @relation("ShopifyAbandonedCheckoutFollowUpBy", fields: [lastFollowUpById], references: [id], onDelete: SetNull)
+  supersededByCheckout     ShopifyAbandonedCheckout?  @relation("ShopifyAbandonedCheckoutSupersededBy", fields: [supersededByCheckoutId], references: [id], onDelete: SetNull)
+  supersedesCheckouts      ShopifyAbandonedCheckout[] @relation("ShopifyAbandonedCheckoutSupersededBy")
 
   @@unique([companyId, shopifyCheckoutGid])
   @@index([companyId, followUpStatus, abandonedAt(sort: Desc)])
   @@index([companyId, abandonedAt(sort: Desc)])
   @@index([companyId, customerResponse])
   @@index([shopifyAdminStoreHandle])
+  @@index([companyId, phoneNormalized, abandonedAt])
+  @@index([companyId, phoneNormalized, cartFingerprint])
+  @@index([companyId, exactDuplicateGroupId])
+  @@index([companyId, supersededByCheckoutId])
 }
 
 model CompanyAbandonedCheckoutSync {
