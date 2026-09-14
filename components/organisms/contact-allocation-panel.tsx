@@ -19,6 +19,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { parseTpNumbers } from "@/lib/contacts/parse-tp-numbers";
+import { formatAllocationAssigneeLabel } from "@/lib/contacts/staff-sales-allocation";
 import { notify } from "@/lib/notify";
 import { APP_LOCALE, APP_TIME_ZONE } from "@/lib/format-datetime";
 import type {
@@ -77,17 +79,6 @@ function formatMonth(value: string | null | undefined) {
   });
 }
 
-function parseTpNumbers(value: string) {
-  return [
-    ...new Set(
-      value
-        .split(/[,\n]/)
-        .map((item) => item.trim())
-        .filter(Boolean)
-    ),
-  ];
-}
-
 function toQuery(filters: BulkFilters) {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(filters)) {
@@ -136,7 +127,7 @@ function SelectField({
           <SelectItem value={ALL_VALUE}>{placeholder}</SelectItem>
           {options.map((option) => (
             <SelectItem key={option} value={option}>
-              {option}
+              {formatAllocationAssigneeLabel(option)}
             </SelectItem>
           ))}
         </SelectContent>
