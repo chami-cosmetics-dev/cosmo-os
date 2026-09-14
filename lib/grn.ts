@@ -45,6 +45,41 @@ export async function resolveGrnWebhookSecret(erpCompany: string) {
   return secret;
 }
 
+export async function resolveGrnWebhookInstanceSecret(erpCompany: string): Promise<{
+  secret: string;
+  label: string | null;
+} | null> {
+  const location = await prisma.companyLocation.findFirst({
+    where: { erpnextCompany: erpCompany },
+    select: {
+      erpnextInstance: {
+        select: {
+          incomingWebhookSecret: true,
+          label: true,
+        },
+      },
+    },
+  });
+
+  const instance = location?.erpnextInstance;
+  if (instance) {
+    return {
+      secret:
+        instance.incomingWebhookSecret ??
+        process.env.ERPNEXT_INCOMING_WEBHOOK_SECRET ??
+        "",
+      label: instance.label,
+    };
+  }
+
+  const envSecret = process.env.ERPNEXT_INCOMING_WEBHOOK_SECRET ?? "";
+  if (!envSecret) return null;
+  return {
+    secret: envSecret,
+    label: null,
+  };
+}
+
 export async function ingestPurchaseReceiptFromWebhook(
   data: ErpnextPurchaseReceiptWebhookPayload,
   rawPayload: unknown,
