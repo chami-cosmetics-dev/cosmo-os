@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 import { OsfErpError } from "@/lib/osf/erp-cost-supplier";
 import { mergeInstanceSupplierPurchases } from "@/lib/osf/erp-merge";
 import { fetchSupplierPurchasesBySku, normalizeSupplierKey } from "@/lib/osf/erp-purchases";
@@ -53,6 +54,7 @@ export async function GET(request: NextRequest) {
 
   const lastByKey = new Map<string, string | null>();
   const erpInstances = await getAllOsfErpInstances(companyId);
+  const purchaseSource = isVaultOsDeployment() ? "invoice" : "receipt";
   if (erpInstances.length > 0) {
     try {
       const perInstance = await Promise.all(
@@ -61,6 +63,7 @@ export async function GET(request: NextRequest) {
             cfg: inst.cfg,
             sku,
             allowedSuppliers: suppliers.map((s) => ({ name: s.name, code: s.code })),
+            source: purchaseSource,
           }),
         ),
       );

@@ -29,7 +29,41 @@ export type PurchaseRow = {
   item_code?: string | null;
   qty?: number | string | null;
   rate?: number | string | null;
+  docstatus?: number | null;
+  status?: string | null;
 };
+
+/** Receipt (Cosmo default) vs Invoice (Vault — PR rates often placeholder/stale). */
+export type PurchaseDocSource = "receipt" | "invoice";
+
+function purchaseDocMeta(source: PurchaseDocSource): {
+  doctype: string;
+  childDoctype: string;
+  childTable: string;
+} {
+  if (source === "invoice") {
+    return {
+      doctype: "Purchase Invoice",
+      childDoctype: "Purchase Invoice Item",
+      childTable: "tabPurchase Invoice Item",
+    };
+  }
+  return {
+    doctype: "Purchase Receipt",
+    childDoctype: "Purchase Receipt Item",
+    childTable: "tabPurchase Receipt Item",
+  };
+}
+
+/** Submitted only — cancelled / draft never feed cost or supplier compare. */
+export function isUsablePurchaseDoc(
+  row: Pick<PurchaseRow, "docstatus" | "status">,
+): boolean {
+  if (row.docstatus != null && row.docstatus !== 1) return false;
+  const status = (row.status ?? "").trim().toLowerCase();
+  if (status === "cancelled" || status === "draft") return false;
+  return true;
+}
 
 /** Per-supplier purchase summary for one SKU (derived from receipt history). */
 export type SupplierPurchaseSummary = {
@@ -98,6 +132,7 @@ export function accumulateLastPurchasesFromRows(input: {
   const allowlist = buildSupplierAllowlist(input.allowedSuppliers ?? []);
 
   for (const row of input.rows) {
+    if (!isUsablePurchaseDoc(row)) continue;
     const item = row.item_code?.trim();
     if (!item || !input.itemCodes.has(item)) continue;
     if (!isAllowedSupplier(row, allowlist)) continue;
@@ -152,6 +187,7 @@ export function accumulateSupplierPurchasesFromRows(input: {
   const allowlist = buildSupplierAllowlist(input.allowedSuppliers ?? []);
 
   for (const row of input.rows) {
+    if (!isUsablePurchaseDoc(row)) continue;
     const item = row.item_code?.trim();
     if (!item || item !== sku) continue;
     if (!isAllowedSupplier(row, allowlist)) continue;
@@ -216,15 +252,14 @@ async function erpGetJson<T>(cfg: OsfErpCredentials, path: string): Promise<T> {
 }
 
 /**
- * Latest purchase (supplier, qty, date) per item from ERP Purchase Receipts.
+ * Latest purchase (supplier, qty, date) per item from ERP purchase docs.
  *
- * Uses Frappe's parent+child "fields-only" join on `Purchase Receipt` (child
- * `Purchase Receipt Item` columns in `fields`, parent-only filter) because the
- * child doctype is not directly queryable for this API user. Rows come back
- * newest-first, so the first allowed item_code hit is its latest purchase.
- * When `allowedSuppliers` is non-empty, skips receipts whose supplier is not
- * in the company Cosmo/Vault Supplier list (intercompany transfers).
- * Never invents data — items with no allowed receipt stay blank.
+ * Default source = Purchase Receipt (Cosmo). Vault SKU calculator / OSF use
+ * Purchase Invoice — receipt rates are often placeholder (e.g. 100) while
+ * invoices carry the real cost.
+ *
+ * Uses Frappe parent+child "fields-only" join. Rows newest-first; first
+ * allowed item_code hit is latest purchase. Allowlist skips intercompany.
  */
 export async function fetchLastPurchaseByItem(input: {
   cfg: OsfErpCredentials;
@@ -233,18 +268,23 @@ export async function fetchLastPurchaseByItem(input: {
   recentSinceDate?: string;
   /** Company Supplier list; empty/omitted = no filter (legacy). */
   allowedSuppliers?: AllowedSupplier[];
+  /** Default receipt; Vault passes invoice. */
+  source?: PurchaseDocSource;
 }): Promise<Map<string, ItemLastPurchase>> {
   const needed = new Set(input.itemCodes.map((s) => s.trim()).filter(Boolean));
   if (needed.size === 0) return new Map();
 
+  const meta = purchaseDocMeta(input.source ?? "receipt");
   const fields = JSON.stringify([
     "name",
     "supplier",
     "supplier_name",
     "posting_date",
-    "`tabPurchase Receipt Item`.item_code",
-    "`tabPurchase Receipt Item`.qty",
-    "`tabPurchase Receipt Item`.rate",
+    "docstatus",
+    "status",
+    `\`${meta.childTable}\`.item_code`,
+    `\`${meta.childTable}\`.qty`,
+    `\`${meta.childTable}\`.rate`,
   ]);
   const filters = JSON.stringify([["docstatus", "=", 1]]);
 
@@ -253,7 +293,7 @@ export async function fetchLastPurchaseByItem(input: {
 
   for (let page = 0; page < MAX_PAGES; page += 1) {
     const path =
-      `/api/resource/Purchase Receipt?fields=${encodeURIComponent(fields)}` +
+      `/api/resource/${encodeURIComponent(meta.doctype)}?fields=${encodeURIComponent(fields)}` +
       `&filters=${encodeURIComponent(filters)}` +
       `&order_by=${encodeURIComponent("posting_date desc, name desc")}` +
       `&limit_start=${page * PAGE_LENGTH}&limit_page_length=${PAGE_LENGTH}`;
@@ -279,16 +319,6 @@ export async function fetchLastPurchaseByItem(input: {
   return result;
 }
 
-const PURCHASE_RECEIPT_FIELDS = JSON.stringify([
-  "name",
-  "supplier",
-  "supplier_name",
-  "posting_date",
-  "`tabPurchase Receipt Item`.item_code",
-  "`tabPurchase Receipt Item`.qty",
-  "`tabPurchase Receipt Item`.rate",
-]);
-
 /**
  * All allowlisted suppliers that purchased `sku`, with best-ever and last purchase.
  * Tries an optional Frappe child `item_code` filter; falls back to unfiltered pagination.
@@ -297,22 +327,37 @@ export async function fetchSupplierPurchasesBySku(input: {
   cfg: OsfErpCredentials;
   sku: string;
   allowedSuppliers?: AllowedSupplier[];
+  /** Default receipt; Vault passes invoice. */
+  source?: PurchaseDocSource;
 }): Promise<Map<string, SupplierPurchaseSummary>> {
   const sku = input.sku.trim();
   if (!sku) return new Map();
+
+  const meta = purchaseDocMeta(input.source ?? "receipt");
+  const fields = JSON.stringify([
+    "name",
+    "supplier",
+    "supplier_name",
+    "posting_date",
+    "docstatus",
+    "status",
+    `\`${meta.childTable}\`.item_code`,
+    `\`${meta.childTable}\`.qty`,
+    `\`${meta.childTable}\`.rate`,
+  ]);
 
   const tryWithItemFilter = async (useItemFilter: boolean) => {
     const filters = useItemFilter
       ? JSON.stringify([
           ["docstatus", "=", 1],
-          ["Purchase Receipt Item", "item_code", "=", sku],
+          [meta.childDoctype, "item_code", "=", sku],
         ])
       : JSON.stringify([["docstatus", "=", 1]]);
 
     let result = new Map<string, SupplierPurchaseSummary>();
     for (let page = 0; page < MAX_PAGES; page += 1) {
       const path =
-        `/api/resource/Purchase Receipt?fields=${encodeURIComponent(PURCHASE_RECEIPT_FIELDS)}` +
+        `/api/resource/${encodeURIComponent(meta.doctype)}?fields=${encodeURIComponent(fields)}` +
         `&filters=${encodeURIComponent(filters)}` +
         `&order_by=${encodeURIComponent("posting_date desc, name desc")}` +
         `&limit_start=${page * PAGE_LENGTH}&limit_page_length=${PAGE_LENGTH}`;
