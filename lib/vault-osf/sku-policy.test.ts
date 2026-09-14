@@ -4,6 +4,8 @@ import {
   applyVaultOsfSkuPolicy,
   isVaultOsfExcludedSku,
   isVaultOsfForceIncludedSku,
+  isVaultOsfManualSku,
+  resolveVaultOsfManualSkuKey,
   VAULT_OSF_EXCLUDED_SKUS,
   VAULT_OSF_FORCE_INCLUDED_SKUS,
   VAULT_OSF_MANUAL_ROP,
@@ -26,6 +28,12 @@ describe("vault OSF sku policy (checked 2026-09-14 workbook)", () => {
     expect(VAULT_OSF_MANUAL_ROP["TQ001-1"]).toEqual({ sv: 3, ori: 9, ae: 12 });
     expect(VAULT_OSF_MANUAL_ROP["NW028-2"]).toEqual({ sv: 2, ori: 4, ae: 6 });
     expect(VAULT_OSF_MANUAL_ROP["NTC03-1"]).toEqual({ sv: 3, ori: 0, ae: 0 });
+    expect(VAULT_OSF_MANUAL_ROP["NW031-1"]).toEqual({ sv: 3, ori: 0, ae: 0 });
+  });
+
+  it("resolves NW031-1 case-insensitively as manual SKU", () => {
+    expect(resolveVaultOsfManualSkuKey("Nw031-1")).toBe("NW031-1");
+    expect(isVaultOsfManualSku("nw031-1")).toBe(true);
   });
 
   it("applyVaultOsfSkuPolicy drops excluded only", () => {

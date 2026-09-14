@@ -106,6 +106,100 @@ export const VAULT_OSF_MANUAL_ROP: Readonly<Record<string, VaultOsfRopTriple>> =
 /** @deprecated Use VAULT_OSF_MANUAL_ROP — kept for older imports. */
 export const VAULT_OSF_FORCE_INCLUDED_DEFAULT_ROP = VAULT_OSF_MANUAL_ROP;
 
+/** Display titles for manual/yellow SKUs (editor search when ProductItem missing). */
+export const VAULT_OSF_MANUAL_SKU_META: Readonly<
+  Record<string, Readonly<{ title: string; brand: string | null }>>
+> = {
+  "NTC03-1": {
+    title: "Natural Calm Magnesium Powder Raspberry-Lemon Flavor 226g",
+    brand: "Natural Calm",
+  },
+  "NB013-1": {
+    title: "Natures Bounty Time Release 5 - HTP 200mg 45 Tablets",
+    brand: "Natures Bounty",
+  },
+  "NB016-1": {
+    title: "Natures Bounty Biotin 5000mcg 100 softgels",
+    brand: "Natures Bounty",
+  },
+  "NC017-1": {
+    title: "Neocell Super Collagen + Vitamin C Type 1 & 3 for Skin, Hair & Nails 360 Caplets",
+    brand: "Neocell",
+  },
+  "NC020-1": {
+    title: "Neocell Hyaluronic Acid 125mg Daily Hydration 60 Vegan Capsules",
+    brand: "Neocell",
+  },
+  "NC024-1": {
+    title: "Neocell Grassfed Collagen Peptides + Vitamin C 250 Tablets",
+    brand: "Neocell",
+  },
+  "NC031-1": {
+    title: "Neocell Super Collagen Peptides Unflavored 21.1 oz 600 G",
+    brand: "Neocell",
+  },
+  "NU002-1": {
+    title: "Nutrimea Biotin Vitamin B8 120 Vegan Capsules",
+    brand: "Nutrimea",
+  },
+  "NW024-2": {
+    title: "Now Niacinamide 500mg 100 Veg Capsules",
+    brand: "Now",
+  },
+  "NW028-2": {
+    title: "Now Vitamin K-2 100mcg 100 Veg Capsules",
+    brand: "Now",
+  },
+  "NW031-1": {
+    title: "Now B-12 1000mcg 100 Lozenges",
+    brand: "Now",
+  },
+  "NW049-2": {
+    title: "Now GABA Extra Strength 750mg 100 Veg Capsules",
+    brand: "Now",
+  },
+  "NW054-1": {
+    title: "Now Vitamin C 500 250 Tablets",
+    brand: "Now",
+  },
+  "TQ001-1": {
+    title: "Toniiq Glutathione 120 Capsules",
+    brand: "Toniiq",
+  },
+  "WG001-1": {
+    title: "Wagner Bioactive Collagen 60 Tablets",
+    brand: "Wagner",
+  },
+  "WG007-1": {
+    title: "Wagner High Strength Zinc 120 Tablets",
+    brand: "Wagner",
+  },
+  "WG013-1": {
+    title: "Wagner Super Bio Magnesium 100 Tablets",
+    brand: "Wagner",
+  },
+  "WN008-1": {
+    title: "Webber Naturals Vitamin C 1000mg 150 Tablets",
+    brand: "Webber Naturals",
+  },
+  "WN014-1": {
+    title: "Webber Naturals Collagen30 with Hyaluronic Acid 180 Tablets",
+    brand: "Webber Naturals",
+  },
+  "WN022-1": {
+    title: "Webber Naturals Omega 3-6-9 1200 mg Fish, Flax & Borage 150 Softgels",
+    brand: "Webber Naturals",
+  },
+  "WN023-1": {
+    title: "Webber Naturals Omega 3-6-9 1200 mg Fish, Flax & Borage 280 Softgels",
+    brand: "Webber Naturals",
+  },
+  "WN025-1": {
+    title: "Webber Naturals Vitamin B12, Timed Release, 1200 mcg 80 Tablets",
+    brand: "Webber Naturals",
+  },
+};
+
 export function normalizeVaultOsfSku(sku: string | null | undefined): string {
   return (sku ?? "").trim();
 }
@@ -118,6 +212,24 @@ export function isVaultOsfExcludedSku(sku: string | null | undefined): boolean {
 export function isVaultOsfForceIncludedSku(sku: string | null | undefined): boolean {
   const key = normalizeVaultOsfSku(sku);
   return key !== "" && VAULT_OSF_FORCE_INCLUDED_SKUS.has(key);
+}
+
+/** Yellow/blue checked-workbook SKUs with seeded ROP (may lack ProductItem). */
+export function isVaultOsfManualSku(sku: string | null | undefined): boolean {
+  const key = normalizeVaultOsfSku(sku);
+  if (!key) return false;
+  if (key in VAULT_OSF_MANUAL_ROP) return true;
+  const lower = key.toLowerCase();
+  return Object.keys(VAULT_OSF_MANUAL_ROP).some((s) => s.toLowerCase() === lower);
+}
+
+/** Canonical SKU key for a manual entry (case-insensitive). */
+export function resolveVaultOsfManualSkuKey(sku: string | null | undefined): string | null {
+  const key = normalizeVaultOsfSku(sku);
+  if (!key) return null;
+  if (key in VAULT_OSF_MANUAL_ROP) return key;
+  const lower = key.toLowerCase();
+  return Object.keys(VAULT_OSF_MANUAL_ROP).find((s) => s.toLowerCase() === lower) ?? null;
 }
 
 /** Drop Remove-list SKUs; keep order otherwise. */
