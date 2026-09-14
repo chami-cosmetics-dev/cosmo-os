@@ -2,6 +2,10 @@ import type { Prisma } from "@prisma/client";
 
 import { dedupeContactsForDisplay } from "@/lib/contact-display-dedupe";
 import {
+  withStaffSalesAssignee,
+  withStaffSalesAssignedMerchant,
+} from "@/lib/contacts/staff-sales-allocation";
+import {
   canonicalizeAssignedMerchantLabels,
   expandAssignedMerchantFilter,
 } from "@/lib/customer-insight/merchant-label-aliases";
@@ -190,12 +194,14 @@ async function fetchContactsPageOptions(companyId: string): Promise<ContactsPage
   }
 
   return {
-    assignedMerchants,
+    assignedMerchants: withStaffSalesAssignedMerchant(assignedMerchants),
     brands,
-    assignees: assigneeRows.map((user) => ({
-      id: user.id,
-      label: user.knownName?.trim() || user.name?.trim() || user.email?.trim() || "Unnamed user",
-    })),
+    assignees: withStaffSalesAssignee(
+      assigneeRows.map((user) => ({
+        id: user.id,
+        label: user.knownName?.trim() || user.name?.trim() || user.email?.trim() || "Unnamed user",
+      }))
+    ),
   };
 }
 

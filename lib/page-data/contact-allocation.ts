@@ -2,6 +2,10 @@ import { Prisma } from "@prisma/client";
 
 import { ensureDefaultCallCenterCategories } from "@/lib/contact-call-center-categories-server";
 import {
+  withStaffSalesAssignee,
+  withStaffSalesAssignedMerchant,
+} from "@/lib/contacts/staff-sales-allocation";
+import {
   canonicalizeAssignedMerchantLabels,
   expandAssignedMerchantFilter,
 } from "@/lib/customer-insight/merchant-label-aliases";
@@ -367,10 +371,12 @@ export async function fetchContactAllocationPageData(
     contacts: contacts.map(mapContact),
     total: Number(countRows[0]?.count ?? 0),
     options: {
-      assignees: assigneeRows.map((user) => ({
-        id: user.id,
-        label: user.knownName ?? user.name ?? user.email ?? "Unnamed user",
-      })),
+      assignees: withStaffSalesAssignee(
+        assigneeRows.map((user) => ({
+          id: user.id,
+          label: user.knownName ?? user.name ?? user.email ?? "Unnamed user",
+        }))
+      ),
       serviceProviders: configuredOptions.serviceProviders,
       districts: configuredOptions.districts,
       towns: configuredOptions.towns,
@@ -379,7 +385,7 @@ export async function fetchContactAllocationPageData(
       customerTypes: configuredOptions.customerTypes,
       genders,
       recentMerchants,
-      assignedMerchants,
+      assignedMerchants: withStaffSalesAssignedMerchant(assignedMerchants),
     },
   };
 }

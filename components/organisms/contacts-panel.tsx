@@ -25,6 +25,9 @@ import { Input } from "@/components/ui/input";
 import { Pagination } from "@/components/ui/pagination";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { TableSkeleton } from "@/components/skeletons/table-skeleton";
+import { Textarea } from "@/components/ui/textarea";
+import { parseTpNumbers } from "@/lib/contacts/parse-tp-numbers";
+import { formatAllocationAssigneeLabel } from "@/lib/contacts/staff-sales-allocation";
 import { notify } from "@/lib/notify";
 import { formatAppDateTime } from "@/lib/format-datetime";
 import {
@@ -410,8 +413,9 @@ export function ContactsPanel({
   }
 
   async function onAssignContact() {
-    if (!assignPhone.trim() || !assignTo.trim()) {
-      notify.error("Enter a phone number and select a merchant");
+    const phoneNumbers = parseTpNumbers(assignPhone);
+    if (phoneNumbers.length === 0 || !assignTo.trim()) {
+      notify.error("Enter phone number(s) and select a merchant or Staff category");
       return;
     }
     setAssignSaving(true);
@@ -420,8 +424,8 @@ export function ContactsPanel({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          mode: "individual",
-          phoneNumber: assignPhone.trim(),
+          mode: "multiple",
+          phoneNumbers,
           allocatedTo: assignTo.trim(),
         }),
       });
@@ -430,7 +434,7 @@ export function ContactsPanel({
         notify.error(data.error ?? "Allocation failed");
         return;
       }
-      notify.success(`Allocated ${data.count ?? 1} contact(s)`);
+      notify.success(`Allocated ${data.count ?? phoneNumbers.length} contact(s)`);
       setAssignPhone("");
       await fetchPageData();
     } catch {
@@ -669,13 +673,15 @@ export function ContactsPanel({
             <div className="space-y-3">
               <p className="text-sm font-medium">Assign by phone</p>
               <p className="text-muted-foreground text-xs">
-                Set allocated merchant for one contact (same as Contact Allocation individual assign).
+                One or many phones (comma or newline). Overwrites current allocated merchant
+                (or assign to Staff category).
               </p>
-              <Input
-                placeholder="Phone / TP number"
+              <Textarea
+                placeholder="Phone / TP numbers (comma or newline)"
                 value={assignPhone}
                 onChange={(e) => setAssignPhone(e.target.value)}
                 disabled={assignSaving}
+                rows={3}
               />
               <Select value={assignTo || undefined} onValueChange={setAssignTo}>
                 <SelectTrigger>
@@ -684,7 +690,7 @@ export function ContactsPanel({
                 <SelectContent>
                   {filterOptions.assignees.map((a) => (
                     <SelectItem key={a.id} value={a.label}>
-                      {a.label}
+                      {formatAllocationAssigneeLabel(a.label)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -747,7 +753,7 @@ export function ContactsPanel({
                 <SelectContent>
                   {filterOptions.assignedMerchants.map((label) => (
                     <SelectItem key={`from-${label}`} value={label}>
-                      {label}
+                      {formatAllocationAssigneeLabel(label)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -759,7 +765,7 @@ export function ContactsPanel({
                 <SelectContent>
                   {filterOptions.assignees.map((a) => (
                     <SelectItem key={`to-${a.id}`} value={a.label}>
-                      {a.label}
+                      {formatAllocationAssigneeLabel(a.label)}
                     </SelectItem>
                   ))}
                 </SelectContent>
