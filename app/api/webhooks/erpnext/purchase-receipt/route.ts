@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import {
   ingestPurchaseReceiptFromWebhook,
-  resolveGrnWebhookSecret,
+  resolveGrnWebhookInstanceSecret,
 } from "@/lib/grn";
 import { unwrapErpWebhookPayload } from "@/lib/erpnext-customer-display-name";
 import { erpnextPurchaseReceiptWebhookSchema } from "@/lib/validation/erpnext-grn";
@@ -20,12 +20,26 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const unwrapped =
-    unwrapErpWebhookPayload(rawPayload) ?? (rawPayload as Record<string, unknown>);
-  const company = typeof unwrapped.company === "string" ? unwrapped.company : "";
-  const secret = company ? await resolveGrnWebhookSecret(company) : null;
+  const topLevel = rawPayload as Record<string, unknown>;
+  console.log("[ERPNext PR webhook] top-level keys:", Object.keys(topLevel));
+  if (topLevel?.data && typeof topLevel.data === "object") {
+    console.log(
+      "[ERPNext PR webhook] data keys:",
+      Object.keys(topLevel.data as object),
+    );
+  }
 
-  if (!secret || incomingSecret !== secret) {
+  const unwrapped = unwrapErpWebhookPayload(rawPayload) ?? topLevel;
+  const companyRaw = unwrapped?.company;
+  const company = typeof companyRaw === "string" ? companyRaw : "";
+  console.log("[ERPNext PR webhook] resolved company:", JSON.stringify(company));
+
+  const instanceSecret = await resolveGrnWebhookInstanceSecret(company);
+  if (
+    !instanceSecret ||
+    !instanceSecret.secret ||
+    incomingSecret !== instanceSecret.secret
+  ) {
     console.error("[ERPNext PR webhook] Invalid or missing secret for company:", company);
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
