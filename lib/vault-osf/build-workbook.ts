@@ -7,11 +7,16 @@ import {
   monthTotalSaleHeader,
 } from "@/lib/vault-osf/months";
 import { stockForColumn } from "@/lib/osf/erp-stock";
+import {
+  applyOsfWorkbookHeaderBands,
+  type OsfWorkbookBandKey,
+} from "@/lib/osf/workbook-band-styles";
 
 export type VaultOsfColDef = {
   key: string;
   header: string;
   section?: string;
+  band?: OsfWorkbookBandKey;
 };
 
 export type VaultWorkbookInput = {
@@ -46,14 +51,14 @@ export const COSMO_HEADERS_MUST_ABSENT = [
 export function vaultColumnDefs(units: VaultBusinessUnit[], asOfDate: string): VaultOsfColDef[] {
   const ordered = [...units].sort((a, b) => a.sortOrder - b.sortOrder || a.key.localeCompare(b.key));
   const defs: VaultOsfColDef[] = [
-    { key: "variantSku", header: "Variant SKU", section: "Identity" },
-    { key: "sku", header: "SKU" },
-    { key: "barcode", header: "Barcode" },
-    { key: "priorityStatus", header: "Priority Status" },
-    { key: "country", header: "Country" },
-    { key: "category", header: "Category" },
-    { key: "brand", header: "Brand" },
-    { key: "itemName", header: "Item" },
+    { key: "variantSku", header: "Variant SKU", section: "Identity", band: "identity" },
+    { key: "sku", header: "SKU", band: "identity" },
+    { key: "barcode", header: "Barcode", band: "identity" },
+    { key: "priorityStatus", header: "Priority Status", band: "identity" },
+    { key: "country", header: "Country", band: "identity" },
+    { key: "category", header: "Category", band: "identity" },
+    { key: "brand", header: "Brand", band: "identity" },
+    { key: "itemName", header: "Item", band: "identity" },
   ];
 
   ordered.forEach((u, i) => {
@@ -61,18 +66,20 @@ export function vaultColumnDefs(units: VaultBusinessUnit[], asOfDate: string): V
       key: `rop:${u.key}`,
       header: u.label,
       section: i === 0 ? "ROP" : undefined,
+      band: "rop",
     });
   });
-  defs.push({ key: "ropTotal", header: "Total ROP" });
+  defs.push({ key: "ropTotal", header: "Total ROP", band: "rop" });
 
   ordered.forEach((u, i) => {
     defs.push({
       key: `stock:${u.key}`,
       header: u.label,
       section: i === 0 ? `Stock (${asOfDate})` : undefined,
+      band: "stock",
     });
   });
-  defs.push({ key: "stockTotal", header: "Total" });
+  defs.push({ key: "stockTotal", header: "Total", band: "stock" });
 
   // Months carry the SV/ORI/AE combined total only; the per-unit split lives in
   // ROP / Stock / Reorder, which is where it drives a decision.
@@ -82,26 +89,28 @@ export function vaultColumnDefs(units: VaultBusinessUnit[], asOfDate: string): V
       key: `sales:${month}:total`,
       header: monthTotalSaleHeader(month),
       section,
+      band: "sales",
     });
-    defs.push({ key: `purchQty:${month}`, header: "Purch Qty (All)" });
-    defs.push({ key: `purchValue:${month}`, header: "Purch Value (All)" });
+    defs.push({ key: `purchQty:${month}`, header: "Purch Qty (All)", band: "sales" });
+    defs.push({ key: `purchValue:${month}`, header: "Purch Value (All)", band: "sales" });
   }
 
-  defs.push({ key: "mrp", header: "MRP", section: "Pricing" });
-  defs.push({ key: "discountedPrice", header: "Discounted Price" });
-  defs.push({ key: "maxSale", header: "Max sale", section: "Derived" });
-  defs.push({ key: "ave", header: "AVE" });
+  defs.push({ key: "mrp", header: "MRP", section: "Pricing", band: "price" });
+  defs.push({ key: "discountedPrice", header: "Discounted Price", band: "price" });
+  defs.push({ key: "maxSale", header: "Max sale", section: "Derived", band: "calc" });
+  defs.push({ key: "ave", header: "AVE", band: "calc" });
 
   ordered.forEach((u, i) => {
     defs.push({
       key: `reorder:${u.key}`,
       header: u.label,
       section: i === 0 ? "Reorder Quantity" : undefined,
+      band: "order",
     });
   });
-  defs.push({ key: "reorderTotal", header: "Total" });
-  defs.push({ key: "latestPrice", header: "Latest price", section: "Supplier" });
-  defs.push({ key: "latestSupplier", header: "Latest price suppliers" });
+  defs.push({ key: "reorderTotal", header: "Total", band: "order" });
+  defs.push({ key: "latestPrice", header: "Latest price", section: "Supplier", band: "cost" });
+  defs.push({ key: "latestSupplier", header: "Latest price suppliers", band: "cost" });
   return defs;
 }
 
@@ -186,8 +195,7 @@ export async function buildVaultOsfWorkbookBuffer(input: VaultWorkbookInput): Pr
   for (const r of rows) {
     ws.addRow(defs.map((d) => (r[d.key] == null ? "" : r[d.key])));
   }
-  ws.getRow(1).font = { bold: true };
-  ws.getRow(2).font = { bold: true };
+  applyOsfWorkbookHeaderBands(ws, defs);
 
   const months = monthKeysInWindow(input.asOfDate);
   const info = wb.addWorksheet("Info");

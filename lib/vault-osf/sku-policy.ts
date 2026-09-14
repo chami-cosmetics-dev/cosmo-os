@@ -7,6 +7,10 @@
  *   (it was missing from generated OSF/ROP because ERP marks it disabled/Discontinue).
  * - MANUAL_ROP: yellow rows — ROP was blank in generate; purchasing filled it by hand.
  *   Seed into ProductOsfRop so regenerate / ROP template keep those values.
+ *
+ * Barcode + Priority Status gaps: filled from uploaded workbook snapshot
+ * `lib/vault-osf/workbook-upload-overlay-data.json` (regenerate via
+ * `node scripts/generate-vault-osf-upload-overlay.mjs path/to/checked.xlsx`).
  */
 
 export const VAULT_OSF_EXCLUDED_SKUS: ReadonlySet<string> = new Set([

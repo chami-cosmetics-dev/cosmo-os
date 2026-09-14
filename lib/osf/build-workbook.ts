@@ -21,6 +21,10 @@ import {
   sumSignedOrderQtysFlooredAtZero,
 } from "@/lib/osf/formulas";
 import { baseSku } from "@/lib/osf/base-sku";
+import {
+  applyOsfWorkbookHeaderBands,
+  type OsfWorkbookBandKey,
+} from "@/lib/osf/workbook-band-styles";
 
 export type OsfProfileData = {
   shopAvailability: string | null;
@@ -72,15 +76,7 @@ type OsfColumnDef = {
    */
   accessKey?: string | null;
   /** Color band for styled Excel output. */
-  band?:
-    | "identity"
-    | "stock"
-    | "rop"
-    | "calc"
-    | "order"
-    | "price"
-    | "cost"
-    | "sales";
+  band?: OsfWorkbookBandKey;
 };
 
 /** ISO date (YYYY-MM-DD) → dd.mm.yyyy banner label used in the header band. */
@@ -407,23 +403,6 @@ export function mainColumnDescriptors(input: BuildWorkbookInput): OsfColumnDef[]
 
 type SheetCell = string | number | null;
 
-type BandKey = NonNullable<OsfColumnDef["band"]>;
-
-/** Header-band fills (ARGB hex without #) for ExcelJS. */
-const BAND_COLORS: Record<
-  BandKey,
-  { header: string; section: string; totals: string; font: string }
-> = {
-  identity: { header: "5B6B7A", section: "D6DCE4", totals: "EEF1F4", font: "FFFFFF" },
-  stock: { header: "2F75B5", section: "BDD7EE", totals: "DEEBF7", font: "FFFFFF" },
-  rop: { header: "548235", section: "C6E0B4", totals: "E2EFDA", font: "FFFFFF" },
-  calc: { header: "C65911", section: "F8CBAD", totals: "FCE4D6", font: "FFFFFF" },
-  order: { header: "833C0C", section: "F4B183", totals: "F8CBAD", font: "FFFFFF" },
-  price: { header: "7030A0", section: "D5A6E6", totals: "E2D5F1", font: "FFFFFF" },
-  cost: { header: "0070C0", section: "9DC3E6", totals: "DDEBF7", font: "FFFFFF" },
-  sales: { header: "BF8F00", section: "FFE699", totals: "FFF2CC", font: "000000" },
-};
-
 function cellValue(v: SheetCell): string | number {
   return v == null ? "" : v;
 }
@@ -487,27 +466,7 @@ export async function buildOsfWorkbookBuffer(input: BuildWorkbookInput): Promise
       );
     }
 
-    for (let colIdx = 0; colIdx < sheetDefs.length; colIdx++) {
-      const band = sheetDefs[colIdx]!.band ?? "identity";
-      const colors = BAND_COLORS[band];
-      const excelCol = colIdx + 1;
-      const styleRow = (rowNum: number, fillArgb: string, fontArgb: string, bold: boolean) => {
-        const cell = ws.getRow(rowNum).getCell(excelCol);
-        cell.fill = {
-          type: "pattern",
-          pattern: "solid",
-          fgColor: { argb: `FF${fillArgb}` },
-        };
-        cell.font = { bold, color: { argb: `FF${fontArgb}` }, size: 10 };
-        cell.alignment = { vertical: "middle", wrapText: true };
-      };
-      styleRow(1, colors.section, "000000", true);
-      styleRow(2, colors.header, colors.font, true);
-      const len = Math.max(10, Math.min(28, sheetDefs[colIdx]!.header.length + 2));
-      ws.getColumn(excelCol).width = len;
-    }
-    ws.getRow(1).height = 18;
-    ws.getRow(2).height = 28;
+    applyOsfWorkbookHeaderBands(ws, sheetDefs);
   };
 
   attachSheet("Main", mainDefs, rows);
