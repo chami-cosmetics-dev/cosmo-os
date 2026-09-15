@@ -11,7 +11,7 @@ import {
 } from "@/components/molecules/log-status-pills";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Pagination } from "@/components/ui/pagination";
-import { normalizeRecipientList } from "@/lib/daily-sales-sms";
+import { normalizeRecipientList } from "@/lib/daily-sales-sms-recipients";
 import { formatAppDateTimeShort } from "@/lib/format-datetime";
 import {
   NIGHTLY_LOGS_DEFAULT_LIMIT,

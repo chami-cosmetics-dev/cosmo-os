@@ -1,4 +1,4 @@
-import { normalizeRecipientList } from "@/lib/daily-sales-sms";
+import { normalizeRecipientList } from "@/lib/daily-sales-sms-recipients";
 
 export const DAILY_SALES_SMS_NEXT_RUN_LABEL = "09:00 Asia/Colombo";
 
