@@ -6,8 +6,6 @@ import {
   hasReminderPermission,
   isTaskReminderOverdue,
   mapMerchantPaymentApprovalReminder,
-  merchantPaymentApprovalRecentCutoff,
-  MERCHANT_PAYMENT_APPROVAL_RECENT_DAYS,
   resolveDispatchReminderSince,
 } from "@/lib/task-reminders";
 import { TASK_REMINDER_SLA_MS } from "@/lib/task-reminder-sla";
@@ -79,33 +77,22 @@ describe("merchant payment approval reminders", () => {
   const now = new Date("2026-09-15T12:00:00Z");
   const merchantId = "user-merchant-1";
 
-  it("scopes where to merchant assigned orders and pending + recent approved", () => {
-    const where = buildMerchantPaymentApprovalWhere("co-1", merchantId, now);
+  it("scopes where to merchant assigned pending payment approvals only", () => {
+    const where = buildMerchantPaymentApprovalWhere("co-1", merchantId);
     expect(where).toMatchObject({
       companyId: "co-1",
       type: ORDER_PAYMENT_APPROVAL,
+      status: "pending",
       order: { assignedMerchantId: merchantId },
     });
-    expect(where.OR).toEqual([
-      { status: "pending" },
-      {
-        status: "approved",
-        reviewedAt: { gte: merchantPaymentApprovalRecentCutoff(now) },
-      },
-    ]);
-    const cutoff = merchantPaymentApprovalRecentCutoff(now);
-    expect(now.getTime() - cutoff.getTime()).toBe(
-      MERCHANT_PAYMENT_APPROVAL_RECENT_DAYS * 24 * 60 * 60 * 1000,
-    );
+    expect(where).not.toHaveProperty("OR");
   });
 
-  it("maps pending and approved copy with merchant dashboard href", () => {
+  it("maps pending copy with merchant dashboard href", () => {
     const pending = mapMerchantPaymentApprovalReminder(
       {
         id: "apr-1",
-        status: "pending",
         createdAt: new Date("2026-09-14T12:00:00Z"),
-        reviewedAt: null,
         order: {
           id: "ord-1",
           name: "#1001",
@@ -123,32 +110,5 @@ describe("merchant payment approval reminders", () => {
       href: "/dashboard/merchant?orderId=ord-1",
     });
     expect(pending.body).toContain("waiting for finance payment approval");
-
-    const approved = mapMerchantPaymentApprovalReminder(
-      {
-        id: "apr-2",
-        status: "approved",
-        createdAt: new Date("2026-09-10T12:00:00Z"),
-        reviewedAt: new Date("2026-09-14T18:00:00Z"),
-        order: {
-          id: "ord-2",
-          name: "#1002",
-          orderNumber: "1002",
-          shopifyOrderId: null,
-        },
-      },
-      now,
-    );
-    expect(approved).toMatchObject({
-      category: "merchant_payment_approval",
-      title: "Payment approval approved",
-      href: "/dashboard/merchant?orderId=ord-2",
-    });
-    expect(approved.body).toContain("approved by finance");
-  });
-
-  it("uses a 7-day approved visibility window", () => {
-    const cutoff = merchantPaymentApprovalRecentCutoff(now);
-    expect(cutoff.toISOString()).toBe("2026-09-08T12:00:00.000Z");
   });
 });
