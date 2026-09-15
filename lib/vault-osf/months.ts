@@ -62,15 +62,31 @@ export function monthLongName(monthKey: string): string {
   });
 }
 
-export function monthSectionLabel(monthKey: string, asOfDate: string): string {
-  const name = monthLongName(monthKey);
-  const current = monthKeyFromDate(asOfDate);
-  if (monthKey !== current) return name.toUpperCase();
-  const [yy, mm, dd] = asOfDate.split("-");
-  return `${name.toUpperCase()} ${dd}.${mm}.${yy}`;
+export function monthYearLabel(monthKey: string): string {
+  const { year } = parseYearMonth(monthKey);
+  return `${monthLongName(monthKey)} ${year}`;
 }
 
-/** Column header for the month's combined sale count, e.g. "April total sale". */
+export function monthSectionLabel(monthKey: string, asOfDate: string): string {
+  const { year } = parseYearMonth(monthKey);
+  const name = monthLongName(monthKey);
+  const current = monthKeyFromDate(asOfDate);
+  if (monthKey !== current) return `${name.toUpperCase()} ${year}`;
+  const [yy, mm, dd] = asOfDate.split("-");
+  return `${name.toUpperCase()} ${year} ${dd}.${mm}.${yy}`;
+}
+
+/** e.g. "April 2026 Sales Total". */
 export function monthTotalSaleHeader(monthKey: string): string {
-  return `${monthLongName(monthKey)} total sale`;
+  return `${monthYearLabel(monthKey)} Sales Total`;
+}
+
+/** e.g. "April 2026 Purchase Total" (net purchase value). */
+export function monthPurchaseTotalHeader(monthKey: string): string {
+  return `${monthYearLabel(monthKey)} Purchase Total`;
+}
+
+/** e.g. "April 2026 Purchase Qty". */
+export function monthPurchaseQtyHeader(monthKey: string): string {
+  return `${monthYearLabel(monthKey)} Purchase Qty`;
 }

@@ -1,47 +1,36 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { RefreshCw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { notify } from "@/lib/notify";
 
-export function DailySalesSmsResendButton({
-  reportDate,
+export function OgfResendButton({
+  batchCode,
   onDone,
 }: {
-  reportDate: string;
+  batchCode: string;
   onDone?: () => void;
 }) {
   const [loading, setLoading] = useState(false);
-  const router = useRouter();
 
   async function handleResend() {
     setLoading(true);
     try {
-      const res = await fetch(
-        `/api/admin/company/daily-sales-sms/resend?reportDate=${encodeURIComponent(reportDate)}`,
-      );
-      const data = (await res.json()) as {
-        ok?: boolean;
-        recipientCount?: number;
-        message?: string;
-        status?: string;
-      };
+      const res = await fetch(`/api/admin/ogf-resend?batch=${encodeURIComponent(batchCode)}`);
+      const data = (await res.json()) as { ok?: boolean; orders?: number; message?: string };
       if (res.ok && data.ok) {
         notify.success(
-          `Daily sales SMS resent for ${reportDate} (${data.recipientCount ?? 0} recipient${(data.recipientCount ?? 0) !== 1 ? "s" : ""})`,
+          `Email resent — ${data.orders} order${(data.orders ?? 0) !== 1 ? "s" : ""} in batch ${batchCode}`,
         );
         onDone?.();
-        if (!onDone) router.refresh();
       } else {
-        notify.error(data.message ?? `Resend failed (${data.status ?? res.status})`);
+        notify.error(data.message ?? "Failed to resend email");
         onDone?.();
-        if (!onDone) router.refresh();
       }
     } catch {
-      notify.error("Network error — could not resend SMS");
+      notify.error("Network error — could not resend email");
     } finally {
       setLoading(false);
     }

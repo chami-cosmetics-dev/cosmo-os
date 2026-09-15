@@ -257,7 +257,7 @@ export async function upsertAbandonedCheckoutFromWebhook(input: {
         shopifyCheckoutGid,
       },
     },
-    select: { id: true, customerPhone: true, lineItemsJson: true },
+    select: { id: true, customerPhone: true, customerEmail: true, lineItemsJson: true },
   });
   if (upsertedRow) {
     try {
@@ -265,6 +265,7 @@ export async function upsertAbandonedCheckoutFromWebhook(input: {
         id: upsertedRow.id,
         companyId: input.companyId,
         customerPhone: upsertedRow.customerPhone,
+        customerEmail: upsertedRow.customerEmail,
         lineItemsJson: upsertedRow.lineItemsJson,
       });
     } catch (dedupeErr) {
