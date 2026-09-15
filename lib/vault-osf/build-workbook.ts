@@ -1,5 +1,9 @@
-import type { VaultBusinessUnit, VaultCatalogRow } from "@/lib/vault-osf/types";
-import type { LatestPurchase, PriceInfo, PurchaseCell, SalesCell } from "@/lib/vault-osf/types";
+import { baseSku } from "@/lib/osf/base-sku";
+import { stockForColumn } from "@/lib/osf/erp-stock";
+import {
+  applyOsfWorkbookHeaderBands,
+  type OsfWorkbookBandKey,
+} from "@/lib/osf/workbook-band-styles";
 import { averageMonthlySale, maxSale, reorderQty, sumNullable } from "@/lib/vault-osf/formulas";
 import {
   monthKeysInWindow,
@@ -7,11 +11,8 @@ import {
   monthPurchaseTotalHeader,
   monthTotalSaleHeader,
 } from "@/lib/vault-osf/months";
-import { stockForColumn } from "@/lib/osf/erp-stock";
-import {
-  applyOsfWorkbookHeaderBands,
-  type OsfWorkbookBandKey,
-} from "@/lib/osf/workbook-band-styles";
+import type { VaultBusinessUnit, VaultCatalogRow } from "@/lib/vault-osf/types";
+import type { LatestPurchase, PriceInfo, PurchaseCell, SalesCell } from "@/lib/vault-osf/types";
 
 export type VaultOsfColDef = {
   key: string;
@@ -54,7 +55,7 @@ export function vaultColumnDefs(units: VaultBusinessUnit[], asOfDate: string): V
   const months = monthKeysInWindow(asOfDate);
   const defs: VaultOsfColDef[] = [
     { key: "variantSku", header: "Variant SKU", section: "Identity", band: "identity" },
-    { key: "sku", header: "SKU", band: "identity" },
+    { key: "sku", header: "Common SKU", band: "identity" },
     { key: "brand", header: "Brand", band: "identity" },
     { key: "itemName", header: "Item", band: "identity" },
     { key: "barcode", header: "Barcode", band: "identity" },
@@ -168,7 +169,8 @@ export function buildVaultMainRows(input: VaultWorkbookInput): Array<Record<stri
   for (const item of input.catalog) {
     const row: Record<string, string | number | null> = {
       variantSku: item.variantSku,
-      sku: item.sku,
+      // B column: strip -1 / _1 suffix (BG004-1 → BG004)
+      sku: baseSku(item.sku) || item.sku,
       barcode: cell(item.barcode),
       priorityStatus: cell(item.priorityStatus),
       country: cell(item.country),
