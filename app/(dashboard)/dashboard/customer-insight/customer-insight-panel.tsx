@@ -621,6 +621,8 @@ export function CustomerInsightPanel({
   const [filterBirthdayTo, setFilterBirthdayTo] = useState("");
   const [filterLastFrom, setFilterLastFrom] = useState("");
   const [filterLastTo, setFilterLastTo] = useState("");
+  const [filterAllocatedFrom, setFilterAllocatedFrom] = useState("");
+  const [filterAllocatedTo, setFilterAllocatedTo] = useState("");
   const [filterLoyaltyRegFrom, setFilterLoyaltyRegFrom] = useState("");
   const [filterLoyaltyRegTo, setFilterLoyaltyRegTo] = useState("");
   const [filterNoPurchaseFrom, setFilterNoPurchaseFrom] = useState("");
@@ -1713,6 +1715,12 @@ export function CustomerInsightPanel({
     }
     if (filterLastFrom.trim()) params.set("lastContactedFrom", filterLastFrom.trim());
     if (filterLastTo.trim()) params.set("lastContactedTo", filterLastTo.trim());
+    if (filterAllocatedFrom.trim()) {
+      params.set("allocatedFrom", filterAllocatedFrom.trim());
+    }
+    if (filterAllocatedTo.trim()) {
+      params.set("allocatedTo", filterAllocatedTo.trim());
+    }
     if (filterLoyaltyRegFrom.trim()) {
       params.set("loyaltyRegisteredFrom", filterLoyaltyRegFrom.trim());
     }
@@ -1794,6 +1802,8 @@ export function CustomerInsightPanel({
         filterBirthdayTo.trim() ||
         filterLastFrom.trim() ||
         filterLastTo.trim() ||
+        filterAllocatedFrom.trim() ||
+        filterAllocatedTo.trim() ||
         filterLoyaltyRegFrom.trim() ||
         filterLoyaltyRegTo.trim() ||
         filterNoPurchaseFrom.trim() ||
@@ -1816,6 +1826,8 @@ export function CustomerInsightPanel({
     setFilterBirthdayTo("");
     setFilterLastFrom("");
     setFilterLastTo("");
+    setFilterAllocatedFrom("");
+    setFilterAllocatedTo("");
     setFilterLoyaltyRegFrom("");
     setFilterLoyaltyRegTo("");
     setFilterNoPurchaseFrom("");
@@ -2131,6 +2143,32 @@ export function CustomerInsightPanel({
                     type="date"
                     value={filterLastTo}
                     onChange={(e) => setFilterLastTo(e.target.value)}
+                    disabled={isBusy}
+                  />
+                </label>
+              </div>
+            </fieldset>
+
+            <fieldset className="space-y-2 rounded-lg border border-border/60 p-3">
+              <legend className="px-1 text-xs font-medium text-muted-foreground">
+                Allocated
+              </legend>
+              <div className="grid grid-cols-2 gap-2">
+                <label className="space-y-1 text-sm">
+                  <span className="text-muted-foreground">From</span>
+                  <Input
+                    type="date"
+                    value={filterAllocatedFrom}
+                    onChange={(e) => setFilterAllocatedFrom(e.target.value)}
+                    disabled={isBusy}
+                  />
+                </label>
+                <label className="space-y-1 text-sm">
+                  <span className="text-muted-foreground">To</span>
+                  <Input
+                    type="date"
+                    value={filterAllocatedTo}
+                    onChange={(e) => setFilterAllocatedTo(e.target.value)}
                     disabled={isBusy}
                   />
                 </label>

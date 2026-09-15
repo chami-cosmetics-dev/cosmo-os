@@ -41,6 +41,9 @@ export type FilterQueryInput = {
   birthdayTo?: MonthDay;
   lastContactedFrom?: string;
   lastContactedTo?: string;
+  /** Latest ContactAllocationUpdate with category=allocation (Colombo day). */
+  allocatedFrom?: string;
+  allocatedTo?: string;
   loyaltyRegisteredFrom?: string;
   loyaltyRegisteredTo?: string;
   noPurchaseFrom?: string;
@@ -370,7 +373,42 @@ async function lastContactedMap(
   return map;
 }
 
-function inLastContactedRange(
+/** Latest allocation event (category=allocation) per contact. */
+async function allocationAtMap(
+  companyId: string,
+  contactIds: string[]
+): Promise<Map<string, Date>> {
+  const map = new Map<string, Date>();
+  if (contactIds.length === 0) return map;
+
+  const chunks: string[][] = [];
+  for (let i = 0; i < contactIds.length; i += LAST_CONTACTED_ID_CHUNK) {
+    chunks.push(contactIds.slice(i, i + LAST_CONTACTED_ID_CHUNK));
+  }
+
+  const grouped = await Promise.all(
+    chunks.map((slice) =>
+      prisma.contactAllocationUpdate.groupBy({
+        by: ["contactId"],
+        where: {
+          companyId,
+          contactId: { in: slice },
+          category: "allocation",
+        },
+        _max: { createdAt: true },
+      })
+    )
+  );
+
+  for (const rows of grouped) {
+    for (const row of rows) {
+      if (row._max.createdAt) map.set(row.contactId, row._max.createdAt);
+    }
+  }
+  return map;
+}
+
+function inColomboDateRange(
   at: Date | undefined,
   fromYmd?: string,
   toYmd?: string
@@ -507,10 +545,14 @@ export async function filterAllocatedContacts(
   const needLastContacted = Boolean(
     input.lastContactedFrom || input.lastContactedTo
   );
-  const contacted = await lastContactedMap(
-    input.companyId,
-    candidates.map((c) => c.id)
-  );
+  const needAllocated = Boolean(input.allocatedFrom || input.allocatedTo);
+  const candidateIds = candidates.map((c) => c.id);
+  const [contacted, allocatedAt] = await Promise.all([
+    lastContactedMap(input.companyId, candidateIds),
+    needAllocated
+      ? allocationAtMap(input.companyId, candidateIds)
+      : Promise.resolve(new Map<string, Date>()),
+  ]);
 
   const eligible: ContactCandidate[] = [];
   for (const contact of candidates) {
@@ -529,10 +571,21 @@ export async function filterAllocatedContacts(
 
     if (
       needLastContacted &&
-      !inLastContactedRange(
+      !inColomboDateRange(
         contacted.get(contact.id),
         input.lastContactedFrom,
         input.lastContactedTo
+      )
+    ) {
+      continue;
+    }
+
+    if (
+      needAllocated &&
+      !inColomboDateRange(
+        allocatedAt.get(contact.id),
+        input.allocatedFrom,
+        input.allocatedTo
       )
     ) {
       continue;

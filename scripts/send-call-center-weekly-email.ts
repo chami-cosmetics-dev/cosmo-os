@@ -1,5 +1,5 @@
 /**
- * Build + send call-center weekly email (merchant × loyalty + outcomes).
+ * Build + send call-center daily performance email (Day + MTD + shop/online).
  *
  * Default asOf = yesterday Asia/Colombo.
  *
@@ -25,20 +25,19 @@ if (existsSync(mailerooPath)) {
 }
 
 async function main() {
-  const { getPreviousColomboReportDate, runCallCenterWeeklyEmail } =
+  const { getPreviousColomboReportDate, runCallCenterPerformanceEmail } =
     await import("../lib/call-center-weekly-email");
 
-  const asOf =
-    process.argv[2] && /^\d{4}-\d{2}-\d{2}$/.test(process.argv[2])
-      ? process.argv[2]
-      : getPreviousColomboReportDate();
+  const dateArg = process.argv.slice(2).find((a) => /^\d{4}-\d{2}-\d{2}$/.test(a));
+  const asOf = dateArg ?? getPreviousColomboReportDate();
 
   if (!process.env.MAILEROO_API_KEY || !process.env.MAILEROO_FROM_EMAIL) {
     console.error("Missing MAILEROO_API_KEY / MAILEROO_FROM_EMAIL");
     process.exit(1);
   }
 
-  const result = await runCallCenterWeeklyEmail({
+  const result = await runCallCenterPerformanceEmail({
+    mode: "daily",
     asOfYmd: asOf,
     source: "manual",
   });

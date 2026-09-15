@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   getPreviousColomboReportDate,
   isValidReportDate,
-  runCallCenterWeeklyEmail,
+  runCallCenterPerformanceEmail,
 } from "@/lib/call-center-weekly-email";
 
 export const dynamic = "force-dynamic";
@@ -15,6 +15,7 @@ function isAuthorizedCronRequest(request: NextRequest) {
   return request.headers.get("authorization") === `Bearer ${cronSecret}`;
 }
 
+/** Yesterday's call performance (Day + MTD + shop/online targets). ~09:00 Asia/Colombo. */
 export async function GET(request: NextRequest) {
   if (!isAuthorizedCronRequest(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -26,7 +27,8 @@ export async function GET(request: NextRequest) {
       ? dateParam
       : getPreviousColomboReportDate();
 
-  const result = await runCallCenterWeeklyEmail({
+  const result = await runCallCenterPerformanceEmail({
+    mode: "daily",
     asOfYmd,
     source: "cron",
   });

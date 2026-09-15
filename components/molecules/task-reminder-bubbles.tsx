@@ -35,6 +35,7 @@ type TaskRemindersResponse = {
 const CATEGORY_ORDER = [
   "erp_sync_warning",
   "finance_approval",
+  "merchant_payment_approval",
   "add_samples",
   "print",
   "ready_dispatch",
@@ -48,6 +49,7 @@ const CATEGORY_ORDER = [
 const CATEGORY_LABELS: Record<string, string> = {
   erp_sync_warning: "ERP sync warnings",
   finance_approval: "Finance approvals",
+  merchant_payment_approval: "My payment approvals",
   add_samples: "Samples / free issue",
   print: "Print",
   rearrange_dispatch: "Rearrange dispatch",
@@ -61,6 +63,7 @@ const CATEGORY_LABELS: Record<string, string> = {
 const CATEGORY_NODE_LABELS: Record<string, string> = {
   erp_sync_warning: "Warning",
   finance_approval: "Finance approvals",
+  merchant_payment_approval: "My payment approvals",
   add_samples: "Samples",
   print: "Print",
   rearrange_dispatch: "Rearrange",

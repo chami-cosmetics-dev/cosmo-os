@@ -183,6 +183,8 @@ const customerInsightFilterFieldsSchema = z.object({
   birthdayTo: monthDaySchema.optional(),
   lastContactedFrom: optionalIsoDate,
   lastContactedTo: optionalIsoDate,
+  allocatedFrom: optionalIsoDate,
+  allocatedTo: optionalIsoDate,
   loyaltyRegisteredFrom: optionalIsoDate,
   loyaltyRegisteredTo: optionalIsoDate,
   noPurchaseFrom: optionalIsoDate,
