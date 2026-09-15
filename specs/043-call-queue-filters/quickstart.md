@@ -19,16 +19,18 @@ Manual checks after implement. See [data-model.md](./data-model.md) and [contrac
 2. Load merchant M, Push to Gold → only 75k–100k inclusive (100_000 in, 100_001 out).
 3. Push to Platinum → 200k–250k inclusive (250_000 in, 250_001 out).
 4. Both on → union of those two bands.
-5. Loyalty Gold / unassigned / last-purchase range / brand AND with push chips (push chips OR each other).
+5. Loyalty Gold / unassigned / last-purchase range / allocated-date range / brand AND with push chips (push chips OR each other).
 6. Oldest / never contacted first unchanged.
 
 ## 2. Hide windows
 
-1. Allocate a contact today → absent from load for 2 months.
-2. Assign + merchant sets Interested or Not Interested today → absent until +2 months.
-3. Assign + **Not Responding** → absent 7 days, then appears again.
-4. **Black List** / **Wrong Number** → never on load (still in Excel if previously assigned).
-5. Loyalty “Not responded” alone does not start the 1-week clock.
+1. Allocate a contact today with no recent purchase/contact → **still eligible** (no allocation cooling).
+2. Contact with `lastPurchaseAt` within last 2 months → hidden (“Purchased < 2 months”).
+3. Assign + merchant sets Interested or Not Interested today → absent until +2 months.
+4. Assign + **Not Responding** → absent 7 days, then appears again.
+5. **Black List** / **Wrong Number** → never on load (still in Excel if previously assigned).
+6. Loyalty “Not responded” alone does not start the 1-week clock.
+7. Allocated from/to filter → only contacts whose last allocation event falls in range.
 
 ## 3. Select count / page / all
 
@@ -52,4 +54,4 @@ User without insight admin view: candidates / assign / export / report → 403.
 npm test -- lib/customer-insight/call-queue
 ```
 
-Expect unit tests for inclusive push bands, hide windows (2 months / 7 days / Black List), eligible-N skipping queued.
+Expect unit tests for inclusive push bands, hide windows (purchase/contact 2 months / 7 days Not Responding / Black List), allocated-date filter, eligible-N skipping queued.

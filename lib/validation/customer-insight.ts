@@ -303,6 +303,8 @@ export const customerInsightCallQueueCandidatesQuerySchema = z.object({
   ),
   lastPurchaseFrom: optionalIsoDate,
   lastPurchaseTo: optionalIsoDate,
+  allocatedFrom: optionalIsoDate,
+  allocatedTo: optionalIsoDate,
   brand: z.preprocess(
     (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
     trimmedString(1, LIMITS.name.max).optional()
@@ -324,6 +326,8 @@ export const customerInsightCallQueueEligibleIdsQuerySchema = z.object({
   ),
   lastPurchaseFrom: optionalIsoDate,
   lastPurchaseTo: optionalIsoDate,
+  allocatedFrom: optionalIsoDate,
+  allocatedTo: optionalIsoDate,
   brand: z.preprocess(
     (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
     trimmedString(1, LIMITS.name.max).optional()

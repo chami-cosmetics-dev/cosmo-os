@@ -124,7 +124,7 @@
 - [ ] T028 Run quickstart scenarios V1-V6 in `specs/054-abandoned-cart-dedupe/quickstart.md` against local/dev
 - [X] T029 [P] Run `npm test` for abandoned-checkout cart/dedupe coverage and fix regressions
 - [X] T030 Lint/typecheck touched files (`lib/abandoned-checkout-*.ts`, abandoned-orders panel/form/API, prisma schema)
-- [ ] T031 Confirm migration deployed to intended shared targets via `npm run db:deploy:all` only when user explicitly approves prod/shared deploys (constitution IV)
+- [X] T031 Confirm migration deployed to intended shared targets via `npm run db:deploy:all` only when user explicitly approves prod/shared deploys (constitution IV)
 
 ---
 

@@ -672,6 +672,8 @@ export function CustomerInsightPanel({
   const [queueLoyalty, setQueueLoyalty] = useState("");
   const [queueLastPurchaseFrom, setQueueLastPurchaseFrom] = useState("");
   const [queueLastPurchaseTo, setQueueLastPurchaseTo] = useState("");
+  const [queueAllocatedFrom, setQueueAllocatedFrom] = useState("");
+  const [queueAllocatedTo, setQueueAllocatedTo] = useState("");
   const [queueBrand, setQueueBrand] = useState("");
   const [queueHideFilter, setQueueHideFilter] = useState<"all" | "eligible" | "hidden">(
     "all"
@@ -1120,6 +1122,12 @@ export function CustomerInsightPanel({
     }
     if (queueLastPurchaseTo.trim()) {
       params.set("lastPurchaseTo", queueLastPurchaseTo.trim());
+    }
+    if (queueAllocatedFrom.trim()) {
+      params.set("allocatedFrom", queueAllocatedFrom.trim());
+    }
+    if (queueAllocatedTo.trim()) {
+      params.set("allocatedTo", queueAllocatedTo.trim());
     }
     if (queueBrand.trim()) params.set("brand", queueBrand.trim());
     params.set("hideFilter", queueHideFilter);
@@ -4093,9 +4101,9 @@ export function CustomerInsightPanel({
             <CardDescription>
               Pick a merchant, then use any filter alone or together. Combined
               filters AND (Push to Gold + Push to Platinum = either band). Push
-              labels do not show amounts. Hidden logic is a filter: 2-month cooling
-              after allocation or outreach, 7-day Not Responding, Black List /
-              Wrong Number, already queued.
+              labels do not show amounts. Hidden logic: purchased or contacted
+              within 2 months, 7-day Not Responding, Black List / Wrong Number,
+              already queued (no allocation cooling).
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -4174,6 +4182,24 @@ export function CustomerInsightPanel({
                   value={queueLastPurchaseTo}
                   disabled={isBusy}
                   onChange={(e) => setQueueLastPurchaseTo(e.target.value)}
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="text-muted-foreground">Allocated from</span>
+                <Input
+                  type="date"
+                  value={queueAllocatedFrom}
+                  disabled={isBusy}
+                  onChange={(e) => setQueueAllocatedFrom(e.target.value)}
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="text-muted-foreground">Allocated to</span>
+                <Input
+                  type="date"
+                  value={queueAllocatedTo}
+                  disabled={isBusy}
+                  onChange={(e) => setQueueAllocatedTo(e.target.value)}
                 />
               </label>
               <div className="flex flex-wrap items-end gap-3 text-sm">
@@ -4260,8 +4286,8 @@ export function CustomerInsightPanel({
                     queueAllocatedTotal > queueEligibleTotal ? (
                       <>
                         {" "}
-                        · rest hidden (2-month cooling after allocation or outreach, already
-                        queued, Black List / Wrong Number)
+                        · rest hidden (purchased/contacted within 2 months, Not Responding
+                        7 days, already queued, Black List / Wrong Number)
                       </>
                     ) : null}
                   </p>

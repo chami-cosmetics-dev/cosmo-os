@@ -36,6 +36,16 @@ describe("assigned merchant aliases", () => {
     expect(expandAssignedMerchantFilter("STAFF SALES")).toEqual(["STAFF SALES"]);
   });
 
+  it("keeps ERROR NUMBER as its own bucket", () => {
+    expect(findAssignedMerchantAliasGroup("ERROR NUMBER")?.value).toBe(
+      "ERROR NUMBER"
+    );
+    expect(findAssignedMerchantAliasGroup("Error Number")?.value).toBe(
+      "ERROR NUMBER"
+    );
+    expect(expandAssignedMerchantFilter("ERROR NUMBER")).toEqual(["ERROR NUMBER"]);
+  });
+
   it("treats Semini, MER103 and Sanda/semini as the same merchant", () => {
     expect(findAssignedMerchantAliasGroup("Semini")?.value).toBe("Sanda/semini");
     expect(findAssignedMerchantAliasGroup("MER103")?.value).toBe("Sanda/semini");

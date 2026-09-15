@@ -35,7 +35,7 @@ describe("call-queue hide windows", () => {
       isHiddenFromCallQueueAssign({
         now,
         currentCategory: "Black List",
-        allocationAt: null,
+        lastPurchaseAt: null,
         lastNonAllocationAt: null,
         lastNonAllocationCategory: null,
         hasPendingQueue: false,
@@ -45,7 +45,7 @@ describe("call-queue hide windows", () => {
       isHiddenFromCallQueueAssign({
         now,
         currentCategory: "Wrong Number",
-        allocationAt: null,
+        lastPurchaseAt: null,
         lastNonAllocationAt: null,
         lastNonAllocationCategory: null,
         hasPendingQueue: false,
@@ -58,7 +58,7 @@ describe("call-queue hide windows", () => {
       isHiddenFromCallQueueAssign({
         now: new Date("2026-08-24T00:00:00.000Z"),
         currentCategory: null,
-        allocationAt: null,
+        lastPurchaseAt: null,
         lastNonAllocationAt: null,
         lastNonAllocationCategory: null,
         hasPendingQueue: true,
@@ -66,13 +66,26 @@ describe("call-queue hide windows", () => {
     ).toBe(true);
   });
 
-  it("hides recent allocation for 2 months", () => {
-    const allocated = new Date("2026-08-24T00:00:00.000Z");
+  it("does not hide on recent allocation alone", () => {
+    expect(
+      isHiddenFromCallQueueAssign({
+        now: new Date("2026-08-25T00:00:00.000Z"),
+        currentCategory: null,
+        lastPurchaseAt: null,
+        lastNonAllocationAt: null,
+        lastNonAllocationCategory: null,
+        hasPendingQueue: false,
+      })
+    ).toBe(false);
+  });
+
+  it("hides recent purchase for 2 months", () => {
+    const purchased = new Date("2026-08-24T00:00:00.000Z");
     expect(
       isHiddenFromCallQueueAssign({
         now: new Date("2026-10-23T00:00:00.000Z"),
         currentCategory: null,
-        allocationAt: allocated,
+        lastPurchaseAt: purchased,
         lastNonAllocationAt: null,
         lastNonAllocationCategory: null,
         hasPendingQueue: false,
@@ -82,7 +95,7 @@ describe("call-queue hide windows", () => {
       isHiddenFromCallQueueAssign({
         now: new Date("2026-10-24T00:00:00.000Z"),
         currentCategory: null,
-        allocationAt: allocated,
+        lastPurchaseAt: purchased,
         lastNonAllocationAt: null,
         lastNonAllocationCategory: null,
         hasPendingQueue: false,
@@ -96,7 +109,7 @@ describe("call-queue hide windows", () => {
       isHiddenFromCallQueueAssign({
         now: new Date("2026-08-30T00:00:00.000Z"),
         currentCategory: "Not Interested",
-        allocationAt: null,
+        lastPurchaseAt: null,
         lastNonAllocationAt: at,
         lastNonAllocationCategory: "Not Interested",
         hasPendingQueue: false,
@@ -106,7 +119,7 @@ describe("call-queue hide windows", () => {
       isHiddenFromCallQueueAssign({
         now: new Date("2026-08-30T00:00:00.000Z"),
         currentCategory: "Not Responding",
-        allocationAt: null,
+        lastPurchaseAt: null,
         lastNonAllocationAt: at,
         lastNonAllocationCategory: "Not Responding",
         hasPendingQueue: false,
@@ -116,7 +129,7 @@ describe("call-queue hide windows", () => {
       isHiddenFromCallQueueAssign({
         now: new Date("2026-08-31T00:00:00.000Z"),
         currentCategory: "Not Responding",
-        allocationAt: null,
+        lastPurchaseAt: null,
         lastNonAllocationAt: at,
         lastNonAllocationCategory: "Not Responding",
         hasPendingQueue: false,
@@ -128,12 +141,12 @@ describe("call-queue hide windows", () => {
 describe("callQueueHideReason", () => {
   const now = new Date("2026-12-01T00:00:00.000Z");
 
-  it("labels permanent omit, queued, and allocation cooling", () => {
+  it("labels permanent omit, queued, and purchase cooling", () => {
     expect(
       callQueueHideReason({
         now,
         currentCategory: "Black List",
-        allocationAt: null,
+        lastPurchaseAt: null,
         lastNonAllocationAt: null,
         lastNonAllocationCategory: null,
         hasPendingQueue: false,
@@ -143,7 +156,7 @@ describe("callQueueHideReason", () => {
       callQueueHideReason({
         now,
         currentCategory: null,
-        allocationAt: null,
+        lastPurchaseAt: null,
         lastNonAllocationAt: null,
         lastNonAllocationCategory: null,
         hasPendingQueue: true,
@@ -153,12 +166,12 @@ describe("callQueueHideReason", () => {
       callQueueHideReason({
         now: new Date("2026-10-23T00:00:00.000Z"),
         currentCategory: null,
-        allocationAt: new Date("2026-08-24T00:00:00.000Z"),
+        lastPurchaseAt: new Date("2026-08-24T00:00:00.000Z"),
         lastNonAllocationAt: null,
         lastNonAllocationCategory: null,
         hasPendingQueue: false,
       })
-    ).toBe("Allocated < 2 months");
+    ).toBe("Purchased < 2 months");
   });
 
   it("labels outreach cooling and returns null when eligible", () => {
@@ -167,7 +180,7 @@ describe("callQueueHideReason", () => {
       callQueueHideReason({
         now: new Date("2026-08-30T00:00:00.000Z"),
         currentCategory: "Not Interested",
-        allocationAt: null,
+        lastPurchaseAt: null,
         lastNonAllocationAt: at,
         lastNonAllocationCategory: "Not Interested",
         hasPendingQueue: false,
@@ -177,7 +190,7 @@ describe("callQueueHideReason", () => {
       callQueueHideReason({
         now: new Date("2026-08-30T00:00:00.000Z"),
         currentCategory: "Not Responding",
-        allocationAt: null,
+        lastPurchaseAt: null,
         lastNonAllocationAt: at,
         lastNonAllocationCategory: "Not Responding",
         hasPendingQueue: false,
@@ -187,7 +200,7 @@ describe("callQueueHideReason", () => {
       callQueueHideReason({
         now: new Date("2026-08-31T00:00:00.000Z"),
         currentCategory: "Not Responding",
-        allocationAt: null,
+        lastPurchaseAt: null,
         lastNonAllocationAt: at,
         lastNonAllocationCategory: "Not Responding",
         hasPendingQueue: false,

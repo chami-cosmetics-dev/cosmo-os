@@ -1,7 +1,8 @@
 /**
  * Insight filter options + query expansion for ContactMaster.assignedMerchant.
  *
- * Dropdown = company merchant-role users + fixed buckets (DM-General, STAFF SALES).
+ * Dropdown = company merchant-role users + fixed buckets
+ * (DM-General, STAFF SALES, ERROR NUMBER).
  * Filter expands to all labels that can appear on contacts for that pick.
  */
 
@@ -30,7 +31,7 @@ export type AssignedMerchantAliasGroup = {
 /**
  * Fixed buckets (not merchant-role users):
  * - MER115 / DM_General (Vault ERP) ≡ DM - General
- * - STAFF SALES stays separate
+ * - STAFF SALES / ERROR NUMBER stay separate
  */
 export const ASSIGNED_MERCHANT_ALIAS_GROUPS: AssignedMerchantAliasGroup[] = [
   {
@@ -48,6 +49,11 @@ export const ASSIGNED_MERCHANT_ALIAS_GROUPS: AssignedMerchantAliasGroup[] = [
     value: "STAFF SALES",
     label: "STAFF SALES",
     aliases: ["STAFF SALES"],
+  },
+  {
+    value: "ERROR NUMBER",
+    label: "ERROR NUMBER",
+    aliases: ["ERROR NUMBER"],
   },
   {
     value: "Sanda/semini",

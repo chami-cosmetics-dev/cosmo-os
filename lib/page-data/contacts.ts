@@ -9,6 +9,7 @@ import {
   canonicalizeAssignedMerchantLabels,
   expandAssignedMerchantFilter,
 } from "@/lib/customer-insight/merchant-label-aliases";
+import { isMerchantRoleName } from "@/lib/merchant-role";
 import {
   findContactIdsByPurchasedBrand,
   findContactsByPurchasedBrandRanked,
@@ -136,6 +137,9 @@ export type ContactsPageOptions = {
 };
 
 async function fetchContactsPageOptions(companyId: string): Promise<ContactsPageOptions> {
+  const roles = await prisma.role.findMany({ select: { id: true, name: true } });
+  const merchantRoleIds = roles.filter((r) => isMerchantRoleName(r.name)).map((r) => r.id);
+
   const [assignedRows, vendors, brandConfigs, assigneeRows] = await Promise.all([
     prisma.contactMaster.findMany({
       where: {
@@ -160,18 +164,21 @@ async function fetchContactsPageOptions(companyId: string): Promise<ContactsPage
       orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
       select: { name: true },
     }),
-    prisma.user.findMany({
-      where: {
-        companyId,
-        OR: [
-          { employeeProfile: null },
-          { employeeProfile: { status: "active" } },
-        ],
-      },
-      orderBy: { name: "asc" },
-      select: { id: true, name: true, knownName: true, email: true },
-      take: 300,
-    }),
+    merchantRoleIds.length === 0
+      ? Promise.resolve([])
+      : prisma.user.findMany({
+          where: {
+            companyId,
+            userRoles: { some: { roleId: { in: merchantRoleIds } } },
+            OR: [
+              { employeeProfile: null },
+              { employeeProfile: { status: "active" } },
+            ],
+          },
+          orderBy: { name: "asc" },
+          select: { id: true, name: true, knownName: true, email: true },
+          take: 300,
+        }),
   ]);
 
   // Collapse legacy duplicates so one merchant is one option.
