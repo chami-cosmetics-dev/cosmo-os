@@ -1953,7 +1953,14 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                       <Phone className="size-4" aria-hidden />
                     </span>
                     <div className="min-w-0">
-                      <p className="truncate font-medium">{row.name}</p>
+                      <p className="flex flex-wrap items-center gap-1.5 font-medium">
+                        <span className="truncate">{row.name}</span>
+                        {row.newlyAllocatedBadge ? (
+                          <span className="inline-flex shrink-0 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-400">
+                            Newly allocated
+                          </span>
+                        ) : null}
+                      </p>
                       <p className="text-muted-foreground text-xs">
                         {row.phoneNumber ?? "No phone"} · tot {formatMoney(row.lifetimeTotal)}
                       </p>

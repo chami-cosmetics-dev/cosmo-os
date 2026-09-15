@@ -11,7 +11,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { Calendar, Check, ChevronsUpDown, Crown, Download, Loader2, Mail, MapPin, Phone, Search, ShieldCheck, UserRound, X } from "lucide-react";
+import { Calendar, Check, ChevronsUpDown, Crown, Download, Loader2, Mail, MapPin, Phone, Search, ShieldCheck, Upload, UserRound, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -292,6 +292,7 @@ type CallQueueRow = {
   queued: boolean;
   hidden?: boolean;
   hideReason?: string | null;
+  newlyAllocatedBadge?: boolean;
 };
 
 function formatQueueDate(value: string | null) {
@@ -756,6 +757,7 @@ export function CustomerInsightPanel({
   } | null>(null);
   const invoicesRef = useRef<HTMLDivElement>(null);
   const detailsRef = useRef<HTMLDivElement>(null);
+  const queueImportInputRef = useRef<HTMLInputElement>(null);
 
   const isBusy = busyKey !== null;
   const isOwner = insight?.visibility === "owner";
@@ -1278,6 +1280,42 @@ export function CustomerInsightPanel({
       notify.error("Failed to export.");
     } finally {
       setBusyKey(null);
+    }
+  }
+
+  async function importQueueAssignments(file: File) {
+    if (!queueMerchant.trim()) {
+      notify.error("Select a merchant.");
+      return;
+    }
+    setBusyKey("queue-import");
+    try {
+      const form = new FormData();
+      form.set("assignedMerchant", queueMerchant.trim());
+      form.set("file", file);
+      const res = await fetch("/api/admin/customer-insight/call-queue/import", {
+        method: "POST",
+        body: form,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        notify.error(data.error ?? "Failed to import.");
+        return;
+      }
+      const assigned = Number(data.assigned ?? 0);
+      const skippedQueued = Number(data.skippedQueued ?? 0);
+      const skippedUnknown = Number(data.skippedUnknown ?? 0);
+      notify.success(
+        `Allocated + queued ${assigned} to merchant` +
+          (skippedQueued || skippedUnknown
+            ? ` · skipped queued ${skippedQueued}, unknown ${skippedUnknown}`
+            : "")
+      );
+    } catch {
+      notify.error("Failed to import.");
+    } finally {
+      setBusyKey(null);
+      if (queueImportInputRef.current) queueImportInputRef.current.value = "";
     }
   }
 
@@ -3593,7 +3631,14 @@ export function CustomerInsightPanel({
                     className="flex flex-col gap-2 px-3 py-3 text-sm sm:flex-row sm:items-center sm:justify-between"
                   >
                     <div className="min-w-0">
-                      <p className="font-medium">{row.name}</p>
+                      <p className="flex flex-wrap items-center gap-1.5 font-medium">
+                        <span className="truncate">{row.name}</span>
+                        {row.newlyAllocatedBadge ? (
+                          <span className="inline-flex shrink-0 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-400">
+                            Newly allocated
+                          </span>
+                        ) : null}
+                      </p>
                       <p className="text-muted-foreground text-xs">
                         {row.phoneNumber ?? "No phone"} · tot {formatMoney(row.lifetimeTotal)}
                       </p>
@@ -4103,7 +4148,10 @@ export function CustomerInsightPanel({
               filters AND (Push to Gold + Push to Platinum = either band). Push
               labels do not show amounts. Hidden logic: purchased or contacted
               within 2 months, 7-day Not Responding, Black List / Wrong Number,
-              already queued (no allocation cooling).
+              already queued (no allocation cooling). Import Excel reallocates
+              Contact Master to the merchant, queues them, and shows Newly
+              allocated (hidden if contacted within 2 months). Call update
+              clears the row and updates last contacted.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -4253,6 +4301,35 @@ export function CustomerInsightPanel({
                   <>
                     <Download aria-hidden />
                     Export Excel
+                  </>
+                )}
+              </Button>
+              <input
+                ref={queueImportInputRef}
+                type="file"
+                accept=".xlsx,.xls,.csv"
+                className="hidden"
+                disabled={isBusy}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) void importQueueAssignments(file);
+                }}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isBusy || !queueMerchant}
+                onClick={() => queueImportInputRef.current?.click()}
+              >
+                {busyKey === "queue-import" ? (
+                  <>
+                    <Loader2 className="animate-spin" aria-hidden />
+                    Importing...
+                  </>
+                ) : (
+                  <>
+                    <Upload aria-hidden />
+                    Import Excel
                   </>
                 )}
               </Button>

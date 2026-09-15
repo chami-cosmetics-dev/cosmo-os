@@ -58,10 +58,55 @@ describe("resolvePostLoginPath", () => {
     );
   });
 
-  it("sends store roles to fulfillment", () => {
-    expect(resolvePostLoginPath({ roleNames: ["stores-level-01"] })).toBe(
-      "/dashboard/fulfillment"
-    );
+  it("sends store roles to fulfillment when they have fulfillment access", () => {
+    expect(
+      resolvePostLoginPath({
+        roleNames: ["stores-level-01"],
+        permissionKeys: ["fulfillment.order_print.read"],
+      })
+    ).toBe("/dashboard/fulfillment");
+  });
+
+  it("sends store permission users to fulfillment when they have that nav", () => {
+    expect(
+      resolvePostLoginPath({
+        roleNames: ["custom-store"],
+        permissionKeys: [
+          "store.stock_count.read",
+          "fulfillment.ready_dispatch.read",
+        ],
+      })
+    ).toBe("/dashboard/fulfillment");
+  });
+
+  it("falls back to store tools when store staff lack fulfillment", () => {
+    expect(
+      resolvePostLoginPath({
+        roleNames: ["stores-level-01"],
+        permissionKeys: ["store.allocation.read"],
+      })
+    ).toBe("/dashboard/store/allocation");
+  });
+
+  it("sends fulfillment-only ops (no overview) to fulfillment", () => {
+    expect(
+      resolvePostLoginPath({
+        roleNames: ["warehouse-pack"],
+        permissionKeys: ["fulfillment.order_print.read"],
+      })
+    ).toBe("/dashboard/fulfillment");
+  });
+
+  it("keeps viewer on overview despite fulfillment read access", () => {
+    expect(
+      resolvePostLoginPath({
+        roleNames: ["viewer"],
+        permissionKeys: [
+          "dashboard.view",
+          "fulfillment.order_print.read",
+        ],
+      })
+    ).toBe("/dashboard");
   });
 
   it("sends purchasing users to Order Support File", () => {

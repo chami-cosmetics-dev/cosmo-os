@@ -351,3 +351,8 @@ export const customerInsightCallQueueAssignBodySchema = z.object({
   assignedMerchant: trimmedString(1, LIMITS.knownName.max),
   contactIds: z.array(cuidSchema).min(1).max(200),
 });
+
+/** Multipart Excel import — merchant only; file validated in route. */
+export const customerInsightCallQueueImportBodySchema = z.object({
+  assignedMerchant: trimmedString(1, LIMITS.knownName.max),
+});
