@@ -92,7 +92,8 @@ describe("vault OSF workbook", () => {
     expect(row.stockTotal).toBe(19);
     expect(row["sales:2026-06:total"]).toBe(46);
     expect(row.maxSale).toBe(46);
-    expect(row.ave).toBeCloseTo(19 / 46, 5);
+    // Apr–Sep window = 6 months; only June has 46 → AVE = 46/6
+    expect(row.ave).toBeCloseTo(46 / 6, 5);
     expect(row["reorder:sv"]).toBeCloseTo(3.152, 3);
     expect(row.mrp).toBe(9500);
     expect(row.discountedPrice).toBe(8550);

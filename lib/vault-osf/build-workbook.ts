@@ -1,6 +1,6 @@
 import type { VaultBusinessUnit, VaultCatalogRow } from "@/lib/vault-osf/types";
 import type { LatestPurchase, PriceInfo, PurchaseCell, SalesCell } from "@/lib/vault-osf/types";
-import { maxSale, monthsOfCover, reorderQty, sumNullable } from "@/lib/vault-osf/formulas";
+import { averageMonthlySale, maxSale, reorderQty, sumNullable } from "@/lib/vault-osf/formulas";
 import {
   monthKeysInWindow,
   monthPurchaseQtyHeader,
@@ -180,8 +180,8 @@ export function buildVaultMainRows(input: VaultWorkbookInput): Array<Record<stri
 
     const max = maxSale(monthTotals);
     row.maxSale = max;
-    // AVE = months of cover at peak demand: total stock / max monthly sale.
-    row.ave = monthsOfCover(row.stockTotal as number, max);
+    // AVE = total sale across window / number of months in window.
+    row.ave = averageMonthlySale(monthTotals, months.length);
 
     const price = input.prices.get(item.sku);
     row.mrp = price?.mrp ?? null;
