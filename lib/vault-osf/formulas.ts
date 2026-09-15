@@ -12,18 +12,17 @@ export function maxSale(monthTotals: Array<number | null | undefined>): number |
 }
 
 /**
- * AVE = total sales across the window ÷ number of months in the window.
- * Blank months add 0 to the sum but still count in the divisor.
+ * AVE = total sales ÷ count of months that have a sale value.
+ * Blank months (no ERP/import cell) are excluded from the divisor.
  */
 export function averageMonthlySale(
   monthTotals: Array<number | null | undefined>,
-  monthCount = monthTotals.length,
+  _monthCount?: number,
 ): number | null {
-  if (monthCount <= 0) return null;
   const nums = monthTotals.filter((v): v is number => v != null && Number.isFinite(v));
   if (nums.length === 0) return null;
   const total = nums.reduce((a, b) => a + b, 0);
-  return total / monthCount;
+  return total / nums.length;
 }
 
 /** Legacy months-of-cover helper (stock ÷ peak month). Not used for AVE. */

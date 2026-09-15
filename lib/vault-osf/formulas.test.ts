@@ -9,10 +9,12 @@ import {
 } from "@/lib/vault-osf/formulas";
 
 describe("vault OSF formulas", () => {
-  it("computes AVE as total sale / month count", () => {
+  it("computes AVE as total sale / months that have sales", () => {
     expect(maxSale([27, 32, 46, 20, 18, 1])).toBe(46);
     expect(averageMonthlySale([27, 32, 46, 20, 18, 1])).toBeCloseTo(144 / 6, 5);
-    expect(averageMonthlySale([null, null, 46, null, null, null], 6)).toBeCloseTo(46 / 6, 5);
+    // April/May blank — only June counts
+    expect(averageMonthlySale([null, null, 46, null, null, null])).toBe(46);
+    expect(averageMonthlySale([null, 10, 20, null])).toBe(15);
     expect(reorderQty(9.152, 6)).toBeCloseTo(3.152, 3);
   });
 

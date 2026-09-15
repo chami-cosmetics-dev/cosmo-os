@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 import {
   buildVaultMainRows,
   COSMO_HEADERS_MUST_ABSENT,
+  excelColumnLetter,
   vaultColumnDefs,
+  vaultOsfSubtotalColumn,
   type VaultWorkbookInput,
 } from "@/lib/vault-osf/build-workbook";
 import type { VaultBusinessUnit } from "@/lib/vault-osf/types";
@@ -92,8 +94,8 @@ describe("vault OSF workbook", () => {
     expect(row.stockTotal).toBe(19);
     expect(row["sales:2026-06:total"]).toBe(46);
     expect(row.maxSale).toBe(46);
-    // Apr–Sep window = 6 months; only June has 46 → AVE = 46/6
-    expect(row.ave).toBeCloseTo(46 / 6, 5);
+    // Only June has sales → AVE = 46/1
+    expect(row.ave).toBe(46);
     expect(row["reorder:sv"]).toBeCloseTo(3.152, 3);
     expect(row.mrp).toBe(9500);
     expect(row.discountedPrice).toBe(8550);
@@ -141,5 +143,16 @@ describe("vault OSF workbook", () => {
     expect(defs[firstPurch + 1]!.header).toBe("April 2026 Purchase Total");
     expect(defs[firstPurch]!.section).toBe("Purchases");
     expect(defs[idx("sales:2026-04:total")]!.section).toBe("Sales");
+  });
+
+  it("marks numeric columns for SUBTOTAL and maps Excel letters", () => {
+    expect(excelColumnLetter(1)).toBe("A");
+    expect(excelColumnLetter(9)).toBe("I");
+    expect(excelColumnLetter(27)).toBe("AA");
+    expect(vaultOsfSubtotalColumn("rop:sv")).toBe(true);
+    expect(vaultOsfSubtotalColumn("stockTotal")).toBe(true);
+    expect(vaultOsfSubtotalColumn("sales:2026-06:total")).toBe(true);
+    expect(vaultOsfSubtotalColumn("variantSku")).toBe(false);
+    expect(vaultOsfSubtotalColumn("latestSupplier")).toBe(false);
   });
 });

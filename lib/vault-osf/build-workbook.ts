@@ -131,6 +131,35 @@ function cell(value: string | number | null | undefined): string | number | null
   return value;
 }
 
+/** Excel column letter from 1-based index (1 → A, 27 → AA). */
+export function excelColumnLetter(col1Based: number): string {
+  let n = col1Based;
+  let out = "";
+  while (n > 0) {
+    const rem = (n - 1) % 26;
+    out = String.fromCharCode(65 + rem) + out;
+    n = Math.floor((n - 1) / 26);
+  }
+  return out;
+}
+
+/** Numeric columns that get Excel SUBTOTAL(9, …) on the totals row. */
+export function vaultOsfSubtotalColumn(key: string): boolean {
+  if (key.startsWith("rop:")) return true;
+  if (key === "ropTotal") return true;
+  if (key.startsWith("stock:")) return true;
+  if (key === "stockTotal") return true;
+  if (key.startsWith("sales:")) return true;
+  if (key.startsWith("purchQty:")) return true;
+  if (key.startsWith("purchValue:")) return true;
+  if (key === "mrp" || key === "discountedPrice") return true;
+  if (key === "maxSale" || key === "ave") return true;
+  if (key.startsWith("reorder:")) return true;
+  if (key === "reorderTotal") return true;
+  if (key === "latestPrice") return true;
+  return false;
+}
+
 export function buildVaultMainRows(input: VaultWorkbookInput): Array<Record<string, string | number | null>> {
   const units = [...input.units].sort((a, b) => a.sortOrder - b.sortOrder || a.key.localeCompare(b.key));
   const months = monthKeysInWindow(input.asOfDate);
@@ -182,8 +211,8 @@ export function buildVaultMainRows(input: VaultWorkbookInput): Array<Record<stri
 
     const max = maxSale(monthTotals);
     row.maxSale = max;
-    // AVE = total sale across window / number of months in window.
-    row.ave = averageMonthlySale(monthTotals, months.length);
+    // AVE = total sale / count of months that have sales (blanks ignored).
+    row.ave = averageMonthlySale(monthTotals);
 
     const price = input.prices.get(item.sku);
     row.mrp = price?.mrp ?? null;
@@ -202,13 +231,38 @@ export async function buildVaultOsfWorkbookBuffer(input: VaultWorkbookInput): Pr
   const defs = vaultColumnDefs(input.units, input.asOfDate);
   const rows = buildVaultMainRows(input);
   const wb = new ExcelJS.Workbook();
-  const ws = wb.addWorksheet("Main", { views: [{ state: "frozen", ySplit: 2 }] });
+  // Row1 section, Row2 SUBTOTAL, Row3 headers, Row4+ data — freeze all three header rows.
+  const ws = wb.addWorksheet("Main", { views: [{ state: "frozen", ySplit: 3 }] });
   ws.addRow(defs.map((d) => d.section ?? ""));
+
+  const dataStartRow = 4;
+  const dataEndRow = rows.length === 0 ? dataStartRow : dataStartRow + rows.length - 1;
+  const totalsRow = ws.addRow(defs.map(() => ""));
+  defs.forEach((d, colIdx) => {
+    const cellRef = totalsRow.getCell(colIdx + 1);
+    if (colIdx === 0) {
+      cellRef.value = "Subtotal";
+      return;
+    }
+    if (!vaultOsfSubtotalColumn(d.key)) {
+      cellRef.value = "";
+      return;
+    }
+    const letter = excelColumnLetter(colIdx + 1);
+    cellRef.value = {
+      formula: `SUBTOTAL(9,${letter}${dataStartRow}:${letter}${dataEndRow})`,
+    };
+  });
+
   ws.addRow(defs.map((d) => d.header));
   for (const r of rows) {
     ws.addRow(defs.map((d) => (r[d.key] == null ? "" : r[d.key])));
   }
-  applyOsfWorkbookHeaderBands(ws, defs);
+  applyOsfWorkbookHeaderBands(ws, defs, {
+    sectionRow: 1,
+    totalsRow: 2,
+    headerRow: 3,
+  });
 
   const months = monthKeysInWindow(input.asOfDate);
   const info = wb.addWorksheet("Info");

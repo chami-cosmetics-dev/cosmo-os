@@ -31,11 +31,16 @@ export type OsfWorkbookBandColumn = {
   band?: OsfWorkbookBandKey;
 };
 
-/** Style rows 1–2 (section + header) with Cosmo OSF band colors. */
+/** Style section + optional totals + header rows with Cosmo OSF band colors. */
 export function applyOsfWorkbookHeaderBands(
   ws: Worksheet,
   defs: OsfWorkbookBandColumn[],
+  options?: { sectionRow?: number; totalsRow?: number; headerRow?: number },
 ): void {
+  const sectionRow = options?.sectionRow ?? 1;
+  const totalsRow = options?.totalsRow;
+  const headerRow = options?.headerRow ?? (totalsRow != null ? 3 : 2);
+
   for (let colIdx = 0; colIdx < defs.length; colIdx += 1) {
     const band = defs[colIdx]!.band ?? "identity";
     const colors = OSF_WORKBOOK_BAND_COLORS[band];
@@ -50,11 +55,15 @@ export function applyOsfWorkbookHeaderBands(
       cell.font = { bold, color: { argb: `FF${fontArgb}` }, size: 10 };
       cell.alignment = { vertical: "middle", wrapText: true };
     };
-    styleRow(1, colors.section, "000000", true);
-    styleRow(2, colors.header, colors.font, true);
+    styleRow(sectionRow, colors.section, "000000", true);
+    if (totalsRow != null) {
+      styleRow(totalsRow, colors.totals, "000000", true);
+    }
+    styleRow(headerRow, colors.header, colors.font, true);
     const len = Math.max(10, Math.min(28, defs[colIdx]!.header.length + 2));
     ws.getColumn(excelCol).width = len;
   }
-  ws.getRow(1).height = 18;
-  ws.getRow(2).height = 28;
+  ws.getRow(sectionRow).height = 18;
+  if (totalsRow != null) ws.getRow(totalsRow).height = 20;
+  ws.getRow(headerRow).height = 28;
 }
