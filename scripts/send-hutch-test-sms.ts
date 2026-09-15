@@ -37,7 +37,12 @@ async function main() {
     phone,
     `This is a test SMS from ${APP_NAME}. Your SMS portal is configured correctly.`,
   );
-  console.log(JSON.stringify({ success: result.success, message: result.message ?? null }));
+  console.log(
+    JSON.stringify({
+      success: result.success,
+      message: result.success ? null : result.message,
+    }),
+  );
   if (!result.success) process.exit(1);
 }
 
