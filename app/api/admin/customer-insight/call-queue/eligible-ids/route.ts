@@ -34,6 +34,8 @@ export async function GET(request: NextRequest) {
     loyalty: sp.get("loyalty") ?? undefined,
     lastPurchaseFrom: sp.get("lastPurchaseFrom") ?? undefined,
     lastPurchaseTo: sp.get("lastPurchaseTo") ?? undefined,
+    allocatedFrom: sp.get("allocatedFrom") ?? undefined,
+    allocatedTo: sp.get("allocatedTo") ?? undefined,
     brand: sp.get("brand") ?? undefined,
   });
   if (!parsed.success) {

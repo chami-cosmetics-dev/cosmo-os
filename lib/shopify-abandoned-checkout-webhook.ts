@@ -2,6 +2,10 @@ import { Prisma } from "@prisma/client";
 
 import { addressFromShopifyRest } from "@/lib/abandoned-checkout-address";
 import { refreshCheckoutDedupeFields } from "@/lib/abandoned-checkout-dedupe";
+import {
+  isBlockedAbandonedCheckoutEmail,
+  loadCompanyStaffEmails,
+} from "@/lib/abandoned-checkout-staff-block";
 import { prisma } from "@/lib/prisma";
 import { LIMITS } from "@/lib/validation";
 import type { ShopifyCheckoutWebhookPayload } from "@/lib/validation/shopify-checkout";
@@ -163,6 +167,21 @@ export async function upsertAbandonedCheckoutFromWebhook(input: {
   const customerName = preferText(resolveCustomerName(input.data), existing?.customerName);
   const customerEmail = preferText(resolveCustomerEmail(input.data), existing?.customerEmail);
   const customerPhone = preferText(resolveCustomerPhone(input.data), existing?.customerPhone);
+
+  const staffEmails = await loadCompanyStaffEmails(input.companyId);
+  if (isBlockedAbandonedCheckoutEmail(customerEmail, staffEmails)) {
+    if (existing) {
+      await prisma.shopifyAbandonedCheckout.delete({
+        where: {
+          companyId_shopifyCheckoutGid: {
+            companyId: input.companyId,
+            shopifyCheckoutGid,
+          },
+        },
+      });
+    }
+    return { shopifyCheckoutGid, recovered };
+  }
 
   const billingAddressText = preferText(
     addressFromShopifyRest(

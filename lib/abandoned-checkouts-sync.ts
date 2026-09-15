@@ -2,6 +2,11 @@ import { Prisma, type PrismaClient } from "@prisma/client";
 
 import { formatAbandonedCheckoutAddress } from "@/lib/abandoned-checkout-address";
 import { dedupeAbandonedCheckoutsForCompany } from "@/lib/abandoned-checkout-dedupe";
+import {
+  isBlockedAbandonedCheckoutEmail,
+  loadCompanyStaffEmails,
+  purgeStaffAbandonedCheckouts,
+} from "@/lib/abandoned-checkout-staff-block";
 import { prisma as prismaClient } from "@/lib/prisma";
 import { formatAppIsoDate } from "@/lib/format-datetime";
 import { LIMITS } from "@/lib/validation";
@@ -430,6 +435,7 @@ export async function syncAbandonedCheckoutsForCompany(companyId: string): Promi
     let recoveredDetected = 0;
     const storeErrors: string[] = [];
     let storesSynced = 0;
+    const staffEmails = await loadCompanyStaffEmails(companyId);
 
     for (const loc of handles) {
       const storeHandle = loc.shopifyAdminStoreHandle as string;
@@ -547,6 +553,18 @@ export async function syncAbandonedCheckoutsForCompany(companyId: string): Promi
               node.customer?.email ?? rest?.email ?? null,
               current?.customerEmail
             );
+
+            if (isBlockedAbandonedCheckoutEmail(customerEmail, staffEmails)) {
+              if (current) {
+                await prisma.shopifyAbandonedCheckout.delete({
+                  where: {
+                    companyId_shopifyCheckoutGid: { companyId, shopifyCheckoutGid },
+                  },
+                });
+              }
+              continue;
+            }
+
             const customerName = preferText(
               resolveCustomerName(node) ?? rest?.name ?? null,
               current?.customerName
@@ -688,6 +706,15 @@ export async function syncAbandonedCheckoutsForCompany(companyId: string): Promi
       create: { companyId, lastSyncedAt: now, lastSyncError: partialError },
       update: { lastSyncedAt: now, lastSyncError: partialError },
     });
+
+    try {
+      await purgeStaffAbandonedCheckouts(companyId);
+    } catch (purgeErr) {
+      console.error("[Shopify abandonedCheckouts] staff email purge failed", {
+        companyId,
+        error: purgeErr instanceof Error ? purgeErr.message : String(purgeErr),
+      });
+    }
 
     try {
       await dedupeAbandonedCheckoutsForCompany(companyId);

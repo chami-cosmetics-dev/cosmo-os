@@ -415,7 +415,9 @@ export function ContactsPanel({
   async function onAssignContact() {
     const phoneNumbers = parseTpNumbers(assignPhone);
     if (phoneNumbers.length === 0 || !assignTo.trim()) {
-      notify.error("Enter phone number(s) and select a merchant or Staff category");
+      notify.error(
+        "Enter phone number(s) and select a merchant, Staff category, or Error number category"
+      );
       return;
     }
     setAssignSaving(true);
@@ -674,7 +676,7 @@ export function ContactsPanel({
               <p className="text-sm font-medium">Assign by phone</p>
               <p className="text-muted-foreground text-xs">
                 One or many phones (comma or newline). Overwrites current allocated merchant
-                (or assign to Staff category).
+                (or assign to Staff / Error number category).
               </p>
               <Textarea
                 placeholder="Phone / TP numbers (comma or newline)"

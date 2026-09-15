@@ -5,6 +5,7 @@ import {
   withStaffSalesAssignee,
   withStaffSalesAssignedMerchant,
 } from "@/lib/contacts/staff-sales-allocation";
+import { isMerchantRoleName } from "@/lib/merchant-role";
 import {
   canonicalizeAssignedMerchantLabels,
   expandAssignedMerchantFilter,
@@ -349,18 +350,26 @@ export async function fetchContactAllocationPageData(
       ORDER BY c."updatedAt" DESC
       LIMIT ${PREVIEW_LIMIT}
     `,
-    prisma.user.findMany({
-      where: {
-        companyId,
-        OR: [
-          { employeeProfile: null },
-          { employeeProfile: { status: "active" } },
-        ],
-      },
-      orderBy: { name: "asc" },
-      select: { id: true, name: true, knownName: true, email: true },
-      take: 300,
-    }),
+    (async () => {
+      const roles = await prisma.role.findMany({ select: { id: true, name: true } });
+      const merchantRoleIds = roles
+        .filter((r) => isMerchantRoleName(r.name))
+        .map((r) => r.id);
+      if (merchantRoleIds.length === 0) return [];
+      return prisma.user.findMany({
+        where: {
+          companyId,
+          userRoles: { some: { roleId: { in: merchantRoleIds } } },
+          OR: [
+            { employeeProfile: null },
+            { employeeProfile: { status: "active" } },
+          ],
+        },
+        orderBy: { name: "asc" },
+        select: { id: true, name: true, knownName: true, email: true },
+        take: 300,
+      });
+    })(),
     fetchConfiguredAllocationOptions(companyId),
     fetchDistinct(companyId, "gender"),
     fetchDistinct(companyId, "recentMerchant"),

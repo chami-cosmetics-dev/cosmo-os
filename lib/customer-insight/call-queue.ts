@@ -50,6 +50,8 @@ export type CallQueueAssignFilters = {
   loyalty?: "standard" | "gold" | "platinum" | "unassigned";
   lastPurchaseFrom?: string;
   lastPurchaseTo?: string;
+  allocatedFrom?: string;
+  allocatedTo?: string;
   brand?: string;
   hideFilter?: CallQueueHideFilter;
 };
@@ -358,6 +360,7 @@ async function listRankedEligibleContacts(input: {
       {
         lifetimeTotal: lifetimeById.get(c.id) ?? 0,
         lastPurchaseAt: c.lastPurchaseAt,
+        allocationAt: allocated.get(c.id) ?? null,
         loyaltyAssignedTier: c.loyaltyAssignedTier,
         boughtBrand: !brandNeedle || (brandIdSet?.has(c.id) ?? false),
       },
@@ -371,7 +374,7 @@ async function listRankedEligibleContacts(input: {
       const hideReason = callQueueHideReason({
         now,
         currentCategory: c.category,
-        allocationAt: allocated.get(c.id) ?? null,
+        lastPurchaseAt: c.lastPurchaseAt,
         lastNonAllocationAt: ev?.at ?? null,
         lastNonAllocationCategory: ev?.category ?? c.category,
         hasPendingQueue: queued.has(c.id),
@@ -518,6 +521,7 @@ export async function assignCallQueue(input: {
           category: true,
           email: true,
           phoneNumber: true,
+          lastPurchaseAt: true,
           phones: { select: { phoneNumber: true } },
           emails: { select: { email: true } },
         },
@@ -536,9 +540,8 @@ export async function assignCallQueue(input: {
 
   const ids = contacts.map((c) => c.id);
   const now = new Date();
-  const [queued, allocated, lastEvent, lifetimeById] = await Promise.all([
+  const [queued, lastEvent, lifetimeById] = await Promise.all([
     pendingQueuedContactIds(input.companyId, ids),
-    allocationAtMap(input.companyId, ids),
     lastNonAllocationEventMap(input.companyId, ids),
     lifetimeTotalsByContactId(input.companyId, contacts),
   ]);
@@ -556,7 +559,7 @@ export async function assignCallQueue(input: {
       isHiddenFromCallQueueAssign({
         now,
         currentCategory: contact.category,
-        allocationAt: allocated.get(contact.id) ?? null,
+        lastPurchaseAt: contact.lastPurchaseAt,
         lastNonAllocationAt: ev?.at ?? null,
         lastNonAllocationCategory: ev?.category ?? contact.category,
         hasPendingQueue: false,
