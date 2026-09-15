@@ -125,6 +125,7 @@ export function canSeeTaskReminderCategory(
 const ALL_TASK_REMINDER_CATEGORIES = [
   "erp_sync_warning",
   "finance_approval",
+  "merchant_payment_approval",
   "add_samples",
   "print",
   "ready_dispatch",

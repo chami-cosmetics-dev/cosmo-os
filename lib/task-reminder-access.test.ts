@@ -162,7 +162,23 @@ describe("task-reminder-access", () => {
     expect(resolveTaskReminderAudiences(context)).toEqual(new Set(["merchant"]));
     expect(canSeeTaskReminderCategory(context, "add_samples")).toBe(true);
     expect(canSeeTaskReminderCategory(context, "ready_dispatch")).toBe(false);
+    expect(canSeeTaskReminderCategory(context, "merchant_payment_approval")).toBe(false);
     expect(shouldScopeSampleRemindersToMerchant(context)).toBe(true);
+  });
+
+  it("grants merchant payment-approval HUD from reminders.merchant_payment_approval", () => {
+    const context = {
+      roleNames: ["merchant-level-01"],
+      permissionKeys: [
+        "dashboard.merchant_view",
+        "reminders.merchant_payment_approval",
+      ],
+    };
+    expect(canSeeTaskReminderCategory(context, "merchant_payment_approval")).toBe(true);
+    expect(canSeeTaskReminderCategory(context, "finance_approval")).toBe(false);
+    expect(listVisibleTaskReminderCategories(context)).toEqual([
+      "merchant_payment_approval",
+    ]);
   });
 
   it("does not scope samples for store users", () => {

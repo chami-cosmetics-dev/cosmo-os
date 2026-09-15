@@ -956,6 +956,35 @@ export async function listMerchantCallQueue(input: {
   return { items };
 }
 
+/** Pending queue row for this merchant — same match keys as listMerchantCallQueue. */
+export async function findPendingMerchantCallQueueRow(input: {
+  companyId: string;
+  contactId: string;
+  merchant: {
+    id: string;
+    knownName?: string | null;
+    name?: string | null;
+    email?: string | null;
+    couponCodes?: string[] | null;
+  };
+}): Promise<{ id: string } | null> {
+  const keys = merchantMatchKeysForUser(input.merchant);
+  return prisma.contactInsightCallQueue.findFirst({
+    where: {
+      companyId: input.companyId,
+      contactId: input.contactId,
+      status: CALL_QUEUE_STATUS_PENDING,
+      OR: [
+        { merchantUserId: input.merchant.id },
+        ...keys.map((label) => ({
+          merchantLabel: { equals: label, mode: "insensitive" as const },
+        })),
+      ],
+    },
+    select: { id: true },
+  });
+}
+
 export async function completeCallQueueItem(input: {
   companyId: string;
   contactId: string;
