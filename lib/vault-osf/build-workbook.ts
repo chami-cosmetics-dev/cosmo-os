@@ -53,13 +53,14 @@ export function vaultColumnDefs(units: VaultBusinessUnit[], asOfDate: string): V
   const ordered = [...units].sort((a, b) => a.sortOrder - b.sortOrder || a.key.localeCompare(b.key));
   const months = monthKeysInWindow(asOfDate);
   const defs: VaultOsfColDef[] = [
-    { key: "sku", header: "Common SKU", section: "Identity", band: "identity" },
-    { key: "barcode", header: "Barcode", band: "identity" },
-    { key: "priorityStatus", header: "Priority Status", band: "identity" },
-    { key: "country", header: "Country", band: "identity" },
-    { key: "category", header: "Category", band: "identity" },
+    { key: "variantSku", header: "Variant SKU", section: "Identity", band: "identity" },
+    { key: "sku", header: "SKU", band: "identity" },
     { key: "brand", header: "Brand", band: "identity" },
     { key: "itemName", header: "Item", band: "identity" },
+    { key: "barcode", header: "Barcode", band: "identity" },
+    { key: "category", header: "Category", band: "identity" },
+    { key: "priorityStatus", header: "Priority Status", band: "identity" },
+    { key: "country", header: "Country", band: "identity" },
   ];
 
   ordered.forEach((u, i) => {
@@ -82,7 +83,7 @@ export function vaultColumnDefs(units: VaultBusinessUnit[], asOfDate: string): V
   });
   defs.push({ key: "stockTotal", header: "Total", band: "stock" });
 
-  // Sales months first (grouped), then purchase months — not interleaved.
+  // Sales block, then purchase block (qty then value per month).
   for (const [i, month] of months.entries()) {
     defs.push({
       key: `sales:${month}:total`,
@@ -94,14 +95,14 @@ export function vaultColumnDefs(units: VaultBusinessUnit[], asOfDate: string): V
   for (const [i, month] of months.entries()) {
     const section = i === 0 ? "Purchases" : undefined;
     defs.push({
-      key: `purchValue:${month}`,
-      header: monthPurchaseTotalHeader(month),
+      key: `purchQty:${month}`,
+      header: monthPurchaseQtyHeader(month),
       section,
       band: "sales",
     });
     defs.push({
-      key: `purchQty:${month}`,
-      header: monthPurchaseQtyHeader(month),
+      key: `purchValue:${month}`,
+      header: monthPurchaseTotalHeader(month),
       band: "sales",
     });
   }
@@ -137,6 +138,7 @@ export function buildVaultMainRows(input: VaultWorkbookInput): Array<Record<stri
 
   for (const item of input.catalog) {
     const row: Record<string, string | number | null> = {
+      variantSku: item.variantSku,
       sku: item.sku,
       barcode: cell(item.barcode),
       priorityStatus: cell(item.priorityStatus),
