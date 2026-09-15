@@ -91,6 +91,8 @@ describe("vault OSF workbook", () => {
   it("computes stock, max sale, AVE, signed reorder; blank ROP stays blank", () => {
     const rows = buildVaultMainRows(input());
     const row = rows[0]!;
+    expect(row.variantSku).toBe("NW004-2");
+    expect(row.sku).toBe("NW004");
     expect(row.stockTotal).toBe(19);
     expect(row["sales:2026-06:total"]).toBe(46);
     expect(row.maxSale).toBe(46);
@@ -126,7 +128,7 @@ describe("vault OSF workbook", () => {
       "country",
     ]);
     expect(defs[0]!.header).toBe("Variant SKU");
-    expect(defs[1]!.header).toBe("SKU");
+    expect(defs[1]!.header).toBe("Common SKU");
 
     const keys = defs.map((d) => d.key);
     const idx = (k: string) => keys.indexOf(k);
