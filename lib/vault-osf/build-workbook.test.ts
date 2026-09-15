@@ -142,7 +142,9 @@ describe("vault OSF workbook", () => {
     expect(defs[firstPurch]!.header).toBe("April 2026 Purchase Qty");
     expect(defs[firstPurch + 1]!.header).toBe("April 2026 Purchase Total");
     expect(defs[firstPurch]!.section).toBe("Purchases");
+    expect(defs[firstPurch]!.band).toBe("purchase");
     expect(defs[idx("sales:2026-04:total")]!.section).toBe("Sales");
+    expect(defs[idx("sales:2026-04:total")]!.band).toBe("sales");
   });
 
   it("marks numeric columns for SUBTOTAL and maps Excel letters", () => {

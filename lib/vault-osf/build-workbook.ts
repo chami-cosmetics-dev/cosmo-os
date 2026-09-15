@@ -98,12 +98,12 @@ export function vaultColumnDefs(units: VaultBusinessUnit[], asOfDate: string): V
       key: `purchQty:${month}`,
       header: monthPurchaseQtyHeader(month),
       section,
-      band: "sales",
+      band: "purchase",
     });
     defs.push({
       key: `purchValue:${month}`,
       header: monthPurchaseTotalHeader(month),
-      band: "sales",
+      band: "purchase",
     });
   }
 
