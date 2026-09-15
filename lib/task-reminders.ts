@@ -42,9 +42,6 @@ export type TaskReminderCategory =
   | "invoice_complete"
   | "purchasing_rop_threshold";
 
-/** How long approved order-payment approvals stay visible to merchants. */
-export const MERCHANT_PAYMENT_APPROVAL_RECENT_DAYS = 7;
-
 export type TaskReminder = {
   id: string;
   category: TaskReminderCategory;
@@ -227,38 +224,25 @@ async function fetchFinanceApprovalReminders(
   return { reminders, totalCount };
 }
 
-export function merchantPaymentApprovalRecentCutoff(now: Date = new Date()): Date {
-  return new Date(
-    now.getTime() - MERCHANT_PAYMENT_APPROVAL_RECENT_DAYS * 24 * 60 * 60 * 1000,
-  );
-}
-
 export function buildMerchantPaymentApprovalWhere(
   companyId: string,
   merchantUserId: string,
-  now: Date,
 ): Prisma.ApprovalRequestWhereInput {
-  const approvedSince = merchantPaymentApprovalRecentCutoff(now);
   return {
     companyId,
     type: ORDER_PAYMENT_APPROVAL,
+    status: "pending",
     order: {
       assignedMerchantId: merchantUserId,
       NOT: { financialStatus: { equals: "voided", mode: "insensitive" } },
     },
-    OR: [
-      { status: "pending" },
-      { status: "approved", reviewedAt: { gte: approvedSince } },
-    ],
   };
 }
 
 export function mapMerchantPaymentApprovalReminder(
   approval: {
     id: string;
-    status: string;
     createdAt: Date;
-    reviewedAt: Date | null;
     order: {
       id: string;
       name: string | null;
@@ -271,18 +255,12 @@ export function mapMerchantPaymentApprovalReminder(
   const invoiceLabel = approval.order
     ? orderInvoiceLabel(approval.order)
     : approval.id;
-  const isApproved = approval.status === "approved";
-  const waitingHours = waitingHoursSince(
-    isApproved && approval.reviewedAt ? approval.reviewedAt : approval.createdAt,
-    now,
-  );
+  const waitingHours = waitingHoursSince(approval.createdAt, now);
   return {
     id: `merchant_payment_approval:${approval.id}`,
     category: "merchant_payment_approval",
-    title: isApproved ? "Payment approval approved" : "Payment approval pending",
-    body: isApproved
-      ? `${invoiceLabel} payment was approved by finance.`
-      : `${invoiceLabel} is waiting for finance payment approval (${waitingHours}h).`,
+    title: "Payment approval pending",
+    body: `${invoiceLabel} is waiting for finance payment approval (${waitingHours}h).`,
     href: taskReminderHref("/dashboard/merchant", { orderId: approval.order?.id }),
     waitingHours,
     orderId: approval.order?.id,
@@ -299,51 +277,32 @@ async function fetchMerchantPaymentApprovalReminders(
     return { reminders: [], totalCount: 0 };
   }
 
-  const where = buildMerchantPaymentApprovalWhere(companyId, context.userId, now);
+  const where = buildMerchantPaymentApprovalWhere(companyId, context.userId);
   const totalCount = await prisma.approvalRequest.count({ where });
-
-  const select = {
-    id: true,
-    status: true,
-    createdAt: true,
-    reviewedAt: true,
-    order: {
-      select: {
-        id: true,
-        name: true,
-        orderNumber: true,
-        shopifyOrderId: true,
-      },
-    },
-  } as const;
-
-  const pending = await prisma.approvalRequest.findMany({
-    where: { ...where, status: "pending" },
+  const approvals = await prisma.approvalRequest.findMany({
+    where,
     orderBy: { createdAt: "asc" },
     take: REMINDER_LIMIT_PER_CATEGORY,
-    select,
+    select: {
+      id: true,
+      createdAt: true,
+      order: {
+        select: {
+          id: true,
+          name: true,
+          orderNumber: true,
+          shopifyOrderId: true,
+        },
+      },
+    },
   });
 
-  const remaining = REMINDER_LIMIT_PER_CATEGORY - pending.length;
-  const approved =
-    remaining > 0
-      ? await prisma.approvalRequest.findMany({
-          where: {
-            ...where,
-            status: "approved",
-            reviewedAt: { gte: merchantPaymentApprovalRecentCutoff(now) },
-          },
-          orderBy: { reviewedAt: "desc" },
-          take: remaining,
-          select,
-        })
-      : [];
-
-  const reminders = [...pending, ...approved].map((approval) =>
-    mapMerchantPaymentApprovalReminder(approval, now),
-  );
-
-  return { reminders, totalCount };
+  return {
+    totalCount,
+    reminders: approvals.map((approval) =>
+      mapMerchantPaymentApprovalReminder(approval, now),
+    ),
+  };
 }
 
 async function fetchSampleReminders(
