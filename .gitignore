@@ -34,6 +34,8 @@ yarn-error.log*
 .env.vault
 .env.cosmo-dev
 .env.cosmo-prod
+.env.maileroo.tmp
+.env*.tmp
 
 # Local MCP credentials (copy from *.example)
 .mcp.json

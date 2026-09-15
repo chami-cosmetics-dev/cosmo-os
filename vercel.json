@@ -34,6 +34,10 @@
       "schedule": "35 18 * * *"
     },
     {
+      "path": "/api/cron/call-center-weekly-email",
+      "schedule": "30 3 * * 1"
+    },
+    {
       "path": "/api/cron/abandoned-checkouts-sync",
       "schedule": "*/15 * * * *"
     },

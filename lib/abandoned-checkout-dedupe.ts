@@ -1,5 +1,6 @@
 import { randomBytes } from "crypto";
 
+import { normalizeAdaptEmail } from "@/lib/adapt-import/shared-emails";
 import {
   buildCartFingerprint,
   isProperCartSubset,
@@ -31,22 +32,40 @@ type DedupeRow = {
   id: string;
   abandonedAt: Date;
   phoneNormalized: string | null;
+  customerEmail: string | null;
   cartFingerprint: string | null;
   exactDuplicateGroupId: string | null;
   supersededByCheckoutId: string | null;
   lineItemsJson: unknown;
 };
 
-async function loadCompanyRows(companyId: string, phoneNormalized?: string): Promise<DedupeRow[]> {
+/** Phone cohort, else email cohort (covers checkouts missing phone). */
+function cohortKey(row: Pick<DedupeRow, "phoneNormalized" | "customerEmail">): string | null {
+  if (row.phoneNormalized) return `p:${row.phoneNormalized}`;
+  const email = normalizeAdaptEmail(row.customerEmail);
+  if (email) return `e:${email}`;
+  return null;
+}
+
+async function loadCompanyRows(
+  companyId: string,
+  opts?: { phoneNormalized?: string; customerEmail?: string }
+): Promise<DedupeRow[]> {
+  const email = normalizeAdaptEmail(opts?.customerEmail);
   return prisma.shopifyAbandonedCheckout.findMany({
     where: {
       companyId,
-      ...(phoneNormalized ? { phoneNormalized } : {}),
+      ...(opts?.phoneNormalized
+        ? { phoneNormalized: opts.phoneNormalized }
+        : email
+          ? { customerEmail: { equals: email, mode: "insensitive" } }
+          : {}),
     },
     select: {
       id: true,
       abandonedAt: true,
       phoneNormalized: true,
+      customerEmail: true,
       cartFingerprint: true,
       exactDuplicateGroupId: true,
       supersededByCheckoutId: true,
@@ -56,12 +75,20 @@ async function loadCompanyRows(companyId: string, phoneNormalized?: string): Pro
   });
 }
 
-async function ensureFingerprints(companyId: string, phoneNormalized?: string) {
+async function ensureFingerprints(
+  companyId: string,
+  opts?: { phoneNormalized?: string; customerEmail?: string }
+) {
+  const email = normalizeAdaptEmail(opts?.customerEmail);
   const stale = await prisma.shopifyAbandonedCheckout.findMany({
     where: {
       companyId,
-      ...(phoneNormalized ? { phoneNormalized } : {}),
       cartFingerprint: null,
+      ...(opts?.phoneNormalized
+        ? { phoneNormalized: opts.phoneNormalized }
+        : email
+          ? { customerEmail: { equals: email, mode: "insensitive" } }
+          : {}),
     },
     select: {
       id: true,
@@ -98,29 +125,29 @@ function linesFor(row: DedupeRow) {
 }
 
 /**
- * Link exact duplicates and soft-hide older proper-subset carts for a company
- * (optionally scoped to one normalized phone).
+ * Link exact duplicates (hide older copies — keep newest only),
+ * and soft-hide older proper-subset carts.
  */
 export async function dedupeAbandonedCheckoutsForCompany(
   companyId: string,
-  opts?: { phoneNormalized?: string }
+  opts?: { phoneNormalized?: string; customerEmail?: string }
 ): Promise<void> {
-  await ensureFingerprints(companyId, opts?.phoneNormalized);
-  const rows = await loadCompanyRows(companyId, opts?.phoneNormalized);
+  await ensureFingerprints(companyId, opts);
+  const rows = await loadCompanyRows(companyId, opts);
 
-  const byPhone = new Map<string, DedupeRow[]>();
+  const byCohort = new Map<string, DedupeRow[]>();
   for (const row of rows) {
-    if (!row.phoneNormalized) continue;
-    const list = byPhone.get(row.phoneNormalized) ?? [];
+    const key = cohortKey(row);
+    if (!key) continue;
+    const list = byCohort.get(key) ?? [];
     list.push(row);
-    byPhone.set(row.phoneNormalized, list);
+    byCohort.set(key, list);
   }
 
-  for (const phoneRows of byPhone.values()) {
-    // Exact-duplicate groups among currently non-superseded rows first.
-    const active = phoneRows.filter((r) => !r.supersededByCheckoutId);
+  for (const cohortRows of byCohort.values()) {
+    // Exact-duplicate groups: include already-superseded so a newer twin re-links them.
     const byFingerprint = new Map<string, DedupeRow[]>();
-    for (const row of active) {
+    for (const row of cohortRows) {
       if (!row.cartFingerprint) continue;
       const list = byFingerprint.get(row.cartFingerprint) ?? [];
       list.push(row);
@@ -128,30 +155,46 @@ export async function dedupeAbandonedCheckoutsForCompany(
     }
 
     for (const peers of byFingerprint.values()) {
-      if (peers.length < 2) {
-        // Single row: clear stale group id if it was left alone.
-        const only = peers[0];
-        if (only?.exactDuplicateGroupId) {
-          // Keep group id if other superseded peers still share it — skip cleanup for simplicity.
-        }
-        continue;
-      }
+      if (peers.length < 2) continue;
 
       const existingGroup =
         peers.map((p) => p.exactDuplicateGroupId).find((id) => Boolean(id)) ?? createGroupId();
 
+      const sortedNewestFirst = [...peers].sort(
+        (a, b) => b.abandonedAt.getTime() - a.abandonedAt.getTime()
+      );
+      const keeper = sortedNewestFirst[0]!;
+
       for (const peer of peers) {
-        if (peer.exactDuplicateGroupId === existingGroup) continue;
+        const shouldSupersede = peer.id !== keeper.id;
+        const nextSupersededBy = shouldSupersede ? keeper.id : null;
+        const nextSupersededAt = shouldSupersede ? new Date() : null;
+        const needsUpdate =
+          peer.exactDuplicateGroupId !== existingGroup ||
+          peer.supersededByCheckoutId !== nextSupersededBy ||
+          (shouldSupersede && !peer.supersededByCheckoutId) ||
+          (!shouldSupersede && peer.supersededByCheckoutId);
+
+        if (!needsUpdate) {
+          peer.exactDuplicateGroupId = existingGroup;
+          continue;
+        }
+
         await prisma.shopifyAbandonedCheckout.update({
           where: { id: peer.id },
-          data: { exactDuplicateGroupId: existingGroup },
+          data: {
+            exactDuplicateGroupId: existingGroup,
+            supersededByCheckoutId: nextSupersededBy,
+            supersededAt: nextSupersededAt,
+          },
         });
         peer.exactDuplicateGroupId = existingGroup;
+        peer.supersededByCheckoutId = nextSupersededBy;
       }
     }
 
-    // Refresh active list after group assignment for supersession (still use original chronological order).
-    const chronological = [...phoneRows].sort(
+    // Proper-subset supersession among remaining visible rows.
+    const chronological = [...cohortRows].sort(
       (a, b) => a.abandonedAt.getTime() - b.abandonedAt.getTime()
     );
 
@@ -165,7 +208,7 @@ export async function dedupeAbandonedCheckoutsForCompany(
       for (let j = i + 1; j < chronological.length; j++) {
         const newer = chronological[j]!;
         if (newer.supersededByCheckoutId) continue;
-        // Exact duplicates link; do not supersede.
+        // Exact duplicates already handled above.
         if (
           older.cartFingerprint &&
           newer.cartFingerprint &&
@@ -205,6 +248,7 @@ export async function refreshCheckoutDedupeFields(input: {
   id: string;
   companyId: string;
   customerPhone: string | null | undefined;
+  customerEmail?: string | null | undefined;
   lineItemsJson: unknown;
 }): Promise<void> {
   const fields = recomputeCheckoutCartFields({
@@ -221,6 +265,10 @@ export async function refreshCheckoutDedupeFields(input: {
   if (fields.phoneNormalized) {
     await dedupeAbandonedCheckoutsForCompany(input.companyId, {
       phoneNormalized: fields.phoneNormalized,
+    });
+  } else if (normalizeAdaptEmail(input.customerEmail)) {
+    await dedupeAbandonedCheckoutsForCompany(input.companyId, {
+      customerEmail: input.customerEmail ?? undefined,
     });
   }
 }

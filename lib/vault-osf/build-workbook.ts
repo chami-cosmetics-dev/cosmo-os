@@ -3,7 +3,8 @@ import type { LatestPurchase, PriceInfo, PurchaseCell, SalesCell } from "@/lib/v
 import { maxSale, monthsOfCover, reorderQty, sumNullable } from "@/lib/vault-osf/formulas";
 import {
   monthKeysInWindow,
-  monthSectionLabel,
+  monthPurchaseQtyHeader,
+  monthPurchaseTotalHeader,
   monthTotalSaleHeader,
 } from "@/lib/vault-osf/months";
 import { stockForColumn } from "@/lib/osf/erp-stock";
@@ -50,9 +51,9 @@ export const COSMO_HEADERS_MUST_ABSENT = [
 
 export function vaultColumnDefs(units: VaultBusinessUnit[], asOfDate: string): VaultOsfColDef[] {
   const ordered = [...units].sort((a, b) => a.sortOrder - b.sortOrder || a.key.localeCompare(b.key));
+  const months = monthKeysInWindow(asOfDate);
   const defs: VaultOsfColDef[] = [
-    { key: "variantSku", header: "Variant SKU", section: "Identity", band: "identity" },
-    { key: "sku", header: "SKU", band: "identity" },
+    { key: "sku", header: "Common SKU", section: "Identity", band: "identity" },
     { key: "barcode", header: "Barcode", band: "identity" },
     { key: "priorityStatus", header: "Priority Status", band: "identity" },
     { key: "country", header: "Country", band: "identity" },
@@ -81,18 +82,28 @@ export function vaultColumnDefs(units: VaultBusinessUnit[], asOfDate: string): V
   });
   defs.push({ key: "stockTotal", header: "Total", band: "stock" });
 
-  // Months carry the SV/ORI/AE combined total only; the per-unit split lives in
-  // ROP / Stock / Reorder, which is where it drives a decision.
-  for (const month of monthKeysInWindow(asOfDate)) {
-    const section = monthSectionLabel(month, asOfDate);
+  // Sales months first (grouped), then purchase months — not interleaved.
+  for (const [i, month] of months.entries()) {
     defs.push({
       key: `sales:${month}:total`,
       header: monthTotalSaleHeader(month),
+      section: i === 0 ? "Sales" : undefined,
+      band: "sales",
+    });
+  }
+  for (const [i, month] of months.entries()) {
+    const section = i === 0 ? "Purchases" : undefined;
+    defs.push({
+      key: `purchValue:${month}`,
+      header: monthPurchaseTotalHeader(month),
       section,
       band: "sales",
     });
-    defs.push({ key: `purchQty:${month}`, header: "Purch Qty (All)", band: "sales" });
-    defs.push({ key: `purchValue:${month}`, header: "Purch Value (All)", band: "sales" });
+    defs.push({
+      key: `purchQty:${month}`,
+      header: monthPurchaseQtyHeader(month),
+      band: "sales",
+    });
   }
 
   defs.push({ key: "mrp", header: "MRP", section: "Pricing", band: "price" });
@@ -126,7 +137,6 @@ export function buildVaultMainRows(input: VaultWorkbookInput): Array<Record<stri
 
   for (const item of input.catalog) {
     const row: Record<string, string | number | null> = {
-      variantSku: item.variantSku,
       sku: item.sku,
       barcode: cell(item.barcode),
       priorityStatus: cell(item.priorityStatus),
@@ -170,6 +180,7 @@ export function buildVaultMainRows(input: VaultWorkbookInput): Array<Record<stri
 
     const max = maxSale(monthTotals);
     row.maxSale = max;
+    // AVE = months of cover at peak demand: total stock / max monthly sale.
     row.ave = monthsOfCover(row.stockTotal as number, max);
 
     const price = input.prices.get(item.sku);

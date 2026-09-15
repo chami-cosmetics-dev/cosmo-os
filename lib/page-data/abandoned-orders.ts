@@ -271,7 +271,6 @@ export async function fetchAbandonedOrdersPageData({
           where: {
             companyId,
             exactDuplicateGroupId: { in: groupIds },
-            supersededByCheckoutId: null,
           },
           _count: { _all: true },
         });
