@@ -11,16 +11,28 @@ import {
   callQueueHideReason,
   isHiddenFromCallQueueAssign,
 } from "@/lib/customer-insight/call-queue-hide";
+import { uniqueContactPhones } from "@/lib/customer-insight/allocation-summary";
 import { lifetimeTotalsByContactId } from "@/lib/customer-insight/lifetime-totals-batch";
 import {
   findMerchantUserForFilterValue,
   resolveAssignedMerchantFilterLabels,
 } from "@/lib/customer-insight/merchant-label-aliases";
 import { merchantMatchKeysForUser } from "@/lib/customer-insight/ownership";
+import {
+  contactAllocatedToMerchantAliases,
+  shouldShowNewlyAllocatedBadge,
+} from "@/lib/customer-insight/call-queue-newly-allocated";
+import { chunkArray } from "@/lib/customer-insight/purchase-scan";
 import { findContactsByPurchasedBrandRanked } from "@/lib/page-data/contact-brand-ids";
+import {
+  buildPhoneLookupVariants,
+  canonicalPhoneForErpCustomerId,
+  phoneDigitsOnly,
+} from "@/lib/phone-lookup";
 import { prisma } from "@/lib/prisma";
 
 export const CALL_QUEUE_ASSIGN_CAP = 200;
+export const CALL_QUEUE_IMPORT_CAP = 2_000;
 export const CALL_QUEUE_PAGE_SIZE = 50;
 export const CALL_QUEUE_STATUS_PENDING = "pending";
 export const CALL_QUEUE_STATUS_COMPLETED = "completed";
@@ -41,6 +53,8 @@ export type CallQueueRowDto = {
   queued: boolean;
   hidden?: boolean;
   hideReason?: string | null;
+  /** Show "Newly allocated" badge on merchant queue (import / cross-merchant). */
+  newlyAllocatedBadge?: boolean;
 };
 
 export type CallQueueAssignFilters = {
@@ -62,6 +76,26 @@ export type CallQueueAssignResult = {
   skippedHidden: number;
   skippedNotAllocated: number;
 };
+
+export type CallQueueImportAssignResult = {
+  assigned: number;
+  /** Same as assigned — Contact Master.assignedMerchant set to merchant. */
+  allocated: number;
+  skippedQueued: number;
+  skippedUnknown: number;
+  skippedBlank: number;
+  phonesInFile: number;
+};
+
+/** Index key for import phone matching (canonical local when possible). */
+export function callQueueImportPhoneKey(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const canonical = canonicalPhoneForErpCustomerId(trimmed);
+  if (canonical) return canonical;
+  const digits = phoneDigitsOnly(trimmed);
+  return digits.length >= 7 ? digits : null;
+}
 
 export function compareOldestContactedFirst(
   a: { lastContactedAt: Date | null },
@@ -610,6 +644,222 @@ export async function assignCallQueue(input: {
   };
 }
 
+/**
+ * Manual Excel import: phones already filtered offline.
+ * Skips hide rules and allocated-merchant checks. Still requires existing contacts
+ * and skips contacts already pending in the queue.
+ */
+export async function assignCallQueueFromPhones(input: {
+  companyId: string;
+  merchantValue: string;
+  phones: string[];
+  skippedBlank?: number;
+  assignedByUserId: string | null;
+}): Promise<CallQueueImportAssignResult> {
+  const skippedBlank = input.skippedBlank ?? 0;
+  const seenPhoneKeys = new Set<string>();
+  const uniquePhones: string[] = [];
+  for (const raw of input.phones) {
+    const key = callQueueImportPhoneKey(raw);
+    if (!key || seenPhoneKeys.has(key)) continue;
+    seenPhoneKeys.add(key);
+    uniquePhones.push(raw.trim());
+  }
+
+  const empty: CallQueueImportAssignResult = {
+    assigned: 0,
+    allocated: 0,
+    skippedQueued: 0,
+    skippedUnknown: 0,
+    skippedBlank,
+    phonesInFile: uniquePhones.length,
+  };
+  if (uniquePhones.length === 0) return empty;
+  if (uniquePhones.length > CALL_QUEUE_IMPORT_CAP) {
+    throw new Error(`Import at most ${CALL_QUEUE_IMPORT_CAP} phone numbers`);
+  }
+
+  const aliases = await resolveAssignedMerchantFilterLabels(
+    input.companyId,
+    input.merchantValue
+  );
+  if (aliases.length === 0) throw new Error("Unknown merchant");
+
+  const merchantUser = await findMerchantUserForFilterValue(
+    input.companyId,
+    input.merchantValue
+  );
+  const merchantLabel = merchantUser?.value ?? input.merchantValue.trim();
+
+  const allVariants = new Set<string>();
+  for (const phone of uniquePhones) {
+    for (const variant of buildPhoneLookupVariants(phone)) {
+      allVariants.add(variant);
+    }
+  }
+
+  const byId = new Map<
+    string,
+    {
+      id: string;
+      phoneNumber: string | null;
+      phones: Array<{ phoneNumber: string }>;
+      email: string | null;
+      emails: Array<{ email: string }>;
+      assignedMerchant: string | null;
+    }
+  >();
+  const variantChunks = chunkArray([...allVariants], 500);
+  for (const phones of variantChunks) {
+    if (phones.length === 0) continue;
+    const rows = await prisma.contactMaster.findMany({
+      where: {
+        companyId: input.companyId,
+        OR: [
+          { phoneNumber: { in: phones } },
+          { phones: { some: { phoneNumber: { in: phones } } } },
+        ],
+      },
+      select: {
+        id: true,
+        phoneNumber: true,
+        phones: { select: { phoneNumber: true } },
+        email: true,
+        emails: { select: { email: true } },
+        assignedMerchant: true,
+      },
+    });
+    for (const row of rows) byId.set(row.id, row);
+  }
+
+  const contacts = [...byId.values()].sort((a, b) => a.id.localeCompare(b.id));
+  const phoneKeyToContactId = new Map<string, string>();
+  for (const contact of contacts) {
+    for (const stored of uniqueContactPhones(contact.phoneNumber, contact.phones)) {
+      for (const variant of buildPhoneLookupVariants(stored)) {
+        const key = callQueueImportPhoneKey(variant);
+        if (key && !phoneKeyToContactId.has(key)) {
+          phoneKeyToContactId.set(key, contact.id);
+        }
+      }
+    }
+  }
+
+  const matchedIds: string[] = [];
+  const matchedIdSet = new Set<string>();
+  let skippedUnknown = 0;
+  for (const phone of uniquePhones) {
+    const key = callQueueImportPhoneKey(phone);
+    const contactId = key ? phoneKeyToContactId.get(key) : undefined;
+    if (!contactId) {
+      skippedUnknown += 1;
+      continue;
+    }
+    if (matchedIdSet.has(contactId)) continue;
+    matchedIdSet.add(contactId);
+    matchedIds.push(contactId);
+  }
+
+  if (matchedIds.length === 0) {
+    return { ...empty, skippedUnknown };
+  }
+
+  const now = new Date();
+  const [queued, lifetimeById] = await Promise.all([
+    pendingQueuedContactIds(input.companyId, matchedIds),
+    lifetimeTotalsByContactId(
+      input.companyId,
+      matchedIds.map((id) => {
+        const row = byId.get(id)!;
+        return {
+          id: row.id,
+          email: row.email,
+          phoneNumber: row.phoneNumber,
+          phones: row.phones,
+          emails: row.emails,
+        };
+      })
+    ),
+  ]);
+
+  const toCreateIds: string[] = [];
+  let skippedQueued = 0;
+  for (const id of matchedIds) {
+    if (queued.has(id)) {
+      skippedQueued += 1;
+      continue;
+    }
+    toCreateIds.push(id);
+  }
+
+  if (toCreateIds.length > 0) {
+    const newlyAllocatedById = new Map<string, boolean>();
+    for (const contactId of toCreateIds) {
+      const prev = byId.get(contactId)?.assignedMerchant ?? null;
+      newlyAllocatedById.set(
+        contactId,
+        !contactAllocatedToMerchantAliases(prev, aliases)
+      );
+    }
+
+    // Reallocate Contact Master so merchant can call-update (ownership check).
+    await prisma.contactMaster.updateMany({
+      where: { companyId: input.companyId, id: { in: toCreateIds } },
+      data: { assignedMerchant: merchantLabel },
+    });
+    await prisma.contactAllocationUpdate.createMany({
+      data: toCreateIds.map((contactId) => ({
+        companyId: input.companyId,
+        contactId,
+        merchantId: input.assignedByUserId,
+        merchantName: merchantLabel,
+        category: "allocation",
+      })),
+    });
+
+    await prisma.contactInsightCallQueue.createMany({
+      data: toCreateIds.map((contactId) => ({
+        companyId: input.companyId,
+        contactId,
+        merchantLabel,
+        merchantUserId: merchantUser?.id ?? null,
+        assignedByUserId: input.assignedByUserId,
+        assignedAt: now,
+        status: CALL_QUEUE_STATUS_PENDING,
+        newlyAllocated: newlyAllocatedById.get(contactId) ?? true,
+        lifetimeTotalAtAssign: new Prisma.Decimal(
+          (lifetimeById.get(contactId) ?? 0).toFixed(2)
+        ),
+      })),
+    });
+
+    await writeAuditLog({
+      companyId: input.companyId,
+      actorUserId: input.assignedByUserId ?? undefined,
+      module: "customer-insight",
+      action: "call_queue_assign",
+      entityType: "ContactInsightCallQueue",
+      summary: `Imported ${toCreateIds.length} contact(s) to call queue (${merchantLabel})`,
+      metadata: {
+        merchantLabel,
+        merchantUserId: merchantUser?.id ?? null,
+        contactIds: toCreateIds,
+        source: "excel_import",
+        reallocated: true,
+      },
+    });
+  }
+
+  return {
+    assigned: toCreateIds.length,
+    allocated: toCreateIds.length,
+    skippedQueued,
+    skippedUnknown,
+    skippedBlank,
+    phonesInFile: uniquePhones.length,
+  };
+}
+
 export async function listMerchantCallQueue(input: {
   companyId: string;
   viewer: {
@@ -635,6 +885,7 @@ export async function listMerchantCallQueue(input: {
     },
     select: {
       contactId: true,
+      newlyAllocated: true,
       contact: {
         select: {
           id: true,
@@ -652,24 +903,36 @@ export async function listMerchantCallQueue(input: {
 
   const contacts = rows.map((r) => r.contact);
   const ids = contacts.map((c) => c.id);
+  const newlyAllocatedByContactId = new Map(
+    rows.map((r) => [r.contactId, r.newlyAllocated] as const)
+  );
   const [contacted, lifetimeById] = await Promise.all([
     lastContactedMap(input.companyId, ids),
     lifetimeTotalsByContactId(input.companyId, contacts),
   ]);
 
+  const now = new Date();
   const items = contacts
-    .map((c) => ({
-      contactId: c.id,
-      name: c.name,
-      phoneNumber: c.phoneNumber,
-      assignedMerchant: c.assignedMerchant,
-      lifetimeTotal: lifetimeById.get(c.id) ?? 0,
-      lastPurchaseAt: c.lastPurchaseAt?.toISOString() ?? null,
-      lastContactedAt: contacted.get(c.id)?.toISOString() ?? null,
-      queued: true,
-      lastContactedAtDate: contacted.get(c.id) ?? null,
-      lastPurchaseAtDate: c.lastPurchaseAt,
-    }))
+    .map((c) => {
+      const lastContactedAtDate = contacted.get(c.id) ?? null;
+      return {
+        contactId: c.id,
+        name: c.name,
+        phoneNumber: c.phoneNumber,
+        assignedMerchant: c.assignedMerchant,
+        lifetimeTotal: lifetimeById.get(c.id) ?? 0,
+        lastPurchaseAt: c.lastPurchaseAt?.toISOString() ?? null,
+        lastContactedAt: lastContactedAtDate?.toISOString() ?? null,
+        queued: true,
+        newlyAllocatedBadge: shouldShowNewlyAllocatedBadge({
+          newlyAllocated: newlyAllocatedByContactId.get(c.id) ?? false,
+          lastContactedAt: lastContactedAtDate,
+          now,
+        }),
+        lastContactedAtDate,
+        lastPurchaseAtDate: c.lastPurchaseAt,
+      };
+    })
     .sort((a, b) =>
       compareCallQueueCandidateOrder(
         {
@@ -682,7 +945,13 @@ export async function listMerchantCallQueue(input: {
         }
       )
     )
-    .map(({ lastContactedAtDate: _drop, lastPurchaseAtDate: _drop2, ...row }) => row);
+    .map(
+      ({
+        lastContactedAtDate: _drop,
+        lastPurchaseAtDate: _drop2,
+        ...row
+      }) => row
+    );
 
   return { items };
 }

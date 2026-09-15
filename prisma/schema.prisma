@@ -1816,6 +1816,8 @@ model ContactInsightCallQueue {
   completedAt            DateTime?
   completedByUserId      String?
   lifetimeTotalAtAssign  Decimal?  @db.Decimal(14, 2)
+  /// Set when contact came from another merchant (Excel import / reassignment).
+  newlyAllocated         Boolean   @default(false)
   createdAt              DateTime  @default(now())
   updatedAt              DateTime  @updatedAt
   company                Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
