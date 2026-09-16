@@ -96,8 +96,13 @@ export function canViewBookNoteDay(input: {
 export function resolveBookNoteWriteAccess(
   context: UserContext,
 ): BookNoteWriteAccess {
+  const canAdminAll = hasPermission(context, "book_notes.admin");
   return {
-    canBackdate: hasPermission(context, "book_notes.admin"),
+    // TEMP: merchants with manage may pick past dates and edit/create old
+    // sheets (own sheets only). Revert canBackdate to admin-only later.
+    canBackdate:
+      hasPermission(context, "book_notes.manage") || canAdminAll,
+    canAdminAll,
   };
 }
 

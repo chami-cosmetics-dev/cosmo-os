@@ -200,8 +200,8 @@ export function postingDateRangeFromQuery(
 /**
  * Saved book-note days, newest first.
  *
- * Merchants (`book_notes.manage`) see only sheets they created.
- * Book-note admins (`book_notes.admin` / canBackdate) see every upload.
+ * Merchants (`book_notes.manage`) see only sheets they created — even when
+ * temporary backdate is on. Book-note admins (`canAdminAll`) see every upload.
  * Finance reviews every shop on `/dashboard/book-notes/review`.
  * `search` matches shop name, posting date, and sales invoice numbers.
  */
@@ -231,7 +231,7 @@ export async function loadBookNoteHistory(input: {
   const userId = input.createdByUserId;
   if (!userId) return [];
 
-  const canViewAllHistory = input.writeAccess?.canBackdate === true;
+  const canViewAllHistory = input.writeAccess?.canAdminAll === true;
 
   const search = (input.search ?? "").trim();
   const searchClauses: Prisma.BookNoteDayWhereInput[] = [];

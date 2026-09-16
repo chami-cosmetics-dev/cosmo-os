@@ -526,12 +526,12 @@ const DEFAULT_PERMISSIONS = [
   {
     key: "book_notes.manage",
     description:
-      "Book Notes — merchant entry. Save daily sheets. Does not open Book Notes (Finance).",
+      "Book Notes — merchant entry. Save daily sheets (TEMP: also past dates). Does not open Book Notes (Finance).",
   },
   {
     key: "book_notes.admin",
     description:
-      "Book Notes — edit past merchant sheets and upload older dates (not future). Not the finance review page.",
+      "Book Notes — see every merchant's sheets, delete others' sheets, bulk ERP sync. Not the finance review page.",
   },
   {
     key: "book_notes.read",

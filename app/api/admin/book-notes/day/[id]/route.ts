@@ -122,7 +122,7 @@ export async function DELETE(
   };
 
   // Seeing a colleague's sheet does not grant the right to delete it.
-  if (!isOwner && !writeAccess.canBackdate) {
+  if (!isOwner && !writeAccess.canAdminAll) {
     return NextResponse.json(
       {
         error:
