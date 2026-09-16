@@ -2,25 +2,11 @@ import { redirect } from "next/navigation";
 
 import { DashboardOrderSearch } from "@/components/molecules/dashboard-order-search";
 import { PermissionDeniedCard } from "@/components/molecules/permission-denied-card";
-import { resolvePostLoginPath } from "@/lib/post-login-path";
-import { getCurrentUserContext, requirePermission } from "@/lib/rbac";
+import { requirePermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
-  const context = await getCurrentUserContext();
-  if (!context?.user) {
-    redirect("/login");
-  }
-
-  const home = resolvePostLoginPath({
-    roleNames: context.roleNames as string[] | undefined,
-    permissionKeys: context.permissionKeys as string[] | undefined,
-  });
-  if (home !== "/dashboard") {
-    redirect(home);
-  }
-
   const auth = await requirePermission("dashboard.view");
   if (!auth.ok) {
     if (auth.status === 401) {
