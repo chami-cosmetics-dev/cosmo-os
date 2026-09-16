@@ -678,7 +678,10 @@ export function CustomerInsightPanel({
   const [queueLastPurchaseTo, setQueueLastPurchaseTo] = useState("");
   const [queueAllocatedFrom, setQueueAllocatedFrom] = useState("");
   const [queueAllocatedTo, setQueueAllocatedTo] = useState("");
-  const [queueBrand, setQueueBrand] = useState("");
+  const [queueBrands, setQueueBrands] = useState<string[]>([]);
+  const [queueAssignedFrom, setQueueAssignedFrom] = useState("");
+  const [queueAssignedTo, setQueueAssignedTo] = useState("");
+  const [queueNotContacted, setQueueNotContacted] = useState(false);
   const [queueHideFilter, setQueueHideFilter] = useState<"all" | "eligible" | "hidden">(
     "all"
   );
@@ -707,6 +710,27 @@ export function CustomerInsightPanel({
       salesAfterContact: number;
     }>;
   } | null>(null);
+  const [loyaltyEligibleSummary, setLoyaltyEligibleSummary] = useState<{
+    company: { pending: number; mtdUpdated: number };
+    merchants: Array<{
+      merchantLabel: string;
+      pending: number;
+      mtdUpdated: number;
+    }>;
+  } | null>(null);
+  const [loyaltyEligibleList, setLoyaltyEligibleList] = useState<
+    Array<{
+      contactId: string;
+      name: string;
+      assignedMerchant: string | null;
+      lifetimeTotal: number;
+      status: string;
+      suggestedTier: "gold" | "platinum";
+    }>
+  >([]);
+  const [loyaltyEligibleListTotal, setLoyaltyEligibleListTotal] = useState(0);
+  const [loyaltyEligibleListPage, setLoyaltyEligibleListPage] = useState(1);
+  const loyaltyEligibleListPageSize = 50;
   const todayIsoDate = () => {
     const now = new Date();
     const offset = now.getTimezoneOffset();
@@ -1146,8 +1170,28 @@ export function CustomerInsightPanel({
     if (queueAllocatedTo.trim()) {
       params.set("allocatedTo", queueAllocatedTo.trim());
     }
-    if (queueBrand.trim()) params.set("brand", queueBrand.trim());
+    appendInsightFilterList(params, "brand", queueBrands);
+    if (queueAssignedFrom.trim()) {
+      params.set("assignedFrom", queueAssignedFrom.trim());
+    }
+    if (queueAssignedTo.trim()) {
+      params.set("assignedTo", queueAssignedTo.trim());
+    }
+    if (queueNotContacted) params.set("notContacted", "true");
     params.set("hideFilter", queueHideFilter);
+  }
+
+  function appendQueueReportParams(params: URLSearchParams) {
+    if (queueMerchant.trim()) params.set("assignedMerchant", queueMerchant.trim());
+    if (queuePushGold) params.set("pushToGold", "true");
+    if (queuePushPlatinum) params.set("pushToPlatinum", "true");
+    if (queueAssignedFrom.trim()) {
+      params.set("assignedFrom", queueAssignedFrom.trim());
+    }
+    if (queueAssignedTo.trim()) {
+      params.set("assignedTo", queueAssignedTo.trim());
+    }
+    if (queueNotContacted) params.set("notContacted", "true");
   }
 
   async function loadQueueCandidates(page = 1) {
@@ -1338,9 +1382,7 @@ export function CustomerInsightPanel({
     setBusyKey("queue-report");
     try {
       const params = new URLSearchParams();
-      if (queueMerchant.trim()) params.set("assignedMerchant", queueMerchant.trim());
-      if (queuePushGold) params.set("pushToGold", "true");
-      if (queuePushPlatinum) params.set("pushToPlatinum", "true");
+      appendQueueReportParams(params);
       const res = await fetch(
         `/api/admin/customer-insight/call-queue/report?${params}`
       );
@@ -1352,6 +1394,117 @@ export function CustomerInsightPanel({
       setQueueReport(data);
     } catch {
       notify.error("Failed to load report.");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function exportQueueReport() {
+    setBusyKey("queue-report-export");
+    try {
+      const params = new URLSearchParams();
+      appendQueueReportParams(params);
+      const res = await fetch(
+        `/api/admin/customer-insight/call-queue/report/export?${params}`
+      );
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        notify.error(data.error ?? "Failed to export report.");
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `call-queue-sales-report-${todayIsoDate()}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+      notify.success("Sales report downloaded.");
+    } catch {
+      notify.error("Failed to export report.");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function loadLoyaltyEligibleSummary() {
+    if (!canExportFilteredCsv) return;
+    setBusyKey("loyalty-eligible-summary");
+    try {
+      const res = await fetch(
+        "/api/admin/customer-insight/loyalty-eligible/summary"
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        notify.error(data.error ?? "Failed to load loyalty eligible summary.");
+        return;
+      }
+      setLoyaltyEligibleSummary({
+        company: {
+          pending: Number(data.company?.pending ?? 0),
+          mtdUpdated: Number(data.company?.mtdUpdated ?? 0),
+        },
+        merchants: Array.isArray(data.merchants)
+          ? data.merchants.map(
+              (row: {
+                merchantLabel?: string;
+                pending?: number;
+                mtdUpdated?: number;
+              }) => ({
+                merchantLabel: String(row.merchantLabel ?? ""),
+                pending: Number(row.pending ?? 0),
+                mtdUpdated: Number(row.mtdUpdated ?? 0),
+              })
+            )
+          : [],
+      });
+    } catch {
+      notify.error("Failed to load loyalty eligible summary.");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function loadLoyaltyEligibleList(page = 1) {
+    if (!canExportFilteredCsv) return;
+    setBusyKey("loyalty-eligible-list");
+    try {
+      const params = new URLSearchParams();
+      params.set("page", String(page));
+      params.set("pageSize", String(loyaltyEligibleListPageSize));
+      const res = await fetch(
+        `/api/admin/customer-insight/loyalty-eligible/list?${params}`
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        notify.error(data.error ?? "Failed to load loyalty eligible list.");
+        return;
+      }
+      setLoyaltyEligibleList(
+        Array.isArray(data.items)
+          ? data.items.map(
+              (row: {
+                contactId?: string;
+                name?: string;
+                assignedMerchant?: string | null;
+                lifetimeTotal?: number;
+                status?: string;
+                suggestedTier?: "gold" | "platinum";
+              }) => ({
+                contactId: String(row.contactId ?? ""),
+                name: String(row.name ?? ""),
+                assignedMerchant: row.assignedMerchant ?? null,
+                lifetimeTotal: Number(row.lifetimeTotal ?? 0),
+                status: String(row.status ?? ""),
+                suggestedTier: row.suggestedTier === "platinum" ? "platinum" : "gold",
+              })
+            )
+          : []
+      );
+      setLoyaltyEligibleListTotal(Number(data.pagination?.total ?? 0));
+      setLoyaltyEligibleListPage(Number(data.pagination?.page ?? page));
+    } catch {
+      notify.error("Failed to load loyalty eligible list.");
     } finally {
       setBusyKey(null);
     }
@@ -4206,6 +4359,297 @@ export function CustomerInsightPanel({
       {canExportFilteredCsv ? (
         <Card>
           <CardHeader className="pb-2">
+            <CardTitle className="text-base">Loyalty eligible (company)</CardTitle>
+            <CardDescription>
+              Company pending count, merchant-wise pending and MTD updated, plus a
+              paginated list of contacts still awaiting loyalty outreach.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                disabled={isBusy}
+                onClick={() => {
+                  void loadLoyaltyEligibleSummary();
+                  void loadLoyaltyEligibleList(1);
+                }}
+              >
+                {busyKey === "loyalty-eligible-summary" ||
+                busyKey === "loyalty-eligible-list" ? (
+                  <>
+                    <Loader2 className="animate-spin" aria-hidden />
+                    Loading...
+                  </>
+                ) : (
+                  "Load summary"
+                )}
+              </Button>
+              {loyaltyEligibleSummary ? (
+                <p className="text-sm">
+                  Company pending:{" "}
+                  <span className="font-semibold tabular-nums">
+                    {loyaltyEligibleSummary.company.pending.toLocaleString()}
+                  </span>
+                  {" · "}
+                  MTD updated:{" "}
+                  <span className="font-semibold tabular-nums">
+                    {loyaltyEligibleSummary.company.mtdUpdated.toLocaleString()}
+                  </span>
+                </p>
+              ) : null}
+            </div>
+            {loyaltyEligibleSummary ? (
+              <div className="overflow-x-auto rounded-md border text-xs">
+                <table className="w-full">
+                  <thead>
+                    <tr className="bg-muted/30 text-left">
+                      <th className="px-2 py-1">Merchant</th>
+                      <th className="px-2 py-1 text-right">Pending</th>
+                      <th className="px-2 py-1 text-right">MTD updated</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {loyaltyEligibleSummary.merchants.length === 0 ? (
+                      <tr className="border-t">
+                        <td
+                          colSpan={3}
+                          className="text-muted-foreground px-2 py-2"
+                        >
+                          No merchant rows.
+                        </td>
+                      </tr>
+                    ) : (
+                      loyaltyEligibleSummary.merchants.map((row) => (
+                        <tr key={row.merchantLabel} className="border-t">
+                          <td className="px-2 py-1">{row.merchantLabel}</td>
+                          <td className="px-2 py-1 text-right tabular-nums">
+                            {row.pending.toLocaleString()}
+                          </td>
+                          <td className="px-2 py-1 text-right tabular-nums">
+                            {row.mtdUpdated.toLocaleString()}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
+            {loyaltyEligibleList.length > 0 || loyaltyEligibleListTotal > 0 ? (
+              <div className="space-y-2">
+                <p className="text-xs text-muted-foreground">
+                  {loyaltyEligibleListTotal.toLocaleString()} pending eligible
+                </p>
+                <ul className="max-h-72 divide-y overflow-auto rounded-md border">
+                  {loyaltyEligibleList.map((row) => (
+                    <li
+                      key={row.contactId}
+                      className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate font-medium">{row.name}</p>
+                        <p className="text-muted-foreground text-xs">
+                          {row.assignedMerchant ?? "Unassigned"} ·{" "}
+                          {formatMoney(row.lifetimeTotal)} ·{" "}
+                          {row.suggestedTier === "platinum" ? "Platinum" : "Gold"}{" "}
+                          · {row.status}
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={isBusy}
+                        onClick={() => void openQueueContact(row.contactId)}
+                      >
+                        Open
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+                {loyaltyEligibleListTotal > loyaltyEligibleListPageSize ? (
+                  <div className="flex items-center justify-between gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={isBusy || loyaltyEligibleListPage <= 1}
+                      onClick={() =>
+                        void loadLoyaltyEligibleList(loyaltyEligibleListPage - 1)
+                      }
+                    >
+                      Previous
+                    </Button>
+                    <p className="text-xs text-muted-foreground">
+                      Page {loyaltyEligibleListPage} of{" "}
+                      {Math.max(
+                        1,
+                        Math.ceil(
+                          loyaltyEligibleListTotal / loyaltyEligibleListPageSize
+                        )
+                      )}
+                    </p>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={
+                        isBusy ||
+                        loyaltyEligibleListPage >=
+                          Math.ceil(
+                            loyaltyEligibleListTotal / loyaltyEligibleListPageSize
+                          )
+                      }
+                      onClick={() =>
+                        void loadLoyaltyEligibleList(loyaltyEligibleListPage + 1)
+                      }
+                    >
+                      Next
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {canExportFilteredCsv ? (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">
+              Loyalty eligible
+              {loyaltyEligibleSummary ? (
+                <span className="text-muted-foreground ml-2 font-normal">
+                  ({loyaltyEligibleSummary.company.pending} pending)
+                </span>
+              ) : null}
+            </CardTitle>
+            <CardDescription>
+              Company-wide pending Gold/Platinum registration queue and merchant-wise
+              MTD updated counts.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                disabled={isBusy}
+                onClick={() => {
+                  void loadLoyaltyEligibleSummary();
+                  void loadLoyaltyEligibleList(1);
+                }}
+              >
+                {busyKey === "loyalty-eligible-summary" ||
+                busyKey === "loyalty-eligible-list" ? (
+                  <>
+                    <Loader2 className="animate-spin" aria-hidden />
+                    Loading...
+                  </>
+                ) : (
+                  "Load loyalty eligible"
+                )}
+              </Button>
+            </div>
+            {loyaltyEligibleSummary ? (
+              <div className="overflow-x-auto rounded-md border text-xs">
+                <table className="w-full">
+                  <thead>
+                    <tr className="bg-muted/30 text-left">
+                      <th className="px-2 py-1">Merchant</th>
+                      <th className="px-2 py-1 text-right">Pending</th>
+                      <th className="px-2 py-1 text-right">MTD updated</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {loyaltyEligibleSummary.merchants.map((row) => (
+                      <tr key={row.merchantLabel} className="border-t">
+                        <td className="px-2 py-1">{row.merchantLabel}</td>
+                        <td className="px-2 py-1 text-right">{row.pending}</td>
+                        <td className="px-2 py-1 text-right">{row.mtdUpdated}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
+            {loyaltyEligibleList.length > 0 ? (
+              <div className="space-y-2">
+                <p className="text-xs text-muted-foreground">
+                  {loyaltyEligibleListTotal.toLocaleString()} pending contacts
+                </p>
+                <ul className="max-h-64 space-y-1 overflow-y-auto rounded-md border p-2 text-sm">
+                  {loyaltyEligibleList.map((row) => (
+                    <li
+                      key={row.contactId}
+                      className="flex flex-wrap items-center justify-between gap-2 border-b border-border/40 py-1 last:border-0"
+                    >
+                      <span>
+                        <span className="font-medium">{row.name}</span>
+                        <span className="text-muted-foreground block text-xs">
+                          {row.assignedMerchant ?? "Unallocated"} ·{" "}
+                          {formatMoney(row.lifetimeTotal)} · {row.status} ·{" "}
+                          {row.suggestedTier}
+                        </span>
+                      </span>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        disabled={isBusy}
+                        onClick={() => void openQueueContact(row.contactId)}
+                      >
+                        Open
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+                {loyaltyEligibleListTotal > loyaltyEligibleListPageSize ? (
+                  <div className="flex items-center justify-between gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={isBusy || loyaltyEligibleListPage <= 1}
+                      onClick={() =>
+                        void loadLoyaltyEligibleList(loyaltyEligibleListPage - 1)
+                      }
+                    >
+                      Previous
+                    </Button>
+                    <p className="text-xs text-muted-foreground">
+                      Page {loyaltyEligibleListPage}
+                    </p>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={
+                        isBusy ||
+                        loyaltyEligibleListPage >=
+                          Math.ceil(
+                            loyaltyEligibleListTotal / loyaltyEligibleListPageSize
+                          )
+                      }
+                      onClick={() =>
+                        void loadLoyaltyEligibleList(loyaltyEligibleListPage + 1)
+                      }
+                    >
+                      Next
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {canExportFilteredCsv ? (
+        <Card>
+          <CardHeader className="pb-2">
             <CardTitle className="text-base">Assign merchant call queue</CardTitle>
             <CardDescription>
               Pick a merchant, then use any filter alone or together. Combined
@@ -4252,13 +4696,14 @@ export function CustomerInsightPanel({
               </label>
               <label className="min-w-0 space-y-1 text-sm">
                 <span className="text-muted-foreground">Brand</span>
-                <InsightSearchableSelect
-                  value={queueBrand}
+                <InsightSearchableMultiSelect
+                  values={queueBrands}
                   options={queueBrandOptions}
                   placeholder="Any brand"
                   searchPlaceholder="Search brands…"
+                  allLabel="Any brand"
                   disabled={isBusy}
-                  onChange={setQueueBrand}
+                  onChange={setQueueBrands}
                 />
               </label>
               <label className="min-w-0 space-y-1 text-sm">
@@ -4314,6 +4759,24 @@ export function CustomerInsightPanel({
                   onChange={(e) => setQueueAllocatedTo(e.target.value)}
                 />
               </label>
+              <label className="space-y-1 text-sm">
+                <span className="text-muted-foreground">Assigned from</span>
+                <Input
+                  type="date"
+                  value={queueAssignedFrom}
+                  disabled={isBusy}
+                  onChange={(e) => setQueueAssignedFrom(e.target.value)}
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="text-muted-foreground">Assigned to</span>
+                <Input
+                  type="date"
+                  value={queueAssignedTo}
+                  disabled={isBusy}
+                  onChange={(e) => setQueueAssignedTo(e.target.value)}
+                />
+              </label>
               <div className="flex flex-wrap items-end gap-3 text-sm">
                 <label className="flex items-center gap-2">
                   <input
@@ -4332,6 +4795,15 @@ export function CustomerInsightPanel({
                     onChange={(e) => setQueuePushPlatinum(e.target.checked)}
                   />
                   Push to Platinum
+                </label>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={queueNotContacted}
+                    disabled={isBusy}
+                    onChange={(e) => setQueueNotContacted(e.target.checked)}
+                  />
+                  Not contacted
                 </label>
               </div>
             </div>
@@ -4410,6 +4882,24 @@ export function CustomerInsightPanel({
                   </>
                 ) : (
                   "Sales report"
+                )}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isBusy}
+                onClick={() => void exportQueueReport()}
+              >
+                {busyKey === "queue-report-export" ? (
+                  <>
+                    <Loader2 className="animate-spin" aria-hidden />
+                    Exporting...
+                  </>
+                ) : (
+                  <>
+                    <Download aria-hidden />
+                    Export report
+                  </>
                 )}
               </Button>
             </div>
@@ -4601,8 +5091,29 @@ export function CustomerInsightPanel({
               </div>
             ) : null}
             {queueReport ? (
-              <div className="space-y-2">
-                <p className="text-sm font-medium">Sales after assign</p>
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm font-medium">Sales after assign</p>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={isBusy}
+                    onClick={() => void exportQueueReport()}
+                  >
+                    {busyKey === "queue-report-export" ? (
+                      <>
+                        <Loader2 className="animate-spin" aria-hidden />
+                        Exporting...
+                      </>
+                    ) : (
+                      <>
+                        <Download aria-hidden />
+                        Export
+                      </>
+                    )}
+                  </Button>
+                </div>
                 <div className="overflow-x-auto rounded-md border text-xs">
                   <table className="w-full">
                     <thead>
@@ -4631,6 +5142,42 @@ export function CustomerInsightPanel({
                     </tbody>
                   </table>
                 </div>
+                {queueReport.rows.length > 0 ? (
+                  <div className="overflow-x-auto rounded-md border text-xs">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="bg-muted/30 text-left">
+                          <th className="px-2 py-1">Assigned date</th>
+                          <th className="px-2 py-1">Merchant</th>
+                          <th className="px-2 py-1">Name</th>
+                          <th className="px-2 py-1">Status</th>
+                          <th className="px-2 py-1 text-right">After assign</th>
+                          <th className="px-2 py-1 text-right">After contact</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {queueReport.rows.map((row) => (
+                          <tr key={row.queueId} className="border-t">
+                            <td className="px-2 py-1 whitespace-nowrap">
+                              {formatQueueDate(row.assignedAt)}
+                            </td>
+                            <td className="px-2 py-1">{row.merchantLabel}</td>
+                            <td className="px-2 py-1">{row.name}</td>
+                            <td className="px-2 py-1">{row.status}</td>
+                            <td className="px-2 py-1 text-right">
+                              {formatMoney(row.salesAfterAssignment)}
+                            </td>
+                            <td className="px-2 py-1 text-right">
+                              {formatMoney(row.salesAfterContact)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p className="text-muted-foreground text-xs">No detail rows.</p>
+                )}
               </div>
             ) : null}
           </CardContent>

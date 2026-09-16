@@ -66,10 +66,32 @@ export type CallQueueAssignFilters = {
   lastPurchaseTo?: string;
   allocatedFrom?: string;
   allocatedTo?: string;
+  assignedFrom?: string;
+  assignedTo?: string;
+  notContacted?: boolean;
+  /** Purchased brand needles (OR). Empty/undefined = off. */
+  brands?: string[];
+  /** @deprecated use brands */
   brand?: string;
   hideFilter?: CallQueueHideFilter;
 };
 
+function brandNeedlesFromFilters(filters: CallQueueAssignFilters): string[] {
+  const fromList = (filters.brands ?? [])
+    .map((b) => b.trim())
+    .filter(Boolean);
+  if (fromList.length > 0) return fromList;
+  const single = filters.brand?.trim();
+  return single ? [single] : [];
+}
+
+function usesQueueHistoryMode(filters: CallQueueAssignFilters): boolean {
+  return Boolean(
+    filters.assignedFrom?.trim() ||
+      filters.assignedTo?.trim() ||
+      filters.notContacted
+  );
+}
 export type CallQueueAssignResult = {
   assigned: number;
   skippedQueued: number;
@@ -337,12 +359,71 @@ async function listRankedEligibleContacts(input: {
     input.filters.lastPurchaseFrom,
     input.filters.lastPurchaseTo
   );
-  const brandNeedle = input.filters.brand?.trim();
+  const brandNeedles = brandNeedlesFromFilters(input.filters);
+  const queueHistory = usesQueueHistoryMode(input.filters);
+
+  let contactIdAllow: Set<string> | null = null;
+  if (queueHistory) {
+    const assignedFrom = input.filters.assignedFrom?.trim();
+    const assignedTo = input.filters.assignedTo?.trim();
+    const queueRows = await prisma.contactInsightCallQueue.findMany({
+      where: {
+        companyId: input.companyId,
+        OR: aliases.map((label) => ({
+          merchantLabel: { equals: label, mode: "insensitive" as const },
+        })),
+        ...(assignedFrom || assignedTo
+          ? {
+              assignedAt: {
+                ...(assignedFrom ? { gte: isoDayStartUtc(assignedFrom) } : {}),
+                ...(assignedTo ? { lte: isoDayEndUtc(assignedTo) } : {}),
+              },
+            }
+          : {}),
+      },
+      select: {
+        contactId: true,
+        assignedAt: true,
+        status: true,
+      },
+      orderBy: { assignedAt: "desc" },
+    });
+
+    let rows = queueRows;
+    if (input.filters.notContacted) {
+      const contactIds = [...new Set(rows.map((r) => r.contactId))];
+      const updates =
+        contactIds.length === 0
+          ? []
+          : await prisma.contactAllocationUpdate.findMany({
+              where: {
+                companyId: input.companyId,
+                contactId: { in: contactIds },
+              },
+              select: { contactId: true, createdAt: true },
+              orderBy: { createdAt: "asc" },
+            });
+      rows = rows.filter((row) => {
+        const hit = updates.some(
+          (u) =>
+            u.contactId === row.contactId &&
+            u.createdAt.getTime() > row.assignedAt.getTime()
+        );
+        return !hit;
+      });
+    }
+
+    contactIdAllow = new Set(rows.map((r) => r.contactId));
+    if (contactIdAllow.size === 0) return { ranked: [], allocatedTotal: 0 };
+  }
 
   const contacts = await prisma.contactMaster.findMany({
     where: {
       ...assignedMerchantWhere(input.companyId, aliases),
       ...(purchase ?? {}),
+      ...(contactIdAllow
+        ? { id: { in: [...contactIdAllow] } }
+        : {}),
     },
     select: {
       id: true,
@@ -359,12 +440,16 @@ async function listRankedEligibleContacts(input: {
   });
 
   let brandIdSet: Set<string> | null = null;
-  if (brandNeedle) {
-    const ranks = await findContactsByPurchasedBrandRanked(
-      input.companyId,
-      brandNeedle
+  if (brandNeedles.length > 0) {
+    const rankLists = await Promise.all(
+      brandNeedles.map((brand) =>
+        findContactsByPurchasedBrandRanked(input.companyId, brand)
+      )
     );
-    brandIdSet = new Set(ranks.map((r) => r.contactId));
+    brandIdSet = new Set<string>();
+    for (const ranks of rankLists) {
+      for (const r of ranks) brandIdSet.add(r.contactId);
+    }
     if (brandIdSet.size === 0) return { ranked: [], allocatedTotal: 0 };
   }
 
@@ -396,7 +481,7 @@ async function listRankedEligibleContacts(input: {
         lastPurchaseAt: c.lastPurchaseAt,
         allocationAt: allocated.get(c.id) ?? null,
         loyaltyAssignedTier: c.loyaltyAssignedTier,
-        boughtBrand: !brandNeedle || (brandIdSet?.has(c.id) ?? false),
+        boughtBrand: brandNeedles.length === 0 || (brandIdSet?.has(c.id) ?? false),
       },
       input.filters
     )

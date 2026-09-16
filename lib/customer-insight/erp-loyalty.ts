@@ -75,6 +75,7 @@ export async function applyErpLoyaltyTierToContact(input: {
       loyaltyAssignedTier: next,
       loyaltyAssignedAt: current.loyaltyAssignedAt ?? new Date(),
       loyaltyOutreachStatus: "assigned",
+      loyaltyOutreachUpdatedAt: new Date(),
     },
   });
   return "updated";

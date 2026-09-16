@@ -57,6 +57,8 @@ export const osfProfilePatchSchema = z.object({
     .optional(),
 });
 
+export const osfVariantSchema = z.enum(["main", "vat", "non_vat"]);
+
 export const osfGenerateBodySchema = z.object({
   salesMonth: z
     .string()
@@ -65,6 +67,8 @@ export const osfGenerateBodySchema = z.object({
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, "asOfDate must be YYYY-MM-DD")
     .optional(),
+  /** Main = full catalog; vat / non_vat partition by ERP Product Priority Vat. */
+  osfVariant: osfVariantSchema.optional().default("main"),
   includeInactive: z.boolean().optional().default(false),
   belowThresholdOnly: z.boolean().optional().default(false),
   /** Include only SKUs with assigned ROP and stock/ROP % strictly below this value. */

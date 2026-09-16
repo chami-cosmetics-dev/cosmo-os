@@ -2003,7 +2003,10 @@ export function MerchantDashboardPanel({ initialData }: Props) {
 
       <Card>
         <CardHeader className="space-y-1">
-          <CardTitle className="text-base">Loyalty eligible</CardTitle>
+          <CardTitle className="text-base">
+            Loyalty eligible (
+            {data.loyaltyEligibleCount ?? (data.loyaltyOutreach ?? []).length})
+          </CardTitle>
           <p className="text-muted-foreground text-xs">
             Allocated customers who hit Gold/Platinum spend and still need registration
             — Standard not yet set, or Gold customers now Platinum-eligible. Contact

@@ -121,11 +121,22 @@ export async function POST(request: NextRequest) {
 
   const status = nextOutreachStatus(parsed.data.action);
   const remark = parsed.data.remark?.trim() || null;
+  const now = new Date();
 
   await prisma.$transaction(async (tx) => {
+    const current = await tx.contactMaster.findFirst({
+      where: { id: contact.id },
+      select: { loyaltyEligibleAt: true },
+    });
     await tx.contactMaster.update({
       where: { id: contact.id },
-      data: { loyaltyOutreachStatus: status },
+      data: {
+        loyaltyOutreachStatus: status,
+        loyaltyOutreachUpdatedAt: now,
+        ...(status === "eligible" && !current?.loyaltyEligibleAt
+          ? { loyaltyEligibleAt: now }
+          : {}),
+      },
     });
     await tx.contactAllocationUpdate.create({
       data: {

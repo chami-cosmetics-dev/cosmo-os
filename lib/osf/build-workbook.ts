@@ -21,6 +21,13 @@ import {
   sumSignedOrderQtysFlooredAtZero,
 } from "@/lib/osf/formulas";
 import { baseSku } from "@/lib/osf/base-sku";
+import type { OsfVariant } from "@/lib/osf/vat-membership";
+import {
+  findCosmeticsLkRopColumn,
+  selectVatRopColumns,
+  totalRopForColumns,
+  totalRopForVat,
+} from "@/lib/osf/vat-rop-columns";
 import {
   applyOsfWorkbookHeaderBands,
   type OsfWorkbookBandKey,
@@ -59,7 +66,34 @@ export type BuildWorkbookInput = {
   effectiveColumnKeys?: Set<string> | "all";
   /** Optional per-buyer sheets (no pricing columns), filtered by brand. */
   buyers?: OsfBuyerConfig[];
+  /** Main / VAT / Non-VAT — VAT restricts ROP columns and Total ROP math. */
+  osfVariant?: OsfVariant;
 };
+
+function resolveRopColumns(
+  columns: OsfResolvedColumn[],
+  variant: OsfVariant,
+): { ropCols: OsfResolvedColumn[]; cosmeticsLkKey: string | null } {
+  const activeRop = columns.filter((c) => c.active && c.includeInRop);
+  if (variant === "vat") {
+    const ropCols = selectVatRopColumns(columns);
+    return {
+      ropCols,
+      cosmeticsLkKey: findCosmeticsLkRopColumn(ropCols)?.key ?? null,
+    };
+  }
+  return { ropCols: activeRop, cosmeticsLkKey: null };
+}
+
+function resolveTotalRop(
+  rops: Record<string, number | null | undefined> | undefined,
+  ropCols: OsfResolvedColumn[],
+  variant: OsfVariant,
+  cosmeticsLkKey: string | null,
+): number {
+  if (variant === "vat") return totalRopForVat(rops, cosmeticsLkKey);
+  return totalRopForColumns(rops, ropCols);
+}
 
 /** Describes one workbook column: its header + how it renders in the header band. */
 type OsfColumnDef = {
@@ -146,9 +180,10 @@ export function pricingHeaders(): string[] {
 }
 
 export function buildMainSheetRows(input: BuildWorkbookInput): Record<string, string | number | null>[] {
+  const variant = input.osfVariant ?? "main";
   const active = input.columns.filter((c) => c.active);
   const stockCols = active.filter((c) => c.includeInStock);
-  const ropCols = active.filter((c) => c.includeInRop);
+  const { ropCols, cosmeticsLkKey } = resolveRopColumns(input.columns, variant);
 
   // Precompute per-SKU stock / ROP totals
   const stockBySku = new Map<string, Record<string, number | null>>();
@@ -169,15 +204,13 @@ export function buildMainSheetRows(input: BuildWorkbookInput): Record<string, st
 
     const profile = input.profiles.get(row.sku);
     const rops: Record<string, number | null> = {};
-    let totalRop = 0;
     for (const col of ropCols) {
       const r = profile?.rops[col.key];
       const val = r != null && Number.isFinite(r) ? r : null;
       rops[col.key] = val;
-      if (val != null) totalRop += val;
     }
     ropBySku.set(row.sku, rops);
-    totalRopBySku.set(row.sku, totalRop);
+    totalRopBySku.set(row.sku, resolveTotalRop(rops, ropCols, variant, cosmeticsLkKey));
   }
 
   const buyTotalBySku = new Map<string, number>();
@@ -279,9 +312,10 @@ export function buildMainSheetRows(input: BuildWorkbookInput): Record<string, st
  * keys produced by {@link buildMainSheetRows} exactly.
  */
 export function mainColumnDescriptors(input: BuildWorkbookInput): OsfColumnDef[] {
+  const variant = input.osfVariant ?? "main";
   const active = input.columns.filter((c) => c.active);
   const stockCols = active.filter((c) => c.includeInStock);
-  const ropCols = active.filter((c) => c.includeInRop);
+  const { ropCols } = resolveRopColumns(input.columns, variant);
   const dateLabel = formatDdMmYyyy(input.asOfDate);
 
   const defs: OsfColumnDef[] = [];
@@ -492,6 +526,7 @@ export async function buildOsfWorkbookBuffer(input: BuildWorkbookInput): Promise
   const info = wb.addWorksheet(sanitizeSheetName("Info", used));
   info.addRow(["asOfDate", input.asOfDate]);
   info.addRow(["salesMonth", input.salesMonth]);
+  info.addRow(["osfVariant", input.osfVariant ?? "main"]);
   info.addRow(["rows", rows.length]);
   if (input.belowThresholdOnly) {
     info.addRow(["mode", "reorder-only (below threshold %)"]);

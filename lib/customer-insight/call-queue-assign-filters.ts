@@ -10,6 +10,7 @@ export type CallQueueAssignFilterValues = {
   allocatedFrom?: string;
   allocatedTo?: string;
   brand?: string;
+  brands?: string[];
 };
 
 function isSet(value?: string | null): boolean {
@@ -119,7 +120,12 @@ export function matchesCallQueueAssignFilters(
   ) {
     return false;
   }
-  if (isSet(filters.brand) && !row.boughtBrand) return false;
+  if (
+    (isSet(filters.brand) || (filters.brands?.length ?? 0) > 0) &&
+    !row.boughtBrand
+  ) {
+    return false;
+  }
   return true;
 }
 

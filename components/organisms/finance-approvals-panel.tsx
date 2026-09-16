@@ -506,6 +506,23 @@ export function FinanceApprovalsPanel({
               : "Return cancel approved — unpaid Sales Invoice cancelled and order voided.",
           );
         }
+      } else if (action === "approve" && selected.type === "order_cancel_approval") {
+        const mode = data.completionMode;
+        if (mode === "credit_note") {
+          notify.success(
+            data.creditNoteName
+              ? `Order cancel approved — credit note ${data.creditNoteName} created and order voided.`
+              : "Order cancel approved — ERP credit note created and order voided.",
+          );
+        } else if (mode === "cancel_si") {
+          notify.success(
+            data.invoiceName
+              ? `Order cancel approved — Sales Invoice ${data.invoiceName} cancelled.`
+              : "Order cancel approved — unpaid Sales Invoice cancelled and order voided.",
+          );
+        } else {
+          notify.success("Order cancel approved — order voided.");
+        }
       } else {
         notify.success(action === "approve" ? "Approval granted." : "Approval rejected.");
       }
@@ -787,7 +804,7 @@ export function FinanceApprovalsPanel({
                   {selected.type === "order_cancel_approval" && (
                     <div className="space-y-2 border-t border-border/60 pt-3">
                       <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900 dark:border-red-700/40 dark:bg-red-900/20 dark:text-red-200">
-                        Order cancel approval — cancel the order in Shopify and create a credit note in ERPNext, then approve here to mark the order as voided.
+                        Order cancel approval — approve creates an ERP credit note (paid) or cancels the Sales Invoice (unpaid), voids the order, and cancels Shopify when configured.
                       </div>
                       {selected.cancelRemark && (
                         <p className="text-sm"><span className="font-medium">Cancel reason:</span> {selected.cancelRemark}</p>
@@ -980,7 +997,7 @@ export function FinanceApprovalsPanel({
                               ? "Approve — create credit note"
                               : "Approve — cancel unpaid SI"
                             : selected.type === "order_cancel_approval"
-                              ? "Confirm Cancel (Shopify + ERP done)"
+                              ? "Approve — create credit note / cancel SI"
                               : `Approve — ${typeLabel(selected.type)}`}
                         </Button>
                       )}

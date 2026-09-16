@@ -307,10 +307,10 @@ export const customerInsightCallQueueCandidatesQuerySchema = z.object({
   lastPurchaseTo: optionalIsoDate,
   allocatedFrom: optionalIsoDate,
   allocatedTo: optionalIsoDate,
-  brand: z.preprocess(
-    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
-    trimmedString(1, LIMITS.name.max).optional()
-  ),
+  assignedFrom: optionalIsoDate,
+  assignedTo: optionalIsoDate,
+  notContacted: optionalBoolQuery,
+  brand: insightFilterListSchema(LIMITS.name.max),
   hideFilter: z.preprocess(
     (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
     z.enum(["eligible", "hidden", "all"]).optional()
@@ -330,10 +330,10 @@ export const customerInsightCallQueueEligibleIdsQuerySchema = z.object({
   lastPurchaseTo: optionalIsoDate,
   allocatedFrom: optionalIsoDate,
   allocatedTo: optionalIsoDate,
-  brand: z.preprocess(
-    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
-    trimmedString(1, LIMITS.name.max).optional()
-  ),
+  assignedFrom: optionalIsoDate,
+  assignedTo: optionalIsoDate,
+  notContacted: optionalBoolQuery,
+  brand: insightFilterListSchema(LIMITS.name.max),
 });
 
 export const customerInsightCallQueueExportQuerySchema = z.object({
@@ -347,6 +347,7 @@ export const customerInsightCallQueueReportQuerySchema = z.object({
   status: z.enum(["pending", "completed"]).optional(),
   pushToGold: optionalBoolQuery,
   pushToPlatinum: optionalBoolQuery,
+  notContacted: optionalBoolQuery,
 });
 
 export const customerInsightCallQueueAssignBodySchema = z.object({
@@ -357,4 +358,15 @@ export const customerInsightCallQueueAssignBodySchema = z.object({
 /** Multipart Excel import — merchant only; file validated in route. */
 export const customerInsightCallQueueImportBodySchema = z.object({
   assignedMerchant: trimmedString(1, LIMITS.knownName.max),
+});
+
+export const customerInsightLoyaltyEligibleListQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).max(LIMITS.pagination.pageMax).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(50),
+  assignedMerchant: trimmedString(1, LIMITS.knownName.max).optional(),
+});
+
+export const customerInsightLoyaltyEligibleSummaryQuerySchema = z.object({
+  asOf: optionalIsoDate,
+  weekEnd: optionalIsoDate,
 });

@@ -1780,6 +1780,10 @@ model ContactMaster {
   loyaltyAssignedAt         DateTime?
   loyaltyAssignedByUserId   String?
   loyaltyOutreachStatus     String?
+  /// First time contact was marked loyalty-eligible (set once).
+  loyaltyEligibleAt         DateTime?
+  /// Last loyalty outreach / assign status change.
+  loyaltyOutreachUpdatedAt  DateTime?
   // Contact preferences
   contactSaved      Boolean?
   whatsappAllowed   Boolean?

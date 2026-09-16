@@ -32,6 +32,11 @@ const LIFETIME_CHUNK = 400;
  * - still Standard and spend ≥ Gold, or
  * - assigned Gold and spend ≥ Platinum (upgrade).
  */
+export type MerchantLoyaltyOutreachResult = {
+  items: MerchantLoyaltyOutreachItem[];
+  totalCount: number;
+};
+
 export async function fetchMerchantLoyaltyOutreach(input: {
   companyId: string;
   viewer: {
@@ -42,9 +47,9 @@ export async function fetchMerchantLoyaltyOutreach(input: {
     roleNames?: string[];
   };
   take?: number;
-}): Promise<MerchantLoyaltyOutreachItem[]> {
+}): Promise<MerchantLoyaltyOutreachResult> {
   const labels = merchantMatchKeysForUser(input.viewer);
-  if (labels.length === 0) return [];
+  if (labels.length === 0) return { items: [], totalCount: 0 };
 
   const limit = input.take ?? 25;
   const allocatedOr = {
@@ -123,7 +128,7 @@ export async function fetchMerchantLoyaltyOutreach(input: {
     if (!byId.has(row.id)) byId.set(row.id, row);
   }
   const rows = [...byId.values()];
-  if (rows.length === 0) return [];
+  if (rows.length === 0) return { items: [], totalCount: 0 };
 
   const lifetimeById = new Map<string, number>();
   for (let i = 0; i < rows.length; i += LIFETIME_CHUNK) {
@@ -192,14 +197,34 @@ export async function fetchMerchantLoyaltyOutreach(input: {
   eligible.sort((a, b) => b.lifetimeTotal - a.lifetimeTotal);
   const top = eligible.slice(0, limit);
 
+  const now = new Date();
   if (markEligibleIds.length > 0) {
     const toMark = markEligibleIds.filter((id) =>
       top.some((t) => t.contactId === id)
     );
     if (toMark.length > 0) {
       await prisma.contactMaster.updateMany({
-        where: { id: { in: toMark }, loyaltyOutreachStatus: null },
-        data: { loyaltyOutreachStatus: "eligible" },
+        where: {
+          id: { in: toMark },
+          loyaltyOutreachStatus: null,
+          loyaltyEligibleAt: null,
+        },
+        data: {
+          loyaltyOutreachStatus: "eligible",
+          loyaltyEligibleAt: now,
+          loyaltyOutreachUpdatedAt: now,
+        },
+      });
+      await prisma.contactMaster.updateMany({
+        where: {
+          id: { in: toMark },
+          loyaltyOutreachStatus: null,
+          loyaltyEligibleAt: { not: null },
+        },
+        data: {
+          loyaltyOutreachStatus: "eligible",
+          loyaltyOutreachUpdatedAt: now,
+        },
       });
     }
   }
@@ -216,5 +241,5 @@ export async function fetchMerchantLoyaltyOutreach(input: {
     });
   }
 
-  return items;
+  return { items, totalCount: eligible.length };
 }
