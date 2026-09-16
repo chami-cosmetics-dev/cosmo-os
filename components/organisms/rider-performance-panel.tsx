@@ -60,7 +60,11 @@ function riderDisplayName(row: RiderPerformanceRow) {
   return row.knownName || row.name || row.riderId;
 }
 
-export function RiderPerformancePanel() {
+export function RiderPerformancePanel({
+  canManagePerformance = false,
+}: {
+  canManagePerformance?: boolean;
+}) {
   const [from, setFrom] = useState(todayInputValue);
   const [to, setTo] = useState(todayInputValue);
   const [rows, setRows] = useState<RiderPerformanceRow[]>([]);
@@ -239,8 +243,9 @@ export function RiderPerformancePanel() {
         <CardHeader>
           <CardTitle className="text-base">Unmatched under riders</CardTitle>
           <CardDescription>
-            Review address, pick a suggested district or search the uploaded charge sheet, then
-            save. Pay uses that district&apos;s rider charge.
+            {canManagePerformance
+              ? "Review address, pick a suggested district or search the uploaded charge sheet, then save. Pay uses that district's rider charge."
+              : "Orders that need a district for rider pay. Assign riders.performance.manage to set districts."}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -284,7 +289,7 @@ export function RiderPerformancePanel() {
                         </div>
                         <p className="text-sm leading-snug">{order.addressText}</p>
 
-                        {order.suggestions.length > 0 ? (
+                        {canManagePerformance && order.suggestions.length > 0 ? (
                           <div className="flex flex-wrap gap-2">
                             {order.suggestions.map((sug) => (
                               <Button
@@ -306,61 +311,63 @@ export function RiderPerformancePanel() {
                           </div>
                         ) : null}
 
-                        <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-                          <div className="min-w-0 flex-1 space-y-1">
-                            <label className="text-muted-foreground block text-xs">
-                              Search districts
-                            </label>
-                            <Input
-                              value={filterByTask[order.taskId] ?? ""}
-                              disabled={isBusy}
-                              placeholder="Type city / district…"
-                              onChange={(e) =>
-                                setFilterByTask((prev) => ({
-                                  ...prev,
-                                  [order.taskId]: e.target.value,
-                                }))
-                              }
-                            />
-                          </div>
-                          <div className="min-w-0 flex-[2] space-y-1">
-                            <label className="text-muted-foreground block text-xs">
-                              District (with rider pay)
-                            </label>
-                            <select
-                              className="border-input bg-background h-9 w-full rounded-md border px-2 text-sm"
-                              value={selected}
-                              disabled={isBusy}
-                              onChange={(e) =>
-                                setSelectedByTask((prev) => ({
-                                  ...prev,
-                                  [order.taskId]: e.target.value,
-                                }))
-                              }
+                        {canManagePerformance ? (
+                          <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+                            <div className="min-w-0 flex-1 space-y-1">
+                              <label className="text-muted-foreground block text-xs">
+                                Search districts
+                              </label>
+                              <Input
+                                value={filterByTask[order.taskId] ?? ""}
+                                disabled={isBusy}
+                                placeholder="Type city / district…"
+                                onChange={(e) =>
+                                  setFilterByTask((prev) => ({
+                                    ...prev,
+                                    [order.taskId]: e.target.value,
+                                  }))
+                                }
+                              />
+                            </div>
+                            <div className="min-w-0 flex-[2] space-y-1">
+                              <label className="text-muted-foreground block text-xs">
+                                District (with rider pay)
+                              </label>
+                              <select
+                                className="border-input bg-background h-9 w-full rounded-md border px-2 text-sm"
+                                value={selected}
+                                disabled={isBusy}
+                                onChange={(e) =>
+                                  setSelectedByTask((prev) => ({
+                                    ...prev,
+                                    [order.taskId]: e.target.value,
+                                  }))
+                                }
+                              >
+                                <option value="">Select district…</option>
+                                {options.map((opt) => (
+                                  <option key={opt.labelKey} value={opt.labelKey}>
+                                    {opt.label} — {opt.riderDeliveryCharge}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            <Button
+                              type="button"
+                              disabled={isBusy || !selected}
+                              onClick={() => void saveManualDistrict(order.taskId)}
                             >
-                              <option value="">Select district…</option>
-                              {options.map((opt) => (
-                                <option key={opt.labelKey} value={opt.labelKey}>
-                                  {opt.label} — {opt.riderDeliveryCharge}
-                                </option>
-                              ))}
-                            </select>
+                              {saving ? (
+                                <>
+                                  <Loader2 className="animate-spin" aria-hidden />
+                                  Saving...
+                                </>
+                              ) : (
+                                "Save"
+                              )}
+                            </Button>
                           </div>
-                          <Button
-                            type="button"
-                            disabled={isBusy || !selected}
-                            onClick={() => void saveManualDistrict(order.taskId)}
-                          >
-                            {saving ? (
-                              <>
-                                <Loader2 className="animate-spin" aria-hidden />
-                                Saving...
-                              </>
-                            ) : (
-                              "Save"
-                            )}
-                          </Button>
-                        </div>
+                        ) : null}
                       </div>
                     );
                   })}

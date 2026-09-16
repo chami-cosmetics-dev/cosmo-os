@@ -13,7 +13,7 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ riderId: string }> }
 ) {
-  const auth = await requirePermission("staff.read");
+  const auth = await requirePermission("riders.read");
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
