@@ -9,6 +9,7 @@ import {
   uniqueContactPhones,
   type PurchaseCountFilter,
 } from "@/lib/customer-insight/allocation-summary";
+import { resolveAssignedMerchantFilterLabels } from "@/lib/customer-insight/merchant-label-aliases";
 import { hasInsightAdminView } from "@/lib/customer-insight/ownership";
 import { prisma } from "@/lib/prisma";
 import { logReportDownload } from "@/lib/report-download-log";
@@ -84,9 +85,43 @@ function parsePurchaseCountFilter(
 
 async function exportAllocatedContactsCsv(
   companyId: string,
-  userId: string
+  userId: string,
+  assignedMerchant: string
 ): Promise<NextResponse> {
-  const fileName = "insight-merchant-allocation-contacts.csv";
+  const merchantNeedle = assignedMerchant.trim();
+  if (!merchantNeedle) {
+    return NextResponse.json(
+      { error: "Select a merchant to export their allocated contacts." },
+      { status: 400 }
+    );
+  }
+
+  const aliases = await resolveAssignedMerchantFilterLabels(
+    companyId,
+    merchantNeedle
+  );
+  const merchantWhere =
+    aliases.length <= 1
+      ? {
+          assignedMerchant: {
+            equals: aliases[0] ?? merchantNeedle,
+            mode: "insensitive" as const,
+          },
+        }
+      : {
+          OR: aliases.map((alias) => ({
+            assignedMerchant: {
+              equals: alias,
+              mode: "insensitive" as const,
+            },
+          })),
+        };
+
+  const safeSlug = merchantNeedle
+    .replace(/[^a-zA-Z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40);
+  const fileName = `insight-merchant-allocation-contacts-${safeSlug || "merchant"}.csv`;
   const aliasToRoster = await loadAssignedMerchantAliasMap(companyId);
 
   await logReportDownload({
@@ -94,6 +129,7 @@ async function exportAllocatedContactsCsv(
     userId,
     reportKey: "customer_insight:allocation_contacts",
     reportLabel: "Customer Insight Allocation Contacts",
+    filters: `assignedMerchant=${merchantNeedle}`,
     fileName,
   });
 
@@ -110,7 +146,7 @@ async function exportAllocatedContactsCsv(
           const batch = await prisma.contactMaster.findMany({
             where: {
               companyId,
-              assignedMerchant: { not: "" },
+              AND: [{ assignedMerchant: { not: "" } }, merchantWhere],
             },
             take: ALLOCATION_EXPORT_BATCH_SIZE,
             ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
@@ -190,7 +226,8 @@ export async function GET(request: NextRequest) {
 
   const { searchParams } = new URL(request.url);
   if (searchParams.get("format") === "contacts") {
-    return exportAllocatedContactsCsv(companyId, user.id);
+    const assignedMerchant = (searchParams.get("assignedMerchant") ?? "").trim();
+    return exportAllocatedContactsCsv(companyId, user.id, assignedMerchant);
   }
 
   const report =

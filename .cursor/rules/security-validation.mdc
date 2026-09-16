@@ -1,20 +1,20 @@
 ---
-description: Security and validation — never trust client; Zod, auth, CUID, LIMITS on API routes
+description: Security — never trust client; Zod, auth, CUID, LIMITS on APIs
 globs: app/api/**/*.ts,lib/validation.ts,lib/rbac.ts
 alwaysApply: false
 ---
 
 # Security and Validation
 
-Never trust the client. Enforce security server-side; frontend validation is UX only.
+Never trust client. Enforce server-side; frontend validation = UX only.
 
 **Backend (required)**
-1. Zod schemas from `@/lib/validation`
-2. `cuidSchema` for all `[id]` route params
-3. `LIMITS` / `trimmedString()` on text inputs
+1. Zod from `@/lib/validation`
+2. `cuidSchema` for all `[id]` params
+3. `LIMITS` / `trimmedString()` on text
 4. `requirePermission()` or `getCurrentUserContext()` before mutations
-5. Business rules server-side (reserved names, role assignment, etc.)
+5. Business rules server-side (reserved names, roles, etc.)
 
-**Shared lib:** `cuidSchema`, `emailSchema`, `inviteTokenSchema`, `trimmedString`, `isReservedRoleName`, `LIMITS`
+**Shared:** `cuidSchema`, `emailSchema`, `inviteTokenSchema`, `trimmedString`, `isReservedRoleName`, `LIMITS`
 
 **API checklist:** auth → Zod body/params → CUID ids → length limits → business rules

@@ -58,7 +58,7 @@ export type FilterQueryInput = {
 /** Item-rank slice only. Unranked tot/city/birthday filters scan full admin or assigned set. */
 const FILTER_CANDIDATE_CAP = 800;
 const LAST_CONTACTED_ID_CHUNK = 4_000;
-/** Safety cap for admin CSV export of filtered insight rows. */
+/** Safety cap for company-wide admin CSV export (no merchant selected). */
 export const FILTER_EXPORT_CAP = 25_000;
 
 export function matchesBirthdayThisMonth(
@@ -677,8 +677,11 @@ export async function filterAllocatedContacts(
   }
 
   const total = scored.length;
+  /** Merchant-scoped export: full allocated list. Company-wide stays capped. */
   const exportRows = input.forExport
-    ? scored.slice(0, FILTER_EXPORT_CAP)
+    ? input.assignedMerchant?.trim()
+      ? scored
+      : scored.slice(0, FILTER_EXPORT_CAP)
     : null;
   const start = (input.page - 1) * input.pageSize;
   const pageItems = exportRows ?? scored.slice(start, start + input.pageSize);
