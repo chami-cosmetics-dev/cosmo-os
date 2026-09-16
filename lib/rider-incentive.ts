@@ -8,6 +8,8 @@ export type RiderIncentiveInputRow = {
   incentiveAmount: Prisma.Decimal | number | string | null;
   /** False when no shipping-rule charge matched (incentive is 0). */
   matched?: boolean;
+  /** Pick up / free-ship — not payable, not unmatched. */
+  excludedFromIncentive?: boolean;
   financialStatus: string | null;
 };
 
@@ -71,7 +73,7 @@ export function aggregateRiderIncentives(rows: RiderIncentiveInputRow[]): Array<
       };
     existing.completedCount += 1;
     existing.incentiveTotal = existing.incentiveTotal.add(normalizeIncentiveAmount(row.incentiveAmount));
-    if (row.matched === false) {
+    if (row.matched === false && !row.excludedFromIncentive) {
       existing.unmatchedCount += 1;
     }
     map.set(row.riderId, existing);

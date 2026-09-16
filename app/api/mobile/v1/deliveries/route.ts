@@ -117,7 +117,8 @@ export async function GET(request: NextRequest) {
         incentiveAmount: incentiveForOrder(
           task.order,
           incentiveContext.chargeByLabelKey,
-          incentiveContext.zoneMembersByZone
+          incentiveContext.zoneMembersByZone,
+          task.manualIncentiveLabelKey
         ).toFixed(2),
       })
     ),

@@ -3,6 +3,7 @@ import {
   shopLabelForLocation,
 } from "@/lib/book-notes/serialize";
 import { sendBookNoteRowsToErp } from "@/lib/book-notes/erp-verify";
+import { pushBookNoteSpecialNotesToErp } from "@/lib/book-notes/erp-special-note";
 import {
   markBookNoteErpSynced,
   markBookNoteErpSyncFailed,
@@ -16,6 +17,7 @@ import {
 } from "@/lib/book-notes/receipts";
 import { prisma } from "@/lib/prisma";
 import type { BookNoteErpVerifyResult } from "@/lib/book-notes/erp-verify";
+import type { PushBookNoteSpecialNotesResult } from "@/lib/book-notes/erp-special-note";
 
 export type PushBookNoteDayFailure = {
   ok: false;
@@ -50,6 +52,7 @@ export type PushBookNoteDaySuccess = {
     failed: number;
     errors: string[];
   } | null;
+  specialNotes: PushBookNoteSpecialNotesResult | null;
 };
 
 export type PushBookNoteDayResult =
@@ -205,6 +208,37 @@ export async function pushBookNoteDayToErp(input: {
     };
   }
 
+  // Special notes require the ERP row to exist — always after verify.
+  // Re-send every sync so invoice-number corrections (ERP recreates blank
+  // rows) get the Cosmo note attached again.
+  const specialNotes = await pushBookNoteSpecialNotesToErp({
+    erpnextInstance: location.erpnextInstance,
+    bookNoteId: day.id,
+    company,
+    rows: day.rows.map((r) => ({
+      idx_no: r.idx_no,
+      special_note: r.special_note,
+    })),
+  });
+  if (specialNotes.failed > 0) {
+    const err = `Sheet verified but special notes failed: ${specialNotes.errors.join("; ")}`;
+    await markBookNoteErpSyncFailed(input.bookNoteDayId, err);
+    return {
+      ok: false,
+      status: 502,
+      code: "SPECIAL_NOTE_FAILED",
+      error: err,
+      step: "special_notes",
+      method: result.method,
+      company: result.company,
+      erpUrl: result.erpUrl,
+      locationName: shopLabel,
+      postingDate: input.postingDateYmd,
+      rowCount: day.rows.length,
+      raw: { specialNotes },
+    };
+  }
+
   await markBookNoteErpSynced(input.bookNoteDayId);
 
   return {
@@ -218,5 +252,6 @@ export async function pushBookNoteDayToErp(input: {
     summary: result.summary,
     rows: result.rows,
     receiptUpload,
+    specialNotes,
   };
 }

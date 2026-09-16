@@ -44,7 +44,8 @@ export async function GET(
         incentiveAmount: incentiveForOrder(
           task.order,
           incentiveContext.chargeByLabelKey,
-          incentiveContext.zoneMembersByZone
+          incentiveContext.zoneMembersByZone,
+          task.manualIncentiveLabelKey
         ).toFixed(2),
       }),
       lineItems: task.order.lineItems.map((item) => ({

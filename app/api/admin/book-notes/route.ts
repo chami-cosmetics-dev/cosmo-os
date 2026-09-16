@@ -318,6 +318,7 @@ export async function PUT(request: NextRequest) {
             : null,
         koko: agg ? agg.koko : r.koko,
         bankTransfer: agg ? agg.bankTransfer : r.bankTransfer,
+        specialNote: r.specialNote ?? null,
         splitLines: usesSplit ? splitLines : null,
         orderId: r.orderId ?? null,
       };
@@ -409,6 +410,9 @@ export async function PUT(request: NextRequest) {
           cardReceiptRefLast4: r.cardReceiptRefLast4,
           koko: r.koko,
           bankTransfer: r.bankTransfer,
+          specialNote: r.specialNote
+            ? r.specialNote.slice(0, LIMITS.bookNoteSpecialNote.max)
+            : null,
           splitLines: r.splitLines ?? Prisma.JsonNull,
           orderId: r.orderId,
           sortOrder,

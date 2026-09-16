@@ -18,6 +18,46 @@ export function isZoneShippingLabelKey(labelKey: string | null | undefined): boo
   return Boolean(labelKey && /^zone\b/.test(labelKey));
 }
 
+/** Pick up / free-ship / staff DC — completed delivery but no rider delivery incentive. */
+export function isExcludedFromRiderIncentiveLabel(label: string | null | undefined): boolean {
+  const key = normalizeShippingRuleLabelKey(label);
+  if (!key) return false;
+  if (key === "pick up" || key === "pickup") return true;
+  if (key === "freeship" || key === "free ship") return true;
+  if (key === "staffdc") return true;
+  return false;
+}
+
+/** ERP generic label — resolve pay from shipping address city instead. */
+export function shouldUseCityFallbackForIncentiveLabel(
+  shippingRuleLabel: string | null | undefined
+): boolean {
+  const key = normalizeShippingRuleLabelKey(shippingRuleLabel);
+  return key === "delivery";
+}
+
+const NON_DISTRICT_CITY_KEYS = new Set(["sri lanka", "lanka"]);
+
+export function isUsableShippingCityForCharge(city: string | null | undefined): boolean {
+  const key = normalizeShippingRuleLabelKey(city);
+  if (!key || key.length < 2) return false;
+  return !NON_DISTRICT_CITY_KEYS.has(key);
+}
+
+function matchIncentiveViaShippingCity(
+  shippingCity: string | null | undefined,
+  chargeByLabelKey: Map<string, Prisma.Decimal | number | string>
+): { amount: Prisma.Decimal; matched: boolean; labelKey: string | null } | null {
+  if (!isUsableShippingCityForCharge(shippingCity)) return null;
+  const cityKeys = shippingRuleLabelLookupKeys(shippingCity);
+  return matchChargeForKeys(cityKeys, chargeByLabelKey);
+}
+
+export function riderIncentiveMatchDisplayLabel(label: string | null | undefined): string {
+  const trimmed = (label ?? "").trim();
+  return trimmed || "(no shipping label)";
+}
+
 /**
  * Lookup candidates for an order shipping label.
  * Exact key first, then peel trailing " - …" segments so "Colombo 2 - DTD" → "colombo 2".
@@ -39,13 +79,17 @@ export function shippingRuleLabelLookupKeys(label: string | null | undefined): s
 }
 
 export function resolveOrderShippingRuleLabel(order: {
-  totalShipping?: string | number | null;
+  totalShipping?: string | number | { toString(): string } | null;
   shippingLines?: unknown;
   rawPayload?: unknown;
   sourceName?: string | null;
   discountCodes?: unknown;
 }): string | null {
-  return resolveOrderShippingDisplay(order).label;
+  return resolveOrderShippingDisplay({
+    ...order,
+    totalShipping:
+      order.totalShipping == null ? null : order.totalShipping.toString(),
+  }).label;
 }
 
 function cityFromAddressLike(value: unknown): string | null {
@@ -103,32 +147,97 @@ export function resolveRiderIncentiveFromRules(input: {
   chargeByLabelKey: Map<string, Prisma.Decimal | number | string>;
   shippingCity?: string | null;
   zoneMembersByZone?: Map<string, Set<string>>;
+  manualIncentiveLabelKey?: string | null;
 }): Prisma.Decimal {
   return resolveRiderIncentiveMatch(input).amount;
 }
 
 /**
  * Resolve rider incentive.
- * 1) Label lookup keys against charge sheet (DTD peel included).
- * 2) If label is zone-like (Zone A/B), resolve via order shipping city → charge sheet.
- *    Prefer city in zone member set when members loaded; always fall back to city→charge.
+ * 1) Excluded labels (Pick Up / FREESHIP / STAFFDC) → no pay.
+ * 2) Staff manual district key → charge sheet.
+ * 3) Label lookup keys against charge sheet (DTD peel included).
+ * 4) Zone A/B → shipping city → charge sheet (zone membership when loaded).
+ * 5) Generic ERP "Delivery" or missing label → shipping city → charge sheet.
  */
 export function resolveRiderIncentiveMatch(input: {
   shippingRuleLabel: string | null | undefined;
   chargeByLabelKey: Map<string, Prisma.Decimal | number | string>;
   shippingCity?: string | null;
   zoneMembersByZone?: Map<string, Set<string>>;
-}): { amount: Prisma.Decimal; matched: boolean; labelKey: string | null } {
-  const keys = shippingRuleLabelLookupKeys(input.shippingRuleLabel);
-  if (keys.length === 0) {
-    return { amount: new Prisma.Decimal(0), matched: false, labelKey: null };
+  manualIncentiveLabelKey?: string | null;
+}): {
+  amount: Prisma.Decimal;
+  matched: boolean;
+  labelKey: string | null;
+  excludedFromIncentive?: boolean;
+  manualOverride?: boolean;
+} {
+  if (isExcludedFromRiderIncentiveLabel(input.shippingRuleLabel)) {
+    return {
+      amount: new Prisma.Decimal(0),
+      matched: true,
+      labelKey: normalizeShippingRuleLabelKey(input.shippingRuleLabel),
+      excludedFromIncentive: true,
+    };
   }
 
-  const direct = matchChargeForKeys(keys, input.chargeByLabelKey);
-  if (direct) return direct;
+  const manualKey = normalizeShippingRuleLabelKey(input.manualIncentiveLabelKey);
+  if (manualKey) {
+    const manual = matchChargeForKeys([manualKey], input.chargeByLabelKey);
+    if (manual) {
+      return { ...manual, manualOverride: true };
+    }
+    return {
+      amount: new Prisma.Decimal(0),
+      matched: false,
+      labelKey: manualKey,
+      manualOverride: true,
+    };
+  }
 
-  const zoneKey = keys.find((k) => isZoneShippingLabelKey(k));
-  if (!zoneKey) {
+  const keys = shippingRuleLabelLookupKeys(input.shippingRuleLabel);
+
+  if (keys.length > 0) {
+    const direct = matchChargeForKeys(keys, input.chargeByLabelKey);
+    if (direct) return direct;
+
+    const zoneKey = keys.find((k) => isZoneShippingLabelKey(k));
+    if (zoneKey) {
+      const cityKeys = shippingRuleLabelLookupKeys(input.shippingCity);
+      if (cityKeys.length === 0) {
+        return {
+          amount: new Prisma.Decimal(0),
+          matched: false,
+          labelKey: zoneKey,
+        };
+      }
+
+      const members = input.zoneMembersByZone?.get(zoneKey);
+      if (members && members.size > 0) {
+        const preferred = cityKeys.filter((k) => members.has(k));
+        const preferredMatch = matchChargeForKeys(preferred, input.chargeByLabelKey);
+        if (preferredMatch) return preferredMatch;
+      }
+
+      const cityMatch = matchChargeForKeys(cityKeys, input.chargeByLabelKey);
+      if (cityMatch) return cityMatch;
+
+      return {
+        amount: new Prisma.Decimal(0),
+        matched: false,
+        labelKey: cityKeys[0] ?? zoneKey,
+      };
+    }
+
+    if (shouldUseCityFallbackForIncentiveLabel(input.shippingRuleLabel)) {
+      const viaCity = matchIncentiveViaShippingCity(
+        input.shippingCity,
+        input.chargeByLabelKey
+      );
+      if (viaCity) return viaCity;
+    }
+
     return {
       amount: new Prisma.Decimal(0),
       matched: false,
@@ -136,30 +245,49 @@ export function resolveRiderIncentiveMatch(input: {
     };
   }
 
-  const cityKeys = shippingRuleLabelLookupKeys(input.shippingCity);
-  if (cityKeys.length === 0) {
-    return {
-      amount: new Prisma.Decimal(0),
-      matched: false,
-      labelKey: zoneKey,
-    };
+  const viaCity = matchIncentiveViaShippingCity(input.shippingCity, input.chargeByLabelKey);
+  if (viaCity) return viaCity;
+
+  return { amount: new Prisma.Decimal(0), matched: false, labelKey: null };
+}
+
+export type RiderDistrictChargeOption = {
+  labelKey: string;
+  label: string;
+  riderDeliveryCharge: string;
+};
+
+/** Rank charge-sheet districts that appear in address/city text (top N). */
+export function suggestRiderDistrictsFromAddress(input: {
+  addressText?: string | null;
+  city?: string | null;
+  options: RiderDistrictChargeOption[];
+  limit?: number;
+}): RiderDistrictChargeOption[] {
+  const haystack = normalizeShippingRuleLabelKey(
+    [input.city, input.addressText].filter(Boolean).join(" ")
+  );
+  if (!haystack || input.options.length === 0) return [];
+
+  const scored: Array<{ option: RiderDistrictChargeOption; score: number }> = [];
+  for (const option of input.options) {
+    const key = normalizeShippingRuleLabelKey(option.labelKey || option.label);
+    if (!key || key.length < 3) continue;
+    let score = 0;
+    if (haystack === key) score = 100;
+    else if (haystack.includes(key)) score = 80 + Math.min(key.length, 20);
+    else if (key.includes(haystack) && haystack.length >= 4) score = 40;
+    else {
+      const tokens = key.split(" ").filter((t) => t.length >= 4);
+      const hit = tokens.filter((t) => haystack.includes(t)).length;
+      if (hit > 0) score = 20 + hit * 10;
+    }
+    if (score > 0) scored.push({ option, score });
   }
 
-  const members = input.zoneMembersByZone?.get(zoneKey);
-  if (members && members.size > 0) {
-    const preferred = cityKeys.filter((k) => members.has(k));
-    const preferredMatch = matchChargeForKeys(preferred, input.chargeByLabelKey);
-    if (preferredMatch) return preferredMatch;
-  }
-
-  const cityMatch = matchChargeForKeys(cityKeys, input.chargeByLabelKey);
-  if (cityMatch) return cityMatch;
-
-  return {
-    amount: new Prisma.Decimal(0),
-    matched: false,
-    labelKey: cityKeys[0] ?? zoneKey,
-  };
+  scored.sort((a, b) => b.score - a.score || a.option.label.localeCompare(b.option.label));
+  const limit = input.limit ?? 5;
+  return scored.slice(0, limit).map((row) => row.option);
 }
 
 export type ParsedRiderDeliveryChargeRow = {

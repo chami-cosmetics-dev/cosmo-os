@@ -173,5 +173,6 @@ export async function POST(request: NextRequest) {
     summary: result.summary,
     rows: result.rows,
     receiptUpload: result.receiptUpload,
+    specialNotes: result.specialNotes,
   });
 }

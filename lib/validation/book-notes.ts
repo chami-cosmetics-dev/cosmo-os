@@ -85,6 +85,15 @@ export const bookNotePutRowSchema = z
       }),
     koko: moneySchema.default(0),
     bankTransfer: moneySchema.default(0),
+    specialNote: z
+      .string()
+      .max(LIMITS.bookNoteSpecialNote.max)
+      .optional()
+      .nullable()
+      .transform((v) => {
+        const t = (v ?? "").trim();
+        return t.length === 0 ? null : t;
+      }),
     splitLines: z.array(bookNoteSplitLineSchema).max(LIMITS.bookNoteSplitLinesMax).optional().nullable(),
     orderId: cuidSchema.nullable().optional(),
   })

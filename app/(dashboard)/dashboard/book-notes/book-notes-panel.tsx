@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -65,6 +66,8 @@ type LedgerRow = {
   cardReceiptRefLast4: string;
   koko: string;
   bankTransfer: string;
+  /** Bank-recon special note (ERP, max 1500). */
+  specialNote: string;
   splitMode: boolean;
   splitLines: SplitLineForm[];
   orderId: string | null;
@@ -142,6 +145,7 @@ function emptyRow(idx: number): LedgerRow {
     cardReceiptRefLast4: "",
     koko: "",
     bankTransfer: "",
+    specialNote: "",
     splitMode: false,
     splitLines: [],
     orderId: null,
@@ -169,6 +173,7 @@ function dayToRows(day: BookNoteDayDto | null): LedgerRow[] {
       cardReceiptRefLast4: r.card_receipt_ref_last4 ?? "",
       koko: r.koko ? String(r.koko) : "",
       bankTransfer: r.bank_transfer ? String(r.bank_transfer) : "",
+      specialNote: r.special_note ?? "",
       splitMode,
       splitLines: splitMode
         ? r.split_lines!.map(splitLineToForm)
@@ -193,6 +198,7 @@ function rowsFingerprint(rows: LedgerRow[]): string {
       r.cardReceiptRefLast4,
       r.koko,
       r.bankTransfer,
+      r.specialNote,
       r.splitMode,
       r.splitLines.map((sl) => [
         sl.paymentMethod,
@@ -207,7 +213,12 @@ function rowsFingerprint(rows: LedgerRow[]): string {
 
 /** True when the sheet holds anything worth warning about before discarding. */
 function hasEnteredData(rows: LedgerRow[]): boolean {
-  return rows.some((r) => r.salesInvoice.trim() !== "" || rowTotal(r) > 0);
+  return rows.some(
+    (r) =>
+      r.salesInvoice.trim() !== "" ||
+      r.specialNote.trim() !== "" ||
+      rowTotal(r) > 0,
+  );
 }
 
 type BookNotesPanelProps = {
@@ -746,6 +757,7 @@ export function BookNotesPanel({
               : null,
           koko: r.splitMode ? 0 : toNum(r.koko),
           bankTransfer: r.splitMode ? 0 : toNum(r.bankTransfer),
+          specialNote: r.specialNote.trim() || null,
           splitLines,
           orderId: r.orderId,
         };
@@ -932,6 +944,14 @@ export function BookNotesPanel({
         const firstErr = receiptUpload.errors?.[0];
         if (firstErr) line += ` (${firstErr})`;
       }
+    }
+    const specialNotes = data.specialNotes as {
+      attempted?: number;
+      succeeded?: number;
+      failed?: number;
+    } | null;
+    if (specialNotes && (specialNotes.attempted ?? 0) > 0) {
+      line += ` · notes ${specialNotes.succeeded ?? 0}/${specialNotes.attempted}`;
     }
     setStatusLine(line);
     notify.success(line);
@@ -1555,6 +1575,29 @@ export function BookNotesPanel({
                         ))}
                       </ul>
                     )}
+                    <Textarea
+                      value={row.specialNote}
+                      disabled={isBusy || readOnly}
+                      placeholder="Special note (optional)"
+                      aria-label={`Special note for row ${row.idxNo}`}
+                      maxLength={LIMITS.bookNoteSpecialNote.max}
+                      rows={2}
+                      className="mt-1 min-h-[2.5rem] resize-y text-xs"
+                      onChange={(e) =>
+                        updateRow(row.key, {
+                          specialNote: e.target.value.slice(
+                            0,
+                            LIMITS.bookNoteSpecialNote.max,
+                          ),
+                        })
+                      }
+                    />
+                    {row.specialNote.trim().length > 0 ? (
+                      <p className="text-muted-foreground mt-0.5 text-[10px] tabular-nums">
+                        {row.specialNote.trim().length}/
+                        {LIMITS.bookNoteSpecialNote.max}
+                      </p>
+                    ) : null}
                   </td>
                   <td className="p-1">
                     <Input

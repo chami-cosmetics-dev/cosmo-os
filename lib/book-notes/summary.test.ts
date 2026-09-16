@@ -17,6 +17,7 @@ function row(over: Partial<BookNoteRowDto>): BookNoteRowDto {
     bank_transfer: 0,
     row_total: 0,
     is_multi_method: false,
+    special_note: null,
     split_lines: null,
     ...over,
   };

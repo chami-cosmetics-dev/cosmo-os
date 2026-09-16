@@ -361,7 +361,8 @@ model User {
   notifications                       Notification[]
   receivedCashHandovers               RiderCashHandover[]       @relation("RiderCashHandoverReceivedBy")
   riderCashHandovers                  RiderCashHandover[]       @relation("RiderCashHandovers")
-  riderDeliveryTasks                  RiderDeliveryTask[]
+  riderDeliveryTasks                  RiderDeliveryTask[]       @relation("RiderDeliveryTaskRider")
+  riderDeliveryTasksManualIncentive   RiderDeliveryTask[]       @relation("RiderDeliveryTaskManualIncentiveBy")
   userRoles                           UserRole[]
   osfUserColumnAccess                 OsfUserColumnAccess[]
   storeStockCountReportsCreated       StoreStockCountReport[]    @relation("StoreStockCountReportCreatedBy")
@@ -1139,14 +1140,21 @@ model RiderDeliveryTask {
   failedAt                  DateTime?
   failureReason             String?
   latestSyncAt              DateTime?
+  /// Staff-picked district for rider pay when auto shipping-label match fails.
+  manualIncentiveLabelKey   String?
+  manualIncentiveLabel      String?
+  manualIncentiveSetAt      DateTime?
+  manualIncentiveSetById    String?
   createdAt                 DateTime                @default(now())
   updatedAt                 DateTime                @updatedAt
   exchange                  OrderExchange?          @relation(fields: [exchangeId], references: [id], onDelete: SetNull)
   order                     Order                   @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  rider                     User                    @relation(fields: [riderId], references: [id], onDelete: Cascade)
+  rider                     User                    @relation("RiderDeliveryTaskRider", fields: [riderId], references: [id], onDelete: Cascade)
+  manualIncentiveSetBy      User?                   @relation("RiderDeliveryTaskManualIncentiveBy", fields: [manualIncentiveSetById], references: [id], onDelete: SetNull)
 
   @@index([riderId, status, assignedAt(sort: Desc)])
   @@index([exchangeId])
+  @@index([manualIncentiveLabelKey])
 }
 
 model DeliveryPayment {
@@ -2353,6 +2361,8 @@ model BookNoteRow {
   cardReceiptRefLast4 String?
   koko           Decimal     @db.Decimal(12, 2)
   bankTransfer   Decimal     @db.Decimal(12, 2)
+  /// Free-text bank-recon note for this invoice line (ERP special_note, max 1500).
+  specialNote    String?
   /// When set, ERP send uses split_lines payload (ss9) instead of legacy columns.
   splitLines     Json?
   orderId        String?
