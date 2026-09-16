@@ -4,7 +4,7 @@ import { requireRiderMobileSession } from "@/lib/mobile/api";
 import { toMobileDeliveryDto } from "@/lib/mobile/dto";
 import { resolveMobileSpecialDelivery } from "@/lib/mobile/special-delivery";
 import { mobileDeliveryStatusFilterSchema } from "@/lib/mobile/validation";
-import { incentiveForOrder, loadRiderDeliveryChargeMap } from "@/lib/rider-incentive-resolve";
+import { incentiveForOrder, loadRiderIncentiveContext } from "@/lib/rider-incentive-resolve";
 import { prisma } from "@/lib/prisma";
 
 export async function GET(request: NextRequest) {
@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
     request.nextUrl.searchParams.get("status") ?? undefined
   );
 
-  const [tasks, chargeByLabelKey] = await Promise.all([
+  const [tasks, incentiveContext] = await Promise.all([
     prisma.riderDeliveryTask.findMany({
       where: {
         riderId: auth.session.userId,
@@ -100,7 +100,7 @@ export async function GET(request: NextRequest) {
       },
       orderBy: [{ status: "asc" }, { assignedAt: "desc" }],
     }),
-    loadRiderDeliveryChargeMap(),
+    loadRiderIncentiveContext(),
   ]);
 
   return NextResponse.json({
@@ -114,7 +114,11 @@ export async function GET(request: NextRequest) {
           order: task.order,
           task,
         }),
-        incentiveAmount: incentiveForOrder(task.order, chargeByLabelKey).toFixed(2),
+        incentiveAmount: incentiveForOrder(
+          task.order,
+          incentiveContext.chargeByLabelKey,
+          incentiveContext.zoneMembersByZone
+        ).toFixed(2),
       })
     ),
   });

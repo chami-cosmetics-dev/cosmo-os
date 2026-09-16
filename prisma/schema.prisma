@@ -2385,6 +2385,21 @@ model RiderDeliveryChargeRule {
   @@index([label])
 }
 
+/// Zone Name → City/district membership (Zone A/B validation / Shopify city resolve). Not pay amounts.
+model RiderDeliveryZoneMember {
+  id               String   @id @default(cuid())
+  zoneKey          String
+  zoneLabel        String
+  districtLabelKey String
+  districtLabel    String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([zoneKey, districtLabelKey])
+  @@index([zoneKey])
+  @@index([districtLabelKey])
+}
+
 /// Merchant daily book note — one ledger per location + Colombo calendar sales date.
 model BookNoteDay {
   id                 String            @id @default(cuid())
