@@ -531,6 +531,24 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
             </SidebarGroupContent>
           </SidebarGroup>
         )}
+        {canViewStickers && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Stickers</SidebarGroupLabel>
+            <SidebarGroupContent>
+              {(canStickerBatch || canStickerPrint) && (
+                <NavItem
+                  href="/dashboard/sticker-batch"
+                  icon={Sticker}
+                  label="Batch & Print"
+                  isActive={
+                    pathname === "/dashboard/sticker-batch" ||
+                    pathname === "/dashboard/sticker-print"
+                  }
+                />
+              )}
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
         {canViewProductManagement && (
           <SidebarGroup>
             <SidebarGroupLabel>Product Management</SidebarGroupLabel>
@@ -581,9 +599,9 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
             </SidebarGroupContent>
           </SidebarGroup>
         )}
-        {(canViewStore || canViewStickers) && (
+        {canViewStore && (
           <SidebarGroup>
-            <SidebarGroupLabel>Stores</SidebarGroupLabel>
+            <SidebarGroupLabel>Store</SidebarGroupLabel>
             <SidebarGroupContent>
               {canViewStoreAllocation && (
                 <NavItem
@@ -599,17 +617,6 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
                   icon={ClipboardList}
                   label="Stock count"
                   isActive={pathname === "/dashboard/store/stock-count"}
-                />
-              )}
-              {(canStickerBatch || canStickerPrint) && (
-                <NavItem
-                  href="/dashboard/sticker-batch"
-                  icon={Sticker}
-                  label="Batch & Print"
-                  isActive={
-                    pathname === "/dashboard/sticker-batch" ||
-                    pathname === "/dashboard/sticker-print"
-                  }
                 />
               )}
             </SidebarGroupContent>
