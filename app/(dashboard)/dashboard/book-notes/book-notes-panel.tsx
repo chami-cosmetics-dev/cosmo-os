@@ -225,6 +225,8 @@ type BookNotesPanelProps = {
   initialLocations: BookNoteLocationOption[];
   initialCanAccessAllShops?: boolean;
   initialCanBackdateBookNotes?: boolean;
+  /** book_notes.admin — bulk ERP + company-wide history. */
+  initialCanAdminBookNotes?: boolean;
   initialHistory?: BookNoteHistoryItem[];
   initialToday: string;
 };
@@ -233,11 +235,13 @@ export function BookNotesPanel({
   initialLocations,
   initialCanAccessAllShops: _initialCanAccessAllShops = false,
   initialCanBackdateBookNotes = false,
+  initialCanAdminBookNotes = false,
   initialHistory = [],
   initialToday,
 }: BookNotesPanelProps) {
   const [locations] = useState(initialLocations);
   const [canBackdateBookNotes] = useState(initialCanBackdateBookNotes);
+  const [canAdminBookNotes] = useState(initialCanAdminBookNotes);
   const [companyLocationId, setCompanyLocationId] = useState(
     initialLocations[0]?.id ?? "",
   );
@@ -961,7 +965,7 @@ export function BookNotesPanel({
 
   /** Admin: push many saved sheets to ERP in one go. */
   async function handleBulkSyncToErp() {
-    if (!canBackdateBookNotes) return;
+    if (!canAdminBookNotes) return;
     if (bulkFrom > bulkTo) {
       showError("Bulk sync: From date must be on or before To date.");
       return;
@@ -1036,7 +1040,7 @@ export function BookNotesPanel({
           ? `${restrictedBy} entered this shop's book note for ${postingDate}. Only they or finance can change it.`
           : canBackdateBookNotes
             ? "This sales date is locked (future dates cannot be saved)."
-            : "Past dates are locked. Only today can be edited unless you have book notes admin permission.",
+            : "Past dates are locked. Only today can be edited.",
       );
       return;
     }
@@ -1213,12 +1217,11 @@ export function BookNotesPanel({
           book. Use <span className="font-semibold text-violet-700">SPLIT</span>{" "}
           when one invoice has multiple payment legs (e.g. two cards with
           different receipt refs). When a normal row includes card payment,
-          enter the last 4 digits of the POS receipt reference. Merchants can
-          enter and send today&apos;s book note, and edit it only on that same
-          date. Past notes stay view-only. Another merchant at the same shop
-          keeps a separate sheet.
-          {canBackdateBookNotes
-            ? " Admins can edit old dates, and history lists every merchant's uploads."
+          enter the last 4 digits of the POS receipt reference. Pick any past
+          date to create or edit your own sheet for that day (not future).
+          Another merchant at the same shop keeps a separate sheet.
+          {canAdminBookNotes
+            ? " Admins also see every merchant's uploads in history."
             : " History shows only what you uploaded."}
         </p>
       </div>
@@ -1230,7 +1233,7 @@ export function BookNotesPanel({
         </div>
       ) : null}
 
-      {canBackdateBookNotes ? (
+      {canAdminBookNotes ? (
         <div className="bg-card space-y-3 rounded-lg border p-4">
           <div>
             <h2 className="text-sm font-semibold tracking-wide uppercase text-muted-foreground">
@@ -1389,7 +1392,7 @@ export function BookNotesPanel({
           {canBackdateBookNotes && postingDate !== today ? (
             <div className="flex flex-wrap items-center gap-2">
               <p className="text-muted-foreground text-xs">
-                Admin backdate — save &amp; send updates this date.
+                Past date — save &amp; send updates this date.
               </p>
               <Button
                 type="button"
@@ -2055,7 +2058,7 @@ export function BookNotesPanel({
               Save history
             </h2>
             <p className="text-muted-foreground mt-1 text-xs">
-              {canBackdateBookNotes
+              {canAdminBookNotes
                 ? "Every saved book note. Merchants only see the sheets they uploaded."
                 : "Only the book notes you saved. A colleague's sheet for the same shop and day is theirs and does not appear here."}
             </p>

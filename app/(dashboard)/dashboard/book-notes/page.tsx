@@ -30,6 +30,7 @@ export default async function BookNotesPage() {
   const locations = access.locations;
   const allowedIds = locations.map((l) => l.id);
   const canBackdateBookNotes = writeAccess.canBackdate;
+  const canAdminBookNotes = writeAccess.canAdminAll === true;
 
   const initialHistory =
     allowedIds.length > 0 && userId
@@ -46,6 +47,7 @@ export default async function BookNotesPage() {
       initialLocations={locations}
       initialCanAccessAllShops={access.canAccessAllShops}
       initialCanBackdateBookNotes={canBackdateBookNotes}
+      initialCanAdminBookNotes={canAdminBookNotes}
       initialHistory={initialHistory}
       initialToday={formatAppIsoDate(new Date())}
     />

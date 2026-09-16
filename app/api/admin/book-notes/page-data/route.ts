@@ -50,6 +50,7 @@ export async function GET(request: NextRequest) {
   const allowedIds = locations.map((l) => l.id);
   const today = formatAppIsoDate(new Date());
   const canBackdateBookNotes = writeAccess.canBackdate;
+  const canAdminBookNotes = writeAccess.canAdminAll === true;
 
   let day = null;
   let history: Awaited<ReturnType<typeof loadBookNoteHistory>> = [];
@@ -91,6 +92,7 @@ export async function GET(request: NextRequest) {
     locations,
     canAccessAllShops: access.canAccessAllShops,
     canBackdateBookNotes,
+    canAdminBookNotes,
     today,
     day,
     history,
