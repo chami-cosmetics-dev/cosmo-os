@@ -165,8 +165,9 @@ export async function GET(request: NextRequest) {
   });
 
   const csv = buildCsv(headers, rows);
+  const merchantScoped = Boolean(parsed.data.assignedMerchant?.trim());
   const truncatedNote =
-    result.pagination.total > FILTER_EXPORT_CAP
+    !merchantScoped && result.pagination.total > FILTER_EXPORT_CAP
       ? `\r\n# truncated_to,${FILTER_EXPORT_CAP},of,${result.pagination.total}`
       : "";
 

@@ -664,6 +664,7 @@ export function CustomerInsightPanel({
     }>
   >([]);
   const [myCallQueue, setMyCallQueue] = useState<CallQueueRow[]>([]);
+  const [allocationContactsMerchant, setAllocationContactsMerchant] = useState("");
   const [queueMerchant, setQueueMerchant] = useState("");
   const [queueCandidates, setQueueCandidates] = useState<CallQueueRow[] | null>(null);
   const [queueCandidateTotal, setQueueCandidateTotal] = useState(0);
@@ -1047,10 +1048,17 @@ export function CustomerInsightPanel({
 
   async function exportAllocationContactsCsv() {
     if (!canExportFilteredCsv) return;
+    if (!allocationContactsMerchant.trim()) {
+      notify.error("Select a merchant to export their allocated contacts.");
+      return;
+    }
     setBusyKey("allocation-contacts-export");
     try {
+      const params = new URLSearchParams();
+      params.set("format", "contacts");
+      params.set("assignedMerchant", allocationContactsMerchant.trim());
       const res = await fetch(
-        "/api/admin/customer-insight/allocation-summary/export?format=contacts",
+        `/api/admin/customer-insight/allocation-summary/export?${params.toString()}`,
         { credentials: "include" }
       );
       if (!res.ok) {
@@ -1062,7 +1070,12 @@ export function CustomerInsightPanel({
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = "insight-merchant-allocation-contacts.csv";
+      const slug = allocationContactsMerchant
+        .trim()
+        .replace(/[^a-zA-Z0-9_-]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 40);
+      a.download = `insight-merchant-allocation-contacts-${slug || "merchant"}.csv`;
       a.click();
       URL.revokeObjectURL(url);
       notify.success("Allocation contacts downloaded.");
@@ -3715,7 +3728,8 @@ export function CustomerInsightPanel({
               by loyalty tier, with the count that have both email and birthday
               on file. Pick a date range to also see calls taken and birthday /
               email collected in that window. Export CSV downloads the table.
-              Export contacts includes each allocated contact name and phone number.
+              Select a merchant, then Export contacts for that merchant&apos;s
+              full allocated list (name + phones) — not every merchant.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -3776,7 +3790,18 @@ export function CustomerInsightPanel({
                   ? `${allocationSummary.allocatedTotal.toLocaleString()} allocated · ${allocationSummary.unallocatedCount.toLocaleString()} unallocated · ${allocationSummary.contactTotal.toLocaleString()} total`
                   : "Loading counts…"}
               </p>
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap items-end gap-2">
+                <label className="min-w-[12rem] space-y-1 text-sm">
+                  <span className="text-muted-foreground">Export merchant</span>
+                  <InsightSearchableSelect
+                    value={allocationContactsMerchant}
+                    options={merchantOptions}
+                    placeholder="Select merchant"
+                    searchPlaceholder="Search merchants…"
+                    disabled={isBusy}
+                    onChange={setAllocationContactsMerchant}
+                  />
+                </label>
                 <Button
                   type="button"
                   size="sm"
@@ -3815,7 +3840,7 @@ export function CustomerInsightPanel({
                   type="button"
                   size="sm"
                   variant="outline"
-                  disabled={isBusy}
+                  disabled={isBusy || !allocationContactsMerchant.trim()}
                   onClick={() => void exportAllocationContactsCsv()}
                 >
                   {busyKey === "allocation-contacts-export" ? (
@@ -3915,6 +3940,7 @@ export function CustomerInsightPanel({
                         key={row.merchantValue}
                         className="cursor-pointer hover:bg-muted/40"
                         onClick={() => {
+                          setAllocationContactsMerchant(row.merchantValue);
                           setQueueMerchant(row.merchantValue);
                           setQueueCandidates(null);
                           setQueueSelectedIds([]);
