@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 
-import { parseRiderDeliveryChargesFromWorkbookSheets } from "@/lib/rider-delivery-charge";
+import { parseRiderDeliveryZoneMembersFromWorkbookSheets } from "@/lib/rider-delivery-charge";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 
@@ -15,15 +15,13 @@ export async function GET() {
   }
 
   const [count, sample] = await Promise.all([
-    prisma.riderDeliveryChargeRule.count(),
-    prisma.riderDeliveryChargeRule.findMany({
-      orderBy: { label: "asc" },
+    prisma.riderDeliveryZoneMember.count(),
+    prisma.riderDeliveryZoneMember.findMany({
+      orderBy: [{ zoneLabel: "asc" }, { districtLabel: "asc" }],
       take: 20,
       select: {
-        label: true,
-        district: true,
-        shippingAmount: true,
-        riderDeliveryCharge: true,
+        zoneLabel: true,
+        districtLabel: true,
       },
     }),
   ]);
@@ -31,10 +29,8 @@ export async function GET() {
   return NextResponse.json({
     count,
     sample: sample.map((row) => ({
-      label: row.label,
-      district: row.district,
-      shippingAmount: row.shippingAmount.toFixed(2),
-      riderDeliveryCharge: row.riderDeliveryCharge.toFixed(2),
+      zoneLabel: row.zoneLabel,
+      districtLabel: row.districtLabel,
     })),
   });
 }
@@ -75,64 +71,31 @@ export async function POST(request: NextRequest) {
     return { name, rows };
   });
 
-  const parsed = parseRiderDeliveryChargesFromWorkbookSheets(sheets);
+  const parsed = parseRiderDeliveryZoneMembersFromWorkbookSheets(sheets);
   if (parsed.rows.length === 0) {
     return NextResponse.json(
-      { error: parsed.errors[0] ?? "No valid rows found", details: parsed.errors },
+      { error: parsed.errors[0] ?? "No valid zone membership rows found", details: parsed.errors },
       { status: 400 }
     );
   }
 
-  let created = 0;
-  let updated = 0;
-  let removedZoneChargeKeys = 0;
-
   await prisma.$transaction(async (tx) => {
-    for (const row of parsed.rows) {
-      const data = {
-        label: row.label.slice(0, LABEL_MAX),
-        district: row.district,
-        shippingAmount: row.shippingAmount,
-        riderDeliveryCharge: row.riderDeliveryCharge,
-        shippingAccount: row.shippingAccount,
-        costCenter: row.costCenter,
-      };
-      const existing = await tx.riderDeliveryChargeRule.findUnique({
-        where: { labelKey: row.labelKey },
-        select: { id: true },
-      });
-      if (existing) {
-        await tx.riderDeliveryChargeRule.update({
-          where: { labelKey: row.labelKey },
-          data,
-        });
-        updated += 1;
-      } else {
-        await tx.riderDeliveryChargeRule.create({
-          data: {
-            labelKey: row.labelKey,
-            ...data,
-          },
-        });
-        created += 1;
-      }
-    }
-
-    // Zone Name is district grouping only — never keep Zone A/B pay keys from older imports.
-    const removed = await tx.riderDeliveryChargeRule.deleteMany({
-      where: { labelKey: { startsWith: "zone " } },
+    await tx.riderDeliveryZoneMember.deleteMany({});
+    await tx.riderDeliveryZoneMember.createMany({
+      data: parsed.rows.map((row) => ({
+        zoneKey: row.zoneKey,
+        zoneLabel: row.zoneLabel.slice(0, LABEL_MAX),
+        districtLabelKey: row.districtLabelKey,
+        districtLabel: row.districtLabel.slice(0, LABEL_MAX),
+      })),
     });
-    removedZoneChargeKeys = removed.count;
   });
 
   return NextResponse.json({
     imported: parsed.rows.length,
-    created,
-    updated,
-    skippedBlank: parsed.skippedBlank,
     sheetName: parsed.sheetName,
     format: parsed.format,
-    removedZoneChargeKeys,
+    skippedBlank: parsed.skippedBlank,
     warnings: parsed.errors.slice(0, 50),
   });
 }

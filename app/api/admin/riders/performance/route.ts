@@ -7,7 +7,7 @@ import {
   parseAppCalendarDayEnd,
   parseAppCalendarDayStart,
 } from "@/lib/format-datetime";
-import { incentiveMatchForOrder, loadRiderDeliveryChargeMap } from "@/lib/rider-incentive-resolve";
+import { incentiveMatchForOrder, loadRiderIncentiveContext } from "@/lib/rider-incentive-resolve";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { aggregateRiderIncentives, isIncentiveEligibleOrder } from "@/lib/rider-incentive";
@@ -55,7 +55,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Invalid date range" }, { status: 400 });
   }
 
-  const [tasks, chargeByLabelKey] = await Promise.all([
+  const [tasks, incentiveContext] = await Promise.all([
     prisma.riderDeliveryTask.findMany({
       where: {
         status: "completed",
@@ -71,6 +71,7 @@ export async function GET(request: NextRequest) {
           select: {
             totalShipping: true,
             shippingLines: true,
+            shippingAddress: true,
             rawPayload: true,
             sourceName: true,
             discountCodes: true,
@@ -79,11 +80,15 @@ export async function GET(request: NextRequest) {
         },
       },
     }),
-    loadRiderDeliveryChargeMap(),
+    loadRiderIncentiveContext(),
   ]);
 
   const rowInputs = tasks.map((task) => {
-    const match = incentiveMatchForOrder(task.order, chargeByLabelKey);
+    const match = incentiveMatchForOrder(
+      task.order,
+      incentiveContext.chargeByLabelKey,
+      incentiveContext.zoneMembersByZone
+    );
     return {
       riderId: task.riderId,
       riderName: task.rider.name,
