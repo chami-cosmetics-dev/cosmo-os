@@ -51,6 +51,7 @@ export async function listCallQueueSalesReport(input: {
   status?: "pending" | "completed";
   pushToGold?: boolean;
   pushToPlatinum?: boolean;
+  notContacted?: boolean;
 }): Promise<{ rows: CallQueueReportRow[]; byMerchant: CallQueueMerchantSummary[] }> {
   const assignedFrom = input.assignedFrom
     ? new Date(`${input.assignedFrom}T00:00:00.000Z`)
@@ -253,6 +254,7 @@ export async function listCallQueueSalesReport(input: {
       continue;
     }
     const firstContact = firstContactByAssign.get(row.id) ?? null;
+    if (input.notContacted && firstContact) continue;
     rows.push({
       queueId: row.id,
       contactId: row.contactId,

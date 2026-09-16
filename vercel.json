@@ -38,6 +38,10 @@
       "schedule": "30 3 * * *"
     },
     {
+      "path": "/api/cron/loyalty-eligible-weekly-email",
+      "schedule": "30 3 * * 1"
+    },
+    {
       "path": "/api/cron/abandoned-checkouts-sync",
       "schedule": "*/15 * * * *"
     },

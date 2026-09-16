@@ -218,6 +218,8 @@ export type MerchantDashboardPageData = {
     lastContactedAt: string | null;
     missingProfileFields: string[];
   }>;
+  /** Full pending loyalty-eligible count (may exceed loyaltyOutreach.length). */
+  loyaltyEligibleCount: number;
   callUpdateQueue: CallQueueRowDto[];
   callCenterPerformance: Array<{
     merchantName: string;
@@ -655,7 +657,7 @@ export async function getMerchantDashboardPageData(input: {
     topCustomersSplit,
     nearestBirthdays,
     dailyInvoicesResult,
-    loyaltyOutreach,
+    loyaltyOutreachResult,
     callUpdateQueueResult,
     callCenterRaw,
     cosmeticsLkMtd,
@@ -1117,7 +1119,8 @@ export async function getMerchantDashboardPageData(input: {
     showCustomerLists,
     rangeFromYmd,
     rangeToYmd: chartRangeToYmd,
-    loyaltyOutreach,
+    loyaltyOutreach: loyaltyOutreachResult.items,
+    loyaltyEligibleCount: loyaltyOutreachResult.totalCount,
     callUpdateQueue: callUpdateQueueResult,
     callCenterPerformance: callCenterRaw,
   };

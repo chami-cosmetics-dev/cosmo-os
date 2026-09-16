@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { listCallQueueCandidates } from "@/lib/customer-insight/call-queue";
 import { hasInsightAdminView } from "@/lib/customer-insight/ownership";
+import { readInsightFilterList } from "@/lib/customer-insight/filter-query-params";
 import { requirePermission } from "@/lib/rbac";
 import { customerInsightCallQueueCandidatesQuerySchema } from "@/lib/validation/customer-insight";
 
@@ -37,7 +38,10 @@ export async function GET(request: NextRequest) {
     lastPurchaseTo: sp.get("lastPurchaseTo") ?? undefined,
     allocatedFrom: sp.get("allocatedFrom") ?? undefined,
     allocatedTo: sp.get("allocatedTo") ?? undefined,
-    brand: sp.get("brand") ?? undefined,
+    assignedFrom: sp.get("assignedFrom") ?? undefined,
+    assignedTo: sp.get("assignedTo") ?? undefined,
+    notContacted: sp.get("notContacted") ?? undefined,
+    brand: readInsightFilterList(sp, "brand"),
     hideFilter: sp.get("hideFilter") ?? undefined,
   });
   if (!parsed.success) {
@@ -50,8 +54,21 @@ export async function GET(request: NextRequest) {
   try {
     const result = await listCallQueueCandidates({
       companyId,
-      ...parsed.data,
+      page: parsed.data.page,
+      pageSize: parsed.data.pageSize,
       merchantValue: parsed.data.assignedMerchant,
+      pushToGold: parsed.data.pushToGold,
+      pushToPlatinum: parsed.data.pushToPlatinum,
+      loyalty: parsed.data.loyalty,
+      lastPurchaseFrom: parsed.data.lastPurchaseFrom,
+      lastPurchaseTo: parsed.data.lastPurchaseTo,
+      allocatedFrom: parsed.data.allocatedFrom,
+      allocatedTo: parsed.data.allocatedTo,
+      assignedFrom: parsed.data.assignedFrom,
+      assignedTo: parsed.data.assignedTo,
+      notContacted: parsed.data.notContacted,
+      brands: parsed.data.brand,
+      hideFilter: parsed.data.hideFilter,
     });
     return NextResponse.json(result);
   } catch (error) {

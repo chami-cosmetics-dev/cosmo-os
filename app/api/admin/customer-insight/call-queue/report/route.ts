@@ -33,6 +33,7 @@ export async function GET(request: NextRequest) {
     status: sp.get("status") ?? undefined,
     pushToGold: sp.get("pushToGold") ?? undefined,
     pushToPlatinum: sp.get("pushToPlatinum") ?? undefined,
+    notContacted: sp.get("notContacted") ?? undefined,
   });
   if (!parsed.success) {
     return NextResponse.json(

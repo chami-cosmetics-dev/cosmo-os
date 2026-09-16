@@ -129,6 +129,106 @@ describe("buildMainSheetRows", () => {
     expect(second["Purchased (last 30d)"]).toBeNull();
   });
 
+  it("VAT OSF: Cosmetics.lk + shop ROP only; Total ROP = Cosmetics.lk (not shop sum)", () => {
+    const vatCols: OsfResolvedColumn[] = [
+      {
+        id: "ck",
+        key: "cosmetics_lk",
+        label: "Cosmetics.lk",
+        companyLocationId: "loc_ck",
+        companyLocationName: "Cosmetics.lk",
+        erpnextInstanceId: null,
+        directWarehouses: [],
+        includeInStock: true,
+        includeInRop: true,
+        sortOrder: 1,
+        active: true,
+        warehouses: ["Stores - Cosmetics.lk"],
+      },
+      {
+        id: "gcc",
+        key: "cosmo_shop_gcc",
+        label: "GCC Shop",
+        companyLocationId: null,
+        companyLocationName: null,
+        erpnextInstanceId: null,
+        directWarehouses: ["Shop Warehouse - GCC"],
+        includeInStock: true,
+        includeInRop: true,
+        sortOrder: 2,
+        active: true,
+        warehouses: ["Shop Warehouse - GCC"],
+      },
+      {
+        id: "lmj",
+        key: "lmj",
+        label: "LMJ",
+        companyLocationId: "loc_lmj",
+        companyLocationName: "LMJ",
+        erpnextInstanceId: null,
+        directWarehouses: [],
+        includeInStock: true,
+        includeInRop: true,
+        sortOrder: 3,
+        active: true,
+        warehouses: ["LMJ - WH"],
+      },
+    ];
+    const rows = buildMainSheetRows({
+      catalog: [catalog[0]!],
+      columns: vatCols,
+      profiles: new Map([
+        [
+          "CAN07_1",
+          {
+            shopAvailability: "allowed",
+            ogfPrice: null,
+            rops: { cosmetics_lk: 100, cosmo_shop_gcc: 40, lmj: 25 },
+          },
+        ],
+      ]),
+      binMap: new Map([
+        ["Stores - Cosmetics.lk::CAN07_1", 10],
+        ["Shop Warehouse - GCC::CAN07_1", 5],
+        ["LMJ - WH::CAN07_1", 2],
+      ]),
+      costMap: new Map(),
+      purchaseMap: new Map(),
+      monthlySales: new Map(),
+      salesMonth: "2026-06",
+      asOfDate: "2026-07-16",
+      osfVariant: "vat",
+    });
+    const first = rows[0]!;
+    expect(first["Cosmetics.lk ROP"]).toBe(100);
+    expect(first["GCC Shop ROP"]).toBe(40);
+    expect(first["Total ROP"]).toBe(100);
+    expect(first).not.toHaveProperty("LMJ ROP");
+    const mainRows = buildMainSheetRows({
+      catalog: [catalog[0]!],
+      columns: vatCols,
+      profiles: new Map([
+        [
+          "CAN07_1",
+          {
+            shopAvailability: "allowed",
+            ogfPrice: null,
+            rops: { cosmetics_lk: 100, cosmo_shop_gcc: 40, lmj: 25 },
+          },
+        ],
+      ]),
+      binMap: new Map(),
+      costMap: new Map(),
+      purchaseMap: new Map(),
+      monthlySales: new Map(),
+      salesMonth: "2026-06",
+      asOfDate: "2026-07-16",
+      osfVariant: "main",
+    });
+    expect(mainRows[0]!["Total ROP"]).toBe(165);
+    expect(mainRows[0]!).toHaveProperty("LMJ ROP");
+  });
+
   it("uses signed warehouse order qty and positive-only TOTAL", () => {
     const multiCols: OsfResolvedColumn[] = [
       {

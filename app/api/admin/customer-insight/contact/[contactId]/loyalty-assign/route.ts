@@ -213,6 +213,7 @@ export async function POST(request: NextRequest, { params }: Params) {
           loyaltyAssignedAt: now,
           loyaltyAssignedByUserId: user.id,
           loyaltyOutreachStatus: "assigned",
+          loyaltyOutreachUpdatedAt: now,
         },
       });
       await tx.contactAllocationUpdate.create({

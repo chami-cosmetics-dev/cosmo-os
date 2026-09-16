@@ -61,6 +61,7 @@ import {
   requiresKokoApprovalReference,
 } from "@/lib/koko-approval-reference";
 import { syncKokoOrdersForApproval } from "@/lib/koko-orders/erp-sync";
+import { mergeErpReturnSalesInvoiceIds } from "@/lib/erp-return-si";
 import {
   finalizeReturnCancelOsState,
   runReturnCancelExternalCompletion,
@@ -539,6 +540,169 @@ export async function PATCH(
       metadata: {
         approvalId: approval.id,
         orderId: order.id,
+        completionMode: external.completionMode,
+        creditNoteName: external.creditNoteName ?? null,
+        invoiceName: external.invoiceName ?? null,
+        shopifyOutcome: external.shopifyOutcome,
+      },
+    });
+
+    await notifyApprovalRequester({
+      companyId,
+      approvalId: approval.id,
+      status: "approved",
+      requestedById: approval.requestedById,
+      approvalType: approval.type,
+      invoiceLabel: label,
+    });
+
+    return NextResponse.json({
+      ok: true,
+      status: "approved",
+      completionMode: external.completionMode,
+      ...(external.completionMode === "credit_note"
+        ? { creditNoteName: external.creditNoteName }
+        : { invoiceName: external.invoiceName }),
+      erpSyncFailed: false,
+    });
+  }
+
+  // ORDER_CANCEL approve: ERP credit note (paid) or SI cancel (unpaid) before voiding OS.
+  // Previously voided OS only and asked finance to finish ERP manually — left SI Overdue.
+  if (
+    parsed.data.action === "approve" &&
+    approval.type === ORDER_CANCEL_APPROVAL &&
+    approval.orderId
+  ) {
+    const order = await prisma.order.findUnique({
+      where: { id: approval.orderId },
+      select: {
+        id: true,
+        name: true,
+        orderNumber: true,
+        shopifyOrderId: true,
+        financialStatus: true,
+        erpnextInvoiceId: true,
+        erpReturnSalesInvoiceIds: true,
+        cancelReason: true,
+        companyLocation: { include: { erpnextInstance: true } },
+      },
+    });
+
+    if (!order?.companyLocation) {
+      return NextResponse.json(
+        {
+          error: sanitizeReturnCancelError(
+            "Order or company location not found for order cancel completion.",
+          ),
+        },
+        { status: 422 },
+      );
+    }
+
+    const external = await runReturnCancelExternalCompletion({
+      order: {
+        id: order.id,
+        name: order.name,
+        orderNumber: order.orderNumber,
+        shopifyOrderId: order.shopifyOrderId,
+        financialStatus: order.financialStatus,
+        erpnextInvoiceId: order.erpnextInvoiceId,
+        erpReturnSalesInvoiceIds: order.erpReturnSalesInvoiceIds ?? [],
+        cancelReason: order.cancelReason,
+      },
+      location: order.companyLocation,
+    });
+
+    if (!external.ok) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: external.error ?? "Order cancel ERP completion failed",
+          completionMode: external.completionMode,
+          approvalStatus: "pending",
+        },
+        { status: 502 },
+      );
+    }
+
+    const reviewNoteOrderCancel = parsed.data.reviewNote ?? null;
+    try {
+      await prisma.$transaction(async (tx) => {
+        const updated = await tx.$executeRaw(
+          Prisma.sql`
+            UPDATE "ApprovalRequest"
+            SET
+              "status" = ${"approved"},
+              "reviewedById" = ${reviewerId},
+              "reviewNote" = ${reviewNoteOrderCancel},
+              "reviewedAt" = ${now},
+              "updatedAt" = ${now}
+            WHERE "id" = ${approval.id}
+              AND "companyId" = ${companyId}
+              AND "status" = 'pending'
+          `,
+        );
+        if (Number(updated) === 0) {
+          throw new ConcurrentApprovalDecisionError();
+        }
+
+        const nextReturnIds =
+          external.completionMode === "credit_note" && external.creditNoteName
+            ? mergeErpReturnSalesInvoiceIds(
+                order.erpReturnSalesInvoiceIds ?? [],
+                external.creditNoteName,
+              )
+            : order.erpReturnSalesInvoiceIds ?? [];
+
+        await tx.order.update({
+          where: { id: order.id },
+          data: {
+            financialStatus: "voided",
+            cancelledAt: now,
+            cancelledById: reviewerId,
+            cancelReason: approval.requestNote ?? order.cancelReason,
+            erpnextSyncError: null,
+            erpnextSyncFailedAt: null,
+            erpnextSyncAutoRetryCount: 0,
+            erpnextSyncLastAutoRetryAt: null,
+            erpnextSyncNextAutoRetryAt: null,
+            erpnextSyncRetryLeaseExpiresAt: null,
+            ...(external.completionMode === "credit_note" && external.creditNoteName
+              ? { erpReturnSalesInvoiceIds: nextReturnIds }
+              : {}),
+          },
+        });
+        await releaseKokoReferencesForOrderInTx(order.id, tx);
+      });
+    } catch (err) {
+      if (err instanceof ConcurrentApprovalDecisionError) {
+        return NextResponse.json({ error: "Approval request was already reviewed" }, { status: 409 });
+      }
+      throw err;
+    }
+
+    const label = invoiceLabel({
+      name: approval.orderName,
+      orderNumber: approval.orderNumber,
+      shopifyOrderId: approval.shopifyOrderId,
+    });
+    const successSummary =
+      external.completionMode === "credit_note"
+        ? `Finance approved order cancel for ${label} — credit note ${external.creditNoteName ?? "created"}`
+        : `Finance approved order cancel for ${label} — SI ${external.invoiceName ?? "cancelled"}`;
+
+    await writeAuditLog({
+      companyId,
+      actorUserId: reviewerId,
+      module: "orders",
+      action: "order_cancel_approved",
+      entityType: "Order",
+      entityId: order.id,
+      summary: successSummary,
+      metadata: {
+        approvalId: approval.id,
+        cancelReason: approval.requestNote,
         completionMode: external.completionMode,
         creditNoteName: external.creditNoteName ?? null,
         invoiceName: external.invoiceName ?? null,
@@ -1127,17 +1291,9 @@ export async function PATCH(
           },
         });
       } else if (approval.type === ORDER_CANCEL_APPROVAL && approval.orderId) {
-        // Finance approved — mark order voided in DB. Shopify cancel fires automatically after the tx.
-        await tx.order.update({
-          where: { id: approval.orderId },
-          data: {
-            financialStatus: "voided",
-            cancelledAt: now,
-            cancelledById: reviewerId,
-            cancelReason: approval.requestNote,
-          },
-        });
-        await releaseKokoReferencesForOrderInTx(approval.orderId, tx);
+        // Approve + ERP completion is handled in the early path above and returns.
+        // Reaching here would void OS without ERP — refuse.
+        throw new Error("ORDER_CANCEL_APPROVAL approve must complete via ERP credit-note/cancel path");
       }
     }
 
