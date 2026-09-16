@@ -29,6 +29,18 @@ const DEFAULT_PERMISSIONS = [
     description: "Edit staff details and process resignations",
   },
   {
+    key: "riders.read",
+    description: "View rider management: roster, assigned orders, location cash totals",
+  },
+  {
+    key: "riders.performance.read",
+    description: "View rider performance and delivery incentive totals",
+  },
+  {
+    key: "riders.performance.manage",
+    description: "Set manual district for unmatched rider incentives",
+  },
+  {
     key: "roles.read",
     description: "View roles and permissions",
   },
@@ -551,6 +563,9 @@ const DEFAULT_ROLES = [
       "users.manage",
       "staff.read",
       "staff.manage",
+      "riders.read",
+      "riders.performance.read",
+      "riders.performance.manage",
       "roles.read",
       "settings.company",
       "settings.email_templates",
@@ -666,6 +681,8 @@ const DEFAULT_ROLES = [
       "finance.approvals.read",
       "finance.approvals.manage",
       "book_notes.read",
+      "riders.read",
+      "riders.performance.read",
       "dashboard.view",
       DASHBOARD_DATE_TYPE_PERMISSIONS.placedAll,
       DASHBOARD_DATE_TYPE_PERMISSIONS.placedBreakdown,
@@ -697,6 +714,8 @@ const DEFAULT_ROLES = [
     permissionKeys: [
       "users.read",
       "staff.read",
+      "riders.read",
+      "riders.performance.read",
       "roles.read",
       "contacts.read",
       "contacts.master.read",

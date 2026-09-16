@@ -37,7 +37,7 @@ function resolveRangeBound(raw: string, kind: "start" | "end"): Date | null {
 }
 
 export async function GET(request: NextRequest) {
-  const auth = await requirePermission("staff.read");
+  const auth = await requirePermission("riders.performance.read");
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
