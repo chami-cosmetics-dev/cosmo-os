@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   extractOrderShippingCity,
+  isExcludedFromRiderIncentiveLabel,
   isZoneShippingLabelKey,
   normalizeShippingRuleLabelKey,
   parseRiderDeliveryChargeSheetRows,
@@ -9,6 +10,7 @@ import {
   resolveRiderIncentiveFromRules,
   resolveRiderIncentiveMatch,
   shippingRuleLabelLookupKeys,
+  suggestRiderDistrictsFromAddress,
 } from "@/lib/rider-delivery-charge";
 
 describe("normalizeShippingRuleLabelKey", () => {
@@ -182,6 +184,125 @@ describe("resolveRiderIncentiveMatch", () => {
         zoneMembersByZone,
       }).toString()
     ).toBe("300");
+  });
+
+  it("excludes Pick Up and FREESHIP from incentive (not unmatched)", () => {
+    const map = new Map<string, string>([
+      ["nugegoda", "300.00"],
+      ["delgoda", "400.00"],
+    ]);
+    expect(isExcludedFromRiderIncentiveLabel("Pick Up")).toBe(true);
+    expect(isExcludedFromRiderIncentiveLabel("FREESHIP")).toBe(true);
+    expect(isExcludedFromRiderIncentiveLabel("STAFFDC")).toBe(true);
+    expect(
+      resolveRiderIncentiveMatch({
+        shippingRuleLabel: "Pick Up",
+        shippingCity: "Nugegoda",
+        chargeByLabelKey: map,
+      })
+    ).toMatchObject({
+      matched: true,
+      excludedFromIncentive: true,
+      amount: expect.anything(),
+    });
+    expect(
+      resolveRiderIncentiveMatch({
+        shippingRuleLabel: "FREESHIP",
+        shippingCity: "Nugegoda",
+        chargeByLabelKey: map,
+      })
+    ).toMatchObject({
+      matched: true,
+      excludedFromIncentive: true,
+    });
+    expect(
+      resolveRiderIncentiveFromRules({
+        shippingRuleLabel: "Pick Up",
+        shippingCity: "delgoda",
+        chargeByLabelKey: map,
+      }).toString()
+    ).toBe("0");
+  });
+
+  it("matches ERP Delivery + city mattakkuliya to district charge", () => {
+    const map = new Map<string, string>([["mattakkuliya", "300.00"]]);
+    expect(
+      resolveRiderIncentiveMatch({
+        shippingRuleLabel: "Delivery",
+        shippingCity: "mattakkuliya",
+        chargeByLabelKey: map,
+      })
+    ).toMatchObject({
+      matched: true,
+      labelKey: "mattakkuliya",
+    });
+  });
+
+  it("matches missing label via shipping city when in charge sheet", () => {
+    const map = new Map<string, string>([["nugegoda", "300.00"]]);
+    expect(
+      resolveRiderIncentiveMatch({
+        shippingRuleLabel: null,
+        shippingCity: "Nugegoda",
+        chargeByLabelKey: map,
+      })
+    ).toMatchObject({
+      matched: true,
+      labelKey: "nugegoda",
+    });
+  });
+
+  it("uses manual district key over unmatched auto label", () => {
+    const map = new Map<string, string>([["mattakkuliya", "300.00"]]);
+    expect(
+      resolveRiderIncentiveMatch({
+        shippingRuleLabel: "Delivery",
+        shippingCity: "Sri Lanka",
+        chargeByLabelKey: map,
+        manualIncentiveLabelKey: "Mattakkuliya",
+      })
+    ).toMatchObject({
+      matched: true,
+      labelKey: "mattakkuliya",
+      manualOverride: true,
+    });
+    expect(
+      resolveRiderIncentiveFromRules({
+        shippingRuleLabel: null,
+        shippingCity: null,
+        chargeByLabelKey: map,
+        manualIncentiveLabelKey: "mattakkuliya",
+      }).toString()
+    ).toBe("300");
+  });
+
+  it("keeps Pick Up excluded even when manual key present", () => {
+    const map = new Map<string, string>([["nugegoda", "300.00"]]);
+    expect(
+      resolveRiderIncentiveMatch({
+        shippingRuleLabel: "Pick Up",
+        manualIncentiveLabelKey: "nugegoda",
+        chargeByLabelKey: map,
+      })
+    ).toMatchObject({
+      matched: true,
+      excludedFromIncentive: true,
+    });
+  });
+
+  it("suggests Mattakkuliya from address text", () => {
+    const options = [
+      { labelKey: "colombo 1", label: "Colombo 1", riderDeliveryCharge: "300.00" },
+      { labelKey: "mattakkuliya", label: "Mattakkuliya", riderDeliveryCharge: "300.00" },
+      { labelKey: "nugegoda", label: "Nugegoda", riderDeliveryCharge: "300.00" },
+    ];
+    const suggested = suggestRiderDistrictsFromAddress({
+      addressText: "No 12, Main Rd, Mattakkuliya",
+      city: "Sri Lanka",
+      options,
+      limit: 3,
+    });
+    expect(suggested[0]?.labelKey).toBe("mattakkuliya");
   });
 
   it("falls back to city→charge when city not listed in zone members", () => {

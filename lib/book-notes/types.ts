@@ -21,6 +21,11 @@ export type BookNoteRowDto = {
   bank_transfer: number;
   row_total: number;
   is_multi_method: boolean;
+  /**
+   * Bank-recon special note for this invoice line. Pushed to ERP after
+   * verify_book_note succeeds (empty string clears on ERP).
+   */
+  special_note: string | null;
   /** Present when outlet used SPLIT — sent to ERP as split_lines. */
   split_lines: BookNoteSplitLine[] | null;
   orderId?: string | null;

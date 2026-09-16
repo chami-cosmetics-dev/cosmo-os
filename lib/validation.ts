@@ -88,6 +88,8 @@ export const LIMITS = {
   /** Merchant book note invoice number */
   bookNoteSalesInvoice: { min: 1, max: 120 },
   bookNoteIdxNo: { max: 32 },
+  /** Bank-recon special note on a book-note row (ERP max 1500). */
+  bookNoteSpecialNote: { max: 1500 },
   bookNoteRowsMax: 500,
   bookNoteSplitLinesMax: 12,
   bookNoteRetrieveMaxDays: 31,

@@ -62,6 +62,12 @@ export {
 } from "@/lib/book-notes/erp-verify";
 
 export {
+  getBookNoteSpecialNoteMethod,
+  pushBookNoteSpecialNotesToErp,
+  setBookNoteSpecialNoteOnErp,
+} from "@/lib/book-notes/erp-special-note";
+
+export {
   BOOK_NOTE_ERP_PAYMENT_METHODS,
   aggregateSplitLines,
   buildBookNoteErpVerifyRow,

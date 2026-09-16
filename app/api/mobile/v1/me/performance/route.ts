@@ -63,6 +63,7 @@ export async function GET(request: NextRequest) {
       completedAt: { gte: todayFrom, lte: todayTo },
     },
     select: {
+      manualIncentiveLabelKey: true,
       order: { select: orderIncentiveSelect },
     },
   });
@@ -76,7 +77,8 @@ export async function GET(request: NextRequest) {
       incentiveForOrder(
         task.order,
         incentiveContext.chargeByLabelKey,
-        incentiveContext.zoneMembersByZone
+        incentiveContext.zoneMembersByZone,
+        task.manualIncentiveLabelKey
       )
     );
   }
@@ -106,6 +108,7 @@ export async function GET(request: NextRequest) {
       select: {
         id: true,
         completedAt: true,
+        manualIncentiveLabelKey: true,
         order: {
           select: {
             id: true,
@@ -142,7 +145,8 @@ export async function GET(request: NextRequest) {
     const amount = incentiveForOrder(
       task.order,
       incentiveContext.chargeByLabelKey,
-      incentiveContext.zoneMembersByZone
+      incentiveContext.zoneMembersByZone,
+      task.manualIncentiveLabelKey
     );
     completedCount += 1;
     incentiveTotal = incentiveTotal.add(amount);

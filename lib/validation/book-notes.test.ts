@@ -91,6 +91,44 @@ describe("bookNotePutBodySchema", () => {
     });
     expect(r.success).toBe(true);
   });
+  it("accepts special notes up to 1500 chars and rejects longer", () => {
+    const ok = bookNotePutBodySchema.safeParse({
+      companyLocationId: LOC,
+      postingDate: "2026-08-03",
+      rows: [
+        {
+          idxNo: "1",
+          salesInvoice: "INV-1",
+          cash: 100,
+          card: 0,
+          koko: 0,
+          bankTransfer: 0,
+          specialNote: "x".repeat(1500),
+        },
+      ],
+    });
+    expect(ok.success).toBe(true);
+    if (ok.success) {
+      expect(ok.data.rows[0]!.specialNote).toHaveLength(1500);
+    }
+
+    const tooLong = bookNotePutBodySchema.safeParse({
+      companyLocationId: LOC,
+      postingDate: "2026-08-03",
+      rows: [
+        {
+          idxNo: "1",
+          salesInvoice: "INV-1",
+          cash: 100,
+          card: 0,
+          koko: 0,
+          bankTransfer: 0,
+          specialNote: "x".repeat(1501),
+        },
+      ],
+    });
+    expect(tooLong.success).toBe(false);
+  });
 });
 
 describe("bookNoteRetrieveQuerySchema", () => {

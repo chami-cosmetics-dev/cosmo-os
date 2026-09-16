@@ -549,6 +549,11 @@ export function BookNoteFinancePanel({
                                                   {r.card_receipt_ref_last4}
                                                 </span>
                                               ) : null}
+                                              {r.special_note ? (
+                                                <p className="text-muted-foreground mt-1 whitespace-pre-wrap font-sans text-[11px] leading-snug">
+                                                  {r.special_note}
+                                                </p>
+                                              ) : null}
                                             </td>
                                             <td className="p-2 text-right font-mono tabular-nums">
                                               {r.cash > 0 ? money(r.cash) : "—"}
