@@ -1,17 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Bar, BarChart, CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts";
+import { useCallback, useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  ChartContainer,
-  ChartTooltip,
-  ChartTooltipContent,
-  type ChartConfig,
-} from "@/components/ui/chart";
 import { Input } from "@/components/ui/input";
 import { formatAppIsoDate } from "@/lib/format-datetime";
 import { notify } from "@/lib/notify";
@@ -33,15 +26,6 @@ type PerformanceSummary = {
   excludedFromIncentiveTotal?: number;
 };
 
-type DeliveryBreakdownRow = {
-  deliveryType: string;
-  count: number;
-  paidCount: number;
-  excludedCount: number;
-  unmatchedCount: number;
-  incentiveTotal: string;
-};
-
 type DistrictOption = {
   labelKey: string;
   label: string;
@@ -54,6 +38,8 @@ type UnmatchedOrderDetail = {
   orderNumber: string;
   deliveryType: string;
   city: string | null;
+  cityUsable?: boolean;
+  deliveryPrice?: string | null;
   addressText: string;
   phone: string | null;
   source: string | null;
@@ -66,12 +52,6 @@ type UnmatchedByRider = {
   orders: UnmatchedOrderDetail[];
 };
 
-type DailyPoint = {
-  date: string;
-  completedCount: number;
-  incentiveTotal: string;
-};
-
 function todayInputValue() {
   return formatAppIsoDate(new Date(), new Date().toISOString().slice(0, 10));
 }
@@ -80,23 +60,11 @@ function riderDisplayName(row: RiderPerformanceRow) {
   return row.knownName || row.name || row.riderId;
 }
 
-const riderChartConfig = {
-  completedCount: { label: "Completions", color: "hsl(var(--chart-1))" },
-  incentive: { label: "Incentive", color: "hsl(var(--chart-2))" },
-} satisfies ChartConfig;
-
-const dailyChartConfig = {
-  completedCount: { label: "Completions", color: "hsl(var(--chart-1))" },
-  incentive: { label: "Incentive", color: "hsl(var(--chart-2))" },
-} satisfies ChartConfig;
-
 export function RiderPerformancePanel() {
   const [from, setFrom] = useState(todayInputValue);
   const [to, setTo] = useState(todayInputValue);
   const [rows, setRows] = useState<RiderPerformanceRow[]>([]);
   const [summary, setSummary] = useState<PerformanceSummary | null>(null);
-  const [dailySeries, setDailySeries] = useState<DailyPoint[]>([]);
-  const [deliveryBreakdown, setDeliveryBreakdown] = useState<DeliveryBreakdownRow[]>([]);
   const [unmatchedByRider, setUnmatchedByRider] = useState<UnmatchedByRider[]>([]);
   const [districtOptions, setDistrictOptions] = useState<DistrictOption[]>([]);
   const [selectedByTask, setSelectedByTask] = useState<Record<string, string>>({});
@@ -116,18 +84,12 @@ export function RiderPerformancePanel() {
         notify.error(typeof data.error === "string" ? data.error : "Failed to load performance");
         setRows([]);
         setSummary(null);
-        setDailySeries([]);
-        setDeliveryBreakdown([]);
         setUnmatchedByRider([]);
         setDistrictOptions([]);
         return;
       }
       setRows(Array.isArray(data.riders) ? data.riders : []);
       setSummary(data.summary ?? null);
-      setDailySeries(Array.isArray(data.dailySeries) ? data.dailySeries : []);
-      setDeliveryBreakdown(
-        Array.isArray(data.deliveryBreakdown) ? data.deliveryBreakdown : []
-      );
       setUnmatchedByRider(Array.isArray(data.unmatchedByRider) ? data.unmatchedByRider : []);
       setDistrictOptions(Array.isArray(data.districtOptions) ? data.districtOptions : []);
       setSelectedByTask({});
@@ -136,8 +98,6 @@ export function RiderPerformancePanel() {
       notify.error("Failed to load performance");
       setRows([]);
       setSummary(null);
-      setDailySeries([]);
-      setDeliveryBreakdown([]);
       setUnmatchedByRider([]);
       setDistrictOptions([]);
     } finally {
@@ -148,27 +108,6 @@ export function RiderPerformancePanel() {
   useEffect(() => {
     void load();
   }, [load]);
-
-  const riderBarData = useMemo(
-    () =>
-      rows.map((row) => ({
-        name: riderDisplayName(row),
-        completedCount: row.completedCount,
-        incentive: Number.parseFloat(row.incentiveTotal) || 0,
-        unmatchedCount: row.unmatchedCount ?? 0,
-      })),
-    [rows]
-  );
-
-  const dailyChartData = useMemo(
-    () =>
-      dailySeries.map((point) => ({
-        date: point.date,
-        completedCount: point.completedCount,
-        incentive: Number.parseFloat(point.incentiveTotal) || 0,
-      })),
-    [dailySeries]
-  );
 
   const unmatchedTotal = summary?.unmatchedTotal ?? 0;
 
@@ -298,52 +237,6 @@ export function RiderPerformancePanel() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Deliveries by type</CardTitle>
-          <CardDescription>
-            Shipping rule / zone on each completed order. Paid = matched rider charge; excluded =
-            Pick up, FREESHIP, or STAFFDC.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto rounded-lg border">
-            <table className="w-full text-sm">
-              <thead className="bg-secondary/20 text-left">
-                <tr>
-                  <th className="px-3 py-2 font-medium">Delivery type</th>
-                  <th className="px-3 py-2 font-medium">Count</th>
-                  <th className="px-3 py-2 font-medium">Paid</th>
-                  <th className="px-3 py-2 font-medium">No pay</th>
-                  <th className="px-3 py-2 font-medium">Unmatched</th>
-                  <th className="px-3 py-2 font-medium">Incentive</th>
-                </tr>
-              </thead>
-              <tbody>
-                {deliveryBreakdown.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="text-muted-foreground px-3 py-6 text-center">
-                      {loading ? "Loading…" : "No deliveries in this range."}
-                    </td>
-                  </tr>
-                ) : (
-                  deliveryBreakdown.map((row) => (
-                    <tr key={row.deliveryType} className="border-t">
-                      <td className="px-3 py-2">{row.deliveryType}</td>
-                      <td className="px-3 py-2 tabular-nums">{row.count}</td>
-                      <td className="px-3 py-2 tabular-nums">{row.paidCount}</td>
-                      <td className="px-3 py-2 tabular-nums">{row.excludedCount}</td>
-                      <td className="px-3 py-2 tabular-nums">{row.unmatchedCount}</td>
-                      <td className="px-3 py-2 tabular-nums">{row.incentiveTotal}</td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
           <CardTitle className="text-base">Unmatched under riders</CardTitle>
           <CardDescription>
             Review address, pick a suggested district or search the uploaded charge sheet, then
@@ -376,7 +269,12 @@ export function RiderPerformancePanel() {
                             <p className="font-medium">{order.orderNumber}</p>
                             <p className="text-muted-foreground text-xs">
                               {order.deliveryType}
-                              {order.city ? ` · city ${order.city}` : ""}
+                              {order.cityUsable !== false && order.city
+                                ? ` · city ${order.city}`
+                                : ""}
+                              {!order.cityUsable && order.deliveryPrice
+                                ? ` · delivery ${order.deliveryPrice}`
+                                : ""}
                               {order.source ? ` · ${order.source}` : ""}
                             </p>
                           </div>
@@ -472,78 +370,6 @@ export function RiderPerformancePanel() {
           )}
         </CardContent>
       </Card>
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Completions by rider</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {riderBarData.length === 0 ? (
-              <p className="text-muted-foreground py-8 text-center text-sm">
-                {loading ? "Loading…" : "No data in this range."}
-              </p>
-            ) : (
-              <ChartContainer config={riderChartConfig} className="aspect-auto h-64 w-full">
-                <BarChart data={riderBarData} margin={{ left: 8, right: 8, top: 8 }}>
-                  <CartesianGrid vertical={false} />
-                  <XAxis
-                    dataKey="name"
-                    tickLine={false}
-                    axisLine={false}
-                    interval={0}
-                    angle={-20}
-                    height={60}
-                    fontSize={11}
-                  />
-                  <YAxis allowDecimals={false} width={36} fontSize={11} />
-                  <ChartTooltip content={<ChartTooltipContent />} />
-                  <Bar dataKey="completedCount" fill="var(--color-completedCount)" radius={4} />
-                </BarChart>
-              </ChartContainer>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Daily trend</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {dailyChartData.length === 0 ? (
-              <p className="text-muted-foreground py-8 text-center text-sm">
-                {loading ? "Loading…" : "No daily points in this range."}
-              </p>
-            ) : (
-              <ChartContainer config={dailyChartConfig} className="aspect-auto h-64 w-full">
-                <LineChart data={dailyChartData} margin={{ left: 8, right: 8, top: 8 }}>
-                  <CartesianGrid vertical={false} />
-                  <XAxis dataKey="date" tickLine={false} axisLine={false} fontSize={11} />
-                  <YAxis yAxisId="left" allowDecimals={false} width={36} fontSize={11} />
-                  <YAxis yAxisId="right" orientation="right" width={48} fontSize={11} />
-                  <ChartTooltip content={<ChartTooltipContent />} />
-                  <Line
-                    yAxisId="left"
-                    type="monotone"
-                    dataKey="completedCount"
-                    stroke="var(--color-completedCount)"
-                    strokeWidth={2}
-                    dot={false}
-                  />
-                  <Line
-                    yAxisId="right"
-                    type="monotone"
-                    dataKey="incentive"
-                    stroke="var(--color-incentive)"
-                    strokeWidth={2}
-                    dot={false}
-                  />
-                </LineChart>
-              </ChartContainer>
-            )}
-          </CardContent>
-        </Card>
-      </div>
 
       <Card>
         <CardHeader>
