@@ -10,11 +10,13 @@ import {
 import { formatAddress } from "@/lib/reports/csv";
 import {
   extractOrderShippingCity,
+  isUsableShippingCityForCharge,
   riderIncentiveMatchDisplayLabel,
   resolveOrderShippingRuleLabel,
   suggestRiderDistrictsFromAddress,
   type RiderDistrictChargeOption,
 } from "@/lib/rider-delivery-charge";
+import { resolveOrderShippingDisplay } from "@/lib/order-shipping-display";
 import { incentiveMatchForOrder, loadRiderIncentiveContext } from "@/lib/rider-incentive-resolve";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
@@ -112,6 +114,8 @@ export async function GET(request: NextRequest) {
     orderNumber: string;
     deliveryType: string;
     city: string | null;
+    cityUsable: boolean;
+    deliveryPrice: string | null;
     addressText: string;
     phone: string | null;
     source: string | null;
@@ -127,15 +131,6 @@ export async function GET(request: NextRequest) {
     }
   >();
 
-  type DeliveryBucket = {
-    count: number;
-    incentiveTotal: Prisma.Decimal;
-    excludedCount: number;
-    unmatchedCount: number;
-    paidCount: number;
-  };
-  const deliveryByType = new Map<string, DeliveryBucket>();
-
   const rowInputs = tasks.map((task) => {
     const shippingLabel = resolveOrderShippingRuleLabel(task.order);
     const deliveryType = riderIncentiveMatchDisplayLabel(shippingLabel);
@@ -146,28 +141,6 @@ export async function GET(request: NextRequest) {
       task.manualIncentiveLabelKey
     );
 
-    if (isIncentiveEligibleOrder(task.order.financialStatus)) {
-      const bucket =
-        deliveryByType.get(deliveryType) ??
-        {
-          count: 0,
-          incentiveTotal: new Prisma.Decimal(0),
-          excludedCount: 0,
-          unmatchedCount: 0,
-          paidCount: 0,
-        };
-      bucket.count += 1;
-      bucket.incentiveTotal = bucket.incentiveTotal.add(match.amount);
-      if (match.excludedFromIncentive) {
-        bucket.excludedCount += 1;
-      } else if (!match.matched) {
-        bucket.unmatchedCount += 1;
-      } else if (match.amount.gt(0)) {
-        bucket.paidCount += 1;
-      }
-      deliveryByType.set(deliveryType, bucket);
-    }
-
     if (
       isIncentiveEligibleOrder(task.order.financialStatus) &&
       !match.matched &&
@@ -175,6 +148,13 @@ export async function GET(request: NextRequest) {
       !task.manualIncentiveLabelKey
     ) {
       const city = extractOrderShippingCity(task.order);
+      const cityUsable = isUsableShippingCityForCharge(city);
+      const shippingDisplay = resolveOrderShippingDisplay({
+        ...task.order,
+        totalShipping:
+          task.order.totalShipping == null ? null : task.order.totalShipping.toString(),
+      });
+      const deliveryPrice = shippingDisplay.amount;
       const addressText = formatAddress(task.order.shippingAddress) || "—";
       const orderNumber =
         task.order.orderNumber?.trim() || task.order.name?.trim() || "—";
@@ -192,12 +172,14 @@ export async function GET(request: NextRequest) {
         orderNumber,
         deliveryType,
         city,
+        cityUsable,
+        deliveryPrice,
         addressText,
         phone: task.order.customerPhone,
         source: task.order.sourceName,
         suggestions: suggestRiderDistrictsFromAddress({
           addressText,
-          city,
+          city: cityUsable ? city : null,
           options: districtOptions,
           limit: 5,
         }),
@@ -232,39 +214,6 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  const deliveryBreakdown = Array.from(deliveryByType.entries())
-    .map(([deliveryType, bucket]) => ({
-      deliveryType,
-      count: bucket.count,
-      paidCount: bucket.paidCount,
-      excludedCount: bucket.excludedCount,
-      unmatchedCount: bucket.unmatchedCount,
-      incentiveTotal: bucket.incentiveTotal.toFixed(2),
-    }))
-    .sort((a, b) => b.count - a.count);
-
-  const dailyMap = new Map<string, { completedCount: number; incentiveTotal: Prisma.Decimal }>();
-  for (const row of rowInputs) {
-    if (!isIncentiveEligibleOrder(row.financialStatus)) continue;
-    if (!row.completedAt) continue;
-    const date = formatAppIsoDate(row.completedAt);
-    if (!date) continue;
-    const bucket =
-      dailyMap.get(date) ??
-      { completedCount: 0, incentiveTotal: new Prisma.Decimal(0) };
-    bucket.completedCount += 1;
-    bucket.incentiveTotal = bucket.incentiveTotal.add(row.incentiveAmount);
-    dailyMap.set(date, bucket);
-  }
-
-  const dailySeries = Array.from(dailyMap.entries())
-    .map(([date, bucket]) => ({
-      date,
-      completedCount: bucket.completedCount,
-      incentiveTotal: bucket.incentiveTotal.toFixed(2),
-    }))
-    .sort((a, b) => a.date.localeCompare(b.date));
-
   const unmatchedByRider = Array.from(unmatchedByRiderMap.values())
     .map((group) => ({
       ...group,
@@ -282,10 +231,8 @@ export async function GET(request: NextRequest) {
       unmatchedTotal,
       excludedFromIncentiveTotal,
     },
-    deliveryBreakdown,
     districtOptions,
     unmatchedByRider,
-    dailySeries,
     riders,
   });
 }
