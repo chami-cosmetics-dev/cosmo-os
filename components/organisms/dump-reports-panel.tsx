@@ -32,6 +32,14 @@ function formatLogTime(value: string) {
   return formatAppDateTime(value, value);
 }
 
+function yearStart(year: number) {
+  return `${year}-01-01`;
+}
+
+function yearEnd(year: number) {
+  return `${year}-12-31`;
+}
+
 const DumpBusyContext = createContext<{
   busyHref: string | null;
   onBusyChange: (href: string, busy: boolean) => void;
@@ -190,31 +198,36 @@ export function DumpReportsPanel({ historicalYears, permissionKeys, recentLogs =
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 p-5">
-              {historicalYears.map((year) => (
-                <div key={year} className="flex flex-col gap-3 rounded-2xl border border-border/70 bg-background/80 p-4 lg:flex-row lg:items-center lg:justify-between">
-                  <p className="font-medium text-foreground">Data {year}</p>
-                  <div className="flex flex-wrap gap-2">
-                    {canHistoricalInvoiceItem && (
-                      <DumpDownloadButton
-                        href={`/api/admin/reports/orders?report=invoice-item&range=historical-year&year=${year}`}
-                        label="Invoice Item Details"
-                        className="bg-sky-500 hover:bg-sky-600"
-                        disabled={busyHref !== null && busyHref !== `/api/admin/reports/orders?report=invoice-item&range=historical-year&year=${year}`}
-                        onBusyChange={(busy) => onBusyChange(`/api/admin/reports/orders?report=invoice-item&range=historical-year&year=${year}`, busy)}
-                      />
-                    )}
-                    {canHistoricalInvoice && (
-                      <DumpDownloadButton
-                        href={`/api/admin/reports/orders?report=invoice&range=historical-year&year=${year}`}
-                        label="Invoice Details"
-                        className="bg-amber-500 hover:bg-amber-600"
-                        disabled={busyHref !== null && busyHref !== `/api/admin/reports/orders?report=invoice&range=historical-year&year=${year}`}
-                        onBusyChange={(busy) => onBusyChange(`/api/admin/reports/orders?report=invoice&range=historical-year&year=${year}`, busy)}
-                      />
-                    )}
+              {historicalYears.map((year) => {
+                const historicalQuery = `range=custom&from=${yearStart(year)}&to=${yearEnd(year)}`;
+                const historicalInvoiceItemHref = `/api/admin/reports/orders?report=invoice-item&${historicalQuery}`;
+                const historicalInvoiceHref = `/api/admin/reports/orders?report=invoice&${historicalQuery}`;
+                return (
+                  <div key={year} className="flex flex-col gap-3 rounded-2xl border border-border/70 bg-background/80 p-4 lg:flex-row lg:items-center lg:justify-between">
+                    <p className="font-medium text-foreground">Data {year}</p>
+                    <div className="flex flex-wrap gap-2">
+                      {canHistoricalInvoiceItem && (
+                        <DumpDownloadButton
+                          href={historicalInvoiceItemHref}
+                          label="Invoice Item Details"
+                          className="bg-sky-500 hover:bg-sky-600"
+                          disabled={busyHref !== null && busyHref !== historicalInvoiceItemHref}
+                          onBusyChange={(busy) => onBusyChange(historicalInvoiceItemHref, busy)}
+                        />
+                      )}
+                      {canHistoricalInvoice && (
+                        <DumpDownloadButton
+                          href={historicalInvoiceHref}
+                          label="Invoice Details"
+                          className="bg-amber-500 hover:bg-amber-600"
+                          disabled={busyHref !== null && busyHref !== historicalInvoiceHref}
+                          onBusyChange={(busy) => onBusyChange(historicalInvoiceHref, busy)}
+                        />
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
               <div className="rounded-2xl border border-border/70 bg-background/70 p-4 text-sm text-muted-foreground">
                 Historical files use calendar-year ranges, and invoice exports are generated directly from current live order records.
               </div>
