@@ -19,7 +19,7 @@ export default async function CosmeticsStockComparerPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Cosmetics Stock Comparer</h1>
         <p className="text-sm text-muted-foreground">
-          Compare main Cosmetics.lk stock against outlet stock balance files.
+          Compare live main Cosmetics.lk stock against outlet stock.
         </p>
       </div>
       <section className="rounded-lg border p-4">

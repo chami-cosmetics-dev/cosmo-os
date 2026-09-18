@@ -1,45 +1,100 @@
 "use client";
 
 import { useState } from "react";
-import { Download, FileSpreadsheet, Loader2, Upload } from "lucide-react";
+import { Download, FileSpreadsheet, Loader2, RefreshCw } from "lucide-react";
 import * as XLSX from "xlsx-js-style";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { notify } from "@/lib/notify";
 import {
-  buildCosmeticsStockReportDetails,
+  BRAND_WAREHOUSE_VIOLATION_HEADERS,
   COSMETICS_STOCK_REPORT_HEADERS,
+  type BrandWarehouseViolation,
   type CosmeticsStockReportDetail,
-  type StockBalanceRow,
 } from "@/lib/cosmetics-stock-comparer";
 
-type LoadedFile = {
-  name: string;
-  rows: number;
+type LiveStockResponse = {
+  threshold: number;
+  itemCount: number;
+  warehouseCount: number;
+  rows: CosmeticsStockReportDetail[];
+  brandViolations: BrandWarehouseViolation[];
+  error?: string;
+  detail?: string;
 };
 
-function readFile(file: File): Promise<ArrayBuffer> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as ArrayBuffer);
-    reader.onerror = () => reject(new Error(`Could not read ${file.name}`));
-    reader.readAsArrayBuffer(file);
-  });
+function appendBrandCheckSheet(workbook: XLSX.WorkBook, rows: BrandWarehouseViolation[]) {
+  const sheetRows: Array<Array<string | number>> = [
+    [...BRAND_WAREHOUSE_VIOLATION_HEADERS],
+    ...rows.map((row) => [
+      row.SKU,
+      row["Product Title"],
+      row.Brand,
+      row["ERP Source"],
+      row.Warehouse,
+      row["Balance Qty"],
+      row.Rule,
+    ]),
+  ];
+  const worksheet = XLSX.utils.aoa_to_sheet(sheetRows);
+  worksheet["!autofilter"] = {
+    ref: XLSX.utils.encode_range({
+      s: { r: 0, c: 0 },
+      e: { r: Math.max(sheetRows.length - 1, 0), c: BRAND_WAREHOUSE_VIOLATION_HEADERS.length - 1 },
+    }),
+  };
+  worksheet["!cols"] = [
+    { wch: 18 },
+    { wch: 44 },
+    { wch: 18 },
+    { wch: 12 },
+    { wch: 32 },
+    { wch: 12 },
+    { wch: 42 },
+  ];
+  worksheet["!rows"] = sheetRows.map((_, index) => ({ hpt: index === 0 ? 20 : 17 }));
+
+  const range = XLSX.utils.decode_range(worksheet["!ref"] ?? "A1:G1");
+  const border = {
+    top: { style: "thin", color: { rgb: "D9D9D9" } },
+    bottom: { style: "thin", color: { rgb: "D9D9D9" } },
+    left: { style: "thin", color: { rgb: "D9D9D9" } },
+    right: { style: "thin", color: { rgb: "D9D9D9" } },
+  };
+
+  for (let r = range.s.r; r <= range.e.r; r++) {
+    for (let c = range.s.c; c <= range.e.c; c++) {
+      const ref = XLSX.utils.encode_cell({ r, c });
+      const cell = worksheet[ref];
+      if (!cell) continue;
+      cell.s = {
+        alignment: {
+          horizontal: c === 1 || c === 4 || c === 6 ? "left" : "center",
+          vertical: "center",
+        },
+        border,
+      };
+    }
+  }
+
+  for (let c = range.s.c; c <= range.e.c; c++) {
+    const ref = XLSX.utils.encode_cell({ r: 0, c });
+    const cell = worksheet[ref];
+    if (!cell) continue;
+    cell.s = {
+      ...(cell.s ?? {}),
+      alignment: { horizontal: "center", vertical: "center" },
+      font: { bold: true, color: { rgb: "FFFFFF" } },
+      fill: { patternType: "solid", fgColor: { rgb: "006B5B" } },
+      border,
+    };
+  }
+
+  XLSX.utils.book_append_sheet(workbook, worksheet, "Brand Warehouse Check");
 }
 
-function parseWorkbook(buffer: ArrayBuffer, filename: string): StockBalanceRow[] {
-  const lower = filename.toLowerCase();
-  const workbook = lower.endsWith(".csv")
-    ? XLSX.read(new TextDecoder().decode(buffer), { type: "string" })
-    : XLSX.read(buffer, { type: "array", cellDates: false });
-  const sheetName = workbook.SheetNames[0];
-  const sheet = sheetName ? workbook.Sheets[sheetName] : null;
-  if (!sheet) throw new Error(`No readable sheet found in ${filename}`);
-  return XLSX.utils.sheet_to_json<StockBalanceRow>(sheet, { defval: "" });
-}
-
-function exportReport(rows: CosmeticsStockReportDetail[]) {
+function exportReport(rows: CosmeticsStockReportDetail[], brandViolations: BrandWarehouseViolation[]) {
   const workbook = XLSX.utils.book_new();
   const sheetRows: Array<Array<string | number>> = [[...COSMETICS_STOCK_REPORT_HEADERS]];
   const merges: XLSX.Range[] = [];
@@ -142,19 +197,23 @@ function exportReport(rows: CosmeticsStockReportDetail[]) {
   }
 
   XLSX.utils.book_append_sheet(workbook, worksheet, "Stock Compare");
+  appendBrandCheckSheet(workbook, brandViolations);
   const today = new Date().toISOString().slice(0, 10);
   XLSX.writeFile(workbook, `cosmetics-stock-compare-${today}.xlsx`);
 }
 
 export function CosmeticsStockComparer() {
   const [threshold, setThreshold] = useState("0");
-  const [loadedFiles, setLoadedFiles] = useState<LoadedFile[]>([]);
   const [reportRows, setReportRows] = useState<CosmeticsStockReportDetail[]>([]);
+  const [brandViolations, setBrandViolations] = useState<BrandWarehouseViolation[]>([]);
   const [processing, setProcessing] = useState(false);
-  const [isDragging, setIsDragging] = useState(false);
+  const [lastLoad, setLastLoad] = useState<{
+    threshold: number;
+    itemCount: number;
+    warehouseCount: number;
+  } | null>(null);
 
-  async function onFilesChange(files: FileList | null) {
-    if (!files?.length) return;
+  async function runReport() {
     const thresholdNumber = Number(threshold);
     if (!Number.isFinite(thresholdNumber)) {
       notify.error("Stock threshold must be a number");
@@ -163,22 +222,28 @@ export function CosmeticsStockComparer() {
 
     setProcessing(true);
     try {
-      const parsedFiles: LoadedFile[] = [];
-      const allRows: StockBalanceRow[] = [];
-      for (const file of Array.from(files)) {
-        const buffer = await readFile(file);
-        const rows = parseWorkbook(buffer, file.name);
-        parsedFiles.push({ name: file.name, rows: rows.length });
-        allRows.push(...rows);
+      const params = new URLSearchParams({ threshold: String(thresholdNumber) });
+      const res = await fetch(`/api/admin/reports/stock-comparer?${params}`, {
+        method: "GET",
+        cache: "no-store",
+      });
+      const data = (await res.json().catch(() => ({}))) as Partial<LiveStockResponse>;
+      if (!res.ok) {
+        throw new Error(data.detail || data.error || "Could not run report");
       }
-      const nextReport = buildCosmeticsStockReportDetails(allRows, thresholdNumber);
-      setLoadedFiles(parsedFiles);
-      setReportRows(nextReport);
-      notify.success(`Compared ${allRows.length} stock rows`);
+      setReportRows(data.rows ?? []);
+      setBrandViolations(data.brandViolations ?? []);
+      setLastLoad({
+        threshold: data.threshold ?? thresholdNumber,
+        itemCount: data.itemCount ?? 0,
+        warehouseCount: data.warehouseCount ?? 0,
+      });
+      notify.success(`Report ready for ${data.itemCount ?? 0} SKU(s)`);
     } catch (err) {
-      setLoadedFiles([]);
       setReportRows([]);
-      notify.error(err instanceof Error ? err.message : "Could not compare stock files");
+      setBrandViolations([]);
+      setLastLoad(null);
+      notify.error(err instanceof Error ? err.message : "Could not run report");
     } finally {
       setProcessing(false);
     }
@@ -191,7 +256,7 @@ export function CosmeticsStockComparer() {
       <div>
         <h3 className="font-medium">Cosmetics Stock Comparer</h3>
         <p className="text-sm text-muted-foreground">
-          Upload stock balance files and export low main-warehouse stock with outlet availability.
+          Run the report from live ERP stock and export low main-warehouse stock with outlet availability.
         </p>
       </div>
 
@@ -206,53 +271,36 @@ export function CosmeticsStockComparer() {
             onChange={(event) => setThreshold(event.target.value)}
           />
         </label>
-        <div className="space-y-1">
-          <p className="text-sm font-medium">Stock balance files</p>
-          <label
-            className={`flex min-h-32 cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border border-dashed px-4 py-6 text-center transition-colors ${
-              isDragging ? "border-primary bg-primary/10" : "border-border bg-muted/20 hover:bg-muted/40"
-            }`}
-            onDragEnter={(event) => {
-              event.preventDefault();
-              setIsDragging(true);
-            }}
-            onDragOver={(event) => {
-              event.preventDefault();
-              setIsDragging(true);
-            }}
-            onDragLeave={(event) => {
-              event.preventDefault();
-              setIsDragging(false);
-            }}
-            onDrop={(event) => {
-              event.preventDefault();
-              setIsDragging(false);
-              void onFilesChange(event.dataTransfer.files);
-            }}
+        <div className="flex min-h-32 flex-col justify-center gap-3 rounded-lg border border-dashed bg-muted/20 px-4 py-6">
+          <div>
+            <p className="text-sm font-medium">Stock report</p>
+            <p className="text-xs text-muted-foreground">
+              Fetches ERPNext Bin stock using the same configured OSF warehouses and ERP instances.
+            </p>
+          </div>
+          <Button
+            type="button"
+            onClick={() => void runReport()}
+            disabled={processing}
+            className="w-fit gap-2"
           >
-            {processing ? (
-              <Loader2 className="size-7 animate-spin text-muted-foreground" />
-            ) : (
-              <Upload className="size-7 text-muted-foreground" />
-            )}
-            <span className="text-sm font-medium">Drop stock files here or click to browse</span>
-            <span className="text-xs text-muted-foreground">.xlsx, .xls, or .csv files</span>
-            <Input
-              className="sr-only"
-              type="file"
-              multiple
-              accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv"
-              onChange={(event) => void onFilesChange(event.target.files)}
-            />
-          </label>
+            {processing ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+            Run report
+          </Button>
+          {lastLoad && (
+            <p className="text-xs text-muted-foreground">
+              Report ran from {lastLoad.warehouseCount} warehouse(s) for {lastLoad.itemCount} SKU(s).
+              Threshold: {lastLoad.threshold}.
+            </p>
+          )}
         </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
         <Button
           type="button"
-          onClick={() => exportReport(reportRows)}
-          disabled={processing || reportRows.length === 0}
+          onClick={() => exportReport(reportRows, brandViolations)}
+          disabled={processing || (reportRows.length === 0 && brandViolations.length === 0)}
           className="gap-2"
         >
           {processing ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
@@ -260,25 +308,9 @@ export function CosmeticsStockComparer() {
         </Button>
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <FileSpreadsheet className="size-4" />
-          {reportRows.length} flagged SKU(s), {availableCount} with stock elsewhere
+          {reportRows.length} flagged SKU(s), {availableCount} with stock elsewhere, {brandViolations.length} brand issue(s)
         </div>
       </div>
-
-      {loadedFiles.length > 0 && (
-        <div className="rounded-md border p-3 text-sm">
-          <div className="mb-2 flex items-center gap-2 font-medium">
-            <Upload className="size-4" />
-            Loaded files
-          </div>
-          <ul className="space-y-1 text-muted-foreground">
-            {loadedFiles.map((file) => (
-              <li key={file.name}>
-                {file.name} ({file.rows} rows)
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
 
       {reportRows.length > 0 && (
         <div className="max-h-80 overflow-auto rounded-md border">
