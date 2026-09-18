@@ -78,6 +78,8 @@ model Company {
   dailySalesSmsSendLogs         DailySalesSmsSendLog[]
   erpSyncFailureEmailConfig     ErpSyncFailureEmailConfig?
   erpSyncFailureEmailSendLogs   ErpSyncFailureEmailSendLog[]
+  grnPendingEmailConfig         GrnPendingEmailConfig?
+  grnPendingEmailSendLogs       GrnPendingEmailSendLog[]
   productOsfProfiles            ProductOsfProfile[]
   productOsfRops                ProductOsfRop[]
   osfColumnConfigs              OsfColumnConfig[]
@@ -344,6 +346,9 @@ model User {
   ordersPackageReadyBy                Order[]                   @relation("OrderPackageReadyBy")
   ordersSampleFreeIssueCompleteBy     Order[]                   @relation("OrderSampleFreeIssueCompleteBy")
   ordersCancelledBy                   Order[]                   @relation("OrderCancelledBy")
+  grnHandovers                        GrnPurchaseReceipt[]      @relation("GrnPurchaseReceiptHandoverBy")
+  grnValuations                       GrnPurchaseReceipt[]      @relation("GrnPurchaseReceiptValuedBy")
+  grnReceipts                         GrnPurchaseReceipt[]      @relation("GrnPurchaseReceiptReceivedBy")
   orderRemarksAdded                   OrderRemark[]
   orderSampleFreeIssuesAdded          OrderSampleFreeIssue[]
   smsLogs                             SmsLog[]
@@ -1586,6 +1591,33 @@ model ErpSyncFailureEmailSendLog {
   @@index([companyId, reportDate, status])
 }
 
+model GrnPendingEmailConfig {
+  id         String   @id @default(cuid())
+  companyId  String   @unique
+  recipients Json     @default("[]")
+  enabled    Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+}
+
+model GrnPendingEmailSendLog {
+  id             String   @id @default(cuid())
+  companyId      String
+  reportDate     String
+  status         String
+  subject        String?
+  recipientCount Int      @default(0)
+  recipients     Json     @default("[]")
+  errorSummary   String?
+  source         String   @default("cron")
+  createdAt      DateTime @default(now())
+  company        Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, createdAt(sort: Desc)])
+  @@index([companyId, reportDate, status])
+}
+
 model UserRole {
   userId     String
   roleId     String
@@ -2165,20 +2197,29 @@ model GrnPurchaseReceipt {
   owner                   String?
   creation                DateTime?
   handoverAt              DateTime?
+  handoverById            String?
   valuedAt                DateTime?
+  valuedById              String?
   receivedAt              DateTime?
+  receivedById            String?
   supplierStockReturnName String?
   rawPayload              Json
   createdAt               DateTime                 @default(now())
   updatedAt               DateTime                 @updatedAt
   company                 Company                  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  handoverBy              User?                    @relation("GrnPurchaseReceiptHandoverBy", fields: [handoverById], references: [id], onDelete: SetNull)
   items                   GrnPurchaseReceiptItem[]
+  receivedBy              User?                    @relation("GrnPurchaseReceiptReceivedBy", fields: [receivedById], references: [id], onDelete: SetNull)
+  valuedBy                User?                    @relation("GrnPurchaseReceiptValuedBy", fields: [valuedById], references: [id], onDelete: SetNull)
 
   @@unique([companyId, name])
   @@index([companyId, creation(sort: Desc)])
   @@index([companyId, supplier])
   @@index([companyId, amendedFrom])
   @@index([companyId, supplierStockReturnName])
+  @@index([handoverById])
+  @@index([valuedById])
+  @@index([receivedById])
 }
 
 model GrnPurchaseReceiptItem {
