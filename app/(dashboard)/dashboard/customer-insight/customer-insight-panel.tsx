@@ -1182,14 +1182,30 @@ export function CustomerInsightPanel({
   }
 
   async function loadQueueCandidates(page = 1) {
-    if (!queueMerchant.trim()) {
-      notify.error("Select a merchant.");
+    const hasQueueFilter =
+      queueBrands.length > 0 ||
+      queuePushGold ||
+      queuePushPlatinum ||
+      Boolean(queueLoyalty.trim()) ||
+      Boolean(queueLastPurchaseFrom.trim()) ||
+      Boolean(queueLastPurchaseTo.trim()) ||
+      Boolean(queueAllocatedFrom.trim()) ||
+      Boolean(queueAllocatedTo.trim()) ||
+      Boolean(queueAssignedFrom.trim()) ||
+      Boolean(queueAssignedTo.trim()) ||
+      queueNotContacted;
+    if (!queueMerchant.trim() && !hasQueueFilter) {
+      notify.error(
+        "Select a merchant, or add a brand / other filter to load all allocated contacts."
+      );
       return;
     }
     setBusyKey("queue-candidates");
     try {
       const params = new URLSearchParams();
-      params.set("assignedMerchant", queueMerchant.trim());
+      if (queueMerchant.trim()) {
+        params.set("assignedMerchant", queueMerchant.trim());
+      }
       params.set("page", String(page));
       params.set("pageSize", String(queueCandidatePageSize));
       appendQueueFilterParams(params);
@@ -1306,6 +1322,8 @@ export function CustomerInsightPanel({
     try {
       const params = new URLSearchParams();
       if (queueMerchant.trim()) params.set("assignedMerchant", queueMerchant.trim());
+      appendQueueFilterParams(params);
+      params.set("kind", "filtered");
       const res = await fetch(
         `/api/admin/customer-insight/call-queue/export?${params}`
       );
@@ -1318,7 +1336,7 @@ export function CustomerInsightPanel({
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `call-queue-assignments.xlsx`;
+      a.download = `call-queue-filtered.xlsx`;
       a.click();
       URL.revokeObjectURL(url);
       notify.success("Exported Excel.");
@@ -1782,10 +1800,6 @@ export function CustomerInsightPanel({
   }
 
   async function runFilters(page = 1) {
-    if (canExportFilteredCsv && !filterAssignedMerchant.trim()) {
-      notify.error("Select a merchant to preview their filtered results.");
-      return;
-    }
     setBusyKey("filter");
     setFilterPage(page);
     try {
@@ -1848,10 +1862,6 @@ export function CustomerInsightPanel({
 
   async function exportFilteredCsv() {
     if (!canExportFilteredCsv) return;
-    if (!filterAssignedMerchant.trim()) {
-      notify.error("Select a merchant to preview their filtered results.");
-      return;
-    }
     setBusyKey("export-filter");
     try {
       const params = buildFilterParams(1);
@@ -2003,7 +2013,7 @@ export function CustomerInsightPanel({
           View customer profile, purchase history, and loyalty details. Allocated merchants and
           admins can edit profile fields.{" "}
           {canExportFilteredCsv
-            ? "Pick a merchant to preview filters and contact detail as they see them."
+            ? "Merchant optional for company-wide brand filters and export. Pick a merchant to preview as they see the contact."
             : canFilterAllContacts
               ? "Filters search all company contacts."
               : "Filters search your allocated customers."}
@@ -2045,9 +2055,9 @@ export function CustomerInsightPanel({
             {canFilterAllContacts ? "Customer filters" : "Allocated customer filters"}
           </CardTitle>
           <CardDescription>
-            {canExportFilteredCsv
-              ? "Select a merchant first. Results are scoped to their allocated contacts, and opening a contact uses their owner/limited visibility."
-              : canFilterAllContacts
+          {canExportFilteredCsv
+            ? "Merchant optional. Leave Any for whole company contact base (brand and other filters apply). Pick a merchant to scope to their allocated contacts; opening a contact then uses that merchant's owner/limited visibility."
+            : canFilterAllContacts
                 ? "Results include all company contacts matching your filters (allocated and unallocated)."
                 : "Results are limited to your allocated customers."}{" "}
             Min/max total uses lifetime spend (completed Cosmo orders + Adapt history) across that
@@ -2155,7 +2165,8 @@ export function CustomerInsightPanel({
                 <InsightSearchableSelect
                   value={filterAssignedMerchant}
                   options={merchantOptions}
-                  placeholder="Select merchant"
+                  placeholder="Any merchant"
+                  allLabel="Any merchant"
                   searchPlaceholder="Search merchants…"
                   disabled={isBusy}
                   onChange={(next) => {
@@ -4384,14 +4395,15 @@ export function CustomerInsightPanel({
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Assign merchant call queue</CardTitle>
             <CardDescription>
-              Pick a merchant, then use any filter alone or together. Combined
-              filters AND (Push to Gold + Push to Platinum = either band). Push
-              labels do not show amounts. Hidden logic: purchased or contacted
+              Pick a merchant (or leave Any), then use any filter alone or together. Combined
+              filters AND (Push to Gold + Push to Platinum = either band). Merchant Any =
+              all allocated contacts. Push labels do not show amounts. Hidden logic: purchased or contacted
               within 2 months, 7-day Not Responding, Black List / Wrong Number,
-              already queued (no allocation cooling). Import Excel reallocates
+              already queued (no allocation cooling). Export Excel downloads the filtered
+              allocated list (same filters as Load). Import Excel reallocates
               Contact Master to the merchant, queues them, and shows Newly
               allocated (hidden if contacted within 2 months). Call update
-              clears the row and updates last contacted.
+              clears the row and updates last contacted. Assign / Import still need a merchant.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -4401,7 +4413,8 @@ export function CustomerInsightPanel({
                 <InsightSearchableSelect
                   value={queueMerchant}
                   options={queueMerchantOptions}
-                  placeholder="Select merchant"
+                  placeholder="Any merchant"
+                  allLabel="Any merchant"
                   searchPlaceholder="Search merchants…"
                   disabled={isBusy}
                   onChange={(next) => {
@@ -4542,7 +4555,7 @@ export function CustomerInsightPanel({
             <div className="flex flex-wrap items-end gap-2">
               <Button
                 type="button"
-                disabled={isBusy || !queueMerchant}
+                disabled={isBusy}
                 onClick={() => void loadQueueCandidates(1)}
               >
                 {busyKey === "queue-candidates" ? (

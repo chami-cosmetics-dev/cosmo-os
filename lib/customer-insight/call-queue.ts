@@ -58,7 +58,8 @@ export type CallQueueRowDto = {
 };
 
 export type CallQueueAssignFilters = {
-  merchantValue: string;
+  /** Empty/undefined = all contacts with an assigned merchant. */
+  merchantValue?: string;
   pushToGold?: boolean;
   pushToPlatinum?: boolean;
   loyalty?: "standard" | "gold" | "platinum" | "unassigned";
@@ -295,6 +296,15 @@ async function lastNonAllocationEventMap(
 }
 
 export function assignedMerchantWhere(companyId: string, aliases: string[]) {
+  if (aliases.length === 0) {
+    return {
+      companyId,
+      AND: [
+        { assignedMerchant: { not: null } },
+        { assignedMerchant: { not: "" } },
+      ],
+    };
+  }
   if (aliases.length <= 1) {
     return {
       companyId,
@@ -349,11 +359,13 @@ async function listRankedEligibleContacts(input: {
   companyId: string;
   filters: CallQueueAssignFilters;
 }): Promise<{ ranked: RankedContact[]; allocatedTotal: number }> {
-  const aliases = await resolveAssignedMerchantFilterLabels(
-    input.companyId,
-    input.filters.merchantValue
-  );
-  if (aliases.length === 0) return { ranked: [], allocatedTotal: 0 };
+  const merchantNeedle = input.filters.merchantValue?.trim() ?? "";
+  const aliases = merchantNeedle
+    ? await resolveAssignedMerchantFilterLabels(input.companyId, merchantNeedle)
+    : [];
+  if (merchantNeedle && aliases.length === 0) {
+    return { ranked: [], allocatedTotal: 0 };
+  }
 
   const purchase = lastPurchaseWhere(
     input.filters.lastPurchaseFrom,
@@ -369,9 +381,13 @@ async function listRankedEligibleContacts(input: {
     const queueRows = await prisma.contactInsightCallQueue.findMany({
       where: {
         companyId: input.companyId,
-        OR: aliases.map((label) => ({
-          merchantLabel: { equals: label, mode: "insensitive" as const },
-        })),
+        ...(aliases.length > 0
+          ? {
+              OR: aliases.map((label) => ({
+                merchantLabel: { equals: label, mode: "insensitive" as const },
+              })),
+            }
+          : {}),
         ...(assignedFrom || assignedTo
           ? {
               assignedAt: {
