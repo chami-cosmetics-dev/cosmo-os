@@ -710,6 +710,14 @@ export function CustomerInsightPanel({
       salesAfterContact: number;
     }>;
   } | null>(null);
+  const [loyaltyEligibleSummary, setLoyaltyEligibleSummary] = useState<{
+    company: { pending: number; mtdUpdated: number };
+    merchants: Array<{
+      merchantLabel: string;
+      pending: number;
+      mtdUpdated: number;
+    }>;
+  } | null>(null);
   const todayIsoDate = () => {
     const now = new Date();
     const offset = now.getTimezoneOffset();
@@ -1401,6 +1409,44 @@ export function CustomerInsightPanel({
       notify.success("Sales report downloaded.");
     } catch {
       notify.error("Failed to export report.");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function loadLoyaltyEligibleSummary() {
+    if (!canExportFilteredCsv) return;
+    setBusyKey("loyalty-eligible-summary");
+    try {
+      const res = await fetch(
+        "/api/admin/customer-insight/loyalty-eligible/summary"
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        notify.error(data.error ?? "Failed to load loyalty eligible summary.");
+        return;
+      }
+      setLoyaltyEligibleSummary({
+        company: {
+          pending: Number(data.company?.pending ?? 0),
+          mtdUpdated: Number(data.company?.mtdUpdated ?? 0),
+        },
+        merchants: Array.isArray(data.merchants)
+          ? data.merchants.map(
+              (row: {
+                merchantLabel?: string;
+                pending?: number;
+                mtdUpdated?: number;
+              }) => ({
+                merchantLabel: String(row.merchantLabel ?? ""),
+                pending: Number(row.pending ?? 0),
+                mtdUpdated: Number(row.mtdUpdated ?? 0),
+              })
+            )
+          : [],
+      });
+    } catch {
+      notify.error("Failed to load loyalty eligible summary.");
     } finally {
       setBusyKey(null);
     }
@@ -4252,6 +4298,86 @@ export function CustomerInsightPanel({
         </Card>
       ) : null}
 
+
+      {canExportFilteredCsv ? (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Loyalty eligible</CardTitle>
+            <CardDescription>
+              Merchant-wise pending loyalty-eligible count and MTD updated count.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                disabled={isBusy}
+                onClick={() => void loadLoyaltyEligibleSummary()}
+              >
+                {busyKey === "loyalty-eligible-summary" ? (
+                  <>
+                    <Loader2 className="animate-spin" aria-hidden />
+                    Loading...
+                  </>
+                ) : (
+                  "Load"
+                )}
+              </Button>
+              {loyaltyEligibleSummary ? (
+                <p className="text-sm">
+                  Company pending:{" "}
+                  <span className="font-semibold tabular-nums">
+                    {loyaltyEligibleSummary.company.pending.toLocaleString()}
+                  </span>
+                  {" · "}
+                  MTD updated:{" "}
+                  <span className="font-semibold tabular-nums">
+                    {loyaltyEligibleSummary.company.mtdUpdated.toLocaleString()}
+                  </span>
+                </p>
+              ) : null}
+            </div>
+            {loyaltyEligibleSummary ? (
+              <div className="overflow-x-auto rounded-md border text-xs">
+                <table className="w-full">
+                  <thead>
+                    <tr className="bg-muted/30 text-left">
+                      <th className="px-2 py-1">Merchant</th>
+                      <th className="px-2 py-1 text-right">Pending</th>
+                      <th className="px-2 py-1 text-right">MTD updated</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {loyaltyEligibleSummary.merchants.length === 0 ? (
+                      <tr className="border-t">
+                        <td
+                          colSpan={3}
+                          className="text-muted-foreground px-2 py-2"
+                        >
+                          No merchant rows.
+                        </td>
+                      </tr>
+                    ) : (
+                      loyaltyEligibleSummary.merchants.map((row) => (
+                        <tr key={row.merchantLabel} className="border-t">
+                          <td className="px-2 py-1">{row.merchantLabel}</td>
+                          <td className="px-2 py-1 text-right tabular-nums">
+                            {row.pending.toLocaleString()}
+                          </td>
+                          <td className="px-2 py-1 text-right tabular-nums">
+                            {row.mtdUpdated.toLocaleString()}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
 
       {canExportFilteredCsv ? (
         <Card>

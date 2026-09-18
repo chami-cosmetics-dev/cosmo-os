@@ -73,6 +73,8 @@ export type BookNoteOrderSuggestion = {
   bankTransfer: number;
   paymentGatewayPrimary: string | null;
   sourceName: string;
+  /** Present when the order has 2+ incoming payment legs (ERP PE or POS). */
+  splitLines: BookNoteSplitLine[] | null;
 };
 
 export type BookNoteLocationOption = {

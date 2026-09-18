@@ -640,12 +640,16 @@ export function BookNotesPanel({
   }
 
   function applySuggestion(rowKey: string, s: BookNoteOrderSuggestion) {
+    const useSplit = Boolean(s.splitLines && s.splitLines.length >= 2);
     updateRow(rowKey, {
       salesInvoice: s.salesInvoice,
-      cash: s.cash ? String(s.cash) : "",
-      card: s.card ? String(s.card) : "",
-      koko: s.koko ? String(s.koko) : "",
-      bankTransfer: s.bankTransfer ? String(s.bankTransfer) : "",
+      cash: useSplit ? "" : s.cash ? String(s.cash) : "",
+      card: useSplit ? "" : s.card ? String(s.card) : "",
+      cardReceiptRefLast4: "",
+      koko: useSplit ? "" : s.koko ? String(s.koko) : "",
+      bankTransfer: useSplit ? "" : s.bankTransfer ? String(s.bankTransfer) : "",
+      splitMode: useSplit,
+      splitLines: useSplit ? s.splitLines!.map(splitLineToForm) : [],
       orderId: s.orderId,
     });
     setSuggestions([]);
@@ -1571,7 +1575,15 @@ export function BookNotesPanel({
                             >
                               <span className="font-mono font-medium">{s.label}</span>
                               <span className="text-muted-foreground ml-2">
-                                {s.totalPrice.toFixed(2)} · {s.sourceName}
+                                {s.splitLines && s.splitLines.length >= 2
+                                  ? s.splitLines
+                                      .map(
+                                        (sl) =>
+                                          `${sl.paymentMethod} ${sl.amount.toFixed(2)}`,
+                                      )
+                                      .join(" · ")
+                                  : s.totalPrice.toFixed(2)}{" "}
+                                · {s.sourceName}
                               </span>
                             </button>
                           </li>

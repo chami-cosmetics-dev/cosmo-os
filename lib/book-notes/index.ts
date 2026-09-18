@@ -27,7 +27,9 @@ export { resolveBookNoteSalesInvoice } from "@/lib/book-notes/invoice-identity";
 
 export {
   mapOrderPaymentsToBookNoteColumns,
+  mapOrderPaymentsToBookNoteSuggestion,
   mopToBookNoteBucket,
+  mopToBookNoteErpPaymentMethod,
 } from "@/lib/book-notes/payment-columns";
 
 export {

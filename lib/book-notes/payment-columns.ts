@@ -1,3 +1,8 @@
+import {
+  aggregateSplitLines,
+  type BookNoteErpPaymentMethod,
+  type BookNoteSplitLine,
+} from "@/lib/book-notes/split-lines";
 import type { BookNotePaymentColumns } from "@/lib/book-notes/types";
 
 function toAmount(value: unknown): number {
@@ -11,6 +16,24 @@ function emptyColumns(): BookNotePaymentColumns {
 }
 
 export type BookNotePaymentBucket = keyof BookNotePaymentColumns;
+
+export type BookNotePaymentLeg = {
+  modeOfPayment: string;
+  amount: number;
+};
+
+export type BookNoteOrderPaymentEntryInput = {
+  paymentType?: string | null;
+  modeOfPayment?: string | null;
+  allocatedAmount?: unknown;
+  amount?: unknown;
+};
+
+export type BookNotePaymentSuggestion = {
+  columns: BookNotePaymentColumns;
+  /** Set when 2+ incoming payment legs exist — UI opens SPLIT. */
+  splitLines: BookNoteSplitLine[] | null;
+};
 
 /** Map ERP/Shopify MOP or gateway string → book-note column. */
 export function mopToBookNoteBucket(mop: string | null | undefined): BookNotePaymentBucket | null {
@@ -57,6 +80,20 @@ export function mopToBookNoteBucket(mop: string | null | undefined): BookNotePay
   return null;
 }
 
+const BUCKET_TO_ERP_METHOD: Record<BookNotePaymentBucket, BookNoteErpPaymentMethod> = {
+  cash: "Cash",
+  card: "Card",
+  koko: "KOKO",
+  bankTransfer: "Bank Transfer",
+};
+
+export function mopToBookNoteErpPaymentMethod(
+  mop: string | null | undefined,
+): BookNoteErpPaymentMethod {
+  const bucket = mopToBookNoteBucket(mop) ?? "cash";
+  return BUCKET_TO_ERP_METHOD[bucket];
+}
+
 type RawPayment = { mode_of_payment?: unknown; amount?: unknown };
 
 function extractRawPayments(rawPayload: unknown): RawPayment[] {
@@ -64,6 +101,64 @@ function extractRawPayments(rawPayload: unknown): RawPayment[] {
   const payments = (rawPayload as { payments?: unknown }).payments;
   if (!Array.isArray(payments)) return [];
   return payments.filter((p): p is RawPayment => !!p && typeof p === "object");
+}
+
+function legsFromRawPayload(rawPayload: unknown): BookNotePaymentLeg[] {
+  const legs: BookNotePaymentLeg[] = [];
+  for (const p of extractRawPayments(rawPayload)) {
+    const amount = toAmount(p.amount);
+    if (amount <= 0) continue;
+    const mop = typeof p.mode_of_payment === "string" ? p.mode_of_payment : "";
+    legs.push({ modeOfPayment: mop, amount });
+  }
+  return legs;
+}
+
+function legsFromPaymentEntries(
+  entries: BookNoteOrderPaymentEntryInput[] | null | undefined,
+): BookNotePaymentLeg[] {
+  if (!entries?.length) return [];
+  const legs: BookNotePaymentLeg[] = [];
+  for (const pe of entries) {
+    if ((pe.paymentType ?? "").trim().toLowerCase() === "pay") continue;
+    const amount = toAmount(pe.allocatedAmount ?? pe.amount);
+    if (amount <= 0) continue;
+    legs.push({
+      modeOfPayment: (pe.modeOfPayment ?? "").trim(),
+      amount,
+    });
+  }
+  return legs;
+}
+
+export function mapPaymentLegsToSplitLines(
+  legs: BookNotePaymentLeg[],
+): BookNoteSplitLine[] {
+  const lines: BookNoteSplitLine[] = [];
+  for (const leg of legs) {
+    const amount = toAmount(leg.amount);
+    if (amount <= 0) continue;
+    lines.push({
+      paymentMethod: mopToBookNoteErpPaymentMethod(leg.modeOfPayment),
+      amount,
+    });
+  }
+  return lines;
+}
+
+function suggestionFromLegs(legs: BookNotePaymentLeg[]): BookNotePaymentSuggestion | null {
+  const splitLines = mapPaymentLegsToSplitLines(legs);
+  if (splitLines.length === 0) return null;
+  const agg = aggregateSplitLines(splitLines);
+  return {
+    columns: {
+      cash: agg.cash,
+      card: agg.card,
+      koko: agg.koko,
+      bankTransfer: agg.bankTransfer,
+    },
+    splitLines: splitLines.length >= 2 ? splitLines : null,
+  };
 }
 
 /**
@@ -76,25 +171,41 @@ export function mapOrderPaymentsToBookNoteColumns(input: {
   paymentGatewayNames?: string[] | null;
   rawPayload?: unknown;
 }): BookNotePaymentColumns {
+  return mapOrderPaymentsToBookNoteSuggestion(input).columns;
+}
+
+/**
+ * Suggestion autofill: prefer synced ERP payment entries, then POS payments[],
+ * then the primary gateway total. Two or more incoming legs return splitLines
+ * so the book-note row opens SPLIT instead of collapsing into one column.
+ */
+export function mapOrderPaymentsToBookNoteSuggestion(input: {
+  totalPrice?: unknown;
+  paymentGatewayPrimary?: string | null;
+  paymentGatewayNames?: string[] | null;
+  rawPayload?: unknown;
+  paymentEntries?: BookNoteOrderPaymentEntryInput[] | null;
+}): BookNotePaymentSuggestion {
+  const fromPe = suggestionFromLegs(legsFromPaymentEntries(input.paymentEntries));
+  if (fromPe) return fromPe;
+
+  const fromRaw = suggestionFromLegs(legsFromRawPayload(input.rawPayload));
+  if (fromRaw) return fromRaw;
+
+  return {
+    columns: fallbackPrimaryColumns(input),
+    splitLines: null,
+  };
+}
+
+function fallbackPrimaryColumns(input: {
+  totalPrice?: unknown;
+  paymentGatewayPrimary?: string | null;
+  paymentGatewayNames?: string[] | null;
+}): BookNotePaymentColumns {
   const cols = emptyColumns();
-  const rawPayments = extractRawPayments(input.rawPayload);
-
-  if (rawPayments.length > 0) {
-    let anyMapped = false;
-    for (const p of rawPayments) {
-      const amount = toAmount(p.amount);
-      if (amount <= 0) continue;
-      const mop = typeof p.mode_of_payment === "string" ? p.mode_of_payment : "";
-      const bucket = mopToBookNoteBucket(mop) ?? "cash";
-      cols[bucket] = Math.round((cols[bucket] + amount) * 100) / 100;
-      anyMapped = true;
-    }
-    if (anyMapped) return cols;
-  }
-
   const total = toAmount(input.totalPrice);
   if (total <= 0) return cols;
-
   const primary =
     input.paymentGatewayPrimary?.trim() ||
     input.paymentGatewayNames?.find((n) => n?.trim())?.trim() ||

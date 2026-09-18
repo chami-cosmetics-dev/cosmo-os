@@ -1,10 +1,31 @@
 import { Prisma } from "@prisma/client";
 
 import { resolveBookNoteSalesInvoice } from "@/lib/book-notes/invoice-identity";
-import { mapOrderPaymentsToBookNoteColumns } from "@/lib/book-notes/payment-columns";
+import { mapOrderPaymentsToBookNoteSuggestion } from "@/lib/book-notes/payment-columns";
 import type { BookNoteOrderSuggestion } from "@/lib/book-notes/types";
 import { parseAppCalendarDayStart } from "@/lib/format-datetime";
 import { prisma } from "@/lib/prisma";
+
+const ORDER_SUGGESTION_SELECT = {
+  id: true,
+  name: true,
+  orderNumber: true,
+  shopifyOrderId: true,
+  erpnextInvoiceId: true,
+  totalPrice: true,
+  paymentGatewayPrimary: true,
+  paymentGatewayNames: true,
+  rawPayload: true,
+  sourceName: true,
+  paymentEntries: {
+    select: {
+      paymentType: true,
+      modeOfPayment: true,
+      allocatedAmount: true,
+      amount: true,
+    },
+  },
+} as const;
 
 const POS_SOURCE_BOOST = new Set(["erpnext-pos", "pos", "erpnext"]);
 
@@ -56,18 +77,7 @@ export async function searchBookNoteOrderSuggestions(input: {
     where,
     take: limit * 3,
     orderBy: { createdAt: "desc" },
-    select: {
-      id: true,
-      name: true,
-      orderNumber: true,
-      shopifyOrderId: true,
-      erpnextInvoiceId: true,
-      totalPrice: true,
-      paymentGatewayPrimary: true,
-      paymentGatewayNames: true,
-      rawPayload: true,
-      sourceName: true,
-    },
+    select: ORDER_SUGGESTION_SELECT,
   });
 
   // If date-scoped search is empty, fall back without date so typing still works.
@@ -78,18 +88,7 @@ export async function searchBookNoteOrderSuggestions(input: {
       where: rest,
       take: limit * 3,
       orderBy: { createdAt: "desc" },
-      select: {
-        id: true,
-        name: true,
-        orderNumber: true,
-        shopifyOrderId: true,
-        erpnextInvoiceId: true,
-        totalPrice: true,
-        paymentGatewayPrimary: true,
-        paymentGatewayNames: true,
-        rawPayload: true,
-        sourceName: true,
-      },
+      select: ORDER_SUGGESTION_SELECT,
     });
   }
 
@@ -97,12 +96,14 @@ export async function searchBookNoteOrderSuggestions(input: {
     .map((order) => {
       const salesInvoice = resolveBookNoteSalesInvoice(order);
       if (!salesInvoice) return null;
-      const amounts = mapOrderPaymentsToBookNoteColumns({
+      const mappedPayments = mapOrderPaymentsToBookNoteSuggestion({
         totalPrice: order.totalPrice,
         paymentGatewayPrimary: order.paymentGatewayPrimary,
         paymentGatewayNames: order.paymentGatewayNames,
         rawPayload: order.rawPayload,
+        paymentEntries: order.paymentEntries,
       });
+      const amounts = mappedPayments.columns;
       const totalPrice = Number(order.totalPrice ?? 0);
       return {
         suggestion: {
@@ -116,6 +117,7 @@ export async function searchBookNoteOrderSuggestions(input: {
           bankTransfer: amounts.bankTransfer,
           paymentGatewayPrimary: order.paymentGatewayPrimary,
           sourceName: order.sourceName,
+          splitLines: mappedPayments.splitLines,
         } satisfies BookNoteOrderSuggestion,
         score: scoreOrder(order.sourceName, salesInvoice, q),
       };
