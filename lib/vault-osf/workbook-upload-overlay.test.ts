@@ -24,6 +24,11 @@ describe("vault workbook upload overlay", () => {
     }
   });
 
+  it("has barcodes for NT025-1 and NW032-2 from ERP upload", () => {
+    expect(vaultWorkbookUploadExtras("NT025-1")?.barcode).toBe("9314807088286");
+    expect(vaultWorkbookUploadExtras("NW032-2")?.barcode).toBe("733739000927");
+  });
+
   it("prefers uploaded-file barcode and priority over ERP/OS (until ERP has them)", () => {
     const extra = vaultWorkbookUploadExtras("NW031-1");
     expect(extra?.barcode).toBeTruthy();

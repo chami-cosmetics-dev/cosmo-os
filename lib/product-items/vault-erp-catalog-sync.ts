@@ -9,6 +9,11 @@ import {
   type OsfErpCredentials,
 } from "@/lib/osf/erp-stock";
 import { resolveErpSlots, normalizeSkuKey } from "@/lib/product-items/erp-priority-sync";
+import {
+  fetchItemBarcodeList,
+  fillMissingItemBarcodes,
+  lookupBarcode,
+} from "@/lib/vault-osf/erp-barcodes";
 import { isVaultOsfForceIncludedSku, VAULT_OSF_FORCE_INCLUDED_SKUS } from "@/lib/vault-osf/sku-policy";
 import { vaultWorkbookUploadExtras } from "@/lib/vault-osf/workbook-upload-overlay";
 
@@ -62,32 +67,20 @@ function isSyncableStockItem(row: ErpItemRow): boolean {
   return row.is_stock_item === 1 || row.is_stock_item === true;
 }
 
-async function fetchItemBarcodes(cfg: OsfErpCredentials): Promise<Map<string, string>> {
-  const map = new Map<string, string>();
-  const fields = JSON.stringify(["parent", "barcode"]);
-  try {
-    for (let page = 0; page < MAX_PAGES; page += 1) {
-      const path =
-        `/api/resource/Item Barcode?fields=${encodeURIComponent(fields)}` +
-        `&limit_start=${page * PAGE}&limit_page_length=${PAGE}`;
-      const json = await erpGetJson<{ data?: Array<{ parent?: string; barcode?: string }> }>(
-        cfg,
-        path,
-      );
-      const rows = json.data ?? [];
-      for (const row of rows) {
-        const sku = row.parent?.trim();
-        const barcode = row.barcode?.trim();
-        if (sku && barcode && !map.has(normalizeSkuKey(sku))) {
-          map.set(normalizeSkuKey(sku), barcode);
-        }
-      }
-      if (rows.length < PAGE) break;
-    }
-  } catch {
-    // optional
+async function attachMissingErpBarcodes(
+  catalog: Map<string, VaultErpCatalogItem>,
+  cfg: OsfErpCredentials,
+) {
+  const missing = [...catalog.values()]
+    .filter((item) => !item.barcode?.trim() && !vaultWorkbookUploadExtras(item.sku)?.barcode)
+    .map((item) => item.sku);
+  if (missing.length === 0) return;
+  const extra = await fillMissingItemBarcodes((path) => erpGetJson(cfg, path), missing);
+  for (const item of catalog.values()) {
+    if (item.barcode?.trim()) continue;
+    const found = lookupBarcode(extra, item.sku);
+    if (found) item.barcode = found;
   }
-  return map;
 }
 
 async function fetchErpCatalogItems(cfg: OsfErpCredentials): Promise<Map<string, VaultErpCatalogItem>> {
@@ -163,9 +156,9 @@ async function fetchErpCatalogItems(cfg: OsfErpCredentials): Promise<Map<string,
     }
   }
 
-  const barcodes = await fetchItemBarcodes(cfg);
-  for (const [key, item] of out) {
-    const barcode = barcodes.get(key);
+  const barcodes = await fetchItemBarcodeList((path) => erpGetJson(cfg, path));
+  for (const item of out.values()) {
+    const barcode = lookupBarcode(barcodes, item.sku);
     if (barcode) item.barcode = barcode;
   }
 
@@ -257,6 +250,8 @@ export async function syncVaultErpCatalogToProductItems(
   }
 
   const catalog = mergeCatalogs(erp1Map, erp2Map);
+  if (erp1) await attachMissingErpBarcodes(catalog, erp1.cfg);
+  if (erp2) await attachMissingErpBarcodes(catalog, erp2.cfg);
   const existing = await prisma.productItem.findMany({
     where: { companyId, sku: { not: null } },
     select: { id: true, sku: true },
@@ -291,7 +286,7 @@ export async function syncVaultErpCatalogToProductItems(
             where: { companyId, id: { in: ids } },
             data: {
               productTitle: item.itemName,
-              barcode: uploadBarcode,
+              ...(uploadBarcode ? { barcode: uploadBarcode } : {}),
               ...(item.standardRate > 0
                 ? { price: new Prisma.Decimal(item.standardRate) }
                 : {}),

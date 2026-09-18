@@ -23,8 +23,8 @@ function lookupOverlayKey(sku: string): string | null {
 
 /**
  * Barcode + Priority Status from the manually updated Vault OSF workbook.
- * Team has not uploaded barcodes to ERP yet — file is source of truth for now.
- * When ERP has values later, stop preferring this overlay (or leave cells blank in file).
+ * Overlay fills gaps when ERP `Item Barcode` list is 403; live GET Item covers
+ * SKUs missing from this snapshot (e.g. NT025-1 / NW032-2).
  */
 export function vaultWorkbookUploadExtras(sku: string): VaultWorkbookUploadExtras | null {
   const key = lookupOverlayKey(sku);

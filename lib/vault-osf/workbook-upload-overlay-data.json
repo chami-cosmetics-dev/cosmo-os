@@ -662,6 +662,14 @@
     "barcode": "9314807088279",
     "priorityStatus": "Top Priority"
   },
+  "NT025-1": {
+    "barcode": "9314807088286",
+    "priorityStatus": "Low priority"
+  },
+  "NW032-2": {
+    "barcode": "733739000927",
+    "priorityStatus": "Newly added"
+  },
   "WN026-1": {
     "barcode": "625273039252",
     "priorityStatus": "Low priority"

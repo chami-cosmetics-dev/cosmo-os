@@ -2,6 +2,12 @@ import "server-only";
 
 import { prisma } from "@/lib/prisma";
 import { OsfErpError, type OsfErpCredentials } from "@/lib/osf/erp-stock";
+import {
+  fetchItemBarcodeList,
+  fillMissingItemBarcodes,
+  firstBarcodeFromErpItem,
+  lookupBarcode,
+} from "@/lib/vault-osf/erp-barcodes";
 import { vaultErpGetJson } from "@/lib/vault-osf/erp-client";
 import {
   applyVaultOsfSkuPolicy,
@@ -86,11 +92,12 @@ export async function fetchVaultCatalog(cfg: OsfErpCredentials): Promise<VaultCa
     }
   }
 
-  const barcodes = await fetchItemBarcodes(cfg);
+  const getJson = <T>(path: string) => vaultErpGetJson<T>(cfg, path);
+  const barcodes = await fetchItemBarcodeList(getJson);
   const bySku = new Map<string, VaultCatalogRow>();
   for (const row of items) {
     const mapped = mapErpItemToCatalogRow(row, {
-      barcode: barcodes.get((row.item_code ?? row.name ?? "").trim()) ?? null,
+      barcode: lookupBarcode(barcodes, (row.item_code ?? row.name ?? "").trim()),
     });
     if (mapped) bySku.set(mapped.sku, applyVaultWorkbookUploadToCatalogRow(mapped));
   }
@@ -101,13 +108,21 @@ export async function fetchVaultCatalog(cfg: OsfErpCredentials): Promise<VaultCa
     const forced = await fetchSingleItem(cfg, sku);
     if (!forced) continue;
     const mapped = mapErpItemToCatalogRow(forced, {
-      barcode: barcodes.get(sku) ?? forced.barcodes?.[0]?.barcode ?? null,
+      barcode: lookupBarcode(barcodes, sku) ?? firstBarcodeFromErpItem(forced),
       priorityStatus: "Newly added",
     });
     if (mapped) bySku.set(mapped.sku, applyVaultWorkbookUploadToCatalogRow(mapped));
   }
 
   const mapped = applyVaultOsfSkuPolicy([...bySku.values()]);
+  const missing = mapped.filter((row) => !row.barcode?.trim()).map((row) => row.sku);
+  if (missing.length > 0) {
+    const extra = await fillMissingItemBarcodes(getJson, missing);
+    for (const row of mapped) {
+      if (row.barcode?.trim()) continue;
+      row.barcode = lookupBarcode(extra, row.sku);
+    }
+  }
   mapped.sort((a, b) => a.sku.localeCompare(b.sku));
   return mapped;
 }
@@ -127,32 +142,6 @@ async function fetchSingleItem(
   } catch {
     return null;
   }
-}
-
-async function fetchItemBarcodes(cfg: OsfErpCredentials): Promise<Map<string, string>> {
-  const map = new Map<string, string>();
-  const fields = JSON.stringify(["parent", "barcode"]);
-  try {
-    for (let page = 0; page < MAX_PAGES; page += 1) {
-      const path =
-        `/api/resource/Item Barcode?fields=${encodeURIComponent(fields)}` +
-        `&limit_start=${page * PAGE}&limit_page_length=${PAGE}`;
-      const json = await vaultErpGetJson<{ data?: Array<{ parent?: string; barcode?: string }> }>(
-        cfg,
-        path,
-      );
-      const rows = json.data ?? [];
-      for (const row of rows) {
-        const sku = row.parent?.trim();
-        const barcode = row.barcode?.trim();
-        if (sku && barcode && !map.has(sku)) map.set(sku, barcode);
-      }
-      if (rows.length < PAGE) break;
-    }
-  } catch {
-    // Barcode child may be unreadable; catalog still valid without it.
-  }
-  return map;
 }
 
 export async function attachOsPriority(

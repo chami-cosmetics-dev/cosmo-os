@@ -31,7 +31,10 @@ export type BookNoteOrderPaymentEntryInput = {
 
 export type BookNotePaymentSuggestion = {
   columns: BookNotePaymentColumns;
-  /** Set when 2+ incoming payment legs exist — UI opens SPLIT. */
+  /**
+   * Set only when 2+ legs share the same method (two cards, two KOKO).
+   * Mixed Cash+Card stays in the four columns — no SPLIT panel.
+   */
   splitLines: BookNoteSplitLine[] | null;
 };
 
@@ -146,6 +149,12 @@ export function mapPaymentLegsToSplitLines(
   return lines;
 }
 
+function sameMethodAppearsTwice(lines: BookNoteSplitLine[]): boolean {
+  if (lines.length < 2) return false;
+  const methods = new Set(lines.map((line) => line.paymentMethod));
+  return methods.size < lines.length;
+}
+
 function suggestionFromLegs(legs: BookNotePaymentLeg[]): BookNotePaymentSuggestion | null {
   const splitLines = mapPaymentLegsToSplitLines(legs);
   if (splitLines.length === 0) return null;
@@ -157,7 +166,7 @@ function suggestionFromLegs(legs: BookNotePaymentLeg[]): BookNotePaymentSuggesti
       koko: agg.koko,
       bankTransfer: agg.bankTransfer,
     },
-    splitLines: splitLines.length >= 2 ? splitLines : null,
+    splitLines: sameMethodAppearsTwice(splitLines) ? splitLines : null,
   };
 }
 
@@ -176,8 +185,8 @@ export function mapOrderPaymentsToBookNoteColumns(input: {
 
 /**
  * Suggestion autofill: prefer synced ERP payment entries, then POS payments[],
- * then the primary gateway total. Two or more incoming legs return splitLines
- * so the book-note row opens SPLIT instead of collapsing into one column.
+ * then the primary gateway total. Same-method duplicate legs return splitLines
+ * (SPLIT panel). Different methods fill Cash / Card / KOKO / Bank columns.
  */
 export function mapOrderPaymentsToBookNoteSuggestion(input: {
   totalPrice?: unknown;

@@ -67,10 +67,7 @@ describe("mapOrderPaymentsToBookNoteSuggestion", () => {
       koko: 0,
       bankTransfer: 0,
     });
-    expect(mapped.splitLines).toEqual([
-      { paymentMethod: "Cash", amount: 28000 },
-      { paymentMethod: "Card", amount: 2890 },
-    ]);
+    expect(mapped.splitLines).toBeNull();
   });
 
   it("opens split lines for two card payment entries", () => {
@@ -124,6 +121,6 @@ describe("mapOrderPaymentsToBookNoteSuggestion", () => {
       koko: 0,
       bankTransfer: 300,
     });
-    expect(mapped.splitLines).toHaveLength(2);
+    expect(mapped.splitLines).toBeNull();
   });
 });
