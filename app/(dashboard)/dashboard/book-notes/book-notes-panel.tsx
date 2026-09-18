@@ -80,6 +80,20 @@ function toNum(v: string): number {
   return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : 0;
 }
 
+function suggestionAmountHint(s: BookNoteOrderSuggestion): string {
+  if (s.splitLines && s.splitLines.length >= 2) {
+    return s.splitLines
+      .map((sl) => `${sl.paymentMethod} ${sl.amount.toFixed(2)}`)
+      .join(" · ");
+  }
+  const parts: string[] = [];
+  if (s.cash > 0) parts.push(`Cash ${s.cash.toFixed(2)}`);
+  if (s.card > 0) parts.push(`Card ${s.card.toFixed(2)}`);
+  if (s.koko > 0) parts.push(`KOKO ${s.koko.toFixed(2)}`);
+  if (s.bankTransfer > 0) parts.push(`Bank ${s.bankTransfer.toFixed(2)}`);
+  return parts.length > 0 ? parts.join(" · ") : s.totalPrice.toFixed(2);
+}
+
 function emptySplitLine(paymentMethod: BookNoteErpPaymentMethod = "Card"): SplitLineForm {
   return {
     key: `sl-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -1584,15 +1598,7 @@ export function BookNotesPanel({
                             >
                               <span className="font-mono font-medium">{s.label}</span>
                               <span className="text-muted-foreground ml-2">
-                                {s.splitLines && s.splitLines.length >= 2
-                                  ? s.splitLines
-                                      .map(
-                                        (sl) =>
-                                          `${sl.paymentMethod} ${sl.amount.toFixed(2)}`,
-                                      )
-                                      .join(" · ")
-                                  : s.totalPrice.toFixed(2)}{" "}
-                                · {s.sourceName}
+                                {suggestionAmountHint(s)} · {s.sourceName}
                               </span>
                             </button>
                           </li>
