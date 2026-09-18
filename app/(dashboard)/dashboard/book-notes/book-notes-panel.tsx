@@ -623,16 +623,25 @@ export function BookNotesPanel({
     }
     suggestTimer.current = setTimeout(async () => {
       try {
+        const typed = q.trim();
         const params = new URLSearchParams({
           companyLocationId,
-          q: q.trim(),
+          q: typed,
           postingDate,
         });
         const res = await fetch(`/api/admin/book-notes/order-suggestions?${params}`);
         const data = await res.json();
         if (!res.ok) return;
+        const next = (data.suggestions as BookNoteOrderSuggestion[] | undefined) ?? [];
+        const exact = next.find(
+          (s) => s.salesInvoice.toLowerCase() === typed.toLowerCase(),
+        );
+        if (exact) {
+          applySuggestion(rowKey, exact);
+          return;
+        }
         setSuggestForKey(rowKey);
-        setSuggestions(data.suggestions ?? []);
+        setSuggestions(next);
       } catch {
         // ignore suggestion errors — manual entry still works
       }

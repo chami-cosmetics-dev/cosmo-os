@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 
+import { fetchErpPaymentLegsByInvoice } from "@/lib/book-notes/erp-payment-legs";
 import { resolveBookNoteSalesInvoice } from "@/lib/book-notes/invoice-identity";
 import { mapOrderPaymentsToBookNoteSuggestion } from "@/lib/book-notes/payment-columns";
 import type { BookNoteOrderSuggestion } from "@/lib/book-notes/types";
@@ -124,8 +125,56 @@ export async function searchBookNoteOrderSuggestions(input: {
     })
     .filter((x): x is NonNullable<typeof x> => x != null)
     .sort((a, b) => b.score - a.score)
-    .slice(0, limit)
-    .map((x) => x.suggestion);
+    .slice(0, limit);
 
-  return mapped;
+  const suggestions = mapped.map((x) => x.suggestion);
+  return hydrateSuggestionsFromErp(input.companyLocationId, suggestions, q);
+}
+
+async function hydrateSuggestionsFromErp(
+  companyLocationId: string,
+  suggestions: BookNoteOrderSuggestion[],
+  q: string,
+): Promise<BookNoteOrderSuggestion[]> {
+  if (suggestions.length === 0) return suggestions;
+  if (q.trim().length < 4) return suggestions;
+
+  const location = await prisma.companyLocation.findFirst({
+    where: { id: companyLocationId },
+    select: {
+      erpnextInstance: {
+        select: { baseUrl: true, apiKey: true, apiSecret: true },
+      },
+    },
+  });
+  const instance = location?.erpnextInstance;
+  if (!instance?.baseUrl || !instance.apiKey || !instance.apiSecret) {
+    return suggestions;
+  }
+
+  const erpLegs = await fetchErpPaymentLegsByInvoice({
+    baseUrl: instance.baseUrl,
+    apiKey: instance.apiKey,
+    apiSecret: instance.apiSecret,
+    invoiceNames: suggestions.map((s) => s.salesInvoice),
+  });
+  if (erpLegs.size === 0) return suggestions;
+
+  return suggestions.map((s) => {
+    const legs = erpLegs.get(s.salesInvoice);
+    if (!legs || legs.length === 0) return s;
+    const mappedPayments = mapOrderPaymentsToBookNoteSuggestion({
+      totalPrice: s.totalPrice,
+      paymentGatewayPrimary: s.paymentGatewayPrimary,
+      paymentEntries: legs,
+    });
+    return {
+      ...s,
+      cash: mappedPayments.columns.cash,
+      card: mappedPayments.columns.card,
+      koko: mappedPayments.columns.koko,
+      bankTransfer: mappedPayments.columns.bankTransfer,
+      splitLines: mappedPayments.splitLines,
+    };
+  });
 }
