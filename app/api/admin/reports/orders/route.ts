@@ -43,22 +43,36 @@ import { resolveOrderShippingDisplayForOrder } from "@/lib/order-shipping-displa
 import { resolveCustomerPhone, resolveShippingPhone } from "@/lib/order-sms-resolvers";
 import { getOrderDumpPermission, getUtilityOrderDumpPermission } from "@/lib/report-permissions";
 import { requirePermission } from "@/lib/rbac";
+import { parseAppCalendarDayEnd, parseAppCalendarDayStart } from "@/lib/format-datetime";
 
 type ReportKind = "invoice" | "invoice-item";
-type RangeKind = "last-90" | "warehouse-360" | "historical-year";
+type RangeKind = "last-90" | "warehouse-360" | "historical-year" | "custom";
 
 function parseReportKind(value: string | null): ReportKind {
   return value === "invoice-item" ? "invoice-item" : "invoice";
 }
 
 function parseRangeKind(value: string | null): RangeKind {
+  if (value === "custom") return "custom";
   if (value === "warehouse-360") return "warehouse-360";
   if (value === "historical-year") return "historical-year";
   return "last-90";
 }
 
-function getRangeBounds(range: RangeKind, year: number | null) {
+function getRangeBounds(range: RangeKind, year: number | null, fromYmd: string | null, toYmd: string | null) {
   const now = new Date();
+  if (range === "custom") {
+    const from = parseAppCalendarDayStart(fromYmd);
+    const to = parseAppCalendarDayEnd(toYmd);
+    if (!from || !to) {
+      return { error: "Invalid date range. Use YYYY-MM-DD dates." };
+    }
+    if (from > to) {
+      return { error: "From date cannot be after To date." };
+    }
+    return { from, to, label: `${fromYmd}-to-${toYmd}` };
+  }
+
   if (range === "warehouse-360") {
     const yesterday = addDays(startOfDay(now), -1);
     const to = endOfDay(yesterday);
@@ -280,12 +294,12 @@ function resolveMerchantName(input: {
 function getReportLabel(report: ReportKind, range: RangeKind) {
   if (report === "invoice-item") {
     if (range === "warehouse-360") return "Web-site Invoice Item Detail (Invoice Wise) [Processed Up to Last Day]";
-    if (range === "historical-year") return "Historical Invoice Item Details";
+    if (range === "historical-year" || range === "custom") return "Historical Invoice Item Details";
     return "Web-site Invoice Item Detail (Invoice/Item Wise) [Last 90 Days]";
   }
 
   if (range === "warehouse-360") return "Web-site Invoice Detail (Invoice Wise 360 Days) [Processed Up to Last Day]";
-  if (range === "historical-year") return "Historical Invoice Details";
+  if (range === "historical-year" || range === "custom") return "Historical Invoice Details";
   return "Web-site Invoice Detail (Invoice Wise) [Last 90 Days]";
 }
 
@@ -418,7 +432,18 @@ export async function GET(request: NextRequest) {
 
   const yearParam = request.nextUrl.searchParams.get("year");
   const parsedYear = yearParam ? Number.parseInt(yearParam, 10) : null;
-  const { from, to, label } = getRangeBounds(range, parsedYear);
+  const fromParam = request.nextUrl.searchParams.get("from");
+  const toParam = request.nextUrl.searchParams.get("to");
+  const bounds = getRangeBounds(
+    range,
+    parsedYear,
+    fromParam,
+    toParam,
+  );
+  if ("error" in bounds) {
+    return NextResponse.json({ error: bounds.error }, { status: 400 });
+  }
+  const { from, to, label } = bounds;
   const orderWhere = {
     companyId,
     createdAt: {
@@ -467,6 +492,7 @@ export async function GET(request: NextRequest) {
 
   const filterParts = [`report=${report}`, `range=${range}`];
   if (range === "historical-year") filterParts.push(`year=${label}`);
+  if (range === "custom") filterParts.push(`from=${fromParam ?? ""}`, `to=${toParam ?? ""}`);
   if (omitCustomerPhone) filterParts.push("omit_customer_phone=1");
   const filters = filterParts.join(";");
   const baseReportLabel = getReportLabel(report, range);
