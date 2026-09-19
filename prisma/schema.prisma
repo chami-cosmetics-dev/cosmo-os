@@ -770,6 +770,11 @@ model Order {
   sampleFreeIssueSendLaterDate    DateTime?
   /// Merchant-entered KOKO portal link generated time (minute precision).
   kokoLinkGeneratedAt             DateTime?
+  /// Link generated times for KOKO payments 2..N when the customer paid in several parts.
+  kokoExtraLinkGeneratedAt        DateTime[]
+  /// Merchant tells finance the customer paid this order with several KOKO payments.
+  kokoMultiPaymentFlagged         Boolean                @default(false)
+  kokoMultiPaymentCount           Int?
   kokoLinkTimeConfirmedAt         DateTime?
   kokoLinkTimeConfirmedById       String?
   deliveryCompleteById            String?

@@ -9,6 +9,7 @@ import {
   buildOrderItemFingerprint,
   phoneKeyForKokoDuplicate,
   type KokoDuplicateCandidate,
+  type KokoDuplicateGroupMember,
 } from "@/lib/koko-duplicate-group";
 import { isErpKokoOrder, isKokoPaymentGateway, KOKO_DUPLICATE_LOOKBACK_DAYS } from "@/lib/koko-order";
 import { releaseKokoReferencesForOrder } from "@/lib/koko-approval-references";
@@ -94,18 +95,12 @@ export function enrichApprovalsWithKokoDuplicateGroups<
   candidates: KokoDuplicateCandidate[],
 ): Array<
   T & {
-    kokoLinkGeneratedAt?: string | null;
     duplicateGroupId?: string | null;
     duplicateGroupSize?: number;
-    duplicateGroupMembers?: ReturnType<typeof buildKokoDuplicateGroups> extends Map<string, infer V> 
-  ? V extends { duplicateGroupMembers: infer M }
-    ? M
-    : never
-  : never;
+    duplicateGroupMembers?: KokoDuplicateGroupMember[];
   }
 > {
   const groups = buildKokoDuplicateGroups(candidates);
-  const byOrderId = new Map(candidates.map((c) => [c.orderId, c]));
   const groupByOrderId = new Map<string, string>();
   for (const [groupId, meta] of groups) {
     for (const m of meta.duplicateGroupMembers) {
@@ -122,18 +117,15 @@ export function enrichApprovalsWithKokoDuplicateGroups<
     if (!isKokoPayment || !a.orderId) {
       return {
         ...a,
-        kokoLinkGeneratedAt: null,
         duplicateGroupId: null,
         duplicateGroupSize: 1,
         duplicateGroupMembers: [],
       };
     }
-    const cand = byOrderId.get(a.orderId);
     const groupId = groupByOrderId.get(a.orderId) ?? null;
     const meta = groupId ? groups.get(groupId) : null;
     return {
       ...a,
-      kokoLinkGeneratedAt: cand?.kokoLinkGeneratedAt?.toISOString() ?? null,
       duplicateGroupId: meta ? groupId : null,
       duplicateGroupSize: meta?.duplicateGroupSize ?? 1,
       duplicateGroupMembers: meta?.duplicateGroupMembers ?? [],

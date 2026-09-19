@@ -31,6 +31,9 @@ export type FinanceApprovalItem = {
   kokoPaymentAmount?: string | null;
   requiresKokoReference: boolean;
   kokoLinkGeneratedAt?: string | null;
+  merchantMultipleKokoPayments?: boolean;
+  merchantKokoPaymentCount?: number | null;
+  merchantKokoLinkTimes?: string[];
   duplicateGroupId?: string | null;
   duplicateGroupSize?: number;
   duplicateGroupMembers?: Array<{
@@ -138,6 +141,20 @@ function TypeBadge({ type }: { type: string }) {
   );
 }
 
+/** KOKO portal link generated time the merchant confirmed, shown under the payment label. */
+function KokoLinkTimeLine({ approval }: { approval: FinanceApprovalItem }) {
+  if (!approval.kokoLinkGeneratedAt) return null;
+  const count = approval.merchantMultipleKokoPayments
+    ? (approval.merchantKokoPaymentCount ?? approval.merchantKokoLinkTimes?.length ?? 2)
+    : 0;
+  return (
+    <span className="mt-0.5 block text-[11px] text-muted-foreground">
+      Link {formatAppDateTime(approval.kokoLinkGeneratedAt)}
+      {count > 1 ? ` · ${count} payments` : ""}
+    </span>
+  );
+}
+
 function formatMoney(value: number): string {
   return value.toLocaleString("en-LK", {
     minimumFractionDigits: 2,
@@ -159,11 +176,9 @@ type KokoReferenceRow = {
   amount: string;
 };
 
-function emptyKokoRows(): KokoReferenceRow[] {
-  return [
-    { reference: "", amount: "" },
-    { reference: "", amount: "" },
-  ];
+function emptyKokoRows(count = 2): KokoReferenceRow[] {
+  const rows = Math.min(Math.max(count, 2), 10);
+  return Array.from({ length: rows }, () => ({ reference: "", amount: "" }));
 }
 
 function paymentLabel(approval: Pick<FinanceApprovalItem, "type" | "paymentTypeLabel" | "requestNote">) {
@@ -388,7 +403,10 @@ export function FinanceApprovalsPanel({
 
   useEffect(() => {
     setKokoReference(selected?.kokoReference ?? "");
-    setMultipleKokoPayments(Boolean(selected?.multipleKokoPayments));
+    // Merchant already told us the customer paid in parts — tick the box for finance.
+    setMultipleKokoPayments(
+      Boolean(selected?.multipleKokoPayments || selected?.merchantMultipleKokoPayments),
+    );
     if (selected?.kokoReferences && selected.kokoReferences.length > 1) {
       setKokoReferenceRows(
         selected.kokoReferences.map((row) => ({
@@ -396,12 +414,17 @@ export function FinanceApprovalsPanel({
           amount: row.amount,
         })),
       );
-    } else if (selected?.multipleKokoPayments) {
-      setKokoReferenceRows(emptyKokoRows());
     } else {
-      setKokoReferenceRows(emptyKokoRows());
+      setKokoReferenceRows(emptyKokoRows(selected?.merchantKokoPaymentCount ?? 2));
     }
-  }, [selectedId, selected?.kokoReference, selected?.multipleKokoPayments, selected?.kokoReferences]);
+  }, [
+    selectedId,
+    selected?.kokoReference,
+    selected?.multipleKokoPayments,
+    selected?.kokoReferences,
+    selected?.merchantMultipleKokoPayments,
+    selected?.merchantKokoPaymentCount,
+  ]);
 
   function switchView(next: "pending" | "history") {
     setView(next);
@@ -750,7 +773,10 @@ export function FinanceApprovalsPanel({
                               )}
                             </td>
                             <td className="px-3 py-3"><TypeBadge type={approval.type} /></td>
-                            <td className="px-3 py-3 text-muted-foreground">{paymentLabel(approval)}</td>
+                            <td className="px-3 py-3 text-muted-foreground">
+                              {paymentLabel(approval)}
+                              <KokoLinkTimeLine approval={approval} />
+                            </td>
                             <td className="px-3 py-3 text-muted-foreground">{riderLabel(approval)}</td>
                             <td className="px-3 py-3">{formatAmount(approval.totalPrice)}</td>
                             <td className="px-3 py-3 text-muted-foreground">{formatDate(approval.createdAt)}</td>
@@ -780,7 +806,10 @@ export function FinanceApprovalsPanel({
                         )}
                       </td>
                       <td className="px-3 py-3"><TypeBadge type={approval.type} /></td>
-                      <td className="px-3 py-3 text-muted-foreground">{paymentLabel(approval)}</td>
+                      <td className="px-3 py-3 text-muted-foreground">
+                        {paymentLabel(approval)}
+                        <KokoLinkTimeLine approval={approval} />
+                      </td>
                       <td className="px-3 py-3">{formatAmount(approval.totalPrice)}</td>
                       <td className="px-3 py-3 text-muted-foreground">{formatDate(approval.createdAt)}</td>
                     </tr>
@@ -825,7 +854,32 @@ export function FinanceApprovalsPanel({
                     <p>
                       <span className="font-medium">KOKO link generated:</span>{" "}
                       {formatAppDateTime(selected.kokoLinkGeneratedAt)}
+                      <span className="text-muted-foreground"> (merchant confirmed)</span>
                     </p>
+                  )}
+                  {selected.requiresKokoReference && !selected.kokoLinkGeneratedAt && (
+                    <p className="text-muted-foreground">
+                      <span className="font-medium text-foreground">KOKO link generated:</span> not
+                      recorded — merchant confirmed this order before link time capture started.
+                    </p>
+                  )}
+                  {selected.merchantMultipleKokoPayments && (
+                    <div className="rounded-md border border-sky-500/40 bg-sky-500/10 p-2 text-sky-900 dark:text-sky-200">
+                      <p className="font-medium">
+                        Merchant: customer paid with {selected.merchantKokoPaymentCount ?? 2} KOKO
+                        payments
+                      </p>
+                      <ul className="mt-1 list-disc space-y-1 pl-4 text-xs">
+                        {(selected.merchantKokoLinkTimes ?? []).map((time, index) => (
+                          <li key={`${time}-${index}`}>
+                            Payment {index + 1} link generated {formatAppDateTime(time)}
+                          </li>
+                        ))}
+                      </ul>
+                      <p className="mt-1 text-xs">
+                        Add one KOKO reference and amount per payment below.
+                      </p>
+                    </div>
                   )}
                   {selected.duplicateGroupId && (selected.duplicateGroupSize ?? 0) > 1 && (
                     <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-amber-900 dark:text-amber-200">

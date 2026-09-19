@@ -27,13 +27,17 @@ import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { notify } from "@/lib/notify";
 import { formatAppDateTime, formatAppIsoCalendarDate, formatAppIsoDate } from "@/lib/format-datetime";
-import { needsKokoLinkTimeConfirm, toColomboDateTimeLocalValue } from "@/lib/koko-order";
+import {
+  needsKokoLinkTimeConfirm,
+  parseKokoLinkGeneratedAt,
+  toColomboPasteValue,
+} from "@/lib/koko-order";
 import {
   canRequestPaymentMethodChange,
   getPaymentMethodInfo,
   isUnpaidCardOnDeliveryFinance,
 } from "@/lib/payment-method-label";
-import { LIMITS } from "@/lib/validation";
+import { KOKO_MAX_PAYMENTS, LIMITS } from "@/lib/validation";
 import type { FulfillmentOrder } from "./fulfillment-order-selector";
 
 interface FulfillmentSampleFreeIssuePanelProps {
@@ -74,6 +78,9 @@ type SampleOrderDetail = {
   }>;
   sampleFreeIssueSendLaterDate?: string | null;
   kokoLinkGeneratedAt?: string | null;
+  kokoExtraLinkGeneratedAt?: string[];
+  kokoMultiPaymentFlagged?: boolean;
+  kokoMultiPaymentCount?: number | null;
   kokoLinkTimeConfirmedAt?: string | null;
   remarks?: Array<{
     id: string;
@@ -163,10 +170,21 @@ export function FulfillmentSampleFreeIssuePanel({
   const [splitKokoAmount, setSplitKokoAmount] = useState("");
   const [splitBankAmount, setSplitBankAmount] = useState("");
   const [kokoLinkLocal, setKokoLinkLocal] = useState("");
+  const [kokoMultiPayment, setKokoMultiPayment] = useState(false);
+  const [kokoExtraLinkLocals, setKokoExtraLinkLocals] = useState<string[]>([]);
   const [kokoLinkBusy, setKokoLinkBusy] = useState(false);
   const [duplicateNotice, setDuplicateNotice] = useState<
     Array<{ orderId: string; invoiceNo: string | null; merchantLabel: string | null; status: string }>
   >([]);
+  const kokoLinkParsed = useMemo(() => parseKokoLinkGeneratedAt(kokoLinkLocal), [kokoLinkLocal]);
+  const kokoExtraParsed = useMemo(
+    () => kokoExtraLinkLocals.map((raw) => parseKokoLinkGeneratedAt(raw)),
+    [kokoExtraLinkLocals],
+  );
+  const kokoLinkTimesReady =
+    kokoLinkParsed != null &&
+    (!kokoMultiPayment ||
+      (kokoExtraParsed.length > 0 && kokoExtraParsed.every((parsed) => parsed != null)));
   const isBusy = busyKey !== null;
 
   useEffect(() => {
@@ -208,11 +226,20 @@ export function FulfillmentSampleFreeIssuePanel({
   useEffect(() => {
     if (!detail) {
       setKokoLinkLocal("");
+      setKokoMultiPayment(false);
+      setKokoExtraLinkLocals([]);
       setDuplicateNotice([]);
       return;
     }
-    setKokoLinkLocal(toColomboDateTimeLocalValue(detail.kokoLinkGeneratedAt ?? null));
-  }, [detail?.id, detail?.kokoLinkGeneratedAt]);
+    setKokoLinkLocal(toColomboPasteValue(detail.kokoLinkGeneratedAt ?? null));
+    setKokoMultiPayment(Boolean(detail.kokoMultiPaymentFlagged));
+    setKokoExtraLinkLocals((detail.kokoExtraLinkGeneratedAt ?? []).map(toColomboPasteValue));
+  }, [
+    detail?.id,
+    detail?.kokoLinkGeneratedAt,
+    detail?.kokoMultiPaymentFlagged,
+    detail?.kokoExtraLinkGeneratedAt,
+  ]);
 
   async function reloadDetail() {
     if (!orderId) return;
@@ -461,8 +488,12 @@ export function FulfillmentSampleFreeIssuePanel({
     : false;
 
   async function confirmKokoLinkTime() {
-    if (!orderId || !kokoLinkLocal.trim()) {
-      notify.error("Enter the KOKO portal link generated date and time.");
+    if (!orderId || !kokoLinkParsed) {
+      notify.error("Paste the KOKO portal link generated date and time, e.g. 2026-09-18 11:30.");
+      return;
+    }
+    if (kokoMultiPayment && !kokoLinkTimesReady) {
+      notify.error("Paste a link generated time for every KOKO payment.");
       return;
     }
     setKokoLinkBusy(true);
@@ -470,7 +501,13 @@ export function FulfillmentSampleFreeIssuePanel({
       const response = await fetch(`/api/admin/orders/${orderId}/koko-link-time`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ kokoLinkGeneratedAt: kokoLinkLocal }),
+        body: JSON.stringify({
+          kokoLinkGeneratedAt: kokoLinkParsed.toISOString(),
+          multipleKokoPayments: kokoMultiPayment,
+          extraKokoLinkGeneratedAt: kokoMultiPayment
+            ? kokoExtraParsed.map((parsed) => parsed!.toISOString())
+            : [],
+        }),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
@@ -486,7 +523,11 @@ export function FulfillmentSampleFreeIssuePanel({
       } else {
         setDuplicateNotice([]);
       }
-      notify.success("KOKO link time confirmed — finance approval created.");
+      notify.success(
+        kokoMultiPayment
+          ? `KOKO link times confirmed for ${kokoExtraParsed.length + 1} payments — finance approval created.`
+          : "KOKO link time confirmed — finance approval created.",
+      );
       await reloadDetail();
       onRefresh(false);
     } catch {
@@ -1094,7 +1135,7 @@ export function FulfillmentSampleFreeIssuePanel({
                   Confirm KOKO link generated time
                 </p>
                 <p className="text-amber-700 dark:text-amber-500">
-                  Enter the date/time shown when the payment link was generated in the KOKO portal.
+                  Paste the date/time shown when the payment link was generated in the KOKO portal.
                   Finance approval starts only after you confirm.
                 </p>
               </div>
@@ -1112,24 +1153,43 @@ export function FulfillmentSampleFreeIssuePanel({
                 </ul>
               </div>
             )}
-            <div className="flex flex-wrap items-end gap-3">
+            <div className="flex flex-wrap items-start gap-3">
               <div>
-                <label className="mb-1 block text-xs font-medium text-amber-900 dark:text-amber-200">
-                  Link generated (Asia/Colombo)
+                <label
+                  className="mb-1 block text-xs font-medium text-amber-900 dark:text-amber-200"
+                  htmlFor="koko-link-generated-at"
+                >
+                  {kokoMultiPayment
+                    ? "Payment 1 link generated (Asia/Colombo)"
+                    : "Link generated (Asia/Colombo)"}
                 </label>
                 <Input
-                  type="datetime-local"
+                  id="koko-link-generated-at"
+                  type="text"
+                  inputMode="text"
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder="2026-09-18 11:30 or 18/09/2026 11:30 AM"
                   value={kokoLinkLocal}
                   onChange={(e) => setKokoLinkLocal(e.target.value)}
                   disabled={kokoLinkBusy || !perms.canManageSampleFreeIssue}
-                  className="bg-background"
+                  className="bg-background w-64 font-mono"
+                  aria-invalid={kokoLinkLocal.trim().length > 0 && !kokoLinkParsed}
                 />
+                <p className="mt-1 text-xs text-amber-800 dark:text-amber-300">
+                  {kokoLinkLocal.trim().length === 0
+                    ? "Paste straight from the KOKO portal, e.g. 2026-09-18 11:30."
+                    : kokoLinkParsed
+                      ? `Reads as ${formatAppDateTime(kokoLinkParsed)}`
+                      : "Could not read that time. Use e.g. 2026-09-18 11:30."}
+                </p>
               </div>
               {perms.canManageSampleFreeIssue && (
                 <Button
                   type="button"
+                  className="mt-5"
                   onClick={() => void confirmKokoLinkTime()}
-                  disabled={kokoLinkBusy || !kokoLinkLocal.trim()}
+                  disabled={kokoLinkBusy || !kokoLinkTimesReady}
                 >
                   {kokoLinkBusy ? (
                     <>
@@ -1142,13 +1202,97 @@ export function FulfillmentSampleFreeIssuePanel({
                 </Button>
               )}
             </div>
+            <label className="flex items-center gap-2 text-xs font-medium text-amber-900 dark:text-amber-200">
+              <input
+                type="checkbox"
+                className="size-4 rounded border border-input"
+                checked={kokoMultiPayment}
+                onChange={(e) => {
+                  const checked = e.target.checked;
+                  setKokoMultiPayment(checked);
+                  setKokoExtraLinkLocals((rows) =>
+                    checked ? (rows.length > 0 ? rows : [""]) : [],
+                  );
+                }}
+                disabled={kokoLinkBusy || !perms.canManageSampleFreeIssue}
+              />
+              Customer paid with multiple KOKO payments
+            </label>
+            {kokoMultiPayment && (
+              <div className="space-y-2">
+                <p className="text-xs text-amber-800 dark:text-amber-300">
+                  Paste the link generated time for every payment. Finance gets the multiple-payment
+                  box ticked with one reference row per payment.
+                </p>
+                {kokoExtraLinkLocals.map((value, index) => (
+                  <div key={`koko-extra-link-${index}`} className="flex items-center gap-2">
+                    <span className="w-24 text-xs text-amber-900 dark:text-amber-200">
+                      Payment {index + 2}
+                    </span>
+                    <Input
+                      type="text"
+                      autoComplete="off"
+                      spellCheck={false}
+                      placeholder="2026-09-18 12:05"
+                      value={value}
+                      onChange={(e) => {
+                        const next = e.target.value;
+                        setKokoExtraLinkLocals((rows) =>
+                          rows.map((row, rowIndex) => (rowIndex === index ? next : row)),
+                        );
+                      }}
+                      disabled={kokoLinkBusy || !perms.canManageSampleFreeIssue}
+                      className="bg-background w-64 font-mono"
+                      aria-invalid={value.trim().length > 0 && !kokoExtraParsed[index]}
+                    />
+                    {perms.canManageSampleFreeIssue && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        disabled={kokoLinkBusy || kokoExtraLinkLocals.length <= 1}
+                        onClick={() =>
+                          setKokoExtraLinkLocals((rows) =>
+                            rows.filter((_, rowIndex) => rowIndex !== index),
+                          )
+                        }
+                        aria-label={`Remove payment ${index + 2}`}
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
+                    )}
+                  </div>
+                ))}
+                {perms.canManageSampleFreeIssue && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={kokoLinkBusy || kokoExtraLinkLocals.length >= KOKO_MAX_PAYMENTS - 1}
+                    onClick={() => setKokoExtraLinkLocals((rows) => [...rows, ""])}
+                  >
+                    <Plus className="size-4" aria-hidden />
+                    Add KOKO payment
+                  </Button>
+                )}
+              </div>
+            )}
           </div>
         )}
 
         {detail?.kokoLinkTimeConfirmedAt && detail.kokoLinkGeneratedAt && (
-          <p className="text-sm text-muted-foreground">
-            KOKO link generated: {formatAppDateTime(detail.kokoLinkGeneratedAt)} (confirmed)
-          </p>
+          <div className="text-sm text-muted-foreground">
+            <p>KOKO link generated: {formatAppDateTime(detail.kokoLinkGeneratedAt)} (confirmed)</p>
+            {detail.kokoMultiPaymentFlagged && (
+              <p>
+                Multiple KOKO payments ({detail.kokoMultiPaymentCount ?? 2}) — finance notified.
+                Other link times:{" "}
+                {(detail.kokoExtraLinkGeneratedAt ?? [])
+                  .map((time) => formatAppDateTime(time))
+                  .join(", ")}
+              </p>
+            )}
+          </div>
         )}
 
         {order?.pendingMethodChangeApproval && orderId && (

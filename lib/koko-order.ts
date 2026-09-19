@@ -70,42 +70,90 @@ export function canEditKokoLinkTime(order: {
   return true;
 }
 
-/**
- * Parse merchant-entered ISO datetime (or datetime-local) as Asia/Colombo wall time
- * when no offset is present; otherwise use the given instant.
- */
-export function parseKokoLinkGeneratedAt(raw: string): Date | null {
-  const trimmed = raw.trim();
-  if (!trimmed) return null;
+/** Sri Lanka has no DST, so Colombo wall time is always UTC+5:30. */
+const COLOMBO_OFFSET_MINUTES = 5 * 60 + 30;
 
-  // datetime-local: YYYY-MM-DDTHH:mm (no zone) → treat as Colombo
-  const localMatch = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/.exec(trimmed);
-  if (localMatch) {
-    const [, y, mo, d, h, mi, se] = localMatch;
-    // Wall clock in Asia/Colombo → UTC (Sri Lanka is GMT+5:30 year-round).
-    const offsetMinutes = 5 * 60 + 30;
-    const utcMs =
-      Date.UTC(
-        Number(y),
-        Number(mo) - 1,
-        Number(d),
-        Number(h),
-        Number(mi),
-        Number(se ?? "0"),
-      ) -
-      offsetMinutes * 60_000;
-    const date = new Date(utcMs);
-    return Number.isNaN(date.getTime()) ? null : date;
-  }
-
-  const date = new Date(trimmed);
-  if (Number.isNaN(date.getTime())) return null;
-  date.setUTCSeconds(0, 0);
-  return date;
+function colomboWallTimeToUtc(
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number,
+  second = 0,
+): Date | null {
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  if (hour > 23 || minute > 59 || second > 59) return null;
+  // Reject impossible calendar dates (e.g. 31 Feb) instead of letting them roll over.
+  const probe = new Date(Date.UTC(year, month - 1, day));
+  if (probe.getUTCMonth() !== month - 1 || probe.getUTCDate() !== day) return null;
+  const date = new Date(
+    Date.UTC(year, month - 1, day, hour, minute, second) - COLOMBO_OFFSET_MINUTES * 60_000,
+  );
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
-/** datetime-local value (YYYY-MM-DDTHH:mm) in Asia/Colombo for an instant. */
-export function toColomboDateTimeLocalValue(value: Date | string | null | undefined): string {
+function applyMeridiem(hour: number, meridiem: string | undefined): number | null {
+  if (!meridiem) return hour;
+  const m = meridiem.toLowerCase();
+  if (hour < 1 || hour > 12) return null;
+  if (m.startsWith("p")) return hour === 12 ? 12 : hour + 12;
+  return hour === 12 ? 0 : hour;
+}
+
+/**
+ * Parse a KOKO portal timestamp pasted by a merchant.
+ *
+ * Accepted shapes (times without an explicit offset are read as Asia/Colombo):
+ *   2026-09-18 11:30       2026-09-18T11:30:00
+ *   18/09/2026 11:30 AM    18-09-2026 11:30
+ *   2026-09-18T11:30:00+05:30  (explicit offset honoured as-is)
+ * Day-first is assumed for slash/dash dates — Sri Lankan portal convention.
+ */
+export function parseKokoLinkGeneratedAt(raw: string): Date | null {
+  const trimmed = raw.trim().replace(/\s+/g, " ");
+  if (!trimmed) return null;
+
+  const time = "(\\d{1,2}):(\\d{2})(?::(\\d{2}))?\\s*([AaPp][Mm]?)?";
+
+  // Year-first: 2026-09-18 11:30 / 2026/09/18T11:30:00
+  const yearFirst = new RegExp(`^(\\d{4})[-/](\\d{1,2})[-/](\\d{1,2})(?:[T ]${time})?$`).exec(trimmed);
+  if (yearFirst) {
+    const [, y, mo, d, h, mi, se, meridiem] = yearFirst;
+    const hour = applyMeridiem(Number(h ?? "0"), meridiem);
+    if (hour == null) return null;
+    return colomboWallTimeToUtc(Number(y), Number(mo), Number(d), hour, Number(mi ?? "0"), Number(se ?? "0"));
+  }
+
+  // Day-first: 18/09/2026 11:30 AM / 18-09-2026 11:30
+  const dayFirst = new RegExp(`^(\\d{1,2})[-/.](\\d{1,2})[-/.](\\d{4})(?:[T ]${time})?$`).exec(trimmed);
+  if (dayFirst) {
+    const [, d, mo, y, h, mi, se, meridiem] = dayFirst;
+    const hour = applyMeridiem(Number(h ?? "0"), meridiem);
+    if (hour == null) return null;
+    return colomboWallTimeToUtc(Number(y), Number(mo), Number(d), hour, Number(mi ?? "0"), Number(se ?? "0"));
+  }
+
+  // Anything else (e.g. "Sep 18, 2026 11:30 AM", ISO with offset) — only trust it
+  // when Date can parse it; treat a trailing offset as authoritative.
+  const parsed = new Date(trimmed);
+  if (Number.isNaN(parsed.getTime())) return null;
+  if (/(?:[+-]\d{2}:?\d{2}|Z)$/i.test(trimmed)) {
+    parsed.setUTCSeconds(0, 0);
+    return parsed;
+  }
+  // No offset in the string: Date used the server's zone, so rebuild as Colombo.
+  return colomboWallTimeToUtc(
+    parsed.getFullYear(),
+    parsed.getMonth() + 1,
+    parsed.getDate(),
+    parsed.getHours(),
+    parsed.getMinutes(),
+    0,
+  );
+}
+
+/** Paste-friendly Colombo value (`YYYY-MM-DD HH:mm`) for an instant. */
+export function toColomboPasteValue(value: Date | string | null | undefined): string {
   if (value == null || value === "") return "";
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return "";
@@ -120,5 +168,5 @@ export function toColomboDateTimeLocalValue(value: Date | string | null | undefi
   }).formatToParts(date);
   const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
   const hour = get("hour") === "24" ? "00" : get("hour");
-  return `${get("year")}-${get("month")}-${get("day")}T${hour}:${get("minute")}`;
+  return `${get("year")}-${get("month")}-${get("day")} ${hour}:${get("minute")}`;
 }

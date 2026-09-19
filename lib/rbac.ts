@@ -295,7 +295,7 @@ const DEFAULT_PERMISSIONS = [
     key: "finance.hod.revert_paid_to_unpaid",
     description: "Revert a paid order to unpaid (requires HOD password)",
   },
-  // Reminder bubbles � auto-granted to admin/super_admin; other roles tick in Roles UI
+  // Reminder bubbles — auto-granted to admin/super_admin; other roles tick in Roles UI
   ...REMINDER_BUBBLE_PERMISSIONS.map((p) => ({
     key: p.key,
     description: buildReminderBubblePermissionDescription(p.category),
@@ -547,17 +547,17 @@ const DEFAULT_PERMISSIONS = [
   {
     key: "book_notes.manage",
     description:
-      "Book Notes � merchant entry. Save daily sheets (TEMP: also past dates). Does not open Book Notes (Finance).",
+      "Book Notes — merchant entry. Save daily sheets (TEMP: also past dates). Does not open Book Notes (Finance).",
   },
   {
     key: "book_notes.admin",
     description:
-      "Book Notes � see every merchant's sheets, delete others' sheets, bulk ERP sync. Not the finance review page.",
+      "Book Notes — see every merchant's sheets, delete others' sheets, bulk ERP sync. Not the finance review page.",
   },
   {
     key: "book_notes.read",
     description:
-      "Book Notes (Finance) � review every shop's sheets. Finance only; does not open merchant Book Notes.",
+      "Book Notes (Finance) — review every shop's sheets. Finance only; does not open merchant Book Notes.",
   },
 ] as const;
 
@@ -724,7 +724,7 @@ const DEFAULT_ROLES = [
   {
     name: "hod",
     description:
-      "Head of Department � can revert paid orders to unpaid with password",
+      "Head of Department — can revert paid orders to unpaid with password",
     permissionKeys: [
       "finance.approvals.read",
       "finance.hod.revert_paid_to_unpaid",

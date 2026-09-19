@@ -11,6 +11,13 @@ export type ApprovalKokoListFields = {
   multipleKokoPayments: boolean;
   kokoReferences: Array<{ reference: string; amount: string }>;
   kokoPaymentAmount: string | null;
+  /** Merchant-confirmed KOKO portal link generated time for the linked order. */
+  kokoLinkGeneratedAt: string | null;
+  /** Merchant flagged at sample stage that the customer paid in several KOKO payments. */
+  merchantMultipleKokoPayments: boolean;
+  merchantKokoPaymentCount: number | null;
+  /** Link generated times the merchant confirmed, one per KOKO payment. */
+  merchantKokoLinkTimes: string[];
 };
 
 export async function loadKokoFieldsForApprovals(
@@ -22,7 +29,19 @@ export async function loadKokoFieldsForApprovals(
   const [approvals, kokoRefs, kokoLines] = await Promise.all([
     prisma.approvalRequest.findMany({
       where: { id: { in: approvalIds } },
-      select: { id: true, multipleKokoPayments: true, kokoReference: true },
+      select: {
+        id: true,
+        multipleKokoPayments: true,
+        kokoReference: true,
+        order: {
+          select: {
+            kokoLinkGeneratedAt: true,
+            kokoExtraLinkGeneratedAt: true,
+            kokoMultiPaymentFlagged: true,
+            kokoMultiPaymentCount: true,
+          },
+        },
+      },
     }),
     prisma.approvalKokoReference.findMany({
       where: { approvalRequestId: { in: approvalIds } },
@@ -64,10 +83,19 @@ export async function loadKokoFieldsForApprovals(
         ? [{ reference: approval.kokoReference, amount: "" }]
         : refs;
 
+    const order = approval.order;
+    const linkTimes = order?.kokoLinkGeneratedAt
+      ? [order.kokoLinkGeneratedAt, ...(order.kokoExtraLinkGeneratedAt ?? [])]
+      : [];
+
     result.set(approval.id, {
       multipleKokoPayments: approval.multipleKokoPayments,
       kokoReferences: legacyRefs,
       kokoPaymentAmount: kokoAmountByApproval.get(approval.id) ?? null,
+      kokoLinkGeneratedAt: order?.kokoLinkGeneratedAt?.toISOString() ?? null,
+      merchantMultipleKokoPayments: Boolean(order?.kokoMultiPaymentFlagged),
+      merchantKokoPaymentCount: order?.kokoMultiPaymentCount ?? null,
+      merchantKokoLinkTimes: linkTimes.map((d) => d.toISOString()),
     });
   }
 
@@ -82,6 +110,10 @@ export function mergeKokoFieldsIntoApproval<T extends { id: string }>(
     multipleKokoPayments: false,
     kokoReferences: [],
     kokoPaymentAmount: null,
+    kokoLinkGeneratedAt: null,
+    merchantMultipleKokoPayments: false,
+    merchantKokoPaymentCount: null,
+    merchantKokoLinkTimes: [],
   };
   return { ...row, ...koko };
 }

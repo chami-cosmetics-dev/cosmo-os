@@ -139,6 +139,9 @@ export async function GET(_req: Request, { params }: Params) {
       customerPhone: true,
       createdAt: true,
       kokoLinkGeneratedAt: true,
+      kokoExtraLinkGeneratedAt: true,
+      kokoMultiPaymentFlagged: true,
+      kokoMultiPaymentCount: true,
       kokoLinkTimeConfirmedAt: true,
       cancelledAt: true,
       financialStatus: true,
@@ -166,6 +169,9 @@ export async function GET(_req: Request, { params }: Params) {
 
   return NextResponse.json({
     kokoLinkGeneratedAt: order.kokoLinkGeneratedAt?.toISOString() ?? null,
+    kokoExtraLinkGeneratedAt: order.kokoExtraLinkGeneratedAt.map((d) => d.toISOString()),
+    kokoMultiPaymentFlagged: order.kokoMultiPaymentFlagged,
+    kokoMultiPaymentCount: order.kokoMultiPaymentCount,
     kokoLinkTimeConfirmedAt: order.kokoLinkTimeConfirmedAt?.toISOString() ?? null,
     needsConfirm: canEditKokoLinkTime({
       ...order,
@@ -200,6 +206,27 @@ export async function POST(req: Request, { params }: Params) {
   const linkAt = parseKokoLinkGeneratedAt(body.data.kokoLinkGeneratedAt);
   if (!linkAt) {
     return NextResponse.json({ error: "Invalid KOKO link generated time" }, { status: 400 });
+  }
+
+  const multiPayment = Boolean(body.data.multipleKokoPayments);
+  const extraLinkTimes: Date[] = [];
+  if (multiPayment) {
+    for (const raw of body.data.extraKokoLinkGeneratedAt ?? []) {
+      const parsed = parseKokoLinkGeneratedAt(raw);
+      if (!parsed) {
+        return NextResponse.json(
+          { error: `Invalid KOKO link generated time "${raw}"` },
+          { status: 400 },
+        );
+      }
+      extraLinkTimes.push(parsed);
+    }
+    if (extraLinkTimes.length === 0) {
+      return NextResponse.json(
+        { error: "Add a link generated time for each KOKO payment (at least two)." },
+        { status: 400 },
+      );
+    }
   }
 
   const order = await prisma.order.findFirst({
@@ -256,12 +283,18 @@ export async function POST(req: Request, { params }: Params) {
     where: { id: order.id },
     data: {
       kokoLinkGeneratedAt: linkAt,
+      kokoExtraLinkGeneratedAt: extraLinkTimes,
+      kokoMultiPaymentFlagged: multiPayment,
+      kokoMultiPaymentCount: multiPayment ? extraLinkTimes.length + 1 : null,
       kokoLinkTimeConfirmedAt: now,
       kokoLinkTimeConfirmedById: userId,
     },
     select: {
       id: true,
       kokoLinkGeneratedAt: true,
+      kokoExtraLinkGeneratedAt: true,
+      kokoMultiPaymentFlagged: true,
+      kokoMultiPaymentCount: true,
       kokoLinkTimeConfirmedAt: true,
     },
   });
@@ -286,9 +319,13 @@ export async function POST(req: Request, { params }: Params) {
     action: "fulfillment_updated",
     entityType: "Order",
     entityId: order.id,
-    summary: `Confirmed KOKO link generated time for ${order.name ?? order.orderNumber ?? order.id}`,
+    summary: multiPayment
+      ? `Confirmed ${extraLinkTimes.length + 1} KOKO link generated times (multiple payments) for ${order.name ?? order.orderNumber ?? order.id}`
+      : `Confirmed KOKO link generated time for ${order.name ?? order.orderNumber ?? order.id}`,
     afterData: {
       kokoLinkGeneratedAt: linkAt.toISOString(),
+      kokoExtraLinkGeneratedAt: extraLinkTimes.map((d) => d.toISOString()),
+      kokoMultiPaymentFlagged: multiPayment,
       kokoLinkTimeConfirmedAt: now.toISOString(),
     },
   });
@@ -304,6 +341,9 @@ export async function POST(req: Request, { params }: Params) {
   return NextResponse.json({
     success: true,
     kokoLinkGeneratedAt: updated.kokoLinkGeneratedAt?.toISOString() ?? null,
+    kokoExtraLinkGeneratedAt: updated.kokoExtraLinkGeneratedAt.map((d) => d.toISOString()),
+    kokoMultiPaymentFlagged: updated.kokoMultiPaymentFlagged,
+    kokoMultiPaymentCount: updated.kokoMultiPaymentCount,
     kokoLinkTimeConfirmedAt: updated.kokoLinkTimeConfirmedAt?.toISOString() ?? null,
     duplicateNotice,
   });

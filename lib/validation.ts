@@ -329,8 +329,16 @@ export const orderPaymentRejectionReasonSchema = trimmedString(
   LIMITS.orderPaymentRejectionReason.max,
 );
 
+/** Finance allows at most 10 KOKO payments per order; link times follow the same cap. */
+export const KOKO_MAX_PAYMENTS = 10;
+
 export const kokoLinkTimeConfirmBodySchema = z.object({
-  kokoLinkGeneratedAt: trimmedString(1, 40),
+  kokoLinkGeneratedAt: trimmedString(1, 60),
+  multipleKokoPayments: z.boolean().optional(),
+  extraKokoLinkGeneratedAt: z
+    .array(trimmedString(1, 60))
+    .max(KOKO_MAX_PAYMENTS - 1)
+    .optional(),
 });
 
 export const cancelKokoDuplicateBodySchema = z.object({

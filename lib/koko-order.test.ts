@@ -7,7 +7,7 @@ import {
   isKokoPaymentGateway,
   needsKokoLinkTimeConfirm,
   parseKokoLinkGeneratedAt,
-  toColomboDateTimeLocalValue,
+  toColomboPasteValue,
 } from "@/lib/koko-order";
 
 describe("isErpSourcedOrder / isKokoPaymentGateway / isErpKokoOrder", () => {
@@ -70,14 +70,45 @@ describe("needsKokoLinkTimeConfirm / canEditKokoLinkTime", () => {
   });
 });
 
-describe("parseKokoLinkGeneratedAt / toColomboDateTimeLocalValue", () => {
-  it("parses datetime-local as Colombo wall time", () => {
-    const d = parseKokoLinkGeneratedAt("2026-09-18T11:30");
-    expect(d).not.toBeNull();
-    expect(toColomboDateTimeLocalValue(d)).toBe("2026-09-18T11:30");
+describe("parseKokoLinkGeneratedAt / toColomboPasteValue", () => {
+  const expected = new Date("2026-09-18T06:00:00.000Z"); // 11:30 Colombo
+
+  it("parses year-first pasted text as Colombo wall time", () => {
+    expect(parseKokoLinkGeneratedAt("2026-09-18 11:30")?.toISOString()).toBe(
+      expected.toISOString(),
+    );
+    expect(parseKokoLinkGeneratedAt("2026-09-18T11:30:00")?.toISOString()).toBe(
+      expected.toISOString(),
+    );
   });
 
-  it("rejects empty", () => {
+  it("parses day-first pasted text, with or without meridiem", () => {
+    expect(parseKokoLinkGeneratedAt("18/09/2026 11:30 AM")?.toISOString()).toBe(
+      expected.toISOString(),
+    );
+    expect(parseKokoLinkGeneratedAt("18-09-2026 11:30")?.toISOString()).toBe(
+      expected.toISOString(),
+    );
+    expect(parseKokoLinkGeneratedAt("18/09/2026 11:30 PM")?.toISOString()).toBe(
+      new Date("2026-09-18T18:00:00.000Z").toISOString(),
+    );
+  });
+
+  it("honours an explicit offset", () => {
+    expect(parseKokoLinkGeneratedAt("2026-09-18T11:30:00+05:30")?.toISOString()).toBe(
+      expected.toISOString(),
+    );
+  });
+
+  it("round-trips through the paste value", () => {
+    expect(toColomboPasteValue(parseKokoLinkGeneratedAt("18/09/2026 11:30 AM"))).toBe(
+      "2026-09-18 11:30",
+    );
+  });
+
+  it("rejects empty and unreadable text", () => {
     expect(parseKokoLinkGeneratedAt("")).toBeNull();
+    expect(parseKokoLinkGeneratedAt("sometime this morning")).toBeNull();
+    expect(parseKokoLinkGeneratedAt("31/02/2026 11:30")).toBeNull();
   });
 });
