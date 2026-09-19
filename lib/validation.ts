@@ -329,6 +329,17 @@ export const orderPaymentRejectionReasonSchema = trimmedString(
   LIMITS.orderPaymentRejectionReason.max,
 );
 
+export const kokoLinkTimeConfirmBodySchema = z.object({
+  kokoLinkGeneratedAt: trimmedString(1, 40),
+});
+
+export const cancelKokoDuplicateBodySchema = z.object({
+  reason: trimmedString(
+    LIMITS.orderPaymentRejectionReason.min,
+    LIMITS.orderPaymentRejectionReason.max,
+  ),
+});
+
 export const RESERVED_ROLE_NAMES = ["super_admin", "admin"] as const;
 
 export function isReservedRoleName(name: string): boolean {

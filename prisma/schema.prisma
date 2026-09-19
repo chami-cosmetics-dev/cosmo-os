@@ -343,6 +343,7 @@ model User {
   ordersLastPrintedBy                 Order[]                   @relation("OrderLastPrintedBy")
   ordersPackageReadyBy                Order[]                   @relation("OrderPackageReadyBy")
   ordersSampleFreeIssueCompleteBy     Order[]                   @relation("OrderSampleFreeIssueCompleteBy")
+  ordersKokoLinkTimeConfirmedBy       Order[]                   @relation("OrderKokoLinkTimeConfirmedBy")
   ordersCancelledBy                   Order[]                   @relation("OrderCancelledBy")
   orderRemarksAdded                   OrderRemark[]
   orderSampleFreeIssuesAdded          OrderSampleFreeIssue[]
@@ -767,6 +768,10 @@ model Order {
   sampleFreeIssueCompleteAt       DateTime?
   sampleFreeIssueCompleteById     String?
   sampleFreeIssueSendLaterDate    DateTime?
+  /// Merchant-entered KOKO portal link generated time (minute precision).
+  kokoLinkGeneratedAt             DateTime?
+  kokoLinkTimeConfirmedAt         DateTime?
+  kokoLinkTimeConfirmedById       String?
   deliveryCompleteById            String?
   dispatchedById                  String?
   invoiceCompleteById             String?
@@ -799,6 +804,7 @@ model Order {
   packageHoldReason               PackageHoldReason?     @relation(fields: [packageHoldReasonId], references: [id])
   packageReadyBy                  User?                  @relation("OrderPackageReadyBy", fields: [packageReadyById], references: [id])
   sampleFreeIssueCompleteBy       User?                  @relation("OrderSampleFreeIssueCompleteBy", fields: [sampleFreeIssueCompleteById], references: [id])
+  kokoLinkTimeConfirmedBy         User?                  @relation("OrderKokoLinkTimeConfirmedBy", fields: [kokoLinkTimeConfirmedById], references: [id], onDelete: SetNull)
   cancelledBy                     User?                  @relation("OrderCancelledBy", fields: [cancelledById], references: [id])
   replacedByOrder                 Order?                 @relation("OrderReplacedBy", fields: [replacedByOrderId], references: [id], onDelete: SetNull)
   replacedFromOrders              Order[]                @relation("OrderReplacedBy")

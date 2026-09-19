@@ -30,7 +30,8 @@ const DEFAULT_PERMISSIONS = [
   },
   {
     key: "riders.read",
-    description: "View rider management: roster, assigned orders, location cash totals",
+    description:
+      "View rider management: roster, assigned orders, location cash totals",
   },
   {
     key: "riders.performance.read",
@@ -78,11 +79,13 @@ const DEFAULT_PERMISSIONS = [
   },
   {
     key: "purchasing.osf.manage",
-    description: "Edit OSF Shop Availability, ROP, OGF Price, and column mappings",
+    description:
+      "Edit OSF Shop Availability, ROP, OGF Price, and column mappings",
   },
   {
     key: "purchasing.osf.permission",
-    description: "Assign which OSF Excel columns other purchasing users may download",
+    description:
+      "Assign which OSF Excel columns other purchasing users may download",
   },
   {
     key: "reports.stock_comparer",
@@ -90,7 +93,8 @@ const DEFAULT_PERMISSIONS = [
   },
   {
     key: "purchasing.tools.read",
-    description: "Use purchasing calculator, price compare, and filtered reorder OSF",
+    description:
+      "Use purchasing calculator, price compare, and filtered reorder OSF",
   },
   {
     key: "purchasing.tools.manage",
@@ -98,15 +102,18 @@ const DEFAULT_PERMISSIONS = [
   },
   {
     key: "purchasing.item_trends.read",
-    description: "View Item Trends super dashboard (movement, outlets, ROP suggestions, districts)",
+    description:
+      "View Item Trends super dashboard (movement, outlets, ROP suggestions, districts)",
   },
   {
     key: "purchasing.market_prices.read",
-    description: "View Market Price Compare dashboard and competitor price data",
+    description:
+      "View Market Price Compare dashboard and competitor price data",
   },
   {
     key: "purchasing.market_prices.manage",
-    description: "Add/edit competitor product links and import competitor price spreadsheets",
+    description:
+      "Add/edit competitor product links and import competitor price spreadsheets",
   },
   {
     key: "purchasing.grn.read",
@@ -114,11 +121,13 @@ const DEFAULT_PERMISSIONS = [
   },
   {
     key: "store.allocation.read",
-    description: "Use store location allocation advisor (SKU/barcode take-qty split)",
+    description:
+      "Use store location allocation advisor (SKU/barcode take-qty split)",
   },
   {
     key: "store.stock_count.read",
-    description: "Use store stock count worksheet (ERP live stock vs scanned count)",
+    description:
+      "Use store stock count worksheet (ERP live stock vs scanned count)",
   },
   {
     key: "academy.learn",
@@ -131,7 +140,8 @@ const DEFAULT_PERMISSIONS = [
   // Products - Storage
   {
     key: "products.storage.read",
-    description: "View product item file storage (photos, audio, video, documents)",
+    description:
+      "View product item file storage (photos, audio, video, documents)",
   },
   {
     key: "products.storage.manage",
@@ -140,11 +150,13 @@ const DEFAULT_PERMISSIONS = [
   // Contacts
   {
     key: "contacts.read",
-    description: "Legacy broad contact access: view contact master, updates, allocation, and performance",
+    description:
+      "Legacy broad contact access: view contact master, updates, allocation, and performance",
   },
   {
     key: "contacts.manage",
-    description: "Legacy broad contact management: create, import, backfill, update, and allocate contacts",
+    description:
+      "Legacy broad contact management: create, import, backfill, update, and allocate contacts",
   },
   {
     key: "contacts.master.read",
@@ -263,7 +275,8 @@ const DEFAULT_PERMISSIONS = [
   },
   {
     key: "abandoned_orders.manage",
-    description: "Update abandoned order follow-up status, customer response, and remarks",
+    description:
+      "Update abandoned order follow-up status, customer response, and remarks",
   },
   {
     key: "finance.approvals.read",
@@ -274,10 +287,15 @@ const DEFAULT_PERMISSIONS = [
     description: "Approve or reject finance approval requests",
   },
   {
+    key: "finance.approvals.cancel_koko_duplicate",
+    description:
+      "Cancel duplicate KOKO orders from finance approvals (OS + ERP)",
+  },
+  {
     key: "finance.hod.revert_paid_to_unpaid",
     description: "Revert a paid order to unpaid (requires HOD password)",
   },
-  // Reminder bubbles — auto-granted to admin/super_admin; other roles tick in Roles UI
+  // Reminder bubbles � auto-granted to admin/super_admin; other roles tick in Roles UI
   ...REMINDER_BUBBLE_PERMISSIONS.map((p) => ({
     key: p.key,
     description: buildReminderBubblePermissionDescription(p.category),
@@ -345,7 +363,8 @@ const DEFAULT_PERMISSIONS = [
   },
   {
     key: "settings.fulfillment",
-    description: "Manage samples, free issues, hold reasons, and courier services",
+    description:
+      "Manage samples, free issues, hold reasons, and courier services",
   },
   // Dashboard
   {
@@ -354,7 +373,8 @@ const DEFAULT_PERMISSIONS = [
   },
   {
     key: "dashboard.merchant_view",
-    description: "View personalized merchant dashboard (own slice, or any merchant if admin)",
+    description:
+      "View personalized merchant dashboard (own slice, or any merchant if admin)",
   },
   {
     key: "dashboard.merchant_admin_view",
@@ -367,7 +387,8 @@ const DEFAULT_PERMISSIONS = [
   },
   {
     key: "dashboard.edit",
-    description: "Edit dashboard brand configuration (add/remove brands, change selection)",
+    description:
+      "Edit dashboard brand configuration (add/remove brands, change selection)",
   },
   {
     key: DASHBOARD_DATE_TYPE_PERMISSIONS.placedAll,
@@ -526,17 +547,17 @@ const DEFAULT_PERMISSIONS = [
   {
     key: "book_notes.manage",
     description:
-      "Book Notes — merchant entry. Save daily sheets (TEMP: also past dates). Does not open Book Notes (Finance).",
+      "Book Notes � merchant entry. Save daily sheets (TEMP: also past dates). Does not open Book Notes (Finance).",
   },
   {
     key: "book_notes.admin",
     description:
-      "Book Notes — see every merchant's sheets, delete others' sheets, bulk ERP sync. Not the finance review page.",
+      "Book Notes � see every merchant's sheets, delete others' sheets, bulk ERP sync. Not the finance review page.",
   },
   {
     key: "book_notes.read",
     description:
-      "Book Notes (Finance) — review every shop's sheets. Finance only; does not open merchant Book Notes.",
+      "Book Notes (Finance) � review every shop's sheets. Finance only; does not open merchant Book Notes.",
   },
 ] as const;
 
@@ -620,6 +641,7 @@ const DEFAULT_ROLES = [
       "book_notes.admin",
       "finance.approvals.read",
       "finance.approvals.manage",
+      "finance.approvals.cancel_koko_duplicate",
       "finance.hod.revert_paid_to_unpaid",
       "dashboard.view",
       "dashboard.merchant_view",
@@ -684,6 +706,7 @@ const DEFAULT_ROLES = [
     permissionKeys: [
       "finance.approvals.read",
       "finance.approvals.manage",
+      "finance.approvals.cancel_koko_duplicate",
       "book_notes.read",
       "riders.read",
       "riders.performance.read",
@@ -700,7 +723,8 @@ const DEFAULT_ROLES = [
   },
   {
     name: "hod",
-    description: "Head of Department — can revert paid orders to unpaid with password",
+    description:
+      "Head of Department � can revert paid orders to unpaid with password",
     permissionKeys: [
       "finance.approvals.read",
       "finance.hod.revert_paid_to_unpaid",
@@ -766,12 +790,14 @@ type AccessRole = {
   name: string;
 };
 
-function isPrismaKnownError(error: unknown): error is { code?: string; message?: string } {
+function isPrismaKnownError(
+  error: unknown,
+): error is { code?: string; message?: string } {
   return Boolean(
     error &&
-      typeof error === "object" &&
-      "code" in error &&
-      typeof (error as { code?: string }).code === "string"
+    typeof error === "object" &&
+    "code" in error &&
+    typeof (error as { code?: string }).code === "string",
   );
 }
 
@@ -793,10 +819,10 @@ function isRbacPrismaReady() {
   const client = prisma as unknown as Record<string, unknown>;
   return Boolean(
     client.permission &&
-      client.role &&
-      client.user &&
-      client.userRole &&
-      client.rolePermission
+    client.role &&
+    client.user &&
+    client.userRole &&
+    client.rolePermission,
   );
 }
 
@@ -856,7 +882,10 @@ async function ensureDefaultRbacSetupIfNeeded() {
   await pinCustomRolePermissionsIfNeeded();
 }
 
-const PINNED_CUSTOM_ROLE_PERMISSIONS: { roleName: string; permissionKey: string }[] = [
+const PINNED_CUSTOM_ROLE_PERMISSIONS: {
+  roleName: string;
+  permissionKey: string;
+}[] = [
   { roleName: "stores-level-01", permissionKey: "store.allocation.read" },
   { roleName: "stores-level-02", permissionKey: "store.allocation.read" },
   { roleName: "stores-level-01", permissionKey: "store.stock_count.read" },
@@ -879,10 +908,10 @@ async function pinCustomRolePermissionsIfNeeded() {
 
 async function pinCustomRolePermissions() {
   const permissionKeys = Array.from(
-    new Set(PINNED_CUSTOM_ROLE_PERMISSIONS.map((entry) => entry.permissionKey))
+    new Set(PINNED_CUSTOM_ROLE_PERMISSIONS.map((entry) => entry.permissionKey)),
   );
   const roleNames = Array.from(
-    new Set(PINNED_CUSTOM_ROLE_PERMISSIONS.map((entry) => entry.roleName))
+    new Set(PINNED_CUSTOM_ROLE_PERMISSIONS.map((entry) => entry.roleName)),
   );
   const [permissions, roles] = await Promise.all([
     prisma.permission.findMany({
@@ -894,7 +923,9 @@ async function pinCustomRolePermissions() {
       select: { id: true, name: true },
     }),
   ]);
-  const permissionIdByKey = new Map(permissions.map((permission) => [permission.key, permission.id]));
+  const permissionIdByKey = new Map(
+    permissions.map((permission) => [permission.key, permission.id]),
+  );
   const roleIdByName = new Map(roles.map((role) => [role.name, role.id]));
   const data = PINNED_CUSTOM_ROLE_PERMISSIONS.flatMap((entry) => {
     const permissionId = permissionIdByKey.get(entry.permissionKey);
@@ -978,7 +1009,7 @@ async function splitBookNoteRolePermissions() {
 export async function ensureDefaultRbacSetup() {
   if (!isRbacPrismaReady()) {
     throw new Error(
-      "RBAC Prisma client is not ready. Run: npm run db:push && npm run db:generate"
+      "RBAC Prisma client is not ready. Run: npm run db:push && npm run db:generate",
     );
   }
 
@@ -1030,7 +1061,7 @@ export async function ensureDefaultRbacSetup() {
   } catch (error) {
     if (isMissingRbacTableError(error)) {
       throw new Error(
-        "RBAC tables are missing. Run: npm run db:push && npm run db:generate"
+        "RBAC tables are missing. Run: npm run db:push && npm run db:generate",
       );
     }
     throw error;
@@ -1052,11 +1083,12 @@ export async function syncSessionUser(sessionUser: SessionUser) {
     where: { auth0Id: sessionUser.sub },
   });
 
-  const existingUserByEmail = normalizedEmail && !existingUserByAuth0Id
-    ? await prisma.user.findUnique({
-        where: { email: normalizedEmail },
-      })
-    : null;
+  const existingUserByEmail =
+    normalizedEmail && !existingUserByAuth0Id
+      ? await prisma.user.findUnique({
+          where: { email: normalizedEmail },
+        })
+      : null;
 
   const existingUser = existingUserByAuth0Id ?? existingUserByEmail ?? null;
   let user;
@@ -1164,7 +1196,9 @@ export async function syncSessionUser(sessionUser: SessionUser) {
   return user;
 }
 
-type SessionLike = { user: { sub?: string; email?: string; name?: string; picture?: string } };
+type SessionLike = {
+  user: { sub?: string; email?: string; name?: string; picture?: string };
+};
 
 async function buildContextFromSessionUser(sessionUser: SessionUser) {
   const user = await syncSessionUser({
@@ -1184,9 +1218,13 @@ async function buildContextFromSessionUser(sessionUser: SessionUser) {
   }
 
   const userAccess = await getUserAccessRoles(user.id);
-  const roles: AccessRole[] = (userAccess?.userRoles ?? []).map((userRole) => userRole.role);
+  const roles: AccessRole[] = (userAccess?.userRoles ?? []).map(
+    (userRole) => userRole.role,
+  );
   const roleNames = Array.from(new Set(roles.map((role) => role.name)));
-  const permissionKeys = await getRolePermissionKeys(roles.map((role) => role.id));
+  const permissionKeys = await getRolePermissionKeys(
+    roles.map((role) => role.id),
+  );
 
   return {
     sessionUser,
@@ -1278,7 +1316,9 @@ async function getRolePermissionKeys(roleIds: string[]) {
   });
 
   const permissionKeys = Array.from(
-    new Set(rolePermissions.map((rolePermission) => rolePermission.permission.key))
+    new Set(
+      rolePermissions.map((rolePermission) => rolePermission.permission.key),
+    ),
   );
 
   rolePermissionCache.set(cacheKey, {
@@ -1290,7 +1330,7 @@ async function getRolePermissionKeys(roleIds: string[]) {
 }
 
 function getCachedUserContext(
-  sub: string
+  sub: string,
 ): Awaited<ReturnType<typeof getCurrentUserContextImpl>> | undefined {
   const entry = userContextCache.get(sub);
   if (!entry || Date.now() - entry.timestamp > USER_CONTEXT_TTL_MS) {
@@ -1302,7 +1342,7 @@ function getCachedUserContext(
 
 function setCachedUserContext(
   sub: string,
-  result: Awaited<ReturnType<typeof getCurrentUserContextImpl>>
+  result: Awaited<ReturnType<typeof getCurrentUserContextImpl>>,
 ) {
   const now = Date.now();
   for (const [k, v] of userContextCache.entries()) {
@@ -1330,7 +1370,7 @@ export const getCurrentUserContext = cache(getCurrentUserContextCached);
 
 export function hasPermission(
   context: Awaited<ReturnType<typeof getCurrentUserContext>>,
-  permissionKey: string
+  permissionKey: string,
 ) {
   if (!context) {
     return false;
@@ -1344,7 +1384,7 @@ export function hasPermission(
 
 export function hasAnyPermission(
   context: Awaited<ReturnType<typeof getCurrentUserContext>>,
-  permissionKeys: string[]
+  permissionKeys: string[],
 ) {
   return permissionKeys.some((key) => hasPermission(context, key));
 }
@@ -1419,7 +1459,7 @@ type ListRbacDataOptions = {
 export async function listRbacData(options: ListRbacDataOptions = {}) {
   if (!isRbacPrismaReady()) {
     throw new Error(
-      "RBAC Prisma client is not ready. Run: npm run db:push && npm run db:generate"
+      "RBAC Prisma client is not ready. Run: npm run db:push && npm run db:generate",
     );
   }
 
@@ -1485,7 +1525,9 @@ export async function listRbacData(options: ListRbacDataOptions = {}) {
     }),
   ]);
 
-  const permissionsById = new Map(permissions.map((permission) => [permission.id, permission]));
+  const permissionsById = new Map(
+    permissions.map((permission) => [permission.id, permission]),
+  );
   const roles = rawRoles.map((role) => ({
     ...role,
     rolePermissions: role.rolePermissions
@@ -1493,8 +1535,11 @@ export async function listRbacData(options: ListRbacDataOptions = {}) {
         const permission = permissionsById.get(rolePermission.permissionId);
         return permission ? { permission } : null;
       })
-      .filter((rolePermission): rolePermission is { permission: (typeof permissions)[number] } =>
-        rolePermission !== null
+      .filter(
+        (
+          rolePermission,
+        ): rolePermission is { permission: (typeof permissions)[number] } =>
+          rolePermission !== null,
       ),
   }));
 

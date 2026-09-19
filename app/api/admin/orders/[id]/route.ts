@@ -68,6 +68,8 @@ const orderSelect = {
   lastPrintedAt: true,
   sampleFreeIssueCompleteAt: true,
   sampleFreeIssueSendLaterDate: true,
+  kokoLinkGeneratedAt: true,
+  kokoLinkTimeConfirmedAt: true,
   companyLocation: {
     select: {
       id: true,
@@ -591,6 +593,8 @@ export async function GET(
       : null,
     sampleFreeIssueCompleteAt: details.sampleFreeIssueCompleteAt?.toISOString() ?? null,
     sampleFreeIssueSendLaterDate: details.sampleFreeIssueSendLaterDate?.toISOString() ?? null,
+    kokoLinkGeneratedAt: details.kokoLinkGeneratedAt?.toISOString() ?? null,
+    kokoLinkTimeConfirmedAt: details.kokoLinkTimeConfirmedAt?.toISOString() ?? null,
     sampleFreeIssueCompleteBy: details.sampleFreeIssueCompleteBy
       ? {
           id: details.sampleFreeIssueCompleteBy.id,

@@ -23,18 +23,15 @@ export async function GET(request: NextRequest) {
 
   const companyId = auth.context!.user?.companyId ?? null;
   if (!companyId) {
-    return NextResponse.json({ error: "No company associated with your account" }, { status: 404 });
+    return NextResponse.json(
+      { error: "No company associated with your account" },
+      { status: 404 },
+    );
   }
 
   const searchParams = request.nextUrl.searchParams;
 
-  const {
-    from,
-    to,
-    status,
-    response,
-    search,
-  } = {
+  const { from, to, status, response, search } = {
     from: searchParams.get("from") ?? undefined,
     to: searchParams.get("to") ?? undefined,
     status: searchParams.get("status") ?? undefined,
@@ -107,10 +104,9 @@ export async function GET(request: NextRequest) {
       Total: item.totalPrice ?? "",
       Currency: item.currency,
       Store: item.shopifyAdminStoreHandle,
-      "Follow-up Status":
-        item.followUpStatus
-          ? (FOLLOW_UP_STATUS_LABELS[item.followUpStatus] ?? item.followUpStatus)
-          : "",
+      "Follow-up Status": item.followUpStatus
+        ? (FOLLOW_UP_STATUS_LABELS[item.followUpStatus] ?? item.followUpStatus)
+        : "",
       "Abandonment Reason":
         item.abandonmentReason && item.abandonmentReason !== null
           ? getAbandonmentReasonLabel(item.abandonmentReason)
@@ -121,9 +117,11 @@ export async function GET(request: NextRequest) {
           : "",
       Remark: item.remark ?? "",
       "Last Updated By": item.lastFollowUpBy?.name ?? "",
-      "Last Updated At": item.lastFollowUpAt ? formatIsoDateTime(new Date(item.lastFollowUpAt)) : "",
+      "Last Updated At": item.lastFollowUpAt
+        ? formatIsoDateTime(new Date(item.lastFollowUpAt))
+        : "",
       "Shopify Checkout ID": item.shopifyCheckoutId,
-    }))
+    })),
   );
 
   return new NextResponse(csv, {
@@ -134,4 +132,3 @@ export async function GET(request: NextRequest) {
     },
   });
 }
-

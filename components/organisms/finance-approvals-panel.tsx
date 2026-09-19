@@ -30,6 +30,18 @@ export type FinanceApprovalItem = {
   kokoReferences?: Array<{ reference: string; amount: string }>;
   kokoPaymentAmount?: string | null;
   requiresKokoReference: boolean;
+  kokoLinkGeneratedAt?: string | null;
+  duplicateGroupId?: string | null;
+  duplicateGroupSize?: number;
+  duplicateGroupMembers?: Array<{
+    orderId: string;
+    approvalId: string | null;
+    status: string;
+    kokoLinkGeneratedAt: string | null;
+    invoiceNo: string | null;
+    merchantLabel: string | null;
+    itemSummary: string | null;
+  }>;
   createdAt: string;
   reviewedAt: string | null;
   reviewedByName: string | null;
@@ -255,9 +267,11 @@ function selectFirstInView(
 export function FinanceApprovalsPanel({
   initialApprovals,
   canRevertPaid = false,
+  canCancelKokoDuplicate = false,
 }: {
   initialApprovals: FinanceApprovalItem[];
   canRevertPaid?: boolean;
+  canCancelKokoDuplicate?: boolean;
 }) {
   const searchParams = useSearchParams();
   const appliedDeepLinkRef = useRef<string | null>(null);
@@ -273,7 +287,8 @@ export function FinanceApprovalsPanel({
   const [kokoReferenceRows, setKokoReferenceRows] = useState<KokoReferenceRow[]>(emptyKokoRows);
   const [hodPassword, setHodPassword] = useState("");
   const [revertReason, setRevertReason] = useState("");
-  const [busy, setBusy] = useState<"refresh" | "approve" | "reject" | "revert" | null>(null);
+  const [cancelDuplicateReason, setCancelDuplicateReason] = useState("");
+  const [busy, setBusy] = useState<"refresh" | "approve" | "reject" | "revert" | "cancel-duplicate" | null>(null);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
 
@@ -538,6 +553,34 @@ export function FinanceApprovalsPanel({
     }
   }
 
+  async function cancelKokoDuplicate() {
+    if (!selected || selected.orderMissing) return;
+    if (cancelDuplicateReason.trim().length < 5) {
+      notify.error("Enter a cancel reason (at least 5 characters).");
+      return;
+    }
+    setBusy("cancel-duplicate");
+    try {
+      const response = await fetch(`/api/admin/approvals/${selected.id}/cancel-koko-duplicate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: cancelDuplicateReason.trim() }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        notify.error(typeof data.error === "string" ? data.error : "Cancel duplicate failed");
+        return;
+      }
+      notify.success("KOKO duplicate cancelled in OS and ERP.");
+      setCancelDuplicateReason("");
+      await refresh();
+    } catch {
+      notify.error("Cancel duplicate failed");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function revertPaidToUnpaid() {
     if (!selected?.orderId || selected.orderMissing) return;
     if (!hodPassword.trim()) {
@@ -700,6 +743,11 @@ export function FinanceApprovalsPanel({
                                   Order removed
                                 </span>
                               )}
+                              {(approval.duplicateGroupSize ?? 0) > 1 && (
+                                <span className="ml-2 inline-flex rounded-md border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">
+                                  Dup ×{approval.duplicateGroupSize}
+                                </span>
+                              )}
                             </td>
                             <td className="px-3 py-3"><TypeBadge type={approval.type} /></td>
                             <td className="px-3 py-3 text-muted-foreground">{paymentLabel(approval)}</td>
@@ -723,6 +771,11 @@ export function FinanceApprovalsPanel({
                         {approval.orderMissing && (
                           <span className="ml-2 inline-flex rounded-md border border-rose-500/30 bg-rose-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700">
                             Order removed
+                          </span>
+                        )}
+                        {(approval.duplicateGroupSize ?? 0) > 1 && (
+                          <span className="ml-2 inline-flex rounded-md border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">
+                            Dup ×{approval.duplicateGroupSize}
                           </span>
                         )}
                       </td>
@@ -768,6 +821,31 @@ export function FinanceApprovalsPanel({
                     <p><span className="font-medium">Amount:</span> {formatAmount(selected.totalPrice)}</p>
                   )}
                   <p><span className="font-medium">Customer:</span> {selected.customerPhone ?? selected.customerEmail ?? "-"}</p>
+                  {selected.kokoLinkGeneratedAt && (
+                    <p>
+                      <span className="font-medium">KOKO link generated:</span>{" "}
+                      {formatAppDateTime(selected.kokoLinkGeneratedAt)}
+                    </p>
+                  )}
+                  {selected.duplicateGroupId && (selected.duplicateGroupSize ?? 0) > 1 && (
+                    <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-amber-900 dark:text-amber-200">
+                      <p className="font-medium">
+                        Possible KOKO duplicate group ({selected.duplicateGroupSize})
+                      </p>
+                      <ul className="mt-1 list-disc space-y-1 pl-4 text-xs">
+                        {(selected.duplicateGroupMembers ?? []).map((m) => (
+                          <li key={m.orderId}>
+                            {m.invoiceNo ?? m.orderId}
+                            {m.merchantLabel ? ` · ${m.merchantLabel}` : ""}
+                            {m.kokoLinkGeneratedAt
+                              ? ` · link ${formatAppDateTime(m.kokoLinkGeneratedAt)}`
+                              : ""}
+                            {` · ${m.status}`}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                   {selected.type === "delivery_payment_approval" && (
                     <p><span className="font-medium">Rider:</span> {riderLabel(selected)}</p>
                   )}
@@ -1038,6 +1116,38 @@ export function FinanceApprovalsPanel({
                       )}
                       {selected.reviewNote && <p className="mt-2 whitespace-pre-wrap">{selected.reviewNote}</p>}
                     </div>
+                    {canCancelKokoDuplicate &&
+                      (selected.duplicateGroupSize ?? 0) > 1 &&
+                      selected.type === "order_payment_approval" &&
+                      !selected.orderMissing && (
+                      <div className="space-y-2 rounded-md border border-rose-500/30 bg-rose-500/5 p-3">
+                        <p className="text-sm font-medium text-rose-800 dark:text-rose-300">
+                          Cancel this order as KOKO duplicate
+                        </p>
+                        <Textarea
+                          value={cancelDuplicateReason}
+                          onChange={(e) => setCancelDuplicateReason(e.target.value)}
+                          placeholder="Reason (matches paid link time / surplus order)"
+                          disabled={busy !== null}
+                          rows={2}
+                        />
+                        <Button
+                          type="button"
+                          variant="destructive"
+                          disabled={busy !== null || cancelDuplicateReason.trim().length < 5}
+                          onClick={() => void cancelKokoDuplicate()}
+                        >
+                          {busy === "cancel-duplicate" ? (
+                            <>
+                              <Loader2 className="animate-spin" aria-hidden />
+                              Cancelling...
+                            </>
+                          ) : (
+                            "Cancel duplicate (OS + ERP)"
+                          )}
+                        </Button>
+                      </div>
+                    )}
                     {canRevertPaid && selected.orderId && !selected.orderMissing && selected.status === "approved" && selected.type === "delivery_payment_approval" && (
                       <div className="space-y-3 rounded-md border border-amber-500/30 bg-amber-500/5 p-3">
                         <p className="text-sm font-medium">Revert paid → unpaid (HOD only)</p>

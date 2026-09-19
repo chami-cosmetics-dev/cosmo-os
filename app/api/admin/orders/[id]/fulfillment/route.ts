@@ -42,6 +42,7 @@ import { orderStageUpdate, orderStageUpdateIfChanged } from "@/lib/order-stage-t
 import { getErpOutOfStockFulfillmentBlock } from "@/lib/erp-fulfillment-block";
 import { isExplicitlyPackageReady } from "@/lib/fulfillment-stage-display";
 import { releaseKokoReferencesForOrder } from "@/lib/koko-approval-references";
+import { needsKokoLinkTimeConfirm } from "@/lib/koko-order";
 import { formatAppIsoCalendarDate } from "@/lib/format-datetime";
 import { citypakOverrideOrderPatch, ensureCitypakShipmentForDispatch } from "@/lib/citypak-dispatch";
 import { isCitypakCourier } from "@/lib/courier";
@@ -340,14 +341,22 @@ export async function PATCH(
 
   const financeFulfillmentBlock = await getFinancePaymentApprovalBlockReason({
     id: order.id,
+    sourceName: order.sourceName,
     paymentGatewayPrimary: order.paymentGatewayPrimary,
     paymentGatewayNames: order.paymentGatewayNames ?? [],
     erpnextInvoiceId: order.erpnextInvoiceId,
+    kokoLinkTimeConfirmedAt: order.kokoLinkTimeConfirmedAt,
+    cancelledAt: order.cancelledAt,
+    financialStatus: order.financialStatus,
   });
 
   // If the block is due to a missing approval record (ERP webhook silent failure),
-  // create it now so finance can see and act on it.
-  if (financeFulfillmentBlock && isOrderPaymentRequiresApproval(order)) {
+  // create it now so finance can see and act on it — except ERP KOKO awaiting link-time confirm.
+  if (
+    financeFulfillmentBlock &&
+    isOrderPaymentRequiresApproval(order) &&
+    !needsKokoLinkTimeConfirm(order)
+  ) {
     void createOrGetOrderPaymentApproval({
       companyId,
       orderId: order.id,

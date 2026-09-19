@@ -24,6 +24,10 @@ import {
 } from "@/lib/approval-koko-list";
 import { buildErpAdminInvoiceUrl } from "@/lib/erp-admin-url";
 import { requiresKokoApprovalReference } from "@/lib/koko-approval-reference";
+import {
+  enrichApprovalsWithKokoDuplicateGroups,
+  loadKokoDuplicateCandidatesForCompany,
+} from "@/lib/koko-duplicate-cancel";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
 import { resolveReturnCancelCompletionMode } from "@/lib/return-cancel-completion";
@@ -169,9 +173,9 @@ export async function GET() {
   );
 
   const kokoByApproval = await loadKokoFieldsForApprovals(rows.map((row) => row.id));
+  const candidates = await loadKokoDuplicateCandidatesForCompany(companyId);
 
-  return NextResponse.json({
-    approvals: rows.map((row) => {
+  const mapped = rows.map((row) => {
       const cancelNote = row.type === RETURN_CANCEL_APPROVAL ? parseReturnCancelApprovalNote(row.requestNote) : null;
       const enriched = enrichApprovalDisplay({
         ...row,
@@ -216,6 +220,9 @@ export async function GET() {
         },
         kokoByApproval,
       );
-    }),
+    });
+
+  return NextResponse.json({
+    approvals: enrichApprovalsWithKokoDuplicateGroups(mapped, candidates),
   });
 }

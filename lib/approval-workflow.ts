@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
 import { isUnpaidCardOnDeliveryFinance, orderHasCardOnDeliveryGateway } from "@/lib/payment-method-label";
+import { needsKokoLinkTimeConfirm } from "@/lib/koko-order";
 
 export type ApprovalStatus = "pending" | "approved" | "rejected" | "cancelled";
 export const ORDER_VOIDED_APPROVAL_CANCEL_NOTE =
@@ -437,11 +438,28 @@ export async function getOrderPaymentApproval(orderId: string) {
 /** Block fulfillment actions until finance approves KOKO/bank payment. */
 export async function getFinancePaymentApprovalBlockReason(order: {
   id: string;
+  sourceName?: string | null;
   paymentGatewayPrimary: string | null;
   paymentGatewayNames: string[];
   erpnextInvoiceId?: string | null;
+  kokoLinkTimeConfirmedAt?: Date | string | null;
+  cancelledAt?: Date | string | null;
+  financialStatus?: string | null;
 }): Promise<string | null> {
   if (!isOrderPaymentRequiresApproval(order)) return null;
+
+  if (
+    needsKokoLinkTimeConfirm({
+      sourceName: order.sourceName,
+      paymentGatewayPrimary: order.paymentGatewayPrimary,
+      paymentGatewayNames: order.paymentGatewayNames,
+      kokoLinkTimeConfirmedAt: order.kokoLinkTimeConfirmedAt,
+      cancelledAt: order.cancelledAt,
+      financialStatus: order.financialStatus,
+    })
+  ) {
+    return "Confirm KOKO link generated time before continuing. Enter the time shown on the KOKO portal, then confirm.";
+  }
 
   const approval = await getOrderPaymentApproval(order.id);
   if (!approval || approval.status === "pending" || approval.status === "cancelled") {
