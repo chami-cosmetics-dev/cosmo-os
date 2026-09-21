@@ -70,7 +70,6 @@ const VIEW_OPTIONS = [
   },
   { value: "Top Priority", label: "Top Priority", mode: "priority" as const },
   { value: "Non Priority", label: "Non Priority", mode: "priority" as const },
-  { value: "Discontinue", label: "Discontinue", mode: "priority" as const },
   { value: "Newly Added", label: "Newly Added", mode: "priority" as const },
   { value: "all", label: "All priorities", mode: "priority" as const },
 ] as const;
