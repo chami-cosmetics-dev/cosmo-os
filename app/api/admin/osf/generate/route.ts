@@ -16,9 +16,11 @@ import { filterCatalogByOsfVariant, type OsfVariant } from "@/lib/osf/vat-member
 import {
   findCosmeticsLkRopColumn,
   selectVatRopColumns,
+  selectVatStockColumns,
   totalRopForColumns,
   totalRopForVat,
 } from "@/lib/osf/vat-rop-columns";
+import { ensureCosmeticsShopOsfColumns } from "@/lib/osf/shop-column-sync";
 import { prisma } from "@/lib/prisma";
 import { formatAppIsoDate } from "@/lib/format-datetime";
 import { getCurrentUserContext, hasPermission, requirePermission } from "@/lib/rbac";
@@ -31,11 +33,11 @@ function todayColombo(): string {
 
 function osfDownloadFilename(variant: OsfVariant, asOfDate: string, belowThresholdOnly: boolean): string {
   if (belowThresholdOnly) {
-    if (variant === "vat") return `OSF-reorder-vat-${asOfDate}.xlsx`;
+    if (variant === "vat") return `OSF-reorder-vat-items-${asOfDate}.xlsx`;
     if (variant === "non_vat") return `OSF-reorder-non-vat-${asOfDate}.xlsx`;
     return `OSF-reorder-${asOfDate}.xlsx`;
   }
-  if (variant === "vat") return `OSF-vat-${asOfDate}.xlsx`;
+  if (variant === "vat") return `OSF-vat-items-${asOfDate}.xlsx`;
   if (variant === "non_vat") return `OSF-non-vat-${asOfDate}.xlsx`;
   return `OSF-${asOfDate}.xlsx`;
 }
@@ -120,6 +122,15 @@ export async function POST(request: NextRequest) {
   await syncOgfPricesFromErp(companyId);
 
   try {
+    // Ensure Cosmetics shop warehouses from ERP1 exist as OSF columns before resolve.
+    try {
+      await ensureCosmeticsShopOsfColumns(companyId);
+    } catch (err) {
+      if (!(err instanceof OsfErpError)) throw err;
+      // Shop sync failure should not block generate if columns already exist; surface only if no columns later.
+      console.warn("[OSF] shop column sync failed:", err.message);
+    }
+
     const [catalogRaw, columns, profiles, ropRows, monthlySales, buyers, allowedSuppliers] =
       await Promise.all([
         buildCatalogRows(companyId, {
@@ -196,7 +207,10 @@ export async function POST(request: NextRequest) {
     }
 
     if (belowThresholdOnly || maxStockPctOfRop != null) {
-      const stockCols = columns.filter((c) => c.active && c.includeInStock);
+      const stockCols =
+        osfVariant === "vat"
+          ? selectVatStockColumns(columns)
+          : columns.filter((c) => c.active && c.includeInStock);
       const mainRopCols = columns.filter((c) => c.active && c.includeInRop);
       const vatRopCols = selectVatRopColumns(columns);
       const cosmeticsLkKey = findCosmeticsLkRopColumn(vatRopCols)?.key ?? null;
@@ -235,7 +249,7 @@ export async function POST(request: NextRequest) {
     const { costMap, purchaseMap } = mergeInstanceErpData(skus, perInstanceErp);
 
     const effectiveColumnKeys = context?.user
-      ? await resolveEffectiveOsfColumnKeys(context, companyId)
+      ? await resolveEffectiveOsfColumnKeys(context, companyId, osfVariant)
       : new Set<string>();
 
     const buffer = await buildOsfWorkbookBuffer({

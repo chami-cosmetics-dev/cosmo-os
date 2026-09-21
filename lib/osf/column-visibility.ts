@@ -8,6 +8,7 @@ import {
   type OsfAccessColumnMeta,
 } from "@/lib/osf/column-access-catalog";
 import { resolveOsfColumns } from "@/lib/osf/column-config";
+import type { OsfVariant } from "@/lib/osf/vat-membership";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserContext, hasPermission } from "@/lib/rbac";
 
@@ -28,9 +29,12 @@ export function hasFullOsfColumnAccess(context: RbacContext | null | undefined):
   );
 }
 
-export async function loadOsfAccessCatalog(companyId: string): Promise<OsfAccessColumnMeta[]> {
+export async function loadOsfAccessCatalog(
+  companyId: string,
+  variant: OsfVariant = "main",
+): Promise<OsfAccessColumnMeta[]> {
   const columns = await resolveOsfColumns(companyId);
-  return buildOsfAccessCatalog(columns);
+  return buildOsfAccessCatalog(columns, variant);
 }
 
 export { resolveEffectiveOsfColumnKeysFromMarks };
@@ -38,8 +42,9 @@ export { resolveEffectiveOsfColumnKeysFromMarks };
 export async function resolveEffectiveOsfColumnKeys(
   context: RbacContext | null | undefined,
   companyId: string,
+  variant: OsfVariant = "main",
 ): Promise<Set<string> | "all"> {
-  const catalog = await loadOsfAccessCatalog(companyId);
+  const catalog = await loadOsfAccessCatalog(companyId, variant);
   const catalogIds = allCatalogKeySet(catalog);
   const fullAccess = hasFullOsfColumnAccess(context);
   if (fullAccess) return "all";
@@ -48,7 +53,9 @@ export async function resolveEffectiveOsfColumnKeys(
   if (!userId) return new Set();
 
   const row = await prisma.osfUserColumnAccess.findUnique({
-    where: { companyId_userId: { companyId, userId } },
+    where: {
+      companyId_userId_osfVariant: { companyId, userId, osfVariant: variant },
+    },
     select: { columnKeys: true },
   });
 

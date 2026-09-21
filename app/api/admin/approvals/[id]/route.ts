@@ -1087,8 +1087,14 @@ export async function PATCH(
       });
     }
 
-    if (nextStatus === "rejected" && approval.type === RETURN_CANCEL_APPROVAL && approval.orderReturnId) {
-      // Cancel was rejected — reset the return to pending so staff can continue processing it normally.
+    if (
+      nextStatus === "rejected" &&
+      (approval.type === RETURN_CANCEL_APPROVAL ||
+        approval.type === RETURN_REARRANGE_PAYMENT_APPROVAL) &&
+      approval.orderReturnId
+    ) {
+      // Cancel / bank-transfer rearrange rejected — reset return so merchant can
+      // request finance again, rearrange, or send a cancel request.
       await tx.orderReturn.update({
         where: { id: approval.orderReturnId },
         data: {
@@ -1357,6 +1363,27 @@ export async function PATCH(
       summary: nextStatus === "approved"
         ? `Finance approved return cancel for ${invoiceLabel({ name: approval.orderName, orderNumber: approval.orderNumber, shopifyOrderId: approval.shopifyOrderId })}`
         : `Finance rejected cancel for ${invoiceLabel({ name: approval.orderName, orderNumber: approval.orderNumber, shopifyOrderId: approval.shopifyOrderId })} — return reset to pending`,
+      metadata: { approvalId: approval.id, orderId: approval.orderId },
+    });
+  }
+
+  if (approval.type === RETURN_REARRANGE_PAYMENT_APPROVAL && approval.orderReturnId) {
+    const label = invoiceLabel({
+      name: approval.orderName,
+      orderNumber: approval.orderNumber,
+      shopifyOrderId: approval.shopifyOrderId,
+    });
+    await writeAuditLog({
+      companyId,
+      actorUserId: reviewerId,
+      module: "orders",
+      action: nextStatus === "approved" ? "returned_order_rearranged" : "returned_order_updated",
+      entityType: "OrderReturn",
+      entityId: approval.orderReturnId,
+      summary:
+        nextStatus === "approved"
+          ? `Finance approved bank-transfer rearrange for ${label}`
+          : `Finance rejected bank-transfer rearrange for ${label} — return reset to pending`,
       metadata: { approvalId: approval.id, orderId: approval.orderId },
     });
   }

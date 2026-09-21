@@ -1486,16 +1486,19 @@ model SmsNotificationConfig {
 }
 
 model EmailTemplate {
-  id         String   @id @default(cuid())
-  companyId  String
-  key        String
-  name       String
-  subject    String
-  bodyHtml   String
-  recipients String
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  id           String   @id @default(cuid())
+  companyId    String
+  key          String
+  name         String
+  subject      String
+  bodyHtml     String
+  /// Comma-separated To addresses
+  recipients   String
+  /// Comma-separated CC addresses (optional)
+  ccRecipients String   @default("")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
   @@unique([companyId, key])
 }
@@ -2284,13 +2287,15 @@ model OsfUserColumnAccess {
   id         String   @id @default(cuid())
   companyId  String
   userId     String
+  /// OSF generate variant: main | vat | non_vat
+  osfVariant String   @default("main")
   columnKeys String[] @default([])
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
   company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([companyId, userId])
+  @@unique([companyId, userId, osfVariant])
   @@index([companyId])
   @@index([userId])
 }

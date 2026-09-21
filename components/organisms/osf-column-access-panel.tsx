@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { notify } from "@/lib/notify";
+import type { OsfVariant } from "@/lib/osf/vat-membership";
 import { cn } from "@/lib/utils";
 
 type ColumnMeta = { id: string; label: string };
@@ -25,6 +26,12 @@ type UserRow = {
   email: string | null;
   columnKeys: string[];
 };
+
+const VARIANT_OPTIONS: { value: OsfVariant; label: string }[] = [
+  { value: "main", label: "Main OSF" },
+  { value: "vat", label: "VAT Items OSF" },
+  { value: "non_vat", label: "Others (Non-VAT) OSF" },
+];
 
 function AccessMultiSelect({
   columns,
@@ -97,6 +104,7 @@ function AccessMultiSelect({
 }
 
 export function OsfColumnAccessPanel() {
+  const [osfVariant, setOsfVariant] = useState<OsfVariant>("main");
   const [columns, setColumns] = useState<ColumnMeta[]>([]);
   const [users, setUsers] = useState<UserRow[]>([]);
   const [draft, setDraft] = useState<Record<string, Set<string>>>({});
@@ -113,42 +121,49 @@ export function OsfColumnAccessPanel() {
     const catalogIds = new Set(nextColumns.map((c) => c.id));
     const nextUsers: UserRow[] = json.users ?? [];
     setUsers(nextUsers);
-    setDraft((prev) => {
+    setDraft(() => {
       const nextDraft: Record<string, Set<string>> = {};
       for (const u of nextUsers) {
-        const prior = prev[u.id] ?? new Set(u.columnKeys ?? []);
-        nextDraft[u.id] = new Set([...prior].filter((k) => catalogIds.has(k)));
+        nextDraft[u.id] = new Set(
+          (u.columnKeys ?? []).filter((k) => catalogIds.has(k)),
+        );
       }
       return nextDraft;
     });
   }, []);
 
-  const load = useCallback(async (opts?: { quiet?: boolean }) => {
-    try {
-      const res = await fetch("/api/admin/osf/column-access");
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? "Failed to load column access");
-      applyPayload(json);
-    } catch (err) {
-      if (!opts?.quiet) {
-        notify.error(err instanceof Error ? err.message : "Failed to load column access");
+  const load = useCallback(
+    async (variant: OsfVariant, opts?: { quiet?: boolean }) => {
+      try {
+        const res = await fetch(
+          `/api/admin/osf/column-access?osfVariant=${encodeURIComponent(variant)}`,
+        );
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error ?? "Failed to load column access");
+        applyPayload(json);
+      } catch (err) {
+        if (!opts?.quiet) {
+          notify.error(err instanceof Error ? err.message : "Failed to load column access");
+        }
+      } finally {
+        setLoading(false);
       }
-    } finally {
-      setLoading(false);
-    }
-  }, [applyPayload]);
+    },
+    [applyPayload],
+  );
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    setLoading(true);
+    void load(osfVariant);
+  }, [load, osfVariant]);
 
   useEffect(() => {
     const onColumnsChanged = () => {
-      void load({ quiet: true });
+      void load(osfVariant, { quiet: true });
     };
     window.addEventListener(OSF_COLUMNS_CHANGED_EVENT, onColumnsChanged);
     return () => window.removeEventListener(OSF_COLUMNS_CHANGED_EVENT, onColumnsChanged);
-  }, [load]);
+  }, [load, osfVariant]);
 
   const sortedColumns = useMemo(
     () => [...columns].sort((a, b) => a.label.localeCompare(b.label)),
@@ -165,12 +180,12 @@ export function OsfColumnAccessPanel() {
       const res = await fetch("/api/admin/osf/column-access", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ assignments }),
+        body: JSON.stringify({ osfVariant, assignments }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Save failed");
       notify.success("OSF column access saved");
-      await load({ quiet: true });
+      await load(osfVariant, { quiet: true });
     } catch (err) {
       notify.error(err instanceof Error ? err.message : "Save failed");
     } finally {
@@ -192,11 +207,10 @@ export function OsfColumnAccessPanel() {
         <div className="max-w-2xl space-y-1">
           <h3 className="font-medium">Excel column access</h3>
           <p className="text-sm text-muted-foreground">
-            For each purchasing user, open Access and search/mark which OSF columns they may
-            receive on download. Unmarked columns are omitted (identity columns such as SKU
-            and barcode always remain). Users with OSF manage or OSF permission always get
-            the full column set on their own downloads. List updates when location columns
-            are saved.
+            Choose an OSF variant, then for each purchasing user mark which columns they may
+            receive on that download. Marks are separate per variant (Main marks are not copied
+            to VAT Items or Others). Identity columns always remain. Users with OSF manage or
+            OSF permission always get the full column set for the variant.
           </p>
         </div>
         <Button type="button" size="sm" onClick={() => void save()} disabled={saving}>
@@ -204,6 +218,22 @@ export function OsfColumnAccessPanel() {
           {saving ? "Saving..." : "Save"}
         </Button>
       </div>
+
+      <label className="block max-w-xs text-xs font-medium">
+        OSF variant
+        <select
+          className="mt-1 h-9 w-full rounded-md border bg-background px-2 text-sm"
+          value={osfVariant}
+          onChange={(e) => setOsfVariant(e.target.value as OsfVariant)}
+          disabled={saving}
+        >
+          {VARIANT_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      </label>
 
       <button
         type="button"

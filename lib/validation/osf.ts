@@ -102,12 +102,15 @@ export const osfColumnAccessAssignmentSchema = z.object({
   columnKeys: z.array(osfColumnAccessKeySchema).max(500),
 });
 
-export const osfColumnAccessPutSchema = z.union([
-  osfColumnAccessAssignmentSchema,
-  z.object({
-    assignments: z.array(osfColumnAccessAssignmentSchema).min(1).max(200),
-  }),
-]);
+export const osfColumnAccessPutSchema = z.object({
+  osfVariant: osfVariantSchema.default("main"),
+  assignments: z.array(osfColumnAccessAssignmentSchema).min(1).max(200),
+});
+
+/** Query for GET /api/admin/osf/column-access */
+export const osfColumnAccessQuerySchema = z.object({
+  osfVariant: osfVariantSchema.optional().default("main"),
+});
 
 export type OsfColumnAccessPutInput = z.infer<typeof osfColumnAccessPutSchema>;
 

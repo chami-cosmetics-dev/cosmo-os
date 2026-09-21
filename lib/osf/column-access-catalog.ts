@@ -1,6 +1,8 @@
 /** Stable OSF Excel column access ids for per-user download visibility. */
 
 import type { OsfResolvedColumn } from "@/lib/osf/column-config";
+import type { OsfVariant } from "@/lib/osf/vat-membership";
+import { isVatLocationColumn } from "@/lib/osf/vat-rop-columns";
 
 export type OsfAccessColumnMeta = { id: string; label: string };
 
@@ -67,8 +69,22 @@ export function expandLegacyColumnGroups(groups: string[] | null | undefined): s
   return out;
 }
 
+function locationColumnsForVariant(
+  columns: OsfResolvedColumn[],
+  variant: OsfVariant = "main",
+): OsfResolvedColumn[] {
+  const active = columns.filter((c) => c.active);
+  if (variant === "vat") {
+    return active.filter((c) => isVatLocationColumn(c));
+  }
+  return active;
+}
+
 /** Build assignable catalog from active OSF columns + static headers. */
-export function buildOsfAccessCatalog(columns: OsfResolvedColumn[]): OsfAccessColumnMeta[] {
+export function buildOsfAccessCatalog(
+  columns: OsfResolvedColumn[],
+  variant: OsfVariant = "main",
+): OsfAccessColumnMeta[] {
   const out: OsfAccessColumnMeta[] = [];
   const seen = new Set<string>();
 
@@ -78,7 +94,7 @@ export function buildOsfAccessCatalog(columns: OsfResolvedColumn[]): OsfAccessCo
     out.push({ id, label });
   };
 
-  const active = columns.filter((c) => c.active);
+  const active = locationColumnsForVariant(columns, variant);
   for (const c of active) {
     if (c.includeInStock) push(stockAccessKey(c.key), c.label);
   }

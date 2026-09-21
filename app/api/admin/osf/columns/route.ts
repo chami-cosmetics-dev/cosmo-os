@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { listOsfColumnsForApi } from "@/lib/osf/column-config";
+import { OsfErpError } from "@/lib/osf/erp-stock";
+import { ensureCosmeticsShopOsfColumns } from "@/lib/osf/shop-column-sync";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { osfColumnUpsertSchema } from "@/lib/validation/osf";
@@ -13,6 +15,13 @@ export async function GET() {
   const companyId = auth.context!.user!.companyId;
   if (!companyId) {
     return NextResponse.json({ error: "No company associated with your account" }, { status: 404 });
+  }
+
+  try {
+    await ensureCosmeticsShopOsfColumns(companyId);
+  } catch (err) {
+    if (!(err instanceof OsfErpError)) throw err;
+    console.warn("[OSF] shop column sync on columns GET failed:", err.message);
   }
 
   const columns = await listOsfColumnsForApi(companyId);

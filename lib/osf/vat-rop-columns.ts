@@ -29,10 +29,27 @@ export function isShopRopColumn(
   return isShopOsfColumn(col) || isCosmeticsLkInternalShopColumn(col);
 }
 
+/** Location columns allowed on VAT Items OSF: Cosmetics.lk + shops only. */
+export function isVatLocationColumn(
+  col: Pick<
+    OsfResolvedColumn,
+    "key" | "label" | "companyLocationId" | "companyLocationName" | "warehouses" | "directWarehouses"
+  >,
+): boolean {
+  return isCosmeticsLkRopColumn(col) || isShopRopColumn(col);
+}
+
 /** Active includeInRop columns allowed on VAT OSF: Cosmetics.lk + shops only. */
 export function selectVatRopColumns(columns: OsfResolvedColumn[]): OsfResolvedColumn[] {
   return columns.filter(
-    (c) => c.active && c.includeInRop && (isCosmeticsLkRopColumn(c) || isShopRopColumn(c)),
+    (c) => c.active && c.includeInRop && isVatLocationColumn(c),
+  );
+}
+
+/** Active includeInStock columns allowed on VAT OSF: Cosmetics.lk + shops only. */
+export function selectVatStockColumns(columns: OsfResolvedColumn[]): OsfResolvedColumn[] {
+  return columns.filter(
+    (c) => c.active && c.includeInStock && isVatLocationColumn(c),
   );
 }
 

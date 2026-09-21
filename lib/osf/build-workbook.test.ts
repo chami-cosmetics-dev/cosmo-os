@@ -204,6 +204,10 @@ describe("buildMainSheetRows", () => {
     expect(first["GCC Shop ROP"]).toBe(40);
     expect(first["Total ROP"]).toBe(100);
     expect(first).not.toHaveProperty("LMJ ROP");
+    expect(first).toHaveProperty("Cosmetics.lk");
+    expect(first).toHaveProperty("GCC Shop");
+    expect(first).not.toHaveProperty("LMJ");
+    expect(first["Cosmetics MRP"]).toBeDefined();
     const mainRows = buildMainSheetRows({
       catalog: [catalog[0]!],
       columns: vatCols,
