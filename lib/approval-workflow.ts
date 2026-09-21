@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { isUnpaidCardOnDeliveryFinance, orderHasCardOnDeliveryGateway } from "@/lib/payment-method-label";
 import { needsKokoLinkTimeConfirm } from "@/lib/koko-order";
+import { APPROVAL_SPLIT_KOKO } from "@/lib/approval-payment-split";
 
 export type ApprovalStatus = "pending" | "approved" | "rejected" | "cancelled";
 export const ORDER_VOIDED_APPROVAL_CANCEL_NOTE =
@@ -207,9 +208,9 @@ export const FINANCE_PENDING_FULFILLMENT_EXCLUSION = {
   },
 } satisfies Prisma.OrderWhereInput;
 
-/** Opt-in Sample/Free Issue queue for ERP KOKO/Bank orders that need a split request. */
+/** Opt-in Sample/Free Issue queue for ERP/Shopify KOKO/Bank orders that need a split request. */
 export const FINANCE_PENDING_SPLIT_PAYMENT_QUEUE = {
-  sourceName: "erpnext",
+  sourceName: { in: ["erpnext", "web"] },
   approvalRequests: {
     some: { type: ORDER_PAYMENT_APPROVAL, status: "pending" },
   },
@@ -448,6 +449,14 @@ export async function getFinancePaymentApprovalBlockReason(order: {
 }): Promise<string | null> {
   if (!isOrderPaymentRequiresApproval(order)) return null;
 
+  const hasKokoSplitLeg = await prisma.approvalPaymentLine.findFirst({
+    where: {
+      paymentMethod: APPROVAL_SPLIT_KOKO,
+      approvalRequest: { orderId: order.id, type: ORDER_PAYMENT_APPROVAL },
+    },
+    select: { id: true },
+  });
+
   if (
     needsKokoLinkTimeConfirm({
       sourceName: order.sourceName,
@@ -456,6 +465,7 @@ export async function getFinancePaymentApprovalBlockReason(order: {
       kokoLinkTimeConfirmedAt: order.kokoLinkTimeConfirmedAt,
       cancelledAt: order.cancelledAt,
       financialStatus: order.financialStatus,
+      hasKokoSplitLeg: Boolean(hasKokoSplitLeg),
     })
   ) {
     return "Confirm KOKO link generated time before continuing. Enter the time shown on the KOKO portal, then confirm.";

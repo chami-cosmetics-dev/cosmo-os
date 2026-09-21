@@ -65,9 +65,9 @@ describe("FINANCE_PENDING_FULFILLMENT_EXCLUSION", () => {
 });
 
 describe("FINANCE_PENDING_SPLIT_PAYMENT_QUEUE", () => {
-  it("shows only ERP KOKO/Bank orders with a pending payment approval", () => {
+  it("shows ERP and Shopify KOKO/Bank orders with a pending payment approval", () => {
     expect(FINANCE_PENDING_SPLIT_PAYMENT_QUEUE).toEqual({
-      sourceName: "erpnext",
+      sourceName: { in: ["erpnext", "web"] },
       approvalRequests: {
         some: { type: "order_payment_approval", status: "pending" },
       },

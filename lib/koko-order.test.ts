@@ -4,17 +4,26 @@ import {
   canEditKokoLinkTime,
   isErpKokoOrder,
   isErpSourcedOrder,
+  isKokoLinkTimeCandidate,
   isKokoPaymentGateway,
+  isShopifySourcedOrder,
+  isSplitPaymentEligibleSource,
   needsKokoLinkTimeConfirm,
   parseKokoLinkGeneratedAt,
   toColomboPasteValue,
 } from "@/lib/koko-order";
 
-describe("isErpSourcedOrder / isKokoPaymentGateway / isErpKokoOrder", () => {
+describe("isErpSourcedOrder / isShopifySourcedOrder / isKokoPaymentGateway / isErpKokoOrder", () => {
   it("detects erpnext sources", () => {
     expect(isErpSourcedOrder("erpnext")).toBe(true);
     expect(isErpSourcedOrder("erpnext-pos")).toBe(true);
     expect(isErpSourcedOrder("web")).toBe(false);
+  });
+
+  it("detects Shopify / web sources", () => {
+    expect(isShopifySourcedOrder("web")).toBe(true);
+    expect(isShopifySourcedOrder("shopify")).toBe(true);
+    expect(isShopifySourcedOrder("erpnext")).toBe(false);
   });
 
   it("detects KOKO from primary", () => {
@@ -36,6 +45,12 @@ describe("isErpSourcedOrder / isKokoPaymentGateway / isErpKokoOrder", () => {
       }),
     ).toBe(false);
   });
+
+  it("allows split planning on ERP and Shopify", () => {
+    expect(isSplitPaymentEligibleSource("erpnext")).toBe(true);
+    expect(isSplitPaymentEligibleSource("web")).toBe(true);
+    expect(isSplitPaymentEligibleSource("manual")).toBe(false);
+  });
 });
 
 describe("needsKokoLinkTimeConfirm / canEditKokoLinkTime", () => {
@@ -47,6 +62,45 @@ describe("needsKokoLinkTimeConfirm / canEditKokoLinkTime", () => {
         kokoLinkTimeConfirmedAt: null,
       }),
     ).toBe(true);
+  });
+
+  it("needs confirm when Shopify KOKO and unconfirmed", () => {
+    expect(
+      needsKokoLinkTimeConfirm({
+        sourceName: "web",
+        paymentGatewayPrimary: "Koko",
+        kokoLinkTimeConfirmedAt: null,
+      }),
+    ).toBe(true);
+  });
+
+  it("needs confirm when Shopify bank has a KOKO split leg", () => {
+    expect(
+      isKokoLinkTimeCandidate({
+        sourceName: "web",
+        paymentGatewayPrimary: "Bank Transfer",
+        hasKokoSplitLeg: true,
+      }),
+    ).toBe(true);
+    expect(
+      needsKokoLinkTimeConfirm({
+        sourceName: "web",
+        paymentGatewayPrimary: "Bank Transfer",
+        hasKokoSplitLeg: true,
+        kokoLinkTimeConfirmedAt: null,
+      }),
+    ).toBe(true);
+  });
+
+  it("does not need confirm for Shopify bank without KOKO split", () => {
+    expect(
+      needsKokoLinkTimeConfirm({
+        sourceName: "web",
+        paymentGatewayPrimary: "Bank Transfer",
+        hasKokoSplitLeg: false,
+        kokoLinkTimeConfirmedAt: null,
+      }),
+    ).toBe(false);
   });
 
   it("does not need confirm after confirmed", () => {
@@ -62,7 +116,7 @@ describe("needsKokoLinkTimeConfirm / canEditKokoLinkTime", () => {
   it("blocks edit after approved payment", () => {
     expect(
       canEditKokoLinkTime({
-        sourceName: "erpnext",
+        sourceName: "web",
         paymentGatewayPrimary: "Koko",
         paymentApprovalStatus: "approved",
       }),

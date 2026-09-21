@@ -424,7 +424,8 @@ export async function PATCH(
       }
 
       // Auto-submit finance approval for KOKO / bank transfer orders
-      if (isOrderPaymentRequiresApproval(order)) {
+      // (skip while awaiting KOKO portal link generated time).
+      if (isOrderPaymentRequiresApproval(order) && !needsKokoLinkTimeConfirm(order)) {
         const invoiceLabel = order.name ?? order.orderNumber ?? order.shopifyOrderId ?? order.id;
         const paymentType = order.paymentGatewayPrimary ?? "payment";
         const amount = order.totalPrice.toString();

@@ -32,13 +32,40 @@ export function isKokoPaymentGateway(order: {
   return names.some((g) => g.includes("koko"));
 }
 
-/** ERP-sourced KOKO orders use deferred finance approval until link time is confirmed. */
+/** Shopify / web storefront orders (Cosmo + Vault). */
+export function isShopifySourcedOrder(sourceName: string | null | undefined): boolean {
+  const s = (sourceName ?? "").trim().toLowerCase();
+  if (!s) return false;
+  return s === "web" || s === "shopify" || s.startsWith("shopify");
+}
+
+/** ERP or Shopify — both capture KOKO portal link generated time before finance. */
+export function isKokoLinkTimeEligibleSource(sourceName: string | null | undefined): boolean {
+  return isErpSourcedOrder(sourceName) || isShopifySourcedOrder(sourceName);
+}
+
+/** ERP-sourced KOKO orders (legacy helper; prefer isKokoLinkTimeCandidate). */
 export function isErpKokoOrder(order: {
   sourceName?: string | null;
   paymentGatewayPrimary?: string | null;
   paymentGatewayNames?: string[] | null;
 }): boolean {
   return isErpSourcedOrder(order.sourceName) && isKokoPaymentGateway(order);
+}
+
+/**
+ * True when this order must collect KOKO link generated time:
+ * ERP/Shopify KOKO primary, or a split plan with a KOKO leg.
+ */
+export function isKokoLinkTimeCandidate(order: {
+  sourceName?: string | null;
+  paymentGatewayPrimary?: string | null;
+  paymentGatewayNames?: string[] | null;
+  /** True when pending/approved payment approval has a KOKO split line. */
+  hasKokoSplitLeg?: boolean | null;
+}): boolean {
+  if (!isKokoLinkTimeEligibleSource(order.sourceName)) return false;
+  return isKokoPaymentGateway(order) || Boolean(order.hasKokoSplitLeg);
 }
 
 export function needsKokoLinkTimeConfirm(order: {
@@ -48,8 +75,9 @@ export function needsKokoLinkTimeConfirm(order: {
   kokoLinkTimeConfirmedAt?: Date | string | null;
   cancelledAt?: Date | string | null;
   financialStatus?: string | null;
+  hasKokoSplitLeg?: boolean | null;
 }): boolean {
-  if (!isErpKokoOrder(order)) return false;
+  if (!isKokoLinkTimeCandidate(order)) return false;
   if (order.cancelledAt) return false;
   if ((order.financialStatus ?? "").toLowerCase() === "voided") return false;
   return order.kokoLinkTimeConfirmedAt == null;
@@ -62,12 +90,18 @@ export function canEditKokoLinkTime(order: {
   cancelledAt?: Date | string | null;
   financialStatus?: string | null;
   paymentApprovalStatus?: string | null;
+  hasKokoSplitLeg?: boolean | null;
 }): boolean {
-  if (!isErpKokoOrder(order)) return false;
+  if (!isKokoLinkTimeCandidate(order)) return false;
   if (order.cancelledAt) return false;
   if ((order.financialStatus ?? "").toLowerCase() === "voided") return false;
   if (order.paymentApprovalStatus === "approved") return false;
   return true;
+}
+
+/** Whether source supports merchant split KOKO + Bank Transfer planning. */
+export function isSplitPaymentEligibleSource(sourceName: string | null | undefined): boolean {
+  return isErpSourcedOrder(sourceName) || isShopifySourcedOrder(sourceName);
 }
 
 /** Sri Lanka has no DST, so Colombo wall time is always UTC+5:30. */

@@ -31,12 +31,14 @@ import {
   needsKokoLinkTimeConfirm,
   parseKokoLinkGeneratedAt,
   toColomboPasteValue,
+  isSplitPaymentEligibleSource,
 } from "@/lib/koko-order";
 import {
   canRequestPaymentMethodChange,
   getPaymentMethodInfo,
   isUnpaidCardOnDeliveryFinance,
 } from "@/lib/payment-method-label";
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 import { KOKO_MAX_PAYMENTS, LIMITS } from "@/lib/validation";
 import type { FulfillmentOrder } from "./fulfillment-order-selector";
 
@@ -478,14 +480,19 @@ export function FulfillmentSampleFreeIssuePanel({
     );
   }, [detail, order]);
   const financeApprovalPending = detail?.paymentApproval?.status === "pending";
+  const hasKokoSplitLeg = (detail?.paymentApproval?.paymentLines ?? []).some(
+    (line) => line.paymentMethod === "koko",
+  );
   const awaitingKokoLinkTime = detail
     ? needsKokoLinkTimeConfirm({
         sourceName: detail.sourceName,
         paymentGatewayPrimary: detail.paymentGatewayPrimary,
         paymentGatewayNames: detail.paymentGatewayNames,
         kokoLinkTimeConfirmedAt: detail.kokoLinkTimeConfirmedAt,
+        hasKokoSplitLeg,
       })
     : false;
+  const showMintpayPaymentChange = isVaultOsDeployment();
 
   async function confirmKokoLinkTime() {
     if (!orderId || !kokoLinkParsed) {
@@ -543,8 +550,8 @@ export function FulfillmentSampleFreeIssuePanel({
     perms.canManageSplitPayment &&
     financeApprovalPending &&
     !splitPaymentLines.some((line) => line.erpPaymentEntryName) &&
-    detail?.sourceName.startsWith("erpnext") &&
-    [detail.paymentGatewayPrimary, ...(detail.paymentGatewayNames ?? [])].some((gateway) => {
+    isSplitPaymentEligibleSource(detail?.sourceName) &&
+    [detail?.paymentGatewayPrimary, ...(detail?.paymentGatewayNames ?? [])].some((gateway) => {
       const normalized = gateway?.toLowerCase() ?? "";
       return normalized.includes("koko") || normalized.includes("bank");
     });
@@ -588,7 +595,11 @@ export function FulfillmentSampleFreeIssuePanel({
         notify.error(data.error ?? "Failed to save split payment");
         return;
       }
-      notify.success("Split payment sent to finance for approval.");
+      notify.success(
+        detail?.kokoLinkTimeConfirmedAt
+          ? "Split payment sent to finance for approval."
+          : "Split payment saved. Confirm KOKO link generated time before continuing.",
+      );
       setShowSplitPaymentDialog(false);
       await reloadDetail();
       onRefresh(false);
@@ -749,15 +760,17 @@ export function FulfillmentSampleFreeIssuePanel({
                       >
                         KOKO
                       </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setShowMintpayDialog(true)}
-                        className="h-6 px-2 text-xs border-violet-500 text-violet-600 hover:bg-violet-50 hover:text-violet-700 dark:border-violet-400 dark:text-violet-400 dark:hover:bg-violet-950"
-                      >
-                        Mintpay
-                      </Button>
+                      {showMintpayPaymentChange ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setShowMintpayDialog(true)}
+                          className="h-6 px-2 text-xs border-violet-500 text-violet-600 hover:bg-violet-50 hover:text-violet-700 dark:border-violet-400 dark:text-violet-400 dark:hover:bg-violet-950"
+                        >
+                          Mintpay
+                        </Button>
+                      ) : null}
                     </>
                   )}
                   {canConfigureSplitPayment && orderId ? (
@@ -1401,7 +1414,7 @@ export function FulfillmentSampleFreeIssuePanel({
     </AlertDialog>
 
     <AlertDialog
-      open={showMintpayDialog}
+      open={showMintpayPaymentChange && showMintpayDialog}
       onOpenChange={(open) => { if (!open) setShowMintpayDialog(false); }}
     >
       <AlertDialogContent>

@@ -13,9 +13,10 @@ import {
 } from "@/lib/koko-duplicate-group";
 import {
   canEditKokoLinkTime,
-  isErpKokoOrder,
+  isKokoLinkTimeCandidate,
   parseKokoLinkGeneratedAt,
 } from "@/lib/koko-order";
+import { APPROVAL_SPLIT_KOKO } from "@/lib/approval-payment-split";
 import { KOKO_DUPLICATE_LOOKBACK_DAYS } from "@/lib/koko-order";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
@@ -155,7 +156,10 @@ export async function GET(_req: Request, { params }: Params) {
         where: { type: ORDER_PAYMENT_APPROVAL },
         orderBy: { createdAt: "desc" },
         take: 1,
-        select: { status: true },
+        select: {
+          status: true,
+          paymentLines: { select: { paymentMethod: true } },
+        },
       },
     },
   });
@@ -163,9 +167,12 @@ export async function GET(_req: Request, { params }: Params) {
     return NextResponse.json({ error: "Order not found" }, { status: 404 });
   }
 
-  const duplicateNotice = isErpKokoOrder(order)
-    ? await loadDuplicateNotice(order)
-    : [];
+  const hasKokoSplitLeg = (order.approvalRequests[0]?.paymentLines ?? []).some(
+    (line) => line.paymentMethod === APPROVAL_SPLIT_KOKO,
+  );
+  const linkCandidate = isKokoLinkTimeCandidate({ ...order, hasKokoSplitLeg });
+
+  const duplicateNotice = linkCandidate ? await loadDuplicateNotice(order) : [];
 
   return NextResponse.json({
     kokoLinkGeneratedAt: order.kokoLinkGeneratedAt?.toISOString() ?? null,
@@ -173,10 +180,12 @@ export async function GET(_req: Request, { params }: Params) {
     kokoMultiPaymentFlagged: order.kokoMultiPaymentFlagged,
     kokoMultiPaymentCount: order.kokoMultiPaymentCount,
     kokoLinkTimeConfirmedAt: order.kokoLinkTimeConfirmedAt?.toISOString() ?? null,
-    needsConfirm: canEditKokoLinkTime({
-      ...order,
-      paymentApprovalStatus: order.approvalRequests[0]?.status ?? null,
-    }) && order.kokoLinkTimeConfirmedAt == null,
+    needsConfirm:
+      canEditKokoLinkTime({
+        ...order,
+        hasKokoSplitLeg,
+        paymentApprovalStatus: order.approvalRequests[0]?.status ?? null,
+      }) && order.kokoLinkTimeConfirmedAt == null,
     duplicateNotice,
   });
 }
@@ -258,18 +267,29 @@ export async function POST(req: Request, { params }: Params) {
         where: { type: ORDER_PAYMENT_APPROVAL },
         orderBy: { createdAt: "desc" },
         take: 1,
-        select: { id: true, status: true },
+        select: {
+          id: true,
+          status: true,
+          paymentLines: { select: { paymentMethod: true } },
+        },
       },
     },
   });
   if (!order) {
     return NextResponse.json({ error: "Order not found" }, { status: 404 });
   }
-  if (!isErpKokoOrder(order)) {
-    return NextResponse.json({ error: "Only ERP KOKO orders require link generated time" }, { status: 400 });
+  const hasKokoSplitLeg = (order.approvalRequests[0]?.paymentLines ?? []).some(
+    (line) => line.paymentMethod === APPROVAL_SPLIT_KOKO,
+  );
+  if (!isKokoLinkTimeCandidate({ ...order, hasKokoSplitLeg })) {
+    return NextResponse.json(
+      { error: "Only ERP/Shopify KOKO (or split with KOKO) orders require link generated time" },
+      { status: 400 },
+    );
   }
   if (!canEditKokoLinkTime({
     ...order,
+    hasKokoSplitLeg,
     paymentApprovalStatus: order.approvalRequests[0]?.status ?? null,
   })) {
     return NextResponse.json(
