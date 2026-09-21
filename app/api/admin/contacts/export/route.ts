@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import {
-  loadOrderPurchaseAggregates,
-  purchaseSummaryForPhone,
+  loadPurchaseSummaryIndexes,
+  purchaseSummaryForContact,
 } from "@/lib/contacts/purchase-summary-export";
 import { logReportDownload } from "@/lib/report-download-log";
 import { findContactsByPurchasedBrandRanked } from "@/lib/page-data/contact-brand-ids";
@@ -37,6 +37,8 @@ type ContactExportRow = {
   lastPurchaseAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
+  emails: Array<{ email: string }>;
+  phones: Array<{ phoneNumber: string }>;
 };
 
 function parseStatus(value: string | null): ContactStatusFilter {
@@ -69,6 +71,8 @@ async function* iterateExportContacts(
     lastPurchaseAt: true,
     createdAt: true,
     updatedAt: true,
+    emails: { select: { email: true } },
+    phones: { select: { phoneNumber: true } },
   } as const;
 
   if (brandOrderedIds) {
@@ -143,7 +147,7 @@ export async function GET(request: NextRequest) {
   );
 
   const purchaseSummaryPromise =
-    mode === "purchase_summary" ? loadOrderPurchaseAggregates(companyId) : Promise.resolve(null);
+    mode === "purchase_summary" ? loadPurchaseSummaryIndexes(companyId) : Promise.resolve(null);
 
   const expectedRows = await prisma.contactMaster.count({ where });
 
@@ -206,7 +210,7 @@ export async function GET(request: NextRequest) {
           encoder.encode(`\uFEFF${headers.map(formatCsvHeader).join(",")}\r\n`)
         );
 
-        const purchaseSummaryByPhone = await purchaseSummaryPromise;
+        const purchaseIndexes = await purchaseSummaryPromise;
 
         let contactNo = 0;
         for await (const batch of iterateExportContacts(where, brandOrderedIds)) {
@@ -216,8 +220,14 @@ export async function GET(request: NextRequest) {
           const lines: string[] = [];
           for (const contact of batch) {
             contactNo += 1;
-            const summary = purchaseSummaryByPhone
-              ? purchaseSummaryForPhone(purchaseSummaryByPhone, contact.phoneNumber)
+            const summary = purchaseIndexes
+              ? purchaseSummaryForContact(purchaseIndexes, {
+                  contactId: contact.id,
+                  phoneNumber: contact.phoneNumber,
+                  email: contact.email,
+                  aliasPhones: contact.phones.map((p) => p.phoneNumber),
+                  aliasEmails: contact.emails.map((e) => e.email),
+                })
               : undefined;
             const row: Record<string, CsvPrimitive> = {
               contact_no: contactNo,
@@ -236,7 +246,12 @@ export async function GET(request: NextRequest) {
                     last_order_date: formatIsoDate(summary?.lastOrderAt ?? null),
                   }
                 : {}),
-              last_purchased_date: formatIsoDate(contact.lastPurchaseAt),
+              last_purchased_date: formatIsoDate(
+                summary?.lastOrderAt &&
+                  (!contact.lastPurchaseAt || summary.lastOrderAt > contact.lastPurchaseAt)
+                  ? summary.lastOrderAt
+                  : contact.lastPurchaseAt
+              ),
               created_at: formatIsoDateTime(contact.createdAt),
               updated_at: formatIsoDateTime(contact.updatedAt),
             };

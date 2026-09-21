@@ -33,7 +33,11 @@ export async function GET(request: NextRequest) {
   const search = searchParams.get("search")?.trim() ?? "";
 
   const where = {
-    ...(companyId ? { companyId } : {}),
+    ...(companyId
+      ? {
+          OR: [{ companyId }, { employeeProfile: { companyId } }],
+        }
+      : {}),
     ...(search
       ? {
           OR: [
