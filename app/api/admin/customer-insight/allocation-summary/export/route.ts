@@ -89,19 +89,14 @@ async function exportAllocatedContactsCsv(
   assignedMerchant: string
 ): Promise<NextResponse> {
   const merchantNeedle = assignedMerchant.trim();
-  if (!merchantNeedle) {
-    return NextResponse.json(
-      { error: "Select a merchant to export their allocated contacts." },
-      { status: 400 }
-    );
-  }
 
-  const aliases = await resolveAssignedMerchantFilterLabels(
-    companyId,
-    merchantNeedle
-  );
-  const merchantWhere =
-    aliases.length <= 1
+  // No merchant picked = every allocated contact, across all merchants.
+  const aliases = merchantNeedle
+    ? await resolveAssignedMerchantFilterLabels(companyId, merchantNeedle)
+    : [];
+  const merchantWhere = !merchantNeedle
+    ? {}
+    : aliases.length <= 1
       ? {
           assignedMerchant: {
             equals: aliases[0] ?? merchantNeedle,
@@ -121,7 +116,9 @@ async function exportAllocatedContactsCsv(
     .replace(/[^a-zA-Z0-9_-]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 40);
-  const fileName = `insight-merchant-allocation-contacts-${safeSlug || "merchant"}.csv`;
+  const fileName = merchantNeedle
+    ? `insight-merchant-allocation-contacts-${safeSlug || "merchant"}.csv`
+    : "insight-merchant-allocation-contacts-all.csv";
   const aliasToRoster = await loadAssignedMerchantAliasMap(companyId);
 
   await logReportDownload({
@@ -129,7 +126,9 @@ async function exportAllocatedContactsCsv(
     userId,
     reportKey: "customer_insight:allocation_contacts",
     reportLabel: "Customer Insight Allocation Contacts",
-    filters: `assignedMerchant=${merchantNeedle}`,
+    filters: merchantNeedle
+      ? `assignedMerchant=${merchantNeedle}`
+      : "assignedMerchant=all",
     fileName,
   });
 
