@@ -703,6 +703,7 @@ export async function ingestParsedErpSalesInvoice(input: {
         paymentGatewayNames: order.paymentGatewayNames,
         kokoLinkTimeConfirmedAt: order.kokoLinkTimeConfirmedAt,
         financialStatus: order.financialStatus,
+        createdAt: order.createdAt,
       });
     if (needsApproval && !osOrderAlreadyPaid && !deferKokoApproval) {
       const existingApproval = await prisma.approvalRequest.findFirst({

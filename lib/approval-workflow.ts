@@ -446,26 +446,47 @@ export async function getFinancePaymentApprovalBlockReason(order: {
   kokoLinkTimeConfirmedAt?: Date | string | null;
   cancelledAt?: Date | string | null;
   financialStatus?: string | null;
+  createdAt?: Date | string | null;
 }): Promise<string | null> {
   if (!isOrderPaymentRequiresApproval(order)) return null;
 
-  const hasKokoSplitLeg = await prisma.approvalPaymentLine.findFirst({
-    where: {
-      paymentMethod: APPROVAL_SPLIT_KOKO,
-      approvalRequest: { orderId: order.id, type: ORDER_PAYMENT_APPROVAL },
-    },
-    select: { id: true },
-  });
+  const [hasKokoSplitLeg, orderRow] = await Promise.all([
+    prisma.approvalPaymentLine.findFirst({
+      where: {
+        paymentMethod: APPROVAL_SPLIT_KOKO,
+        approvalRequest: { orderId: order.id, type: ORDER_PAYMENT_APPROVAL },
+      },
+      select: { id: true },
+    }),
+    // Always read createdAt / link-time fields from DB so bulk paths and
+    // callers that omit them still grandfather pre-feature KOKO orders.
+    prisma.order.findUnique({
+      where: { id: order.id },
+      select: {
+        sourceName: true,
+        createdAt: true,
+        kokoLinkTimeConfirmedAt: true,
+        cancelledAt: true,
+        financialStatus: true,
+        paymentGatewayPrimary: true,
+        paymentGatewayNames: true,
+      },
+    }),
+  ]);
 
   if (
     needsKokoLinkTimeConfirm({
-      sourceName: order.sourceName,
-      paymentGatewayPrimary: order.paymentGatewayPrimary,
-      paymentGatewayNames: order.paymentGatewayNames,
-      kokoLinkTimeConfirmedAt: order.kokoLinkTimeConfirmedAt,
-      cancelledAt: order.cancelledAt,
-      financialStatus: order.financialStatus,
+      sourceName: orderRow?.sourceName ?? order.sourceName,
+      paymentGatewayPrimary:
+        orderRow?.paymentGatewayPrimary ?? order.paymentGatewayPrimary,
+      paymentGatewayNames:
+        orderRow?.paymentGatewayNames ?? order.paymentGatewayNames,
+      kokoLinkTimeConfirmedAt:
+        orderRow?.kokoLinkTimeConfirmedAt ?? order.kokoLinkTimeConfirmedAt,
+      cancelledAt: orderRow?.cancelledAt ?? order.cancelledAt,
+      financialStatus: orderRow?.financialStatus ?? order.financialStatus,
       hasKokoSplitLeg: Boolean(hasKokoSplitLeg),
+      createdAt: orderRow?.createdAt ?? order.createdAt,
     })
   ) {
     return "Confirm KOKO link generated time before continuing. Enter the time shown on the KOKO portal, then confirm.";

@@ -348,6 +348,7 @@ export async function PATCH(
     kokoLinkTimeConfirmedAt: order.kokoLinkTimeConfirmedAt,
     cancelledAt: order.cancelledAt,
     financialStatus: order.financialStatus,
+    createdAt: order.createdAt,
   });
 
   // If the block is due to a missing approval record (ERP webhook silent failure),

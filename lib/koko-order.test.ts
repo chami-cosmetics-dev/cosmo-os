@@ -54,72 +54,153 @@ describe("isErpSourcedOrder / isShopifySourcedOrder / isKokoPaymentGateway / isE
 });
 
 describe("needsKokoLinkTimeConfirm / canEditKokoLinkTime", () => {
-  it("needs confirm when ERP KOKO and unconfirmed", () => {
+  const afterCutoff = "2026-09-20T10:00:00.000Z";
+  const beforeCutoff = "2026-09-18T10:00:00.000Z"; // 2026-09-18 Colombo afternoon
+  const cosmo = { vaultOs: false } as const;
+  const vault = { vaultOs: true } as const;
+
+  it("needs confirm when ERP KOKO and unconfirmed (post-cutoff, Cosmo)", () => {
     expect(
-      needsKokoLinkTimeConfirm({
-        sourceName: "erpnext",
-        paymentGatewayPrimary: "Koko",
-        kokoLinkTimeConfirmedAt: null,
-      }),
+      needsKokoLinkTimeConfirm(
+        {
+          sourceName: "erpnext",
+          paymentGatewayPrimary: "Koko",
+          kokoLinkTimeConfirmedAt: null,
+          createdAt: afterCutoff,
+        },
+        cosmo,
+      ),
     ).toBe(true);
   });
 
-  it("needs confirm when Shopify KOKO and unconfirmed", () => {
+  it("needs confirm when Shopify KOKO and unconfirmed (post-cutoff, Cosmo)", () => {
     expect(
-      needsKokoLinkTimeConfirm({
-        sourceName: "web",
-        paymentGatewayPrimary: "Koko",
-        kokoLinkTimeConfirmedAt: null,
-      }),
+      needsKokoLinkTimeConfirm(
+        {
+          sourceName: "web",
+          paymentGatewayPrimary: "Koko",
+          kokoLinkTimeConfirmedAt: null,
+          createdAt: afterCutoff,
+        },
+        cosmo,
+      ),
     ).toBe(true);
   });
 
-  it("needs confirm when Shopify bank has a KOKO split leg", () => {
+  it("never requires link time on Vault OS", () => {
     expect(
-      isKokoLinkTimeCandidate({
-        sourceName: "web",
-        paymentGatewayPrimary: "Bank Transfer",
-        hasKokoSplitLeg: true,
-      }),
+      needsKokoLinkTimeConfirm(
+        {
+          sourceName: "erpnext",
+          paymentGatewayPrimary: "Koko",
+          kokoLinkTimeConfirmedAt: null,
+          createdAt: afterCutoff,
+        },
+        vault,
+      ),
+    ).toBe(false);
+    expect(
+      isKokoLinkTimeCandidate(
+        {
+          sourceName: "web",
+          paymentGatewayPrimary: "Koko",
+          createdAt: afterCutoff,
+        },
+        vault,
+      ),
+    ).toBe(false);
+  });
+
+  it("does not block pre-cutoff KOKO orders (legacy backlog)", () => {
+    expect(
+      needsKokoLinkTimeConfirm(
+        {
+          sourceName: "erpnext",
+          paymentGatewayPrimary: "Koko",
+          kokoLinkTimeConfirmedAt: null,
+          createdAt: beforeCutoff,
+        },
+        cosmo,
+      ),
+    ).toBe(false);
+    expect(
+      isKokoLinkTimeCandidate(
+        {
+          sourceName: "web",
+          paymentGatewayPrimary: "Koko",
+          createdAt: beforeCutoff,
+        },
+        cosmo,
+      ),
+    ).toBe(false);
+  });
+
+  it("needs confirm when Shopify bank has a KOKO split leg (post-cutoff, Cosmo)", () => {
+    expect(
+      isKokoLinkTimeCandidate(
+        {
+          sourceName: "web",
+          paymentGatewayPrimary: "Bank Transfer",
+          hasKokoSplitLeg: true,
+          createdAt: afterCutoff,
+        },
+        cosmo,
+      ),
     ).toBe(true);
     expect(
-      needsKokoLinkTimeConfirm({
-        sourceName: "web",
-        paymentGatewayPrimary: "Bank Transfer",
-        hasKokoSplitLeg: true,
-        kokoLinkTimeConfirmedAt: null,
-      }),
+      needsKokoLinkTimeConfirm(
+        {
+          sourceName: "web",
+          paymentGatewayPrimary: "Bank Transfer",
+          hasKokoSplitLeg: true,
+          kokoLinkTimeConfirmedAt: null,
+          createdAt: afterCutoff,
+        },
+        cosmo,
+      ),
     ).toBe(true);
   });
 
   it("does not need confirm for Shopify bank without KOKO split", () => {
     expect(
-      needsKokoLinkTimeConfirm({
-        sourceName: "web",
-        paymentGatewayPrimary: "Bank Transfer",
-        hasKokoSplitLeg: false,
-        kokoLinkTimeConfirmedAt: null,
-      }),
+      needsKokoLinkTimeConfirm(
+        {
+          sourceName: "web",
+          paymentGatewayPrimary: "Bank Transfer",
+          hasKokoSplitLeg: false,
+          kokoLinkTimeConfirmedAt: null,
+          createdAt: afterCutoff,
+        },
+        cosmo,
+      ),
     ).toBe(false);
   });
 
   it("does not need confirm after confirmed", () => {
     expect(
-      needsKokoLinkTimeConfirm({
-        sourceName: "erpnext",
-        paymentGatewayPrimary: "Koko",
-        kokoLinkTimeConfirmedAt: new Date(),
-      }),
+      needsKokoLinkTimeConfirm(
+        {
+          sourceName: "erpnext",
+          paymentGatewayPrimary: "Koko",
+          kokoLinkTimeConfirmedAt: new Date(),
+          createdAt: afterCutoff,
+        },
+        cosmo,
+      ),
     ).toBe(false);
   });
 
   it("blocks edit after approved payment", () => {
     expect(
-      canEditKokoLinkTime({
-        sourceName: "web",
-        paymentGatewayPrimary: "Koko",
-        paymentApprovalStatus: "approved",
-      }),
+      canEditKokoLinkTime(
+        {
+          sourceName: "web",
+          paymentGatewayPrimary: "Koko",
+          paymentApprovalStatus: "approved",
+          createdAt: afterCutoff,
+        },
+        cosmo,
+      ),
     ).toBe(false);
   });
 });

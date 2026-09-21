@@ -55,6 +55,7 @@ type SampleOrderDetail = {
   sourceName: string;
   name: string | null;
   orderNumber: string | null;
+  createdAt?: string;
   totalPrice: string;
   currency: string | null;
   paymentGatewayNames?: string[];
@@ -490,6 +491,7 @@ export function FulfillmentSampleFreeIssuePanel({
         paymentGatewayNames: detail.paymentGatewayNames,
         kokoLinkTimeConfirmedAt: detail.kokoLinkTimeConfirmedAt,
         hasKokoSplitLeg,
+        createdAt: detail.createdAt,
       })
     : false;
   const showMintpayPaymentChange = isVaultOsDeployment();

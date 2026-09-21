@@ -1,12 +1,44 @@
 import { APP_TIME_ZONE } from "@/lib/format-datetime";
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 
 /** Lookback for KOKO duplicate grouping and soft notices (calendar days). */
 export const KOKO_DUPLICATE_LOOKBACK_DAYS = 30;
+
+/**
+ * KOKO link-time confirm applies only on Cosmo OS, and only to orders created
+ * on/after this instant (2026-09-19 00:00 Asia/Colombo — feature ship day).
+ * Vault OS keeps the pre-feature finance/fulfillment path. Cosmo backlog before
+ * the cutoff is also exempt.
+ */
+export const KOKO_LINK_TIME_FEATURE_CUTOFF = new Date("2026-09-18T18:30:00.000Z");
 
 export const FINANCE_CANCEL_KOKO_DUPLICATE_PERMISSION =
   "finance.approvals.cancel_koko_duplicate" as const;
 
 const ERP_SOURCE_PREFIXES = ["erpnext", "erpnext-pos", "pos"] as const;
+
+/** Cosmo-only feature flag for the KOKO portal link-time confirm flow. */
+export function isKokoLinkTimeFeatureEnabled(
+  options?: { vaultOs?: boolean },
+): boolean {
+  const vaultOs = options?.vaultOs ?? isVaultOsDeployment();
+  return !vaultOs;
+}
+
+/**
+ * True when this deployment + order.createdAt should use link-time confirm.
+ * Vault OS always false; Cosmo requires createdAt on/after the feature cutoff.
+ */
+export function isOrderSubjectToKokoLinkTimeFeature(
+  createdAt: Date | string | null | undefined,
+  options?: { vaultOs?: boolean },
+): boolean {
+  if (!isKokoLinkTimeFeatureEnabled(options)) return false;
+  if (createdAt == null || createdAt === "") return false;
+  const date = createdAt instanceof Date ? createdAt : new Date(createdAt);
+  if (Number.isNaN(date.getTime())) return false;
+  return date.getTime() >= KOKO_LINK_TIME_FEATURE_CUTOFF.getTime();
+}
 
 export function isErpSourcedOrder(sourceName: string | null | undefined): boolean {
   const s = (sourceName ?? "").trim().toLowerCase();
@@ -54,45 +86,59 @@ export function isErpKokoOrder(order: {
 }
 
 /**
- * True when this order must collect KOKO link generated time:
- * ERP/Shopify KOKO primary, or a split plan with a KOKO leg.
+ * True when this order must collect KOKO link generated time (Cosmo only):
+ * ERP/Shopify KOKO primary, or a split plan with a KOKO leg,
+ * and order is on/after the feature cutoff.
  */
-export function isKokoLinkTimeCandidate(order: {
-  sourceName?: string | null;
-  paymentGatewayPrimary?: string | null;
-  paymentGatewayNames?: string[] | null;
-  /** True when pending/approved payment approval has a KOKO split line. */
-  hasKokoSplitLeg?: boolean | null;
-}): boolean {
+export function isKokoLinkTimeCandidate(
+  order: {
+    sourceName?: string | null;
+    paymentGatewayPrimary?: string | null;
+    paymentGatewayNames?: string[] | null;
+    /** True when pending/approved payment approval has a KOKO split line. */
+    hasKokoSplitLeg?: boolean | null;
+    createdAt?: Date | string | null;
+  },
+  options?: { vaultOs?: boolean },
+): boolean {
+  if (!isOrderSubjectToKokoLinkTimeFeature(order.createdAt, options)) return false;
   if (!isKokoLinkTimeEligibleSource(order.sourceName)) return false;
   return isKokoPaymentGateway(order) || Boolean(order.hasKokoSplitLeg);
 }
 
-export function needsKokoLinkTimeConfirm(order: {
-  sourceName?: string | null;
-  paymentGatewayPrimary?: string | null;
-  paymentGatewayNames?: string[] | null;
-  kokoLinkTimeConfirmedAt?: Date | string | null;
-  cancelledAt?: Date | string | null;
-  financialStatus?: string | null;
-  hasKokoSplitLeg?: boolean | null;
-}): boolean {
-  if (!isKokoLinkTimeCandidate(order)) return false;
+export function needsKokoLinkTimeConfirm(
+  order: {
+    sourceName?: string | null;
+    paymentGatewayPrimary?: string | null;
+    paymentGatewayNames?: string[] | null;
+    kokoLinkTimeConfirmedAt?: Date | string | null;
+    cancelledAt?: Date | string | null;
+    financialStatus?: string | null;
+    hasKokoSplitLeg?: boolean | null;
+    createdAt?: Date | string | null;
+  },
+  options?: { vaultOs?: boolean },
+): boolean {
+  if (!isKokoLinkTimeCandidate(order, options)) return false;
   if (order.cancelledAt) return false;
   if ((order.financialStatus ?? "").toLowerCase() === "voided") return false;
   return order.kokoLinkTimeConfirmedAt == null;
 }
 
-export function canEditKokoLinkTime(order: {
-  sourceName?: string | null;
-  paymentGatewayPrimary?: string | null;
-  paymentGatewayNames?: string[] | null;
-  cancelledAt?: Date | string | null;
-  financialStatus?: string | null;
-  paymentApprovalStatus?: string | null;
-  hasKokoSplitLeg?: boolean | null;
-}): boolean {
-  if (!isKokoLinkTimeCandidate(order)) return false;
+export function canEditKokoLinkTime(
+  order: {
+    sourceName?: string | null;
+    paymentGatewayPrimary?: string | null;
+    paymentGatewayNames?: string[] | null;
+    cancelledAt?: Date | string | null;
+    financialStatus?: string | null;
+    paymentApprovalStatus?: string | null;
+    hasKokoSplitLeg?: boolean | null;
+    createdAt?: Date | string | null;
+  },
+  options?: { vaultOs?: boolean },
+): boolean {
+  if (!isKokoLinkTimeCandidate(order, options)) return false;
   if (order.cancelledAt) return false;
   if ((order.financialStatus ?? "").toLowerCase() === "voided") return false;
   if (order.paymentApprovalStatus === "approved") return false;

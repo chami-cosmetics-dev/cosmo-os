@@ -250,6 +250,7 @@ export async function processOrderWebhook(
       paymentGatewayNames: paymentGateways.names,
       kokoLinkTimeConfirmedAt: null,
       financialStatus: order.financialStatus,
+      createdAt: order.createdAt,
     });
     if (!deferKokoApproval) {
       // Create the pending approval first so fulfillment stays gated while the unpaid SI is created.
