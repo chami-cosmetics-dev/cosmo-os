@@ -1059,15 +1059,13 @@ export function CustomerInsightPanel({
 
   async function exportAllocationContactsCsv() {
     if (!canExportFilteredCsv) return;
-    if (!allocationContactsMerchant.trim()) {
-      notify.error("Select a merchant to export their allocated contacts.");
-      return;
-    }
     setBusyKey("allocation-contacts-export");
     try {
       const params = new URLSearchParams();
       params.set("format", "contacts");
-      params.set("assignedMerchant", allocationContactsMerchant.trim());
+      if (allocationContactsMerchant.trim()) {
+        params.set("assignedMerchant", allocationContactsMerchant.trim());
+      }
       const res = await fetch(
         `/api/admin/customer-insight/allocation-summary/export?${params.toString()}`,
         { credentials: "include" }
@@ -1086,7 +1084,9 @@ export function CustomerInsightPanel({
         .replace(/[^a-zA-Z0-9_-]+/g, "-")
         .replace(/^-+|-+$/g, "")
         .slice(0, 40);
-      a.download = `insight-merchant-allocation-contacts-${slug || "merchant"}.csv`;
+      a.download = `insight-merchant-allocation-contacts-${
+        allocationContactsMerchant.trim() ? slug || "merchant" : "all"
+      }.csv`;
       a.click();
       URL.revokeObjectURL(url);
       notify.success("Allocation contacts downloaded.");
@@ -3834,8 +3834,9 @@ export function CustomerInsightPanel({
               by loyalty tier, with the count that have both email and birthday
               on file. Pick a date range to also see calls taken and birthday /
               email collected in that window. Export CSV downloads the table.
-              Select a merchant, then Export contacts for that merchant&apos;s
-              full allocated list (name + phones) — not every merchant.
+              Export contacts downloads the full allocated list (name + phones);
+              pick a merchant to scope it to them, or leave All merchants to get
+              every allocated contact with its merchant.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -3902,7 +3903,8 @@ export function CustomerInsightPanel({
                   <InsightSearchableSelect
                     value={allocationContactsMerchant}
                     options={merchantOptions}
-                    placeholder="Select merchant"
+                    placeholder="All merchants"
+                    allLabel="All merchants"
                     searchPlaceholder="Search merchants…"
                     disabled={isBusy}
                     onChange={setAllocationContactsMerchant}
@@ -3946,7 +3948,7 @@ export function CustomerInsightPanel({
                   type="button"
                   size="sm"
                   variant="outline"
-                  disabled={isBusy || !allocationContactsMerchant.trim()}
+                  disabled={isBusy}
                   onClick={() => void exportAllocationContactsCsv()}
                 >
                   {busyKey === "allocation-contacts-export" ? (
