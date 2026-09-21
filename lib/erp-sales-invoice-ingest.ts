@@ -647,6 +647,7 @@ export async function ingestParsedErpSalesInvoice(input: {
       id: true,
       name: true,
       sourceName: true,
+      createdAt: true,
       paymentGatewayPrimary: true,
       paymentGatewayNames: true,
       financialStatus: true,
