@@ -147,8 +147,8 @@ export function OsfGeneratePanel({ canReorderOnly = false }: { canReorderOnly?: 
       <div>
         <h3 className="font-medium">Generate OSF</h3>
         <p className="text-sm text-muted-foreground">
-          Main = full catalog. VAT = ERP Product Priority Vat only. Non-VAT excludes Vat. Missing ERP
-          stock/cost stays blank.
+          Main = full catalog except discontinued SKUs. VAT = ERP Product Priority Vat only. Non-VAT
+          excludes Vat. Missing ERP stock/cost stays blank.
         </p>
       </div>
 
@@ -221,7 +221,9 @@ export function OsfGeneratePanel({ canReorderOnly = false }: { canReorderOnly?: 
             disabled={busy || variantDrivesMembership}
           >
             <option value="">All</option>
-            {priorities.map((p) => (
+            {priorities
+              .filter((p) => p.name.trim().toLowerCase() !== "discontinue")
+              .map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
               </option>

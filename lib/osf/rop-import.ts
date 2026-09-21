@@ -1,6 +1,8 @@
 import * as XLSX from "xlsx";
 
 import type { OsfResolvedColumn } from "@/lib/osf/column-config";
+import { isDiscontinuedForOsf } from "@/lib/osf/discontinued";
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 import { prisma } from "@/lib/prisma";
 
 export type RopImportError = {
@@ -220,15 +222,39 @@ export async function applyRopImport(params: {
   const skus = parsed.rows.map((r) => r.sku);
   const catalog = await prisma.productItem.findMany({
     where: { companyId: params.companyId, sku: { in: skus } },
-    select: { sku: true },
-    distinct: ["sku"],
+    orderBy: { updatedAt: "desc" },
+    select: {
+      sku: true,
+      erp1ProductPriority: true,
+      erp2ProductPriority: true,
+      itemStatusCategory: true,
+    },
   });
-  const knownSkus = new Set(
-    catalog.map((c) => (c.sku ?? "").toLowerCase()).filter(Boolean),
-  );
+  const knownSkus = new Set<string>();
+  const discontinuedSkus = new Set<string>();
+  const seenSku = new Set<string>();
+  for (const item of catalog) {
+    const sku = (item.sku ?? "").trim().toLowerCase();
+    if (!sku || seenSku.has(sku)) continue;
+    seenSku.add(sku);
+    if (!isVaultOsDeployment() && isDiscontinuedForOsf(item)) {
+      discontinuedSkus.add(sku);
+    } else {
+      knownSkus.add(sku);
+    }
+  }
 
   for (const row of parsed.rows) {
-    if (!knownSkus.has(row.sku.toLowerCase())) {
+    const skuKey = row.sku.toLowerCase();
+    if (discontinuedSkus.has(skuKey)) {
+      errors.push({
+        row: row.sheetRow,
+        sku: row.sku,
+        message: "Discontinued SKU — excluded from OSF",
+      });
+      continue;
+    }
+    if (!knownSkus.has(skuKey)) {
       errors.push({
         row: row.sheetRow,
         sku: row.sku,

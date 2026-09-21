@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { Prisma } from "@prisma/client";
 
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
+import { osfExcludeDiscontinuedWhere } from "@/lib/osf/discontinued";
 import { ERP_PRODUCT_PRIORITY_OPTIONS } from "@/lib/product-items/erp-priority-options";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserContext, hasPermission } from "@/lib/rbac";
@@ -50,6 +52,7 @@ export async function GET(request: NextRequest) {
         companyId,
         sku: { not: null },
         status: { not: "archived" },
+        ...(!isVaultOsDeployment() ? osfExcludeDiscontinuedWhere() : {}),
         OR: [
           { erp1ProductPriority: priorityTrim },
           { erp2ProductPriority: priorityTrim },
@@ -66,7 +69,9 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({
     brands: vendors.map((v) => ({ id: v.id, name: v.name })),
-    priorities: [...ERP_PRODUCT_PRIORITY_OPTIONS],
+    priorities: ERP_PRODUCT_PRIORITY_OPTIONS.filter(
+      (priority) => isVaultOsDeployment() || priority !== "Discontinue",
+    ),
     companyId,
     userId: context.user.id,
   });
