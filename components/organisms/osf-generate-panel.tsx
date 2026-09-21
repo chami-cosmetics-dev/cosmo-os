@@ -22,11 +22,11 @@ function todayColombo(): string {
 
 function fallbackFilename(variant: OsfVariant, asOfDate: string, belowThresholdOnly: boolean): string {
   if (belowThresholdOnly) {
-    if (variant === "vat") return `OSF-reorder-vat-${asOfDate}.xlsx`;
+    if (variant === "vat") return `OSF-reorder-vat-items-${asOfDate}.xlsx`;
     if (variant === "non_vat") return `OSF-reorder-non-vat-${asOfDate}.xlsx`;
     return `OSF-reorder-${asOfDate}.xlsx`;
   }
-  if (variant === "vat") return `OSF-vat-${asOfDate}.xlsx`;
+  if (variant === "vat") return `OSF-vat-items-${asOfDate}.xlsx`;
   if (variant === "non_vat") return `OSF-non-vat-${asOfDate}.xlsx`;
   return `OSF-${asOfDate}.xlsx`;
 }
@@ -131,7 +131,11 @@ export function OsfGeneratePanel({ canReorderOnly = false }: { canReorderOnly?: 
       URL.revokeObjectURL(url);
       if (!(rowCount === 0 && (belowThresholdOnly || pctFilter))) {
         const label =
-          osfVariant === "vat" ? "VAT OSF" : osfVariant === "non_vat" ? "Non-VAT OSF" : "OSF";
+          osfVariant === "vat"
+            ? "VAT Items OSF"
+            : osfVariant === "non_vat"
+              ? "Others (Non-VAT) OSF"
+              : "Main OSF";
         notify.success(belowThresholdOnly ? `Reorder-only ${label} downloaded` : `${label} downloaded`);
       }
     } catch (err) {
@@ -147,8 +151,8 @@ export function OsfGeneratePanel({ canReorderOnly = false }: { canReorderOnly?: 
       <div>
         <h3 className="font-medium">Generate OSF</h3>
         <p className="text-sm text-muted-foreground">
-          Main = full catalog except discontinued SKUs. VAT = ERP Product Priority Vat only. Non-VAT
-          excludes Vat. Missing ERP stock/cost stays blank.
+          Main = full catalog except discontinued SKUs. VAT Items = ERP Product Priority Vat only.
+          Others (Non-VAT) excludes Vat. Missing ERP stock/cost stays blank.
         </p>
       </div>
 
@@ -162,8 +166,8 @@ export function OsfGeneratePanel({ canReorderOnly = false }: { canReorderOnly?: 
             disabled={busy}
           >
             <option value="main">Main OSF</option>
-            <option value="vat">VAT OSF</option>
-            <option value="non_vat">Non-VAT OSF</option>
+            <option value="vat">VAT Items OSF</option>
+            <option value="non_vat">Others (Non-VAT) OSF</option>
           </select>
         </label>
         <label className="text-xs font-medium">
@@ -248,8 +252,8 @@ export function OsfGeneratePanel({ canReorderOnly = false }: { canReorderOnly?: 
       {variantDrivesMembership ? (
         <p className="text-xs text-muted-foreground">
           {osfVariant === "vat"
-            ? "VAT OSF membership uses ERP Product Priority = Vat (ERP1 or ERP2). Priority dropdown is ignored. Total ROP uses Cosmetics.lk ROP only; shop ROPs show for planning."
-            : "Non-VAT OSF excludes SKUs with ERP Product Priority = Vat. Priority dropdown is ignored."}
+            ? "VAT Items OSF membership uses ERP Product Priority = Vat (ERP1 or ERP2). Priority dropdown is ignored. Total ROP uses Cosmetics.lk ROP only; shop ROPs show for planning."
+            : "Others (Non-VAT) OSF excludes SKUs with ERP Product Priority = Vat. Priority dropdown is ignored."}
         </p>
       ) : null}
 
@@ -287,7 +291,7 @@ export function OsfGeneratePanel({ canReorderOnly = false }: { canReorderOnly?: 
         <p className="text-xs text-muted-foreground">
           Workbook includes only SKUs with warehouse ROP set and total stock ÷ total ROP
           strictly below {maxStockPct.trim()}%. SKUs without ROP are skipped.
-          {osfVariant === "vat" ? " For VAT OSF, total ROP is Cosmetics.lk ROP only." : ""}
+          {osfVariant === "vat" ? " For VAT Items OSF, total ROP is Cosmetics.lk ROP only." : ""}
         </p>
       ) : null}
       {canReorderOnly && (

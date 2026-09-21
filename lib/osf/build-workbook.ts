@@ -25,6 +25,7 @@ import type { OsfVariant } from "@/lib/osf/vat-membership";
 import {
   findCosmeticsLkRopColumn,
   selectVatRopColumns,
+  selectVatStockColumns,
   totalRopForColumns,
   totalRopForVat,
 } from "@/lib/osf/vat-rop-columns";
@@ -83,6 +84,14 @@ function resolveRopColumns(
     };
   }
   return { ropCols: activeRop, cosmeticsLkKey: null };
+}
+
+function resolveStockColumns(
+  columns: OsfResolvedColumn[],
+  variant: OsfVariant,
+): OsfResolvedColumn[] {
+  if (variant === "vat") return selectVatStockColumns(columns);
+  return columns.filter((c) => c.active && c.includeInStock);
 }
 
 function resolveTotalRop(
@@ -181,8 +190,7 @@ export function pricingHeaders(): string[] {
 
 export function buildMainSheetRows(input: BuildWorkbookInput): Record<string, string | number | null>[] {
   const variant = input.osfVariant ?? "main";
-  const active = input.columns.filter((c) => c.active);
-  const stockCols = active.filter((c) => c.includeInStock);
+  const stockCols = resolveStockColumns(input.columns, variant);
   const { ropCols, cosmeticsLkKey } = resolveRopColumns(input.columns, variant);
 
   // Precompute per-SKU stock / ROP totals
@@ -313,8 +321,7 @@ export function buildMainSheetRows(input: BuildWorkbookInput): Record<string, st
  */
 export function mainColumnDescriptors(input: BuildWorkbookInput): OsfColumnDef[] {
   const variant = input.osfVariant ?? "main";
-  const active = input.columns.filter((c) => c.active);
-  const stockCols = active.filter((c) => c.includeInStock);
+  const stockCols = resolveStockColumns(input.columns, variant);
   const { ropCols } = resolveRopColumns(input.columns, variant);
   const dateLabel = formatDdMmYyyy(input.asOfDate);
 

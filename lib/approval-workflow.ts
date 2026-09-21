@@ -1136,7 +1136,9 @@ export async function notifyApprovalRequester(input: {
             : `${input.invoiceLabel} finance approval was granted.`
         : isReturnCancel
           ? `${input.invoiceLabel} cancel request was rejected.`
-          : `${input.invoiceLabel} finance approval was rejected.`,
+          : isReturnRearrange
+            ? `${input.invoiceLabel} bank-transfer rearrange was rejected. Return reset — request finance again or send cancel.`
+            : `${input.invoiceLabel} finance approval was rejected.`,
     entityType: "ApprovalRequest",
     entityId: input.approvalId,
   });

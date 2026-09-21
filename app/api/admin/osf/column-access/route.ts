@@ -7,11 +7,15 @@ import {
   sanitizeStoredColumnKeys,
 } from "@/lib/osf/column-visibility";
 import { allCatalogKeySet } from "@/lib/osf/column-access-catalog";
+import type { OsfVariant } from "@/lib/osf/vat-membership";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserContext, requirePermission } from "@/lib/rbac";
-import { osfColumnAccessPutSchema } from "@/lib/validation/osf";
+import {
+  osfColumnAccessPutSchema,
+  osfColumnAccessQuerySchema,
+} from "@/lib/validation/osf";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const auth = await requirePermission("purchasing.osf.permission");
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
@@ -23,19 +27,31 @@ export async function GET() {
     return NextResponse.json({ error: "No company associated with your account" }, { status: 404 });
   }
 
+  const queryParsed = osfColumnAccessQuerySchema.safeParse({
+    osfVariant: request.nextUrl.searchParams.get("osfVariant") ?? undefined,
+  });
+  if (!queryParsed.success) {
+    return NextResponse.json(
+      { error: "Validation failed", details: queryParsed.error.flatten() },
+      { status: 400 },
+    );
+  }
+  const osfVariant = queryParsed.data.osfVariant as OsfVariant;
+
   const [users, marks, columns] = await Promise.all([
     listPurchasingUsersForColumnAccess(companyId),
     prisma.osfUserColumnAccess.findMany({
-      where: { companyId },
+      where: { companyId, osfVariant },
       select: { userId: true, columnKeys: true },
     }),
-    loadOsfAccessCatalog(companyId),
+    loadOsfAccessCatalog(companyId, osfVariant),
   ]);
 
   const marksByUser = new Map(marks.map((m) => [m.userId, m.columnKeys]));
   const catalogIds = allCatalogKeySet(columns);
 
   return NextResponse.json({
+    osfVariant,
     columns,
     users: users.map((u) => ({
       id: u.id,
@@ -68,11 +84,11 @@ export async function PUT(request: NextRequest) {
     );
   }
 
-  const catalog = await loadOsfAccessCatalog(companyId);
+  const osfVariant = parsed.data.osfVariant as OsfVariant;
+  const catalog = await loadOsfAccessCatalog(companyId, osfVariant);
   const catalogIds = allCatalogKeySet(catalog);
 
-  const assignments =
-    "assignments" in parsed.data ? parsed.data.assignments : [parsed.data];
+  const assignments = parsed.data.assignments;
 
   for (const a of assignments) {
     for (const key of a.columnKeys) {
@@ -101,10 +117,17 @@ export async function PUT(request: NextRequest) {
     assignments.map((a) => {
       const columnKeys = sanitizeStoredColumnKeys(a.columnKeys, catalog);
       return prisma.osfUserColumnAccess.upsert({
-        where: { companyId_userId: { companyId, userId: a.userId } },
+        where: {
+          companyId_userId_osfVariant: {
+            companyId,
+            userId: a.userId,
+            osfVariant,
+          },
+        },
         create: {
           companyId,
           userId: a.userId,
+          osfVariant,
           columnKeys,
         },
         update: { columnKeys },
@@ -114,6 +137,7 @@ export async function PUT(request: NextRequest) {
   );
 
   return NextResponse.json({
+    osfVariant,
     users: updated.map((row) => ({
       userId: row.userId,
       columnKeys: sanitizeStoredColumnKeys(row.columnKeys, catalog),

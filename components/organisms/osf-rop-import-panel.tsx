@@ -68,7 +68,7 @@ export function OsfRopImportPanel() {
         <h3 className="font-medium">Import / update ROPs</h3>
         <p className="text-sm text-muted-foreground">
           Download a template with all SKUs (SKU, barcode, location and shop ROP columns),
-          edit offline, then upload. Blank cells leave existing ROPs unchanged. For VAT OSF,
+          edit offline, then upload. Blank cells leave existing ROPs unchanged. For VAT Items OSF,
           Total ROP uses Cosmetics.lk ROP only — shop ROPs are for planning and are not added
           into Total ROP.
         </p>

@@ -58,6 +58,47 @@ describe("buildOsfAccessCatalog", () => {
     expect(ids.has("Cosmetics MRP")).toBe(true);
     expect(ids.has("Sales Units")).toBe(true);
   });
+
+  it("vat catalog omits other-location keys but keeps static columns", () => {
+    const mixed: OsfResolvedColumn[] = [
+      ...sampleColumns,
+      {
+        id: "ck",
+        key: "cosmetics_lk",
+        label: "Cosmetics.lk",
+        companyLocationId: "loc_ck",
+        companyLocationName: "Cosmetics.lk",
+        erpnextInstanceId: null,
+        directWarehouses: [],
+        includeInStock: true,
+        includeInRop: true,
+        sortOrder: 0,
+        active: true,
+        warehouses: ["Stores - Cosmetics.lk"],
+      },
+      {
+        id: "gcc",
+        key: "cosmo_shop_gcc",
+        label: "GCC Shop",
+        companyLocationId: null,
+        companyLocationName: null,
+        erpnextInstanceId: null,
+        directWarehouses: ["GCC Shop Warehouse - Cosmo"],
+        includeInStock: true,
+        includeInRop: true,
+        sortOrder: 2,
+        active: true,
+        warehouses: ["GCC Shop Warehouse - Cosmo"],
+      },
+    ];
+    const vatCatalog = buildOsfAccessCatalog(mixed, "vat");
+    const ids = new Set(vatCatalog.map((c) => c.id));
+    expect(ids.has(stockAccessKey("lmj"))).toBe(false);
+    expect(ids.has("rop:lmj")).toBe(false);
+    expect(ids.has(stockAccessKey("cosmetics_lk"))).toBe(true);
+    expect(ids.has(stockAccessKey("cosmo_shop_gcc"))).toBe(true);
+    expect(ids.has("Cosmetics MRP")).toBe(true);
+  });
 });
 
 describe("resolveEffectiveOsfColumnKeysFromMarks", () => {
@@ -81,6 +122,14 @@ describe("resolveEffectiveOsfColumnKeysFromMarks", () => {
     expect(keys.has("Cosmetics MRP")).toBe(true);
     expect(keys.has("rop:lmj")).toBe(true);
     expect(keys.has("bogus")).toBe(false);
+  });
+
+  it("Main marks do not appear in empty vat catalog intersection", () => {
+    const vatIds = allCatalogKeySet(buildOsfAccessCatalog(sampleColumns, "vat"));
+    const mainMarks = ["Cosmetics MRP", stockAccessKey("lmj")];
+    const keys = resolveEffectiveOsfColumnKeysFromMarks(mainMarks, false, vatIds) as Set<string>;
+    expect(keys.has("Cosmetics MRP")).toBe(true);
+    expect(keys.has(stockAccessKey("lmj"))).toBe(false);
   });
 });
 

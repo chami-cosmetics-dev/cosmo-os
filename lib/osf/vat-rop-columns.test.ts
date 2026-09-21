@@ -4,6 +4,7 @@ import type { OsfResolvedColumn } from "@/lib/osf/column-config";
 import {
   findCosmeticsLkRopColumn,
   selectVatRopColumns,
+  selectVatStockColumns,
   totalRopForColumns,
   totalRopForVat,
 } from "@/lib/osf/vat-rop-columns";
@@ -48,6 +49,13 @@ describe("selectVatRopColumns", () => {
   it("keeps Cosmetics.lk + shops and drops other company ROP columns", () => {
     const selected = selectVatRopColumns([cosmetics, shop, lmj, inactiveShop]);
     expect(selected.map((c) => c.key)).toEqual(["cosmetics_lk", "cosmo_shop_gcc"]);
+  });
+
+  it("selectVatStockColumns mirrors location filter for stock", () => {
+    expect(selectVatStockColumns([cosmetics, shop, lmj]).map((c) => c.key)).toEqual([
+      "cosmetics_lk",
+      "cosmo_shop_gcc",
+    ]);
   });
 
   it("finds Cosmetics.lk column", () => {
