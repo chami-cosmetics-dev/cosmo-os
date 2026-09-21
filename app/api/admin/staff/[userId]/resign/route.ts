@@ -2,11 +2,21 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 import { writeAuditLog } from "@/lib/audit-log";
+import { deleteAuth0User } from "@/lib/auth0-management";
 import { prisma } from "@/lib/prisma";
 import { sendResignationNotice } from "@/lib/maileroo";
 import { formatAppDate } from "@/lib/format-datetime";
 import { requirePermission } from "@/lib/rbac";
 import { cuidSchema, LIMITS, trimmedString } from "@/lib/validation";
+
+/** Placeholder auth0Id after resign — frees email for re-invite + blocks login sync. */
+function resignedAuth0Id(userId: string): string {
+  return `resigned:${userId}`;
+}
+
+function isAlreadyResignedAuth0Id(auth0Id: string): boolean {
+  return auth0Id.startsWith("resigned:");
+}
 
 const resignSchema = z.object({
   resignedAt: z.string().optional(),
@@ -79,6 +89,33 @@ export async function POST(
   const reason = parsed.data.reason?.trim() || null;
 
   const companyId = targetUser.companyId;
+  const originalEmail = targetUser.email;
+  const originalAuth0Id = targetUser.auth0Id;
+
+  if (targetUser.employeeProfile?.status === "resigned") {
+    return NextResponse.json(
+      { error: "Staff member is already resigned" },
+      { status: 400 }
+    );
+  }
+
+  // Remove Auth0 first so same email can get a brand-new Auth0 user on re-invite.
+  if (!isAlreadyResignedAuth0Id(originalAuth0Id)) {
+    try {
+      await deleteAuth0User(originalAuth0Id);
+    } catch (error) {
+      console.error("Failed to delete resigned user from Auth0:", error);
+      return NextResponse.json(
+        {
+          error:
+            error instanceof Error
+              ? error.message
+              : "Failed to delete user from Auth0",
+        },
+        { status: 500 }
+      );
+    }
+  }
 
   await prisma.$transaction(async (tx) => {
     if (targetUser.employeeProfile) {
@@ -104,9 +141,15 @@ export async function POST(
       });
     }
 
+    // Free email + roles so re-invite creates a new OS user (no email repair path).
+    await tx.userRole.deleteMany({ where: { userId: idResult.data } });
     await tx.user.update({
       where: { id: idResult.data },
-      data: { companyId: null },
+      data: {
+        companyId: null,
+        email: null,
+        auth0Id: resignedAuth0Id(idResult.data),
+      },
     });
   });
 
@@ -163,12 +206,17 @@ export async function POST(
     summary: `Marked ${targetUser.name ?? targetUser.email ?? targetUser.id} as resigned`,
     beforeData: {
       companyId: targetUser.companyId,
+      email: originalEmail,
+      auth0Id: originalAuth0Id,
       employeeProfile: targetUser.employeeProfile,
     },
     afterData: {
       resignedAt: validResignedAt,
       reason,
       companyId: null,
+      email: null,
+      auth0Id: resignedAuth0Id(targetUser.id),
+      auth0Deleted: !isAlreadyResignedAuth0Id(originalAuth0Id),
     },
   });
 

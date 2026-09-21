@@ -1093,11 +1093,19 @@ export async function syncSessionUser(sessionUser: SessionUser) {
   const existingUser = existingUserByAuth0Id ?? existingUserByEmail ?? null;
   let user;
 
+  // Do not overwrite User.name from Auth0 after create — staff/profile edits
+  // own the display name. Auth0 invite name would otherwise revert DB changes
+  // on the staff user's next login/request via syncSessionUser.
+  const shouldFillEmptyName =
+    !!existingUser &&
+    (existingUser.name == null || existingUser.name.trim() === "") &&
+    !!(sessionUser.name?.trim());
+
   const needsUpdate =
     existingUser &&
     (existingUser.auth0Id !== sessionUser.sub ||
       existingUser.email !== normalizedEmail ||
-      existingUser.name !== (sessionUser.name ?? null) ||
+      shouldFillEmptyName ||
       existingUser.picture !== (sessionUser.picture ?? null));
 
   try {
@@ -1109,7 +1117,7 @@ export async function syncSessionUser(sessionUser: SessionUser) {
         data: {
           auth0Id: sessionUser.sub,
           email: normalizedEmail,
-          name: sessionUser.name ?? null,
+          ...(shouldFillEmptyName ? { name: sessionUser.name ?? null } : {}),
           picture: sessionUser.picture ?? null,
         },
       });
@@ -1131,12 +1139,12 @@ export async function syncSessionUser(sessionUser: SessionUser) {
     const conflictingUser =
       (await prisma.user.findUnique({
         where: { auth0Id: sessionUser.sub },
-        select: { id: true },
+        select: { id: true, name: true },
       })) ??
       (normalizedEmail
         ? await prisma.user.findUnique({
             where: { email: normalizedEmail },
-            select: { id: true },
+            select: { id: true, name: true },
           })
         : null);
 
@@ -1144,12 +1152,16 @@ export async function syncSessionUser(sessionUser: SessionUser) {
       throw error;
     }
 
+    const fillConflictName =
+      (conflictingUser.name == null || conflictingUser.name.trim() === "") &&
+      !!(sessionUser.name?.trim());
+
     user = await prisma.user.update({
       where: { id: conflictingUser.id },
       data: {
         auth0Id: sessionUser.sub,
         email: normalizedEmail,
-        name: sessionUser.name ?? null,
+        ...(fillConflictName ? { name: sessionUser.name ?? null } : {}),
         picture: sessionUser.picture ?? null,
       },
     });

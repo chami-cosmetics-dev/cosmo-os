@@ -7,6 +7,16 @@ const ymdSchema = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date format (YYYY-MM-DD)");
 
+export const BOOK_NOTE_ISSUE_STATUSES = [
+  "amount_mismatch",
+  "category_mismatch",
+  "no_payment_entry_linked",
+  "sales_invoice_not_found",
+  "no_invoice_number",
+] as const;
+
+export type BookNoteIssueStatus = (typeof BOOK_NOTE_ISSUE_STATUSES)[number];
+
 const moneySchema = z.coerce
   .number()
   .finite()
@@ -42,6 +52,33 @@ export const bookNoteFinanceReviewQuerySchema = z
       });
     }
   });
+
+/** Live ERP book-note verification issues (both instances). */
+export const bookNoteIssuesQuerySchema = z
+  .object({
+    date_from: ymdSchema.optional(),
+    date_to: ymdSchema.optional(),
+    status: z.enum(BOOK_NOTE_ISSUE_STATUSES).optional(),
+    include_resolved: z
+      .union([z.literal("1"), z.literal("true"), z.literal("0"), z.literal("false")])
+      .optional()
+      .transform((v) => v === "1" || v === "true"),
+  })
+  .superRefine((val, ctx) => {
+    if (val.date_from && val.date_to && val.date_from > val.date_to) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "date_from must be on or before date_to",
+        path: ["date_from"],
+      });
+    }
+  });
+
+/** Proxy an ERP private receipt file into Cosmo for finance preview. */
+export const bookNoteErpReceiptQuerySchema = z.object({
+  instanceId: cuidSchema,
+  path: z.string().trim().min(1).max(500),
+});
 
 export const bookNoteSuggestionsQuerySchema = z.object({
   companyLocationId: cuidSchema,

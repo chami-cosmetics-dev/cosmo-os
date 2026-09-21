@@ -83,7 +83,8 @@ export function ResignationForm({
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-4">
       <p className="text-muted-foreground text-sm">
-        Mark <strong>{staffName}</strong> as resigned. They will lose access to the system.
+        Mark <strong>{staffName}</strong> as resigned. Their login is removed from Auth0
+        and this email can be invited again as a new user.
       </p>
 
       <div className="space-y-2">

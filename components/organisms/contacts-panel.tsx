@@ -1112,7 +1112,7 @@ export function ContactsPanel({
                             : "With Purchase Summary"}
                         </p>
                         <p className="text-muted-foreground mt-1 text-sm">
-                          Includes total orders, total purchase value, and last order date matched by contact number.
+                          Includes total orders, total purchase value, and last order date matched by phone, email-only orders, and Adapt history.
                         </p>
                       </button>
                     </div>

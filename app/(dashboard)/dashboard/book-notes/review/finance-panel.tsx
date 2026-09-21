@@ -2,6 +2,7 @@
 
 import { Fragment, useMemo, useState } from "react";
 import {
+  AlertTriangle,
   ChevronDown,
   ChevronRight,
   ImageIcon,
@@ -10,6 +11,7 @@ import {
   Search,
 } from "lucide-react";
 
+import { BookNoteIssuesView } from "@/app/(dashboard)/dashboard/book-notes/review/book-note-issues-view";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -88,7 +90,8 @@ export function BookNoteFinancePanel({
     to: initialTo,
   });
   const [loading, setLoading] = useState(false);
-  const [view, setView] = useState<"notes" | "photos">("notes");
+  const [view, setView] = useState<"issues" | "notes" | "photos">("issues");
+  const [issueTotal, setIssueTotal] = useState<number | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [preview, setPreview] = useState<PhotoItem | null>(null);
   const [filterText, setFilterText] = useState("");
@@ -165,203 +168,24 @@ export function BookNoteFinancePanel({
           Book Notes — Finance Review
         </h1>
         <p className="text-muted-foreground text-sm">
-          Merchant book notes for every outlet: payment-method totals, the
-          invoice rows behind them, the slips merchants uploaded, and who
-          submitted each sheet. Read-only — entry, edits and ERP sends stay with
-          the shop.
+          Live verification issues from both ERPs, plus merchant book notes,
+          payment-method totals, and uploaded slips. Read-only — entry, edits
+          and ERP sends stay with the shop.
         </p>
       </div>
 
-      <div className="bg-card grid gap-4 rounded-lg border p-4 md:grid-cols-4">
-        <div className="space-y-2">
-          <label className="text-muted-foreground text-xs font-medium">
-            Shop
-          </label>
-          <Select
-            value={companyLocationId}
-            disabled={loading}
-            onValueChange={setCompanyLocationId}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder="All shops" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={ALL_SHOPS}>All shops</SelectItem>
-              {locations.map((loc) => (
-                <SelectItem key={loc.id} value={loc.id}>
-                  {loc.shortName ? `${loc.shortName} — ${loc.name}` : loc.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-2">
-          <label className="text-muted-foreground text-xs font-medium">
-            From
-          </label>
-          <Input
-            type="date"
-            value={from}
-            max={today}
-            disabled={loading}
-            className="font-medium tabular-nums"
-            onChange={(e) => setFrom(e.target.value)}
-          />
-        </div>
-        <div className="space-y-2">
-          <label className="text-muted-foreground text-xs font-medium">
-            To
-          </label>
-          <Input
-            type="date"
-            value={to}
-            max={today}
-            disabled={loading}
-            className="font-medium tabular-nums"
-            onChange={(e) => setTo(e.target.value)}
-          />
-        </div>
-        <div className="flex items-end">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap gap-1">
           <Button
             type="button"
-            className="w-full"
-            disabled={loading}
-            onClick={() => void applyFilters()}
+            variant={view === "issues" ? "default" : "outline"}
+            size="sm"
+            onClick={() => setView("issues")}
           >
-            {loading ? (
-              <>
-                <Loader2 className="animate-spin" aria-hidden />
-                Loading...
-              </>
-            ) : (
-              "Show book notes"
-            )}
+            <AlertTriangle className="h-4 w-4" />
+            Issues
+            {issueTotal != null ? ` (${issueTotal})` : ""}
           </Button>
-        </div>
-      </div>
-
-      <div className="bg-card rounded-lg border p-4">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="text-sm font-semibold tracking-wide uppercase text-muted-foreground">
-            Range summary
-          </h2>
-          <span className="text-muted-foreground text-xs">
-            {appliedRange.from} to {appliedRange.to} · {summary.dayCount} book
-            note{summary.dayCount === 1 ? "" : "s"} · {summary.rowCount} invoice
-            row{summary.rowCount === 1 ? "" : "s"} · {summary.receiptCount} photo
-            {summary.receiptCount === 1 ? "" : "s"}
-          </span>
-        </div>
-        <dl className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          {summary.methods.map((m) => (
-            <div
-              key={m.method}
-              className="bg-muted/30 rounded-md border px-3 py-2"
-            >
-              <dt className="text-muted-foreground flex items-baseline justify-between gap-2 text-xs font-medium">
-                <span>{m.method}</span>
-                <span className="tabular-nums">x{m.count}</span>
-              </dt>
-              <dd className="mt-1 font-mono text-lg font-semibold tabular-nums">
-                {money(m.total)}
-              </dd>
-            </div>
-          ))}
-          <div className="border-primary/40 bg-primary/5 rounded-md border px-3 py-2">
-            <dt className="text-xs font-semibold uppercase tracking-wide">
-              Grand total
-            </dt>
-            <dd className="mt-1 font-mono text-lg font-bold tabular-nums">
-              {money(summary.grandTotal)}
-            </dd>
-          </div>
-        </dl>
-        {truncated ? (
-          <p className="mt-3 text-xs text-amber-700 dark:text-amber-400">
-            Showing the newest 200 book notes in this range — narrow the dates or
-            pick one outlet to see the rest.
-          </p>
-        ) : null}
-      </div>
-
-      {summary.shops.length > 0 ? (
-        <div className="bg-card rounded-lg border p-4">
-          <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <h2 className="text-sm font-semibold tracking-wide uppercase text-muted-foreground">
-              By shop
-            </h2>
-            <span className="text-muted-foreground text-xs">
-              Totals for each shop across the selected dates
-            </span>
-          </div>
-          <div className="mt-3 overflow-x-auto">
-            <table className="w-full min-w-[720px] text-sm">
-              <thead>
-                <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
-                  <th className="p-2">Shop</th>
-                  <th className="p-2 text-right">Book notes</th>
-                  <th className="p-2 text-right">Rows</th>
-                  <th className="p-2 text-right">Cash</th>
-                  <th className="p-2 text-right">Card</th>
-                  <th className="p-2 text-right">KOKO</th>
-                  <th className="p-2 text-right">Bank</th>
-                  <th className="p-2 text-right">Total</th>
-                  <th className="p-2 text-center">Photos</th>
-                </tr>
-              </thead>
-              <tbody>
-                {summary.shops.map((c) => (
-                  <tr key={c.companyLocationId} className="border-b last:border-0">
-                    <td className="p-2">
-                      <span className="font-medium">{c.shopName}</span>
-                      {c.company && c.company !== c.shopName ? (
-                        <span className="text-muted-foreground block text-xs">
-                          {c.company}
-                        </span>
-                      ) : null}
-                    </td>
-                    <td className="p-2 text-right font-mono">{c.dayCount}</td>
-                    <td className="p-2 text-right font-mono">{c.rowCount}</td>
-                    {["Cash", "Card", "KOKO", "Bank Transfer"].map((m) => {
-                      const bucket = c.methods.find((x) => x.method === m);
-                      return (
-                        <td
-                          key={m}
-                          className="p-2 text-right font-mono tabular-nums"
-                        >
-                          {bucket && bucket.total > 0 ? (
-                            <>
-                              {money(bucket.total)}
-                              <span className="text-muted-foreground ml-1 text-[10px]">
-                                x{bucket.count}
-                              </span>
-                            </>
-                          ) : (
-                            <span className="text-muted-foreground">—</span>
-                          )}
-                        </td>
-                      );
-                    })}
-                    <td className="p-2 text-right font-mono font-semibold tabular-nums">
-                      {money(c.grandTotal)}
-                    </td>
-                    <td className="p-2 text-center text-xs">
-                      {c.receiptCount > 0 ? (
-                        c.receiptCount
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      ) : null}
-
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex gap-1">
           <Button
             type="button"
             variant={view === "notes" ? "default" : "outline"}
@@ -381,20 +205,228 @@ export function BookNoteFinancePanel({
             Photos ({photos.length})
           </Button>
         </div>
-        <div className="relative w-full sm:w-72">
-          <Search
-            className="text-muted-foreground pointer-events-none absolute top-1/2 left-2 h-4 w-4 -translate-y-1/2"
-            aria-hidden
-          />
-          <Input
-            value={filterText}
-            placeholder="Filter shop, date, invoice, person…"
-            aria-label="Filter loaded book notes"
-            className="pl-8"
-            onChange={(e) => setFilterText(e.target.value)}
-          />
-        </div>
+        {view !== "issues" ? (
+          <div className="relative w-full sm:w-72">
+            <Search
+              className="text-muted-foreground pointer-events-none absolute top-1/2 left-2 h-4 w-4 -translate-y-1/2"
+              aria-hidden
+            />
+            <Input
+              value={filterText}
+              placeholder="Filter shop, date, invoice, person…"
+              aria-label="Filter loaded book notes"
+              className="pl-8"
+              onChange={(e) => setFilterText(e.target.value)}
+            />
+          </div>
+        ) : null}
       </div>
+
+      {view === "issues" ? (
+        <BookNoteIssuesView today={today} onTotalChange={setIssueTotal} />
+      ) : null}
+
+      {view !== "issues" ? (
+        <>
+          <div className="bg-card grid gap-4 rounded-lg border p-4 md:grid-cols-4">
+            <div className="space-y-2">
+              <label className="text-muted-foreground text-xs font-medium">
+                Shop
+              </label>
+              <Select
+                value={companyLocationId}
+                disabled={loading}
+                onValueChange={setCompanyLocationId}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="All shops" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL_SHOPS}>All shops</SelectItem>
+                  {locations.map((loc) => (
+                    <SelectItem key={loc.id} value={loc.id}>
+                      {loc.shortName
+                        ? `${loc.shortName} — ${loc.name}`
+                        : loc.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <label className="text-muted-foreground text-xs font-medium">
+                From
+              </label>
+              <Input
+                type="date"
+                value={from}
+                max={today}
+                disabled={loading}
+                className="font-medium tabular-nums"
+                onChange={(e) => setFrom(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-muted-foreground text-xs font-medium">
+                To
+              </label>
+              <Input
+                type="date"
+                value={to}
+                max={today}
+                disabled={loading}
+                className="font-medium tabular-nums"
+                onChange={(e) => setTo(e.target.value)}
+              />
+            </div>
+            <div className="flex items-end">
+              <Button
+                type="button"
+                className="w-full"
+                disabled={loading}
+                onClick={() => void applyFilters()}
+              >
+                {loading ? (
+                  <>
+                    <Loader2 className="animate-spin" aria-hidden />
+                    Loading...
+                  </>
+                ) : (
+                  "Show book notes"
+                )}
+              </Button>
+            </div>
+          </div>
+
+          <div className="bg-card rounded-lg border p-4">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <h2 className="text-muted-foreground text-sm font-semibold tracking-wide uppercase">
+                Range summary
+              </h2>
+              <span className="text-muted-foreground text-xs">
+                {appliedRange.from} to {appliedRange.to} · {summary.dayCount}{" "}
+                book note{summary.dayCount === 1 ? "" : "s"} ·{" "}
+                {summary.rowCount} invoice row
+                {summary.rowCount === 1 ? "" : "s"} · {summary.receiptCount}{" "}
+                photo{summary.receiptCount === 1 ? "" : "s"}
+              </span>
+            </div>
+            <dl className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+              {summary.methods.map((m) => (
+                <div
+                  key={m.method}
+                  className="bg-muted/30 rounded-md border px-3 py-2"
+                >
+                  <dt className="text-muted-foreground flex items-baseline justify-between gap-2 text-xs font-medium">
+                    <span>{m.method}</span>
+                    <span className="tabular-nums">x{m.count}</span>
+                  </dt>
+                  <dd className="mt-1 font-mono text-lg font-semibold tabular-nums">
+                    {money(m.total)}
+                  </dd>
+                </div>
+              ))}
+              <div className="border-primary/40 bg-primary/5 rounded-md border px-3 py-2">
+                <dt className="text-xs font-semibold uppercase tracking-wide">
+                  Grand total
+                </dt>
+                <dd className="mt-1 font-mono text-lg font-bold tabular-nums">
+                  {money(summary.grandTotal)}
+                </dd>
+              </div>
+            </dl>
+            {truncated ? (
+              <p className="mt-3 text-xs text-amber-700 dark:text-amber-400">
+                Showing the newest 200 book notes in this range — narrow the
+                dates or pick one outlet to see the rest.
+              </p>
+            ) : null}
+          </div>
+
+          {summary.shops.length > 0 ? (
+            <div className="bg-card rounded-lg border p-4">
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <h2 className="text-muted-foreground text-sm font-semibold tracking-wide uppercase">
+                  By shop
+                </h2>
+                <span className="text-muted-foreground text-xs">
+                  Totals for each shop across the selected dates
+                </span>
+              </div>
+              <div className="mt-3 overflow-x-auto">
+                <table className="w-full min-w-[720px] text-sm">
+                  <thead>
+                    <tr className="text-muted-foreground border-b text-left text-xs uppercase tracking-wide">
+                      <th className="p-2">Shop</th>
+                      <th className="p-2 text-right">Book notes</th>
+                      <th className="p-2 text-right">Rows</th>
+                      <th className="p-2 text-right">Cash</th>
+                      <th className="p-2 text-right">Card</th>
+                      <th className="p-2 text-right">KOKO</th>
+                      <th className="p-2 text-right">Bank</th>
+                      <th className="p-2 text-right">Total</th>
+                      <th className="p-2 text-center">Photos</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {summary.shops.map((c) => (
+                      <tr
+                        key={c.companyLocationId}
+                        className="border-b last:border-0"
+                      >
+                        <td className="p-2">
+                          <span className="font-medium">{c.shopName}</span>
+                          {c.company && c.company !== c.shopName ? (
+                            <span className="text-muted-foreground block text-xs">
+                              {c.company}
+                            </span>
+                          ) : null}
+                        </td>
+                        <td className="p-2 text-right font-mono">
+                          {c.dayCount}
+                        </td>
+                        <td className="p-2 text-right font-mono">
+                          {c.rowCount}
+                        </td>
+                        {["Cash", "Card", "KOKO", "Bank Transfer"].map((m) => {
+                          const bucket = c.methods.find((x) => x.method === m);
+                          return (
+                            <td
+                              key={m}
+                              className="p-2 text-right font-mono tabular-nums"
+                            >
+                              {bucket && bucket.total > 0 ? (
+                                <>
+                                  {money(bucket.total)}
+                                  <span className="text-muted-foreground ml-1 text-[10px]">
+                                    x{bucket.count}
+                                  </span>
+                                </>
+                              ) : (
+                                <span className="text-muted-foreground">—</span>
+                              )}
+                            </td>
+                          );
+                        })}
+                        <td className="p-2 text-right font-mono font-semibold tabular-nums">
+                          {money(c.grandTotal)}
+                        </td>
+                        <td className="p-2 text-center text-xs">
+                          {c.receiptCount > 0 ? (
+                            c.receiptCount
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : null}
+        </>
+      ) : null}
 
       {view === "notes" ? (
         visibleDays.length === 0 ? (
@@ -669,42 +701,44 @@ export function BookNoteFinancePanel({
             </table>
           </div>
         )
-      ) : photos.length === 0 ? (
-        <div className="bg-card text-muted-foreground rounded-lg border p-8 text-center text-sm">
-          No receipt photos uploaded for this outlet and date range.
-        </div>
-      ) : (
-        <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-5">
-          {photos.map((item) => (
-            <li
-              key={item.id}
-              className="bg-card overflow-hidden rounded-md border"
-            >
-              <button
-                type="button"
-                className="block w-full text-left"
-                onClick={() => setPreview(item)}
+      ) : view === "photos" ? (
+        photos.length === 0 ? (
+          <div className="bg-card text-muted-foreground rounded-lg border p-8 text-center text-sm">
+            No receipt photos uploaded for this outlet and date range.
+          </div>
+        ) : (
+          <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-5">
+            {photos.map((item) => (
+              <li
+                key={item.id}
+                className="bg-card overflow-hidden rounded-md border"
               >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={item.url}
-                  alt={`${item.shopName} ${item.posting_date} — ${item.fileName}`}
-                  loading="lazy"
-                  className="h-32 w-full object-cover"
-                />
-                <span className="block px-2 py-1">
-                  <span className="block truncate text-[11px] font-medium">
-                    {item.shopName}
+                <button
+                  type="button"
+                  className="block w-full text-left"
+                  onClick={() => setPreview(item)}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={item.url}
+                    alt={`${item.shopName} ${item.posting_date} — ${item.fileName}`}
+                    loading="lazy"
+                    className="h-32 w-full object-cover"
+                  />
+                  <span className="block px-2 py-1">
+                    <span className="block truncate text-[11px] font-medium">
+                      {item.shopName}
+                    </span>
+                    <span className="text-muted-foreground block truncate font-mono text-[10px]">
+                      {item.posting_date} · {item.submittedBy}
+                    </span>
                   </span>
-                  <span className="text-muted-foreground block truncate font-mono text-[10px]">
-                    {item.posting_date} · {item.submittedBy}
-                  </span>
-                </span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )
+      ) : null}
 
       <Dialog
         open={preview !== null}

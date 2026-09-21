@@ -264,8 +264,10 @@ export async function deleteAuth0User(auth0Id: string): Promise<void> {
     }
   );
 
-  if (!response.ok) {
-    const err = (await response.json()) as { message?: string; code?: string };
-    throw new Error(err.message ?? `Auth0 delete user failed: ${response.status}`);
+  if (response.ok || response.status === 404) {
+    return;
   }
+
+  const err = (await response.json()) as { message?: string; code?: string };
+  throw new Error(err.message ?? `Auth0 delete user failed: ${response.status}`);
 }
