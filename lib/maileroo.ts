@@ -413,6 +413,11 @@ export async function sendErpSyncFailureAlertEmail(input: {
   html: string;
   plain: string;
   ccEmails?: string[];
+  attachments?: Array<{
+    fileName: string;
+    contentType: string;
+    contentBase64: string;
+  }>;
 }): Promise<{ success: boolean; message?: string }> {
   const apiKey = process.env.MAILEROO_API_KEY;
   const fromEmail = process.env.MAILEROO_FROM_EMAIL;
@@ -455,6 +460,14 @@ export async function sendErpSyncFailureAlertEmail(input: {
     };
     if (validCc.length > 0) {
       payload.cc = validCc.map((address) => ({ address }));
+    }
+    if (input.attachments && input.attachments.length > 0) {
+      payload.attachments = input.attachments.map((a) => ({
+        file_name: a.fileName,
+        content_type: a.contentType,
+        content: a.contentBase64,
+        inline: false,
+      }));
     }
 
     const response = await fetch(`${MAILEROO_BASE_URL}/emails`, {

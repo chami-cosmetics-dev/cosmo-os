@@ -35,6 +35,11 @@ async function main() {
     "../lib/stock-price-missing/build-content"
   );
   const { scanStockPriceMissing } = await import("../lib/stock-price-missing/scan");
+  const {
+    buildStockPriceMissingWorkbook,
+    stockPriceMissingExcelFileName,
+  } = await import("../lib/stock-price-missing/workbook");
+  const { formatAppDateShort } = await import("../lib/format-datetime");
   const { sendErpSyncFailureAlertEmail } = await import("../lib/maileroo");
 
   if (!preview && (!process.env.MAILEROO_API_KEY || !process.env.MAILEROO_FROM_EMAIL)) {
@@ -100,6 +105,14 @@ async function main() {
     subject: built.subject,
     html: built.html,
     plain: built.plain,
+    attachments: [
+      {
+        fileName: stockPriceMissingExcelFileName(formatAppDateShort(new Date())),
+        contentType:
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        contentBase64: buildStockPriceMissingWorkbook(scan).toString("base64"),
+      },
+    ],
   });
 
   if (!send.success) {
@@ -107,7 +120,7 @@ async function main() {
     process.exit(1);
   }
 
-  console.log("Sent OK.");
+  console.log("Sent OK (Excel attached).");
 }
 
 main().catch((err) => {

@@ -74,6 +74,7 @@ export const BUILTIN_EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
 
 <p style="color:#666;font-size:12px;margin-top:24px;">
   Cosmo OS automated report. VAT = Product Priority "Vat". Locations from OSF stock columns.
+  Full list attached as Excel (sheets: No selling price, ERP2 OGF missing).
 </p>`,
     recipients: "asitha@cosmetics.lk",
     ccRecipients:

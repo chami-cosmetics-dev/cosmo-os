@@ -5,10 +5,15 @@ import {
   builtinTemplateByKey,
 } from "@/lib/email-templates/catalog";
 import { parseEmailAddressList } from "@/lib/email-templates/render";
+import { formatAppDateShort } from "@/lib/format-datetime";
 import { sendErpSyncFailureAlertEmail } from "@/lib/maileroo";
 import { prisma } from "@/lib/prisma";
 import { buildStockPriceMissingEmailContent } from "@/lib/stock-price-missing/build-content";
 import { scanStockPriceMissing } from "@/lib/stock-price-missing/scan";
+import {
+  buildStockPriceMissingWorkbook,
+  stockPriceMissingExcelFileName,
+} from "@/lib/stock-price-missing/workbook";
 
 export type StockPriceMissingEmailStatus =
   | "sent"
@@ -104,13 +109,16 @@ export async function runStockPriceMissingDailyEmail(input?: {
     subjectTemplate: template.subject,
     bodyHtmlTemplate: template.bodyHtml,
   });
+  const itemCount = scan.rows.length + scan.erp2OgfMissingRows.length;
+  const xlsx = buildStockPriceMissingWorkbook(scan);
+  const excelName = stockPriceMissingExcelFileName(formatAppDateShort(new Date()));
 
   if (input?.preview) {
     return {
       status: "preview",
       companyId: company.id,
       companyName: company.name,
-      itemCount: scan.rows.length,
+      itemCount,
       subject: built.subject,
     };
   }
@@ -121,6 +129,14 @@ export async function runStockPriceMissingDailyEmail(input?: {
     subject: built.subject,
     html: built.html,
     plain: built.plain,
+    attachments: [
+      {
+        fileName: excelName,
+        contentType:
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        contentBase64: xlsx.toString("base64"),
+      },
+    ],
   });
 
   if (!send.success) {
@@ -128,7 +144,7 @@ export async function runStockPriceMissingDailyEmail(input?: {
       status: "failed",
       companyId: company.id,
       companyName: company.name,
-      itemCount: scan.rows.length,
+      itemCount,
       subject: built.subject,
       message: send.message ?? "Email send failed",
     };
@@ -138,7 +154,7 @@ export async function runStockPriceMissingDailyEmail(input?: {
     status: "sent",
     companyId: company.id,
     companyName: company.name,
-    itemCount: scan.rows.length,
+    itemCount,
     subject: built.subject,
   };
 }
