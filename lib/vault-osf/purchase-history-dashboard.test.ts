@@ -4,6 +4,7 @@ import {
   cosmoDbLineToRaw,
   enrichPurchaseHistoryRow,
   erpInvoiceLineToRaw,
+  erpReceiptLineToRaw,
   matchesPurchaseHistoryFilters,
   mergePurchaseHistoryLines,
   purchaseHistoryDedupeKey,
@@ -34,19 +35,19 @@ describe("purchaseHistoryDedupeKey", () => {
 });
 
 describe("mergePurchaseHistoryLines", () => {
-  it("lets ERP override Cosmo on same key", () => {
+  it("lets ERP invoice override Cosmo on same key", () => {
     const cosmo = [baseCosmo];
     const erp: PurchaseHistoryRawLine[] = [
       {
         ...baseCosmo,
-        source: "erp",
+        source: "erp_invoice",
         rate: 120,
         netValue: 1200,
       },
     ];
     const merged = mergePurchaseHistoryLines(cosmo, erp);
     expect(merged).toHaveLength(1);
-    expect(merged[0]!.source).toBe("erp");
+    expect(merged[0]!.source).toBe("erp_invoice");
     expect(merged[0]!.rate).toBe(120);
   });
 
@@ -55,6 +56,23 @@ describe("mergePurchaseHistoryLines", () => {
     const merged = mergePurchaseHistoryLines(cosmo, []);
     expect(merged).toHaveLength(2);
     expect(merged.every((r) => r.source === "cosmo")).toBe(true);
+  });
+
+  it("lets invoice override receipt on same dedupe key", () => {
+    const receipt: PurchaseHistoryRawLine = {
+      ...baseCosmo,
+      source: "erp_receipt",
+      rate: 90,
+    };
+    const invoice: PurchaseHistoryRawLine = {
+      ...baseCosmo,
+      source: "erp_invoice",
+      rate: 110,
+    };
+    const merged = mergePurchaseHistoryLines([], [invoice], [receipt]);
+    expect(merged).toHaveLength(1);
+    expect(merged[0]!.source).toBe("erp_invoice");
+    expect(merged[0]!.rate).toBe(110);
   });
 });
 
@@ -98,10 +116,25 @@ describe("matchesPurchaseHistoryFilters", () => {
     );
     expect(no).toBe(false);
   });
+
+  it("filters by item description contains", () => {
+    const ok = matchesPurchaseHistoryFilters(
+      baseCosmo,
+      { productTitle: "Omega-3 Softgels", brand: "Acme", mrp: 1, discountedPrice: null },
+      { from: "2026-01-01", to: "2026-12-31", description: "omega" },
+    );
+    expect(ok).toBe(true);
+    const no = matchesPurchaseHistoryFilters(
+      baseCosmo,
+      { productTitle: "Biotin Softgels", brand: "Acme", mrp: 1, discountedPrice: null },
+      { from: "2026-01-01", to: "2026-12-31", description: "omega" },
+    );
+    expect(no).toBe(false);
+  });
 });
 
-describe("erpInvoiceLineToRaw", () => {
-  it("skips returns and bad rates", () => {
+describe("erpInvoiceLineToRaw / erpReceiptLineToRaw", () => {
+  it("skips invoice zero rates and returns", () => {
     expect(
       erpInvoiceLineToRaw({
         name: "PINV-1",
@@ -125,6 +158,23 @@ describe("erpInvoiceLineToRaw", () => {
         supplier: "S",
       }),
     ).toBeNull();
+  });
+
+  it("keeps receipt lines with zero rate", () => {
+    const raw = erpReceiptLineToRaw({
+      name: "MAT-PRE-1",
+      item_code: "SKU1",
+      posting_date: "2026-09-22",
+      qty: 3,
+      rate: 0,
+      net_amount: 0,
+      docstatus: 1,
+      supplier: "Jana",
+      is_return: 0,
+    });
+    expect(raw).not.toBeNull();
+    expect(raw!.source).toBe("erp_receipt");
+    expect(raw!.rate).toBe(0);
   });
 });
 

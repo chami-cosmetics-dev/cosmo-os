@@ -1107,6 +1107,28 @@ export async function PATCH(
     }
 
     if (nextStatus === "approved") {
+      if (
+        (approval.type === ORDER_PAYMENT_APPROVAL ||
+          approval.type === PAYMENT_METHOD_CHANGE_APPROVAL) &&
+        approval.orderId
+      ) {
+        // Drop orphan sibling pendings so dispatch is not blocked by a later createOrGet.
+        await tx.approvalRequest.updateMany({
+          where: {
+            orderId: approval.orderId,
+            companyId,
+            type: ORDER_PAYMENT_APPROVAL,
+            status: "pending",
+            id: { not: approval.id },
+          },
+          data: {
+            status: "cancelled",
+            reviewNote:
+              "Cancelled — superseded by approved finance payment on the same order",
+            updatedAt: now,
+          },
+        });
+      }
       if (approval.type === ORDER_PAYMENT_APPROVAL && !isSplitOrderPaymentApproval) {
         const orderForStage = await tx.order.findUnique({
           where: { id: approval.orderId! },

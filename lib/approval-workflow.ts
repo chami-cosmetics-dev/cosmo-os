@@ -418,22 +418,125 @@ export async function reconcilePendingApprovalsForVoidedOrders(companyId: string
   return direct.count + viaReturn.count;
 }
 
-export async function getOrderPaymentApproval(orderId: string) {
+export const ORPHAN_PENDING_AFTER_APPROVED_CANCEL_NOTE =
+  "Cancelled — order already paid with an approved finance payment (orphan pending removed)";
+
+/**
+ * Cancel pending order-payment approvals when the order is already paid and has
+ * an approved ORDER_PAYMENT / PAYMENT_METHOD_CHANGE. Prevents duplicate createOrGet
+ * rows from blocking dispatch and reappearing in the pending finance list.
+ */
+export async function reconcileOrphanPendingPaymentApprovalsForPaidOrders(
+  companyId: string,
+): Promise<number> {
+  const now = new Date();
+  const orphans = await prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+    SELECT pending."id" AS id
+    FROM "ApprovalRequest" pending
+    INNER JOIN "Order" o ON o."id" = pending."orderId"
+    WHERE pending."companyId" = ${companyId}
+      AND pending."type" = ${ORDER_PAYMENT_APPROVAL}
+      AND pending."status" = 'pending'
+      AND pending."orderId" IS NOT NULL
+      AND LOWER(TRIM(COALESCE(o."financialStatus", ''))) = 'paid'
+      AND EXISTS (
+        SELECT 1
+        FROM "ApprovalRequest" approved
+        WHERE approved."orderId" = pending."orderId"
+          AND approved."type" IN (${ORDER_PAYMENT_APPROVAL}, ${PAYMENT_METHOD_CHANGE_APPROVAL})
+          AND approved."status" = 'approved'
+          AND approved."id" <> pending."id"
+      )
+  `);
+  if (orphans.length === 0) return 0;
+
+  const result = await prisma.approvalRequest.updateMany({
+    where: { id: { in: orphans.map((row) => row.id) }, status: "pending" },
+    data: {
+      status: "cancelled",
+      reviewNote: ORPHAN_PENDING_AFTER_APPROVED_CANCEL_NOTE,
+      updatedAt: now,
+    },
+  });
+  return result.count;
+}
+
+/**
+ * Choose which payment approval gates fulfillment.
+ * Pending wins for unpaid re-approval (HOD revert); when order is already paid,
+ * an older approved row wins over an orphan newer pending.
+ */
+export function pickOrderPaymentApprovalForFulfillmentGate<
+  T extends { id: string; status: string; reviewNote: string | null },
+>(input: {
+  pending: T | null;
+  approved: T | null;
+  latest: T | null;
+  financialStatus: string | null | undefined;
+}): T | null {
+  const paid = normalizeFinancialStatus(input.financialStatus) === "paid";
+  if (input.pending) {
+    if (paid && input.approved) return input.approved;
+    return input.pending;
+  }
+  return input.approved ?? input.latest ?? null;
+}
+
+export async function getOrderPaymentApproval(orderId: string): Promise<{
+  id: string;
+  status: ApprovalStatus;
+  reviewNote: string | null;
+} | null> {
   // PAYMENT_METHOD_CHANGE_APPROVAL (e.g. COD → KOKO) also confirms payment for the order,
   // so treat it the same as ORDER_PAYMENT_APPROVAL when checking the print block.
-  const rows = await prisma.$queryRaw<
-    Array<{ id: string; status: ApprovalStatus; reviewNote: string | null }>
-  >(
-    Prisma.sql`
-      SELECT "id", "status", "reviewNote"
-      FROM "ApprovalRequest"
-      WHERE "type" IN (${ORDER_PAYMENT_APPROVAL}, ${PAYMENT_METHOD_CHANGE_APPROVAL})
-        AND "orderId" = ${orderId}
-      ORDER BY "createdAt" DESC
-      LIMIT 1
-    `
-  );
-  return rows[0] ?? null;
+  const [pending, approved, order] = await Promise.all([
+    prisma.approvalRequest.findFirst({
+      where: {
+        orderId,
+        type: { in: [ORDER_PAYMENT_APPROVAL, PAYMENT_METHOD_CHANGE_APPROVAL] },
+        status: "pending",
+      },
+      orderBy: { createdAt: "desc" },
+      select: { id: true, status: true, reviewNote: true },
+    }),
+    prisma.approvalRequest.findFirst({
+      where: {
+        orderId,
+        type: { in: [ORDER_PAYMENT_APPROVAL, PAYMENT_METHOD_CHANGE_APPROVAL] },
+        status: "approved",
+      },
+      orderBy: { reviewedAt: "desc" },
+      select: { id: true, status: true, reviewNote: true },
+    }),
+    prisma.order.findUnique({
+      where: { id: orderId },
+      select: { financialStatus: true },
+    }),
+  ]);
+
+  const picked =
+    pending || approved
+      ? pickOrderPaymentApprovalForFulfillmentGate({
+          pending,
+          approved,
+          latest: null,
+          financialStatus: order?.financialStatus,
+        })
+      : await prisma.approvalRequest.findFirst({
+          where: {
+            orderId,
+            type: { in: [ORDER_PAYMENT_APPROVAL, PAYMENT_METHOD_CHANGE_APPROVAL] },
+          },
+          orderBy: { createdAt: "desc" },
+          select: { id: true, status: true, reviewNote: true },
+        });
+
+  if (!picked) return null;
+  return {
+    id: picked.id,
+    status: picked.status as ApprovalStatus,
+    reviewNote: picked.reviewNote,
+  };
 }
 
 /** Block fulfillment actions until finance approves KOKO/bank payment. */
@@ -546,6 +649,8 @@ export async function createOrGetOrderPaymentApproval(input: {
   paymentType: string;
   amount: string;
   companyLocationId?: string | null;
+  /** HOD paid→unpaid requeue: create a new pending even when an older approval is approved. */
+  forceCreate?: boolean;
 }) {
   const existing = await prisma.$queryRaw<Array<{ id: string; status: ApprovalStatus }>>(
     Prisma.sql`
@@ -560,6 +665,24 @@ export async function createOrGetOrderPaymentApproval(input: {
     `
   );
   if (existing[0]) return existing[0];
+
+  if (!input.forceCreate) {
+    // Do not spawn a second pending after finance already approved — that orphans
+    // the paid order in the pending list and blocks dispatch (latest-wins).
+    const alreadyApproved = await prisma.$queryRaw<Array<{ id: string; status: ApprovalStatus }>>(
+      Prisma.sql`
+        SELECT "id", "status"
+        FROM "ApprovalRequest"
+        WHERE "companyId" = ${input.companyId}
+          AND "orderId" = ${input.orderId}
+          AND "type" IN (${ORDER_PAYMENT_APPROVAL}, ${PAYMENT_METHOD_CHANGE_APPROVAL})
+          AND "status" = 'approved'
+        ORDER BY "reviewedAt" DESC NULLS LAST, "createdAt" DESC
+        LIMIT 1
+      `
+    );
+    if (alreadyApproved[0]) return alreadyApproved[0];
+  }
 
   const id = randomUUID();
   const rowsAffected = await prisma.$executeRaw(

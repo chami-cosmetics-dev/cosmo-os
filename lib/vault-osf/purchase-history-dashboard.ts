@@ -6,7 +6,7 @@ import {
 } from "@/lib/vault-osf/erp-purchases-monthly";
 import { isExcludedErpCompany } from "@/lib/vault-osf/types";
 
-export type PurchaseHistorySource = "erp" | "cosmo";
+export type PurchaseHistorySource = "erp_invoice" | "erp_receipt" | "cosmo";
 
 export type PurchaseHistoryRawLine = {
   sku: string;
@@ -56,6 +56,8 @@ export type PurchaseHistoryFilters = {
   sku?: string;
   supplier?: string;
   brand?: string;
+  /** Matches catalog product title (contains, case-insensitive). */
+  description?: string;
 };
 
 /** Prefer sourceRef+sku; else sku+date+supplier+qty+rate. */
@@ -117,23 +119,58 @@ export function erpInvoiceLineToRaw(row: PurchaseInvoiceLine): PurchaseHistoryRa
     rate,
     netValue,
     sourceRef,
-    source: "erp",
+    source: "erp_invoice",
+  };
+}
+
+/** Same as invoice, but zero rates allowed (Vault PRs often have placeholder 0 cost). */
+export function erpReceiptLineToRaw(row: PurchaseInvoiceLine): PurchaseHistoryRawLine | null {
+  if (!isSubmittedPurchase(row)) return null;
+  if (isExcludedErpCompany(row.company ?? "")) return null;
+  const sku = row.item_code?.trim();
+  if (!sku) return null;
+  const postingDate = row.posting_date?.trim();
+  if (!postingDate) return null;
+  const qty = Number(row.qty);
+  const rate = Number(row.rate);
+  if (!Number.isFinite(qty) || !Number.isFinite(rate) || rate < 0) return null;
+  const netRaw = row.net_amount != null ? Number(row.net_amount) : NaN;
+  const netValue = Number.isFinite(netRaw)
+    ? netRaw
+    : Math.round(qty * rate * 100) / 100;
+  const supplier =
+    row.supplier_name?.trim() || row.supplier?.trim() || "Unknown";
+  const sourceRef = row.name?.trim() || null;
+  return {
+    sku,
+    supplier,
+    postingDate,
+    qty,
+    rate,
+    netValue,
+    sourceRef,
+    source: "erp_receipt",
   };
 }
 
 /**
- * Merge Cosmo + ERP lines. ERP wins on matching dedupe key.
+ * Merge Cosmo + ERP lines. Invoice wins over receipt over Cosmo on matching dedupe key.
  * Result sorted newest postingDate first, then sku.
  */
 export function mergePurchaseHistoryLines(
   cosmo: PurchaseHistoryRawLine[],
-  erp: PurchaseHistoryRawLine[],
+  erpInvoices: PurchaseHistoryRawLine[],
+  erpReceipts: PurchaseHistoryRawLine[] = [],
 ): PurchaseHistoryRawLine[] {
   const map = new Map<string, PurchaseHistoryRawLine>();
   for (const line of cosmo) {
     map.set(purchaseHistoryDedupeKey(line), line);
   }
-  for (const line of erp) {
+  // Receipts fill gaps; invoices overwrite same key when present.
+  for (const line of erpReceipts) {
+    map.set(purchaseHistoryDedupeKey(line), line);
+  }
+  for (const line of erpInvoices) {
     map.set(purchaseHistoryDedupeKey(line), line);
   }
   return [...map.values()].sort((a, b) => {
@@ -160,6 +197,11 @@ export function matchesPurchaseHistoryFilters(
     const q = filters.brand.trim().toLowerCase();
     const brand = catalog?.brand?.trim().toLowerCase() ?? "";
     if (q && brand !== q) return false;
+  }
+  if (filters.description) {
+    const q = filters.description.trim().toLowerCase();
+    const title = catalog?.productTitle?.trim().toLowerCase() ?? "";
+    if (q && !title.includes(q)) return false;
   }
   return true;
 }

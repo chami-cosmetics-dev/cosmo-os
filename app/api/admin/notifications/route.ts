@@ -5,6 +5,7 @@ import {
   DELIVERY_PAYMENT_APPROVAL,
   DELIVERY_PAYMENT_FINANCE_UI_ENABLED,
   reconcilePendingApprovalsForVoidedOrders,
+  reconcileOrphanPendingPaymentApprovalsForPaidOrders,
   resolveViewerFinanceLocationIds,
 } from "@/lib/approval-workflow";
 import { prisma } from "@/lib/prisma";
@@ -140,6 +141,7 @@ export async function GET() {
   );
 
   await reconcilePendingApprovalsForVoidedOrders(companyId);
+  await reconcileOrphanPendingPaymentApprovalsForPaidOrders(companyId);
   await dismissStaleApprovalNotifications(companyId, userId);
   await dismissDeliveryPaymentApprovalNotifications(companyId, userId);
   if (financeLocationIds !== null) {
