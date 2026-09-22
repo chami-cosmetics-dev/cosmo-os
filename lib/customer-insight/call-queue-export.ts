@@ -8,9 +8,6 @@ import {
 import { prisma } from "@/lib/prisma";
 import { formatAppIsoDate } from "@/lib/format-datetime";
 
-/** Safety cap for filtered allocated-contact Excel export (no single merchant). */
-export const CALL_QUEUE_FILTERED_EXPORT_CAP = 25_000;
-
 function applyTextColumn(
   sheet: XLSX.WorkSheet,
   header: string,
@@ -137,7 +134,7 @@ export async function buildCallQueueFilteredContactsWorkbook(input: {
     hideFilter: input.hideFilter ?? "all",
   });
 
-  const total = Math.min(first.pagination.total, CALL_QUEUE_FILTERED_EXPORT_CAP);
+  const total = first.pagination.total;
   const items = [...first.items];
   const pageCount = Math.ceil(total / pageSize);
   for (let page = 2; page <= pageCount; page++) {
@@ -161,10 +158,8 @@ export async function buildCallQueueFilteredContactsWorkbook(input: {
       hideFilter: input.hideFilter ?? "all",
     });
     items.push(...next.items);
-    if (items.length >= CALL_QUEUE_FILTERED_EXPORT_CAP) break;
   }
 
-  const capped = items.slice(0, CALL_QUEUE_FILTERED_EXPORT_CAP);
   const emptyRow = {
     Merchant: "",
     Name: "",
@@ -178,8 +173,8 @@ export async function buildCallQueueFilteredContactsWorkbook(input: {
   };
 
   const sheetRows =
-    capped.length > 0
-      ? capped.map((row) => ({
+    items.length > 0
+      ? items.map((row) => ({
           Merchant: row.assignedMerchant ?? "",
           Name: row.name,
           Phone: row.phoneNumber ?? "",
