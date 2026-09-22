@@ -2,7 +2,7 @@ import "server-only";
 
 import { Prisma } from "@prisma/client";
 
-import { pickCosmoCatalogErpInstance } from "@/lib/cosmo-catalog-erp";
+import { pickCosmoCatalogErpInstance, pickCosmoCatalogErp2Fallback } from "@/lib/cosmo-catalog-erp";
 import { planStandardSellingPriceUpdates } from "@/lib/erp-item-price-decision";
 import {
   getAllOsfErpInstances,
@@ -11,6 +11,7 @@ import {
   type OsfErpInstance,
 } from "@/lib/osf/erp-stock";
 import { prisma } from "@/lib/prisma";
+import { mergeErpPriceMapsPreferPrimary, lookupErpPriceBySku } from "@/lib/sticker-unit-price";
 
 export {
   LWK_STICKER_PRICE_LIST,
@@ -106,11 +107,22 @@ export async function resolveLwkErpInstance(
 }
 
 /**
- * Cosmetics.lk / ERP_1 Standard Selling. Never LWK (ERP_2) — trading list can lag the shop.
+ * Cosmetics.lk / ERP_1 Standard Selling primary source.
+ * ERP_2 is resolved separately for gap-fill when ERP_1 rate is missing.
  */
 export async function resolveCosmoCatalogErpInstance(
   companyId: string
 ): Promise<OsfErpInstance | null> {
+  const pair = await resolveCosmoStandardSellingErpPair(companyId);
+  return pair.primary;
+}
+
+/**
+ * ERP_1 (preferred) + ERP_2 (gap-fill) for Cosmo Standard Selling stickers.
+ */
+export async function resolveCosmoStandardSellingErpPair(
+  companyId: string
+): Promise<{ primary: OsfErpInstance | null; fallback: OsfErpInstance | null }> {
   const [locations, instances] = await Promise.all([
     prisma.companyLocation.findMany({
       where: { companyId },
@@ -122,20 +134,30 @@ export async function resolveCosmoCatalogErpInstance(
     }),
     getAllOsfErpInstances(companyId),
   ]);
-  const picked = pickCosmoCatalogErpInstance({
+  const candidates = instances.map((row) => ({
+    id: row.id,
+    label: row.label,
+    baseUrl: row.cfg.baseUrl,
+  }));
+  const pickedPrimary = pickCosmoCatalogErpInstance({
     locations: locations.map((loc) => ({
       name: loc.name,
       locationReference: loc.locationReference,
       instanceId: loc.erpnextInstanceId,
     })),
-    instances: instances.map((row) => ({
-      id: row.id,
-      label: row.label,
-      baseUrl: row.cfg.baseUrl,
-    })),
+    instances: candidates,
   });
-  if (!picked) return null;
-  return instances.find((row) => row.id === picked.id) ?? null;
+  const primary = pickedPrimary
+    ? (instances.find((row) => row.id === pickedPrimary.id) ?? null)
+    : null;
+  const pickedFallback = pickCosmoCatalogErp2Fallback({
+    instances: candidates,
+    primaryId: primary?.id,
+  });
+  const fallback = pickedFallback
+    ? (instances.find((row) => row.id === pickedFallback.id) ?? null)
+    : null;
+  return { primary, fallback };
 }
 
 async function fetchSellingPricesBySku(input: {
@@ -266,33 +288,79 @@ export async function loadLwkStickerPricesBySku(
 }
 
 /**
- * Load Standard Selling rates from Cosmo ERP (Cosmetics.lk / ERP_1).
+ * Load Standard Selling rates: ERP_1 first, fill gaps from ERP_2.
  */
 export async function loadStandardSellingPricesBySku(
   companyId: string
 ): Promise<Record<string, string>> {
-  const instance = await resolveCosmoCatalogErpInstance(companyId);
-  if (!instance) return {};
+  const { primary, fallback } = await resolveCosmoStandardSellingErpPair(companyId);
+  if (!primary && !fallback) return {};
+
   try {
-    return await fetchAllStandardSellingPrices(instance.cfg);
+    const [primaryPrices, fallbackPrices] = await Promise.all([
+      primary
+        ? fetchAllStandardSellingPrices(primary.cfg).catch(() => ({} as Record<string, string>))
+        : Promise.resolve({} as Record<string, string>),
+      fallback
+        ? fetchAllStandardSellingPrices(fallback.cfg).catch(() => ({} as Record<string, string>))
+        : Promise.resolve({} as Record<string, string>),
+    ]);
+    return mergeErpPriceMapsPreferPrimary(primaryPrices, fallbackPrices);
   } catch {
     return {};
   }
 }
 
 /**
+ * Standard Selling for specific SKUs: ERP_1 first, ERP_2 for SKUs still missing.
+ */
+export async function loadStandardSellingPricesForSkus(input: {
+  companyId: string;
+  itemCodes: string[];
+}): Promise<Record<string, string>> {
+  const itemCodes = [...new Set(input.itemCodes.map((s) => s.trim()).filter(Boolean))];
+  if (itemCodes.length === 0) return {};
+
+  const { primary, fallback } = await resolveCosmoStandardSellingErpPair(input.companyId);
+  if (!primary && !fallback) return {};
+
+  let primaryPrices: Record<string, string> = {};
+  if (primary) {
+    primaryPrices = await fetchStandardSellingPricesBySku({
+      cfg: primary.cfg,
+      itemCodes,
+    });
+  }
+
+  const stillMissing = itemCodes.filter(
+    (sku) => !lookupErpPriceBySku(primaryPrices, sku)
+  );
+
+  if (!fallback || stillMissing.length === 0) {
+    return primaryPrices;
+  }
+
+  const fallbackPrices = await fetchStandardSellingPricesBySku({
+    cfg: fallback.cfg,
+    itemCodes: stillMissing,
+  });
+  return mergeErpPriceMapsPreferPrimary(primaryPrices, fallbackPrices);
+}
+
+/**
  * Write Cosmo ERP Standard Selling rates onto ProductItem.price (all locations for SKU).
+ * ERP_1 preferred; ERP_2 fills SKUs with no positive ERP_1 rate.
  * Does not invent prices; on ERP failure leaves OS prices unchanged.
  */
 export async function syncStandardSellingToProductItems(
   companyId: string
 ): Promise<{ status: "ok" | "failed" | "not_configured"; updated: number; error: string | null }> {
-  const instance = await resolveCosmoCatalogErpInstance(companyId);
-  if (!instance) {
+  const { primary, fallback } = await resolveCosmoStandardSellingErpPair(companyId);
+  if (!primary && !fallback) {
     return { status: "not_configured", updated: 0, error: "No Cosmo ERP instance" };
   }
   try {
-    const prices = await fetchAllStandardSellingPrices(instance.cfg);
+    const prices = await loadStandardSellingPricesBySku(companyId);
     if (Object.keys(prices).length === 0) {
       return { status: "ok", updated: 0, error: null };
     }

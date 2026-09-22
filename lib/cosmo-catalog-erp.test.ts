@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { pickCosmoCatalogErpInstance } from "@/lib/cosmo-catalog-erp";
+import {
+  pickCosmoCatalogErp2Fallback,
+  pickCosmoCatalogErpInstance,
+} from "@/lib/cosmo-catalog-erp";
 
 const erp1 = {
   id: "erp1",
@@ -45,6 +48,38 @@ describe("pickCosmoCatalogErpInstance", () => {
           { name: "LWK Enterprises Pvt Ltd", locationReference: "003", instanceId: "erp2" },
         ],
         instances: [erp2],
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("pickCosmoCatalogErp2Fallback", () => {
+  it("picks ERP_2 by label excluding primary", () => {
+    expect(
+      pickCosmoCatalogErp2Fallback({
+        instances: [erp1, erp2],
+        primaryId: "erp1",
+      })?.id,
+    ).toBe("erp2");
+  });
+
+  it("picks cosmetics-lk-02 by URL when labels missing", () => {
+    expect(
+      pickCosmoCatalogErp2Fallback({
+        instances: [
+          erp1,
+          { id: "x", label: "Trading", baseUrl: "https://cosmetics-lk-02.m.frappe.cloud" },
+        ],
+        primaryId: "erp1",
+      })?.id,
+    ).toBe("x");
+  });
+
+  it("never returns the primary instance", () => {
+    expect(
+      pickCosmoCatalogErp2Fallback({
+        instances: [erp1],
+        primaryId: "erp1",
       }),
     ).toBeNull();
   });

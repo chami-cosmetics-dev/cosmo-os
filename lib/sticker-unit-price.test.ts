@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   isLwkLocation,
   lookupErpPriceBySku,
+  mergeErpPriceMapsPreferPrimary,
   resolveStickerUnitPrice,
 } from "@/lib/sticker-unit-price";
 
@@ -25,6 +26,23 @@ describe("lookupErpPriceBySku", () => {
   it("matches SKU case-insensitively", () => {
     expect(lookupErpPriceBySku({ TRS28_1: "8500.00" }, "trs28_1")).toBe("8500.00");
     expect(lookupErpPriceBySku({ trs28_1: "8500.00" }, "TRS28_1")).toBe("8500.00");
+  });
+});
+
+describe("mergeErpPriceMapsPreferPrimary", () => {
+  it("keeps ERP1 rate and fills only missing SKUs from ERP2", () => {
+    expect(
+      mergeErpPriceMapsPreferPrimary(
+        { AA_1: "100.00", BB_1: "200.00" },
+        { aa_1: "999.00", CC_1: "7450.00" },
+      ),
+    ).toEqual({ AA_1: "100.00", BB_1: "200.00", CC_1: "7450.00" });
+  });
+
+  it("fills when primary has no positive rate for SKU", () => {
+    expect(
+      mergeErpPriceMapsPreferPrimary({}, { NEH09_1: "7450.00" }),
+    ).toEqual({ NEH09_1: "7450.00" });
   });
 });
 

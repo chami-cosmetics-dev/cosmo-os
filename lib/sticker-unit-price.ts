@@ -51,6 +51,24 @@ export function lookupErpPriceBySku(
 export const lookupLwkErpPrice = lookupErpPriceBySku;
 
 /**
+ * Prefer primary ERP rates; fill SKUs still missing (or ≤ 0) from fallback map.
+ * Case-insensitive SKU match via lookupErpPriceBySku.
+ */
+export function mergeErpPriceMapsPreferPrimary(
+  primary: Record<string, string>,
+  fallback: Record<string, string>
+): Record<string, string> {
+  const out: Record<string, string> = { ...primary };
+  for (const [rawSku, price] of Object.entries(fallback)) {
+    const sku = rawSku.trim();
+    if (!sku || !toMoney(price)) continue;
+    if (lookupErpPriceBySku(out, sku)) continue;
+    out[sku] = toMoney(price)!;
+  }
+  return out;
+}
+
+/**
  * Resolve sticker unit price:
  * - LWK → Cosmo ERP OGF Price List only (no Cosmo/Shopify fallback)
  * - other → Cosmo ERP Standard Selling, else OS catalog ProductItem.price
