@@ -143,6 +143,21 @@ async function fetchPurchaseInvoiceLines(input: {
   return rows;
 }
 
+/** Submitted PI lines in a posting-date window (dashboard / history browser). */
+export async function fetchPurchaseInvoiceLinesInRange(input: {
+  cfg: OsfErpCredentials;
+  bounds: { start: string; end: string };
+}): Promise<PurchaseInvoiceLine[]> {
+  return fetchPurchaseInvoiceLines({
+    cfg: input.cfg,
+    filters: [
+      ["docstatus", "=", 1],
+      ["posting_date", ">=", input.bounds.start],
+      ["posting_date", "<=", input.bounds.end],
+    ],
+  });
+}
+
 export async function fetchMonthlyPurchases(input: {
   cfg: OsfErpCredentials;
   erpCompany: string;

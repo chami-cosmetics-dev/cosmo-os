@@ -1,10 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { OsfErpError } from "@/lib/osf/erp-stock";
-import {
-  fetchStandardSellingPricesBySku,
-  resolveCosmoCatalogErpInstance,
-} from "@/lib/sticker-lwk-erp-price";
+import { loadStandardSellingPricesForSkus } from "@/lib/sticker-lwk-erp-price";
 import { requireAnyPermission } from "@/lib/rbac";
 import { LIMITS } from "@/lib/validation";
 
@@ -13,7 +10,7 @@ export const maxDuration = 60;
 
 /**
  * GET /api/admin/stickers/standard-selling-prices?sku=CE68_1&sku=...
- * Returns Cosmo ERP Standard Selling rates for non-LWK stickers.
+ * Cosmo Standard Selling for non-LWK stickers: ERP_1 first, ERP_2 gap-fill.
  */
 export async function GET(request: NextRequest) {
   const auth = await requireAnyPermission([
@@ -42,17 +39,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ prices: {} as Record<string, string> });
   }
 
-  const instance = await resolveCosmoCatalogErpInstance(companyId);
-  if (!instance) {
-    return NextResponse.json({
-      prices: {},
-      error: "No Cosmo ERP instance for Standard Selling",
-    });
-  }
-
   try {
-    const prices = await fetchStandardSellingPricesBySku({
-      cfg: instance.cfg,
+    const prices = await loadStandardSellingPricesForSkus({
+      companyId,
       itemCodes: skus.slice(0, 100),
     });
     return NextResponse.json({ prices });

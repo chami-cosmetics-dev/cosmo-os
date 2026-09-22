@@ -7,8 +7,12 @@ function priorityText(value: string | null | undefined): string {
   return (value ?? "").trim();
 }
 
+export function isDiscontinueErpPriority(value: string | null | undefined): boolean {
+  return priorityText(value).toLowerCase() === OSF_DISCONTINUE_PRIORITY.toLowerCase();
+}
+
 function isDiscontinuePriority(value: string): boolean {
-  return value.toLowerCase() === OSF_DISCONTINUE_PRIORITY.toLowerCase();
+  return isDiscontinueErpPriority(value);
 }
 
 /**

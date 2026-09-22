@@ -199,3 +199,20 @@ export const vaultOsfSalesHistoryQuerySchema = z.object({
 
 export type VaultOsfGenerateBodyInput = z.infer<typeof vaultOsfGenerateBodySchema>;
 export type VaultOsfSalesHistoryQuery = z.infer<typeof vaultOsfSalesHistoryQuerySchema>;
+
+const purchaseHistoryYmd = z
+  .string()
+  .trim()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date format");
+
+export const purchaseHistoryQuerySchema = z.object({
+  from: purchaseHistoryYmd,
+  to: purchaseHistoryYmd,
+  sku: trimmedString(0, LIMITS.sku.max).optional(),
+  supplier: trimmedString(0, 200).optional(),
+  brand: trimmedString(0, 200).optional(),
+  offset: z.coerce.number().int().min(0).max(100_000).optional().default(0),
+  limit: z.coerce.number().int().min(1).max(500).optional().default(200),
+});
+
+export type PurchaseHistoryQuery = z.infer<typeof purchaseHistoryQuerySchema>;

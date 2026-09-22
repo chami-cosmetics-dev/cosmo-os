@@ -8,6 +8,10 @@ import { getAllOsfErpInstances } from "@/lib/osf/erp-stock";
 import { rankSupplierOptions } from "@/lib/osf/supplier-compare";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserContext, hasPermission } from "@/lib/rbac";
+import {
+  mergeErpAndCosmoSupplierMaps,
+  supplierPurchasesFromCosmoLines,
+} from "@/lib/vault-osf/purchase-history-merge";
 import { purchasingSkuQuerySchema } from "@/lib/validation/osf";
 
 export const dynamic = "force-dynamic";
@@ -24,7 +28,7 @@ export async function GET(request: NextRequest) {
   if (!canTools) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
-  const companyId = context.user.companyId;
+  const companyId = context.user.companyId ?? "";
   if (!companyId) {
     return NextResponse.json({ error: "No company associated with your account" }, { status: 404 });
   }
@@ -47,16 +51,34 @@ export async function GET(request: NextRequest) {
   });
 
   const erpInstances = await getAllOsfErpInstances(companyId);
+  const purchaseSource = isVaultOsDeployment() ? "invoice" : "receipt";
+  const vault = purchaseSource === "invoice";
+
+  async function cosmoSupplierMap() {
+    if (!vault) return new Map();
+    const cosmoLines = await prisma.osfPurchaseHistoryLine.findMany({
+      where: { companyId, sku },
+      select: {
+        sku: true,
+        supplier: true,
+        postingDate: true,
+        qty: true,
+        rate: true,
+        netValue: true,
+      },
+    });
+    if (cosmoLines.length === 0) return new Map();
+    return supplierPurchasesFromCosmoLines(cosmoLines, sku);
+  }
+
   if (erpInstances.length === 0) {
+    const cosmoOnly = await cosmoSupplierMap();
     return NextResponse.json({
       sku,
-      suppliers: [],
+      suppliers: rankSupplierOptions([...cosmoOnly.values()]),
       erpAvailable: true,
     });
   }
-
-  const purchaseSource = isVaultOsDeployment() ? "invoice" : "receipt";
-  const vault = purchaseSource === "invoice";
 
   try {
     const perInstance = await Promise.all(
@@ -71,7 +93,10 @@ export async function GET(request: NextRequest) {
       ),
     );
     const merged = mergeInstanceSupplierPurchases(perInstance);
-    const ranked = rankSupplierOptions([...merged.values()]);
+    const cosmo = await cosmoSupplierMap();
+    const withCosmo =
+      cosmo.size > 0 ? mergeErpAndCosmoSupplierMaps(merged, cosmo) : merged;
+    const ranked = rankSupplierOptions([...withCosmo.values()]);
     return NextResponse.json({
       sku,
       suppliers: ranked,
@@ -80,6 +105,14 @@ export async function GET(request: NextRequest) {
   } catch (err) {
     if (!(err instanceof OsfErpError)) throw err;
     console.error("[purchasing sku-pricing/suppliers] ERP", err.message);
+    const cosmo = await cosmoSupplierMap();
+    if (cosmo.size > 0) {
+      return NextResponse.json({
+        sku,
+        suppliers: rankSupplierOptions([...cosmo.values()]),
+        erpAvailable: false,
+      });
+    }
     return NextResponse.json({
       sku,
       suppliers: [],

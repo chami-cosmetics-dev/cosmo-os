@@ -82,6 +82,7 @@ model Company {
   productOsfRops                ProductOsfRop[]
   osfColumnConfigs              OsfColumnConfig[]
   osfMonthlySalesHistories      OsfMonthlySalesHistory[]
+  osfPurchaseHistoryLines       OsfPurchaseHistoryLine[]
   osfBuyers                     OsfBuyer[]
   osfUserColumnAccess           OsfUserColumnAccess[]
   storeStockCountReports        StoreStockCountReport[]
@@ -2172,6 +2173,32 @@ model OsfMonthlySalesHistory {
   @@unique([companyId, sku, columnKey, month])
   @@index([companyId, month])
   @@index([companyId, sku])
+}
+
+/// Vault OS one-time Excel purchase overlay (Dilhan history). Not written to ERP.
+/// OSF workbook gap-fills only Apr/May (see VAULT_OSF_PURCHASE_HISTORY_MONTHS).
+/// SKU calculator / supplier compare merges all lines with ERP (Vault only).
+model OsfPurchaseHistoryLine {
+  id           String   @id @default(cuid())
+  companyId    String
+  sku          String
+  supplier     String
+  /// YYYY-MM-DD
+  postingDate  String
+  qty          Float
+  rate         Float
+  netValue     Float
+  /// Raw Excel Company column (Supplement / Origins / AE / …).
+  excelCompany String?
+  /// PO / bill ref from Excel when present.
+  sourceRef    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, sku])
+  @@index([companyId, postingDate])
+  @@index([companyId, sku, postingDate])
 }
 
 model OsfBuyer {
