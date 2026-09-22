@@ -15,6 +15,12 @@ import { fetchLatestPurchases, fetchMonthlyPurchases, mergePurchaseMaps } from "
 import { fetchVaultPrices } from "@/lib/vault-osf/erp-pricing";
 import { fetchSalesMonth, salesQtyForSku } from "@/lib/vault-osf/erp-sales";
 import { monthKeysInWindow, monthPostingBounds, reportingAprilStart } from "@/lib/vault-osf/months";
+import {
+  aggregateCosmoMonthlyPurchases,
+  lastPurchasesFromCosmoLines,
+  mergeCosmoPurchasesIntoOsf,
+  mergeLastPurchaseMaps,
+} from "@/lib/vault-osf/purchase-history-merge";
 import type { PurchaseCell, SalesCell } from "@/lib/vault-osf/types";
 import { vaultOsfGenerateBodySchema } from "@/lib/validation/osf";
 
@@ -174,6 +180,24 @@ export async function POST(request: NextRequest) {
       setSale(h.sku, h.month, h.columnKey, { qty: h.qty, source: "import" });
     }
 
+    const cosmoPurchaseLines = await prisma.osfPurchaseHistoryLine.findMany({
+      where: { companyId },
+      select: {
+        sku: true,
+        supplier: true,
+        postingDate: true,
+        qty: true,
+        rate: true,
+        netValue: true,
+      },
+    });
+    if (cosmoPurchaseLines.length > 0) {
+      mergeCosmoPurchasesIntoOsf(
+        purchases,
+        aggregateCosmoMonthlyPurchases(cosmoPurchaseLines),
+      );
+    }
+
     const rops = new Map<string, Record<string, number>>();
     for (const r of ropRows) {
       const entry = rops.get(r.sku) ?? {};
@@ -200,6 +224,30 @@ export async function POST(request: NextRequest) {
         allowedSuppliers,
         existing: latest,
       });
+    }
+    if (cosmoPurchaseLines.length > 0) {
+      const cosmoLatest = lastPurchasesFromCosmoLines(cosmoPurchaseLines, skus);
+      const mergedLatest = mergeLastPurchaseMaps(
+        new Map(
+          [...latest.entries()].map(([sku, v]) => [
+            sku,
+            {
+              supplier: v.supplier,
+              qty: null,
+              rate: v.rate,
+              date: v.date,
+              recentQty: null,
+            },
+          ]),
+        ),
+        cosmoLatest,
+      );
+      latest = new Map(
+        [...mergedLatest.entries()].map(([sku, v]) => [
+          sku,
+          { rate: v.rate, supplier: v.supplier, date: v.date },
+        ]),
+      );
     }
 
     const prices = await fetchVaultPrices(

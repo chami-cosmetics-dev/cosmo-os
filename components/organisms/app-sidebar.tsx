@@ -576,6 +576,14 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
               {canViewPurchasingTools && (
                 <NavItem href="/dashboard/purchasing/calculator" icon={Calculator} label="SKU Calculator" isActive={pathname === "/dashboard/purchasing/calculator"} />
               )}
+              {canViewPurchasingTools && (
+                <NavItem
+                  href="/dashboard/purchasing/purchase-history"
+                  icon={History}
+                  label="Purchase History"
+                  isActive={pathname === "/dashboard/purchasing/purchase-history"}
+                />
+              )}
               {canViewItemTrends && (
                 <NavItem
                   href="/dashboard/purchasing/item-trends"

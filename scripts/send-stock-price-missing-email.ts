@@ -23,8 +23,11 @@ async function main() {
   const args = process.argv.slice(2);
   const preview = args.includes("--preview");
   const toIdx = args.indexOf("--to");
-  const toOverride =
+  const toOverrideRaw =
     toIdx >= 0 && args[toIdx + 1] ? args[toIdx + 1]!.trim().toLowerCase() : null;
+  const toOverride = toOverrideRaw
+    ? toOverrideRaw.split(/[,;]+/).map((e) => e.trim()).filter((e) => e.includes("@"))
+    : null;
 
   const { prisma } = await import("../lib/prisma");
   const { builtinTemplateByKey, STOCK_PRICE_MISSING_DAILY_KEY } = await import(
@@ -58,9 +61,27 @@ async function main() {
   }
 
   console.log(`Scanning ${company.name} (${company.id})…`);
+  try {
+    const { syncErpProductPriorities } = await import(
+      "../lib/product-items/erp-priority-sync"
+    );
+    console.log("Syncing Product Priority from ERP…");
+    const sync = await syncErpProductPriorities(company.id);
+    console.log(
+      `Priority sync: updated=${sync.updatedRows} sources=${sync.sources
+        .map((s) => `${s.id}:${s.status}`)
+        .join(",")}`,
+    );
+  } catch (syncErr) {
+    console.warn(
+      "Priority sync failed; scan still uses live ERP priorities:",
+      syncErr instanceof Error ? syncErr.message : syncErr,
+    );
+  }
   const scan = await scanStockPriceMissing(company.id);
   console.log(
-    `Rows no-price=${scan.rows.length} erp2-ogf-missing=${scan.erp2OgfMissingRows.length}`,
+    `ERP1[${scan.erp1.label}]=${scan.erp1.rows.length} (std=${scan.erp1.missingStandardCount} ogf=${scan.erp1.missingOgfCount} both=${scan.erp1.missingBothCount}) ` +
+      `ERP2[${scan.erp2.label}]=${scan.erp2.rows.length} (std=${scan.erp2.missingStandardCount} ogf=${scan.erp2.missingOgfCount} both=${scan.erp2.missingBothCount})`,
   );
 
   const stored = await prisma.emailTemplate.findUnique({
@@ -69,12 +90,15 @@ async function main() {
     },
   });
   const builtin = builtinTemplateByKey(STOCK_PRICE_MISSING_DAILY_KEY)!;
+  // One-off --to sends always use builtin body so stale/swapped DB HTML cannot confuse.
+  const useBuiltin = Boolean(toOverride);
   const storedBody = stored?.bodyHtml?.trim() || "";
-  const useStoredBody = storedBody.includes("{{erp2OgfMissingTableHtml}}");
+  const useStoredBody = !useBuiltin && storedBody.includes("{{erp1TableHtml}}");
   const storedSubject = stored?.subject?.trim() || "";
-  const useStoredSubject = storedSubject.includes("{{erp2OgfMissingCount}}");
+  const useStoredSubject = !useBuiltin && storedSubject.includes("{{erp1Count}}");
   const subjectTemplate = useStoredSubject ? storedSubject : builtin.subject;
   const bodyHtmlTemplate = useStoredBody ? storedBody : builtin.bodyHtml;
+  if (useBuiltin) console.log("Using builtin template (override --to)");
 
   const built = buildStockPriceMissingEmailContent({
     companyName: company.name,
@@ -84,7 +108,7 @@ async function main() {
   });
 
   const toEmails = toOverride
-    ? [toOverride]
+    ? toOverride
     : parseEmailAddressList(stored?.recipients ?? builtin.recipients);
   const ccEmails = toOverride
     ? []

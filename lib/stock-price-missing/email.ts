@@ -8,6 +8,7 @@ import { parseEmailAddressList } from "@/lib/email-templates/render";
 import { formatAppDateShort } from "@/lib/format-datetime";
 import { sendErpSyncFailureAlertEmail } from "@/lib/maileroo";
 import { prisma } from "@/lib/prisma";
+import { syncErpProductPriorities } from "@/lib/product-items/erp-priority-sync";
 import { buildStockPriceMissingEmailContent } from "@/lib/stock-price-missing/build-content";
 import { scanStockPriceMissing } from "@/lib/stock-price-missing/scan";
 import {
@@ -33,9 +34,9 @@ async function resolveTemplate(companyId: string) {
   });
   const builtin = builtinTemplateByKey(STOCK_PRICE_MISSING_DAILY_KEY)!;
   const storedBody = stored?.bodyHtml?.trim() || "";
-  const useStoredBody = storedBody.includes("{{erp2OgfMissingTableHtml}}");
+  const useStoredBody = storedBody.includes("{{erp1TableHtml}}");
   const storedSubject = stored?.subject?.trim() || "";
-  const useStoredSubject = storedSubject.includes("{{erp2OgfMissingCount}}");
+  const useStoredSubject = storedSubject.includes("{{erp1Count}}");
   return {
     subject: useStoredSubject ? storedSubject : builtin.subject,
     bodyHtml: useStoredBody ? storedBody : builtin.bodyHtml,
@@ -84,6 +85,16 @@ export async function runStockPriceMissingDailyEmail(input?: {
 
   let scan;
   try {
+    // Refresh Cosmo Product Priority from ERP (Discontinue / Vat filters).
+    // Scan also reads live ERP prices, brands, and priorities.
+    try {
+      await syncErpProductPriorities(company.id);
+    } catch (syncErr) {
+      console.warn(
+        "[stock-price-missing] priority sync failed; scan still uses live ERP priorities",
+        syncErr instanceof Error ? syncErr.message : syncErr,
+      );
+    }
     scan = await scanStockPriceMissing(company.id);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Scan failed";
@@ -109,7 +120,7 @@ export async function runStockPriceMissingDailyEmail(input?: {
     subjectTemplate: template.subject,
     bodyHtmlTemplate: template.bodyHtml,
   });
-  const itemCount = scan.rows.length + scan.erp2OgfMissingRows.length;
+  const itemCount = scan.erp1.rows.length + scan.erp2.rows.length;
   const xlsx = buildStockPriceMissingWorkbook(scan);
   const excelName = stockPriceMissingExcelFileName(formatAppDateShort(new Date()));
 

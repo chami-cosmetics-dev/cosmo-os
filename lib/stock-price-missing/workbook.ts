@@ -1,47 +1,54 @@
 import * as XLSX from "xlsx";
 
 import { formatLocationsCell } from "@/lib/stock-price-missing/build-content";
-import type { StockPriceMissingScanSummary } from "@/lib/stock-price-missing/build-content";
+import type {
+  StockPriceMissingErpSection,
+  StockPriceMissingScanSummary,
+} from "@/lib/stock-price-missing/build-content";
 
-function sheetFromRows(
-  rows: StockPriceMissingScanSummary["rows"],
-  options: { includeStandardRate: boolean },
-) {
+function sheetFromSection(section: StockPriceMissingErpSection) {
   const header = [
     "#",
     "SKU",
     "Item name",
     "Locations (stock)",
-    "Total stock",
+    "Stock",
     "Standard Selling",
     "OGF",
+    "Gap",
   ];
-  const data = rows.map((row, index) => [
+  const data = section.rows.map((row, index) => [
     index + 1,
     row.sku,
     row.itemName,
     formatLocationsCell(row.locations),
     row.totalStock,
-    options.includeStandardRate ? (row.standardRate ?? "Missing") : "Missing",
-    "Missing",
+    row.standardRate ?? "Missing",
+    row.ogfRate ?? "Missing",
+    row.gap,
   ]);
   return XLSX.utils.aoa_to_sheet([header, ...data]);
 }
 
-/** Two-sheet workbook: no selling price + ERP2 OGF missing. */
+function sheetName(label: string, fallback: string): string {
+  const raw = (label || fallback).slice(0, 28);
+  return raw.replace(/[\\/?*[\]]/g, "_") || fallback;
+}
+
 export function buildStockPriceMissingWorkbook(
   scan: StockPriceMissingScanSummary,
 ): Buffer {
   const workbook = XLSX.utils.book_new();
+  // Fixed sheet names — instance labels (e.g. "ERP2") must not rename sections.
   XLSX.utils.book_append_sheet(
     workbook,
-    sheetFromRows(scan.rows, { includeStandardRate: false }),
-    "No selling price",
+    sheetFromSection(scan.erp1),
+    sheetName("ERP1", "ERP1"),
   );
   XLSX.utils.book_append_sheet(
     workbook,
-    sheetFromRows(scan.erp2OgfMissingRows, { includeStandardRate: true }),
-    "ERP2 OGF missing",
+    sheetFromSection(scan.erp2),
+    sheetName("ERP2", "ERP2"),
   );
   return Buffer.from(XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }));
 }

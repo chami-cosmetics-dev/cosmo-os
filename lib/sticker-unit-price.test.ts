@@ -38,13 +38,24 @@ describe("resolveStickerUnitPrice", () => {
     ).toBe("8250.00");
   });
 
-  it("does not use compare-at or discount when Standard Selling is missing", () => {
+  it("falls back to catalog price when Standard Selling is missing", () => {
     expect(
       resolveStickerUnitPrice({
         lwkErpPrice: "120.00",
+        catalogPrice: "7450.00",
         isLwk: false,
       })
-    ).toBe("");
+    ).toBe("7450.00");
+  });
+
+  it("falls back to catalog when Standard Selling is zero", () => {
+    expect(
+      resolveStickerUnitPrice({
+        standardSellingErpPrice: "0",
+        catalogPrice: "7450.00",
+        isLwk: false,
+      })
+    ).toBe("7450.00");
   });
 
   it("uses ERP LWK price for LWK", () => {
@@ -52,16 +63,18 @@ describe("resolveStickerUnitPrice", () => {
       resolveStickerUnitPrice({
         lwkErpPrice: "120.00",
         standardSellingErpPrice: "8250.00",
+        catalogPrice: "7450.00",
         isLwk: true,
       })
     ).toBe("120.00");
   });
 
-  it("does not use Standard Selling when LWK ERP price is missing", () => {
+  it("does not use Standard Selling or catalog when LWK ERP price is missing", () => {
     expect(
       resolveStickerUnitPrice({
         lwkErpPrice: null,
         standardSellingErpPrice: "8250.00",
+        catalogPrice: "7450.00",
         isLwk: true,
       })
     ).toBe("");

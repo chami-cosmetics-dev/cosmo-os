@@ -3,6 +3,11 @@ export type StickerPriceInputs = {
   lwkErpPrice?: string | number | null | undefined;
   /** Cosmo ERP "Standard Selling" rate for non-LWK stickers. */
   standardSellingErpPrice?: string | number | null | undefined;
+  /**
+   * OS catalog / ProductItem.price (Shopify or last synced sell).
+   * Non-LWK only: used when Standard Selling is missing or ≤ 0.
+   */
+  catalogPrice?: string | number | null | undefined;
   isLwk: boolean;
 };
 
@@ -48,11 +53,16 @@ export const lookupLwkErpPrice = lookupErpPriceBySku;
 /**
  * Resolve sticker unit price:
  * - LWK → Cosmo ERP OGF Price List only (no Cosmo/Shopify fallback)
- * - other → Cosmo ERP Standard Selling only (never compare-at or discount)
+ * - other → Cosmo ERP Standard Selling, else OS catalog ProductItem.price
+ *   (covers ERP rows at 0 / missing while Product Items still show sell price)
  */
 export function resolveStickerUnitPrice(input: StickerPriceInputs): string {
   if (input.isLwk) {
     return toMoney(input.lwkErpPrice) ?? "";
   }
-  return toMoney(input.standardSellingErpPrice) ?? "";
+  return (
+    toMoney(input.standardSellingErpPrice) ??
+    toMoney(input.catalogPrice) ??
+    ""
+  );
 }

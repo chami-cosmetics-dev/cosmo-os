@@ -7,6 +7,10 @@ import { fetchLastPurchaseByItem } from "@/lib/osf/erp-purchases";
 import { getAllOsfErpInstances } from "@/lib/osf/erp-stock";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserContext, hasPermission } from "@/lib/rbac";
+import {
+  lastPurchasesFromCosmoLines,
+  mergeLastPurchaseMaps,
+} from "@/lib/vault-osf/purchase-history-merge";
 import { LIMITS } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
@@ -23,7 +27,7 @@ export async function GET(request: NextRequest) {
   if (!canTools) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
-  const companyId = context.user.companyId;
+  const companyId = context.user.companyId ?? "";
   if (!companyId) {
     return NextResponse.json({ error: "No company associated with your account" }, { status: 404 });
   }
@@ -130,6 +134,24 @@ export async function GET(request: NextRequest) {
   } catch (err) {
     if (!(err instanceof OsfErpError)) throw err;
     console.error("[purchasing sku-pricing] ERP", err.message);
+  }
+
+  if (vault) {
+    const cosmoLines = await prisma.osfPurchaseHistoryLine.findMany({
+      where: { companyId, sku: { in: skus } },
+      select: {
+        sku: true,
+        supplier: true,
+        postingDate: true,
+        qty: true,
+        rate: true,
+        netValue: true,
+      },
+    });
+    if (cosmoLines.length > 0) {
+      const cosmoPurchases = lastPurchasesFromCosmoLines(cosmoLines, skus);
+      purchaseMap = mergeLastPurchaseMaps(purchaseMap, cosmoPurchases);
+    }
   }
 
   const items = skus.map((sku) => {
