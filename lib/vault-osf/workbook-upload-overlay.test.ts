@@ -16,6 +16,7 @@ describe("vault workbook upload overlay", () => {
       brand: "Now",
       category: "Vitamins",
       country: "USA",
+      countryClaimType: null,
       priorityStatus: null,
     });
     expect(row.barcode).toBe(extra?.barcode);
@@ -41,6 +42,7 @@ describe("vault workbook upload overlay", () => {
       brand: null,
       category: null,
       country: null,
+      countryClaimType: null,
       priorityStatus: "Top Priority",
     });
     expect(row.barcode).toBe(extra?.barcode);
