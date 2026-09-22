@@ -81,9 +81,9 @@ describe("FINANCE_PENDING_SPLIT_PAYMENT_QUEUE", () => {
 });
 
 describe("pickOrderPaymentApprovalForFulfillmentGate", () => {
-  const pending = { id: "p1", status: "pending" as const, reviewNote: null };
-  const approved = { id: "a1", status: "approved" as const, reviewNote: null };
-  const rejected = { id: "r1", status: "rejected" as const, reviewNote: "no" };
+  const pending = { id: "p1", status: "pending", reviewNote: null };
+  const approved = { id: "a1", status: "approved", reviewNote: null };
+  const rejected = { id: "r1", status: "rejected", reviewNote: "no" };
 
   it("ignores orphan pending when order is already paid and approved", () => {
     expect(

@@ -467,7 +467,7 @@ export async function reconcileOrphanPendingPaymentApprovalsForPaidOrders(
  * an older approved row wins over an orphan newer pending.
  */
 export function pickOrderPaymentApprovalForFulfillmentGate<
-  T extends { id: string; status: ApprovalStatus; reviewNote: string | null },
+  T extends { id: string; status: string; reviewNote: string | null },
 >(input: {
   pending: T | null;
   approved: T | null;
@@ -482,7 +482,11 @@ export function pickOrderPaymentApprovalForFulfillmentGate<
   return input.approved ?? input.latest ?? null;
 }
 
-export async function getOrderPaymentApproval(orderId: string) {
+export async function getOrderPaymentApproval(orderId: string): Promise<{
+  id: string;
+  status: ApprovalStatus;
+  reviewNote: string | null;
+} | null> {
   // PAYMENT_METHOD_CHANGE_APPROVAL (e.g. COD → KOKO) also confirms payment for the order,
   // so treat it the same as ORDER_PAYMENT_APPROVAL when checking the print block.
   const [pending, approved, order] = await Promise.all([
@@ -510,24 +514,29 @@ export async function getOrderPaymentApproval(orderId: string) {
     }),
   ]);
 
-  if (pending || approved) {
-    return pickOrderPaymentApprovalForFulfillmentGate({
-      pending,
-      approved,
-      latest: null,
-      financialStatus: order?.financialStatus,
-    });
-  }
+  const picked =
+    pending || approved
+      ? pickOrderPaymentApprovalForFulfillmentGate({
+          pending,
+          approved,
+          latest: null,
+          financialStatus: order?.financialStatus,
+        })
+      : await prisma.approvalRequest.findFirst({
+          where: {
+            orderId,
+            type: { in: [ORDER_PAYMENT_APPROVAL, PAYMENT_METHOD_CHANGE_APPROVAL] },
+          },
+          orderBy: { createdAt: "desc" },
+          select: { id: true, status: true, reviewNote: true },
+        });
 
-  const latest = await prisma.approvalRequest.findFirst({
-    where: {
-      orderId,
-      type: { in: [ORDER_PAYMENT_APPROVAL, PAYMENT_METHOD_CHANGE_APPROVAL] },
-    },
-    orderBy: { createdAt: "desc" },
-    select: { id: true, status: true, reviewNote: true },
-  });
-  return latest ?? null;
+  if (!picked) return null;
+  return {
+    id: picked.id,
+    status: picked.status as ApprovalStatus,
+    reviewNote: picked.reviewNote,
+  };
 }
 
 /** Block fulfillment actions until finance approves KOKO/bank payment. */

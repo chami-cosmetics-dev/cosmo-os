@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import type { Prisma } from "@prisma/client";
 
 import { getPurchaseSummarySyncStatus } from "@/lib/contacts/purchase-summary-cache";
 import { logReportDownload } from "@/lib/report-download-log";
@@ -25,21 +26,6 @@ type ContactExportMode = "contacts" | "purchase_summary";
 
 const CONTACT_BATCH_SIZE = 5000;
 
-type ContactExportRow = {
-  id: string;
-  name: string;
-  email: string | null;
-  phoneNumber: string | null;
-  recentMerchant: string | null;
-  assignedMerchant: string | null;
-  lastPurchaseAt: Date | null;
-  purchaseOrderCount: number;
-  purchaseTotalValue: { toString(): string } | number;
-  purchaseLastOrderAt: Date | null;
-  createdAt: Date;
-  updatedAt: Date;
-};
-
 const contactExportSelect = {
   id: true,
   name: true,
@@ -54,6 +40,8 @@ const contactExportSelect = {
   createdAt: true,
   updatedAt: true,
 } as const;
+
+type ContactExportRow = Prisma.ContactMasterGetPayload<{ select: typeof contactExportSelect }>;
 
 function parseStatus(value: string | null): ContactStatusFilter {
   if (value === "active" || value === "inactive" || value === "never_purchased") {
@@ -101,10 +89,13 @@ async function fetchBrandOrderedChunk(
     where: { ...where, id: { in: idChunk } },
     select: contactExportSelect,
   });
-  const byId = new Map(batch.map((row) => [row.id, row]));
-  return idChunk
-    .map((id) => byId.get(id))
-    .filter((row): row is ContactExportRow => Boolean(row));
+  const byId = new Map(batch.map((row) => [row.id, row] as const));
+  const ordered: ContactExportRow[] = [];
+  for (const id of idChunk) {
+    const row = byId.get(id);
+    if (row) ordered.push(row);
+  }
+  return ordered;
 }
 
 /** Yield contact batches. Prefetch next DB page while caller encodes the current one. */
