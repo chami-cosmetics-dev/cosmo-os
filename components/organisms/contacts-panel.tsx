@@ -364,20 +364,37 @@ export function ContactsPanel({
       const decoder = new TextDecoder();
       const counter = createCsvRowCounter();
       let lastNotified = -1;
+      /** Server/proxy often dies mid-stream near the end (~90%+) without a clean close. */
+      const STALL_MS = 90_000;
+      let stalled = false;
+      let stallTimer: ReturnType<typeof setTimeout> | null = null;
+      const armStallWatch = () => {
+        if (stallTimer) clearTimeout(stallTimer);
+        stallTimer = setTimeout(() => {
+          stalled = true;
+          void reader.cancel("export-stall");
+        }, STALL_MS);
+      };
+      armStallWatch();
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (!value) continue;
-        chunks.push(value);
-        if (expectedRows > 0) {
-          counter.consume(decoder.decode(value, { stream: true }));
-          const percent = dumpProgressPercent(counter.dataRows(), expectedRows);
-          if (percent > 0 && percent !== lastNotified) {
-            lastNotified = percent;
-            notify.loading(`Downloading contacts — ${percent}%`, toastId);
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (!value) continue;
+          armStallWatch();
+          chunks.push(value);
+          if (expectedRows > 0) {
+            counter.consume(decoder.decode(value, { stream: true }));
+            const percent = dumpProgressPercent(counter.dataRows(), expectedRows);
+            if (percent > 0 && percent !== lastNotified) {
+              lastNotified = percent;
+              notify.loading(`Downloading contacts — ${percent}%`, toastId);
+            }
           }
         }
+      } finally {
+        if (stallTimer) clearTimeout(stallTimer);
       }
       if (expectedRows > 0) {
         counter.consume(decoder.decode());
@@ -386,7 +403,9 @@ export function ContactsPanel({
       const receivedRows = expectedRows > 0 ? counter.dataRows() : 0;
       if (expectedRows > 0 && receivedRows !== expectedRows) {
         notify.error(
-          `Export incomplete: got ${receivedRows.toLocaleString()} of ${expectedRows.toLocaleString()} contacts. Try again.`,
+          stalled
+            ? `Export stalled at ${lastNotified > 0 ? `${lastNotified}%` : "start"} (${receivedRows.toLocaleString()} of ${expectedRows.toLocaleString()}). Server timed out — try again, or use Contact Info Only.`
+            : `Export incomplete: got ${receivedRows.toLocaleString()} of ${expectedRows.toLocaleString()} contacts. Try again.`,
           toastId
         );
         return;

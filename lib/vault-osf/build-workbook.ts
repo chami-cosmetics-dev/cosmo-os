@@ -62,6 +62,7 @@ export function vaultColumnDefs(units: VaultBusinessUnit[], asOfDate: string): V
     { key: "category", header: "Category", band: "identity" },
     { key: "priorityStatus", header: "Priority Status", band: "identity" },
     { key: "country", header: "Country", band: "identity" },
+    { key: "countryClaimType", header: "Country Claim Type", band: "identity" },
   ];
 
   ordered.forEach((u, i) => {
@@ -174,6 +175,7 @@ export function buildVaultMainRows(input: VaultWorkbookInput): Array<Record<stri
       barcode: cell(item.barcode),
       priorityStatus: cell(item.priorityStatus),
       country: cell(item.country),
+      countryClaimType: cell(item.countryClaimType),
       category: cell(item.category),
       brand: cell(item.brand),
       itemName: item.itemName,

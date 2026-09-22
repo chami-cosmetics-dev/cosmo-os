@@ -27,6 +27,7 @@ export type ErpItemRow = {
   brand?: string | null;
   item_group?: string | null;
   country_of_origin?: string | null;
+  custom_country_claim_type?: string | null;
   disabled?: number | boolean;
   is_stock_item?: number | boolean;
 };
@@ -57,6 +58,7 @@ export function mapErpItemToCatalogRow(
     brand: row.brand?.trim() || null,
     category: row.item_group?.trim() || null,
     country: row.country_of_origin?.trim() || null,
+    countryClaimType: row.custom_country_claim_type?.trim() || null,
     priorityStatus: extras.priorityStatus?.trim() || null,
   };
 }
@@ -70,6 +72,7 @@ export async function fetchVaultCatalog(cfg: OsfErpCredentials): Promise<VaultCa
     "brand",
     "item_group",
     "country_of_origin",
+    "custom_country_claim_type",
     "disabled",
     "is_stock_item",
   ]);

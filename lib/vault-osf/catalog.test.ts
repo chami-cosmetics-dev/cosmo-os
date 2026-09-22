@@ -16,6 +16,24 @@ describe("vault OSF catalog filters", () => {
     });
     expect(row?.sku).toBe("NW004-2");
     expect(row?.category).toBe("Vitamins");
+    expect(row?.country).toBe("USA");
+    expect(row?.countryClaimType).toBeNull();
+  });
+
+  it("maps custom_country_claim_type from ERP", () => {
+    const row = mapErpItemToCatalogRow({
+      name: "BM002-1",
+      item_code: "BM002-1",
+      item_name: "Test",
+      brand: "Bulk",
+      item_group: "Vitamins",
+      country_of_origin: null,
+      custom_country_claim_type: "Distributed Country",
+      disabled: 0,
+      is_stock_item: 1,
+    });
+    expect(row?.country).toBeNull();
+    expect(row?.countryClaimType).toBe("Distributed Country");
   });
 
   it("drops delivery charges, TEST, disabled, and non-stock", () => {

@@ -48,6 +48,7 @@ function input(over: Partial<VaultWorkbookInput> = {}): VaultWorkbookInput {
         brand: "Now",
         category: "Vitamins",
         country: "USA",
+        countryClaimType: null,
         priorityStatus: "Top Priority brand & product",
       },
     ],
@@ -116,7 +117,7 @@ describe("vault OSF workbook", () => {
 
   it("orders identity then ROP, stock, sales, purchases, pricing, derived, reorder, supplier", () => {
     const defs = vaultColumnDefs(units, "2026-09-07");
-    const identity = defs.slice(0, 8).map((d) => d.key);
+    const identity = defs.slice(0, 9).map((d) => d.key);
     expect(identity).toEqual([
       "variantSku",
       "sku",
@@ -126,6 +127,7 @@ describe("vault OSF workbook", () => {
       "category",
       "priorityStatus",
       "country",
+      "countryClaimType",
     ]);
     expect(defs[0]!.header).toBe("Variant SKU");
     expect(defs[1]!.header).toBe("Common SKU");
