@@ -1,9 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import {
-  FILTER_EXPORT_CAP,
-  filterAllocatedContacts,
-} from "@/lib/customer-insight/filters";
+import { filterAllocatedContacts } from "@/lib/customer-insight/filters";
 import { readInsightFilterList } from "@/lib/customer-insight/filter-query-params";
 import {
   canFilterAllInsightContacts,
@@ -165,13 +162,8 @@ export async function GET(request: NextRequest) {
   });
 
   const csv = buildCsv(headers, rows);
-  const merchantScoped = Boolean(parsed.data.assignedMerchant?.trim());
-  const truncatedNote =
-    !merchantScoped && result.pagination.total > FILTER_EXPORT_CAP
-      ? `\r\n# truncated_to,${FILTER_EXPORT_CAP},of,${result.pagination.total}`
-      : "";
 
-  return new NextResponse(`${csv}${truncatedNote}`, {
+  return new NextResponse(csv, {
     headers: {
       "Content-Type": "text/csv; charset=utf-8",
       "Content-Disposition": `attachment; filename="${fileName}"`,
