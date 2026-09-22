@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   loadPurchaseSummaryIndexes,
   purchaseSummaryForContact,
+  type PurchaseSummaryIndexes,
 } from "@/lib/contacts/purchase-summary-export";
 import { logReportDownload } from "@/lib/report-download-log";
 import { findContactsByPurchasedBrandRanked } from "@/lib/page-data/contact-brand-ids";
@@ -20,12 +21,13 @@ import { requireAnyPermission } from "@/lib/rbac";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 300;
+/** Full Contact Master + purchase summary (~80k+) needs headroom past the old 300s wall. */
+export const maxDuration = 800;
 
 type ContactStatusFilter = "active" | "inactive" | "never_purchased" | null;
 type ContactExportMode = "contacts" | "purchase_summary";
 
-const CONTACT_BATCH_SIZE = 2500;
+const CONTACT_BATCH_SIZE = 5000;
 
 type ContactExportRow = {
   id: string;
@@ -40,6 +42,20 @@ type ContactExportRow = {
   emails: Array<{ email: string }>;
   phones: Array<{ phoneNumber: string }>;
 };
+
+const contactExportSelect = {
+  id: true,
+  name: true,
+  email: true,
+  phoneNumber: true,
+  recentMerchant: true,
+  assignedMerchant: true,
+  lastPurchaseAt: true,
+  createdAt: true,
+  updatedAt: true,
+  emails: { select: { email: true } },
+  phones: { select: { phoneNumber: true } },
+} as const;
 
 function parseStatus(value: string | null): ContactStatusFilter {
   if (value === "active" || value === "inactive" || value === "never_purchased") {
@@ -57,53 +73,69 @@ function csvLine(headers: readonly string[], row: Record<string, CsvPrimitive>) 
   return headers.map((header) => escapeCsvCell(row[header])).join(",");
 }
 
+async function fetchContactBatch(
+  where: Awaited<ReturnType<typeof buildContactsListWhere>>,
+  cursor: string | undefined
+): Promise<ContactExportRow[]> {
+  return prisma.contactMaster.findMany({
+    where,
+    take: CONTACT_BATCH_SIZE,
+    ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
+    orderBy: { id: "asc" },
+    select: contactExportSelect,
+  });
+}
+
+async function fetchBrandOrderedChunk(
+  where: Awaited<ReturnType<typeof buildContactsListWhere>>,
+  brandOrderedIds: string[],
+  start: number
+): Promise<ContactExportRow[]> {
+  const idChunk = brandOrderedIds.slice(start, start + CONTACT_BATCH_SIZE);
+  if (idChunk.length === 0) return [];
+  const batch = await prisma.contactMaster.findMany({
+    where: { ...where, id: { in: idChunk } },
+    select: contactExportSelect,
+  });
+  const byId = new Map(batch.map((row) => [row.id, row]));
+  return idChunk
+    .map((id) => byId.get(id))
+    .filter((row): row is ContactExportRow => Boolean(row));
+}
+
+/**
+ * Yield contact batches. Prefetch next DB page while caller encodes the current one.
+ */
 async function* iterateExportContacts(
   where: Awaited<ReturnType<typeof buildContactsListWhere>>,
   brandOrderedIds: string[] | null
 ): AsyncGenerator<ContactExportRow[]> {
-  const select = {
-    id: true,
-    name: true,
-    email: true,
-    phoneNumber: true,
-    recentMerchant: true,
-    assignedMerchant: true,
-    lastPurchaseAt: true,
-    createdAt: true,
-    updatedAt: true,
-    emails: { select: { email: true } },
-    phones: { select: { phoneNumber: true } },
-  } as const;
-
   if (brandOrderedIds) {
-    for (let i = 0; i < brandOrderedIds.length; i += CONTACT_BATCH_SIZE) {
-      const idChunk = brandOrderedIds.slice(i, i + CONTACT_BATCH_SIZE);
-      const batch = await prisma.contactMaster.findMany({
-        where: { ...where, id: { in: idChunk } },
-        select,
-      });
-      const byId = new Map(batch.map((row) => [row.id, row]));
-      const ordered = idChunk
-        .map((id) => byId.get(id))
-        .filter((row): row is ContactExportRow => Boolean(row));
+    let start = 0;
+    let pending = fetchBrandOrderedChunk(where, brandOrderedIds, start);
+    start += CONTACT_BATCH_SIZE;
+    for (;;) {
+      const ordered = await pending;
+      const hasMore = start < brandOrderedIds.length;
+      pending = hasMore
+        ? fetchBrandOrderedChunk(where, brandOrderedIds, start)
+        : Promise.resolve([]);
+      start += CONTACT_BATCH_SIZE;
       if (ordered.length > 0) yield ordered;
+      if (!hasMore) break;
     }
     return;
   }
 
-  let cursor: string | undefined;
+  let pending = fetchContactBatch(where, undefined);
   for (;;) {
-    const batch = await prisma.contactMaster.findMany({
-      where,
-      take: CONTACT_BATCH_SIZE,
-      ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
-      orderBy: { id: "asc" },
-      select,
-    });
+    const batch = await pending;
     if (batch.length === 0) break;
+    const nextCursor = batch[batch.length - 1]!.id;
+    const hasMore = batch.length === CONTACT_BATCH_SIZE;
+    pending = hasMore ? fetchContactBatch(where, nextCursor) : Promise.resolve([]);
     yield batch;
-    cursor = batch[batch.length - 1]!.id;
-    if (batch.length < CONTACT_BATCH_SIZE) break;
+    if (!hasMore) break;
   }
 }
 
@@ -146,10 +178,14 @@ export async function GET(request: NextRequest) {
     { brandContactIds: brand ? brandRanks.map((r) => r.contactId) : undefined }
   );
 
-  const purchaseSummaryPromise =
-    mode === "purchase_summary" ? loadPurchaseSummaryIndexes(companyId) : Promise.resolve(null);
-
-  const expectedRows = await prisma.contactMaster.count({ where });
+  // Finish heavy aggregates BEFORE opening the stream so proxies do not sit
+  // idle after the CSV header while GROUP BY work runs (idle kill → stall mid-download).
+  const [purchaseIndexes, expectedRows] = await Promise.all([
+    mode === "purchase_summary"
+      ? loadPurchaseSummaryIndexes(companyId)
+      : Promise.resolve(null as PurchaseSummaryIndexes | null),
+    prisma.contactMaster.count({ where }),
+  ]);
 
   const fileName =
     mode === "purchase_summary"
@@ -209,8 +245,6 @@ export async function GET(request: NextRequest) {
         controller.enqueue(
           encoder.encode(`\uFEFF${headers.map(formatCsvHeader).join(",")}\r\n`)
         );
-
-        const purchaseIndexes = await purchaseSummaryPromise;
 
         let contactNo = 0;
         for await (const batch of iterateExportContacts(where, brandOrderedIds)) {
