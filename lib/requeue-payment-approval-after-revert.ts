@@ -4,6 +4,7 @@ import {
   isOrderPaymentRequiresApproval,
 } from "@/lib/approval-workflow";
 import { triggerDeliveryPaymentApprovalIfNeeded } from "@/lib/delivery-payment-approval";
+import { releaseKokoReferencesForOrder } from "@/lib/koko-approval-references";
 
 function invoiceLabel(order: {
   name: string | null;
@@ -51,6 +52,8 @@ export async function requeuePaymentApprovalAfterRevert(input: {
   // Only KOKO/bank/Vault card-on-delivery need pre-dispatch finance approval.
   // COD etc. are handled at delivery via DELIVERY_PAYMENT_APPROVAL.
   if (isOrderPaymentRequiresApproval(order)) {
+    // Free prior KOKO refs so finance can re-enter the same payment numbers.
+    await releaseKokoReferencesForOrder(order.id);
     return createOrGetOrderPaymentApproval({
       companyId: input.companyId,
       orderId: order.id,
@@ -58,6 +61,7 @@ export async function requeuePaymentApprovalAfterRevert(input: {
       invoiceLabel: invoiceLabel(order),
       paymentType: order.paymentGatewayPrimary ?? order.paymentGatewayNames[0] ?? "payment",
       amount: order.totalPrice.toString(),
+      forceCreate: true,
     });
   }
 

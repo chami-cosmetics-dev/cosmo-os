@@ -120,15 +120,32 @@ const PI_FIELDS = JSON.stringify([
   "`tabPurchase Invoice Item`.net_amount",
 ]);
 
-async function fetchPurchaseInvoiceLines(input: {
+const PR_FIELDS = JSON.stringify([
+  "name",
+  "supplier",
+  "supplier_name",
+  "posting_date",
+  "company",
+  "docstatus",
+  "status",
+  "is_return",
+  "`tabPurchase Receipt Item`.item_code",
+  "`tabPurchase Receipt Item`.qty",
+  "`tabPurchase Receipt Item`.rate",
+  "`tabPurchase Receipt Item`.amount",
+]);
+
+async function fetchPurchaseDocLines(input: {
   cfg: OsfErpCredentials;
+  doctype: "Purchase Invoice" | "Purchase Receipt";
+  fieldsJson: string;
   filters: unknown[][];
 }): Promise<PurchaseInvoiceLine[]> {
   const filters = JSON.stringify(input.filters);
   const rows: PurchaseInvoiceLine[] = [];
   for (let page = 0; page < MAX_PAGES; page += 1) {
     const path =
-      `/api/resource/Purchase Invoice?fields=${encodeURIComponent(PI_FIELDS)}` +
+      `/api/resource/${encodeURIComponent(input.doctype)}?fields=${encodeURIComponent(input.fieldsJson)}` +
       `&filters=${encodeURIComponent(filters)}` +
       `&order_by=${encodeURIComponent("posting_date desc, name desc")}` +
       `&limit_start=${page * PAGE}&limit_page_length=${PAGE}`;
@@ -137,10 +154,22 @@ async function fetchPurchaseInvoiceLines(input: {
     rows.push(...batch);
     if (batch.length < PAGE) break;
     if (page === MAX_PAGES - 1) {
-      throw new OsfErpError(`Purchase Invoice scan exceeded ${MAX_PAGES * PAGE} lines`);
+      throw new OsfErpError(`${input.doctype} scan exceeded ${MAX_PAGES * PAGE} lines`);
     }
   }
   return rows;
+}
+
+async function fetchPurchaseInvoiceLines(input: {
+  cfg: OsfErpCredentials;
+  filters: unknown[][];
+}): Promise<PurchaseInvoiceLine[]> {
+  return fetchPurchaseDocLines({
+    cfg: input.cfg,
+    doctype: "Purchase Invoice",
+    fieldsJson: PI_FIELDS,
+    filters: input.filters,
+  });
 }
 
 /** Submitted PI lines in a posting-date window (dashboard / history browser). */
@@ -155,6 +184,34 @@ export async function fetchPurchaseInvoiceLinesInRange(input: {
       ["posting_date", ">=", input.bounds.start],
       ["posting_date", "<=", input.bounds.end],
     ],
+  });
+}
+
+/**
+ * Submitted Purchase Receipt lines in a posting-date window.
+ * Vault often receives stock as PR before / without a same-day Purchase Invoice.
+ */
+export async function fetchPurchaseReceiptLinesInRange(input: {
+  cfg: OsfErpCredentials;
+  bounds: { start: string; end: string };
+}): Promise<PurchaseInvoiceLine[]> {
+  const rows = await fetchPurchaseDocLines({
+    cfg: input.cfg,
+    doctype: "Purchase Receipt",
+    fieldsJson: PR_FIELDS,
+    filters: [
+      ["docstatus", "=", 1],
+      ["posting_date", ">=", input.bounds.start],
+      ["posting_date", "<=", input.bounds.end],
+    ],
+  });
+  // Normalize amount → net_amount so dashboard converter can reuse PI shape.
+  return rows.map((row) => {
+    const anyRow = row as PurchaseInvoiceLine & { amount?: number | string | null };
+    if (anyRow.net_amount == null && anyRow.amount != null) {
+      return { ...row, net_amount: anyRow.amount };
+    }
+    return row;
   });
 }
 

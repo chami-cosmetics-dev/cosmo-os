@@ -62,6 +62,10 @@
       "schedule": "0 */6 * * *"
     },
     {
+      "path": "/api/cron/contact-purchase-summary-refresh",
+      "schedule": "0 22 * * *"
+    },
+    {
       "path": "/api/cron/stock-price-missing-email",
       "schedule": "30 10 * * *"
     }

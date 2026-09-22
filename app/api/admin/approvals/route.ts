@@ -11,6 +11,7 @@ import {
   RETURN_CANCEL_APPROVAL,
   RETURN_REARRANGE_PAYMENT_APPROVAL,
   parseReturnCancelApprovalNote,
+  reconcileOrphanPendingPaymentApprovalsForPaidOrders,
   reconcilePendingApprovalsForVoidedOrders,
   reconcilePendingDeliveryApprovalsForCourierOrders,
   reconcilePendingDeliveryApprovalsForCustomerPickupOrders,
@@ -57,6 +58,7 @@ export async function GET() {
 
   await Promise.all([
     reconcilePendingApprovalsForVoidedOrders(companyId),
+    reconcileOrphanPendingPaymentApprovalsForPaidOrders(companyId),
     reconcilePendingDeliveryApprovalsForInvoiceCompleteOrders(companyId),
     reconcilePendingDeliveryApprovalsForCourierOrders(companyId),
     reconcilePendingDeliveryApprovalsForCustomerPickupOrders(companyId),

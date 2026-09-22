@@ -20,7 +20,7 @@ type Row = {
   netValue: number;
   selling: number | null;
   marginPct: number | null;
-  source: "erp" | "cosmo";
+  source: "erp_invoice" | "erp_receipt" | "cosmo";
   sourceRef: string | null;
 };
 
@@ -57,6 +57,7 @@ export function PurchaseHistoryPanel() {
   const [from, setFrom] = useState(defaults.from);
   const [to, setTo] = useState(defaults.to);
   const [sku, setSku] = useState("");
+  const [description, setDescription] = useState("");
   const [supplier, setSupplier] = useState("");
   const [brand, setBrand] = useState("");
   const [brands, setBrands] = useState<string[]>([]);
@@ -80,6 +81,7 @@ export function PurchaseHistoryPanel() {
           limit: String(limit),
         });
         if (sku.trim()) params.set("sku", sku.trim());
+        if (description.trim()) params.set("description", description.trim());
         if (supplier.trim()) params.set("supplier", supplier.trim());
         if (brand.trim()) params.set("brand", brand.trim());
         const res = await fetch(
@@ -106,7 +108,7 @@ export function PurchaseHistoryPanel() {
         setLoading(false);
       }
     },
-    [from, to, sku, supplier, brand],
+    [from, to, sku, description, supplier, brand],
   );
 
   useEffect(() => {
@@ -156,6 +158,16 @@ export function PurchaseHistoryPanel() {
             onChange={(e) => setSku(e.target.value)}
             placeholder="Contains…"
             className="w-[140px]"
+          />
+        </label>
+        <label className="space-y-1 text-sm">
+          <span className="text-muted-foreground">Item</span>
+          <Input
+            value={description}
+            disabled={busy}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Description contains…"
+            className="w-[220px]"
           />
         </label>
         <label className="space-y-1 text-sm">
@@ -270,12 +282,18 @@ export function PurchaseHistoryPanel() {
                   <td className="p-2">
                     <span
                       className={
-                        row.source === "erp"
+                        row.source === "erp_invoice"
                           ? "rounded bg-emerald-100 px-1.5 py-0.5 text-xs text-emerald-900"
-                          : "rounded bg-sky-100 px-1.5 py-0.5 text-xs text-sky-900"
+                          : row.source === "erp_receipt"
+                            ? "rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-900"
+                            : "rounded bg-sky-100 px-1.5 py-0.5 text-xs text-sky-900"
                       }
                     >
-                      {row.source === "erp" ? "ERP" : "Cosmo"}
+                      {row.source === "erp_invoice"
+                        ? "Invoice"
+                        : row.source === "erp_receipt"
+                          ? "Receipt"
+                          : "Cosmo"}
                     </span>
                   </td>
                 </tr>

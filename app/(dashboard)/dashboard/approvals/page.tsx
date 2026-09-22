@@ -16,6 +16,7 @@ import {
   RETURN_CANCEL_APPROVAL,
   RETURN_REARRANGE_PAYMENT_APPROVAL,
   parseReturnCancelApprovalNote,
+  reconcileOrphanPendingPaymentApprovalsForPaidOrders,
   reconcilePendingApprovalsForVoidedOrders,
   reconcilePendingDeliveryApprovalsForPrepaidOrders,
   resolveViewerFinanceLocationIds,
@@ -234,6 +235,7 @@ export default async function FinanceApprovalsPage() {
   }
 
   await reconcilePendingApprovalsForVoidedOrders(companyId);
+  await reconcileOrphanPendingPaymentApprovalsForPaidOrders(companyId);
   await reconcilePendingDeliveryApprovalsForPrepaidOrders(companyId);
 
   const financeLocationIds = await resolveViewerFinanceLocationIds(

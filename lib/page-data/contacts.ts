@@ -1,6 +1,7 @@
 import type { Prisma } from "@prisma/client";
 
 import { dedupeContactsForDisplay } from "@/lib/contact-display-dedupe";
+import { getPurchaseSummarySyncStatus } from "@/lib/contacts/purchase-summary-cache";
 import {
   withStaffSalesAssignee,
   withStaffSalesAssignedMerchant,
@@ -239,12 +240,14 @@ export async function fetchContactsPageData(companyId: string, params: ContactsP
     neverPurchasedCount,
     brandRanks,
     options,
+    purchaseSummarySync,
   ] = await Promise.all([
     prisma.contactMaster.count({ where: { companyId, lastPurchaseAt: { gte: cutoff } } }),
     prisma.contactMaster.count({ where: { companyId, lastPurchaseAt: { lt: cutoff } } }),
     prisma.contactMaster.count({ where: { companyId, lastPurchaseAt: null } }),
     brandRanksPromise,
     fetchContactsPageOptions(companyId),
+    getPurchaseSummarySyncStatus(companyId),
   ]);
 
   const brandSpendById = new Map(
@@ -309,6 +312,7 @@ export async function fetchContactsPageData(companyId: string, params: ContactsP
     },
     options,
     brandFilterActive: Boolean(brand),
+    purchaseSummarySync,
   };
   maybeLogSlowDbRequest("contacts.page_data", startedAt, {
     companyId,

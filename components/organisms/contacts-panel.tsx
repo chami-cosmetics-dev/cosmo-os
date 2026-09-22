@@ -116,6 +116,11 @@ type ContactsPanelInitialData = {
     assignees: Array<{ id: string; label: string }>;
   };
   brandFilterActive?: boolean;
+  purchaseSummarySync?: {
+    lastSyncedAt: string | null;
+    lastSyncError: string | null;
+    contactCount: number;
+  };
 };
 
 type ContactBackfillPreview = {
@@ -213,6 +218,14 @@ export function ContactsPanel({
   const [exportBusyKey, setExportBusyKey] = useState<"contacts" | "purchase_summary" | null>(
     null
   );
+  const [purchaseSummarySync, setPurchaseSummarySync] = useState(
+    initialData.purchaseSummarySync ?? {
+      lastSyncedAt: null,
+      lastSyncError: null,
+      contactCount: 0,
+    }
+  );
+  const [purchaseSummaryRefreshing, setPurchaseSummaryRefreshing] = useState(false);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [viewingContact, setViewingContact] = useState<ContactItem | null>(null);
   const [purchasesLoading, setPurchasesLoading] = useState(false);
@@ -272,6 +285,7 @@ export function ContactsPanel({
       setCounts(data.counts);
       if (data.options) setFilterOptions(data.options);
       setBrandFilterActive(Boolean(data.brandFilterActive) || brand !== "__all");
+      if (data.purchaseSummarySync) setPurchaseSummarySync(data.purchaseSummarySync);
     } finally {
       setLoading(false);
     }
@@ -428,6 +442,40 @@ export function ContactsPanel({
       notify.error("Failed to export contacts", toastId);
     } finally {
       setExportBusyKey(null);
+    }
+  }
+
+  async function refreshPurchaseSummaryCache() {
+    if (!canManage) return;
+    setPurchaseSummaryRefreshing(true);
+    const toastId = "purchase-summary-refresh";
+    notify.loading("Refreshing purchase totals… this can take several minutes", toastId);
+    try {
+      const res = await fetch("/api/admin/contacts/purchase-summary/refresh", {
+        method: "POST",
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        syncedAt?: string;
+        contactCount?: number;
+      };
+      if (!res.ok) {
+        notify.error(data.error ?? "Failed to refresh purchase totals", toastId);
+        return;
+      }
+      setPurchaseSummarySync({
+        lastSyncedAt: data.syncedAt ?? new Date().toISOString(),
+        lastSyncError: null,
+        contactCount: data.contactCount ?? 0,
+      });
+      notify.success(
+        `Purchase totals refreshed (${(data.contactCount ?? 0).toLocaleString()} contacts)`,
+        toastId
+      );
+    } catch {
+      notify.error("Failed to refresh purchase totals", toastId);
+    } finally {
+      setPurchaseSummaryRefreshing(false);
     }
   }
 
@@ -1099,10 +1147,44 @@ export function ContactsPanel({
                         matches. A short file (~5,000 rows) means the download was cut off.
                       </DialogDescription>
                     </DialogHeader>
+                    <div className="rounded-lg border border-border/60 bg-background/50 px-3 py-2 text-sm">
+                      <p className="font-medium">Purchase totals cache</p>
+                      <p className="text-muted-foreground mt-1">
+                        {purchaseSummarySync.lastSyncedAt
+                          ? `Last refreshed ${toDateTimeLabel(purchaseSummarySync.lastSyncedAt)} (${purchaseSummarySync.contactCount.toLocaleString()} contacts). Nightly job also rebuilds this.`
+                          : "Not built yet — refresh once before exporting with purchase summary."}
+                      </p>
+                      {purchaseSummarySync.lastSyncError ? (
+                        <p className="text-destructive mt-1">
+                          Last refresh error: {purchaseSummarySync.lastSyncError}
+                        </p>
+                      ) : null}
+                      {canManage ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="mt-2"
+                          disabled={
+                            purchaseSummaryRefreshing || exportBusyKey !== null
+                          }
+                          onClick={() => void refreshPurchaseSummaryCache()}
+                        >
+                          {purchaseSummaryRefreshing ? (
+                            <>
+                              <Loader2 className="animate-spin" aria-hidden />
+                              Refreshing…
+                            </>
+                          ) : (
+                            "Refresh purchase totals"
+                          )}
+                        </Button>
+                      ) : null}
+                    </div>
                     <div className="grid gap-3">
                       <button
                         type="button"
-                        disabled={exportBusyKey !== null}
+                        disabled={exportBusyKey !== null || purchaseSummaryRefreshing}
                         className="rounded-xl border border-border/70 bg-background/70 p-4 text-left transition hover:bg-secondary/10 disabled:pointer-events-none disabled:opacity-60"
                         onClick={() => void downloadContactExport("contacts")}
                       >
@@ -1118,7 +1200,11 @@ export function ContactsPanel({
                       </button>
                       <button
                         type="button"
-                        disabled={exportBusyKey !== null}
+                        disabled={
+                          exportBusyKey !== null ||
+                          purchaseSummaryRefreshing ||
+                          !purchaseSummarySync.lastSyncedAt
+                        }
                         className="rounded-xl border border-border/70 bg-background/70 p-4 text-left transition hover:bg-secondary/10 disabled:pointer-events-none disabled:opacity-60"
                         onClick={() => void downloadContactExport("purchase_summary")}
                       >
@@ -1131,7 +1217,8 @@ export function ContactsPanel({
                             : "With Purchase Summary"}
                         </p>
                         <p className="text-muted-foreground mt-1 text-sm">
-                          Includes total orders, total purchase value, and last order date matched by phone, email-only orders, and Adapt history.
+                          Fast export from cached totals (orders, value, last order). Refresh cache
+                          after big Adapt/order imports if numbers look stale.
                         </p>
                       </button>
                     </div>

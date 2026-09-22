@@ -9,6 +9,7 @@ import {
   cosmoDbLineToRaw,
   enrichPurchaseHistoryRow,
   erpInvoiceLineToRaw,
+  erpReceiptLineToRaw,
   matchesPurchaseHistoryFilters,
   mergePurchaseHistoryLines,
   paginateRows,
@@ -16,7 +17,10 @@ import {
   type CatalogSellInfo,
   type PurchaseHistoryRawLine,
 } from "@/lib/vault-osf/purchase-history-dashboard";
-import { fetchPurchaseInvoiceLinesInRange } from "@/lib/vault-osf/erp-purchases-monthly";
+import {
+  fetchPurchaseInvoiceLinesInRange,
+  fetchPurchaseReceiptLinesInRange,
+} from "@/lib/vault-osf/erp-purchases-monthly";
 import { purchaseHistoryQuerySchema } from "@/lib/validation/osf";
 
 export const dynamic = "force-dynamic";
@@ -52,7 +56,7 @@ export async function GET(request: NextRequest) {
       { status: 400 },
     );
   }
-  const { from, to, sku, supplier, brand, offset, limit } = parsed.data;
+  const { from, to, sku, supplier, brand, description, offset, limit } = parsed.data;
   if (from > to) {
     return NextResponse.json({ error: "from must be on or before to" }, { status: 400 });
   }
@@ -81,29 +85,46 @@ export async function GET(request: NextRequest) {
   });
   const cosmoLines = cosmoDb.map(cosmoDbLineToRaw);
 
-  let erpLines: PurchaseHistoryRawLine[] = [];
+  let erpInvoiceLines: PurchaseHistoryRawLine[] = [];
+  let erpReceiptLines: PurchaseHistoryRawLine[] = [];
   let erpAvailable = true;
   let erpError: string | null = null;
   const erpInstances = await getAllOsfErpInstances(companyId);
   try {
     if (erpInstances.length > 0) {
       const batches = await Promise.all(
-        erpInstances.map((inst) =>
-          fetchPurchaseInvoiceLinesInRange({
-            cfg: inst.cfg,
-            bounds: { start: from, end: to },
-          }),
-        ),
+        erpInstances.map(async (inst) => {
+          const [invoices, receipts] = await Promise.all([
+            fetchPurchaseInvoiceLinesInRange({
+              cfg: inst.cfg,
+              bounds: { start: from, end: to },
+            }),
+            fetchPurchaseReceiptLinesInRange({
+              cfg: inst.cfg,
+              bounds: { start: from, end: to },
+            }),
+          ]);
+          return { invoices, receipts };
+        }),
       );
-      const seen = new Set<string>();
+      const seenInv = new Set<string>();
+      const seenPr = new Set<string>();
       for (const batch of batches) {
-        for (const row of batch) {
+        for (const row of batch.invoices) {
           const converted = erpInvoiceLineToRaw(row);
           if (!converted) continue;
           const dedupe = `${converted.sourceRef ?? ""}|${converted.sku}|${converted.postingDate}`;
-          if (seen.has(dedupe)) continue;
-          seen.add(dedupe);
-          erpLines.push(converted);
+          if (seenInv.has(dedupe)) continue;
+          seenInv.add(dedupe);
+          erpInvoiceLines.push(converted);
+        }
+        for (const row of batch.receipts) {
+          const converted = erpReceiptLineToRaw(row);
+          if (!converted) continue;
+          const dedupe = `${converted.sourceRef ?? ""}|${converted.sku}|${converted.postingDate}`;
+          if (seenPr.has(dedupe)) continue;
+          seenPr.add(dedupe);
+          erpReceiptLines.push(converted);
         }
       }
     }
@@ -114,7 +135,7 @@ export async function GET(request: NextRequest) {
     console.error("[purchase-history page-data] ERP", err.message);
   }
 
-  const merged = mergePurchaseHistoryLines(cosmoLines, erpLines);
+  const merged = mergePurchaseHistoryLines(cosmoLines, erpInvoiceLines, erpReceiptLines);
   const skus = [...new Set(merged.map((l) => l.sku))];
   const products =
     skus.length === 0
@@ -142,7 +163,7 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  const filters = { from, to, sku, supplier, brand };
+  const filters = { from, to, sku, supplier, brand, description };
   const filtered = merged.filter((line) =>
     matchesPurchaseHistoryFilters(line, catalogBySku.get(line.sku), filters),
   );
