@@ -2,11 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import {
   accumulateLastPurchasesFromRows,
+  accumulateMonthlyPurchasesFromRows,
   accumulateSupplierPurchasesFromRows,
   buildSupplierAllowlist,
   isAllowedSupplier,
   isNoisePurchaseSupplier,
   isUsablePurchaseDoc,
+  mergeMonthlyPurchaseMaps,
   normalizeSupplierKey,
   type PurchaseRow,
 } from "@/lib/osf/erp-purchases";
@@ -502,5 +504,89 @@ describe("accumulateSupplierPurchasesFromRows", () => {
     expect(result.get("cash ae 001")!.lastRate).toBe(5990);
     expect(result.has("cash or 001")).toBe(false);
     expect(result.has("sync-test supplier")).toBe(false);
+  });
+});
+
+describe("accumulateMonthlyPurchasesFromRows", () => {
+  const bounds = { start: "2026-04-01", end: "2026-06-18" };
+
+  it("buckets qty and amount by SKU-month and skips outside window", () => {
+    const rows: PurchaseRow[] = [
+      {
+        name: "PR-1",
+        supplier: "ACME",
+        supplier_name: "Acme",
+        posting_date: "2026-04-10",
+        item_code: "CAN07",
+        qty: 2,
+        rate: 50,
+        amount: 100,
+        docstatus: 1,
+      },
+      {
+        name: "PR-2",
+        supplier: "ACME",
+        supplier_name: "Acme",
+        posting_date: "2026-04-20",
+        item_code: "CAN07",
+        qty: 3,
+        rate: 50,
+        amount: 150,
+        docstatus: 1,
+      },
+      {
+        name: "PR-3",
+        supplier: "ACME",
+        supplier_name: "Acme",
+        posting_date: "2026-03-31",
+        item_code: "CAN07",
+        qty: 9,
+        amount: 900,
+        docstatus: 1,
+      },
+    ];
+    const map = accumulateMonthlyPurchasesFromRows({ rows, bounds });
+    expect(map.get("CAN07")).toEqual({ "2026-04": { qty: 5, netValue: 250 } });
+  });
+
+  it("skips disallowed suppliers and cancelled docs", () => {
+    const rows: PurchaseRow[] = [
+      {
+        name: "PR-X",
+        supplier: "INTERCO",
+        supplier_name: "Vault Transfer",
+        posting_date: "2026-05-01",
+        item_code: "CAN07",
+        qty: 10,
+        amount: 10,
+        docstatus: 1,
+      },
+      {
+        name: "PR-Y",
+        supplier: "ACME",
+        supplier_name: "Acme",
+        posting_date: "2026-05-02",
+        item_code: "CAN07",
+        qty: 1,
+        amount: 40,
+        docstatus: 2,
+      },
+    ];
+    const map = accumulateMonthlyPurchasesFromRows({
+      rows,
+      bounds,
+      allowedSuppliers: [{ name: "Acme", code: "ACME" }],
+    });
+    expect(map.has("CAN07")).toBe(false);
+  });
+
+  it("merges monthly maps across ERP instances", () => {
+    const a = new Map([["CAN07", { "2026-04": { qty: 1, netValue: 10 } }]]);
+    const b = new Map([["CAN07", { "2026-04": { qty: 2, netValue: 20 }, "2026-05": { qty: 1, netValue: 5 } }]]);
+    const merged = mergeMonthlyPurchaseMaps([a, b]);
+    expect(merged.get("CAN07")).toEqual({
+      "2026-04": { qty: 3, netValue: 30 },
+      "2026-05": { qty: 1, netValue: 5 },
+    });
   });
 });

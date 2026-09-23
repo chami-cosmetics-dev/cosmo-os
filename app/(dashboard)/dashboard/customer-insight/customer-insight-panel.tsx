@@ -2718,7 +2718,7 @@ export function CustomerInsightPanel({
               </CardHeader>
               <CardContent>
                 <p className="text-xs text-muted-foreground">
-                  {viewAsMerchantLabel}
+                  {viewAsMerchantLabel
                     ? `${viewAsMerchantLabel} is not the allocated merchant. Name, phone, and email are visible. Full profile, progress bar, contacted, and spend chart stay hidden.`
                     : "You are not the allocated merchant. Name, phone, and email are visible. Full profile, progress bar, contacted, and spend chart stay hidden."}
                 </p>

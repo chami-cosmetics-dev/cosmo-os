@@ -113,6 +113,12 @@ describe("buildMainSheetRows", () => {
     expect(first["Total ROP"]).toBe(10);
     expect(first["OGF Price"]).toBe(90);
     expect(first["Sales Units (2026-06)"]).toBe(7);
+    expect(first["June 2026 Sales Total"]).toBe(7);
+    expect(first["Max sale"]).toBe(7);
+    expect(first.AVE).toBe(7);
+    expect(first).toHaveProperty("April 2026 Sales Total");
+    expect(first).toHaveProperty("April 2026 Purchase Qty");
+    expect(first).toHaveProperty("April 2026 Purchase Total");
     expect(first["Shop Availability"]).toBe("Allowed");
     // OGF margin = (90-40)/90
     expect(first["OGF Margin %"]).toBeCloseTo(55.56, 1);
@@ -127,6 +133,35 @@ describe("buildMainSheetRows", () => {
     expect(second["Last Purchase Qty"]).toBeNull();
     expect(second["Days Since Last Purchase"]).toBeNull();
     expect(second["Purchased (last 30d)"]).toBeNull();
+  });
+
+  it("fills April→as-of sales and purchase grid cells", () => {
+    const rows = buildMainSheetRows({
+      catalog: [catalog[0]!],
+      columns,
+      profiles: new Map(),
+      binMap: new Map(),
+      costMap: new Map(),
+      purchaseMap: new Map(),
+      monthlySales: new Map(),
+      salesMonth: "2026-06",
+      asOfDate: "2026-06-18",
+      salesByMonth: new Map([["CAN07_1", { "2026-04": 3, "2026-06": 9 }]]),
+      purchasesByMonth: new Map([
+        ["CAN07_1", { "2026-05": { qty: 4, netValue: 1200 } }],
+      ]),
+    });
+    const row = rows[0]!;
+    expect(row["April 2026 Sales Total"]).toBe(3);
+    expect(row["May 2026 Sales Total"]).toBeNull();
+    expect(row["June 2026 Sales Total"]).toBe(9);
+    expect(row["Sales Units (2026-06)"]).toBe(9);
+    expect(row["April 2026 Purchase Qty"]).toBeNull();
+    expect(row["May 2026 Purchase Qty"]).toBe(4);
+    expect(row["May 2026 Purchase Total"]).toBe(1200);
+    expect(row).not.toHaveProperty("July 2026 Sales Total");
+    expect(row["Max sale"]).toBe(9);
+    expect(row.AVE).toBe(6);
   });
 
   it("VAT OSF: Cosmetics.lk + shop ROP only; Total ROP = Cosmetics.lk (not shop sum)", () => {
@@ -383,6 +418,9 @@ describe("mainColumnDescriptors", () => {
     expect(bySection).toContain("REORDER Amount");
     expect(bySection).toContain("price");
     expect(bySection).toContain("Purchasing Cost");
+    expect(bySection).toContain("Sales");
+    expect(bySection).toContain("Purchases");
+    expect(bySection).toContain("Derived");
     // Pricing columns are flagged (so they can be dropped from buyer sheets)
     const pricing = defs.filter((d) => d.pricing).map((d) => d.header);
     expect(pricing).toContain("Latest Cost");
@@ -408,6 +446,11 @@ describe("buildOsfWorkbookBuffer", () => {
       expect(headers).toContain("LMJ");
       expect(headers).toContain("Total Stock");
       expect(headers).toContain("Total ROP");
+      expect(headers).toContain("April 2026 Sales Total");
+      expect(headers).toContain("April 2026 Purchase Qty");
+      expect(headers).toContain("June 2026 Purchase Total");
+      expect(headers).toContain("Max sale");
+      expect(headers).toContain("AVE");
       expect(headers).not.toContain("Common SKU Stock");
       expect(headers).not.toContain("Common ROP");
       expect(headers).not.toContain("Common SKU Reorder");
@@ -437,6 +480,10 @@ describe("buildOsfWorkbookBuffer", () => {
     expect(headers).not.toContain("Cosmetics MRP");
     expect(headers).not.toContain("Latest Cost");
     expect(headers).not.toContain("Cosmetics Margin %");
+    expect(headers).not.toContain("April 2026 Sales Total");
+    expect(headers).not.toContain("April 2026 Purchase Qty");
+    expect(headers).not.toContain("Max sale");
+    expect(headers).not.toContain("AVE");
   });
 
   it("includes marked keys and omits unmarked on Main", async () => {
@@ -473,6 +520,10 @@ describe("buildOsfWorkbookBuffer", () => {
     expect(headers).toContain("Cosmetics Margin %");
     expect(headers).toContain("OGF Margin %");
     expect(headers).toContain("LMJ");
+    expect(headers).toContain("April 2026 Sales Total");
+    expect(headers).toContain("April 2026 Purchase Qty");
+    expect(headers).toContain("Max sale");
+    expect(headers).toContain("AVE");
   });
 
   it("adds a per-buyer sheet filtered by brand and without pricing columns", async () => {
@@ -493,6 +544,10 @@ describe("buildOsfWorkbookBuffer", () => {
     expect(headers).not.toContain("Cosmetics MRP");
     expect(headers).not.toContain("Cosmetics Margin %");
     expect(headers).not.toContain("OGF Margin %");
+    expect(headers).not.toContain("April 2026 Sales Total");
+    expect(headers).not.toContain("April 2026 Purchase Qty");
+    expect(headers).not.toContain("Max sale");
+    expect(headers).not.toContain("AVE");
     // Only BrandA rows remain (CAN07_1), not BrandB (MAU01_1)
     const dataRows = aoa.slice(2);
     const skuIdx = headers.indexOf("Variant SKU (_)");
@@ -537,9 +592,13 @@ describe("buildOsfWorkbookBuffer", () => {
         header: 1,
         defval: "",
       })[1] as string[];
-      expect(headers).not.toContain("Cosmetics Margin %");
-      expect(headers).not.toContain("OGF Margin %");
-      expect(headers).not.toContain("Latest Cost");
+    expect(headers).not.toContain("Cosmetics Margin %");
+    expect(headers).not.toContain("OGF Margin %");
+    expect(headers).not.toContain("Latest Cost");
+    expect(headers).not.toContain("April 2026 Sales Total");
+    expect(headers).not.toContain("April 2026 Purchase Qty");
+    expect(headers).not.toContain("Max sale");
+    expect(headers).not.toContain("AVE");
     }
   });
 

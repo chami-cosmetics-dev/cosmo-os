@@ -7,9 +7,14 @@ import { resolveEffectiveOsfColumnKeys } from "@/lib/osf/column-visibility";
 import { resolveOsfColumns } from "@/lib/osf/column-config";
 import { fetchLatestCostAndSupplier, OsfErpError } from "@/lib/osf/erp-cost-supplier";
 import { mergeInstanceErpData, type InstanceErpData } from "@/lib/osf/erp-merge";
-import { fetchLastPurchaseByItem } from "@/lib/osf/erp-purchases";
+import { aggregateSalesBySkuByMonthInRange } from "@/lib/osf/assist-sales";
+import {
+  fetchLastPurchaseByItem,
+  fetchMonthlyPurchasesInRange,
+  mergeMonthlyPurchaseMaps,
+} from "@/lib/osf/erp-purchases";
 import { fetchBinActualQty, getAllOsfErpInstances, stockForColumn } from "@/lib/osf/erp-stock";
-import { aggregateMonthlySalesBySku } from "@/lib/osf/monthly-sales";
+import { aggregateMonthlySalesBySku, osfPurchaseGridBounds, osfSalesGridBounds } from "@/lib/osf/monthly-sales";
 import { syncOgfPricesFromErp } from "@/lib/osf/sync-ogf-prices-from-erp";
 import { isBelowReorderThreshold } from "@/lib/osf/threshold";
 import { filterCatalogByOsfVariant, type OsfVariant } from "@/lib/osf/vat-membership";
@@ -131,7 +136,10 @@ export async function POST(request: NextRequest) {
       console.warn("[OSF] shop column sync failed:", err.message);
     }
 
-    const [catalogRaw, columns, profiles, ropRows, monthlySales, buyers, allowedSuppliers] =
+    const salesGridBounds = osfSalesGridBounds(asOfDate);
+    const purchaseGridBounds = osfPurchaseGridBounds(asOfDate);
+
+    const [catalogRaw, columns, profiles, ropRows, monthlySales, salesByMonthNested, buyers, allowedSuppliers] =
       await Promise.all([
         buildCatalogRows(companyId, {
           includeInactive,
@@ -144,12 +152,22 @@ export async function POST(request: NextRequest) {
         prisma.productOsfProfile.findMany({ where: { companyId } }),
         prisma.productOsfRop.findMany({ where: { companyId } }),
         aggregateMonthlySalesBySku(companyId, salesMonth),
+        aggregateSalesBySkuByMonthInRange(
+          companyId,
+          salesGridBounds.start,
+          salesGridBounds.endExclusive,
+        ),
         listOsfBuyers(companyId),
         prisma.supplier.findMany({
           where: { companyId },
           select: { name: true, code: true },
         }),
       ]);
+
+    const salesByMonth = new Map<string, Record<string, number>>();
+    for (const [sku, months] of salesByMonthNested) {
+      salesByMonth.set(sku, Object.fromEntries(months));
+    }
 
     const profileMap = new Map<string, OsfProfileData>();
     for (const p of profiles) {
@@ -185,7 +203,7 @@ export async function POST(request: NextRequest) {
     const perInstanceResults = await Promise.all(
       erpInstances.map(async (inst) => {
         const whs = [...(warehousesByInstance.get(inst.id) ?? [])];
-        const [bins, costs, purchases] = await Promise.all([
+        const [bins, costs, purchases, monthlyPurchases] = await Promise.all([
           whs.length
             ? fetchBinActualQty({ cfg: inst.cfg, warehouses: whs, itemCodes: skus })
             : Promise.resolve(new Map<string, number>()),
@@ -196,8 +214,14 @@ export async function POST(request: NextRequest) {
             recentSinceDate,
             allowedSuppliers,
           }),
+          fetchMonthlyPurchasesInRange({
+            cfg: inst.cfg,
+            bounds: purchaseGridBounds,
+            itemCodes: skus,
+            allowedSuppliers,
+          }),
         ]);
-        return { bins, costs, purchases };
+        return { bins, costs, purchases, monthlyPurchases };
       }),
     );
 
@@ -247,6 +271,9 @@ export async function POST(request: NextRequest) {
       purchases: r.purchases,
     }));
     const { costMap, purchaseMap } = mergeInstanceErpData(skus, perInstanceErp);
+    const purchasesByMonth = mergeMonthlyPurchaseMaps(
+      perInstanceResults.map((r) => r.monthlyPurchases),
+    );
 
     const effectiveColumnKeys = context?.user
       ? await resolveEffectiveOsfColumnKeys(context, companyId, osfVariant)
@@ -262,6 +289,8 @@ export async function POST(request: NextRequest) {
       monthlySales,
       salesMonth,
       asOfDate,
+      salesByMonth,
+      purchasesByMonth,
       belowThresholdOnly,
       effectiveColumnKeys,
       osfVariant,

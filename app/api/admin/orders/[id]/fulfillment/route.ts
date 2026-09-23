@@ -1315,16 +1315,22 @@ export async function PATCH(
         // Create ERP credit note — awaited; failure surfaced as warning flag (order is already reverted in DB)
         let erpCreditNoteFailed = false;
         let erpCreditNoteError: string | undefined;
+        let erpCreditNoteName: string | undefined;
         try {
           const withLocation = await prisma.order.findUnique({
             where: { id: order.id },
             include: { companyLocation: { include: { erpnextInstance: true } } },
           });
           if (withLocation?.companyLocation) {
-            await createErpnextCreditNote(
-              { ...order, erpnextInvoiceId: withLocation.erpnextInvoiceId },
+            const cn = await createErpnextCreditNote(
+              {
+                ...order,
+                erpnextInvoiceId: withLocation.erpnextInvoiceId,
+                erpReturnSalesInvoiceIds: withLocation.erpReturnSalesInvoiceIds,
+              },
               withLocation.companyLocation,
             );
+            erpCreditNoteName = cn.creditNoteName;
           }
         } catch (err) {
           console.error("[ERPNext] createErpnextCreditNote failed:", err);
@@ -1341,7 +1347,12 @@ export async function PATCH(
           afterStage: targetStage,
           metadata: { action: data.action, targetStage, returnRecorded: shouldRecordReturn, revertReason: data.revertReason },
         });
-        return NextResponse.json({ success: true, erpCreditNoteFailed, erpCreditNoteError });
+        return NextResponse.json({
+          success: true,
+          erpCreditNoteFailed,
+          erpCreditNoteError,
+          erpCreditNoteName,
+        });
       }
 
       await logOrderFulfillmentAudit({
