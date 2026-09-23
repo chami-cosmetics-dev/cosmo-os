@@ -144,7 +144,10 @@ export async function POST(request: NextRequest) {
         contactId: contact.id,
         merchantId: user.id,
         merchantName: user.knownName ?? user.name ?? null,
-        category: "Contacted",
+        category:
+          parsed.data.action === "not_interested"
+            ? "Not Interested"
+            : "Contacted",
         remark,
         outcome: parsed.data.action,
       },
@@ -157,7 +160,8 @@ export async function POST(request: NextRequest) {
     module: "merchant-dashboard",
     action:
       parsed.data.action === "responded" ||
-      parsed.data.action === "not_responded"
+      parsed.data.action === "not_responded" ||
+      parsed.data.action === "not_interested"
         ? "loyalty_responded"
         : "merchant_loyalty_contacted",
     entityType: "ContactMaster",

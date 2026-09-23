@@ -137,7 +137,13 @@ export const customerInsightContactedBodySchema = z.object({
   note: z.string().trim().max(500).optional().nullable(),
   remark: z.string().trim().max(2000).optional().nullable(),
   outcome: z
-    .enum(["general", "loyalty_informed", "responded", "not_responded"])
+    .enum([
+      "general",
+      "loyalty_informed",
+      "responded",
+      "not_responded",
+      "not_interested",
+    ])
     .optional()
     .default("general"),
 });
@@ -261,7 +267,12 @@ export const customerInsightLoyaltyAssignBodySchema = z.object({
 
 export const merchantLoyaltyOutreachBodySchema = z.object({
   contactId: cuidSchema,
-  action: z.enum(["loyalty_informed", "responded", "not_responded"]),
+  action: z.enum([
+    "loyalty_informed",
+    "responded",
+    "not_responded",
+    "not_interested",
+  ]),
   remark: z.string().trim().max(2000).optional().nullable(),
 });
 

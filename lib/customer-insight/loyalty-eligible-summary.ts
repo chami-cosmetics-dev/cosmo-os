@@ -18,6 +18,7 @@ export const LOYALTY_WORKED_STATUSES = [
   "contacted",
   "responded",
   "not_responded",
+  "not_interested",
   "assigned",
 ] as const;
 
