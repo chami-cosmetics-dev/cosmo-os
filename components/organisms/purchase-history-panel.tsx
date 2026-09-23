@@ -164,7 +164,7 @@ export function PurchaseHistoryPanel() {
             value={sku}
             disabled={busy}
             onChange={(e) => setSku(e.target.value)}
-            placeholder="Contains…"
+            placeholder="All dates…"
             className="w-[140px]"
           />
         </label>

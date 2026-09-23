@@ -195,6 +195,21 @@ describe("matchesPurchaseHistoryFilters", () => {
     expect(no).toBe(false);
   });
 
+  it("ignores date range when SKU is set", () => {
+    const outside = matchesPurchaseHistoryFilters(
+      { ...baseCosmo, postingDate: "2024-03-15" },
+      { productTitle: "x", brand: "Acme", priority: null, mrp: 1, discountedPrice: null },
+      { from: "2026-06-26", to: "2026-09-23", sku: "SKU1" },
+    );
+    expect(outside).toBe(true);
+    const otherSku = matchesPurchaseHistoryFilters(
+      { ...baseCosmo, postingDate: "2024-03-15", sku: "OTHER" },
+      { productTitle: "x", brand: "Acme", priority: null, mrp: 1, discountedPrice: null },
+      { from: "2026-06-26", to: "2026-09-23", sku: "SKU1" },
+    );
+    expect(otherSku).toBe(false);
+  });
+
   it("filters by priority", () => {
     const ok = matchesPurchaseHistoryFilters(
       baseCosmo,
