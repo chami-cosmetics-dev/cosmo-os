@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
   const buffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer;
   const filename = `purchase-history-${query.from}-to-${query.to}.xlsx`;
 
-  return new NextResponse(buffer, {
+  return new NextResponse(new Uint8Array(buffer), {
     status: 200,
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
