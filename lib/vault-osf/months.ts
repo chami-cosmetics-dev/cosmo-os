@@ -54,14 +54,39 @@ export function monthPostingBounds(
   return { start, end };
 }
 
-export function monthSectionLabel(monthKey: string, asOfDate: string): string {
+export function monthLongName(monthKey: string): string {
   const { year, month } = parseYearMonth(monthKey);
-  const name = new Date(Date.UTC(year, month - 1, 1)).toLocaleString("en-US", {
+  return new Date(Date.UTC(year, month - 1, 1)).toLocaleString("en-US", {
     month: "long",
     timeZone: "UTC",
   });
+}
+
+export function monthYearLabel(monthKey: string): string {
+  const { year } = parseYearMonth(monthKey);
+  return `${monthLongName(monthKey)} ${year}`;
+}
+
+export function monthSectionLabel(monthKey: string, asOfDate: string): string {
+  const { year } = parseYearMonth(monthKey);
+  const name = monthLongName(monthKey);
   const current = monthKeyFromDate(asOfDate);
-  if (monthKey !== current) return name.toUpperCase();
+  if (monthKey !== current) return `${name.toUpperCase()} ${year}`;
   const [yy, mm, dd] = asOfDate.split("-");
-  return `${name.toUpperCase()} ${dd}.${mm}.${yy}`;
+  return `${name.toUpperCase()} ${year} ${dd}.${mm}.${yy}`;
+}
+
+/** e.g. "April 2026 Sales Total". */
+export function monthTotalSaleHeader(monthKey: string): string {
+  return `${monthYearLabel(monthKey)} Sales Total`;
+}
+
+/** e.g. "April 2026 Purchase Total" (net purchase value). */
+export function monthPurchaseTotalHeader(monthKey: string): string {
+  return `${monthYearLabel(monthKey)} Purchase Total`;
+}
+
+/** e.g. "April 2026 Purchase Qty". */
+export function monthPurchaseQtyHeader(monthKey: string): string {
+  return `${monthYearLabel(monthKey)} Purchase Qty`;
 }

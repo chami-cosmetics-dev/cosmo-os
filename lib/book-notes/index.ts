@@ -27,7 +27,9 @@ export { resolveBookNoteSalesInvoice } from "@/lib/book-notes/invoice-identity";
 
 export {
   mapOrderPaymentsToBookNoteColumns,
+  mapOrderPaymentsToBookNoteSuggestion,
   mopToBookNoteBucket,
+  mopToBookNoteErpPaymentMethod,
 } from "@/lib/book-notes/payment-columns";
 
 export {
@@ -47,9 +49,25 @@ export {
 } from "@/lib/book-notes/load";
 
 export {
+  bookNoteErpSyncStatus,
+  clearBookNoteErpSyncStatus,
+  markBookNoteErpSynced,
+  markBookNoteErpSyncFailed,
+} from "@/lib/book-notes/erp-sync-status";
+export type { BookNoteErpSyncStatus } from "@/lib/book-notes/erp-sync-status";
+
+export { pushBookNoteDayToErp } from "@/lib/book-notes/push-day";
+
+export {
   getBookNoteVerifyMethod,
   sendBookNoteRowsToErp,
 } from "@/lib/book-notes/erp-verify";
+
+export {
+  getBookNoteSpecialNoteMethod,
+  pushBookNoteSpecialNotesToErp,
+  setBookNoteSpecialNoteOnErp,
+} from "@/lib/book-notes/erp-special-note";
 
 export {
   BOOK_NOTE_ERP_PAYMENT_METHODS,

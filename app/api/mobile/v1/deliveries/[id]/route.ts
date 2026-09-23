@@ -5,7 +5,7 @@ import { toMobileDeliveryDto } from "@/lib/mobile/dto";
 import { findRiderTaskById } from "@/lib/mobile/orders";
 import { resolveMobileSpecialDelivery } from "@/lib/mobile/special-delivery";
 import { mobileRouteIdSchema } from "@/lib/mobile/validation";
-import { incentiveForOrder, loadRiderDeliveryChargeMap } from "@/lib/rider-incentive-resolve";
+import { incentiveForOrder, loadRiderIncentiveContext } from "@/lib/rider-incentive-resolve";
 
 export async function GET(
   request: NextRequest,
@@ -22,9 +22,9 @@ export async function GET(
     return mobileError("Invalid delivery ID", 400);
   }
 
-  const [task, chargeByLabelKey] = await Promise.all([
+  const [task, incentiveContext] = await Promise.all([
     findRiderTaskById(idResult.data, auth.session.userId),
-    loadRiderDeliveryChargeMap(),
+    loadRiderIncentiveContext(),
   ]);
   if (!task) {
     return mobileError("Delivery not found", 404);
@@ -41,7 +41,12 @@ export async function GET(
           order: task.order,
           task,
         }),
-        incentiveAmount: incentiveForOrder(task.order, chargeByLabelKey).toFixed(2),
+        incentiveAmount: incentiveForOrder(
+          task.order,
+          incentiveContext.chargeByLabelKey,
+          incentiveContext.zoneMembersByZone,
+          task.manualIncentiveLabelKey
+        ).toFixed(2),
       }),
       lineItems: task.order.lineItems.map((item) => ({
         id: item.id,

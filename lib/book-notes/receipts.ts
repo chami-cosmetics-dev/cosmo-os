@@ -180,7 +180,13 @@ export async function pushDayReceiptsToErp(input: {
   return summary;
 }
 
-/** Ensure BookNoteDay exists (empty rows ok) so receipts can attach before first ledger save. */
+/**
+ * The user's own sheet for a shop and date, created empty if they have none
+ * yet, so photos can attach before the ledger is first saved.
+ *
+ * Scoped to the submitter: a merchant uploading a slip must never land on a
+ * colleague's book note for the same shop and day.
+ */
 export async function ensureBookNoteDay(input: {
   companyId: string;
   companyLocationId: string;
@@ -188,26 +194,34 @@ export async function ensureBookNoteDay(input: {
   userId: string;
 }): Promise<{ id: string }> {
   const postingDate = postingDateToUtcMidnight(input.postingDateYmd);
-  const day = await prisma.bookNoteDay.upsert({
+
+  const existing = await prisma.bookNoteDay.findFirst({
     where: {
-      companyLocationId_postingDate: {
-        companyLocationId: input.companyLocationId,
-        postingDate,
-      },
+      companyId: input.companyId,
+      companyLocationId: input.companyLocationId,
+      postingDate,
+      createdByUserId: input.userId,
     },
-    create: {
+    select: { id: true },
+  });
+  if (existing) {
+    await prisma.bookNoteDay.update({
+      where: { id: existing.id },
+      data: { updatedByUserId: input.userId },
+    });
+    return existing;
+  }
+
+  return prisma.bookNoteDay.create({
+    data: {
       companyId: input.companyId,
       companyLocationId: input.companyLocationId,
       postingDate,
       createdByUserId: input.userId,
       updatedByUserId: input.userId,
     },
-    update: {
-      updatedByUserId: input.userId,
-    },
     select: { id: true },
   });
-  return day;
 }
 
 export async function addBookNoteReceipt(input: {
@@ -282,10 +296,42 @@ export async function deleteBookNoteReceipt(input: {
   return true;
 }
 
+/**
+ * Delete a whole book note day: rows and receipt records cascade, but the blob
+ * files behind the photos must be cleared explicitly or they stay billable.
+ *
+ * ERP is deliberately untouched — a day already pushed keeps its Book Note
+ * Entry there, so callers must warn the user before removing a sent sheet.
+ */
+export async function deleteBookNoteDay(input: {
+  companyId: string;
+  bookNoteDayId: string;
+}): Promise<{ deleted: boolean; receiptCount: number }> {
+  const day = await prisma.bookNoteDay.findFirst({
+    where: { id: input.bookNoteDayId, companyId: input.companyId },
+    select: { id: true, receipts: { select: { blobUrl: true } } },
+  });
+  if (!day) return { deleted: false, receiptCount: 0 };
+
+  await prisma.bookNoteDay.delete({ where: { id: day.id } });
+
+  for (const receipt of day.receipts) {
+    try {
+      await del(receipt.blobUrl);
+    } catch {
+      // DB row is source of truth; blob may already be gone.
+    }
+  }
+
+  return { deleted: true, receiptCount: day.receipts.length };
+}
+
 export async function loadReceiptsForDay(input: {
   companyId: string;
   companyLocationId: string;
   postingDateYmd: string;
+  /** Prefer this exact sheet when multiple merchants share the shop/date. */
+  bookNoteDayId?: string;
 }): Promise<
   Array<{
     id: string;
@@ -296,11 +342,13 @@ export async function loadReceiptsForDay(input: {
 > {
   const postingDate = postingDateToUtcMidnight(input.postingDateYmd);
   const day = await prisma.bookNoteDay.findFirst({
-    where: {
-      companyId: input.companyId,
-      companyLocationId: input.companyLocationId,
-      postingDate,
-    },
+    where: input.bookNoteDayId
+      ? { id: input.bookNoteDayId, companyId: input.companyId }
+      : {
+          companyId: input.companyId,
+          companyLocationId: input.companyLocationId,
+          postingDate,
+        },
     select: {
       receipts: {
         orderBy: { sortOrder: "asc" },

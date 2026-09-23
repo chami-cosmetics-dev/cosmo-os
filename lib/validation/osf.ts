@@ -57,6 +57,8 @@ export const osfProfilePatchSchema = z.object({
     .optional(),
 });
 
+export const osfVariantSchema = z.enum(["main", "vat", "non_vat"]);
+
 export const osfGenerateBodySchema = z.object({
   salesMonth: z
     .string()
@@ -65,6 +67,8 @@ export const osfGenerateBodySchema = z.object({
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, "asOfDate must be YYYY-MM-DD")
     .optional(),
+  /** Main = full catalog; vat / non_vat partition by ERP Product Priority Vat. */
+  osfVariant: osfVariantSchema.optional().default("main"),
   includeInactive: z.boolean().optional().default(false),
   belowThresholdOnly: z.boolean().optional().default(false),
   /** Include only SKUs with assigned ROP and stock/ROP % strictly below this value. */
@@ -98,12 +102,15 @@ export const osfColumnAccessAssignmentSchema = z.object({
   columnKeys: z.array(osfColumnAccessKeySchema).max(500),
 });
 
-export const osfColumnAccessPutSchema = z.union([
-  osfColumnAccessAssignmentSchema,
-  z.object({
-    assignments: z.array(osfColumnAccessAssignmentSchema).min(1).max(200),
-  }),
-]);
+export const osfColumnAccessPutSchema = z.object({
+  osfVariant: osfVariantSchema.default("main"),
+  assignments: z.array(osfColumnAccessAssignmentSchema).min(1).max(200),
+});
+
+/** Query for GET /api/admin/osf/column-access */
+export const osfColumnAccessQuerySchema = z.object({
+  osfVariant: osfVariantSchema.optional().default("main"),
+});
 
 export type OsfColumnAccessPutInput = z.infer<typeof osfColumnAccessPutSchema>;
 
@@ -192,3 +199,21 @@ export const vaultOsfSalesHistoryQuerySchema = z.object({
 
 export type VaultOsfGenerateBodyInput = z.infer<typeof vaultOsfGenerateBodySchema>;
 export type VaultOsfSalesHistoryQuery = z.infer<typeof vaultOsfSalesHistoryQuerySchema>;
+
+const purchaseHistoryYmd = z
+  .string()
+  .trim()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date format");
+
+export const purchaseHistoryQuerySchema = z.object({
+  from: purchaseHistoryYmd,
+  to: purchaseHistoryYmd,
+  sku: trimmedString(0, LIMITS.sku.max).optional(),
+  supplier: trimmedString(0, 200).optional(),
+  brand: trimmedString(0, 200).optional(),
+  description: trimmedString(0, LIMITS.productTitle.max).optional(),
+  offset: z.coerce.number().int().min(0).max(100_000).optional().default(0),
+  limit: z.coerce.number().int().min(1).max(500).optional().default(200),
+});
+
+export type PurchaseHistoryQuery = z.infer<typeof purchaseHistoryQuerySchema>;

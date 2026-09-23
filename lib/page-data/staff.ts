@@ -92,7 +92,12 @@ export async function fetchStaffPageData(
     sortBy && sortBy in SORT_FIELDS ? SORT_FIELDS[sortBy]! : { name: "asc" };
 
   const andConditions: Prisma.UserWhereInput[] = [];
-  if (companyId) andConditions.push({ companyId });
+  if (companyId) {
+    // Active staff use User.companyId; resigned keep company on EmployeeProfile only.
+    andConditions.push({
+      OR: [{ companyId }, { employeeProfile: { companyId } }],
+    });
+  }
   if (search) {
     andConditions.push({
       OR: [

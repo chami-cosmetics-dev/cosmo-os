@@ -19,6 +19,9 @@
 .DS_Store
 *.pem
 supabase_dump.bak
+*.dump
+*.dump.age
+*.bak
 
 # debug
 npm-debug.log*
@@ -31,6 +34,8 @@ yarn-error.log*
 .env.vault
 .env.cosmo-dev
 .env.cosmo-prod
+.env.maileroo.tmp
+.env*.tmp
 
 # Local MCP credentials (copy from *.example)
 .mcp.json

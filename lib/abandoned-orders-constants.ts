@@ -129,3 +129,27 @@ export function matchRemarkTemplateId(remark: string | null | undefined): Remark
   if (hit) return hit.id;
   return REMARK_TEMPLATE_ALIASES[trimmed] ?? "custom";
 }
+
+/** Why the customer abandoned checkout (separate from customer-response remark). */
+export const ABANDONMENT_REASONS = [
+  "koko_payment_issue",
+  "city_not_available",
+  "no_need_of_products",
+  "no_intention_to_buy",
+] as const;
+export type AbandonmentReason = (typeof ABANDONMENT_REASONS)[number];
+
+export const ABANDONMENT_REASON_LABELS: Record<AbandonmentReason, string> = {
+  koko_payment_issue: "Koko payment issue",
+  city_not_available: "City not available",
+  no_need_of_products: "No need of the product(s)",
+  no_intention_to_buy: "No intention to buy the product",
+};
+
+export function getAbandonmentReasonLabel(value: string | null | undefined): string {
+  if (!value) return "—";
+  if (value in ABANDONMENT_REASON_LABELS) {
+    return ABANDONMENT_REASON_LABELS[value as AbandonmentReason];
+  }
+  return value;
+}

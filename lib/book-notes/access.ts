@@ -24,15 +24,13 @@ export type BookNoteShopAccess = {
 /**
  * Which saved book notes a user may *read back*.
  *
- * Entry is deliberately unrestricted (a merchant covering another shop still
- * needs to key its book), but history is outlet-scoped: two merchants in the
- * same outlet see each other's sheets, a merchant in another outlet does not.
- * Finance / admin (`book_notes.read` or `book_notes.admin`) see everything.
+ * A merchant sees only the sheets they submitted — not a colleague's, even at
+ * the same shop on the same day, because each merchant now keeps their own.
+ * Finance (`book_notes.read`) and book-note admins (`book_notes.admin`) see
+ * every sheet from every shop.
  */
 export type BookNoteViewScope = {
   canViewAllShops: boolean;
-  /** Shops this user is posted to (employee location + default merchant). */
-  assignedLocationIds: string[];
 };
 
 /**
@@ -52,52 +50,35 @@ export async function resolveBookNoteShopAccess(
 }
 
 /**
- * Outlets whose saved book notes this user may see, plus the finance/admin
- * override. A user always also sees sheets they created or last saved
- * themselves, which `loadBookNoteHistory` adds on top of these ids.
+ * Read scope for the current user. Merchants get nothing beyond their own
+ * sheets. Finance (`book_notes.read`) and book-note admins (`book_notes.admin`)
+ * may open every sheet.
  */
 export async function resolveBookNoteViewScope(
   context: UserContext,
-  companyId: string,
 ): Promise<BookNoteViewScope> {
-  const canViewAllShops =
-    hasPermission(context, "book_notes.read") ||
-    hasPermission(context, "book_notes.admin");
+  return Promise.resolve({
+    canViewAllShops:
+      hasPermission(context, "book_notes.read") ||
+      hasPermission(context, "book_notes.admin"),
+  });
+}
 
-  const userId = context.user?.id ?? null;
-  if (canViewAllShops || !userId) {
-    return { canViewAllShops, assignedLocationIds: [] };
-  }
-
-  const [profile, defaultMerchantLocations] = await Promise.all([
-    prisma.employeeProfile.findUnique({
-      where: { userId },
-      select: { locationId: true, companyId: true },
-    }),
-    prisma.companyLocation.findMany({
-      where: { companyId, defaultMerchantUserId: userId },
-      select: { id: true },
-    }),
-  ]);
-
-  const ids = new Set<string>();
-  if (profile?.locationId && profile.companyId === companyId) {
-    ids.add(profile.locationId);
-  }
-  for (const loc of defaultMerchantLocations) {
-    ids.add(loc.id);
-  }
-
-  return { canViewAllShops: false, assignedLocationIds: [...ids] };
+/** True when this user is the merchant who first saved the sheet. */
+export function isBookNoteCreator(
+  userId: string | null,
+  createdByUserId: string | null,
+): boolean {
+  return Boolean(userId && createdByUserId && userId === createdByUserId);
 }
 
 /**
  * May this user read (and therefore overwrite) an existing saved day?
  *
- * Matches the history rule: their own sheets, any sheet for an outlet they are
- * posted to, everything for finance / admin. A day they cannot see must stay
- * read-only — `PUT /api/admin/book-notes` replaces every row of a day, so
- * letting it through would silently destroy a colleague's entry.
+ * Merchants see the sheets they created — not a colleague's, even if they
+ * later touched it. Finance (`book_notes.read`) and book-note admins
+ * (`book_notes.admin`) see every sheet. Saving replaces every row, so anyone
+ * who cannot see one must not be able to write it.
  */
 export function canViewBookNoteDay(input: {
   viewScope: BookNoteViewScope;
@@ -105,22 +86,23 @@ export function canViewBookNoteDay(input: {
   day: {
     companyLocationId: string;
     createdByUserId: string | null;
-    updatedByUserId: string | null;
+    updatedByUserId?: string | null;
   };
 }): boolean {
   if (input.viewScope.canViewAllShops) return true;
-  const { userId, day } = input;
-  if (userId && (day.createdByUserId === userId || day.updatedByUserId === userId)) {
-    return true;
-  }
-  return input.viewScope.assignedLocationIds.includes(day.companyLocationId);
+  return isBookNoteCreator(input.userId, input.day.createdByUserId);
 }
 
 export function resolveBookNoteWriteAccess(
   context: UserContext,
 ): BookNoteWriteAccess {
+  const canAdminAll = hasPermission(context, "book_notes.admin");
   return {
-    canBackdate: hasPermission(context, "book_notes.admin"),
+    // TEMP: merchants with manage may pick past dates and edit/create old
+    // sheets (own sheets only). Revert canBackdate to admin-only later.
+    canBackdate:
+      hasPermission(context, "book_notes.manage") || canAdminAll,
+    canAdminAll,
   };
 }
 

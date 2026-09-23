@@ -68,6 +68,11 @@ const orderSelect = {
   lastPrintedAt: true,
   sampleFreeIssueCompleteAt: true,
   sampleFreeIssueSendLaterDate: true,
+  kokoLinkGeneratedAt: true,
+  kokoExtraLinkGeneratedAt: true,
+  kokoMultiPaymentFlagged: true,
+  kokoMultiPaymentCount: true,
+  kokoLinkTimeConfirmedAt: true,
   companyLocation: {
     select: {
       id: true,
@@ -591,6 +596,11 @@ export async function GET(
       : null,
     sampleFreeIssueCompleteAt: details.sampleFreeIssueCompleteAt?.toISOString() ?? null,
     sampleFreeIssueSendLaterDate: details.sampleFreeIssueSendLaterDate?.toISOString() ?? null,
+    kokoLinkGeneratedAt: details.kokoLinkGeneratedAt?.toISOString() ?? null,
+    kokoExtraLinkGeneratedAt: details.kokoExtraLinkGeneratedAt.map((d) => d.toISOString()),
+    kokoMultiPaymentFlagged: details.kokoMultiPaymentFlagged,
+    kokoMultiPaymentCount: details.kokoMultiPaymentCount,
+    kokoLinkTimeConfirmedAt: details.kokoLinkTimeConfirmedAt?.toISOString() ?? null,
     sampleFreeIssueCompleteBy: details.sampleFreeIssueCompleteBy
       ? {
           id: details.sampleFreeIssueCompleteBy.id,

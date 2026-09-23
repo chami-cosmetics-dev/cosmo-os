@@ -1,6 +1,10 @@
 import * as XLSX from "xlsx";
 
 import { uniqueContactPhones } from "@/lib/customer-insight/allocation-summary";
+import {
+  listCallQueueCandidates,
+  type CallQueueAssignFilters,
+} from "@/lib/customer-insight/call-queue";
 import { prisma } from "@/lib/prisma";
 import { formatAppIsoDate } from "@/lib/format-datetime";
 
@@ -102,5 +106,96 @@ export async function buildCallQueueAssignmentsWorkbook(input: {
   XLSX.utils.book_append_sheet(workbook, sheet, "Assignments");
   const buffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer;
   const filename = `call-queue-assignments-${formatAppIsoDate(new Date())}.xlsx`;
+  return { buffer, filename };
+}
+
+/** Filtered allocated contacts (same rules as Load allocated), merchant optional. */
+export async function buildCallQueueFilteredContactsWorkbook(input: {
+  companyId: string;
+} & CallQueueAssignFilters): Promise<{ buffer: Buffer; filename: string }> {
+  const pageSize = 100;
+  const first = await listCallQueueCandidates({
+    companyId: input.companyId,
+    page: 1,
+    pageSize,
+    merchantValue: input.merchantValue,
+    pushToGold: input.pushToGold,
+    pushToPlatinum: input.pushToPlatinum,
+    loyalty: input.loyalty,
+    lastPurchaseFrom: input.lastPurchaseFrom,
+    lastPurchaseTo: input.lastPurchaseTo,
+    allocatedFrom: input.allocatedFrom,
+    allocatedTo: input.allocatedTo,
+    assignedFrom: input.assignedFrom,
+    assignedTo: input.assignedTo,
+    notContacted: input.notContacted,
+    brands: input.brands,
+    brand: input.brand,
+    hideFilter: input.hideFilter ?? "all",
+  });
+
+  const total = first.pagination.total;
+  const items = [...first.items];
+  const pageCount = Math.ceil(total / pageSize);
+  for (let page = 2; page <= pageCount; page++) {
+    const next = await listCallQueueCandidates({
+      companyId: input.companyId,
+      page,
+      pageSize,
+      merchantValue: input.merchantValue,
+      pushToGold: input.pushToGold,
+      pushToPlatinum: input.pushToPlatinum,
+      loyalty: input.loyalty,
+      lastPurchaseFrom: input.lastPurchaseFrom,
+      lastPurchaseTo: input.lastPurchaseTo,
+      allocatedFrom: input.allocatedFrom,
+      allocatedTo: input.allocatedTo,
+      assignedFrom: input.assignedFrom,
+      assignedTo: input.assignedTo,
+      notContacted: input.notContacted,
+      brands: input.brands,
+      brand: input.brand,
+      hideFilter: input.hideFilter ?? "all",
+    });
+    items.push(...next.items);
+  }
+
+  const emptyRow = {
+    Merchant: "",
+    Name: "",
+    Phone: "",
+    "Lifetime total": "",
+    "Last purchase": "",
+    "Last contacted": "",
+    Queued: "",
+    Hidden: "",
+    "Hide reason": "",
+  };
+
+  const sheetRows =
+    items.length > 0
+      ? items.map((row) => ({
+          Merchant: row.assignedMerchant ?? "",
+          Name: row.name,
+          Phone: row.phoneNumber ?? "",
+          "Lifetime total": row.lifetimeTotal,
+          "Last purchase": row.lastPurchaseAt ?? "",
+          "Last contacted": row.lastContactedAt ?? "",
+          Queued: row.queued ? "yes" : "no",
+          Hidden: row.hidden ? "yes" : "no",
+          "Hide reason": row.hideReason ?? "",
+        }))
+      : [emptyRow];
+
+  const workbook = XLSX.utils.book_new();
+  const sheet = XLSX.utils.json_to_sheet(sheetRows);
+  applyTextColumn(
+    sheet,
+    "Phone",
+    sheetRows.map((row) => String(row.Phone ?? ""))
+  );
+  XLSX.utils.book_append_sheet(workbook, sheet, "Filtered");
+  const buffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer;
+  const filename = `call-queue-filtered-${formatAppIsoDate(new Date())}.xlsx`;
   return { buffer, filename };
 }

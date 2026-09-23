@@ -8,6 +8,7 @@ import {
   validateApprovalSplitAmounts,
 } from "@/lib/approval-payment-split";
 import { ORDER_PAYMENT_APPROVAL } from "@/lib/approval-workflow";
+import { isSplitPaymentEligibleSource } from "@/lib/koko-order";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
@@ -79,9 +80,9 @@ export async function PATCH(
   if (!order) {
     return NextResponse.json({ error: "Order not found" }, { status: 404 });
   }
-  if (!order.sourceName.startsWith("erpnext")) {
+  if (!isSplitPaymentEligibleSource(order.sourceName)) {
     return NextResponse.json(
-      { error: "Split payment planning is currently available for ERP orders only." },
+      { error: "Split payment planning is available for ERP and Shopify orders only." },
       { status: 400 },
     );
   }

@@ -41,6 +41,9 @@ export type FilterQueryInput = {
   birthdayTo?: MonthDay;
   lastContactedFrom?: string;
   lastContactedTo?: string;
+  /** Latest ContactAllocationUpdate with category=allocation (Colombo day). */
+  allocatedFrom?: string;
+  allocatedTo?: string;
   loyaltyRegisteredFrom?: string;
   loyaltyRegisteredTo?: string;
   noPurchaseFrom?: string;
@@ -48,15 +51,13 @@ export type FilterQueryInput = {
   noPurchaseMonths?: 3 | 6;
   page: number;
   pageSize: number;
-  /** When true, return all matches (up to export cap) instead of one page. */
+  /** When true, return all matches instead of one page. */
   forExport?: boolean;
 };
 
 /** Item-rank slice only. Unranked tot/city/birthday filters scan full admin or assigned set. */
 const FILTER_CANDIDATE_CAP = 800;
 const LAST_CONTACTED_ID_CHUNK = 4_000;
-/** Safety cap for admin CSV export of filtered insight rows. */
-export const FILTER_EXPORT_CAP = 25_000;
 
 export function matchesBirthdayThisMonth(
   birthMonth: number | null | undefined,
@@ -370,7 +371,42 @@ async function lastContactedMap(
   return map;
 }
 
-function inLastContactedRange(
+/** Latest allocation event (category=allocation) per contact. */
+async function allocationAtMap(
+  companyId: string,
+  contactIds: string[]
+): Promise<Map<string, Date>> {
+  const map = new Map<string, Date>();
+  if (contactIds.length === 0) return map;
+
+  const chunks: string[][] = [];
+  for (let i = 0; i < contactIds.length; i += LAST_CONTACTED_ID_CHUNK) {
+    chunks.push(contactIds.slice(i, i + LAST_CONTACTED_ID_CHUNK));
+  }
+
+  const grouped = await Promise.all(
+    chunks.map((slice) =>
+      prisma.contactAllocationUpdate.groupBy({
+        by: ["contactId"],
+        where: {
+          companyId,
+          contactId: { in: slice },
+          category: "allocation",
+        },
+        _max: { createdAt: true },
+      })
+    )
+  );
+
+  for (const rows of grouped) {
+    for (const row of rows) {
+      if (row._max.createdAt) map.set(row.contactId, row._max.createdAt);
+    }
+  }
+  return map;
+}
+
+function inColomboDateRange(
   at: Date | undefined,
   fromYmd?: string,
   toYmd?: string
@@ -507,10 +543,14 @@ export async function filterAllocatedContacts(
   const needLastContacted = Boolean(
     input.lastContactedFrom || input.lastContactedTo
   );
-  const contacted = await lastContactedMap(
-    input.companyId,
-    candidates.map((c) => c.id)
-  );
+  const needAllocated = Boolean(input.allocatedFrom || input.allocatedTo);
+  const candidateIds = candidates.map((c) => c.id);
+  const [contacted, allocatedAt] = await Promise.all([
+    lastContactedMap(input.companyId, candidateIds),
+    needAllocated
+      ? allocationAtMap(input.companyId, candidateIds)
+      : Promise.resolve(new Map<string, Date>()),
+  ]);
 
   const eligible: ContactCandidate[] = [];
   for (const contact of candidates) {
@@ -529,10 +569,21 @@ export async function filterAllocatedContacts(
 
     if (
       needLastContacted &&
-      !inLastContactedRange(
+      !inColomboDateRange(
         contacted.get(contact.id),
         input.lastContactedFrom,
         input.lastContactedTo
+      )
+    ) {
+      continue;
+    }
+
+    if (
+      needAllocated &&
+      !inColomboDateRange(
+        allocatedAt.get(contact.id),
+        input.allocatedFrom,
+        input.allocatedTo
       )
     ) {
       continue;
@@ -624,9 +675,7 @@ export async function filterAllocatedContacts(
   }
 
   const total = scored.length;
-  const exportRows = input.forExport
-    ? scored.slice(0, FILTER_EXPORT_CAP)
-    : null;
+  const exportRows = input.forExport ? scored : null;
   const start = (input.page - 1) * input.pageSize;
   const pageItems = exportRows ?? scored.slice(start, start + input.pageSize);
 

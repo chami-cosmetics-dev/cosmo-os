@@ -1,7 +1,15 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ImagePlus, Loader2, Plus, Search, Trash2, X } from "lucide-react";
+import {
+  ImagePlus,
+  Loader2,
+  Pencil,
+  Plus,
+  Search,
+  Trash2,
+  X,
+} from "lucide-react";
 
 import {
   AlertDialog,
@@ -15,6 +23,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -57,6 +66,8 @@ type LedgerRow = {
   cardReceiptRefLast4: string;
   koko: string;
   bankTransfer: string;
+  /** Bank-recon special note (ERP, max 1500). */
+  specialNote: string;
   splitMode: boolean;
   splitLines: SplitLineForm[];
   orderId: string | null;
@@ -67,6 +78,20 @@ const MAX_CREATE_ROWS = 200;
 function toNum(v: string): number {
   const n = parseFloat(v);
   return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : 0;
+}
+
+function suggestionAmountHint(s: BookNoteOrderSuggestion): string {
+  if (s.splitLines && s.splitLines.length >= 2) {
+    return s.splitLines
+      .map((sl) => `${sl.paymentMethod} ${sl.amount.toFixed(2)}`)
+      .join(" · ");
+  }
+  const parts: string[] = [];
+  if (s.cash > 0) parts.push(`Cash ${s.cash.toFixed(2)}`);
+  if (s.card > 0) parts.push(`Card ${s.card.toFixed(2)}`);
+  if (s.koko > 0) parts.push(`KOKO ${s.koko.toFixed(2)}`);
+  if (s.bankTransfer > 0) parts.push(`Bank ${s.bankTransfer.toFixed(2)}`);
+  return parts.length > 0 ? parts.join(" · ") : s.totalPrice.toFixed(2);
 }
 
 function emptySplitLine(paymentMethod: BookNoteErpPaymentMethod = "Card"): SplitLineForm {
@@ -134,6 +159,7 @@ function emptyRow(idx: number): LedgerRow {
     cardReceiptRefLast4: "",
     koko: "",
     bankTransfer: "",
+    specialNote: "",
     splitMode: false,
     splitLines: [],
     orderId: null,
@@ -161,6 +187,7 @@ function dayToRows(day: BookNoteDayDto | null): LedgerRow[] {
       cardReceiptRefLast4: r.card_receipt_ref_last4 ?? "",
       koko: r.koko ? String(r.koko) : "",
       bankTransfer: r.bank_transfer ? String(r.bank_transfer) : "",
+      specialNote: r.special_note ?? "",
       splitMode,
       splitLines: splitMode
         ? r.split_lines!.map(splitLineToForm)
@@ -185,6 +212,7 @@ function rowsFingerprint(rows: LedgerRow[]): string {
       r.cardReceiptRefLast4,
       r.koko,
       r.bankTransfer,
+      r.specialNote,
       r.splitMode,
       r.splitLines.map((sl) => [
         sl.paymentMethod,
@@ -199,13 +227,20 @@ function rowsFingerprint(rows: LedgerRow[]): string {
 
 /** True when the sheet holds anything worth warning about before discarding. */
 function hasEnteredData(rows: LedgerRow[]): boolean {
-  return rows.some((r) => r.salesInvoice.trim() !== "" || rowTotal(r) > 0);
+  return rows.some(
+    (r) =>
+      r.salesInvoice.trim() !== "" ||
+      r.specialNote.trim() !== "" ||
+      rowTotal(r) > 0,
+  );
 }
 
 type BookNotesPanelProps = {
   initialLocations: BookNoteLocationOption[];
   initialCanAccessAllShops?: boolean;
   initialCanBackdateBookNotes?: boolean;
+  /** book_notes.admin — bulk ERP + company-wide history. */
+  initialCanAdminBookNotes?: boolean;
   initialHistory?: BookNoteHistoryItem[];
   initialToday: string;
 };
@@ -214,11 +249,13 @@ export function BookNotesPanel({
   initialLocations,
   initialCanAccessAllShops: _initialCanAccessAllShops = false,
   initialCanBackdateBookNotes = false,
+  initialCanAdminBookNotes = false,
   initialHistory = [],
   initialToday,
 }: BookNotesPanelProps) {
   const [locations] = useState(initialLocations);
   const [canBackdateBookNotes] = useState(initialCanBackdateBookNotes);
+  const [canAdminBookNotes] = useState(initialCanAdminBookNotes);
   const [companyLocationId, setCompanyLocationId] = useState(
     initialLocations[0]?.id ?? "",
   );
@@ -245,12 +282,29 @@ export function BookNotesPanel({
   const [pendingTarget, setPendingTarget] = useState<{
     companyLocationId: string;
     postingDate: string;
+    bookNoteDayId: string | null;
     shopLabel: string;
   } | null>(null);
   /** Row count waiting on confirmation because Create rows would wipe entries. */
   const [pendingRowCount, setPendingRowCount] = useState<number | null>(null);
+  /** Saved sheet the user asked to delete, pending confirmation. */
+  const [pendingDelete, setPendingDelete] =
+    useState<BookNoteHistoryItem | null>(null);
+  /** Admin bulk ERP sync (book_notes.admin only). */
+  const [bulkFrom, setBulkFrom] = useState(initialToday);
+  const [bulkTo, setBulkTo] = useState(initialToday);
+  const [bulkMode, setBulkMode] = useState<"unsynced" | "failed" | "all">(
+    "unsynced",
+  );
+  const [bulkShopId, setBulkShopId] = useState("__all__");
   /** Set when the loaded day belongs to a merchant outside the viewer's outlet. */
   const [restrictedBy, setRestrictedBy] = useState<string | null>(null);
+  /**
+   * The sheet currently open, when it was opened from history. Sheets are per
+   * merchant, so saving has to land on this exact one rather than on whatever
+   * sheet the shop and date resolve to for the person saving.
+   */
+  const [openDayId, setOpenDayId] = useState<string | null>(null);
   const [historyQuery, setHistoryQuery] = useState("");
   const [historySearching, setHistorySearching] = useState(false);
   const historyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -277,7 +331,8 @@ export function BookNotesPanel({
     return loc.shortName ? `${loc.shortName} — ${loc.name}` : loc.name;
   }
 
-  const loadDay = useCallback(async (locationId: string, date: string) => {
+  const loadDay = useCallback(
+    async (locationId: string, date: string, bookNoteDayId?: string | null) => {
     if (!locationId || !date) return;
     setBusyKey("load");
     try {
@@ -285,6 +340,7 @@ export function BookNotesPanel({
         companyLocationId: locationId,
         postingDate: date,
       });
+      if (bookNoteDayId) params.set("bookNoteDayId", bookNoteDayId);
       const res = await fetch(`/api/admin/book-notes/page-data?${params}`);
       const data = await res.json();
       if (!res.ok) {
@@ -292,6 +348,7 @@ export function BookNotesPanel({
         return;
       }
       const day = data.day as BookNoteDayDto | null;
+      setOpenDayId(day?.id ?? null);
       const nextRows = dayToRows(day);
       setRows(nextRows);
       setSavedFingerprint(rowsFingerprint(nextRows));
@@ -312,7 +369,9 @@ export function BookNotesPanel({
     } finally {
       setBusyKey(null);
     }
-  }, []);
+    },
+    [],
+  );
 
   useEffect(() => {
     if (hydrated.current) return;
@@ -503,12 +562,22 @@ export function BookNotesPanel({
     );
   }
 
-  /** Load another shop/date sheet, discarding whatever is on screen. */
-  function applySheetChange(id: string, date: string) {
+  /**
+   * Load another sheet, discarding whatever is on screen. Pass `bookNoteDayId`
+   * to open one exact sheet (a history row); leave it out to open this user's
+   * own book note for that shop and date, creating a blank one if they have
+   * none yet.
+   */
+  function applySheetChange(
+    id: string,
+    date: string,
+    bookNoteDayId?: string | null,
+  ) {
     setCompanyLocationId(id);
     setPostingDate(date);
     setLocked(false);
     setRestrictedBy(null);
+    setOpenDayId(bookNoteDayId ?? null);
     setRows([]);
     setSavedFingerprint(rowsFingerprint([]));
     setRowCountInput("0");
@@ -516,24 +585,33 @@ export function BookNotesPanel({
     setSuggestions([]);
     setSuggestForKey(null);
     clearError();
-    void loadDay(id, date);
+    void loadDay(id, date, bookNoteDayId);
   }
 
   /**
    * Switching shop or date reloads the sheet from scratch. Warn first when the
    * merchant keyed rows that were never saved — they are gone once we reload.
    */
-  function requestSheetChange(id: string, date: string) {
-    if (id === companyLocationId && date === postingDate) return;
+  function requestSheetChange(
+    id: string,
+    date: string,
+    bookNoteDayId?: string | null,
+  ) {
+    const sameSheet =
+      id === companyLocationId &&
+      date === postingDate &&
+      (bookNoteDayId ?? null) === openDayId;
+    if (sameSheet) return;
     if (isDirty) {
       setPendingTarget({
         companyLocationId: id,
         postingDate: date,
+        bookNoteDayId: bookNoteDayId ?? null,
         shopLabel: shopLabelFor(id),
       });
       return;
     }
-    applySheetChange(id, date);
+    applySheetChange(id, date, bookNoteDayId);
   }
 
   /** Debounced history search — shop name, posting date, or invoice number. */
@@ -547,7 +625,7 @@ export function BookNotesPanel({
   }
 
   function openHistoryDay(item: BookNoteHistoryItem) {
-    requestSheetChange(item.companyLocationId, item.posting_date);
+    requestSheetChange(item.companyLocationId, item.posting_date, item.id);
   }
 
   function fetchSuggestions(rowKey: string, q: string) {
@@ -559,16 +637,25 @@ export function BookNotesPanel({
     }
     suggestTimer.current = setTimeout(async () => {
       try {
+        const typed = q.trim();
         const params = new URLSearchParams({
           companyLocationId,
-          q: q.trim(),
+          q: typed,
           postingDate,
         });
         const res = await fetch(`/api/admin/book-notes/order-suggestions?${params}`);
         const data = await res.json();
         if (!res.ok) return;
+        const next = (data.suggestions as BookNoteOrderSuggestion[] | undefined) ?? [];
+        const exact = next.find(
+          (s) => s.salesInvoice.toLowerCase() === typed.toLowerCase(),
+        );
+        if (exact) {
+          applySuggestion(rowKey, exact);
+          return;
+        }
         setSuggestForKey(rowKey);
-        setSuggestions(data.suggestions ?? []);
+        setSuggestions(next);
       } catch {
         // ignore suggestion errors — manual entry still works
       }
@@ -576,12 +663,16 @@ export function BookNotesPanel({
   }
 
   function applySuggestion(rowKey: string, s: BookNoteOrderSuggestion) {
+    const useSplit = Boolean(s.splitLines && s.splitLines.length >= 2);
     updateRow(rowKey, {
       salesInvoice: s.salesInvoice,
-      cash: s.cash ? String(s.cash) : "",
-      card: s.card ? String(s.card) : "",
-      koko: s.koko ? String(s.koko) : "",
-      bankTransfer: s.bankTransfer ? String(s.bankTransfer) : "",
+      cash: useSplit ? "" : s.cash ? String(s.cash) : "",
+      card: useSplit ? "" : s.card ? String(s.card) : "",
+      cardReceiptRefLast4: "",
+      koko: useSplit ? "" : s.koko ? String(s.koko) : "",
+      bankTransfer: useSplit ? "" : s.bankTransfer ? String(s.bankTransfer) : "",
+      splitMode: useSplit,
+      splitLines: useSplit ? s.splitLines!.map(splitLineToForm) : [],
       orderId: s.orderId,
     });
     setSuggestions([]);
@@ -681,6 +772,9 @@ export function BookNotesPanel({
     const payload = {
       companyLocationId,
       postingDate,
+      // Save onto the sheet that is actually open, not whatever sheet this
+      // shop and date resolve to for whoever is saving.
+      ...(openDayId ? { bookNoteDayId: openDayId } : {}),
       rows: rows.map((r) => {
         const splitLines = r.splitMode ? splitLinesToPayload(r.splitLines) : null;
         return {
@@ -694,6 +788,7 @@ export function BookNotesPanel({
               : null,
           koko: r.splitMode ? 0 : toNum(r.koko),
           bankTransfer: r.splitMode ? 0 : toNum(r.bankTransfer),
+          specialNote: r.specialNote.trim() || null,
           splitLines,
           orderId: r.orderId,
         };
@@ -716,6 +811,7 @@ export function BookNotesPanel({
     }
     clearError();
     const day = data as BookNoteDayDto;
+    setOpenDayId(day.id);
     const savedRows = dayToRows(day);
     setRows(savedRows);
     setSavedFingerprint(rowsFingerprint(savedRows));
@@ -812,6 +908,7 @@ export function BookNotesPanel({
   async function sendDayToErp(
     dateYmd: string,
     locationId: string = companyLocationId,
+    bookNoteDayId: string | null = openDayId,
   ): Promise<boolean> {
     const res = await fetch("/api/admin/book-notes/send-to-erp", {
       method: "POST",
@@ -819,6 +916,7 @@ export function BookNotesPanel({
       body: JSON.stringify({
         companyLocationId: locationId,
         postingDate: dateYmd,
+        ...(bookNoteDayId ? { bookNoteDayId } : {}),
       }),
     });
     let data: Record<string, unknown> = {};
@@ -878,9 +976,86 @@ export function BookNotesPanel({
         if (firstErr) line += ` (${firstErr})`;
       }
     }
+    const specialNotes = data.specialNotes as {
+      attempted?: number;
+      succeeded?: number;
+      failed?: number;
+    } | null;
+    if (specialNotes && (specialNotes.attempted ?? 0) > 0) {
+      line += ` · notes ${specialNotes.succeeded ?? 0}/${specialNotes.attempted}`;
+    }
     setStatusLine(line);
     notify.success(line);
+    await refreshHistory();
     return true;
+  }
+
+  /** Admin: push many saved sheets to ERP in one go. */
+  async function handleBulkSyncToErp() {
+    if (!canAdminBookNotes) return;
+    if (bulkFrom > bulkTo) {
+      showError("Bulk sync: From date must be on or before To date.");
+      return;
+    }
+    setBusyKey("bulk-erp");
+    clearError();
+    setStatusLine(`Bulk ERP sync (${bulkMode}) ${bulkFrom} → ${bulkTo}...`);
+    try {
+      const res = await fetch("/api/admin/book-notes/sync-to-erp-bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          from: bulkFrom,
+          to: bulkTo,
+          mode: bulkMode,
+          ...(bulkShopId !== "__all__"
+            ? { companyLocationId: bulkShopId }
+            : {}),
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        matched?: number;
+        succeeded?: number;
+        failed?: number;
+        truncated?: boolean;
+        failures?: Array<{
+          shopName: string;
+          postingDate: string;
+          error: string;
+        }>;
+      };
+      if (!res.ok) {
+        showError(
+          typeof data.error === "string"
+            ? data.error
+            : "Bulk ERP sync failed",
+        );
+        return;
+      }
+      const line = `Bulk ERP: ${data.succeeded ?? 0} ok, ${data.failed ?? 0} failed of ${data.matched ?? 0}` +
+        (data.truncated ? " (hit limit — run again for rest)" : "");
+      if ((data.failed ?? 0) > 0) {
+        const first = data.failures?.[0];
+        const detail = first
+          ? ` — e.g. ${first.shopName} ${first.postingDate}: ${first.error}`
+          : "";
+        showError(`${line}${detail}`);
+      } else {
+        clearError();
+        setStatusLine(line);
+        notify.success(line);
+      }
+      await refreshHistory();
+    } catch (err) {
+      showError(
+        err instanceof Error
+          ? `Bulk sync network error: ${err.message}`
+          : "Bulk ERP sync failed (network)",
+      );
+    } finally {
+      setBusyKey(null);
+    }
   }
 
   /** Save then push to ERP (today or a history day). */
@@ -892,7 +1067,7 @@ export function BookNotesPanel({
           ? `${restrictedBy} entered this shop's book note for ${postingDate}. Only they or finance can change it.`
           : canBackdateBookNotes
             ? "This sales date is locked (future dates cannot be saved)."
-            : "Past dates are locked. Only today can be edited unless you have book notes admin permission.",
+            : "Past dates are locked. Only today can be edited.",
       );
       return;
     }
@@ -915,7 +1090,9 @@ export function BookNotesPanel({
         showError("Nothing to send — add invoice rows first");
         return;
       }
-      await sendDayToErp(postingDate);
+      // Use the id the save returned: setOpenDayId has not landed yet, and on
+      // a brand new sheet the state is still null.
+      await sendDayToErp(postingDate, companyLocationId, day.id);
     } catch (err) {
       showError(
         err instanceof Error
@@ -934,7 +1111,8 @@ export function BookNotesPanel({
     clearError();
     setStatusLine(`Sending ${item.shopName} ${item.posting_date} to ERP...`);
     try {
-      await sendDayToErp(item.posting_date, item.companyLocationId);
+      await sendDayToErp(item.posting_date, item.companyLocationId, item.id);
+      await refreshHistory();
     } catch (err) {
       showError(
         err instanceof Error
@@ -995,6 +1173,60 @@ export function BookNotesPanel({
     };
   }, [rows]);
 
+  /**
+   * Remove a saved sheet from Cosmo. ERP keeps any Book Note Entry already
+   * pushed for that day — the confirmation says so before we get here.
+   */
+  async function handleDeleteHistoryDay(item: BookNoteHistoryItem) {
+    setBusyKey(`del:${item.id}`);
+    clearError();
+    try {
+      const res = await fetch(`/api/admin/book-notes/day/${item.id}`, {
+        method: "DELETE",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showError(
+          typeof data.error === "string"
+            ? data.error
+            : "Failed to delete book note",
+        );
+        return;
+      }
+      const erpCount =
+        typeof data.erpDeletedCount === "number" ? data.erpDeletedCount : 0;
+      const erpSkipped =
+        typeof data.erpSkipped === "string" ? data.erpSkipped : null;
+      let line = `Deleted ${item.shopName} ${item.posting_date}`;
+      if (erpCount > 0) {
+        line += ` · ${erpCount} ERP entr${erpCount === 1 ? "y" : "ies"} removed`;
+      } else if (erpSkipped) {
+        line += ` · ${erpSkipped}`;
+      }
+      notify.success(line);
+      // Clear the ledger when the sheet on screen is the one that just went.
+      if (
+        item.companyLocationId === companyLocationId &&
+        item.posting_date === postingDate
+      ) {
+        setRows([]);
+        setSavedFingerprint(rowsFingerprint([]));
+        setRowCountInput("0");
+        setReceipts([]);
+        setLocked(false);
+        setRestrictedBy(null);
+      }
+      setStatusLine(line);
+      await refreshHistory();
+    } catch (err) {
+      showError(
+        err instanceof Error ? err.message : "Failed to delete book note",
+      );
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
   const totals = {
     cash: summary.methods[0]!.total,
     card: summary.methods[1]!.total,
@@ -1012,11 +1244,12 @@ export function BookNotesPanel({
           book. Use <span className="font-semibold text-violet-700">SPLIT</span>{" "}
           when one invoice has multiple payment legs (e.g. two cards with
           different receipt refs). When a normal row includes card payment,
-          enter the last 4 digits of the POS receipt reference. Merchants enter
-          today&apos;s date only; users with book notes admin permission can
-          pick older dates to upload or edit. History lists sheets you saved
-          or sent — not other users&apos; uploads. Shop dropdown lists every
-          company location.
+          enter the last 4 digits of the POS receipt reference. Pick any past
+          date to create or edit your own sheet for that day (not future).
+          Another merchant at the same shop keeps a separate sheet.
+          {canAdminBookNotes
+            ? " Admins also see every merchant's uploads in history."
+            : " History shows only what you uploaded."}
         </p>
       </div>
 
@@ -1024,6 +1257,117 @@ export function BookNotesPanel({
         <div className="border-destructive/40 bg-destructive/10 text-destructive rounded-lg border px-4 py-3 text-sm">
           No shop assigned to your account. Ask an admin to set your employee
           location (or default merchant) before entering book notes.
+        </div>
+      ) : null}
+
+      {canAdminBookNotes ? (
+        <div className="bg-card space-y-3 rounded-lg border p-4">
+          <div>
+            <h2 className="text-sm font-semibold tracking-wide uppercase text-muted-foreground">
+              Admin — sync to ERP
+            </h2>
+            <p className="text-muted-foreground mt-1 text-xs">
+              Push old or failed book notes to ERP in one run. Unsynced =
+              never synced successfully (includes failed). Failed = last push
+              failed. Re-sync all = every sheet with rows in the date range.
+            </p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">
+                From
+              </label>
+              <Input
+                type="date"
+                value={bulkFrom}
+                max={today}
+                disabled={isBusy}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  if (!next || next > today) return;
+                  setBulkFrom(next);
+                }}
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">
+                To
+              </label>
+              <Input
+                type="date"
+                value={bulkTo}
+                max={today}
+                disabled={isBusy}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  if (!next || next > today) return;
+                  setBulkTo(next);
+                }}
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">
+                Shop
+              </label>
+              <Select
+                value={bulkShopId}
+                disabled={isBusy}
+                onValueChange={setBulkShopId}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="All shops" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">All shops</SelectItem>
+                  {locations.map((loc) => (
+                    <SelectItem key={loc.id} value={loc.id}>
+                      {loc.shortName
+                        ? `${loc.shortName} — ${loc.name}`
+                        : loc.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">
+                Mode
+              </label>
+              <Select
+                value={bulkMode}
+                disabled={isBusy}
+                onValueChange={(v) =>
+                  setBulkMode(v as "unsynced" | "failed" | "all")
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="unsynced">Unsynced (old + failed)</SelectItem>
+                  <SelectItem value="failed">Failed only</SelectItem>
+                  <SelectItem value="all">Re-sync all</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-end">
+              <Button
+                type="button"
+                className="w-full"
+                disabled={isBusy}
+                onClick={() => void handleBulkSyncToErp()}
+              >
+                {busyKey === "bulk-erp" ? (
+                  <>
+                    <Loader2 className="animate-spin" aria-hidden />
+                    Syncing...
+                  </>
+                ) : (
+                  "Sync to ERP"
+                )}
+              </Button>
+            </div>
+          </div>
         </div>
       ) : null}
 
@@ -1075,7 +1419,7 @@ export function BookNotesPanel({
           {canBackdateBookNotes && postingDate !== today ? (
             <div className="flex flex-wrap items-center gap-2">
               <p className="text-muted-foreground text-xs">
-                Admin backdate — save &amp; send updates this date.
+                Past date — save &amp; send updates this date.
               </p>
               <Button
                 type="button"
@@ -1091,7 +1435,9 @@ export function BookNotesPanel({
           {!canBackdateBookNotes && postingDate !== today ? (
             <div className="flex flex-wrap items-center gap-2">
               <p className="text-muted-foreground text-xs">
-                View-only history day — open today to enter or edit.
+                {readOnly
+                  ? "View-only — past notes cannot be edited. Open today to enter or send."
+                  : "Editing your book note for this date."}
               </p>
               <Button
                 type="button"
@@ -1141,13 +1487,12 @@ export function BookNotesPanel({
       {restrictedBy ? (
         <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200">
           <p className="font-medium">
-            {restrictedBy} already entered this shop&apos;s book note for{" "}
-            {postingDate}.
+            This book note was submitted by {restrictedBy}.
           </p>
           <p className="mt-1 text-xs">
-            You are not posted to this outlet, so the rows and photos are hidden
-            and the sheet is read-only — saving here would replace their entry.
-            Ask them or finance if you need a change.
+            Its rows and photos are hidden and the sheet is read-only. To enter
+            your own book note for this shop and day, go back to today — yours
+            is kept separately from theirs.
           </p>
         </div>
       ) : null}
@@ -1253,13 +1598,36 @@ export function BookNotesPanel({
                             >
                               <span className="font-mono font-medium">{s.label}</span>
                               <span className="text-muted-foreground ml-2">
-                                {s.totalPrice.toFixed(2)} · {s.sourceName}
+                                {suggestionAmountHint(s)} · {s.sourceName}
                               </span>
                             </button>
                           </li>
                         ))}
                       </ul>
                     )}
+                    <Textarea
+                      value={row.specialNote}
+                      disabled={isBusy || readOnly}
+                      placeholder="Special note (optional)"
+                      aria-label={`Special note for row ${row.idxNo}`}
+                      maxLength={LIMITS.bookNoteSpecialNote.max}
+                      rows={2}
+                      className="mt-1 min-h-[2.5rem] resize-y text-xs"
+                      onChange={(e) =>
+                        updateRow(row.key, {
+                          specialNote: e.target.value.slice(
+                            0,
+                            LIMITS.bookNoteSpecialNote.max,
+                          ),
+                        })
+                      }
+                    />
+                    {row.specialNote.trim().length > 0 ? (
+                      <p className="text-muted-foreground mt-0.5 text-[10px] tabular-nums">
+                        {row.specialNote.trim().length}/
+                        {LIMITS.bookNoteSpecialNote.max}
+                      </p>
+                    ) : null}
                   </td>
                   <td className="p-1">
                     <Input
@@ -1717,8 +2085,9 @@ export function BookNotesPanel({
               Save history
             </h2>
             <p className="text-muted-foreground mt-1 text-xs">
-              Sheets you saved, plus sheets anyone saved for the outlet you are
-              posted to.
+              {canAdminBookNotes
+                ? "Every saved book note. Merchants only see the sheets they uploaded."
+                : "Only the book notes you saved. A colleague's sheet for the same shop and day is theirs and does not appear here."}
             </p>
           </div>
           <div className="relative w-full sm:w-72">
@@ -1771,7 +2140,8 @@ export function BookNotesPanel({
                   <th className="p-2">Entered by</th>
                   <th className="p-2 text-right">Rows</th>
                   <th className="p-2 text-right">Total</th>
-                  <th className="p-2">Status</th>
+                  <th className="p-2">Edit</th>
+                  <th className="p-2">ERP</th>
                   <th className="p-2 text-right">Actions</th>
                 </tr>
               </thead>
@@ -1808,6 +2178,20 @@ export function BookNotesPanel({
                       <td className="p-2 text-xs text-muted-foreground">
                         {item.locked ? "Locked" : "Editable"}
                       </td>
+                      <td className="p-2 text-xs">
+                        {item.erpSyncStatus === "synced" ? (
+                          <span className="text-emerald-700">Synced</span>
+                        ) : item.erpSyncStatus === "failed" ? (
+                          <span
+                            className="text-destructive"
+                            title={item.erpSyncError ?? undefined}
+                          >
+                            Failed
+                          </span>
+                        ) : (
+                          <span className="text-amber-700">Pending</span>
+                        )}
+                      </td>
                       <td className="p-2">
                         <div className="flex justify-end gap-1">
                           <Button
@@ -1817,7 +2201,14 @@ export function BookNotesPanel({
                             disabled={isBusy || active}
                             onClick={() => openHistoryDay(item)}
                           >
-                            Open
+                            {item.locked ? (
+                              "View"
+                            ) : (
+                              <>
+                                <Pencil className="h-3.5 w-3.5" />
+                                Edit
+                              </>
+                            )}
                           </Button>
                           <Button
                             type="button"
@@ -1831,10 +2222,34 @@ export function BookNotesPanel({
                                 <Loader2 className="animate-spin" aria-hidden />
                                 Sending...
                               </>
-                            ) : (
+                            ) : item.erpSyncStatus === "failed" ? (
+                              "Retry ERP"
+                            ) : item.erpSyncStatus === "synced" ? (
                               "Resend to ERP"
+                            ) : (
+                              "Send to ERP"
                             )}
                           </Button>
+                          {item.isOwn && !item.locked ? (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="text-destructive hover:text-destructive h-8 w-8"
+                              disabled={isBusy}
+                              aria-label={`Delete ${item.shopName} ${item.posting_date}`}
+                              onClick={() => setPendingDelete(item)}
+                            >
+                              {busyKey === `del:${item.id}` ? (
+                                <Loader2
+                                  className="h-3.5 w-3.5 animate-spin"
+                                  aria-hidden
+                                />
+                              ) : (
+                                <Trash2 className="h-3.5 w-3.5" />
+                              )}
+                            </Button>
+                          ) : null}
                         </div>
                       </td>
                     </tr>
@@ -1870,11 +2285,49 @@ export function BookNotesPanel({
                 const target = pendingTarget;
                 setPendingTarget(null);
                 if (target) {
-                  applySheetChange(target.companyLocationId, target.postingDate);
+                  applySheetChange(
+                    target.companyLocationId,
+                    target.postingDate,
+                    target.bookNoteDayId,
+                  );
                 }
               }}
             >
               Discard and switch
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingDelete(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this book note?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingDelete?.shopName} — {pendingDelete?.posting_date}, with{" "}
+              {pendingDelete?.rowCount ?? 0} invoice row
+              {pendingDelete?.rowCount === 1 ? "" : "s"} and its uploaded
+              photos, will be removed permanently. If this day was already sent
+              to ERP, its Book Note Entries and attached slips are deleted there
+              too. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep it</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                const target = pendingDelete;
+                setPendingDelete(null);
+                if (target) void handleDeleteHistoryDay(target);
+              }}
+            >
+              Delete book note
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

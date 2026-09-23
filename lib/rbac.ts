@@ -29,6 +29,19 @@ const DEFAULT_PERMISSIONS = [
     description: "Edit staff details and process resignations",
   },
   {
+    key: "riders.read",
+    description:
+      "View rider management: roster, assigned orders, location cash totals",
+  },
+  {
+    key: "riders.performance.read",
+    description: "View rider performance and delivery incentive totals",
+  },
+  {
+    key: "riders.performance.manage",
+    description: "Set manual district for unmatched rider incentives",
+  },
+  {
     key: "roles.read",
     description: "View roles and permissions",
   },
@@ -66,11 +79,13 @@ const DEFAULT_PERMISSIONS = [
   },
   {
     key: "purchasing.osf.manage",
-    description: "Edit OSF Shop Availability, ROP, OGF Price, and column mappings",
+    description:
+      "Edit OSF Shop Availability, ROP, OGF Price, and column mappings",
   },
   {
     key: "purchasing.osf.permission",
-    description: "Assign which OSF Excel columns other purchasing users may download",
+    description:
+      "Assign which OSF Excel columns other purchasing users may download",
   },
   {
     key: "reports.stock_comparer",
@@ -78,7 +93,8 @@ const DEFAULT_PERMISSIONS = [
   },
   {
     key: "purchasing.tools.read",
-    description: "Use purchasing calculator, price compare, and filtered reorder OSF",
+    description:
+      "Use purchasing calculator, price compare, and filtered reorder OSF",
   },
   {
     key: "purchasing.tools.manage",
@@ -86,15 +102,18 @@ const DEFAULT_PERMISSIONS = [
   },
   {
     key: "purchasing.item_trends.read",
-    description: "View Item Trends super dashboard (movement, outlets, ROP suggestions, districts)",
+    description:
+      "View Item Trends super dashboard (movement, outlets, ROP suggestions, districts)",
   },
   {
     key: "purchasing.market_prices.read",
-    description: "View Market Price Compare dashboard and competitor price data",
+    description:
+      "View Market Price Compare dashboard and competitor price data",
   },
   {
     key: "purchasing.market_prices.manage",
-    description: "Add/edit competitor product links and import competitor price spreadsheets",
+    description:
+      "Add/edit competitor product links and import competitor price spreadsheets",
   },
   {
     key: "purchasing.grn.read",
@@ -118,11 +137,13 @@ const DEFAULT_PERMISSIONS = [
   },
   {
     key: "store.allocation.read",
-    description: "Use store location allocation advisor (SKU/barcode take-qty split)",
+    description:
+      "Use store location allocation advisor (SKU/barcode take-qty split)",
   },
   {
     key: "store.stock_count.read",
-    description: "Use store stock count worksheet (ERP live stock vs scanned count)",
+    description:
+      "Use store stock count worksheet (ERP live stock vs scanned count)",
   },
   {
     key: "academy.learn",
@@ -135,7 +156,8 @@ const DEFAULT_PERMISSIONS = [
   // Products - Storage
   {
     key: "products.storage.read",
-    description: "View product item file storage (photos, audio, video, documents)",
+    description:
+      "View product item file storage (photos, audio, video, documents)",
   },
   {
     key: "products.storage.manage",
@@ -144,11 +166,13 @@ const DEFAULT_PERMISSIONS = [
   // Contacts
   {
     key: "contacts.read",
-    description: "Legacy broad contact access: view contact master, updates, allocation, and performance",
+    description:
+      "Legacy broad contact access: view contact master, updates, allocation, and performance",
   },
   {
     key: "contacts.manage",
-    description: "Legacy broad contact management: create, import, backfill, update, and allocate contacts",
+    description:
+      "Legacy broad contact management: create, import, backfill, update, and allocate contacts",
   },
   {
     key: "contacts.master.read",
@@ -267,7 +291,8 @@ const DEFAULT_PERMISSIONS = [
   },
   {
     key: "abandoned_orders.manage",
-    description: "Update abandoned order follow-up status, customer response, and remarks",
+    description:
+      "Update abandoned order follow-up status, customer response, and remarks",
   },
   {
     key: "finance.approvals.read",
@@ -276,6 +301,11 @@ const DEFAULT_PERMISSIONS = [
   {
     key: "finance.approvals.manage",
     description: "Approve or reject finance approval requests",
+  },
+  {
+    key: "finance.approvals.cancel_koko_duplicate",
+    description:
+      "Cancel duplicate KOKO orders from finance approvals (OS + ERP)",
   },
   {
     key: "finance.hod.revert_paid_to_unpaid",
@@ -349,7 +379,8 @@ const DEFAULT_PERMISSIONS = [
   },
   {
     key: "settings.fulfillment",
-    description: "Manage samples, free issues, hold reasons, and courier services",
+    description:
+      "Manage samples, free issues, hold reasons, and courier services",
   },
   // Dashboard
   {
@@ -358,7 +389,8 @@ const DEFAULT_PERMISSIONS = [
   },
   {
     key: "dashboard.merchant_view",
-    description: "View personalized merchant dashboard (own slice, or any merchant if admin)",
+    description:
+      "View personalized merchant dashboard (own slice, or any merchant if admin)",
   },
   {
     key: "dashboard.merchant_admin_view",
@@ -371,7 +403,8 @@ const DEFAULT_PERMISSIONS = [
   },
   {
     key: "dashboard.edit",
-    description: "Edit dashboard brand configuration (add/remove brands, change selection)",
+    description:
+      "Edit dashboard brand configuration (add/remove brands, change selection)",
   },
   {
     key: DASHBOARD_DATE_TYPE_PERMISSIONS.placedAll,
@@ -529,32 +562,39 @@ const DEFAULT_PERMISSIONS = [
   },
   {
     key: "book_notes.manage",
-    description: "Enter and save daily merchant book notes for company locations",
+    description:
+      "Book Notes — merchant entry. Save daily sheets (TEMP: also past dates). Does not open Book Notes (Finance).",
   },
   {
     key: "book_notes.admin",
     description:
-      "Edit past book notes and upload entries for older dates (not future dates)",
+      "Book Notes — see every merchant's sheets, delete others' sheets, bulk ERP sync. Not the finance review page.",
   },
   {
     key: "book_notes.read",
-    description: "Retrieve merchant book notes for any location (finance / intern)",
+    description:
+      "Book Notes (Finance) — review every shop's sheets. Finance only; does not open merchant Book Notes.",
   },
 ] as const;
 
 const ALL_DEFAULT_PERMISSION_KEYS = DEFAULT_PERMISSIONS.map((p) => p.key);
 
+/** Admin keeps merchant Book Notes; finance review stays on finance / hod. */
+const ADMIN_PERMISSION_KEYS = ALL_DEFAULT_PERMISSION_KEYS.filter(
+  (key) => key !== "book_notes.read",
+);
+
 const DEFAULT_ROLES = [
   {
     name: "super_admin",
     description: "Full system access including company setup",
-    // All default permissions, including reminder bubbles.
-    permissionKeys: ALL_DEFAULT_PERMISSION_KEYS,
+    // All default permissions except Book Notes (Finance), which is finance/hod only.
+    permissionKeys: ADMIN_PERMISSION_KEYS,
   },
   {
     name: "admin",
     description: "Full access to user and role management",
-    permissionKeys: ALL_DEFAULT_PERMISSION_KEYS,
+    permissionKeys: ADMIN_PERMISSION_KEYS,
   },
   {
     name: "manager",
@@ -564,6 +604,9 @@ const DEFAULT_ROLES = [
       "users.manage",
       "staff.read",
       "staff.manage",
+      "riders.read",
+      "riders.performance.read",
+      "riders.performance.manage",
       "roles.read",
       "settings.company",
       "settings.email_templates",
@@ -616,9 +659,9 @@ const DEFAULT_ROLES = [
       "merchant_reviews.manage",
       "book_notes.manage",
       "book_notes.admin",
-      "book_notes.read",
       "finance.approvals.read",
       "finance.approvals.manage",
+      "finance.approvals.cancel_koko_duplicate",
       "finance.hod.revert_paid_to_unpaid",
       "dashboard.view",
       "dashboard.merchant_view",
@@ -683,7 +726,10 @@ const DEFAULT_ROLES = [
     permissionKeys: [
       "finance.approvals.read",
       "finance.approvals.manage",
+      "finance.approvals.cancel_koko_duplicate",
       "book_notes.read",
+      "riders.read",
+      "riders.performance.read",
       "dashboard.view",
       DASHBOARD_DATE_TYPE_PERMISSIONS.placedAll,
       DASHBOARD_DATE_TYPE_PERMISSIONS.placedBreakdown,
@@ -697,7 +743,8 @@ const DEFAULT_ROLES = [
   },
   {
     name: "hod",
-    description: "Head of Department — can revert paid orders to unpaid with password",
+    description:
+      "Head of Department — can revert paid orders to unpaid with password",
     permissionKeys: [
       "finance.approvals.read",
       "finance.hod.revert_paid_to_unpaid",
@@ -715,6 +762,8 @@ const DEFAULT_ROLES = [
     permissionKeys: [
       "users.read",
       "staff.read",
+      "riders.read",
+      "riders.performance.read",
       "roles.read",
       "contacts.read",
       "contacts.master.read",
@@ -761,12 +810,14 @@ type AccessRole = {
   name: string;
 };
 
-function isPrismaKnownError(error: unknown): error is { code?: string; message?: string } {
+function isPrismaKnownError(
+  error: unknown,
+): error is { code?: string; message?: string } {
   return Boolean(
     error &&
-      typeof error === "object" &&
-      "code" in error &&
-      typeof (error as { code?: string }).code === "string"
+    typeof error === "object" &&
+    "code" in error &&
+    typeof (error as { code?: string }).code === "string",
   );
 }
 
@@ -788,10 +839,10 @@ function isRbacPrismaReady() {
   const client = prisma as unknown as Record<string, unknown>;
   return Boolean(
     client.permission &&
-      client.role &&
-      client.user &&
-      client.userRole &&
-      client.rolePermission
+    client.role &&
+    client.user &&
+    client.userRole &&
+    client.rolePermission,
   );
 }
 
@@ -851,7 +902,10 @@ async function ensureDefaultRbacSetupIfNeeded() {
   await pinCustomRolePermissionsIfNeeded();
 }
 
-const PINNED_CUSTOM_ROLE_PERMISSIONS: { roleName: string; permissionKey: string }[] = [
+const PINNED_CUSTOM_ROLE_PERMISSIONS: {
+  roleName: string;
+  permissionKey: string;
+}[] = [
   { roleName: "stores-level-01", permissionKey: "store.allocation.read" },
   { roleName: "stores-level-02", permissionKey: "store.allocation.read" },
   { roleName: "stores-level-01", permissionKey: "store.stock_count.read" },
@@ -868,15 +922,16 @@ async function pinCustomRolePermissionsIfNeeded() {
     return;
   }
   await pinCustomRolePermissions();
+  await splitBookNoteRolePermissions();
   lastCustomRolePinAt = Date.now();
 }
 
 async function pinCustomRolePermissions() {
   const permissionKeys = Array.from(
-    new Set(PINNED_CUSTOM_ROLE_PERMISSIONS.map((entry) => entry.permissionKey))
+    new Set(PINNED_CUSTOM_ROLE_PERMISSIONS.map((entry) => entry.permissionKey)),
   );
   const roleNames = Array.from(
-    new Set(PINNED_CUSTOM_ROLE_PERMISSIONS.map((entry) => entry.roleName))
+    new Set(PINNED_CUSTOM_ROLE_PERMISSIONS.map((entry) => entry.roleName)),
   );
   const [permissions, roles] = await Promise.all([
     prisma.permission.findMany({
@@ -888,7 +943,9 @@ async function pinCustomRolePermissions() {
       select: { id: true, name: true },
     }),
   ]);
-  const permissionIdByKey = new Map(permissions.map((permission) => [permission.key, permission.id]));
+  const permissionIdByKey = new Map(
+    permissions.map((permission) => [permission.key, permission.id]),
+  );
   const roleIdByName = new Map(roles.map((role) => [role.name, role.id]));
   const data = PINNED_CUSTOM_ROLE_PERMISSIONS.flatMap((entry) => {
     const permissionId = permissionIdByKey.get(entry.permissionKey);
@@ -906,10 +963,73 @@ async function pinCustomRolePermissions() {
   lastCustomRolePinAt = Date.now();
 }
 
+/**
+ * Merchant Book Notes (`book_notes.manage`) and Book Notes (Finance)
+ * (`book_notes.read`) stay on separate roles. Setup only adds grants, so
+ * leftover overlap from older defaults must be deleted or both nav items show.
+ *
+ * A single role is merchant *or* finance, not both. Users who need both pages
+ * get both roles.
+ */
+async function splitBookNoteRolePermissions() {
+  const [manage, read, adminWrite] = await Promise.all([
+    prisma.permission.findUnique({
+      where: { key: "book_notes.manage" },
+      select: { id: true },
+    }),
+    prisma.permission.findUnique({
+      where: { key: "book_notes.read" },
+      select: { id: true },
+    }),
+    prisma.permission.findUnique({
+      where: { key: "book_notes.admin" },
+      select: { id: true },
+    }),
+  ]);
+  if (!manage || !read) return;
+
+  const financeRoleNames = ["finance", "hod"];
+
+  const merchantGrants = await prisma.rolePermission.findMany({
+    where: { permissionId: manage.id },
+    select: { roleId: true, role: { select: { name: true } } },
+  });
+  const merchantRoleIds = merchantGrants
+    .filter((row) => !financeRoleNames.includes(row.role.name))
+    .map((row) => row.roleId);
+  if (merchantRoleIds.length > 0) {
+    await prisma.rolePermission.deleteMany({
+      where: {
+        roleId: { in: merchantRoleIds },
+        permissionId: read.id,
+      },
+    });
+  }
+
+  const financeRoles = await prisma.role.findMany({
+    where: { name: { in: financeRoleNames } },
+    select: { id: true },
+  });
+  const merchantWriteIds = [manage.id, adminWrite?.id].filter(
+    (id): id is string => Boolean(id),
+  );
+  if (financeRoles.length > 0 && merchantWriteIds.length > 0) {
+    await prisma.rolePermission.deleteMany({
+      where: {
+        roleId: { in: financeRoles.map((role) => role.id) },
+        permissionId: { in: merchantWriteIds },
+      },
+    });
+  }
+
+  rolePermissionCache.clear();
+  userContextCache.clear();
+}
+
 export async function ensureDefaultRbacSetup() {
   if (!isRbacPrismaReady()) {
     throw new Error(
-      "RBAC Prisma client is not ready. Run: npm run db:push && npm run db:generate"
+      "RBAC Prisma client is not ready. Run: npm run db:push && npm run db:generate",
     );
   }
 
@@ -953,6 +1073,7 @@ export async function ensureDefaultRbacSetup() {
     // deleteMany-s unknown Permission keys cascade-wipes these grants. Re-attach
     // after every setup so Location allocation stays on stores-level-01/02.
     await pinCustomRolePermissions();
+    await splitBookNoteRolePermissions();
 
     // Do not auto-delete Permission rows missing from DEFAULT_PERMISSIONS.
     // An older app process (pre-new-permission deploy) calling this would wipe
@@ -960,7 +1081,7 @@ export async function ensureDefaultRbacSetup() {
   } catch (error) {
     if (isMissingRbacTableError(error)) {
       throw new Error(
-        "RBAC tables are missing. Run: npm run db:push && npm run db:generate"
+        "RBAC tables are missing. Run: npm run db:push && npm run db:generate",
       );
     }
     throw error;
@@ -982,20 +1103,29 @@ export async function syncSessionUser(sessionUser: SessionUser) {
     where: { auth0Id: sessionUser.sub },
   });
 
-  const existingUserByEmail = normalizedEmail && !existingUserByAuth0Id
-    ? await prisma.user.findUnique({
-        where: { email: normalizedEmail },
-      })
-    : null;
+  const existingUserByEmail =
+    normalizedEmail && !existingUserByAuth0Id
+      ? await prisma.user.findUnique({
+          where: { email: normalizedEmail },
+        })
+      : null;
 
   const existingUser = existingUserByAuth0Id ?? existingUserByEmail ?? null;
   let user;
+
+  // Do not overwrite User.name from Auth0 after create — staff/profile edits
+  // own the display name. Auth0 invite name would otherwise revert DB changes
+  // on the staff user's next login/request via syncSessionUser.
+  const shouldFillEmptyName =
+    !!existingUser &&
+    (existingUser.name == null || existingUser.name.trim() === "") &&
+    !!(sessionUser.name?.trim());
 
   const needsUpdate =
     existingUser &&
     (existingUser.auth0Id !== sessionUser.sub ||
       existingUser.email !== normalizedEmail ||
-      existingUser.name !== (sessionUser.name ?? null) ||
+      shouldFillEmptyName ||
       existingUser.picture !== (sessionUser.picture ?? null));
 
   try {
@@ -1007,7 +1137,7 @@ export async function syncSessionUser(sessionUser: SessionUser) {
         data: {
           auth0Id: sessionUser.sub,
           email: normalizedEmail,
-          name: sessionUser.name ?? null,
+          ...(shouldFillEmptyName ? { name: sessionUser.name ?? null } : {}),
           picture: sessionUser.picture ?? null,
         },
       });
@@ -1029,12 +1159,12 @@ export async function syncSessionUser(sessionUser: SessionUser) {
     const conflictingUser =
       (await prisma.user.findUnique({
         where: { auth0Id: sessionUser.sub },
-        select: { id: true },
+        select: { id: true, name: true },
       })) ??
       (normalizedEmail
         ? await prisma.user.findUnique({
             where: { email: normalizedEmail },
-            select: { id: true },
+            select: { id: true, name: true },
           })
         : null);
 
@@ -1042,12 +1172,16 @@ export async function syncSessionUser(sessionUser: SessionUser) {
       throw error;
     }
 
+    const fillConflictName =
+      (conflictingUser.name == null || conflictingUser.name.trim() === "") &&
+      !!(sessionUser.name?.trim());
+
     user = await prisma.user.update({
       where: { id: conflictingUser.id },
       data: {
         auth0Id: sessionUser.sub,
         email: normalizedEmail,
-        name: sessionUser.name ?? null,
+        ...(fillConflictName ? { name: sessionUser.name ?? null } : {}),
         picture: sessionUser.picture ?? null,
       },
     });
@@ -1094,7 +1228,9 @@ export async function syncSessionUser(sessionUser: SessionUser) {
   return user;
 }
 
-type SessionLike = { user: { sub?: string; email?: string; name?: string; picture?: string } };
+type SessionLike = {
+  user: { sub?: string; email?: string; name?: string; picture?: string };
+};
 
 async function buildContextFromSessionUser(sessionUser: SessionUser) {
   const user = await syncSessionUser({
@@ -1114,9 +1250,13 @@ async function buildContextFromSessionUser(sessionUser: SessionUser) {
   }
 
   const userAccess = await getUserAccessRoles(user.id);
-  const roles: AccessRole[] = (userAccess?.userRoles ?? []).map((userRole) => userRole.role);
+  const roles: AccessRole[] = (userAccess?.userRoles ?? []).map(
+    (userRole) => userRole.role,
+  );
   const roleNames = Array.from(new Set(roles.map((role) => role.name)));
-  const permissionKeys = await getRolePermissionKeys(roles.map((role) => role.id));
+  const permissionKeys = await getRolePermissionKeys(
+    roles.map((role) => role.id),
+  );
 
   return {
     sessionUser,
@@ -1208,7 +1348,9 @@ async function getRolePermissionKeys(roleIds: string[]) {
   });
 
   const permissionKeys = Array.from(
-    new Set(rolePermissions.map((rolePermission) => rolePermission.permission.key))
+    new Set(
+      rolePermissions.map((rolePermission) => rolePermission.permission.key),
+    ),
   );
 
   rolePermissionCache.set(cacheKey, {
@@ -1220,7 +1362,7 @@ async function getRolePermissionKeys(roleIds: string[]) {
 }
 
 function getCachedUserContext(
-  sub: string
+  sub: string,
 ): Awaited<ReturnType<typeof getCurrentUserContextImpl>> | undefined {
   const entry = userContextCache.get(sub);
   if (!entry || Date.now() - entry.timestamp > USER_CONTEXT_TTL_MS) {
@@ -1232,7 +1374,7 @@ function getCachedUserContext(
 
 function setCachedUserContext(
   sub: string,
-  result: Awaited<ReturnType<typeof getCurrentUserContextImpl>>
+  result: Awaited<ReturnType<typeof getCurrentUserContextImpl>>,
 ) {
   const now = Date.now();
   for (const [k, v] of userContextCache.entries()) {
@@ -1260,7 +1402,7 @@ export const getCurrentUserContext = cache(getCurrentUserContextCached);
 
 export function hasPermission(
   context: Awaited<ReturnType<typeof getCurrentUserContext>>,
-  permissionKey: string
+  permissionKey: string,
 ) {
   if (!context) {
     return false;
@@ -1274,7 +1416,7 @@ export function hasPermission(
 
 export function hasAnyPermission(
   context: Awaited<ReturnType<typeof getCurrentUserContext>>,
-  permissionKeys: string[]
+  permissionKeys: string[],
 ) {
   return permissionKeys.some((key) => hasPermission(context, key));
 }
@@ -1349,7 +1491,7 @@ type ListRbacDataOptions = {
 export async function listRbacData(options: ListRbacDataOptions = {}) {
   if (!isRbacPrismaReady()) {
     throw new Error(
-      "RBAC Prisma client is not ready. Run: npm run db:push && npm run db:generate"
+      "RBAC Prisma client is not ready. Run: npm run db:push && npm run db:generate",
     );
   }
 
@@ -1415,7 +1557,9 @@ export async function listRbacData(options: ListRbacDataOptions = {}) {
     }),
   ]);
 
-  const permissionsById = new Map(permissions.map((permission) => [permission.id, permission]));
+  const permissionsById = new Map(
+    permissions.map((permission) => [permission.id, permission]),
+  );
   const roles = rawRoles.map((role) => ({
     ...role,
     rolePermissions: role.rolePermissions
@@ -1423,8 +1567,11 @@ export async function listRbacData(options: ListRbacDataOptions = {}) {
         const permission = permissionsById.get(rolePermission.permissionId);
         return permission ? { permission } : null;
       })
-      .filter((rolePermission): rolePermission is { permission: (typeof permissions)[number] } =>
-        rolePermission !== null
+      .filter(
+        (
+          rolePermission,
+        ): rolePermission is { permission: (typeof permissions)[number] } =>
+          rolePermission !== null,
       ),
   }));
 

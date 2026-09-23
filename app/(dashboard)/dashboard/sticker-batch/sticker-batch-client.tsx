@@ -214,7 +214,7 @@ function createEmptyRow(id: string): ItemRow {
 
 function formatToTwoDecimals(value: string) {
   const num = Number(value);
-  if (!Number.isFinite(num)) return "";
+  if (!Number.isFinite(num) || num <= 0) return "";
   return num.toFixed(2);
 }
 
@@ -379,6 +379,35 @@ export function StickerBatchClient({
     lwkPriceFetchAttemptedRef.current = new Set();
     standardSellingFetchAttemptedRef.current = new Set();
   }, [initialLwkPriceBySku, initialStandardSellingBySku]);
+
+  // On open / after ERP maps refresh: fill blank or zero unit prices from latest sources.
+  useEffect(() => {
+    setRows((prev) => {
+      let changed = false;
+      const next = prev.map((row) => {
+        const sku = row.itemCode.trim();
+        if (!sku) return row;
+        const current = Number(row.unitPrice);
+        if (Number.isFinite(current) && current > 0) return row;
+        const locationId = row.locationId.trim() || selectedLocationId;
+        const item = matchItem(sku, locationId || undefined);
+        if (!item) return row;
+        const nextPrice = resolveUnitPriceForItem(item, locationId);
+        if (!nextPrice || nextPrice === row.unitPrice) return row;
+        changed = true;
+        return { ...row, unitPrice: nextPrice };
+      });
+      return changed ? next : prev;
+    });
+    // matchItem / resolveUnitPriceForItem close over latest maps + catalog
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refresh when price sources change
+  }, [
+    lwkPriceBySku,
+    standardSellingBySku,
+    itemCatalog,
+    selectedLocationId,
+    locations,
+  ]);
 
   useEffect(() => {
     const usingLwk =
@@ -896,6 +925,7 @@ export function StickerBatchClient({
     return resolveStickerUnitPrice({
       lwkErpPrice: lookupErpPriceBySku(lwkPriceBySku, sku),
       standardSellingErpPrice: lookupErpPriceBySku(standardSellingBySku, sku),
+      catalogPrice: item.price,
       isLwk,
     });
   }

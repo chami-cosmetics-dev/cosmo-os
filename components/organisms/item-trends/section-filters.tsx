@@ -19,8 +19,6 @@ type Props = {
   onErpScopeChange?: (value: ErpStockScope) => void;
   oosOnly?: boolean;
   onOosOnlyChange?: (value: boolean) => void;
-  sendOnly?: boolean;
-  onSendOnlyChange?: (value: boolean) => void;
   sku?: string;
   onSkuChange?: (value: string) => void;
 };
@@ -39,8 +37,6 @@ export function ItemTrendsSectionFilters({
   onErpScopeChange,
   oosOnly,
   onOosOnlyChange,
-  sendOnly,
-  onSendOnlyChange,
   sku,
   onSkuChange,
 }: Props) {
@@ -117,7 +113,11 @@ export function ItemTrendsSectionFilters({
             <option value="">All locations</option>
             {locations.map((loc) => (
               <option key={loc.columnKey} value={loc.columnKey}>
-                {loc.channelKind === "online" ? "Online · " : "Shop · "}
+                {loc.locationGroup === "cosmetics_lk"
+                  ? loc.channelKind === "online"
+                    ? "Online · "
+                    : "Shop · "
+                  : "Company · "}
                 {loc.label}
               </option>
             ))}
@@ -132,16 +132,6 @@ export function ItemTrendsSectionFilters({
             onChange={(e) => onOosOnlyChange(e.target.checked)}
           />
           OOS in range
-        </label>
-      ) : null}
-      {onSendOnlyChange ? (
-        <label className="flex h-9 items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={Boolean(sendOnly)}
-            onChange={(e) => onSendOnlyChange(e.target.checked)}
-          />
-          Send list (below 50%)
         </label>
       ) : null}
     </div>

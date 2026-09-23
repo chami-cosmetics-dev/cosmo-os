@@ -10,6 +10,7 @@ import {
 } from "@/lib/book-notes/summary";
 import type {
   BookNoteActor,
+  BookNoteShopTotal,
   BookNoteFinanceDay,
   BookNoteFinanceSummary,
 } from "@/lib/book-notes/types";
@@ -127,7 +128,44 @@ export async function loadBookNoteFinanceReview(input: {
       methods: merged.methods,
       entryCount: merged.entryCount,
       grandTotal: merged.grandTotal,
+      shops: rollUpByShop(financeDays),
     },
     truncated,
   };
+}
+
+/**
+ * Roll the range up per shop — which is also per ERP company, since each shop
+ * submits under its own. Biggest total first.
+ */
+export function rollUpByShop(days: BookNoteFinanceDay[]): BookNoteShopTotal[] {
+  const byShop = new Map<string, BookNoteFinanceDay[]>();
+  for (const day of days) {
+    const list = byShop.get(day.companyLocationId);
+    if (list) list.push(day);
+    else byShop.set(day.companyLocationId, [day]);
+  }
+
+  const totals: BookNoteShopTotal[] = [];
+  for (const [companyLocationId, shopDays] of byShop) {
+    const merged = mergeBookNoteSummaries(
+      shopDays.map((d) => ({
+        methods: d.methods,
+        entryCount: d.entryCount,
+        grandTotal: d.grandTotal,
+      })),
+    );
+    totals.push({
+      companyLocationId,
+      shopName: shopDays[0]!.shopName,
+      company: shopDays[0]!.company,
+      dayCount: shopDays.length,
+      rowCount: shopDays.reduce((sum, d) => sum + d.rowCount, 0),
+      receiptCount: shopDays.reduce((sum, d) => sum + d.receipts.length, 0),
+      methods: merged.methods,
+      grandTotal: merged.grandTotal,
+    });
+  }
+
+  return totals.sort((a, b) => b.grandTotal - a.grandTotal);
 }

@@ -7,7 +7,17 @@ import {
   parseAppCalendarDayEnd,
   parseAppCalendarDayStart,
 } from "@/lib/format-datetime";
-import { incentiveMatchForOrder, loadRiderDeliveryChargeMap } from "@/lib/rider-incentive-resolve";
+import { formatAddress } from "@/lib/reports/csv";
+import {
+  extractOrderShippingCity,
+  isUsableShippingCityForCharge,
+  riderIncentiveMatchDisplayLabel,
+  resolveOrderShippingRuleLabel,
+  suggestRiderDistrictsFromAddress,
+  type RiderDistrictChargeOption,
+} from "@/lib/rider-delivery-charge";
+import { resolveOrderShippingDisplay } from "@/lib/order-shipping-display";
+import { incentiveMatchForOrder, loadRiderIncentiveContext } from "@/lib/rider-incentive-resolve";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { aggregateRiderIncentives, isIncentiveEligibleOrder } from "@/lib/rider-incentive";
@@ -15,22 +25,19 @@ import { cuidSchema } from "@/lib/validation";
 
 const ymdSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const querySchema = z.object({
-  // Prefer YYYY-MM-DD (Asia/Colombo calendar day). ISO datetimes still accepted for older clients.
   from: ymdSchema.or(z.string().datetime({ offset: true })).or(z.string().min(10).max(40)),
   to: ymdSchema.or(z.string().datetime({ offset: true })).or(z.string().min(10).max(40)),
   riderId: cuidSchema.optional(),
 });
 
 function resolveRangeBound(raw: string, kind: "start" | "end"): Date | null {
-  const asYmd = /^\d{4}-\d{2}-\d{2}$/.test(raw)
-    ? raw
-    : formatAppIsoDate(raw, "");
+  const asYmd = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : formatAppIsoDate(raw, "");
   if (!asYmd) return null;
   return kind === "start" ? parseAppCalendarDayStart(asYmd) : parseAppCalendarDayEnd(asYmd);
 }
 
 export async function GET(request: NextRequest) {
-  const auth = await requirePermission("staff.read");
+  const auth = await requirePermission("riders.performance.read");
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
@@ -55,7 +62,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Invalid date range" }, { status: 400 });
   }
 
-  const [tasks, chargeByLabelKey] = await Promise.all([
+  const [tasks, incentiveContext, chargeRules] = await Promise.all([
     prisma.riderDeliveryTask.findMany({
       where: {
         status: "completed",
@@ -64,32 +71,129 @@ export async function GET(request: NextRequest) {
         order: { companyId },
       },
       select: {
+        id: true,
         riderId: true,
         completedAt: true,
+        manualIncentiveLabelKey: true,
+        manualIncentiveLabel: true,
         rider: { select: { name: true, knownName: true } },
         order: {
           select: {
+            id: true,
             totalShipping: true,
             shippingLines: true,
+            shippingAddress: true,
             rawPayload: true,
             sourceName: true,
             discountCodes: true,
             financialStatus: true,
+            orderNumber: true,
+            name: true,
+            customerPhone: true,
+            district: true,
           },
         },
       },
     }),
-    loadRiderDeliveryChargeMap(),
+    loadRiderIncentiveContext(),
+    prisma.riderDeliveryChargeRule.findMany({
+      orderBy: { label: "asc" },
+      select: { labelKey: true, label: true, riderDeliveryCharge: true },
+    }),
   ]);
 
+  const districtOptions: RiderDistrictChargeOption[] = chargeRules.map((rule) => ({
+    labelKey: rule.labelKey,
+    label: rule.label,
+    riderDeliveryCharge: rule.riderDeliveryCharge.toFixed(2),
+  }));
+
+  type UnmatchedRow = {
+    taskId: string;
+    orderId: string;
+    orderNumber: string;
+    deliveryType: string;
+    city: string | null;
+    cityUsable: boolean;
+    deliveryPrice: string | null;
+    addressText: string;
+    phone: string | null;
+    source: string | null;
+    suggestions: RiderDistrictChargeOption[];
+  };
+
+  const unmatchedByRiderMap = new Map<
+    string,
+    {
+      riderId: string;
+      riderName: string;
+      orders: UnmatchedRow[];
+    }
+  >();
+
   const rowInputs = tasks.map((task) => {
-    const match = incentiveMatchForOrder(task.order, chargeByLabelKey);
+    const shippingLabel = resolveOrderShippingRuleLabel(task.order);
+    const deliveryType = riderIncentiveMatchDisplayLabel(shippingLabel);
+    const match = incentiveMatchForOrder(
+      task.order,
+      incentiveContext.chargeByLabelKey,
+      incentiveContext.zoneMembersByZone,
+      task.manualIncentiveLabelKey
+    );
+
+    if (
+      isIncentiveEligibleOrder(task.order.financialStatus) &&
+      !match.matched &&
+      !match.excludedFromIncentive &&
+      !task.manualIncentiveLabelKey
+    ) {
+      const city = extractOrderShippingCity(task.order);
+      const cityUsable = isUsableShippingCityForCharge(city);
+      const shippingDisplay = resolveOrderShippingDisplay({
+        ...task.order,
+        totalShipping:
+          task.order.totalShipping == null ? null : task.order.totalShipping.toString(),
+      });
+      const deliveryPrice = shippingDisplay.amount;
+      const addressText = formatAddress(task.order.shippingAddress) || "—";
+      const orderNumber =
+        task.order.orderNumber?.trim() || task.order.name?.trim() || "—";
+      const riderName = task.rider.knownName || task.rider.name || "—";
+      const group =
+        unmatchedByRiderMap.get(task.riderId) ??
+        {
+          riderId: task.riderId,
+          riderName,
+          orders: [],
+        };
+      group.orders.push({
+        taskId: task.id,
+        orderId: task.order.id,
+        orderNumber,
+        deliveryType,
+        city,
+        cityUsable,
+        deliveryPrice,
+        addressText,
+        phone: task.order.customerPhone,
+        source: task.order.sourceName,
+        suggestions: suggestRiderDistrictsFromAddress({
+          addressText,
+          city: cityUsable ? city : null,
+          options: districtOptions,
+          limit: 5,
+        }),
+      });
+      unmatchedByRiderMap.set(task.riderId, group);
+    }
+
     return {
       riderId: task.riderId,
       riderName: task.rider.name,
       knownName: task.rider.knownName,
       incentiveAmount: match.amount,
       matched: match.matched,
+      excludedFromIncentive: match.excludedFromIncentive,
       financialStatus: task.order.financialStatus,
       completedAt: task.completedAt,
     };
@@ -99,33 +203,23 @@ export async function GET(request: NextRequest) {
 
   let totalIncentive = new Prisma.Decimal(0);
   let unmatchedTotal = 0;
+  let excludedFromIncentiveTotal = 0;
   for (const row of rowInputs) {
     if (!isIncentiveEligibleOrder(row.financialStatus)) continue;
     totalIncentive = totalIncentive.add(row.incentiveAmount);
-    if (!row.matched) unmatchedTotal += 1;
+    if (row.excludedFromIncentive) {
+      excludedFromIncentiveTotal += 1;
+    } else if (!row.matched) {
+      unmatchedTotal += 1;
+    }
   }
 
-  const dailyMap = new Map<string, { completedCount: number; incentiveTotal: Prisma.Decimal }>();
-  for (const row of rowInputs) {
-    if (!isIncentiveEligibleOrder(row.financialStatus)) continue;
-    if (!row.completedAt) continue;
-    const date = formatAppIsoDate(row.completedAt);
-    if (!date) continue;
-    const bucket =
-      dailyMap.get(date) ??
-      { completedCount: 0, incentiveTotal: new Prisma.Decimal(0) };
-    bucket.completedCount += 1;
-    bucket.incentiveTotal = bucket.incentiveTotal.add(row.incentiveAmount);
-    dailyMap.set(date, bucket);
-  }
-
-  const dailySeries = Array.from(dailyMap.entries())
-    .map(([date, bucket]) => ({
-      date,
-      completedCount: bucket.completedCount,
-      incentiveTotal: bucket.incentiveTotal.toFixed(2),
+  const unmatchedByRider = Array.from(unmatchedByRiderMap.values())
+    .map((group) => ({
+      ...group,
+      orders: group.orders.sort((a, b) => a.orderNumber.localeCompare(b.orderNumber)),
     }))
-    .sort((a, b) => a.date.localeCompare(b.date));
+    .sort((a, b) => a.riderName.localeCompare(b.riderName));
 
   return NextResponse.json({
     from: from.toISOString(),
@@ -135,8 +229,10 @@ export async function GET(request: NextRequest) {
       totalIncentive: totalIncentive.toFixed(2),
       ridersWithCompletions: riders.length,
       unmatchedTotal,
+      excludedFromIncentiveTotal,
     },
-    dailySeries,
+    districtOptions,
+    unmatchedByRider,
     riders,
   });
 }

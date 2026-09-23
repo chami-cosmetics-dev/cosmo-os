@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 
-import { parseRiderDeliveryChargeSheetRows } from "@/lib/rider-delivery-charge";
+import { parseRiderDeliveryChargesFromWorkbookSheets } from "@/lib/rider-delivery-charge";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 
@@ -65,18 +65,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Could not read Excel file" }, { status: 400 });
   }
 
-  const sheetName = workbook.SheetNames[0];
-  if (!sheetName) {
-    return NextResponse.json({ error: "Excel file has no sheets" }, { status: 400 });
-  }
-  const sheet = workbook.Sheets[sheetName];
-  const rawRows = XLSX.utils.sheet_to_json<(string | number | null)[]>(sheet, {
-    header: 1,
-    defval: null,
-    raw: true,
-  }) as unknown[][];
+  const sheets = workbook.SheetNames.map((name) => {
+    const sheet = workbook.Sheets[name];
+    const rows = XLSX.utils.sheet_to_json<(string | number | null)[]>(sheet, {
+      header: 1,
+      defval: null,
+      raw: true,
+    }) as unknown[][];
+    return { name, rows };
+  });
 
-  const parsed = parseRiderDeliveryChargeSheetRows(rawRows);
+  const parsed = parseRiderDeliveryChargesFromWorkbookSheets(sheets);
   if (parsed.rows.length === 0) {
     return NextResponse.json(
       { error: parsed.errors[0] ?? "No valid rows found", details: parsed.errors },
@@ -86,6 +85,7 @@ export async function POST(request: NextRequest) {
 
   let created = 0;
   let updated = 0;
+  let removedZoneChargeKeys = 0;
 
   await prisma.$transaction(async (tx) => {
     for (const row of parsed.rows) {
@@ -117,6 +117,12 @@ export async function POST(request: NextRequest) {
         created += 1;
       }
     }
+
+    // Zone Name is district grouping only — never keep Zone A/B pay keys from older imports.
+    const removed = await tx.riderDeliveryChargeRule.deleteMany({
+      where: { labelKey: { startsWith: "zone " } },
+    });
+    removedZoneChargeKeys = removed.count;
   });
 
   return NextResponse.json({
@@ -124,6 +130,9 @@ export async function POST(request: NextRequest) {
     created,
     updated,
     skippedBlank: parsed.skippedBlank,
+    sheetName: parsed.sheetName,
+    format: parsed.format,
+    removedZoneChargeKeys,
     warnings: parsed.errors.slice(0, 50),
   });
 }

@@ -38,6 +38,14 @@
       "schedule": "30 18 * * *"
     },
     {
+      "path": "/api/cron/call-center-daily-email",
+      "schedule": "30 3 * * *"
+    },
+    {
+      "path": "/api/cron/loyalty-eligible-weekly-email",
+      "schedule": "30 3 * * 1"
+    },
+    {
       "path": "/api/cron/abandoned-checkouts-sync",
       "schedule": "*/15 * * * *"
     },
@@ -56,6 +64,14 @@
     {
       "path": "/api/cron/citypak-waybill-status-sync",
       "schedule": "0 */6 * * *"
+    },
+    {
+      "path": "/api/cron/contact-purchase-summary-refresh",
+      "schedule": "0 22 * * *"
+    },
+    {
+      "path": "/api/cron/stock-price-missing-email",
+      "schedule": "30 10 * * *"
     }
   ],
   "ignoreCommand": "node scripts/vercel-should-build.mjs",

@@ -3,8 +3,22 @@ import { formatAppIsoDate } from "@/lib/format-datetime";
 export const DAY_LOCKED_CODE = "DAY_LOCKED" as const;
 
 export type BookNoteWriteAccess = {
-  /** `book_notes.admin` — edit/upload past dates (not future). */
+  /**
+   * Edit/upload past dates (not future).
+   * TEMP: also granted via `book_notes.manage` — tighten back to admin-only later.
+   */
   canBackdate: boolean;
+  /**
+   * `book_notes.admin` — see/delete every merchant's sheets and run bulk ERP.
+   * Independent of canBackdate so temporary merchant backdate does not open
+   * company-wide history.
+   */
+  canAdminAll?: boolean;
+  /**
+   * This user created the saved day. Used for delete/ownership, not to unlock
+   * past dates.
+   */
+  isOwner?: boolean;
 };
 
 function postingDateTodayYmd(now: Date): string | null {
@@ -12,9 +26,8 @@ function postingDateTodayYmd(now: Date): string | null {
 }
 
 /**
- * Merchants (`book_notes.manage`): today only.
- * Admins (`book_notes.admin`): today and past dates.
- * Future dates are locked for everyone (Asia/Colombo).
+ * With `canBackdate`: today and any past date.
+ * Without: today only. Future dates locked for everyone (Asia/Colombo).
  */
 export function isBookNoteWritable(
   postingDateYmd: string,
@@ -26,7 +39,7 @@ export function isBookNoteWritable(
   if (!today) return false;
   if (postingDateYmd > today) return false;
   if (postingDateYmd === today) return true;
-  return access.canBackdate;
+  return access.canBackdate === true;
 }
 
 /** True when the current user cannot save this posting date. */
@@ -49,7 +62,7 @@ export function bookNoteLockMessage(
     return "This sales date is in the future and cannot be saved.";
   }
   if (!access.canBackdate) {
-    return "Past dates are locked. Only today can be saved unless you have book notes admin permission.";
+    return "Past dates are locked. Only today can be edited.";
   }
   return "This sales date is locked.";
 }

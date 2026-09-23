@@ -281,15 +281,44 @@ async function sendWithRetries(
   return lastResult;
 }
 
+/** Manual kill switch — set HUTCH_SMS_PAUSED=1 on Cosmo prod while Hutch recovers the API user. */
+export function isHutchSmsPaused(): boolean {
+  const raw = (process.env.HUTCH_SMS_PAUSED ?? "").trim().toLowerCase();
+  return raw === "1" || raw === "true" || raw === "yes";
+}
+
 export async function sendSms(
   companyId: string,
   phoneNumber: string,
   message: string,
   sentById?: string,
 ): Promise<SendSmsResult> {
+  if (isHutchSmsPaused()) {
+    return {
+      success: false,
+      message:
+        "SMS manually paused (HUTCH_SMS_PAUSED) while Hutch recovers the API user. Unset the env and redeploy to resume.",
+      retryable: false,
+    };
+  }
+
   const config = await prisma.smsPortalConfig.findUnique({ where: { companyId } });
   if (!config) {
     return { success: false, message: "SMS portal not configured for this company" };
+  }
+
+  // Instant DB pause: point auth/sms URLs at a non-Hutch host so live prod stops
+  // probing /api/login even before a redeploy picks up HUTCH_SMS_PAUSED.
+  if (
+    config.authUrl.includes("hutch-sms-paused") ||
+    config.smsUrl.includes("hutch-sms-paused")
+  ) {
+    return {
+      success: false,
+      message:
+        "SMS portal URLs paused (hutch-sms-paused) while Hutch recovers the API user. Restore auth/sms URLs to bsms.hutch.lk to resume.",
+      retryable: false,
+    };
   }
 
   const last401 = await lastAuth401At(companyId, config.updatedAt);

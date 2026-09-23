@@ -9,6 +9,7 @@ import {
   cancelPendingApprovalsForOrder,
   ORDER_PAYMENT_APPROVAL,
 } from "@/lib/approval-workflow";
+import { needsKokoLinkTimeConfirm } from "@/lib/koko-order";
 import { eligibleMerchantUserWhere } from "@/lib/merchant-eligibility";
 import { resolveErpWebhookCustomerName } from "@/lib/erpnext-customer-display-name";
 import { findBarcodeForSku } from "@/lib/product-item-barcode.server";
@@ -645,9 +646,12 @@ export async function ingestParsedErpSalesInvoice(input: {
     select: {
       id: true,
       name: true,
+      sourceName: true,
+      createdAt: true,
       paymentGatewayPrimary: true,
       paymentGatewayNames: true,
       financialStatus: true,
+      kokoLinkTimeConfirmedAt: true,
       assignedMerchant: { select: { name: true } },
     },
   });
@@ -692,7 +696,17 @@ export async function ingestParsedErpSalesInvoice(input: {
     // Skip if the OS order is already paid — payment was confirmed via finance approval or
     // payment method change; the ERP invoice may still be "Unpaid" until a PE is posted.
     const osOrderAlreadyPaid = order.financialStatus === "paid";
-    if (needsApproval && !osOrderAlreadyPaid) {
+    // ERP KOKO: defer finance approval until merchant confirms portal link generated time.
+    const deferKokoApproval =
+      needsKokoLinkTimeConfirm({
+        sourceName: order.sourceName,
+        paymentGatewayPrimary: order.paymentGatewayPrimary,
+        paymentGatewayNames: order.paymentGatewayNames,
+        kokoLinkTimeConfirmedAt: order.kokoLinkTimeConfirmedAt,
+        financialStatus: order.financialStatus,
+        createdAt: order.createdAt,
+      });
+    if (needsApproval && !osOrderAlreadyPaid && !deferKokoApproval) {
       const existingApproval = await prisma.approvalRequest.findFirst({
         where: {
           orderId: order.id,

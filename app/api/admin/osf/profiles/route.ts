@@ -1,7 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
+import { osfExcludeDiscontinuedWhere } from "@/lib/osf/discontinued";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
+import { ensureVaultForceIncludedRops } from "@/lib/vault-osf/ensure-force-included-rops";
+import {
+  VAULT_OSF_MANUAL_ROP,
+  VAULT_OSF_MANUAL_SKU_META,
+} from "@/lib/vault-osf/sku-policy";
 
 export async function GET(request: NextRequest) {
   const auth = await requirePermission("purchasing.osf.read");
@@ -19,9 +26,14 @@ export async function GET(request: NextRequest) {
   const limit = Math.min(100, Math.max(1, Number(searchParams.get("limit") ?? 50) || 50));
   const shopAvailability = searchParams.get("shop_availability");
 
+  if (isVaultOsDeployment()) {
+    await ensureVaultForceIncludedRops(companyId);
+  }
+
   const productWhere = {
     companyId,
     sku: { not: null as string | null },
+    ...(!isVaultOsDeployment() ? osfExcludeDiscontinuedWhere() : {}),
     ...(q
       ? {
           OR: [
@@ -51,6 +63,26 @@ export async function GET(request: NextRequest) {
       productTitle: p.productTitle,
       brand: p.vendor?.name ?? null,
     });
+  }
+
+  // Vault: yellow/blue checked-workbook SKUs may lack ProductItem — still list them.
+  if (isVaultOsDeployment()) {
+    const qLower = q.toLowerCase();
+    for (const sku of Object.keys(VAULT_OSF_MANUAL_ROP)) {
+      if (bySku.has(sku)) continue;
+      const meta = VAULT_OSF_MANUAL_SKU_META[sku];
+      const title = meta?.title ?? sku;
+      const brand = meta?.brand ?? null;
+      if (
+        q &&
+        !sku.toLowerCase().includes(qLower) &&
+        !title.toLowerCase().includes(qLower) &&
+        !(brand?.toLowerCase().includes(qLower) ?? false)
+      ) {
+        continue;
+      }
+      bySku.set(sku, { sku, productTitle: title, brand });
+    }
   }
 
   const skus = [...bySku.keys()];

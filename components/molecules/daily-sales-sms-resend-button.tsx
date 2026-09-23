@@ -7,7 +7,13 @@ import { RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { notify } from "@/lib/notify";
 
-export function DailySalesSmsResendButton({ reportDate }: { reportDate: string }) {
+export function DailySalesSmsResendButton({
+  reportDate,
+  onDone,
+}: {
+  reportDate: string;
+  onDone?: () => void;
+}) {
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
@@ -27,10 +33,12 @@ export function DailySalesSmsResendButton({ reportDate }: { reportDate: string }
         notify.success(
           `Daily sales SMS resent for ${reportDate} (${data.recipientCount ?? 0} recipient${(data.recipientCount ?? 0) !== 1 ? "s" : ""})`,
         );
-        router.refresh();
+        onDone?.();
+        if (!onDone) router.refresh();
       } else {
         notify.error(data.message ?? `Resend failed (${data.status ?? res.status})`);
-        router.refresh();
+        onDone?.();
+        if (!onDone) router.refresh();
       }
     } catch {
       notify.error("Network error — could not resend SMS");

@@ -5,6 +5,7 @@ import {
   commonSkuKeyFor,
   filterRowsByBrand,
   groupRowsByCommonSku,
+  resolveCoverSkuFilter,
   skuMatchesSearch,
 } from "@/lib/item-trends/sku-group";
 
@@ -78,5 +79,38 @@ describe("skuMatchesSearch", () => {
     expect(skuMatchesSearch("ORD04_1", "ORD04", "ORD04")).toBe(true);
     expect(skuMatchesSearch("ORD04_2", "ORD04", "ord04_2")).toBe(true);
     expect(skuMatchesSearch("OTHER", "OTHER", "ORD04")).toBe(false);
+  });
+});
+
+describe("resolveCoverSkuFilter", () => {
+  const catalog = [
+    { sku: "ORD04_1", commonSkuKey: "ORD04" },
+    { sku: "ORD04_2", commonSkuKey: "ORD04" },
+    { sku: "OTHER", commonSkuKey: "OTHER" },
+  ];
+
+  it("maps lowercase typed variant to catalog casing only", () => {
+    expect(resolveCoverSkuFilter({ skuFilter: ["ord04_1"], catalog })).toEqual(["ORD04_1"]);
+  });
+
+  it("expands common parent to variants without raw query", () => {
+    expect(resolveCoverSkuFilter({ skuFilter: ["ord04"], catalog })).toEqual([
+      "ORD04_1",
+      "ORD04_2",
+    ]);
+  });
+
+  it("expands commonSkuKey without duplicating typed sku", () => {
+    expect(
+      resolveCoverSkuFilter({
+        skuFilter: ["ord04_1"],
+        commonSkuKey: "ORD04",
+        catalog,
+      }),
+    ).toEqual(["ORD04_1", "ORD04_2"]);
+  });
+
+  it("returns empty when typed sku is not in catalog", () => {
+    expect(resolveCoverSkuFilter({ skuFilter: ["ord04-1"], catalog })).toEqual([]);
   });
 });

@@ -121,11 +121,22 @@ export async function POST(request: NextRequest) {
 
   const status = nextOutreachStatus(parsed.data.action);
   const remark = parsed.data.remark?.trim() || null;
+  const now = new Date();
 
   await prisma.$transaction(async (tx) => {
+    const current = await tx.contactMaster.findFirst({
+      where: { id: contact.id },
+      select: { loyaltyEligibleAt: true },
+    });
     await tx.contactMaster.update({
       where: { id: contact.id },
-      data: { loyaltyOutreachStatus: status },
+      data: {
+        loyaltyOutreachStatus: status,
+        loyaltyOutreachUpdatedAt: now,
+        ...(status === "eligible" && !current?.loyaltyEligibleAt
+          ? { loyaltyEligibleAt: now }
+          : {}),
+      },
     });
     await tx.contactAllocationUpdate.create({
       data: {
@@ -133,7 +144,10 @@ export async function POST(request: NextRequest) {
         contactId: contact.id,
         merchantId: user.id,
         merchantName: user.knownName ?? user.name ?? null,
-        category: "Contacted",
+        category:
+          parsed.data.action === "not_interested"
+            ? "Not Interested"
+            : "Contacted",
         remark,
         outcome: parsed.data.action,
       },
@@ -146,7 +160,8 @@ export async function POST(request: NextRequest) {
     module: "merchant-dashboard",
     action:
       parsed.data.action === "responded" ||
-      parsed.data.action === "not_responded"
+      parsed.data.action === "not_responded" ||
+      parsed.data.action === "not_interested"
         ? "loyalty_responded"
         : "merchant_loyalty_contacted",
     entityType: "ContactMaster",

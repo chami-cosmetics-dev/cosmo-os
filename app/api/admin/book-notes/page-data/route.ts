@@ -33,6 +33,7 @@ export async function GET(request: NextRequest) {
   const parsed = bookNotePageDataQuerySchema.safeParse({
     companyLocationId: raw.companyLocationId || undefined,
     postingDate: raw.postingDate || undefined,
+    bookNoteDayId: raw.bookNoteDayId || undefined,
     q: raw.q || undefined,
   });
   if (!parsed.success) {
@@ -43,12 +44,13 @@ export async function GET(request: NextRequest) {
   }
 
   const access = await resolveBookNoteShopAccess(auth.context!, companyId);
-  const viewScope = await resolveBookNoteViewScope(auth.context!, companyId);
+  const viewScope = await resolveBookNoteViewScope(auth.context!);
   const writeAccess = resolveBookNoteWriteAccess(auth.context!);
   const locations = access.locations;
   const allowedIds = locations.map((l) => l.id);
   const today = formatAppIsoDate(new Date());
   const canBackdateBookNotes = writeAccess.canBackdate;
+  const canAdminBookNotes = writeAccess.canAdminAll === true;
 
   let day = null;
   let history: Awaited<ReturnType<typeof loadBookNoteHistory>> = [];
@@ -66,7 +68,6 @@ export async function GET(request: NextRequest) {
       companyId,
       createdByUserId: userId,
       companyLocationIds: allowedIds,
-      viewScope,
       search: parsed.data.q,
       writeAccess,
     });
@@ -77,6 +78,10 @@ export async function GET(request: NextRequest) {
       companyId,
       companyLocationId: locationId,
       postingDateYmd: parsed.data.postingDate,
+      // Without an explicit sheet id, a merchant gets their own book note for
+      // the shop and day — never a colleague's.
+      bookNoteDayId: parsed.data.bookNoteDayId,
+      ownerUserId: parsed.data.bookNoteDayId ? undefined : userId,
       writeAccess,
       viewScope,
       viewerUserId: userId,
@@ -87,6 +92,7 @@ export async function GET(request: NextRequest) {
     locations,
     canAccessAllShops: access.canAccessAllShops,
     canBackdateBookNotes,
+    canAdminBookNotes,
     today,
     day,
     history,

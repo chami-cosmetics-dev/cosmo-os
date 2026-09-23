@@ -21,8 +21,8 @@ export function isCosmeticsShopLocation(
 }
 
 /**
- * Cosmo catalog / Standard Selling lives on the Cosmetics.lk shop ERP (ERP_1),
- * not LWK / trading ERP_2.
+ * Cosmo catalog / Standard Selling prefers Cosmetics.lk shop ERP (ERP_1).
+ * ERP_2 is only a gap-fill when ERP_1 rate is missing (see sticker price load).
  */
 export function pickCosmoCatalogErpInstance(input: {
   locations: CosmoCatalogLocationLink[];
@@ -40,4 +40,24 @@ export function pickCosmoCatalogErpInstance(input: {
   if (erp1) return erp1;
 
   return input.instances.find((row) => /cosmetics-lk-01/i.test(row.baseUrl)) ?? null;
+}
+
+/**
+ * Secondary Cosmetics ERP (ERP_2 / cosmetics-lk-02) for Standard Selling gap-fill.
+ * Never returns the primary (ERP_1) instance.
+ */
+export function pickCosmoCatalogErp2Fallback(input: {
+  instances: CosmoCatalogErpCandidate[];
+  primaryId: string | null | undefined;
+}): CosmoCatalogErpCandidate | null {
+  const others = input.instances.filter((row) => row.id !== input.primaryId);
+  if (others.length === 0) return null;
+
+  const byLabel = others.find((row) => /erp[_\s-]*2\b/i.test(row.label ?? ""));
+  if (byLabel) return byLabel;
+
+  const byUrl = others.find((row) => /cosmetics-lk-02/i.test(row.baseUrl));
+  if (byUrl) return byUrl;
+
+  return others[0] ?? null;
 }

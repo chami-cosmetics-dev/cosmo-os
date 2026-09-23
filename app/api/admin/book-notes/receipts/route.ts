@@ -2,9 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import {
   assertBookNoteShopAllowed,
-  canViewBookNoteDay,
   resolveBookNoteShopAccess,
-  resolveBookNoteViewScope,
   resolveBookNoteWriteAccess,
 } from "@/lib/book-notes/access";
 import { isBookNoteWritable, DAY_LOCKED_CODE, bookNoteLockMessage } from "@/lib/book-notes/lock";
@@ -74,17 +72,6 @@ export async function POST(request: NextRequest) {
 
   const companyLocationId = locationParsed.data;
   const postingDate = dateParsed.data;
-  const writeAccess = resolveBookNoteWriteAccess(auth.context!);
-
-  if (!isBookNoteWritable(postingDate, new Date(), writeAccess)) {
-    return NextResponse.json(
-      {
-        error: bookNoteLockMessage(postingDate, new Date(), writeAccess),
-        code: DAY_LOCKED_CODE,
-      },
-      { status: 409 },
-    );
-  }
 
   const access = await resolveBookNoteShopAccess(auth.context!, companyId);
   if (!assertBookNoteShopAllowed(access, companyLocationId)) {
@@ -102,42 +89,33 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Shop not found" }, { status: 404 });
   }
 
-  // Photos belong to the whole day — do not let a merchant attach slips to a
-  // sheet another outlet's merchant entered and this user cannot see.
-  const existingDay = await prisma.bookNoteDay.findUnique({
+  // Photos attach to the uploader's own sheet for this shop and date — a
+  // colleague's book note for the same day is a separate sheet and untouched.
+  const existingDay = await prisma.bookNoteDay.findFirst({
     where: {
-      companyLocationId_postingDate: {
-        companyLocationId,
-        postingDate: postingDateToUtcMidnight(postingDate),
-      },
+      companyId,
+      companyLocationId,
+      postingDate: postingDateToUtcMidnight(postingDate),
+      createdByUserId: userId,
     },
-    select: {
-      companyId: true,
-      companyLocationId: true,
-      createdByUserId: true,
-      updatedByUserId: true,
-    },
+    select: { id: true },
   });
-  if (existingDay && existingDay.companyId === companyId) {
-    const viewScope = await resolveBookNoteViewScope(auth.context!, companyId);
-    const allowed = canViewBookNoteDay({
-      viewScope,
-      userId,
-      day: {
-        companyLocationId: existingDay.companyLocationId,
-        createdByUserId: existingDay.createdByUserId,
-        updatedByUserId: existingDay.updatedByUserId,
+
+  // Past dates stay locked for merchants. Admins (`book_notes.admin`) may
+  // replace photos on an old sheet.
+  const isOwner = Boolean(existingDay);
+  const writeAccess = {
+    ...resolveBookNoteWriteAccess(auth.context!),
+    isOwner,
+  };
+  if (!isBookNoteWritable(postingDate, new Date(), writeAccess)) {
+    return NextResponse.json(
+      {
+        error: bookNoteLockMessage(postingDate, new Date(), writeAccess),
+        code: DAY_LOCKED_CODE,
       },
-    });
-    if (!allowed) {
-      return NextResponse.json(
-        {
-          error: `Another merchant already entered this shop's book note for ${postingDate}. Ask them or finance to add the photo.`,
-          code: "DAY_NOT_YOURS",
-        },
-        { status: 403 },
-      );
-    }
+      { status: 409 },
+    );
   }
 
   try {
@@ -156,6 +134,7 @@ export async function POST(request: NextRequest) {
       companyLocationId,
       postingDateYmd: postingDate,
       writeAccess,
+      viewerUserId: userId,
     });
     return NextResponse.json({ receipt, day: dayDto });
   } catch (err) {

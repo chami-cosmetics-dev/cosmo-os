@@ -1,6 +1,11 @@
 import type { Prisma } from "@prisma/client";
 
-import { canViewBookNoteDay, type BookNoteViewScope } from "@/lib/book-notes/access";
+import {
+  canViewBookNoteDay,
+  isBookNoteCreator,
+  type BookNoteViewScope,
+} from "@/lib/book-notes/access";
+import { bookNoteErpSyncStatus } from "@/lib/book-notes/erp-sync-status";
 import type {
   BookNoteDayDto,
   BookNoteHistoryItem,
@@ -36,10 +41,22 @@ const dayInclude = {
   receipts: { orderBy: { sortOrder: "asc" as const } },
 };
 
+/**
+ * The sheet a given user keeps for one shop and date.
+ *
+ * Sheets are per merchant, so `ownerUserId` is what picks between two
+ * merchants' book notes for the same shop and day. Pass it for the entry page
+ * (a merchant only ever opens their own); omit it for finance, which reads
+ * whichever sheet exists — `bookNoteDayId` addresses one exactly.
+ */
 export async function loadBookNoteDayDto(input: {
   companyId: string;
   companyLocationId: string;
   postingDateYmd: string;
+  /** Load this user's own sheet for the shop/date. */
+  ownerUserId?: string | null;
+  /** Load one specific sheet, whoever owns it. */
+  bookNoteDayId?: string;
   now?: Date;
   writeAccess?: BookNoteWriteAccess;
   /** Supply both to withhold days this user may not see. */
@@ -47,13 +64,17 @@ export async function loadBookNoteDayDto(input: {
   viewerUserId?: string | null;
 }): Promise<BookNoteDayDto | null> {
   const postingDate = postingDateToUtcMidnight(input.postingDateYmd);
-  const day = await prisma.bookNoteDay.findUnique({
-    where: {
-      companyLocationId_postingDate: {
-        companyLocationId: input.companyLocationId,
-        postingDate,
-      },
-    },
+  const day = await prisma.bookNoteDay.findFirst({
+    where: input.bookNoteDayId
+      ? { id: input.bookNoteDayId }
+      : {
+          companyLocationId: input.companyLocationId,
+          postingDate,
+          ...(input.ownerUserId
+            ? { createdByUserId: input.ownerUserId }
+            : {}),
+        },
+    orderBy: { updatedAt: "desc" },
     include: dayInclude,
   });
 
@@ -90,6 +111,8 @@ export async function loadBookNoteDayDto(input: {
     };
   }
 
+  const isOwner = isBookNoteCreator(input.viewerUserId ?? null, day.createdByUserId);
+
   return serializeBookNoteDay({
     id: day.id,
     companyLocationId: day.companyLocationId,
@@ -98,7 +121,10 @@ export async function loadBookNoteDayDto(input: {
     rows: day.rows,
     receipts: day.receipts,
     now: input.now,
-    writeAccess: input.writeAccess,
+    writeAccess: {
+      canBackdate: input.writeAccess?.canBackdate ?? false,
+      isOwner,
+    },
   });
 }
 
@@ -172,21 +198,20 @@ export function postingDateRangeFromQuery(
 }
 
 /**
- * Saved book-note days this user is allowed to see, newest first.
+ * Saved book-note days, newest first.
  *
- * Visibility: sheets they created or last saved, plus every sheet for the
- * outlets they are posted to (so two merchants in one shop share a history),
- * plus everything when `viewScope.canViewAllShops` (finance / admin).
+ * Merchants (`book_notes.manage`) see only sheets they created — even when
+ * temporary backdate is on. Book-note admins (`canAdminAll`) see every upload.
+ * Finance reviews every shop on `/dashboard/book-notes/review`.
  * `search` matches shop name, posting date, and sales invoice numbers.
  */
 export async function loadBookNoteHistory(input: {
   companyId: string;
-  /** Current user — always sees their own sheets. */
+  /** Current user — merchant history lists only sheets they created. */
   createdByUserId: string;
   /** When set, only that shop. When omitted, all `companyLocationIds`. */
   companyLocationId?: string;
   companyLocationIds: string[];
-  viewScope?: BookNoteViewScope;
   /** Free text: shop name, posting date (YYYY, YYYY-MM, YYYY-MM-DD), invoice no. */
   search?: string;
   limit?: number;
@@ -206,21 +231,7 @@ export async function loadBookNoteHistory(input: {
   const userId = input.createdByUserId;
   if (!userId) return [];
 
-  const viewScope = input.viewScope ?? {
-    canViewAllShops: false,
-    assignedLocationIds: [],
-  };
-
-  const visibleLocationIds = viewScope.assignedLocationIds.filter((id) =>
-    locationFilter.includes(id),
-  );
-  const visibility: Prisma.BookNoteDayWhereInput[] = [
-    { createdByUserId: userId },
-    { updatedByUserId: userId },
-  ];
-  if (visibleLocationIds.length > 0) {
-    visibility.push({ companyLocationId: { in: visibleLocationIds } });
-  }
+  const canViewAllHistory = input.writeAccess?.canAdminAll === true;
 
   const search = (input.search ?? "").trim();
   const searchClauses: Prisma.BookNoteDayWhereInput[] = [];
@@ -249,7 +260,7 @@ export async function loadBookNoteHistory(input: {
   const where: Prisma.BookNoteDayWhereInput = {
     companyId: input.companyId,
     companyLocationId: { in: locationFilter },
-    ...(viewScope.canViewAllShops ? {} : { OR: visibility }),
+    ...(canViewAllHistory ? {} : { createdByUserId: userId }),
     ...(searchClauses.length > 0 ? { AND: [{ OR: searchClauses }] } : {}),
   };
 
@@ -286,6 +297,7 @@ export async function loadBookNoteHistory(input: {
     const shopName =
       day.companyLocation.shortName?.trim() || day.companyLocation.name;
     const author = day.updatedBy ?? day.createdBy;
+    const isOwn = isBookNoteCreator(userId, day.createdByUserId);
     return {
       id: day.id,
       companyLocationId: day.companyLocationId,
@@ -294,10 +306,14 @@ export async function loadBookNoteHistory(input: {
       rowCount: day.rows.length,
       grandTotal: Math.round(grandTotal * 100) / 100,
       updatedAt: day.updatedAt.toISOString(),
-      locked: isBookNoteDayLocked(posting_date, now, writeAccess),
+      locked: isBookNoteDayLocked(posting_date, now, {
+        canBackdate: writeAccess.canBackdate,
+        isOwner: isOwn,
+      }),
       enteredBy: author?.name?.trim() || author?.email || null,
-      isOwn:
-        day.createdByUserId === userId || day.updatedByUserId === userId,
+      isOwn,
+      erpSyncStatus: bookNoteErpSyncStatus(day),
+      erpSyncError: day.erpSyncError,
     };
   });
 }

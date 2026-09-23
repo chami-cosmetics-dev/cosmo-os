@@ -1,0 +1,45 @@
+{
+  "summary": {
+    "companyId": "cmp5k145c006irlhemjfidlb5",
+    "dryRun": true,
+    "startedAt": "2026-09-14T07:49:19.128Z",
+    "sources": [
+      {
+        "source": "Nimthera",
+        "file": "c:\\Users\\Bad-Boy\\Downloads\\Contacts for Nimthera 12 Sep 26.xlsx",
+        "excelRows": 2574
+      },
+      {
+        "source": "Dinuli",
+        "file": "c:\\Users\\Bad-Boy\\Downloads\\Contacts for Dinuli 12 Sep 26.xlsx",
+        "excelRows": 1559
+      }
+    ],
+    "excelUniquePhones": 4133,
+    "created": 0,
+    "allocatedUpdated": 0,
+    "alreadyOnTargetMer": 5,
+    "ambiguous": 1,
+    "skippedNoPhone": 0,
+    "byMerchant": {
+      "MER109": 45,
+      "MER99": 62
+    },
+    "wouldCreate": 4020,
+    "wouldRealloc": 107,
+    "finishedAt": "2026-09-14T07:49:23.851Z",
+    "issueCount": 1
+  },
+  "issues": [
+    {
+      "phoneKey": "705346476",
+      "phone": "0705346476",
+      "assignedMerchant": "MER99",
+      "reason": "ambiguous_multiple_contacts",
+      "contactIds": [
+        "cms8tkvdd004ejy04nkwtd7wz",
+        "cmtr4wdyi0005l2041zqbekpi"
+      ]
+    }
+  ]
+}

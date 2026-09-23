@@ -1,11 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 import { fetchLatestCostAndSupplier, OsfErpError } from "@/lib/osf/erp-cost-supplier";
 import { mergeInstanceErpData, type InstanceErpData } from "@/lib/osf/erp-merge";
 import { fetchLastPurchaseByItem } from "@/lib/osf/erp-purchases";
 import { getAllOsfErpInstances } from "@/lib/osf/erp-stock";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserContext, hasPermission } from "@/lib/rbac";
+import {
+  lastPurchasesFromCosmoLines,
+  mergeLastPurchaseMaps,
+} from "@/lib/vault-osf/purchase-history-merge";
 import { LIMITS } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
@@ -22,7 +27,7 @@ export async function GET(request: NextRequest) {
   if (!canTools) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
-  const companyId = context.user.companyId;
+  const companyId = context.user.companyId ?? "";
   if (!companyId) {
     return NextResponse.json({ error: "No company associated with your account" }, { status: 404 });
   }
@@ -98,16 +103,25 @@ export async function GET(request: NextRequest) {
     }
   >();
 
+  const vault = isVaultOsDeployment();
+  const purchaseSource = vault ? "invoice" : "receipt";
+
   try {
     if (erpInstances.length > 0) {
       const perInstance: InstanceErpData[] = await Promise.all(
         erpInstances.map(async (inst) => {
           const [costs, purchases] = await Promise.all([
-            fetchLatestCostAndSupplier({ cfg: inst.cfg, itemCodes: skus }),
+            // Vault ignores Item.last_purchase_rate — it sticks after bad/placeholder PRs.
+            vault
+              ? Promise.resolve(new Map())
+              : fetchLatestCostAndSupplier({ cfg: inst.cfg, itemCodes: skus }),
             fetchLastPurchaseByItem({
               cfg: inst.cfg,
               itemCodes: skus,
-              allowedSuppliers: suppliers,
+              // Vault: show every real PI supplier (Cash AE etc.), not only OS allowlist.
+              // Cosmo: keep Supplier allowlist (skips intercompany).
+              allowedSuppliers: vault ? [] : suppliers,
+              source: purchaseSource,
             }),
           ]);
           return { costs, purchases };
@@ -122,15 +136,37 @@ export async function GET(request: NextRequest) {
     console.error("[purchasing sku-pricing] ERP", err.message);
   }
 
+  if (vault) {
+    const cosmoLines = await prisma.osfPurchaseHistoryLine.findMany({
+      where: { companyId, sku: { in: skus } },
+      select: {
+        sku: true,
+        supplier: true,
+        postingDate: true,
+        qty: true,
+        rate: true,
+        netValue: true,
+      },
+    });
+    if (cosmoLines.length > 0) {
+      const cosmoPurchases = lastPurchasesFromCosmoLines(cosmoLines, skus);
+      purchaseMap = mergeLastPurchaseMaps(purchaseMap, cosmoPurchases);
+    }
+  }
+
   const items = skus.map((sku) => {
     const catalog = bySku.get(sku)!;
     const purchase = purchaseMap.get(sku);
     const costInfo = costMap.get(sku);
-    const latestCost = costInfo?.cost ?? purchase?.rate ?? null;
+    // Prefer allowlisted purchase rate over Item.last_purchase_rate (stale after cancel).
+    const latestCost = purchase?.rate ?? costInfo?.cost ?? null;
     const latestSupplier = purchase?.supplier ?? costInfo?.supplier ?? null;
-    let costSource: "item_rate" | "purchase_receipt" | null = null;
-    if (costInfo?.cost != null) costSource = "item_rate";
-    else if (purchase?.rate != null) costSource = "purchase_receipt";
+    let costSource: "item_rate" | "purchase_receipt" | "purchase_invoice" | null = null;
+    if (purchase?.rate != null) {
+      costSource = purchaseSource === "invoice" ? "purchase_invoice" : "purchase_receipt";
+    } else if (costInfo?.cost != null) {
+      costSource = "item_rate";
+    }
     return {
       sku: catalog.sku,
       productTitle: catalog.productTitle,

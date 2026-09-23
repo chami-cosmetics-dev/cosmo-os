@@ -2,8 +2,20 @@ import "server-only";
 
 import { prisma } from "@/lib/prisma";
 import { OsfErpError, type OsfErpCredentials } from "@/lib/osf/erp-stock";
+import {
+  fetchItemBarcodeList,
+  fillMissingItemBarcodes,
+  firstBarcodeFromErpItem,
+  lookupBarcode,
+} from "@/lib/vault-osf/erp-barcodes";
 import { vaultErpGetJson } from "@/lib/vault-osf/erp-client";
+import {
+  applyVaultOsfSkuPolicy,
+  isVaultOsfForceIncludedSku,
+  VAULT_OSF_FORCE_INCLUDED_SKUS,
+} from "@/lib/vault-osf/sku-policy";
 import type { VaultCatalogRow } from "@/lib/vault-osf/types";
+import { applyVaultWorkbookUploadToCatalogRow } from "@/lib/vault-osf/workbook-upload-overlay";
 
 const PAGE = 500;
 const MAX_PAGES = 80;
@@ -15,6 +27,7 @@ export type ErpItemRow = {
   brand?: string | null;
   item_group?: string | null;
   country_of_origin?: string | null;
+  custom_country_claim_type?: string | null;
   disabled?: number | boolean;
   is_stock_item?: number | boolean;
 };
@@ -23,8 +36,11 @@ export function isVaultStockItem(row: ErpItemRow): boolean {
   const code = (row.item_code ?? row.name ?? "").trim();
   if (!code) return false;
   if (code.toUpperCase() === "DELIVERY-CHARGES" || code.toUpperCase() === "TEST") return false;
-  const disabled = row.disabled === 1 || row.disabled === true;
-  if (disabled) return false;
+  // Force-included SKUs (e.g. NTC03-1) stay on OSF even when ERP disabled=1.
+  if (!isVaultOsfForceIncludedSku(code)) {
+    const disabled = row.disabled === 1 || row.disabled === true;
+    if (disabled) return false;
+  }
   return row.is_stock_item === 1 || row.is_stock_item === true;
 }
 
@@ -42,6 +58,7 @@ export function mapErpItemToCatalogRow(
     brand: row.brand?.trim() || null,
     category: row.item_group?.trim() || null,
     country: row.country_of_origin?.trim() || null,
+    countryClaimType: row.custom_country_claim_type?.trim() || null,
     priorityStatus: extras.priorityStatus?.trim() || null,
   };
 }
@@ -55,6 +72,7 @@ export async function fetchVaultCatalog(cfg: OsfErpCredentials): Promise<VaultCa
     "brand",
     "item_group",
     "country_of_origin",
+    "custom_country_claim_type",
     "disabled",
     "is_stock_item",
   ]);
@@ -77,39 +95,56 @@ export async function fetchVaultCatalog(cfg: OsfErpCredentials): Promise<VaultCa
     }
   }
 
-  const barcodes = await fetchItemBarcodes(cfg);
-  const mapped = items
-    .map((row) => mapErpItemToCatalogRow(row, { barcode: barcodes.get((row.item_code ?? row.name ?? "").trim()) ?? null }))
-    .filter((r): r is VaultCatalogRow => r != null);
+  const getJson = <T>(path: string) => vaultErpGetJson<T>(cfg, path);
+  const barcodes = await fetchItemBarcodeList(getJson);
+  const bySku = new Map<string, VaultCatalogRow>();
+  for (const row of items) {
+    const mapped = mapErpItemToCatalogRow(row, {
+      barcode: lookupBarcode(barcodes, (row.item_code ?? row.name ?? "").trim()),
+    });
+    if (mapped) bySku.set(mapped.sku, applyVaultWorkbookUploadToCatalogRow(mapped));
+  }
 
+  // Pull force-included SKUs that ERP list skipped (disabled=1).
+  for (const sku of VAULT_OSF_FORCE_INCLUDED_SKUS) {
+    if (bySku.has(sku)) continue;
+    const forced = await fetchSingleItem(cfg, sku);
+    if (!forced) continue;
+    const mapped = mapErpItemToCatalogRow(forced, {
+      barcode: lookupBarcode(barcodes, sku) ?? firstBarcodeFromErpItem(forced),
+      priorityStatus: "Newly added",
+    });
+    if (mapped) bySku.set(mapped.sku, applyVaultWorkbookUploadToCatalogRow(mapped));
+  }
+
+  const mapped = applyVaultOsfSkuPolicy([...bySku.values()]);
+  const missing = mapped.filter((row) => !row.barcode?.trim()).map((row) => row.sku);
+  if (missing.length > 0) {
+    const extra = await fillMissingItemBarcodes(getJson, missing);
+    for (const row of mapped) {
+      if (row.barcode?.trim()) continue;
+      row.barcode = lookupBarcode(extra, row.sku);
+    }
+  }
   mapped.sort((a, b) => a.sku.localeCompare(b.sku));
   return mapped;
 }
 
-async function fetchItemBarcodes(cfg: OsfErpCredentials): Promise<Map<string, string>> {
-  const map = new Map<string, string>();
-  const fields = JSON.stringify(["parent", "barcode"]);
+type ErpItemWithBarcode = ErpItemRow & {
+  barcodes?: Array<{ barcode?: string | null }>;
+};
+
+async function fetchSingleItem(
+  cfg: OsfErpCredentials,
+  sku: string,
+): Promise<ErpItemWithBarcode | null> {
   try {
-    for (let page = 0; page < MAX_PAGES; page += 1) {
-      const path =
-        `/api/resource/Item Barcode?fields=${encodeURIComponent(fields)}` +
-        `&limit_start=${page * PAGE}&limit_page_length=${PAGE}`;
-      const json = await vaultErpGetJson<{ data?: Array<{ parent?: string; barcode?: string }> }>(
-        cfg,
-        path,
-      );
-      const rows = json.data ?? [];
-      for (const row of rows) {
-        const sku = row.parent?.trim();
-        const barcode = row.barcode?.trim();
-        if (sku && barcode && !map.has(sku)) map.set(sku, barcode);
-      }
-      if (rows.length < PAGE) break;
-    }
+    const path = `/api/resource/Item/${encodeURIComponent(sku)}`;
+    const json = await vaultErpGetJson<{ data?: ErpItemWithBarcode }>(cfg, path);
+    return json.data ?? null;
   } catch {
-    // Barcode child may be unreadable; catalog still valid without it.
+    return null;
   }
-  return map;
 }
 
 export async function attachOsPriority(
@@ -134,10 +169,15 @@ export async function attachOsPriority(
   }
   return rows.map((row) => {
     const extra = bySku.get(row.sku);
-    return {
+    const merged = {
       ...row,
-      priorityStatus: extra?.priority ?? row.priorityStatus,
+      priorityStatus:
+        extra?.priority ??
+        (isVaultOsfForceIncludedSku(row.sku)
+          ? (row.priorityStatus ?? "Newly added")
+          : row.priorityStatus),
       barcode: row.barcode || extra?.barcode || null,
     };
+    return applyVaultWorkbookUploadToCatalogRow(merged);
   });
 }

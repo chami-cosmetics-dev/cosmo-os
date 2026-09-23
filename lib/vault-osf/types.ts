@@ -25,6 +25,8 @@ export type VaultCatalogRow = {
   brand: string | null;
   category: string | null;
   country: string | null;
+  /** ERP1 Item.custom_country_claim_type — used when country_of_origin is blank. */
+  countryClaimType: string | null;
   priorityStatus: string | null;
 };
 

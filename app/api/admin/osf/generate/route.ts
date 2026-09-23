@@ -7,11 +7,25 @@ import { resolveEffectiveOsfColumnKeys } from "@/lib/osf/column-visibility";
 import { resolveOsfColumns } from "@/lib/osf/column-config";
 import { fetchLatestCostAndSupplier, OsfErpError } from "@/lib/osf/erp-cost-supplier";
 import { mergeInstanceErpData, type InstanceErpData } from "@/lib/osf/erp-merge";
-import { fetchLastPurchaseByItem } from "@/lib/osf/erp-purchases";
+import { aggregateSalesBySkuByMonthInRange } from "@/lib/osf/assist-sales";
+import {
+  fetchLastPurchaseByItem,
+  fetchMonthlyPurchasesInRange,
+  mergeMonthlyPurchaseMaps,
+} from "@/lib/osf/erp-purchases";
 import { fetchBinActualQty, getAllOsfErpInstances, stockForColumn } from "@/lib/osf/erp-stock";
-import { aggregateMonthlySalesBySku } from "@/lib/osf/monthly-sales";
+import { aggregateMonthlySalesBySku, osfPurchaseGridBounds, osfSalesGridBounds } from "@/lib/osf/monthly-sales";
 import { syncOgfPricesFromErp } from "@/lib/osf/sync-ogf-prices-from-erp";
 import { isBelowReorderThreshold } from "@/lib/osf/threshold";
+import { filterCatalogByOsfVariant, type OsfVariant } from "@/lib/osf/vat-membership";
+import {
+  findCosmeticsLkRopColumn,
+  selectVatRopColumns,
+  selectVatStockColumns,
+  totalRopForColumns,
+  totalRopForVat,
+} from "@/lib/osf/vat-rop-columns";
+import { ensureCosmeticsShopOsfColumns } from "@/lib/osf/shop-column-sync";
 import { prisma } from "@/lib/prisma";
 import { formatAppIsoDate } from "@/lib/format-datetime";
 import { getCurrentUserContext, hasPermission, requirePermission } from "@/lib/rbac";
@@ -20,6 +34,17 @@ import { osfGenerateBodySchema } from "@/lib/validation/osf";
 
 function todayColombo(): string {
   return formatAppIsoDate(new Date());
+}
+
+function osfDownloadFilename(variant: OsfVariant, asOfDate: string, belowThresholdOnly: boolean): string {
+  if (belowThresholdOnly) {
+    if (variant === "vat") return `OSF-reorder-vat-items-${asOfDate}.xlsx`;
+    if (variant === "non_vat") return `OSF-reorder-non-vat-${asOfDate}.xlsx`;
+    return `OSF-reorder-${asOfDate}.xlsx`;
+  }
+  if (variant === "vat") return `OSF-vat-items-${asOfDate}.xlsx`;
+  if (variant === "non_vat") return `OSF-non-vat-${asOfDate}.xlsx`;
+  return `OSF-${asOfDate}.xlsx`;
 }
 
 export async function POST(request: NextRequest) {
@@ -33,6 +58,7 @@ export async function POST(request: NextRequest) {
   }
 
   const belowThresholdOnly = parsed.data.belowThresholdOnly === true;
+  const osfVariant = parsed.data.osfVariant ?? "main";
 
   if (belowThresholdOnly) {
     const context = await getCurrentUserContext();
@@ -101,24 +127,47 @@ export async function POST(request: NextRequest) {
   await syncOgfPricesFromErp(companyId);
 
   try {
-    const [catalogRaw, columns, profiles, ropRows, monthlySales, buyers, allowedSuppliers] =
+    // Ensure Cosmetics shop warehouses from ERP1 exist as OSF columns before resolve.
+    try {
+      await ensureCosmeticsShopOsfColumns(companyId);
+    } catch (err) {
+      if (!(err instanceof OsfErpError)) throw err;
+      // Shop sync failure should not block generate if columns already exist; surface only if no columns later.
+      console.warn("[OSF] shop column sync failed:", err.message);
+    }
+
+    const salesGridBounds = osfSalesGridBounds(asOfDate);
+    const purchaseGridBounds = osfPurchaseGridBounds(asOfDate);
+
+    const [catalogRaw, columns, profiles, ropRows, monthlySales, salesByMonthNested, buyers, allowedSuppliers] =
       await Promise.all([
         buildCatalogRows(companyId, {
           includeInactive,
           vendorIds,
-          itemStatusCategories,
+          // Variant membership is authoritative for vat / non_vat.
+          itemStatusCategories: osfVariant === "main" ? itemStatusCategories : undefined,
           skuPrefix,
         }),
         resolveOsfColumns(companyId),
         prisma.productOsfProfile.findMany({ where: { companyId } }),
         prisma.productOsfRop.findMany({ where: { companyId } }),
         aggregateMonthlySalesBySku(companyId, salesMonth),
+        aggregateSalesBySkuByMonthInRange(
+          companyId,
+          salesGridBounds.start,
+          salesGridBounds.endExclusive,
+        ),
         listOsfBuyers(companyId),
         prisma.supplier.findMany({
           where: { companyId },
           select: { name: true, code: true },
         }),
       ]);
+
+    const salesByMonth = new Map<string, Record<string, number>>();
+    for (const [sku, months] of salesByMonthNested) {
+      salesByMonth.set(sku, Object.fromEntries(months));
+    }
 
     const profileMap = new Map<string, OsfProfileData>();
     for (const p of profiles) {
@@ -140,7 +189,7 @@ export async function POST(request: NextRequest) {
       profileMap.set(r.sku, entry);
     }
 
-    let catalog = catalogRaw;
+    let catalog = filterCatalogByOsfVariant(catalogRaw, osfVariant);
     let skus = catalog.map((c) => c.sku);
 
     const warehousesByInstance = new Map<string, Set<string>>();
@@ -154,7 +203,7 @@ export async function POST(request: NextRequest) {
     const perInstanceResults = await Promise.all(
       erpInstances.map(async (inst) => {
         const whs = [...(warehousesByInstance.get(inst.id) ?? [])];
-        const [bins, costs, purchases] = await Promise.all([
+        const [bins, costs, purchases, monthlyPurchases] = await Promise.all([
           whs.length
             ? fetchBinActualQty({ cfg: inst.cfg, warehouses: whs, itemCodes: skus })
             : Promise.resolve(new Map<string, number>()),
@@ -165,8 +214,14 @@ export async function POST(request: NextRequest) {
             recentSinceDate,
             allowedSuppliers,
           }),
+          fetchMonthlyPurchasesInRange({
+            cfg: inst.cfg,
+            bounds: purchaseGridBounds,
+            itemCodes: skus,
+            allowedSuppliers,
+          }),
         ]);
-        return { bins, costs, purchases };
+        return { bins, costs, purchases, monthlyPurchases };
       }),
     );
 
@@ -176,8 +231,13 @@ export async function POST(request: NextRequest) {
     }
 
     if (belowThresholdOnly || maxStockPctOfRop != null) {
-      const stockCols = columns.filter((c) => c.active && c.includeInStock);
-      const ropCols = columns.filter((c) => c.active && c.includeInRop);
+      const stockCols =
+        osfVariant === "vat"
+          ? selectVatStockColumns(columns)
+          : columns.filter((c) => c.active && c.includeInStock);
+      const mainRopCols = columns.filter((c) => c.active && c.includeInRop);
+      const vatRopCols = selectVatRopColumns(columns);
+      const cosmeticsLkKey = findCosmeticsLkRopColumn(vatRopCols)?.key ?? null;
       catalog = catalog.filter((row) => {
         let totalStock = 0;
         for (const col of stockCols) {
@@ -185,11 +245,10 @@ export async function POST(request: NextRequest) {
           if (qty != null) totalStock += qty;
         }
         const profile = profileMap.get(row.sku);
-        let totalRop = 0;
-        for (const col of ropCols) {
-          const r = profile?.rops[col.key];
-          if (r != null && Number.isFinite(r)) totalRop += r;
-        }
+        const totalRop =
+          osfVariant === "vat"
+            ? totalRopForVat(profile?.rops, cosmeticsLkKey)
+            : totalRopForColumns(profile?.rops, mainRopCols);
         const belowSkuThreshold = isBelowReorderThreshold(
           totalStock,
           totalRop,
@@ -212,9 +271,12 @@ export async function POST(request: NextRequest) {
       purchases: r.purchases,
     }));
     const { costMap, purchaseMap } = mergeInstanceErpData(skus, perInstanceErp);
+    const purchasesByMonth = mergeMonthlyPurchaseMaps(
+      perInstanceResults.map((r) => r.monthlyPurchases),
+    );
 
     const effectiveColumnKeys = context?.user
-      ? await resolveEffectiveOsfColumnKeys(context, companyId)
+      ? await resolveEffectiveOsfColumnKeys(context, companyId, osfVariant)
       : new Set<string>();
 
     const buffer = await buildOsfWorkbookBuffer({
@@ -227,22 +289,24 @@ export async function POST(request: NextRequest) {
       monthlySales,
       salesMonth,
       asOfDate,
+      salesByMonth,
+      purchasesByMonth,
       belowThresholdOnly,
       effectiveColumnKeys,
+      osfVariant,
       buyers: buyers
         .filter((b) => b.active)
         .map((b) => ({ name: b.name, brands: b.brands })),
     });
 
-    const filename = belowThresholdOnly
-      ? `OSF-reorder-${asOfDate}.xlsx`
-      : `OSF-${asOfDate}.xlsx`;
+    const filename = osfDownloadFilename(osfVariant, asOfDate, belowThresholdOnly);
     return new NextResponse(new Uint8Array(buffer), {
       status: 200,
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         "Content-Disposition": `attachment; filename="${filename}"`,
         "X-OSF-Row-Count": String(catalog.length),
+        "X-OSF-Variant": osfVariant,
       },
     });
   } catch (err) {

@@ -11,6 +11,11 @@ import {
 import { LIMITS } from "@/lib/validation";
 import { resolveErpSalesInvoiceCouponFields } from "@/lib/erp-coupon-resolve";
 import {
+  buildCreditNoteReturnItems,
+  buildCreditNoteReturnTaxes,
+} from "@/lib/erp-credit-note-items";
+import { mergeErpReturnSalesInvoiceIds } from "@/lib/erp-return-si";
+import {
   buildErpItemsFromShopifyLineItems,
   sumErpInvoiceItemsTotal,
   type ErpSalesInvoiceItem,
@@ -1479,17 +1484,32 @@ type OriginalSiForCreditNote = {
   grand_total: number;
   status?: string | null;
   company?: string;
+  set_warehouse?: string | null;
+  update_stock?: number | null;
   custom_payment_type?: string | null;
   custom_merchant_coupon_code?: string | null;
   items: Array<{
+    name?: string | null;
     item_code: string;
     item_name?: string;
     description?: string;
     qty: number;
     rate: number;
     income_account?: string;
+    expense_account?: string;
     cost_center?: string;
     uom?: string;
+    warehouse?: string | null;
+    batch_no?: string | null;
+  }>;
+  taxes?: Array<{
+    charge_type?: string | null;
+    account_head: string;
+    description?: string | null;
+    included_in_print_rate?: number | null;
+    cost_center?: string | null;
+    rate?: number | null;
+    tax_amount: number;
   }>;
 };
 
@@ -1664,7 +1684,13 @@ async function assertOriginalCreditNoted(
  * invoice_complete was reverted by a finance user. Non-fatal — caller must catch.
  */
 export async function createErpnextCreditNote(
-  order: { id: string; name: string | null; orderNumber: string | null; erpnextInvoiceId?: string | null },
+  order: {
+    id: string;
+    name: string | null;
+    orderNumber: string | null;
+    erpnextInvoiceId?: string | null;
+    erpReturnSalesInvoiceIds?: string[] | null;
+  },
   location: LocationWithErpInstance,
 ): Promise<{ creditNoteName: string }> {
   const ensured = await ensureErpnextCreditNote(order, location, {
@@ -1723,16 +1749,9 @@ export async function ensureErpnextCreditNote(
     }
 
     const today = toDateStr(new Date());
-    const returnItems = originalSi.items.map((item) => ({
-      item_code: item.item_code,
-      item_name: item.item_name,
-      description: item.description,
-      qty: -Math.abs(item.qty),
-      rate: item.rate,
-      income_account: item.income_account,
-      cost_center: item.cost_center,
-      uom: item.uom,
-    }));
+    const fallbackWarehouse = originalSi.set_warehouse?.trim() || location.erpnextWarehouse || null;
+    const returnItems = buildCreditNoteReturnItems(originalSi.items, fallbackWarehouse);
+    const returnTaxes = buildCreditNoteReturnTaxes(originalSi.taxes);
 
     const creditNote = await erpnextPost<{ name: string }>(cfg, "/api/resource/Sales Invoice", {
       doctype: "Sales Invoice",
@@ -1748,6 +1767,9 @@ export async function ensureErpnextCreditNote(
       items: returnItems,
       docstatus: 1,
       disable_rounded_total: 1,
+      update_stock: originalSi.update_stock ? 1 : 0,
+      ...(fallbackWarehouse ? { set_warehouse: fallbackWarehouse } : {}),
+      ...(returnTaxes.length ? { taxes: returnTaxes } : {}),
       ...(originalSi.custom_payment_type ? { custom_payment_type: originalSi.custom_payment_type } : {}),
       ...(originalSi.custom_merchant_coupon_code
         ? { custom_merchant_coupon_code: originalSi.custom_merchant_coupon_code }
@@ -1759,6 +1781,19 @@ export async function ensureErpnextCreditNote(
     console.log(
       `[ERPNext] Credit note ${creditNoteName} created against ${originalSiName} for order ${orderName}`,
     );
+  }
+
+  if (creditNoteName) {
+    const merged = mergeErpReturnSalesInvoiceIds(existingOs, creditNoteName);
+    if (
+      merged.length !== existingOs.length ||
+      merged.some((id, i) => id !== existingOs[i])
+    ) {
+      await prisma.order.update({
+        where: { id: order.id },
+        data: { erpReturnSalesInvoiceIds: merged },
+      });
+    }
   }
 
   if (!requireOriginalCreditNoted) {

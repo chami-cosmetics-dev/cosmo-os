@@ -99,10 +99,9 @@ export function buildCoverCsv(rows: Array<{
   unitsInRange: number;
   stockQty: number;
   weekNeed: number;
-  stockPctOfWeek: number | null;
+  last30AvgDaily: number;
   coverDays: number | null;
-  shouldSend: boolean;
-  suggestedSendQty: number;
+  ropQty: number | null;
   isOosInRange: boolean;
 }>): string {
   const header = [
@@ -111,13 +110,12 @@ export function buildCoverCsv(rows: Array<{
     "brand",
     "location",
     "channel",
+    "rop",
     "units_in_range",
     "stock",
     "week_need",
-    "stock_pct_of_week",
+    "last_30d_avg_sale",
     "cover_days",
-    "should_send",
-    "suggested_send_qty",
     "oos_in_range",
   ];
   const lines = [header.join(",")];
@@ -129,13 +127,12 @@ export function buildCoverCsv(rows: Array<{
         csvEscape(row.brand ?? ""),
         csvEscape(row.outletName),
         csvEscape(row.channelKind),
+        String(row.ropQty ?? ""),
         String(row.unitsInRange),
         String(row.stockQty),
         String(row.weekNeed),
-        String(row.stockPctOfWeek ?? ""),
+        String(row.last30AvgDaily),
         String(row.coverDays ?? ""),
-        row.shouldSend ? "yes" : "no",
-        String(row.suggestedSendQty),
         row.isOosInRange ? "yes" : "no",
       ].join(","),
     );

@@ -478,6 +478,11 @@ export function MerchantDashboardPanel({ initialData }: Props) {
   const [callUpdateRow, setCallUpdateRow] = useState<CallQueueRowDto | null>(null);
   const [callOutcome, setCallOutcome] = useState("N/A");
   const [callRemark, setCallRemark] = useState("");
+  const [notInterestedRow, setNotInterestedRow] = useState<{
+    contactId: string;
+    name: string;
+  } | null>(null);
+  const [notInterestedReason, setNotInterestedReason] = useState("");
   const [invoiceDay, setInvoiceDay] = useState(initialData.dailyInvoicesYmd);
   const [dailyInvoices, setDailyInvoices] = useState<MerchantDailyInvoiceRow[]>(
     initialData.dailyInvoices,
@@ -951,6 +956,51 @@ export function MerchantDashboardPanel({ initialData }: Props) {
       await reload(merchantId);
     } catch {
       notify.error("Failed to save call update");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function submitLoyaltyOutreach(input: {
+    contactId: string;
+    action: "loyalty_informed" | "responded" | "not_responded" | "not_interested";
+    remark?: string | null;
+    missingProfileFields?: string[];
+  }) {
+    if (input.action === "responded" && input.missingProfileFields?.length) {
+      notify.error(loyaltyProfileIncompleteMessage(input.missingProfileFields));
+      return false;
+    }
+    setBusyKey("loyalty");
+    try {
+      const res = await fetch("/api/admin/merchant-dashboard/loyalty-outreach", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contactId: input.contactId,
+          action: input.action,
+          remark: input.remark?.trim() || null,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        notify.error(json.error ?? "Update failed");
+        return false;
+      }
+      const success =
+        input.action === "responded"
+          ? "Loyalty request sent"
+          : input.action === "not_interested"
+            ? "Marked not interested"
+            : input.action === "not_responded"
+              ? "Marked not responded"
+              : "Loyalty outreach updated";
+      notify.success(success);
+      await reload(merchantId);
+      return true;
+    } catch {
+      notify.error("Update failed");
+      return false;
     } finally {
       setBusyKey(null);
     }
@@ -1953,7 +2003,14 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                       <Phone className="size-4" aria-hidden />
                     </span>
                     <div className="min-w-0">
-                      <p className="truncate font-medium">{row.name}</p>
+                      <p className="flex flex-wrap items-center gap-1.5 font-medium">
+                        <span className="truncate">{row.name}</span>
+                        {row.newlyAllocatedBadge ? (
+                          <span className="inline-flex shrink-0 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-400">
+                            Newly allocated
+                          </span>
+                        ) : null}
+                      </p>
                       <p className="text-muted-foreground text-xs">
                         {row.phoneNumber ?? "No phone"} · tot {formatMoney(row.lifetimeTotal)}
                       </p>
@@ -1996,11 +2053,15 @@ export function MerchantDashboardPanel({ initialData }: Props) {
 
       <Card>
         <CardHeader className="space-y-1">
-          <CardTitle className="text-base">Loyalty eligible</CardTitle>
+          <CardTitle className="text-base">
+            Loyalty eligible (
+            {data.loyaltyEligibleCount ?? (data.loyaltyOutreach ?? []).length})
+          </CardTitle>
           <p className="text-muted-foreground text-xs">
             Allocated customers who hit Gold/Platinum spend and still need registration
             — Standard not yet set, or Gold customers now Platinum-eligible. Contact
-            them, then assign after they respond.
+            them. After they respond: Interested sends a loyalty request; Not
+            interested (optional reason) removes them from this list.
           </p>
         </CardHeader>
         <CardContent>
@@ -2054,7 +2115,7 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                       <span className="text-muted-foreground self-center text-xs">
                         Requested
                       </span>
-                    ) : (
+                    ) : row.status === "contacted" ? (
                     <>
                     <Button
                       type="button"
@@ -2062,94 +2123,74 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                       variant="secondary"
                       disabled={isBusy}
                       onClick={() => {
-                        void (async () => {
-                          const action =
-                            row.status === "contacted"
-                              ? "responded"
-                              : "loyalty_informed";
-                          if (
-                            action === "responded" &&
-                            row.missingProfileFields?.length
-                          ) {
-                            notify.error(
-                              loyaltyProfileIncompleteMessage(
-                                row.missingProfileFields
-                              )
-                            );
-                            return;
-                          }
-                          setBusyKey("loyalty");
-                          try {
-                            const res = await fetch(
-                              "/api/admin/merchant-dashboard/loyalty-outreach",
-                              {
-                                method: "POST",
-                                headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({
-                                  contactId: row.contactId,
-                                  action,
-                                }),
-                              },
-                            );
-                            const json = await res.json().catch(() => ({}));
-                            if (!res.ok) {
-                              notify.error(json.error ?? "Update failed");
-                              return;
-                            }
-                            notify.success("Loyalty outreach updated");
-                            await reload(merchantId);
-                          } catch {
-                            notify.error("Update failed");
-                          } finally {
-                            setBusyKey(null);
-                          }
-                        })();
+                        void submitLoyaltyOutreach({
+                          contactId: row.contactId,
+                          action: "responded",
+                          missingProfileFields: row.missingProfileFields,
+                        });
                       }}
                     >
-                      {row.status === "contacted" ? "Responded" : "Mark contacted"}
+                      {busyKey === "loyalty" ? (
+                        <>
+                          <Loader2 className="animate-spin" aria-hidden />
+                          Sending...
+                        </>
+                      ) : (
+                        "Interested"
+                      )}
                     </Button>
-                    {row.status === "contacted" ? (
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        disabled={isBusy}
-                        onClick={() => {
-                          void (async () => {
-                            setBusyKey("loyalty");
-                            try {
-                              const res = await fetch(
-                                "/api/admin/merchant-dashboard/loyalty-outreach",
-                                {
-                                  method: "POST",
-                                  headers: {
-                                    "Content-Type": "application/json",
-                                  },
-                                  body: JSON.stringify({
-                                    contactId: row.contactId,
-                                    action: "not_responded",
-                                  }),
-                                },
-                              );
-                              const json = await res.json().catch(() => ({}));
-                              if (!res.ok) {
-                                notify.error(json.error ?? "Update failed");
-                                return;
-                              }
-                              notify.success("Marked not responded");
-                              await reload(merchantId);
-                            } catch {
-                              notify.error("Update failed");
-                            } finally {
-                              setBusyKey(null);
-                            }
-                          })();
-                        }}
-                      >
-                        Not responded
-                      </Button>
-                    ) : null}
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={isBusy}
+                      onClick={() => {
+                        setNotInterestedRow({
+                          contactId: row.contactId,
+                          name: row.name,
+                        });
+                        setNotInterestedReason("");
+                      }}
+                    >
+                      Not interested
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={isBusy}
+                      onClick={() => {
+                        void submitLoyaltyOutreach({
+                          contactId: row.contactId,
+                          action: "not_responded",
+                        });
+                      }}
+                    >
+                      Not responded
+                    </Button>
                     </>
+                    ) : (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      disabled={isBusy}
+                      onClick={() => {
+                        void submitLoyaltyOutreach({
+                          contactId: row.contactId,
+                          action: "loyalty_informed",
+                        });
+                      }}
+                    >
+                      {busyKey === "loyalty" ? (
+                        <>
+                          <Loader2 className="animate-spin" aria-hidden />
+                          Saving...
+                        </>
+                      ) : (
+                        "Mark contacted"
+                      )}
+                    </Button>
                     )}
                   </div>
                 </li>
@@ -3157,6 +3198,78 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                 </>
               ) : (
                 "Save outcome"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={notInterestedRow != null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setNotInterestedRow(null);
+            setNotInterestedReason("");
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Not interested in loyalty</DialogTitle>
+            <DialogDescription>
+              {notInterestedRow
+                ? `${notInterestedRow.name} leaves the eligible list. They can still request later from Customer Insight.`
+                : "This customer leaves the eligible list."}
+            </DialogDescription>
+          </DialogHeader>
+          <label className="space-y-1 text-sm">
+            <span className="text-muted-foreground">Reason (optional)</span>
+            <Textarea
+              value={notInterestedReason}
+              onChange={(e) => setNotInterestedReason(e.target.value)}
+              disabled={isBusy}
+              maxLength={2000}
+              rows={3}
+              placeholder="Why they declined"
+            />
+          </label>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={isBusy}
+              onClick={() => {
+                setNotInterestedRow(null);
+                setNotInterestedReason("");
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={isBusy}
+              onClick={() => {
+                void (async () => {
+                  if (!notInterestedRow) return;
+                  const ok = await submitLoyaltyOutreach({
+                    contactId: notInterestedRow.contactId,
+                    action: "not_interested",
+                    remark: notInterestedReason,
+                  });
+                  if (ok) {
+                    setNotInterestedRow(null);
+                    setNotInterestedReason("");
+                  }
+                })();
+              }}
+            >
+              {busyKey === "loyalty" ? (
+                <>
+                  <Loader2 className="animate-spin" aria-hidden />
+                  Saving...
+                </>
+              ) : (
+                "Remove from list"
               )}
             </Button>
           </DialogFooter>

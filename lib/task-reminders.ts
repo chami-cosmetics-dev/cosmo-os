@@ -32,6 +32,7 @@ const REMINDER_LIMIT_PER_CATEGORY = 20;
 export type TaskReminderCategory =
   | "erp_sync_warning"
   | "finance_approval"
+  | "merchant_payment_approval"
   | "add_samples"
   | "print"
   | "rearrange_dispatch"
@@ -223,6 +224,87 @@ async function fetchFinanceApprovalReminders(
   return { reminders, totalCount };
 }
 
+export function buildMerchantPaymentApprovalWhere(
+  companyId: string,
+  merchantUserId: string,
+): Prisma.ApprovalRequestWhereInput {
+  return {
+    companyId,
+    type: ORDER_PAYMENT_APPROVAL,
+    status: "pending",
+    order: {
+      assignedMerchantId: merchantUserId,
+      NOT: { financialStatus: { equals: "voided", mode: "insensitive" } },
+    },
+  };
+}
+
+export function mapMerchantPaymentApprovalReminder(
+  approval: {
+    id: string;
+    createdAt: Date;
+    order: {
+      id: string;
+      name: string | null;
+      orderNumber: string | null;
+      shopifyOrderId: string | null;
+    } | null;
+  },
+  now: Date,
+): TaskReminder {
+  const invoiceLabel = approval.order
+    ? orderInvoiceLabel(approval.order)
+    : approval.id;
+  const waitingHours = waitingHoursSince(approval.createdAt, now);
+  return {
+    id: `merchant_payment_approval:${approval.id}`,
+    category: "merchant_payment_approval",
+    title: "Payment approval pending",
+    body: `${invoiceLabel} is waiting for finance payment approval (${waitingHours}h).`,
+    href: taskReminderHref("/dashboard/merchant", { orderId: approval.order?.id }),
+    waitingHours,
+    orderId: approval.order?.id,
+    invoiceLabel,
+  };
+}
+
+async function fetchMerchantPaymentApprovalReminders(
+  companyId: string,
+  context: PermissionContext,
+  now: Date,
+): Promise<CappedReminders> {
+  if (!context.userId) {
+    return { reminders: [], totalCount: 0 };
+  }
+
+  const where = buildMerchantPaymentApprovalWhere(companyId, context.userId);
+  const totalCount = await prisma.approvalRequest.count({ where });
+  const approvals = await prisma.approvalRequest.findMany({
+    where,
+    orderBy: { createdAt: "asc" },
+    take: REMINDER_LIMIT_PER_CATEGORY,
+    select: {
+      id: true,
+      createdAt: true,
+      order: {
+        select: {
+          id: true,
+          name: true,
+          orderNumber: true,
+          shopifyOrderId: true,
+        },
+      },
+    },
+  });
+
+  return {
+    totalCount,
+    reminders: approvals.map((approval) =>
+      mapMerchantPaymentApprovalReminder(approval, now),
+    ),
+  };
+}
+
 async function fetchSampleReminders(
   companyId: string,
   now: Date,
@@ -261,10 +343,10 @@ async function fetchSampleReminders(
       name: true,
       orderNumber: true,
       shopifyOrderId: true,
-      fulfillmentStage: true,
-      fulfillmentStageEnteredAt: true,
       createdAt: true,
       updatedAt: true,
+      fulfillmentStage: true,
+      fulfillmentStageEnteredAt: true,
       sampleFreeIssueCompleteAt: true,
       packageReadyAt: true,
       dispatchedAt: true,
@@ -669,6 +751,15 @@ export async function fetchTaskReminders(
     reminders.push(...finance.reminders);
     categoryCounts.finance_approval = finance.totalCount;
   }
+  if (canSeeTaskReminderCategory(context, "merchant_payment_approval")) {
+    const merchantPayment = await fetchMerchantPaymentApprovalReminders(
+      companyId,
+      context,
+      now,
+    );
+    reminders.push(...merchantPayment.reminders);
+    categoryCounts.merchant_payment_approval = merchantPayment.totalCount;
+  }
   if (canSeeTaskReminderCategory(context, "add_samples")) {
     const samples = await fetchSampleReminders(companyId, now, context);
     reminders.push(...samples.reminders);
@@ -716,6 +807,7 @@ export async function fetchTaskReminders(
 
   const cappedCountCategories = new Set<TaskReminderCategory>([
     "finance_approval",
+    "merchant_payment_approval",
     "add_samples",
     "print",
     "ready_dispatch",

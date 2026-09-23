@@ -11,6 +11,21 @@ export function maxSale(monthTotals: Array<number | null | undefined>): number |
   return Math.max(...nums);
 }
 
+/**
+ * AVE = total sales ÷ count of months that have a sale value.
+ * Blank months (no ERP/import cell) are excluded from the divisor.
+ */
+export function averageMonthlySale(
+  monthTotals: Array<number | null | undefined>,
+  _monthCount?: number,
+): number | null {
+  const nums = monthTotals.filter((v): v is number => v != null && Number.isFinite(v));
+  if (nums.length === 0) return null;
+  const total = nums.reduce((a, b) => a + b, 0);
+  return total / nums.length;
+}
+
+/** Legacy months-of-cover helper (stock ÷ peak month). Not used for AVE. */
 export function monthsOfCover(totalStock: number | null, max: number | null): number | null {
   if (totalStock == null || max == null || max === 0) return null;
   return totalStock / max;

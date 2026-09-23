@@ -11,8 +11,15 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import type { CustomerResponse, FollowUpStatus, RemarkTemplateId } from "@/lib/abandoned-orders-constants";
+import type {
+  AbandonmentReason,
+  CustomerResponse,
+  FollowUpStatus,
+  RemarkTemplateId,
+} from "@/lib/abandoned-orders-constants";
 import {
+  ABANDONMENT_REASON_LABELS,
+  ABANDONMENT_REASONS,
   CUSTOMER_RESPONSE_LABELS,
   FOLLOW_UP_STATUS_LABELS,
   MANUAL_CUSTOMER_RESPONSES,
@@ -20,21 +27,26 @@ import {
   matchRemarkTemplateId,
 } from "@/lib/abandoned-orders-constants";
 
+const NONE_REASON = "__none__";
+
 export function AbandonedOrderFollowUpForm({
   initialFollowUpStatus,
   initialCustomerResponse,
   initialRemark,
+  initialAbandonmentReason,
   onSubmit,
   busy,
 }: {
   initialFollowUpStatus: FollowUpStatus;
   initialCustomerResponse: CustomerResponse | null;
   initialRemark: string | null;
+  initialAbandonmentReason: AbandonmentReason | null;
   busy: boolean;
   onSubmit: (values: {
     followUpStatus: FollowUpStatus;
     customerResponse: CustomerResponse | null;
     remark: string | undefined;
+    abandonmentReason: AbandonmentReason | null;
   }) => Promise<void>;
 }) {
   const [followUpStatus, setFollowUpStatus] = useState<FollowUpStatus>(initialFollowUpStatus);
@@ -48,6 +60,9 @@ export function AbandonedOrderFollowUpForm({
     matchRemarkTemplateId(initialRemark)
   );
   const [remark, setRemark] = useState<string>(initialRemark ?? "");
+  const [abandonmentReason, setAbandonmentReason] = useState<AbandonmentReason | null>(
+    initialAbandonmentReason
+  );
 
   const isClosing = followUpStatus === "closed";
   const [error, setError] = useState<string | null>(null);
@@ -73,6 +88,7 @@ export function AbandonedOrderFollowUpForm({
           followUpStatus,
           customerResponse: isClosing ? customerResponse : null,
           remark: remark.trim() ? remark.trim() : undefined,
+          abandonmentReason,
         }).catch((err) => {
           setError(err instanceof Error ? err.message : "Failed to save follow-up");
         });
@@ -88,6 +104,28 @@ export function AbandonedOrderFollowUpForm({
             {Object.entries(FOLLOW_UP_STATUS_LABELS).map(([key, label]) => (
               <SelectItem key={key} value={key}>
                 {label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="space-y-1">
+        <label className="text-sm font-medium">Abandonment reason (optional)</label>
+        <Select
+          value={abandonmentReason ?? NONE_REASON}
+          onValueChange={(v) =>
+            setAbandonmentReason(v === NONE_REASON ? null : (v as AbandonmentReason))
+          }
+        >
+          <SelectTrigger>
+            <SelectValue placeholder="Select a reason" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={NONE_REASON}>—</SelectItem>
+            {ABANDONMENT_REASONS.map((key) => (
+              <SelectItem key={key} value={key}>
+                {ABANDONMENT_REASON_LABELS[key]}
               </SelectItem>
             ))}
           </SelectContent>

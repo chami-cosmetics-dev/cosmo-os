@@ -18,13 +18,39 @@ type SampleRow = {
   riderDeliveryCharge: string;
 };
 
+type ZoneSampleRow = {
+  zoneLabel: string;
+  districtLabel: string;
+};
+
+type UploadResult = {
+  imported?: number;
+  created?: number;
+  updated?: number;
+  skippedBlank?: number;
+  sheetName?: string;
+  removedZoneChargeKeys?: number;
+  error?: string;
+  warnings?: string[];
+};
+
+type ZoneUploadResult = {
+  imported?: number;
+  skippedBlank?: number;
+  sheetName?: string;
+  error?: string;
+  warnings?: string[];
+};
+
 export function RiderDeliveryChargesForm({ canEdit }: RiderDeliveryChargesFormProps) {
   const [count, setCount] = useState(0);
   const [sample, setSample] = useState<SampleRow[]>([]);
+  const [zoneCount, setZoneCount] = useState(0);
+  const [zoneSample, setZoneSample] = useState<ZoneSampleRow[]>([]);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const isBusy = busyKey !== null;
 
-  async function reload() {
+  async function reloadCharges() {
     try {
       const res = await fetch("/api/admin/settings/rider-delivery-charges");
       const data = (await res.json()) as {
@@ -43,13 +69,33 @@ export function RiderDeliveryChargesForm({ canEdit }: RiderDeliveryChargesFormPr
     }
   }
 
+  async function reloadZones() {
+    try {
+      const res = await fetch("/api/admin/settings/rider-delivery-zones");
+      const data = (await res.json()) as {
+        count?: number;
+        sample?: ZoneSampleRow[];
+        error?: string;
+      };
+      if (!res.ok) {
+        notify.error(data.error ?? "Failed to load zone districts map");
+        return;
+      }
+      setZoneCount(data.count ?? 0);
+      setZoneSample(data.sample ?? []);
+    } catch {
+      notify.error("Failed to load zone districts map");
+    }
+  }
+
   useEffect(() => {
-    void reload();
+    void reloadCharges();
+    void reloadZones();
   }, []);
 
-  async function handleUpload(file: File | null) {
+  async function handleChargeUpload(file: File | null) {
     if (!canEdit || !file) return;
-    setBusyKey("upload");
+    setBusyKey("charges");
     try {
       const body = new FormData();
       body.set("file", file);
@@ -57,14 +103,7 @@ export function RiderDeliveryChargesForm({ canEdit }: RiderDeliveryChargesFormPr
         method: "POST",
         body,
       });
-      const data = (await res.json()) as {
-        imported?: number;
-        created?: number;
-        updated?: number;
-        skippedBlank?: number;
-        error?: string;
-        warnings?: string[];
-      };
+      const data = (await res.json()) as UploadResult;
       if (!res.ok) {
         notify.error(data.error ?? "Upload failed");
         return;
@@ -74,12 +113,16 @@ export function RiderDeliveryChargesForm({ canEdit }: RiderDeliveryChargesFormPr
         data.created != null ? `${data.created} created` : null,
         data.updated != null ? `${data.updated} updated` : null,
         data.skippedBlank != null ? `${data.skippedBlank} blank rider-charge rows skipped` : null,
+        data.removedZoneChargeKeys
+          ? `${data.removedZoneChargeKeys} Zone A/B charge keys removed`
+          : null,
+        data.sheetName ? `sheet “${data.sheetName}”` : null,
       ].filter(Boolean);
       notify.success(`${parts.join(" · ")}. Labels not in the file were kept.`);
       if (data.warnings?.length) {
         notify.error(`${data.warnings.length} row warning(s) — check sheet amounts.`);
       }
-      await reload();
+      await reloadCharges();
     } catch {
       notify.error("Upload failed");
     } finally {
@@ -87,85 +130,197 @@ export function RiderDeliveryChargesForm({ canEdit }: RiderDeliveryChargesFormPr
     }
   }
 
+  async function handleZoneUpload(file: File | null) {
+    if (!canEdit || !file) return;
+    setBusyKey("zones");
+    try {
+      const body = new FormData();
+      body.set("file", file);
+      const res = await fetch("/api/admin/settings/rider-delivery-zones", {
+        method: "POST",
+        body,
+      });
+      const data = (await res.json()) as ZoneUploadResult;
+      if (!res.ok) {
+        notify.error(data.error ?? "Zone map upload failed");
+        return;
+      }
+      const parts = [
+        `Imported ${data.imported ?? 0} zone→city rows`,
+        data.skippedBlank != null ? `${data.skippedBlank} blank rows skipped` : null,
+        data.sheetName ? `sheet “${data.sheetName}”` : null,
+      ].filter(Boolean);
+      notify.success(`${parts.join(" · ")}. Replaced previous zone map.`);
+      if (data.warnings?.length) {
+        notify.error(`${data.warnings.length} row warning(s).`);
+      }
+      await reloadZones();
+    } catch {
+      notify.error("Zone map upload failed");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          <FileSpreadsheet className="size-4 text-muted-foreground" aria-hidden />
-          Rider delivery charges
-        </CardTitle>
-        <CardDescription>
-          Upload the shipping rules Excel (Shipping Rule Label + Delivery Charges for riders). Blank
-          rider-charge cells are skipped (non-rider areas). Upload upserts by label and keeps rules
-          that are not in the file. Rider incentives match the rider charge column by shipping rule
-          label — not the customer shipping amount when they differ.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <p className="text-sm text-muted-foreground">
-          Rules loaded: <span className="font-semibold text-foreground">{count}</span>
-        </p>
-        {canEdit ? (
-          <div className="flex flex-wrap items-center gap-3">
-            <Button asChild disabled={isBusy} variant="secondary">
-              <label className="cursor-pointer">
-                {busyKey === "upload" ? (
-                  <>
-                    <Loader2 className="animate-spin" aria-hidden />
-                    Uploading...
-                  </>
-                ) : (
-                  <>
-                    <Upload aria-hidden />
-                    Upload Excel
-                  </>
-                )}
-                <input
-                  type="file"
-                  accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
-                  className="sr-only"
-                  disabled={isBusy}
-                  onChange={(e) => {
-                    const file = e.target.files?.[0] ?? null;
-                    e.target.value = "";
-                    void handleUpload(file);
-                  }}
-                />
-              </label>
-            </Button>
-            <p className="text-xs text-muted-foreground">Replaces all existing rules.</p>
-          </div>
-        ) : null}
-        {sample.length > 0 ? (
-          <div className="rounded-md border text-sm overflow-x-auto">
-            <table className="w-full min-w-[480px]">
-              <thead className="bg-muted/50 text-left">
-                <tr>
-                  <th className="p-2 font-medium">Label</th>
-                  <th className="p-2 font-medium">District</th>
-                  <th className="p-2 font-medium">Shipping</th>
-                  <th className="p-2 font-medium">Rider pay</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sample.map((row) => (
-                  <tr key={row.label} className="border-t">
-                    <td className="p-2">{row.label}</td>
-                    <td className="p-2">{row.district ?? "—"}</td>
-                    <td className="p-2">{row.shippingAmount}</td>
-                    <td className="p-2 font-semibold">{row.riderDeliveryCharge}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {count > sample.length ? (
-              <p className="p-2 text-xs text-muted-foreground border-t">
-                Showing first {sample.length} of {count}
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <FileSpreadsheet className="size-4 text-muted-foreground" aria-hidden />
+            Rider delivery charges
+          </CardTitle>
+          <CardDescription>
+            Upload <strong>Shipping Rule New</strong> Excel. Prefers the{" "}
+            <strong>Final (2)</strong> sheet — Shipping Rule Label + Delivery Charges for riders.
+            Zone A/B pay keys are removed on upload. Blank rider-charge cells are skipped. Upload
+            upserts by label and keeps rules not in the file.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Rules loaded: <span className="font-semibold text-foreground">{count}</span>
+          </p>
+          {canEdit ? (
+            <div className="flex flex-wrap items-center gap-3">
+              <Button asChild disabled={isBusy} variant="secondary">
+                <label className="cursor-pointer">
+                  {busyKey === "charges" ? (
+                    <>
+                      <Loader2 className="animate-spin" aria-hidden />
+                      Uploading...
+                    </>
+                  ) : (
+                    <>
+                      <Upload aria-hidden />
+                      Upload charge sheet
+                    </>
+                  )}
+                  <input
+                    type="file"
+                    accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+                    className="sr-only"
+                    disabled={isBusy}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0] ?? null;
+                      e.target.value = "";
+                      void handleChargeUpload(file);
+                    }}
+                  />
+                </label>
+              </Button>
+              <p className="text-xs text-muted-foreground">
+                Upserts by label; keeps rules not in file.
               </p>
-            ) : null}
-          </div>
-        ) : null}
-      </CardContent>
-    </Card>
+            </div>
+          ) : null}
+          {sample.length > 0 ? (
+            <div className="rounded-md border text-sm overflow-x-auto">
+              <table className="w-full min-w-[480px]">
+                <thead className="bg-muted/50 text-left">
+                  <tr>
+                    <th className="p-2 font-medium">Label</th>
+                    <th className="p-2 font-medium">District</th>
+                    <th className="p-2 font-medium">Shipping</th>
+                    <th className="p-2 font-medium">Rider pay</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sample.map((row) => (
+                    <tr key={row.label} className="border-t">
+                      <td className="p-2">{row.label}</td>
+                      <td className="p-2">{row.district ?? "—"}</td>
+                      <td className="p-2">{row.shippingAmount}</td>
+                      <td className="p-2 font-semibold">{row.riderDeliveryCharge}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {count > sample.length ? (
+                <p className="p-2 text-xs text-muted-foreground border-t">
+                  Showing first {sample.length} of {count}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <FileSpreadsheet className="size-4 text-muted-foreground" aria-hidden />
+            Zone districts map
+          </CardTitle>
+          <CardDescription>
+            Upload <strong>Riders Delivery charges- Updated</strong> Excel. Uses the{" "}
+            <strong>Final Working</strong> sheet for Zone Name → City membership only. Amounts and
+            Delivery Person Charges on that sheet are ignored — rider pay comes from the Shipping
+            Rule sheet above. Shopify Zone A/B orders match via shipping city.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Zone→city rows: <span className="font-semibold text-foreground">{zoneCount}</span>
+          </p>
+          {canEdit ? (
+            <div className="flex flex-wrap items-center gap-3">
+              <Button asChild disabled={isBusy} variant="secondary">
+                <label className="cursor-pointer">
+                  {busyKey === "zones" ? (
+                    <>
+                      <Loader2 className="animate-spin" aria-hidden />
+                      Uploading...
+                    </>
+                  ) : (
+                    <>
+                      <Upload aria-hidden />
+                      Upload zone map
+                    </>
+                  )}
+                  <input
+                    type="file"
+                    accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+                    className="sr-only"
+                    disabled={isBusy}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0] ?? null;
+                      e.target.value = "";
+                      void handleZoneUpload(file);
+                    }}
+                  />
+                </label>
+              </Button>
+              <p className="text-xs text-muted-foreground">Full replace of zone membership table.</p>
+            </div>
+          ) : null}
+          {zoneSample.length > 0 ? (
+            <div className="rounded-md border text-sm overflow-x-auto">
+              <table className="w-full min-w-[360px]">
+                <thead className="bg-muted/50 text-left">
+                  <tr>
+                    <th className="p-2 font-medium">Zone</th>
+                    <th className="p-2 font-medium">City / district</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {zoneSample.map((row) => (
+                    <tr key={`${row.zoneLabel}::${row.districtLabel}`} className="border-t">
+                      <td className="p-2">{row.zoneLabel}</td>
+                      <td className="p-2">{row.districtLabel}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {zoneCount > zoneSample.length ? (
+                <p className="p-2 text-xs text-muted-foreground border-t">
+                  Showing first {zoneSample.length} of {zoneCount}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+        </CardContent>
+      </Card>
+    </div>
   );
 }

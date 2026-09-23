@@ -75,6 +75,7 @@ export {
   canAssignOrUpgradeLoyaltyTier,
   isLoyaltyEligibleByTotal,
   nextOutreachStatus,
+  parseLoyaltyOutreachStatus,
   pendingLoyaltySuggestion,
   suggestedLoyaltyTier,
 } from "@/lib/customer-insight/loyalty-outreach";

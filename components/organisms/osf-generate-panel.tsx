@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { notify } from "@/lib/notify";
 import { formatAppIsoDate } from "@/lib/format-datetime";
+import type { OsfVariant } from "@/lib/osf/vat-membership";
 
 type Vendor = { id: string; name: string };
 type PriorityOption = { id: string; name: string };
@@ -19,18 +20,38 @@ function todayColombo(): string {
   return formatAppIsoDate(new Date());
 }
 
+function fallbackFilename(variant: OsfVariant, asOfDate: string, belowThresholdOnly: boolean): string {
+  if (belowThresholdOnly) {
+    if (variant === "vat") return `OSF-reorder-vat-items-${asOfDate}.xlsx`;
+    if (variant === "non_vat") return `OSF-reorder-non-vat-${asOfDate}.xlsx`;
+    return `OSF-reorder-${asOfDate}.xlsx`;
+  }
+  if (variant === "vat") return `OSF-vat-items-${asOfDate}.xlsx`;
+  if (variant === "non_vat") return `OSF-non-vat-${asOfDate}.xlsx`;
+  return `OSF-${asOfDate}.xlsx`;
+}
+
+function filenameFromContentDisposition(header: string | null): string | null {
+  if (!header) return null;
+  const match = /filename="([^"]+)"/i.exec(header);
+  return match?.[1]?.trim() || null;
+}
+
 export function OsfGeneratePanel({ canReorderOnly = false }: { canReorderOnly?: boolean }) {
   const [salesMonth, setSalesMonth] = useState(currentMonthColombo);
   const [asOfDate, setAsOfDate] = useState(todayColombo);
   const [skuPrefix, setSkuPrefix] = useState("");
   const [vendorId, setVendorId] = useState("");
   const [itemStatus, setItemStatus] = useState("");
+  const [osfVariant, setOsfVariant] = useState<OsfVariant>("main");
   const [maxStockPct, setMaxStockPct] = useState("");
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [priorities, setPriorities] = useState<PriorityOption[]>([]);
   const [busy, setBusy] = useState(false);
   const [busyMode, setBusyMode] = useState<"full" | "reorder" | null>(null);
   const [errorDetail, setErrorDetail] = useState<string | null>(null);
+
+  const variantDrivesMembership = osfVariant === "vat" || osfVariant === "non_vat";
 
   useEffect(() => {
     fetch("/api/admin/vendors")
@@ -65,11 +86,14 @@ export function OsfGeneratePanel({ canReorderOnly = false }: { canReorderOnly?: 
         body: JSON.stringify({
           salesMonth,
           asOfDate,
+          osfVariant,
           includeInactive: false,
           belowThresholdOnly,
           ...(skuPrefix.trim() ? { skuPrefix: skuPrefix.trim() } : {}),
           ...(vendorId ? { vendorIds: [vendorId] } : {}),
-          ...(itemStatus ? { itemStatusCategories: [itemStatus] } : {}),
+          ...(!variantDrivesMembership && itemStatus
+            ? { itemStatusCategories: [itemStatus] }
+            : {}),
           ...(maxStockPctOfRop != null ? { maxStockPctOfRop } : {}),
         }),
       });
@@ -100,11 +124,19 @@ export function OsfGeneratePanel({ canReorderOnly = false }: { canReorderOnly?: 
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = belowThresholdOnly ? `OSF-reorder-${asOfDate}.xlsx` : `OSF-${asOfDate}.xlsx`;
+      a.download =
+        filenameFromContentDisposition(res.headers.get("Content-Disposition")) ??
+        fallbackFilename(osfVariant, asOfDate, belowThresholdOnly);
       a.click();
       URL.revokeObjectURL(url);
       if (!(rowCount === 0 && (belowThresholdOnly || pctFilter))) {
-        notify.success(belowThresholdOnly ? "Reorder-only OSF downloaded" : "OSF downloaded");
+        const label =
+          osfVariant === "vat"
+            ? "VAT Items OSF"
+            : osfVariant === "non_vat"
+              ? "Others (Non-VAT) OSF"
+              : "Main OSF";
+        notify.success(belowThresholdOnly ? `Reorder-only ${label} downloaded` : `${label} downloaded`);
       }
     } catch (err) {
       notify.error(err instanceof Error ? err.message : "Generate failed");
@@ -117,13 +149,27 @@ export function OsfGeneratePanel({ canReorderOnly = false }: { canReorderOnly?: 
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="font-medium">Generate Main OSF</h3>
+        <h3 className="font-medium">Generate OSF</h3>
         <p className="text-sm text-muted-foreground">
-          Downloads one Main-sheet workbook. Missing ERP stock/cost stays blank.
+          Main = full catalog except discontinued SKUs. VAT Items = ERP Product Priority Vat only.
+          Others (Non-VAT) excludes Vat. Missing ERP stock/cost stays blank.
         </p>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <label className="text-xs font-medium">
+          OSF variant
+          <select
+            className="mt-1 h-9 w-full rounded-md border bg-background px-2 text-sm"
+            value={osfVariant}
+            onChange={(e) => setOsfVariant(e.target.value as OsfVariant)}
+            disabled={busy}
+          >
+            <option value="main">Main OSF</option>
+            <option value="vat">VAT Items OSF</option>
+            <option value="non_vat">Others (Non-VAT) OSF</option>
+          </select>
+        </label>
         <label className="text-xs font-medium">
           Sales month
           <Input
@@ -131,6 +177,7 @@ export function OsfGeneratePanel({ canReorderOnly = false }: { canReorderOnly?: 
             className="mt-1"
             value={salesMonth}
             onChange={(e) => setSalesMonth(e.target.value)}
+            disabled={busy}
           />
         </label>
         <label className="text-xs font-medium">
@@ -140,6 +187,7 @@ export function OsfGeneratePanel({ canReorderOnly = false }: { canReorderOnly?: 
             className="mt-1"
             value={asOfDate}
             onChange={(e) => setAsOfDate(e.target.value)}
+            disabled={busy}
           />
         </label>
         <label className="text-xs font-medium">
@@ -149,6 +197,7 @@ export function OsfGeneratePanel({ canReorderOnly = false }: { canReorderOnly?: 
             value={skuPrefix}
             placeholder="e.g. CAN"
             onChange={(e) => setSkuPrefix(e.target.value)}
+            disabled={busy}
           />
         </label>
         <label className="text-xs font-medium">
@@ -157,6 +206,7 @@ export function OsfGeneratePanel({ canReorderOnly = false }: { canReorderOnly?: 
             className="mt-1 h-9 w-full rounded-md border bg-background px-2 text-sm"
             value={vendorId}
             onChange={(e) => setVendorId(e.target.value)}
+            disabled={busy}
           >
             <option value="">All</option>
             {vendors.map((v) => (
@@ -170,11 +220,14 @@ export function OsfGeneratePanel({ canReorderOnly = false }: { canReorderOnly?: 
           ERP Product Priority (optional)
           <select
             className="mt-1 h-9 w-full rounded-md border bg-background px-2 text-sm"
-            value={itemStatus}
+            value={variantDrivesMembership ? "" : itemStatus}
             onChange={(e) => setItemStatus(e.target.value)}
+            disabled={busy || variantDrivesMembership}
           >
             <option value="">All</option>
-            {priorities.map((p) => (
+            {priorities
+              .filter((p) => p.name.trim().toLowerCase() !== "discontinue")
+              .map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
               </option>
@@ -191,9 +244,18 @@ export function OsfGeneratePanel({ canReorderOnly = false }: { canReorderOnly?: 
             value={maxStockPct}
             placeholder="e.g. 70"
             onChange={(e) => setMaxStockPct(e.target.value)}
+            disabled={busy}
           />
         </label>
       </div>
+
+      {variantDrivesMembership ? (
+        <p className="text-xs text-muted-foreground">
+          {osfVariant === "vat"
+            ? "VAT Items OSF membership uses ERP Product Priority = Vat (ERP1 or ERP2). Priority dropdown is ignored. Total ROP uses Cosmetics.lk ROP only; shop ROPs show for planning."
+            : "Others (Non-VAT) OSF excludes SKUs with ERP Product Priority = Vat. Priority dropdown is ignored."}
+        </p>
+      ) : null}
 
       <div className="flex flex-wrap gap-2">
         <Button
@@ -202,7 +264,7 @@ export function OsfGeneratePanel({ canReorderOnly = false }: { canReorderOnly?: 
           disabled={busy || !salesMonth}
         >
           {busyMode === "full" ? (
-            <Loader2 className="size-4 animate-spin" />
+            <Loader2 className="size-4 animate-spin" aria-hidden />
           ) : (
             <Download className="size-4" />
           )}
@@ -216,7 +278,7 @@ export function OsfGeneratePanel({ canReorderOnly = false }: { canReorderOnly?: 
             disabled={busy || !salesMonth}
           >
             {busyMode === "reorder" ? (
-              <Loader2 className="size-4 animate-spin" />
+              <Loader2 className="size-4 animate-spin" aria-hidden />
             ) : (
               <Download className="size-4" />
             )}
@@ -229,6 +291,7 @@ export function OsfGeneratePanel({ canReorderOnly = false }: { canReorderOnly?: 
         <p className="text-xs text-muted-foreground">
           Workbook includes only SKUs with warehouse ROP set and total stock ÷ total ROP
           strictly below {maxStockPct.trim()}%. SKUs without ROP are skipped.
+          {osfVariant === "vat" ? " For VAT Items OSF, total ROP is Cosmetics.lk ROP only." : ""}
         </p>
       ) : null}
       {canReorderOnly && (

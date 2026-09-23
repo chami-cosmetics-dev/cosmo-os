@@ -3,6 +3,8 @@ import { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
 import { isUnpaidCardOnDeliveryFinance, orderHasCardOnDeliveryGateway } from "@/lib/payment-method-label";
+import { needsKokoLinkTimeConfirm } from "@/lib/koko-order";
+import { APPROVAL_SPLIT_KOKO } from "@/lib/approval-payment-split";
 
 export type ApprovalStatus = "pending" | "approved" | "rejected" | "cancelled";
 export const ORDER_VOIDED_APPROVAL_CANCEL_NOTE =
@@ -206,9 +208,9 @@ export const FINANCE_PENDING_FULFILLMENT_EXCLUSION = {
   },
 } satisfies Prisma.OrderWhereInput;
 
-/** Opt-in Sample/Free Issue queue for ERP KOKO/Bank orders that need a split request. */
+/** Opt-in Sample/Free Issue queue for ERP/Shopify KOKO/Bank orders that need a split request. */
 export const FINANCE_PENDING_SPLIT_PAYMENT_QUEUE = {
-  sourceName: "erpnext",
+  sourceName: { in: ["erpnext", "web"] },
   approvalRequests: {
     some: { type: ORDER_PAYMENT_APPROVAL, status: "pending" },
   },
@@ -416,32 +418,182 @@ export async function reconcilePendingApprovalsForVoidedOrders(companyId: string
   return direct.count + viaReturn.count;
 }
 
-export async function getOrderPaymentApproval(orderId: string) {
+export const ORPHAN_PENDING_AFTER_APPROVED_CANCEL_NOTE =
+  "Cancelled — order already paid with an approved finance payment (orphan pending removed)";
+
+/**
+ * Cancel pending order-payment approvals when the order is already paid and has
+ * an approved ORDER_PAYMENT / PAYMENT_METHOD_CHANGE. Prevents duplicate createOrGet
+ * rows from blocking dispatch and reappearing in the pending finance list.
+ */
+export async function reconcileOrphanPendingPaymentApprovalsForPaidOrders(
+  companyId: string,
+): Promise<number> {
+  const now = new Date();
+  const orphans = await prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+    SELECT pending."id" AS id
+    FROM "ApprovalRequest" pending
+    INNER JOIN "Order" o ON o."id" = pending."orderId"
+    WHERE pending."companyId" = ${companyId}
+      AND pending."type" = ${ORDER_PAYMENT_APPROVAL}
+      AND pending."status" = 'pending'
+      AND pending."orderId" IS NOT NULL
+      AND LOWER(TRIM(COALESCE(o."financialStatus", ''))) = 'paid'
+      AND EXISTS (
+        SELECT 1
+        FROM "ApprovalRequest" approved
+        WHERE approved."orderId" = pending."orderId"
+          AND approved."type" IN (${ORDER_PAYMENT_APPROVAL}, ${PAYMENT_METHOD_CHANGE_APPROVAL})
+          AND approved."status" = 'approved'
+          AND approved."id" <> pending."id"
+      )
+  `);
+  if (orphans.length === 0) return 0;
+
+  const result = await prisma.approvalRequest.updateMany({
+    where: { id: { in: orphans.map((row) => row.id) }, status: "pending" },
+    data: {
+      status: "cancelled",
+      reviewNote: ORPHAN_PENDING_AFTER_APPROVED_CANCEL_NOTE,
+      updatedAt: now,
+    },
+  });
+  return result.count;
+}
+
+/**
+ * Choose which payment approval gates fulfillment.
+ * Pending wins for unpaid re-approval (HOD revert); when order is already paid,
+ * an older approved row wins over an orphan newer pending.
+ */
+export function pickOrderPaymentApprovalForFulfillmentGate<
+  T extends { id: string; status: string; reviewNote: string | null },
+>(input: {
+  pending: T | null;
+  approved: T | null;
+  latest: T | null;
+  financialStatus: string | null | undefined;
+}): T | null {
+  const paid = normalizeFinancialStatus(input.financialStatus) === "paid";
+  if (input.pending) {
+    if (paid && input.approved) return input.approved;
+    return input.pending;
+  }
+  return input.approved ?? input.latest ?? null;
+}
+
+export async function getOrderPaymentApproval(orderId: string): Promise<{
+  id: string;
+  status: ApprovalStatus;
+  reviewNote: string | null;
+} | null> {
   // PAYMENT_METHOD_CHANGE_APPROVAL (e.g. COD → KOKO) also confirms payment for the order,
   // so treat it the same as ORDER_PAYMENT_APPROVAL when checking the print block.
-  const rows = await prisma.$queryRaw<
-    Array<{ id: string; status: ApprovalStatus; reviewNote: string | null }>
-  >(
-    Prisma.sql`
-      SELECT "id", "status", "reviewNote"
-      FROM "ApprovalRequest"
-      WHERE "type" IN (${ORDER_PAYMENT_APPROVAL}, ${PAYMENT_METHOD_CHANGE_APPROVAL})
-        AND "orderId" = ${orderId}
-      ORDER BY "createdAt" DESC
-      LIMIT 1
-    `
-  );
-  return rows[0] ?? null;
+  const [pending, approved, order] = await Promise.all([
+    prisma.approvalRequest.findFirst({
+      where: {
+        orderId,
+        type: { in: [ORDER_PAYMENT_APPROVAL, PAYMENT_METHOD_CHANGE_APPROVAL] },
+        status: "pending",
+      },
+      orderBy: { createdAt: "desc" },
+      select: { id: true, status: true, reviewNote: true },
+    }),
+    prisma.approvalRequest.findFirst({
+      where: {
+        orderId,
+        type: { in: [ORDER_PAYMENT_APPROVAL, PAYMENT_METHOD_CHANGE_APPROVAL] },
+        status: "approved",
+      },
+      orderBy: { reviewedAt: "desc" },
+      select: { id: true, status: true, reviewNote: true },
+    }),
+    prisma.order.findUnique({
+      where: { id: orderId },
+      select: { financialStatus: true },
+    }),
+  ]);
+
+  const picked =
+    pending || approved
+      ? pickOrderPaymentApprovalForFulfillmentGate({
+          pending,
+          approved,
+          latest: null,
+          financialStatus: order?.financialStatus,
+        })
+      : await prisma.approvalRequest.findFirst({
+          where: {
+            orderId,
+            type: { in: [ORDER_PAYMENT_APPROVAL, PAYMENT_METHOD_CHANGE_APPROVAL] },
+          },
+          orderBy: { createdAt: "desc" },
+          select: { id: true, status: true, reviewNote: true },
+        });
+
+  if (!picked) return null;
+  return {
+    id: picked.id,
+    status: picked.status as ApprovalStatus,
+    reviewNote: picked.reviewNote,
+  };
 }
 
 /** Block fulfillment actions until finance approves KOKO/bank payment. */
 export async function getFinancePaymentApprovalBlockReason(order: {
   id: string;
+  sourceName?: string | null;
   paymentGatewayPrimary: string | null;
   paymentGatewayNames: string[];
   erpnextInvoiceId?: string | null;
+  kokoLinkTimeConfirmedAt?: Date | string | null;
+  cancelledAt?: Date | string | null;
+  financialStatus?: string | null;
+  createdAt?: Date | string | null;
 }): Promise<string | null> {
   if (!isOrderPaymentRequiresApproval(order)) return null;
+
+  const [hasKokoSplitLeg, orderRow] = await Promise.all([
+    prisma.approvalPaymentLine.findFirst({
+      where: {
+        paymentMethod: APPROVAL_SPLIT_KOKO,
+        approvalRequest: { orderId: order.id, type: ORDER_PAYMENT_APPROVAL },
+      },
+      select: { id: true },
+    }),
+    // Always read createdAt / link-time fields from DB so bulk paths and
+    // callers that omit them still grandfather pre-feature KOKO orders.
+    prisma.order.findUnique({
+      where: { id: order.id },
+      select: {
+        sourceName: true,
+        createdAt: true,
+        kokoLinkTimeConfirmedAt: true,
+        cancelledAt: true,
+        financialStatus: true,
+        paymentGatewayPrimary: true,
+        paymentGatewayNames: true,
+      },
+    }),
+  ]);
+
+  if (
+    needsKokoLinkTimeConfirm({
+      sourceName: orderRow?.sourceName ?? order.sourceName,
+      paymentGatewayPrimary:
+        orderRow?.paymentGatewayPrimary ?? order.paymentGatewayPrimary,
+      paymentGatewayNames:
+        orderRow?.paymentGatewayNames ?? order.paymentGatewayNames,
+      kokoLinkTimeConfirmedAt:
+        orderRow?.kokoLinkTimeConfirmedAt ?? order.kokoLinkTimeConfirmedAt,
+      cancelledAt: orderRow?.cancelledAt ?? order.cancelledAt,
+      financialStatus: orderRow?.financialStatus ?? order.financialStatus,
+      hasKokoSplitLeg: Boolean(hasKokoSplitLeg),
+      createdAt: orderRow?.createdAt ?? order.createdAt,
+    })
+  ) {
+    return "Confirm KOKO link generated time before continuing. Enter the time shown on the KOKO portal, then confirm.";
+  }
 
   const approval = await getOrderPaymentApproval(order.id);
   if (!approval || approval.status === "pending" || approval.status === "cancelled") {
@@ -497,6 +649,8 @@ export async function createOrGetOrderPaymentApproval(input: {
   paymentType: string;
   amount: string;
   companyLocationId?: string | null;
+  /** HOD paid→unpaid requeue: create a new pending even when an older approval is approved. */
+  forceCreate?: boolean;
 }) {
   const existing = await prisma.$queryRaw<Array<{ id: string; status: ApprovalStatus }>>(
     Prisma.sql`
@@ -511,6 +665,24 @@ export async function createOrGetOrderPaymentApproval(input: {
     `
   );
   if (existing[0]) return existing[0];
+
+  if (!input.forceCreate) {
+    // Do not spawn a second pending after finance already approved — that orphans
+    // the paid order in the pending list and blocks dispatch (latest-wins).
+    const alreadyApproved = await prisma.$queryRaw<Array<{ id: string; status: ApprovalStatus }>>(
+      Prisma.sql`
+        SELECT "id", "status"
+        FROM "ApprovalRequest"
+        WHERE "companyId" = ${input.companyId}
+          AND "orderId" = ${input.orderId}
+          AND "type" IN (${ORDER_PAYMENT_APPROVAL}, ${PAYMENT_METHOD_CHANGE_APPROVAL})
+          AND "status" = 'approved'
+        ORDER BY "reviewedAt" DESC NULLS LAST, "createdAt" DESC
+        LIMIT 1
+      `
+    );
+    if (alreadyApproved[0]) return alreadyApproved[0];
+  }
 
   const id = randomUUID();
   const rowsAffected = await prisma.$executeRaw(
@@ -1087,7 +1259,9 @@ export async function notifyApprovalRequester(input: {
             : `${input.invoiceLabel} finance approval was granted.`
         : isReturnCancel
           ? `${input.invoiceLabel} cancel request was rejected.`
-          : `${input.invoiceLabel} finance approval was rejected.`,
+          : isReturnRearrange
+            ? `${input.invoiceLabel} bank-transfer rearrange was rejected. Return reset — request finance again or send cancel.`
+            : `${input.invoiceLabel} finance approval was rejected.`,
     entityType: "ApprovalRequest",
     entityId: input.approvalId,
   });

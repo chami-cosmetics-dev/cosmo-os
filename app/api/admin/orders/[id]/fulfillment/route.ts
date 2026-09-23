@@ -19,6 +19,7 @@ import {
   requiresOldItemCollection,
 } from "@/lib/rider-delivery-special";
 import { createErpnextCreditNote, cancelErpnextSalesInvoice, setErpSalesInvoiceCancelKind } from "@/lib/erpnext-sync";
+import { isFullyPaidFinancialStatus } from "@/lib/return-cancel-completion";
 import {
   cancelShopifyOrder,
   isRealShopifyOrderId,
@@ -41,6 +42,7 @@ import { orderStageUpdate, orderStageUpdateIfChanged } from "@/lib/order-stage-t
 import { getErpOutOfStockFulfillmentBlock } from "@/lib/erp-fulfillment-block";
 import { isExplicitlyPackageReady } from "@/lib/fulfillment-stage-display";
 import { releaseKokoReferencesForOrder } from "@/lib/koko-approval-references";
+import { needsKokoLinkTimeConfirm } from "@/lib/koko-order";
 import { formatAppIsoCalendarDate } from "@/lib/format-datetime";
 import { citypakOverrideOrderPatch, ensureCitypakShipmentForDispatch } from "@/lib/citypak-dispatch";
 import { isCitypakCourier } from "@/lib/courier";
@@ -339,14 +341,23 @@ export async function PATCH(
 
   const financeFulfillmentBlock = await getFinancePaymentApprovalBlockReason({
     id: order.id,
+    sourceName: order.sourceName,
     paymentGatewayPrimary: order.paymentGatewayPrimary,
     paymentGatewayNames: order.paymentGatewayNames ?? [],
     erpnextInvoiceId: order.erpnextInvoiceId,
+    kokoLinkTimeConfirmedAt: order.kokoLinkTimeConfirmedAt,
+    cancelledAt: order.cancelledAt,
+    financialStatus: order.financialStatus,
+    createdAt: order.createdAt,
   });
 
   // If the block is due to a missing approval record (ERP webhook silent failure),
-  // create it now so finance can see and act on it.
-  if (financeFulfillmentBlock && isOrderPaymentRequiresApproval(order)) {
+  // create it now so finance can see and act on it — except ERP KOKO awaiting link-time confirm.
+  if (
+    financeFulfillmentBlock &&
+    isOrderPaymentRequiresApproval(order) &&
+    !needsKokoLinkTimeConfirm(order)
+  ) {
     void createOrGetOrderPaymentApproval({
       companyId,
       orderId: order.id,
@@ -414,7 +425,8 @@ export async function PATCH(
       }
 
       // Auto-submit finance approval for KOKO / bank transfer orders
-      if (isOrderPaymentRequiresApproval(order)) {
+      // (skip while awaiting KOKO portal link generated time).
+      if (isOrderPaymentRequiresApproval(order) && !needsKokoLinkTimeConfirm(order)) {
         const invoiceLabel = order.name ?? order.orderNumber ?? order.shopifyOrderId ?? order.id;
         const paymentType = order.paymentGatewayPrimary ?? "payment";
         const amount = order.totalPrice.toString();
@@ -1303,16 +1315,22 @@ export async function PATCH(
         // Create ERP credit note — awaited; failure surfaced as warning flag (order is already reverted in DB)
         let erpCreditNoteFailed = false;
         let erpCreditNoteError: string | undefined;
+        let erpCreditNoteName: string | undefined;
         try {
           const withLocation = await prisma.order.findUnique({
             where: { id: order.id },
             include: { companyLocation: { include: { erpnextInstance: true } } },
           });
           if (withLocation?.companyLocation) {
-            await createErpnextCreditNote(
-              { ...order, erpnextInvoiceId: withLocation.erpnextInvoiceId },
+            const cn = await createErpnextCreditNote(
+              {
+                ...order,
+                erpnextInvoiceId: withLocation.erpnextInvoiceId,
+                erpReturnSalesInvoiceIds: withLocation.erpReturnSalesInvoiceIds,
+              },
               withLocation.companyLocation,
             );
+            erpCreditNoteName = cn.creditNoteName;
           }
         } catch (err) {
           console.error("[ERPNext] createErpnextCreditNote failed:", err);
@@ -1329,7 +1347,12 @@ export async function PATCH(
           afterStage: targetStage,
           metadata: { action: data.action, targetStage, returnRecorded: shouldRecordReturn, revertReason: data.revertReason },
         });
-        return NextResponse.json({ success: true, erpCreditNoteFailed, erpCreditNoteError });
+        return NextResponse.json({
+          success: true,
+          erpCreditNoteFailed,
+          erpCreditNoteError,
+          erpCreditNoteName,
+        });
       }
 
       await logOrderFulfillmentAudit({
@@ -1421,22 +1444,20 @@ export async function PATCH(
         return NextResponse.json({ requiresApproval: true, approvalId: approval.id });
       }
 
-      // Unpaid orders — cancel directly without finance approval.
-      // Cancel in Shopify first — fatal; if this fails we don't mark as voided.
-      // ERP-native orders use an "erp-" prefixed shopifyOrderId and have no real Shopify order — skip.
-      if (isRealShopifyOrderId(order.shopifyOrderId) && location?.shopifyAdminStoreHandle) {
-        await cancelShopifyOrder(order.shopifyOrderId!, location.shopifyAdminStoreHandle);
-        console.log(`[Cancel] Shopify order ${order.shopifyOrderId} cancelled`);
-      } else {
-        console.warn(`[Cancel] Skipping Shopify cancel for order ${order.id} (ERP-native or no store handle)`);
-      }
+      // Direct cancel (non-finance-gated): unpaid → cancel SI in ERP; paid → credit note.
+      // cancelKind is stamped on SI so ERP Auto SMS can skip replacement CNs.
+      // ERP first so we never void OS / cancel Shopify while the SI stays Overdue.
+      const hasUsableErpInvoice =
+        Boolean(location) &&
+        Boolean(order.erpnextInvoiceId) &&
+        order.erpnextInvoiceId !== "pending" &&
+        order.erpnextInvoiceId !== "pending_approval";
+      const orderIsPaid = isFullyPaidFinancialStatus(order.financialStatus);
 
-      // ERP Sales Invoice — non-fatal. Cancel SMS is ERP Auto SMS (credit-note After Submit), not Cosmo OS.
-      // customer_cancel → credit note so ERP sends SMS. Replacement → SI cancel, no CN, no SMS.
-      if (location && order.erpnextInvoiceId && order.erpnextInvoiceId !== "pending" && order.erpnextInvoiceId !== "pending_approval") {
+      if (hasUsableErpInvoice && location) {
         try {
           await setErpSalesInvoiceCancelKind(location, order.erpnextInvoiceId, cancelKind);
-          if (cancelKind === "customer_cancel") {
+          if (orderIsPaid) {
             const cn = await createErpnextCreditNote(
               {
                 id: order.id,
@@ -1446,19 +1467,38 @@ export async function PATCH(
               },
               location,
             );
-            console.log(`[Cancel] ERP credit note ${cn.creditNoteName} for order ${order.id} (SMS via ERP)`);
+            console.log(`[Cancel] ERP credit note ${cn.creditNoteName} for paid order ${order.id}`);
           } else {
-            const isErpNative = order.shopifyOrderId?.startsWith("erp-");
-            await cancelErpnextSalesInvoice(
-              order.name ?? order.shopifyOrderId,
+            const cancelResult = await cancelErpnextSalesInvoice(
+              order.name ?? order.shopifyOrderId ?? order.id,
               location,
-              isErpNative ? { directInvoiceName: order.erpnextInvoiceId } : undefined,
+              { directInvoiceName: order.erpnextInvoiceId!, strict: true },
             );
-            console.log(`[Cancel] ERP SI cancelled for order ${order.id} (replacement — no SMS)`);
+            console.log(
+              `[Cancel] ERP SI ${cancelResult.invoiceName ?? order.erpnextInvoiceId} ${cancelResult.outcome} for unpaid order ${order.id}`,
+            );
           }
         } catch (err) {
-          console.error(`[Cancel] ERP SI cancel/CN failed (non-fatal) for order ${order.id}:`, err);
+          console.error(`[Cancel] ERP SI cancel/CN failed for order ${order.id}:`, err);
+          const msg = err instanceof Error ? err.message : String(err);
+          return NextResponse.json(
+            {
+              error: orderIsPaid
+                ? `ERP credit note failed — order not cancelled. ${msg}`
+                : `ERP Sales Invoice cancel failed — order not cancelled. ${msg}`,
+            },
+            { status: 502 },
+          );
         }
+      }
+
+      // Shopify after ERP — fatal; if this fails we don't mark as voided.
+      // ERP-native orders use an "erp-" prefixed shopifyOrderId and have no real Shopify order — skip.
+      if (isRealShopifyOrderId(order.shopifyOrderId) && location?.shopifyAdminStoreHandle) {
+        await cancelShopifyOrder(order.shopifyOrderId!, location.shopifyAdminStoreHandle);
+        console.log(`[Cancel] Shopify order ${order.shopifyOrderId} cancelled`);
+      } else {
+        console.warn(`[Cancel] Skipping Shopify cancel for order ${order.id} (ERP-native or no store handle)`);
       }
 
       await prisma.order.update({

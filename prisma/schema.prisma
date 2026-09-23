@@ -84,6 +84,7 @@ model Company {
   productOsfRops                ProductOsfRop[]
   osfColumnConfigs              OsfColumnConfig[]
   osfMonthlySalesHistories      OsfMonthlySalesHistory[]
+  osfPurchaseHistoryLines       OsfPurchaseHistoryLine[]
   osfBuyers                     OsfBuyer[]
   osfUserColumnAccess           OsfUserColumnAccess[]
   storeStockCountReports        StoreStockCountReport[]
@@ -92,6 +93,7 @@ model Company {
   storeStockCountUserSaves      StoreStockCountUserSave[]
   shopifyAbandonedCheckouts     ShopifyAbandonedCheckout[]
   abandonedCheckoutSyncs       CompanyAbandonedCheckoutSync[]
+  contactPurchaseSummarySync   CompanyContactPurchaseSummarySync?
   adaptPurchaseHistories        AdaptPurchaseHistory[]
   contactRemovedEmails          ContactRemovedEmail[]
   contactInsightCallQueues      ContactInsightCallQueue[]
@@ -345,6 +347,7 @@ model User {
   ordersLastPrintedBy                 Order[]                   @relation("OrderLastPrintedBy")
   ordersPackageReadyBy                Order[]                   @relation("OrderPackageReadyBy")
   ordersSampleFreeIssueCompleteBy     Order[]                   @relation("OrderSampleFreeIssueCompleteBy")
+  ordersKokoLinkTimeConfirmedBy       Order[]                   @relation("OrderKokoLinkTimeConfirmedBy")
   ordersCancelledBy                   Order[]                   @relation("OrderCancelledBy")
   grnHandovers                        GrnPurchaseReceipt[]      @relation("GrnPurchaseReceiptHandoverBy")
   grnValuations                       GrnPurchaseReceipt[]      @relation("GrnPurchaseReceiptValuedBy")
@@ -368,7 +371,8 @@ model User {
   notifications                       Notification[]
   receivedCashHandovers               RiderCashHandover[]       @relation("RiderCashHandoverReceivedBy")
   riderCashHandovers                  RiderCashHandover[]       @relation("RiderCashHandovers")
-  riderDeliveryTasks                  RiderDeliveryTask[]
+  riderDeliveryTasks                  RiderDeliveryTask[]       @relation("RiderDeliveryTaskRider")
+  riderDeliveryTasksManualIncentive   RiderDeliveryTask[]       @relation("RiderDeliveryTaskManualIncentiveBy")
   userRoles                           UserRole[]
   osfUserColumnAccess                 OsfUserColumnAccess[]
   storeStockCountReportsCreated       StoreStockCountReport[]    @relation("StoreStockCountReportCreatedBy")
@@ -475,6 +479,13 @@ model ShopifyAbandonedCheckout {
   followUpStatus           String   @default("pending")
   customerResponse         String?
   remark                   String?
+  abandonmentReason        String?
+
+  phoneNormalized          String?
+  cartFingerprint          String?
+  exactDuplicateGroupId    String?
+  supersededByCheckoutId   String?
+  supersededAt             DateTime?
 
   lastFollowUpById         String?
   lastFollowUpAt           DateTime?
@@ -485,18 +496,35 @@ model ShopifyAbandonedCheckout {
   company                   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   companyLocation          CompanyLocation? @relation(fields: [companyLocationId], references: [id], onDelete: SetNull)
   lastFollowUpBy           User?  @relation("ShopifyAbandonedCheckoutFollowUpBy", fields: [lastFollowUpById], references: [id], onDelete: SetNull)
+  supersededByCheckout     ShopifyAbandonedCheckout?  @relation("ShopifyAbandonedCheckoutSupersededBy", fields: [supersededByCheckoutId], references: [id], onDelete: SetNull)
+  supersedesCheckouts      ShopifyAbandonedCheckout[] @relation("ShopifyAbandonedCheckoutSupersededBy")
 
   @@unique([companyId, shopifyCheckoutGid])
   @@index([companyId, followUpStatus, abandonedAt(sort: Desc)])
   @@index([companyId, abandonedAt(sort: Desc)])
   @@index([companyId, customerResponse])
   @@index([shopifyAdminStoreHandle])
+  @@index([companyId, phoneNormalized, abandonedAt])
+  @@index([companyId, phoneNormalized, cartFingerprint])
+  @@index([companyId, exactDuplicateGroupId])
+  @@index([companyId, supersededByCheckoutId])
 }
 
 model CompanyAbandonedCheckoutSync {
   companyId       String   @id
   lastSyncedAt    DateTime?
   lastSyncError   String?
+  updatedAt       DateTime @updatedAt
+
+  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+}
+
+/// Nightly / manual rebuild of ContactMaster purchase summary cache (export reads these).
+model CompanyContactPurchaseSummarySync {
+  companyId       String   @id
+  lastSyncedAt    DateTime?
+  lastSyncError   String?
+  contactCount    Int      @default(0)
   updatedAt       DateTime @updatedAt
 
   company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -758,6 +786,15 @@ model Order {
   sampleFreeIssueCompleteAt       DateTime?
   sampleFreeIssueCompleteById     String?
   sampleFreeIssueSendLaterDate    DateTime?
+  /// Merchant-entered KOKO portal link generated time (minute precision).
+  kokoLinkGeneratedAt             DateTime?
+  /// Link generated times for KOKO payments 2..N when the customer paid in several parts.
+  kokoExtraLinkGeneratedAt        DateTime[]
+  /// Merchant tells finance the customer paid this order with several KOKO payments.
+  kokoMultiPaymentFlagged         Boolean                @default(false)
+  kokoMultiPaymentCount           Int?
+  kokoLinkTimeConfirmedAt         DateTime?
+  kokoLinkTimeConfirmedById       String?
   deliveryCompleteById            String?
   dispatchedById                  String?
   invoiceCompleteById             String?
@@ -790,6 +827,7 @@ model Order {
   packageHoldReason               PackageHoldReason?     @relation(fields: [packageHoldReasonId], references: [id])
   packageReadyBy                  User?                  @relation("OrderPackageReadyBy", fields: [packageReadyById], references: [id])
   sampleFreeIssueCompleteBy       User?                  @relation("OrderSampleFreeIssueCompleteBy", fields: [sampleFreeIssueCompleteById], references: [id])
+  kokoLinkTimeConfirmedBy         User?                  @relation("OrderKokoLinkTimeConfirmedBy", fields: [kokoLinkTimeConfirmedById], references: [id], onDelete: SetNull)
   cancelledBy                     User?                  @relation("OrderCancelledBy", fields: [cancelledById], references: [id])
   replacedByOrder                 Order?                 @relation("OrderReplacedBy", fields: [replacedByOrderId], references: [id], onDelete: SetNull)
   replacedFromOrders              Order[]                @relation("OrderReplacedBy")
@@ -1133,14 +1171,21 @@ model RiderDeliveryTask {
   failedAt                  DateTime?
   failureReason             String?
   latestSyncAt              DateTime?
+  /// Staff-picked district for rider pay when auto shipping-label match fails.
+  manualIncentiveLabelKey   String?
+  manualIncentiveLabel      String?
+  manualIncentiveSetAt      DateTime?
+  manualIncentiveSetById    String?
   createdAt                 DateTime                @default(now())
   updatedAt                 DateTime                @updatedAt
   exchange                  OrderExchange?          @relation(fields: [exchangeId], references: [id], onDelete: SetNull)
   order                     Order                   @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  rider                     User                    @relation(fields: [riderId], references: [id], onDelete: Cascade)
+  rider                     User                    @relation("RiderDeliveryTaskRider", fields: [riderId], references: [id], onDelete: Cascade)
+  manualIncentiveSetBy      User?                   @relation("RiderDeliveryTaskManualIncentiveBy", fields: [manualIncentiveSetById], references: [id], onDelete: SetNull)
 
   @@index([riderId, status, assignedAt(sort: Desc)])
   @@index([exchangeId])
+  @@index([manualIncentiveLabelKey])
 }
 
 model DeliveryPayment {
@@ -1459,16 +1504,19 @@ model SmsNotificationConfig {
 }
 
 model EmailTemplate {
-  id         String   @id @default(cuid())
-  companyId  String
-  key        String
-  name       String
-  subject    String
-  bodyHtml   String
-  recipients String
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  id           String   @id @default(cuid())
+  companyId    String
+  key          String
+  name         String
+  subject      String
+  bodyHtml     String
+  /// Comma-separated To addresses
+  recipients   String
+  /// Comma-separated CC addresses (optional)
+  ccRecipients String   @default("")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
   @@unique([companyId, key])
 }
@@ -1791,12 +1839,20 @@ model ContactMaster {
   loyaltyAssignedAt         DateTime?
   loyaltyAssignedByUserId   String?
   loyaltyOutreachStatus     String?
+  /// First time contact was marked loyalty-eligible (set once).
+  loyaltyEligibleAt         DateTime?
+  /// Last loyalty outreach / assign status change.
+  loyaltyOutreachUpdatedAt  DateTime?
   // Contact preferences
   contactSaved      Boolean?
   whatsappAllowed   Boolean?
   // Reminder
   remindAt          DateTime?
   remindTime        String?
+  /// Cached Cosmo+Adapt purchase totals for Contact Master export (refreshed by cron).
+  purchaseOrderCount    Int                       @default(0)
+  purchaseTotalValue    Decimal                   @default(0) @db.Decimal(14, 2)
+  purchaseLastOrderAt   DateTime?
   createdAt         DateTime                  @default(now())
   updatedAt         DateTime                  @updatedAt
   company           Company                   @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -1837,6 +1893,8 @@ model ContactInsightCallQueue {
   completedAt            DateTime?
   completedByUserId      String?
   lifetimeTotalAtAssign  Decimal?  @db.Decimal(14, 2)
+  /// Set when contact came from another merchant (Excel import / reassignment).
+  newlyAllocated         Boolean   @default(false)
   createdAt              DateTime  @default(now())
   updatedAt              DateTime  @updatedAt
   company                Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -2165,6 +2223,32 @@ model OsfMonthlySalesHistory {
   @@index([companyId, sku])
 }
 
+/// Vault OS one-time Excel purchase overlay (Dilhan history). Not written to ERP.
+/// OSF workbook gap-fills only Apr/May (see VAULT_OSF_PURCHASE_HISTORY_MONTHS).
+/// SKU calculator / supplier compare merges all lines with ERP (Vault only).
+model OsfPurchaseHistoryLine {
+  id           String   @id @default(cuid())
+  companyId    String
+  sku          String
+  supplier     String
+  /// YYYY-MM-DD
+  postingDate  String
+  qty          Float
+  rate         Float
+  netValue     Float
+  /// Raw Excel Company column (Supplement / Origins / AE / …).
+  excelCompany String?
+  /// PO / bill ref from Excel when present.
+  sourceRef    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, sku])
+  @@index([companyId, postingDate])
+  @@index([companyId, sku, postingDate])
+}
+
 model OsfBuyer {
   id        String   @id @default(cuid())
   companyId String
@@ -2348,13 +2432,15 @@ model OsfUserColumnAccess {
   id         String   @id @default(cuid())
   companyId  String
   userId     String
+  /// OSF generate variant: main | vat | non_vat
+  osfVariant String   @default("main")
   columnKeys String[] @default([])
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
   company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([companyId, userId])
+  @@unique([companyId, userId, osfVariant])
   @@index([companyId])
   @@index([userId])
 }
@@ -2472,6 +2558,21 @@ model RiderDeliveryChargeRule {
   @@index([label])
 }
 
+/// Zone Name → City/district membership (Zone A/B validation / Shopify city resolve). Not pay amounts.
+model RiderDeliveryZoneMember {
+  id               String   @id @default(cuid())
+  zoneKey          String
+  zoneLabel        String
+  districtLabelKey String
+  districtLabel    String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([zoneKey, districtLabelKey])
+  @@index([zoneKey])
+  @@index([districtLabelKey])
+}
+
 /// Merchant daily book note — one ledger per location + Colombo calendar sales date.
 model BookNoteDay {
   id                 String            @id @default(cuid())
@@ -2481,6 +2582,12 @@ model BookNoteDay {
   postingDate        DateTime
   createdByUserId    String?
   updatedByUserId    String?
+  /// Last successful push to ERP ss9 verify (null = never synced / needs sync).
+  erpSyncedAt        DateTime?
+  /// Last ERP push failure time (cleared on success).
+  erpSyncFailedAt    DateTime?
+  /// Short error from last failed ERP push.
+  erpSyncError       String?
   createdAt          DateTime          @default(now())
   updatedAt          DateTime          @updatedAt
   company            Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -2490,8 +2597,14 @@ model BookNoteDay {
   rows               BookNoteRow[]
   receipts           BookNoteReceipt[]
 
-  @@unique([companyLocationId, postingDate])
+  /// One sheet per shop, per day, PER MERCHANT. Two merchants working the same
+  /// shop on the same day each keep their own book note; neither can open or
+  /// overwrite the other's.
+  @@unique([companyLocationId, postingDate, createdByUserId])
   @@index([companyId, postingDate])
+  @@index([companyLocationId, postingDate])
+  @@index([companyId, erpSyncedAt])
+  @@index([companyId, erpSyncFailedAt])
 }
 
 model BookNoteRow {
@@ -2505,6 +2618,8 @@ model BookNoteRow {
   cardReceiptRefLast4 String?
   koko           Decimal     @db.Decimal(12, 2)
   bankTransfer   Decimal     @db.Decimal(12, 2)
+  /// Free-text bank-recon note for this invoice line (ERP special_note, max 1500).
+  specialNote    String?
   /// When set, ERP send uses split_lines payload (ss9) instead of legacy columns.
   splitLines     Json?
   orderId        String?

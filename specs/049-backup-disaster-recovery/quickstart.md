@@ -49,7 +49,7 @@ Expect object-key / retention unit tests green.
 5. `prisma migrate status` on throwaway
 6. Spot-check: order or contact count vs a note taken before dump
 7. Confirm live Cosmo prod row counts unchanged
-8. Log drill row in the runbook (date, operator, key, live untouched)
+8. Log the drill in [docs/ops/backup-disaster-recovery.md](../../docs/ops/backup-disaster-recovery.md) (**Restore drill log**): date, operator, system, object key, verification, live untouched.
 
 ## 5) Prod gate
 

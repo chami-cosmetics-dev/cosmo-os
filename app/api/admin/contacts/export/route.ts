@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import type { Prisma } from "@prisma/client";
 
-import {
-  loadOrderPurchaseAggregates,
-  purchaseSummaryForPhone,
-} from "@/lib/contacts/purchase-summary-export";
+import { getPurchaseSummarySyncStatus } from "@/lib/contacts/purchase-summary-cache";
 import { logReportDownload } from "@/lib/report-download-log";
 import { findContactsByPurchasedBrandRanked } from "@/lib/page-data/contact-brand-ids";
 import { buildContactsListWhere } from "@/lib/page-data/contacts";
@@ -20,24 +18,30 @@ import { requireAnyPermission } from "@/lib/rbac";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+/** Streaming Contact Master CSV (~80k+). Purchase totals come from cache (no live GROUP BY). */
 export const maxDuration = 300;
 
 type ContactStatusFilter = "active" | "inactive" | "never_purchased" | null;
 type ContactExportMode = "contacts" | "purchase_summary";
 
-const CONTACT_BATCH_SIZE = 2500;
+const CONTACT_BATCH_SIZE = 5000;
 
-type ContactExportRow = {
-  id: string;
-  name: string;
-  email: string | null;
-  phoneNumber: string | null;
-  recentMerchant: string | null;
-  assignedMerchant: string | null;
-  lastPurchaseAt: Date | null;
-  createdAt: Date;
-  updatedAt: Date;
-};
+const contactExportSelect = {
+  id: true,
+  name: true,
+  email: true,
+  phoneNumber: true,
+  recentMerchant: true,
+  assignedMerchant: true,
+  lastPurchaseAt: true,
+  purchaseOrderCount: true,
+  purchaseTotalValue: true,
+  purchaseLastOrderAt: true,
+  createdAt: true,
+  updatedAt: true,
+} as const;
+
+type ContactExportRow = Prisma.ContactMasterGetPayload<{ select: typeof contactExportSelect }>;
 
 function parseStatus(value: string | null): ContactStatusFilter {
   if (value === "active" || value === "inactive" || value === "never_purchased") {
@@ -55,51 +59,76 @@ function csvLine(headers: readonly string[], row: Record<string, CsvPrimitive>) 
   return headers.map((header) => escapeCsvCell(row[header])).join(",");
 }
 
+function toAmount(value: { toString(): string } | number | null | undefined): number {
+  if (value == null) return 0;
+  const n = typeof value === "number" ? value : Number(String(value));
+  return Number.isFinite(n) ? n : 0;
+}
+
+async function fetchContactBatch(
+  where: Awaited<ReturnType<typeof buildContactsListWhere>>,
+  cursor: string | undefined
+): Promise<ContactExportRow[]> {
+  return prisma.contactMaster.findMany({
+    where,
+    take: CONTACT_BATCH_SIZE,
+    ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
+    orderBy: { id: "asc" },
+    select: contactExportSelect,
+  });
+}
+
+async function fetchBrandOrderedChunk(
+  where: Awaited<ReturnType<typeof buildContactsListWhere>>,
+  brandOrderedIds: string[],
+  start: number
+): Promise<ContactExportRow[]> {
+  const idChunk = brandOrderedIds.slice(start, start + CONTACT_BATCH_SIZE);
+  if (idChunk.length === 0) return [];
+  const batch = await prisma.contactMaster.findMany({
+    where: { ...where, id: { in: idChunk } },
+    select: contactExportSelect,
+  });
+  const byId = new Map(batch.map((row) => [row.id, row] as const));
+  const ordered: ContactExportRow[] = [];
+  for (const id of idChunk) {
+    const row = byId.get(id);
+    if (row) ordered.push(row);
+  }
+  return ordered;
+}
+
+/** Yield contact batches. Prefetch next DB page while caller encodes the current one. */
 async function* iterateExportContacts(
   where: Awaited<ReturnType<typeof buildContactsListWhere>>,
   brandOrderedIds: string[] | null
 ): AsyncGenerator<ContactExportRow[]> {
-  const select = {
-    id: true,
-    name: true,
-    email: true,
-    phoneNumber: true,
-    recentMerchant: true,
-    assignedMerchant: true,
-    lastPurchaseAt: true,
-    createdAt: true,
-    updatedAt: true,
-  } as const;
-
   if (brandOrderedIds) {
-    for (let i = 0; i < brandOrderedIds.length; i += CONTACT_BATCH_SIZE) {
-      const idChunk = brandOrderedIds.slice(i, i + CONTACT_BATCH_SIZE);
-      const batch = await prisma.contactMaster.findMany({
-        where: { ...where, id: { in: idChunk } },
-        select,
-      });
-      const byId = new Map(batch.map((row) => [row.id, row]));
-      const ordered = idChunk
-        .map((id) => byId.get(id))
-        .filter((row): row is ContactExportRow => Boolean(row));
+    let start = 0;
+    let pending = fetchBrandOrderedChunk(where, brandOrderedIds, start);
+    start += CONTACT_BATCH_SIZE;
+    for (;;) {
+      const ordered = await pending;
+      const hasMore = start < brandOrderedIds.length;
+      pending = hasMore
+        ? fetchBrandOrderedChunk(where, brandOrderedIds, start)
+        : Promise.resolve([]);
+      start += CONTACT_BATCH_SIZE;
       if (ordered.length > 0) yield ordered;
+      if (!hasMore) break;
     }
     return;
   }
 
-  let cursor: string | undefined;
+  let pending = fetchContactBatch(where, undefined);
   for (;;) {
-    const batch = await prisma.contactMaster.findMany({
-      where,
-      take: CONTACT_BATCH_SIZE,
-      ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
-      orderBy: { id: "asc" },
-      select,
-    });
+    const batch = await pending;
     if (batch.length === 0) break;
+    const nextCursor = batch[batch.length - 1]!.id;
+    const hasMore = batch.length === CONTACT_BATCH_SIZE;
+    pending = hasMore ? fetchContactBatch(where, nextCursor) : Promise.resolve([]);
     yield batch;
-    cursor = batch[batch.length - 1]!.id;
-    if (batch.length < CONTACT_BATCH_SIZE) break;
+    if (!hasMore) break;
   }
 }
 
@@ -123,6 +152,19 @@ export async function GET(request: NextRequest) {
   const allocatedTo = request.nextUrl.searchParams.get("allocatedTo")?.trim() || null;
   const brand = request.nextUrl.searchParams.get("brand")?.trim() || null;
 
+  if (mode === "purchase_summary") {
+    const sync = await getPurchaseSummarySyncStatus(companyId);
+    if (!sync.lastSyncedAt) {
+      return NextResponse.json(
+        {
+          error:
+            "Purchase summary cache not built yet. Click Refresh purchase totals, then export again.",
+        },
+        { status: 409 }
+      );
+    }
+  }
+
   const brandRanks = brand
     ? await findContactsByPurchasedBrandRanked(companyId, brand)
     : [];
@@ -141,9 +183,6 @@ export async function GET(request: NextRequest) {
     },
     { brandContactIds: brand ? brandRanks.map((r) => r.contactId) : undefined }
   );
-
-  const purchaseSummaryPromise =
-    mode === "purchase_summary" ? loadOrderPurchaseAggregates(companyId) : Promise.resolve(null);
 
   const expectedRows = await prisma.contactMaster.count({ where });
 
@@ -206,8 +245,6 @@ export async function GET(request: NextRequest) {
           encoder.encode(`\uFEFF${headers.map(formatCsvHeader).join(",")}\r\n`)
         );
 
-        const purchaseSummaryByPhone = await purchaseSummaryPromise;
-
         let contactNo = 0;
         for await (const batch of iterateExportContacts(where, brandOrderedIds)) {
           if (request.signal.aborted) {
@@ -216,9 +253,8 @@ export async function GET(request: NextRequest) {
           const lines: string[] = [];
           for (const contact of batch) {
             contactNo += 1;
-            const summary = purchaseSummaryByPhone
-              ? purchaseSummaryForPhone(purchaseSummaryByPhone, contact.phoneNumber)
-              : undefined;
+            const purchaseLast = contact.purchaseLastOrderAt;
+            const purchaseTotal = toAmount(contact.purchaseTotalValue);
             const row: Record<string, CsvPrimitive> = {
               contact_no: contactNo,
               name: contact.name,
@@ -231,12 +267,17 @@ export async function GET(request: NextRequest) {
                 : {}),
               ...(mode === "purchase_summary"
                 ? {
-                    total_orders: summary?.orderCount ?? 0,
-                    total_purchase_value: (summary?.totalSpent ?? 0).toFixed(2),
-                    last_order_date: formatIsoDate(summary?.lastOrderAt ?? null),
+                    total_orders: contact.purchaseOrderCount,
+                    total_purchase_value: purchaseTotal.toFixed(2),
+                    last_order_date: formatIsoDate(purchaseLast),
                   }
                 : {}),
-              last_purchased_date: formatIsoDate(contact.lastPurchaseAt),
+              last_purchased_date: formatIsoDate(
+                purchaseLast &&
+                  (!contact.lastPurchaseAt || purchaseLast > contact.lastPurchaseAt)
+                  ? purchaseLast
+                  : contact.lastPurchaseAt
+              ),
               created_at: formatIsoDateTime(contact.createdAt),
               updated_at: formatIsoDateTime(contact.updatedAt),
             };

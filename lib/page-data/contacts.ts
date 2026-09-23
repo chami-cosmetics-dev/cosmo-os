@@ -1,10 +1,16 @@
 import type { Prisma } from "@prisma/client";
 
 import { dedupeContactsForDisplay } from "@/lib/contact-display-dedupe";
+import { getPurchaseSummarySyncStatus } from "@/lib/contacts/purchase-summary-cache";
+import {
+  withStaffSalesAssignee,
+  withStaffSalesAssignedMerchant,
+} from "@/lib/contacts/staff-sales-allocation";
 import {
   canonicalizeAssignedMerchantLabels,
   expandAssignedMerchantFilter,
 } from "@/lib/customer-insight/merchant-label-aliases";
+import { isMerchantRoleName } from "@/lib/merchant-role";
 import {
   findContactIdsByPurchasedBrand,
   findContactsByPurchasedBrandRanked,
@@ -132,6 +138,9 @@ export type ContactsPageOptions = {
 };
 
 async function fetchContactsPageOptions(companyId: string): Promise<ContactsPageOptions> {
+  const roles = await prisma.role.findMany({ select: { id: true, name: true } });
+  const merchantRoleIds = roles.filter((r) => isMerchantRoleName(r.name)).map((r) => r.id);
+
   const [assignedRows, vendors, brandConfigs, assigneeRows] = await Promise.all([
     prisma.contactMaster.findMany({
       where: {
@@ -156,18 +165,21 @@ async function fetchContactsPageOptions(companyId: string): Promise<ContactsPage
       orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
       select: { name: true },
     }),
-    prisma.user.findMany({
-      where: {
-        companyId,
-        OR: [
-          { employeeProfile: null },
-          { employeeProfile: { status: "active" } },
-        ],
-      },
-      orderBy: { name: "asc" },
-      select: { id: true, name: true, knownName: true, email: true },
-      take: 300,
-    }),
+    merchantRoleIds.length === 0
+      ? Promise.resolve([])
+      : prisma.user.findMany({
+          where: {
+            companyId,
+            userRoles: { some: { roleId: { in: merchantRoleIds } } },
+            OR: [
+              { employeeProfile: null },
+              { employeeProfile: { status: "active" } },
+            ],
+          },
+          orderBy: { name: "asc" },
+          select: { id: true, name: true, knownName: true, email: true },
+          take: 300,
+        }),
   ]);
 
   // Collapse legacy duplicates so one merchant is one option.
@@ -190,12 +202,14 @@ async function fetchContactsPageOptions(companyId: string): Promise<ContactsPage
   }
 
   return {
-    assignedMerchants,
+    assignedMerchants: withStaffSalesAssignedMerchant(assignedMerchants),
     brands,
-    assignees: assigneeRows.map((user) => ({
-      id: user.id,
-      label: user.knownName?.trim() || user.name?.trim() || user.email?.trim() || "Unnamed user",
-    })),
+    assignees: withStaffSalesAssignee(
+      assigneeRows.map((user) => ({
+        id: user.id,
+        label: user.knownName?.trim() || user.name?.trim() || user.email?.trim() || "Unnamed user",
+      }))
+    ),
   };
 }
 
@@ -226,12 +240,14 @@ export async function fetchContactsPageData(companyId: string, params: ContactsP
     neverPurchasedCount,
     brandRanks,
     options,
+    purchaseSummarySync,
   ] = await Promise.all([
     prisma.contactMaster.count({ where: { companyId, lastPurchaseAt: { gte: cutoff } } }),
     prisma.contactMaster.count({ where: { companyId, lastPurchaseAt: { lt: cutoff } } }),
     prisma.contactMaster.count({ where: { companyId, lastPurchaseAt: null } }),
     brandRanksPromise,
     fetchContactsPageOptions(companyId),
+    getPurchaseSummarySyncStatus(companyId),
   ]);
 
   const brandSpendById = new Map(
@@ -296,6 +312,7 @@ export async function fetchContactsPageData(companyId: string, params: ContactsP
     },
     options,
     brandFilterActive: Boolean(brand),
+    purchaseSummarySync,
   };
   maybeLogSlowDbRequest("contacts.page_data", startedAt, {
     companyId,

@@ -99,6 +99,7 @@ export function buildCustomerInsightDto(input: {
   canMarkContacted?: boolean;
   loyaltyAssignment?: LoyaltyAssignmentDto | null;
   loyaltyOutreachStatus?: CustomerInsightDto["loyaltyOutreachStatus"];
+  loyaltyNotInterestedReason?: string | null;
   historyScope?: HistoryScopeDto | null;
 }): CustomerInsightDto {
   const eligibility = pendingLoyaltySuggestion(
@@ -121,6 +122,7 @@ export function buildCustomerInsightDto(input: {
     loyaltyAssignment: input.loyaltyAssignment ?? null,
     loyaltyEligibility: eligibility,
     loyaltyOutreachStatus: input.loyaltyOutreachStatus ?? null,
+    loyaltyNotInterestedReason: input.loyaltyNotInterestedReason ?? null,
     invoices: input.invoices,
     invoicePagination: input.invoicePagination,
     historyScope: input.historyScope ?? null,

@@ -11,7 +11,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { Calendar, Check, ChevronsUpDown, Crown, Download, Loader2, Mail, MapPin, Phone, Search, ShieldCheck, UserRound, X } from "lucide-react";
+import { Calendar, Check, ChevronsUpDown, Crown, Download, Loader2, Mail, MapPin, Phone, Search, ShieldCheck, Upload, UserRound, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -29,7 +29,16 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Tabs,
   TabsContent,
@@ -86,6 +95,11 @@ function loyaltyEligibleCopy(eligibility: {
     return "Eligible for Platinum (currently Gold)";
   }
   return `Eligible for ${next} (still Standard)`;
+}
+
+function loyaltyNotInterestedCopy(reason?: string | null) {
+  const trimmed = reason?.trim();
+  return trimmed ? `Not interested · ${trimmed}` : "Not interested";
 }
 
 function formatMoney(amount: number, currency = "LKR") {
@@ -292,6 +306,7 @@ type CallQueueRow = {
   queued: boolean;
   hidden?: boolean;
   hideReason?: string | null;
+  newlyAllocatedBadge?: boolean;
 };
 
 function formatQueueDate(value: string | null) {
@@ -620,6 +635,8 @@ export function CustomerInsightPanel({
   const [filterBirthdayTo, setFilterBirthdayTo] = useState("");
   const [filterLastFrom, setFilterLastFrom] = useState("");
   const [filterLastTo, setFilterLastTo] = useState("");
+  const [filterAllocatedFrom, setFilterAllocatedFrom] = useState("");
+  const [filterAllocatedTo, setFilterAllocatedTo] = useState("");
   const [filterLoyaltyRegFrom, setFilterLoyaltyRegFrom] = useState("");
   const [filterLoyaltyRegTo, setFilterLoyaltyRegTo] = useState("");
   const [filterNoPurchaseFrom, setFilterNoPurchaseFrom] = useState("");
@@ -644,6 +661,8 @@ export function CustomerInsightPanel({
   >([]);
   const [callOutcome, setCallOutcome] = useState<string>("N/A");
   const [contactRemark, setContactRemark] = useState("");
+  const [notInterestedOpen, setNotInterestedOpen] = useState(false);
+  const [notInterestedReason, setNotInterestedReason] = useState("");
   const [loyaltyQueue, setLoyaltyQueue] = useState<
     Array<{
       contactId: string;
@@ -661,6 +680,7 @@ export function CustomerInsightPanel({
     }>
   >([]);
   const [myCallQueue, setMyCallQueue] = useState<CallQueueRow[]>([]);
+  const [allocationContactsMerchant, setAllocationContactsMerchant] = useState("");
   const [queueMerchant, setQueueMerchant] = useState("");
   const [queueCandidates, setQueueCandidates] = useState<CallQueueRow[] | null>(null);
   const [queueCandidateTotal, setQueueCandidateTotal] = useState(0);
@@ -672,7 +692,12 @@ export function CustomerInsightPanel({
   const [queueLoyalty, setQueueLoyalty] = useState("");
   const [queueLastPurchaseFrom, setQueueLastPurchaseFrom] = useState("");
   const [queueLastPurchaseTo, setQueueLastPurchaseTo] = useState("");
-  const [queueBrand, setQueueBrand] = useState("");
+  const [queueAllocatedFrom, setQueueAllocatedFrom] = useState("");
+  const [queueAllocatedTo, setQueueAllocatedTo] = useState("");
+  const [queueBrands, setQueueBrands] = useState<string[]>([]);
+  const [queueAssignedFrom, setQueueAssignedFrom] = useState("");
+  const [queueAssignedTo, setQueueAssignedTo] = useState("");
+  const [queueNotContacted, setQueueNotContacted] = useState(false);
   const [queueHideFilter, setQueueHideFilter] = useState<"all" | "eligible" | "hidden">(
     "all"
   );
@@ -699,6 +724,14 @@ export function CustomerInsightPanel({
       contactedCount: number;
       salesAfterAssignment: number;
       salesAfterContact: number;
+    }>;
+  } | null>(null);
+  const [loyaltyEligibleSummary, setLoyaltyEligibleSummary] = useState<{
+    company: { pending: number; mtdUpdated: number };
+    merchants: Array<{
+      merchantLabel: string;
+      pending: number;
+      mtdUpdated: number;
     }>;
   } | null>(null);
   const todayIsoDate = () => {
@@ -754,6 +787,7 @@ export function CustomerInsightPanel({
   } | null>(null);
   const invoicesRef = useRef<HTMLDivElement>(null);
   const detailsRef = useRef<HTMLDivElement>(null);
+  const queueImportInputRef = useRef<HTMLInputElement>(null);
 
   const isBusy = busyKey !== null;
   const isOwner = insight?.visibility === "owner";
@@ -1043,8 +1077,13 @@ export function CustomerInsightPanel({
     if (!canExportFilteredCsv) return;
     setBusyKey("allocation-contacts-export");
     try {
+      const params = new URLSearchParams();
+      params.set("format", "contacts");
+      if (allocationContactsMerchant.trim()) {
+        params.set("assignedMerchant", allocationContactsMerchant.trim());
+      }
       const res = await fetch(
-        "/api/admin/customer-insight/allocation-summary/export?format=contacts",
+        `/api/admin/customer-insight/allocation-summary/export?${params.toString()}`,
         { credentials: "include" }
       );
       if (!res.ok) {
@@ -1056,7 +1095,14 @@ export function CustomerInsightPanel({
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = "insight-merchant-allocation-contacts.csv";
+      const slug = allocationContactsMerchant
+        .trim()
+        .replace(/[^a-zA-Z0-9_-]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 40);
+      a.download = `insight-merchant-allocation-contacts-${
+        allocationContactsMerchant.trim() ? slug || "merchant" : "all"
+      }.csv`;
       a.click();
       URL.revokeObjectURL(url);
       notify.success("Allocation contacts downloaded.");
@@ -1121,19 +1167,61 @@ export function CustomerInsightPanel({
     if (queueLastPurchaseTo.trim()) {
       params.set("lastPurchaseTo", queueLastPurchaseTo.trim());
     }
-    if (queueBrand.trim()) params.set("brand", queueBrand.trim());
+    if (queueAllocatedFrom.trim()) {
+      params.set("allocatedFrom", queueAllocatedFrom.trim());
+    }
+    if (queueAllocatedTo.trim()) {
+      params.set("allocatedTo", queueAllocatedTo.trim());
+    }
+    appendInsightFilterList(params, "brand", queueBrands);
+    if (queueAssignedFrom.trim()) {
+      params.set("assignedFrom", queueAssignedFrom.trim());
+    }
+    if (queueAssignedTo.trim()) {
+      params.set("assignedTo", queueAssignedTo.trim());
+    }
+    if (queueNotContacted) params.set("notContacted", "true");
     params.set("hideFilter", queueHideFilter);
   }
 
+  function appendQueueReportParams(params: URLSearchParams) {
+    if (queueMerchant.trim()) params.set("assignedMerchant", queueMerchant.trim());
+    if (queuePushGold) params.set("pushToGold", "true");
+    if (queuePushPlatinum) params.set("pushToPlatinum", "true");
+    if (queueAssignedFrom.trim()) {
+      params.set("assignedFrom", queueAssignedFrom.trim());
+    }
+    if (queueAssignedTo.trim()) {
+      params.set("assignedTo", queueAssignedTo.trim());
+    }
+    if (queueNotContacted) params.set("notContacted", "true");
+  }
+
   async function loadQueueCandidates(page = 1) {
-    if (!queueMerchant.trim()) {
-      notify.error("Select a merchant.");
+    const hasQueueFilter =
+      queueBrands.length > 0 ||
+      queuePushGold ||
+      queuePushPlatinum ||
+      Boolean(queueLoyalty.trim()) ||
+      Boolean(queueLastPurchaseFrom.trim()) ||
+      Boolean(queueLastPurchaseTo.trim()) ||
+      Boolean(queueAllocatedFrom.trim()) ||
+      Boolean(queueAllocatedTo.trim()) ||
+      Boolean(queueAssignedFrom.trim()) ||
+      Boolean(queueAssignedTo.trim()) ||
+      queueNotContacted;
+    if (!queueMerchant.trim() && !hasQueueFilter) {
+      notify.error(
+        "Select a merchant, or add a brand / other filter to load all allocated contacts."
+      );
       return;
     }
     setBusyKey("queue-candidates");
     try {
       const params = new URLSearchParams();
-      params.set("assignedMerchant", queueMerchant.trim());
+      if (queueMerchant.trim()) {
+        params.set("assignedMerchant", queueMerchant.trim());
+      }
       params.set("page", String(page));
       params.set("pageSize", String(queueCandidatePageSize));
       appendQueueFilterParams(params);
@@ -1250,6 +1338,8 @@ export function CustomerInsightPanel({
     try {
       const params = new URLSearchParams();
       if (queueMerchant.trim()) params.set("assignedMerchant", queueMerchant.trim());
+      appendQueueFilterParams(params);
+      params.set("kind", "filtered");
       const res = await fetch(
         `/api/admin/customer-insight/call-queue/export?${params}`
       );
@@ -1262,7 +1352,7 @@ export function CustomerInsightPanel({
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `call-queue-assignments.xlsx`;
+      a.download = `call-queue-filtered.xlsx`;
       a.click();
       URL.revokeObjectURL(url);
       notify.success("Exported Excel.");
@@ -1273,13 +1363,47 @@ export function CustomerInsightPanel({
     }
   }
 
+  async function importQueueAssignments(file: File) {
+    if (!queueMerchant.trim()) {
+      notify.error("Select a merchant.");
+      return;
+    }
+    setBusyKey("queue-import");
+    try {
+      const form = new FormData();
+      form.set("assignedMerchant", queueMerchant.trim());
+      form.set("file", file);
+      const res = await fetch("/api/admin/customer-insight/call-queue/import", {
+        method: "POST",
+        body: form,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        notify.error(data.error ?? "Failed to import.");
+        return;
+      }
+      const assigned = Number(data.assigned ?? 0);
+      const skippedQueued = Number(data.skippedQueued ?? 0);
+      const skippedUnknown = Number(data.skippedUnknown ?? 0);
+      notify.success(
+        `Allocated + queued ${assigned} to merchant` +
+          (skippedQueued || skippedUnknown
+            ? ` · skipped queued ${skippedQueued}, unknown ${skippedUnknown}`
+            : "")
+      );
+    } catch {
+      notify.error("Failed to import.");
+    } finally {
+      setBusyKey(null);
+      if (queueImportInputRef.current) queueImportInputRef.current.value = "";
+    }
+  }
+
   async function loadQueueReport() {
     setBusyKey("queue-report");
     try {
       const params = new URLSearchParams();
-      if (queueMerchant.trim()) params.set("assignedMerchant", queueMerchant.trim());
-      if (queuePushGold) params.set("pushToGold", "true");
-      if (queuePushPlatinum) params.set("pushToPlatinum", "true");
+      appendQueueReportParams(params);
       const res = await fetch(
         `/api/admin/customer-insight/call-queue/report?${params}`
       );
@@ -1291,6 +1415,72 @@ export function CustomerInsightPanel({
       setQueueReport(data);
     } catch {
       notify.error("Failed to load report.");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function exportQueueReport() {
+    setBusyKey("queue-report-export");
+    try {
+      const params = new URLSearchParams();
+      appendQueueReportParams(params);
+      const res = await fetch(
+        `/api/admin/customer-insight/call-queue/report/export?${params}`
+      );
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        notify.error(data.error ?? "Failed to export report.");
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `call-queue-sales-report-${todayIsoDate()}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+      notify.success("Sales report downloaded.");
+    } catch {
+      notify.error("Failed to export report.");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function loadLoyaltyEligibleSummary() {
+    if (!canExportFilteredCsv) return;
+    setBusyKey("loyalty-eligible-summary");
+    try {
+      const res = await fetch(
+        "/api/admin/customer-insight/loyalty-eligible/summary"
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        notify.error(data.error ?? "Failed to load loyalty eligible summary.");
+        return;
+      }
+      setLoyaltyEligibleSummary({
+        company: {
+          pending: Number(data.company?.pending ?? 0),
+          mtdUpdated: Number(data.company?.mtdUpdated ?? 0),
+        },
+        merchants: Array.isArray(data.merchants)
+          ? data.merchants.map(
+              (row: {
+                merchantLabel?: string;
+                pending?: number;
+                mtdUpdated?: number;
+              }) => ({
+                merchantLabel: String(row.merchantLabel ?? ""),
+                pending: Number(row.pending ?? 0),
+                mtdUpdated: Number(row.mtdUpdated ?? 0),
+              })
+            )
+          : [],
+      });
+    } catch {
+      notify.error("Failed to load loyalty eligible summary.");
     } finally {
       setBusyKey(null);
     }
@@ -1576,7 +1766,10 @@ export function CustomerInsightPanel({
     }
   }
 
-  async function postLoyaltyOutreach(action: "loyalty_informed" | "responded" | "not_responded") {
+  async function postLoyaltyOutreach(
+    action: "loyalty_informed" | "responded" | "not_responded" | "not_interested",
+    remark?: string | null
+  ) {
     const contact = insight?.contact;
     if (!contact) return;
     if (action === "responded") {
@@ -1603,7 +1796,11 @@ export function CustomerInsightPanel({
       const res = await fetch("/api/admin/merchant-dashboard/loyalty-outreach", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contactId: contact.id, action }),
+        body: JSON.stringify({
+          contactId: contact.id,
+          action,
+          remark: remark?.trim() || null,
+        }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -1612,11 +1809,17 @@ export function CustomerInsightPanel({
       }
       notify.success(
         action === "responded"
-          ? "Responded request sent to assignment queue"
+          ? "Loyalty request sent to assignment queue"
           : action === "not_responded"
             ? "Marked not responded"
-            : "Marked contacted"
+            : action === "not_interested"
+              ? "Marked not interested"
+              : "Marked contacted"
       );
+      if (action === "not_interested") {
+        setNotInterestedOpen(false);
+        setNotInterestedReason("");
+      }
       await loadInsight(contact.id, invoicePage);
     } catch {
       notify.error("Update failed");
@@ -1626,10 +1829,6 @@ export function CustomerInsightPanel({
   }
 
   async function runFilters(page = 1) {
-    if (canExportFilteredCsv && !filterAssignedMerchant.trim()) {
-      notify.error("Select a merchant to preview their filtered results.");
-      return;
-    }
     setBusyKey("filter");
     setFilterPage(page);
     try {
@@ -1667,6 +1866,12 @@ export function CustomerInsightPanel({
     }
     if (filterLastFrom.trim()) params.set("lastContactedFrom", filterLastFrom.trim());
     if (filterLastTo.trim()) params.set("lastContactedTo", filterLastTo.trim());
+    if (filterAllocatedFrom.trim()) {
+      params.set("allocatedFrom", filterAllocatedFrom.trim());
+    }
+    if (filterAllocatedTo.trim()) {
+      params.set("allocatedTo", filterAllocatedTo.trim());
+    }
     if (filterLoyaltyRegFrom.trim()) {
       params.set("loyaltyRegisteredFrom", filterLoyaltyRegFrom.trim());
     }
@@ -1686,10 +1891,6 @@ export function CustomerInsightPanel({
 
   async function exportFilteredCsv() {
     if (!canExportFilteredCsv) return;
-    if (!filterAssignedMerchant.trim()) {
-      notify.error("Select a merchant to preview their filtered results.");
-      return;
-    }
     setBusyKey("export-filter");
     try {
       const params = buildFilterParams(1);
@@ -1748,6 +1949,8 @@ export function CustomerInsightPanel({
         filterBirthdayTo.trim() ||
         filterLastFrom.trim() ||
         filterLastTo.trim() ||
+        filterAllocatedFrom.trim() ||
+        filterAllocatedTo.trim() ||
         filterLoyaltyRegFrom.trim() ||
         filterLoyaltyRegTo.trim() ||
         filterNoPurchaseFrom.trim() ||
@@ -1770,6 +1973,8 @@ export function CustomerInsightPanel({
     setFilterBirthdayTo("");
     setFilterLastFrom("");
     setFilterLastTo("");
+    setFilterAllocatedFrom("");
+    setFilterAllocatedTo("");
     setFilterLoyaltyRegFrom("");
     setFilterLoyaltyRegTo("");
     setFilterNoPurchaseFrom("");
@@ -1837,7 +2042,7 @@ export function CustomerInsightPanel({
           View customer profile, purchase history, and loyalty details. Allocated merchants and
           admins can edit profile fields.{" "}
           {canExportFilteredCsv
-            ? "Pick a merchant to preview filters and contact detail as they see them."
+            ? "Merchant optional for company-wide brand filters and export. Pick a merchant to preview as they see the contact."
             : canFilterAllContacts
               ? "Filters search all company contacts."
               : "Filters search your allocated customers."}
@@ -1879,9 +2084,9 @@ export function CustomerInsightPanel({
             {canFilterAllContacts ? "Customer filters" : "Allocated customer filters"}
           </CardTitle>
           <CardDescription>
-            {canExportFilteredCsv
-              ? "Select a merchant first. Results are scoped to their allocated contacts, and opening a contact uses their owner/limited visibility."
-              : canFilterAllContacts
+          {canExportFilteredCsv
+            ? "Merchant optional. Leave Any for whole company contact base (brand and other filters apply). Pick a merchant to scope to their allocated contacts; opening a contact then uses that merchant's owner/limited visibility."
+            : canFilterAllContacts
                 ? "Results include all company contacts matching your filters (allocated and unallocated)."
                 : "Results are limited to your allocated customers."}{" "}
             Min/max total uses lifetime spend (completed Cosmo orders + Adapt history) across that
@@ -1989,7 +2194,8 @@ export function CustomerInsightPanel({
                 <InsightSearchableSelect
                   value={filterAssignedMerchant}
                   options={merchantOptions}
-                  placeholder="Select merchant"
+                  placeholder="Any merchant"
+                  allLabel="Any merchant"
                   searchPlaceholder="Search merchants…"
                   disabled={isBusy}
                   onChange={(next) => {
@@ -2085,6 +2291,32 @@ export function CustomerInsightPanel({
                     type="date"
                     value={filterLastTo}
                     onChange={(e) => setFilterLastTo(e.target.value)}
+                    disabled={isBusy}
+                  />
+                </label>
+              </div>
+            </fieldset>
+
+            <fieldset className="space-y-2 rounded-lg border border-border/60 p-3">
+              <legend className="px-1 text-xs font-medium text-muted-foreground">
+                Allocated
+              </legend>
+              <div className="grid grid-cols-2 gap-2">
+                <label className="space-y-1 text-sm">
+                  <span className="text-muted-foreground">From</span>
+                  <Input
+                    type="date"
+                    value={filterAllocatedFrom}
+                    onChange={(e) => setFilterAllocatedFrom(e.target.value)}
+                    disabled={isBusy}
+                  />
+                </label>
+                <label className="space-y-1 text-sm">
+                  <span className="text-muted-foreground">To</span>
+                  <Input
+                    type="date"
+                    value={filterAllocatedTo}
+                    onChange={(e) => setFilterAllocatedTo(e.target.value)}
                     disabled={isBusy}
                   />
                 </label>
@@ -2469,6 +2701,18 @@ export function CustomerInsightPanel({
                         {loyaltyEligibleCopy(insight.loyaltyEligibility)}
                       </p>
                     ) : null}
+                    {insight.loyaltyOutreachStatus === "not_interested" ||
+                    insight.loyaltyNotInterestedReason ? (
+                      <p className="text-xs font-medium text-rose-700 dark:text-rose-400">
+                        {insight.loyaltyOutreachStatus === "not_interested"
+                          ? loyaltyNotInterestedCopy(
+                              insight.loyaltyNotInterestedReason
+                            )
+                          : insight.loyaltyNotInterestedReason
+                            ? `Previously not interested · ${insight.loyaltyNotInterestedReason}`
+                            : "Previously not interested"}
+                      </p>
+                    ) : null}
                   </div>
                 </div>
               </CardHeader>
@@ -2674,30 +2918,59 @@ export function CustomerInsightPanel({
                           {loyaltyEligibleCopy(insight.loyaltyEligibility)}
                         </p>
                       ) : null}
+                      {insight.loyaltyOutreachStatus === "not_interested" ||
+                      insight.loyaltyNotInterestedReason ? (
+                        <p className="text-xs font-medium text-rose-700 dark:text-rose-400">
+                          {insight.loyaltyOutreachStatus === "not_interested"
+                            ? loyaltyNotInterestedCopy(
+                                insight.loyaltyNotInterestedReason
+                              )
+                            : insight.loyaltyNotInterestedReason
+                              ? `Previously not interested · ${insight.loyaltyNotInterestedReason}`
+                              : "Previously not interested"}
+                        </p>
+                      ) : null}
                       {isOwner && insight.loyaltyEligibility ? (
                         <div className="mt-1 flex flex-col items-end gap-1">
-                          {insight.contact ? (
-                            getLoyaltyProfileMissingFields({
-                              name: insight.contact.name,
-                              email: insight.contact.email,
-                              phoneNumber: insight.contact.phoneNumber,
-                              phones: insight.contact.phones,
-                              gender: insight.contact.gender,
-                              language: insight.contact.language,
-                              birthMonth: insight.contact.birthMonth,
-                              birthDay: insight.contact.birthDay,
-                              city: insight.contact.city,
-                              address: insight.contact.address,
-                            }).length > 0 ? (
-                              <p className="text-xs text-amber-700 dark:text-amber-400">
-                                Fill missing profile fields, then send the request.
-                              </p>
-                            ) : null
+                          {insight.contact &&
+                          (insight.loyaltyOutreachStatus === "contacted" ||
+                            insight.loyaltyOutreachStatus === "not_interested") &&
+                          getLoyaltyProfileMissingFields({
+                            name: insight.contact.name,
+                            email: insight.contact.email,
+                            phoneNumber: insight.contact.phoneNumber,
+                            phones: insight.contact.phones,
+                            gender: insight.contact.gender,
+                            language: insight.contact.language,
+                            birthMonth: insight.contact.birthMonth,
+                            birthDay: insight.contact.birthDay,
+                            city: insight.contact.city,
+                            address: insight.contact.address,
+                          }).length > 0 ? (
+                            <p className="text-xs text-amber-700 dark:text-amber-400">
+                              Fill missing profile fields, then send the request.
+                            </p>
                           ) : null}
                           {insight.loyaltyOutreachStatus === "responded" ? (
                             <p className="text-xs text-muted-foreground">
                               Requested — waiting in assignment queue
                             </p>
+                          ) : insight.loyaltyOutreachStatus === "not_interested" ? (
+                            <Button
+                              type="button"
+                              size="sm"
+                              disabled={isBusy}
+                              onClick={() => void postLoyaltyOutreach("responded")}
+                            >
+                              {busyKey === "loyalty" ? (
+                                <>
+                                  <Loader2 className="animate-spin" aria-hidden />
+                                  Sending...
+                                </>
+                              ) : (
+                                "Request loyalty"
+                              )}
+                            </Button>
                           ) : insight.loyaltyOutreachStatus === "contacted" ? (
                             <>
                               <Button
@@ -2706,7 +2979,26 @@ export function CustomerInsightPanel({
                                 disabled={isBusy}
                                 onClick={() => void postLoyaltyOutreach("responded")}
                               >
-                                Send responded request
+                                {busyKey === "loyalty" ? (
+                                  <>
+                                    <Loader2 className="animate-spin" aria-hidden />
+                                    Sending...
+                                  </>
+                                ) : (
+                                  "Interested"
+                                )}
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                disabled={isBusy}
+                                onClick={() => {
+                                  setNotInterestedReason("");
+                                  setNotInterestedOpen(true);
+                                }}
+                              >
+                                Not interested
                               </Button>
                               <Button
                                 type="button"
@@ -3585,7 +3877,14 @@ export function CustomerInsightPanel({
                     className="flex flex-col gap-2 px-3 py-3 text-sm sm:flex-row sm:items-center sm:justify-between"
                   >
                     <div className="min-w-0">
-                      <p className="font-medium">{row.name}</p>
+                      <p className="flex flex-wrap items-center gap-1.5 font-medium">
+                        <span className="truncate">{row.name}</span>
+                        {row.newlyAllocatedBadge ? (
+                          <span className="inline-flex shrink-0 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-400">
+                            Newly allocated
+                          </span>
+                        ) : null}
+                      </p>
                       <p className="text-muted-foreground text-xs">
                         {row.phoneNumber ?? "No phone"} · tot {formatMoney(row.lifetimeTotal)}
                       </p>
@@ -3624,7 +3923,9 @@ export function CustomerInsightPanel({
               by loyalty tier, with the count that have both email and birthday
               on file. Pick a date range to also see calls taken and birthday /
               email collected in that window. Export CSV downloads the table.
-              Export contacts includes each allocated contact name and phone number.
+              Export contacts downloads the full allocated list (name + phones);
+              pick a merchant to scope it to them, or leave All merchants to get
+              every allocated contact with its merchant.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -3685,7 +3986,19 @@ export function CustomerInsightPanel({
                   ? `${allocationSummary.allocatedTotal.toLocaleString()} allocated · ${allocationSummary.unallocatedCount.toLocaleString()} unallocated · ${allocationSummary.contactTotal.toLocaleString()} total`
                   : "Loading counts…"}
               </p>
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap items-end gap-2">
+                <label className="min-w-[12rem] space-y-1 text-sm">
+                  <span className="text-muted-foreground">Export merchant</span>
+                  <InsightSearchableSelect
+                    value={allocationContactsMerchant}
+                    options={merchantOptions}
+                    placeholder="All merchants"
+                    allLabel="All merchants"
+                    searchPlaceholder="Search merchants…"
+                    disabled={isBusy}
+                    onChange={setAllocationContactsMerchant}
+                  />
+                </label>
                 <Button
                   type="button"
                   size="sm"
@@ -3824,6 +4137,7 @@ export function CustomerInsightPanel({
                         key={row.merchantValue}
                         className="cursor-pointer hover:bg-muted/40"
                         onClick={() => {
+                          setAllocationContactsMerchant(row.merchantValue);
                           setQueueMerchant(row.merchantValue);
                           setQueueCandidates(null);
                           setQueueSelectedIds([]);
@@ -4086,16 +4400,101 @@ export function CustomerInsightPanel({
         </Card>
       ) : null}
 
+
+      {canExportFilteredCsv ? (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Loyalty eligible</CardTitle>
+            <CardDescription>
+              Merchant-wise pending loyalty-eligible count and MTD updated count.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                disabled={isBusy}
+                onClick={() => void loadLoyaltyEligibleSummary()}
+              >
+                {busyKey === "loyalty-eligible-summary" ? (
+                  <>
+                    <Loader2 className="animate-spin" aria-hidden />
+                    Loading...
+                  </>
+                ) : (
+                  "Load"
+                )}
+              </Button>
+              {loyaltyEligibleSummary ? (
+                <p className="text-sm">
+                  Company pending:{" "}
+                  <span className="font-semibold tabular-nums">
+                    {loyaltyEligibleSummary.company.pending.toLocaleString()}
+                  </span>
+                  {" · "}
+                  MTD updated:{" "}
+                  <span className="font-semibold tabular-nums">
+                    {loyaltyEligibleSummary.company.mtdUpdated.toLocaleString()}
+                  </span>
+                </p>
+              ) : null}
+            </div>
+            {loyaltyEligibleSummary ? (
+              <div className="overflow-x-auto rounded-md border text-xs">
+                <table className="w-full">
+                  <thead>
+                    <tr className="bg-muted/30 text-left">
+                      <th className="px-2 py-1">Merchant</th>
+                      <th className="px-2 py-1 text-right">Pending</th>
+                      <th className="px-2 py-1 text-right">MTD updated</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {loyaltyEligibleSummary.merchants.length === 0 ? (
+                      <tr className="border-t">
+                        <td
+                          colSpan={3}
+                          className="text-muted-foreground px-2 py-2"
+                        >
+                          No merchant rows.
+                        </td>
+                      </tr>
+                    ) : (
+                      loyaltyEligibleSummary.merchants.map((row) => (
+                        <tr key={row.merchantLabel} className="border-t">
+                          <td className="px-2 py-1">{row.merchantLabel}</td>
+                          <td className="px-2 py-1 text-right tabular-nums">
+                            {row.pending.toLocaleString()}
+                          </td>
+                          <td className="px-2 py-1 text-right tabular-nums">
+                            {row.mtdUpdated.toLocaleString()}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
+
       {canExportFilteredCsv ? (
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Assign merchant call queue</CardTitle>
             <CardDescription>
-              Pick a merchant, then use any filter alone or together. Combined
-              filters AND (Push to Gold + Push to Platinum = either band). Push
-              labels do not show amounts. Hidden logic is a filter: 2-month cooling
-              after allocation or outreach, 7-day Not Responding, Black List /
-              Wrong Number, already queued.
+              Pick a merchant (or leave Any), then use any filter alone or together. Combined
+              filters AND (Push to Gold + Push to Platinum = either band). Merchant Any =
+              all allocated contacts. Push labels do not show amounts. Hidden logic: purchased or contacted
+              within 2 months, 7-day Not Responding, Black List / Wrong Number,
+              already queued (no allocation cooling). Export Excel downloads the filtered
+              allocated list (same filters as Load). Import Excel reallocates
+              Contact Master to the merchant, queues them, and shows Newly
+              allocated (hidden if contacted within 2 months). Call update
+              clears the row and updates last contacted. Assign / Import still need a merchant.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -4105,7 +4504,8 @@ export function CustomerInsightPanel({
                 <InsightSearchableSelect
                   value={queueMerchant}
                   options={queueMerchantOptions}
-                  placeholder="Select merchant"
+                  placeholder="Any merchant"
+                  allLabel="Any merchant"
                   searchPlaceholder="Search merchants…"
                   disabled={isBusy}
                   onChange={(next) => {
@@ -4132,13 +4532,14 @@ export function CustomerInsightPanel({
               </label>
               <label className="min-w-0 space-y-1 text-sm">
                 <span className="text-muted-foreground">Brand</span>
-                <InsightSearchableSelect
-                  value={queueBrand}
+                <InsightSearchableMultiSelect
+                  values={queueBrands}
                   options={queueBrandOptions}
                   placeholder="Any brand"
                   searchPlaceholder="Search brands…"
+                  allLabel="Any brand"
                   disabled={isBusy}
-                  onChange={setQueueBrand}
+                  onChange={setQueueBrands}
                 />
               </label>
               <label className="min-w-0 space-y-1 text-sm">
@@ -4176,6 +4577,42 @@ export function CustomerInsightPanel({
                   onChange={(e) => setQueueLastPurchaseTo(e.target.value)}
                 />
               </label>
+              <label className="space-y-1 text-sm">
+                <span className="text-muted-foreground">Allocated from</span>
+                <Input
+                  type="date"
+                  value={queueAllocatedFrom}
+                  disabled={isBusy}
+                  onChange={(e) => setQueueAllocatedFrom(e.target.value)}
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="text-muted-foreground">Allocated to</span>
+                <Input
+                  type="date"
+                  value={queueAllocatedTo}
+                  disabled={isBusy}
+                  onChange={(e) => setQueueAllocatedTo(e.target.value)}
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="text-muted-foreground">Assigned from</span>
+                <Input
+                  type="date"
+                  value={queueAssignedFrom}
+                  disabled={isBusy}
+                  onChange={(e) => setQueueAssignedFrom(e.target.value)}
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="text-muted-foreground">Assigned to</span>
+                <Input
+                  type="date"
+                  value={queueAssignedTo}
+                  disabled={isBusy}
+                  onChange={(e) => setQueueAssignedTo(e.target.value)}
+                />
+              </label>
               <div className="flex flex-wrap items-end gap-3 text-sm">
                 <label className="flex items-center gap-2">
                   <input
@@ -4195,12 +4632,21 @@ export function CustomerInsightPanel({
                   />
                   Push to Platinum
                 </label>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={queueNotContacted}
+                    disabled={isBusy}
+                    onChange={(e) => setQueueNotContacted(e.target.checked)}
+                  />
+                  Not contacted
+                </label>
               </div>
             </div>
             <div className="flex flex-wrap items-end gap-2">
               <Button
                 type="button"
-                disabled={isBusy || !queueMerchant}
+                disabled={isBusy}
                 onClick={() => void loadQueueCandidates(1)}
               >
                 {busyKey === "queue-candidates" ? (
@@ -4230,6 +4676,35 @@ export function CustomerInsightPanel({
                   </>
                 )}
               </Button>
+              <input
+                ref={queueImportInputRef}
+                type="file"
+                accept=".xlsx,.xls,.csv"
+                className="hidden"
+                disabled={isBusy}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) void importQueueAssignments(file);
+                }}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isBusy || !queueMerchant}
+                onClick={() => queueImportInputRef.current?.click()}
+              >
+                {busyKey === "queue-import" ? (
+                  <>
+                    <Loader2 className="animate-spin" aria-hidden />
+                    Importing...
+                  </>
+                ) : (
+                  <>
+                    <Upload aria-hidden />
+                    Import Excel
+                  </>
+                )}
+              </Button>
               <Button
                 type="button"
                 variant="outline"
@@ -4243,6 +4718,24 @@ export function CustomerInsightPanel({
                   </>
                 ) : (
                   "Sales report"
+                )}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isBusy}
+                onClick={() => void exportQueueReport()}
+              >
+                {busyKey === "queue-report-export" ? (
+                  <>
+                    <Loader2 className="animate-spin" aria-hidden />
+                    Exporting...
+                  </>
+                ) : (
+                  <>
+                    <Download aria-hidden />
+                    Export report
+                  </>
                 )}
               </Button>
             </div>
@@ -4260,8 +4753,8 @@ export function CustomerInsightPanel({
                     queueAllocatedTotal > queueEligibleTotal ? (
                       <>
                         {" "}
-                        · rest hidden (2-month cooling after allocation or outreach, already
-                        queued, Black List / Wrong Number)
+                        · rest hidden (purchased/contacted within 2 months, Not Responding
+                        7 days, already queued, Black List / Wrong Number)
                       </>
                     ) : null}
                   </p>
@@ -4434,8 +4927,29 @@ export function CustomerInsightPanel({
               </div>
             ) : null}
             {queueReport ? (
-              <div className="space-y-2">
-                <p className="text-sm font-medium">Sales after assign</p>
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm font-medium">Sales after assign</p>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={isBusy}
+                    onClick={() => void exportQueueReport()}
+                  >
+                    {busyKey === "queue-report-export" ? (
+                      <>
+                        <Loader2 className="animate-spin" aria-hidden />
+                        Exporting...
+                      </>
+                    ) : (
+                      <>
+                        <Download aria-hidden />
+                        Export
+                      </>
+                    )}
+                  </Button>
+                </div>
                 <div className="overflow-x-auto rounded-md border text-xs">
                   <table className="w-full">
                     <thead>
@@ -4464,6 +4978,42 @@ export function CustomerInsightPanel({
                     </tbody>
                   </table>
                 </div>
+                {queueReport.rows.length > 0 ? (
+                  <div className="overflow-x-auto rounded-md border text-xs">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="bg-muted/30 text-left">
+                          <th className="px-2 py-1">Assigned date</th>
+                          <th className="px-2 py-1">Merchant</th>
+                          <th className="px-2 py-1">Name</th>
+                          <th className="px-2 py-1">Status</th>
+                          <th className="px-2 py-1 text-right">After assign</th>
+                          <th className="px-2 py-1 text-right">After contact</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {queueReport.rows.map((row) => (
+                          <tr key={row.queueId} className="border-t">
+                            <td className="px-2 py-1 whitespace-nowrap">
+                              {formatQueueDate(row.assignedAt)}
+                            </td>
+                            <td className="px-2 py-1">{row.merchantLabel}</td>
+                            <td className="px-2 py-1">{row.name}</td>
+                            <td className="px-2 py-1">{row.status}</td>
+                            <td className="px-2 py-1 text-right">
+                              {formatMoney(row.salesAfterAssignment)}
+                            </td>
+                            <td className="px-2 py-1 text-right">
+                              {formatMoney(row.salesAfterContact)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p className="text-muted-foreground text-xs">No detail rows.</p>
+                )}
               </div>
             ) : null}
           </CardContent>
@@ -4473,6 +5023,64 @@ export function CustomerInsightPanel({
           </TabsContent>
         ) : null}
       </Tabs>
+
+      <Dialog
+        open={notInterestedOpen}
+        onOpenChange={(open) => {
+          setNotInterestedOpen(open);
+          if (!open) setNotInterestedReason("");
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Not interested in loyalty</DialogTitle>
+            <DialogDescription>
+              Removes this customer from the merchant eligible list. They can
+              request later from this page.
+            </DialogDescription>
+          </DialogHeader>
+          <label className="space-y-1 text-sm">
+            <span className="text-muted-foreground">Reason (optional)</span>
+            <Textarea
+              value={notInterestedReason}
+              onChange={(e) => setNotInterestedReason(e.target.value)}
+              disabled={isBusy}
+              maxLength={2000}
+              rows={3}
+              placeholder="Why they declined"
+            />
+          </label>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={isBusy}
+              onClick={() => {
+                setNotInterestedOpen(false);
+                setNotInterestedReason("");
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={isBusy}
+              onClick={() =>
+                void postLoyaltyOutreach("not_interested", notInterestedReason)
+              }
+            >
+              {busyKey === "loyalty" ? (
+                <>
+                  <Loader2 className="animate-spin" aria-hidden />
+                  Saving...
+                </>
+              ) : (
+                "Remove from list"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

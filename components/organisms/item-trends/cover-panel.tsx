@@ -1,13 +1,13 @@
 "use client";
 
 import { Fragment, useCallback, useMemo, useState } from "react";
-import Link from "next/link";
 import { Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { ListPager, usePagedRows } from "@/components/organisms/item-trends/list-pager";
+import { TRAILING_COVER_DAYS } from "@/lib/item-trends/cover";
 import { buildCoverCsv, downloadCsv } from "@/lib/item-trends/export";
-import { resolveMarketGapBadge } from "@/lib/item-trends/market-gap-badge";
+import { resolveLocationRopQty, ropMapKey } from "@/lib/item-trends/rop-resolve";
 import { childrenForCommonSku, type SkuGrain } from "@/lib/item-trends/sku-group";
 import type { CoverRow } from "@/lib/item-trends/types";
 
@@ -26,21 +26,64 @@ function groupCoverByProductLocation(rows: CoverRow[]): GroupedCover[] {
     const first = children[0];
     if (!first) continue;
     if (children.length === 1) {
-      out.push({ ...first, childCount: 1 });
+      const only = children[0]!;
+      const commonKey = only.commonSkuKey ?? only.sku;
+      const ropMap = new Map<string, number>();
+      if (only.commonRopQty != null) {
+        ropMap.set(ropMapKey(commonKey, only.columnKey), only.commonRopQty);
+      }
+      if (only.ropQty != null) {
+        ropMap.set(ropMapKey(only.sku, only.columnKey), only.ropQty);
+      }
+      const ropQty = resolveLocationRopQty({
+        grain: "common",
+        sku: commonKey,
+        commonSkuKey: commonKey,
+        columnKey: only.columnKey,
+        ropBySkuColumn: ropMap,
+        childSkus: [only.sku],
+      });
+      out.push({ ...only, ropQty, childCount: 1 });
       continue;
     }
     const unitsInRange = children.reduce((s, r) => s + r.unitsInRange, 0);
     const stockQty = children.reduce((s, r) => s + r.stockQty, 0);
     const weekNeed = children.reduce((s, r) => s + r.weekNeed, 0);
-    const suggestedSendQty = children.reduce((s, r) => s + r.suggestedSendQty, 0);
+    const last30Units = children.reduce((s, r) => s + (r.last30Units ?? 0), 0);
+    const last30AvgDaily = last30Units / TRAILING_COVER_DAYS;
+    const coverDays = last30AvgDaily > 0 ? Math.round((stockQty / last30AvgDaily) * 100) / 100 : null;
+    const ropMap = new Map<string, number>();
+    const commonKey = first.commonSkuKey ?? first.sku;
+    if (first.commonRopQty != null) {
+      ropMap.set(ropMapKey(commonKey, first.columnKey), first.commonRopQty);
+    }
+    for (const child of children) {
+      if (child.ropQty != null) {
+        ropMap.set(ropMapKey(child.sku, child.columnKey), child.ropQty);
+      }
+      if (child.commonRopQty != null) {
+        ropMap.set(ropMapKey(child.commonSkuKey ?? child.sku, child.columnKey), child.commonRopQty);
+      }
+    }
+    const ropQty = resolveLocationRopQty({
+      grain: "common",
+      sku: commonKey,
+      commonSkuKey: commonKey,
+      columnKey: first.columnKey,
+      ropBySkuColumn: ropMap,
+      childSkus: children.map((c) => c.sku),
+    });
     out.push({
       ...first,
       title: first.commonSkuTitle ?? first.title,
       unitsInRange,
       stockQty,
       weekNeed: Math.round(weekNeed * 100) / 100,
-      suggestedSendQty,
-      shouldSend: children.some((c) => c.shouldSend),
+      last30Units,
+      last30AvgDaily: Math.round(last30AvgDaily * 100) / 100,
+      coverDays,
+      ropQty,
+      commonRopQty: first.commonRopQty ?? null,
       isOosInRange: children.some((c) => c.isOosInRange),
       childCount: children.length,
     });
@@ -60,32 +103,6 @@ type Props = {
   onCapture?: () => void;
   onOpenItem?: (sku: string, commonSkuKey: string | null) => void;
 };
-
-function pct(n: number | null) {
-  if (n == null) return "—";
-  return `${n.toFixed(0)}%`;
-}
-
-function MarketGapCell({ sku, gapPct, cheapest }: { sku: string; gapPct?: number | null; cheapest?: boolean }) {
-  const gapBadge = resolveMarketGapBadge(gapPct, cheapest);
-  if (!gapBadge) {
-    return <span className="text-xs text-muted-foreground/40">—</span>;
-  }
-  return (
-    <Link
-      href={`/dashboard/purchasing/market-prices?q=${encodeURIComponent(sku)}`}
-      className={`inline-flex rounded px-1.5 py-0.5 text-xs font-medium ${
-        gapBadge.tone === "above"
-          ? "bg-rose-500/15 text-rose-700 dark:text-rose-300"
-          : gapBadge.tone === "below"
-            ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
-            : "bg-secondary text-secondary-foreground"
-      }`}
-    >
-      {gapBadge.label}
-    </Link>
-  );
-}
 
 export function CoverPanel({
   rows,
@@ -115,7 +132,7 @@ export function CoverPanel({
     return (
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
         <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-        Loading stock vs sale…
+        Loading location sales…
       </div>
     );
   }
@@ -196,13 +213,12 @@ export function CoverPanel({
                 <tr>
                   <th className="px-3 py-2">Item</th>
                   <th className="px-3 py-2">Location</th>
+                  <th className="px-3 py-2 text-right">ROP</th>
                   <th className="px-3 py-2 text-right">Sale</th>
                   <th className="px-3 py-2 text-right">Stock</th>
-                  <th className="px-3 py-2 text-right">Stock/sale</th>
                   <th className="px-3 py-2 text-right">Week need</th>
+                  <th className="px-3 py-2 text-right">Last 30d avg</th>
                   <th className="px-3 py-2 text-right">Cover days</th>
-                  <th className="px-3 py-2">Send</th>
-                  <th className="px-3 py-2 text-center">Market gap</th>
                   {onOpenItem ? <th className="px-3 py-2" /> : null}
                 </tr>
               </thead>
@@ -219,7 +235,7 @@ export function CoverPanel({
                       : [];
                   return (
                     <Fragment key={key}>
-                      <tr key={key} className="border-t">
+                      <tr className="border-t">
                         <td className="px-3 py-2">
                           {grouped && (row.childCount ?? 1) > 1 ? (
                             <button
@@ -242,34 +258,26 @@ export function CoverPanel({
                         </td>
                         <td className="px-3 py-2">
                           <span className="text-xs text-muted-foreground">
-                            {row.channelKind === "online" ? "Online" : "Shop"}
+                            {row.locationGroup === "cosmetics_lk"
+                              ? row.channelKind === "online"
+                                ? "Online"
+                                : "Shop"
+                              : "Company"}
                           </span>{" "}
                           {row.outletName}
                         </td>
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          {row.ropQty == null ? "—" : row.ropQty}
+                        </td>
                         <td className="px-3 py-2 text-right tabular-nums">{row.unitsInRange}</td>
                         <td className="px-3 py-2 text-right tabular-nums">{row.stockQty}</td>
-                        <td className="px-3 py-2 text-right tabular-nums">{pct(row.stockPctOfSale)}</td>
                         <td className="px-3 py-2 text-right tabular-nums">{row.weekNeed}</td>
+                        <td className="px-3 py-2 text-right tabular-nums">{row.last30AvgDaily ?? 0}</td>
                         <td className="px-3 py-2 text-right tabular-nums">
                           {row.coverDays == null ? "—" : row.coverDays}
-                        </td>
-                        <td className="px-3 py-2">
-                          {row.shouldSend ? (
-                            <span className="font-medium text-amber-700 dark:text-amber-300">
-                              Send {row.suggestedSendQty}
-                            </span>
-                          ) : row.isOosInRange ? (
-                            <span className="text-rose-700 dark:text-rose-300">OOS</span>
-                          ) : (
-                            "—"
-                          )}
-                        </td>
-                        <td className="px-3 py-2 text-center">
-                          <MarketGapCell
-                            sku={row.sku}
-                            gapPct={row.marketGapPct}
-                            cheapest={row.isCheapestInMarket}
-                          />
+                          {row.isOosInRange ? (
+                            <span className="ml-1 text-xs text-rose-700 dark:text-rose-300">OOS</span>
+                          ) : null}
                         </td>
                         {onOpenItem ? (
                           <td className="px-3 py-2">
@@ -291,22 +299,15 @@ export function CoverPanel({
                             <div className="text-xs text-muted-foreground">{child.variantTitle ?? child.title}</div>
                           </td>
                           <td className="px-3 py-2">{child.outletName}</td>
+                          <td className="px-3 py-2 text-right tabular-nums">
+                            {child.ropQty == null ? "—" : child.ropQty}
+                          </td>
                           <td className="px-3 py-2 text-right tabular-nums">{child.unitsInRange}</td>
                           <td className="px-3 py-2 text-right tabular-nums">{child.stockQty}</td>
-                          <td className="px-3 py-2 text-right tabular-nums">{pct(child.stockPctOfSale)}</td>
                           <td className="px-3 py-2 text-right tabular-nums">{child.weekNeed}</td>
+                          <td className="px-3 py-2 text-right tabular-nums">{child.last30AvgDaily ?? 0}</td>
                           <td className="px-3 py-2 text-right tabular-nums">
                             {child.coverDays == null ? "—" : child.coverDays}
-                          </td>
-                          <td className="px-3 py-2">
-                            {child.shouldSend ? `Send ${child.suggestedSendQty}` : "—"}
-                          </td>
-                          <td className="px-3 py-2 text-center">
-                            <MarketGapCell
-                              sku={child.sku}
-                              gapPct={child.marketGapPct}
-                              cheapest={child.isCheapestInMarket}
-                            />
                           </td>
                           {onOpenItem ? (
                             <td className="px-3 py-2">

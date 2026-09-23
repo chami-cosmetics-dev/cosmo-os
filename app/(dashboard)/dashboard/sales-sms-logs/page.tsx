@@ -8,6 +8,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getDailySalesSmsConfig } from "@/lib/daily-sales-sms";
 import { buildDailySalesSmsStatusSummary } from "@/lib/daily-sales-sms-status";
 import { formatAppDateTimeShort } from "@/lib/format-datetime";
+import {
+  clampPage,
+  NIGHTLY_LOGS_DEFAULT_LIMIT,
+} from "@/lib/nightly-logs";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 
@@ -25,21 +29,59 @@ export default async function SalesSmsLogsPage() {
   }
 
   const companyId = auth.context?.user?.companyId;
-  const [config, smsLogs] = companyId
+  const [config, smsPage] = companyId
     ? await Promise.all([
         getDailySalesSmsConfig(companyId),
-        prisma.dailySalesSmsSendLog.findMany({
-          where: { companyId },
-          orderBy: { createdAt: "desc" },
-          take: 100,
-        }),
+        (async () => {
+          const limit = NIGHTLY_LOGS_DEFAULT_LIMIT;
+          const total = await prisma.dailySalesSmsSendLog.count({
+            where: { companyId },
+          });
+          const page = clampPage(1, limit, total);
+          const rows = await prisma.dailySalesSmsSendLog.findMany({
+            where: { companyId },
+            orderBy: { createdAt: "desc" },
+            skip: (page - 1) * limit,
+            take: limit,
+          });
+          return {
+            logs: rows.map((row) => ({
+              id: row.id,
+              reportDate: row.reportDate,
+              status: row.status,
+              source: row.source,
+              errorSummary: row.errorSummary,
+              recipients: row.recipients,
+              recipientCount: row.recipientCount,
+              createdAt: row.createdAt.toISOString(),
+            })),
+            pagination: { page, limit, total },
+          };
+        })(),
       ])
-    : [null, []];
+    : [
+        null,
+        {
+          logs: [],
+          pagination: {
+            page: 1,
+            limit: NIGHTLY_LOGS_DEFAULT_LIMIT,
+            total: 0,
+          },
+        },
+      ];
 
   const status = buildDailySalesSmsStatusSummary({
     enabled: config?.enabled,
     recipients: config?.recipients,
-    lastLog: smsLogs[0] ?? null,
+    lastLog: smsPage.logs[0]
+      ? {
+          reportDate: smsPage.logs[0].reportDate,
+          status: smsPage.logs[0].status,
+          createdAt: new Date(smsPage.logs[0].createdAt),
+          errorSummary: smsPage.logs[0].errorSummary,
+        }
+      : null,
   });
 
   const blockerHints: string[] = [];
@@ -149,7 +191,8 @@ export default async function SalesSmsLogsPage() {
       </Card>
 
       <DailySalesSmsLogsPanel
-        logs={smsLogs}
+        initialLogs={smsPage.logs}
+        initialPagination={smsPage.pagination}
         emptyHint="No daily sales SMS attempts yet. Configure recipients under Settings → SMS Portal, then wait for the 09:00 Asia/Colombo job or use Send for date."
       />
     </div>

@@ -482,11 +482,26 @@ export async function sendResignationNotice(
   }
 }
 
+export async function sendCallCenterWeeklyReportEmail(input: {
+  toEmails: string[];
+  subject: string;
+  html: string;
+  plain: string;
+}): Promise<{ success: boolean; message?: string }> {
+  return sendErpSyncFailureAlertEmail(input);
+}
+
 export async function sendErpSyncFailureAlertEmail(input: {
   toEmails: string[];
   subject: string;
   html: string;
   plain: string;
+  ccEmails?: string[];
+  attachments?: Array<{
+    fileName: string;
+    contentType: string;
+    contentBase64: string;
+  }>;
 }): Promise<{ success: boolean; message?: string }> {
   const apiKey = process.env.MAILEROO_API_KEY;
   const fromEmail = process.env.MAILEROO_FROM_EMAIL;
@@ -496,30 +511,56 @@ export async function sendErpSyncFailureAlertEmail(input: {
     return { success: false, message: "Email service not configured" };
   }
 
-  const validEmails = input.toEmails
+  const toSet = new Set<string>();
+  const validTo = input.toEmails
     .map((e) => e.trim().toLowerCase())
-    .filter((e) => e && e.includes("@"));
-  if (validEmails.length === 0) {
+    .filter((e) => e && e.includes("@") && !toSet.has(e) && (toSet.add(e), true));
+  if (validTo.length === 0) {
     return { success: false, message: "No valid recipients" };
   }
 
+  const ccSet = new Set<string>();
+  const validCc = (input.ccEmails ?? [])
+    .map((e) => e.trim().toLowerCase())
+    .filter(
+      (e) =>
+        e &&
+        e.includes("@") &&
+        !toSet.has(e) &&
+        !ccSet.has(e) &&
+        (ccSet.add(e), true),
+    );
+
   try {
+    const payload: Record<string, unknown> = {
+      from: {
+        address: fromEmail,
+        display_name: APP_NAME,
+      },
+      to: validTo.map((address) => ({ address })),
+      subject: input.subject,
+      html: input.html,
+      plain: input.plain,
+    };
+    if (validCc.length > 0) {
+      payload.cc = validCc.map((address) => ({ address }));
+    }
+    if (input.attachments && input.attachments.length > 0) {
+      payload.attachments = input.attachments.map((a) => ({
+        file_name: a.fileName,
+        content_type: a.contentType,
+        content: a.contentBase64,
+        inline: false,
+      }));
+    }
+
     const response = await fetch(`${MAILEROO_BASE_URL}/emails`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "X-Api-Key": apiKey,
       },
-      body: JSON.stringify({
-        from: {
-          address: fromEmail,
-          display_name: APP_NAME,
-        },
-        to: validEmails.map((address) => ({ address })),
-        subject: input.subject,
-        html: input.html,
-        plain: input.plain,
-      }),
+      body: JSON.stringify(payload),
     });
 
     const { raw, data } = await readMailerooResponse(response);

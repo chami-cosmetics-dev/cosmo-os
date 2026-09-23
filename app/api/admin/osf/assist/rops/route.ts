@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { resolveOsfColumns } from "@/lib/osf/column-config";
+import { isDiscontinuedForOsf } from "@/lib/osf/discontinued";
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserContext, requirePermission } from "@/lib/rbac";
 import { osfAssistRopsPutSchema } from "@/lib/validation/osf";
@@ -49,12 +51,26 @@ export async function PUT(request: NextRequest) {
       sku: { in: skus },
       status: { not: "archived" },
     },
-    select: { sku: true },
+    orderBy: { updatedAt: "desc" },
+    select: {
+      sku: true,
+      erp1ProductPriority: true,
+      erp2ProductPriority: true,
+      itemStatusCategory: true,
+    },
   });
   const knownByLower = new Map<string, string>();
+  const discontinuedByLower = new Set<string>();
   for (const row of known) {
     const s = row.sku?.trim();
-    if (s) knownByLower.set(s.toLowerCase(), s);
+    if (!s) continue;
+    const key = s.toLowerCase();
+    if (knownByLower.has(key) || discontinuedByLower.has(key)) continue;
+    if (!isVaultOsDeployment() && isDiscontinuedForOsf(row)) {
+      discontinuedByLower.add(key);
+      continue;
+    }
+    knownByLower.set(key, s);
   }
 
   let updatedSkus = 0;
@@ -63,7 +79,12 @@ export async function PUT(request: NextRequest) {
 
   for (const item of items) {
     const skuInput = item.sku.trim();
-    const canonical = knownByLower.get(skuInput.toLowerCase());
+    const key = skuInput.toLowerCase();
+    if (discontinuedByLower.has(key)) {
+      errors.push({ sku: skuInput, message: "Discontinued SKU — excluded from OSF" });
+      continue;
+    }
+    const canonical = knownByLower.get(key);
     if (!canonical) {
       errors.push({ sku: skuInput, message: "Unknown SKU" });
       continue;

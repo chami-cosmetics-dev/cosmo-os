@@ -7,6 +7,16 @@ const ymdSchema = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date format (YYYY-MM-DD)");
 
+export const BOOK_NOTE_ISSUE_STATUSES = [
+  "amount_mismatch",
+  "category_mismatch",
+  "no_payment_entry_linked",
+  "sales_invoice_not_found",
+  "no_invoice_number",
+] as const;
+
+export type BookNoteIssueStatus = (typeof BOOK_NOTE_ISSUE_STATUSES)[number];
+
 const moneySchema = z.coerce
   .number()
   .finite()
@@ -16,11 +26,17 @@ const moneySchema = z.coerce
 export const bookNotePageDataQuerySchema = z.object({
   companyLocationId: cuidSchema.optional(),
   postingDate: ymdSchema.optional(),
+  /**
+   * Open this exact sheet instead of the caller's own one for the shop/date.
+   * Sent when a row is opened from history, so an admin lands on the merchant's
+   * sheet rather than starting a second one of their own.
+   */
+  bookNoteDayId: cuidSchema.optional(),
   /** History search: shop name, posting date, or sales invoice number. */
   q: z.string().trim().max(120).optional(),
 });
 
-/** Finance review: outlet (optional = all) over a posting-date range. */
+/** Finance review: shop (optional = all) over a posting-date range. */
 export const bookNoteFinanceReviewQuerySchema = z
   .object({
     companyLocationId: cuidSchema.optional(),
@@ -36,6 +52,33 @@ export const bookNoteFinanceReviewQuerySchema = z
       });
     }
   });
+
+/** Live ERP book-note verification issues (both instances). */
+export const bookNoteIssuesQuerySchema = z
+  .object({
+    date_from: ymdSchema.optional(),
+    date_to: ymdSchema.optional(),
+    status: z.enum(BOOK_NOTE_ISSUE_STATUSES).optional(),
+    include_resolved: z
+      .union([z.literal("1"), z.literal("true"), z.literal("0"), z.literal("false")])
+      .optional()
+      .transform((v) => v === "1" || v === "true"),
+  })
+  .superRefine((val, ctx) => {
+    if (val.date_from && val.date_to && val.date_from > val.date_to) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "date_from must be on or before date_to",
+        path: ["date_from"],
+      });
+    }
+  });
+
+/** Proxy an ERP private receipt file into Cosmo for finance preview. */
+export const bookNoteErpReceiptQuerySchema = z.object({
+  instanceId: cuidSchema,
+  path: z.string().trim().min(1).max(500),
+});
 
 export const bookNoteSuggestionsQuerySchema = z.object({
   companyLocationId: cuidSchema,
@@ -79,6 +122,15 @@ export const bookNotePutRowSchema = z
       }),
     koko: moneySchema.default(0),
     bankTransfer: moneySchema.default(0),
+    specialNote: z
+      .string()
+      .max(LIMITS.bookNoteSpecialNote.max)
+      .optional()
+      .nullable()
+      .transform((v) => {
+        const t = (v ?? "").trim();
+        return t.length === 0 ? null : t;
+      }),
     splitLines: z.array(bookNoteSplitLineSchema).max(LIMITS.bookNoteSplitLinesMax).optional().nullable(),
     orderId: cuidSchema.nullable().optional(),
   })
@@ -128,6 +180,12 @@ export const bookNotePutRowSchema = z
 export const bookNotePutBodySchema = z.object({
   companyLocationId: cuidSchema,
   postingDate: ymdSchema,
+  /**
+   * Save onto this exact sheet. Omitted for a merchant's own book note, which
+   * is found by shop + date + submitter; sent when a sheet was opened from a
+   * history row so the save lands on that one.
+   */
+  bookNoteDayId: cuidSchema.optional(),
   rows: z.array(bookNotePutRowSchema).max(LIMITS.bookNoteRowsMax),
 });
 
@@ -167,7 +225,35 @@ export const bookNoteRetrieveQuerySchema = z
 export const bookNoteSendToErpBodySchema = z.object({
   companyLocationId: cuidSchema,
   postingDate: ymdSchema,
+  /** Push this exact sheet; defaults to the caller's own for the shop/date. */
+  bookNoteDayId: cuidSchema.optional(),
 });
+
+/** Admin bulk push of saved sheets to ERP (date range + mode). */
+export const bookNoteBulkSyncToErpBodySchema = z
+  .object({
+    from: ymdSchema,
+    to: ymdSchema,
+    /**
+     * unsynced — never successfully synced (includes failed)
+     * failed — last push failed only
+     * all — full re-sync of every sheet with rows in range
+     */
+    mode: z.enum(["unsynced", "failed", "all"]),
+    companyLocationId: cuidSchema.optional(),
+  })
+  .superRefine((val, ctx) => {
+    if (val.from > val.to) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "from must be on or before to",
+        path: ["from"],
+      });
+    }
+  });
 
 export type BookNotePutBody = z.infer<typeof bookNotePutBodySchema>;
 export type BookNotePutRow = z.infer<typeof bookNotePutRowSchema>;
+export type BookNoteBulkSyncToErpBody = z.infer<
+  typeof bookNoteBulkSyncToErpBodySchema
+>;

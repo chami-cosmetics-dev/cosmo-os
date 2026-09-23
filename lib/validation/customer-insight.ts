@@ -137,7 +137,13 @@ export const customerInsightContactedBodySchema = z.object({
   note: z.string().trim().max(500).optional().nullable(),
   remark: z.string().trim().max(2000).optional().nullable(),
   outcome: z
-    .enum(["general", "loyalty_informed", "responded", "not_responded"])
+    .enum([
+      "general",
+      "loyalty_informed",
+      "responded",
+      "not_responded",
+      "not_interested",
+    ])
     .optional()
     .default("general"),
 });
@@ -183,6 +189,8 @@ const customerInsightFilterFieldsSchema = z.object({
   birthdayTo: monthDaySchema.optional(),
   lastContactedFrom: optionalIsoDate,
   lastContactedTo: optionalIsoDate,
+  allocatedFrom: optionalIsoDate,
+  allocatedTo: optionalIsoDate,
   loyaltyRegisteredFrom: optionalIsoDate,
   loyaltyRegisteredTo: optionalIsoDate,
   noPurchaseFrom: optionalIsoDate,
@@ -259,7 +267,12 @@ export const customerInsightLoyaltyAssignBodySchema = z.object({
 
 export const merchantLoyaltyOutreachBodySchema = z.object({
   contactId: cuidSchema,
-  action: z.enum(["loyalty_informed", "responded", "not_responded"]),
+  action: z.enum([
+    "loyalty_informed",
+    "responded",
+    "not_responded",
+    "not_interested",
+  ]),
   remark: z.string().trim().max(2000).optional().nullable(),
 });
 
@@ -292,7 +305,8 @@ const optionalBoolQuery = z
   .transform((v) => (v == null ? undefined : v === "true" || v === "1"));
 
 export const customerInsightCallQueueCandidatesQuerySchema = z.object({
-  assignedMerchant: trimmedString(1, LIMITS.knownName.max),
+  /** Optional — empty = all allocated contacts (any merchant). */
+  assignedMerchant: trimmedString(1, LIMITS.knownName.max).optional(),
   page: z.coerce.number().int().min(1).max(LIMITS.pagination.pageMax).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(50),
   pushToGold: optionalBoolQuery,
@@ -303,10 +317,12 @@ export const customerInsightCallQueueCandidatesQuerySchema = z.object({
   ),
   lastPurchaseFrom: optionalIsoDate,
   lastPurchaseTo: optionalIsoDate,
-  brand: z.preprocess(
-    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
-    trimmedString(1, LIMITS.name.max).optional()
-  ),
+  allocatedFrom: optionalIsoDate,
+  allocatedTo: optionalIsoDate,
+  assignedFrom: optionalIsoDate,
+  assignedTo: optionalIsoDate,
+  notContacted: optionalBoolQuery,
+  brand: insightFilterListSchema(LIMITS.name.max),
   hideFilter: z.preprocess(
     (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
     z.enum(["eligible", "hidden", "all"]).optional()
@@ -314,7 +330,8 @@ export const customerInsightCallQueueCandidatesQuerySchema = z.object({
 });
 
 export const customerInsightCallQueueEligibleIdsQuerySchema = z.object({
-  assignedMerchant: trimmedString(1, LIMITS.knownName.max),
+  /** Optional for browse; assign still requires a merchant in the UI/API. */
+  assignedMerchant: trimmedString(1, LIMITS.knownName.max).optional(),
   limit: z.coerce.number().int().min(1).max(5000).optional(),
   pushToGold: optionalBoolQuery,
   pushToPlatinum: optionalBoolQuery,
@@ -324,14 +341,36 @@ export const customerInsightCallQueueEligibleIdsQuerySchema = z.object({
   ),
   lastPurchaseFrom: optionalIsoDate,
   lastPurchaseTo: optionalIsoDate,
-  brand: z.preprocess(
-    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
-    trimmedString(1, LIMITS.name.max).optional()
-  ),
+  allocatedFrom: optionalIsoDate,
+  allocatedTo: optionalIsoDate,
+  assignedFrom: optionalIsoDate,
+  assignedTo: optionalIsoDate,
+  notContacted: optionalBoolQuery,
+  brand: insightFilterListSchema(LIMITS.name.max),
 });
 
 export const customerInsightCallQueueExportQuerySchema = z.object({
   assignedMerchant: trimmedString(1, LIMITS.knownName.max).optional(),
+  /** assignments = queue history (default); filtered = Load allocated list. */
+  kind: z.enum(["assignments", "filtered"]).optional().default("assignments"),
+  pushToGold: optionalBoolQuery,
+  pushToPlatinum: optionalBoolQuery,
+  loyalty: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+    z.enum(["standard", "gold", "platinum", "unassigned"]).optional()
+  ),
+  lastPurchaseFrom: optionalIsoDate,
+  lastPurchaseTo: optionalIsoDate,
+  allocatedFrom: optionalIsoDate,
+  allocatedTo: optionalIsoDate,
+  assignedFrom: optionalIsoDate,
+  assignedTo: optionalIsoDate,
+  notContacted: optionalBoolQuery,
+  brand: insightFilterListSchema(LIMITS.name.max),
+  hideFilter: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+    z.enum(["eligible", "hidden", "all"]).optional()
+  ),
 });
 
 export const customerInsightCallQueueReportQuerySchema = z.object({
@@ -341,9 +380,26 @@ export const customerInsightCallQueueReportQuerySchema = z.object({
   status: z.enum(["pending", "completed"]).optional(),
   pushToGold: optionalBoolQuery,
   pushToPlatinum: optionalBoolQuery,
+  notContacted: optionalBoolQuery,
 });
 
 export const customerInsightCallQueueAssignBodySchema = z.object({
   assignedMerchant: trimmedString(1, LIMITS.knownName.max),
   contactIds: z.array(cuidSchema).min(1).max(200),
+});
+
+/** Multipart Excel import — merchant only; file validated in route. */
+export const customerInsightCallQueueImportBodySchema = z.object({
+  assignedMerchant: trimmedString(1, LIMITS.knownName.max),
+});
+
+export const customerInsightLoyaltyEligibleListQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).max(LIMITS.pagination.pageMax).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(50),
+  assignedMerchant: trimmedString(1, LIMITS.knownName.max).optional(),
+});
+
+export const customerInsightLoyaltyEligibleSummaryQuerySchema = z.object({
+  asOf: optionalIsoDate,
+  weekEnd: optionalIsoDate,
 });

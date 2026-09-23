@@ -7,6 +7,7 @@ import {
   isOrderPaymentRequiresApproval,
   isPlaceholderErpInvoiceId,
   isRealErpSalesInvoiceId,
+  pickOrderPaymentApprovalForFulfillmentGate,
 } from "@/lib/approval-workflow";
 
 describe("isPlaceholderErpInvoiceId", () => {
@@ -65,9 +66,9 @@ describe("FINANCE_PENDING_FULFILLMENT_EXCLUSION", () => {
 });
 
 describe("FINANCE_PENDING_SPLIT_PAYMENT_QUEUE", () => {
-  it("shows only ERP KOKO/Bank orders with a pending payment approval", () => {
+  it("shows ERP and Shopify KOKO/Bank orders with a pending payment approval", () => {
     expect(FINANCE_PENDING_SPLIT_PAYMENT_QUEUE).toEqual({
-      sourceName: "erpnext",
+      sourceName: { in: ["erpnext", "web"] },
       approvalRequests: {
         some: { type: "order_payment_approval", status: "pending" },
       },
@@ -76,6 +77,56 @@ describe("FINANCE_PENDING_SPLIT_PAYMENT_QUEUE", () => {
         { paymentGatewayPrimary: { contains: "bank", mode: "insensitive" } },
       ],
     });
+  });
+});
+
+describe("pickOrderPaymentApprovalForFulfillmentGate", () => {
+  const pending = { id: "p1", status: "pending", reviewNote: null };
+  const approved = { id: "a1", status: "approved", reviewNote: null };
+  const rejected = { id: "r1", status: "rejected", reviewNote: "no" };
+
+  it("ignores orphan pending when order is already paid and approved", () => {
+    expect(
+      pickOrderPaymentApprovalForFulfillmentGate({
+        pending,
+        approved,
+        latest: pending,
+        financialStatus: "paid",
+      }),
+    ).toEqual(approved);
+  });
+
+  it("keeps pending when unpaid (HOD requeue) even if older approved exists", () => {
+    expect(
+      pickOrderPaymentApprovalForFulfillmentGate({
+        pending,
+        approved,
+        latest: pending,
+        financialStatus: "pending",
+      }),
+    ).toEqual(pending);
+  });
+
+  it("returns approved when no pending", () => {
+    expect(
+      pickOrderPaymentApprovalForFulfillmentGate({
+        pending: null,
+        approved,
+        latest: approved,
+        financialStatus: "paid",
+      }),
+    ).toEqual(approved);
+  });
+
+  it("falls back to latest rejected/cancelled when nothing active", () => {
+    expect(
+      pickOrderPaymentApprovalForFulfillmentGate({
+        pending: null,
+        approved: null,
+        latest: rejected,
+        financialStatus: "pending",
+      }),
+    ).toEqual(rejected);
   });
 });
 

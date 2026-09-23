@@ -4,6 +4,7 @@ import {
   riderTaskMatchesFr003Filter,
   summarizeRiderTaskStatuses,
 } from "@/lib/rider-ops-filter";
+import { resolveRiderOpsPaymentDisplay } from "@/lib/rider-ops-payment-display";
 
 type RiderRosterItem = {
   id: string;
@@ -76,10 +77,6 @@ function extractCustomerName(shippingAddress: unknown, billingAddress: unknown) 
   if (full) return full;
   const joined = [candidate.first_name, candidate.last_name].filter(Boolean).join(" ").trim();
   return joined || null;
-}
-
-function toMoney(value: { toString(): string } | null | undefined) {
-  return value?.toString() ?? "0.00";
 }
 
 export async function fetchRiderRoster(companyId: string | null): Promise<RiderRosterItem[]> {
@@ -181,6 +178,10 @@ export async function fetchRiderOrdersData(
           customerPhone: true,
           shippingAddress: true,
           billingAddress: true,
+          totalPrice: true,
+          financialStatus: true,
+          paymentGatewayPrimary: true,
+          paymentGatewayNames: true,
           companyLocation: {
             select: {
               name: true,
@@ -208,11 +209,10 @@ export async function fetchRiderOrdersData(
   });
 
   const rows: RiderOrderRow[] = tasks.map((task) => {
-    const lines = task.order.deliveryPayment?.lines ?? [];
-    const paymentMethodLabel =
-      lines.length > 1
-        ? lines.map((line) => line.paymentMethod).join("+")
-        : (task.order.deliveryPayment?.paymentMethod ?? null);
+    const paymentDisplay = resolveRiderOpsPaymentDisplay({
+      deliveryPayment: task.order.deliveryPayment,
+      order: task.order,
+    });
 
     return {
       taskId: task.id,
@@ -229,16 +229,11 @@ export async function fetchRiderOrdersData(
       arrivedAt: task.arrivedAt?.toISOString() ?? null,
       completedAt: task.completedAt?.toISOString() ?? null,
       failedAt: task.failedAt?.toISOString() ?? null,
-      expectedAmount: toMoney(task.order.deliveryPayment?.expectedAmount),
-      collectedAmount: task.order.deliveryPayment
-        ? toMoney(task.order.deliveryPayment.collectedAmount)
-        : null,
-      paymentMethod: paymentMethodLabel,
-      collectionStatus: task.order.deliveryPayment?.collectionStatus ?? null,
-      paymentLines: lines.map((line) => ({
-        paymentMethod: line.paymentMethod,
-        amount: toMoney(line.amount),
-      })),
+      expectedAmount: paymentDisplay.expectedAmount,
+      collectedAmount: paymentDisplay.collectedAmount,
+      paymentMethod: paymentDisplay.paymentMethod,
+      collectionStatus: paymentDisplay.collectionStatus,
+      paymentLines: paymentDisplay.paymentLines,
     };
   });
 

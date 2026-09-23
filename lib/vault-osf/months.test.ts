@@ -3,7 +3,10 @@ import { describe, expect, it } from "vitest";
 import {
   monthKeysInWindow,
   monthPostingBounds,
+  monthPurchaseQtyHeader,
+  monthPurchaseTotalHeader,
   monthSectionLabel,
+  monthTotalSaleHeader,
   reportingAprilStart,
 } from "@/lib/vault-osf/months";
 
@@ -42,7 +45,11 @@ describe("vault OSF month window", () => {
       start: "2026-09-01",
       end: "2026-09-01",
     });
-    expect(monthSectionLabel("2026-09", "2026-09-07")).toBe("SEPTEMBER 07.09.2026");
-    expect(monthSectionLabel("2026-04", "2026-09-07")).toBe("APRIL");
+    expect(monthSectionLabel("2026-09", "2026-09-07")).toBe("SEPTEMBER 2026 07.09.2026");
+    expect(monthSectionLabel("2026-04", "2026-09-07")).toBe("APRIL 2026");
+    expect(monthTotalSaleHeader("2026-04")).toBe("April 2026 Sales Total");
+    expect(monthTotalSaleHeader("2026-09")).toBe("September 2026 Sales Total");
+    expect(monthPurchaseTotalHeader("2026-04")).toBe("April 2026 Purchase Total");
+    expect(monthPurchaseQtyHeader("2026-04")).toBe("April 2026 Purchase Qty");
   });
 });

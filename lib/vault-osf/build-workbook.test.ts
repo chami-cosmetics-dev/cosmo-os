@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 import {
   buildVaultMainRows,
   COSMO_HEADERS_MUST_ABSENT,
+  excelColumnLetter,
   vaultColumnDefs,
+  vaultOsfSubtotalColumn,
   type VaultWorkbookInput,
 } from "@/lib/vault-osf/build-workbook";
 import type { VaultBusinessUnit } from "@/lib/vault-osf/types";
@@ -46,6 +48,7 @@ function input(over: Partial<VaultWorkbookInput> = {}): VaultWorkbookInput {
         brand: "Now",
         category: "Vitamins",
         country: "USA",
+        countryClaimType: null,
         priorityStatus: "Top Priority brand & product",
       },
     ],
@@ -89,10 +92,13 @@ describe("vault OSF workbook", () => {
   it("computes stock, max sale, AVE, signed reorder; blank ROP stays blank", () => {
     const rows = buildVaultMainRows(input());
     const row = rows[0]!;
+    expect(row.variantSku).toBe("NW004-2");
+    expect(row.sku).toBe("NW004");
     expect(row.stockTotal).toBe(19);
     expect(row["sales:2026-06:total"]).toBe(46);
     expect(row.maxSale).toBe(46);
-    expect(row.ave).toBeCloseTo(19 / 46, 5);
+    // Only June has sales → AVE = 46/1
+    expect(row.ave).toBe(46);
     expect(row["reorder:sv"]).toBeCloseTo(3.152, 3);
     expect(row.mrp).toBe(9500);
     expect(row.discountedPrice).toBe(8550);
@@ -109,22 +115,50 @@ describe("vault OSF workbook", () => {
     expect(row["purchQty:2026-06"]).toBeNull();
   });
 
-  it("gives each month a total plus the two combined purchase columns only", () => {
+  it("orders identity then ROP, stock, sales, purchases, pricing, derived, reorder, supplier", () => {
     const defs = vaultColumnDefs(units, "2026-09-07");
-    const june = defs.findIndex((d) => d.key === "sales:2026-06:total");
-    expect(defs[june]!.section).toBe("JUNE");
-    expect(defs.slice(june, june + 3).map((d) => d.header)).toEqual([
-      "Total JUNE",
-      "Purch Qty (All)",
-      "Purch Value (All)",
+    const identity = defs.slice(0, 9).map((d) => d.key);
+    expect(identity).toEqual([
+      "variantSku",
+      "sku",
+      "brand",
+      "itemName",
+      "barcode",
+      "category",
+      "priorityStatus",
+      "country",
+      "countryClaimType",
     ]);
-    // No per-unit sales column survives inside a month block.
-    for (const u of units) {
-      expect(defs.some((d) => d.key === `sales:2026-06:${u.key}`)).toBe(false);
-    }
-    // The per-unit split is still there where it drives reordering.
-    expect(defs.some((d) => d.key === "stock:sv")).toBe(true);
-    expect(defs.some((d) => d.key === "rop:sv")).toBe(true);
-    expect(defs.some((d) => d.key === "reorder:sv")).toBe(true);
+    expect(defs[0]!.header).toBe("Variant SKU");
+    expect(defs[1]!.header).toBe("Common SKU");
+
+    const keys = defs.map((d) => d.key);
+    const idx = (k: string) => keys.indexOf(k);
+    expect(idx("rop:sv")).toBeLessThan(idx("stock:sv"));
+    expect(idx("stockTotal")).toBeLessThan(idx("sales:2026-04:total"));
+    expect(idx("sales:2026-09:total")).toBeLessThan(idx("purchQty:2026-04"));
+    expect(idx("purchValue:2026-09")).toBeLessThan(idx("mrp"));
+    expect(idx("discountedPrice")).toBeLessThan(idx("maxSale"));
+    expect(idx("ave")).toBeLessThan(idx("reorder:sv"));
+    expect(idx("reorderTotal")).toBeLessThan(idx("latestPrice"));
+
+    const firstPurch = idx("purchQty:2026-04");
+    expect(defs[firstPurch]!.header).toBe("April 2026 Purchase Qty");
+    expect(defs[firstPurch + 1]!.header).toBe("April 2026 Purchase Total");
+    expect(defs[firstPurch]!.section).toBe("Purchases");
+    expect(defs[firstPurch]!.band).toBe("purchase");
+    expect(defs[idx("sales:2026-04:total")]!.section).toBe("Sales");
+    expect(defs[idx("sales:2026-04:total")]!.band).toBe("sales");
+  });
+
+  it("marks numeric columns for SUBTOTAL and maps Excel letters", () => {
+    expect(excelColumnLetter(1)).toBe("A");
+    expect(excelColumnLetter(9)).toBe("I");
+    expect(excelColumnLetter(27)).toBe("AA");
+    expect(vaultOsfSubtotalColumn("rop:sv")).toBe(true);
+    expect(vaultOsfSubtotalColumn("stockTotal")).toBe(true);
+    expect(vaultOsfSubtotalColumn("sales:2026-06:total")).toBe(true);
+    expect(vaultOsfSubtotalColumn("variantSku")).toBe(false);
+    expect(vaultOsfSubtotalColumn("latestSupplier")).toBe(false);
   });
 });

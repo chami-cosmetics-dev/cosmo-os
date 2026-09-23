@@ -1,6 +1,9 @@
 import type { Prisma } from "@prisma/client";
 
 import { aggregateErpDailySalesRange } from "@/lib/daily-sales-sms-erp";
+import {
+  normalizeRecipientList,
+} from "@/lib/daily-sales-sms-recipients";
 import { formatAppIsoDate } from "@/lib/format-datetime";
 import { resolveFailureReportAmounts } from "@/lib/erp-sync-failure-email";
 import { sendSms } from "@/lib/hutch-sms";
@@ -10,7 +13,7 @@ import {
 } from "@/lib/page-data/dashboard-sales";
 import { prisma } from "@/lib/prisma";
 
-const MAX_RECIPIENTS = 20;
+export { normalizeRecipientList } from "@/lib/daily-sales-sms-recipients";
 const REPORT_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export type DailySalesLocationRow = {
@@ -90,32 +93,6 @@ export function salesAmountExcludingShipping(input: {
     shippingLines: input.shippingLines,
     discountCodes: input.discountCodes,
   }).amountExcl;
-}
-
-export function normalizeRecipientList(raw: unknown): string[] {
-  const items: string[] = [];
-  if (Array.isArray(raw)) {
-    for (const item of raw) {
-      if (typeof item === "string") items.push(item);
-    }
-  } else if (typeof raw === "string") {
-    items.push(...raw.split(/[\n,;]+/));
-  }
-
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const item of items) {
-    const trimmed = item.trim();
-    if (!trimmed) continue;
-    const digits = trimmed.replace(/\D/g, "");
-    if (digits.length < 9 || digits.length > 15) continue;
-    const key = digits;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(trimmed.replace(/\s+/g, ""));
-    if (out.length >= MAX_RECIPIENTS) break;
-  }
-  return out;
 }
 
 export function formatDailySalesSmsBody(report: Omit<DailySalesReport, "messageBody">): string {

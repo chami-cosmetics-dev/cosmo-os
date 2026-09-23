@@ -53,11 +53,20 @@ export function FailedErpSyncsPanel() {
   const [limit, setLimit] = useState(20);
   const [total, setTotal] = useState(0);
   const [selectedItem, setSelectedItem] = useState<FailedErpSync | null>(null);
+  const [editPhone, setEditPhone] = useState("");
+  const [savingPhone, setSavingPhone] = useState(false);
   const [retryingId, setRetryingId] = useState<string | null>(null);
   const [retryingAll, setRetryingAll] = useState(false);
   const [approvalBlockedOrder, setApprovalBlockedOrder] = useState<FailedErpSync | null>(null);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
+
+  const isBusy = retryingAll || retryingId !== null || savingPhone;
+
+  function openDetails(item: FailedErpSync) {
+    setSelectedItem(item);
+    setEditPhone(item.customerPhone ?? "");
+  }
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 500);
@@ -154,6 +163,40 @@ export function FailedErpSyncsPanel() {
       notify.error("Retry failed");
     } finally {
       setRetryingId(null);
+    }
+  }
+
+  async function handleSavePhone() {
+    if (!selectedItem) return;
+    setSavingPhone(true);
+    try {
+      const res = await fetch(`/api/admin/orders/${selectedItem.id}/customer-phone`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: editPhone }),
+      });
+      const data = (await res.json()) as {
+        error?: string;
+        message?: string;
+        customerPhone?: string | null;
+      };
+      if (!res.ok) {
+        notify.error(data.error ?? "Failed to update phone");
+        return;
+      }
+      const nextPhone = data.customerPhone ?? editPhone.trim();
+      setEditPhone(nextPhone);
+      setSelectedItem({ ...selectedItem, customerPhone: nextPhone });
+      setItems((prev) =>
+        prev.map((item) =>
+          item.id === selectedItem.id ? { ...item, customerPhone: nextPhone } : item,
+        ),
+      );
+      notify.success(data.message ?? "Customer phone updated");
+    } catch {
+      notify.error("Failed to update phone");
+    } finally {
+      setSavingPhone(false);
     }
   }
 
@@ -257,7 +300,7 @@ export function FailedErpSyncsPanel() {
             {items.length > 0 && (
               <Button
                 onClick={handleRetryAll}
-                disabled={retryingAll || retryingId !== null}
+                disabled={isBusy}
                 className="flex items-center gap-2 shadow-[0_10px_24px_-18px_var(--primary)]"
               >
                 {retryingAll ? (
@@ -341,8 +384,8 @@ export function FailedErpSyncsPanel() {
                               size="sm"
                               variant="outline"
                               className="border-border/70 bg-background/80 hover:bg-secondary/10"
-                              onClick={() => setSelectedItem(item)}
-                              disabled={retryingAll}
+                              onClick={() => openDetails(item)}
+                              disabled={isBusy}
                             >
                               View
                             </Button>
@@ -350,7 +393,7 @@ export function FailedErpSyncsPanel() {
                               size="sm"
                               className="flex items-center gap-2 shadow-[0_10px_24px_-18px_var(--primary)]"
                               onClick={() => handleRetry(item.id)}
-                              disabled={retryingAll || retryingId !== null}
+                              disabled={isBusy}
                             >
                               {retryingId === item.id ? (
                                 <><Loader2 className="size-4 animate-spin" aria-hidden />Retrying...</>
@@ -381,12 +424,17 @@ export function FailedErpSyncsPanel() {
       </Card>
       )}
 
-      <Dialog open={!!selectedItem} onOpenChange={(open) => { if (!open) setSelectedItem(null); }}>
+      <Dialog
+        open={!!selectedItem}
+        onOpenChange={(open) => {
+          if (!open && !isBusy) setSelectedItem(null);
+        }}
+      >
         <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto border-border/70 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_96%,white),color-mix(in_srgb,var(--secondary)_8%,transparent))]">
           <DialogHeader>
             <DialogTitle>ERP Sync Failure Details</DialogTitle>
             <DialogDescription>
-              Order {selectedItem?.name ?? selectedItem?.shopifyOrderId ?? ""}. Fix the issue in ERPNext, then retry.
+              Order {selectedItem?.name ?? selectedItem?.shopifyOrderId ?? ""}. Fix bad phone or ERP issue, then retry.
             </DialogDescription>
           </DialogHeader>
           {selectedItem && (
@@ -419,6 +467,35 @@ export function FailedErpSyncsPanel() {
                 <div>
                   <p className="text-muted-foreground text-xs">Auto-retry status</p>
                   <p>{formatAutoRetryStatus(selectedItem)}</p>
+                </div>
+              </div>
+              <div className="space-y-2 rounded-xl border border-border/60 bg-background/80 p-3">
+                <p className="text-sm font-medium">Customer phone</p>
+                <p className="text-muted-foreground text-xs">
+                  Wrong/international numbers often block ERP Customer create. Save a Sri Lanka 10-digit number (e.g. 0771234567), then retry.
+                </p>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                  <Input
+                    value={editPhone}
+                    onChange={(e) => setEditPhone(e.target.value)}
+                    placeholder="0771234567"
+                    disabled={isBusy}
+                    className="font-mono"
+                    inputMode="tel"
+                    autoComplete="tel"
+                  />
+                  <Button
+                    variant="outline"
+                    className="border-border/70 bg-background/85 hover:bg-secondary/10 sm:shrink-0"
+                    onClick={() => void handleSavePhone()}
+                    disabled={isBusy || editPhone.trim() === (selectedItem.customerPhone ?? "")}
+                  >
+                    {savingPhone ? (
+                      <><Loader2 className="size-4 animate-spin" aria-hidden />Saving...</>
+                    ) : (
+                      "Update phone"
+                    )}
+                  </Button>
                 </div>
               </div>
               <div>
@@ -466,13 +543,18 @@ export function FailedErpSyncsPanel() {
                 )}
               </div>
               <div className="flex justify-end gap-2">
-                <Button variant="outline" className="border-border/70 bg-background/85 hover:bg-secondary/10" onClick={() => setSelectedItem(null)}>
+                <Button
+                  variant="outline"
+                  className="border-border/70 bg-background/85 hover:bg-secondary/10"
+                  onClick={() => setSelectedItem(null)}
+                  disabled={isBusy}
+                >
                   Close
                 </Button>
                 <Button
                   className="flex items-center gap-2 shadow-[0_10px_24px_-18px_var(--primary)]"
                   onClick={() => handleRetry(selectedItem.id)}
-                  disabled={retryingAll || retryingId !== null}
+                  disabled={isBusy}
                 >
                   {retryingId === selectedItem.id ? (
                     <><Loader2 className="size-4 animate-spin" aria-hidden />Retrying...</>

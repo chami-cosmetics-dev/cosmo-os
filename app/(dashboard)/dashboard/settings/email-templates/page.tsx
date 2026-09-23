@@ -1,33 +1,71 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import { EmailTemplatesSettingsForm } from "@/components/molecules/email-templates-settings-form";
+import {
+  EmailTemplatesSettingsForm,
+  type EmailTemplateDto,
+} from "@/components/molecules/email-templates-settings-form";
 import { ErpSyncFailureEmailSettingsForm } from "@/components/molecules/erp-sync-failure-email-settings-form";
 import { GrnPendingEmailSettingsForm } from "@/components/molecules/grn-pending-email-settings-form";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { BUILTIN_EMAIL_TEMPLATES } from "@/lib/email-templates/catalog";
 import { prisma } from "@/lib/prisma";
 import { hasPermission, requirePermission } from "@/lib/rbac";
 import { ChevronLeft, Mail } from "lucide-react";
 
-const RESIGNATION_DEFAULT = {
-  key: "resignation_notice",
-  name: "Resignation Notice",
-  subject: "Staff Resignation: {{staffName}}",
-  bodyHtml: `<p>This is to inform you that the following staff member has resigned and the offboarding process has been completed.</p>
-<ul>
-<li><strong>Name:</strong> {{staffName}}</li>
-<li><strong>Resignation date:</strong> {{resignationDate}}</li>
-<li><strong>Reason:</strong> {{reason}}</li>
-<li><strong>Employee number:</strong> {{employeeNumber}}</li>
-<li><strong>Department:</strong> {{department}}</li>
-<li><strong>Designation:</strong> {{designation}}</li>
-<li><strong>Location:</strong> {{location}}</li>
-</ul>`,
-  recipients: "",
-};
-
 export const dynamic = "force-dynamic";
+
+function mergeTemplates(
+  stored: Array<{
+    id: string;
+    key: string;
+    name: string;
+    subject: string;
+    bodyHtml: string;
+    recipients: string;
+    ccRecipients: string;
+  }>,
+): EmailTemplateDto[] {
+  const byKey = new Map(stored.map((t) => [t.key, t]));
+  const out: EmailTemplateDto[] = [];
+
+  for (const builtin of BUILTIN_EMAIL_TEMPLATES) {
+    const row = byKey.get(builtin.key);
+    out.push({
+      id: row?.id ?? null,
+      key: builtin.key,
+      name: row?.name ?? builtin.name,
+      subject: row?.subject ?? builtin.subject,
+      bodyHtml: row?.bodyHtml ?? builtin.bodyHtml,
+      recipients: row?.recipients ?? builtin.recipients,
+      ccRecipients: row?.ccRecipients ?? builtin.ccRecipients,
+      placeholders: builtin.placeholders,
+      builtin: true,
+      automated: Boolean(builtin.automated),
+      saved: Boolean(row),
+    });
+    byKey.delete(builtin.key);
+  }
+
+  for (const row of byKey.values()) {
+    out.push({
+      id: row.id,
+      key: row.key,
+      name: row.name,
+      subject: row.subject,
+      bodyHtml: row.bodyHtml,
+      recipients: row.recipients,
+      ccRecipients: row.ccRecipients,
+      placeholders: [],
+      builtin: false,
+      automated: false,
+      saved: true,
+    });
+  }
+
+  return out.sort((a, b) => a.name.localeCompare(b.name) || a.key.localeCompare(b.key));
+}
 
 export default async function EmailTemplatesSettingsPage() {
   const auth = await requirePermission("settings.email_templates");
@@ -44,14 +82,12 @@ export default async function EmailTemplatesSettingsPage() {
           </Button>
         </div>
         <Card className="overflow-hidden border-border/70 shadow-xs">
-          <CardHeader className="border-b border-border/50 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_12%,transparent))]">
+          <CardHeader className="border-b border-border/50">
             <CardTitle>Settings</CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-muted-foreground text-sm">
-              Company settings are available to users with the appropriate
-              permissions. Contact your administrator to update company
-              information.
+              Company settings are available to users with the appropriate permissions.
             </p>
           </CardContent>
         </Card>
@@ -61,17 +97,22 @@ export default async function EmailTemplatesSettingsPage() {
   const canManageEmailTemplates = hasPermission(auth.context, "settings.email_templates");
 
   const companyId = auth.context!.user!.companyId;
-  let initialTemplates: { resignation_notice: { id: string | null; key: string; name: string; subject: string; bodyHtml: string; recipients: string } } | null = null;
+  let initialTemplates: { templates: EmailTemplateDto[] } | null = null;
 
   if (companyId) {
     const templates = await prisma.emailTemplate.findMany({
       where: { companyId },
-      select: { id: true, key: true, name: true, subject: true, bodyHtml: true, recipients: true },
+      select: {
+        id: true,
+        key: true,
+        name: true,
+        subject: true,
+        bodyHtml: true,
+        recipients: true,
+        ccRecipients: true,
+      },
     });
-    const resignation = templates.find((t) => t.key === "resignation_notice");
-    initialTemplates = {
-      resignation_notice: resignation ?? { ...RESIGNATION_DEFAULT, id: null },
-    };
+    initialTemplates = { templates: mergeTemplates(templates) };
   }
 
   return (
@@ -94,7 +135,8 @@ export default async function EmailTemplatesSettingsPage() {
           Email Templates
         </h1>
         <p className="text-muted-foreground mt-2 max-w-3xl text-sm sm:text-base">
-          Manage notification subjects, recipients, and HTML content with a live preview before saving.
+          Multiple templates per company — edit subject, To, CC, and HTML. Built-in keys power
+          automated reports; create custom keys for other mails.
         </p>
       </section>
       <EmailTemplatesSettingsForm

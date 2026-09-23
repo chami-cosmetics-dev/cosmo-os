@@ -25,6 +25,9 @@ import { Input } from "@/components/ui/input";
 import { Pagination } from "@/components/ui/pagination";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { TableSkeleton } from "@/components/skeletons/table-skeleton";
+import { Textarea } from "@/components/ui/textarea";
+import { parseTpNumbers } from "@/lib/contacts/parse-tp-numbers";
+import { formatAllocationAssigneeLabel } from "@/lib/contacts/staff-sales-allocation";
 import { notify } from "@/lib/notify";
 import { formatAppDateTime } from "@/lib/format-datetime";
 import {
@@ -113,6 +116,11 @@ type ContactsPanelInitialData = {
     assignees: Array<{ id: string; label: string }>;
   };
   brandFilterActive?: boolean;
+  purchaseSummarySync?: {
+    lastSyncedAt: string | null;
+    lastSyncError: string | null;
+    contactCount: number;
+  };
 };
 
 type ContactBackfillPreview = {
@@ -210,6 +218,14 @@ export function ContactsPanel({
   const [exportBusyKey, setExportBusyKey] = useState<"contacts" | "purchase_summary" | null>(
     null
   );
+  const [purchaseSummarySync, setPurchaseSummarySync] = useState(
+    initialData.purchaseSummarySync ?? {
+      lastSyncedAt: null,
+      lastSyncError: null,
+      contactCount: 0,
+    }
+  );
+  const [purchaseSummaryRefreshing, setPurchaseSummaryRefreshing] = useState(false);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [viewingContact, setViewingContact] = useState<ContactItem | null>(null);
   const [purchasesLoading, setPurchasesLoading] = useState(false);
@@ -269,6 +285,7 @@ export function ContactsPanel({
       setCounts(data.counts);
       if (data.options) setFilterOptions(data.options);
       setBrandFilterActive(Boolean(data.brandFilterActive) || brand !== "__all");
+      if (data.purchaseSummarySync) setPurchaseSummarySync(data.purchaseSummarySync);
     } finally {
       setLoading(false);
     }
@@ -361,20 +378,37 @@ export function ContactsPanel({
       const decoder = new TextDecoder();
       const counter = createCsvRowCounter();
       let lastNotified = -1;
+      /** Server/proxy often dies mid-stream near the end (~90%+) without a clean close. */
+      const STALL_MS = 90_000;
+      let stalled = false;
+      let stallTimer: ReturnType<typeof setTimeout> | null = null;
+      const armStallWatch = () => {
+        if (stallTimer) clearTimeout(stallTimer);
+        stallTimer = setTimeout(() => {
+          stalled = true;
+          void reader.cancel("export-stall");
+        }, STALL_MS);
+      };
+      armStallWatch();
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (!value) continue;
-        chunks.push(value);
-        if (expectedRows > 0) {
-          counter.consume(decoder.decode(value, { stream: true }));
-          const percent = dumpProgressPercent(counter.dataRows(), expectedRows);
-          if (percent > 0 && percent !== lastNotified) {
-            lastNotified = percent;
-            notify.loading(`Downloading contacts — ${percent}%`, toastId);
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (!value) continue;
+          armStallWatch();
+          chunks.push(value);
+          if (expectedRows > 0) {
+            counter.consume(decoder.decode(value, { stream: true }));
+            const percent = dumpProgressPercent(counter.dataRows(), expectedRows);
+            if (percent > 0 && percent !== lastNotified) {
+              lastNotified = percent;
+              notify.loading(`Downloading contacts — ${percent}%`, toastId);
+            }
           }
         }
+      } finally {
+        if (stallTimer) clearTimeout(stallTimer);
       }
       if (expectedRows > 0) {
         counter.consume(decoder.decode());
@@ -383,7 +417,9 @@ export function ContactsPanel({
       const receivedRows = expectedRows > 0 ? counter.dataRows() : 0;
       if (expectedRows > 0 && receivedRows !== expectedRows) {
         notify.error(
-          `Export incomplete: got ${receivedRows.toLocaleString()} of ${expectedRows.toLocaleString()} contacts. Try again.`,
+          stalled
+            ? `Export stalled at ${lastNotified > 0 ? `${lastNotified}%` : "start"} (${receivedRows.toLocaleString()} of ${expectedRows.toLocaleString()}). Server timed out — try again, or use Contact Info Only.`
+            : `Export incomplete: got ${receivedRows.toLocaleString()} of ${expectedRows.toLocaleString()} contacts. Try again.`,
           toastId
         );
         return;
@@ -409,9 +445,46 @@ export function ContactsPanel({
     }
   }
 
+  async function refreshPurchaseSummaryCache() {
+    if (!canManage) return;
+    setPurchaseSummaryRefreshing(true);
+    const toastId = "purchase-summary-refresh";
+    notify.loading("Refreshing purchase totals… this can take several minutes", toastId);
+    try {
+      const res = await fetch("/api/admin/contacts/purchase-summary/refresh", {
+        method: "POST",
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        syncedAt?: string;
+        contactCount?: number;
+      };
+      if (!res.ok) {
+        notify.error(data.error ?? "Failed to refresh purchase totals", toastId);
+        return;
+      }
+      setPurchaseSummarySync({
+        lastSyncedAt: data.syncedAt ?? new Date().toISOString(),
+        lastSyncError: null,
+        contactCount: data.contactCount ?? 0,
+      });
+      notify.success(
+        `Purchase totals refreshed (${(data.contactCount ?? 0).toLocaleString()} contacts)`,
+        toastId
+      );
+    } catch {
+      notify.error("Failed to refresh purchase totals", toastId);
+    } finally {
+      setPurchaseSummaryRefreshing(false);
+    }
+  }
+
   async function onAssignContact() {
-    if (!assignPhone.trim() || !assignTo.trim()) {
-      notify.error("Enter a phone number and select a merchant");
+    const phoneNumbers = parseTpNumbers(assignPhone);
+    if (phoneNumbers.length === 0 || !assignTo.trim()) {
+      notify.error(
+        "Enter phone number(s) and select a merchant, Staff category, or Error number category"
+      );
       return;
     }
     setAssignSaving(true);
@@ -420,8 +493,8 @@ export function ContactsPanel({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          mode: "individual",
-          phoneNumber: assignPhone.trim(),
+          mode: "multiple",
+          phoneNumbers,
           allocatedTo: assignTo.trim(),
         }),
       });
@@ -430,7 +503,7 @@ export function ContactsPanel({
         notify.error(data.error ?? "Allocation failed");
         return;
       }
-      notify.success(`Allocated ${data.count ?? 1} contact(s)`);
+      notify.success(`Allocated ${data.count ?? phoneNumbers.length} contact(s)`);
       setAssignPhone("");
       await fetchPageData();
     } catch {
@@ -669,13 +742,15 @@ export function ContactsPanel({
             <div className="space-y-3">
               <p className="text-sm font-medium">Assign by phone</p>
               <p className="text-muted-foreground text-xs">
-                Set allocated merchant for one contact (same as Contact Allocation individual assign).
+                One or many phones (comma or newline). Overwrites current allocated merchant
+                (or assign to Staff / Error number category).
               </p>
-              <Input
-                placeholder="Phone / TP number"
+              <Textarea
+                placeholder="Phone / TP numbers (comma or newline)"
                 value={assignPhone}
                 onChange={(e) => setAssignPhone(e.target.value)}
                 disabled={assignSaving}
+                rows={3}
               />
               <Select value={assignTo || undefined} onValueChange={setAssignTo}>
                 <SelectTrigger>
@@ -684,7 +759,7 @@ export function ContactsPanel({
                 <SelectContent>
                   {filterOptions.assignees.map((a) => (
                     <SelectItem key={a.id} value={a.label}>
-                      {a.label}
+                      {formatAllocationAssigneeLabel(a.label)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -747,7 +822,7 @@ export function ContactsPanel({
                 <SelectContent>
                   {filterOptions.assignedMerchants.map((label) => (
                     <SelectItem key={`from-${label}`} value={label}>
-                      {label}
+                      {formatAllocationAssigneeLabel(label)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -759,7 +834,7 @@ export function ContactsPanel({
                 <SelectContent>
                   {filterOptions.assignees.map((a) => (
                     <SelectItem key={`to-${a.id}`} value={a.label}>
-                      {a.label}
+                      {formatAllocationAssigneeLabel(a.label)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -1072,10 +1147,44 @@ export function ContactsPanel({
                         matches. A short file (~5,000 rows) means the download was cut off.
                       </DialogDescription>
                     </DialogHeader>
+                    <div className="rounded-lg border border-border/60 bg-background/50 px-3 py-2 text-sm">
+                      <p className="font-medium">Purchase totals cache</p>
+                      <p className="text-muted-foreground mt-1">
+                        {purchaseSummarySync.lastSyncedAt
+                          ? `Last refreshed ${toDateTimeLabel(purchaseSummarySync.lastSyncedAt)} (${purchaseSummarySync.contactCount.toLocaleString()} contacts). Nightly job also rebuilds this.`
+                          : "Not built yet — refresh once before exporting with purchase summary."}
+                      </p>
+                      {purchaseSummarySync.lastSyncError ? (
+                        <p className="text-destructive mt-1">
+                          Last refresh error: {purchaseSummarySync.lastSyncError}
+                        </p>
+                      ) : null}
+                      {canManage ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="mt-2"
+                          disabled={
+                            purchaseSummaryRefreshing || exportBusyKey !== null
+                          }
+                          onClick={() => void refreshPurchaseSummaryCache()}
+                        >
+                          {purchaseSummaryRefreshing ? (
+                            <>
+                              <Loader2 className="animate-spin" aria-hidden />
+                              Refreshing…
+                            </>
+                          ) : (
+                            "Refresh purchase totals"
+                          )}
+                        </Button>
+                      ) : null}
+                    </div>
                     <div className="grid gap-3">
                       <button
                         type="button"
-                        disabled={exportBusyKey !== null}
+                        disabled={exportBusyKey !== null || purchaseSummaryRefreshing}
                         className="rounded-xl border border-border/70 bg-background/70 p-4 text-left transition hover:bg-secondary/10 disabled:pointer-events-none disabled:opacity-60"
                         onClick={() => void downloadContactExport("contacts")}
                       >
@@ -1091,7 +1200,11 @@ export function ContactsPanel({
                       </button>
                       <button
                         type="button"
-                        disabled={exportBusyKey !== null}
+                        disabled={
+                          exportBusyKey !== null ||
+                          purchaseSummaryRefreshing ||
+                          !purchaseSummarySync.lastSyncedAt
+                        }
                         className="rounded-xl border border-border/70 bg-background/70 p-4 text-left transition hover:bg-secondary/10 disabled:pointer-events-none disabled:opacity-60"
                         onClick={() => void downloadContactExport("purchase_summary")}
                       >
@@ -1104,7 +1217,8 @@ export function ContactsPanel({
                             : "With Purchase Summary"}
                         </p>
                         <p className="text-muted-foreground mt-1 text-sm">
-                          Includes total orders, total purchase value, and last order date matched by contact number.
+                          Fast export from cached totals (orders, value, last order). Refresh cache
+                          after big Adapt/order imports if numbers look stale.
                         </p>
                       </button>
                     </div>

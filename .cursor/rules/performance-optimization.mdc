@@ -1,16 +1,16 @@
 ---
-description: Performance patterns — page-data endpoints, server fetch, avoid duplicate fetches
+description: Performance — page-data, server fetch, no duplicate fetches
 globs: app/**/page.tsx,app/**/page-data/**,app/api/**/*.ts,lib/rbac.ts
 alwaysApply: false
 ---
 
 # Performance Optimization
 
-When building pages or APIs:
+Pages/APIs:
 
-1. **Page-data endpoint** — Prefer one `/api/.../page-data` (one auth, `Promise.all` queries) over many client fetches.
-2. **Server fetch** — Load on the page server component; pass `initial*` props. Client skips fetch when provided.
-3. **No duplicate fetch** — Reuse `getCurrentUserContext()`; fetch only missing relations.
-4. **Client pattern** — Optional `initialData`; fetch on mount only if absent.
+1. **Page-data** — One `/api/.../page-data` (one auth, `Promise.all`) over many client fetches.
+2. **Server fetch** — Load in page server component; pass `initial*` props. Client skip fetch if provided.
+3. **No duplicate** — Reuse `getCurrentUserContext()`; fetch only missing relations.
+4. **Client** — Optional `initialData`; fetch on mount only if absent.
 
-Checklist: multi-call page → page-data; server-passable? → `initial*`; context already has it? → reuse.
+Checklist: multi-call → page-data; server-passable? → `initial*`; context has it? → reuse.

@@ -230,6 +230,16 @@ export function StoreLocationAllocationPanel() {
     planTimers.current.delete(sku);
   }
 
+  function clearAll() {
+    for (const t of planTimers.current.values()) clearTimeout(t);
+    planTimers.current.clear();
+    setItems([]);
+    setFocusSku(null);
+    setMatches([]);
+    setWalkOpen(false);
+    setWalkIndex(0);
+  }
+
   function setTakeQty(sku: string, raw: string) {
     const trimmed = raw.trim();
     const takeQty =
@@ -482,12 +492,19 @@ export function StoreLocationAllocationPanel() {
               <Printer className="size-4" />
               Print
             </Button>
+            <Button type="button" size="sm" variant="outline" onClick={clearAll}>
+              <Trash2 className="size-4" />
+              Clear all
+            </Button>
           </div>
 
           <div className="space-y-3">
             {items.map((item) => {
               const takeSafe = item.takeQty ?? 0;
               const allocatedSum = item.locations.reduce((s, l) => s + l.qty, 0);
+              const totalRop = item.locations.reduce((s, l) => s + l.locationRop, 0);
+              const totalStock = item.locations.reduce((s, l) => s + l.stock, 0);
+              const hasLocationStats = item.locations.length > 0;
               const sumOk = itemSumOk(item);
               const isDiscontinueGate = item.needsContinue;
 
@@ -538,6 +555,26 @@ export function StoreLocationAllocationPanel() {
                           TOTAL ORDER QTY
                         </p>
                         <p className="font-medium tabular-nums">{item.companyReorderQty}</p>
+                      </div>
+                      <div>
+                        <p
+                          className={`text-xs ${isDiscontinueGate ? "text-red-700/80 dark:text-red-200/80" : "text-muted-foreground"}`}
+                        >
+                          Total ROP
+                        </p>
+                        <p className="font-medium tabular-nums">
+                          {hasLocationStats ? totalRop : "—"}
+                        </p>
+                      </div>
+                      <div>
+                        <p
+                          className={`text-xs ${isDiscontinueGate ? "text-red-700/80 dark:text-red-200/80" : "text-muted-foreground"}`}
+                        >
+                          Stock qty
+                        </p>
+                        <p className="font-medium tabular-nums">
+                          {hasLocationStats ? totalStock : "—"}
+                        </p>
                       </div>
                       <div className="sm:col-span-2">
                         <p

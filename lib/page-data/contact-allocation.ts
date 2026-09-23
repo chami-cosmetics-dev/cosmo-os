@@ -2,6 +2,11 @@ import { Prisma } from "@prisma/client";
 
 import { ensureDefaultCallCenterCategories } from "@/lib/contact-call-center-categories-server";
 import {
+  withStaffSalesAssignee,
+  withStaffSalesAssignedMerchant,
+} from "@/lib/contacts/staff-sales-allocation";
+import { isMerchantRoleName } from "@/lib/merchant-role";
+import {
   canonicalizeAssignedMerchantLabels,
   expandAssignedMerchantFilter,
 } from "@/lib/customer-insight/merchant-label-aliases";
@@ -345,18 +350,26 @@ export async function fetchContactAllocationPageData(
       ORDER BY c."updatedAt" DESC
       LIMIT ${PREVIEW_LIMIT}
     `,
-    prisma.user.findMany({
-      where: {
-        companyId,
-        OR: [
-          { employeeProfile: null },
-          { employeeProfile: { status: "active" } },
-        ],
-      },
-      orderBy: { name: "asc" },
-      select: { id: true, name: true, knownName: true, email: true },
-      take: 300,
-    }),
+    (async () => {
+      const roles = await prisma.role.findMany({ select: { id: true, name: true } });
+      const merchantRoleIds = roles
+        .filter((r) => isMerchantRoleName(r.name))
+        .map((r) => r.id);
+      if (merchantRoleIds.length === 0) return [];
+      return prisma.user.findMany({
+        where: {
+          companyId,
+          userRoles: { some: { roleId: { in: merchantRoleIds } } },
+          OR: [
+            { employeeProfile: null },
+            { employeeProfile: { status: "active" } },
+          ],
+        },
+        orderBy: { name: "asc" },
+        select: { id: true, name: true, knownName: true, email: true },
+        take: 300,
+      });
+    })(),
     fetchConfiguredAllocationOptions(companyId),
     fetchDistinct(companyId, "gender"),
     fetchDistinct(companyId, "recentMerchant"),
@@ -367,10 +380,12 @@ export async function fetchContactAllocationPageData(
     contacts: contacts.map(mapContact),
     total: Number(countRows[0]?.count ?? 0),
     options: {
-      assignees: assigneeRows.map((user) => ({
-        id: user.id,
-        label: user.knownName ?? user.name ?? user.email ?? "Unnamed user",
-      })),
+      assignees: withStaffSalesAssignee(
+        assigneeRows.map((user) => ({
+          id: user.id,
+          label: user.knownName ?? user.name ?? user.email ?? "Unnamed user",
+        }))
+      ),
       serviceProviders: configuredOptions.serviceProviders,
       districts: configuredOptions.districts,
       towns: configuredOptions.towns,
@@ -379,7 +394,7 @@ export async function fetchContactAllocationPageData(
       customerTypes: configuredOptions.customerTypes,
       genders,
       recentMerchants,
-      assignedMerchants,
+      assignedMerchants: withStaffSalesAssignedMerchant(assignedMerchants),
     },
   };
 }

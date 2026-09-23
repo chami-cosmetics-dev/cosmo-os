@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   callQueueNeedsLifetimeTotals,
+  matchesAllocatedDateRange,
   matchesCallQueueAssignFilters,
   matchesLastPurchaseRange,
   matchesLoyaltyFilter,
@@ -10,6 +11,7 @@ import {
 const base = {
   lifetimeTotal: 80_000,
   lastPurchaseAt: new Date("2026-06-15T12:00:00.000Z"),
+  allocationAt: new Date("2026-05-01T12:00:00.000Z") as Date | null,
   loyaltyAssignedTier: null as string | null,
   boughtBrand: true,
 };
@@ -81,6 +83,17 @@ describe("call-queue assign filters alone and combined", () => {
     expect(matchesLastPurchaseRange(null, undefined, undefined)).toBe(true);
   });
 
+  it("allocated date from-only, to-only, and range", () => {
+    const at = new Date("2026-05-01T12:00:00.000Z");
+    expect(matchesAllocatedDateRange(at, "2026-05-01", undefined)).toBe(true);
+    expect(matchesAllocatedDateRange(at, "2026-06-01", undefined)).toBe(false);
+    expect(matchesAllocatedDateRange(at, undefined, "2026-05-31")).toBe(true);
+    expect(matchesAllocatedDateRange(at, undefined, "2026-04-01")).toBe(false);
+    expect(matchesAllocatedDateRange(at, "2026-04-01", "2026-05-31")).toBe(true);
+    expect(matchesAllocatedDateRange(null, "2026-05-01", undefined)).toBe(false);
+    expect(matchesAllocatedDateRange(null, undefined, undefined)).toBe(true);
+  });
+
   it("brand alone", () => {
     expect(
       matchesCallQueueAssignFilters(
@@ -96,11 +109,13 @@ describe("call-queue assign filters alone and combined", () => {
     ).toBe(true);
   });
 
-  it("combine push gold AND last purchase AND brand", () => {
+  it("combine push gold AND last purchase AND allocated date AND brand", () => {
     const filters = {
       pushToGold: true,
       lastPurchaseFrom: "2026-06-01",
       lastPurchaseTo: "2026-06-30",
+      allocatedFrom: "2026-04-01",
+      allocatedTo: "2026-05-31",
       brand: "Olaplex",
     };
     expect(matchesCallQueueAssignFilters(base, filters)).toBe(true);
@@ -109,6 +124,15 @@ describe("call-queue assign filters alone and combined", () => {
         { ...base, lastPurchaseAt: new Date("2026-01-01T00:00:00.000Z") },
         filters
       )
+    ).toBe(false);
+    expect(
+      matchesCallQueueAssignFilters(
+        { ...base, allocationAt: new Date("2026-01-01T00:00:00.000Z") },
+        filters
+      )
+    ).toBe(false);
+    expect(
+      matchesCallQueueAssignFilters({ ...base, allocationAt: null }, filters)
     ).toBe(false);
     expect(
       matchesCallQueueAssignFilters({ ...base, boughtBrand: false }, filters)

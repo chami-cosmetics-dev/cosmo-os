@@ -135,6 +135,15 @@ function CitypakStatusBadge({
   );
 }
 
+/** API-booked rows always; Falcon/manual rows once a push/poll stamped status. */
+function showsCitypakStatusColumn(waybill: {
+  source: string;
+  rawPayload: Record<string, unknown> | null;
+}) {
+  if (waybill.source === CITYPAK_WAYBILL_SOURCE) return true;
+  return Boolean(readCitypakWaybillStatus(waybill.rawPayload).status);
+}
+
 export function WaybillLookupFulfillmentPage({
   canImportWaybills,
   initialData = null,
@@ -614,7 +623,7 @@ export function WaybillLookupFulfillmentPage({
                           <td className="px-3 py-2 font-medium">{waybill.waybillNo}</td>
                           <td className="px-3 py-2">{waybill.invoiceNumber}</td>
                           <td className="px-3 py-2">
-                            {waybill.source === CITYPAK_WAYBILL_SOURCE ? (
+                            {showsCitypakStatusColumn(waybill) ? (
                               <CitypakStatusBadge rawPayload={waybill.rawPayload} />
                             ) : (
                               <span className="text-xs text-muted-foreground">—</span>
@@ -807,27 +816,29 @@ export function WaybillLookupFulfillmentPage({
                           <td className="px-3 py-2 capitalize">{row.matchStatus}</td>
                           <td className="px-3 py-2">{row.order?.displayId ?? "—"}</td>
                           <td className="px-3 py-2">
-                            {row.source === CITYPAK_WAYBILL_SOURCE ? (
+                            {showsCitypakStatusColumn(row) ? (
                               <div className="flex items-center gap-2">
                                 <CitypakStatusBadge rawPayload={row.rawPayload} />
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="icon"
-                                  className="size-7"
-                                  disabled={isBusy}
-                                  aria-label="Refresh CityPak status"
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    void handleRefreshStatus(row.id);
-                                  }}
-                                >
-                                  {refreshingStatusId === row.id ? (
-                                    <Loader2 className="size-4 animate-spin" aria-hidden />
-                                  ) : (
-                                    <RefreshCw className="size-4" aria-hidden />
-                                  )}
-                                </Button>
+                                {row.source === CITYPAK_WAYBILL_SOURCE && (
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    className="size-7"
+                                    disabled={isBusy}
+                                    aria-label="Refresh CityPak status"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      void handleRefreshStatus(row.id);
+                                    }}
+                                  >
+                                    {refreshingStatusId === row.id ? (
+                                      <Loader2 className="size-4 animate-spin" aria-hidden />
+                                    ) : (
+                                      <RefreshCw className="size-4" aria-hidden />
+                                    )}
+                                  </Button>
+                                )}
                               </div>
                             ) : (
                               <span className="text-xs text-muted-foreground">—</span>

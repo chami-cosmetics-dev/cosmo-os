@@ -13,6 +13,21 @@ const ROWS: SourceRow[] = [
   { column: "Latest Cost / Supplier", source: "ERP", note: "Blank if missing — never invented" },
   { column: "Cosmetics / OGF Margin", source: "Calc", note: "(original sell − cost) / original sell — per-user column access" },
   { column: "Monthly sales units", source: "Cosmo", note: "delivery/invoice complete, Colombo month" },
+  {
+    column: "Sales grid (Apr→as-of)",
+    source: "Cosmo",
+    note: "One Sales Total column per month; current month clips at as-of date",
+  },
+  {
+    column: "Purchase grid (Apr→as-of)",
+    source: "ERP",
+    note: "Purchase Receipt qty + amount per month; allowlisted suppliers only",
+  },
+  {
+    column: "Max sale / AVE",
+    source: "Calc",
+    note: "Max = peak month in sales grid; AVE = total ÷ months with a sale (blanks ignored)",
+  },
 ];
 
 export function OsfFieldSourceLegend() {

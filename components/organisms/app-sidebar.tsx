@@ -73,6 +73,8 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
   const canViewMerchantDashboard = hasSidebarPermission("dashboard.merchant_view");
   const canViewUsers = hasSidebarPermission("users.read");
   const canViewStaff = hasSidebarPermission("staff.read");
+  const canViewRiders = hasSidebarPermission("riders.read");
+  const canViewRiderPerformance = hasSidebarPermission("riders.performance.read");
   const canViewOrders = hasSidebarPermission("orders.read");
   const canViewAbandonedOrders = hasSidebarPermission("abandoned_orders.read");
   const canViewContactMaster =
@@ -175,7 +177,7 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
   const fulfillmentHref = fulfillmentLinks.find((item) =>
     hasSidebarPermission(item.permission)
   )?.href;
-  const canViewPeople = canViewUsers || canViewStaff;
+  const canViewPeople = canViewUsers || canViewStaff || canViewRiders || canViewRiderPerformance;
   const canViewContacts =
     canViewContactMaster ||
     canViewContactUpdates ||
@@ -286,26 +288,28 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
                 />
               )}
               {canViewStaff && (
-                <>
-                  <NavItem
-                    href="/dashboard/staff"
-                    icon={UserCircle}
-                    label="Staff"
-                    isActive={pathname === "/dashboard/staff"}
-                  />
-                  <NavItem
-                    href="/dashboard/riders"
-                    icon={Bike}
-                    label="Riders"
-                    isActive={pathname === "/dashboard/riders"}
-                  />
-                  <NavItem
-                    href="/dashboard/riders/performance"
-                    icon={Bike}
-                    label="Rider performance"
-                    isActive={pathname.startsWith("/dashboard/riders/performance")}
-                  />
-                </>
+                <NavItem
+                  href="/dashboard/staff"
+                  icon={UserCircle}
+                  label="Staff"
+                  isActive={pathname === "/dashboard/staff"}
+                />
+              )}
+              {canViewRiders && (
+                <NavItem
+                  href="/dashboard/riders"
+                  icon={Bike}
+                  label="Riders"
+                  isActive={pathname === "/dashboard/riders"}
+                />
+              )}
+              {canViewRiderPerformance && (
+                <NavItem
+                  href="/dashboard/riders/performance"
+                  icon={Bike}
+                  label="Rider performance"
+                  isActive={pathname.startsWith("/dashboard/riders/performance")}
+                />
               )}
             </SidebarGroupContent>
           </SidebarGroup>
@@ -571,6 +575,14 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
               )}
               {canViewPurchasingTools && (
                 <NavItem href="/dashboard/purchasing/calculator" icon={Calculator} label="SKU Calculator" isActive={pathname === "/dashboard/purchasing/calculator"} />
+              )}
+              {canViewPurchasingTools && (
+                <NavItem
+                  href="/dashboard/purchasing/purchase-history"
+                  icon={History}
+                  label="Purchase History"
+                  isActive={pathname === "/dashboard/purchasing/purchase-history"}
+                />
               )}
               {canViewItemTrends && (
                 <NavItem

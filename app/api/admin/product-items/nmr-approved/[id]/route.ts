@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { writeAuditLog } from "@/lib/audit-log";
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
@@ -12,6 +13,15 @@ export async function DELETE(
   const auth = await requirePermission("products.manage");
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
+  if (isVaultOsDeployment()) {
+    return NextResponse.json(
+      {
+        error: "NMRA-approved items are Cosmo OS only",
+        code: "NMRA_COSMO_ONLY",
+      },
+      { status: 409 },
+    );
   }
 
   const companyId = auth.context!.user!.companyId;

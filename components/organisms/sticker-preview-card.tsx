@@ -62,13 +62,9 @@ function formatDateValue(value?: string | null) {
 }
 
 function formatPriceValue(value?: string | number | null) {
-  const num =
-    typeof value === "number"
-      ? value
-      : typeof value === "string"
-        ? Number(value)
-        : Number.NaN;
-  if (!Number.isFinite(num)) return "-";
+  if (value == null || value === "") return "-";
+  const num = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(num) || num <= 0) return "-";
   return num.toLocaleString("en-LK", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,

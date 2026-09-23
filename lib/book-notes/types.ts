@@ -21,6 +21,11 @@ export type BookNoteRowDto = {
   bank_transfer: number;
   row_total: number;
   is_multi_method: boolean;
+  /**
+   * Bank-recon special note for this invoice line. Pushed to ERP after
+   * verify_book_note succeeds (empty string clears on ERP).
+   */
+  special_note: string | null;
   /** Present when outlet used SPLIT — sent to ERP as split_lines. */
   split_lines: BookNoteSplitLine[] | null;
   orderId?: string | null;
@@ -68,6 +73,8 @@ export type BookNoteOrderSuggestion = {
   bankTransfer: number;
   paymentGatewayPrimary: string | null;
   sourceName: string;
+  /** Present when the order has 2+ incoming payment legs (ERP PE or POS). */
+  splitLines: BookNoteSplitLine[] | null;
 };
 
 export type BookNoteLocationOption = {
@@ -87,10 +94,14 @@ export type BookNoteHistoryItem = {
   grandTotal: number;
   updatedAt: string;
   locked: boolean;
-  /** Who last saved the sheet — shown when same-outlet colleagues share history. */
+  /** Who last saved the sheet. Merchant history only lists the viewer's own. */
   enteredBy: string | null;
-  /** True when the viewer created or last saved this sheet themselves. */
+  /** True when the viewer created this sheet. */
   isOwn: boolean;
+  /** Cosmo → ERP push status. */
+  erpSyncStatus: "synced" | "failed" | "pending";
+  /** Short error from last failed ERP push. */
+  erpSyncError: string | null;
 };
 
 /** Who created or last saved a sheet, for the finance audit column. */
@@ -117,6 +128,23 @@ export type BookNoteFinanceDay = {
   receipts: BookNoteReceiptDto[];
 };
 
+/**
+ * One shop's slice of the range. Each shop is its own ERP company here, so
+ * this is both the outlet total and the company total — there is no second
+ * grouping to make.
+ */
+export type BookNoteShopTotal = {
+  companyLocationId: string;
+  shopName: string;
+  /** ERPNext company the shop submits under. */
+  company: string;
+  dayCount: number;
+  rowCount: number;
+  receiptCount: number;
+  methods: BookNoteMethodTotal[];
+  grandTotal: number;
+};
+
 /** Range roll-up shown above the day list. */
 export type BookNoteFinanceSummary = {
   dayCount: number;
@@ -125,4 +153,6 @@ export type BookNoteFinanceSummary = {
   methods: BookNoteMethodTotal[];
   entryCount: number;
   grandTotal: number;
+  /** Same range broken down by shop. */
+  shops: BookNoteShopTotal[];
 };

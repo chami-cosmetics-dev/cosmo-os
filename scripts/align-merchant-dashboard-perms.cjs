@@ -2,6 +2,7 @@
  * Align merchant-level-01/02 permissions:
  * - remove dashboard.view (company overview)
  * - ensure dashboard.merchant_view + contacts.insight.read
+ * - ensure reminders.merchant_payment_approval (merchant payment-approval HUD tab)
  *
  * Usage:
  *   node scripts/with-env.mjs cosmo-prod node scripts/align-merchant-dashboard-perms.cjs --dry-run
@@ -12,7 +13,11 @@ const { PrismaClient } = require("@prisma/client");
 
 const ROLE_NAMES = ["merchant-level-01", "merchant-level-02"];
 const REMOVE_KEYS = ["dashboard.view"];
-const ENSURE_KEYS = ["dashboard.merchant_view", "contacts.insight.read"];
+const ENSURE_KEYS = [
+  "dashboard.merchant_view",
+  "contacts.insight.read",
+  "reminders.merchant_payment_approval",
+];
 
 function parseArgs(argv) {
   const out = {};

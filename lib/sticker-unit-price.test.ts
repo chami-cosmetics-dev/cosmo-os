@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   isLwkLocation,
   lookupErpPriceBySku,
+  mergeErpPriceMapsPreferPrimary,
   resolveStickerUnitPrice,
 } from "@/lib/sticker-unit-price";
 
@@ -28,6 +29,23 @@ describe("lookupErpPriceBySku", () => {
   });
 });
 
+describe("mergeErpPriceMapsPreferPrimary", () => {
+  it("keeps ERP1 rate and fills only missing SKUs from ERP2", () => {
+    expect(
+      mergeErpPriceMapsPreferPrimary(
+        { AA_1: "100.00", BB_1: "200.00" },
+        { aa_1: "999.00", CC_1: "7450.00" },
+      ),
+    ).toEqual({ AA_1: "100.00", BB_1: "200.00", CC_1: "7450.00" });
+  });
+
+  it("fills when primary has no positive rate for SKU", () => {
+    expect(
+      mergeErpPriceMapsPreferPrimary({}, { NEH09_1: "7450.00" }),
+    ).toEqual({ NEH09_1: "7450.00" });
+  });
+});
+
 describe("resolveStickerUnitPrice", () => {
   it("uses ERP Standard Selling for non-LWK when present", () => {
     expect(
@@ -38,13 +56,24 @@ describe("resolveStickerUnitPrice", () => {
     ).toBe("8250.00");
   });
 
-  it("does not use compare-at or discount when Standard Selling is missing", () => {
+  it("falls back to catalog price when Standard Selling is missing", () => {
     expect(
       resolveStickerUnitPrice({
         lwkErpPrice: "120.00",
+        catalogPrice: "7450.00",
         isLwk: false,
       })
-    ).toBe("");
+    ).toBe("7450.00");
+  });
+
+  it("falls back to catalog when Standard Selling is zero", () => {
+    expect(
+      resolveStickerUnitPrice({
+        standardSellingErpPrice: "0",
+        catalogPrice: "7450.00",
+        isLwk: false,
+      })
+    ).toBe("7450.00");
   });
 
   it("uses ERP LWK price for LWK", () => {
@@ -52,16 +81,18 @@ describe("resolveStickerUnitPrice", () => {
       resolveStickerUnitPrice({
         lwkErpPrice: "120.00",
         standardSellingErpPrice: "8250.00",
+        catalogPrice: "7450.00",
         isLwk: true,
       })
     ).toBe("120.00");
   });
 
-  it("does not use Standard Selling when LWK ERP price is missing", () => {
+  it("does not use Standard Selling or catalog when LWK ERP price is missing", () => {
     expect(
       resolveStickerUnitPrice({
         lwkErpPrice: null,
         standardSellingErpPrice: "8250.00",
+        catalogPrice: "7450.00",
         isLwk: true,
       })
     ).toBe("");

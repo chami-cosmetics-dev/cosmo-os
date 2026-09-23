@@ -1,11 +1,16 @@
 /** Stable OSF Excel column access ids for per-user download visibility. */
 
 import type { OsfResolvedColumn } from "@/lib/osf/column-config";
+import type { OsfVariant } from "@/lib/osf/vat-membership";
+import { isVatLocationColumn } from "@/lib/osf/vat-rop-columns";
 
 export type OsfAccessColumnMeta = { id: string; label: string };
 
 /** Access key for Sales Units regardless of month suffix on the Excel header. */
 export const OSF_ACCESS_SALES_UNITS = "Sales Units";
+
+/** Access key for the April→as-of purchase qty/value grid. */
+export const OSF_ACCESS_PURCHASES = "Purchases";
 
 /** Static assignable columns (identity headers are never listed — always included). */
 export const OSF_STATIC_ASSIGNABLE_COLUMNS: OsfAccessColumnMeta[] = [
@@ -27,6 +32,9 @@ export const OSF_STATIC_ASSIGNABLE_COLUMNS: OsfAccessColumnMeta[] = [
   { id: "Cosmetics Margin %", label: "Cosmetics Margin %" },
   { id: "OGF Margin %", label: "OGF Margin %" },
   { id: OSF_ACCESS_SALES_UNITS, label: "Sales Units" },
+  { id: OSF_ACCESS_PURCHASES, label: "Purchases" },
+  { id: "Max sale", label: "Max sale" },
+  { id: "AVE", label: "AVE" },
 ];
 
 export const LEGACY_GROUP_TO_COLUMN_KEYS: Record<string, string[]> = {
@@ -40,7 +48,8 @@ export const LEGACY_GROUP_TO_COLUMN_KEYS: Record<string, string[]> = {
     "Purchased (last 30d)",
   ],
   margins: ["Cosmetics Margin %", "OGF Margin %"],
-  sales: [OSF_ACCESS_SALES_UNITS],
+  sales: [OSF_ACCESS_SALES_UNITS, "Max sale", "AVE"],
+  purchases: [OSF_ACCESS_PURCHASES],
 };
 
 export function stockAccessKey(columnKey: string): string {
@@ -67,8 +76,22 @@ export function expandLegacyColumnGroups(groups: string[] | null | undefined): s
   return out;
 }
 
+function locationColumnsForVariant(
+  columns: OsfResolvedColumn[],
+  variant: OsfVariant = "main",
+): OsfResolvedColumn[] {
+  const active = columns.filter((c) => c.active);
+  if (variant === "vat") {
+    return active.filter((c) => isVatLocationColumn(c));
+  }
+  return active;
+}
+
 /** Build assignable catalog from active OSF columns + static headers. */
-export function buildOsfAccessCatalog(columns: OsfResolvedColumn[]): OsfAccessColumnMeta[] {
+export function buildOsfAccessCatalog(
+  columns: OsfResolvedColumn[],
+  variant: OsfVariant = "main",
+): OsfAccessColumnMeta[] {
   const out: OsfAccessColumnMeta[] = [];
   const seen = new Set<string>();
 
@@ -78,7 +101,7 @@ export function buildOsfAccessCatalog(columns: OsfResolvedColumn[]): OsfAccessCo
     out.push({ id, label });
   };
 
-  const active = columns.filter((c) => c.active);
+  const active = locationColumnsForVariant(columns, variant);
   for (const c of active) {
     if (c.includeInStock) push(stockAccessKey(c.key), c.label);
   }
@@ -119,6 +142,9 @@ export function buildOsfAccessCatalog(columns: OsfResolvedColumn[]): OsfAccessCo
         "Cosmetics Margin %",
         "OGF Margin %",
         OSF_ACCESS_SALES_UNITS,
+        OSF_ACCESS_PURCHASES,
+        "Max sale",
+        "AVE",
       ].includes(c.id)
     ) {
       push(c.id, c.label);

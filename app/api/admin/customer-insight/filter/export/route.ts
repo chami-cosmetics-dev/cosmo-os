@@ -1,9 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import {
-  FILTER_EXPORT_CAP,
-  filterAllocatedContacts,
-} from "@/lib/customer-insight/filters";
+import { filterAllocatedContacts } from "@/lib/customer-insight/filters";
 import { readInsightFilterList } from "@/lib/customer-insight/filter-query-params";
 import {
   canFilterAllInsightContacts,
@@ -55,6 +52,8 @@ export async function GET(request: NextRequest) {
     birthdayTo: queryParam(sp.get("birthdayTo")),
     lastContactedFrom: queryParam(sp.get("lastContactedFrom")),
     lastContactedTo: queryParam(sp.get("lastContactedTo")),
+    allocatedFrom: queryParam(sp.get("allocatedFrom")),
+    allocatedTo: queryParam(sp.get("allocatedTo")),
     loyaltyRegisteredFrom: queryParam(sp.get("loyaltyRegisteredFrom")),
     loyaltyRegisteredTo: queryParam(sp.get("loyaltyRegisteredTo")),
     noPurchaseFrom: queryParam(sp.get("noPurchaseFrom")),
@@ -102,6 +101,8 @@ export async function GET(request: NextRequest) {
     birthdayTo: parsed.data.birthdayTo,
     lastContactedFrom: parsed.data.lastContactedFrom,
     lastContactedTo: parsed.data.lastContactedTo,
+    allocatedFrom: parsed.data.allocatedFrom,
+    allocatedTo: parsed.data.allocatedTo,
     loyaltyRegisteredFrom: parsed.data.loyaltyRegisteredFrom,
     loyaltyRegisteredTo: parsed.data.loyaltyRegisteredTo,
     noPurchaseFrom: parsed.data.noPurchaseFrom,
@@ -161,12 +162,8 @@ export async function GET(request: NextRequest) {
   });
 
   const csv = buildCsv(headers, rows);
-  const truncatedNote =
-    result.pagination.total > FILTER_EXPORT_CAP
-      ? `\r\n# truncated_to,${FILTER_EXPORT_CAP},of,${result.pagination.total}`
-      : "";
 
-  return new NextResponse(`${csv}${truncatedNote}`, {
+  return new NextResponse(csv, {
     headers: {
       "Content-Type": "text/csv; charset=utf-8",
       "Content-Disposition": `attachment; filename="${fileName}"`,

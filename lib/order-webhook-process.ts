@@ -13,6 +13,7 @@ import { resolveCustomerPhone } from "@/lib/order-sms-resolvers";
 import { syncOrderToERPNext, cancelErpnextSalesInvoice, isUsableErpSalesInvoiceId, type LocationWithErpInstance } from "@/lib/erpnext-sync";
 import { markOrderErpSyncFailed } from "@/lib/failed-erp-sync-auto-retry";
 import { isOrderPaymentRequiresApproval, createOrGetOrderPaymentApproval, cancelPendingApprovalsForOrder } from "@/lib/approval-workflow";
+import { needsKokoLinkTimeConfirm } from "@/lib/koko-order";
 import { isShopifyOrderBeforeImportCutoff } from "@/lib/order-import-cutoff";
 import { resolveShopifyShippingLineTotal } from "@/lib/order-shipping-display";
 import { orderHasFreeShippingCoupon } from "@/lib/shopify-discount-codes";
@@ -242,19 +243,30 @@ export async function processOrderWebhook(
       : orderData,
   });
   if (isNewOrder && requiresApproval && !isAlreadyVoided) {
-    // Create the pending approval first so fulfillment stays gated while the unpaid SI is created.
-    try {
-      await createOrGetOrderPaymentApproval({
-        companyId,
-        orderId: order.id,
-        requestedById: null,
-        invoiceLabel: order.name ?? order.orderNumber ?? order.shopifyOrderId,
-        paymentType: paymentGateways.primary ?? paymentGateways.names[0] ?? "bank/koko",
-        amount: totalPrice.toString(),
-        companyLocationId: effectiveLocation.id,
-      });
-    } catch (err) {
-      console.error("[Finance approval] webhook trigger failed:", err);
+    // Shopify KOKO: defer finance approval until merchant confirms portal link generated time.
+    const deferKokoApproval = needsKokoLinkTimeConfirm({
+      sourceName: order.sourceName,
+      paymentGatewayPrimary: paymentGateways.primary,
+      paymentGatewayNames: paymentGateways.names,
+      kokoLinkTimeConfirmedAt: null,
+      financialStatus: order.financialStatus,
+      createdAt: order.createdAt,
+    });
+    if (!deferKokoApproval) {
+      // Create the pending approval first so fulfillment stays gated while the unpaid SI is created.
+      try {
+        await createOrGetOrderPaymentApproval({
+          companyId,
+          orderId: order.id,
+          requestedById: null,
+          invoiceLabel: order.name ?? order.orderNumber ?? order.shopifyOrderId,
+          paymentType: paymentGateways.primary ?? paymentGateways.names[0] ?? "bank/koko",
+          amount: totalPrice.toString(),
+          companyLocationId: effectiveLocation.id,
+        });
+      } catch (err) {
+        console.error("[Finance approval] webhook trigger failed:", err);
+      }
     }
   }
 

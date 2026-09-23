@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { CUSTOMER_RESPONSES, FILTER_CUSTOMER_RESPONSES, FOLLOW_UP_STATUSES } from "@/lib/abandoned-orders-constants";
+import { CUSTOMER_RESPONSES, FILTER_CUSTOMER_RESPONSES, FOLLOW_UP_STATUSES, ABANDONMENT_REASONS } from "@/lib/abandoned-orders-constants";
 
 /**
  * Application-wide validation constants.
@@ -88,6 +88,8 @@ export const LIMITS = {
   /** Merchant book note invoice number */
   bookNoteSalesInvoice: { min: 1, max: 120 },
   bookNoteIdxNo: { max: 32 },
+  /** Bank-recon special note on a book-note row (ERP max 1500). */
+  bookNoteSpecialNote: { max: 1500 },
   bookNoteRowsMax: 500,
   bookNoteSplitLinesMax: 12,
   bookNoteRetrieveMaxDays: 31,
@@ -327,6 +329,25 @@ export const orderPaymentRejectionReasonSchema = trimmedString(
   LIMITS.orderPaymentRejectionReason.max,
 );
 
+/** Finance allows at most 10 KOKO payments per order; link times follow the same cap. */
+export const KOKO_MAX_PAYMENTS = 10;
+
+export const kokoLinkTimeConfirmBodySchema = z.object({
+  kokoLinkGeneratedAt: trimmedString(1, 60),
+  multipleKokoPayments: z.boolean().optional(),
+  extraKokoLinkGeneratedAt: z
+    .array(trimmedString(1, 60))
+    .max(KOKO_MAX_PAYMENTS - 1)
+    .optional(),
+});
+
+export const cancelKokoDuplicateBodySchema = z.object({
+  reason: trimmedString(
+    LIMITS.orderPaymentRejectionReason.min,
+    LIMITS.orderPaymentRejectionReason.max,
+  ),
+});
+
 export const RESERVED_ROLE_NAMES = ["super_admin", "admin"] as const;
 
 export function isReservedRoleName(name: string): boolean {
@@ -341,6 +362,7 @@ export function isReservedRoleName(name: string): boolean {
 
 export const abandonedOrdersFollowUpStatusSchema = z.enum(FOLLOW_UP_STATUSES);
 export const abandonedOrdersCustomerResponseSchema = z.enum(CUSTOMER_RESPONSES);
+export const abandonedOrdersAbandonmentReasonSchema = z.enum(ABANDONMENT_REASONS);
 
 const optionalYmdDateQuerySchema = ymdQuerySchema
   .optional()
@@ -410,6 +432,7 @@ export const abandonedOrderFollowUpPatchBodySchema = z.object({
       (s) => !s || s.length <= LIMITS.orderRemarkContent.max,
       "Remark is too long"
     ),
+  abandonmentReason: abandonedOrdersAbandonmentReasonSchema.nullish(),
 });
 
 /** Waybill Lookup page-data query (pending queue + upload history). */
@@ -575,6 +598,7 @@ export const itemTrendsCoverQuerySchema = z.object({
     .enum(["true", "false"])
     .optional()
     .transform((v) => v === "true"),
+  /** @deprecated Send filter removed from Item Trends UI; accepted and ignored. */
   sendOnly: z
     .enum(["true", "false"])
     .optional()

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import {
   assertBookNoteShopAllowed,
+  canViewBookNoteDay,
   resolveBookNoteShopAccess,
   resolveBookNoteViewScope,
   resolveBookNoteWriteAccess,
@@ -24,7 +25,7 @@ function postingDateYmd(value: Date): string {
 /**
  * Stream a private receipt blob for authenticated book-note users.
  * Finance (`book_notes.read`) may view any shop's slips from the gallery;
- * merchants (`book_notes.manage`) only shops on their own list.
+ * merchants only the slips on sheets they created.
  */
 export async function GET(
   _request: NextRequest,
@@ -61,14 +62,35 @@ export async function GET(
       blobUrl: true,
       mimeType: true,
       fileName: true,
-      bookNoteDay: { select: { companyLocationId: true } },
+      bookNoteDay: {
+        select: {
+          companyLocationId: true,
+          createdByUserId: true,
+        },
+      },
     },
   });
   if (!receipt) {
     return NextResponse.json({ error: "Receipt not found" }, { status: 404 });
   }
 
-  const viewScope = await resolveBookNoteViewScope(auth.context!, companyId);
+  const viewScope = await resolveBookNoteViewScope(auth.context!);
+  const userId = auth.context!.user?.id ?? null;
+  if (
+    !canViewBookNoteDay({
+      viewScope,
+      userId,
+      day: {
+        companyLocationId: receipt.bookNoteDay.companyLocationId,
+        createdByUserId: receipt.bookNoteDay.createdByUserId,
+      },
+    })
+  ) {
+    return NextResponse.json(
+      { error: "Receipt not found" },
+      { status: 404 },
+    );
+  }
   if (!viewScope.canViewAllShops) {
     const access = await resolveBookNoteShopAccess(auth.context!, companyId);
     if (
@@ -147,6 +169,8 @@ export async function DELETE(
         select: {
           companyLocationId: true,
           postingDate: true,
+          createdByUserId: true,
+          updatedByUserId: true,
         },
       },
     },
@@ -169,7 +193,11 @@ export async function DELETE(
   }
 
   const postingDate = postingDateYmd(receipt.bookNoteDay.postingDate);
-  const writeAccess = resolveBookNoteWriteAccess(auth.context!);
+  const userId = auth.context!.user?.id ?? null;
+  const writeAccess = {
+    ...resolveBookNoteWriteAccess(auth.context!),
+    isOwner: Boolean(userId && receipt.bookNoteDay.createdByUserId === userId),
+  };
   if (!isBookNoteWritable(postingDate, new Date(), writeAccess)) {
     return NextResponse.json(
       {

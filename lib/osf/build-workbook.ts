@@ -1,5 +1,6 @@
 import type { OsfCatalogRow } from "@/lib/osf/catalog-rows";
 import {
+  OSF_ACCESS_PURCHASES,
   OSF_ACCESS_SALES_UNITS,
   orderAccessKey,
   ropAccessKey,
@@ -7,7 +8,7 @@ import {
 } from "@/lib/osf/column-access-catalog";
 import type { OsfResolvedColumn } from "@/lib/osf/column-config";
 import type { ItemCostSupplier } from "@/lib/osf/erp-cost-supplier";
-import type { ItemLastPurchase } from "@/lib/osf/erp-purchases";
+import type { ItemLastPurchase, OsfMonthPurchaseCell } from "@/lib/osf/erp-purchases";
 import { stockForColumn } from "@/lib/osf/erp-stock";
 import {
   cosmeticsMargin,
@@ -21,6 +22,25 @@ import {
   sumSignedOrderQtysFlooredAtZero,
 } from "@/lib/osf/formulas";
 import { baseSku } from "@/lib/osf/base-sku";
+import type { OsfVariant } from "@/lib/osf/vat-membership";
+import {
+  findCosmeticsLkRopColumn,
+  selectVatRopColumns,
+  selectVatStockColumns,
+  totalRopForColumns,
+  totalRopForVat,
+} from "@/lib/osf/vat-rop-columns";
+import {
+  applyOsfWorkbookHeaderBands,
+  type OsfWorkbookBandKey,
+} from "@/lib/osf/workbook-band-styles";
+import { averageMonthlySale, maxSale } from "@/lib/vault-osf/formulas";
+import {
+  monthKeysInWindow,
+  monthPurchaseQtyHeader,
+  monthPurchaseTotalHeader,
+  monthTotalSaleHeader,
+} from "@/lib/vault-osf/months";
 
 export type OsfProfileData = {
   shopAvailability: string | null;
@@ -46,6 +66,10 @@ export type BuildWorkbookInput = {
   monthlySales: Map<string, number>;
   salesMonth: string;
   asOfDate: string;
+  /** sku → YYYY-MM → sold units (April→as-of grid). */
+  salesByMonth?: Map<string, Record<string, number>>;
+  /** sku → YYYY-MM → purchase qty + value (April→as-of grid). */
+  purchasesByMonth?: Map<string, Record<string, OsfMonthPurchaseCell>>;
   /** When true, Info sheet explains reorder-only / empty filter. */
   belowThresholdOnly?: boolean;
   /**
@@ -55,7 +79,42 @@ export type BuildWorkbookInput = {
   effectiveColumnKeys?: Set<string> | "all";
   /** Optional per-buyer sheets (no pricing columns), filtered by brand. */
   buyers?: OsfBuyerConfig[];
+  /** Main / VAT / Non-VAT — VAT restricts ROP columns and Total ROP math. */
+  osfVariant?: OsfVariant;
 };
+
+function resolveRopColumns(
+  columns: OsfResolvedColumn[],
+  variant: OsfVariant,
+): { ropCols: OsfResolvedColumn[]; cosmeticsLkKey: string | null } {
+  const activeRop = columns.filter((c) => c.active && c.includeInRop);
+  if (variant === "vat") {
+    const ropCols = selectVatRopColumns(columns);
+    return {
+      ropCols,
+      cosmeticsLkKey: findCosmeticsLkRopColumn(ropCols)?.key ?? null,
+    };
+  }
+  return { ropCols: activeRop, cosmeticsLkKey: null };
+}
+
+function resolveStockColumns(
+  columns: OsfResolvedColumn[],
+  variant: OsfVariant,
+): OsfResolvedColumn[] {
+  if (variant === "vat") return selectVatStockColumns(columns);
+  return columns.filter((c) => c.active && c.includeInStock);
+}
+
+function resolveTotalRop(
+  rops: Record<string, number | null | undefined> | undefined,
+  ropCols: OsfResolvedColumn[],
+  variant: OsfVariant,
+  cosmeticsLkKey: string | null,
+): number {
+  if (variant === "vat") return totalRopForVat(rops, cosmeticsLkKey);
+  return totalRopForColumns(rops, ropCols);
+}
 
 /** Describes one workbook column: its header + how it renders in the header band. */
 type OsfColumnDef = {
@@ -72,15 +131,7 @@ type OsfColumnDef = {
    */
   accessKey?: string | null;
   /** Color band for styled Excel output. */
-  band?:
-    | "identity"
-    | "stock"
-    | "rop"
-    | "calc"
-    | "order"
-    | "price"
-    | "cost"
-    | "sales";
+  band?: OsfWorkbookBandKey;
 };
 
 /** ISO date (YYYY-MM-DD) → dd.mm.yyyy banner label used in the header band. */
@@ -150,9 +201,9 @@ export function pricingHeaders(): string[] {
 }
 
 export function buildMainSheetRows(input: BuildWorkbookInput): Record<string, string | number | null>[] {
-  const active = input.columns.filter((c) => c.active);
-  const stockCols = active.filter((c) => c.includeInStock);
-  const ropCols = active.filter((c) => c.includeInRop);
+  const variant = input.osfVariant ?? "main";
+  const stockCols = resolveStockColumns(input.columns, variant);
+  const { ropCols, cosmeticsLkKey } = resolveRopColumns(input.columns, variant);
 
   // Precompute per-SKU stock / ROP totals
   const stockBySku = new Map<string, Record<string, number | null>>();
@@ -173,15 +224,13 @@ export function buildMainSheetRows(input: BuildWorkbookInput): Record<string, st
 
     const profile = input.profiles.get(row.sku);
     const rops: Record<string, number | null> = {};
-    let totalRop = 0;
     for (const col of ropCols) {
       const r = profile?.rops[col.key];
       const val = r != null && Number.isFinite(r) ? r : null;
       rops[col.key] = val;
-      if (val != null) totalRop += val;
     }
     ropBySku.set(row.sku, rops);
-    totalRopBySku.set(row.sku, totalRop);
+    totalRopBySku.set(row.sku, resolveTotalRop(rops, ropCols, variant, cosmeticsLkKey));
   }
 
   const buyTotalBySku = new Map<string, number>();
@@ -270,7 +319,29 @@ export function buildMainSheetRows(input: BuildWorkbookInput): Record<string, st
     record["Purchased (last 30d)"] = purchase?.recentQty ?? null;
     record["Cosmetics Margin %"] = formatMarginPercent(cosmeticsMargin(listPrice, cost));
     record["OGF Margin %"] = formatMarginPercent(ogfMargin(ogf, cost));
-    record[`Sales Units (${input.salesMonth})`] = input.monthlySales.get(row.sku) ?? 0;
+    const fromGrid = input.salesByMonth?.get(row.sku)?.[input.salesMonth];
+    record[`Sales Units (${input.salesMonth})`] =
+      fromGrid ?? input.monthlySales.get(row.sku) ?? 0;
+
+    const months = monthKeysInWindow(input.asOfDate);
+    const salesMonths = input.salesByMonth?.get(row.sku) ?? {};
+    const purchMonths = input.purchasesByMonth?.get(row.sku) ?? {};
+    const monthTotals: Array<number | null> = [];
+    for (const month of months) {
+      const sold = salesMonths[month];
+      const fallback =
+        month === input.salesMonth ? input.monthlySales.get(row.sku) : undefined;
+      const total = sold ?? fallback ?? null;
+      record[monthTotalSaleHeader(month)] = total;
+      monthTotals.push(total);
+    }
+    for (const month of months) {
+      const cell = purchMonths[month];
+      record[monthPurchaseQtyHeader(month)] = cell?.qty ?? null;
+      record[monthPurchaseTotalHeader(month)] = cell?.netValue ?? null;
+    }
+    record["Max sale"] = maxSale(monthTotals);
+    record.AVE = averageMonthlySale(monthTotals);
 
     out.push(record);
   }
@@ -283,9 +354,9 @@ export function buildMainSheetRows(input: BuildWorkbookInput): Record<string, st
  * keys produced by {@link buildMainSheetRows} exactly.
  */
 export function mainColumnDescriptors(input: BuildWorkbookInput): OsfColumnDef[] {
-  const active = input.columns.filter((c) => c.active);
-  const stockCols = active.filter((c) => c.includeInStock);
-  const ropCols = active.filter((c) => c.includeInRop);
+  const variant = input.osfVariant ?? "main";
+  const stockCols = resolveStockColumns(input.columns, variant);
+  const { ropCols } = resolveRopColumns(input.columns, variant);
   const dateLabel = formatDdMmYyyy(input.asOfDate);
 
   const defs: OsfColumnDef[] = [];
@@ -402,27 +473,54 @@ export function mainColumnDescriptors(input: BuildWorkbookInput): OsfColumnDef[]
     band: "sales",
   });
 
+  const months = monthKeysInWindow(input.asOfDate);
+  months.forEach((month, i) => {
+    defs.push({
+      header: monthTotalSaleHeader(month),
+      section: i === 0 ? "Sales" : undefined,
+      sum: true,
+      pricing: true,
+      accessKey: OSF_ACCESS_SALES_UNITS,
+      band: "sales",
+    });
+  });
+  months.forEach((month, i) => {
+    defs.push({
+      header: monthPurchaseQtyHeader(month),
+      section: i === 0 ? "Purchases" : undefined,
+      sum: true,
+      pricing: true,
+      accessKey: OSF_ACCESS_PURCHASES,
+      band: "purchase",
+    });
+    defs.push({
+      header: monthPurchaseTotalHeader(month),
+      sum: true,
+      pricing: true,
+      accessKey: OSF_ACCESS_PURCHASES,
+      band: "purchase",
+    });
+  });
+  defs.push({
+    header: "Max sale",
+    section: "Derived",
+    sum: true,
+    pricing: true,
+    accessKey: "Max sale",
+    band: "calc",
+  });
+  defs.push({
+    header: "AVE",
+    sum: true,
+    pricing: true,
+    accessKey: "AVE",
+    band: "calc",
+  });
+
   return defs;
 }
 
 type SheetCell = string | number | null;
-
-type BandKey = NonNullable<OsfColumnDef["band"]>;
-
-/** Header-band fills (ARGB hex without #) for ExcelJS. */
-const BAND_COLORS: Record<
-  BandKey,
-  { header: string; section: string; totals: string; font: string }
-> = {
-  identity: { header: "5B6B7A", section: "D6DCE4", totals: "EEF1F4", font: "FFFFFF" },
-  stock: { header: "2F75B5", section: "BDD7EE", totals: "DEEBF7", font: "FFFFFF" },
-  rop: { header: "548235", section: "C6E0B4", totals: "E2EFDA", font: "FFFFFF" },
-  calc: { header: "C65911", section: "F8CBAD", totals: "FCE4D6", font: "FFFFFF" },
-  order: { header: "833C0C", section: "F4B183", totals: "F8CBAD", font: "FFFFFF" },
-  price: { header: "7030A0", section: "D5A6E6", totals: "E2D5F1", font: "FFFFFF" },
-  cost: { header: "0070C0", section: "9DC3E6", totals: "DDEBF7", font: "FFFFFF" },
-  sales: { header: "BF8F00", section: "FFE699", totals: "FFF2CC", font: "000000" },
-};
 
 function cellValue(v: SheetCell): string | number {
   return v == null ? "" : v;
@@ -487,27 +585,7 @@ export async function buildOsfWorkbookBuffer(input: BuildWorkbookInput): Promise
       );
     }
 
-    for (let colIdx = 0; colIdx < sheetDefs.length; colIdx++) {
-      const band = sheetDefs[colIdx]!.band ?? "identity";
-      const colors = BAND_COLORS[band];
-      const excelCol = colIdx + 1;
-      const styleRow = (rowNum: number, fillArgb: string, fontArgb: string, bold: boolean) => {
-        const cell = ws.getRow(rowNum).getCell(excelCol);
-        cell.fill = {
-          type: "pattern",
-          pattern: "solid",
-          fgColor: { argb: `FF${fillArgb}` },
-        };
-        cell.font = { bold, color: { argb: `FF${fontArgb}` }, size: 10 };
-        cell.alignment = { vertical: "middle", wrapText: true };
-      };
-      styleRow(1, colors.section, "000000", true);
-      styleRow(2, colors.header, colors.font, true);
-      const len = Math.max(10, Math.min(28, sheetDefs[colIdx]!.header.length + 2));
-      ws.getColumn(excelCol).width = len;
-    }
-    ws.getRow(1).height = 18;
-    ws.getRow(2).height = 28;
+    applyOsfWorkbookHeaderBands(ws, sheetDefs);
   };
 
   attachSheet("Main", mainDefs, rows);
@@ -533,6 +611,8 @@ export async function buildOsfWorkbookBuffer(input: BuildWorkbookInput): Promise
   const info = wb.addWorksheet(sanitizeSheetName("Info", used));
   info.addRow(["asOfDate", input.asOfDate]);
   info.addRow(["salesMonth", input.salesMonth]);
+  info.addRow(["salesGridMonths", monthKeysInWindow(input.asOfDate).join(",")]);
+  info.addRow(["osfVariant", input.osfVariant ?? "main"]);
   info.addRow(["rows", rows.length]);
   if (input.belowThresholdOnly) {
     info.addRow(["mode", "reorder-only (below threshold %)"]);

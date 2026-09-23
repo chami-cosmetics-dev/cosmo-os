@@ -1,4 +1,5 @@
 import type {
+  AbandonmentReason,
   CustomerResponse,
   CustomerResponseFilterValue,
   FollowUpStatus,
@@ -13,6 +14,12 @@ export type AbandonedOrdersFilters = {
   search?: string;
   page: number;
   limit: number;
+};
+
+export type AbandonedOrdersSameDaySibling = {
+  id: string;
+  abandonedAt: string;
+  lineItemsSummary: string;
 };
 
 export type AbandonedOrdersListItem = {
@@ -34,6 +41,12 @@ export type AbandonedOrdersListItem = {
   followUpStatus: FollowUpStatus;
   customerResponse: CustomerResponse | null;
   remark: string | null;
+  abandonmentReason: AbandonmentReason | null;
+
+  exactDuplicateGroupId: string | null;
+  exactDuplicateCount: number;
+  sameDaySiblingCount: number;
+  sameDaySiblings: AbandonedOrdersSameDaySibling[];
 
   lastFollowUpBy: { id: string; name: string | null; email: string | null } | null;
   lastFollowUpAt: string | null;
@@ -59,4 +72,3 @@ export type AbandonedOrdersPageDataResponse = {
   sync: AbandonedOrdersSyncInfo;
   canManage: boolean;
 };
-

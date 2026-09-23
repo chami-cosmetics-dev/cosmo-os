@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 
 import { PermissionDeniedCard } from "@/components/molecules/permission-denied-card";
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
 import {
@@ -43,6 +44,7 @@ export default async function StickerBatchPage({
   if (!companyId) return <PermissionDeniedCard />;
   const retentionCutoff = getStickerBatchRetentionCutoff();
 
+  const vault = isVaultOsDeployment();
   const [
     suppliers,
     locations,
@@ -100,11 +102,13 @@ export default async function StickerBatchPage({
         where: { id: companyId },
         select: { name: true, address: true },
       }),
-      prisma.nmrApprovedItemCode.findMany({
-        where: { companyId },
-        orderBy: { itemCode: "asc" },
-        select: { itemCode: true },
-      }),
+      vault
+        ? Promise.resolve([] as Array<{ itemCode: string }>)
+        : prisma.nmrApprovedItemCode.findMany({
+            where: { companyId },
+            orderBy: { itemCode: "asc" },
+            select: { itemCode: true },
+          }),
     ]);
 
   // Stickers use live ERP maps; sync helpers write OS ProductItem / OSF ogfPrice.

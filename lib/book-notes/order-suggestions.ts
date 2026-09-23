@@ -1,10 +1,32 @@
 import { Prisma } from "@prisma/client";
 
+import { fetchErpPaymentLegsByInvoice } from "@/lib/book-notes/erp-payment-legs";
 import { resolveBookNoteSalesInvoice } from "@/lib/book-notes/invoice-identity";
-import { mapOrderPaymentsToBookNoteColumns } from "@/lib/book-notes/payment-columns";
+import { mapOrderPaymentsToBookNoteSuggestion } from "@/lib/book-notes/payment-columns";
 import type { BookNoteOrderSuggestion } from "@/lib/book-notes/types";
 import { parseAppCalendarDayStart } from "@/lib/format-datetime";
 import { prisma } from "@/lib/prisma";
+
+const ORDER_SUGGESTION_SELECT = {
+  id: true,
+  name: true,
+  orderNumber: true,
+  shopifyOrderId: true,
+  erpnextInvoiceId: true,
+  totalPrice: true,
+  paymentGatewayPrimary: true,
+  paymentGatewayNames: true,
+  rawPayload: true,
+  sourceName: true,
+  paymentEntries: {
+    select: {
+      paymentType: true,
+      modeOfPayment: true,
+      allocatedAmount: true,
+      amount: true,
+    },
+  },
+} as const;
 
 const POS_SOURCE_BOOST = new Set(["erpnext-pos", "pos", "erpnext"]);
 
@@ -56,18 +78,7 @@ export async function searchBookNoteOrderSuggestions(input: {
     where,
     take: limit * 3,
     orderBy: { createdAt: "desc" },
-    select: {
-      id: true,
-      name: true,
-      orderNumber: true,
-      shopifyOrderId: true,
-      erpnextInvoiceId: true,
-      totalPrice: true,
-      paymentGatewayPrimary: true,
-      paymentGatewayNames: true,
-      rawPayload: true,
-      sourceName: true,
-    },
+    select: ORDER_SUGGESTION_SELECT,
   });
 
   // If date-scoped search is empty, fall back without date so typing still works.
@@ -78,18 +89,7 @@ export async function searchBookNoteOrderSuggestions(input: {
       where: rest,
       take: limit * 3,
       orderBy: { createdAt: "desc" },
-      select: {
-        id: true,
-        name: true,
-        orderNumber: true,
-        shopifyOrderId: true,
-        erpnextInvoiceId: true,
-        totalPrice: true,
-        paymentGatewayPrimary: true,
-        paymentGatewayNames: true,
-        rawPayload: true,
-        sourceName: true,
-      },
+      select: ORDER_SUGGESTION_SELECT,
     });
   }
 
@@ -97,12 +97,14 @@ export async function searchBookNoteOrderSuggestions(input: {
     .map((order) => {
       const salesInvoice = resolveBookNoteSalesInvoice(order);
       if (!salesInvoice) return null;
-      const amounts = mapOrderPaymentsToBookNoteColumns({
+      const mappedPayments = mapOrderPaymentsToBookNoteSuggestion({
         totalPrice: order.totalPrice,
         paymentGatewayPrimary: order.paymentGatewayPrimary,
         paymentGatewayNames: order.paymentGatewayNames,
         rawPayload: order.rawPayload,
+        paymentEntries: order.paymentEntries,
       });
+      const amounts = mappedPayments.columns;
       const totalPrice = Number(order.totalPrice ?? 0);
       return {
         suggestion: {
@@ -116,14 +118,63 @@ export async function searchBookNoteOrderSuggestions(input: {
           bankTransfer: amounts.bankTransfer,
           paymentGatewayPrimary: order.paymentGatewayPrimary,
           sourceName: order.sourceName,
+          splitLines: mappedPayments.splitLines,
         } satisfies BookNoteOrderSuggestion,
         score: scoreOrder(order.sourceName, salesInvoice, q),
       };
     })
     .filter((x): x is NonNullable<typeof x> => x != null)
     .sort((a, b) => b.score - a.score)
-    .slice(0, limit)
-    .map((x) => x.suggestion);
+    .slice(0, limit);
 
-  return mapped;
+  const suggestions = mapped.map((x) => x.suggestion);
+  return hydrateSuggestionsFromErp(input.companyLocationId, suggestions, q);
+}
+
+async function hydrateSuggestionsFromErp(
+  companyLocationId: string,
+  suggestions: BookNoteOrderSuggestion[],
+  q: string,
+): Promise<BookNoteOrderSuggestion[]> {
+  if (suggestions.length === 0) return suggestions;
+  if (q.trim().length < 4) return suggestions;
+
+  const location = await prisma.companyLocation.findFirst({
+    where: { id: companyLocationId },
+    select: {
+      erpnextInstance: {
+        select: { baseUrl: true, apiKey: true, apiSecret: true },
+      },
+    },
+  });
+  const instance = location?.erpnextInstance;
+  if (!instance?.baseUrl || !instance.apiKey || !instance.apiSecret) {
+    return suggestions;
+  }
+
+  const erpLegs = await fetchErpPaymentLegsByInvoice({
+    baseUrl: instance.baseUrl,
+    apiKey: instance.apiKey,
+    apiSecret: instance.apiSecret,
+    invoiceNames: suggestions.map((s) => s.salesInvoice),
+  });
+  if (erpLegs.size === 0) return suggestions;
+
+  return suggestions.map((s) => {
+    const legs = erpLegs.get(s.salesInvoice);
+    if (!legs || legs.length === 0) return s;
+    const mappedPayments = mapOrderPaymentsToBookNoteSuggestion({
+      totalPrice: s.totalPrice,
+      paymentGatewayPrimary: s.paymentGatewayPrimary,
+      paymentEntries: legs,
+    });
+    return {
+      ...s,
+      cash: mappedPayments.columns.cash,
+      card: mappedPayments.columns.card,
+      koko: mappedPayments.columns.koko,
+      bankTransfer: mappedPayments.columns.bankTransfer,
+      splitLines: mappedPayments.splitLines,
+    };
+  });
 }

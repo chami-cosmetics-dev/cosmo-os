@@ -1,17 +1,17 @@
 ---
-description: Action buttons must show loading state and block other actions until complete
-globs: **/*.tsx
+description: Action buttons — loading state, block peers, toast via notify
+globs: app/**/*.tsx,components/**/*.tsx
 alwaysApply: false
 ---
 
-# Action Loading UX Pattern
+# Action Loading UX
 
-When building any feature with user-triggered actions (buttons, form submits, etc.):
+User-triggered actions (buttons, submits):
 
-## 1. Show loading status on the active button
+## 1. Loading on active button
 
-- Display a spinner (e.g. `Loader2` from lucide-react with `className="animate-spin"`)
-- Change button text to describe the action in progress (e.g. "Saving...", "Sending...", "Deleting...")
+- Spinner: `Loader2` + `className="animate-spin"`
+- Button text: progress label (`Saving...`, `Sending...`, `Deleting...`)
 
 ```tsx
 <Button disabled={isBusy}>
@@ -26,11 +26,11 @@ When building any feature with user-triggered actions (buttons, form submits, et
 </Button>
 ```
 
-## 2. Block other actions until complete or fail
+## 2. Block peers until done/fail
 
-- Use a shared `busyKey` or `isBusy` state when any async action is in progress
-- Disable all related inputs, checkboxes, and buttons in the same panel/form when `isBusy`
-- Only re-enable after the action succeeds or fails (in `finally` block)
+- Shared `busyKey` / `isBusy` while async runs
+- Disable related inputs/checkboxes/buttons in same panel when `isBusy`
+- Re-enable in `finally`
 
 ```tsx
 const isBusy = busyKey !== null;
@@ -39,19 +39,19 @@ const isBusy = busyKey !== null;
 <Button disabled={isBusy}>Submit</Button>
 ```
 
-## 3. Implementation checklist
+## 3. Checklist
 
-- [ ] Set `busyKey` (or equivalent) at start of async handler
-- [ ] Clear `busyKey` in `finally` block
-- [ ] Disable all actionable elements when busy
-- [ ] Show spinner + loading text on the button that triggered the action
-- [ ] Use `aria-hidden` on decorative spinners for accessibility
+- [ ] Set `busyKey` at async start
+- [ ] Clear `busyKey` in `finally`
+- [ ] Disable actionable elements when busy
+- [ ] Spinner + loading text on trigger button
+- [ ] `aria-hidden` on decorative spinners
 
-## 4. Show action results via toast notifications
+## 4. Results via toast
 
-- Use `notify` from `@/lib/notify` for all success/error feedback
-- Call `notify.success(message)` on success, `notify.error(message)` on failure
-- Do not use inline message divs or per-component state for action feedback
+- `notify` from `@/lib/notify` for success/error
+- `notify.success(message)` / `notify.error(message)`
+- No inline message divs / per-component feedback state
 
 ```tsx
 import { notify } from "@/lib/notify";

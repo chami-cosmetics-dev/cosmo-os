@@ -2,11 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { getMerchantDisplayName } from "@/lib/customer-insight/auto-allocate";
 import {
-  CALL_QUEUE_STATUS_PENDING,
   completeCallQueueItem,
+  findPendingMerchantCallQueueRow,
 } from "@/lib/customer-insight/call-queue";
 import { markContactInsightContacted } from "@/lib/customer-insight/contacted";
-import { isAllocatedOwner } from "@/lib/customer-insight/ownership";
 import {
   canAccessMerchantDashboard,
   hasMerchantDashboardAdminView,
@@ -80,50 +79,22 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Contact not found" }, { status: 404 });
   }
 
-  const dbUser = await prisma.user.findUnique({
-    where: { id: user.id },
-    select: { couponCodes: true },
-  });
-  const viewer = {
-    knownName: user.knownName ?? null,
-    name: user.name ?? null,
-    email: user.email ?? null,
-    roleNames,
-    couponCodes: dbUser?.couponCodes ?? null,
-    permissionKeys: context.permissionKeys as string[] | undefined,
-  };
-
-  if (!viewerIsAdmin && !isAllocatedOwner(viewer, contact.assignedMerchant)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
-  const creditLabel = getMerchantDisplayName(creditUser);
-  const queueRow = await prisma.contactInsightCallQueue.findFirst({
-    where: {
-      companyId,
-      contactId: contact.id,
-      status: CALL_QUEUE_STATUS_PENDING,
-      OR: [
-        { merchantUserId: creditUser.id },
-        ...(creditLabel
-          ? [
-              {
-                merchantLabel: {
-                  equals: creditLabel,
-                  mode: "insensitive" as const,
-                },
-              },
-            ]
-          : []),
-      ],
-    },
-    select: { id: true },
+  const queueRow = await findPendingMerchantCallQueueRow({
+    companyId,
+    contactId: contact.id,
+    merchant: creditUser,
   });
   if (!queueRow) {
     return NextResponse.json(
       { error: "Contact is not in your assigned call update queue" },
       { status: 404 }
     );
+  }
+
+  // Non-admins may only credit themselves; queue membership is the gate
+  // (import may store MER labels that differ from display-name ownership).
+  if (!viewerIsAdmin && creditUser.id !== user.id) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const result = await markContactInsightContacted({
