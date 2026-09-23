@@ -8,13 +8,15 @@ export const dynamic = "force-dynamic";
 
 const schema = z.object({
   purchaseReceiptName: z.string().min(1).nullable(),
+  companyId: z.string().min(1).optional(),
+  purchaseReceiptCompanyId: z.string().min(1).optional(),
 });
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ name: string }> },
 ) {
-  const auth = await requirePermission("purchasing.grn.read");
+  const auth = await requirePermission("purchasing.grn.match_ssr");
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
@@ -34,9 +36,11 @@ export async function POST(
   const { name } = await params;
   const stockReturnName = decodeURIComponent(name);
   const purchaseReceiptName = parsed.data.purchaseReceiptName;
+  const targetCompanyId = parsed.data.companyId ?? companyId;
+  const purchaseReceiptCompanyId = parsed.data.purchaseReceiptCompanyId ?? targetCompanyId;
 
   const stockReturn = await prisma.grnSupplierStockReturn.findUnique({
-    where: { companyId_name: { companyId, name: stockReturnName } },
+    where: { companyId_name: { companyId: targetCompanyId, name: stockReturnName } },
     select: { docstatus: true },
   });
   if (!stockReturn) {
@@ -48,7 +52,7 @@ export async function POST(
 
   if (purchaseReceiptName) {
     const pr = await prisma.grnPurchaseReceipt.findUnique({
-      where: { companyId_name: { companyId, name: purchaseReceiptName } },
+      where: { companyId_name: { companyId: purchaseReceiptCompanyId, name: purchaseReceiptName } },
       select: { name: true, docstatus: true },
     });
     if (!pr) {
@@ -61,18 +65,19 @@ export async function POST(
 
   await prisma.$transaction([
     prisma.grnPurchaseReceipt.updateMany({
-      where: { companyId, supplierStockReturnName: stockReturnName },
+      where: { supplierStockReturnName: stockReturnName },
       data: { supplierStockReturnName: null },
     }),
     prisma.grnPurchaseReceipt.updateMany({
-      where: { companyId, name: purchaseReceiptName ?? "__none__" },
+      where: { companyId: purchaseReceiptCompanyId, name: purchaseReceiptName ?? "__none__" },
       data: { supplierStockReturnName: stockReturnName },
     }),
     prisma.grnSupplierStockReturn.update({
-      where: { companyId_name: { companyId, name: stockReturnName } },
+      where: { companyId_name: { companyId: targetCompanyId, name: stockReturnName } },
       data: { purchaseReceiptName },
     }),
   ]);
 
   return NextResponse.json({ ok: true });
 }
+
