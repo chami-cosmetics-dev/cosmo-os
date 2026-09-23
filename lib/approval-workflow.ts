@@ -553,7 +553,7 @@ export async function getFinancePaymentApprovalBlockReason(order: {
 }): Promise<string | null> {
   if (!isOrderPaymentRequiresApproval(order)) return null;
 
-  const [splitLines, orderRow] = await Promise.all([
+  const [splitLines, orderRow, approval] = await Promise.all([
     prisma.approvalPaymentLine.findMany({
       where: {
         approvalRequest: { orderId: order.id, type: ORDER_PAYMENT_APPROVAL },
@@ -574,6 +574,7 @@ export async function getFinancePaymentApprovalBlockReason(order: {
         paymentGatewayNames: true,
       },
     }),
+    getOrderPaymentApproval(order.id),
   ]);
 
   if (
@@ -587,6 +588,7 @@ export async function getFinancePaymentApprovalBlockReason(order: {
         orderRow?.kokoLinkTimeConfirmedAt ?? order.kokoLinkTimeConfirmedAt,
       cancelledAt: orderRow?.cancelledAt ?? order.cancelledAt,
       financialStatus: orderRow?.financialStatus ?? order.financialStatus,
+      paymentApprovalStatus: approval?.status,
       hasKokoSplitLeg: splitLines.some((line) => line.paymentMethod === APPROVAL_SPLIT_KOKO),
       hasSplitPaymentPlan: splitLines.length >= 2,
       createdAt: orderRow?.createdAt ?? order.createdAt,
@@ -594,8 +596,6 @@ export async function getFinancePaymentApprovalBlockReason(order: {
   ) {
     return "Confirm KOKO link generated time before continuing. Enter the time shown on the KOKO portal, then confirm.";
   }
-
-  const approval = await getOrderPaymentApproval(order.id);
   if (!approval || approval.status === "pending" || approval.status === "cancelled") {
     return "Finance approval is pending for this order. Please wait for the finance team to approve.";
   }

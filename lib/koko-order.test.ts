@@ -206,6 +206,21 @@ describe("needsKokoLinkTimeConfirm / canEditKokoLinkTime", () => {
     ).toBe(false);
   });
 
+  it("does not need confirm when finance already approved (pre-feature / backlog)", () => {
+    expect(
+      needsKokoLinkTimeConfirm(
+        {
+          sourceName: "erpnext",
+          paymentGatewayPrimary: "Koko",
+          kokoLinkTimeConfirmedAt: null,
+          paymentApprovalStatus: "approved",
+          createdAt: afterCutoff,
+        },
+        cosmo,
+      ),
+    ).toBe(false);
+  });
+
   it("blocks edit after approved payment", () => {
     expect(
       canEditKokoLinkTime(

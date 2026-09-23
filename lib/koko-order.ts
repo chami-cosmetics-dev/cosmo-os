@@ -123,12 +123,15 @@ export function needsKokoLinkTimeConfirm(
     cancelledAt?: Date | string | null;
     financialStatus?: string | null;
     createdAt?: Date | string | null;
+    /** When finance already approved, link-time is not required to proceed. */
+    paymentApprovalStatus?: string | null;
   } & KokoLinkTimeSplitFlags,
   options?: { vaultOs?: boolean },
 ): boolean {
   if (!isKokoLinkTimeCandidate(order, options)) return false;
   if (order.cancelledAt) return false;
   if ((order.financialStatus ?? "").toLowerCase() === "voided") return false;
+  if (order.paymentApprovalStatus === "approved") return false;
   return order.kokoLinkTimeConfirmedAt == null;
 }
 
