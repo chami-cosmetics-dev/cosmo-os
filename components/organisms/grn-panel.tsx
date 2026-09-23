@@ -10,7 +10,10 @@ import {
   FileDown,
   Link2,
   Loader2,
+  Pencil,
+  Plus,
   RefreshCw,
+  Trash2,
   TriangleAlert,
 } from "lucide-react";
 
@@ -55,6 +58,8 @@ type UserRef = {
 };
 
 type PurchaseReceiptRow = {
+  companyId: string;
+  companyName: string;
   name: string;
   erpUrl: string | null;
   adjustmentNo: string | null;
@@ -70,6 +75,7 @@ type PurchaseReceiptRow = {
   valuedBy: UserRef | null;
   receivedAt: string | null;
   receivedBy: UserRef | null;
+  canMarkReceived: boolean;
   itemCount: number;
   items: {
     name: string;
@@ -88,9 +94,29 @@ type PurchaseReceiptRow = {
     prQty: number;
     ssrQty: number;
   }[];
+  purchaseInvoice: {
+    name: string;
+    erpUrl: string | null;
+    postingDate: string | null;
+    docstatus: number | null;
+    status: string | null;
+    items: {
+      name: string;
+      itemCode: string;
+      itemName: string | null;
+      qty: number;
+      rate: number;
+      amount: number;
+      purchaseReceipt: string | null;
+      purchaseReceiptItem: string | null;
+      stockUom: string | null;
+    }[];
+  } | null;
 };
 
 type SupplierStockReturnRow = {
+  companyId: string;
+  companyName: string;
   name: string;
   erpUrl: string | null;
   supplier: string;
@@ -102,6 +128,12 @@ type SupplierStockReturnRow = {
   amendedFrom: string | null;
   canTally: boolean;
   itemCount: number;
+  matchRecommendation: {
+    companyId: string;
+    name: string;
+    percentage: number;
+  } | null;
+  matchReviewStatus: "review" | "waiting" | null;
   items: {
     name: string;
     itemCode: string;
@@ -114,15 +146,27 @@ type SupplierStockReturnRow = {
 type PageData = {
   purchaseReceipts: PurchaseReceiptRow[];
   supplierStockReturns: SupplierStockReturnRow[];
+  intercompanySuppliers: IntercompanySupplierRow[];
+};
+
+type IntercompanySupplierRow = {
+  id: string;
+  supplier: string;
+  supplierName: string | null;
 };
 
 type GrnPanelPermissions = {
+  canMatchSsr: boolean;
   canMarkHandover: boolean;
   canMarkValued: boolean;
   canMarkReceived: boolean;
 };
 
 type GrnStageFilter = "all" | "not_handover" | "not_valued" | "not_received" | "completed" | "cancelled";
+
+const PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
+type PageSize = (typeof PAGE_SIZE_OPTIONS)[number];
+const DEFAULT_PAGE_SIZE: PageSize = 20;
 
 function formatDate(value: string | null) {
   if (!value) return "-";
@@ -150,6 +194,38 @@ function getCurrentMonthRange() {
 
 function userLabel(user: UserRef | null) {
   return user?.name?.trim() || user?.email?.trim() || null;
+}
+
+function buildPriceTallyRows(ssr: SupplierStockReturnRow, pr: PurchaseReceiptRow | null) {
+  if (!pr?.purchaseInvoice) return [];
+
+  const invoiceByItem = new Map<string, { itemName: string | null; qty: number; amount: number; uom: string | null }>();
+  for (const item of pr.purchaseInvoice.items) {
+    const current = invoiceByItem.get(item.itemCode);
+    invoiceByItem.set(item.itemCode, {
+      itemName: current?.itemName ?? item.itemName,
+      qty: (current?.qty ?? 0) + item.qty,
+      amount: (current?.amount ?? 0) + item.amount,
+      uom: current?.uom ?? item.stockUom,
+    });
+  }
+
+  return ssr.items.map((item) => {
+    const invoiceItem = invoiceByItem.get(item.itemCode);
+    const invoiceQty = invoiceItem?.qty ?? 0;
+    const invoiceAmount = invoiceItem?.amount ?? 0;
+    const rate = invoiceQty ? invoiceAmount / invoiceQty : null;
+    return {
+      itemCode: item.itemCode,
+      itemName: item.itemName ?? invoiceItem?.itemName ?? null,
+      ssrQty: item.qty,
+      invoiceQty,
+      rate,
+      amount: rate == null ? null : rate * item.qty,
+      uom: item.stockUom ?? invoiceItem?.uom ?? null,
+      issue: Math.abs(item.qty - invoiceQty) > 0.000001 || rate == null,
+    };
+  });
 }
 
 function GrnStageTimeline({ row }: { row: PurchaseReceiptRow }) {
@@ -214,6 +290,69 @@ function TallyBadge({ row }: { row: PurchaseReceiptRow }) {
   return <span className="text-xs text-muted-foreground">Not linked</span>;
 }
 
+function PaginationControls({
+  page,
+  pageCount,
+  total,
+  pageSize,
+  onPageChange,
+  onPageSizeChange,
+}: {
+  page: number;
+  pageCount: number;
+  total: number;
+  pageSize: PageSize;
+  onPageChange: (page: number) => void;
+  onPageSizeChange: (pageSize: PageSize) => void;
+}) {
+  const start = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const end = Math.min(page * pageSize, total);
+
+  return (
+    <div className="flex flex-col gap-2 border-t bg-background/35 px-4 py-3 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+      <div>
+        Showing {start}-{end} of {total}
+      </div>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <select
+          className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+          value={pageSize}
+          onChange={(event) => onPageSizeChange(Number(event.target.value) as PageSize)}
+        >
+          {PAGE_SIZE_OPTIONS.map((option) => (
+            <option key={option} value={option}>
+              {option} / page
+            </option>
+          ))}
+        </select>
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={page <= 1}
+            onClick={() => onPageChange(Math.max(1, page - 1))}
+          >
+            Previous
+          </Button>
+          <span className="min-w-20 text-center">
+            Page {page} of {pageCount}
+          </span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={page >= pageCount}
+            onClick={() => onPageChange(Math.min(pageCount, page + 1))}
+          >
+            Next
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PurchaseReceiptPicker({
   value,
   disabled,
@@ -226,7 +365,7 @@ function PurchaseReceiptPicker({
   onChange: (value: string) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const selected = purchaseReceipts.find((row) => row.name === value) ?? null;
+  const selected = purchaseReceipts.find((row) => `${row.companyId}:${row.name}` === value) ?? null;
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -244,7 +383,7 @@ function PurchaseReceiptPicker({
               <>
                 <span className="block truncate font-medium">{selected.name}</span>
                 <span className="block truncate text-xs text-muted-foreground">
-                  {selected.supplierName ?? selected.supplier}
+                  {selected.supplierName ?? selected.supplier} - {selected.companyName}
                 </span>
               </>
             ) : (
@@ -271,17 +410,17 @@ function PurchaseReceiptPicker({
               </CommandItem>
               {purchaseReceipts.map((pr) => (
                 <CommandItem
-                  key={pr.name}
-                  value={[pr.name, pr.supplier, pr.supplierName, pr.grnBy].filter(Boolean).join(" ")}
+                  key={`${pr.companyId}:${pr.name}`}
+                  value={[pr.name, pr.supplier, pr.supplierName, pr.grnBy, pr.companyName].filter(Boolean).join(" ")}
                   onSelect={() => {
-                    onChange(pr.name);
+                    onChange(`${pr.companyId}:${pr.name}`);
                     setOpen(false);
                   }}
                 >
                   <div className="min-w-0">
                     <div className="truncate font-medium">{pr.name}</div>
                     <div className="truncate text-xs text-muted-foreground">
-                      {pr.supplierName ?? pr.supplier}
+                      {pr.supplierName ?? pr.supplier} - {pr.companyName}
                     </div>
                   </div>
                 </CommandItem>
@@ -294,17 +433,27 @@ function PurchaseReceiptPicker({
   );
 }
 export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) {
-  const [data, setData] = useState<PageData>({ purchaseReceipts: [], supplierStockReturns: [] });
+  const [data, setData] = useState<PageData>({
+    purchaseReceipts: [],
+    supplierStockReturns: [],
+    intercompanySuppliers: [],
+  });
   const [loading, setLoading] = useState(true);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [ssrSearch, setSsrSearch] = useState("");
   const [stageFilter, setStageFilter] = useState<GrnStageFilter>("all");
   const [activeTab, setActiveTab] = useState("grn");
+  const [prPage, setPrPage] = useState(1);
+  const [ssrPage, setSsrPage] = useState(1);
+  const [prPageSize, setPrPageSize] = useState<PageSize>(DEFAULT_PAGE_SIZE);
+  const [ssrPageSize, setSsrPageSize] = useState<PageSize>(DEFAULT_PAGE_SIZE);
   const [dateRange, setDateRange] = useState(() => getCurrentMonthRange());
   const [selectedPrBySsr, setSelectedPrBySsr] = useState<Record<string, string>>({});
   const [selectedPr, setSelectedPr] = useState<PurchaseReceiptRow | null>(null);
   const [selectedSsr, setSelectedSsr] = useState<SupplierStockReturnRow | null>(null);
+  const [supplierDialogOpen, setSupplierDialogOpen] = useState(false);
+  const [supplierForm, setSupplierForm] = useState({ id: "", supplier: "", supplierName: "" });
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -318,10 +467,20 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
         throw new Error(body.error || "Failed to load GRN data");
       }
       const json = (await res.json()) as PageData;
+      const purchaseReceiptKeyByName = new Map(
+        json.purchaseReceipts.map((row) => [row.name, `${row.companyId}:${row.name}`]),
+      );
       setData(json);
       setSelectedPrBySsr(
         Object.fromEntries(
-          json.supplierStockReturns.map((row) => [row.name, row.purchaseReceiptName ?? ""]),
+          json.supplierStockReturns.map((row) => [
+            `${row.companyId}:${row.name}`,
+            row.purchaseReceiptName
+              ? purchaseReceiptKeyByName.get(row.purchaseReceiptName) ?? row.purchaseReceiptName
+              : row.matchRecommendation
+                ? `${row.matchRecommendation.companyId}:${row.matchRecommendation.name}`
+                : "",
+          ]),
         ),
       );
     } catch (error) {
@@ -340,8 +499,23 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
     [data.purchaseReceipts],
   );
 
+  const intercompanySupplierSet = useMemo(
+    () => new Set(data.intercompanySuppliers.map((row) => row.supplier)),
+    [data.intercompanySuppliers],
+  );
+
+  const activeIntercompanyPurchaseReceipts = useMemo(
+    () => activePurchaseReceipts.filter((row) => intercompanySupplierSet.has(row.supplier)),
+    [activePurchaseReceipts, intercompanySupplierSet],
+  );
+
   const purchaseReceiptByName = useMemo(
     () => new Map(data.purchaseReceipts.map((row) => [row.name, row])),
+    [data.purchaseReceipts],
+  );
+
+  const purchaseReceiptByKey = useMemo(
+    () => new Map(data.purchaseReceipts.map((row) => [`${row.companyId}:${row.name}`, row])),
     [data.purchaseReceipts],
   );
 
@@ -349,7 +523,10 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
     ? purchaseReceiptByName.get(selectedSsr.purchaseReceiptName) ?? null
     : null;
 
-  const filteredPrs = useMemo(() => {
+    const selectedSsrPriceRows = selectedSsr
+    ? buildPriceTallyRows(selectedSsr, selectedSsrPurchaseReceipt)
+    : [];
+const filteredPrs = useMemo(() => {
     const term = search.trim().toLowerCase();
     return data.purchaseReceipts.filter((row) => {
       const matchesStage =
@@ -361,7 +538,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
         (stageFilter === "cancelled" && row.docstatus === 2);
       if (!matchesStage) return false;
       if (!term) return true;
-      return [row.name, row.adjustmentNo, row.supplier, row.supplierName, row.grnBy]
+      return [row.name, row.adjustmentNo, row.supplier, row.supplierName, row.grnBy, row.companyName]
         .filter(Boolean)
         .some((value) => value!.toLowerCase().includes(term));
     });
@@ -369,24 +546,54 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
 
   const filteredSsrs = useMemo(() => {
     const term = ssrSearch.trim().toLowerCase();
-    if (!term) return data.supplierStockReturns;
-    return data.supplierStockReturns.filter((row) =>
-      [row.name, row.supplier, row.purchaseReceiptName, row.owner]
+    const reviewRows = data.supplierStockReturns.filter(
+      (row) => row.docstatus !== 2 && !row.purchaseReceiptName && intercompanySupplierSet.has(row.supplier),
+    );
+    if (!term) return reviewRows;
+    return reviewRows.filter((row) =>
+      [row.name, row.supplier, row.purchaseReceiptName, row.owner, row.companyName, row.matchRecommendation?.name]
         .filter(Boolean)
         .some((value) => value!.toLowerCase().includes(term)),
     );
-  }, [data.supplierStockReturns, ssrSearch]);
+  }, [data.supplierStockReturns, intercompanySupplierSet, ssrSearch]);
 
-  async function mark(name: string, field: "handoverAt" | "valuedAt" | "receivedAt") {
-    const key = `${name}:${field}`;
+  const prPageCount = Math.max(1, Math.ceil(filteredPrs.length / prPageSize));
+  const ssrPageCount = Math.max(1, Math.ceil(filteredSsrs.length / ssrPageSize));
+  const paginatedPrs = useMemo(
+    () => filteredPrs.slice((prPage - 1) * prPageSize, prPage * prPageSize),
+    [filteredPrs, prPage, prPageSize],
+  );
+  const paginatedSsrs = useMemo(
+    () => filteredSsrs.slice((ssrPage - 1) * ssrPageSize, ssrPage * ssrPageSize),
+    [filteredSsrs, ssrPage, ssrPageSize],
+  );
+
+  useEffect(() => {
+    setPrPage(1);
+  }, [search, stageFilter, dateRange.from, dateRange.to, prPageSize]);
+
+  useEffect(() => {
+    setSsrPage(1);
+  }, [ssrSearch, dateRange.from, dateRange.to, ssrPageSize]);
+
+  useEffect(() => {
+    if (prPage > prPageCount) setPrPage(prPageCount);
+  }, [prPage, prPageCount]);
+
+  useEffect(() => {
+    if (ssrPage > ssrPageCount) setSsrPage(ssrPageCount);
+  }, [ssrPage, ssrPageCount]);
+
+  async function mark(row: PurchaseReceiptRow, field: "handoverAt" | "valuedAt" | "receivedAt") {
+    const key = `${row.companyId}:${row.name}:${field}`;
     setBusyKey(key);
     try {
       const res = await fetch(
-        `/api/admin/purchasing/grn/purchase-receipts/${encodeURIComponent(name)}/mark`,
+        `/api/admin/purchasing/grn/purchase-receipts/${encodeURIComponent(row.name)}/mark`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ field }),
+          body: JSON.stringify({ field, companyId: row.companyId }),
         },
       );
       if (!res.ok) {
@@ -401,20 +608,24 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
     }
   }
 
-  async function linkSsr(ssrName: string) {
+  async function linkSsr(row: SupplierStockReturnRow) {
     if (!permissions.canMatchSsr) {
       notify.error("You do not have permission to match SSRs");
       return;
     }
-    const purchaseReceiptName = selectedPrBySsr[ssrName] || null;
-    setBusyKey(`link:${ssrName}`);
+    const key = `${row.companyId}:${row.name}`;
+    const selectedPrKey = selectedPrBySsr[key] || "";
+    const separatorIndex = selectedPrKey.indexOf(":");
+    const purchaseReceiptCompanyId = separatorIndex >= 0 ? selectedPrKey.slice(0, separatorIndex) : undefined;
+    const purchaseReceiptName = separatorIndex >= 0 ? selectedPrKey.slice(separatorIndex + 1) : selectedPrKey || null;
+    setBusyKey(`link:${key}`);
     try {
       const res = await fetch(
-        `/api/admin/purchasing/grn/supplier-stock-returns/${encodeURIComponent(ssrName)}/link`,
+        `/api/admin/purchasing/grn/supplier-stock-returns/${encodeURIComponent(row.name)}/link`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ purchaseReceiptName }),
+          body: JSON.stringify({ purchaseReceiptName, companyId: row.companyId, purchaseReceiptCompanyId }),
         },
       );
       if (!res.ok) {
@@ -424,6 +635,66 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
       await loadData();
     } catch (error) {
       notify.error(error instanceof Error ? error.message : "Failed to link SSR");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function saveIntercompanySupplier() {
+    if (!permissions.canMatchSsr) {
+      notify.error("You do not have permission to manage matching suppliers");
+      return;
+    }
+    const supplier = supplierForm.supplier.trim();
+    if (!supplier) {
+      notify.error("Enter a supplier id");
+      return;
+    }
+    const editing = Boolean(supplierForm.id);
+    setBusyKey(editing ? `supplier:${supplierForm.id}` : "supplier:new");
+    try {
+      const res = await fetch(
+        editing
+          ? `/api/admin/purchasing/grn/intercompany-suppliers/${encodeURIComponent(supplierForm.id)}`
+          : "/api/admin/purchasing/grn/intercompany-suppliers",
+        {
+          method: editing ? "PATCH" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ supplier, supplierName: supplierForm.supplierName }),
+        },
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || "Failed to save supplier");
+      }
+      setSupplierForm({ id: "", supplier: "", supplierName: "" });
+      await loadData();
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : "Failed to save supplier");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function deleteIntercompanySupplier(row: IntercompanySupplierRow) {
+    if (!permissions.canMatchSsr) {
+      notify.error("You do not have permission to manage matching suppliers");
+      return;
+    }
+    setBusyKey(`supplier:${row.id}`);
+    try {
+      const res = await fetch(
+        `/api/admin/purchasing/grn/intercompany-suppliers/${encodeURIComponent(row.id)}`,
+        { method: "DELETE" },
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || "Failed to delete supplier");
+      }
+      if (supplierForm.id === row.id) setSupplierForm({ id: "", supplier: "", supplierName: "" });
+      await loadData();
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : "Failed to delete supplier");
     } finally {
       setBusyKey(null);
     }
@@ -538,8 +809,8 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                   </TableCell>
                 </TableRow>
               ) : (
-                filteredPrs.map((row) => (
-                  <TableRow key={row.name} className="cursor-pointer" onClick={() => setSelectedPr(row)}>
+                paginatedPrs.map((row) => (
+                  <TableRow key={`${row.companyId}:${row.name}`} className="cursor-pointer" onClick={() => setSelectedPr(row)}>
                     <TableCell className="font-medium">
                       <button
                         type="button"
@@ -572,10 +843,10 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                         <Button
                           size="sm"
                           variant="outline"
-                          disabled={row.docstatus === 2 || busyKey === `${row.name}:handoverAt`}
+                          disabled={row.docstatus === 2 || busyKey === `${row.companyId}:${row.name}:handoverAt`}
                           onClick={(event) => {
                             event.stopPropagation();
-                            mark(row.name, "handoverAt");
+                            mark(row, "handoverAt");
                           }}
                         >
                           Mark
@@ -591,10 +862,10 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                         <Button
                           size="sm"
                           variant="outline"
-                          disabled={row.docstatus === 2 || !row.handoverAt || busyKey === `${row.name}:valuedAt`}
+                          disabled={row.docstatus === 2 || !row.handoverAt || busyKey === `${row.companyId}:${row.name}:valuedAt`}
                           onClick={(event) => {
                             event.stopPropagation();
-                            mark(row.name, "valuedAt");
+                            mark(row, "valuedAt");
                           }}
                         >
                           Mark
@@ -610,10 +881,10 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                         <Button
                           size="sm"
                           variant="outline"
-                          disabled={row.docstatus === 2 || !row.handoverAt || !row.valuedAt || busyKey === `${row.name}:receivedAt`}
+                          disabled={row.docstatus === 2 || !row.handoverAt || !row.valuedAt || busyKey === `${row.companyId}:${row.name}:receivedAt`}
                           onClick={(event) => {
                             event.stopPropagation();
-                            mark(row.name, "receivedAt");
+                            mark(row, "receivedAt");
                           }}
                         >
                           Mark
@@ -630,18 +901,34 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
               )}
             </TableBody>
           </Table>
+          <PaginationControls
+            page={prPage}
+            pageCount={prPageCount}
+            total={filteredPrs.length}
+            pageSize={prPageSize}
+            onPageChange={setPrPage}
+            onPageSizeChange={setPrPageSize}
+          />
           </div>
         </TabsContent>
 
         <TabsContent value="ssr" className="space-y-4 rounded-lg border bg-card/60 p-4 md:p-6">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <h2 className="text-lg font-semibold">Supplier stock return matching</h2>
-            <Input
-              className="sm:w-72"
-              placeholder="Search SSR, supplier, PR"
-              value={ssrSearch}
-              onChange={(event) => setSsrSearch(event.target.value)}
-            />
+            <h2 className="text-lg font-semibold">SSR review queue</h2>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <Input
+                className="sm:w-72"
+                placeholder="Search SSR, supplier, PR"
+                value={ssrSearch}
+                onChange={(event) => setSsrSearch(event.target.value)}
+              />
+              {permissions.canMatchSsr && (
+                <Button type="button" variant="outline" onClick={() => setSupplierDialogOpen(true)}>
+                  <Plus className="size-4" />
+                  Intercompany suppliers
+                </Button>
+              )}
+            </div>
           </div>
         <div className="overflow-hidden rounded-lg border bg-background/45">
           <Table>
@@ -651,25 +938,27 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                 <TableHead>Return Date</TableHead>
                 <TableHead>Supplier</TableHead>
                 <TableHead>Details</TableHead>
+                <TableHead>Suggested PR</TableHead>
+                <TableHead>Match</TableHead>
                 <TableHead>Purchase Receipt</TableHead>
-                <TableHead>Tally</TableHead>
                 <TableHead className="w-24">Link</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {filteredSsrs.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
-                    No supplier stock returns found.
+                  <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
+                    No supplier stock returns waiting for review.
                   </TableCell>
                 </TableRow>
               ) : (
-                filteredSsrs.map((row) => {
-                  const linkedPr = row.purchaseReceiptName
-                    ? purchaseReceiptByName.get(row.purchaseReceiptName) ?? null
+                paginatedSsrs.map((row) => {
+                  const rowKey = `${row.companyId}:${row.name}`;
+                  const suggestedPr = row.matchRecommendation
+                    ? purchaseReceiptByKey.get(`${row.matchRecommendation.companyId}:${row.matchRecommendation.name}`) ?? null
                     : null;
                   return (
-                  <TableRow key={row.name} className="cursor-pointer" onClick={() => setSelectedSsr(row)}>
+                  <TableRow key={rowKey} className="cursor-pointer" onClick={() => setSelectedSsr(row)}>
                     <TableCell className="font-medium">
                       <button
                         type="button"
@@ -702,27 +991,57 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                         View
                       </Button>
                     </TableCell>
+                    <TableCell>
+                      {suggestedPr ? (
+                        <button
+                          type="button"
+                          className="text-left text-primary underline-offset-4 hover:underline"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setSelectedPr(suggestedPr);
+                          }}
+                        >
+                          <span className="block font-medium">{suggestedPr.name}</span>
+                          <span className="block text-xs text-muted-foreground">
+                            {suggestedPr.supplierName ?? suggestedPr.supplier}
+                          </span>
+                        </button>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">Waiting</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {row.matchRecommendation ? (
+                        <div>
+                          <div className="font-medium">{row.matchRecommendation.percentage.toFixed(2)}%</div>
+                          <div className="text-xs text-muted-foreground">
+                            {row.matchReviewStatus === "review" ? "Review" : "Waiting"}
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">No candidate</span>
+                      )}
+                    </TableCell>
                     <TableCell onClick={(event) => event.stopPropagation()}>
                       <PurchaseReceiptPicker
-                        value={selectedPrBySsr[row.name] ?? ""}
+                        value={selectedPrBySsr[rowKey] ?? ""}
                         disabled={row.docstatus === 2}
-                        purchaseReceipts={activePurchaseReceipts}
+                        purchaseReceipts={activeIntercompanyPurchaseReceipts}
                         onChange={(value) =>
                           setSelectedPrBySsr((prev) => ({
                             ...prev,
-                            [row.name]: value,
+                            [rowKey]: value,
                           }))
                         }
                       />
                     </TableCell>
-                    <TableCell>{linkedPr ? <TallyBadge row={linkedPr} /> : <span className="text-xs text-muted-foreground">Not linked</span>}</TableCell>
                     <TableCell>
                       <Button
                         size="sm"
-                        disabled={row.docstatus === 2 || !permissions.canMatchSsr || busyKey === `link:${row.name}`}
+                        disabled={row.docstatus === 2 || !permissions.canMatchSsr || busyKey === `link:${rowKey}`}
                         onClick={(event) => {
                           event.stopPropagation();
-                          linkSsr(row.name);
+                          linkSsr(row);
                         }}
                       >
                         <Link2 className="size-4" />
@@ -735,10 +1054,117 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
               )}
             </TableBody>
           </Table>
+          <PaginationControls
+            page={ssrPage}
+            pageCount={ssrPageCount}
+            total={filteredSsrs.length}
+            pageSize={ssrPageSize}
+            onPageChange={setSsrPage}
+            onPageSizeChange={setSsrPageSize}
+          />
         </div>
         </TabsContent>
       </Tabs>
 
+      <Dialog open={supplierDialogOpen} onOpenChange={setSupplierDialogOpen}>
+        <DialogContent className="flex max-h-[85vh] max-w-3xl flex-col overflow-hidden">
+          <DialogHeader>
+            <DialogTitle>Intercompany suppliers</DialogTitle>
+            <DialogDescription>
+              These suppliers narrow which PRs and SSRs enter automated matching.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-2 md:grid-cols-[1fr_1fr_auto]">
+            <Input
+              placeholder="Supplier id"
+              value={supplierForm.supplier}
+              onChange={(event) =>
+                setSupplierForm((current) => ({ ...current, supplier: event.target.value }))
+              }
+            />
+            <Input
+              placeholder="Supplier name"
+              value={supplierForm.supplierName}
+              onChange={(event) =>
+                setSupplierForm((current) => ({ ...current, supplierName: event.target.value }))
+              }
+            />
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                onClick={saveIntercompanySupplier}
+                disabled={busyKey === "supplier:new" || (supplierForm.id ? busyKey === `supplier:${supplierForm.id}` : false)}
+              >
+                {supplierForm.id ? <Pencil className="size-4" /> : <Plus className="size-4" />}
+                {supplierForm.id ? "Update" : "Add"}
+              </Button>
+              {supplierForm.id && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setSupplierForm({ id: "", supplier: "", supplierName: "" })}
+                >
+                  Cancel
+                </Button>
+              )}
+            </div>
+          </div>
+          <div className="overflow-auto rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Supplier</TableHead>
+                  <TableHead>Supplier Name</TableHead>
+                  <TableHead className="w-28 text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {data.intercompanySuppliers.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={3} className="h-16 text-center text-muted-foreground">
+                      No intercompany suppliers added.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  data.intercompanySuppliers.map((row) => (
+                    <TableRow key={row.id}>
+                      <TableCell className="font-medium">{row.supplier}</TableCell>
+                      <TableCell>{row.supplierName ?? "-"}</TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-2">
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="outline"
+                            onClick={() =>
+                              setSupplierForm({
+                                id: row.id,
+                                supplier: row.supplier,
+                                supplierName: row.supplierName ?? "",
+                              })
+                            }
+                          >
+                            <Pencil className="size-4" />
+                          </Button>
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="outline"
+                            disabled={busyKey === `supplier:${row.id}`}
+                            onClick={() => deleteIntercompanySupplier(row)}
+                          >
+                            <Trash2 className="size-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </DialogContent>
+      </Dialog>
       <Dialog open={Boolean(selectedPr)} onOpenChange={(open) => !open && setSelectedPr(null)}>
         <DialogContent className="flex max-h-[85vh] max-w-4xl flex-col overflow-hidden border-border/70 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_94%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))]">
           <DialogHeader>
@@ -899,7 +1325,69 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
               </div>
             </div>
           )}
-          <div className="overflow-auto rounded-lg border bg-background/60">
+          {selectedSsrPurchaseReceipt && (
+            <div className="rounded-lg border bg-background/50 p-3">
+              <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <div className="text-sm font-semibold">Purchase invoice price tally</div>
+                  <div className="text-xs text-muted-foreground">
+                    {selectedSsrPurchaseReceipt.purchaseInvoice
+                      ? `${selectedSsrPurchaseReceipt.purchaseInvoice.name} - ${formatDate(selectedSsrPurchaseReceipt.purchaseInvoice.postingDate)}`
+                      : "No linked purchase invoice stored yet."}
+                  </div>
+                </div>
+                {selectedSsrPurchaseReceipt.purchaseInvoice?.erpUrl && (
+                  <a
+                    href={selectedSsrPurchaseReceipt.purchaseInvoice.erpUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex w-fit items-center gap-2 text-sm text-primary hover:underline"
+                  >
+                    <ExternalLink className="size-4" />
+                    Open PI in ERP
+                  </a>
+                )}
+              </div>
+              {selectedSsrPurchaseReceipt.purchaseInvoice && (
+                <div className="overflow-auto rounded-md border bg-background/70">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>SKU</TableHead>
+                        <TableHead>Item Name</TableHead>
+                        <TableHead className="text-right">SSR Qty</TableHead>
+                        <TableHead className="text-right">PI Qty</TableHead>
+                        <TableHead className="text-right">Rate</TableHead>
+                        <TableHead className="text-right">SSR Value</TableHead>
+                        <TableHead>UOM</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {selectedSsrPriceRows.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={7} className="h-16 text-center text-muted-foreground">
+                            No price rows found.
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        selectedSsrPriceRows.map((item) => (
+                          <TableRow key={item.itemCode} className={item.issue ? "bg-amber-500/10" : undefined}>
+                            <TableCell className="font-medium">{item.itemCode}</TableCell>
+                            <TableCell>{item.itemName ?? "-"}</TableCell>
+                            <TableCell className="text-right">{item.ssrQty}</TableCell>
+                            <TableCell className="text-right">{item.invoiceQty}</TableCell>
+                            <TableCell className="text-right">{item.rate == null ? "-" : item.rate.toFixed(2)}</TableCell>
+                            <TableCell className="text-right">{item.amount == null ? "-" : item.amount.toFixed(2)}</TableCell>
+                            <TableCell>{item.uom ?? "-"}</TableCell>
+                          </TableRow>
+                        ))
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </div>
+          )}          <div className="overflow-auto rounded-lg border bg-background/60">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -933,6 +1421,17 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
       </Dialog>    </div>
   );
 }
+
+
+
+
+
+
+
+
+
+
+
 
 
 

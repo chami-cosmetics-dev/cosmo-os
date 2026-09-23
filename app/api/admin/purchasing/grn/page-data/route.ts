@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { tallyLinkedItems } from "@/lib/grn";
+import { autoMatchIntercompanyGrn, bestGrnMatchForStockReturn, tallyLinkedItems } from "@/lib/grn";
 import { prisma } from "@/lib/prisma";
-import { getCurrentUserContext, requirePermission } from "@/lib/rbac";
+import { getCurrentUserContext, hasPermission, requirePermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
@@ -95,19 +95,27 @@ export async function GET(request: NextRequest) {
   }
 
   const context = await getCurrentUserContext();
-  const companyId = context?.user?.companyId;
-  if (!companyId) {
+  const userCompanyId = context?.user?.companyId;
+  if (!userCompanyId) {
     return NextResponse.json({ error: "No company associated with your account" }, { status: 404 });
   }
+  const shouldScopeToUserCompany =
+    hasPermission(context, "purchasing.grn.mark_received") &&
+    !hasPermission(context, "purchasing.grn.mark_handover") &&
+    !hasPermission(context, "purchasing.grn.mark_valued") &&
+    !hasPermission(context, "purchasing.grn.match_ssr");
+  const companyScope = shouldScopeToUserCompany ? { companyId: userCompanyId } : {};
 
   const from = parseDateParam(request.nextUrl.searchParams.get("from"));
   const to = parseDateParam(request.nextUrl.searchParams.get("to"), true);
   const dateFilter = from || to ? { gte: from ?? undefined, lte: to ?? undefined } : undefined;
 
-  const [purchaseReceipts, stockReturns] = await Promise.all([
+  await autoMatchIntercompanyGrn();
+
+  const [purchaseReceipts, stockReturns, intercompanySuppliers] = await Promise.all([
     prisma.grnPurchaseReceipt.findMany({
       where: {
-        companyId,
+        ...companyScope,
         ...(dateFilter
           ? {
               OR: [
@@ -124,8 +132,15 @@ export async function GET(request: NextRequest) {
         handoverBy: { select: { id: true, name: true, email: true } },
         valuedBy: { select: { id: true, name: true, email: true } },
         receivedBy: { select: { id: true, name: true, email: true } },
+        purchaseInvoices: {
+          where: { docstatus: { not: 2 } },
+          orderBy: [{ postingDate: "desc" }, { createdAt: "desc" }],
+          take: 1,
+          include: { items: true },
+        },
         company: {
           select: {
+            name: true,
             locations: {
               where: { erpnextCompany: { not: null } },
               select: {
@@ -139,7 +154,7 @@ export async function GET(request: NextRequest) {
     }),
     prisma.grnSupplierStockReturn.findMany({
       where: {
-        companyId,
+        ...companyScope,
         ...(dateFilter
           ? {
               OR: [
@@ -155,6 +170,7 @@ export async function GET(request: NextRequest) {
         items: true,
         company: {
           select: {
+            name: true,
             locations: {
               where: { erpnextCompany: { not: null } },
               select: {
@@ -166,11 +182,21 @@ export async function GET(request: NextRequest) {
         },
       },
     }),
+    prisma.grnIntercompanySupplier.findMany({
+      orderBy: [{ supplier: "asc" }],
+    }),
   ]);
 
+  const intercompanySupplierCodes = new Set(intercompanySuppliers.map((row) => row.supplier));
   const stockReturnByName = new Map(stockReturns.map((row) => [row.name, row]));
   const activePurchaseReceiptNames = new Set(
     purchaseReceipts.filter((row) => row.docstatus !== 2).map((row) => row.name),
+  );
+  const activeIntercompanyPurchaseReceipts = purchaseReceipts.filter(
+    (row) =>
+      row.docstatus !== 2 &&
+      !row.supplierStockReturnName &&
+      intercompanySupplierCodes.has(row.supplier),
   );
 
   return NextResponse.json({
@@ -183,7 +209,10 @@ export async function GET(request: NextRequest) {
         ? tallyLinkedItems(row.items, activeLinked.items)
         : { status: "not_linked" as const, issueItems: [] };
       const tallyIssues = activeLinked ? buildTallyIssues(row.items, activeLinked.items) : [];
+      const purchaseInvoice = row.purchaseInvoices[0] ?? null;
       return {
+        companyId: row.companyId,
+        companyName: row.company.name,
         name: row.name,
         erpUrl: erpDocUrl(
           erpBaseUrlForPayload(row.rawPayload, row.company.locations),
@@ -202,6 +231,7 @@ export async function GET(request: NextRequest) {
         valuedBy: row.valuedBy,
         receivedAt: iso(row.receivedAt),
         receivedBy: row.receivedBy,
+        canMarkReceived: true,
         status: row.status,
         docstatus: row.docstatus,
         itemCount: row.items.length,
@@ -217,31 +247,74 @@ export async function GET(request: NextRequest) {
         tallyStatus: tally.status,
         tallyIssueItems: tally.issueItems,
         tallyIssues,
+        purchaseInvoice: purchaseInvoice
+          ? {
+              name: purchaseInvoice.name,
+              erpUrl: erpDocUrl(
+                erpBaseUrlForPayload(purchaseInvoice.rawPayload, row.company.locations),
+                "purchase-invoice",
+                purchaseInvoice.name,
+              ),
+              postingDate: iso(purchaseInvoice.postingDate),
+              docstatus: purchaseInvoice.docstatus,
+              status: purchaseInvoice.status,
+              items: purchaseInvoice.items.map((item) => ({
+                name: item.name,
+                itemCode: item.itemCode,
+                itemName: item.itemName,
+                qty: Number(item.qty),
+                rate: Number(item.rate),
+                amount: Number(item.amount),
+                purchaseReceipt: item.purchaseReceipt,
+                purchaseReceiptItem: item.purchaseReceiptItem,
+                stockUom: item.stockUom,
+              })),
+            }
+          : null,
       };
     }),
-    supplierStockReturns: stockReturns.map((row) => ({
-      name: row.name,
-      erpUrl: erpDocUrl(
-        erpBaseUrlForPayload(row.rawPayload, row.company.locations),
-        "supplier-stock-return",
-        row.name,
-      ),
+    supplierStockReturns: stockReturns.map((row) => {
+      const recommendation =
+        row.docstatus !== 2 && !row.purchaseReceiptName && intercompanySupplierCodes.has(row.supplier)
+          ? bestGrnMatchForStockReturn(row, activeIntercompanyPurchaseReceipts)
+          : null;
+      return {
+        companyId: row.companyId,
+        companyName: row.company.name,
+        name: row.name,
+        erpUrl: erpDocUrl(
+          erpBaseUrlForPayload(row.rawPayload, row.company.locations),
+          "supplier-stock-return",
+          row.name,
+        ),
+        supplier: row.supplier,
+        returnDate: iso(row.returnDate),
+        docstatus: row.docstatus,
+        owner: row.owner,
+        creation: iso(row.creation),
+        amendedFrom: row.amendedFrom,
+        purchaseReceiptName: row.purchaseReceiptName,
+        canTally: row.docstatus !== 2 && (!row.purchaseReceiptName || activePurchaseReceiptNames.has(row.purchaseReceiptName)),
+        itemCount: row.items.length,
+        matchRecommendation: recommendation,
+        matchReviewStatus: recommendation
+          ? recommendation.percentage > 90
+            ? "review"
+            : "waiting"
+          : null,
+        items: row.items.map((item) => ({
+          name: item.name,
+          itemCode: item.itemCode,
+          itemName: item.itemName,
+          qty: Number(item.qty),
+          stockUom: item.stockUom,
+        })),
+      };
+    }),
+    intercompanySuppliers: intercompanySuppliers.map((row) => ({
+      id: row.id,
       supplier: row.supplier,
-      returnDate: iso(row.returnDate),
-      docstatus: row.docstatus,
-      owner: row.owner,
-      creation: iso(row.creation),
-      amendedFrom: row.amendedFrom,
-      purchaseReceiptName: row.purchaseReceiptName,
-      canTally: row.docstatus !== 2 && (!row.purchaseReceiptName || activePurchaseReceiptNames.has(row.purchaseReceiptName)),
-      itemCount: row.items.length,
-      items: row.items.map((item) => ({
-        name: item.name,
-        itemCode: item.itemCode,
-        itemName: item.itemName,
-        qty: Number(item.qty),
-        stockUom: item.stockUom,
-      })),
+      supplierName: row.supplierName,
     })),
   });
 }

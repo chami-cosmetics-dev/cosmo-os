@@ -8,6 +8,7 @@ export const dynamic = "force-dynamic";
 
 const schema = z.object({
   field: z.enum(["handoverAt", "valuedAt", "receivedAt"]),
+  companyId: z.string().min(1).optional(),
 });
 
 const FIELD_PERMISSIONS: Record<z.infer<typeof schema>["field"], string> = {
@@ -46,8 +47,10 @@ export async function POST(
 
   const { name } = await params;
   const decodedName = decodeURIComponent(name);
+  const targetCompanyId = parsed.data.companyId ?? companyId;
+
   const row = await prisma.grnPurchaseReceipt.findUnique({
-    where: { companyId_name: { companyId, name: decodedName } },
+    where: { companyId_name: { companyId: targetCompanyId, name: decodedName } },
     select: { docstatus: true, handoverAt: true, valuedAt: true },
   });
 
@@ -65,7 +68,7 @@ export async function POST(
   }
 
   await prisma.grnPurchaseReceipt.update({
-    where: { companyId_name: { companyId, name: decodedName } },
+    where: { companyId_name: { companyId: targetCompanyId, name: decodedName } },
     data: {
       [parsed.data.field]: new Date(),
       [FIELD_ACTOR_COLUMNS[parsed.data.field]]: user.id,

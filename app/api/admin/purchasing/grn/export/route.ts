@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 
 import { prisma } from "@/lib/prisma";
-import { getCurrentUserContext, requirePermission } from "@/lib/rbac";
+import { getCurrentUserContext, hasPermission, requirePermission } from "@/lib/rbac";
 
 /* eslint-disable @typescript-eslint/no-require-imports */
 const pdfMake = require("pdfmake") as {
@@ -79,11 +79,11 @@ function exportRows(
   }));
 }
 
-async function loadRows(companyId: string, from: Date | null, to: Date | null) {
+async function loadRows(from: Date | null, to: Date | null, companyId?: string) {
   const dateFilter = from || to ? { gte: from ?? undefined, lte: to ?? undefined } : undefined;
   return prisma.grnPurchaseReceipt.findMany({
     where: {
-      companyId,
+      ...(companyId ? { companyId } : {}),
       ...(dateFilter
         ? {
             OR: [
@@ -163,10 +163,16 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "No company associated with your account" }, { status: 404 });
   }
 
+  const shouldScopeToUserCompany =
+    hasPermission(context, "purchasing.grn.mark_received") &&
+    !hasPermission(context, "purchasing.grn.mark_handover") &&
+    !hasPermission(context, "purchasing.grn.mark_valued") &&
+    !hasPermission(context, "purchasing.grn.match_ssr");
+
   const from = parseDateParam(request.nextUrl.searchParams.get("from"));
   const to = parseDateParam(request.nextUrl.searchParams.get("to"), true);
   const format = request.nextUrl.searchParams.get("format") === "pdf" ? "pdf" : "xlsx";
-  const rows = exportRows(await loadRows(companyId, from, to));
+  const rows = exportRows(await loadRows(from, to, shouldScopeToUserCompany ? companyId : undefined));
   const stamp = `${request.nextUrl.searchParams.get("from") ?? filenameDate(new Date())}-to-${
     request.nextUrl.searchParams.get("to") ?? filenameDate(new Date())
   }`;

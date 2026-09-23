@@ -2209,6 +2209,7 @@ model GrnPurchaseReceipt {
   company                 Company                  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   handoverBy              User?                    @relation("GrnPurchaseReceiptHandoverBy", fields: [handoverById], references: [id], onDelete: SetNull)
   items                   GrnPurchaseReceiptItem[]
+  purchaseInvoices        GrnPurchaseInvoice[]
   receivedBy              User?                    @relation("GrnPurchaseReceiptReceivedBy", fields: [receivedById], references: [id], onDelete: SetNull)
   valuedBy                User?                    @relation("GrnPurchaseReceiptValuedBy", fields: [valuedById], references: [id], onDelete: SetNull)
 
@@ -2280,6 +2281,66 @@ model GrnSupplierStockReturnItem {
 
   @@unique([supplierStockReturnId, name])
   @@index([companyId, itemCode])
+}
+
+model GrnIntercompanySupplier {
+  id           String   @id @default(cuid())
+  supplier     String
+  supplierName String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([supplier])
+  @@index([supplier])
+}
+
+model GrnPurchaseInvoice {
+  id                      String                   @id @default(cuid())
+  companyId               String
+  purchaseReceiptId       String
+  name                    String
+  supplier                String
+  supplierName            String?
+  postingDate             DateTime?
+  docstatus               Int?
+  status                  String?
+  amendedFrom             String?
+  owner                   String?
+  creation                DateTime?
+  purchaseReceiptName     String
+  supplierStockReturnName String
+  rawPayload              Json
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
+  purchaseReceipt         GrnPurchaseReceipt       @relation(fields: [purchaseReceiptId], references: [id], onDelete: Cascade)
+  items                   GrnPurchaseInvoiceItem[]
+
+  @@unique([companyId, name])
+  @@index([companyId, purchaseReceiptName])
+  @@index([companyId, supplierStockReturnName])
+  @@index([purchaseReceiptId])
+}
+
+model GrnPurchaseInvoiceItem {
+  id                    String             @id @default(cuid())
+  companyId             String
+  purchaseInvoiceId     String
+  name                  String
+  itemCode              String
+  itemName              String?
+  qty                   Decimal            @db.Decimal(18, 6)
+  rate                  Decimal            @db.Decimal(18, 6)
+  amount                Decimal            @db.Decimal(18, 6)
+  purchaseReceipt       String?
+  purchaseReceiptItem   String?
+  stockUom              String?
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+  purchaseInvoice       GrnPurchaseInvoice @relation(fields: [purchaseInvoiceId], references: [id], onDelete: Cascade)
+
+  @@unique([purchaseInvoiceId, name])
+  @@index([companyId, itemCode])
+  @@index([companyId, purchaseReceipt])
 }
 
 /// Per-user OSF Excel column marks (company-scoped). Keys are stable access ids.

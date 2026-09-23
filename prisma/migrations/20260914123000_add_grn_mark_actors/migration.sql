@@ -83,3 +83,4 @@ ALTER TABLE "GrnPendingEmailSendLog"
   REFERENCES "Company"("id")
   ON DELETE CASCADE
   ON UPDATE CASCADE;
+

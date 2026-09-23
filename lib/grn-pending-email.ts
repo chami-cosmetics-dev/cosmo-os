@@ -169,10 +169,10 @@ function buildEmailBodies(input: {
       </tr>
     </thead>
     <tbody>
-      <tr><td style="padding:8px;border:1px solid #ddd;">Pending</td><td style="padding:8px;border:1px solid #ddd;text-align:right;">${input.summary.pending}</td></tr>
+      <tr><td style="padding:8px;border:1px solid #ddd;">Not handed over</td><td style="padding:8px;border:1px solid #ddd;text-align:right;">${input.summary.pending}</td></tr>
       <tr><td style="padding:8px;border:1px solid #ddd;">Not valued</td><td style="padding:8px;border:1px solid #ddd;text-align:right;">${input.summary.notValued}</td></tr>
-      <tr><td style="padding:8px;border:1px solid #ddd;">Not completed</td><td style="padding:8px;border:1px solid #ddd;text-align:right;">${input.summary.notCompleted}</td></tr>
-      <tr style="font-weight:700;"><td style="padding:8px;border:1px solid #ddd;">Total pending</td><td style="padding:8px;border:1px solid #ddd;text-align:right;">${input.summary.pendingTotal}</td></tr>
+      <tr><td style="padding:8px;border:1px solid #ddd;">GRN Not Recieved</td><td style="padding:8px;border:1px solid #ddd;text-align:right;">${input.summary.notCompleted}</td></tr>
+      <tr style="font-weight:700;"><td style="padding:8px;border:1px solid #ddd;">Total</td><td style="padding:8px;border:1px solid #ddd;text-align:right;">${input.summary.pendingTotal}</td></tr>
     </tbody>
   </table>
 </body>
@@ -184,10 +184,10 @@ ${input.companyName} has ${input.summary.pendingTotal} pending GRN(s) as at ${in
 Generated at ${formatAppDateTime(input.generatedAt)}.
 
 Summary:
-Pending: ${input.summary.pending}
+Not handed over: ${input.summary.pending}
 Not valued: ${input.summary.notValued}
-Not completed: ${input.summary.notCompleted}
-Total pending: ${input.summary.pendingTotal}
+GRN Not Recieved: ${input.summary.notCompleted}
+Total: ${input.summary.pendingTotal}
 
 Full GRN details are attached as an Excel report.`;
 
