@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { autoMatchIntercompanyGrn, bestGrnMatchForStockReturn, tallyLinkedItems } from "@/lib/grn";
+import { autoMatchIntercompanyGrn, bestGrnMatchForStockReturn, calculateGrnMatchPercentage, tallyLinkedItems } from "@/lib/grn";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserContext, hasPermission, requirePermission } from "@/lib/rbac";
 
@@ -189,9 +189,9 @@ export async function GET(request: NextRequest) {
 
   const intercompanySupplierCodes = new Set(intercompanySuppliers.map((row) => row.supplier));
   const stockReturnByName = new Map(stockReturns.map((row) => [row.name, row]));
-  const activePurchaseReceiptNames = new Set(
-    purchaseReceipts.filter((row) => row.docstatus !== 2).map((row) => row.name),
-  );
+  const activePurchaseReceiptsForMatching = purchaseReceipts.filter((row) => row.docstatus !== 2);
+  const activePurchaseReceiptNames = new Set(activePurchaseReceiptsForMatching.map((row) => row.name));
+  const activePurchaseReceiptByName = new Map(activePurchaseReceiptsForMatching.map((row) => [row.name, row]));
   const activeIntercompanyPurchaseReceipts = purchaseReceipts.filter(
     (row) =>
       row.docstatus !== 2 &&
@@ -245,6 +245,7 @@ export async function GET(request: NextRequest) {
           stockUom: item.stockUom,
         })),
         tallyStatus: tally.status,
+        tallyPercentage: activeLinked ? calculateGrnMatchPercentage(row.items, activeLinked.items) : null,
         tallyIssueItems: tally.issueItems,
         tallyIssues,
         purchaseInvoice: purchaseInvoice
@@ -274,8 +275,16 @@ export async function GET(request: NextRequest) {
       };
     }),
     supplierStockReturns: stockReturns.map((row) => {
-      const recommendation =
-        row.docstatus !== 2 && !row.purchaseReceiptName && intercompanySupplierCodes.has(row.supplier)
+      const linkedPurchaseReceipt = row.purchaseReceiptName
+        ? activePurchaseReceiptByName.get(row.purchaseReceiptName) ?? null
+        : null;
+      const recommendation = linkedPurchaseReceipt
+        ? {
+            companyId: linkedPurchaseReceipt.companyId,
+            name: linkedPurchaseReceipt.name,
+            percentage: calculateGrnMatchPercentage(linkedPurchaseReceipt.items, row.items),
+          }
+        : row.docstatus !== 2 && intercompanySupplierCodes.has(row.supplier)
           ? bestGrnMatchForStockReturn(row, activeIntercompanyPurchaseReceipts)
           : null;
       return {
@@ -297,11 +306,13 @@ export async function GET(request: NextRequest) {
         canTally: row.docstatus !== 2 && (!row.purchaseReceiptName || activePurchaseReceiptNames.has(row.purchaseReceiptName)),
         itemCount: row.items.length,
         matchRecommendation: recommendation,
-        matchReviewStatus: recommendation
-          ? recommendation.percentage > 90
-            ? "review"
-            : "waiting"
-          : null,
+        matchReviewStatus: linkedPurchaseReceipt
+          ? "matched"
+          : recommendation
+            ? recommendation.percentage > 90
+              ? "review"
+              : "waiting"
+            : null,
         items: row.items.map((item) => ({
           name: item.name,
           itemCode: item.itemCode,
@@ -318,6 +329,7 @@ export async function GET(request: NextRequest) {
     })),
   });
 }
+
 
 
 

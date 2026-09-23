@@ -275,17 +275,27 @@ export async function ingestPurchaseInvoiceFromWebhook(
       companyId,
       name: { in: linkedPurchaseReceiptNames },
       docstatus: { not: 2 },
-      supplierStockReturnName: { not: null },
     },
-    select: { id: true, name: true, supplierStockReturnName: true },
+    select: { id: true, name: true, supplierStockReturnName: true, handoverAt: true, valuedAt: true },
   });
-  if (!purchaseReceipt?.supplierStockReturnName) {
+  if (!purchaseReceipt) {
     await prisma.grnPurchaseInvoice.deleteMany({
       where: { companyId, name: data.name },
     });
     return { ok: true as const, ignored: true as const };
   }
+
   const supplierStockReturnName = purchaseReceipt.supplierStockReturnName;
+  const stockReturn = supplierStockReturnName
+    ? await prisma.grnSupplierStockReturn.findFirst({
+        where: {
+          companyId,
+          name: supplierStockReturnName,
+          docstatus: { not: 2 },
+        },
+        include: { items: true },
+      })
+    : null;
 
   await prisma.$transaction(async (tx) => {
     const invoice = await tx.grnPurchaseInvoice.upsert({
@@ -344,12 +354,72 @@ export async function ingestPurchaseInvoiceFromWebhook(
         })),
       });
     }
+    if (purchaseReceipt.handoverAt && !purchaseReceipt.valuedAt && !stockReturn) {
+      await tx.grnPurchaseReceipt.update({
+        where: { id: purchaseReceipt.id },
+        data: { valuedAt: new Date(), valuedById: null },
+      });
+    }
+    if (stockReturn && purchaseReceipt.handoverAt && !purchaseReceipt.valuedAt) {
+      const priceTally = tallySsrPurchaseInvoicePrices(
+        stockReturn.items,
+        linkedItems.map((item) => ({
+          itemCode: item.item_code,
+          qty: item.qty,
+          amount: item.amount,
+        })),
+      );
+      if (priceTally.status === "matched") {
+        await tx.grnPurchaseReceipt.update({
+          where: { id: purchaseReceipt.id },
+          data: { valuedAt: new Date(), valuedById: null },
+        });
+      }
+    }
   });
 
   return { ok: true as const, ignored: false as const };
 }
 
 export type GrnTallyStatus = "not_linked" | "matched" | "issue";
+
+type PriceTallySsrItem = { itemCode: string; qty: Prisma.Decimal | number };
+type PriceTallyInvoiceItem = {
+  itemCode: string;
+  qty: Prisma.Decimal | number;
+  amount: Prisma.Decimal | number;
+};
+
+export function tallySsrPurchaseInvoicePrices(
+  ssrItems: PriceTallySsrItem[],
+  invoiceItems: PriceTallyInvoiceItem[],
+) {
+  const invoiceByItem = new Map<string, { qty: number; amount: number }>();
+  for (const item of invoiceItems) {
+    const code = normalizeItemCode(item.itemCode);
+    const current = invoiceByItem.get(code);
+    invoiceByItem.set(code, {
+      qty: (current?.qty ?? 0) + Number(item.qty),
+      amount: (current?.amount ?? 0) + Number(item.amount),
+    });
+  }
+
+  const issueItems = new Set<string>();
+  for (const item of ssrItems) {
+    const code = normalizeItemCode(item.itemCode);
+    const invoiceItem = invoiceByItem.get(code);
+    const invoiceQty = invoiceItem?.qty ?? 0;
+    const rate = invoiceQty ? (invoiceItem?.amount ?? 0) / invoiceQty : null;
+    if (Math.abs(Number(item.qty) - invoiceQty) > 0.000001 || rate == null) {
+      issueItems.add(item.itemCode);
+    }
+  }
+
+  return {
+    status: issueItems.size > 0 ? ("issue" as const) : ("matched" as const),
+    issueItems: Array.from(issueItems).sort(),
+  };
+}
 
 export function tallyLinkedItems(
   prItems: Array<{ itemCode: string; stockQty: Prisma.Decimal | number | null; qty: Prisma.Decimal | number }>,
@@ -386,6 +456,7 @@ type MatchPurchaseReceipt = {
   name: string;
   supplier: string;
   docstatus: number | null;
+  creation: Date | null;
   supplierStockReturnName: string | null;
   items: Array<{ itemCode: string; stockQty: Prisma.Decimal | number | null; qty: Prisma.Decimal | number }>;
 };
@@ -395,9 +466,12 @@ type MatchSupplierStockReturn = {
   name: string;
   supplier: string;
   docstatus: number | null;
+  creation: Date | null;
   purchaseReceiptName: string | null;
   items: Array<{ itemCode: string; qty: Prisma.Decimal | number }>;
 };
+
+const GRN_MATCH_CREATION_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 function normalizeItemCode(value: string) {
   return value.trim().toUpperCase();
@@ -436,12 +510,25 @@ export function calculateGrnMatchPercentage(
   return Math.round((matchedQty / totalQty) * 10000) / 100;
 }
 
+export function isWithinGrnMatchCreationWindow(
+  purchaseReceipt: Pick<MatchPurchaseReceipt, "creation">,
+  stockReturn: Pick<MatchSupplierStockReturn, "creation">,
+) {
+  if (!purchaseReceipt.creation || !stockReturn.creation) return false;
+  return Math.abs(purchaseReceipt.creation.getTime() - stockReturn.creation.getTime()) <= GRN_MATCH_CREATION_WINDOW_MS;
+}
+
 export function bestGrnMatchForStockReturn(
   stockReturn: MatchSupplierStockReturn,
   purchaseReceipts: MatchPurchaseReceipt[],
 ) {
   return purchaseReceipts
-    .filter((receipt) => receipt.docstatus !== 2 && !receipt.supplierStockReturnName)
+    .filter(
+      (receipt) =>
+        receipt.docstatus !== 2 &&
+        !receipt.supplierStockReturnName &&
+        isWithinGrnMatchCreationWindow(receipt, stockReturn),
+    )
     .map((receipt) => ({
       companyId: receipt.companyId,
       name: receipt.name,
