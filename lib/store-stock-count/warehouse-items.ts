@@ -1,9 +1,13 @@
+import { isVaultOsfExcludedSku } from "@/lib/vault-osf/sku-policy";
+
 export type StockCountCatalogRow = {
   item_code: string;
   item_name: string;
   description: string;
   barcode: string;
 };
+
+const SKIP_SKUS = new Set(["TEST", "DELIVERY-CHARGES"]);
 
 function skuHasBinInWarehouses(
   byWarehouse: Map<string, number> | undefined,
@@ -16,7 +20,14 @@ function skuHasBinInWarehouses(
   return false;
 }
 
-/** Keep catalog rows that have a Bin in the selected warehouses. Add bin-only SKUs. */
+function isCountableSku(sku: string): boolean {
+  if (!sku) return false;
+  if (SKIP_SKUS.has(sku.toUpperCase())) return false;
+  if (isVaultOsfExcludedSku(sku)) return false;
+  return true;
+}
+
+/** Enabled catalog rows that have a Bin in the selected warehouses. */
 export function catalogForWarehouses(
   catalog: StockCountCatalogRow[],
   binQty: Map<string, Map<string, number>>,
@@ -25,34 +36,23 @@ export function catalogForWarehouses(
   const wanted = new Set(warehouses.map((name) => name.trim()).filter(Boolean));
   if (wanted.size === 0) return [];
 
-  const binSkus: string[] = [];
   const binSkuSet = new Set<string>();
   for (const [itemCode, byWarehouse] of binQty) {
     const sku = itemCode.trim();
-    if (!sku) continue;
+    if (!sku || !isCountableSku(sku)) continue;
     if (!skuHasBinInWarehouses(byWarehouse, wanted)) continue;
-    if (binSkuSet.has(sku)) continue;
     binSkuSet.add(sku);
-    binSkus.push(sku);
   }
 
   const seen = new Set<string>();
   const out: StockCountCatalogRow[] = [];
   for (const row of catalog) {
     const sku = row.item_code.trim();
-    if (!sku || !binSkuSet.has(sku) || seen.has(sku)) continue;
+    if (!sku || !isCountableSku(sku) || !binSkuSet.has(sku) || seen.has(sku)) {
+      continue;
+    }
     seen.add(sku);
     out.push(row);
-  }
-  for (const sku of binSkus) {
-    if (seen.has(sku)) continue;
-    seen.add(sku);
-    out.push({
-      item_code: sku,
-      item_name: sku,
-      description: "",
-      barcode: "",
-    });
   }
   return out;
 }

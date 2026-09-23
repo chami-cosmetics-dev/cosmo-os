@@ -1930,8 +1930,9 @@ export function StoreStockCountPanel({
                 New warehouse stock report
               </h2>
               <p className="text-xs text-muted-foreground">
-                Select ERP company sources. Reports load only items that have
-                a bin in the selected Main or Shop warehouses.
+                Select ERP company sources. Reports load enabled stock items
+                that have a bin in the selected Main or Shop warehouses.
+                Disabled, TEST, and OSF Remove SKUs are skipped.
               </p>
             </div>
             {companiesLoading ? (

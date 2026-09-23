@@ -57,6 +57,39 @@ function renderSection(template: string, scope: RenderScope): string {
   return output;
 }
 
+/**
+ * Existing Cosmo invoice formats only print Grand Total. For cash splits,
+ * insert invoice total + prepaid rows so Grand Total can be the cash due.
+ */
+export function injectCashSplitPrepaidInvoiceRows(template: string): string {
+  if (template.includes("{{totals.prepaidFormatted}}")) return template;
+
+  const tableRow = template.replace(
+    /(<tr\b[^>]*>\s*<td\b[^>]*>\s*Grand Total\s*<\/td>\s*<td\b[^>]*>\s*\{\{\s*totals\.grandTotalFormatted\s*\}\}\s*<\/td>\s*<\/tr>)/i,
+    `{{#if totals.prepaidFormatted}}
+        <tr>
+          <td class="label">Invoice Total</td>
+          <td class="amount">{{totals.invoiceTotalFormatted}}</td>
+        </tr>
+        <tr>
+          <td class="label">{{totals.prepaidLabel}} Paid</td>
+          <td class="amount">- {{totals.prepaidFormatted}}</td>
+        </tr>
+        {{/if}}
+        $1`,
+  );
+  if (tableRow !== template) return tableRow;
+
+  return template.replace(
+    /(<h[1-6]\b[^>]*>\s*Grand Total:\s*\{\{\s*totals\.grandTotalFormatted\s*\}\}\s*<\/h[1-6]>)/i,
+    `{{#if totals.prepaidFormatted}}
+  <p class="right">Invoice Total: {{totals.invoiceTotalFormatted}}</p>
+  <p class="right">{{totals.prepaidLabel}} Paid: - {{totals.prepaidFormatted}}</p>
+  {{/if}}
+  $1`,
+  );
+}
+
 export function renderPrintFormatHtml(template: string, context: RenderScope): string {
-  return renderSection(template, context);
+  return renderSection(injectCashSplitPrepaidInvoiceRows(template), context);
 }

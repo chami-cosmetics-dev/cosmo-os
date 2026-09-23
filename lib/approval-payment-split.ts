@@ -102,20 +102,35 @@ export function approvalSplitCashCollectAmount(
   return Math.round(amount * 100) / 100;
 }
 
+export function approvalSplitPrepaidSummary(
+  lines: Array<{ paymentMethod: string; amount: number | string | { toString(): string } }>,
+): { amount: number; label: string } | null {
+  if (approvalSplitCashCollectAmount(lines) == null) return null;
+  const prepaid = lines.find((line) => line.paymentMethod !== APPROVAL_SPLIT_CASH);
+  if (!prepaid) return null;
+  const amount = Number(prepaid.amount.toString());
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+  return {
+    amount: Math.round(amount * 100) / 100,
+    label: approvalSplitLineLabel(prepaid.paymentMethod),
+  };
+}
+
 export function formatApprovalSplitInvoicePaymentLabel(
   lines: Array<{ paymentMethod: string; amount: number | string | { toString(): string } }>,
 ): string | null {
   if (approvalSplitPairId(lines.map((line) => line.paymentMethod)) == null) return null;
-  const parts = sortApprovalSplitLines(lines).map((line) => {
-    const amount = Number(line.amount.toString());
-    const formatted = Number.isFinite(amount) ? money(amount) : String(line.amount);
-    return `${approvalSplitLineLabel(line.paymentMethod)} ${formatted}`;
-  });
-  const cash = approvalSplitCashCollectAmount(lines);
-  if (cash != null) {
-    return `${parts.join(" + ")} — collect cash ${money(cash)}`;
+  const prepaid = approvalSplitPrepaidSummary(lines);
+  if (prepaid) {
+    return `${prepaid.label} paid — collect cash`;
   }
-  return parts.join(" + ");
+  return sortApprovalSplitLines(lines)
+    .map((line) => {
+      const amount = Number(line.amount.toString());
+      const formatted = Number.isFinite(amount) ? money(amount) : String(line.amount);
+      return `${approvalSplitLineLabel(line.paymentMethod)} ${formatted}`;
+    })
+    .join(" + ");
 }
 
 function splitMethodOrder(method: ApprovalSplitPaymentMethod): number {
