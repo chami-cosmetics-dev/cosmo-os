@@ -101,6 +101,22 @@ const DEFAULT_PERMISSIONS = [
     description: "View Goods Received Note (GRN) purchasing page",
   },
   {
+    key: "purchasing.grn.match_ssr",
+    description: "Match supplier stock returns to GRN purchase receipts",
+  },
+  {
+    key: "purchasing.grn.mark_handover",
+    description: "Mark GRN purchase receipts as handed over",
+  },
+  {
+    key: "purchasing.grn.mark_valued",
+    description: "Mark GRN purchase receipts as valued",
+  },
+  {
+    key: "purchasing.grn.mark_received",
+    description: "Mark GRN purchase receipts as received",
+  },
+  {
     key: "store.allocation.read",
     description: "Use store location allocation advisor (SKU/barcode take-qty split)",
   },
@@ -563,6 +579,10 @@ const DEFAULT_ROLES = [
       "purchasing.item_trends.read",
       "purchasing.market_prices.read",
       "purchasing.market_prices.manage",
+      "purchasing.grn.read",
+      "purchasing.grn.mark_handover",
+      "purchasing.grn.mark_valued",
+      "purchasing.grn.mark_received",
       "academy.learn",
       "academy.manage",
       "products.storage.read",
@@ -1418,3 +1438,4 @@ export async function listRbacData(options: ListRbacDataOptions = {}) {
 export function toSafeRoleName(input: string) {
   return normalizeRoleName(input);
 }
+

@@ -14,5 +14,15 @@ export default async function GrnPage() {
     return <PermissionDeniedCard />;
   }
 
-  return <GrnPanel />;
+  return (
+    <GrnPanel
+      permissions={{
+        canMatchSsr: hasPermission(context, "purchasing.grn.match_ssr"),
+        canMarkHandover: hasPermission(context, "purchasing.grn.mark_handover"),
+        canMarkValued: hasPermission(context, "purchasing.grn.mark_valued"),
+        canMarkReceived: hasPermission(context, "purchasing.grn.mark_received"),
+      }}
+    />
+  );
 }
+

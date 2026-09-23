@@ -19,6 +19,90 @@ async function readMailerooResponse(response: Response) {
   }
 }
 
+type MailerooAttachment = {
+  filename: string;
+  contentType: string;
+  buffer: Buffer;
+};
+
+async function sendMailerooEmail(input: {
+  toEmails: string[];
+  subject: string;
+  html: string;
+  plain: string;
+  attachments?: MailerooAttachment[];
+  errorLabel: string;
+}): Promise<{ success: boolean; message?: string }> {
+  const apiKey = process.env.MAILEROO_API_KEY;
+  const fromEmail = process.env.MAILEROO_FROM_EMAIL;
+
+  if (!apiKey || !fromEmail) {
+    console.error("MAILEROO_API_KEY or MAILEROO_FROM_EMAIL is not configured");
+    return { success: false, message: "Email service not configured" };
+  }
+
+  const validEmails = input.toEmails
+    .map((e) => e.trim().toLowerCase())
+    .filter((e) => e && e.includes("@"));
+  if (validEmails.length === 0) {
+    return { success: false, message: "No valid recipients" };
+  }
+
+  try {
+    const response = await fetch(`${MAILEROO_BASE_URL}/emails`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Api-Key": apiKey,
+      },
+      body: JSON.stringify({
+        from: {
+          address: fromEmail,
+          display_name: APP_NAME,
+        },
+        to: validEmails.map((address) => ({ address })),
+        subject: input.subject,
+        html: input.html,
+        plain: input.plain,
+        ...(input.attachments?.length
+          ? {
+              attachments: input.attachments.map((attachment) => ({
+                file_name: attachment.filename,
+                content_type: attachment.contentType,
+                content: attachment.buffer.toString("base64"),
+                inline: false,
+              })),
+            }
+          : {}),
+      }),
+    });
+
+    const { raw, data } = await readMailerooResponse(response);
+
+    if (!response.ok) {
+      console.error(`Maileroo ${input.errorLabel} error:`, {
+        status: response.status,
+        statusText: response.statusText,
+        body: data ?? raw,
+      });
+      return {
+        success: false,
+        message:
+          data?.message ??
+          `Maileroo request failed (${response.status} ${response.statusText})`,
+      };
+    }
+
+    return { success: data?.success ?? true };
+  } catch (error) {
+    console.error(`Failed to send ${input.errorLabel}:`, error);
+    return {
+      success: false,
+      message: error instanceof Error ? error.message : "Failed to send email",
+    };
+  }
+}
+
 export async function sendInviteEmail(
   email: string,
   activationUrl: string
@@ -462,4 +546,25 @@ export async function sendErpSyncFailureAlertEmail(input: {
       message: error instanceof Error ? error.message : "Failed to send email",
     };
   }
+}
+
+export async function sendGrnPendingReportEmail(input: {
+  toEmails: string[];
+  subject: string;
+  html: string;
+  plain: string;
+  attachment: {
+    filename: string;
+    contentType: string;
+    buffer: Buffer;
+  };
+}): Promise<{ success: boolean; message?: string }> {
+  return sendMailerooEmail({
+    toEmails: input.toEmails,
+    subject: input.subject,
+    html: input.html,
+    plain: input.plain,
+    attachments: [input.attachment],
+    errorLabel: "GRN pending report email",
+  });
 }
