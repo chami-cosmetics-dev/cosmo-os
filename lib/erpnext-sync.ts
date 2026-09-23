@@ -1284,7 +1284,7 @@ export async function syncOrderDeliveryPaymentEntriesToErp(
     return createDeliveryPaymentEntry(order, location, completedAt, {
       mopNameOverride: options.mopNameOverride,
       requireMop: options?.requireMop,
-      paidAmount: options.paidAmount,
+      paidAmount: options?.paidAmount,
     });
   }
 
@@ -1292,7 +1292,7 @@ export async function syncOrderDeliveryPaymentEntriesToErp(
     return createDeliveryPaymentEntry(order, location, completedAt, {
       requireMop: options?.requireMop,
       mopNameOverride: options?.mopNameOverride,
-      paidAmount: options.paidAmount,
+      paidAmount: options?.paidAmount,
     });
   }
 
