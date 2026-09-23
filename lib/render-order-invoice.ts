@@ -17,6 +17,7 @@ import { resolveOrderShippingDisplayForOrder } from "@/lib/order-shipping-displa
 import { getPaymentMethodInfo } from "@/lib/payment-method-label";
 import {
   approvalSplitCashCollectAmount,
+  approvalSplitPrepaidSummary,
   formatApprovalSplitInvoicePaymentLabel,
 } from "@/lib/approval-payment-split";
 import { loadLatestOrderSplitPaymentLines } from "@/lib/order-split-payment";
@@ -412,7 +413,9 @@ export async function renderOrderInvoice(input: {
   ]);
   const splitPaymentLabel = formatApprovalSplitInvoicePaymentLabel(splitPaymentLines);
   const cashToCollect = approvalSplitCashCollectAmount(splitPaymentLines);
+  const prepaid = approvalSplitPrepaidSummary(splitPaymentLines);
   const paymentMethodLabel = splitPaymentLabel ?? paymentInfo.label;
+  const amountDue = cashToCollect ?? grandTotal;
 
   if (!printFormat?.isEnabled) {
     return {
@@ -523,10 +526,15 @@ export async function renderOrderInvoice(input: {
       totalQuantity,
       productTotal,
       shippingTotal,
-      grandTotal,
+      grandTotal: amountDue,
+      invoiceTotal: grandTotal,
+      invoiceTotalFormatted: formatInvoiceMoney(grandTotal),
+      prepaidAmount: prepaid?.amount ?? 0,
+      prepaidLabel: prepaid?.label ?? "",
+      prepaidFormatted: prepaid ? formatInvoiceMoney(prepaid.amount) : "",
       productTotalFormatted: formatInvoiceMoney(productTotal),
       shippingTotalFormatted: formatInvoiceMoney(shippingTotal),
-      grandTotalFormatted: formatInvoiceMoney(grandTotal),
+      grandTotalFormatted: formatInvoiceMoney(amountDue),
       cashToCollect: cashToCollect ?? 0,
       cashToCollectFormatted: cashToCollect != null ? formatInvoiceMoney(cashToCollect) : "",
       subtotalOriginal: subtotalOriginal ?? "",

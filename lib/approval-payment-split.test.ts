@@ -4,6 +4,7 @@ import {
   approvalSplitCashCollectAmount,
   approvalSplitNoteIncludesKoko,
   approvalSplitPairId,
+  approvalSplitPrepaidSummary,
   buildApprovalSplitRequestNote,
   buildDefaultOrderPaymentRequestNote,
   formatApprovalSplitInvoicePaymentLabel,
@@ -167,11 +168,29 @@ describe("approval split payment plan", () => {
       ]),
     ).toBe(2750);
     expect(
+      approvalSplitPrepaidSummary([
+        { paymentMethod: "koko", amount: 5000 },
+        { paymentMethod: "cash", amount: 15050 },
+      ]),
+    ).toEqual({ amount: 5000, label: "KOKO" });
+    expect(
       formatApprovalSplitInvoicePaymentLabel([
         { paymentMethod: "koko", amount: 5750 },
         { paymentMethod: "cash", amount: 2000 },
       ]),
-    ).toBe("KOKO 5750.00 + Cash 2000.00 — collect cash 2000.00");
+    ).toBe("KOKO paid — collect cash");
+    expect(
+      formatApprovalSplitInvoicePaymentLabel([
+        { paymentMethod: "bank_transfer", amount: 5000 },
+        { paymentMethod: "cash", amount: 2750 },
+      ]),
+    ).toBe("Bank Transfer paid — collect cash");
+    expect(
+      formatApprovalSplitInvoicePaymentLabel([
+        { paymentMethod: "koko", amount: 3000 },
+        { paymentMethod: "bank_transfer", amount: 4750 },
+      ]),
+    ).toBe("KOKO 3000.00 + Bank Transfer 4750.00");
     expect(
       approvalSplitCashCollectAmount([
         { paymentMethod: "koko", amount: 3000 },
