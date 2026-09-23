@@ -1,3 +1,8 @@
+import {
+  pickCosmoCatalogErpInstance,
+  type CosmoCatalogErpCandidate,
+  type CosmoCatalogLocationLink,
+} from "@/lib/cosmo-catalog-erp";
 import { originalSellingPrice } from "@/lib/osf/formulas";
 import { sellingMargin } from "@/lib/osf/pricing-math";
 import {
@@ -6,7 +11,64 @@ import {
 } from "@/lib/vault-osf/erp-purchases-monthly";
 import { isExcludedErpCompany } from "@/lib/vault-osf/types";
 
-export type PurchaseHistorySource = "erp_invoice" | "erp_receipt" | "cosmo";
+export type PurchaseHistorySource = "erp_invoice" | "cosmo";
+
+/** Vault intercompany cash suppliers — hide from purchase history. */
+const INTERCOMPANY_SUPPLIER_CODES = new Set(["sv029", "sv030", "sv031"]);
+const INTERCOMPANY_SUPPLIER_NAMES = new Set([
+  "cash or 001",
+  "cash sv 001",
+  "cash ae 001",
+  "sv cash cos 006",
+]);
+
+function normalizeSupplierToken(value: string | null | undefined): string {
+  return (value ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+export function isIntercompanyPurchaseSupplier(
+  supplierCode: string | null | undefined,
+  supplierName: string | null | undefined,
+): boolean {
+  const code = normalizeSupplierToken(supplierCode);
+  const name = normalizeSupplierToken(supplierName);
+  const haystack = `${code} ${name}`.trim();
+  if (!haystack) return false;
+  if (code && (INTERCOMPANY_SUPPLIER_CODES.has(code) || INTERCOMPANY_SUPPLIER_NAMES.has(code))) {
+    return true;
+  }
+  if (name && (INTERCOMPANY_SUPPLIER_CODES.has(name) || INTERCOMPANY_SUPPLIER_NAMES.has(name))) {
+    return true;
+  }
+  for (const token of INTERCOMPANY_SUPPLIER_CODES) {
+    if (haystack.includes(token)) return true;
+  }
+  for (const token of INTERCOMPANY_SUPPLIER_NAMES) {
+    if (haystack.includes(token)) return true;
+  }
+  return false;
+}
+
+/** Vault: all ERP instances. Cosmo: Cosmetics.lk / ERP1 only. */
+export function selectPurchaseHistoryErpInstances<T extends CosmoCatalogErpCandidate>(
+  instances: T[],
+  input: { vault: boolean; locations: CosmoCatalogLocationLink[] },
+): T[] {
+  if (input.vault || instances.length <= 1) return instances;
+  const picked = pickCosmoCatalogErpInstance({
+    locations: input.locations,
+    instances,
+  });
+  if (!picked) return instances;
+  return instances.filter((row) => row.id === picked.id);
+}
+
+export function purchaseInvoiceFormUrl(baseUrl: string, invoiceName: string): string | null {
+  const root = baseUrl.trim().replace(/\/$/, "");
+  const name = invoiceName.trim();
+  if (!root || !name) return null;
+  return `${root}/app/purchase-invoice/${encodeURIComponent(name)}`;
+}
 
 export type PurchaseHistoryRawLine = {
   sku: string;
@@ -18,11 +80,13 @@ export type PurchaseHistoryRawLine = {
   sourceRef: string | null;
   source: PurchaseHistorySource;
   excelCompany?: string | null;
+  invoiceUrl?: string | null;
 };
 
 export type CatalogSellInfo = {
   productTitle: string | null;
   brand: string | null;
+  priority: string | null;
   mrp: number | null;
   discountedPrice: number | null;
 };
@@ -31,6 +95,7 @@ export type PurchaseHistoryRow = {
   postingDate: string;
   sku: string;
   brand: string | null;
+  priority: string | null;
   productTitle: string | null;
   supplier: string;
   qty: number;
@@ -40,6 +105,7 @@ export type PurchaseHistoryRow = {
   marginPct: number | null;
   source: PurchaseHistorySource;
   sourceRef: string | null;
+  invoiceUrl: string | null;
 };
 
 export type PurchaseHistorySummary = {
@@ -58,6 +124,7 @@ export type PurchaseHistoryFilters = {
   brand?: string;
   /** Matches catalog product title (contains, case-insensitive). */
   description?: string;
+  priority?: string;
 };
 
 /** Prefer sourceRef+sku; else sku+date+supplier+qty+rate. */
@@ -91,12 +158,17 @@ export function cosmoDbLineToRaw(line: {
     sourceRef: line.sourceRef?.trim() || null,
     source: "cosmo",
     excelCompany: line.excelCompany ?? null,
+    invoiceUrl: null,
   };
 }
 
-export function erpInvoiceLineToRaw(row: PurchaseInvoiceLine): PurchaseHistoryRawLine | null {
+export function erpInvoiceLineToRaw(
+  row: PurchaseInvoiceLine,
+  erpBaseUrl?: string,
+): PurchaseHistoryRawLine | null {
   if (!isSubmittedPurchase(row)) return null;
   if (isExcludedErpCompany(row.company ?? "")) return null;
+  if (isIntercompanyPurchaseSupplier(row.supplier, row.supplier_name)) return null;
   const sku = row.item_code?.trim();
   if (!sku) return null;
   const postingDate = row.posting_date?.trim();
@@ -120,54 +192,21 @@ export function erpInvoiceLineToRaw(row: PurchaseInvoiceLine): PurchaseHistoryRa
     netValue,
     sourceRef,
     source: "erp_invoice",
-  };
-}
-
-/** Same as invoice, but zero rates allowed (Vault PRs often have placeholder 0 cost). */
-export function erpReceiptLineToRaw(row: PurchaseInvoiceLine): PurchaseHistoryRawLine | null {
-  if (!isSubmittedPurchase(row)) return null;
-  if (isExcludedErpCompany(row.company ?? "")) return null;
-  const sku = row.item_code?.trim();
-  if (!sku) return null;
-  const postingDate = row.posting_date?.trim();
-  if (!postingDate) return null;
-  const qty = Number(row.qty);
-  const rate = Number(row.rate);
-  if (!Number.isFinite(qty) || !Number.isFinite(rate) || rate < 0) return null;
-  const netRaw = row.net_amount != null ? Number(row.net_amount) : NaN;
-  const netValue = Number.isFinite(netRaw)
-    ? netRaw
-    : Math.round(qty * rate * 100) / 100;
-  const supplier =
-    row.supplier_name?.trim() || row.supplier?.trim() || "Unknown";
-  const sourceRef = row.name?.trim() || null;
-  return {
-    sku,
-    supplier,
-    postingDate,
-    qty,
-    rate,
-    netValue,
-    sourceRef,
-    source: "erp_receipt",
+    invoiceUrl: sourceRef && erpBaseUrl ? purchaseInvoiceFormUrl(erpBaseUrl, sourceRef) : null,
   };
 }
 
 /**
- * Merge Cosmo + ERP lines. Invoice wins over receipt over Cosmo on matching dedupe key.
+ * Merge Cosmo + ERP invoice lines. Invoice wins on matching dedupe key.
  * Result sorted newest postingDate first, then sku.
  */
 export function mergePurchaseHistoryLines(
   cosmo: PurchaseHistoryRawLine[],
   erpInvoices: PurchaseHistoryRawLine[],
-  erpReceipts: PurchaseHistoryRawLine[] = [],
 ): PurchaseHistoryRawLine[] {
   const map = new Map<string, PurchaseHistoryRawLine>();
   for (const line of cosmo) {
-    map.set(purchaseHistoryDedupeKey(line), line);
-  }
-  // Receipts fill gaps; invoices overwrite same key when present.
-  for (const line of erpReceipts) {
+    if (isIntercompanyPurchaseSupplier(line.supplier, line.supplier)) continue;
     map.set(purchaseHistoryDedupeKey(line), line);
   }
   for (const line of erpInvoices) {
@@ -203,6 +242,11 @@ export function matchesPurchaseHistoryFilters(
     const title = catalog?.productTitle?.trim().toLowerCase() ?? "";
     if (q && !title.includes(q)) return false;
   }
+  if (filters.priority) {
+    const q = filters.priority.trim().toLowerCase();
+    const priority = catalog?.priority?.trim().toLowerCase() ?? "";
+    if (q && priority !== q) return false;
+  }
   return true;
 }
 
@@ -216,6 +260,7 @@ export function enrichPurchaseHistoryRow(
     postingDate: line.postingDate,
     sku: line.sku,
     brand: catalog?.brand ?? null,
+    priority: catalog?.priority ?? null,
     productTitle: catalog?.productTitle ?? null,
     supplier: line.supplier,
     qty: line.qty,
@@ -225,6 +270,7 @@ export function enrichPurchaseHistoryRow(
     marginPct,
     source: line.source,
     sourceRef: line.sourceRef,
+    invoiceUrl: line.invoiceUrl ?? null,
   };
 }
 

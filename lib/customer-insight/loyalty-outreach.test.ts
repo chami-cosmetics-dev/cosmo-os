@@ -5,6 +5,8 @@ import {
   canAssignLoyaltyTier,
   canAssignOrUpgradeLoyaltyTier,
   isLoyaltyEligibleByTotal,
+  isNotInterestedLoyaltyStatus,
+  loyaltyOutreachStageLabel,
   LOYALTY_OUTREACH_QUEUE_STATUSES,
   nextOutreachStatus,
   parseLoyaltyOutreachStatus,
@@ -26,6 +28,13 @@ describe("loyalty-outreach", () => {
     expect(parseLoyaltyOutreachStatus("not_interested")).toBe("not_interested");
     expect(parseLoyaltyOutreachStatus("nope")).toBeNull();
     expect(LOYALTY_OUTREACH_QUEUE_STATUSES).not.toContain("not_interested");
+  });
+
+  it("labels not interested loyalty stage", () => {
+    expect(loyaltyOutreachStageLabel("not_interested")).toBe("Not interested");
+    expect(loyaltyOutreachStageLabel("responded")).toBe("Responded");
+    expect(isNotInterestedLoyaltyStatus("not_interested")).toBe(true);
+    expect(isNotInterestedLoyaltyStatus("contacted")).toBe(false);
   });
 });
 

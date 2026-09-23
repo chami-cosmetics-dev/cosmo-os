@@ -206,7 +206,11 @@ export function buildContactDumpRow(contact: ContactDumpSource) {
     "Main Profile No": phones.primary,
     loyalty_tier: dumpText(contact.loyaltyAssignedTier),
     loyalty_assigned_at: dumpDateTime(contact.loyaltyAssignedAt),
-    loyalty_outreach_status: dumpText(contact.loyaltyOutreachStatus),
+    loyalty_outreach_status: dumpText(
+      contact.loyaltyOutreachStatus === "not_interested"
+        ? "Not interested"
+        : contact.loyaltyOutreachStatus
+    ),
   };
 }
 

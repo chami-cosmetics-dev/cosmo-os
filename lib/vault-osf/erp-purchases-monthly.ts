@@ -26,7 +26,14 @@ export function isSubmittedPurchase(
   if (row.docstatus != null && row.docstatus !== 1) return false;
   if (row.is_return === 1 || row.is_return === true || row.is_return === "1") return false;
   const status = (row.status ?? "").trim().toLowerCase();
-  if (status === "cancelled" || status === "draft" || status === "return") return false;
+  if (
+    status === "cancelled" ||
+    status === "canceled" ||
+    status === "draft" ||
+    status === "return"
+  ) {
+    return false;
+  }
   return true;
 }
 
@@ -181,6 +188,7 @@ export async function fetchPurchaseInvoiceLinesInRange(input: {
     cfg: input.cfg,
     filters: [
       ["docstatus", "=", 1],
+      ["is_return", "=", 0],
       ["posting_date", ">=", input.bounds.start],
       ["posting_date", "<=", input.bounds.end],
     ],

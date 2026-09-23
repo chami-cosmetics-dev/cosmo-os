@@ -13,6 +13,7 @@ const base = {
   lastPurchaseAt: new Date("2026-06-15T12:00:00.000Z"),
   allocationAt: new Date("2026-05-01T12:00:00.000Z") as Date | null,
   loyaltyAssignedTier: null as string | null,
+  loyaltyOutreachStatus: null as string | null,
   boughtBrand: true,
 };
 
@@ -141,6 +142,24 @@ describe("call-queue assign filters alone and combined", () => {
       matchesCallQueueAssignFilters(
         { ...base, lifetimeTotal: 10_000 },
         filters
+      )
+    ).toBe(false);
+  });
+
+  it("Not interested in loyalty filters outreach status", () => {
+    expect(
+      matchesCallQueueAssignFilters(base, { notInterestedInLoyalty: true })
+    ).toBe(false);
+    expect(
+      matchesCallQueueAssignFilters(
+        { ...base, loyaltyOutreachStatus: "not_interested" },
+        { notInterestedInLoyalty: true }
+      )
+    ).toBe(true);
+    expect(
+      matchesCallQueueAssignFilters(
+        { ...base, loyaltyOutreachStatus: "contacted" },
+        { notInterestedInLoyalty: true }
       )
     ).toBe(false);
   });

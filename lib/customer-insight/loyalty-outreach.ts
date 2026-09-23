@@ -107,6 +107,33 @@ export function nextOutreachStatus(
   }
 }
 
+export function loyaltyOutreachStageLabel(
+  status: string | null | undefined
+): string {
+  switch (status) {
+    case "eligible":
+      return "Eligible";
+    case "contacted":
+      return "Contacted";
+    case "responded":
+      return "Responded";
+    case "not_responded":
+      return "Not responded";
+    case "not_interested":
+      return "Not interested";
+    case "assigned":
+      return "Assigned";
+    default:
+      return status?.trim() || "";
+  }
+}
+
+export function isNotInterestedLoyaltyStatus(
+  status: string | null | undefined
+): boolean {
+  return status === "not_interested";
+}
+
 export function parseLoyaltyOutreachStatus(
   value: string | null | undefined
 ): LoyaltyOutreachStatus | null {

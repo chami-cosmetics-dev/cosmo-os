@@ -8,11 +8,13 @@ import { Input } from "@/components/ui/input";
 import { formatAppIsoDate } from "@/lib/format-datetime";
 import { notify } from "@/lib/notify";
 import { formatPercentPoints } from "@/lib/osf/pricing-math";
+import { ERP_PRODUCT_PRIORITY_OPTIONS } from "@/lib/product-items/erp-priority-options";
 
 type Row = {
   postingDate: string;
   sku: string;
   brand: string | null;
+  priority: string | null;
   productTitle: string | null;
   supplier: string;
   qty: number;
@@ -20,8 +22,9 @@ type Row = {
   netValue: number;
   selling: number | null;
   marginPct: number | null;
-  source: "erp_invoice" | "erp_receipt" | "cosmo";
+  source: "erp_invoice" | "cosmo";
   sourceRef: string | null;
+  invoiceUrl: string | null;
 };
 
 type Summary = {
@@ -60,8 +63,10 @@ export function PurchaseHistoryPanel() {
   const [description, setDescription] = useState("");
   const [supplier, setSupplier] = useState("");
   const [brand, setBrand] = useState("");
+  const [priority, setPriority] = useState("");
   const [brands, setBrands] = useState<string[]>([]);
   const [suppliers, setSuppliers] = useState<string[]>([]);
+  const [priorities, setPriorities] = useState<string[]>([]);
   const [rows, setRows] = useState<Row[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [total, setTotal] = useState(0);
@@ -84,6 +89,7 @@ export function PurchaseHistoryPanel() {
         if (description.trim()) params.set("description", description.trim());
         if (supplier.trim()) params.set("supplier", supplier.trim());
         if (brand.trim()) params.set("brand", brand.trim());
+        if (priority.trim()) params.set("priority", priority.trim());
         const res = await fetch(
           `/api/admin/purchasing/purchase-history/page-data?${params.toString()}`,
         );
@@ -99,6 +105,7 @@ export function PurchaseHistoryPanel() {
         setErpAvailable(json.erpAvailable !== false);
         setBrands(json.filterOptions?.brands ?? []);
         setSuppliers(json.filterOptions?.suppliers ?? []);
+        setPriorities(json.filterOptions?.priorities ?? []);
         if (json.erpError) {
           notify.error(`ERP: ${json.erpError}`);
         }
@@ -108,7 +115,7 @@ export function PurchaseHistoryPanel() {
         setLoading(false);
       }
     },
-    [from, to, sku, description, supplier, brand],
+    [from, to, sku, description, supplier, brand, priority],
   );
 
   useEffect(() => {
@@ -124,8 +131,9 @@ export function PurchaseHistoryPanel() {
       <div>
         <h1 className="text-xl font-semibold">Purchase History</h1>
         <p className="text-sm text-muted-foreground">
-          Vault buy lines from ERP Purchase Invoices and Cosmo Excel import. Selling price and
-          margin from live catalog.
+          Live ERP Purchase Invoices (cancelled, returns, and intercompany cash suppliers
+          excluded). Cosmo OS uses Cosmetics.lk ERP for current invoices. Click a row to open
+          the invoice in ERP.
         </p>
       </div>
 
@@ -182,6 +190,24 @@ export function PurchaseHistoryPanel() {
             {brands.map((b) => (
               <option key={b} value={b}>
                 {b}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="space-y-1 text-sm">
+          <span className="text-muted-foreground">Priority</span>
+          <select
+            className="border-input bg-background h-9 rounded-md border px-2 text-sm"
+            value={priority}
+            disabled={busy}
+            onChange={(e) => setPriority(e.target.value)}
+          >
+            <option value="">Any</option>
+            {[
+              ...new Set([...ERP_PRODUCT_PRIORITY_OPTIONS, ...priorities]),
+            ].map((p) => (
+              <option key={p} value={p}>
+                {p}
               </option>
             ))}
           </select>
@@ -247,6 +273,7 @@ export function PurchaseHistoryPanel() {
               <th className="p-2 font-medium">Date</th>
               <th className="p-2 font-medium">SKU</th>
               <th className="p-2 font-medium">Brand</th>
+              <th className="p-2 font-medium">Priority</th>
               <th className="p-2 font-medium">Item</th>
               <th className="p-2 font-medium">Supplier</th>
               <th className="p-2 font-medium text-right">Qty</th>
@@ -260,16 +287,25 @@ export function PurchaseHistoryPanel() {
           <tbody>
             {rows.length === 0 && !busy ? (
               <tr>
-                <td colSpan={11} className="p-4 text-muted-foreground">
+                <td colSpan={12} className="p-4 text-muted-foreground">
                   No purchase lines for these filters.
                 </td>
               </tr>
             ) : (
               rows.map((row, idx) => (
-                <tr key={`${row.source}-${row.sourceRef ?? ""}-${row.sku}-${row.postingDate}-${idx}`} className="border-t">
+                <tr
+                  key={`${row.source}-${row.sourceRef ?? ""}-${row.sku}-${row.postingDate}-${idx}`}
+                  className={`border-t ${row.invoiceUrl ? "cursor-pointer hover:bg-muted/40" : ""}`}
+                  title={row.invoiceUrl ? "Open purchase invoice in ERP" : undefined}
+                  onClick={() => {
+                    if (!row.invoiceUrl) return;
+                    window.open(row.invoiceUrl, "_blank", "noopener,noreferrer");
+                  }}
+                >
                   <td className="p-2 whitespace-nowrap">{row.postingDate}</td>
                   <td className="p-2 font-mono text-xs">{row.sku}</td>
                   <td className="p-2">{row.brand ?? "—"}</td>
+                  <td className="p-2 whitespace-nowrap">{row.priority ?? "—"}</td>
                   <td className="p-2 max-w-[220px] truncate" title={row.productTitle ?? undefined}>
                     {row.productTitle ?? "—"}
                   </td>
@@ -284,16 +320,10 @@ export function PurchaseHistoryPanel() {
                       className={
                         row.source === "erp_invoice"
                           ? "rounded bg-emerald-100 px-1.5 py-0.5 text-xs text-emerald-900"
-                          : row.source === "erp_receipt"
-                            ? "rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-900"
-                            : "rounded bg-sky-100 px-1.5 py-0.5 text-xs text-sky-900"
+                          : "rounded bg-sky-100 px-1.5 py-0.5 text-xs text-sky-900"
                       }
                     >
-                      {row.source === "erp_invoice"
-                        ? "Invoice"
-                        : row.source === "erp_receipt"
-                          ? "Receipt"
-                          : "Cosmo"}
+                      {row.source === "erp_invoice" ? "Invoice" : "Cosmo"}
                     </span>
                   </td>
                 </tr>
