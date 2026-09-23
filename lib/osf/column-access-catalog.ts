@@ -9,6 +9,9 @@ export type OsfAccessColumnMeta = { id: string; label: string };
 /** Access key for Sales Units regardless of month suffix on the Excel header. */
 export const OSF_ACCESS_SALES_UNITS = "Sales Units";
 
+/** Access key for the April→as-of purchase qty/value grid. */
+export const OSF_ACCESS_PURCHASES = "Purchases";
+
 /** Static assignable columns (identity headers are never listed — always included). */
 export const OSF_STATIC_ASSIGNABLE_COLUMNS: OsfAccessColumnMeta[] = [
   { id: "Total Stock", label: "Total Stock" },
@@ -29,6 +32,9 @@ export const OSF_STATIC_ASSIGNABLE_COLUMNS: OsfAccessColumnMeta[] = [
   { id: "Cosmetics Margin %", label: "Cosmetics Margin %" },
   { id: "OGF Margin %", label: "OGF Margin %" },
   { id: OSF_ACCESS_SALES_UNITS, label: "Sales Units" },
+  { id: OSF_ACCESS_PURCHASES, label: "Purchases" },
+  { id: "Max sale", label: "Max sale" },
+  { id: "AVE", label: "AVE" },
 ];
 
 export const LEGACY_GROUP_TO_COLUMN_KEYS: Record<string, string[]> = {
@@ -42,7 +48,8 @@ export const LEGACY_GROUP_TO_COLUMN_KEYS: Record<string, string[]> = {
     "Purchased (last 30d)",
   ],
   margins: ["Cosmetics Margin %", "OGF Margin %"],
-  sales: [OSF_ACCESS_SALES_UNITS],
+  sales: [OSF_ACCESS_SALES_UNITS, "Max sale", "AVE"],
+  purchases: [OSF_ACCESS_PURCHASES],
 };
 
 export function stockAccessKey(columnKey: string): string {
@@ -135,6 +142,9 @@ export function buildOsfAccessCatalog(
         "Cosmetics Margin %",
         "OGF Margin %",
         OSF_ACCESS_SALES_UNITS,
+        OSF_ACCESS_PURCHASES,
+        "Max sale",
+        "AVE",
       ].includes(c.id)
     ) {
       push(c.id, c.label);

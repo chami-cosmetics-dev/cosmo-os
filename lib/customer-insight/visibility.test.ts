@@ -130,4 +130,15 @@ describe("toLimitedInsightDto", () => {
       currentAssigned: "gold",
     });
   });
+
+  it("keeps not-interested label on limited search view", () => {
+    const withDecline: CustomerInsightDto = {
+      ...sampleOwner,
+      loyaltyOutreachStatus: "not_interested",
+      loyaltyNotInterestedReason: "Already has another card",
+    };
+    const limited = toLimitedInsightDto(withDecline);
+    expect(limited.loyaltyOutreachStatus).toBe("not_interested");
+    expect(limited.loyaltyNotInterestedReason).toBe("Already has another card");
+  });
 });

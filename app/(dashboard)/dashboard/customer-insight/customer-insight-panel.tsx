@@ -29,7 +29,16 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Tabs,
   TabsContent,
@@ -86,6 +95,11 @@ function loyaltyEligibleCopy(eligibility: {
     return "Eligible for Platinum (currently Gold)";
   }
   return `Eligible for ${next} (still Standard)`;
+}
+
+function loyaltyNotInterestedCopy(reason?: string | null) {
+  const trimmed = reason?.trim();
+  return trimmed ? `Not interested · ${trimmed}` : "Not interested";
 }
 
 function formatMoney(amount: number, currency = "LKR") {
@@ -651,6 +665,8 @@ export function CustomerInsightPanel({
   >([]);
   const [callOutcome, setCallOutcome] = useState<string>("N/A");
   const [contactRemark, setContactRemark] = useState("");
+  const [notInterestedOpen, setNotInterestedOpen] = useState(false);
+  const [notInterestedReason, setNotInterestedReason] = useState("");
   const [loyaltyQueue, setLoyaltyQueue] = useState<
     Array<{
       contactId: string;
@@ -1760,7 +1776,10 @@ export function CustomerInsightPanel({
     }
   }
 
-  async function postLoyaltyOutreach(action: "loyalty_informed" | "responded" | "not_responded") {
+  async function postLoyaltyOutreach(
+    action: "loyalty_informed" | "responded" | "not_responded" | "not_interested",
+    remark?: string | null
+  ) {
     const contact = insight?.contact;
     if (!contact) return;
     if (action === "responded") {
@@ -1787,7 +1806,11 @@ export function CustomerInsightPanel({
       const res = await fetch("/api/admin/merchant-dashboard/loyalty-outreach", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contactId: contact.id, action }),
+        body: JSON.stringify({
+          contactId: contact.id,
+          action,
+          remark: remark?.trim() || null,
+        }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -1796,11 +1819,17 @@ export function CustomerInsightPanel({
       }
       notify.success(
         action === "responded"
-          ? "Responded request sent to assignment queue"
+          ? "Loyalty request sent to assignment queue"
           : action === "not_responded"
             ? "Marked not responded"
-            : "Marked contacted"
+            : action === "not_interested"
+              ? "Marked not interested"
+              : "Marked contacted"
       );
+      if (action === "not_interested") {
+        setNotInterestedOpen(false);
+        setNotInterestedReason("");
+      }
       await loadInsight(contact.id, invoicePage);
     } catch {
       notify.error("Update failed");
@@ -2709,6 +2738,18 @@ export function CustomerInsightPanel({
                         {loyaltyEligibleCopy(insight.loyaltyEligibility)}
                       </p>
                     ) : null}
+                    {insight.loyaltyOutreachStatus === "not_interested" ||
+                    insight.loyaltyNotInterestedReason ? (
+                      <p className="text-xs font-medium text-rose-700 dark:text-rose-400">
+                        {insight.loyaltyOutreachStatus === "not_interested"
+                          ? loyaltyNotInterestedCopy(
+                              insight.loyaltyNotInterestedReason
+                            )
+                          : insight.loyaltyNotInterestedReason
+                            ? `Previously not interested · ${insight.loyaltyNotInterestedReason}`
+                            : "Previously not interested"}
+                      </p>
+                    ) : null}
                   </div>
                 </div>
               </CardHeader>
@@ -2914,30 +2955,59 @@ export function CustomerInsightPanel({
                           {loyaltyEligibleCopy(insight.loyaltyEligibility)}
                         </p>
                       ) : null}
+                      {insight.loyaltyOutreachStatus === "not_interested" ||
+                      insight.loyaltyNotInterestedReason ? (
+                        <p className="text-xs font-medium text-rose-700 dark:text-rose-400">
+                          {insight.loyaltyOutreachStatus === "not_interested"
+                            ? loyaltyNotInterestedCopy(
+                                insight.loyaltyNotInterestedReason
+                              )
+                            : insight.loyaltyNotInterestedReason
+                              ? `Previously not interested · ${insight.loyaltyNotInterestedReason}`
+                              : "Previously not interested"}
+                        </p>
+                      ) : null}
                       {isOwner && insight.loyaltyEligibility ? (
                         <div className="mt-1 flex flex-col items-end gap-1">
-                          {insight.contact ? (
-                            getLoyaltyProfileMissingFields({
-                              name: insight.contact.name,
-                              email: insight.contact.email,
-                              phoneNumber: insight.contact.phoneNumber,
-                              phones: insight.contact.phones,
-                              gender: insight.contact.gender,
-                              language: insight.contact.language,
-                              birthMonth: insight.contact.birthMonth,
-                              birthDay: insight.contact.birthDay,
-                              city: insight.contact.city,
-                              address: insight.contact.address,
-                            }).length > 0 ? (
-                              <p className="text-xs text-amber-700 dark:text-amber-400">
-                                Fill missing profile fields, then send the request.
-                              </p>
-                            ) : null
+                          {insight.contact &&
+                          (insight.loyaltyOutreachStatus === "contacted" ||
+                            insight.loyaltyOutreachStatus === "not_interested") &&
+                          getLoyaltyProfileMissingFields({
+                            name: insight.contact.name,
+                            email: insight.contact.email,
+                            phoneNumber: insight.contact.phoneNumber,
+                            phones: insight.contact.phones,
+                            gender: insight.contact.gender,
+                            language: insight.contact.language,
+                            birthMonth: insight.contact.birthMonth,
+                            birthDay: insight.contact.birthDay,
+                            city: insight.contact.city,
+                            address: insight.contact.address,
+                          }).length > 0 ? (
+                            <p className="text-xs text-amber-700 dark:text-amber-400">
+                              Fill missing profile fields, then send the request.
+                            </p>
                           ) : null}
                           {insight.loyaltyOutreachStatus === "responded" ? (
                             <p className="text-xs text-muted-foreground">
                               Requested — waiting in assignment queue
                             </p>
+                          ) : insight.loyaltyOutreachStatus === "not_interested" ? (
+                            <Button
+                              type="button"
+                              size="sm"
+                              disabled={isBusy}
+                              onClick={() => void postLoyaltyOutreach("responded")}
+                            >
+                              {busyKey === "loyalty" ? (
+                                <>
+                                  <Loader2 className="animate-spin" aria-hidden />
+                                  Sending...
+                                </>
+                              ) : (
+                                "Request loyalty"
+                              )}
+                            </Button>
                           ) : insight.loyaltyOutreachStatus === "contacted" ? (
                             <>
                               <Button
@@ -2946,7 +3016,26 @@ export function CustomerInsightPanel({
                                 disabled={isBusy}
                                 onClick={() => void postLoyaltyOutreach("responded")}
                               >
-                                Send responded request
+                                {busyKey === "loyalty" ? (
+                                  <>
+                                    <Loader2 className="animate-spin" aria-hidden />
+                                    Sending...
+                                  </>
+                                ) : (
+                                  "Interested"
+                                )}
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                disabled={isBusy}
+                                onClick={() => {
+                                  setNotInterestedReason("");
+                                  setNotInterestedOpen(true);
+                                }}
+                              >
+                                Not interested
                               </Button>
                               <Button
                                 type="button"
@@ -4989,6 +5078,64 @@ export function CustomerInsightPanel({
           </TabsContent>
         ) : null}
       </Tabs>
+
+      <Dialog
+        open={notInterestedOpen}
+        onOpenChange={(open) => {
+          setNotInterestedOpen(open);
+          if (!open) setNotInterestedReason("");
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Not interested in loyalty</DialogTitle>
+            <DialogDescription>
+              Removes this customer from the merchant eligible list. They can
+              request later from this page.
+            </DialogDescription>
+          </DialogHeader>
+          <label className="space-y-1 text-sm">
+            <span className="text-muted-foreground">Reason (optional)</span>
+            <Textarea
+              value={notInterestedReason}
+              onChange={(e) => setNotInterestedReason(e.target.value)}
+              disabled={isBusy}
+              maxLength={2000}
+              rows={3}
+              placeholder="Why they declined"
+            />
+          </label>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={isBusy}
+              onClick={() => {
+                setNotInterestedOpen(false);
+                setNotInterestedReason("");
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={isBusy}
+              onClick={() =>
+                void postLoyaltyOutreach("not_interested", notInterestedReason)
+              }
+            >
+              {busyKey === "loyalty" ? (
+                <>
+                  <Loader2 className="animate-spin" aria-hidden />
+                  Saving...
+                </>
+              ) : (
+                "Remove from list"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

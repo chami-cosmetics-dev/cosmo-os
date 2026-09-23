@@ -17,6 +17,7 @@ import {
   isOrderIncludedInCustomerLifetimeTotal,
   isOrderReversed,
 } from "@/lib/customer-insight/lifetime-total";
+import { parseLoyaltyOutreachStatus } from "@/lib/customer-insight/loyalty-outreach";
 import { loyaltyCode, loyaltyLabel } from "@/lib/customer-insight/loyalty-tier";
 import { viewerIdentityForMerchantFilter } from "@/lib/customer-insight/merchant-label-aliases";
 import {
@@ -195,12 +196,24 @@ export async function loadCustomerInsight(input: {
       })
     : Promise.resolve([]);
 
-  const [orders, adaptRows, lastContactedAt, removedEmailRows] = await Promise.all([
-    ordersPromise,
-    adaptPromise,
-    lastContactedPromise,
-    removedEmailsPromise,
-  ]);
+  const notInterestedPromise = prisma.contactAllocationUpdate.findFirst({
+    where: {
+      companyId: input.companyId,
+      contactId: contact.id,
+      outcome: "not_interested",
+    },
+    orderBy: { createdAt: "desc" },
+    select: { remark: true },
+  });
+
+  const [orders, adaptRows, lastContactedAt, removedEmailRows, notInterestedRow] =
+    await Promise.all([
+      ordersPromise,
+      adaptPromise,
+      lastContactedPromise,
+      removedEmailsPromise,
+      notInterestedPromise,
+    ]);
 
   const historyScope: HistoryScopeInput = {
     brands: input.historyBrands,
@@ -401,15 +414,10 @@ export async function loadCustomerInsight(input: {
             assignedByUserId: contact.loyaltyAssignedByUserId,
           }
         : null,
-    loyaltyOutreachStatus:
-      contact.loyaltyOutreachStatus === "eligible" ||
-      contact.loyaltyOutreachStatus === "contacted" ||
-      contact.loyaltyOutreachStatus === "responded" ||
-      contact.loyaltyOutreachStatus === "not_responded" ||
-      contact.loyaltyOutreachStatus === "not_interested" ||
-      contact.loyaltyOutreachStatus === "assigned"
-        ? contact.loyaltyOutreachStatus
-        : null,
+    loyaltyOutreachStatus: parseLoyaltyOutreachStatus(
+      contact.loyaltyOutreachStatus
+    ),
+    loyaltyNotInterestedReason: notInterestedRow?.remark?.trim() || null,
     historyScope: historyScopeDto,
   });
 }

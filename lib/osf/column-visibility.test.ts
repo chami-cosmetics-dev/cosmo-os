@@ -57,6 +57,9 @@ describe("buildOsfAccessCatalog", () => {
     expect(ids.has("order:lmj")).toBe(true);
     expect(ids.has("Cosmetics MRP")).toBe(true);
     expect(ids.has("Sales Units")).toBe(true);
+    expect(ids.has("Purchases")).toBe(true);
+    expect(ids.has("Max sale")).toBe(true);
+    expect(ids.has("AVE")).toBe(true);
   });
 
   it("vat catalog omits other-location keys but keeps static columns", () => {

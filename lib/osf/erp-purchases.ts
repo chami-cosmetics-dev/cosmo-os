@@ -29,10 +29,19 @@ export type PurchaseRow = {
   item_code?: string | null;
   qty?: number | string | null;
   rate?: number | string | null;
+  /** Line amount / net_amount — used by the Cosmo OSF monthly purchase grid. */
+  amount?: number | string | null;
+  net_amount?: number | string | null;
   docstatus?: number | null;
   status?: string | null;
   /** ERP Purchase Invoice return flag (1 = credit note / stock return). */
   is_return?: number | boolean | string | null;
+};
+
+/** One SKU-month cell on the Cosmo OSF purchase grid. */
+export type OsfMonthPurchaseCell = {
+  qty: number | null;
+  netValue: number | null;
 };
 
 /** Receipt (Cosmo default) vs Invoice (Vault — PR rates often placeholder/stale). */
@@ -416,4 +425,135 @@ export async function fetchSupplierPurchasesBySku(input: {
     }
     throw err;
   }
+}
+
+function purchaseLineNetValue(row: PurchaseRow): number {
+  const net = Number(row.net_amount);
+  if (Number.isFinite(net)) return net;
+  const amount = Number(row.amount);
+  if (Number.isFinite(amount)) return amount;
+  const qty = Number(row.qty);
+  const rate = Number(row.rate);
+  if (Number.isFinite(qty) && Number.isFinite(rate)) return qty * rate;
+  return 0;
+}
+
+/**
+ * Bucket allowlisted Purchase Receipt/Invoice lines into sku → YYYY-MM → qty+value.
+ * Months outside bounds are dropped. Empty months are omitted (workbook blanks them).
+ */
+export function accumulateMonthlyPurchasesFromRows(input: {
+  rows: PurchaseRow[];
+  bounds: { start: string; end: string };
+  itemCodes?: Set<string>;
+  allowedSuppliers?: AllowedSupplier[];
+  result?: Map<string, Record<string, OsfMonthPurchaseCell>>;
+}): Map<string, Record<string, OsfMonthPurchaseCell>> {
+  const result = input.result ?? new Map<string, Record<string, OsfMonthPurchaseCell>>();
+  const allowlist = buildSupplierAllowlist(input.allowedSuppliers ?? []);
+
+  for (const row of input.rows) {
+    if (!isUsablePurchaseDoc(row)) continue;
+    if (isNoisePurchaseSupplier(row)) continue;
+    if (!isAllowedSupplier(row, allowlist)) continue;
+    const sku = row.item_code?.trim();
+    if (!sku) continue;
+    if (input.itemCodes && !input.itemCodes.has(sku)) continue;
+    const date = row.posting_date?.trim() ?? "";
+    if (!date || date < input.bounds.start || date > input.bounds.end) continue;
+    const month = date.slice(0, 7);
+    const qty = Number(row.qty);
+    const qtyVal = Number.isFinite(qty) ? qty : 0;
+    const netVal = purchaseLineNetValue(row);
+    const months = result.get(sku) ?? {};
+    const prev = months[month];
+    months[month] = {
+      qty: (prev?.qty ?? 0) + qtyVal,
+      netValue: (prev?.netValue ?? 0) + netVal,
+    };
+    result.set(sku, months);
+  }
+  return result;
+}
+
+/** Sum monthly purchase grids from multiple ERP instances. */
+export function mergeMonthlyPurchaseMaps(
+  maps: Array<Map<string, Record<string, OsfMonthPurchaseCell>>>,
+): Map<string, Record<string, OsfMonthPurchaseCell>> {
+  const out = new Map<string, Record<string, OsfMonthPurchaseCell>>();
+  for (const map of maps) {
+    for (const [sku, months] of map) {
+      const dest = out.get(sku) ?? {};
+      for (const [month, cell] of Object.entries(months)) {
+        const prev = dest[month];
+        dest[month] = {
+          qty: (prev?.qty ?? 0) + (cell.qty ?? 0),
+          netValue: (prev?.netValue ?? 0) + (cell.netValue ?? 0),
+        };
+      }
+      out.set(sku, dest);
+    }
+  }
+  return out;
+}
+
+/**
+ * Purchase Receipt (default) lines in a posting-date window, bucketed by SKU-month.
+ * Cosmo OSF last-purchase already uses receipts; the grid stays on the same source.
+ */
+export async function fetchMonthlyPurchasesInRange(input: {
+  cfg: OsfErpCredentials;
+  bounds: { start: string; end: string };
+  itemCodes?: string[];
+  allowedSuppliers?: AllowedSupplier[];
+  source?: PurchaseDocSource;
+}): Promise<Map<string, Record<string, OsfMonthPurchaseCell>>> {
+  const needed = input.itemCodes
+    ? new Set(input.itemCodes.map((s) => s.trim()).filter(Boolean))
+    : undefined;
+  const meta = purchaseDocMeta(input.source ?? "receipt");
+  const parentExtra = input.source === "invoice" ? (["is_return"] as const) : ([] as const);
+  const amountField = input.source === "invoice" ? "net_amount" : "amount";
+  const fields = JSON.stringify([
+    "name",
+    "supplier",
+    "supplier_name",
+    "posting_date",
+    "docstatus",
+    "status",
+    ...parentExtra,
+    `\`${meta.childTable}\`.item_code`,
+    `\`${meta.childTable}\`.qty`,
+    `\`${meta.childTable}\`.rate`,
+    `\`${meta.childTable}\`.${amountField}`,
+  ]);
+  const filters = JSON.stringify([
+    ["docstatus", "=", 1],
+    ["posting_date", ">=", input.bounds.start],
+    ["posting_date", "<=", input.bounds.end],
+  ]);
+
+  let result = new Map<string, Record<string, OsfMonthPurchaseCell>>();
+  for (let page = 0; page < MAX_PAGES; page += 1) {
+    const path =
+      `/api/resource/${encodeURIComponent(meta.doctype)}?fields=${encodeURIComponent(fields)}` +
+      `&filters=${encodeURIComponent(filters)}` +
+      `&order_by=${encodeURIComponent("posting_date desc, name desc")}` +
+      `&limit_start=${page * PAGE_LENGTH}&limit_page_length=${PAGE_LENGTH}`;
+
+    const json = await erpGetJson<{ data?: PurchaseRow[] }>(input.cfg, path);
+    const rows = json.data ?? [];
+    if (rows.length === 0) break;
+
+    result = accumulateMonthlyPurchasesFromRows({
+      rows,
+      bounds: input.bounds,
+      itemCodes: needed,
+      allowedSuppliers: input.allowedSuppliers,
+      result,
+    });
+
+    if (rows.length < PAGE_LENGTH) break;
+  }
+  return result;
 }

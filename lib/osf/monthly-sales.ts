@@ -1,7 +1,9 @@
 import "server-only";
 
+import { parseAppCalendarDayStart } from "@/lib/format-datetime";
 import { osfCompletedSalesOrderWhere } from "@/lib/osf/assist-sales";
 import { prisma } from "@/lib/prisma";
+import { monthKeysInWindow } from "@/lib/vault-osf/months";
 
 const COLOMBO = "Asia/Colombo";
 
@@ -76,4 +78,26 @@ export function attributedSalesMonth(
   const at = deliveryCompleteAt ?? invoiceCompleteAt;
   if (!at) return null;
   return monthKeyInColombo(at);
+}
+
+/**
+ * Cosmo sales grid window: FY April 1 00:00 Colombo through end of asOfDate
+ * (exclusive next midnight). Current month clips at asOfDate, not month-end.
+ */
+export function osfSalesGridBounds(asOfDate: string): { start: Date; endExclusive: Date } {
+  const months = monthKeysInWindow(asOfDate);
+  const first = months[0];
+  if (!first) throw new Error(`Invalid asOfDate: ${asOfDate}`);
+  const start = salesMonthBounds(first).start;
+  const asOfStart = parseAppCalendarDayStart(asOfDate);
+  if (!asOfStart) throw new Error(`Invalid asOfDate: ${asOfDate}`);
+  return { start, endExclusive: new Date(asOfStart.getTime() + 86_400_000) };
+}
+
+/** Inclusive ERP posting_date bounds for the purchase grid. */
+export function osfPurchaseGridBounds(asOfDate: string): { start: string; end: string } {
+  const months = monthKeysInWindow(asOfDate);
+  const first = months[0];
+  if (!first) throw new Error(`Invalid asOfDate: ${asOfDate}`);
+  return { start: `${first}-01`, end: asOfDate };
 }

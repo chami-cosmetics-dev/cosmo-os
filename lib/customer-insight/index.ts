@@ -77,6 +77,7 @@ export {
   isNotInterestedLoyaltyStatus,
   loyaltyOutreachStageLabel,
   nextOutreachStatus,
+  parseLoyaltyOutreachStatus,
   pendingLoyaltySuggestion,
   suggestedLoyaltyTier,
 } from "@/lib/customer-insight/loyalty-outreach";

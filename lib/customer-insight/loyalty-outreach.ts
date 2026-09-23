@@ -86,7 +86,12 @@ export function canAssignOrUpgradeLoyaltyTier(input: {
 }
 
 export function nextOutreachStatus(
-  action: ContactEventOutcome | "loyalty_informed" | "responded" | "not_responded"
+  action:
+    | ContactEventOutcome
+    | "loyalty_informed"
+    | "responded"
+    | "not_responded"
+    | "not_interested"
 ): LoyaltyOutreachStatus {
   switch (action) {
     case "loyalty_informed":
@@ -95,6 +100,8 @@ export function nextOutreachStatus(
       return "responded";
     case "not_responded":
       return "not_responded";
+    case "not_interested":
+      return "not_interested";
     default:
       return "contacted";
   }
@@ -127,6 +134,23 @@ export function isNotInterestedLoyaltyStatus(
   return status === "not_interested";
 }
 
+export function parseLoyaltyOutreachStatus(
+  value: string | null | undefined
+): LoyaltyOutreachStatus | null {
+  if (
+    value === "eligible" ||
+    value === "contacted" ||
+    value === "responded" ||
+    value === "not_responded" ||
+    value === "not_interested" ||
+    value === "assigned"
+  ) {
+    return value;
+  }
+  return null;
+}
+
+/** Still on merchant eligible list / admin pending count. */
 export const LOYALTY_OUTREACH_QUEUE_STATUSES: LoyaltyOutreachStatus[] = [
   "eligible",
   "contacted",

@@ -14,7 +14,8 @@ export type ContactEventOutcome =
   | "general"
   | "loyalty_informed"
   | "responded"
-  | "not_responded";
+  | "not_responded"
+  | "not_interested";
 
 export type LoyaltyAssignmentDto = {
   tier: "gold" | "platinum";
@@ -185,6 +186,8 @@ export type CustomerInsightDto = {
   /** Spend-based Gold/Platinum action still pending (new assign or Gold→Platinum). */
   loyaltyEligibility?: LoyaltyEligibilityDto | null;
   loyaltyOutreachStatus?: LoyaltyOutreachStatus | null;
+  /** Latest not-interested remark, if merchant previously declined loyalty. */
+  loyaltyNotInterestedReason?: string | null;
 };
 
 export type AllocatedFilterItemDto = {

@@ -4,6 +4,7 @@ export type StockBalanceRow = {
   Company: unknown;
   Warehouse: unknown;
   "Balance Qty": unknown;
+  "__ERP Source"?: unknown;
 };
 
 export type CosmeticsStockReportRow = {
@@ -31,6 +32,16 @@ export type CosmeticsStockReportDetail = CosmeticsStockReportRow & {
   priority3: OutletStock[];
 };
 
+export type BrandWarehouseViolation = {
+  SKU: string;
+  "Product Title": string;
+  Brand: string;
+  "ERP Source": string;
+  Warehouse: string;
+  "Balance Qty": number;
+  Rule: string;
+};
+
 export const COSMETICS_STOCK_REPORT_HEADERS = [
   "SKU",
   "Product Title",
@@ -44,7 +55,40 @@ export const COSMETICS_STOCK_REPORT_HEADERS = [
   "Stock Available Elsewhere",
 ] as const;
 
+export const BRAND_WAREHOUSE_VIOLATION_HEADERS = [
+  "SKU",
+  "Product Title",
+  "Brand",
+  "ERP Source",
+  "Warehouse",
+  "Balance Qty",
+  "Rule",
+] as const;
+
 const MAIN_COSMO_WAREHOUSE = "main warehouse - cosmo";
+
+const COSMETICS_ONLY_BRANDS = [
+  "Keune",
+  "Jovees",
+  "Savol",
+  "Palmers",
+  "Olay",
+  "Melano",
+  "Acnes",
+  "Hada Labo",
+  "Lipice",
+  "Wella",
+  "ZGTS",
+];
+const OTHER_WAREHOUSE_ONLY_BRANDS = [
+  "Sanford",
+  "Golden Rose",
+  "Maybeline",
+  "Revlon",
+  "The Elf",
+  "Biovene",
+  "Flamingo",
+];
 
 const OUTLET_ALIASES = new Map<string, string>([
   ["pevi", "Pevi"],
@@ -73,6 +117,7 @@ type ParsedStockRow = {
   company: string;
   warehouse: string;
   qty: number;
+  erpSource: "ERP1" | "ERP2" | "";
 };
 
 function clean(value: unknown): string {
@@ -91,6 +136,31 @@ function parseQty(value: unknown): number {
 
 function isAllWarehouses(warehouse: string): boolean {
   return key(warehouse).includes("all warehouses");
+}
+
+function parseRows(inputRows: StockBalanceRow[]): ParsedStockRow[] {
+  return inputRows
+    .map((row): ParsedStockRow => ({
+      sku: clean(row.Item),
+      productTitle: clean(row["Item Name"]),
+      company: clean(row.Company),
+      warehouse: clean(row.Warehouse),
+      qty: parseQty(row["Balance Qty"]),
+      erpSource: normalizeErpSource(row["__ERP Source"]),
+    }))
+    .filter((row) => row.sku && row.warehouse && !isAllWarehouses(row.warehouse));
+}
+
+function normalizeErpSource(value: unknown): "ERP1" | "ERP2" | "" {
+  const normalized = key(clean(value));
+  if (/\berp[\s_-]*1\b/.test(normalized)) return "ERP1";
+  if (/\berp[\s_-]*2\b/.test(normalized)) return "ERP2";
+  return "";
+}
+
+function findBrand(productTitle: string, brands: string[]): string | null {
+  const normalizedTitle = key(productTitle);
+  return brands.find((brand) => normalizedTitle.includes(key(brand))) ?? null;
 }
 
 function normalizeOutletName(value: string): string {
@@ -172,15 +242,7 @@ export function buildCosmeticsStockReportDetails(
   inputRows: StockBalanceRow[],
   threshold = 0,
 ): CosmeticsStockReportDetail[] {
-  const rows = inputRows
-    .map((row): ParsedStockRow => ({
-      sku: clean(row.Item),
-      productTitle: clean(row["Item Name"]),
-      company: clean(row.Company),
-      warehouse: clean(row.Warehouse),
-      qty: parseQty(row["Balance Qty"]),
-    }))
-    .filter((row) => row.sku && row.warehouse && !isAllWarehouses(row.warehouse));
+  const rows = parseRows(inputRows);
 
   const rowsBySku = new Map<string, ParsedStockRow[]>();
   for (const row of rows) {
@@ -239,5 +301,49 @@ export function buildCosmeticsStockReportDetails(
       return a["Stock Available Elsewhere"] === "Yes" ? -1 : 1;
     }
     return a.SKU.localeCompare(b.SKU);
+  });
+}
+
+export function buildBrandWarehouseViolations(inputRows: StockBalanceRow[]): BrandWarehouseViolation[] {
+  const violations: BrandWarehouseViolation[] = [];
+
+  for (const row of parseRows(inputRows)) {
+    if (row.qty <= 0) continue;
+    if (!row.erpSource) continue;
+
+    const cosmeticsOnlyBrand = findBrand(row.productTitle, COSMETICS_ONLY_BRANDS);
+    const otherWarehouseOnlyBrand = findBrand(row.productTitle, OTHER_WAREHOUSE_ONLY_BRANDS);
+
+    if (cosmeticsOnlyBrand && row.erpSource !== "ERP1") {
+      violations.push({
+        SKU: row.sku,
+        "Product Title": row.productTitle,
+        Brand: cosmeticsOnlyBrand,
+        "ERP Source": row.erpSource,
+        Warehouse: row.warehouse,
+        "Balance Qty": row.qty,
+        Rule: "Brand should only appear in ERP1",
+      });
+    }
+
+    if (otherWarehouseOnlyBrand && row.erpSource !== "ERP2") {
+      violations.push({
+        SKU: row.sku,
+        "Product Title": row.productTitle,
+        Brand: otherWarehouseOnlyBrand,
+        "ERP Source": row.erpSource,
+        Warehouse: row.warehouse,
+        "Balance Qty": row.qty,
+        Rule: "Brand should only appear in ERP2",
+      });
+    }
+  }
+
+  return violations.sort((a, b) => {
+    const brandSort = a.Brand.localeCompare(b.Brand);
+    if (brandSort !== 0) return brandSort;
+    const skuSort = a.SKU.localeCompare(b.SKU);
+    if (skuSort !== 0) return skuSort;
+    return a.Warehouse.localeCompare(b.Warehouse);
   });
 }

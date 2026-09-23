@@ -95,6 +95,7 @@ describe("loyalty outreach", () => {
     expect(nextOutreachStatus("loyalty_informed")).toBe("contacted");
     expect(nextOutreachStatus("responded")).toBe("responded");
     expect(nextOutreachStatus("not_responded")).toBe("not_responded");
+    expect(nextOutreachStatus("not_interested")).toBe("not_interested");
   });
 });
 

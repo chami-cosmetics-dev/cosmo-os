@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { buildCosmeticsStockReport, type StockBalanceRow } from "@/lib/cosmetics-stock-comparer";
+import {
+  buildBrandWarehouseViolations,
+  buildCosmeticsStockReport,
+  type StockBalanceRow,
+} from "@/lib/cosmetics-stock-comparer";
 
 function row(input: Partial<StockBalanceRow>): StockBalanceRow {
   return {
@@ -9,6 +13,7 @@ function row(input: Partial<StockBalanceRow>): StockBalanceRow {
     Company: input.Company ?? "Cosmetics.lk",
     Warehouse: input.Warehouse ?? "Main Warehouse - Cosmo",
     "Balance Qty": input["Balance Qty"] ?? 0,
+    "__ERP Source": input["__ERP Source"] ?? "",
   };
 }
 
@@ -146,6 +151,98 @@ describe("buildCosmeticsStockReport", () => {
         SKU: "SKU-1",
         "Priority 1 Warehouse(s)": "SPK",
         "Priority 1 Qty": 7,
+      },
+    ]);
+  });
+
+  it("reports ERP1-only brands found in ERP2 stock", () => {
+    const violations = buildBrandWarehouseViolations([
+      row({
+        Item: "ACNES-1",
+        "Item Name": "Acnes Creamy Wash",
+        Warehouse: "Pepiliyana Shop Warehouse",
+        "Balance Qty": 3,
+        "__ERP Source": "ERP1",
+      }),
+      row({
+        Item: "ACNES-1",
+        "Item Name": "Acnes Creamy Wash",
+        Warehouse: "Pepiliyana Shop Warehouse",
+        "Balance Qty": 2,
+        "__ERP Source": "ERP2",
+      }),
+      row({
+        Item: "ACNES-1",
+        "Item Name": "Acnes Creamy Wash",
+        Warehouse: "All Warehouses - Cosmo",
+        "Balance Qty": 10,
+        "__ERP Source": "ERP2",
+      }),
+      row({
+        Item: "HL-1",
+        "Item Name": "Hada Labo Lotion",
+        Warehouse: "Cool Planet Shop Warehouse",
+        "Balance Qty": 1,
+        "__ERP Source": "ERP2",
+      }),
+    ]);
+
+    expect(violations).toEqual([
+      {
+        SKU: "ACNES-1",
+        "Product Title": "Acnes Creamy Wash",
+        Brand: "Acnes",
+        "ERP Source": "ERP2",
+        Warehouse: "Pepiliyana Shop Warehouse",
+        "Balance Qty": 2,
+        Rule: "Brand should only appear in ERP1",
+      },
+      {
+        SKU: "HL-1",
+        "Product Title": "Hada Labo Lotion",
+        Brand: "Hada Labo",
+        "ERP Source": "ERP2",
+        Warehouse: "Cool Planet Shop Warehouse",
+        "Balance Qty": 1,
+        Rule: "Brand should only appear in ERP1",
+      },
+    ]);
+  });
+
+  it("reports ERP2-only brands found in ERP1 stock", () => {
+    const violations = buildBrandWarehouseViolations([
+      row({
+        Item: "REV-1",
+        "Item Name": "Revlon Lipstick",
+        Warehouse: "Main Warehouse - Cosmo",
+        "Balance Qty": 4,
+        "__ERP Source": "ERP1",
+      }),
+      row({
+        Item: "REV-1",
+        "Item Name": "Revlon Lipstick",
+        Warehouse: "Cool Planet Shop Warehouse",
+        "Balance Qty": 8,
+        "__ERP Source": "ERP2",
+      }),
+      row({
+        Item: "MAY-1",
+        "Item Name": "Maybeline Mascara",
+        Warehouse: "Main Warehouse - Cosmo",
+        "Balance Qty": 0,
+        "__ERP Source": "ERP1",
+      }),
+    ]);
+
+    expect(violations).toEqual([
+      {
+        SKU: "REV-1",
+        "Product Title": "Revlon Lipstick",
+        Brand: "Revlon",
+        "ERP Source": "ERP1",
+        Warehouse: "Main Warehouse - Cosmo",
+        "Balance Qty": 4,
+        Rule: "Brand should only appear in ERP2",
       },
     ]);
   });
