@@ -7,6 +7,7 @@ export type LoyaltyOutreachStatus =
   | "contacted"
   | "responded"
   | "not_responded"
+  | "not_interested"
   | "assigned";
 
 export type ContactEventOutcome =
@@ -201,6 +202,10 @@ export type AllocatedFilterItemDto = {
   lastPurchaseAt: string | null;
   /** Latest non-allocation ContactAllocationUpdate ISO timestamp, or null. */
   lastContactedAt: string | null;
+  /** ContactMaster.loyaltyOutreachStatus, when set. */
+  loyaltyOutreachStatus?: string | null;
+  /** Human label for loyaltyOutreachStatus. */
+  loyaltyStage?: string | null;
 };
 
 export type AllocatedFilterResultDto = {

@@ -5,6 +5,8 @@ import {
   canAssignLoyaltyTier,
   canAssignOrUpgradeLoyaltyTier,
   isLoyaltyEligibleByTotal,
+  isNotInterestedLoyaltyStatus,
+  loyaltyOutreachStageLabel,
   nextOutreachStatus,
   pendingLoyaltySuggestion,
 } from "@/lib/customer-insight/loyalty-outreach";
@@ -18,6 +20,13 @@ describe("loyalty-outreach", () => {
 
   it("advances outreach status", () => {
     expect(nextOutreachStatus("loyalty_informed")).toBe("contacted");
+  });
+
+  it("labels not interested loyalty stage", () => {
+    expect(loyaltyOutreachStageLabel("not_interested")).toBe("Not interested");
+    expect(loyaltyOutreachStageLabel("responded")).toBe("Responded");
+    expect(isNotInterestedLoyaltyStatus("not_interested")).toBe(true);
+    expect(isNotInterestedLoyaltyStatus("contacted")).toBe(false);
   });
 });
 

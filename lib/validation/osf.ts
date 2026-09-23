@@ -212,6 +212,7 @@ export const purchaseHistoryQuerySchema = z.object({
   supplier: trimmedString(0, 200).optional(),
   brand: trimmedString(0, 200).optional(),
   description: trimmedString(0, LIMITS.productTitle.max).optional(),
+  priority: trimmedString(0, 80).optional(),
   offset: z.coerce.number().int().min(0).max(100_000).optional().default(0),
   limit: z.coerce.number().int().min(1).max(500).optional().default(200),
 });

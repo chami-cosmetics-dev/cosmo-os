@@ -13,6 +13,7 @@ import {
 } from "@/lib/customer-insight/call-queue-hide";
 import { uniqueContactPhones } from "@/lib/customer-insight/allocation-summary";
 import { lifetimeTotalsByContactId } from "@/lib/customer-insight/lifetime-totals-batch";
+import { loyaltyOutreachStageLabel } from "@/lib/customer-insight/loyalty-outreach";
 import {
   findMerchantUserForFilterValue,
   resolveAssignedMerchantFilterLabels,
@@ -55,6 +56,8 @@ export type CallQueueRowDto = {
   hideReason?: string | null;
   /** Show "Newly allocated" badge on merchant queue (import / cross-merchant). */
   newlyAllocatedBadge?: boolean;
+  loyaltyOutreachStatus?: string | null;
+  loyaltyStage?: string | null;
 };
 
 export type CallQueueAssignFilters = {
@@ -70,6 +73,7 @@ export type CallQueueAssignFilters = {
   assignedFrom?: string;
   assignedTo?: string;
   notContacted?: boolean;
+  notInterestedInLoyalty?: boolean;
   /** Purchased brand needles (OR). Empty/undefined = off. */
   brands?: string[];
   /** @deprecated use brands */
@@ -347,6 +351,7 @@ type RankedContact = {
   lifetimeTotal: number;
   category: string | null;
   loyaltyAssignedTier: string | null;
+  loyaltyOutreachStatus: string | null;
   email: string | null;
   phones: Array<{ phoneNumber: string }>;
   emails: Array<{ email: string }>;
@@ -440,6 +445,9 @@ async function listRankedEligibleContacts(input: {
       ...(contactIdAllow
         ? { id: { in: [...contactIdAllow] } }
         : {}),
+      ...(input.filters.notInterestedInLoyalty
+        ? { loyaltyOutreachStatus: "not_interested" }
+        : {}),
     },
     select: {
       id: true,
@@ -450,6 +458,7 @@ async function listRankedEligibleContacts(input: {
       email: true,
       category: true,
       loyaltyAssignedTier: true,
+      loyaltyOutreachStatus: true,
       phones: { select: { phoneNumber: true } },
       emails: { select: { email: true } },
     },
@@ -497,6 +506,7 @@ async function listRankedEligibleContacts(input: {
         lastPurchaseAt: c.lastPurchaseAt,
         allocationAt: allocated.get(c.id) ?? null,
         loyaltyAssignedTier: c.loyaltyAssignedTier,
+        loyaltyOutreachStatus: c.loyaltyOutreachStatus,
         boughtBrand: brandNeedles.length === 0 || (brandIdSet?.has(c.id) ?? false),
       },
       input.filters
@@ -580,6 +590,8 @@ export async function listCallQueueCandidates(input: {
       queued: c.queued,
       hidden: c.hidden,
       hideReason: c.hideReason,
+      loyaltyOutreachStatus: c.loyaltyOutreachStatus,
+      loyaltyStage: loyaltyOutreachStageLabel(c.loyaltyOutreachStatus) || null,
     })),
     pagination: { page, pageSize, total, eligibleTotal, allocatedTotal },
   };

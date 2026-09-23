@@ -9,18 +9,15 @@ import {
   cosmoDbLineToRaw,
   enrichPurchaseHistoryRow,
   erpInvoiceLineToRaw,
-  erpReceiptLineToRaw,
   matchesPurchaseHistoryFilters,
   mergePurchaseHistoryLines,
   paginateRows,
+  selectPurchaseHistoryErpInstances,
   summarizePurchaseHistoryRows,
   type CatalogSellInfo,
   type PurchaseHistoryRawLine,
 } from "@/lib/vault-osf/purchase-history-dashboard";
-import {
-  fetchPurchaseInvoiceLinesInRange,
-  fetchPurchaseReceiptLinesInRange,
-} from "@/lib/vault-osf/erp-purchases-monthly";
+import { fetchPurchaseInvoiceLinesInRange } from "@/lib/vault-osf/erp-purchases-monthly";
 import { purchaseHistoryQuerySchema } from "@/lib/validation/osf";
 
 export const dynamic = "force-dynamic";
@@ -31,17 +28,8 @@ export async function GET(request: NextRequest) {
   if (!context?.user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const canTools =
-    hasPermission(context, "purchasing.tools.read") ||
-    hasPermission(context, "purchasing.tools.manage");
-  if (!canTools) {
+  if (!hasPermission(context, "purchasing.purchase_history.read")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-  if (!isVaultOsDeployment()) {
-    return NextResponse.json(
-      { error: "Purchase history dashboard is Vault OS only", code: "VAULT_ONLY" },
-      { status: 409 },
-    );
   }
   const companyId = context.user.companyId;
   if (!companyId) {
@@ -56,7 +44,7 @@ export async function GET(request: NextRequest) {
       { status: 400 },
     );
   }
-  const { from, to, sku, supplier, brand, description, offset, limit } = parsed.data;
+  const { from, to, sku, supplier, brand, description, priority, offset, limit } = parsed.data;
   if (from > to) {
     return NextResponse.json({ error: "from must be on or before to" }, { status: 400 });
   }
@@ -86,45 +74,56 @@ export async function GET(request: NextRequest) {
   const cosmoLines = cosmoDb.map(cosmoDbLineToRaw);
 
   let erpInvoiceLines: PurchaseHistoryRawLine[] = [];
-  let erpReceiptLines: PurchaseHistoryRawLine[] = [];
   let erpAvailable = true;
   let erpError: string | null = null;
-  const erpInstances = await getAllOsfErpInstances(companyId);
+  const vault = isVaultOsDeployment();
+  const allErpInstances = await getAllOsfErpInstances(companyId);
+  const locations = vault
+    ? []
+    : await prisma.companyLocation.findMany({
+        where: { companyId },
+        select: {
+          name: true,
+          locationReference: true,
+          erpnextInstanceId: true,
+        },
+      });
+  const erpInstances = selectPurchaseHistoryErpInstances(
+    allErpInstances.map((row) => ({
+      id: row.id,
+      label: row.label,
+      baseUrl: row.cfg.baseUrl,
+      cfg: row.cfg,
+    })),
+    {
+      vault,
+      locations: locations.map((loc) => ({
+        name: loc.name,
+        locationReference: loc.locationReference,
+        instanceId: loc.erpnextInstanceId,
+      })),
+    },
+  );
   try {
     if (erpInstances.length > 0) {
       const batches = await Promise.all(
-        erpInstances.map(async (inst) => {
-          const [invoices, receipts] = await Promise.all([
-            fetchPurchaseInvoiceLinesInRange({
-              cfg: inst.cfg,
-              bounds: { start: from, end: to },
-            }),
-            fetchPurchaseReceiptLinesInRange({
-              cfg: inst.cfg,
-              bounds: { start: from, end: to },
-            }),
-          ]);
-          return { invoices, receipts };
-        }),
+        erpInstances.map(async (inst) => ({
+          invoices: await fetchPurchaseInvoiceLinesInRange({
+            cfg: inst.cfg,
+            bounds: { start: from, end: to },
+          }),
+          baseUrl: inst.cfg.baseUrl,
+        })),
       );
       const seenInv = new Set<string>();
-      const seenPr = new Set<string>();
       for (const batch of batches) {
         for (const row of batch.invoices) {
-          const converted = erpInvoiceLineToRaw(row);
+          const converted = erpInvoiceLineToRaw(row, batch.baseUrl);
           if (!converted) continue;
           const dedupe = `${converted.sourceRef ?? ""}|${converted.sku}|${converted.postingDate}`;
           if (seenInv.has(dedupe)) continue;
           seenInv.add(dedupe);
           erpInvoiceLines.push(converted);
-        }
-        for (const row of batch.receipts) {
-          const converted = erpReceiptLineToRaw(row);
-          if (!converted) continue;
-          const dedupe = `${converted.sourceRef ?? ""}|${converted.sku}|${converted.postingDate}`;
-          if (seenPr.has(dedupe)) continue;
-          seenPr.add(dedupe);
-          erpReceiptLines.push(converted);
         }
       }
     }
@@ -135,7 +134,7 @@ export async function GET(request: NextRequest) {
     console.error("[purchase-history page-data] ERP", err.message);
   }
 
-  const merged = mergePurchaseHistoryLines(cosmoLines, erpInvoiceLines, erpReceiptLines);
+  const merged = mergePurchaseHistoryLines(cosmoLines, erpInvoiceLines);
   const skus = [...new Set(merged.map((l) => l.sku))];
   const products =
     skus.length === 0
@@ -147,6 +146,8 @@ export async function GET(request: NextRequest) {
             productTitle: true,
             price: true,
             compareAtPrice: true,
+            erp1ProductPriority: true,
+            erp2ProductPriority: true,
             vendor: { select: { name: true } },
           },
         });
@@ -158,12 +159,13 @@ export async function GET(request: NextRequest) {
     catalogBySku.set(code, {
       productTitle: p.productTitle,
       brand: p.vendor?.name ?? null,
+      priority: p.erp1ProductPriority?.trim() || p.erp2ProductPriority?.trim() || null,
       mrp: p.compareAtPrice != null ? Number(p.compareAtPrice) : null,
       discountedPrice: p.price != null ? Number(p.price) : null,
     });
   }
 
-  const filters = { from, to, sku, supplier, brand, description };
+  const filters = { from, to, sku, supplier, brand, description, priority };
   const filtered = merged.filter((line) =>
     matchesPurchaseHistoryFilters(line, catalogBySku.get(line.sku), filters),
   );
@@ -175,9 +177,11 @@ export async function GET(request: NextRequest) {
 
   const brandSet = new Set<string>();
   const supplierSet = new Set<string>();
+  const prioritySet = new Set<string>();
   for (const row of enriched) {
     if (row.brand?.trim()) brandSet.add(row.brand.trim());
     if (row.supplier.trim()) supplierSet.add(row.supplier.trim());
+    if (row.priority?.trim()) prioritySet.add(row.priority.trim());
   }
 
   return NextResponse.json({
@@ -191,6 +195,7 @@ export async function GET(request: NextRequest) {
     filterOptions: {
       brands: [...brandSet].sort((a, b) => a.localeCompare(b)),
       suppliers: [...supplierSet].sort((a, b) => a.localeCompare(b)),
+      priorities: [...prioritySet].sort((a, b) => a.localeCompare(b)),
     },
   });
 }

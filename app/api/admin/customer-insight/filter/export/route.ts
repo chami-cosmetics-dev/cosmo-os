@@ -56,6 +56,7 @@ export async function GET(request: NextRequest) {
     allocatedTo: queryParam(sp.get("allocatedTo")),
     loyaltyRegisteredFrom: queryParam(sp.get("loyaltyRegisteredFrom")),
     loyaltyRegisteredTo: queryParam(sp.get("loyaltyRegisteredTo")),
+    notInterestedInLoyalty: queryParam(sp.get("notInterestedInLoyalty")),
     noPurchaseFrom: queryParam(sp.get("noPurchaseFrom")),
     noPurchaseTo: queryParam(sp.get("noPurchaseTo")),
     noPurchaseMonths: queryParam(sp.get("noPurchaseMonths")),
@@ -105,6 +106,7 @@ export async function GET(request: NextRequest) {
     allocatedTo: parsed.data.allocatedTo,
     loyaltyRegisteredFrom: parsed.data.loyaltyRegisteredFrom,
     loyaltyRegisteredTo: parsed.data.loyaltyRegisteredTo,
+    notInterestedInLoyalty: parsed.data.notInterestedInLoyalty,
     noPurchaseFrom: parsed.data.noPurchaseFrom,
     noPurchaseTo: parsed.data.noPurchaseTo,
     noPurchaseMonths: parsed.data.noPurchaseMonths,
@@ -125,6 +127,7 @@ export async function GET(request: NextRequest) {
     "lifetime_total",
     "loyalty_tier",
     "loyalty_code",
+    "loyalty_stage",
     "last_purchased_date",
     "last_contacted_date",
     ...(includeBrand ? (["brand_spend"] as const) : []),
@@ -139,6 +142,7 @@ export async function GET(request: NextRequest) {
     lifetime_total: row.lifetimeTotal.toFixed(2),
     loyalty_tier: row.loyalty.label,
     loyalty_code: row.loyalty.code ?? "",
+    loyalty_stage: row.loyaltyStage ?? "",
     last_purchased_date: row.lastPurchaseAt
       ? formatIsoDate(new Date(row.lastPurchaseAt))
       : "",

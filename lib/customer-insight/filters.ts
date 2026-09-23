@@ -1,6 +1,7 @@
 import { effectiveLoyaltyTierKey } from "@/lib/customer-insight/erp-loyalty";
 import { findContactIdsByLastPurchaseLocation } from "@/lib/customer-insight/last-purchase-location";
 import { lifetimeTotalsByContactId } from "@/lib/customer-insight/lifetime-totals-batch";
+import { loyaltyOutreachStageLabel } from "@/lib/customer-insight/loyalty-outreach";
 import {
   loyaltyCode,
   loyaltyLabel,
@@ -46,6 +47,7 @@ export type FilterQueryInput = {
   allocatedTo?: string;
   loyaltyRegisteredFrom?: string;
   loyaltyRegisteredTo?: string;
+  notInterestedInLoyalty?: boolean;
   noPurchaseFrom?: string;
   noPurchaseTo?: string;
   noPurchaseMonths?: 3 | 6;
@@ -228,6 +230,7 @@ type ContactCandidate = {
   lastPurchaseAt: Date | null;
   loyaltyAssignedAt: Date | null;
   loyaltyAssignedTier: string | null;
+  loyaltyOutreachStatus: string | null;
   phones: { phoneNumber: string }[];
   emails: { email: string }[];
 };
@@ -275,6 +278,15 @@ async function buildAllocationWhere(input: FilterQueryInput): Promise<{
       { loyaltyAssignedAt: assignedAt },
       { loyaltyAssignedTier: { not: null } },
     ];
+  }
+
+  if (input.notInterestedInLoyalty) {
+    const existingAnd = Array.isArray(where.AND)
+      ? (where.AND as unknown[])
+      : where.AND
+        ? [where.AND]
+        : [];
+    where.AND = [...existingAnd, { loyaltyOutreachStatus: "not_interested" }];
   }
 
   if (input.noPurchaseMonths === 3 || input.noPurchaseMonths === 6) {
@@ -523,6 +535,7 @@ export async function filterAllocatedContacts(
     lastPurchaseAt: true,
     loyaltyAssignedAt: true,
     loyaltyAssignedTier: true,
+    loyaltyOutreachStatus: true,
     phones: { select: { phoneNumber: true } },
     emails: { select: { email: true } },
   } as const;
@@ -620,6 +633,7 @@ export async function filterAllocatedContacts(
     lastPurchaseAt: Date | null;
     lastContactedAt: Date | null;
     key: LoyaltyTierKey;
+    loyaltyOutreachStatus: string | null;
   }> = [];
 
   for (const contact of eligible) {
@@ -655,6 +669,7 @@ export async function filterAllocatedContacts(
       lastPurchaseAt: contact.lastPurchaseAt,
       lastContactedAt: contacted.get(contact.id) ?? null,
       key,
+      loyaltyOutreachStatus: contact.loyaltyOutreachStatus,
     });
   }
 
@@ -696,6 +711,8 @@ export async function filterAllocatedContacts(
         assignedMerchant: row.assignedMerchant,
         lastPurchaseAt: row.lastPurchaseAt?.toISOString() ?? null,
         lastContactedAt: row.lastContactedAt?.toISOString() ?? null,
+        loyaltyOutreachStatus: row.loyaltyOutreachStatus,
+        loyaltyStage: loyaltyOutreachStageLabel(row.loyaltyOutreachStatus) || null,
       };
     }),
     pagination: {

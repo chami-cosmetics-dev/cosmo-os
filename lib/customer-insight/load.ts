@@ -406,6 +406,7 @@ export async function loadCustomerInsight(input: {
       contact.loyaltyOutreachStatus === "contacted" ||
       contact.loyaltyOutreachStatus === "responded" ||
       contact.loyaltyOutreachStatus === "not_responded" ||
+      contact.loyaltyOutreachStatus === "not_interested" ||
       contact.loyaltyOutreachStatus === "assigned"
         ? contact.loyaltyOutreachStatus
         : null,

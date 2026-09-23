@@ -101,6 +101,10 @@ const DEFAULT_PERMISSIONS = [
     description: "Edit SKU reorder threshold % and purchasing tool settings",
   },
   {
+    key: "purchasing.purchase_history.read",
+    description: "View the Purchase History dashboard",
+  },
+  {
     key: "purchasing.item_trends.read",
     description:
       "View Item Trends super dashboard (movement, outlets, ROP suggestions, districts)",
@@ -619,6 +623,7 @@ const DEFAULT_ROLES = [
       "purchasing.osf.permission",
       "purchasing.tools.read",
       "purchasing.tools.manage",
+      "purchasing.purchase_history.read",
       "purchasing.item_trends.read",
       "purchasing.market_prices.read",
       "purchasing.market_prices.manage",
