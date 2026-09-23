@@ -2392,7 +2392,7 @@ model GrnPurchaseInvoice {
   owner                   String?
   creation                DateTime?
   purchaseReceiptName     String
-  supplierStockReturnName String
+  supplierStockReturnName String?
   rawPayload              Json
   createdAt               DateTime                 @default(now())
   updatedAt               DateTime                 @updatedAt

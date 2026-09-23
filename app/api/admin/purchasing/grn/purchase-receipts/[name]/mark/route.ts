@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
+import { tallySsrPurchaseInvoicePrices } from "@/lib/grn";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserContext, requirePermission } from "@/lib/rbac";
 
@@ -51,7 +52,19 @@ export async function POST(
 
   const row = await prisma.grnPurchaseReceipt.findUnique({
     where: { companyId_name: { companyId: targetCompanyId, name: decodedName } },
-    select: { docstatus: true, handoverAt: true, valuedAt: true },
+    select: {
+      id: true,
+      docstatus: true,
+      handoverAt: true,
+      valuedAt: true,
+      supplierStockReturnName: true,
+      purchaseInvoices: {
+        where: { docstatus: { not: 2 } },
+        orderBy: [{ postingDate: "desc" }, { createdAt: "desc" }],
+        take: 1,
+        include: { items: true },
+      },
+    },
   });
 
   if (!row) {
@@ -67,12 +80,44 @@ export async function POST(
     return NextResponse.json({ error: "Mark handover and valued before marking GRN received" }, { status: 409 });
   }
 
-  await prisma.grnPurchaseReceipt.update({
-    where: { companyId_name: { companyId: targetCompanyId, name: decodedName } },
-    data: {
-      [parsed.data.field]: new Date(),
-      [FIELD_ACTOR_COLUMNS[parsed.data.field]]: user.id,
-    },
+  await prisma.$transaction(async (tx) => {
+    await tx.grnPurchaseReceipt.update({
+      where: { companyId_name: { companyId: targetCompanyId, name: decodedName } },
+      data: {
+        [parsed.data.field]: new Date(),
+        [FIELD_ACTOR_COLUMNS[parsed.data.field]]: user.id,
+      },
+    });
+
+    if (parsed.data.field !== "handoverAt" || row.valuedAt) return;
+
+    const purchaseInvoice = row.purchaseInvoices[0] ?? null;
+    if (!purchaseInvoice) return;
+
+    if (!row.supplierStockReturnName) {
+      await tx.grnPurchaseReceipt.update({
+        where: { id: row.id },
+        data: { valuedAt: new Date(), valuedById: null },
+      });
+      return;
+    }
+
+    const stockReturn = await tx.grnSupplierStockReturn.findFirst({
+      where: {
+        name: row.supplierStockReturnName,
+        docstatus: { not: 2 },
+      },
+      include: { items: true },
+    });
+    if (!stockReturn) return;
+
+    const priceTally = tallySsrPurchaseInvoicePrices(stockReturn.items, purchaseInvoice.items);
+    if (priceTally.status !== "matched") return;
+
+    await tx.grnPurchaseReceipt.update({
+      where: { id: row.id },
+      data: { valuedAt: new Date(), valuedById: null },
+    });
   });
 
   return NextResponse.json({ ok: true });
