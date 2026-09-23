@@ -14,6 +14,7 @@ import type {
   StoreStockCountWarehouseColumn,
 } from "@/lib/store-stock-count/types";
 import { catalogForWarehouses } from "@/lib/store-stock-count/warehouse-items";
+import { isExcludedErpCompany } from "@/lib/vault-osf/types";
 
 const PAGE_LENGTH = 1000;
 const MAX_PAGES = 80;
@@ -108,7 +109,7 @@ export async function listErpCompaniesForOsCompany(
         okCount += 1;
         for (const row of rows) {
           const name = String(row.name ?? "").trim();
-          if (!name) continue;
+          if (!name || isExcludedErpCompany(name)) continue;
           companies.push({
             instanceId: inst.id,
             instanceLabel: (inst.label ?? inst.id).trim() || inst.id,
@@ -143,6 +144,9 @@ function resolveInstance(
 }
 
 async function assertCompanyExists(cfg: OsfErpCredentials, erpCompany: string): Promise<void> {
+  if (isExcludedErpCompany(erpCompany)) {
+    throw new OsfErpError(`Unknown ERP company: ${erpCompany}`);
+  }
   const filters = [["name", "=", erpCompany]];
   const fields = encodeURIComponent(JSON.stringify(["name"]));
   const path =

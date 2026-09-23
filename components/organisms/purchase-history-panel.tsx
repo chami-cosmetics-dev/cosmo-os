@@ -416,9 +416,7 @@ export function PurchaseHistoryPanel() {
         <table className="w-full text-sm">
           <thead className="bg-muted/50 text-left">
             <tr>
-              <th className="p-2 font-medium">Date</th>
               <th className="p-2 font-medium">SKU</th>
-              <th className="p-2 font-medium">Brand</th>
               <th className="p-2 font-medium">Priority</th>
               <th className="p-2 font-medium">Item</th>
               <th className="p-2 font-medium">Supplier</th>
@@ -434,7 +432,7 @@ export function PurchaseHistoryPanel() {
           <tbody>
             {rows.length === 0 && !busy ? (
               <tr>
-                <td colSpan={13} className="p-4 text-muted-foreground">
+                <td colSpan={11} className="p-4 text-muted-foreground">
                   No purchase lines for these filters.
                 </td>
               </tr>
@@ -449,9 +447,15 @@ export function PurchaseHistoryPanel() {
                     window.open(row.invoiceUrl, "_blank", "noopener,noreferrer");
                   }}
                 >
-                  <td className="p-2 whitespace-nowrap">{row.postingDate}</td>
-                  <td className="p-2 font-mono text-xs">{row.sku}</td>
-                  <td className="p-2">{row.brand ?? "—"}</td>
+                  <td className="p-2">
+                    <div className="font-mono text-sm font-medium">{row.sku}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {row.brand?.trim() || "—"}
+                    </div>
+                    <div className="text-xs text-muted-foreground whitespace-nowrap">
+                      {row.postingDate}
+                    </div>
+                  </td>
                   <td className="p-2 whitespace-nowrap">{row.priority ?? "—"}</td>
                   <td className="p-2 max-w-[220px] truncate" title={row.productTitle ?? undefined}>
                     {row.productTitle ?? "—"}
