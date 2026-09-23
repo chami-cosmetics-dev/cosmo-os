@@ -528,7 +528,7 @@ export function FinanceApprovalsPanel({
         selected.type === "order_payment_approval" &&
         selected.paymentTypeLabel === "Split Payment"
       ) {
-        notify.success("Split payment approved — KOKO and Bank Transfer ERP payments recorded.");
+        notify.success("Split payment approved — ERP payments recorded.");
       } else if (action === "approve" && selected.type === "return_cancel") {
         const mode = data.completionMode ?? selected.completionMode;
         if (mode === "credit_note") {

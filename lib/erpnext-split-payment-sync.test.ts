@@ -184,4 +184,88 @@ describe("finance-approved split ERP Payment Entries", () => {
       data: { erpPaymentEntryName: "PE-1" },
     });
   });
+
+  it("creates KOKO and Cash PEs with their allocated amounts", async () => {
+    await syncApprovalSplitPaymentEntriesToErp(
+      {
+        id: "approval-1",
+        kokoReference: "KOKO-REF-1",
+        paymentLines: [
+          {
+            id: "line-koko",
+            paymentMethod: "koko",
+            amount: 3000,
+            erpPaymentEntryName: null,
+          },
+          {
+            id: "line-cash",
+            paymentMethod: "cash",
+            amount: 4750,
+            erpPaymentEntryName: null,
+          },
+        ],
+      },
+      order,
+      location,
+      new Date("2026-08-24T00:00:00.000Z"),
+    );
+
+    expect(paymentEntryBodies).toHaveLength(2);
+    expect(paymentEntryBodies[0]).toEqual(
+      expect.objectContaining({
+        mode_of_payment: "KOKO",
+        paid_amount: 3000,
+        reference_no: "KOKO-REF-1",
+      }),
+    );
+    expect(paymentEntryBodies[1]).toEqual(
+      expect.objectContaining({
+        mode_of_payment: "Cash",
+        paid_amount: 4750,
+        reference_no: "OS-OPA-line-cash",
+      }),
+    );
+  });
+
+  it("creates Bank Transfer and Cash PEs without a KOKO reference", async () => {
+    await syncApprovalSplitPaymentEntriesToErp(
+      {
+        id: "approval-1",
+        kokoReference: null,
+        paymentLines: [
+          {
+            id: "line-bank",
+            paymentMethod: "bank_transfer",
+            amount: 5000,
+            erpPaymentEntryName: null,
+          },
+          {
+            id: "line-cash",
+            paymentMethod: "cash",
+            amount: 2750,
+            erpPaymentEntryName: null,
+          },
+        ],
+      },
+      order,
+      location,
+      new Date("2026-08-24T00:00:00.000Z"),
+    );
+
+    expect(paymentEntryBodies).toHaveLength(2);
+    expect(paymentEntryBodies[0]).toEqual(
+      expect.objectContaining({
+        mode_of_payment: "Bank Transfer",
+        paid_amount: 5000,
+        reference_no: "OS-OPA-line-bank",
+      }),
+    );
+    expect(paymentEntryBodies[1]).toEqual(
+      expect.objectContaining({
+        mode_of_payment: "Cash",
+        paid_amount: 2750,
+        reference_no: "OS-OPA-line-cash",
+      }),
+    );
+  });
 });

@@ -48,14 +48,14 @@ export async function GET(request: NextRequest) {
   if (from > to) {
     return NextResponse.json({ error: "from must be on or before to" }, { status: 400 });
   }
+  const skuQ = sku?.trim() ?? "";
 
   const cosmoDb = await prisma.osfPurchaseHistoryLine.findMany({
     where: {
       companyId,
-      postingDate: { gte: from, lte: to },
-      ...(sku?.trim()
-        ? { sku: { contains: sku.trim(), mode: "insensitive" as const } }
-        : {}),
+      ...(skuQ
+        ? { sku: { contains: skuQ, mode: "insensitive" as const } }
+        : { postingDate: { gte: from, lte: to } }),
       ...(supplier?.trim()
         ? { supplier: { contains: supplier.trim(), mode: "insensitive" as const } }
         : {}),
@@ -110,7 +110,9 @@ export async function GET(request: NextRequest) {
         erpInstances.map(async (inst) => ({
           invoices: await fetchPurchaseInvoiceLinesInRange({
             cfg: inst.cfg,
-            bounds: { start: from, end: to },
+            ...(skuQ
+              ? { itemCode: skuQ }
+              : { bounds: { start: from, end: to } }),
           }),
           baseUrl: inst.cfg.baseUrl,
         })),

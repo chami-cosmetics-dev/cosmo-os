@@ -553,13 +553,12 @@ export async function getFinancePaymentApprovalBlockReason(order: {
 }): Promise<string | null> {
   if (!isOrderPaymentRequiresApproval(order)) return null;
 
-  const [hasKokoSplitLeg, orderRow] = await Promise.all([
-    prisma.approvalPaymentLine.findFirst({
+  const [splitLines, orderRow] = await Promise.all([
+    prisma.approvalPaymentLine.findMany({
       where: {
-        paymentMethod: APPROVAL_SPLIT_KOKO,
         approvalRequest: { orderId: order.id, type: ORDER_PAYMENT_APPROVAL },
       },
-      select: { id: true },
+      select: { paymentMethod: true },
     }),
     // Always read createdAt / link-time fields from DB so bulk paths and
     // callers that omit them still grandfather pre-feature KOKO orders.
@@ -588,7 +587,8 @@ export async function getFinancePaymentApprovalBlockReason(order: {
         orderRow?.kokoLinkTimeConfirmedAt ?? order.kokoLinkTimeConfirmedAt,
       cancelledAt: orderRow?.cancelledAt ?? order.cancelledAt,
       financialStatus: orderRow?.financialStatus ?? order.financialStatus,
-      hasKokoSplitLeg: Boolean(hasKokoSplitLeg),
+      hasKokoSplitLeg: splitLines.some((line) => line.paymentMethod === APPROVAL_SPLIT_KOKO),
+      hasSplitPaymentPlan: splitLines.length >= 2,
       createdAt: orderRow?.createdAt ?? order.createdAt,
     })
   ) {

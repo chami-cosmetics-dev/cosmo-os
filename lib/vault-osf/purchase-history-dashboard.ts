@@ -223,10 +223,11 @@ export function matchesPurchaseHistoryFilters(
   catalog: CatalogSellInfo | undefined,
   filters: PurchaseHistoryFilters,
 ): boolean {
-  if (line.postingDate < filters.from || line.postingDate > filters.to) return false;
-  if (filters.sku) {
-    const q = filters.sku.trim().toLowerCase();
-    if (q && !line.sku.toLowerCase().includes(q)) return false;
+  const skuQ = filters.sku?.trim().toLowerCase() ?? "";
+  if (skuQ) {
+    if (!line.sku.toLowerCase().includes(skuQ)) return false;
+  } else if (line.postingDate < filters.from || line.postingDate > filters.to) {
+    return false;
   }
   if (filters.supplier) {
     const q = filters.supplier.trim().toLowerCase();
