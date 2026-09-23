@@ -62,6 +62,12 @@ function buildWhere({
   const where: Prisma.ShopifyAbandonedCheckoutWhereInput = {
     companyId,
     supersededByCheckoutId: null,
+    AND: [
+      { customerEmail: { not: null } },
+      { NOT: { customerEmail: "" } },
+      { customerPhone: { not: null } },
+      { NOT: { customerPhone: "" } },
+    ],
   };
 
   if (filters.followUpStatus?.length) {
