@@ -1,10 +1,5 @@
-import {
-  pickCosmoCatalogErpInstance,
-  type CosmoCatalogErpCandidate,
-  type CosmoCatalogLocationLink,
-} from "@/lib/cosmo-catalog-erp";
 import { originalSellingPrice } from "@/lib/osf/formulas";
-import { sellingMargin } from "@/lib/osf/pricing-math";
+import { formatPercentPoints, sellingMargin } from "@/lib/osf/pricing-math";
 import {
   isSubmittedPurchase,
   type PurchaseInvoiceLine,
@@ -12,6 +7,7 @@ import {
 import { isExcludedErpCompany } from "@/lib/vault-osf/types";
 
 export type PurchaseHistorySource = "erp_invoice" | "cosmo";
+export type PurchaseHistoryErpSlot = "ERP1" | "ERP2";
 
 /** Vault intercompany cash suppliers — hide from purchase history. */
 const INTERCOMPANY_SUPPLIER_CODES = new Set(["sv029", "sv030", "sv031"]);
@@ -49,18 +45,18 @@ export function isIntercompanyPurchaseSupplier(
   return false;
 }
 
-/** Vault: all ERP instances. Cosmo: Cosmetics.lk / ERP1 only. */
-export function selectPurchaseHistoryErpInstances<T extends CosmoCatalogErpCandidate>(
-  instances: T[],
-  input: { vault: boolean; locations: CosmoCatalogLocationLink[] },
-): T[] {
-  if (input.vault || instances.length <= 1) return instances;
-  const picked = pickCosmoCatalogErpInstance({
-    locations: input.locations,
-    instances,
-  });
-  if (!picked) return instances;
-  return instances.filter((row) => row.id === picked.id);
+/** Both OS: every configured ERP instance (ERP1 + ERP2). */
+export function selectPurchaseHistoryErpInstances<T>(instances: T[]): T[] {
+  return instances;
+}
+
+export function purchaseHistoryErpSlot(
+  instanceId: string,
+  slots: { erp1Id: string | null; erp2Id: string | null },
+): PurchaseHistoryErpSlot | null {
+  if (slots.erp1Id && instanceId === slots.erp1Id) return "ERP1";
+  if (slots.erp2Id && instanceId === slots.erp2Id) return "ERP2";
+  return null;
 }
 
 export function purchaseInvoiceFormUrl(baseUrl: string, invoiceName: string): string | null {
@@ -81,6 +77,8 @@ export type PurchaseHistoryRawLine = {
   source: PurchaseHistorySource;
   excelCompany?: string | null;
   invoiceUrl?: string | null;
+  company?: string | null;
+  erpSlot?: PurchaseHistoryErpSlot | null;
 };
 
 export type CatalogSellInfo = {
@@ -106,6 +104,8 @@ export type PurchaseHistoryRow = {
   source: PurchaseHistorySource;
   sourceRef: string | null;
   invoiceUrl: string | null;
+  company: string | null;
+  erpSlot: PurchaseHistoryErpSlot | null;
 };
 
 export type PurchaseHistorySummary = {
@@ -125,17 +125,21 @@ export type PurchaseHistoryFilters = {
   /** Matches catalog product title (contains, case-insensitive). */
   description?: string;
   priority?: string;
+  company?: string;
+  erpSlot?: string;
 };
 
 /** Prefer sourceRef+sku; else sku+date+supplier+qty+rate. */
 export function purchaseHistoryDedupeKey(line: PurchaseHistoryRawLine): string {
   const sku = line.sku.trim().toLowerCase();
   const ref = line.sourceRef?.trim();
-  if (ref) return `ref:${ref.toLowerCase()}|${sku}`;
+  const company = (line.company ?? line.excelCompany ?? "").trim().toLowerCase();
+  const slot = (line.erpSlot ?? "").trim().toLowerCase();
+  if (ref) return `ref:${ref.toLowerCase()}|${sku}|${company}|${slot}`;
   const supplier = line.supplier.trim().toLowerCase();
   const qty = Number.isFinite(line.qty) ? String(line.qty) : "0";
   const rate = Number.isFinite(line.rate) ? String(line.rate) : "0";
-  return `fb:${sku}|${line.postingDate}|${supplier}|${qty}|${rate}`;
+  return `fb:${sku}|${line.postingDate}|${supplier}|${qty}|${rate}|${company}|${slot}`;
 }
 
 export function cosmoDbLineToRaw(line: {
@@ -159,12 +163,15 @@ export function cosmoDbLineToRaw(line: {
     source: "cosmo",
     excelCompany: line.excelCompany ?? null,
     invoiceUrl: null,
+    company: line.excelCompany?.trim() || null,
+    erpSlot: null,
   };
 }
 
 export function erpInvoiceLineToRaw(
   row: PurchaseInvoiceLine,
   erpBaseUrl?: string,
+  extras?: { erpSlot?: PurchaseHistoryErpSlot | null },
 ): PurchaseHistoryRawLine | null {
   if (!isSubmittedPurchase(row)) return null;
   if (isExcludedErpCompany(row.company ?? "")) return null;
@@ -193,6 +200,8 @@ export function erpInvoiceLineToRaw(
     sourceRef,
     source: "erp_invoice",
     invoiceUrl: sourceRef && erpBaseUrl ? purchaseInvoiceFormUrl(erpBaseUrl, sourceRef) : null,
+    company: row.company?.trim() || null,
+    erpSlot: extras?.erpSlot ?? null,
   };
 }
 
@@ -248,6 +257,15 @@ export function matchesPurchaseHistoryFilters(
     const priority = catalog?.priority?.trim().toLowerCase() ?? "";
     if (q && priority !== q) return false;
   }
+  if (filters.company) {
+    const q = filters.company.trim().toLowerCase();
+    const company = (line.company ?? line.excelCompany ?? "").trim().toLowerCase();
+    if (q && company !== q) return false;
+  }
+  if (filters.erpSlot) {
+    const q = filters.erpSlot.trim().toUpperCase();
+    if (q && (line.erpSlot ?? "") !== q) return false;
+  }
   return true;
 }
 
@@ -272,6 +290,8 @@ export function enrichPurchaseHistoryRow(
     source: line.source,
     sourceRef: line.sourceRef,
     invoiceUrl: line.invoiceUrl ?? null,
+    company: line.company ?? line.excelCompany ?? null,
+    erpSlot: line.erpSlot ?? null,
   };
 }
 
@@ -295,4 +315,29 @@ export function summarizePurchaseHistoryRows(rows: PurchaseHistoryRow[]): Purcha
 export function paginateRows<T>(rows: T[], offset: number, limit: number): T[] {
   const start = Math.max(0, offset);
   return rows.slice(start, start + Math.max(1, limit));
+}
+
+export function purchaseHistoryExportSheetRows(
+  rows: PurchaseHistoryRow[],
+): Array<Record<string, string | number>> {
+  return rows.map((row) => {
+    const marginPts = formatPercentPoints(row.marginPct);
+    return {
+      Date: row.postingDate,
+      SKU: row.sku,
+      Brand: row.brand ?? "",
+      Priority: row.priority ?? "",
+      Item: row.productTitle ?? "",
+      Supplier: row.supplier,
+      Company: row.company ?? "",
+      Qty: row.qty,
+      Cost: row.rate,
+      Amount: row.netValue,
+      Sell: row.selling ?? "",
+      "Margin %": marginPts ?? "",
+      Source: row.source === "erp_invoice" ? "Invoice" : "File",
+      ERP: row.erpSlot ?? "",
+      Invoice: row.sourceRef ?? "",
+    };
+  });
 }

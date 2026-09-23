@@ -103,6 +103,8 @@ export function toMobileDeliveryDto(input: {
   } | null;
   /** Pre-resolved rider delivery charge from shipping-rule Excel table */
   incentiveAmount?: string | null;
+  /** Cash remaining from a KOKO/Bank + Cash split. Rider collects this, not the invoice total. */
+  collectCashAmount?: number | null;
 }) {
   const { order, task, payment, companyLocation, specialDelivery, incentiveAmount } = input;
   const deliveryKind = specialDelivery?.deliveryKind ?? task.deliveryKind;
@@ -118,10 +120,17 @@ export function toMobileDeliveryDto(input: {
     customerEmail: order.customerEmail,
     shippingAddress: order.shippingAddress,
     billingAddress: order.billingAddress,
-    amount: formatMoney(order.totalPrice),
+    amount:
+      input.collectCashAmount != null && input.collectCashAmount > 0
+        ? formatMoney(input.collectCashAmount)
+        : formatMoney(order.totalPrice),
+    collectCashAmount: input.collectCashAmount != null ? formatMoney(input.collectCashAmount) : null,
     incentiveAmount: incentiveAmount ?? "0.00",
     currency: order.currency,
-    expectedPaymentMethod: order.paymentGatewayPrimary,
+    expectedPaymentMethod:
+      input.collectCashAmount != null && input.collectCashAmount > 0
+        ? "cod"
+        : order.paymentGatewayPrimary,
     financialStatus: order.financialStatus,
     deliveryStatus: task.status,
     deliveryKind,

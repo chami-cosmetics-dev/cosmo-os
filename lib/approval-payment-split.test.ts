@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  approvalSplitCashCollectAmount,
   approvalSplitNoteIncludesKoko,
   approvalSplitPairId,
   buildApprovalSplitRequestNote,
   buildDefaultOrderPaymentRequestNote,
+  formatApprovalSplitInvoicePaymentLabel,
   isApprovalSplitRequestNote,
   parseApprovalSplitRequestNote,
   validateApprovalSplitAmounts,
@@ -158,5 +160,23 @@ describe("approval split payment plan", () => {
       { paymentMethod: "bank_transfer", amount: 5000 },
       { paymentMethod: "cash", amount: 2750 },
     ]);
+    expect(
+      approvalSplitCashCollectAmount([
+        { paymentMethod: "bank_transfer", amount: 5000 },
+        { paymentMethod: "cash", amount: 2750 },
+      ]),
+    ).toBe(2750);
+    expect(
+      formatApprovalSplitInvoicePaymentLabel([
+        { paymentMethod: "koko", amount: 5750 },
+        { paymentMethod: "cash", amount: 2000 },
+      ]),
+    ).toBe("KOKO 5750.00 + Cash 2000.00 — collect cash 2000.00");
+    expect(
+      approvalSplitCashCollectAmount([
+        { paymentMethod: "koko", amount: 3000 },
+        { paymentMethod: "bank_transfer", amount: 4750 },
+      ]),
+    ).toBeNull();
   });
 });

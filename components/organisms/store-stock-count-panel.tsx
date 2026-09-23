@@ -1930,8 +1930,8 @@ export function StoreStockCountPanel({
                 New warehouse stock report
               </h2>
               <p className="text-xs text-muted-foreground">
-                Select ERP company sources. Reports pull only Main or Shop
-                warehouses as separate stock columns.
+                Select ERP company sources. Reports load only items that have
+                a bin in the selected Main or Shop warehouses.
               </p>
             </div>
             {companiesLoading ? (

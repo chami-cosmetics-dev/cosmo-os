@@ -185,7 +185,7 @@ describe("finance-approved split ERP Payment Entries", () => {
     });
   });
 
-  it("creates KOKO and Cash PEs with their allocated amounts", async () => {
+  it("creates a KOKO PE and leaves Cash for delivery collection", async () => {
     await syncApprovalSplitPaymentEntriesToErp(
       {
         id: "approval-1",
@@ -210,7 +210,7 @@ describe("finance-approved split ERP Payment Entries", () => {
       new Date("2026-08-24T00:00:00.000Z"),
     );
 
-    expect(paymentEntryBodies).toHaveLength(2);
+    expect(paymentEntryBodies).toHaveLength(1);
     expect(paymentEntryBodies[0]).toEqual(
       expect.objectContaining({
         mode_of_payment: "KOKO",
@@ -218,16 +218,11 @@ describe("finance-approved split ERP Payment Entries", () => {
         reference_no: "KOKO-REF-1",
       }),
     );
-    expect(paymentEntryBodies[1]).toEqual(
-      expect.objectContaining({
-        mode_of_payment: "Cash",
-        paid_amount: 4750,
-        reference_no: "OS-OPA-line-cash",
-      }),
-    );
+    expect(prismaMocks.approvalPaymentLineUpdate).toHaveBeenCalledTimes(1);
+    expect(outstanding).toBe(4750);
   });
 
-  it("creates Bank Transfer and Cash PEs without a KOKO reference", async () => {
+  it("creates a Bank Transfer PE and leaves Cash for delivery collection", async () => {
     await syncApprovalSplitPaymentEntriesToErp(
       {
         id: "approval-1",
@@ -252,7 +247,7 @@ describe("finance-approved split ERP Payment Entries", () => {
       new Date("2026-08-24T00:00:00.000Z"),
     );
 
-    expect(paymentEntryBodies).toHaveLength(2);
+    expect(paymentEntryBodies).toHaveLength(1);
     expect(paymentEntryBodies[0]).toEqual(
       expect.objectContaining({
         mode_of_payment: "Bank Transfer",
@@ -260,12 +255,7 @@ describe("finance-approved split ERP Payment Entries", () => {
         reference_no: "OS-OPA-line-bank",
       }),
     );
-    expect(paymentEntryBodies[1]).toEqual(
-      expect.objectContaining({
-        mode_of_payment: "Cash",
-        paid_amount: 2750,
-        reference_no: "OS-OPA-line-cash",
-      }),
-    );
+    expect(prismaMocks.approvalPaymentLineUpdate).toHaveBeenCalledTimes(1);
+    expect(outstanding).toBe(2750);
   });
 });

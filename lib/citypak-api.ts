@@ -102,8 +102,15 @@ export function citypakCodAmount(
   payment?: {
     paymentGatewayPrimary?: string | null;
     paymentGatewayNames?: string[] | null;
+    /** Remaining cash from a KOKO/Bank + Cash split. Overrides prepaid-zero COD. */
+    cashToCollect?: number | null;
   }
 ) {
+  const cashToCollect = payment?.cashToCollect;
+  if (cashToCollect != null && Number.isFinite(cashToCollect) && cashToCollect > 0) {
+    if (isCitypakPrepaid(financialStatus)) return 0;
+    return Math.round(cashToCollect * 100) / 100;
+  }
   if (
     isCitypakZeroCodOrder({
       financialStatus,
@@ -438,6 +445,7 @@ export function draftCitypakShipmentFields(input: {
   paymentGatewayPrimary?: string | null;
   paymentGatewayNames?: string[] | null;
   totalPrice?: string | number;
+  cashToCollect?: number | null;
 }): CitypakShipmentOverride {
   const shippingAddress = input.shippingAddress;
   const receiverName = resolveOrderCustomerName({
@@ -458,6 +466,7 @@ export function draftCitypakShipmentFields(input: {
     cashOnDeliveryAmount: citypakCodAmount(input.financialStatus, input.totalPrice ?? 0, {
       paymentGatewayPrimary: input.paymentGatewayPrimary,
       paymentGatewayNames: input.paymentGatewayNames,
+      cashToCollect: input.cashToCollect,
     }),
   };
 }

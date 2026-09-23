@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import * as XLSX from "xlsx";
 
-import { prisma } from "@/lib/prisma";
 import { getCurrentUserContext, hasPermission } from "@/lib/rbac";
+import { purchaseHistoryExportSheetRows } from "@/lib/vault-osf/purchase-history-dashboard";
 import { loadPurchaseHistory } from "@/lib/vault-osf/purchase-history-load";
-import { paginateRows } from "@/lib/vault-osf/purchase-history-dashboard";
 import { purchaseHistoryQuerySchema } from "@/lib/validation/osf";
 
 export const dynamic = "force-dynamic";
@@ -36,16 +36,19 @@ export async function GET(request: NextRequest) {
   }
 
   const loaded = await loadPurchaseHistory(companyId, query);
-  const page = paginateRows(loaded.rows, query.offset, query.limit);
+  const sheetRows = purchaseHistoryExportSheetRows(loaded.rows);
+  const workbook = XLSX.utils.book_new();
+  const sheet = XLSX.utils.json_to_sheet(sheetRows);
+  XLSX.utils.book_append_sheet(workbook, sheet, "Purchase History");
+  const buffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer;
+  const filename = `purchase-history-${query.from}-to-${query.to}.xlsx`;
 
-  return NextResponse.json({
-    rows: page,
-    summary: loaded.summary,
-    total: loaded.rows.length,
-    offset: query.offset,
-    limit: query.limit,
-    erpAvailable: loaded.erpAvailable,
-    erpError: loaded.erpError,
-    filterOptions: loaded.filterOptions,
+  return new NextResponse(new Uint8Array(buffer), {
+    status: 200,
+    headers: {
+      "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "Content-Disposition": `attachment; filename="${filename}"`,
+      "Cache-Control": "no-store",
+    },
   });
 }

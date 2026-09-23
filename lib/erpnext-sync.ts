@@ -48,6 +48,7 @@ import {
   approvalSplitLineLabel,
   isApprovalSplitPaymentMethod,
   sortApprovalSplitLines,
+  splitIncludesCash,
   splitIncludesKoko,
   validateApprovalSplitAmounts,
 } from "@/lib/approval-payment-split";
@@ -209,7 +210,8 @@ function resolvePrepaidMop(cfg: ErpConfig, gateways: string[]): string | null {
 /**
  * After SI exists: create prepaid PE for paid gateways.
  * CC Checkout / WebXPay also set early `invoiceCompleteAt` so they skip manual invoice-complete.
- * KOKO / bank / mintpay wait for finance approval (PE + invoiceCompleteAt), including splits.
+ * KOKO / bank / mintpay wait for finance approval (PE + invoiceCompleteAt).
+ * Cash splits post the prepaid PE at approval; cash PE waits for invoice complete.
  */
 async function syncPaidGatewayPeAndMaybeCcInvoiceComplete(input: {
   order: {
@@ -1266,6 +1268,8 @@ export async function syncOrderDeliveryPaymentEntriesToErp(
     requireMop?: boolean;
     /** Force a single full PE with this MOP (finance override / legacy retry). Ignored for split payments. */
     mopNameOverride?: string;
+    /** Remaining cash from a KOKO/Bank + Cash split. */
+    paidAmount?: number;
   },
 ): Promise<CreateDeliveryPaymentEntryResult> {
   const payment = await prisma.deliveryPayment.findUnique({
@@ -1280,6 +1284,7 @@ export async function syncOrderDeliveryPaymentEntriesToErp(
     return createDeliveryPaymentEntry(order, location, completedAt, {
       mopNameOverride: options.mopNameOverride,
       requireMop: options?.requireMop,
+      paidAmount: options?.paidAmount,
     });
   }
 
@@ -1287,6 +1292,7 @@ export async function syncOrderDeliveryPaymentEntriesToErp(
     return createDeliveryPaymentEntry(order, location, completedAt, {
       requireMop: options?.requireMop,
       mopNameOverride: options?.mopNameOverride,
+      paidAmount: options?.paidAmount,
     });
   }
 
@@ -1443,9 +1449,16 @@ export async function syncApprovalSplitPaymentEntriesToErp(
   const orderedLines = sortApprovalSplitLines(approval.paymentLines);
   let createdCount = 0;
   let lastPaymentEntryName: string | undefined;
+  const collectCashAtDelivery = splitIncludesCash(
+    approval.paymentLines.map((line) => line.paymentMethod),
+  );
 
   for (const line of orderedLines) {
     if (line.erpPaymentEntryName) continue;
+    if (line.paymentMethod === APPROVAL_SPLIT_CASH && collectCashAtDelivery) {
+      // Cash is collected by rider / CityPak. PE waits for finance invoice complete.
+      continue;
+    }
     const mopName = splitLineMopName(cfg, line.paymentMethod);
     if (!mopName) {
       throw new Error(

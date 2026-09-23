@@ -8,6 +8,8 @@ import {
   matchesPurchaseHistoryFilters,
   mergePurchaseHistoryLines,
   purchaseHistoryDedupeKey,
+  purchaseHistoryErpSlot,
+  purchaseHistoryExportSheetRows,
   purchaseInvoiceFormUrl,
   selectPurchaseHistoryErpInstances,
   summarizePurchaseHistoryRows,
@@ -26,13 +28,20 @@ const baseCosmo: PurchaseHistoryRawLine = {
 };
 
 describe("purchaseHistoryDedupeKey", () => {
-  it("prefers sourceRef + sku", () => {
-    expect(purchaseHistoryDedupeKey(baseCosmo)).toBe("ref:acc-pinv-001|sku1");
+  it("prefers sourceRef + sku + company + erp", () => {
+    expect(purchaseHistoryDedupeKey(baseCosmo)).toBe("ref:acc-pinv-001|sku1||");
+    expect(
+      purchaseHistoryDedupeKey({
+        ...baseCosmo,
+        company: "SupplementVault.lk",
+        erpSlot: "ERP1",
+      }),
+    ).toBe("ref:acc-pinv-001|sku1|supplementvault.lk|erp1");
   });
 
   it("falls back without sourceRef", () => {
     const key = purchaseHistoryDedupeKey({ ...baseCosmo, sourceRef: null });
-    expect(key).toBe("fb:sku1|2026-05-01|supp a|10|100");
+    expect(key).toBe("fb:sku1|2026-05-01|supp a|10|100||");
   });
 });
 
@@ -59,24 +68,16 @@ describe("selectPurchaseHistoryErpInstances", () => {
     baseUrl: "https://lwk.example.com",
   };
 
-  it("keeps every instance on Vault", () => {
-    expect(
-      selectPurchaseHistoryErpInstances([erp2, erp1], { vault: true, locations: [] }).map(
-        (row) => row.id,
-      ),
-    ).toEqual(["erp2", "erp1"]);
+  it("keeps every instance on both OS", () => {
+    expect(selectPurchaseHistoryErpInstances([erp2, erp1]).map((row) => row.id)).toEqual([
+      "erp2",
+      "erp1",
+    ]);
   });
 
-  it("picks Cosmetics.lk ERP on Cosmo OS", () => {
-    expect(
-      selectPurchaseHistoryErpInstances([erp2, erp1], {
-        vault: false,
-        locations: [
-          { name: "LWK Enterprises Pvt Ltd", locationReference: "003", instanceId: "erp2" },
-          { name: "Cosmetics.lk", locationReference: "006", instanceId: "erp1" },
-        ],
-      }).map((row) => row.id),
-    ).toEqual(["erp1"]);
+  it("maps instance ids to ERP1 / ERP2", () => {
+    expect(purchaseHistoryErpSlot("erp1", { erp1Id: "erp1", erp2Id: "erp2" })).toBe("ERP1");
+    expect(purchaseHistoryErpSlot("erp2", { erp1Id: "erp1", erp2Id: "erp2" })).toBe("ERP2");
   });
 });
 
@@ -210,6 +211,36 @@ describe("matchesPurchaseHistoryFilters", () => {
     expect(otherSku).toBe(false);
   });
 
+  it("filters by company and ERP slot", () => {
+    const line = {
+      ...baseCosmo,
+      company: "Origins (PVT) LTD",
+      erpSlot: "ERP2" as const,
+    };
+    expect(
+      matchesPurchaseHistoryFilters(line, undefined, {
+        from: "2026-01-01",
+        to: "2026-12-31",
+        company: "Origins (PVT) LTD",
+        erpSlot: "ERP2",
+      }),
+    ).toBe(true);
+    expect(
+      matchesPurchaseHistoryFilters(line, undefined, {
+        from: "2026-01-01",
+        to: "2026-12-31",
+        company: "SupplementVault.lk",
+      }),
+    ).toBe(false);
+    expect(
+      matchesPurchaseHistoryFilters(line, undefined, {
+        from: "2026-01-01",
+        to: "2026-12-31",
+        erpSlot: "ERP1",
+      }),
+    ).toBe(false);
+  });
+
   it("filters by priority", () => {
     const ok = matchesPurchaseHistoryFilters(
       baseCosmo,
@@ -315,13 +346,17 @@ describe("erpInvoiceLineToRaw", () => {
         docstatus: 1,
         supplier: "Jana",
         supplier_name: "Jana Cosmetics",
+        company: "SupplementVault.lk",
         is_return: 0,
       },
       "https://erp.example.com/",
+      { erpSlot: "ERP1" },
     );
     expect(raw).not.toBeNull();
     expect(raw!.source).toBe("erp_invoice");
     expect(raw!.rate).toBe(40);
+    expect(raw!.company).toBe("SupplementVault.lk");
+    expect(raw!.erpSlot).toBe("ERP1");
     expect(raw!.invoiceUrl).toBe(
       "https://erp.example.com/app/purchase-invoice/ACC-PINV-9",
     );
@@ -357,5 +392,43 @@ describe("cosmoDbLineToRaw + summarize", () => {
     expect(summary.lineCount).toBe(2);
     expect(summary.costSum).toBe(40);
     expect(summary.marginLineCount).toBe(1);
+  });
+});
+
+describe("purchaseHistoryExportSheetRows", () => {
+  it("maps filtered rows to export columns", () => {
+    const raw = cosmoDbLineToRaw({
+      sku: "A",
+      supplier: "S",
+      postingDate: "2026-04-01",
+      qty: 2,
+      rate: 10,
+      netValue: 20,
+      sourceRef: "PO-1",
+      excelCompany: "SupplementVault.lk",
+    });
+    const row = enrichPurchaseHistoryRow(
+      { ...raw, erpSlot: "ERP1" },
+      { productTitle: "Item", brand: "B", priority: "Top Priority", mrp: 20, discountedPrice: null },
+    );
+    expect(purchaseHistoryExportSheetRows([row])).toEqual([
+      {
+        Date: "2026-04-01",
+        SKU: "A",
+        Brand: "B",
+        Priority: "Top Priority",
+        Item: "Item",
+        Supplier: "S",
+        Company: "SupplementVault.lk",
+        Qty: 2,
+        Cost: 10,
+        Amount: 20,
+        Sell: 20,
+        "Margin %": 50,
+        Source: "File",
+        ERP: "ERP1",
+        Invoice: "PO-1",
+      },
+    ]);
   });
 });
