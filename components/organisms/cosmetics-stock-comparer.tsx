@@ -94,7 +94,14 @@ function appendBrandCheckSheet(workbook: XLSX.WorkBook, rows: BrandWarehouseViol
   XLSX.utils.book_append_sheet(workbook, worksheet, "Brand Warehouse Check");
 }
 
-function exportReport(rows: CosmeticsStockReportDetail[], brandViolations: BrandWarehouseViolation[]) {
+function exportBrandReport(rows: BrandWarehouseViolation[]) {
+  const workbook = XLSX.utils.book_new();
+  appendBrandCheckSheet(workbook, rows);
+  const today = new Date().toISOString().slice(0, 10);
+  XLSX.writeFile(workbook, `cosmetics-brand-erp-check-${today}.xlsx`);
+}
+
+function exportStockReport(rows: CosmeticsStockReportDetail[]) {
   const workbook = XLSX.utils.book_new();
   const sheetRows: Array<Array<string | number>> = [[...COSMETICS_STOCK_REPORT_HEADERS]];
   const merges: XLSX.Range[] = [];
@@ -197,7 +204,6 @@ function exportReport(rows: CosmeticsStockReportDetail[], brandViolations: Brand
   }
 
   XLSX.utils.book_append_sheet(workbook, worksheet, "Stock Compare");
-  appendBrandCheckSheet(workbook, brandViolations);
   const today = new Date().toISOString().slice(0, 10);
   XLSX.writeFile(workbook, `cosmetics-stock-compare-${today}.xlsx`);
 }
@@ -299,12 +305,22 @@ export function CosmeticsStockComparer() {
       <div className="flex flex-wrap items-center gap-2">
         <Button
           type="button"
-          onClick={() => exportReport(reportRows, brandViolations)}
-          disabled={processing || (reportRows.length === 0 && brandViolations.length === 0)}
+          onClick={() => exportStockReport(reportRows)}
+          disabled={processing || reportRows.length === 0}
           className="gap-2"
         >
           {processing ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
-          Export report
+          Export stock report
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => exportBrandReport(brandViolations)}
+          disabled={processing || brandViolations.length === 0}
+          className="gap-2"
+        >
+          <Download className="size-4" />
+          Export brand report
         </Button>
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <FileSpreadsheet className="size-4" />
