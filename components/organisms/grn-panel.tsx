@@ -87,6 +87,7 @@ type PurchaseReceiptRow = {
     stockUom: string | null;
   }[];
   tallyStatus: "not_linked" | "matched" | "issue";
+  tallyPercentage: number | null;
   tallyIssueItems: string[];
   tallyIssues: {
     itemCode: string;
@@ -133,7 +134,7 @@ type SupplierStockReturnRow = {
     name: string;
     percentage: number;
   } | null;
-  matchReviewStatus: "review" | "waiting" | null;
+  matchReviewStatus: "matched" | "review" | "waiting" | null;
   items: {
     name: string;
     itemCode: string;
@@ -228,11 +229,47 @@ function buildPriceTallyRows(ssr: SupplierStockReturnRow, pr: PurchaseReceiptRow
   });
 }
 
+function buildItemMatchRows(pr: PurchaseReceiptRow, ssr: SupplierStockReturnRow | null) {
+  if (!ssr) return [];
+  const prTotals = new Map<string, { itemName: string | null; qty: number }>();
+  const ssrTotals = new Map<string, { itemName: string | null; qty: number }>();
+
+  for (const item of pr.items) {
+    const current = prTotals.get(item.itemCode);
+    prTotals.set(item.itemCode, {
+      itemName: current?.itemName ?? item.itemName,
+      qty: (current?.qty ?? 0) + (item.stockQty ?? item.qty),
+    });
+  }
+  for (const item of ssr.items) {
+    const current = ssrTotals.get(item.itemCode);
+    ssrTotals.set(item.itemCode, {
+      itemName: current?.itemName ?? item.itemName,
+      qty: (current?.qty ?? 0) + item.qty,
+    });
+  }
+
+  return Array.from(new Set([...prTotals.keys(), ...ssrTotals.keys()]))
+    .map((itemCode) => {
+      const prItem = prTotals.get(itemCode);
+      const ssrItem = ssrTotals.get(itemCode);
+      const prQty = prItem?.qty ?? 0;
+      const ssrQty = ssrItem?.qty ?? 0;
+      return {
+        itemCode,
+        itemName: prItem?.itemName ?? ssrItem?.itemName ?? null,
+        prQty,
+        ssrQty,
+        matched: Math.abs(prQty - ssrQty) <= 0.000001,
+      };
+    })
+    .sort((a, b) => Number(a.matched) - Number(b.matched) || a.itemCode.localeCompare(b.itemCode));
+}
 function GrnStageTimeline({ row }: { row: PurchaseReceiptRow }) {
   const stages = [
-    { label: "Handover", at: row.handoverAt, by: row.handoverBy },
-    { label: "Valued", at: row.valuedAt, by: row.valuedBy },
-    { label: "GRN Received", at: row.receivedAt, by: row.receivedBy },
+    { label: "Handover", at: row.handoverAt, by: row.handoverBy, fallbackBy: null },
+    { label: "Valued", at: row.valuedAt, by: row.valuedBy, fallbackBy: "Cosmo API" },
+    { label: "GRN Received", at: row.receivedAt, by: row.receivedBy, fallbackBy: null },
   ];
 
   return (
@@ -257,7 +294,9 @@ function GrnStageTimeline({ row }: { row: PurchaseReceiptRow }) {
               </span>
               <div>
                 <div className="font-semibold">{stage.label}</div>
-                <div className="text-sm text-muted-foreground">{userLabel(stage.by) ? `by ${userLabel(stage.by)}` : "-"}</div>
+                <div className="text-sm text-muted-foreground">
+                  {userLabel(stage.by) ? `by ${userLabel(stage.by)}` : complete && stage.fallbackBy ? `by ${stage.fallbackBy}` : "-"}
+                </div>
               </div>
               <div className="text-right text-sm text-muted-foreground">{formatDate(stage.at)}</div>
             </div>
@@ -272,7 +311,7 @@ function TallyBadge({ row }: { row: PurchaseReceiptRow }) {
     return (
       <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700">
         <CheckCircle2 className="size-3.5" />
-        Matched
+        Matched {row.tallyPercentage == null ? "" : `${row.tallyPercentage.toFixed(2)}%`}
       </span>
     );
   }
@@ -283,7 +322,7 @@ function TallyBadge({ row }: { row: PurchaseReceiptRow }) {
         title={row.tallyIssueItems.join(", ")}
       >
         <TriangleAlert className="size-3.5" />
-        Issue
+        Issue {row.tallyPercentage == null ? "" : `${row.tallyPercentage.toFixed(2)}%`}
       </span>
     );
   }
@@ -477,7 +516,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
             `${row.companyId}:${row.name}`,
             row.purchaseReceiptName
               ? purchaseReceiptKeyByName.get(row.purchaseReceiptName) ?? row.purchaseReceiptName
-              : row.matchRecommendation
+              : row.matchRecommendation && row.matchRecommendation.percentage > 0
                 ? `${row.matchRecommendation.companyId}:${row.matchRecommendation.name}`
                 : "",
           ]),
@@ -514,19 +553,48 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
     [data.purchaseReceipts],
   );
 
+  const supplierStockReturnByName = useMemo(
+    () => new Map(data.supplierStockReturns.map((row) => [row.name, row])),
+    [data.supplierStockReturns],
+  );
+
+
+
   const purchaseReceiptByKey = useMemo(
     () => new Map(data.purchaseReceipts.map((row) => [`${row.companyId}:${row.name}`, row])),
     [data.purchaseReceipts],
   );
 
+  const selectedPrStockReturn = selectedPr?.adjustmentNo
+    ? supplierStockReturnByName.get(selectedPr.adjustmentNo) ?? null
+    : null;
+  const selectedPrMatchRows = selectedPr
+    ? buildItemMatchRows(selectedPr, selectedPrStockReturn)
+    : [];
+
   const selectedSsrPurchaseReceipt = selectedSsr?.purchaseReceiptName
     ? purchaseReceiptByName.get(selectedSsr.purchaseReceiptName) ?? null
     : null;
 
-    const selectedSsrPriceRows = selectedSsr
+  const selectedSsrKey = selectedSsr ? `${selectedSsr.companyId}:${selectedSsr.name}` : "";
+  const selectedSsrPickerValue = selectedSsrKey ? selectedPrBySsr[selectedSsrKey] ?? "" : "";
+  const selectedSsrPickerPurchaseReceipt = selectedSsrPickerValue
+    ? purchaseReceiptByKey.get(selectedSsrPickerValue) ?? purchaseReceiptByName.get(selectedSsrPickerValue) ?? null
+    : null;
+  const selectedSsrSuggestedPurchaseReceipt = selectedSsr?.matchRecommendation
+    ? purchaseReceiptByKey.get(`${selectedSsr.matchRecommendation.companyId}:${selectedSsr.matchRecommendation.name}`) ?? null
+    : null;
+  const selectedSsrComparisonPurchaseReceipt =
+    selectedSsrPurchaseReceipt ?? selectedSsrPickerPurchaseReceipt ?? selectedSsrSuggestedPurchaseReceipt;
+  const selectedSsrMatchRows = selectedSsrComparisonPurchaseReceipt
+    ? buildItemMatchRows(selectedSsrComparisonPurchaseReceipt, selectedSsr)
+    : [];
+
+  const selectedSsrPriceRows = selectedSsr
     ? buildPriceTallyRows(selectedSsr, selectedSsrPurchaseReceipt)
     : [];
-const filteredPrs = useMemo(() => {
+
+  const filteredPrs = useMemo(() => {
     const term = search.trim().toLowerCase();
     return data.purchaseReceipts.filter((row) => {
       const matchesStage =
@@ -544,18 +612,41 @@ const filteredPrs = useMemo(() => {
     });
   }, [data.purchaseReceipts, search, stageFilter]);
 
-  const filteredSsrs = useMemo(() => {
-    const term = ssrSearch.trim().toLowerCase();
-    const reviewRows = data.supplierStockReturns.filter(
-      (row) => row.docstatus !== 2 && !row.purchaseReceiptName && intercompanySupplierSet.has(row.supplier),
-    );
-    if (!term) return reviewRows;
-    return reviewRows.filter((row) =>
-      [row.name, row.supplier, row.purchaseReceiptName, row.owner, row.companyName, row.matchRecommendation?.name]
+  const ssrMatchesSearch = useCallback(
+    (row: SupplierStockReturnRow) => {
+      const term = ssrSearch.trim().toLowerCase();
+      if (!term) return true;
+      return [row.name, row.supplier, row.purchaseReceiptName, row.owner, row.companyName, row.matchRecommendation?.name]
         .filter(Boolean)
-        .some((value) => value!.toLowerCase().includes(term)),
-    );
-  }, [data.supplierStockReturns, intercompanySupplierSet, ssrSearch]);
+        .some((value) => value!.toLowerCase().includes(term));
+    },
+    [ssrSearch],
+  );
+
+  const filteredSsrs = useMemo(
+    () =>
+      data.supplierStockReturns.filter(
+        (row) =>
+          row.docstatus !== 2 &&
+          (!row.purchaseReceiptName || (row.matchRecommendation?.percentage ?? 0) < 100) &&
+          intercompanySupplierSet.has(row.supplier) &&
+          ssrMatchesSearch(row),
+      ),
+    [data.supplierStockReturns, intercompanySupplierSet, ssrMatchesSearch],
+  );
+
+  const filteredMatchedSsrs = useMemo(
+    () =>
+      data.supplierStockReturns.filter(
+        (row) =>
+          row.docstatus !== 2 &&
+          Boolean(row.purchaseReceiptName) &&
+          (row.matchRecommendation?.percentage ?? 0) >= 100 &&
+          intercompanySupplierSet.has(row.supplier) &&
+          ssrMatchesSearch(row),
+      ),
+    [data.supplierStockReturns, intercompanySupplierSet, ssrMatchesSearch],
+  );
 
   const prPageCount = Math.max(1, Math.ceil(filteredPrs.length / prPageSize));
   const ssrPageCount = Math.max(1, Math.ceil(filteredSsrs.length / ssrPageSize));
@@ -785,26 +876,27 @@ const filteredPrs = useMemo(() => {
             <TableHeader>
               <TableRow>
                 <TableHead>PR No</TableHead>
-                <TableHead>Adjustment No</TableHead>
+                <TableHead className="w-28 whitespace-normal leading-tight">Adjustment<br />No</TableHead>
                 <TableHead>GRN Date</TableHead>
                 <TableHead>GRN By</TableHead>
                 <TableHead>Supplier</TableHead>
-                <TableHead>Handover Date</TableHead>
+                <TableHead className="w-24 whitespace-normal leading-tight">Handover<br />Date</TableHead>
                 <TableHead>Valued</TableHead>
-                <TableHead>GRN Received</TableHead>
+                <TableHead className="w-20 whitespace-normal leading-tight">PI<br />Prices</TableHead>
+                <TableHead className="w-24 whitespace-normal leading-tight">GRN<br />Received</TableHead>
                 <TableHead>Tally</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">
+                  <TableCell colSpan={10} className="h-24 text-center text-muted-foreground">
                     Loading GRN data...
                   </TableCell>
                 </TableRow>
               ) : filteredPrs.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">
+                  <TableCell colSpan={10} className="h-24 text-center text-muted-foreground">
                     No purchase receipts found.
                   </TableCell>
                 </TableRow>
@@ -875,6 +967,16 @@ const filteredPrs = useMemo(() => {
                       )}
                     </TableCell>
                     <TableCell>
+                      {row.purchaseInvoice ? (
+                        <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700">
+                          <CheckCircle2 className="size-3.5" />
+                          PI linked
+                        </span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">No PI prices</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
                       {row.receivedAt ? (
                         formatDate(row.receivedAt)
                       ) : permissions.canMarkReceived ? (
@@ -940,6 +1042,7 @@ const filteredPrs = useMemo(() => {
                 <TableHead>Details</TableHead>
                 <TableHead>Suggested PR</TableHead>
                 <TableHead>Match</TableHead>
+                <TableHead className="w-20 whitespace-normal leading-tight">PI<br />Prices</TableHead>
                 <TableHead>Purchase Receipt</TableHead>
                 <TableHead className="w-24">Link</TableHead>
               </TableRow>
@@ -947,14 +1050,14 @@ const filteredPrs = useMemo(() => {
             <TableBody>
               {filteredSsrs.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
+                  <TableCell colSpan={10} className="h-24 text-center text-muted-foreground">
                     No supplier stock returns waiting for review.
                   </TableCell>
                 </TableRow>
               ) : (
                 paginatedSsrs.map((row) => {
                   const rowKey = `${row.companyId}:${row.name}`;
-                  const suggestedPr = row.matchRecommendation
+                  const suggestedPr = row.matchRecommendation && row.matchRecommendation.percentage > 0
                     ? purchaseReceiptByKey.get(`${row.matchRecommendation.companyId}:${row.matchRecommendation.name}`) ?? null
                     : null;
                   return (
@@ -1011,15 +1114,31 @@ const filteredPrs = useMemo(() => {
                       )}
                     </TableCell>
                     <TableCell>
-                      {row.matchRecommendation ? (
+                      {row.matchRecommendation && row.matchRecommendation.percentage > 0 ? (
                         <div>
                           <div className="font-medium">{row.matchRecommendation.percentage.toFixed(2)}%</div>
                           <div className="text-xs text-muted-foreground">
-                            {row.matchReviewStatus === "review" ? "Review" : "Waiting"}
+                            {row.matchReviewStatus === "matched"
+                              ? "Matched"
+                              : row.matchReviewStatus === "review"
+                                ? "Review"
+                                : row.matchRecommendation.percentage === 0
+                                  ? "Waiting - no SKU/qty overlap"
+                                  : "Waiting"}
                           </div>
                         </div>
                       ) : (
                         <span className="text-xs text-muted-foreground">No candidate</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {suggestedPr?.purchaseInvoice ? (
+                        <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700">
+                          <CheckCircle2 className="size-3.5" />
+                          PI linked
+                        </span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">No PI prices</span>
                       )}
                     </TableCell>
                     <TableCell onClick={(event) => event.stopPropagation()}>
@@ -1063,11 +1182,114 @@ const filteredPrs = useMemo(() => {
             onPageSizeChange={setSsrPageSize}
           />
         </div>
+
+        <div className="space-y-3">
+          <h3 className="text-base font-semibold">Linked SSR records</h3>
+          <div className="overflow-hidden rounded-lg border bg-background/45">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>SSR No</TableHead>
+                  <TableHead>Supplier</TableHead>
+                  <TableHead>Current PR</TableHead>
+                  <TableHead>Match</TableHead>
+                  <TableHead className="w-20 whitespace-normal leading-tight">PI<br />Prices</TableHead>
+                  <TableHead>Change Purchase Receipt</TableHead>
+                  <TableHead className="w-24">Save</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredMatchedSsrs.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={7} className="h-20 text-center text-muted-foreground">
+                      No linked SSR records found.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  filteredMatchedSsrs.map((row) => {
+                    const rowKey = `${row.companyId}:${row.name}`;
+                    const linkedPr = row.purchaseReceiptName
+                      ? purchaseReceiptByName.get(row.purchaseReceiptName) ?? null
+                      : row.matchRecommendation
+                        ? purchaseReceiptByKey.get(`${row.matchRecommendation.companyId}:${row.matchRecommendation.name}`) ?? null
+                        : null;
+                    const linkedPrKey = linkedPr ? `${linkedPr.companyId}:${linkedPr.name}` : "";
+                    const selectedPrChanged =
+                      Boolean(selectedPrBySsr[rowKey]) &&
+                      selectedPrBySsr[rowKey] !== linkedPrKey &&
+                      selectedPrBySsr[rowKey] !== row.purchaseReceiptName;
+                    const matchedPercentage = row.matchRecommendation?.percentage ?? 0;
+                    const isCleanMatch = matchedPercentage >= 100;
+                    return (
+                      <TableRow key={`matched:${rowKey}`} className="cursor-pointer" onClick={() => setSelectedSsr(row)}>
+                        <TableCell className="font-medium">{row.name}</TableCell>
+                        <TableCell>{row.supplier}</TableCell>
+                        <TableCell>{linkedPr?.name ?? row.purchaseReceiptName ?? "-"}</TableCell>
+                        <TableCell>
+                          {row.matchRecommendation ? (
+                            <div>
+                              <div className="font-medium">{row.matchRecommendation.percentage.toFixed(2)}%</div>
+                              <div className="text-xs text-muted-foreground">
+                                {isCleanMatch ? "Matched" : matchedPercentage <= 0 ? "Issue - no SKU/qty overlap" : "Issue - needs review"}
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">-</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {linkedPr?.purchaseInvoice ? (
+                            <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700">
+                              <CheckCircle2 className="size-3.5" />
+                              PI linked
+                            </span>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">No PI prices</span>
+                          )}
+                        </TableCell>
+                        <TableCell onClick={(event) => event.stopPropagation()}>
+                          <PurchaseReceiptPicker
+                            value={selectedPrBySsr[rowKey] ?? ""}
+                            disabled={row.docstatus === 2}
+                            purchaseReceipts={activeIntercompanyPurchaseReceipts}
+                            onChange={(value) =>
+                              setSelectedPrBySsr((prev) => ({
+                                ...prev,
+                                [rowKey]: value,
+                              }))
+                            }
+                          />
+                        </TableCell>
+                        <TableCell>
+                          {selectedPrChanged ? (
+                            <Button
+                              size="sm"
+                              disabled={row.docstatus === 2 || !permissions.canMatchSsr || busyKey === `link:${rowKey}`}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                linkSsr(row);
+                              }}
+                            >
+                              <Link2 className="size-4" />
+                              Save
+                            </Button>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">-</span>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </div>
         </TabsContent>
       </Tabs>
 
       <Dialog open={supplierDialogOpen} onOpenChange={setSupplierDialogOpen}>
-        <DialogContent className="flex max-h-[85vh] max-w-3xl flex-col overflow-hidden">
+        <DialogContent className="max-h-[calc(100dvh-2rem)] max-w-3xl overflow-y-auto overscroll-contain">
           <DialogHeader>
             <DialogTitle>Intercompany suppliers</DialogTitle>
             <DialogDescription>
@@ -1109,7 +1331,7 @@ const filteredPrs = useMemo(() => {
               )}
             </div>
           </div>
-          <div className="overflow-auto rounded-md border">
+          <div className="overflow-x-auto rounded-md border">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -1166,7 +1388,7 @@ const filteredPrs = useMemo(() => {
         </DialogContent>
       </Dialog>
       <Dialog open={Boolean(selectedPr)} onOpenChange={(open) => !open && setSelectedPr(null)}>
-        <DialogContent className="flex max-h-[85vh] max-w-4xl flex-col overflow-hidden border-border/70 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_94%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))]">
+        <DialogContent className="max-h-[calc(100dvh-2rem)] max-w-4xl overflow-y-auto overscroll-contain border-border/70 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_94%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))]">
           <DialogHeader>
             <div className="flex flex-col gap-2 pr-10">
               <div>
@@ -1203,13 +1425,72 @@ const filteredPrs = useMemo(() => {
               </div>
               <div>
                 <div className="text-xs text-muted-foreground">Adjustment No</div>
-                <div className="font-medium">{selectedPr.adjustmentNo ?? "-"}</div>
+                <div className="font-medium">{selectedPrStockReturn ? (
+                  <button
+                    type="button"
+                    className="text-primary underline-offset-4 hover:underline"
+                    onClick={() => {
+                      setSelectedPr(null);
+                      setSelectedSsr(selectedPrStockReturn);
+                    }}
+                  >
+                    {selectedPrStockReturn.name}
+                  </button>
+                ) : (
+                  selectedPr.adjustmentNo ?? "-"
+                )}</div>
               </div>
             </div>
               <GrnStageTimeline row={selectedPr} />
+              {selectedPrStockReturn && (
+                <details className="rounded-lg border bg-background/50 p-3">
+                  <summary className="cursor-pointer list-none">
+                    <div className="flex flex-col gap-1">
+                      <div className="text-sm font-semibold">
+                        SSR/PR matched products {selectedPr.tallyPercentage == null ? "" : `(${selectedPr.tallyPercentage.toFixed(2)}%)`}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        100% means every SKU and quantity matches. Lower percentages mean missing, extra, or different quantities.
+                      </div>
+                    </div>
+                  </summary>
+                  <div className="mt-3 overflow-x-auto rounded-md border bg-background/70">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>SKU</TableHead>
+                          <TableHead>Item Name</TableHead>
+                          <TableHead className="text-right">PR Qty</TableHead>
+                          <TableHead className="text-right">SSR Qty</TableHead>
+                          <TableHead>Status</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {selectedPrMatchRows.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={5} className="h-16 text-center text-muted-foreground">
+                              No linked SSR items found.
+                            </TableCell>
+                          </TableRow>
+                        ) : (
+                          selectedPrMatchRows.map((item) => (
+                            <TableRow key={item.itemCode} className={item.matched ? undefined : "bg-amber-500/10"}>
+                              <TableCell className="font-medium">{item.itemCode}</TableCell>
+                              <TableCell>{item.itemName ?? "-"}</TableCell>
+                              <TableCell className="text-right">{item.prQty}</TableCell>
+                              <TableCell className="text-right">{item.ssrQty}</TableCell>
+                              <TableCell>{item.matched ? "Matched" : "Mismatch"}</TableCell>
+                            </TableRow>
+                          ))
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </details>
+              )}
             </>
           )}
-          <div className="overflow-auto rounded-lg border bg-background/60">
+          <div className="overflow-x-auto rounded-lg border bg-background/60">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -1247,7 +1528,7 @@ const filteredPrs = useMemo(() => {
       </Dialog>
 
       <Dialog open={Boolean(selectedSsr)} onOpenChange={(open) => !open && setSelectedSsr(null)}>
-        <DialogContent className="flex max-h-[85vh] max-w-4xl flex-col overflow-hidden border-border/70 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_94%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))]">
+        <DialogContent className="max-h-[calc(100dvh-2rem)] max-w-4xl overflow-y-auto overscroll-contain border-border/70 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_94%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))]">
           <DialogHeader>
             <div className="flex flex-col gap-2 pr-10">
               <div>
@@ -1268,6 +1549,20 @@ const filteredPrs = useMemo(() => {
                   <ExternalLink className="size-4" />
                   Open in ERP
                 </a>
+              )}
+              {selectedSsrPurchaseReceipt && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="w-fit"
+                  onClick={() => {
+                    setSelectedSsr(null);
+                    setSelectedPr(selectedSsrPurchaseReceipt);
+                  }}
+                >
+                  Back to PR
+                </Button>
               )}
             </div>
           </DialogHeader>
@@ -1294,12 +1589,12 @@ const filteredPrs = useMemo(() => {
             </div>
           )}
           {selectedSsrPurchaseReceipt?.tallyStatus === "issue" && selectedSsrPurchaseReceipt.tallyIssues.length > 0 && (
-            <div className="rounded-lg border border-amber-200 bg-amber-50/80 p-3 text-amber-950">
-              <div className="mb-2 flex items-center gap-2 text-sm font-semibold">
+            <div className="rounded-lg border border-amber-400/60 bg-amber-500/10 p-3">
+              <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-amber-200">
                 <TriangleAlert className="size-4" />
                 Tally mismatch
               </div>
-              <div className="overflow-auto rounded-md border border-amber-200 bg-background/80">
+              <div className="overflow-x-auto rounded-md border border-amber-400/40 bg-background/70">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -1325,6 +1620,53 @@ const filteredPrs = useMemo(() => {
               </div>
             </div>
           )}
+          {selectedSsr && selectedSsrComparisonPurchaseReceipt && (
+            <details className="rounded-lg border bg-background/50 p-3" open>
+              <summary className="cursor-pointer list-none">
+                <div className="flex flex-col gap-1">
+                  <div className="text-sm font-semibold">
+                    SSR/PR matched products{" "}
+                    {selectedSsr.matchRecommendation ? `(${selectedSsr.matchRecommendation.percentage.toFixed(2)}%)` : ""}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    Comparing against {selectedSsrComparisonPurchaseReceipt.name}. 100% means every SKU and quantity matches.
+                  </div>
+                </div>
+              </summary>
+              <div className="mt-3 overflow-x-auto rounded-md border bg-background/70">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>SKU</TableHead>
+                      <TableHead>Item Name</TableHead>
+                      <TableHead className="text-right">PR Qty</TableHead>
+                      <TableHead className="text-right">SSR Qty</TableHead>
+                      <TableHead>Status</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {selectedSsrMatchRows.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={5} className="h-16 text-center text-muted-foreground">
+                          No comparable items found.
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      selectedSsrMatchRows.map((item) => (
+                        <TableRow key={item.itemCode} className={item.matched ? undefined : "bg-amber-500/10"}>
+                          <TableCell className="font-medium">{item.itemCode}</TableCell>
+                          <TableCell>{item.itemName ?? "-"}</TableCell>
+                          <TableCell className="text-right">{item.prQty}</TableCell>
+                          <TableCell className="text-right">{item.ssrQty}</TableCell>
+                          <TableCell>{item.matched ? "Matched" : "Mismatch"}</TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </details>
+          )}
           {selectedSsrPurchaseReceipt && (
             <div className="rounded-lg border bg-background/50 p-3">
               <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -1349,7 +1691,7 @@ const filteredPrs = useMemo(() => {
                 )}
               </div>
               {selectedSsrPurchaseReceipt.purchaseInvoice && (
-                <div className="overflow-auto rounded-md border bg-background/70">
+                <div className="overflow-x-auto rounded-md border bg-background/70">
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -1387,7 +1729,7 @@ const filteredPrs = useMemo(() => {
                 </div>
               )}
             </div>
-          )}          <div className="overflow-auto rounded-lg border bg-background/60">
+          )}          <div className="overflow-x-auto rounded-lg border bg-background/60">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -1421,6 +1763,34 @@ const filteredPrs = useMemo(() => {
       </Dialog>    </div>
   );
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
