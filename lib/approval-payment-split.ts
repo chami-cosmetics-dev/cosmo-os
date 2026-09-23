@@ -84,6 +84,40 @@ export function splitIncludesKoko(methods: Iterable<string>): boolean {
   return false;
 }
 
+export function splitIncludesCash(methods: Iterable<string>): boolean {
+  for (const method of methods) {
+    if (method === APPROVAL_SPLIT_CASH) return true;
+  }
+  return false;
+}
+
+export function approvalSplitCashCollectAmount(
+  lines: Array<{ paymentMethod: string; amount: number | string | { toString(): string } }>,
+): number | null {
+  if (approvalSplitPairId(lines.map((line) => line.paymentMethod)) == null) return null;
+  const cash = lines.find((line) => line.paymentMethod === APPROVAL_SPLIT_CASH);
+  if (!cash) return null;
+  const amount = Number(cash.amount.toString());
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+  return Math.round(amount * 100) / 100;
+}
+
+export function formatApprovalSplitInvoicePaymentLabel(
+  lines: Array<{ paymentMethod: string; amount: number | string | { toString(): string } }>,
+): string | null {
+  if (approvalSplitPairId(lines.map((line) => line.paymentMethod)) == null) return null;
+  const parts = sortApprovalSplitLines(lines).map((line) => {
+    const amount = Number(line.amount.toString());
+    const formatted = Number.isFinite(amount) ? money(amount) : String(line.amount);
+    return `${approvalSplitLineLabel(line.paymentMethod)} ${formatted}`;
+  });
+  const cash = approvalSplitCashCollectAmount(lines);
+  if (cash != null) {
+    return `${parts.join(" + ")} — collect cash ${money(cash)}`;
+  }
+  return parts.join(" + ");
+}
+
 function splitMethodOrder(method: ApprovalSplitPaymentMethod): number {
   if (method === APPROVAL_SPLIT_KOKO) return 0;
   if (method === APPROVAL_SPLIT_BANK_TRANSFER) return 1;

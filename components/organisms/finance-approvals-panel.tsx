@@ -528,7 +528,11 @@ export function FinanceApprovalsPanel({
         selected.type === "order_payment_approval" &&
         selected.paymentTypeLabel === "Split Payment"
       ) {
-        notify.success("Split payment approved — ERP payments recorded.");
+        notify.success(
+          selected.requestNote?.includes("\nCash:")
+            ? "Split payment approved — prepaid ERP payment recorded. Cash still due at delivery; mark invoice complete after collection."
+            : "Split payment approved — ERP payments recorded.",
+        );
       } else if (action === "approve" && selected.type === "return_cancel") {
         const mode = data.completionMode ?? selected.completionMode;
         if (mode === "credit_note") {

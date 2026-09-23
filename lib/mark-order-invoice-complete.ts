@@ -11,10 +11,13 @@ import {
 } from "@/lib/failed-erp-pe-sync";
 import {
   getErpConfig,
+  mapDeliveryPaymentMethodToMop,
   resolveOrderPaymentMop,
   syncOrderDeliveryPaymentEntriesToErp,
 } from "@/lib/erpnext-sync";
 import { orderStageUpdate } from "@/lib/order-stage-timing";
+import { approvalSplitCashCollectAmount } from "@/lib/approval-payment-split";
+import { loadLatestOrderSplitPaymentLines } from "@/lib/order-split-payment";
 import { prisma } from "@/lib/prisma";
 
 export { markOrderFinanciallyInvoiceComplete } from "@/lib/financial-invoice-complete";
@@ -84,8 +87,17 @@ export async function markOrderInvoiceComplete(input: {
   const erpCfg = order.companyLocation?.erpnextInstance
     ? getErpConfig(order.companyLocation.erpnextInstance)
     : null;
+  const cashToCollect = approvalSplitCashCollectAmount(
+    await loadLatestOrderSplitPaymentLines(order.id),
+  );
+  const cashSplitMop =
+    cashToCollect != null && erpCfg
+      ? mapDeliveryPaymentMethodToMop(erpCfg, "cod", { courierServiceName }) ??
+        (erpCfg.cashMop.trim() || null)
+      : null;
   const resolvedMop =
     mopOverride ??
+    cashSplitMop ??
     (erpCfg
       ? resolveOrderPaymentMop(erpCfg, order.paymentGatewayPrimary, order.paymentGatewayNames, {
           courierServiceName,
@@ -149,8 +161,9 @@ export async function markOrderInvoiceComplete(input: {
         order.companyLocation,
         now,
         {
-          mopNameOverride: mopOverride,
+          mopNameOverride: mopOverride ?? cashSplitMop ?? undefined,
           requireMop: true,
+          ...(cashToCollect != null ? { paidAmount: cashToCollect } : {}),
         },
       );
       if (peResult.outcome === "skipped") {

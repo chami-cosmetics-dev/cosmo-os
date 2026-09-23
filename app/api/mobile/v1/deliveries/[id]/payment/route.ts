@@ -15,6 +15,8 @@ import {
 import { findRiderTaskById } from "@/lib/mobile/orders";
 import { mobileRouteIdSchema, riderPaymentSchema } from "@/lib/mobile/validation";
 import { prisma } from "@/lib/prisma";
+import { loadLatestOrderSplitPaymentLines } from "@/lib/order-split-payment";
+import { approvalSplitCashCollectAmount } from "@/lib/approval-payment-split";
 
 export async function POST(
   request: NextRequest,
@@ -76,7 +78,11 @@ export async function POST(
     return mobileError("Invalid payment payload", 400);
   }
 
-  const expectedAmount = Number(task.order.totalPrice);
+  const cashToCollect = approvalSplitCashCollectAmount(
+    await loadLatestOrderSplitPaymentLines(task.orderId),
+  );
+  const expectedAmount =
+    cashToCollect != null ? cashToCollect : Number(task.order.totalPrice);
   const collectedTotal = sumPaymentLineAmounts(lines);
   if (Math.abs(expectedAmount - collectedTotal) >= 0.01) {
     return mobileError("Collected amount must match the order amount", 400);

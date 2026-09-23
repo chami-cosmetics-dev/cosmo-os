@@ -15,6 +15,8 @@ import { formatFulfillmentOrderReferenceText } from "@/lib/fulfillment-order-ref
 import { Prisma } from "@prisma/client";
 
 import { saveOrderWaybill } from "@/lib/order-waybills";
+import { loadLatestOrderSplitPaymentLines } from "@/lib/order-split-payment";
+import { approvalSplitCashCollectAmount } from "@/lib/approval-payment-split";
 import { prisma } from "@/lib/prisma";
 import { getAddressField, resolveOrderCustomerName } from "@/lib/reports/csv";
 
@@ -33,6 +35,7 @@ export type CitypakDispatchOrder = {
   paymentGatewayPrimary?: string | null;
   paymentGatewayNames?: string[] | null;
   totalPrice: { toString(): string } | string | number;
+  cashToCollect?: number | null;
   customerPhone: string | null;
   shippingAddress: unknown;
   billingAddress: unknown;
@@ -255,6 +258,9 @@ export async function ensureCitypakShipmentForDispatch(input: {
             {
               paymentGatewayPrimary: input.order.paymentGatewayPrimary,
               paymentGatewayNames: input.order.paymentGatewayNames,
+              cashToCollect:
+                input.order.cashToCollect ??
+                approvalSplitCashCollectAmount(await loadLatestOrderSplitPaymentLines(input.order.id)),
             }
           );
 

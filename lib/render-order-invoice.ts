@@ -15,6 +15,11 @@ import {
 } from "@/lib/order-line-item-pricing";
 import { resolveOrderShippingDisplayForOrder } from "@/lib/order-shipping-display";
 import { getPaymentMethodInfo } from "@/lib/payment-method-label";
+import {
+  approvalSplitCashCollectAmount,
+  formatApprovalSplitInvoicePaymentLabel,
+} from "@/lib/approval-payment-split";
+import { loadLatestOrderSplitPaymentLines } from "@/lib/order-split-payment";
 import { buildPhoneLookupVariants } from "@/lib/phone-lookup";
 import { formatPickListBarcode, resolvePickListBarcode } from "@/lib/product-item-barcode";
 import { loadBarcodeLookupBySku } from "@/lib/product-item-barcode.server";
@@ -396,14 +401,18 @@ export async function renderOrderInvoice(input: {
     financialStatus: order.financialStatus,
   });
 
-  const [printFormat, files] = await Promise.all([
+  const [printFormat, files, splitPaymentLines] = await Promise.all([
     Promise.resolve(loc.defaultOrderPrintFormat),
     prisma.file.findMany({
       where: { companyId },
       orderBy: { createdAt: "desc" },
-      select: { id: true, fileName: true, fileSize: true, mimeType: true, createdAt: true },
+      select: { id: true, fileName: true, mimeType: true, createdAt: true, fileSize: true },
     }),
+    loadLatestOrderSplitPaymentLines(order.id),
   ]);
+  const splitPaymentLabel = formatApprovalSplitInvoicePaymentLabel(splitPaymentLines);
+  const cashToCollect = approvalSplitCashCollectAmount(splitPaymentLines);
+  const paymentMethodLabel = splitPaymentLabel ?? paymentInfo.label;
 
   if (!printFormat?.isEnabled) {
     return {
@@ -484,8 +493,10 @@ export async function renderOrderInvoice(input: {
       invoiceDate,
       printedOn,
       financialStatus: order.financialStatus ?? "",
-      paymentMethod: paymentInfo.label,
-      paymentDescription: paymentInfo.label.toUpperCase(),
+      paymentMethod: paymentMethodLabel,
+      paymentDescription: paymentMethodLabel.toUpperCase(),
+      cashToCollect: cashToCollect ?? 0,
+      cashToCollectFormatted: cashToCollect != null ? formatInvoiceMoney(cashToCollect) : "",
       currency,
       couponCode: discountCouponCode ?? "",
       merchantCouponCode: merchantCouponCode ?? "",
@@ -516,6 +527,8 @@ export async function renderOrderInvoice(input: {
       productTotalFormatted: formatInvoiceMoney(productTotal),
       shippingTotalFormatted: formatInvoiceMoney(shippingTotal),
       grandTotalFormatted: formatInvoiceMoney(grandTotal),
+      cashToCollect: cashToCollect ?? 0,
+      cashToCollectFormatted: cashToCollect != null ? formatInvoiceMoney(cashToCollect) : "",
       subtotalOriginal: subtotalOriginal ?? "",
       subtotalSale,
       discountTotal: discountTotal ?? "",
