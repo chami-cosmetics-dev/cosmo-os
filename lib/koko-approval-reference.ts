@@ -1,4 +1,7 @@
-import { isApprovalSplitRequestNote } from "@/lib/approval-payment-split";
+import {
+  approvalSplitNoteIncludesKoko,
+  isApprovalSplitRequestNote,
+} from "@/lib/approval-payment-split";
 import { parsePaymentMethodChangeTarget } from "@/lib/payment-method-label";
 
 type KokoApprovalInput = {
@@ -21,7 +24,9 @@ export function requiresKokoApprovalReference(input: KokoApprovalInput): boolean
 
   if (input.type !== "order_payment_approval") return false;
 
-  if (isApprovalSplitRequestNote(input.requestNote)) return true;
+  if (isApprovalSplitRequestNote(input.requestNote)) {
+    return approvalSplitNoteIncludesKoko(input.requestNote);
+  }
 
   if (input.paymentGatewayPrimary) {
     return input.paymentGatewayPrimary.trim().toLowerCase().includes("koko");

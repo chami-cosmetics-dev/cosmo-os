@@ -323,7 +323,7 @@ export function PurchaseHistoryPanel() {
                           : "rounded bg-sky-100 px-1.5 py-0.5 text-xs text-sky-900"
                       }
                     >
-                      {row.source === "erp_invoice" ? "Invoice" : "Cosmo"}
+                      {row.source === "erp_invoice" ? "Invoice" : "File"}
                     </span>
                   </td>
                 </tr>
