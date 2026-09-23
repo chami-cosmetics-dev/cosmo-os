@@ -1,5 +1,6 @@
 import type { OsfCatalogRow } from "@/lib/osf/catalog-rows";
 import {
+  OSF_ACCESS_PURCHASES,
   OSF_ACCESS_SALES_UNITS,
   orderAccessKey,
   ropAccessKey,
@@ -7,7 +8,7 @@ import {
 } from "@/lib/osf/column-access-catalog";
 import type { OsfResolvedColumn } from "@/lib/osf/column-config";
 import type { ItemCostSupplier } from "@/lib/osf/erp-cost-supplier";
-import type { ItemLastPurchase } from "@/lib/osf/erp-purchases";
+import type { ItemLastPurchase, OsfMonthPurchaseCell } from "@/lib/osf/erp-purchases";
 import { stockForColumn } from "@/lib/osf/erp-stock";
 import {
   cosmeticsMargin,
@@ -33,6 +34,13 @@ import {
   applyOsfWorkbookHeaderBands,
   type OsfWorkbookBandKey,
 } from "@/lib/osf/workbook-band-styles";
+import { averageMonthlySale, maxSale } from "@/lib/vault-osf/formulas";
+import {
+  monthKeysInWindow,
+  monthPurchaseQtyHeader,
+  monthPurchaseTotalHeader,
+  monthTotalSaleHeader,
+} from "@/lib/vault-osf/months";
 
 export type OsfProfileData = {
   shopAvailability: string | null;
@@ -58,6 +66,10 @@ export type BuildWorkbookInput = {
   monthlySales: Map<string, number>;
   salesMonth: string;
   asOfDate: string;
+  /** sku → YYYY-MM → sold units (April→as-of grid). */
+  salesByMonth?: Map<string, Record<string, number>>;
+  /** sku → YYYY-MM → purchase qty + value (April→as-of grid). */
+  purchasesByMonth?: Map<string, Record<string, OsfMonthPurchaseCell>>;
   /** When true, Info sheet explains reorder-only / empty filter. */
   belowThresholdOnly?: boolean;
   /**
@@ -307,7 +319,29 @@ export function buildMainSheetRows(input: BuildWorkbookInput): Record<string, st
     record["Purchased (last 30d)"] = purchase?.recentQty ?? null;
     record["Cosmetics Margin %"] = formatMarginPercent(cosmeticsMargin(listPrice, cost));
     record["OGF Margin %"] = formatMarginPercent(ogfMargin(ogf, cost));
-    record[`Sales Units (${input.salesMonth})`] = input.monthlySales.get(row.sku) ?? 0;
+    const fromGrid = input.salesByMonth?.get(row.sku)?.[input.salesMonth];
+    record[`Sales Units (${input.salesMonth})`] =
+      fromGrid ?? input.monthlySales.get(row.sku) ?? 0;
+
+    const months = monthKeysInWindow(input.asOfDate);
+    const salesMonths = input.salesByMonth?.get(row.sku) ?? {};
+    const purchMonths = input.purchasesByMonth?.get(row.sku) ?? {};
+    const monthTotals: Array<number | null> = [];
+    for (const month of months) {
+      const sold = salesMonths[month];
+      const fallback =
+        month === input.salesMonth ? input.monthlySales.get(row.sku) : undefined;
+      const total = sold ?? fallback ?? null;
+      record[monthTotalSaleHeader(month)] = total;
+      monthTotals.push(total);
+    }
+    for (const month of months) {
+      const cell = purchMonths[month];
+      record[monthPurchaseQtyHeader(month)] = cell?.qty ?? null;
+      record[monthPurchaseTotalHeader(month)] = cell?.netValue ?? null;
+    }
+    record["Max sale"] = maxSale(monthTotals);
+    record.AVE = averageMonthlySale(monthTotals);
 
     out.push(record);
   }
@@ -439,6 +473,50 @@ export function mainColumnDescriptors(input: BuildWorkbookInput): OsfColumnDef[]
     band: "sales",
   });
 
+  const months = monthKeysInWindow(input.asOfDate);
+  months.forEach((month, i) => {
+    defs.push({
+      header: monthTotalSaleHeader(month),
+      section: i === 0 ? "Sales" : undefined,
+      sum: true,
+      pricing: true,
+      accessKey: OSF_ACCESS_SALES_UNITS,
+      band: "sales",
+    });
+  });
+  months.forEach((month, i) => {
+    defs.push({
+      header: monthPurchaseQtyHeader(month),
+      section: i === 0 ? "Purchases" : undefined,
+      sum: true,
+      pricing: true,
+      accessKey: OSF_ACCESS_PURCHASES,
+      band: "purchase",
+    });
+    defs.push({
+      header: monthPurchaseTotalHeader(month),
+      sum: true,
+      pricing: true,
+      accessKey: OSF_ACCESS_PURCHASES,
+      band: "purchase",
+    });
+  });
+  defs.push({
+    header: "Max sale",
+    section: "Derived",
+    sum: true,
+    pricing: true,
+    accessKey: "Max sale",
+    band: "calc",
+  });
+  defs.push({
+    header: "AVE",
+    sum: true,
+    pricing: true,
+    accessKey: "AVE",
+    band: "calc",
+  });
+
   return defs;
 }
 
@@ -533,6 +611,7 @@ export async function buildOsfWorkbookBuffer(input: BuildWorkbookInput): Promise
   const info = wb.addWorksheet(sanitizeSheetName("Info", used));
   info.addRow(["asOfDate", input.asOfDate]);
   info.addRow(["salesMonth", input.salesMonth]);
+  info.addRow(["salesGridMonths", monthKeysInWindow(input.asOfDate).join(",")]);
   info.addRow(["osfVariant", input.osfVariant ?? "main"]);
   info.addRow(["rows", rows.length]);
   if (input.belowThresholdOnly) {

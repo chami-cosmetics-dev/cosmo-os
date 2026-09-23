@@ -62,6 +62,15 @@ describe("loyalty-eligible-summary helpers", () => {
     ).toBe(false);
     expect(
       countsAsUpdated({
+        loyaltyOutreachUpdatedAt: new Date("2026-09-05T12:00:00+05:30"),
+        loyaltyAssignedAt: null,
+        loyaltyOutreachStatus: "not_interested",
+        fromYmd: "2026-09-01",
+        toYmd: "2026-09-16",
+      })
+    ).toBe(true);
+    expect(
+      countsAsUpdated({
         loyaltyOutreachUpdatedAt: null,
         loyaltyAssignedAt: new Date("2026-09-02T08:00:00+05:30"),
         loyaltyOutreachStatus: "assigned",

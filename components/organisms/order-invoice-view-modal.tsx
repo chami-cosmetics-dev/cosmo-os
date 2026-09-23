@@ -784,13 +784,21 @@ export function OrderInvoiceViewModal({
           remarkTemplate: revertRemarkTemplate,
         }),
       });
-      const data = (await res.json()) as { success?: boolean; error?: string; erpCreditNoteFailed?: boolean; erpCreditNoteError?: string };
+      const data = (await res.json()) as {
+        success?: boolean;
+        error?: string;
+        erpCreditNoteFailed?: boolean;
+        erpCreditNoteError?: string;
+        erpCreditNoteName?: string;
+      };
       if (!res.ok) {
         notify.error(data.error ?? "Failed to revert stage");
         return;
       }
       if (data.erpCreditNoteFailed) {
         notify.error(`Order reverted but ERP credit note could not be created. Create it manually in ERPNext. (${data.erpCreditNoteError ?? "unknown error"})`);
+      } else if (data.erpCreditNoteName) {
+        notify.success(`Order reverted. ERP credit note ${data.erpCreditNoteName} created.`);
       } else {
         notify.success("Order reverted.");
       }
