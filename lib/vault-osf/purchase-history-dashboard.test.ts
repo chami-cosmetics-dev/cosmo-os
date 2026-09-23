@@ -1,18 +1,22 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  canonicalizePurchaseHistoryCompany,
   cosmoDbLineToRaw,
   enrichPurchaseHistoryRow,
   erpInvoiceLineToRaw,
   isIntercompanyPurchaseSupplier,
   matchesPurchaseHistoryFilters,
   mergePurchaseHistoryLines,
+  parsePurchaseHistoryCompanies,
   purchaseHistoryDedupeKey,
+  purchaseHistoryErpCompanyOptions,
   purchaseHistoryErpSlot,
   purchaseHistoryExportSheetRows,
   purchaseInvoiceFormUrl,
   selectPurchaseHistoryErpInstances,
   summarizePurchaseHistoryRows,
+  VAULT_ERP_COMPANY_OPTIONS,
   type PurchaseHistoryRawLine,
 } from "@/lib/vault-osf/purchase-history-dashboard";
 
@@ -122,6 +126,18 @@ describe("mergePurchaseHistoryLines", () => {
     const merged = mergePurchaseHistoryLines(cosmo, []);
     expect(merged).toHaveLength(1);
     expect(merged[0]!.supplier).toBe("Supp A");
+  });
+
+  it("drops Origins Online Cosmo file rows", () => {
+    const merged = mergePurchaseHistoryLines(
+      [
+        { ...baseCosmo, excelCompany: "Origins Online", company: "Origins Online" },
+        { ...baseCosmo, sku: "SKU2", company: "SupplementVault.lk" },
+      ],
+      [],
+    );
+    expect(merged).toHaveLength(1);
+    expect(merged[0]!.sku).toBe("SKU2");
   });
 });
 
@@ -238,6 +254,25 @@ describe("matchesPurchaseHistoryFilters", () => {
         to: "2026-12-31",
         erpSlot: "ERP1",
       }),
+    ).toBe(false);
+  });
+
+  it("matches file aliases and multiple ERP companies", () => {
+    const origins = { ...baseCosmo, company: "origins" };
+    const ae = { ...baseCosmo, sku: "SKU2", company: "AE (PVT) LTD" };
+    const filters = {
+      from: "2026-01-01",
+      to: "2026-12-31",
+      companies: ["Origins (PVT) LTD", "AE (PVT) LTD"],
+    };
+    expect(matchesPurchaseHistoryFilters(origins, undefined, filters)).toBe(true);
+    expect(matchesPurchaseHistoryFilters(ae, undefined, filters)).toBe(true);
+    expect(
+      matchesPurchaseHistoryFilters(
+        { ...baseCosmo, company: "SupplementVault.lk" },
+        undefined,
+        filters,
+      ),
     ).toBe(false);
   });
 
@@ -430,5 +465,41 @@ describe("purchaseHistoryExportSheetRows", () => {
         Invoice: "PO-1",
       },
     ]);
+  });
+});
+
+describe("purchase history ERP companies", () => {
+  it("maps file aliases and drops Origins Online", () => {
+    expect(canonicalizePurchaseHistoryCompany("AE")).toBe("AE (PVT) LTD");
+    expect(canonicalizePurchaseHistoryCompany("AE (PVT) LTD")).toBe("AE (PVT) LTD");
+    expect(canonicalizePurchaseHistoryCompany("origins")).toBe("Origins (PVT) LTD");
+    expect(canonicalizePurchaseHistoryCompany("supplement")).toBe("SupplementVault.lk");
+    expect(canonicalizePurchaseHistoryCompany("Origins Online")).toBeNull();
+    expect(parsePurchaseHistoryCompanies("origins,AE,Origins Online,AE (PVT) LTD")).toEqual([
+      "Origins (PVT) LTD",
+      "AE (PVT) LTD",
+    ]);
+  });
+
+  it("lists official ERP companies only", () => {
+    expect(
+      purchaseHistoryErpCompanyOptions(
+        ["Origins Online", "AE", "SupplementVault.lk", "origins"],
+        VAULT_ERP_COMPANY_OPTIONS,
+      ),
+    ).toEqual(["AE (PVT) LTD", "Origins (PVT) LTD", "SupplementVault.lk"]);
+  });
+
+  it("maps Cosmo file company to official ERP name", () => {
+    expect(cosmoDbLineToRaw({
+      sku: "A",
+      supplier: "S",
+      postingDate: "2026-04-01",
+      qty: 1,
+      rate: 1,
+      netValue: 1,
+      sourceRef: null,
+      excelCompany: "AE",
+    }).company).toBe("AE (PVT) LTD");
   });
 });

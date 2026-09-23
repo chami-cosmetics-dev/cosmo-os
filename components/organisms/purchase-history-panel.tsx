@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Download, Loader2, RefreshCw } from "lucide-react";
+import { ChevronDown, Download, Loader2, RefreshCw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { formatAppIsoDate } from "@/lib/format-datetime";
 import { notify } from "@/lib/notify";
 import { formatPercentPoints } from "@/lib/osf/pricing-math";
@@ -66,7 +67,7 @@ export function PurchaseHistoryPanel() {
   const [supplier, setSupplier] = useState("");
   const [brand, setBrand] = useState("");
   const [priority, setPriority] = useState("");
-  const [company, setCompany] = useState("");
+  const [selectedCompanies, setSelectedCompanies] = useState<string[]>([]);
   const [erpSlot, setErpSlot] = useState("");
   const [brands, setBrands] = useState<string[]>([]);
   const [suppliers, setSuppliers] = useState<string[]>([]);
@@ -89,11 +90,11 @@ export function PurchaseHistoryPanel() {
       if (supplier.trim()) params.set("supplier", supplier.trim());
       if (brand.trim()) params.set("brand", brand.trim());
       if (priority.trim()) params.set("priority", priority.trim());
-      if (company.trim()) params.set("company", company.trim());
+      if (selectedCompanies.length > 0) params.set("companies", selectedCompanies.join(","));
       if (erpSlot.trim()) params.set("erpSlot", erpSlot.trim());
       return params;
     },
-    [sku, description, supplier, brand, priority, company, erpSlot],
+    [sku, description, supplier, brand, priority, selectedCompanies, erpSlot],
   );
 
   const load = useCallback(
@@ -280,19 +281,61 @@ export function PurchaseHistoryPanel() {
         </label>
         <label className="space-y-1 text-sm">
           <span className="text-muted-foreground">Company</span>
-          <select
-            className="border-input bg-background h-9 rounded-md border px-2 text-sm"
-            value={company}
-            disabled={busy}
-            onChange={(e) => setCompany(e.target.value)}
-          >
-            <option value="">Any</option>
-            {companies.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={busy}
+                className="h-9 w-[220px] justify-between px-2 font-normal"
+              >
+                <span className="truncate">
+                  {selectedCompanies.length === 0
+                    ? "Any"
+                    : selectedCompanies.length === 1
+                      ? selectedCompanies[0]
+                      : `${selectedCompanies.length} selected`}
+                </span>
+                <ChevronDown className="size-4 shrink-0 opacity-50" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-[240px] p-2" align="start">
+              <div className="max-h-64 space-y-1 overflow-auto">
+                <button
+                  type="button"
+                  className="text-muted-foreground hover:bg-muted w-full rounded px-2 py-1 text-left text-sm"
+                  onClick={() => setSelectedCompanies([])}
+                >
+                  Any
+                </button>
+                {companies.map((c) => {
+                  const checked = selectedCompanies.includes(c);
+                  return (
+                    <label
+                      key={c}
+                      className="hover:bg-muted flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm"
+                    >
+                      <input
+                        type="checkbox"
+                        className="size-4 shrink-0"
+                        checked={checked}
+                        disabled={busy}
+                        onChange={() => {
+                          setSelectedCompanies((prev) =>
+                            prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c],
+                          );
+                        }}
+                      />
+                      <span className="truncate">{c}</span>
+                    </label>
+                  );
+                })}
+                {companies.length === 0 ? (
+                  <p className="text-muted-foreground px-2 py-1 text-xs">No ERP companies</p>
+                ) : null}
+              </div>
+            </PopoverContent>
+          </Popover>
         </label>
         <label className="space-y-1 text-sm">
           <span className="text-muted-foreground">ERP</span>

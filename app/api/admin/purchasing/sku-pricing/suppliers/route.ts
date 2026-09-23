@@ -86,7 +86,7 @@ export async function GET(request: NextRequest) {
         fetchSupplierPurchasesBySku({
           cfg: inst.cfg,
           sku,
-          // Vault: all real PI suppliers for this SKU (best/last ranking).
+          // Vault: submitted PIs only; intercompany cash transfers skipped.
           allowedSuppliers: vault ? [] : suppliers,
           source: purchaseSource,
         }),

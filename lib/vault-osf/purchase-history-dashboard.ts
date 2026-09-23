@@ -1,5 +1,6 @@
 import { originalSellingPrice } from "@/lib/osf/formulas";
 import { formatPercentPoints, sellingMargin } from "@/lib/osf/pricing-math";
+import { isIntercompanyPurchaseSupplier } from "@/lib/osf/erp-purchases";
 import {
   isSubmittedPurchase,
   type PurchaseInvoiceLine,
@@ -9,40 +10,72 @@ import { isExcludedErpCompany } from "@/lib/vault-osf/types";
 export type PurchaseHistorySource = "erp_invoice" | "cosmo";
 export type PurchaseHistoryErpSlot = "ERP1" | "ERP2";
 
-/** Vault intercompany cash suppliers — hide from purchase history. */
-const INTERCOMPANY_SUPPLIER_CODES = new Set(["sv029", "sv030", "sv031"]);
-const INTERCOMPANY_SUPPLIER_NAMES = new Set([
-  "cash or 001",
-  "cash sv 001",
-  "cash ae 001",
-  "sv cash cos 006",
-]);
+export { isIntercompanyPurchaseSupplier };
 
-function normalizeSupplierToken(value: string | null | undefined): string {
-  return (value ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+export const VAULT_ERP_COMPANY_OPTIONS = [
+  "SupplementVault.lk",
+  "Origins (PVT) LTD",
+  "AE (PVT) LTD",
+] as const;
+
+export const COSMO_ERP_COMPANY_OPTIONS = ["Cosmetics.lk"] as const;
+
+const COMPANY_ALIAS_KEY: Record<string, string> = {
+  supplement: "SupplementVault.lk",
+  supplemental: "SupplementVault.lk",
+  supplementvault: "SupplementVault.lk",
+  supplementvaultlk: "SupplementVault.lk",
+  origins: "Origins (PVT) LTD",
+  originspvtltd: "Origins (PVT) LTD",
+  ae: "AE (PVT) LTD",
+  aepvtltd: "AE (PVT) LTD",
+  cosmetics: "Cosmetics.lk",
+  cosmeticslk: "Cosmetics.lk",
+};
+
+function companyAliasKey(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
-export function isIntercompanyPurchaseSupplier(
-  supplierCode: string | null | undefined,
-  supplierName: string | null | undefined,
-): boolean {
-  const code = normalizeSupplierToken(supplierCode);
-  const name = normalizeSupplierToken(supplierName);
-  const haystack = `${code} ${name}`.trim();
-  if (!haystack) return false;
-  if (code && (INTERCOMPANY_SUPPLIER_CODES.has(code) || INTERCOMPANY_SUPPLIER_NAMES.has(code))) {
-    return true;
+export function canonicalizePurchaseHistoryCompany(
+  name: string | null | undefined,
+): string | null {
+  const raw = (name ?? "").trim();
+  if (!raw || isExcludedErpCompany(raw)) return null;
+  return COMPANY_ALIAS_KEY[companyAliasKey(raw)] ?? raw;
+}
+
+export function parsePurchaseHistoryCompanies(
+  value: string | string[] | null | undefined,
+): string[] {
+  const parts = Array.isArray(value) ? value : (value ?? "").split(",");
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const part of parts) {
+    const canonical = canonicalizePurchaseHistoryCompany(part);
+    if (!canonical) continue;
+    const key = canonical.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(canonical);
   }
-  if (name && (INTERCOMPANY_SUPPLIER_CODES.has(name) || INTERCOMPANY_SUPPLIER_NAMES.has(name))) {
-    return true;
+  return out;
+}
+
+export function purchaseHistoryErpCompanyOptions(
+  fromErpCompanies: Iterable<string | null | undefined>,
+  extras: readonly string[] = [],
+): string[] {
+  const set = new Set<string>();
+  for (const extra of extras) {
+    const canonical = canonicalizePurchaseHistoryCompany(extra);
+    if (canonical) set.add(canonical);
   }
-  for (const token of INTERCOMPANY_SUPPLIER_CODES) {
-    if (haystack.includes(token)) return true;
+  for (const name of fromErpCompanies) {
+    const canonical = canonicalizePurchaseHistoryCompany(name);
+    if (canonical) set.add(canonical);
   }
-  for (const token of INTERCOMPANY_SUPPLIER_NAMES) {
-    if (haystack.includes(token)) return true;
-  }
-  return false;
+  return [...set].sort((a, b) => a.localeCompare(b));
 }
 
 /** Both OS: every configured ERP instance (ERP1 + ERP2). */
@@ -126,6 +159,7 @@ export type PurchaseHistoryFilters = {
   description?: string;
   priority?: string;
   company?: string;
+  companies?: string[];
   erpSlot?: string;
 };
 
@@ -163,7 +197,7 @@ export function cosmoDbLineToRaw(line: {
     source: "cosmo",
     excelCompany: line.excelCompany ?? null,
     invoiceUrl: null,
-    company: line.excelCompany?.trim() || null,
+    company: canonicalizePurchaseHistoryCompany(line.excelCompany),
     erpSlot: null,
   };
 }
@@ -200,7 +234,7 @@ export function erpInvoiceLineToRaw(
     sourceRef,
     source: "erp_invoice",
     invoiceUrl: sourceRef && erpBaseUrl ? purchaseInvoiceFormUrl(erpBaseUrl, sourceRef) : null,
-    company: row.company?.trim() || null,
+    company: canonicalizePurchaseHistoryCompany(row.company),
     erpSlot: extras?.erpSlot ?? null,
   };
 }
@@ -216,6 +250,7 @@ export function mergePurchaseHistoryLines(
   const map = new Map<string, PurchaseHistoryRawLine>();
   for (const line of cosmo) {
     if (isIntercompanyPurchaseSupplier(line.supplier, line.supplier)) continue;
+    if (isExcludedErpCompany(line.excelCompany) || isExcludedErpCompany(line.company)) continue;
     map.set(purchaseHistoryDedupeKey(line), line);
   }
   for (const line of erpInvoices) {
@@ -257,10 +292,14 @@ export function matchesPurchaseHistoryFilters(
     const priority = catalog?.priority?.trim().toLowerCase() ?? "";
     if (q && priority !== q) return false;
   }
-  if (filters.company) {
-    const q = filters.company.trim().toLowerCase();
-    const company = (line.company ?? line.excelCompany ?? "").trim().toLowerCase();
-    if (q && company !== q) return false;
+  const selectedCompanies = parsePurchaseHistoryCompanies(
+    filters.companies ?? filters.company,
+  );
+  if (selectedCompanies.length > 0) {
+    const company = canonicalizePurchaseHistoryCompany(line.company ?? line.excelCompany);
+    if (!company || !selectedCompanies.some((c) => c.toLowerCase() === company.toLowerCase())) {
+      return false;
+    }
   }
   if (filters.erpSlot) {
     const q = filters.erpSlot.trim().toUpperCase();
@@ -290,7 +329,7 @@ export function enrichPurchaseHistoryRow(
     source: line.source,
     sourceRef: line.sourceRef,
     invoiceUrl: line.invoiceUrl ?? null,
-    company: line.company ?? line.excelCompany ?? null,
+    company: canonicalizePurchaseHistoryCompany(line.company ?? line.excelCompany),
     erpSlot: line.erpSlot ?? null,
   };
 }

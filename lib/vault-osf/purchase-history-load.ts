@@ -1,5 +1,6 @@
 import "server-only";
 
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 import { OsfErpError } from "@/lib/osf/erp-cost-supplier";
 import { getAllOsfErpInstances } from "@/lib/osf/erp-stock";
 import { prisma } from "@/lib/prisma";
@@ -11,8 +12,12 @@ import {
   erpInvoiceLineToRaw,
   matchesPurchaseHistoryFilters,
   mergePurchaseHistoryLines,
+  parsePurchaseHistoryCompanies,
+  purchaseHistoryErpCompanyOptions,
   purchaseHistoryErpSlot,
   summarizePurchaseHistoryRows,
+  COSMO_ERP_COMPANY_OPTIONS,
+  VAULT_ERP_COMPANY_OPTIONS,
   type CatalogSellInfo,
   type PurchaseHistoryRawLine,
   type PurchaseHistoryRow,
@@ -37,8 +42,10 @@ export async function loadPurchaseHistory(
   companyId: string,
   query: PurchaseHistoryQuery,
 ): Promise<PurchaseHistoryLoadResult> {
-  const { from, to, sku, supplier, brand, description, priority, company, erpSlot } = query;
+  const { from, to, sku, supplier, brand, description, priority, company, companies, erpSlot } =
+    query;
   const skuQ = sku?.trim() ?? "";
+  const selectedCompanies = parsePurchaseHistoryCompanies(companies ?? company);
 
   const cosmoDb = await prisma.osfPurchaseHistoryLine.findMany({
     where: {
@@ -48,9 +55,6 @@ export async function loadPurchaseHistory(
         : { postingDate: { gte: from, lte: to } }),
       ...(supplier?.trim()
         ? { supplier: { contains: supplier.trim(), mode: "insensitive" as const } }
-        : {}),
-      ...(company?.trim()
-        ? { excelCompany: { equals: company.trim(), mode: "insensitive" as const } }
         : {}),
     },
     select: {
@@ -143,7 +147,17 @@ export async function loadPurchaseHistory(
     });
   }
 
-  const filters = { from, to, sku, supplier, brand, description, priority, company, erpSlot };
+  const filters = {
+    from,
+    to,
+    sku,
+    supplier,
+    brand,
+    description,
+    priority,
+    companies: selectedCompanies,
+    erpSlot,
+  };
   const filtered = merged.filter((line) =>
     matchesPurchaseHistoryFilters(line, catalogBySku.get(line.sku), filters),
   );
@@ -153,12 +167,10 @@ export async function loadPurchaseHistory(
   const brandSet = new Set<string>();
   const supplierSet = new Set<string>();
   const prioritySet = new Set<string>();
-  const companySet = new Set<string>();
   for (const row of rows) {
     if (row.brand?.trim()) brandSet.add(row.brand.trim());
     if (row.supplier.trim()) supplierSet.add(row.supplier.trim());
     if (row.priority?.trim()) prioritySet.add(row.priority.trim());
-    if (row.company?.trim()) companySet.add(row.company.trim());
   }
 
   return {
@@ -170,7 +182,10 @@ export async function loadPurchaseHistory(
       brands: [...brandSet].sort((a, b) => a.localeCompare(b)),
       suppliers: [...supplierSet].sort((a, b) => a.localeCompare(b)),
       priorities: [...prioritySet].sort((a, b) => a.localeCompare(b)),
-      companies: [...companySet].sort((a, b) => a.localeCompare(b)),
+      companies: purchaseHistoryErpCompanyOptions(
+        erpInvoiceLines.map((line) => line.company),
+        isVaultOsDeployment() ? VAULT_ERP_COMPANY_OPTIONS : COSMO_ERP_COMPANY_OPTIONS,
+      ),
     },
   };
 }
