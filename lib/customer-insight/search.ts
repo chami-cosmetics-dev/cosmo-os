@@ -12,6 +12,7 @@ import {
   CUSTOMER_INSIGHT_SEARCH_CAP,
   type SearchMatchDto,
 } from "@/lib/customer-insight/types";
+import { osRegBadgeDto } from "@/lib/register-users/badge";
 
 export type SearchContactsResult = {
   matches: SearchMatchDto[];
@@ -105,6 +106,9 @@ export async function searchContactsByPhone(
       email: true,
       assignedMerchant: true,
       loyaltyAssignedTier: true,
+      osRegLocation: true,
+      osRegBadgeStart: true,
+      osRegBadgeEnd: true,
       phones: { select: { phoneNumber: true } },
       emails: { select: { email: true } },
     },
@@ -139,6 +143,11 @@ export async function searchContactsByPhone(
         loyaltyAssignedTier: assigned,
         suggestedTier: pending?.suggestedTier ?? null,
         suggestionKind: pending?.kind ?? null,
+        osRegBadge: osRegBadgeDto(
+          row.osRegLocation,
+          row.osRegBadgeStart,
+          row.osRegBadgeEnd,
+        ),
       };
     }),
     truncated: capped.truncated,

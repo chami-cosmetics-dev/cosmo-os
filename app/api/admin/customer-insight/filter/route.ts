@@ -38,6 +38,7 @@ export async function GET(request: NextRequest) {
     city: queryParam(sp.get("city")),
     assignedMerchant: queryParam(sp.get("assignedMerchant")),
     purchaseLocationId: queryParam(sp.get("purchaseLocationId")),
+    osRegLocation: queryParam(sp.get("osRegLocation")),
     minTotal: queryParam(sp.get("minTotal")),
     maxTotal: queryParam(sp.get("maxTotal")),
     birthdayFrom: queryParam(sp.get("birthdayFrom")),
@@ -66,7 +67,9 @@ export async function GET(request: NextRequest) {
   const permissionKeys = (auth.context!.permissionKeys as string[]) ?? [];
   const isAdminView = hasInsightAdminView({ roleNames, permissionKeys });
   if (
-    (parsed.data.assignedMerchant || parsed.data.purchaseLocationId) &&
+    (parsed.data.assignedMerchant ||
+      parsed.data.purchaseLocationId ||
+      parsed.data.osRegLocation) &&
     !isAdminView
   ) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -100,6 +103,7 @@ export async function GET(request: NextRequest) {
     city: parsed.data.city,
     assignedMerchant: parsed.data.assignedMerchant,
     purchaseLocationId: parsed.data.purchaseLocationId,
+    osRegLocation: parsed.data.osRegLocation,
     minTotal: parsed.data.minTotal,
     maxTotal: parsed.data.maxTotal,
     birthdayFrom: parsed.data.birthdayFrom,

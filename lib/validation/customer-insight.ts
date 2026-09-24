@@ -188,6 +188,7 @@ const customerInsightFilterFieldsSchema = z.object({
   city: trimmedString(1, 100).optional(),
   assignedMerchant: trimmedString(1, LIMITS.knownName.max).optional(),
   purchaseLocationId: cuidSchema.optional(),
+  osRegLocation: trimmedString(1, LIMITS.locationName.max).optional(),
   minTotal: z.coerce.number().min(0).optional(),
   maxTotal: z.coerce.number().min(0).optional(),
   birthdayFrom: monthDaySchema.optional(),
@@ -299,6 +300,7 @@ export const customerInsightFilterOptionsQuerySchema = z.object({
       "merchants",
       "call-queue-merchants",
       "locations",
+      "os-reg-locations",
     ])
     .default("brands"),
   brand: insightFilterListSchema(LIMITS.name.max),

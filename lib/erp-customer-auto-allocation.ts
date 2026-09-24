@@ -14,8 +14,12 @@ type ErpCustomerAutoAllocationInput = {
 export function shouldAutoAllocateErpCustomer(
   input: ErpCustomerAutoAllocationInput,
 ): boolean {
+  const allocatable =
+    input.syncStatus === "created" ||
+    input.syncStatus === "enriched" ||
+    input.syncStatus === "unchanged";
   return (
-    input.syncStatus === "created" &&
+    allocatable &&
     Boolean(input.creatorMer) &&
     input.creatorHasMerchantRole &&
     input.originInstanceKnown &&
