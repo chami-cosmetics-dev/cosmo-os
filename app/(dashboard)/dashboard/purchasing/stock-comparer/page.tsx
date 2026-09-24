@@ -16,16 +16,14 @@ export default async function CosmeticsStockComparerPage() {
 
   return (
     <div className="space-y-6 p-4 md:p-6">
-      <div>
+      <header className="space-y-1">
         <h1 className="text-2xl font-semibold tracking-tight">Cosmetics Stock Comparer</h1>
-        <p className="text-sm text-muted-foreground">
-          Compare Cosmetics main with other online warehouses first, then shops. Flag brand stock on the
-          wrong company.
+        <p className="max-w-2xl text-sm text-muted-foreground">
+          Cosmetics main vs other main warehouses first, then shops. Brand tab flags stock on the wrong
+          company.
         </p>
-      </div>
-      <section className="rounded-lg border p-4">
-        <CosmeticsStockComparer />
-      </section>
+      </header>
+      <CosmeticsStockComparer />
     </div>
   );
 }

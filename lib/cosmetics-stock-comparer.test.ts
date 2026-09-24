@@ -25,7 +25,8 @@ describe("classifyWarehouseKind", () => {
   it("classifies Cosmo main, shops, and other warehouses", () => {
     expect(classifyWarehouseKind("Main Warehouse - Cosmo")).toBe("main");
     expect(classifyWarehouseKind("Pepiliyana Shop Warehouse")).toBe("shop");
-    expect(classifyWarehouseKind("Pepiliyana Main Warehouse")).toBe("shop");
+    expect(classifyWarehouseKind("Pepiliyana Main Warehouse")).toBe("online");
+    expect(classifyWarehouseKind("Main Warehouse - SPK")).toBe("online");
     expect(classifyWarehouseKind("Website Inventory - Cosmo")).toBe("online");
     expect(classifyWarehouseKind("Stores - CCON")).toBe("online");
   });
@@ -70,6 +71,8 @@ describe("buildCosmeticsStockReport", () => {
     expect(report).toMatchObject([
       {
         SKU: "SKU-1",
+        "Online Warehouse(s)": "Pepiliyana",
+        "Online Qty": 3,
         "Shop Warehouse(s)": "Pepiliyana",
         "Shop Qty": 7,
         "Stock Available Elsewhere": "Yes",
@@ -77,7 +80,27 @@ describe("buildCosmeticsStockReport", () => {
     ]);
   });
 
-  it("lists online warehouses before shops", () => {
+  it("lists other main warehouses in online and shop floors in shops", () => {
+    const details = buildCosmeticsStockReportDetails([
+      row({ Item: "SKU-1", "Balance Qty": 0 }),
+      row({
+        Item: "SKU-1",
+        Warehouse: "Main Warehouse - SPK",
+        "Balance Qty": 8,
+      }),
+      row({
+        Item: "SKU-1",
+        Company: "LMJ",
+        Warehouse: "Pepiliyana Shop Warehouse",
+        "Balance Qty": 3,
+      }),
+    ]);
+
+    expect(details[0]?.online).toMatchObject([{ name: "SPK", qty: 8, kind: "online" }]);
+    expect(details[0]?.shops).toMatchObject([{ name: "Pepiliyana", qty: 3, kind: "shop" }]);
+  });
+
+  it("lists website / non-shop stock with shops", () => {
     const details = buildCosmeticsStockReportDetails([
       row({ Item: "SKU-1", "Balance Qty": 0 }),
       row({
@@ -93,7 +116,7 @@ describe("buildCosmeticsStockReport", () => {
       }),
     ]);
 
-    expect(details[0]?.online.map((loc) => loc.name)).toEqual(["Website Inventory - Cosmo"]);
+    expect(details[0]?.online.map((loc) => loc.warehouse)).toEqual(["Website Inventory - Cosmo"]);
     expect(details[0]?.shops.map((loc) => loc.name)).toEqual(["Pepiliyana"]);
     expect(details[0]?.["Online Qty"]).toBe(8);
     expect(details[0]?.["Shop Qty"]).toBe(3);

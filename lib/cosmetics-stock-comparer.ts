@@ -193,7 +193,6 @@ export function classifyWarehouseKind(warehouse: string): LocationKind {
   if (!wh || isAllWarehouses(warehouse)) return "online";
   if (wh === MAIN_COSMO_WAREHOUSE) return "main";
   if (isShopWarehouseName(warehouse)) return "shop";
-  if (wh.includes("main warehouse")) return "shop";
   return "online";
 }
 
@@ -353,8 +352,9 @@ export function buildCosmeticsStockReportDetails(
     for (const groupRows of onlineGroups.values()) {
       const selected = groupRows.find((row) => row.qty > 0) ?? null;
       if (!selected) continue;
+      const outletName = outletFromRow(selected);
       online.push({
-        name: selected.warehouse,
+        name: outletName || selected.warehouse,
         qty: selected.qty,
         kind: "online",
         warehouse: selected.warehouse,
