@@ -103,6 +103,21 @@ async function sendMailerooEmail(input: {
   }
 }
 
+export async function sendOsRegistrationWelcomeEmail(input: {
+  toEmail: string;
+  subject: string;
+  html: string;
+}): Promise<{ success: boolean; message?: string }> {
+  const plain = input.html.replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
+  return sendMailerooEmail({
+    toEmails: [input.toEmail],
+    subject: input.subject,
+    html: input.html,
+    plain,
+    errorLabel: "os-registration welcome",
+  });
+}
+
 export async function sendInviteEmail(
   email: string,
   activationUrl: string

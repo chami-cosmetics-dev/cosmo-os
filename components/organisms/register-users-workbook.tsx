@@ -11,6 +11,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { formatAppIsoDate } from "@/lib/format-datetime";
 import { notify } from "@/lib/notify";
 import { isCompletePhoneSearch } from "@/lib/phone-lookup";
@@ -28,6 +29,12 @@ type PageData = {
   today: string;
   rows: RegisterCaptureRow[];
   historyDays: { date: string; count: number }[];
+};
+
+type EmailTemplateState = {
+  header: string;
+  body: string;
+  photoUrl: string | null;
 };
 
 function headerKey(today: string) {
@@ -50,6 +57,19 @@ function readHeader(today: string): HeaderState {
   } catch {
     return { location: "", badgeStart: "", badgeEnd: "" };
   }
+}
+
+function downloadQrPng(dataUrl: string, location: string) {
+  const slug = location
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40);
+  const a = document.createElement("a");
+  a.href = dataUrl;
+  a.download = slug ? `register-qr-${slug}.png` : "register-qr.png";
+  a.click();
 }
 
 function outcomeLabel(outcome: string) {
@@ -78,6 +98,12 @@ export function RegisterUsersWorkbook() {
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [lookupNote, setLookupNote] = useState<string | null>(null);
   const [headerHydrated, setHeaderHydrated] = useState(false);
+  const [emailTpl, setEmailTpl] = useState<EmailTemplateState>({
+    header: "",
+    body: "",
+    photoUrl: null,
+  });
+  const [photoBusy, setPhotoBusy] = useState(false);
 
   const headerReady =
     header.location.trim().length > 0 &&
@@ -85,10 +111,53 @@ export function RegisterUsersWorkbook() {
     /^\d{4}-\d{2}-\d{2}$/.test(header.badgeEnd) &&
     header.badgeEnd >= header.badgeStart;
 
-  useEffect(() => {
-    setHeader(readHeader(today));
+  const loadPageData = useCallback(async (day = today, applySettings = false) => {
+    const res = await fetch(
+      `/api/admin/register-users/page-data?day=${encodeURIComponent(day)}`,
+    );
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      notify.error(typeof data.error === "string" ? data.error : "Load failed.");
+      if (applySettings) {
+        setHeader(readHeader(today));
+        setHeaderHydrated(true);
+      }
+      return;
+    }
+    setPageData({
+      today: typeof data.today === "string" ? data.today : today,
+      rows: Array.isArray(data.rows) ? data.rows : [],
+      historyDays: Array.isArray(data.historyDays) ? data.historyDays : [],
+    });
+    if (!applySettings) return;
+    const savedHeader = data.header as HeaderState | null;
+    if (savedHeader?.location && savedHeader.badgeStart && savedHeader.badgeEnd) {
+      setHeader({
+        location: savedHeader.location,
+        badgeStart: savedHeader.badgeStart,
+        badgeEnd: savedHeader.badgeEnd,
+      });
+    } else {
+      setHeader(readHeader(today));
+    }
+    if (data.qr?.url && data.qr?.qrDataUrl) {
+      setQrUrl(String(data.qr.url));
+      setQrDataUrl(String(data.qr.qrDataUrl));
+    }
+    if (data.emailTemplate && typeof data.emailTemplate === "object") {
+      const tpl = data.emailTemplate as Partial<EmailTemplateState>;
+      setEmailTpl({
+        header: typeof tpl.header === "string" ? tpl.header : "",
+        body: typeof tpl.body === "string" ? tpl.body : "",
+        photoUrl: typeof tpl.photoUrl === "string" ? tpl.photoUrl : null,
+      });
+    }
     setHeaderHydrated(true);
   }, [today]);
+
+  useEffect(() => {
+    void loadPageData(historyDay, historyDay === today);
+  }, [historyDay, loadPageData, today]);
 
   useEffect(() => {
     if (typeof window === "undefined" || !headerHydrated) return;
@@ -99,25 +168,21 @@ export function RegisterUsersWorkbook() {
     sessionStorage.setItem(headerKey(today), JSON.stringify(header));
   }, [header, headerHydrated, today]);
 
-  const loadPageData = useCallback(async (day = today) => {
-    const res = await fetch(
-      `/api/admin/register-users/page-data?day=${encodeURIComponent(day)}`,
-    );
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      notify.error(typeof data.error === "string" ? data.error : "Load failed.");
-      return;
-    }
-    setPageData({
-      today: typeof data.today === "string" ? data.today : today,
-      rows: Array.isArray(data.rows) ? data.rows : [],
-      historyDays: Array.isArray(data.historyDays) ? data.historyDays : [],
-    });
-  }, [today]);
-
   useEffect(() => {
-    void loadPageData(historyDay);
-  }, [historyDay, loadPageData]);
+    if (!headerHydrated || !headerReady) return;
+    const timer = window.setTimeout(() => {
+      void fetch("/api/admin/register-users/header", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          location: header.location.trim(),
+          badgeStart: header.badgeStart,
+          badgeEnd: header.badgeEnd,
+        }),
+      });
+    }, 500);
+    return () => window.clearTimeout(timer);
+  }, [header, headerHydrated, headerReady]);
 
   async function lookupPhone(value: string) {
     if (!isCompletePhoneSearch(value)) {
@@ -229,6 +294,63 @@ export function RegisterUsersWorkbook() {
     }
   }
 
+  async function saveEmailTemplate() {
+    setBusy(true);
+    try {
+      const res = await fetch("/api/admin/register-users/email-template", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          header: emailTpl.header,
+          body: emailTpl.body,
+          photoUrl: emailTpl.photoUrl,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        notify.error(typeof data.error === "string" ? data.error : "Email save failed.");
+        return;
+      }
+      if (data.emailTemplate) {
+        setEmailTpl({
+          header: data.emailTemplate.header ?? "",
+          body: data.emailTemplate.body ?? "",
+          photoUrl: data.emailTemplate.photoUrl ?? null,
+        });
+      }
+      notify.success("Email template saved. New registrations get this mail.");
+    } catch {
+      notify.error("Email save failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function uploadEmailPhoto(file: File) {
+    setPhotoBusy(true);
+    try {
+      const form = new FormData();
+      form.set("file", file);
+      const res = await fetch("/api/admin/register-users/email-photo", {
+        method: "POST",
+        body: form,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        notify.error(typeof data.error === "string" ? data.error : "Photo upload failed.");
+        return;
+      }
+      if (typeof data.photoUrl === "string") {
+        setEmailTpl((prev) => ({ ...prev, photoUrl: data.photoUrl }));
+      }
+      notify.success("Photo saved.");
+    } catch {
+      notify.error("Photo upload failed.");
+    } finally {
+      setPhotoBusy(false);
+    }
+  }
+
   const rows = pageData?.rows ?? [];
 
   return (
@@ -290,12 +412,86 @@ export function RegisterUsersWorkbook() {
           {qrUrl ? (
             <div className="space-y-2 sm:col-span-4">
               {qrDataUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={qrDataUrl} alt="Registration QR" className="h-40 w-40" />
+                <div className="flex flex-wrap items-end gap-3">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={qrDataUrl} alt="Registration QR" className="h-40 w-40" />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={busy}
+                    onClick={() => downloadQrPng(qrDataUrl, header.location)}
+                  >
+                    Download QR
+                  </Button>
+                </div>
               ) : null}
               <p className="break-all text-sm text-muted-foreground">{qrUrl}</p>
             </div>
           ) : null}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Registration email</CardTitle>
+          <CardDescription>
+            Saved on the server. Everyone who registers today with an email
+            gets this. Edit anytime — later saves use the new header, body, and
+            photo. Use {"{{name}}"} for the customer name.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <label className="block space-y-1 text-sm">
+            <span className="text-muted-foreground">Header</span>
+            <Input
+              value={emailTpl.header}
+              onChange={(e) =>
+                setEmailTpl((prev) => ({ ...prev, header: e.target.value }))
+              }
+              placeholder="Welcome, {{name}}"
+              disabled={busy}
+            />
+          </label>
+          <label className="block space-y-1 text-sm">
+            <span className="text-muted-foreground">Body</span>
+            <Textarea
+              value={emailTpl.body}
+              onChange={(e) =>
+                setEmailTpl((prev) => ({ ...prev, body: e.target.value }))
+              }
+              placeholder="Thanks for registering today."
+              rows={5}
+              disabled={busy}
+            />
+          </label>
+          <div className="space-y-2">
+            <span className="text-sm text-muted-foreground">Photo</span>
+            {emailTpl.photoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={emailTpl.photoUrl}
+                alt="Email photo"
+                className="max-h-40 rounded-md border"
+              />
+            ) : null}
+            <Input
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/gif"
+              disabled={busy || photoBusy}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = "";
+                if (file) void uploadEmailPhoto(file);
+              }}
+            />
+          </div>
+          <Button
+            type="button"
+            disabled={busy || photoBusy}
+            onClick={() => void saveEmailTemplate()}
+          >
+            {busy ? "Saving…" : "Save email template"}
+          </Button>
         </CardContent>
       </Card>
 

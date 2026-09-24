@@ -8,6 +8,12 @@ import {
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { serializeCaptureRow } from "@/lib/register-users/serialize";
+import {
+  getOrCreateRegisterSettings,
+  serializeEmailTemplate,
+  todayHeaderDto,
+  todayQrDto,
+} from "@/lib/register-users/settings";
 import { registerUsersPageDataQuerySchema } from "@/lib/validation/register-users";
 
 export async function GET(request: NextRequest) {
@@ -42,7 +48,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Invalid day" }, { status: 400 });
   }
 
-  const [rows, historyGroups] = await Promise.all([
+  const [rows, historyGroups, settings] = await Promise.all([
     prisma.osRegistrationCapture.findMany({
       where: {
         companyId,
@@ -59,11 +65,20 @@ export async function GET(request: NextRequest) {
       _count: { id: true },
       orderBy: { captureDate: "desc" },
     }),
+    getOrCreateRegisterSettings(companyId),
+  ]);
+
+  const [header, qr] = await Promise.all([
+    Promise.resolve(todayHeaderDto(settings, today)),
+    todayQrDto(settings.latestQr, today),
   ]);
 
   return NextResponse.json({
     headerRequired: true,
     today,
+    header,
+    qr,
+    emailTemplate: serializeEmailTemplate(settings),
     rows: rows.map((row) =>
       serializeCaptureRow({
         id: row.id,
