@@ -36,6 +36,8 @@ export type FilterQueryInput = {
   assignedMerchant?: string;
   /** Admin-only: company location id of the contact's latest purchase. */
   purchaseLocationId?: string;
+  /** Admin-only: OS-created registration location (osRegistrationCreated). */
+  osRegLocation?: string;
   minTotal?: number;
   maxTotal?: number;
   birthdayFrom?: MonthDay;
@@ -312,6 +314,25 @@ async function buildAllocationWhere(input: FilterQueryInput): Promise<{
     where.AND = [
       ...existingAnd,
       { city: { equals: cityNeedle, mode: "insensitive" as const } },
+    ];
+  }
+
+  const osRegLocationNeedle = input.osRegLocation?.trim();
+  if (osRegLocationNeedle) {
+    const existingAnd = Array.isArray(where.AND)
+      ? (where.AND as unknown[])
+      : where.AND
+        ? [where.AND]
+        : [];
+    where.AND = [
+      ...existingAnd,
+      { osRegistrationCreated: true },
+      {
+        osRegLocation: {
+          equals: osRegLocationNeedle,
+          mode: "insensitive" as const,
+        },
+      },
     ];
   }
 

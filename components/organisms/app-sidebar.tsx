@@ -30,6 +30,7 @@ import {
   SendHorizonal,
   ClipboardList,
   NotebookPen,
+  UserPlus,
   UserSearch,
   FileSpreadsheet,
   TrendingUp,
@@ -156,6 +157,7 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
   const canManageBookNotes = hasSidebarPermission("book_notes.manage");
   const canReadBookNotes = hasSidebarPermission("book_notes.read");
   const canViewCustomerInsight = hasSidebarPermission("contacts.insight.read");
+  const canRegisterUsers = hasSidebarPermission("contacts.register");
   const fulfillmentLinks = [
     {
       href: "/dashboard/fulfillment/sample-free-issue",
@@ -193,7 +195,8 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
     canViewEmailCleanup ||
     canViewMerchantReviews ||
     canViewOutletReviews ||
-    canViewCustomerInsight;
+    canViewCustomerInsight ||
+    canRegisterUsers;
   const canViewSettings =
     canViewCompanySettings ||
     canViewEmailTemplates ||
@@ -381,6 +384,14 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
                   icon={UserSearch}
                   label="Customer Insight"
                   isActive={pathname === "/dashboard/customer-insight"}
+                />
+              )}
+              {canRegisterUsers && (
+                <NavItem
+                  href="/dashboard/register-users"
+                  icon={UserPlus}
+                  label="Register new users"
+                  isActive={pathname === "/dashboard/register-users"}
                 />
               )}
               {canViewContactMaster && (

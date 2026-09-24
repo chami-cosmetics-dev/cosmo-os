@@ -49,6 +49,7 @@ export type SearchMatchDto = {
   loyaltyAssignedTier: "gold" | "platinum" | null;
   suggestedTier: "gold" | "platinum" | null;
   suggestionKind: "new" | "upgrade" | null;
+  osRegBadge: { location: string } | null;
 };
 
 export type LoyaltyEligibilityDto = {
@@ -74,6 +75,7 @@ export type ContactInsightDto = {
   category: string | null;
   /** ContactMaster.lastPurchaseAt ISO timestamp, or null. */
   lastPurchaseAt: string | null;
+  osRegBadge: { location: string } | null;
   /** Admin / Insight admin view only — emails cleared by cleanup. */
   removedEmails?: ContactRemovedEmailDto[];
 };

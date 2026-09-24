@@ -350,6 +350,36 @@ export async function listInsightCallQueueMerchantOptions(
   return listCallQueueMerchantOptions(companyId, q);
 }
 
+export async function listInsightOsRegLocationOptions(
+  companyId: string,
+  q?: string
+): Promise<FilterOptionDto[]> {
+  const rows = await prisma.contactMaster.findMany({
+    where: {
+      companyId,
+      osRegistrationCreated: true,
+      osRegLocation: { not: null },
+    },
+    distinct: ["osRegLocation"],
+    select: { osRegLocation: true },
+    take: 400,
+    orderBy: { osRegLocation: "asc" },
+  });
+  const seen = new Set<string>();
+  const options: FilterOptionDto[] = [];
+  const needle = q?.trim().toLowerCase();
+  for (const row of rows) {
+    const label = row.osRegLocation?.trim();
+    if (!label) continue;
+    const key = label.toLowerCase();
+    if (seen.has(key)) continue;
+    if (needle && !key.includes(needle)) continue;
+    seen.add(key);
+    options.push({ value: label, label });
+  }
+  return options;
+}
+
 export async function listInsightPurchaseLocationOptions(
   companyId: string,
   q?: string
