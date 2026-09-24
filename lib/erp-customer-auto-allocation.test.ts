@@ -16,13 +16,13 @@ describe("shouldAutoAllocateErpCustomer", () => {
     expect(shouldAutoAllocateErpCustomer(eligible)).toBe(true);
   });
 
-  it("does not allocate a contact already present in OS", () => {
+  it("allocates still-unallocated OS contacts when ERP later creates them", () => {
     expect(
       shouldAutoAllocateErpCustomer({ ...eligible, syncStatus: "unchanged" }),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       shouldAutoAllocateErpCustomer({ ...eligible, syncStatus: "enriched" }),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("does not allocate a phone found in the other ERP", () => {

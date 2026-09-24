@@ -35,6 +35,7 @@ export function toLimitedInsightDto(full: CustomerInsightDto): CustomerInsightDt
           assignedMerchant: contact.assignedMerchant,
           category: null,
           lastPurchaseAt: null,
+          osRegBadge: contact.osRegBadge ?? null,
         }
       : undefined,
     invoices: full.invoices.map((row) => ({

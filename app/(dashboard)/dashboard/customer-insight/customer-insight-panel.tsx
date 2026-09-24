@@ -633,6 +633,8 @@ export function CustomerInsightPanel({
   const [queueMerchantOptions, setQueueMerchantOptions] = useState<InsightSelectOption[]>([]);
   const [filterPurchaseLocationId, setFilterPurchaseLocationId] = useState("");
   const [locationOptions, setLocationOptions] = useState<InsightSelectOption[]>([]);
+  const [filterOsRegLocation, setFilterOsRegLocation] = useState("");
+  const [osRegLocationOptions, setOsRegLocationOptions] = useState<InsightSelectOption[]>([]);
   const [filterBirthdayFrom, setFilterBirthdayFrom] = useState("");
   const [filterBirthdayTo, setFilterBirthdayTo] = useState("");
   const [filterLastFrom, setFilterLastFrom] = useState("");
@@ -904,18 +906,20 @@ export function CustomerInsightPanel({
     let cancelled = false;
     void (async () => {
       try {
-        const [merchantsRes, queueMerchantsRes, locationsRes, brandsRes] = await Promise.all([
+        const [merchantsRes, queueMerchantsRes, locationsRes, brandsRes, osRegRes] = await Promise.all([
           fetch(`/api/admin/customer-insight/filter-options?type=merchants`),
           fetch(
             `/api/admin/customer-insight/filter-options?type=call-queue-merchants`
           ),
           fetch(`/api/admin/customer-insight/filter-options?type=locations`),
           fetch(`/api/admin/customer-insight/filter-options?type=brands`),
+          fetch(`/api/admin/customer-insight/filter-options?type=os-reg-locations`),
         ]);
         const merchantsData = await merchantsRes.json().catch(() => ({}));
         const queueMerchantsData = await queueMerchantsRes.json().catch(() => ({}));
         const locationsData = await locationsRes.json().catch(() => ({}));
         const brandsData = await brandsRes.json().catch(() => ({}));
+        const osRegData = await osRegRes.json().catch(() => ({}));
         if (cancelled) return;
         if (merchantsRes.ok && Array.isArray(merchantsData.options)) {
           setMerchantOptions(
@@ -947,6 +951,13 @@ export function CustomerInsightPanel({
         if (brandsRes.ok && Array.isArray(brandsData.options)) {
           setQueueBrandOptions(
             (brandsData.options as Array<{ value?: string; label?: string }>)
+              .filter((o): o is { value: string; label?: string } => typeof o.value === "string")
+              .map((o) => ({ value: o.value, label: o.label ?? o.value }))
+          );
+        }
+        if (osRegRes.ok && Array.isArray(osRegData.options)) {
+          setOsRegLocationOptions(
+            (osRegData.options as Array<{ value?: string; label?: string }>)
               .filter((o): o is { value: string; label?: string } => typeof o.value === "string")
               .map((o) => ({ value: o.value, label: o.label ?? o.value }))
           );
@@ -1870,6 +1881,9 @@ export function CustomerInsightPanel({
     if (canExportFilteredCsv && filterPurchaseLocationId.trim()) {
       params.set("purchaseLocationId", filterPurchaseLocationId.trim());
     }
+    if (canExportFilteredCsv && filterOsRegLocation.trim()) {
+      params.set("osRegLocation", filterOsRegLocation.trim());
+    }
     if (filterBirthdayFrom.trim() && filterBirthdayTo.trim()) {
       params.set("birthdayFrom", filterBirthdayFrom.trim());
       params.set("birthdayTo", filterBirthdayTo.trim());
@@ -2237,6 +2251,19 @@ export function CustomerInsightPanel({
                 />
               </label>
             ) : null}
+            {canExportFilteredCsv ? (
+              <label className="space-y-1 text-sm">
+                <span className="text-muted-foreground">New user location</span>
+                <InsightSearchableSelect
+                  value={filterOsRegLocation}
+                  options={osRegLocationOptions}
+                  placeholder="Any"
+                  searchPlaceholder="Search new-user locations…"
+                  disabled={isBusy}
+                  onChange={setFilterOsRegLocation}
+                />
+              </label>
+            ) : null}
             <div className="grid grid-cols-2 gap-2 sm:col-span-2">
               <label className="space-y-1 text-sm">
                 <span className="text-muted-foreground">Min total</span>
@@ -2601,7 +2628,15 @@ export function CustomerInsightPanel({
                 }
                 className="flex w-full flex-col rounded-md border px-3 py-2 text-left text-sm transition hover:bg-muted/50 disabled:opacity-50 sm:flex-row sm:items-center sm:justify-between"
               >
-                <span className="font-medium">{m.name}</span>
+                <span className="font-medium">
+                  {m.name}
+                  {m.osRegBadge?.location ? (
+                    <span className="ml-2 inline-flex items-center gap-1 rounded-md border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[11px] font-medium text-amber-800 dark:text-amber-200">
+                      <MapPin className="size-3" aria-hidden />
+                      {m.osRegBadge.location}
+                    </span>
+                  ) : null}
+                </span>
                 <span className="text-muted-foreground">
                   {m.phoneNumber ?? "—"}
                   {m.email ? ` · ${m.email}` : ""}
@@ -2683,6 +2718,12 @@ export function CustomerInsightPanel({
                   <div className="space-y-1">
                     <CardTitle className="text-xl">
                       {insight.contact?.name?.trim() || "Customer (limited view)"}
+                      {insight.contact?.osRegBadge?.location ? (
+                        <span className="ml-2 inline-flex align-middle items-center gap-1 rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-800 dark:text-amber-200">
+                          <MapPin className="size-3" aria-hidden />
+                          {insight.contact.osRegBadge.location}
+                        </span>
+                      ) : null}
                     </CardTitle>
                     <CardDescription>
                       Allocated merchant:{" "}
@@ -2776,6 +2817,12 @@ export function CustomerInsightPanel({
                       <div className="space-y-1.5">
                         <h2 className="text-xl font-semibold tracking-tight">
                           {insight.contact.name}
+                          {insight.contact.osRegBadge?.location ? (
+                            <span className="ml-2 inline-flex align-middle items-center gap-1 rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-800 dark:text-amber-200">
+                              <MapPin className="size-3" aria-hidden />
+                              {insight.contact.osRegBadge.location}
+                            </span>
+                          ) : null}
                         </h2>
                         <div className="flex flex-col gap-1.5 text-sm text-muted-foreground">
                           {contactPhoneList(insight.contact).length > 0 ? (

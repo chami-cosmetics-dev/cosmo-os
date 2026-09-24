@@ -222,6 +222,11 @@ const DEFAULT_PERMISSIONS = [
     description: "Manage contact allocation option types in Settings",
   },
   {
+    key: "contacts.register",
+    description:
+      "Open Register new users workbook, save contacts, and create registration QR (not Contact Master directory)",
+  },
+  {
     key: "orders.read",
     description: "View received orders from Shopify",
   },
@@ -647,6 +652,7 @@ const DEFAULT_ROLES = [
       "contacts.allocation.read",
       "contacts.allocation.manage",
       "contacts.allocation.settings",
+      "contacts.register",
       "orders.read",
       "orders.manage",
       "orders.create_manual",

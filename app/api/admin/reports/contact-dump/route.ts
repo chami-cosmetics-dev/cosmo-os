@@ -7,6 +7,7 @@ import {
   CONTACT_DUMP_SELECT,
   type ContactDumpPartKey,
   buildContactDumpCsv,
+  contactDumpListWhere,
 } from "@/lib/reports/contact-dump";
 import { getContactDumpPermission } from "@/lib/report-permissions";
 import { formatAppIsoDate } from "@/lib/format-datetime";
@@ -34,7 +35,7 @@ export async function GET(request: NextRequest) {
   const config = CONTACT_DUMP_PARTS[part];
 
   const contacts = await prisma.contactMaster.findMany({
-    where: { companyId },
+    where: contactDumpListWhere(companyId),
     orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
     skip: config.start,
     ...(part === "all" ? {} : { take: config.size }),

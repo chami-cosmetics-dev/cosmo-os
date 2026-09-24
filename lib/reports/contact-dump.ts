@@ -1,4 +1,5 @@
 import type { Prisma } from "@prisma/client";
+import { osRegistrationDumpExcludeWhere } from "@/lib/register-users/dump-exclude";
 import { buildCsv } from "@/lib/reports/csv";
 import {
   contactEmails,
@@ -96,6 +97,13 @@ export const CONTACT_DUMP_SELECT = {
     select: { merchantName: true },
   },
 } satisfies Prisma.ContactMasterSelect;
+
+export function contactDumpListWhere(companyId: string): Prisma.ContactMasterWhereInput {
+  return {
+    companyId,
+    AND: [osRegistrationDumpExcludeWhere()],
+  };
+}
 
 export const CONTACT_DUMP_HEADERS = [
   "id",

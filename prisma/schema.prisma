@@ -102,6 +102,8 @@ model Company {
   merchantMonthlyTargetHistory  MerchantMonthlyTargetHistory[]
   marketCompetitorLinks         MarketCompetitorLink[]
   erpStockSnapshots             ErpStockSnapshot[]
+  osRegistrationQrs             OsRegistrationQr[]
+  osRegistrationCaptures        OsRegistrationCapture[]
 }
 
 model PrintFormat {
@@ -404,6 +406,8 @@ model User {
   marketCompetitorLinksCreated           MarketCompetitorLink[]         @relation("MarketCompetitorLinkCreatedBy")
   marketCompetitorLinksUpdated           MarketCompetitorLink[]         @relation("MarketCompetitorLinkUpdatedBy")
   marketPriceHistoriesChanged            MarketCompetitorPriceHistory[] @relation("MarketPriceHistoryChangedBy")
+  osRegistrationQrsCreated               OsRegistrationQr[]             @relation("OsRegistrationQrCreatedBy")
+  osRegistrationCaptures                 OsRegistrationCapture[]        @relation("OsRegistrationCaptureActor")
 }
 
 /// Monthly sales target for a merchant-role user (Asia/Colombo calendar month).
@@ -1853,6 +1857,11 @@ model ContactMaster {
   purchaseOrderCount    Int                       @default(0)
   purchaseTotalValue    Decimal                   @default(0) @db.Decimal(14, 2)
   purchaseLastOrderAt   DateTime?
+  /// True only when Register new users created this row (admin filter + dump hold).
+  osRegistrationCreated Boolean                   @default(false)
+  osRegLocation         String?
+  osRegBadgeStart       DateTime?
+  osRegBadgeEnd         DateTime?
   createdAt         DateTime                  @default(now())
   updatedAt         DateTime                  @updatedAt
   company           Company                   @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -1864,6 +1873,7 @@ model ContactMaster {
   adaptPurchases    AdaptPurchaseHistory[]
   removedEmails     ContactRemovedEmail[]
   callQueueItems    ContactInsightCallQueue[]
+  osRegistrationCaptures OsRegistrationCapture[]
 
   @@index([companyId, lastPurchaseAt])
   @@index([companyId, updatedAt(sort: Desc)])
@@ -1877,6 +1887,50 @@ model ContactMaster {
   @@index([companyId, city])
   @@index([companyId, loyaltyAssignedAt])
   @@index([companyId, loyaltyOutreachStatus])
+  @@index([companyId, osRegistrationCreated, osRegLocation])
+}
+
+/// Staff-created public registration portal token. Stamp is immutable after create.
+model OsRegistrationQr {
+  id              String                  @id @default(cuid())
+  companyId       String
+  token           String                  @unique
+  location        String
+  badgeStart      DateTime
+  badgeEnd        DateTime
+  createdByUserId String
+  createdAt       DateTime                @default(now())
+  company         Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdBy       User                    @relation("OsRegistrationQrCreatedBy", fields: [createdByUserId], references: [id], onDelete: Cascade)
+  captures        OsRegistrationCapture[]
+
+  @@index([companyId, createdAt])
+}
+
+/// One workbook history row per successful staff or portal save.
+model OsRegistrationCapture {
+  id          String            @id @default(cuid())
+  companyId   String
+  contactId   String
+  qrId        String?
+  location    String
+  badgeStart  DateTime
+  badgeEnd    DateTime
+  /// Colombo calendar day of the save (store as day start).
+  captureDate DateTime
+  /// staff | portal
+  source      String
+  /// created | already_registered | updated
+  outcome     String
+  actorUserId String?
+  createdAt   DateTime          @default(now())
+  company     Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  contact     ContactMaster     @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  qr          OsRegistrationQr? @relation(fields: [qrId], references: [id], onDelete: SetNull)
+  actor       User?             @relation("OsRegistrationCaptureActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, captureDate])
+  @@index([companyId, contactId])
 }
 
 /// Admin-assigned call-update work queue for a merchant (Insight).
