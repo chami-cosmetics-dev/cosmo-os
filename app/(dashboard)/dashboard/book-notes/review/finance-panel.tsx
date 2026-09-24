@@ -9,6 +9,7 @@ import {
   Loader2,
   NotebookPen,
   Search,
+  StickyNote,
 } from "lucide-react";
 
 import { BookNoteIssuesView } from "@/app/(dashboard)/dashboard/book-notes/review/book-note-issues-view";
@@ -59,6 +60,28 @@ type PhotoItem = BookNoteReceiptDto & {
   submittedBy: string;
 };
 
+/** One invoice row that carries a merchant special note. */
+type SpecialNoteItem = {
+  key: string;
+  shopName: string;
+  company: string;
+  posting_date: string;
+  submittedBy: string;
+  idx_no: string;
+  sales_invoice: string;
+  special_note: string;
+  cash: number;
+  card: number;
+  koko: number;
+  bank_transfer: number;
+  row_total: number;
+  card_receipt_ref_last4: string | null;
+};
+
+function rowSpecialNote(value: string | null | undefined): string {
+  return value?.trim() ?? "";
+}
+
 type PanelProps = {
   initialLocations: BookNoteLocationOption[];
   initialDays: BookNoteFinanceDay[];
@@ -90,7 +113,9 @@ export function BookNoteFinancePanel({
     to: initialTo,
   });
   const [loading, setLoading] = useState(false);
-  const [view, setView] = useState<"issues" | "notes" | "photos">("issues");
+  const [view, setView] = useState<
+    "issues" | "notes" | "special" | "photos"
+  >("issues");
   const [issueTotal, setIssueTotal] = useState<number | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [preview, setPreview] = useState<PhotoItem | null>(null);
@@ -105,11 +130,50 @@ export function BookNoteFinancePanel({
       if (day.company.toLowerCase().includes(q)) return true;
       if (day.posting_date.includes(q)) return true;
       if (day.submittedBy?.name.toLowerCase().includes(q)) return true;
-      return day.rows.some((r) =>
-        r.sales_invoice.toLowerCase().includes(q),
+      return day.rows.some(
+        (r) =>
+          r.sales_invoice.toLowerCase().includes(q) ||
+          rowSpecialNote(r.special_note).toLowerCase().includes(q),
       );
     });
   }, [days, filterText]);
+
+  const specialNoteItems = useMemo<SpecialNoteItem[]>(() => {
+    const q = filterText.trim().toLowerCase();
+    return visibleDays.flatMap((day) => {
+      const dayHits =
+        !q ||
+        day.shopName.toLowerCase().includes(q) ||
+        day.company.toLowerCase().includes(q) ||
+        day.posting_date.includes(q) ||
+        (day.submittedBy?.name.toLowerCase().includes(q) ?? false);
+      return day.rows
+        .filter((r) => rowSpecialNote(r.special_note).length > 0)
+        .filter((r) => {
+          if (dayHits) return true;
+          return (
+            r.sales_invoice.toLowerCase().includes(q) ||
+            rowSpecialNote(r.special_note).toLowerCase().includes(q)
+          );
+        })
+        .map((r, i) => ({
+          key: `${day.id}-${r.idx_no}-${i}`,
+          shopName: day.shopName,
+          company: day.company,
+          posting_date: day.posting_date,
+          submittedBy: day.submittedBy?.name ?? "—",
+          idx_no: r.idx_no,
+          sales_invoice: r.sales_invoice,
+          special_note: rowSpecialNote(r.special_note),
+          cash: r.cash,
+          card: r.card,
+          koko: r.koko,
+          bank_transfer: r.bank_transfer,
+          row_total: r.row_total,
+          card_receipt_ref_last4: r.card_receipt_ref_last4,
+        }));
+    });
+  }, [visibleDays, filterText]);
 
   const photos = useMemo<PhotoItem[]>(() => {
     return visibleDays.flatMap((day) =>
@@ -169,8 +233,8 @@ export function BookNoteFinancePanel({
         </h1>
         <p className="text-muted-foreground text-sm">
           Live verification issues from both ERPs, plus merchant book notes,
-          payment-method totals, and uploaded slips. Read-only — entry, edits
-          and ERP sends stay with the shop.
+          special notes, payment-method totals, and uploaded slips. Read-only —
+          entry, edits and ERP sends stay with the shop.
         </p>
       </div>
 
@@ -197,6 +261,15 @@ export function BookNoteFinancePanel({
           </Button>
           <Button
             type="button"
+            variant={view === "special" ? "default" : "outline"}
+            size="sm"
+            onClick={() => setView("special")}
+          >
+            <StickyNote className="h-4 w-4" />
+            Special notes ({specialNoteItems.length})
+          </Button>
+          <Button
+            type="button"
             variant={view === "photos" ? "default" : "outline"}
             size="sm"
             onClick={() => setView("photos")}
@@ -213,7 +286,11 @@ export function BookNoteFinancePanel({
             />
             <Input
               value={filterText}
-              placeholder="Filter shop, date, invoice, person…"
+              placeholder={
+                view === "special"
+                  ? "Filter shop, date, invoice, note…"
+                  : "Filter shop, date, invoice, person…"
+              }
               aria-label="Filter loaded book notes"
               className="pl-8"
               onChange={(e) => setFilterText(e.target.value)}
@@ -298,6 +375,8 @@ export function BookNoteFinancePanel({
             </div>
           </div>
 
+          {view !== "special" ? (
+          <>
           <div className="bg-card rounded-lg border p-4">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
               <h2 className="text-muted-foreground text-sm font-semibold tracking-wide uppercase">
@@ -424,6 +503,8 @@ export function BookNoteFinancePanel({
                 </table>
               </div>
             </div>
+          ) : null}
+          </>
           ) : null}
         </>
       ) : null}
@@ -699,6 +780,91 @@ export function BookNoteFinancePanel({
                 })}
               </tbody>
             </table>
+          </div>
+        )
+      ) : view === "special" ? (
+        specialNoteItems.length === 0 ? (
+          <div className="bg-card text-muted-foreground rounded-lg border p-8 text-center text-sm">
+            No special notes in this outlet and date range.
+            {truncated
+              ? " Newest 200 book notes only — narrow dates or pick one outlet."
+              : ""}
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {truncated ? (
+              <p className="text-xs text-amber-700 dark:text-amber-400">
+                Showing notes from the newest 200 book notes in this range —
+                narrow the dates or pick one outlet to see the rest.
+              </p>
+            ) : null}
+          <div className="bg-card overflow-x-auto rounded-lg border">
+            <table className="w-full min-w-[960px] text-sm">
+              <thead>
+                <tr className="text-muted-foreground border-b text-left text-xs uppercase tracking-wide">
+                  <th className="p-2">Shop</th>
+                  <th className="p-2">Date</th>
+                  <th className="p-2">Submitted by</th>
+                  <th className="p-2">Invoice</th>
+                  <th className="p-2">Special note</th>
+                  <th className="p-2 text-right">Cash</th>
+                  <th className="p-2 text-right">Card</th>
+                  <th className="p-2 text-right">KOKO</th>
+                  <th className="p-2 text-right">Bank</th>
+                  <th className="p-2 text-right">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {specialNoteItems.map((item) => (
+                  <tr key={item.key} className="border-b last:border-0 align-top">
+                    <td className="p-2">
+                      <span className="font-medium">{item.shopName}</span>
+                      {item.company && item.company !== item.shopName ? (
+                        <span className="text-muted-foreground block text-xs">
+                          {item.company}
+                        </span>
+                      ) : null}
+                    </td>
+                    <td className="p-2 font-mono">{item.posting_date}</td>
+                    <td className="p-2 text-xs">{item.submittedBy}</td>
+                    <td className="p-2 font-mono">
+                      {item.idx_no ? (
+                        <span className="text-muted-foreground mr-2 text-xs">
+                          #{item.idx_no}
+                        </span>
+                      ) : null}
+                      {item.sales_invoice}
+                      {item.card_receipt_ref_last4 ? (
+                        <span className="text-muted-foreground ml-2 text-xs">
+                          card ••{item.card_receipt_ref_last4}
+                        </span>
+                      ) : null}
+                    </td>
+                    <td className="max-w-md p-2 whitespace-pre-wrap text-[13px] leading-snug">
+                      {item.special_note}
+                    </td>
+                    <td className="p-2 text-right font-mono tabular-nums">
+                      {item.cash > 0 ? money(item.cash) : "—"}
+                    </td>
+                    <td className="p-2 text-right font-mono tabular-nums">
+                      {item.card > 0 ? money(item.card) : "—"}
+                    </td>
+                    <td className="p-2 text-right font-mono tabular-nums">
+                      {item.koko > 0 ? money(item.koko) : "—"}
+                    </td>
+                    <td className="p-2 text-right font-mono tabular-nums">
+                      {item.bank_transfer > 0
+                        ? money(item.bank_transfer)
+                        : "—"}
+                    </td>
+                    <td className="p-2 text-right font-mono font-semibold tabular-nums">
+                      {money(item.row_total)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
           </div>
         )
       ) : view === "photos" ? (

@@ -6,6 +6,7 @@ import * as XLSX from "xlsx-js-style";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { notify } from "@/lib/notify";
 import {
   BRAND_WAREHOUSE_VIOLATION_HEADERS,
@@ -18,11 +19,23 @@ type LiveStockResponse = {
   threshold: number;
   itemCount: number;
   warehouseCount: number;
+  salesWindow?: { from: string; to: string; timezone: string; days: number } | null;
+  salesStatus?: "ok" | "unavailable";
+  criticalCutoffUnits?: number | null;
   rows: CosmeticsStockReportDetail[];
   brandViolations: BrandWarehouseViolation[];
   error?: string;
   detail?: string;
 };
+
+const STOCK_EXPORT_HEADERS = [
+  ...COSMETICS_STOCK_REPORT_HEADERS.slice(0, 5),
+  "Online Warehouse",
+  "Online Qty",
+  "Shop Warehouse",
+  "Shop Qty",
+  "Stock Available Elsewhere",
+] as const;
 
 function appendBrandCheckSheet(workbook: XLSX.WorkBook, rows: BrandWarehouseViolation[]) {
   const sheetRows: Array<Array<string | number>> = [
@@ -103,30 +116,30 @@ function exportBrandReport(rows: BrandWarehouseViolation[]) {
 
 function exportStockReport(rows: CosmeticsStockReportDetail[]) {
   const workbook = XLSX.utils.book_new();
-  const sheetRows: Array<Array<string | number>> = [[...COSMETICS_STOCK_REPORT_HEADERS]];
+  const sheetRows: Array<Array<string | number>> = [[...STOCK_EXPORT_HEADERS]];
   const merges: XLSX.Range[] = [];
 
   rows.forEach((row) => {
-    const maxLines = Math.max(row.priority1.length, row.priority2.length, row.priority3.length, 1);
+    const maxLines = Math.max(row.online.length, row.shops.length, 1);
     const startRow = sheetRows.length;
     for (let i = 0; i < maxLines; i++) {
       sheetRows.push([
         i === 0 ? row.SKU : "",
         i === 0 ? row["Product Title"] : "",
         i === 0 ? row["Main Warehouse Qty"] : "",
-        row.priority1[i]?.outlet ?? "",
-        row.priority1[i]?.qty ?? "",
-        row.priority2[i]?.outlet ?? "",
-        row.priority2[i]?.qty ?? "",
-        row.priority3[i]?.outlet ?? "",
-        row.priority3[i]?.qty ?? "",
+        i === 0 ? row.sales90d : "",
+        i === 0 ? (row.critical ? "CRITICAL" : "") : "",
+        row.online[i]?.name ?? "",
+        row.online[i]?.qty ?? "",
+        row.shops[i]?.name ?? "",
+        row.shops[i]?.qty ?? "",
         i === 0 ? row["Stock Available Elsewhere"].toUpperCase() : "",
       ]);
     }
 
     if (maxLines > 1) {
       const endRow = startRow + maxLines - 1;
-      for (const col of [0, 1, 2, 9]) {
+      for (const col of [0, 1, 2, 3, 4, 9]) {
         merges.push({ s: { r: startRow, c: col }, e: { r: endRow, c: col } });
       }
     }
@@ -137,16 +150,16 @@ function exportStockReport(rows: CosmeticsStockReportDetail[]) {
   worksheet["!autofilter"] = {
     ref: XLSX.utils.encode_range({
       s: { r: 0, c: 0 },
-      e: { r: Math.max(sheetRows.length - 1, 0), c: COSMETICS_STOCK_REPORT_HEADERS.length - 1 },
+      e: { r: Math.max(sheetRows.length - 1, 0), c: STOCK_EXPORT_HEADERS.length - 1 },
     }),
   };
   worksheet["!cols"] = [
     { wch: 18 },
     { wch: 42 },
     { wch: 16 },
-    { wch: 24 },
+    { wch: 14 },
     { wch: 12 },
-    { wch: 24 },
+    { wch: 28 },
     { wch: 12 },
     { wch: 24 },
     { wch: 12 },
@@ -169,7 +182,7 @@ function exportStockReport(rows: CosmeticsStockReportDetail[]) {
       if (!cell) continue;
       cell.s = {
         alignment: {
-          horizontal: c === 1 || c === 3 || c === 5 || c === 7 ? "left" : "center",
+          horizontal: c === 1 || c === 5 || c === 7 ? "left" : "center",
           vertical: "center",
         },
         border,
@@ -191,16 +204,28 @@ function exportStockReport(rows: CosmeticsStockReportDetail[]) {
   }
 
   for (let r = 1; r <= range.e.r; r++) {
-    const ref = XLSX.utils.encode_cell({ r, c: 9 });
-    const cell = worksheet[ref];
-    if (!cell) continue;
-    cell.s = {
-      ...(cell.s ?? {}),
-      alignment: { horizontal: "center", vertical: "center" },
-      font: { bold: true, color: { rgb: "006100" } },
-      fill: { patternType: "solid", fgColor: { rgb: "C6E8C8" } },
-      border,
-    };
+    const elsewhereRef = XLSX.utils.encode_cell({ r, c: 9 });
+    const elsewhere = worksheet[elsewhereRef];
+    if (elsewhere) {
+      elsewhere.s = {
+        ...(elsewhere.s ?? {}),
+        alignment: { horizontal: "center", vertical: "center" },
+        font: { bold: true, color: { rgb: "006100" } },
+        fill: { patternType: "solid", fgColor: { rgb: "C6E8C8" } },
+        border,
+      };
+    }
+    const criticalRef = XLSX.utils.encode_cell({ r, c: 4 });
+    const critical = worksheet[criticalRef];
+    if (critical && String(critical.v ?? "").toUpperCase() === "CRITICAL") {
+      critical.s = {
+        ...(critical.s ?? {}),
+        alignment: { horizontal: "center", vertical: "center" },
+        font: { bold: true, color: { rgb: "9F1D1D" } },
+        fill: { patternType: "solid", fgColor: { rgb: "F8D0D0" } },
+        border,
+      };
+    }
   }
 
   XLSX.utils.book_append_sheet(workbook, worksheet, "Stock Compare");
@@ -208,15 +233,33 @@ function exportStockReport(rows: CosmeticsStockReportDetail[]) {
   XLSX.writeFile(workbook, `cosmetics-stock-compare-${today}.xlsx`);
 }
 
+function tableCell(row: CosmeticsStockReportDetail, header: (typeof COSMETICS_STOCK_REPORT_HEADERS)[number]) {
+  if (header === "Critical") {
+    return row.critical ? (
+      <span className="rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-800">
+        Critical
+      </span>
+    ) : (
+      ""
+    );
+  }
+  if (header === "90-day Sales") return row.sales90d;
+  return row[header];
+}
+
 export function CosmeticsStockComparer() {
+  const [tab, setTab] = useState("main");
   const [threshold, setThreshold] = useState("0");
   const [reportRows, setReportRows] = useState<CosmeticsStockReportDetail[]>([]);
   const [brandViolations, setBrandViolations] = useState<BrandWarehouseViolation[]>([]);
   const [processing, setProcessing] = useState(false);
+  const [hasRun, setHasRun] = useState(false);
   const [lastLoad, setLastLoad] = useState<{
     threshold: number;
     itemCount: number;
     warehouseCount: number;
+    salesStatus: "ok" | "unavailable";
+    salesWindow: LiveStockResponse["salesWindow"];
   } | null>(null);
 
   async function runReport() {
@@ -239,15 +282,19 @@ export function CosmeticsStockComparer() {
       }
       setReportRows(data.rows ?? []);
       setBrandViolations(data.brandViolations ?? []);
+      setHasRun(true);
       setLastLoad({
         threshold: data.threshold ?? thresholdNumber,
         itemCount: data.itemCount ?? 0,
         warehouseCount: data.warehouseCount ?? 0,
+        salesStatus: data.salesStatus === "unavailable" ? "unavailable" : "ok",
+        salesWindow: data.salesWindow ?? null,
       });
       notify.success(`Report ready for ${data.itemCount ?? 0} SKU(s)`);
     } catch (err) {
       setReportRows([]);
       setBrandViolations([]);
+      setHasRun(false);
       setLastLoad(null);
       notify.error(err instanceof Error ? err.message : "Could not run report");
     } finally {
@@ -256,13 +303,16 @@ export function CosmeticsStockComparer() {
   }
 
   const availableCount = reportRows.filter((row) => row["Stock Available Elsewhere"] === "Yes").length;
+  const criticalCount = reportRows.filter((row) => row.critical).length;
+  const isBusy = processing;
 
   return (
     <div className="space-y-4">
       <div>
         <h3 className="font-medium">Cosmetics Stock Comparer</h3>
         <p className="text-sm text-muted-foreground">
-          Run the report from live ERP stock and export low main-warehouse stock with outlet availability.
+          Compare Cosmetics main against other online warehouses first, then shops. Protect Shopify-facing
+          sales when main stock drops.
         </p>
       </div>
 
@@ -275,6 +325,7 @@ export function CosmeticsStockComparer() {
             step="any"
             value={threshold}
             onChange={(event) => setThreshold(event.target.value)}
+            disabled={isBusy}
           />
         </label>
         <div className="flex min-h-32 flex-col justify-center gap-3 rounded-lg border border-dashed bg-muted/20 px-4 py-6">
@@ -287,73 +338,147 @@ export function CosmeticsStockComparer() {
           <Button
             type="button"
             onClick={() => void runReport()}
-            disabled={processing}
+            disabled={isBusy}
             className="w-fit gap-2"
           >
-            {processing ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
-            Run report
+            {processing ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <RefreshCw className="size-4" />}
+            {processing ? "Running..." : "Run report"}
           </Button>
           {lastLoad && (
             <p className="text-xs text-muted-foreground">
-              Report ran from {lastLoad.warehouseCount} warehouse(s) for {lastLoad.itemCount} SKU(s).
-              Threshold: {lastLoad.threshold}.
+              Last run: {lastLoad.warehouseCount} warehouse(s), {lastLoad.itemCount} SKU(s). Threshold:{" "}
+              {lastLoad.threshold}.
+              {lastLoad.salesWindow
+                ? ` Sales ${lastLoad.salesWindow.from}–${lastLoad.salesWindow.to} (${lastLoad.salesWindow.timezone}).`
+                : ""}
+            </p>
+          )}
+          {lastLoad?.salesStatus === "unavailable" && (
+            <p className="text-xs text-amber-700">
+              Sales ranking unavailable. Stock comparison is shown without Critical badges.
             </p>
           )}
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <Button
-          type="button"
-          onClick={() => exportStockReport(reportRows)}
-          disabled={processing || reportRows.length === 0}
-          className="gap-2"
-        >
-          {processing ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
-          Export stock report
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          onClick={() => exportBrandReport(brandViolations)}
-          disabled={processing || brandViolations.length === 0}
-          className="gap-2"
-        >
-          <Download className="size-4" />
-          Export brand report
-        </Button>
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <FileSpreadsheet className="size-4" />
-          {reportRows.length} flagged SKU(s), {availableCount} with stock elsewhere, {brandViolations.length} brand issue(s)
-        </div>
-      </div>
+      <Tabs value={tab} onValueChange={setTab}>
+        <TabsList>
+          <TabsTrigger value="main" disabled={isBusy}>
+            Main
+          </TabsTrigger>
+          <TabsTrigger value="brand" disabled={isBusy}>
+            Brand
+          </TabsTrigger>
+        </TabsList>
 
-      {reportRows.length > 0 && (
-        <div className="max-h-80 overflow-auto rounded-md border">
-          <table className="w-full min-w-[980px] text-left text-xs">
-            <thead className="sticky top-0 bg-background">
-              <tr>
-                {COSMETICS_STOCK_REPORT_HEADERS.map((header) => (
-                  <th key={header} className="border-b px-2 py-2 font-medium">
-                    {header}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {reportRows.slice(0, 100).map((row) => (
-                <tr key={row.SKU} className="border-b last:border-b-0">
-                  {COSMETICS_STOCK_REPORT_HEADERS.map((header) => (
-                    <td key={header} className="px-2 py-2">
-                      {row[header]}
-                    </td>
+        <TabsContent value="main" className="space-y-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              onClick={() => exportStockReport(reportRows)}
+              disabled={isBusy || reportRows.length === 0}
+              className="gap-2"
+            >
+              {processing ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Download className="size-4" />}
+              Export stock report
+            </Button>
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <FileSpreadsheet className="size-4" />
+              {reportRows.length} flagged SKU(s), {availableCount} with stock elsewhere, {criticalCount}{" "}
+              Critical
+            </div>
+          </div>
+
+          {hasRun && reportRows.length === 0 && (
+            <p className="text-sm text-muted-foreground">
+              No Cosmetics-main items at or below the last-run threshold.
+            </p>
+          )}
+
+          {reportRows.length > 0 && (
+            <div className="max-h-80 overflow-auto rounded-md border">
+              <table className="w-full min-w-[1100px] text-left text-xs">
+                <thead className="sticky top-0 bg-background">
+                  <tr>
+                    {COSMETICS_STOCK_REPORT_HEADERS.map((header) => (
+                      <th key={header} className="border-b px-2 py-2 font-medium">
+                        {header}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {reportRows.slice(0, 100).map((row) => (
+                    <tr key={row.SKU} className="border-b last:border-b-0">
+                      {COSMETICS_STOCK_REPORT_HEADERS.map((header) => (
+                        <td key={header} className="px-2 py-2">
+                          {tableCell(row, header)}
+                        </td>
+                      ))}
+                    </tr>
                   ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </TabsContent>
+
+        <TabsContent value="brand" className="space-y-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => exportBrandReport(brandViolations)}
+              disabled={isBusy || brandViolations.length === 0}
+              className="gap-2"
+            >
+              <Download className="size-4" />
+              Export brand report
+            </Button>
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <FileSpreadsheet className="size-4" />
+              {brandViolations.length} brand issue(s)
+            </div>
+          </div>
+
+          {hasRun && brandViolations.length === 0 && (
+            <p className="text-sm text-muted-foreground">
+              No brand-on-wrong-company violations in this run.
+            </p>
+          )}
+
+          {!hasRun && (
+            <p className="text-sm text-muted-foreground">Run the report to load brand checks.</p>
+          )}
+
+          {brandViolations.length > 0 && (
+            <div className="max-h-80 overflow-auto rounded-md border">
+              <table className="w-full min-w-[900px] text-left text-xs">
+                <thead className="sticky top-0 bg-background">
+                  <tr>
+                    {BRAND_WAREHOUSE_VIOLATION_HEADERS.map((header) => (
+                      <th key={header} className="border-b px-2 py-2 font-medium">
+                        {header}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {brandViolations.slice(0, 100).map((row, index) => (
+                    <tr key={`${row.SKU}-${row.Warehouse}-${index}`} className="border-b last:border-b-0">
+                      {BRAND_WAREHOUSE_VIOLATION_HEADERS.map((header) => (
+                        <td key={header} className="px-2 py-2">
+                          {row[header]}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

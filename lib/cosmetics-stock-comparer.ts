@@ -1,3 +1,5 @@
+import { isShopWarehouseName } from "@/lib/item-trends/shop-warehouse-name";
+
 export type StockBalanceRow = {
   Item: unknown;
   "Item Name": unknown;
@@ -7,29 +9,31 @@ export type StockBalanceRow = {
   "__ERP Source"?: unknown;
 };
 
+export type LocationStock = {
+  name: string;
+  qty: number;
+  kind: "online" | "shop";
+  warehouse: string;
+};
+
 export type CosmeticsStockReportRow = {
   SKU: string;
   "Product Title": string;
   "Main Warehouse Qty": number;
-  "Priority 1 Warehouse(s)": string;
-  "Priority 1 Qty": number | "";
-  "Priority 2 Warehouse(s)": string;
-  "Priority 2 Qty": number | "";
-  "Priority 3 Warehouse(s)": string;
-  "Priority 3 Qty": number | "";
+  "90-day Sales": number;
+  Critical: "Yes" | "";
+  "Online Warehouse(s)": string;
+  "Online Qty": number | "";
+  "Shop Warehouse(s)": string;
+  "Shop Qty": number | "";
   "Stock Available Elsewhere": "Yes" | "No";
 };
 
-export type OutletStock = {
-  outlet: string;
-  qty: number;
-  priority: 1 | 2 | 3;
-};
-
 export type CosmeticsStockReportDetail = CosmeticsStockReportRow & {
-  priority1: OutletStock[];
-  priority2: OutletStock[];
-  priority3: OutletStock[];
+  sales90d: number;
+  critical: boolean;
+  online: LocationStock[];
+  shops: LocationStock[];
 };
 
 export type BrandWarehouseViolation = {
@@ -46,12 +50,12 @@ export const COSMETICS_STOCK_REPORT_HEADERS = [
   "SKU",
   "Product Title",
   "Main Warehouse Qty",
-  "Priority 1 Warehouse(s)",
-  "Priority 1 Qty",
-  "Priority 2 Warehouse(s)",
-  "Priority 2 Qty",
-  "Priority 3 Warehouse(s)",
-  "Priority 3 Qty",
+  "90-day Sales",
+  "Critical",
+  "Online Warehouse(s)",
+  "Online Qty",
+  "Shop Warehouse(s)",
+  "Shop Qty",
   "Stock Available Elsewhere",
 ] as const;
 
@@ -108,9 +112,6 @@ const OUTLET_ALIASES = new Map<string, string>([
   ["pepiliyana", "Pepiliyana"],
 ]);
 
-const PRIORITY_1 = new Set(["pevi", "spk", "dtd"]);
-const PRIORITY_2 = new Set(["pepiliyana", "ajs", "kiribathgoda"]);
-
 type ParsedStockRow = {
   sku: string;
   productTitle: string;
@@ -119,6 +120,8 @@ type ParsedStockRow = {
   qty: number;
   erpSource: "ERP1" | "ERP2" | "";
 };
+
+type LocationKind = "main" | "shop" | "online";
 
 function clean(value: unknown): string {
   return String(value ?? "").trim();
@@ -185,37 +188,110 @@ function outletFromRow(row: ParsedStockRow): string {
   return normalizeOutletName(row.company);
 }
 
-function priorityForRow(row: ParsedStockRow, outlet: string): 1 | 2 | 3 {
-  const candidates = [
-    key(outlet),
-    key(normalizeOutletName(row.company)),
-    key(normalizeOutletName(row.warehouse)),
-    key(row.company),
-    key(row.warehouse),
-  ];
-  const hasPriorityToken = (tokens: Set<string>) =>
-    candidates.some((candidate) =>
-      [...tokens].some((token) => candidate === token || candidate.includes(token)),
-    );
-
-  if (hasPriorityToken(PRIORITY_1)) return 1;
-  if (hasPriorityToken(PRIORITY_2)) return 2;
-  return 3;
+export function classifyWarehouseKind(warehouse: string): LocationKind {
+  const wh = key(warehouse);
+  if (!wh || isAllWarehouses(warehouse)) return "online";
+  if (wh === MAIN_COSMO_WAREHOUSE) return "main";
+  if (isShopWarehouseName(warehouse)) return "shop";
+  if (wh.includes("main warehouse")) return "shop";
+  return "online";
 }
 
 function pickComparisonRow(rows: ParsedStockRow[]): ParsedStockRow | null {
   const shop = rows.find((row) => key(row.warehouse).includes("shop warehouse"));
   if (shop) return shop;
-  return rows.find((row) => key(row.warehouse).includes("main warehouse")) ?? null;
+  return rows.find((row) => key(row.warehouse).includes("main warehouse")) ?? rows[0] ?? null;
 }
 
-function summarizePriority(rows: OutletStock[]): { warehouses: string; qty: number | "" } {
+function summarizeLocations(rows: LocationStock[]): { warehouses: string; qty: number | "" } {
   if (rows.length === 0) return { warehouses: "", qty: "" };
-  const sorted = [...rows].sort((a, b) => a.outlet.localeCompare(b.outlet));
+  const sorted = [...rows].sort((a, b) => a.name.localeCompare(b.name));
   return {
-    warehouses: sorted.map((row) => row.outlet).join(", "),
+    warehouses: sorted.map((row) => row.name).join(", "),
     qty: sorted.reduce((sum, row) => sum + row.qty, 0),
   };
+}
+
+function toDetail(
+  mainRow: ParsedStockRow,
+  online: LocationStock[],
+  shops: LocationStock[],
+  sales90d = 0,
+  critical = false,
+): CosmeticsStockReportDetail {
+  const onlineSummary = summarizeLocations(online);
+  const shopSummary = summarizeLocations(shops);
+  return {
+    SKU: mainRow.sku,
+    "Product Title": mainRow.productTitle,
+    "Main Warehouse Qty": mainRow.qty,
+    "90-day Sales": sales90d,
+    Critical: critical ? "Yes" : "",
+    "Online Warehouse(s)": onlineSummary.warehouses,
+    "Online Qty": onlineSummary.qty,
+    "Shop Warehouse(s)": shopSummary.warehouses,
+    "Shop Qty": shopSummary.qty,
+    "Stock Available Elsewhere": online.length + shops.length > 0 ? "Yes" : "No",
+    sales90d,
+    critical,
+    online,
+    shops,
+  };
+}
+
+function compareReportRows(a: CosmeticsStockReportDetail, b: CosmeticsStockReportDetail): number {
+  if (a.critical !== b.critical) return a.critical ? -1 : 1;
+  if (a["Stock Available Elsewhere"] !== b["Stock Available Elsewhere"]) {
+    return a["Stock Available Elsewhere"] === "Yes" ? -1 : 1;
+  }
+  return a.SKU.localeCompare(b.SKU);
+}
+
+export function computeCriticalCutoff(soldUnits: number[]): number | null {
+  const positive = soldUnits.filter((n) => Number.isFinite(n) && n >= 1).sort((a, b) => b - a);
+  if (positive.length === 0) return null;
+  const index = Math.ceil(positive.length * 0.2) - 1;
+  return positive[Math.max(0, index)] ?? null;
+}
+
+export function markCriticalTopSellers(
+  rows: CosmeticsStockReportDetail[],
+  salesBySku: Map<string, number>,
+  salesOk: boolean,
+): { rows: CosmeticsStockReportDetail[]; cutoff: number | null } {
+  if (!salesOk) {
+    const cleared = rows
+      .map((row) => toDetail({ sku: row.SKU, productTitle: row["Product Title"], company: "", warehouse: "", qty: row["Main Warehouse Qty"], erpSource: "" }, row.online, row.shops, 0, false))
+      .sort(compareReportRows);
+    return { rows: cleared, cutoff: null };
+  }
+
+  const salesLookup = new Map<string, number>();
+  for (const [sku, units] of salesBySku) {
+    salesLookup.set(key(sku), units);
+  }
+
+  const cutoff = computeCriticalCutoff([...salesBySku.values()]);
+  const marked = rows.map((row) => {
+    const sales90d = salesLookup.get(key(row.SKU)) ?? 0;
+    const critical = cutoff != null && sales90d >= 1 && sales90d >= cutoff;
+    return toDetail(
+      {
+        sku: row.SKU,
+        productTitle: row["Product Title"],
+        company: "",
+        warehouse: "",
+        qty: row["Main Warehouse Qty"],
+        erpSource: "",
+      },
+      row.online,
+      row.shops,
+      sales90d,
+      critical,
+    );
+  });
+
+  return { rows: marked.sort(compareReportRows), cutoff };
 }
 
 export function buildCosmeticsStockReport(
@@ -227,12 +303,12 @@ export function buildCosmeticsStockReport(
       SKU: row.SKU,
       "Product Title": row["Product Title"],
       "Main Warehouse Qty": row["Main Warehouse Qty"],
-      "Priority 1 Warehouse(s)": row["Priority 1 Warehouse(s)"],
-      "Priority 1 Qty": row["Priority 1 Qty"],
-      "Priority 2 Warehouse(s)": row["Priority 2 Warehouse(s)"],
-      "Priority 2 Qty": row["Priority 2 Qty"],
-      "Priority 3 Warehouse(s)": row["Priority 3 Warehouse(s)"],
-      "Priority 3 Qty": row["Priority 3 Qty"],
+      "90-day Sales": row["90-day Sales"],
+      Critical: row.Critical,
+      "Online Warehouse(s)": row["Online Warehouse(s)"],
+      "Online Qty": row["Online Qty"],
+      "Shop Warehouse(s)": row["Shop Warehouse(s)"],
+      "Shop Qty": row["Shop Qty"],
       "Stock Available Elsewhere": row["Stock Available Elsewhere"],
     }),
   );
@@ -255,53 +331,55 @@ export function buildCosmeticsStockReportDetails(
     const mainRow = skuRows.find((row) => key(row.warehouse) === MAIN_COSMO_WAREHOUSE);
     if (!mainRow || mainRow.qty > threshold) continue;
 
-    const comparisonGroups = new Map<string, ParsedStockRow[]>();
+    const shopGroups = new Map<string, ParsedStockRow[]>();
+    const onlineGroups = new Map<string, ParsedStockRow[]>();
+
     for (const row of skuRows) {
       if (row === mainRow) continue;
-      if (key(row.warehouse) === MAIN_COSMO_WAREHOUSE) continue;
-      const outletKey = key(outletFromRow(row));
-      if (!outletKey) continue;
-      comparisonGroups.set(outletKey, [...(comparisonGroups.get(outletKey) ?? []), row]);
+      const kind = classifyWarehouseKind(row.warehouse);
+      if (kind === "main") continue;
+      if (kind === "shop") {
+        const outletKey = key(outletFromRow(row));
+        if (!outletKey) continue;
+        shopGroups.set(outletKey, [...(shopGroups.get(outletKey) ?? []), row]);
+        continue;
+      }
+      const warehouseKey = key(row.warehouse);
+      if (!warehouseKey) continue;
+      onlineGroups.set(warehouseKey, [...(onlineGroups.get(warehouseKey) ?? []), row]);
     }
 
-    const available: OutletStock[] = [];
-    for (const groupRows of comparisonGroups.values()) {
+    const online: LocationStock[] = [];
+    for (const groupRows of onlineGroups.values()) {
+      const selected = groupRows.find((row) => row.qty > 0) ?? null;
+      if (!selected) continue;
+      online.push({
+        name: selected.warehouse,
+        qty: selected.qty,
+        kind: "online",
+        warehouse: selected.warehouse,
+      });
+    }
+
+    const shops: LocationStock[] = [];
+    for (const groupRows of shopGroups.values()) {
       const selected = pickComparisonRow(groupRows);
       if (!selected || selected.qty <= 0) continue;
-      const outlet = outletFromRow(selected);
-      available.push({ outlet, qty: selected.qty, priority: priorityForRow(selected, outlet) });
+      shops.push({
+        name: outletFromRow(selected),
+        qty: selected.qty,
+        kind: "shop",
+        warehouse: selected.warehouse,
+      });
     }
 
-    const priority1Rows = available.filter((row) => row.priority === 1);
-    const priority2Rows = available.filter((row) => row.priority === 2);
-    const priority3Rows = available.filter((row) => row.priority === 3);
-    const priority1 = summarizePriority(priority1Rows);
-    const priority2 = summarizePriority(priority2Rows);
-    const priority3 = summarizePriority(priority3Rows);
+    online.sort((a, b) => a.name.localeCompare(b.name));
+    shops.sort((a, b) => a.name.localeCompare(b.name));
 
-    reportRows.push({
-      SKU: mainRow.sku,
-      "Product Title": mainRow.productTitle,
-      "Main Warehouse Qty": mainRow.qty,
-      "Priority 1 Warehouse(s)": priority1.warehouses,
-      "Priority 1 Qty": priority1.qty,
-      "Priority 2 Warehouse(s)": priority2.warehouses,
-      "Priority 2 Qty": priority2.qty,
-      "Priority 3 Warehouse(s)": priority3.warehouses,
-      "Priority 3 Qty": priority3.qty,
-      "Stock Available Elsewhere": available.length > 0 ? "Yes" : "No",
-      priority1: priority1Rows,
-      priority2: priority2Rows,
-      priority3: priority3Rows,
-    });
+    reportRows.push(toDetail(mainRow, online, shops));
   }
 
-  return reportRows.sort((a, b) => {
-    if (a["Stock Available Elsewhere"] !== b["Stock Available Elsewhere"]) {
-      return a["Stock Available Elsewhere"] === "Yes" ? -1 : 1;
-    }
-    return a.SKU.localeCompare(b.SKU);
-  });
+  return reportRows.sort(compareReportRows);
 }
 
 export function buildBrandWarehouseViolations(inputRows: StockBalanceRow[]): BrandWarehouseViolation[] {
