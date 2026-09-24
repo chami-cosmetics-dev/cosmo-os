@@ -184,4 +184,78 @@ describe("finance-approved split ERP Payment Entries", () => {
       data: { erpPaymentEntryName: "PE-1" },
     });
   });
+
+  it("creates a KOKO PE and leaves Cash for delivery collection", async () => {
+    await syncApprovalSplitPaymentEntriesToErp(
+      {
+        id: "approval-1",
+        kokoReference: "KOKO-REF-1",
+        paymentLines: [
+          {
+            id: "line-koko",
+            paymentMethod: "koko",
+            amount: 3000,
+            erpPaymentEntryName: null,
+          },
+          {
+            id: "line-cash",
+            paymentMethod: "cash",
+            amount: 4750,
+            erpPaymentEntryName: null,
+          },
+        ],
+      },
+      order,
+      location,
+      new Date("2026-08-24T00:00:00.000Z"),
+    );
+
+    expect(paymentEntryBodies).toHaveLength(1);
+    expect(paymentEntryBodies[0]).toEqual(
+      expect.objectContaining({
+        mode_of_payment: "KOKO",
+        paid_amount: 3000,
+        reference_no: "KOKO-REF-1",
+      }),
+    );
+    expect(prismaMocks.approvalPaymentLineUpdate).toHaveBeenCalledTimes(1);
+    expect(outstanding).toBe(4750);
+  });
+
+  it("creates a Bank Transfer PE and leaves Cash for delivery collection", async () => {
+    await syncApprovalSplitPaymentEntriesToErp(
+      {
+        id: "approval-1",
+        kokoReference: null,
+        paymentLines: [
+          {
+            id: "line-bank",
+            paymentMethod: "bank_transfer",
+            amount: 5000,
+            erpPaymentEntryName: null,
+          },
+          {
+            id: "line-cash",
+            paymentMethod: "cash",
+            amount: 2750,
+            erpPaymentEntryName: null,
+          },
+        ],
+      },
+      order,
+      location,
+      new Date("2026-08-24T00:00:00.000Z"),
+    );
+
+    expect(paymentEntryBodies).toHaveLength(1);
+    expect(paymentEntryBodies[0]).toEqual(
+      expect.objectContaining({
+        mode_of_payment: "Bank Transfer",
+        paid_amount: 5000,
+        reference_no: "OS-OPA-line-bank",
+      }),
+    );
+    expect(prismaMocks.approvalPaymentLineUpdate).toHaveBeenCalledTimes(1);
+    expect(outstanding).toBe(2750);
+  });
 });

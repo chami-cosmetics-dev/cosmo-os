@@ -307,6 +307,8 @@ type CallQueueRow = {
   hidden?: boolean;
   hideReason?: string | null;
   newlyAllocatedBadge?: boolean;
+  loyaltyOutreachStatus?: string | null;
+  loyaltyStage?: string | null;
 };
 
 function formatQueueDate(value: string | null) {
@@ -639,6 +641,8 @@ export function CustomerInsightPanel({
   const [filterAllocatedTo, setFilterAllocatedTo] = useState("");
   const [filterLoyaltyRegFrom, setFilterLoyaltyRegFrom] = useState("");
   const [filterLoyaltyRegTo, setFilterLoyaltyRegTo] = useState("");
+  const [filterNotInterestedInLoyalty, setFilterNotInterestedInLoyalty] =
+    useState(false);
   const [filterNoPurchaseFrom, setFilterNoPurchaseFrom] = useState("");
   const [filterNoPurchaseTo, setFilterNoPurchaseTo] = useState("");
   const [filterMin, setFilterMin] = useState("");
@@ -698,6 +702,8 @@ export function CustomerInsightPanel({
   const [queueAssignedFrom, setQueueAssignedFrom] = useState("");
   const [queueAssignedTo, setQueueAssignedTo] = useState("");
   const [queueNotContacted, setQueueNotContacted] = useState(false);
+  const [queueNotInterestedInLoyalty, setQueueNotInterestedInLoyalty] =
+    useState(false);
   const [queueHideFilter, setQueueHideFilter] = useState<"all" | "eligible" | "hidden">(
     "all"
   );
@@ -717,6 +723,7 @@ export function CustomerInsightPanel({
       lifetimeTotalAtAssign: number;
       salesAfterAssignment: number;
       salesAfterContact: number;
+      loyaltyStage?: string | null;
     }>;
     byMerchant: Array<{
       merchantLabel: string;
@@ -1181,6 +1188,7 @@ export function CustomerInsightPanel({
       params.set("assignedTo", queueAssignedTo.trim());
     }
     if (queueNotContacted) params.set("notContacted", "true");
+    if (queueNotInterestedInLoyalty) params.set("notInterestedInLoyalty", "true");
     params.set("hideFilter", queueHideFilter);
   }
 
@@ -1195,6 +1203,7 @@ export function CustomerInsightPanel({
       params.set("assignedTo", queueAssignedTo.trim());
     }
     if (queueNotContacted) params.set("notContacted", "true");
+    if (queueNotInterestedInLoyalty) params.set("notInterestedInLoyalty", "true");
   }
 
   async function loadQueueCandidates(page = 1) {
@@ -1209,7 +1218,8 @@ export function CustomerInsightPanel({
       Boolean(queueAllocatedTo.trim()) ||
       Boolean(queueAssignedFrom.trim()) ||
       Boolean(queueAssignedTo.trim()) ||
-      queueNotContacted;
+      queueNotContacted ||
+      queueNotInterestedInLoyalty;
     if (!queueMerchant.trim() && !hasQueueFilter) {
       notify.error(
         "Select a merchant, or add a brand / other filter to load all allocated contacts."
@@ -1878,6 +1888,9 @@ export function CustomerInsightPanel({
     if (filterLoyaltyRegTo.trim()) {
       params.set("loyaltyRegisteredTo", filterLoyaltyRegTo.trim());
     }
+    if (filterNotInterestedInLoyalty) {
+      params.set("notInterestedInLoyalty", "true");
+    }
     if (filterNoPurchaseFrom.trim() && filterNoPurchaseTo.trim()) {
       params.set("noPurchaseFrom", filterNoPurchaseFrom.trim());
       params.set("noPurchaseTo", filterNoPurchaseTo.trim());
@@ -1953,6 +1966,7 @@ export function CustomerInsightPanel({
         filterAllocatedTo.trim() ||
         filterLoyaltyRegFrom.trim() ||
         filterLoyaltyRegTo.trim() ||
+        filterNotInterestedInLoyalty ||
         filterNoPurchaseFrom.trim() ||
         filterNoPurchaseTo.trim() ||
         filterMin.trim() ||
@@ -1977,6 +1991,7 @@ export function CustomerInsightPanel({
     setFilterAllocatedTo("");
     setFilterLoyaltyRegFrom("");
     setFilterLoyaltyRegTo("");
+    setFilterNotInterestedInLoyalty(false);
     setFilterNoPurchaseFrom("");
     setFilterNoPurchaseTo("");
     setFilterMin("");
@@ -2347,6 +2362,17 @@ export function CustomerInsightPanel({
                   />
                 </label>
               </div>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={filterNotInterestedInLoyalty}
+                  disabled={isBusy}
+                  onChange={(e) =>
+                    setFilterNotInterestedInLoyalty(e.target.checked)
+                  }
+                />
+                Not interested in loyalty
+              </label>
             </fieldset>
 
             <fieldset className="space-y-2 rounded-lg border border-border/60 p-3">
@@ -2460,6 +2486,17 @@ export function CustomerInsightPanel({
                         >
                           {row.loyalty.label}
                         </span>
+                        {row.loyaltyStage ? (
+                          <span
+                            className={`rounded-md border px-2 py-0.5 text-[11px] font-medium ${
+                              row.loyaltyOutreachStatus === "not_interested"
+                                ? "border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-800 dark:bg-rose-950 dark:text-rose-200"
+                                : "border-border/70 bg-muted/60 text-muted-foreground"
+                            }`}
+                          >
+                            {row.loyaltyStage}
+                          </span>
+                        ) : null}
                         {row.brandSpend != null ? (
                           <span className="rounded-md bg-muted/60 px-2 py-1 text-[11px] tabular-nums text-muted-foreground">
                             Brand{" "}
@@ -4641,6 +4678,17 @@ export function CustomerInsightPanel({
                   />
                   Not contacted
                 </label>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={queueNotInterestedInLoyalty}
+                    disabled={isBusy}
+                    onChange={(e) =>
+                      setQueueNotInterestedInLoyalty(e.target.checked)
+                    }
+                  />
+                  Not interested in loyalty
+                </label>
               </div>
             </div>
             <div className="flex flex-wrap items-end gap-2">
@@ -4884,6 +4932,9 @@ export function CustomerInsightPanel({
                             <span className="text-muted-foreground block text-xs">
                               Last contacted {formatQueueDate(row.lastContactedAt)} · last
                               purchased {formatQueueDate(row.lastPurchaseAt)}
+                              {row.loyaltyStage
+                                ? ` · ${row.loyaltyStage}`
+                                : ""}
                             </span>
                           </span>
                         </label>
@@ -4987,6 +5038,7 @@ export function CustomerInsightPanel({
                           <th className="px-2 py-1">Merchant</th>
                           <th className="px-2 py-1">Name</th>
                           <th className="px-2 py-1">Status</th>
+                          <th className="px-2 py-1">Loyalty stage</th>
                           <th className="px-2 py-1 text-right">After assign</th>
                           <th className="px-2 py-1 text-right">After contact</th>
                         </tr>
@@ -5000,6 +5052,9 @@ export function CustomerInsightPanel({
                             <td className="px-2 py-1">{row.merchantLabel}</td>
                             <td className="px-2 py-1">{row.name}</td>
                             <td className="px-2 py-1">{row.status}</td>
+                            <td className="px-2 py-1">
+                              {row.loyaltyStage ?? "—"}
+                            </td>
                             <td className="px-2 py-1 text-right">
                               {formatMoney(row.salesAfterAssignment)}
                             </td>

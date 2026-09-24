@@ -20,6 +20,7 @@ import {
 import {
   APPROVAL_SPLIT_KOKO,
   buildDefaultOrderPaymentRequestNote,
+  splitIncludesCash,
 } from "@/lib/approval-payment-split";
 import { writeAuditLog } from "@/lib/audit-log";
 import {
@@ -137,6 +138,7 @@ async function finalizeSplitOrderPaymentApproval(input: {
   companyId: string;
   reviewerId: string;
   approvedAt: Date;
+  collectCashAtDelivery: boolean;
 }) {
   await prisma.$transaction(async (tx) => {
     const order = await tx.order.findUnique({
@@ -144,6 +146,31 @@ async function finalizeSplitOrderPaymentApproval(input: {
       select: { fulfillmentStage: true },
     });
     if (!order) throw new Error("Order not found after split Payment Entries were created");
+
+    if (input.collectCashAtDelivery) {
+      // Prepaid PE is posted; cash is still due at delivery. Do not mark paid or invoice complete.
+      if (
+        order.fulfillmentStage === "order_received" ||
+        order.fulfillmentStage === "sample_free_issue" ||
+        !order.fulfillmentStage
+      ) {
+        await tx.order.update({
+          where: { id: input.orderId },
+          data: {
+            financialStatus: "pending",
+            ...orderStageUpdate("print", input.approvedAt),
+            sampleFreeIssueCompleteAt: input.approvedAt,
+            sampleFreeIssueCompleteById: input.reviewerId,
+          },
+        });
+      } else {
+        await tx.order.update({
+          where: { id: input.orderId },
+          data: { financialStatus: "pending" },
+        });
+      }
+      return;
+    }
 
     if (order.fulfillmentStage === "invoice_complete") {
       await tx.order.update({
@@ -1582,6 +1609,9 @@ export async function PATCH(
         companyId,
         reviewerId,
         approvedAt: now,
+        collectCashAtDelivery: splitIncludesCash(
+          splitPaymentLines.map((line) => line.paymentMethod),
+        ),
       });
       await clearOrderErpPeSyncFailure(order.id);
       if (kokoApprovalPayload && kokoApprovalPayload.entries.length > 0) {

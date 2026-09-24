@@ -176,6 +176,22 @@ describe("needsKokoLinkTimeConfirm / canEditKokoLinkTime", () => {
     ).toBe(false);
   });
 
+  it("does not need confirm for a KOKO order split into Bank Transfer + Cash", () => {
+    expect(
+      needsKokoLinkTimeConfirm(
+        {
+          sourceName: "erpnext",
+          paymentGatewayPrimary: "Koko",
+          hasKokoSplitLeg: false,
+          hasSplitPaymentPlan: true,
+          kokoLinkTimeConfirmedAt: null,
+          createdAt: afterCutoff,
+        },
+        cosmo,
+      ),
+    ).toBe(false);
+  });
+
   it("does not need confirm after confirmed", () => {
     expect(
       needsKokoLinkTimeConfirm(
@@ -183,6 +199,21 @@ describe("needsKokoLinkTimeConfirm / canEditKokoLinkTime", () => {
           sourceName: "erpnext",
           paymentGatewayPrimary: "Koko",
           kokoLinkTimeConfirmedAt: new Date(),
+          createdAt: afterCutoff,
+        },
+        cosmo,
+      ),
+    ).toBe(false);
+  });
+
+  it("does not need confirm when finance already approved (pre-feature / backlog)", () => {
+    expect(
+      needsKokoLinkTimeConfirm(
+        {
+          sourceName: "erpnext",
+          paymentGatewayPrimary: "Koko",
+          kokoLinkTimeConfirmedAt: null,
+          paymentApprovalStatus: "approved",
           createdAt: afterCutoff,
         },
         cosmo,

@@ -5,6 +5,7 @@ import {
   summarizeRiderTaskStatuses,
 } from "@/lib/rider-ops-filter";
 import { resolveRiderOpsPaymentDisplay } from "@/lib/rider-ops-payment-display";
+import { loadSplitCashCollectByOrderIds } from "@/lib/order-split-payment";
 
 type RiderRosterItem = {
   id: string;
@@ -208,10 +209,15 @@ export async function fetchRiderOrdersData(
     orderBy: [{ assignedAt: "desc" }],
   });
 
+  const cashByOrder = await loadSplitCashCollectByOrderIds(tasks.map((task) => task.order.id));
+
   const rows: RiderOrderRow[] = tasks.map((task) => {
     const paymentDisplay = resolveRiderOpsPaymentDisplay({
       deliveryPayment: task.order.deliveryPayment,
-      order: task.order,
+      order: {
+        ...task.order,
+        collectCashAmount: cashByOrder.get(task.order.id) ?? null,
+      },
     });
 
     return {

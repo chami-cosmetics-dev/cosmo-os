@@ -52,6 +52,21 @@ describe("citypakCodAmount", () => {
     expect(citypakCodAmount("pending", "900", { paymentGatewayPrimary: "Mintpay" })).toBe(0);
   });
 
+  it("uses cash-split collect amount for KOKO + Cash even if pending", () => {
+    expect(
+      citypakCodAmount("pending", "7750", {
+        paymentGatewayPrimary: "KOKO",
+        cashToCollect: 2000,
+      }),
+    ).toBe(2000);
+    expect(
+      citypakCodAmount("paid", "7750", {
+        paymentGatewayPrimary: "KOKO",
+        cashToCollect: 2000,
+      }),
+    ).toBe(0);
+  });
+
   it("uses order total for COD / cash / card on delivery", () => {
     expect(citypakCodAmount("pending", "1250.50")).toBe(1250.5);
     expect(

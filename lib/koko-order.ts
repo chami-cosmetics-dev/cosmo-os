@@ -85,24 +85,32 @@ export function isErpKokoOrder(order: {
   return isErpSourcedOrder(order.sourceName) && isKokoPaymentGateway(order);
 }
 
+type KokoLinkTimeSplitFlags = {
+  /** True when pending/approved payment approval has a KOKO split line. */
+  hasKokoSplitLeg?: boolean | null;
+  /** True when a two-method split plan exists (KOKO/bank/cash). */
+  hasSplitPaymentPlan?: boolean | null;
+};
+
 /**
  * True when this order must collect KOKO link generated time (Cosmo only):
  * ERP/Shopify KOKO primary, or a split plan with a KOKO leg,
  * and order is on/after the feature cutoff.
+ * A split without KOKO (Bank Transfer + Cash) skips link time even if the
+ * original gateway was KOKO.
  */
 export function isKokoLinkTimeCandidate(
   order: {
     sourceName?: string | null;
     paymentGatewayPrimary?: string | null;
     paymentGatewayNames?: string[] | null;
-    /** True when pending/approved payment approval has a KOKO split line. */
-    hasKokoSplitLeg?: boolean | null;
     createdAt?: Date | string | null;
-  },
+  } & KokoLinkTimeSplitFlags,
   options?: { vaultOs?: boolean },
 ): boolean {
   if (!isOrderSubjectToKokoLinkTimeFeature(order.createdAt, options)) return false;
   if (!isKokoLinkTimeEligibleSource(order.sourceName)) return false;
+  if (order.hasSplitPaymentPlan) return Boolean(order.hasKokoSplitLeg);
   return isKokoPaymentGateway(order) || Boolean(order.hasKokoSplitLeg);
 }
 
@@ -114,14 +122,16 @@ export function needsKokoLinkTimeConfirm(
     kokoLinkTimeConfirmedAt?: Date | string | null;
     cancelledAt?: Date | string | null;
     financialStatus?: string | null;
-    hasKokoSplitLeg?: boolean | null;
     createdAt?: Date | string | null;
-  },
+    /** When finance already approved, link-time is not required to proceed. */
+    paymentApprovalStatus?: string | null;
+  } & KokoLinkTimeSplitFlags,
   options?: { vaultOs?: boolean },
 ): boolean {
   if (!isKokoLinkTimeCandidate(order, options)) return false;
   if (order.cancelledAt) return false;
   if ((order.financialStatus ?? "").toLowerCase() === "voided") return false;
+  if (order.paymentApprovalStatus === "approved") return false;
   return order.kokoLinkTimeConfirmedAt == null;
 }
 
@@ -133,9 +143,8 @@ export function canEditKokoLinkTime(
     cancelledAt?: Date | string | null;
     financialStatus?: string | null;
     paymentApprovalStatus?: string | null;
-    hasKokoSplitLeg?: boolean | null;
     createdAt?: Date | string | null;
-  },
+  } & KokoLinkTimeSplitFlags,
   options?: { vaultOs?: boolean },
 ): boolean {
   if (!isKokoLinkTimeCandidate(order, options)) return false;
@@ -145,7 +154,7 @@ export function canEditKokoLinkTime(
   return true;
 }
 
-/** Whether source supports merchant split KOKO + Bank Transfer planning. */
+/** Whether source supports merchant split payment planning. */
 export function isSplitPaymentEligibleSource(sourceName: string | null | undefined): boolean {
   return isErpSourcedOrder(sourceName) || isShopifySourcedOrder(sourceName);
 }

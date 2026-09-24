@@ -8,12 +8,14 @@ import {
   OsfErpError,
   type OsfErpCredentials,
 } from "@/lib/osf/erp-stock";
+import { applyStandardSellingRatesToCatalog } from "@/lib/product-items/vault-catalog-price";
 import { resolveErpSlots, normalizeSkuKey } from "@/lib/product-items/erp-priority-sync";
 import {
   fetchItemBarcodeList,
   fillMissingItemBarcodes,
   lookupBarcode,
 } from "@/lib/vault-osf/erp-barcodes";
+import { fetchStandardSellingCandidates } from "@/lib/vault-osf/erp-pricing";
 import { isVaultOsfForceIncludedSku, VAULT_OSF_FORCE_INCLUDED_SKUS } from "@/lib/vault-osf/sku-policy";
 import { vaultWorkbookUploadExtras } from "@/lib/vault-osf/workbook-upload-overlay";
 
@@ -177,6 +179,14 @@ function mergeCatalogs(
   return merged;
 }
 
+function ratesFromCandidates(candidates: Map<string, { rate: number }>): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const [sku, cand] of candidates) {
+    out.set(sku, cand.rate);
+  }
+  return out;
+}
+
 export type VaultErpCatalogSyncResult = {
   status: "ok" | "failed" | "skipped";
   created: number;
@@ -250,6 +260,20 @@ export async function syncVaultErpCatalogToProductItems(
   }
 
   const catalog = mergeCatalogs(erp1Map, erp2Map);
+  const asOfDate = new Date().toISOString().slice(0, 10);
+  try {
+    const [erp1Prices, erp2Prices] = await Promise.all([
+      erp1 ? fetchStandardSellingCandidates(erp1.cfg, asOfDate) : Promise.resolve(new Map()),
+      erp2 ? fetchStandardSellingCandidates(erp2.cfg, asOfDate) : Promise.resolve(new Map()),
+    ]);
+    applyStandardSellingRatesToCatalog(
+      catalog,
+      ratesFromCandidates(erp1Prices),
+      ratesFromCandidates(erp2Prices),
+    );
+  } catch {
+    // Keep Item.standard_rate if Item Price pages fail — catalog still upserts.
+  }
   if (erp1) await attachMissingErpBarcodes(catalog, erp1.cfg);
   if (erp2) await attachMissingErpBarcodes(catalog, erp2.cfg);
   const existing = await prisma.productItem.findMany({

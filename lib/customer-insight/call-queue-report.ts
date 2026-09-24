@@ -1,6 +1,10 @@
 import { contactOrderLookupKeys } from "@/lib/contact-purchase-lookup";
 import { matchesCallQueuePushBands } from "@/lib/customer-insight/call-queue-push";
 import {
+  isNotInterestedLoyaltyStatus,
+  loyaltyOutreachStageLabel,
+} from "@/lib/customer-insight/loyalty-outreach";
+import {
   customerLifetimeTotalOrderWhere,
   type ContactOrderLookup,
 } from "@/lib/customer-insight/lifetime-total";
@@ -25,6 +29,8 @@ export type CallQueueReportRow = {
   salesAfterAssignment: number;
   salesAfterContact: number;
   firstContactAfterAssignAt: string | null;
+  loyaltyOutreachStatus: string | null;
+  loyaltyStage: string | null;
 };
 
 export type CallQueueMerchantSummary = {
@@ -52,6 +58,7 @@ export async function listCallQueueSalesReport(input: {
   pushToGold?: boolean;
   pushToPlatinum?: boolean;
   notContacted?: boolean;
+  notInterestedInLoyalty?: boolean;
 }): Promise<{ rows: CallQueueReportRow[]; byMerchant: CallQueueMerchantSummary[] }> {
   const assignedFrom = input.assignedFrom
     ? new Date(`${input.assignedFrom}T00:00:00.000Z`)
@@ -98,6 +105,7 @@ export async function listCallQueueSalesReport(input: {
           email: true,
           phones: { select: { phoneNumber: true } },
           emails: { select: { email: true } },
+          loyaltyOutreachStatus: true,
         },
       },
     },
@@ -255,6 +263,12 @@ export async function listCallQueueSalesReport(input: {
     }
     const firstContact = firstContactByAssign.get(row.id) ?? null;
     if (input.notContacted && firstContact) continue;
+    if (
+      input.notInterestedInLoyalty &&
+      !isNotInterestedLoyaltyStatus(row.contact.loyaltyOutreachStatus)
+    ) {
+      continue;
+    }
     rows.push({
       queueId: row.id,
       contactId: row.contactId,
@@ -268,6 +282,8 @@ export async function listCallQueueSalesReport(input: {
       salesAfterAssignment: sumAfter(row.contactId, row.assignedAt),
       salesAfterContact: firstContact ? sumAfter(row.contactId, firstContact) : 0,
       firstContactAfterAssignAt: firstContact?.toISOString() ?? null,
+      loyaltyOutreachStatus: row.contact.loyaltyOutreachStatus,
+      loyaltyStage: loyaltyOutreachStageLabel(row.contact.loyaltyOutreachStatus) || null,
     });
   }
 

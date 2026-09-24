@@ -3,7 +3,7 @@ import type { Prisma } from "@prisma/client";
 
 import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 import { osfExcludeDiscontinuedWhere } from "@/lib/osf/discontinued";
-import { ERP_PRODUCT_PRIORITY_OPTIONS } from "@/lib/product-items/erp-priority-options";
+import { erpProductPriorityFilterOptions } from "@/lib/product-items/erp-priority-options";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserContext, hasPermission } from "@/lib/rbac";
 import { osfSupplierOrdersPageDataQuerySchema } from "@/lib/validation/osf";
@@ -69,7 +69,7 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({
     brands: vendors.map((v) => ({ id: v.id, name: v.name })),
-    priorities: ERP_PRODUCT_PRIORITY_OPTIONS.filter(
+    priorities: erpProductPriorityFilterOptions().filter(
       (priority) => isVaultOsDeployment() || priority !== "Discontinue",
     ),
     companyId,

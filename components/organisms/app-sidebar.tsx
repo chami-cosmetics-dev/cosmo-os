@@ -99,13 +99,21 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
   const canViewPurchasingTools =
     hasSidebarPermission("purchasing.tools.read") ||
     hasSidebarPermission("purchasing.tools.manage");
+  const canViewPurchaseHistory = hasSidebarPermission(
+    "purchasing.purchase_history.read",
+  );
   const canViewItemTrends = hasSidebarPermission("purchasing.item_trends.read");
   const canViewMarketPrices =
     hasSidebarPermission("purchasing.market_prices.read") ||
     hasSidebarPermission("purchasing.market_prices.manage");
   const canViewGrn = hasSidebarPermission("purchasing.grn.read");
   const canViewPurchasing =
-    canViewOsf || canViewPurchasingTools || canViewItemTrends || canViewMarketPrices || canViewGrn;
+    canViewOsf ||
+    canViewPurchasingTools ||
+    canViewPurchaseHistory ||
+    canViewItemTrends ||
+    canViewMarketPrices ||
+    canViewGrn;
   const canViewStoreAllocation = hasSidebarPermission("store.allocation.read");
   const canViewStoreStockCount = hasSidebarPermission("store.stock_count.read");
   const canViewStore = canViewStoreAllocation || canViewStoreStockCount;
@@ -576,7 +584,7 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
               {canViewPurchasingTools && (
                 <NavItem href="/dashboard/purchasing/calculator" icon={Calculator} label="SKU Calculator" isActive={pathname === "/dashboard/purchasing/calculator"} />
               )}
-              {canViewPurchasingTools && (
+              {canViewPurchaseHistory && (
                 <NavItem
                   href="/dashboard/purchasing/purchase-history"
                   icon={History}

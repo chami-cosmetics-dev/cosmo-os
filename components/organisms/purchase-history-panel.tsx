@@ -1,18 +1,21 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { ChevronDown, Download, Loader2, RefreshCw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { formatAppIsoDate } from "@/lib/format-datetime";
 import { notify } from "@/lib/notify";
 import { formatPercentPoints } from "@/lib/osf/pricing-math";
+import { erpProductPriorityFilterOptions } from "@/lib/product-items/erp-priority-options";
 
 type Row = {
   postingDate: string;
   sku: string;
   brand: string | null;
+  priority: string | null;
   productTitle: string | null;
   supplier: string;
   qty: number;
@@ -20,8 +23,11 @@ type Row = {
   netValue: number;
   selling: number | null;
   marginPct: number | null;
-  source: "erp_invoice" | "erp_receipt" | "cosmo";
+  source: "erp_invoice" | "cosmo";
   sourceRef: string | null;
+  invoiceUrl: string | null;
+  company: string | null;
+  erpSlot: "ERP1" | "ERP2" | null;
 };
 
 type Summary = {
@@ -60,32 +66,53 @@ export function PurchaseHistoryPanel() {
   const [description, setDescription] = useState("");
   const [supplier, setSupplier] = useState("");
   const [brand, setBrand] = useState("");
+  const [priority, setPriority] = useState("");
+  const [selectedCompanies, setSelectedCompanies] = useState<string[]>([]);
+  const [erpSlot, setErpSlot] = useState("");
   const [brands, setBrands] = useState<string[]>([]);
   const [suppliers, setSuppliers] = useState<string[]>([]);
+  const [priorities, setPriorities] = useState<string[]>([]);
+  const [companies, setCompanies] = useState<string[]>([]);
   const [rows, setRows] = useState<Row[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [erpAvailable, setErpAvailable] = useState(true);
   const limit = 200;
 
+  const filterParams = useCallback(
+    (fromDate: string, toDate: string) => {
+      const params = new URLSearchParams({ from: fromDate, to: toDate });
+      if (sku.trim()) params.set("sku", sku.trim());
+      if (description.trim()) params.set("description", description.trim());
+      if (supplier.trim()) params.set("supplier", supplier.trim());
+      if (brand.trim()) params.set("brand", brand.trim());
+      if (priority.trim()) params.set("priority", priority.trim());
+      if (selectedCompanies.length > 0) params.set("companies", selectedCompanies.join(","));
+      if (erpSlot.trim()) params.set("erpSlot", erpSlot.trim());
+      return params;
+    },
+    [sku, description, supplier, brand, priority, selectedCompanies, erpSlot],
+  );
+
   const load = useCallback(
-    async (nextOffset: number) => {
+    async (
+      nextOffset: number,
+      options?: { from?: string; to?: string; sync?: boolean },
+    ) => {
       setLoading(true);
       try {
-        const params = new URLSearchParams({
-          from,
-          to,
-          offset: String(nextOffset),
-          limit: String(limit),
-        });
-        if (sku.trim()) params.set("sku", sku.trim());
-        if (description.trim()) params.set("description", description.trim());
-        if (supplier.trim()) params.set("supplier", supplier.trim());
-        if (brand.trim()) params.set("brand", brand.trim());
+        const fromDate = options?.from ?? from;
+        const toDate = options?.to ?? to;
+        const params = filterParams(fromDate, toDate);
+        params.set("offset", String(nextOffset));
+        params.set("limit", String(limit));
+        if (options?.sync) params.set("_ts", String(Date.now()));
         const res = await fetch(
           `/api/admin/purchasing/purchase-history/page-data?${params.toString()}`,
+          { cache: "no-store" },
         );
         const json = await res.json();
         if (!res.ok) {
@@ -99,8 +126,12 @@ export function PurchaseHistoryPanel() {
         setErpAvailable(json.erpAvailable !== false);
         setBrands(json.filterOptions?.brands ?? []);
         setSuppliers(json.filterOptions?.suppliers ?? []);
+        setPriorities(json.filterOptions?.priorities ?? []);
+        setCompanies(json.filterOptions?.companies ?? []);
         if (json.erpError) {
           notify.error(`ERP: ${json.erpError}`);
+        } else if (options?.sync) {
+          notify.success("ERP purchase invoices refreshed");
         }
       } catch {
         notify.error("Failed to load purchase history");
@@ -108,8 +139,36 @@ export function PurchaseHistoryPanel() {
         setLoading(false);
       }
     },
-    [from, to, sku, description, supplier, brand],
+    [from, to, filterParams],
   );
+
+  const exportRows = useCallback(async () => {
+    setExporting(true);
+    try {
+      const params = filterParams(from, to);
+      const res = await fetch(
+        `/api/admin/purchasing/purchase-history/export?${params.toString()}`,
+        { cache: "no-store" },
+      );
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        notify.error(json.error ?? "Failed to export purchase history");
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      const match = /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") ?? "");
+      link.href = url;
+      link.download = match?.[1] ?? `purchase-history-${from}-to-${to}.xlsx`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      notify.error("Failed to export purchase history");
+    } finally {
+      setExporting(false);
+    }
+  }, [filterParams, from, to]);
 
   useEffect(() => {
     void load(0);
@@ -117,15 +176,15 @@ export function PurchaseHistoryPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const busy = loading;
+  const busy = loading || exporting;
 
   return (
     <div className="space-y-4 p-6">
       <div>
         <h1 className="text-xl font-semibold">Purchase History</h1>
         <p className="text-sm text-muted-foreground">
-          Vault buy lines from ERP Purchase Invoices and Cosmo Excel import. Selling price and
-          margin from live catalog.
+          Live ERP Purchase Invoices from both ERPs (cancelled, returns, and intercompany cash
+          suppliers excluded). Click a row to open the invoice in ERP.
         </p>
       </div>
 
@@ -156,7 +215,7 @@ export function PurchaseHistoryPanel() {
             value={sku}
             disabled={busy}
             onChange={(e) => setSku(e.target.value)}
-            placeholder="Contains…"
+            placeholder="All dates…"
             className="w-[140px]"
           />
         </label>
@@ -187,6 +246,24 @@ export function PurchaseHistoryPanel() {
           </select>
         </label>
         <label className="space-y-1 text-sm">
+          <span className="text-muted-foreground">Priority</span>
+          <select
+            className="border-input bg-background h-9 rounded-md border px-2 text-sm"
+            value={priority}
+            disabled={busy}
+            onChange={(e) => setPriority(e.target.value)}
+          >
+            <option value="">Any</option>
+            {[
+              ...new Set([...erpProductPriorityFilterOptions(), ...priorities]),
+            ].map((p) => (
+              <option key={p} value={p}>
+                {p}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="space-y-1 text-sm">
           <span className="text-muted-foreground">Supplier</span>
           <Input
             list="purchase-history-suppliers"
@@ -202,6 +279,77 @@ export function PurchaseHistoryPanel() {
             ))}
           </datalist>
         </label>
+        <label className="space-y-1 text-sm">
+          <span className="text-muted-foreground">Company</span>
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={busy}
+                className="h-9 w-[220px] justify-between px-2 font-normal"
+              >
+                <span className="truncate">
+                  {selectedCompanies.length === 0
+                    ? "Any"
+                    : selectedCompanies.length === 1
+                      ? selectedCompanies[0]
+                      : `${selectedCompanies.length} selected`}
+                </span>
+                <ChevronDown className="size-4 shrink-0 opacity-50" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-[240px] p-2" align="start">
+              <div className="max-h-64 space-y-1 overflow-auto">
+                <button
+                  type="button"
+                  className="text-muted-foreground hover:bg-muted w-full rounded px-2 py-1 text-left text-sm"
+                  onClick={() => setSelectedCompanies([])}
+                >
+                  Any
+                </button>
+                {companies.map((c) => {
+                  const checked = selectedCompanies.includes(c);
+                  return (
+                    <label
+                      key={c}
+                      className="hover:bg-muted flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm"
+                    >
+                      <input
+                        type="checkbox"
+                        className="size-4 shrink-0"
+                        checked={checked}
+                        disabled={busy}
+                        onChange={() => {
+                          setSelectedCompanies((prev) =>
+                            prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c],
+                          );
+                        }}
+                      />
+                      <span className="truncate">{c}</span>
+                    </label>
+                  );
+                })}
+                {companies.length === 0 ? (
+                  <p className="text-muted-foreground px-2 py-1 text-xs">No ERP companies</p>
+                ) : null}
+              </div>
+            </PopoverContent>
+          </Popover>
+        </label>
+        <label className="space-y-1 text-sm">
+          <span className="text-muted-foreground">ERP</span>
+          <select
+            className="border-input bg-background h-9 rounded-md border px-2 text-sm"
+            value={erpSlot}
+            disabled={busy}
+            onChange={(e) => setErpSlot(e.target.value)}
+          >
+            <option value="">Any</option>
+            <option value="ERP1">ERP1</option>
+            <option value="ERP2">ERP2</option>
+          </select>
+        </label>
         <Button
           disabled={busy}
           onClick={() => {
@@ -216,6 +364,30 @@ export function PurchaseHistoryPanel() {
           ) : (
             "Apply"
           )}
+        </Button>
+        <Button
+          variant="outline"
+          disabled={busy}
+          onClick={() => {
+            const today = formatAppIsoDate(new Date());
+            if (today && today !== to) setTo(today);
+            void load(0, { to: today || to, sync: true });
+          }}
+        >
+          {busy ? (
+            <Loader2 className="animate-spin" aria-hidden />
+          ) : (
+            <RefreshCw aria-hidden />
+          )}
+          Sync ERP
+        </Button>
+        <Button variant="outline" disabled={busy} onClick={() => void exportRows()}>
+          {exporting ? (
+            <Loader2 className="animate-spin" aria-hidden />
+          ) : (
+            <Download aria-hidden />
+          )}
+          Export
         </Button>
       </div>
 
@@ -235,7 +407,7 @@ export function PurchaseHistoryPanel() {
             <strong className="text-foreground">{summary.marginLineCount}</strong>
           </span>
           {!erpAvailable && (
-            <span className="text-amber-700">ERP unavailable — Cosmo import only</span>
+            <span className="text-amber-700">ERP unavailable — file import only</span>
           )}
         </div>
       )}
@@ -244,11 +416,11 @@ export function PurchaseHistoryPanel() {
         <table className="w-full text-sm">
           <thead className="bg-muted/50 text-left">
             <tr>
-              <th className="p-2 font-medium">Date</th>
               <th className="p-2 font-medium">SKU</th>
-              <th className="p-2 font-medium">Brand</th>
+              <th className="p-2 font-medium">Priority</th>
               <th className="p-2 font-medium">Item</th>
               <th className="p-2 font-medium">Supplier</th>
+              <th className="p-2 font-medium">Company</th>
               <th className="p-2 font-medium text-right">Qty</th>
               <th className="p-2 font-medium text-right">Cost</th>
               <th className="p-2 font-medium text-right">Amount</th>
@@ -266,14 +438,30 @@ export function PurchaseHistoryPanel() {
               </tr>
             ) : (
               rows.map((row, idx) => (
-                <tr key={`${row.source}-${row.sourceRef ?? ""}-${row.sku}-${row.postingDate}-${idx}`} className="border-t">
-                  <td className="p-2 whitespace-nowrap">{row.postingDate}</td>
-                  <td className="p-2 font-mono text-xs">{row.sku}</td>
-                  <td className="p-2">{row.brand ?? "—"}</td>
+                <tr
+                  key={`${row.source}-${row.sourceRef ?? ""}-${row.sku}-${row.postingDate}-${idx}`}
+                  className={`border-t ${row.invoiceUrl ? "cursor-pointer hover:bg-muted/40" : ""}`}
+                  title={row.invoiceUrl ? "Open purchase invoice in ERP" : undefined}
+                  onClick={() => {
+                    if (!row.invoiceUrl) return;
+                    window.open(row.invoiceUrl, "_blank", "noopener,noreferrer");
+                  }}
+                >
+                  <td className="p-2">
+                    <div className="font-mono text-sm font-medium">{row.sku}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {row.brand?.trim() || "—"}
+                    </div>
+                    <div className="text-xs text-muted-foreground whitespace-nowrap">
+                      {row.postingDate}
+                    </div>
+                  </td>
+                  <td className="p-2 whitespace-nowrap">{row.priority ?? "—"}</td>
                   <td className="p-2 max-w-[220px] truncate" title={row.productTitle ?? undefined}>
                     {row.productTitle ?? "—"}
                   </td>
                   <td className="p-2">{row.supplier}</td>
+                  <td className="p-2">{row.company ?? "—"}</td>
                   <td className="p-2 text-right tabular-nums">{money(row.qty)}</td>
                   <td className="p-2 text-right tabular-nums">{money(row.rate)}</td>
                   <td className="p-2 text-right tabular-nums">{money(row.netValue)}</td>
@@ -284,17 +472,14 @@ export function PurchaseHistoryPanel() {
                       className={
                         row.source === "erp_invoice"
                           ? "rounded bg-emerald-100 px-1.5 py-0.5 text-xs text-emerald-900"
-                          : row.source === "erp_receipt"
-                            ? "rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-900"
-                            : "rounded bg-sky-100 px-1.5 py-0.5 text-xs text-sky-900"
+                          : "rounded bg-sky-100 px-1.5 py-0.5 text-xs text-sky-900"
                       }
                     >
-                      {row.source === "erp_invoice"
-                        ? "Invoice"
-                        : row.source === "erp_receipt"
-                          ? "Receipt"
-                          : "Cosmo"}
+                      {row.source === "erp_invoice" ? "Invoice" : "File"}
                     </span>
+                    {row.erpSlot ? (
+                      <span className="ml-1 text-xs text-muted-foreground">{row.erpSlot}</span>
+                    ) : null}
                   </td>
                 </tr>
               ))
