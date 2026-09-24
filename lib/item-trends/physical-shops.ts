@@ -2,8 +2,11 @@ import "server-only";
 
 import { inferDistrictFromAddressText } from "@/lib/address-district";
 import { isCosmeticsLkLocationName } from "@/lib/cosmetics-lk-location";
+import { isShopWarehouseName } from "@/lib/item-trends/shop-warehouse-name";
 import { resolveOsfColumns } from "@/lib/osf/column-config";
 import { prisma } from "@/lib/prisma";
+
+export { isShopWarehouseName } from "@/lib/item-trends/shop-warehouse-name";
 
 export type PhysicalShopMeta = {
   outletId: string;
@@ -19,19 +22,6 @@ function normalizeName(value: string): string {
 /** Online / web channels — not physical shops for outlet balance or transfers. */
 export function isOnlineChannelName(name: string | null | undefined): boolean {
   return isCosmeticsLkLocationName(name);
-}
-
-/** True for retail shop floors — not Main / Stores / Website / transit. */
-export function isShopWarehouseName(name: string | null | undefined): boolean {
-  const n = (name ?? "").trim().toLowerCase();
-  if (!n) return false;
-  if (n.includes("website")) return false;
-  if (n.includes("goods in transit") || n.includes("transit")) return false;
-  if (n.includes("work in progress") || n.includes("finished goods")) return false;
-  if (n.startsWith("all warehouses")) return false;
-  // Explicit shop floors (Cosmetics.lk POS + trading "Shop Warehouse - X")
-  if (/\bshop\b/.test(n)) return true;
-  return false;
 }
 
 /**
