@@ -2277,9 +2277,6 @@ model GrnPurchaseReceipt {
   postingTime             String?
   docstatus               Int?
   status                  String?
-  isReturn                Int?
-  returnAgainst           String?
-  billNo                  String?
   amendedFrom             String?
   owner                   String?
   creation                DateTime?
