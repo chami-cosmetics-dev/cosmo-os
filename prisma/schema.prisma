@@ -104,6 +104,7 @@ model Company {
   erpStockSnapshots             ErpStockSnapshot[]
   osRegistrationQrs             OsRegistrationQr[]
   osRegistrationCaptures        OsRegistrationCapture[]
+  osRegistrationSettings        OsRegistrationSettings?
 }
 
 model PrintFormat {
@@ -1903,6 +1904,7 @@ model OsRegistrationQr {
   company         Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
   createdBy       User                    @relation("OsRegistrationQrCreatedBy", fields: [createdByUserId], references: [id], onDelete: Cascade)
   captures        OsRegistrationCapture[]
+  settingsLatest  OsRegistrationSettings[]
 
   @@index([companyId, createdAt])
 }
@@ -1931,6 +1933,24 @@ model OsRegistrationCapture {
 
   @@index([companyId, captureDate])
   @@index([companyId, contactId])
+}
+
+/// Company-wide register-users email template + today's workbook header/QR pointer.
+model OsRegistrationSettings {
+  id               String            @id @default(cuid())
+  companyId        String            @unique
+  emailHeader      String            @default("")
+  emailBody        String            @default("")
+  emailPhotoUrl    String?
+  headerLocation   String?
+  headerBadgeStart DateTime?
+  headerBadgeEnd   DateTime?
+  /// Colombo YYYY-MM-DD; empty header when this is not today.
+  headerDate       String?
+  latestQrId       String?
+  updatedAt        DateTime          @updatedAt
+  company          Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  latestQr         OsRegistrationQr? @relation(fields: [latestQrId], references: [id], onDelete: SetNull)
 }
 
 /// Admin-assigned call-update work queue for a merchant (Insight).

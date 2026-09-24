@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { prisma } from "@/lib/prisma";
+import { sendRegisterWelcomeIfConfigured } from "@/lib/register-users/email";
 import { saveRegisteredUser } from "@/lib/register-users/save";
 import { RegisterPhoneConflictError } from "@/lib/register-users/types";
 import { registerPortalSaveBodySchema } from "@/lib/validation/register-users";
@@ -50,12 +51,20 @@ export async function POST(request: NextRequest, context: RouteContext) {
       name: parsed.data.name,
       phoneNumber: parsed.data.phoneNumber,
       email: parsed.data.email,
+      birthYear: parsed.data.birthYear,
+      birthMonth: parsed.data.birthMonth,
+      birthDay: parsed.data.birthDay,
       location: qr.location,
       badgeStart: qr.badgeStart,
       badgeEnd: qr.badgeEnd,
       source: "portal",
       qrId: qr.id,
-      applyBirthday: false,
+      applyBirthday: true,
+    });
+    void sendRegisterWelcomeIfConfigured({
+      companyId: qr.companyId,
+      name: result.row.name,
+      email: result.row.email,
     });
     return NextResponse.json({ ok: true, outcome: result.outcome });
   } catch (error) {
