@@ -19,6 +19,42 @@ function parseDateTime(value: string | null | undefined) {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
+function unwrapRawPayload(rawPayload: unknown) {
+  if (!rawPayload || typeof rawPayload !== "object" || Array.isArray(rawPayload)) return null;
+  const top = rawPayload as Record<string, unknown>;
+  return top.data && typeof top.data === "object" && !Array.isArray(top.data)
+    ? (top.data as Record<string, unknown>)
+    : top;
+}
+
+function collectDelimitedNames(value: unknown) {
+  if (typeof value !== "string") return [];
+  return value
+    .split(/[,;\n]+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function extractPurchaseInvoiceReturnNames(rawPayload: unknown) {
+  const payload = unwrapRawPayload(rawPayload);
+  if (!payload) return [];
+  const names = new Set<string>();
+  for (const key of ["purchase_invoice_returns", "purchase_invoice_return", "purchase_invoice"]) {
+    for (const name of collectDelimitedNames(payload[key])) names.add(name);
+  }
+  const table = payload.purchase_invoice_returns;
+  if (Array.isArray(table)) {
+    for (const row of table) {
+      if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+      const record = row as Record<string, unknown>;
+      for (const key of ["purchase_invoice", "purchase_invoice_return", "name"]) {
+        for (const name of collectDelimitedNames(record[key])) names.add(name);
+      }
+    }
+  }
+  return Array.from(names);
+}
+
 async function resolveCompanyId(erpCompany: string) {
   const location = await prisma.companyLocation.findFirst({
     where: { erpnextCompany: erpCompany },
@@ -270,14 +306,8 @@ export async function ingestPurchaseInvoiceFromWebhook(
         .filter((value): value is string => Boolean(value)),
     ),
   );
-  if (linkedPurchaseReceiptNames.length === 0 && linkedSupplierStockReturnNames.length === 0) {
-    await prisma.grnPurchaseInvoice.deleteMany({
-      where: { companyId, name: data.name },
-    });
-    return { ok: true as const, ignored: true as const };
-  }
 
-  const linkedStockReturn = linkedSupplierStockReturnNames.length
+  let linkedStockReturn = linkedSupplierStockReturnNames.length
     ? await prisma.grnSupplierStockReturn.findFirst({
         where: {
           name: { in: linkedSupplierStockReturnNames },
@@ -286,6 +316,22 @@ export async function ingestPurchaseInvoiceFromWebhook(
         select: { name: true, purchaseReceiptName: true },
       })
     : null;
+  if (!linkedStockReturn && linkedSupplierStockReturnNames.length === 0) {
+    const candidateStockReturns = await prisma.grnSupplierStockReturn.findMany({
+      where: {
+        companyId,
+        supplier: data.supplier,
+        docstatus: { not: 2 },
+      },
+      orderBy: [{ creation: "desc" }, { createdAt: "desc" }],
+      take: 200,
+      select: { name: true, purchaseReceiptName: true, rawPayload: true },
+    });
+    linkedStockReturn =
+      candidateStockReturns.find((row) =>
+        extractPurchaseInvoiceReturnNames(row.rawPayload).includes(data.name),
+      ) ?? null;
+  }
   if (linkedPurchaseReceiptNames.length === 0 && !linkedStockReturn?.purchaseReceiptName) {
     await prisma.grnPurchaseInvoice.deleteMany({
       where: { companyId, name: data.name },
@@ -373,7 +419,7 @@ export async function ingestPurchaseInvoiceFromWebhook(
           amount: item.amount,
           purchaseReceipt: item.purchase_receipt,
           purchaseReceiptItem: item.purchase_receipt_item,
-          supplierStockReturn: item.supplier_stock_return,
+          supplierStockReturn: item.supplier_stock_return ?? (linkedStockReturn ? supplierStockReturnName : null),
           supplierStockReturnItem: item.supplier_stock_return_item,
           stockUom: item.stock_uom,
         })),
@@ -466,8 +512,8 @@ export function tallyPurchaseInvoicePrices(
     const pr = prByItem.get(code);
     const ssr = ssrByItem.get(code);
     if (
-      Math.abs((pr?.qty ?? 0) - (ssr?.qty ?? 0)) > 0.000001 ||
-      Math.abs((pr?.amount ?? 0) - (ssr?.amount ?? 0)) > 0.000001
+      Math.abs(Math.abs(pr?.qty ?? 0) - Math.abs(ssr?.qty ?? 0)) > 0.000001 ||
+      Math.abs((pr?.amount ?? 0) + (ssr?.amount ?? 0)) > 0.000001
     ) {
       issueItems.add(code);
     }

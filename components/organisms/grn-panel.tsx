@@ -229,7 +229,7 @@ function buildPriceTallyRows(_ssr: SupplierStockReturnRow, pr: PurchaseReceiptRo
       const prItem = prByItem.get(itemCode);
       const ssrItem = ssrByItem.get(itemCode);
       const prRate = prItem?.qty ? prItem.amount / prItem.qty : null;
-      const ssrRate = ssrItem?.qty ? ssrItem.amount / ssrItem.qty : null;
+      const ssrRate = ssrItem?.qty ? Math.abs(ssrItem.amount / ssrItem.qty) : null;
       return {
         itemCode,
         itemName: prItem?.itemName ?? ssrItem?.itemName ?? null,
@@ -241,8 +241,8 @@ function buildPriceTallyRows(_ssr: SupplierStockReturnRow, pr: PurchaseReceiptRo
         ssrAmount: ssrItem?.amount ?? 0,
         uom: prItem?.uom ?? ssrItem?.uom ?? null,
         issue:
-          Math.abs((prItem?.qty ?? 0) - (ssrItem?.qty ?? 0)) > 0.000001 ||
-          Math.abs((prItem?.amount ?? 0) - (ssrItem?.amount ?? 0)) > 0.000001,
+          Math.abs(Math.abs(prItem?.qty ?? 0) - Math.abs(ssrItem?.qty ?? 0)) > 0.000001 ||
+          Math.abs((prItem?.amount ?? 0) + (ssrItem?.amount ?? 0)) > 0.000001,
       };
     })
     .sort((a, b) => Number(a.issue) - Number(b.issue) || a.itemCode.localeCompare(b.itemCode));
@@ -678,7 +678,10 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
   );
 
   const activeIntercompanyPurchaseReceipts = useMemo(
-    () => activePurchaseReceipts.filter((row) => intercompanySupplierSet.has(row.supplier)),
+    () =>
+      activePurchaseReceipts.filter(
+        (row) => !row.adjustmentNo && intercompanySupplierSet.has(row.supplier),
+      ),
     [activePurchaseReceipts, intercompanySupplierSet],
   );
 
