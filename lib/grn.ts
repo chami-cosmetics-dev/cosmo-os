@@ -263,7 +263,30 @@ export async function ingestPurchaseInvoiceFromWebhook(
         .filter((value): value is string => Boolean(value)),
     ),
   );
-  if (linkedPurchaseReceiptNames.length === 0) {
+  const linkedSupplierStockReturnNames = Array.from(
+    new Set(
+      data.items
+        .map((item) => item.supplier_stock_return)
+        .filter((value): value is string => Boolean(value)),
+    ),
+  );
+  if (linkedPurchaseReceiptNames.length === 0 && linkedSupplierStockReturnNames.length === 0) {
+    await prisma.grnPurchaseInvoice.deleteMany({
+      where: { companyId, name: data.name },
+    });
+    return { ok: true as const, ignored: true as const };
+  }
+
+  const linkedStockReturn = linkedSupplierStockReturnNames.length
+    ? await prisma.grnSupplierStockReturn.findFirst({
+        where: {
+          name: { in: linkedSupplierStockReturnNames },
+          docstatus: { not: 2 },
+        },
+        select: { name: true, purchaseReceiptName: true },
+      })
+    : null;
+  if (linkedPurchaseReceiptNames.length === 0 && !linkedStockReturn?.purchaseReceiptName) {
     await prisma.grnPurchaseInvoice.deleteMany({
       where: { companyId, name: data.name },
     });
@@ -272,9 +295,20 @@ export async function ingestPurchaseInvoiceFromWebhook(
 
   const purchaseReceipt = await prisma.grnPurchaseReceipt.findFirst({
     where: {
-      companyId,
-      name: { in: linkedPurchaseReceiptNames },
       docstatus: { not: 2 },
+      OR: [
+        ...(linkedPurchaseReceiptNames.length
+          ? [
+              {
+                companyId,
+                name: { in: linkedPurchaseReceiptNames },
+              },
+            ]
+          : []),
+        ...(linkedStockReturn?.purchaseReceiptName
+          ? [{ name: linkedStockReturn.purchaseReceiptName }]
+          : []),
+      ],
     },
     select: { id: true, name: true, supplierStockReturnName: true, handoverAt: true, valuedAt: true },
   });
@@ -285,17 +319,7 @@ export async function ingestPurchaseInvoiceFromWebhook(
     return { ok: true as const, ignored: true as const };
   }
 
-  const supplierStockReturnName = purchaseReceipt.supplierStockReturnName;
-  const stockReturn = supplierStockReturnName
-    ? await prisma.grnSupplierStockReturn.findFirst({
-        where: {
-          companyId,
-          name: supplierStockReturnName,
-          docstatus: { not: 2 },
-        },
-        include: { items: true },
-      })
-    : null;
+  const supplierStockReturnName = purchaseReceipt.supplierStockReturnName ?? linkedStockReturn?.name ?? null;
 
   await prisma.$transaction(async (tx) => {
     const invoice = await tx.grnPurchaseInvoice.upsert({
@@ -336,10 +360,9 @@ export async function ingestPurchaseInvoiceFromWebhook(
     await tx.grnPurchaseInvoiceItem.deleteMany({
       where: { purchaseInvoiceId: invoice.id },
     });
-    const linkedItems = data.items.filter((item) => item.purchase_receipt === purchaseReceipt.name);
-    if (linkedItems.length > 0) {
+    if (data.items.length > 0) {
       await tx.grnPurchaseInvoiceItem.createMany({
-        data: linkedItems.map((item) => ({
+        data: data.items.map((item) => ({
           companyId,
           purchaseInvoiceId: invoice.id,
           name: item.name,
@@ -350,32 +373,55 @@ export async function ingestPurchaseInvoiceFromWebhook(
           amount: item.amount,
           purchaseReceipt: item.purchase_receipt,
           purchaseReceiptItem: item.purchase_receipt_item,
+          supplierStockReturn: item.supplier_stock_return,
+          supplierStockReturnItem: item.supplier_stock_return_item,
           stockUom: item.stock_uom,
         })),
       });
     }
-    if (purchaseReceipt.handoverAt && !purchaseReceipt.valuedAt && !stockReturn) {
+
+    if (!purchaseReceipt.handoverAt || purchaseReceipt.valuedAt) return;
+
+    if (!supplierStockReturnName) {
       await tx.grnPurchaseReceipt.update({
         where: { id: purchaseReceipt.id },
         data: { valuedAt: new Date(), valuedById: null },
       });
+      return;
     }
-    if (stockReturn && purchaseReceipt.handoverAt && !purchaseReceipt.valuedAt) {
-      const priceTally = tallySsrPurchaseInvoicePrices(
-        stockReturn.items,
-        linkedItems.map((item) => ({
-          itemCode: item.item_code,
-          qty: item.qty,
-          amount: item.amount,
-        })),
-      );
-      if (priceTally.status === "matched") {
-        await tx.grnPurchaseReceipt.update({
-          where: { id: purchaseReceipt.id },
-          data: { valuedAt: new Date(), valuedById: null },
-        });
-      }
-    }
+
+    const [prInvoice, ssrInvoice] = await Promise.all([
+      tx.grnPurchaseInvoice.findFirst({
+        where: {
+          purchaseReceiptId: purchaseReceipt.id,
+          docstatus: { not: 2 },
+          items: { some: { purchaseReceipt: purchaseReceipt.name } },
+        },
+        orderBy: [{ postingDate: "desc" }, { createdAt: "desc" }],
+        include: { items: true },
+      }),
+      tx.grnPurchaseInvoice.findFirst({
+        where: {
+          purchaseReceiptId: purchaseReceipt.id,
+          docstatus: { not: 2 },
+          items: { some: { supplierStockReturn: supplierStockReturnName } },
+        },
+        orderBy: [{ postingDate: "desc" }, { createdAt: "desc" }],
+        include: { items: true },
+      }),
+    ]);
+
+    if (!prInvoice || !ssrInvoice) return;
+    const priceTally = tallyPurchaseInvoicePrices(
+      prInvoice.items.filter((item) => item.purchaseReceipt === purchaseReceipt.name),
+      ssrInvoice.items.filter((item) => item.supplierStockReturn === supplierStockReturnName),
+    );
+    if (priceTally.status !== "matched") return;
+
+    await tx.grnPurchaseReceipt.update({
+      where: { id: purchaseReceipt.id },
+      data: { valuedAt: new Date(), valuedById: null },
+    });
   });
 
   return { ok: true as const, ignored: false as const };
@@ -383,35 +429,47 @@ export async function ingestPurchaseInvoiceFromWebhook(
 
 export type GrnTallyStatus = "not_linked" | "matched" | "issue";
 
-type PriceTallySsrItem = { itemCode: string; qty: Prisma.Decimal | number };
 type PriceTallyInvoiceItem = {
   itemCode: string;
   qty: Prisma.Decimal | number;
+  rate: Prisma.Decimal | number;
   amount: Prisma.Decimal | number;
 };
 
-export function tallySsrPurchaseInvoicePrices(
-  ssrItems: PriceTallySsrItem[],
-  invoiceItems: PriceTallyInvoiceItem[],
+export function tallyPurchaseInvoicePrices(
+  purchaseReceiptInvoiceItems: PriceTallyInvoiceItem[],
+  supplierStockReturnInvoiceItems: PriceTallyInvoiceItem[],
 ) {
-  const invoiceByItem = new Map<string, { qty: number; amount: number }>();
-  for (const item of invoiceItems) {
+  const prByItem = new Map<string, { qty: number; amount: number }>();
+  const ssrByItem = new Map<string, { qty: number; amount: number }>();
+
+  for (const item of purchaseReceiptInvoiceItems) {
     const code = normalizeItemCode(item.itemCode);
-    const current = invoiceByItem.get(code);
-    invoiceByItem.set(code, {
+    const current = prByItem.get(code);
+    prByItem.set(code, {
+      qty: (current?.qty ?? 0) + Number(item.qty),
+      amount: (current?.amount ?? 0) + Number(item.amount),
+    });
+  }
+  for (const item of supplierStockReturnInvoiceItems) {
+    const code = normalizeItemCode(item.itemCode);
+    const current = ssrByItem.get(code);
+    ssrByItem.set(code, {
       qty: (current?.qty ?? 0) + Number(item.qty),
       amount: (current?.amount ?? 0) + Number(item.amount),
     });
   }
 
   const issueItems = new Set<string>();
-  for (const item of ssrItems) {
-    const code = normalizeItemCode(item.itemCode);
-    const invoiceItem = invoiceByItem.get(code);
-    const invoiceQty = invoiceItem?.qty ?? 0;
-    const rate = invoiceQty ? (invoiceItem?.amount ?? 0) / invoiceQty : null;
-    if (Math.abs(Number(item.qty) - invoiceQty) > 0.000001 || rate == null) {
-      issueItems.add(item.itemCode);
+  const codes = new Set([...prByItem.keys(), ...ssrByItem.keys()]);
+  for (const code of codes) {
+    const pr = prByItem.get(code);
+    const ssr = ssrByItem.get(code);
+    if (
+      Math.abs((pr?.qty ?? 0) - (ssr?.qty ?? 0)) > 0.000001 ||
+      Math.abs((pr?.amount ?? 0) - (ssr?.amount ?? 0)) > 0.000001
+    ) {
+      issueItems.add(code);
     }
   }
 

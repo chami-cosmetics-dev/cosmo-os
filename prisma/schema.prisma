@@ -2417,6 +2417,8 @@ model GrnPurchaseInvoiceItem {
   amount                Decimal            @db.Decimal(18, 6)
   purchaseReceipt       String?
   purchaseReceiptItem   String?
+  supplierStockReturn   String?
+  supplierStockReturnItem String?
   stockUom              String?
   createdAt             DateTime           @default(now())
   updatedAt             DateTime           @updatedAt
@@ -2425,6 +2427,7 @@ model GrnPurchaseInvoiceItem {
   @@unique([purchaseInvoiceId, name])
   @@index([companyId, itemCode])
   @@index([companyId, purchaseReceipt])
+  @@index([companyId, supplierStockReturn])
 }
 
 /// Per-user OSF Excel column marks (company-scoped). Keys are stable access ids.
@@ -2704,4 +2707,5 @@ model MarketCompetitorPriceHistory {
 
   @@index([linkId, createdAt])
 }
+
 
