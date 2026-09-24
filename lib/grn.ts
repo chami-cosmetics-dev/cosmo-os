@@ -254,12 +254,80 @@ export async function ingestSupplierStockReturnFromWebhook(
     });
 
     if (carriedPurchaseReceiptName) {
-      await tx.grnPurchaseReceipt.updateMany({
+      const linkedPurchaseReceipt = await tx.grnPurchaseReceipt.findFirst({
         where: { companyId, name: carriedPurchaseReceiptName, docstatus: { not: 2 } },
-        data: { supplierStockReturnName: data.name },
+        select: { id: true, handoverAt: true, valuedAt: true },
       });
-    }
+      if (linkedPurchaseReceipt) {
+        await tx.grnPurchaseReceipt.update({
+          where: { id: linkedPurchaseReceipt.id },
+          data: { supplierStockReturnName: data.name },
+        });
 
+        const purchaseInvoiceReturnNames = extractPurchaseInvoiceReturnNames(rawPayload);
+        if (purchaseInvoiceReturnNames.length > 0) {
+          const linkedInvoices = await tx.grnPurchaseInvoice.findMany({
+            where: {
+              companyId,
+              name: { in: purchaseInvoiceReturnNames },
+              docstatus: { not: 2 },
+            },
+            include: { items: true },
+          });
+
+          for (const invoice of linkedInvoices) {
+            await tx.grnPurchaseInvoice.update({
+              where: { id: invoice.id },
+              data: {
+                purchaseReceiptId: linkedPurchaseReceipt.id,
+                purchaseReceiptName: carriedPurchaseReceiptName,
+                supplierStockReturnName: data.name,
+              },
+            });
+            await tx.grnPurchaseInvoiceItem.updateMany({
+              where: { purchaseInvoiceId: invoice.id, supplierStockReturn: null },
+              data: { supplierStockReturn: data.name },
+            });
+          }
+
+          if (linkedPurchaseReceipt.handoverAt && !linkedPurchaseReceipt.valuedAt) {
+            const [prInvoice, ssrInvoice] = await Promise.all([
+              tx.grnPurchaseInvoice.findFirst({
+                where: {
+                  purchaseReceiptId: linkedPurchaseReceipt.id,
+                  docstatus: { not: 2 },
+                  items: { some: { purchaseReceipt: carriedPurchaseReceiptName } },
+                },
+                orderBy: [{ postingDate: "desc" }, { createdAt: "desc" }],
+                include: { items: true },
+              }),
+              tx.grnPurchaseInvoice.findFirst({
+                where: {
+                  purchaseReceiptId: linkedPurchaseReceipt.id,
+                  docstatus: { not: 2 },
+                  items: { some: { supplierStockReturn: data.name } },
+                },
+                orderBy: [{ postingDate: "desc" }, { createdAt: "desc" }],
+                include: { items: true },
+              }),
+            ]);
+
+            if (prInvoice && ssrInvoice) {
+              const priceTally = tallyPurchaseInvoicePrices(
+                prInvoice.items.filter((item) => item.purchaseReceipt === carriedPurchaseReceiptName),
+                ssrInvoice.items.filter((item) => item.supplierStockReturn === data.name),
+              );
+              if (priceTally.status === "matched") {
+                await tx.grnPurchaseReceipt.update({
+                  where: { id: linkedPurchaseReceipt.id },
+                  data: { valuedAt: new Date(), valuedById: null },
+                });
+              }
+            }
+          }
+        }
+      }
+    }
     await tx.grnSupplierStockReturnItem.deleteMany({
       where: { supplierStockReturnId: stockReturn.id },
     });
