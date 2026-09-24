@@ -409,6 +409,17 @@ export async function ingestPurchaseInvoiceFromWebhook(
       select: { name: true, purchaseReceiptName: true },
     });
   }
+  let linkedStockReturnPurchaseReceiptName = linkedStockReturn?.purchaseReceiptName ?? null;
+  if (linkedStockReturn && !linkedStockReturnPurchaseReceiptName) {
+    const reverseLinkedPurchaseReceipt = await prisma.grnPurchaseReceipt.findFirst({
+      where: {
+        supplierStockReturnName: linkedStockReturn.name,
+        docstatus: { not: 2 },
+      },
+      select: { name: true },
+    });
+    linkedStockReturnPurchaseReceiptName = reverseLinkedPurchaseReceipt?.name ?? null;
+  }
   if (!linkedStockReturn && linkedSupplierStockReturnNames.length === 0) {
     const candidateStockReturns = await prisma.grnSupplierStockReturn.findMany({
       where: {
@@ -424,8 +435,9 @@ export async function ingestPurchaseInvoiceFromWebhook(
       candidateStockReturns.find((row) =>
         extractPurchaseInvoiceReturnNames(row.rawPayload).includes(data.name),
       ) ?? null;
+    linkedStockReturnPurchaseReceiptName = linkedStockReturn?.purchaseReceiptName ?? null;
   }
-  if (linkedPurchaseReceiptNames.length === 0 && !linkedStockReturn?.purchaseReceiptName) {
+  if (linkedPurchaseReceiptNames.length === 0 && !linkedStockReturnPurchaseReceiptName) {
     await prisma.grnPurchaseInvoice.deleteMany({
       where: { companyId, name: data.name },
     });
@@ -444,8 +456,8 @@ export async function ingestPurchaseInvoiceFromWebhook(
               },
             ]
           : []),
-        ...(linkedStockReturn?.purchaseReceiptName
-          ? [{ name: linkedStockReturn.purchaseReceiptName }]
+        ...(linkedStockReturnPurchaseReceiptName
+          ? [{ name: linkedStockReturnPurchaseReceiptName }]
           : []),
       ],
     },
