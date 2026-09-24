@@ -1,13 +1,12 @@
 import type { Prisma } from "@prisma/client";
 import * as XLSX from "xlsx";
 
+import { GRN_PENDING_DAILY_KEY, builtinTemplateByKey } from "@/lib/email-templates/catalog";
+import { parseEmailAddressList, renderEmailTemplatePlaceholders } from "@/lib/email-templates/render";
 import { formatAppDateTime, formatAppIsoDate } from "@/lib/format-datetime";
 import { tallyLinkedItems } from "@/lib/grn";
-import { sendGrnPendingReportEmail } from "@/lib/maileroo";
+import { sendErpSyncFailureAlertEmail } from "@/lib/maileroo";
 import { prisma } from "@/lib/prisma";
-import { emailSchema } from "@/lib/validation";
-
-const MAX_RECIPIENTS = 20;
 
 export type GrnPendingEmailSource = "cron" | "manual" | "preview_test";
 
@@ -15,7 +14,6 @@ export type GrnPendingEmailSendStatus =
   | "sent"
   | "failed"
   | "skipped_no_recipients"
-  | "skipped_disabled"
   | "skipped_no_pending"
   | "skipped_already_sent";
 
@@ -62,30 +60,6 @@ export function getCurrentColomboReportDate(now = new Date()): string {
   return formatAppIsoDate(now);
 }
 
-export function normalizeGrnEmailRecipientList(raw: unknown): string[] {
-  const items: string[] = [];
-  if (Array.isArray(raw)) {
-    for (const item of raw) {
-      if (typeof item === "string") items.push(item);
-    }
-  } else if (typeof raw === "string") {
-    items.push(...raw.split(/[\n,;]+/));
-  }
-
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const item of items) {
-    const trimmed = item.trim().toLowerCase();
-    if (!trimmed) continue;
-    const parsed = emailSchema.safeParse(trimmed);
-    if (!parsed.success) continue;
-    if (seen.has(parsed.data)) continue;
-    seen.add(parsed.data);
-    out.push(parsed.data);
-    if (out.length >= MAX_RECIPIENTS) break;
-  }
-  return out;
-}
 
 function formatDate(value: Date | null | undefined) {
   if (!value) return "";
@@ -144,6 +118,36 @@ function summarizePendingRows(rows: PendingGrnReportRow[]): GrnPendingStageSumma
     pending: rows.filter((row) => !row.handoverDate).length,
     notValued: rows.filter((row) => !row.valuedDate).length,
     notCompleted: rows.filter((row) => !row.grnReceivedDate).length,
+  };
+}
+
+function buildSummaryTableHtml(summary: GrnPendingStageSummary) {
+  return `<table style="border-collapse:collapse;width:100%;margin:16px 0;">
+    <thead>
+      <tr style="background:#f9f9f9;">
+        <th style="padding:8px;border:1px solid #ddd;text-align:left;">Stage</th>
+        <th style="padding:8px;border:1px solid #ddd;text-align:right;">Count</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td style="padding:8px;border:1px solid #ddd;">Not handed over</td><td style="padding:8px;border:1px solid #ddd;text-align:right;">${summary.pending}</td></tr>
+      <tr><td style="padding:8px;border:1px solid #ddd;">Not valued</td><td style="padding:8px;border:1px solid #ddd;text-align:right;">${summary.notValued}</td></tr>
+      <tr><td style="padding:8px;border:1px solid #ddd;">GRN Not Recieved</td><td style="padding:8px;border:1px solid #ddd;text-align:right;">${summary.notCompleted}</td></tr>
+      <tr style="font-weight:700;"><td style="padding:8px;border:1px solid #ddd;">Total</td><td style="padding:8px;border:1px solid #ddd;text-align:right;">${summary.pendingTotal}</td></tr>
+    </tbody>
+  </table>`;
+}
+
+async function resolveGrnPendingEmailTemplate(companyId: string) {
+  const builtin = builtinTemplateByKey(GRN_PENDING_DAILY_KEY)!;
+  const stored = await prisma.emailTemplate.findUnique({
+    where: { companyId_key: { companyId, key: GRN_PENDING_DAILY_KEY } },
+  });
+  return {
+    subject: stored?.subject?.trim() || builtin.subject,
+    bodyHtml: stored?.bodyHtml?.trim() || builtin.bodyHtml,
+    recipients: stored?.recipients ?? builtin.recipients,
+    ccRecipients: stored?.ccRecipients ?? builtin.ccRecipients,
   };
 }
 
@@ -257,8 +261,20 @@ export async function buildGrnPendingReportSnapshot(
 
   const generatedAt = new Date().toISOString();
   const summary = summarizePendingRows(rows);
-  const subject = `${options?.isTest ? "[TEST] " : ""}Pending GRN report - ${company.name} - ${reportDate}`;
-  const { htmlBody, plainBody } = buildEmailBodies({
+  const template = await resolveGrnPendingEmailTemplate(company.id);
+  const templateVars = {
+    companyName: company.name,
+    reportDate,
+    generatedAt: formatAppDateTime(generatedAt),
+    notHandedOver: summary.pending,
+    notValued: summary.notValued,
+    grnNotReceived: summary.notCompleted,
+    total: summary.pendingTotal,
+    summaryTableHtml: buildSummaryTableHtml(summary),
+  };
+  const subject = `${options?.isTest ? "[TEST] " : ""}${renderEmailTemplatePlaceholders(template.subject, templateVars)}`;
+  const htmlBody = renderEmailTemplatePlaceholders(template.bodyHtml, templateVars);
+  const { plainBody } = buildEmailBodies({
     companyName: company.name,
     reportDate,
     generatedAt,
@@ -316,38 +332,13 @@ export async function writeGrnPendingEmailSendLog(input: {
   });
 }
 
-export function getGrnPendingEmailConfig(companyId: string) {
-  return prisma.grnPendingEmailConfig.findUnique({ where: { companyId } });
-}
-
-export function upsertGrnPendingEmailConfig(input: {
-  companyId: string;
-  enabled: boolean;
-  recipients: string[];
-}) {
-  return prisma.grnPendingEmailConfig.upsert({
-    where: { companyId: input.companyId },
-    create: {
-      companyId: input.companyId,
-      enabled: input.enabled,
-      recipients: input.recipients as Prisma.InputJsonValue,
-    },
-    update: {
-      enabled: input.enabled,
-      recipients: input.recipients as Prisma.InputJsonValue,
-    },
-  });
-}
-
 function decideSkip(input: {
-  enabled: boolean;
   recipients: string[];
   pendingCount: number;
   alreadySent: boolean;
   force?: boolean;
   source: GrnPendingEmailSource;
 }): GrnPendingEmailSendStatus | null {
-  if (input.source === "cron" && !input.force && !input.enabled) return "skipped_disabled";
   if (input.recipients.length === 0) return "skipped_no_recipients";
   if (input.source === "cron" && !input.force && input.alreadySent) return "skipped_already_sent";
   if (input.source === "cron" && !input.force && input.pendingCount === 0) return "skipped_no_pending";
@@ -366,15 +357,14 @@ export async function runGrnPendingEmailForCompany(input: {
   errorSummary?: string;
   recipientCount?: number;
 }> {
-  const config = await getGrnPendingEmailConfig(input.companyId);
-  const enabled = config?.enabled ?? true;
-  const recipients = normalizeGrnEmailRecipientList(config?.recipients);
+  const template = await resolveGrnPendingEmailTemplate(input.companyId);
+  const recipients = parseEmailAddressList(template.recipients);
+  const ccEmails = parseEmailAddressList(template.ccRecipients);
   const snapshot = await buildGrnPendingReportSnapshot(input.companyId, input.reportDate, {
     isTest: input.isTest || input.source === "preview_test",
   });
   const alreadySent = await hasSuccessfulGrnPendingEmailSend(input.companyId, input.reportDate);
   const skip = decideSkip({
-    enabled,
     recipients,
     pendingCount: snapshot.pendingCount,
     alreadySent,
@@ -394,12 +384,19 @@ export async function runGrnPendingEmailForCompany(input: {
     return { status: skip, snapshot, recipientCount: recipients.length };
   }
 
-  const sendResult = await sendGrnPendingReportEmail({
+  const sendResult = await sendErpSyncFailureAlertEmail({
     toEmails: recipients,
+    ccEmails,
     subject: snapshot.subject,
     html: snapshot.htmlBody,
     plain: snapshot.plainBody,
-    attachment: snapshot.attachment,
+    attachments: [
+      {
+        fileName: snapshot.attachment.filename,
+        contentType: snapshot.attachment.contentType,
+        contentBase64: snapshot.attachment.buffer.toString("base64"),
+      },
+    ],
   });
 
   if (!sendResult.success) {
@@ -431,5 +428,7 @@ export async function runGrnPendingEmailForCompany(input: {
 
   return { status: "sent", snapshot, recipientCount: recipients.length };
 }
+
+
 
 

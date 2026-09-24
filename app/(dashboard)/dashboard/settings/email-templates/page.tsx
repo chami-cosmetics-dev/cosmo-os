@@ -6,10 +6,9 @@ import {
   type EmailTemplateDto,
 } from "@/components/molecules/email-templates-settings-form";
 import { ErpSyncFailureEmailSettingsForm } from "@/components/molecules/erp-sync-failure-email-settings-form";
-import { GrnPendingEmailSettingsForm } from "@/components/molecules/grn-pending-email-settings-form";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { BUILTIN_EMAIL_TEMPLATES } from "@/lib/email-templates/catalog";
+import { BUILTIN_EMAIL_TEMPLATES, GRN_PENDING_DAILY_KEY } from "@/lib/email-templates/catalog";
 import { prisma } from "@/lib/prisma";
 import { hasPermission, requirePermission } from "@/lib/rbac";
 import { ChevronLeft, Mail } from "lucide-react";
@@ -64,7 +63,11 @@ function mergeTemplates(
     });
   }
 
-  return out.sort((a, b) => a.name.localeCompare(b.name) || a.key.localeCompare(b.key));
+  return out.sort((a, b) => {
+    if (a.key === GRN_PENDING_DAILY_KEY) return 1;
+    if (b.key === GRN_PENDING_DAILY_KEY) return -1;
+    return a.name.localeCompare(b.name) || a.key.localeCompare(b.key);
+  });
 }
 
 export default async function EmailTemplatesSettingsPage() {
@@ -144,7 +147,7 @@ export default async function EmailTemplatesSettingsPage() {
         initialTemplates={initialTemplates}
       />
       <ErpSyncFailureEmailSettingsForm canEdit={canManageEmailTemplates} />
-      <GrnPendingEmailSettingsForm canEdit={canManageEmailTemplates} />
     </div>
   );
 }
+

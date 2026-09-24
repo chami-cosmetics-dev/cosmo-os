@@ -57,6 +57,27 @@ type UserRef = {
   email: string | null;
 };
 
+type PurchaseInvoiceRef = {
+  name: string;
+  erpUrl: string | null;
+  postingDate: string | null;
+  docstatus: number | null;
+  status: string | null;
+  items: {
+    name: string;
+    itemCode: string;
+    itemName: string | null;
+    qty: number;
+    rate: number;
+    amount: number;
+    purchaseReceipt: string | null;
+    purchaseReceiptItem: string | null;
+    supplierStockReturn: string | null;
+    supplierStockReturnItem: string | null;
+    stockUom: string | null;
+  }[];
+};
+
 type PurchaseReceiptRow = {
   companyId: string;
   companyName: string;
@@ -95,24 +116,8 @@ type PurchaseReceiptRow = {
     prQty: number;
     ssrQty: number;
   }[];
-  purchaseInvoice: {
-    name: string;
-    erpUrl: string | null;
-    postingDate: string | null;
-    docstatus: number | null;
-    status: string | null;
-    items: {
-      name: string;
-      itemCode: string;
-      itemName: string | null;
-      qty: number;
-      rate: number;
-      amount: number;
-      purchaseReceipt: string | null;
-      purchaseReceiptItem: string | null;
-      stockUom: string | null;
-    }[];
-  } | null;
+  purchaseInvoice: PurchaseInvoiceRef | null;
+  supplierStockReturnPurchaseInvoice: PurchaseInvoiceRef | null;
 };
 
 type SupplierStockReturnRow = {
@@ -197,36 +202,165 @@ function userLabel(user: UserRef | null) {
   return user?.name?.trim() || user?.email?.trim() || null;
 }
 
-function buildPriceTallyRows(ssr: SupplierStockReturnRow, pr: PurchaseReceiptRow | null) {
-  if (!pr?.purchaseInvoice) return [];
+function buildPriceTallyRows(_ssr: SupplierStockReturnRow, pr: PurchaseReceiptRow | null) {
+  if (!pr?.purchaseInvoice && !pr?.supplierStockReturnPurchaseInvoice) return [];
 
-  const invoiceByItem = new Map<string, { itemName: string | null; qty: number; amount: number; uom: string | null }>();
-  for (const item of pr.purchaseInvoice.items) {
-    const current = invoiceByItem.get(item.itemCode);
-    invoiceByItem.set(item.itemCode, {
-      itemName: current?.itemName ?? item.itemName,
-      qty: (current?.qty ?? 0) + item.qty,
-      amount: (current?.amount ?? 0) + item.amount,
-      uom: current?.uom ?? item.stockUom,
-    });
+  const groupItems = (items: PurchaseInvoiceRef["items"]) => {
+    const grouped = new Map<string, { itemName: string | null; qty: number; amount: number; uom: string | null }>();
+    for (const item of items) {
+      const current = grouped.get(item.itemCode);
+      grouped.set(item.itemCode, {
+        itemName: current?.itemName ?? item.itemName,
+        qty: (current?.qty ?? 0) + item.qty,
+        amount: (current?.amount ?? 0) + item.amount,
+        uom: current?.uom ?? item.stockUom,
+      });
+    }
+    return grouped;
+  };
+
+  const prByItem = groupItems(pr.purchaseInvoice?.items.filter((item) => item.purchaseReceipt === pr.name) ?? []);
+  const ssrByItem = groupItems(
+    pr.supplierStockReturnPurchaseInvoice?.items.filter((item) => item.supplierStockReturn === pr.adjustmentNo) ?? [],
+  );
+
+  return Array.from(new Set([...prByItem.keys(), ...ssrByItem.keys()]))
+    .map((itemCode) => {
+      const prItem = prByItem.get(itemCode);
+      const ssrItem = ssrByItem.get(itemCode);
+      const prRate = prItem?.qty ? prItem.amount / prItem.qty : null;
+      const ssrRate = ssrItem?.qty ? ssrItem.amount / ssrItem.qty : null;
+      return {
+        itemCode,
+        itemName: prItem?.itemName ?? ssrItem?.itemName ?? null,
+        prQty: prItem?.qty ?? 0,
+        ssrQty: ssrItem?.qty ?? 0,
+        prRate,
+        ssrRate,
+        prAmount: prItem?.amount ?? 0,
+        ssrAmount: ssrItem?.amount ?? 0,
+        uom: prItem?.uom ?? ssrItem?.uom ?? null,
+        issue:
+          Math.abs((prItem?.qty ?? 0) - (ssrItem?.qty ?? 0)) > 0.000001 ||
+          Math.abs((prItem?.amount ?? 0) - (ssrItem?.amount ?? 0)) > 0.000001,
+      };
+    })
+    .sort((a, b) => Number(a.issue) - Number(b.issue) || a.itemCode.localeCompare(b.itemCode));
+}
+
+function PurchaseInvoiceStatusBadge({ row }: { row: PurchaseReceiptRow | null | undefined }) {
+  if (!row?.purchaseInvoice && !row?.supplierStockReturnPurchaseInvoice) {
+    return <span className="text-xs text-muted-foreground">No PI prices</span>;
   }
 
-  return ssr.items.map((item) => {
-    const invoiceItem = invoiceByItem.get(item.itemCode);
-    const invoiceQty = invoiceItem?.qty ?? 0;
-    const invoiceAmount = invoiceItem?.amount ?? 0;
-    const rate = invoiceQty ? invoiceAmount / invoiceQty : null;
-    return {
-      itemCode: item.itemCode,
-      itemName: item.itemName ?? invoiceItem?.itemName ?? null,
-      ssrQty: item.qty,
-      invoiceQty,
-      rate,
-      amount: rate == null ? null : rate * item.qty,
-      uom: item.stockUom ?? invoiceItem?.uom ?? null,
-      issue: Math.abs(item.qty - invoiceQty) > 0.000001 || rate == null,
-    };
-  });
+  const hasPrPi = Boolean(row.purchaseInvoice);
+  const hasSsrPi = Boolean(row.supplierStockReturnPurchaseInvoice);
+  const label = row.adjustmentNo
+    ? hasPrPi && hasSsrPi
+      ? "PI linked"
+      : hasPrPi
+        ? "PR PI linked"
+        : "SSR PI linked"
+    : "PI linked";
+  const complete = !row.adjustmentNo || (hasPrPi && hasSsrPi);
+
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium ${
+        complete
+          ? "bg-emerald-50 text-emerald-700"
+          : "bg-amber-50 text-amber-700"
+      }`}
+    >
+      <CheckCircle2 className="size-3.5" />
+      {label}
+    </span>
+  );
+}
+
+function PurchaseInvoicePriceTallyDetails({
+  row,
+  priceRows,
+  defaultOpen = false,
+}: {
+  row: PurchaseReceiptRow;
+  priceRows: ReturnType<typeof buildPriceTallyRows>;
+  defaultOpen?: boolean;
+}) {
+  return (
+    <details className="rounded-lg border bg-background/50 p-3" open={defaultOpen}>
+      <summary className="cursor-pointer list-none">
+        <div className="flex flex-col gap-1">
+          <div className="text-sm font-semibold">Purchase invoice price tally</div>
+          <div className="text-xs text-muted-foreground">
+            {!row.purchaseInvoice
+              ? "No linked purchase receipt invoice stored yet."
+              : !row.supplierStockReturnPurchaseInvoice
+                ? "No linked supplier stock return invoice stored yet."
+                : `${row.purchaseInvoice.name} vs ${row.supplierStockReturnPurchaseInvoice.name}`}
+          </div>
+        </div>
+      </summary>
+      <div className="mt-3 space-y-3">
+        <div className="flex flex-wrap gap-3">
+          {row.purchaseInvoice?.erpUrl && (
+            <a
+              href={row.purchaseInvoice.erpUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex w-fit items-center gap-2 text-sm text-primary hover:underline"
+            >
+              <ExternalLink className="size-4" />
+              Open PR PI
+            </a>
+          )}
+          {row.supplierStockReturnPurchaseInvoice?.erpUrl && (
+            <a
+              href={row.supplierStockReturnPurchaseInvoice.erpUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex w-fit items-center gap-2 text-sm text-primary hover:underline"
+            >
+              <ExternalLink className="size-4" />
+              Open SSR PI
+            </a>
+          )}
+        </div>
+        {(row.purchaseInvoice || row.supplierStockReturnPurchaseInvoice) && (
+          <div className="overflow-x-auto rounded-md border bg-background/70">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>SKU</TableHead>
+                  <TableHead>Item Name</TableHead>
+                    <TableHead className="text-right">PR Price</TableHead>
+                    <TableHead className="text-right">SSR Price</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {priceRows.length === 0 ? (
+                  <TableRow>
+                      <TableCell colSpan={4} className="h-16 text-center text-muted-foreground">
+                      No price rows found.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  priceRows.map((item) => (
+                    <TableRow key={item.itemCode} className={item.issue ? "bg-amber-500/10" : undefined}>
+                      <TableCell className="font-medium">{item.itemCode}</TableCell>
+                      <TableCell>{item.itemName ?? "-"}</TableCell>
+                      <TableCell className="text-right">{item.prRate == null ? "-" : item.prRate.toFixed(2)}</TableCell>
+                      <TableCell className="text-right">{item.ssrRate == null ? "-" : item.ssrRate.toFixed(2)}</TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </div>
+    </details>
+  );
 }
 
 function buildItemMatchRows(pr: PurchaseReceiptRow, ssr: SupplierStockReturnRow | null) {
@@ -570,6 +704,9 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
     : null;
   const selectedPrMatchRows = selectedPr
     ? buildItemMatchRows(selectedPr, selectedPrStockReturn)
+    : [];
+  const selectedPrPriceRows = selectedPr && selectedPrStockReturn
+    ? buildPriceTallyRows(selectedPrStockReturn, selectedPr)
     : [];
 
   const selectedSsrPurchaseReceipt = selectedSsr?.purchaseReceiptName
@@ -967,14 +1104,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                       )}
                     </TableCell>
                     <TableCell>
-                      {row.purchaseInvoice ? (
-                        <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700">
-                          <CheckCircle2 className="size-3.5" />
-                          PI linked
-                        </span>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">No PI prices</span>
-                      )}
+                      <PurchaseInvoiceStatusBadge row={row} />
                     </TableCell>
                     <TableCell>
                       {row.receivedAt ? (
@@ -1132,14 +1262,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                       )}
                     </TableCell>
                     <TableCell>
-                      {suggestedPr?.purchaseInvoice ? (
-                        <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700">
-                          <CheckCircle2 className="size-3.5" />
-                          PI linked
-                        </span>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">No PI prices</span>
-                      )}
+                      <PurchaseInvoiceStatusBadge row={suggestedPr} />
                     </TableCell>
                     <TableCell onClick={(event) => event.stopPropagation()}>
                       <PurchaseReceiptPicker
@@ -1238,14 +1361,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                           )}
                         </TableCell>
                         <TableCell>
-                          {linkedPr?.purchaseInvoice ? (
-                            <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700">
-                              <CheckCircle2 className="size-3.5" />
-                              PI linked
-                            </span>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">No PI prices</span>
-                          )}
+                          <PurchaseInvoiceStatusBadge row={linkedPr} />
                         </TableCell>
                         <TableCell onClick={(event) => event.stopPropagation()}>
                           <PurchaseReceiptPicker
@@ -1488,42 +1604,53 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                   </div>
                 </details>
               )}
+              {selectedPrStockReturn && (
+                <PurchaseInvoicePriceTallyDetails row={selectedPr} priceRows={selectedPrPriceRows} />
+              )}
             </>
           )}
-          <div className="overflow-x-auto rounded-lg border bg-background/60">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Item Code</TableHead>
-                  <TableHead>Item Name</TableHead>
-                  <TableHead className="text-right">Qty</TableHead>
-                  <TableHead className="text-right">Stock Qty</TableHead>
-                  <TableHead>Warehouse</TableHead>
-                  <TableHead>UOM</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {!selectedPr || selectedPr.items.length === 0 ? (
+          <details className="rounded-lg border bg-background/50 p-3">
+            <summary className="cursor-pointer list-none">
+              <div className="flex flex-col gap-1">
+                <div className="text-sm font-semibold">Purchase receipt items</div>
+                <div className="text-xs text-muted-foreground">{selectedPr?.items.length ?? 0} items</div>
+              </div>
+            </summary>
+            <div className="mt-3 overflow-x-auto rounded-lg border bg-background/60">
+              <Table>
+                <TableHeader>
                   <TableRow>
-                    <TableCell colSpan={6} className="h-20 text-center text-muted-foreground">
-                      No items found.
-                    </TableCell>
+                    <TableHead>Item Code</TableHead>
+                    <TableHead>Item Name</TableHead>
+                    <TableHead className="text-right">Qty</TableHead>
+                    <TableHead className="text-right">Stock Qty</TableHead>
+                    <TableHead>Warehouse</TableHead>
+                    <TableHead>UOM</TableHead>
                   </TableRow>
-                ) : (
-                  selectedPr.items.map((item) => (
-                    <TableRow key={item.name}>
-                      <TableCell className="font-medium">{item.itemCode}</TableCell>
-                      <TableCell>{item.itemName ?? "-"}</TableCell>
-                      <TableCell className="text-right">{item.qty}</TableCell>
-                      <TableCell className="text-right">{item.stockQty ?? "-"}</TableCell>
-                      <TableCell>{item.warehouse ?? "-"}</TableCell>
-                      <TableCell>{item.stockUom ?? "-"}</TableCell>
+                </TableHeader>
+                <TableBody>
+                  {!selectedPr || selectedPr.items.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={6} className="h-20 text-center text-muted-foreground">
+                        No items found.
+                      </TableCell>
                     </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </div>
+                  ) : (
+                    selectedPr.items.map((item) => (
+                      <TableRow key={item.name}>
+                        <TableCell className="font-medium">{item.itemCode}</TableCell>
+                        <TableCell>{item.itemName ?? "-"}</TableCell>
+                        <TableCell className="text-right">{item.qty}</TableCell>
+                        <TableCell className="text-right">{item.stockQty ?? "-"}</TableCell>
+                        <TableCell>{item.warehouse ?? "-"}</TableCell>
+                        <TableCell>{item.stockUom ?? "-"}</TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </details>
         </DialogContent>
       </Dialog>
 
@@ -1567,34 +1694,39 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
             </div>
           </DialogHeader>
           {selectedSsrPurchaseReceipt && (
-            <div className="grid gap-3 rounded-lg border bg-background/50 p-3 text-sm sm:grid-cols-3">
-              <div>
-                <div className="text-xs text-muted-foreground">Linked PR</div>
-                <button
-                  type="button"
-                  className="font-medium text-primary underline-offset-4 hover:underline"
-                  onClick={() => setSelectedPr(selectedSsrPurchaseReceipt)}
-                >
-                  {selectedSsrPurchaseReceipt.name}
-                </button>
-              </div>
-              <div>
-                <div className="text-xs text-muted-foreground">Supplier</div>
-                <div className="font-medium">{selectedSsrPurchaseReceipt.supplierName ?? selectedSsrPurchaseReceipt.supplier}</div>
-              </div>
-              <div>
-                <div className="text-xs text-muted-foreground">Tally</div>
-                <div className="mt-1"><TallyBadge row={selectedSsrPurchaseReceipt} /></div>
+            <div className="rounded-lg border bg-background/50 p-3">
+              <div className="text-sm font-semibold">Linked purchase receipt</div>
+              <div className="mt-3 grid gap-3 text-sm sm:grid-cols-3">
+                <div>
+                  <div className="text-xs text-muted-foreground">Linked PR</div>
+                  <button
+                    type="button"
+                    className="font-medium text-primary underline-offset-4 hover:underline"
+                    onClick={() => setSelectedPr(selectedSsrPurchaseReceipt)}
+                  >
+                    {selectedSsrPurchaseReceipt.name}
+                  </button>
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground">Supplier</div>
+                  <div className="font-medium">{selectedSsrPurchaseReceipt.supplierName ?? selectedSsrPurchaseReceipt.supplier}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground">Tally</div>
+                  <div className="mt-1"><TallyBadge row={selectedSsrPurchaseReceipt} /></div>
+                </div>
               </div>
             </div>
           )}
           {selectedSsrPurchaseReceipt?.tallyStatus === "issue" && selectedSsrPurchaseReceipt.tallyIssues.length > 0 && (
-            <div className="rounded-lg border border-amber-400/60 bg-amber-500/10 p-3">
-              <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-amber-200">
-                <TriangleAlert className="size-4" />
-                Tally mismatch
-              </div>
-              <div className="overflow-x-auto rounded-md border border-amber-400/40 bg-background/70">
+            <details className="rounded-lg border border-amber-400/60 bg-amber-500/10 p-3">
+              <summary className="cursor-pointer list-none">
+                <div className="flex items-center gap-2 text-sm font-semibold text-amber-200">
+                  <TriangleAlert className="size-4" />
+                  Tally mismatch
+                </div>
+              </summary>
+              <div className="mt-3 overflow-x-auto rounded-md border border-amber-400/40 bg-background/70">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -1618,21 +1750,19 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                   </TableBody>
                 </Table>
               </div>
-            </div>
+            </details>
           )}
           {selectedSsr && selectedSsrComparisonPurchaseReceipt && (
-            <details className="rounded-lg border bg-background/50 p-3" open>
-              <summary className="cursor-pointer list-none">
-                <div className="flex flex-col gap-1">
-                  <div className="text-sm font-semibold">
-                    SSR/PR matched products{" "}
-                    {selectedSsr.matchRecommendation ? `(${selectedSsr.matchRecommendation.percentage.toFixed(2)}%)` : ""}
-                  </div>
-                  <div className="text-xs text-muted-foreground">
-                    Comparing against {selectedSsrComparisonPurchaseReceipt.name}. 100% means every SKU and quantity matches.
-                  </div>
+            <div className="rounded-lg border bg-background/50 p-3">
+              <div className="flex flex-col gap-1">
+                <div className="text-sm font-semibold">
+                  SSR/PR matched products{" "}
+                  {selectedSsr.matchRecommendation ? `(${selectedSsr.matchRecommendation.percentage.toFixed(2)}%)` : ""}
                 </div>
-              </summary>
+                <div className="text-xs text-muted-foreground">
+                  Comparing against {selectedSsrComparisonPurchaseReceipt.name}. 100% means every SKU and quantity matches.
+                </div>
+              </div>
               <div className="mt-3 overflow-x-auto rounded-md border bg-background/70">
                 <Table>
                   <TableHeader>
@@ -1665,71 +1795,19 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                   </TableBody>
                 </Table>
               </div>
-            </details>
+            </div>
           )}
           {selectedSsrPurchaseReceipt && (
-            <div className="rounded-lg border bg-background/50 p-3">
-              <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <div className="text-sm font-semibold">Purchase invoice price tally</div>
-                  <div className="text-xs text-muted-foreground">
-                    {selectedSsrPurchaseReceipt.purchaseInvoice
-                      ? `${selectedSsrPurchaseReceipt.purchaseInvoice.name} - ${formatDate(selectedSsrPurchaseReceipt.purchaseInvoice.postingDate)}`
-                      : "No linked purchase invoice stored yet."}
-                  </div>
-                </div>
-                {selectedSsrPurchaseReceipt.purchaseInvoice?.erpUrl && (
-                  <a
-                    href={selectedSsrPurchaseReceipt.purchaseInvoice.erpUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex w-fit items-center gap-2 text-sm text-primary hover:underline"
-                  >
-                    <ExternalLink className="size-4" />
-                    Open PI in ERP
-                  </a>
-                )}
+            <PurchaseInvoicePriceTallyDetails row={selectedSsrPurchaseReceipt} priceRows={selectedSsrPriceRows} />
+          )}
+          <details className="rounded-lg border bg-background/50 p-3">
+            <summary className="cursor-pointer list-none">
+              <div className="flex flex-col gap-1">
+                <div className="text-sm font-semibold">Supplier stock return items</div>
+                <div className="text-xs text-muted-foreground">{selectedSsr?.items.length ?? 0} items</div>
               </div>
-              {selectedSsrPurchaseReceipt.purchaseInvoice && (
-                <div className="overflow-x-auto rounded-md border bg-background/70">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>SKU</TableHead>
-                        <TableHead>Item Name</TableHead>
-                        <TableHead className="text-right">SSR Qty</TableHead>
-                        <TableHead className="text-right">PI Qty</TableHead>
-                        <TableHead className="text-right">Rate</TableHead>
-                        <TableHead className="text-right">SSR Value</TableHead>
-                        <TableHead>UOM</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {selectedSsrPriceRows.length === 0 ? (
-                        <TableRow>
-                          <TableCell colSpan={7} className="h-16 text-center text-muted-foreground">
-                            No price rows found.
-                          </TableCell>
-                        </TableRow>
-                      ) : (
-                        selectedSsrPriceRows.map((item) => (
-                          <TableRow key={item.itemCode} className={item.issue ? "bg-amber-500/10" : undefined}>
-                            <TableCell className="font-medium">{item.itemCode}</TableCell>
-                            <TableCell>{item.itemName ?? "-"}</TableCell>
-                            <TableCell className="text-right">{item.ssrQty}</TableCell>
-                            <TableCell className="text-right">{item.invoiceQty}</TableCell>
-                            <TableCell className="text-right">{item.rate == null ? "-" : item.rate.toFixed(2)}</TableCell>
-                            <TableCell className="text-right">{item.amount == null ? "-" : item.amount.toFixed(2)}</TableCell>
-                            <TableCell>{item.uom ?? "-"}</TableCell>
-                          </TableRow>
-                        ))
-                      )}
-                    </TableBody>
-                  </Table>
-                </div>
-              )}
-            </div>
-          )}          <div className="overflow-x-auto rounded-lg border bg-background/60">
+            </summary>
+            <div className="mt-3 overflow-x-auto rounded-lg border bg-background/60">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -1758,7 +1836,8 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                 )}
               </TableBody>
             </Table>
-          </div>
+            </div>
+          </details>
         </DialogContent>
       </Dialog>    </div>
   );
