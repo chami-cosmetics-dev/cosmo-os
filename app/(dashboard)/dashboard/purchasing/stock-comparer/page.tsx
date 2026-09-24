@@ -19,7 +19,8 @@ export default async function CosmeticsStockComparerPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Cosmetics Stock Comparer</h1>
         <p className="text-sm text-muted-foreground">
-          Compare live main Cosmetics.lk stock against outlet stock.
+          Compare Cosmetics main with other online warehouses first, then shops. Flag brand stock on the
+          wrong company.
         </p>
       </div>
       <section className="rounded-lg border p-4">

@@ -3,6 +3,10 @@ import { describe, expect, it } from "vitest";
 import {
   buildBrandWarehouseViolations,
   buildCosmeticsStockReport,
+  buildCosmeticsStockReportDetails,
+  classifyWarehouseKind,
+  computeCriticalCutoff,
+  markCriticalTopSellers,
   type StockBalanceRow,
 } from "@/lib/cosmetics-stock-comparer";
 
@@ -16,6 +20,16 @@ function row(input: Partial<StockBalanceRow>): StockBalanceRow {
     "__ERP Source": input["__ERP Source"] ?? "",
   };
 }
+
+describe("classifyWarehouseKind", () => {
+  it("classifies Cosmo main, shops, and other warehouses", () => {
+    expect(classifyWarehouseKind("Main Warehouse - Cosmo")).toBe("main");
+    expect(classifyWarehouseKind("Pepiliyana Shop Warehouse")).toBe("shop");
+    expect(classifyWarehouseKind("Pepiliyana Main Warehouse")).toBe("shop");
+    expect(classifyWarehouseKind("Website Inventory - Cosmo")).toBe("online");
+    expect(classifyWarehouseKind("Stores - CCON")).toBe("online");
+  });
+});
 
 describe("buildCosmeticsStockReport", () => {
   it("includes items where main warehouse stock is at or below threshold", () => {
@@ -56,11 +70,33 @@ describe("buildCosmeticsStockReport", () => {
     expect(report).toMatchObject([
       {
         SKU: "SKU-1",
-        "Priority 2 Warehouse(s)": "Pepiliyana",
-        "Priority 2 Qty": 7,
+        "Shop Warehouse(s)": "Pepiliyana",
+        "Shop Qty": 7,
         "Stock Available Elsewhere": "Yes",
       },
     ]);
+  });
+
+  it("lists online warehouses before shops", () => {
+    const details = buildCosmeticsStockReportDetails([
+      row({ Item: "SKU-1", "Balance Qty": 0 }),
+      row({
+        Item: "SKU-1",
+        Warehouse: "Website Inventory - Cosmo",
+        "Balance Qty": 8,
+      }),
+      row({
+        Item: "SKU-1",
+        Company: "LMJ",
+        Warehouse: "Pepiliyana Shop Warehouse",
+        "Balance Qty": 3,
+      }),
+    ]);
+
+    expect(details[0]?.online.map((loc) => loc.name)).toEqual(["Website Inventory - Cosmo"]);
+    expect(details[0]?.shops.map((loc) => loc.name)).toEqual(["Pepiliyana"]);
+    expect(details[0]?.["Online Qty"]).toBe(8);
+    expect(details[0]?.["Shop Qty"]).toBe(3);
   });
 
   it("sorts rows with available stock first and then by SKU", () => {
@@ -126,16 +162,14 @@ describe("buildCosmeticsStockReport", () => {
     expect(report).toMatchObject([
       {
         SKU: "ACN01_1",
-        "Priority 2 Warehouse(s)": "Kiribathgoda, Pepiliyana",
-        "Priority 2 Qty": 6,
-        "Priority 3 Warehouse(s)": "Cool Planet, Maharagama",
-        "Priority 3 Qty": 3,
+        "Shop Warehouse(s)": "Cool Planet, Kiribathgoda, Maharagama, Pepiliyana",
+        "Shop Qty": 9,
         "Stock Available Elsewhere": "Yes",
       },
     ]);
   });
 
-  it("uses selected warehouse tokens for priority over company display", () => {
+  it("uses selected warehouse tokens for shop name over company display", () => {
     const report = buildCosmeticsStockReport([
       row({ Item: "SKU-1", "Balance Qty": 0 }),
       row({
@@ -149,8 +183,8 @@ describe("buildCosmeticsStockReport", () => {
     expect(report).toMatchObject([
       {
         SKU: "SKU-1",
-        "Priority 1 Warehouse(s)": "SPK",
-        "Priority 1 Qty": 7,
+        "Shop Warehouse(s)": "SPK",
+        "Shop Qty": 7,
       },
     ]);
   });
@@ -245,5 +279,52 @@ describe("buildCosmeticsStockReport", () => {
         Rule: "Brand should only appear in ERP2",
       },
     ]);
+  });
+});
+
+describe("computeCriticalCutoff / markCriticalTopSellers", () => {
+  it("uses the 20th-percentile-from-top units and includes ties", () => {
+    expect(computeCriticalCutoff([100, 80, 50, 20, 10])).toBe(100);
+    expect(computeCriticalCutoff([100, 90, 80, 70, 60, 50, 40, 30, 20, 10])).toBe(90);
+    expect(computeCriticalCutoff([10, 10, 1])).toBe(10);
+    expect(computeCriticalCutoff([0, 0])).toBeNull();
+  });
+
+  it("marks top sellers Critical and never marks zero-sale SKUs", () => {
+    const details = buildCosmeticsStockReportDetails([
+      row({ Item: "FAST", "Balance Qty": 2 }),
+      row({ Item: "SLOW", "Balance Qty": 2 }),
+      row({ Item: "DEAD", "Balance Qty": 0 }),
+    ], 3);
+
+    const sales = new Map<string, number>([
+      ["OTHER-1", 100],
+      ["FAST", 80],
+      ["OTHER-2", 70],
+      ["OTHER-3", 60],
+      ["OTHER-4", 50],
+      ["OTHER-5", 40],
+      ["OTHER-6", 30],
+      ["OTHER-7", 20],
+      ["OTHER-8", 15],
+      ["SLOW", 2],
+    ]);
+
+    const { rows, cutoff } = markCriticalTopSellers(details, sales, true);
+    expect(cutoff).toBe(80);
+    expect(rows.find((r) => r.SKU === "FAST")?.critical).toBe(true);
+    expect(rows.find((r) => r.SKU === "SLOW")?.critical).toBe(false);
+    expect(rows.find((r) => r.SKU === "DEAD")?.critical).toBe(false);
+    expect(rows[0]?.SKU).toBe("FAST");
+  });
+
+  it("clears Critical when sales ranking is unavailable", () => {
+    const details = buildCosmeticsStockReportDetails([
+      row({ Item: "FAST", "Balance Qty": 0 }),
+    ]);
+    const { rows, cutoff } = markCriticalTopSellers(details, new Map([["FAST", 99]]), false);
+    expect(cutoff).toBeNull();
+    expect(rows[0]?.critical).toBe(false);
+    expect(rows[0]?.sales90d).toBe(0);
   });
 });

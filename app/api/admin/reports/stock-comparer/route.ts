@@ -3,8 +3,10 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   buildBrandWarehouseViolations,
   buildCosmeticsStockReportDetails,
+  markCriticalTopSellers,
   type StockBalanceRow,
 } from "@/lib/cosmetics-stock-comparer";
+import { loadWebsiteSalesLast90d } from "@/lib/cosmetics-stock-comparer-sales";
 import { buildCatalogRows } from "@/lib/osf/catalog-rows";
 import { resolveOsfColumns } from "@/lib/osf/column-config";
 import { fetchBinActualQty, getAllOsfErpInstances, OsfErpError } from "@/lib/osf/erp-stock";
@@ -117,13 +119,35 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const rows = buildCosmeticsStockReportDetails(stockRows, threshold);
+    const baseRows = buildCosmeticsStockReportDetails(stockRows, threshold);
     const brandViolations = buildBrandWarehouseViolations(stockRows);
+
+    let salesStatus: "ok" | "unavailable" = "ok";
+    let salesWindow: {
+      from: string;
+      to: string;
+      timezone: "Asia/Colombo";
+      days: 90;
+    } | null = null;
+    let salesBySku = new Map<string, number>();
+    try {
+      const sales = await loadWebsiteSalesLast90d(companyId);
+      salesWindow = sales.window;
+      salesBySku = sales.unitsBySku;
+    } catch (salesErr) {
+      console.error("[stock-comparer sales]", salesErr);
+      salesStatus = "unavailable";
+    }
+
+    const { rows, cutoff } = markCriticalTopSellers(baseRows, salesBySku, salesStatus === "ok");
 
     return NextResponse.json({
       threshold,
       itemCount: itemCodes.length,
       warehouseCount: new Set(stockRows.map((row) => String(row.Warehouse))).size,
+      salesWindow,
+      salesStatus,
+      criticalCutoffUnits: cutoff,
       rows,
       brandViolations,
     });
