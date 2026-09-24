@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { parseAppCalendarDayStart } from "@/lib/format-datetime";
 import { requirePermission } from "@/lib/rbac";
+import { sendRegisterWelcomeIfConfigured } from "@/lib/register-users/email";
 import { saveRegisteredUser } from "@/lib/register-users/save";
 import { RegisterPhoneConflictError } from "@/lib/register-users/types";
 import { registerUsersSaveBodySchema } from "@/lib/validation/register-users";
@@ -51,6 +52,11 @@ export async function POST(request: NextRequest) {
       source: "staff",
       actorUserId: userId,
       applyBirthday: true,
+    });
+    void sendRegisterWelcomeIfConfigured({
+      companyId,
+      name: result.row.name,
+      email: result.row.email,
     });
     return NextResponse.json(result);
   } catch (error) {

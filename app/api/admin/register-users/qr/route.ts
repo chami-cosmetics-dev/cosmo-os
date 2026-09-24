@@ -4,9 +4,13 @@ import { NextRequest, NextResponse } from "next/server";
 import QRCode from "qrcode";
 
 import { getAppBaseUrl } from "@/lib/app-base-url";
-import { parseAppCalendarDayStart } from "@/lib/format-datetime";
+import { formatAppIsoDate, parseAppCalendarDayStart } from "@/lib/format-datetime";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
+import {
+  setLatestRegisterQr,
+  upsertRegisterHeader,
+} from "@/lib/register-users/settings";
 import { registerUsersQrBodySchema } from "@/lib/validation/register-users";
 
 export async function POST(request: NextRequest) {
@@ -40,7 +44,7 @@ export async function POST(request: NextRequest) {
   }
 
   const token = randomBytes(32).toString("hex");
-  await prisma.osRegistrationQr.create({
+  const qr = await prisma.osRegistrationQr.create({
     data: {
       companyId,
       token,
@@ -50,9 +54,21 @@ export async function POST(request: NextRequest) {
       createdByUserId: userId,
     },
   });
+  await Promise.all([
+    setLatestRegisterQr(companyId, qr.id),
+    upsertRegisterHeader(companyId, {
+      location: parsed.data.location,
+      badgeStart,
+      badgeEnd,
+      headerDate: formatAppIsoDate(new Date()),
+    }),
+  ]);
 
   const url = `${getAppBaseUrl()}/register/${token}`;
-  const qrDataUrl = await QRCode.toDataURL(url);
+  const qrDataUrl = await QRCode.toDataURL(url, {
+    width: 512,
+    margin: 2,
+  });
 
   return NextResponse.json({ token, url, qrDataUrl });
 }
