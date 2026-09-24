@@ -152,7 +152,6 @@ export function EmailTemplatesSettingsForm({
       }
     }
     void fetchTemplates();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount load only
   }, [canEdit, initialTemplates]);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -217,6 +216,45 @@ export function EmailTemplatesSettingsForm({
       await refreshList();
     } catch {
       notify.error("Failed to delete template");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function handleSendTest() {
+    if (!canEdit || isBusy) return;
+    const key = draft.key.trim();
+    if (!key) {
+      notify.error("Template key is required");
+      return;
+    }
+    if (!draft.recipients.trim()) {
+      notify.error("Add at least one To recipient before sending a test.");
+      return;
+    }
+
+    setBusyKey("test");
+    try {
+      const res = await fetch("/api/admin/company/email-templates/test-send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          key,
+          name: draft.name.trim() || key,
+          subject: draft.subject.trim(),
+          bodyHtml: draft.bodyHtml.trim(),
+          recipients: draft.recipients.trim(),
+          ccRecipients: draft.ccRecipients.trim(),
+        }),
+      });
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) {
+        notify.error(data.error ?? "Failed to send test email");
+        return;
+      }
+      notify.success("Test email sent.");
+    } catch {
+      notify.error("Failed to send test email");
     } finally {
       setBusyKey(null);
     }
@@ -519,16 +557,34 @@ export function EmailTemplatesSettingsForm({
                       ? "Saved."
                       : "Defaults shown — save to store for this company."}
                 </p>
-                <Button type="submit" disabled={isBusy || !hasChanges} className="sm:min-w-36">
-                  {busyKey === "save" ? (
-                    <>
-                      <Loader2 className="size-4 animate-spin" aria-hidden />
-                      Saving...
-                    </>
-                  ) : (
-                    "Save changes"
-                  )}
-                </Button>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={isBusy || !draft.recipients.trim()}
+                    onClick={() => void handleSendTest()}
+                    className="sm:min-w-36"
+                  >
+                    {busyKey === "test" ? (
+                      <>
+                        <Loader2 className="size-4 animate-spin" aria-hidden />
+                        Sending...
+                      </>
+                    ) : (
+                      "Send test mail"
+                    )}
+                  </Button>
+                  <Button type="submit" disabled={isBusy || !hasChanges} className="sm:min-w-36">
+                    {busyKey === "save" ? (
+                      <>
+                        <Loader2 className="size-4 animate-spin" aria-hidden />
+                        Saving...
+                      </>
+                    ) : (
+                      "Save changes"
+                    )}
+                  </Button>
+                </div>
               </div>
             )}
           </form>
