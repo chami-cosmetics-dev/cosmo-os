@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
-import { tallySsrPurchaseInvoicePrices } from "@/lib/grn";
+import { tallyPurchaseInvoicePrices } from "@/lib/grn";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserContext, requirePermission } from "@/lib/rbac";
 
@@ -54,6 +54,7 @@ export async function POST(
     where: { companyId_name: { companyId: targetCompanyId, name: decodedName } },
     select: {
       id: true,
+      name: true,
       docstatus: true,
       handoverAt: true,
       valuedAt: true,
@@ -61,7 +62,7 @@ export async function POST(
       purchaseInvoices: {
         where: { docstatus: { not: 2 } },
         orderBy: [{ postingDate: "desc" }, { createdAt: "desc" }],
-        take: 1,
+        take: 5,
         include: { items: true },
       },
     },
@@ -91,7 +92,12 @@ export async function POST(
 
     if (parsed.data.field !== "handoverAt" || row.valuedAt) return;
 
-    const purchaseInvoice = row.purchaseInvoices[0] ?? null;
+    const purchaseInvoice =
+      row.purchaseInvoices.find((invoice) =>
+        invoice.items.some((item) => item.purchaseReceipt === row.name),
+      ) ??
+      row.purchaseInvoices[0] ??
+      null;
     if (!purchaseInvoice) return;
 
     if (!row.supplierStockReturnName) {
@@ -102,18 +108,22 @@ export async function POST(
       return;
     }
 
-    const stockReturn = await tx.grnSupplierStockReturn.findFirst({
+    const ssrInvoice = await tx.grnPurchaseInvoice.findFirst({
       where: {
-        name: row.supplierStockReturnName,
+        purchaseReceiptId: row.id,
         docstatus: { not: 2 },
+        items: { some: { supplierStockReturn: row.supplierStockReturnName } },
       },
+      orderBy: [{ postingDate: "desc" }, { createdAt: "desc" }],
       include: { items: true },
     });
-    if (!stockReturn) return;
+    if (!ssrInvoice) return;
 
-    const priceTally = tallySsrPurchaseInvoicePrices(stockReturn.items, purchaseInvoice.items);
+    const priceTally = tallyPurchaseInvoicePrices(
+      purchaseInvoice.items.filter((item) => item.purchaseReceipt === row.name),
+      ssrInvoice.items.filter((item) => item.supplierStockReturn === row.supplierStockReturnName),
+    );
     if (priceTally.status !== "matched") return;
-
     await tx.grnPurchaseReceipt.update({
       where: { id: row.id },
       data: { valuedAt: new Date(), valuedById: null },
@@ -122,6 +132,7 @@ export async function POST(
 
   return NextResponse.json({ ok: true });
 }
+
 
 
 

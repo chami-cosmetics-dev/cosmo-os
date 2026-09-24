@@ -135,7 +135,7 @@ export async function GET(request: NextRequest) {
         purchaseInvoices: {
           where: { docstatus: { not: 2 } },
           orderBy: [{ postingDate: "desc" }, { createdAt: "desc" }],
-          take: 1,
+          take: 5,
           include: { items: true },
         },
         company: {
@@ -209,7 +209,44 @@ export async function GET(request: NextRequest) {
         ? tallyLinkedItems(row.items, activeLinked.items)
         : { status: "not_linked" as const, issueItems: [] };
       const tallyIssues = activeLinked ? buildTallyIssues(row.items, activeLinked.items) : [];
-      const purchaseInvoice = row.purchaseInvoices[0] ?? null;
+      const purchaseInvoice =
+        row.purchaseInvoices.find((invoice) =>
+          invoice.items.some((item) => item.purchaseReceipt === row.name),
+        ) ??
+        row.purchaseInvoices[0] ??
+        null;
+      const supplierStockReturnPurchaseInvoice = row.supplierStockReturnName
+        ? row.purchaseInvoices.find((invoice) =>
+            invoice.items.some((item) => item.supplierStockReturn === row.supplierStockReturnName),
+          ) ?? null
+        : null;
+      const serializePurchaseInvoice = (invoice: (typeof row.purchaseInvoices)[number] | null) =>
+        invoice
+          ? {
+              name: invoice.name,
+              erpUrl: erpDocUrl(
+                erpBaseUrlForPayload(invoice.rawPayload, row.company.locations),
+                "purchase-invoice",
+                invoice.name,
+              ),
+              postingDate: iso(invoice.postingDate),
+              docstatus: invoice.docstatus,
+              status: invoice.status,
+              items: invoice.items.map((item) => ({
+                name: item.name,
+                itemCode: item.itemCode,
+                itemName: item.itemName,
+                qty: Number(item.qty),
+                rate: Number(item.rate),
+                amount: Number(item.amount),
+                purchaseReceipt: item.purchaseReceipt,
+                purchaseReceiptItem: item.purchaseReceiptItem,
+                supplierStockReturn: item.supplierStockReturn,
+                supplierStockReturnItem: item.supplierStockReturnItem,
+                stockUom: item.stockUom,
+              })),
+            }
+          : null;
       return {
         companyId: row.companyId,
         companyName: row.company.name,
@@ -248,30 +285,8 @@ export async function GET(request: NextRequest) {
         tallyPercentage: activeLinked ? calculateGrnMatchPercentage(row.items, activeLinked.items) : null,
         tallyIssueItems: tally.issueItems,
         tallyIssues,
-        purchaseInvoice: purchaseInvoice
-          ? {
-              name: purchaseInvoice.name,
-              erpUrl: erpDocUrl(
-                erpBaseUrlForPayload(purchaseInvoice.rawPayload, row.company.locations),
-                "purchase-invoice",
-                purchaseInvoice.name,
-              ),
-              postingDate: iso(purchaseInvoice.postingDate),
-              docstatus: purchaseInvoice.docstatus,
-              status: purchaseInvoice.status,
-              items: purchaseInvoice.items.map((item) => ({
-                name: item.name,
-                itemCode: item.itemCode,
-                itemName: item.itemName,
-                qty: Number(item.qty),
-                rate: Number(item.rate),
-                amount: Number(item.amount),
-                purchaseReceipt: item.purchaseReceipt,
-                purchaseReceiptItem: item.purchaseReceiptItem,
-                stockUom: item.stockUom,
-              })),
-            }
-          : null,
+        purchaseInvoice: serializePurchaseInvoice(purchaseInvoice),
+        supplierStockReturnPurchaseInvoice: serializePurchaseInvoice(supplierStockReturnPurchaseInvoice),
       };
     }),
     supplierStockReturns: stockReturns.map((row) => {

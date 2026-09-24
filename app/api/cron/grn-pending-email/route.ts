@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { GRN_PENDING_DAILY_KEY } from "@/lib/email-templates/catalog";
 import {
   getCurrentColomboReportDate,
   runGrnPendingEmailForCompany,
@@ -21,8 +22,11 @@ export async function GET(request: NextRequest) {
   }
 
   const reportDate = getCurrentColomboReportDate();
-  const configs = await prisma.grnPendingEmailConfig.findMany({
-    where: { enabled: true },
+  const templates = await prisma.emailTemplate.findMany({
+    where: {
+      key: GRN_PENDING_DAILY_KEY,
+      recipients: { not: "" },
+    },
     select: { companyId: true },
   });
 
@@ -30,9 +34,9 @@ export async function GET(request: NextRequest) {
   let skipped = 0;
   let failed = 0;
 
-  for (const config of configs) {
+  for (const template of templates) {
     const result = await runGrnPendingEmailForCompany({
-      companyId: config.companyId,
+      companyId: template.companyId,
       reportDate,
       source: "cron",
     });
@@ -44,9 +48,10 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     ok: true,
     reportDate,
-    processed: configs.length,
+    processed: templates.length,
     sent,
     skipped,
     failed,
   });
 }
+
