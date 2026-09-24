@@ -55,6 +55,12 @@ function extractPurchaseInvoiceReturnNames(rawPayload: unknown) {
   return Array.from(names);
 }
 
+function supplierStockReturnNameFromBillNo(billNo: string | null | undefined) {
+  const trimmed = billNo?.trim();
+  if (!trimmed?.startsWith("SSR-")) return null;
+  const name = trimmed.slice(4).trim();
+  return name || null;
+}
 async function resolveCompanyId(erpCompany: string) {
   const location = await prisma.companyLocation.findFirst({
     where: { erpnextCompany: erpCompany },
@@ -375,15 +381,34 @@ export async function ingestPurchaseInvoiceFromWebhook(
     ),
   );
 
-  let linkedStockReturn = linkedSupplierStockReturnNames.length
+  const ssrNameFromBillNo = data.is_return === 1 ? supplierStockReturnNameFromBillNo(data.bill_no) : null;
+  let linkedStockReturn = ssrNameFromBillNo
     ? await prisma.grnSupplierStockReturn.findFirst({
         where: {
-          name: { in: linkedSupplierStockReturnNames },
+          name: ssrNameFromBillNo,
           docstatus: { not: 2 },
         },
         select: { name: true, purchaseReceiptName: true },
       })
-    : null;
+    : linkedSupplierStockReturnNames.length
+      ? await prisma.grnSupplierStockReturn.findFirst({
+          where: {
+            name: { in: linkedSupplierStockReturnNames },
+            docstatus: { not: 2 },
+          },
+          select: { name: true, purchaseReceiptName: true },
+        })
+      : null;
+  if (linkedStockReturn && !linkedStockReturn.purchaseReceiptName) {
+    await autoMatchIntercompanyGrn();
+    linkedStockReturn = await prisma.grnSupplierStockReturn.findFirst({
+      where: {
+        name: linkedStockReturn.name,
+        docstatus: { not: 2 },
+      },
+      select: { name: true, purchaseReceiptName: true },
+    });
+  }
   if (!linkedStockReturn && linkedSupplierStockReturnNames.length === 0) {
     const candidateStockReturns = await prisma.grnSupplierStockReturn.findMany({
       where: {
@@ -447,6 +472,9 @@ export async function ingestPurchaseInvoiceFromWebhook(
         postingDate: parseDateOnly(data.posting_date),
         docstatus: data.docstatus == null ? null : Number(data.docstatus),
         status: data.status,
+        isReturn: data.is_return == null ? null : Number(data.is_return),
+        returnAgainst: data.return_against,
+        billNo: data.bill_no,
         amendedFrom: data.amended_from,
         owner: data.owner,
         creation: parseDateTime(data.creation),
@@ -461,6 +489,9 @@ export async function ingestPurchaseInvoiceFromWebhook(
         postingDate: parseDateOnly(data.posting_date),
         docstatus: data.docstatus == null ? null : Number(data.docstatus),
         status: data.status,
+        isReturn: data.is_return == null ? null : Number(data.is_return),
+        returnAgainst: data.return_against,
+        billNo: data.bill_no,
         amendedFrom: data.amended_from,
         owner: data.owner,
         creation: parseDateTime(data.creation),

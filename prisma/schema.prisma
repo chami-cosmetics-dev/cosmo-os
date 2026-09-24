@@ -2277,6 +2277,9 @@ model GrnPurchaseReceipt {
   postingTime             String?
   docstatus               Int?
   status                  String?
+  isReturn                Int?
+  returnAgainst           String?
+  billNo                  String?
   amendedFrom             String?
   owner                   String?
   creation                DateTime?
@@ -2388,6 +2391,9 @@ model GrnPurchaseInvoice {
   postingDate             DateTime?
   docstatus               Int?
   status                  String?
+  isReturn                Int?
+  returnAgainst           String?
+  billNo                  String?
   amendedFrom             String?
   owner                   String?
   creation                DateTime?
@@ -2402,6 +2408,8 @@ model GrnPurchaseInvoice {
   @@unique([companyId, name])
   @@index([companyId, purchaseReceiptName])
   @@index([companyId, supplierStockReturnName])
+  @@index([companyId, returnAgainst])
+  @@index([companyId, billNo])
   @@index([purchaseReceiptId])
 }
 
