@@ -84,11 +84,13 @@ type PurchaseReceiptRow = {
   name: string;
   erpUrl: string | null;
   adjustmentNo: string | null;
+  adjustmentDocstatus: number | null;
   grnDate: string | null;
   grnBy: string | null;
   supplier: string;
   supplierName: string | null;
   docstatus: number | null;
+  isCancelled: boolean;
   amendedFrom: string | null;
   handoverAt: string | null;
   handoverBy: UserRef | null;
@@ -131,6 +133,7 @@ type SupplierStockReturnRow = {
   creation: string | null;
   purchaseReceiptName: string | null;
   docstatus: number | null;
+  isCancelled: boolean;
   amendedFrom: string | null;
   canTally: boolean;
   itemCount: number;
@@ -200,6 +203,14 @@ function getCurrentMonthRange() {
 
 function userLabel(user: UserRef | null) {
   return user?.name?.trim() || user?.email?.trim() || null;
+}
+
+function CancelledBadge() {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-md bg-destructive/10 px-2 py-1 text-xs font-medium text-destructive">
+      Cancelled
+    </span>
+  );
 }
 
 function buildPriceTallyRows(_ssr: SupplierStockReturnRow, pr: PurchaseReceiptRow | null) {
@@ -668,7 +679,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
   }, [loadData]);
 
   const activePurchaseReceipts = useMemo(
-    () => data.purchaseReceipts.filter((row) => row.docstatus !== 2),
+    () => data.purchaseReceipts.filter((row) => !row.isCancelled),
     [data.purchaseReceipts],
   );
 
@@ -739,11 +750,11 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
     return data.purchaseReceipts.filter((row) => {
       const matchesStage =
         stageFilter === "all" ||
-        (stageFilter === "not_handover" && row.docstatus !== 2 && !row.handoverAt) ||
-        (stageFilter === "not_valued" && row.docstatus !== 2 && !row.valuedAt) ||
-        (stageFilter === "not_received" && row.docstatus !== 2 && !row.receivedAt) ||
-        (stageFilter === "completed" && row.docstatus !== 2 && Boolean(row.receivedAt)) ||
-        (stageFilter === "cancelled" && row.docstatus === 2);
+        (stageFilter === "not_handover" && !row.isCancelled && !row.handoverAt) ||
+        (stageFilter === "not_valued" && !row.isCancelled && !row.valuedAt) ||
+        (stageFilter === "not_received" && !row.isCancelled && !row.receivedAt) ||
+        (stageFilter === "completed" && !row.isCancelled && Boolean(row.receivedAt)) ||
+        (stageFilter === "cancelled" && row.isCancelled);
       if (!matchesStage) return false;
       if (!term) return true;
       return [row.name, row.adjustmentNo, row.supplier, row.supplierName, row.grnBy, row.companyName]
@@ -1077,22 +1088,29 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                 paginatedPrs.map((row) => (
                   <TableRow key={`${row.companyId}:${row.name}`} className="cursor-pointer" onClick={() => setSelectedPr(row)}>
                     <TableCell className="font-medium">
-                      <button
-                        type="button"
-                        className="text-left text-primary underline-offset-4 hover:underline"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          setSelectedPr(row);
-                        }}
-                      >
-                        {row.name}
-                      </button>
-                      {row.docstatus === 2 && <div className="text-xs text-destructive">Cancelled</div>}
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          className="text-left text-primary underline-offset-4 hover:underline"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setSelectedPr(row);
+                          }}
+                        >
+                          {row.name}
+                        </button>
+                        {row.isCancelled && <CancelledBadge />}
+                      </div>
                       {row.amendedFrom && (
                         <div className="text-xs text-muted-foreground">Amended from {row.amendedFrom}</div>
                       )}
                     </TableCell>
-                    <TableCell>{row.adjustmentNo ?? "-"}</TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span>{row.adjustmentNo ?? "-"}</span>
+                        {row.adjustmentDocstatus === 2 && <CancelledBadge />}
+                      </div>
+                    </TableCell>
                     <TableCell>{formatDate(row.grnDate)}</TableCell>
                     <TableCell>{row.grnBy ?? "-"}</TableCell>
                     <TableCell>
@@ -1108,7 +1126,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                         <Button
                           size="sm"
                           variant="outline"
-                          disabled={row.docstatus === 2 || busyKey === `${row.companyId}:${row.name}:handoverAt`}
+                          disabled={row.isCancelled || busyKey === `${row.companyId}:${row.name}:handoverAt`}
                           onClick={(event) => {
                             event.stopPropagation();
                             mark(row, "handoverAt");
@@ -1127,7 +1145,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                         <Button
                           size="sm"
                           variant="outline"
-                          disabled={row.docstatus === 2 || !row.handoverAt || busyKey === `${row.companyId}:${row.name}:valuedAt`}
+                          disabled={row.isCancelled || !row.handoverAt || busyKey === `${row.companyId}:${row.name}:valuedAt`}
                           onClick={(event) => {
                             event.stopPropagation();
                             mark(row, "valuedAt");
@@ -1149,7 +1167,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                         <Button
                           size="sm"
                           variant="outline"
-                          disabled={row.docstatus === 2 || !row.handoverAt || !row.valuedAt || busyKey === `${row.companyId}:${row.name}:receivedAt`}
+                          disabled={row.isCancelled || !row.handoverAt || !row.valuedAt || busyKey === `${row.companyId}:${row.name}:receivedAt`}
                           onClick={(event) => {
                             event.stopPropagation();
                             mark(row, "receivedAt");
@@ -1229,17 +1247,19 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                   return (
                   <TableRow key={rowKey} className="cursor-pointer" onClick={() => setSelectedSsr(row)}>
                     <TableCell className="font-medium">
-                      <button
-                        type="button"
-                        className="text-left text-primary underline-offset-4 hover:underline"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          setSelectedSsr(row);
-                        }}
-                      >
-                        {row.name}
-                      </button>
-                      {row.docstatus === 2 && <div className="text-xs text-destructive">Cancelled</div>}
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          className="text-left text-primary underline-offset-4 hover:underline"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setSelectedSsr(row);
+                          }}
+                        >
+                          {row.name}
+                        </button>
+                        {row.docstatus === 2 && <CancelledBadge />}
+                      </div>
                       {row.amendedFrom && (
                         <div className="text-xs text-muted-foreground">Amended from {row.amendedFrom}</div>
                       )}

@@ -189,12 +189,14 @@ export async function GET(request: NextRequest) {
 
   const intercompanySupplierCodes = new Set(intercompanySuppliers.map((row) => row.supplier));
   const stockReturnByName = new Map(stockReturns.map((row) => [row.name, row]));
-  const activePurchaseReceiptsForMatching = purchaseReceipts.filter((row) => row.docstatus !== 2);
+  const amendedPurchaseReceiptNames = new Set(purchaseReceipts.map((row) => row.amendedFrom).filter((name): name is string => Boolean(name)));
+  const isPurchaseReceiptCancelled = (row: (typeof purchaseReceipts)[number]) => row.docstatus === 2 || amendedPurchaseReceiptNames.has(row.name);
+  const activePurchaseReceiptsForMatching = purchaseReceipts.filter((row) => !isPurchaseReceiptCancelled(row));
   const activePurchaseReceiptNames = new Set(activePurchaseReceiptsForMatching.map((row) => row.name));
   const activePurchaseReceiptByName = new Map(activePurchaseReceiptsForMatching.map((row) => [row.name, row]));
   const activeIntercompanyPurchaseReceipts = purchaseReceipts.filter(
     (row) =>
-      row.docstatus !== 2 &&
+      !isPurchaseReceiptCancelled(row) &&
       !row.supplierStockReturnName &&
       intercompanySupplierCodes.has(row.supplier),
   );
@@ -204,7 +206,7 @@ export async function GET(request: NextRequest) {
       const linked = row.supplierStockReturnName
         ? stockReturnByName.get(row.supplierStockReturnName)
         : null;
-      const activeLinked = row.docstatus !== 2 && linked?.docstatus !== 2 ? linked : null;
+      const activeLinked = !isPurchaseReceiptCancelled(row) && linked?.docstatus !== 2 ? linked : null;
       const tally = activeLinked
         ? tallyLinkedItems(row.items, activeLinked.items)
         : { status: "not_linked" as const, issueItems: [] };
@@ -255,6 +257,7 @@ export async function GET(request: NextRequest) {
           row.name,
         ),
         adjustmentNo: row.supplierStockReturnName,
+        adjustmentDocstatus: linked?.docstatus ?? null,
         amendedFrom: row.amendedFrom,
         grnDate: iso(row.creation ?? row.postingDate),
         grnBy: row.owner,
@@ -269,6 +272,7 @@ export async function GET(request: NextRequest) {
         canMarkReceived: true,
         status: row.status,
         docstatus: row.docstatus,
+        isCancelled: isPurchaseReceiptCancelled(row),
         itemCount: row.items.length,
         items: row.items.map((item) => ({
           name: item.name,

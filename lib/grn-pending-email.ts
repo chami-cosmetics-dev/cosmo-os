@@ -209,11 +209,23 @@ export async function buildGrnPendingReportSnapshot(
   });
   if (!company) throw new Error("Company not found");
 
+  const amendedSourceRows = await prisma.grnPurchaseReceipt.findMany({
+    where: {
+      companyId,
+      amendedFrom: { not: null },
+    },
+    select: { amendedFrom: true },
+  });
+  const amendedSourceNames = amendedSourceRows
+    .map((row) => row.amendedFrom)
+    .filter((name): name is string => Boolean(name));
+
   const receipts = await prisma.grnPurchaseReceipt.findMany({
     where: {
       companyId,
       docstatus: { not: 2 },
       receivedAt: null,
+      ...(amendedSourceNames.length > 0 ? { name: { notIn: amendedSourceNames } } : {}),
     },
     include: { items: true },
     orderBy: [{ creation: "asc" }, { createdAt: "asc" }],
