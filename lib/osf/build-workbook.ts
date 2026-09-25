@@ -22,7 +22,7 @@ import {
   sumSignedOrderQtysFlooredAtZero,
 } from "@/lib/osf/formulas";
 import { baseSku } from "@/lib/osf/base-sku";
-import type { OsfVariant } from "@/lib/osf/vat-membership";
+import { vatStatusLabel, type OsfVariant } from "@/lib/osf/vat-membership";
 import {
   findCosmeticsLkRopColumn,
   selectVatRopColumns,
@@ -173,6 +173,7 @@ export function identityHeaders(): string[] {
     "Base SKU",
     "ERP1 Priority",
     "ERP2 Priority",
+    "VAT Status",
     "Item Status",
     "Shop Availability",
     "Description",
@@ -268,6 +269,7 @@ export function buildMainSheetRows(input: BuildWorkbookInput): Record<string, st
       "Base SKU": forms.baseSku,
       "ERP1 Priority": row.erp1ProductPriority ?? "",
       "ERP2 Priority": row.erp2ProductPriority ?? "",
+      "VAT Status": vatStatusLabel(row),
       "Item Status": row.itemStatusLabel ?? "",
       "Shop Availability": availabilityLabel(profile?.shopAvailability),
       Description: row.productTitle,

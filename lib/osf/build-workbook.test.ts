@@ -120,6 +120,19 @@ describe("buildMainSheetRows", () => {
     expect(first).toHaveProperty("April 2026 Purchase Qty");
     expect(first).toHaveProperty("April 2026 Purchase Total");
     expect(first["Shop Availability"]).toBe("Allowed");
+    expect(first["VAT Status"]).toBe("Non-VAT");
+    const vatOnly = buildMainSheetRows({
+      catalog: [{ ...catalog[0]!, erp1ProductPriority: "Vat" }],
+      columns,
+      profiles: new Map(),
+      binMap: new Map(),
+      costMap: new Map(),
+      purchaseMap: new Map(),
+      monthlySales: new Map(),
+      salesMonth: "2026-06",
+      asOfDate: "2026-07-16",
+    });
+    expect(vatOnly[0]!["VAT Status"]).toBe("VAT");
     // OGF margin = (90-40)/90
     expect(first["OGF Margin %"]).toBeCloseTo(55.56, 1);
     // Purchasing data from ERP purchase receipts

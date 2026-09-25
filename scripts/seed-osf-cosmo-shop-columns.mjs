@@ -15,7 +15,8 @@ const SHOPS = [
   { key: "cosmo_shop_ogf", label: "OGF Shop", warehouse: "OGF Shop Warehouse - Cosmo", sortOrder: 13 },
   { key: "cosmo_shop_kiribathgoda", label: "Kiribathgoda Shop", warehouse: "Kiribathgoda Shop Warehouse - Cosmo", sortOrder: 14 },
   { key: "cosmo_shop_maharagama", label: "Maharagama Shop", warehouse: "Maharagama Shop Warehouse - Cosmo", sortOrder: 15 },
-  { key: "cosmo_shop_coolplanet", label: "Cool Planet Shop", warehouse: "Cool Planet Nugegoda Shop Warehouse - Cosmo", sortOrder: 16 },
+  { key: "cosmo_shop_coolplanet", label: "Cool Planet Nugegoda Shop", warehouse: "Cool Planet Nugegoda Shop Warehouse - Cosmo", sortOrder: 16 },
+  { key: "cosmo_shop_negombo", label: "Negombo Shop", warehouse: "Negombo Shop Warehouse - Cosmo", sortOrder: 17 },
 ];
 
 const companyId = process.argv[2];

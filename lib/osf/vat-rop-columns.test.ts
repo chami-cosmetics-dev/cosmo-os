@@ -51,6 +51,21 @@ describe("selectVatRopColumns", () => {
     expect(selected.map((c) => c.key)).toEqual(["cosmetics_lk", "cosmo_shop_gcc"]);
   });
 
+  it("drops trading shop floors from VAT OSF", () => {
+    const chamiShop = col({
+      key: "chami_shop_gcc",
+      label: "Chami ShopWarehouse GCC",
+      companyLocationId: "loc_chami",
+      companyLocationName: "Chami",
+      directWarehouses: ["Shop Warehouse - Chami"],
+      warehouses: ["Shop Warehouse - Chami"],
+    });
+    expect(selectVatRopColumns([cosmetics, shop, chamiShop]).map((c) => c.key)).toEqual([
+      "cosmetics_lk",
+      "cosmo_shop_gcc",
+    ]);
+  });
+
   it("selectVatStockColumns mirrors location filter for stock", () => {
     expect(selectVatStockColumns([cosmetics, shop, lmj]).map((c) => c.key)).toEqual([
       "cosmetics_lk",

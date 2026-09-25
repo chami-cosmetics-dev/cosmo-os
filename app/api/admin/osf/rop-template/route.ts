@@ -7,6 +7,7 @@ import { buildCatalogRows } from "@/lib/osf/catalog-rows";
 import { resolveOsfColumns } from "@/lib/osf/column-config";
 import { getAllOsfErpInstances } from "@/lib/osf/erp-stock";
 import { buildRopTemplateAoa } from "@/lib/osf/rop-import";
+import { selectVatRopColumns } from "@/lib/osf/vat-rop-columns";
 import { prisma } from "@/lib/prisma";
 import { resolveErpSlots } from "@/lib/product-items/erp-priority-sync";
 import { getCurrentUserContext, requirePermission } from "@/lib/rbac";
@@ -84,9 +85,14 @@ export async function GET() {
     }));
   }
 
+  const erp1TotalKeys = isVaultOsDeployment()
+    ? undefined
+    : selectVatRopColumns(columns).map((c) => c.key);
+
   const aoa = buildRopTemplateAoa({
     ropColumns,
     rows: templateRows,
+    erp1TotalKeys,
   });
 
   const wb = XLSX.utils.book_new();
