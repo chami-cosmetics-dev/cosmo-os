@@ -5,7 +5,11 @@ import { listOsfBuyers } from "@/lib/osf/buyer-config";
 import { buildCatalogRows } from "@/lib/osf/catalog-rows";
 import { resolveEffectiveOsfColumnKeys } from "@/lib/osf/column-visibility";
 import { resolveOsfColumns } from "@/lib/osf/column-config";
-import { fetchLatestCostAndSupplier, OsfErpError } from "@/lib/osf/erp-cost-supplier";
+import {
+  fetchItemCountries,
+  fetchLatestCostAndSupplier,
+  OsfErpError,
+} from "@/lib/osf/erp-cost-supplier";
 import { mergeInstanceErpData, type InstanceErpData } from "@/lib/osf/erp-merge";
 import { aggregateSalesBySkuByMonthInRange } from "@/lib/osf/assist-sales";
 import {
@@ -23,7 +27,13 @@ import {
 } from "@/lib/osf/monthly-sales";
 import { syncOgfPricesFromErp } from "@/lib/osf/sync-ogf-prices-from-erp";
 import { isBelowReorderThreshold } from "@/lib/osf/threshold";
-import { filterCatalogByOsfVariant, type OsfVariant } from "@/lib/osf/vat-membership";
+import { fetchErpTaxStatusBySkus } from "@/lib/osf/erp-tax-status";
+import {
+  applyTaxStatusToCatalog,
+  filterCatalogByOsfVariant,
+  type OsfVariant,
+} from "@/lib/osf/vat-membership";
+import { normalizeSkuKey, resolveErpSlots } from "@/lib/product-items/erp-priority-sync";
 import {
   findCosmeticsLkRopColumn,
   selectVatRopColumns,
@@ -196,7 +206,30 @@ export async function POST(request: NextRequest) {
       profileMap.set(r.sku, entry);
     }
 
-    let catalog = filterCatalogByOsfVariant(catalogRaw, osfVariant);
+    const catalogSkus = catalogRaw.map((c) => c.sku);
+    const slots = resolveErpSlots(erpInstances);
+    const erp1Inst = slots.erp1
+      ? (erpInstances.find((i) => i.id === slots.erp1!.id) ?? null)
+      : null;
+    const erp2Inst = slots.erp2
+      ? (erpInstances.find((i) => i.id === slots.erp2!.id) ?? null)
+      : null;
+    const [erp1TaxBySku, erp2TaxBySku] = await Promise.all([
+      erp1Inst
+        ? fetchErpTaxStatusBySkus(erp1Inst.cfg, catalogSkus)
+        : Promise.resolve(new Map<string, string | null>()),
+      erp2Inst
+        ? fetchErpTaxStatusBySkus(erp2Inst.cfg, catalogSkus)
+        : Promise.resolve(new Map<string, string | null>()),
+    ]);
+    const catalogWithTax = applyTaxStatusToCatalog(
+      catalogRaw,
+      erp1TaxBySku,
+      erp2TaxBySku,
+      normalizeSkuKey,
+    );
+
+    let catalog = filterCatalogByOsfVariant(catalogWithTax, osfVariant);
     let skus = catalog.map((c) => c.sku);
 
     const warehousesByInstance = new Map<string, Set<string>>();
@@ -286,6 +319,22 @@ export async function POST(request: NextRequest) {
     const bestPurchaseBySku = mergeBestPurchaseMaps(
       perInstanceResults.map((r) => r.monthlyPurchases.best),
     );
+
+    const countryInstances = [erp1Inst, erp2Inst, ...erpInstances].filter(
+      (inst, idx, all): inst is NonNullable<typeof inst> =>
+        Boolean(inst) && all.findIndex((x) => x?.id === inst.id) === idx,
+    );
+    const countryBySku = await fetchItemCountries({
+      instances: countryInstances,
+      itemCodes: skus,
+    });
+    catalog = catalog.map((row) => ({
+      ...row,
+      country:
+        countryBySku.get(row.sku) ??
+        countryBySku.get(normalizeSkuKey(row.sku)) ??
+        row.country,
+    }));
 
     const effectiveColumnKeys = context?.user
       ? await resolveEffectiveOsfColumnKeys(context, companyId, osfVariant)

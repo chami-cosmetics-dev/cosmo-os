@@ -277,7 +277,7 @@ export function buildMainSheetRows(input: BuildWorkbookInput): Record<string, st
       Description: row.productTitle,
       Brand: row.brand ?? "",
       "Variant Barcode": row.barcode ?? "",
-      Country: "",
+      Country: row.country ?? "",
       "Image Src": row.imageUrl ?? "",
       "Site Status": row.siteStatus ?? "",
     };

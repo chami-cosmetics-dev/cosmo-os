@@ -17,6 +17,11 @@ export type OsfCatalogRow = {
   itemStatusCategory: string;
   erp1ProductPriority: string | null;
   erp2ProductPriority: string | null;
+  /** ERP Item Manufacturing Tax Status (`Vat` / `Non Vat` / `Vat / Non Vat`). */
+  erp1TaxStatus: string | null;
+  erp2TaxStatus: string | null;
+  /** ERP Item.country_of_origin. */
+  country: string | null;
   mrp: number | null;
   discountedPrice: number | null;
   vendorId: string | null;
@@ -117,6 +122,9 @@ export async function buildCatalogRows(
       itemStatusCategory: item.itemStatusCategory,
       erp1ProductPriority: erp1,
       erp2ProductPriority: erp2,
+      erp1TaxStatus: null,
+      erp2TaxStatus: null,
+      country: null,
       mrp: mrp != null && Number.isFinite(mrp) ? mrp : null,
       discountedPrice: discounted != null && Number.isFinite(discounted) ? discounted : null,
       vendorId: item.vendorId,

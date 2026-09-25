@@ -3,7 +3,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 import { fetchLatestCostAndSupplier, OsfErpError } from "@/lib/osf/erp-cost-supplier";
 import { mergeInstanceErpData, type InstanceErpData } from "@/lib/osf/erp-merge";
-import { fetchLastPurchaseByItem } from "@/lib/osf/erp-purchases";
+import {
+  fetchLastPurchaseByItem,
+  SKU_CALCULATOR_PURCHASE_SOURCE,
+} from "@/lib/osf/erp-purchases";
 import { getAllOsfErpInstances } from "@/lib/osf/erp-stock";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserContext, hasPermission } from "@/lib/rbac";
@@ -104,7 +107,7 @@ export async function GET(request: NextRequest) {
   >();
 
   const vault = isVaultOsDeployment();
-  const purchaseSource = vault ? "invoice" : "receipt";
+  const purchaseSource = SKU_CALCULATOR_PURCHASE_SOURCE;
 
   try {
     if (erpInstances.length > 0) {
