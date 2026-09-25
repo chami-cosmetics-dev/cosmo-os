@@ -67,7 +67,7 @@ export async function fetchLatestCostAndSupplier(input: {
   return result;
 }
 
-/** Item.country_of_origin, then custom_country_claim_type. First ERP instance wins. */
+/** Item.country_of_origin only — Cosmo list API rejects custom_country_claim_type. */
 export async function fetchItemCountries(input: {
   instances: Array<{ cfg: OsfErpCredentials }>;
   itemCodes: string[];
@@ -83,23 +83,24 @@ export async function fetchItemCountries(input: {
       for (let i = 0; i < missing.length; i += ITEM_BATCH) {
         const batch = missing.slice(i, i + ITEM_BATCH);
         const filters = JSON.stringify([["name", "in", batch]]);
-        const fields = JSON.stringify(["name", "country_of_origin", "custom_country_claim_type"]);
+        const fields = JSON.stringify(["name", "item_code", "country_of_origin"]);
         const path =
           `/api/resource/Item?filters=${encodeURIComponent(filters)}` +
           `&fields=${encodeURIComponent(fields)}&limit_page_length=${ITEM_BATCH}`;
         const json = await erpGetJson<{
           data?: Array<{
             name?: string;
+            item_code?: string;
             country_of_origin?: string | null;
-            custom_country_claim_type?: string | null;
           }>;
         }>(inst.cfg, path);
         for (const row of json.data ?? []) {
-          const name = row.name?.trim();
-          if (!name || result.has(name)) continue;
-          const country =
-            row.country_of_origin?.trim() || row.custom_country_claim_type?.trim() || "";
-          if (country) result.set(name, country);
+          const country = row.country_of_origin?.trim() || "";
+          if (!country) continue;
+          for (const key of [row.name, row.item_code]) {
+            const code = key?.trim();
+            if (code && !result.has(code)) result.set(code, country);
+          }
         }
       }
     } catch (err) {
