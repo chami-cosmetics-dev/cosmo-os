@@ -23,6 +23,8 @@ type MailerooAttachment = {
   filename: string;
   contentType: string;
   buffer: Buffer;
+  inline?: boolean;
+  contentId?: string;
 };
 
 async function sendMailerooEmail(input: {
@@ -70,7 +72,10 @@ async function sendMailerooEmail(input: {
                 file_name: attachment.filename,
                 content_type: attachment.contentType,
                 content: attachment.buffer.toString("base64"),
-                inline: false,
+                inline: Boolean(attachment.inline),
+                ...(attachment.contentId
+                  ? { content_id: attachment.contentId }
+                  : {}),
               })),
             }
           : {}),
@@ -107,6 +112,7 @@ export async function sendOsRegistrationWelcomeEmail(input: {
   toEmail: string;
   subject: string;
   html: string;
+  attachments?: MailerooAttachment[];
 }): Promise<{ success: boolean; message?: string }> {
   const plain = input.html.replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
   return sendMailerooEmail({
@@ -114,6 +120,7 @@ export async function sendOsRegistrationWelcomeEmail(input: {
     subject: input.subject,
     html: input.html,
     plain,
+    attachments: input.attachments,
     errorLabel: "os-registration welcome",
   });
 }
