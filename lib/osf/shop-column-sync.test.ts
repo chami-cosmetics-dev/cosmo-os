@@ -17,6 +17,13 @@ describe("cosmoShopKeyFromWarehouse / label", () => {
       "cosmo_shop_pepiliyana",
     );
   });
+
+  it("handles Negombo shop warehouse", () => {
+    expect(cosmoShopKeyFromWarehouse("Negombo Shop Warehouse - Cosmo")).toBe(
+      "cosmo_shop_negombo",
+    );
+    expect(cosmoShopLabelFromWarehouse("Negombo Shop Warehouse - Cosmo")).toBe("Negombo Shop");
+  });
 });
 
 describe("shop warehouse qualification (reuse isShopWarehouseName)", () => {

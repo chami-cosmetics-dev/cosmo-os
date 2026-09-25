@@ -3,7 +3,7 @@
 type SourceRow = { column: string; source: string; note: string };
 
 const ROWS: SourceRow[] = [
-  { column: "Identity (SKU, description, brand, barcode, image, status)", source: "Cosmo", note: "Product catalog" },
+  { column: "Identity (SKU, description, brand, barcode, image, status, VAT Status)", source: "Cosmo", note: "VAT Status from ERP1/ERP2 Product Priority = Vat" },
   { column: "Shop Availability", source: "Cosmo UI", note: "Edited on this page" },
   { column: "Stock locations", source: "ERP", note: "Bin actual_qty via location warehouses" },
   { column: "ROP / Common ROP", source: "Cosmo UI", note: "Edited on this page — not ERP" },

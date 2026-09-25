@@ -16,6 +16,13 @@ export function isVatCatalogRow(row: Pick<OsfCatalogRow, "erp1ProductPriority" |
   return isVatErpPriority(row.erp1ProductPriority) || isVatErpPriority(row.erp2ProductPriority);
 }
 
+/** OSF identity label: VAT if either ERP Product Priority is Vat. */
+export function vatStatusLabel(
+  row: Pick<OsfCatalogRow, "erp1ProductPriority" | "erp2ProductPriority">,
+): "VAT" | "Non-VAT" {
+  return isVatCatalogRow(row) ? "VAT" : "Non-VAT";
+}
+
 export function filterCatalogByOsfVariant<T extends Pick<OsfCatalogRow, "erp1ProductPriority" | "erp2ProductPriority">>(
   catalog: T[],
   variant: OsfVariant,

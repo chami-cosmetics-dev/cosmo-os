@@ -5,6 +5,7 @@ import {
   filterCatalogByOsfVariant,
   isVatCatalogRow,
   isVatErpPriority,
+  vatStatusLabel,
 } from "@/lib/osf/vat-membership";
 
 function row(
@@ -47,6 +48,8 @@ describe("isVatCatalogRow / filterCatalogByOsfVariant", () => {
     expect(isVatCatalogRow(vatErp2)).toBe(true);
     expect(isVatCatalogRow(vatBoth)).toBe(true);
     expect(isVatCatalogRow(nonVat)).toBe(false);
+    expect(vatStatusLabel(vatErp1)).toBe("VAT");
+    expect(vatStatusLabel(nonVat)).toBe("Non-VAT");
   });
 
   it("main keeps all", () => {
