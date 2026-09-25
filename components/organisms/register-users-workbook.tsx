@@ -254,6 +254,19 @@ export function RegisterUsersWorkbook() {
         return;
       }
       notify.success(`Saved: ${outcomeLabel(data.outcome)}`);
+      if (data.email?.status === "sent") {
+        notify.success("Welcome email sent.");
+      } else if (data.email?.status === "skipped" && data.email.reason === "no_email") {
+        notify.info("Saved. No email on this contact — mail skipped.");
+      } else if (data.email?.status === "skipped") {
+        notify.info("Saved. Email template empty — mail skipped.");
+      } else if (data.email?.status === "failed") {
+        notify.error(
+          typeof data.email.error === "string"
+            ? data.email.error
+            : "Welcome email failed.",
+        );
+      }
       setName("");
       setPhone("");
       setEmail("");
