@@ -60,7 +60,7 @@ export async function GET() {
   }
   const parsed = parseStoredEmailPhoto(stored);
   if (parsed) {
-    return new NextResponse(parsed.buffer, {
+    return new NextResponse(Uint8Array.from(parsed.buffer), {
       headers: {
         "Content-Type": parsed.mime,
         "Cache-Control": "private, no-store",
