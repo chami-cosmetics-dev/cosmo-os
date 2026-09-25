@@ -12,6 +12,7 @@ import {
   mergeBestPurchaseMaps,
   mergeMonthlyPurchaseMaps,
   normalizeSupplierKey,
+  SKU_CALCULATOR_PURCHASE_SOURCE,
   type PurchaseRow,
 } from "@/lib/osf/erp-purchases";
 
@@ -323,6 +324,12 @@ describe("isNoisePurchaseSupplier", () => {
   });
 });
 
+describe("SKU_CALCULATOR_PURCHASE_SOURCE", () => {
+  it("uses invoices so Cosmo best-ever is not a stale priced receipt", () => {
+    expect(SKU_CALCULATOR_PURCHASE_SOURCE).toBe("invoice");
+  });
+});
+
 describe("accumulateSupplierPurchasesFromRows", () => {
   it("groups two suppliers with best-ever and last purchase", () => {
     const rows: PurchaseRow[] = [
@@ -521,6 +528,57 @@ describe("accumulateSupplierPurchasesFromRows", () => {
     expect(result.has("cash ae 001")).toBe(false);
     expect(result.has("cash or 001")).toBe(false);
     expect(result.has("sync-test supplier")).toBe(false);
+  });
+
+  it("ALT02_1 BeautyBee invoices: last and best-ever 6800, not July receipt 6950", () => {
+    const rows: PurchaseRow[] = [
+      {
+        name: "PI500-0124",
+        supplier: "OUT005",
+        supplier_name: "BeautyBee",
+        posting_date: "2026-09-23",
+        item_code: "ALT02_1",
+        qty: 4,
+        rate: 6800,
+        docstatus: 1,
+        status: "Overdue",
+        is_return: 0,
+      },
+      {
+        name: "PI900-0202",
+        supplier: "OUT005",
+        supplier_name: "BeautyBee",
+        posting_date: "2026-09-21",
+        item_code: "ALT02_1",
+        qty: 4,
+        rate: 6800,
+        docstatus: 1,
+        status: "Overdue",
+        is_return: 0,
+      },
+      {
+        name: "PI400-0026",
+        supplier: "OUT005",
+        supplier_name: "BeautyBee",
+        posting_date: "2026-08-07",
+        item_code: "ALT02_1",
+        qty: 2,
+        rate: 6950,
+        docstatus: 1,
+        status: "Paid",
+        is_return: 0,
+      },
+    ];
+    const result = accumulateSupplierPurchasesFromRows({
+      rows,
+      sku: "ALT02_1",
+      allowedSuppliers: [{ name: "BeautyBee", code: "OUT005" }],
+    });
+    const bee = result.get("beautybee")!;
+    expect(bee.lastRate).toBe(6800);
+    expect(bee.lastDate).toBe("2026-09-23");
+    expect(bee.bestEverRate).toBe(6800);
+    expect(bee.bestEverDate).toBe("2026-09-23");
   });
 });
 

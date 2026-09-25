@@ -24,6 +24,9 @@ const catalog: OsfCatalogRow[] = [
     itemStatusCategory: "CONTINUE",
     erp1ProductPriority: "Continue",
     erp2ProductPriority: "Continue",
+    erp1TaxStatus: "Non Vat",
+    erp2TaxStatus: null,
+    country: "Korea, Republic of",
     mrp: 100,
     discountedPrice: 80,
     vendorId: null,
@@ -39,6 +42,9 @@ const catalog: OsfCatalogRow[] = [
     itemStatusCategory: "CONTINUE",
     erp1ProductPriority: "Continue",
     erp2ProductPriority: "Continue",
+    erp1TaxStatus: "Non Vat",
+    erp2TaxStatus: null,
+    country: null,
     mrp: 100,
     discountedPrice: 80,
     vendorId: null,
@@ -120,9 +126,10 @@ describe("buildMainSheetRows", () => {
     expect(first).toHaveProperty("April 2026 Purchase Qty");
     expect(first).toHaveProperty("April 2026 Purchase Total");
     expect(first["Shop Availability"]).toBe("Allowed");
-    expect(first["VAT Status"]).toBe("Non-VAT");
+    expect(first["VAT Status"]).toBe("Non Vat");
+    expect(first.Country).toBe("Korea, Republic of");
     const vatOnly = buildMainSheetRows({
-      catalog: [{ ...catalog[0]!, erp1ProductPriority: "Vat" }],
+      catalog: [{ ...catalog[0]!, erp1TaxStatus: "Vat" }],
       columns,
       profiles: new Map(),
       binMap: new Map(),
@@ -132,7 +139,7 @@ describe("buildMainSheetRows", () => {
       salesMonth: "2026-06",
       asOfDate: "2026-07-16",
     });
-    expect(vatOnly[0]!["VAT Status"]).toBe("VAT");
+    expect(vatOnly[0]!["VAT Status"]).toBe("Vat");
     // OGF margin = (90-40)/90
     expect(first["OGF Margin %"]).toBeCloseTo(55.56, 1);
     // Purchasing data from ERP purchase receipts
@@ -143,6 +150,7 @@ describe("buildMainSheetRows", () => {
     expect(first["Purchased (last 30d)"]).toBe(18);
     // Item without a purchase record stays blank
     const second = rows[1]!;
+    expect(second.Country).toBe("");
     expect(second["Last Purchase Qty"]).toBeNull();
     expect(second["Days Since Last Purchase"]).toBeNull();
     expect(second["Purchased (last 30d)"]).toBeNull();

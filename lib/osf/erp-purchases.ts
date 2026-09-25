@@ -54,6 +54,13 @@ export type OsfBestPurchase = {
 /** Receipt (Cosmo default) vs Invoice (Vault — PR rates often placeholder/stale). */
 export type PurchaseDocSource = "receipt" | "invoice";
 
+/**
+ * Purchasing SKU calculator + supplier compare. Always invoices.
+ * Cosmo Purchase Receipts often post qty with rate 0; best-ever then sticks
+ * to an old priced receipt instead of the real invoice unit price.
+ */
+export const SKU_CALCULATOR_PURCHASE_SOURCE: PurchaseDocSource = "invoice";
+
 function purchaseDocMeta(source: PurchaseDocSource): {
   doctype: string;
   childDoctype: string;
@@ -344,9 +351,8 @@ async function erpGetJson<T>(cfg: OsfErpCredentials, path: string): Promise<T> {
 /**
  * Latest purchase (supplier, qty, date) per item from ERP purchase docs.
  *
- * Default source = Purchase Receipt (Cosmo). Vault SKU calculator / OSF use
- * Purchase Invoice — receipt rates are often placeholder (e.g. 100) while
- * invoices carry the real cost.
+ * Default source = Purchase Receipt. SKU calculator / Vault OSF pass invoice —
+ * Cosmo receipt rates are often 0 / placeholder while invoices carry the cost.
  *
  * Uses Frappe parent+child "fields-only" join. Rows newest-first; first
  * allowed item_code hit is latest purchase. Allowlist skips intercompany.
@@ -358,7 +364,7 @@ export async function fetchLastPurchaseByItem(input: {
   recentSinceDate?: string;
   /** Company Supplier list; empty/omitted = no filter (legacy). */
   allowedSuppliers?: AllowedSupplier[];
-  /** Default receipt; Vault passes invoice. */
+  /** Default receipt; SKU calculator / Vault pass invoice. */
   source?: PurchaseDocSource;
 }): Promise<Map<string, ItemLastPurchase>> {
   const needed = new Set(input.itemCodes.map((s) => s.trim()).filter(Boolean));
@@ -420,7 +426,7 @@ export async function fetchSupplierPurchasesBySku(input: {
   cfg: OsfErpCredentials;
   sku: string;
   allowedSuppliers?: AllowedSupplier[];
-  /** Default receipt; Vault passes invoice. */
+  /** Default receipt; SKU calculator / Vault pass invoice. */
   source?: PurchaseDocSource;
 }): Promise<Map<string, SupplierPurchaseSummary>> {
   const sku = input.sku.trim();
