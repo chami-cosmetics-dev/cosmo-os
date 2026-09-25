@@ -3,7 +3,10 @@ import "server-only";
 import { parseAppCalendarDayStart } from "@/lib/format-datetime";
 import { osfCompletedSalesOrderWhere } from "@/lib/osf/assist-sales";
 import { prisma } from "@/lib/prisma";
-import { monthKeysInWindow } from "@/lib/vault-osf/months";
+import { monthKeysInWindow, parseYearMonth } from "@/lib/vault-osf/months";
+
+/** Trailing calendar months including as-of month. Bump to 6 after purchase-history backfill. */
+export const OSF_BEST_PURCHASE_MONTHS = 3;
 
 const COLOMBO = "Asia/Colombo";
 
@@ -100,4 +103,23 @@ export function osfPurchaseGridBounds(asOfDate: string): { start: string; end: s
   const first = months[0];
   if (!first) throw new Error(`Invalid asOfDate: ${asOfDate}`);
   return { start: `${first}-01`, end: asOfDate };
+}
+
+/** Inclusive bounds for best purchase: last N months including as-of month, clipped at asOfDate. */
+export function osfBestPurchaseBounds(
+  asOfDate: string,
+  monthCount: number = OSF_BEST_PURCHASE_MONTHS,
+): { start: string; end: string } {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(asOfDate)) throw new Error(`Invalid asOfDate: ${asOfDate}`);
+  if (!Number.isInteger(monthCount) || monthCount < 1) {
+    throw new Error(`Invalid best-purchase monthCount: ${monthCount}`);
+  }
+  const { year, month } = parseYearMonth(asOfDate.slice(0, 7));
+  const idx = year * 12 + (month - 1) - (monthCount - 1);
+  const startYear = Math.floor(idx / 12);
+  const startMonth = (idx % 12) + 1;
+  return {
+    start: `${startYear}-${String(startMonth).padStart(2, "0")}-01`,
+    end: asOfDate,
+  };
 }

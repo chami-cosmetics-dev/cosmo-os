@@ -177,6 +177,25 @@ describe("buildMainSheetRows", () => {
     expect(row.AVE).toBe(6);
   });
 
+  it("writes Best Purchase Value and Best Supplier from the 3-month window", () => {
+    const rows = buildMainSheetRows({
+      catalog: [catalog[0]!],
+      columns,
+      profiles: new Map(),
+      binMap: new Map(),
+      costMap: new Map(),
+      purchaseMap: new Map(),
+      monthlySales: new Map(),
+      salesMonth: "2026-09",
+      asOfDate: "2026-09-25",
+      bestPurchaseBySku: new Map([
+        ["CAN07_1", { value: 40, supplier: "Beta Co", date: "2026-08-02" }],
+      ]),
+    });
+    expect(rows[0]!["Best Purchase Value"]).toBe(40);
+    expect(rows[0]!["Best Supplier"]).toBe("Beta Co");
+  });
+
   it("VAT OSF: Cosmetics.lk + shop ROP only; Total ROP = Cosmetics.lk (not shop sum)", () => {
     const vatCols: OsfResolvedColumn[] = [
       {
@@ -460,6 +479,8 @@ describe("buildOsfWorkbookBuffer", () => {
       expect(headers).toContain("Total Stock");
       expect(headers).toContain("Total ROP");
       expect(headers).toContain("April 2026 Sales Total");
+      expect(headers).toContain("Best Purchase Value");
+      expect(headers).toContain("Best Supplier");
       expect(headers).toContain("April 2026 Purchase Qty");
       expect(headers).toContain("June 2026 Purchase Total");
       expect(headers).toContain("Max sale");

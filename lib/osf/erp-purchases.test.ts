@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  accumulateBestPurchaseFromRows,
   accumulateLastPurchasesFromRows,
   accumulateMonthlyPurchasesFromRows,
   accumulateSupplierPurchasesFromRows,
@@ -8,6 +9,7 @@ import {
   isAllowedSupplier,
   isNoisePurchaseSupplier,
   isUsablePurchaseDoc,
+  mergeBestPurchaseMaps,
   mergeMonthlyPurchaseMaps,
   normalizeSupplierKey,
   type PurchaseRow,
@@ -602,6 +604,116 @@ describe("accumulateMonthlyPurchasesFromRows", () => {
     expect(merged.get("CAN07")).toEqual({
       "2026-04": { qty: 3, netValue: 30 },
       "2026-05": { qty: 1, netValue: 5 },
+    });
+  });
+});
+
+describe("accumulateBestPurchaseFromRows", () => {
+  const bounds = { start: "2026-07-01", end: "2026-09-25" };
+
+  it("picks lowest positive unit rate and its supplier inside the window", () => {
+    const rows: PurchaseRow[] = [
+      {
+        name: "PI-1",
+        supplier: "ACME",
+        supplier_name: "Acme",
+        posting_date: "2026-07-10",
+        item_code: "CAN07",
+        qty: 2,
+        rate: 50,
+        net_amount: 100,
+        docstatus: 1,
+        is_return: 0,
+      },
+      {
+        name: "PI-2",
+        supplier: "BETA",
+        supplier_name: "Beta Co",
+        posting_date: "2026-08-02",
+        item_code: "CAN07",
+        qty: 4,
+        rate: 40,
+        net_amount: 160,
+        docstatus: 1,
+        is_return: 0,
+      },
+      {
+        name: "PI-3",
+        supplier: "GAMMA",
+        supplier_name: "Gamma",
+        posting_date: "2026-06-30",
+        item_code: "CAN07",
+        qty: 1,
+        rate: 10,
+        net_amount: 10,
+        docstatus: 1,
+        is_return: 0,
+      },
+      {
+        name: "PI-4",
+        supplier: "DELTA",
+        supplier_name: "Delta",
+        posting_date: "2026-09-01",
+        item_code: "CAN07",
+        qty: 3,
+        rate: 0,
+        net_amount: 0,
+        docstatus: 1,
+        is_return: 0,
+      },
+    ];
+    const map = accumulateBestPurchaseFromRows({ rows, bounds });
+    expect(map.get("CAN07")).toEqual({ value: 40, supplier: "Beta Co", date: "2026-08-02" });
+  });
+
+  it("skips returns and ties on rate pick the newer date", () => {
+    const rows: PurchaseRow[] = [
+      {
+        name: "PI-R",
+        supplier: "ACME",
+        supplier_name: "Acme",
+        posting_date: "2026-09-01",
+        item_code: "CAN07",
+        qty: 1,
+        rate: 5,
+        net_amount: 5,
+        docstatus: 1,
+        is_return: 1,
+      },
+      {
+        name: "PI-OLD",
+        supplier: "ACME",
+        supplier_name: "Acme",
+        posting_date: "2026-07-01",
+        item_code: "CAN07",
+        qty: 1,
+        rate: 20,
+        net_amount: 20,
+        docstatus: 1,
+      },
+      {
+        name: "PI-NEW",
+        supplier: "BETA",
+        supplier_name: "Beta Co",
+        posting_date: "2026-09-10",
+        item_code: "CAN07",
+        qty: 1,
+        rate: 20,
+        net_amount: 20,
+        docstatus: 1,
+      },
+    ];
+    const map = accumulateBestPurchaseFromRows({ rows, bounds });
+    expect(map.get("CAN07")).toEqual({ value: 20, supplier: "Beta Co", date: "2026-09-10" });
+  });
+
+  it("merges best purchase across ERP instances by lowest rate", () => {
+    const a = new Map([["CAN07", { value: 45, supplier: "Acme", date: "2026-08-01" }]]);
+    const b = new Map([["CAN07", { value: 30, supplier: "Beta Co", date: "2026-07-15" }]]);
+    expect(mergeBestPurchaseMaps([a, b]).get("CAN07")).toEqual({
+      value: 30,
+      supplier: "Beta Co",
+      date: "2026-07-15",
     });
   });
 });

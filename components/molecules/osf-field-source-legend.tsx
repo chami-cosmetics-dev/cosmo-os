@@ -21,7 +21,12 @@ const ROWS: SourceRow[] = [
   {
     column: "Purchase grid (Apr→as-of)",
     source: "ERP",
-    note: "Purchase Receipt qty + amount per month; allowlisted suppliers only",
+    note: "Purchase Invoice qty + net_amount per month (receipts often have rate 0); allowlisted suppliers only",
+  },
+  {
+    column: "Best Purchase Value / Best Supplier",
+    source: "ERP",
+    note: "Lowest invoice unit rate in last 3 months including this month (Jul–as-of now; bump to 6 after history backfill)",
   },
   {
     column: "Max sale / AVE",
