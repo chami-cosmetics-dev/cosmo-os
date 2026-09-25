@@ -2381,7 +2381,7 @@ model GrnIntercompanySupplier {
 model GrnPurchaseInvoice {
   id                      String                   @id @default(cuid())
   companyId               String
-  purchaseReceiptId       String
+  purchaseReceiptId       String?
   name                    String
   supplier                String
   supplierName            String?
@@ -2394,12 +2394,12 @@ model GrnPurchaseInvoice {
   amendedFrom             String?
   owner                   String?
   creation                DateTime?
-  purchaseReceiptName     String
+  purchaseReceiptName     String?
   supplierStockReturnName String?
   rawPayload              Json
   createdAt               DateTime                 @default(now())
   updatedAt               DateTime                 @updatedAt
-  purchaseReceipt         GrnPurchaseReceipt       @relation(fields: [purchaseReceiptId], references: [id], onDelete: Cascade)
+  purchaseReceipt         GrnPurchaseReceipt?      @relation(fields: [purchaseReceiptId], references: [id], onDelete: Cascade)
   items                   GrnPurchaseInvoiceItem[]
 
   @@unique([companyId, name])
