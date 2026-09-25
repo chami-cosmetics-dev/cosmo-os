@@ -15,6 +15,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { formatAppIsoDate } from "@/lib/format-datetime";
 import { notify } from "@/lib/notify";
 import { isCompletePhoneSearch } from "@/lib/phone-lookup";
+import {
+  REGISTER_EMAIL_PHOTO_MAX_BYTES,
+  registerEmailPhotoMime,
+  safeRegisterEmailPhotoName,
+} from "@/lib/register-users/email-photo";
 import type { RegisterCaptureRow } from "@/lib/register-users/types";
 
 const HEADER_PREFIX = "register-users-header:";
@@ -303,7 +308,6 @@ export function RegisterUsersWorkbook() {
         body: JSON.stringify({
           header: emailTpl.header,
           body: emailTpl.body,
-          photoUrl: emailTpl.photoUrl,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -327,25 +331,39 @@ export function RegisterUsersWorkbook() {
   }
 
   async function uploadEmailPhoto(file: File) {
+    const mime = registerEmailPhotoMime(file);
+    if (!mime) {
+      notify.error("Use a JPG, PNG, WEBP, or GIF photo");
+      return;
+    }
+    if (file.size > REGISTER_EMAIL_PHOTO_MAX_BYTES) {
+      notify.error("Photo too large (max 5MB)");
+      return;
+    }
     setPhotoBusy(true);
     try {
       const form = new FormData();
-      form.set("file", file);
+      form.set(
+        "file",
+        new File([file], safeRegisterEmailPhotoName(file.name), { type: mime }),
+      );
       const res = await fetch("/api/admin/register-users/email-photo", {
         method: "POST",
         body: form,
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        notify.error(typeof data.error === "string" ? data.error : "Photo upload failed.");
+        notify.error(
+          typeof data.error === "string" ? data.error : "Photo upload failed.",
+        );
         return;
       }
       if (typeof data.photoUrl === "string") {
         setEmailTpl((prev) => ({ ...prev, photoUrl: data.photoUrl }));
       }
       notify.success("Photo saved.");
-    } catch {
-      notify.error("Photo upload failed.");
+    } catch (err) {
+      notify.error(err instanceof Error ? err.message : "Photo upload failed.");
     } finally {
       setPhotoBusy(false);
     }
@@ -484,6 +502,9 @@ export function RegisterUsersWorkbook() {
                 if (file) void uploadEmailPhoto(file);
               }}
             />
+            <p className="text-muted-foreground text-xs">
+              JPG, PNG, WEBP, or GIF. Max 5MB.
+            </p>
           </div>
           <Button
             type="button"
