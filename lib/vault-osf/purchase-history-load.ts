@@ -1,7 +1,7 @@
 import "server-only";
 
 import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
-import { OsfErpError } from "@/lib/osf/erp-cost-supplier";
+import { fetchItemCountries, OsfErpError } from "@/lib/osf/erp-cost-supplier";
 import { getAllOsfErpInstances } from "@/lib/osf/erp-stock";
 import { prisma } from "@/lib/prisma";
 import { resolveErpSlots } from "@/lib/product-items/erp-priority-sync";
@@ -35,6 +35,7 @@ export type PurchaseHistoryLoadResult = {
     suppliers: string[];
     priorities: string[];
     companies: string[];
+    countries: string[];
   };
 };
 
@@ -42,8 +43,21 @@ export async function loadPurchaseHistory(
   companyId: string,
   query: PurchaseHistoryQuery,
 ): Promise<PurchaseHistoryLoadResult> {
-  const { from, to, sku, supplier, brand, description, priority, company, companies, erpSlot } =
-    query;
+  const {
+    from,
+    to,
+    sku,
+    commonSku,
+    supplier,
+    brand,
+    description,
+    priority,
+    company,
+    companies,
+    country,
+    marginBelow,
+    erpSlot,
+  } = query;
   const skuQ = sku?.trim() ?? "";
   const selectedCompanies = parsePurchaseHistoryCompanies(companies ?? company);
 
@@ -134,6 +148,11 @@ export async function loadPurchaseHistory(
           },
         });
 
+  const countryBySku = await fetchItemCountries({
+    instances: erpInstances,
+    itemCodes: skus,
+  });
+
   const catalogBySku = new Map<string, CatalogSellInfo>();
   for (const p of products) {
     const code = p.sku?.trim();
@@ -142,8 +161,22 @@ export async function loadPurchaseHistory(
       productTitle: p.productTitle,
       brand: p.vendor?.name ?? null,
       priority: p.erp1ProductPriority?.trim() || p.erp2ProductPriority?.trim() || null,
+      country: countryBySku.get(code) ?? null,
       mrp: p.compareAtPrice != null ? Number(p.compareAtPrice) : null,
       discountedPrice: p.price != null ? Number(p.price) : null,
+    });
+  }
+  for (const code of skus) {
+    if (catalogBySku.has(code)) continue;
+    const country = countryBySku.get(code);
+    if (!country) continue;
+    catalogBySku.set(code, {
+      productTitle: null,
+      brand: null,
+      priority: null,
+      country,
+      mrp: null,
+      discountedPrice: null,
     });
   }
 
@@ -151,11 +184,14 @@ export async function loadPurchaseHistory(
     from,
     to,
     sku,
+    commonSku,
     supplier,
     brand,
     description,
     priority,
     companies: selectedCompanies,
+    country,
+    marginBelow,
     erpSlot,
   };
   const filtered = merged.filter((line) =>
@@ -167,6 +203,10 @@ export async function loadPurchaseHistory(
   const brandSet = new Set<string>();
   const supplierSet = new Set<string>();
   const prioritySet = new Set<string>();
+  const countrySet = new Set<string>();
+  for (const country of countryBySku.values()) {
+    if (country.trim()) countrySet.add(country.trim());
+  }
   for (const row of rows) {
     if (row.brand?.trim()) brandSet.add(row.brand.trim());
     if (row.supplier.trim()) supplierSet.add(row.supplier.trim());
@@ -186,6 +226,7 @@ export async function loadPurchaseHistory(
         erpInvoiceLines.map((line) => line.company),
         isVaultOsDeployment() ? VAULT_ERP_COMPANY_OPTIONS : COSMO_ERP_COMPANY_OPTIONS,
       ),
+      countries: [...countrySet].sort((a, b) => a.localeCompare(b)),
     },
   };
 }

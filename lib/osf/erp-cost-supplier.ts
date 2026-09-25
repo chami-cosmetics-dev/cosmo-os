@@ -67,4 +67,46 @@ export async function fetchLatestCostAndSupplier(input: {
   return result;
 }
 
+/** Item.country_of_origin, then custom_country_claim_type. First ERP instance wins. */
+export async function fetchItemCountries(input: {
+  instances: Array<{ cfg: OsfErpCredentials }>;
+  itemCodes: string[];
+}): Promise<Map<string, string>> {
+  const result = new Map<string, string>();
+  const items = [...new Set(input.itemCodes.map((s) => s.trim()).filter(Boolean))];
+  if (items.length === 0 || input.instances.length === 0) return result;
+
+  for (const inst of input.instances) {
+    const missing = items.filter((code) => !result.has(code));
+    if (missing.length === 0) break;
+    try {
+      for (let i = 0; i < missing.length; i += ITEM_BATCH) {
+        const batch = missing.slice(i, i + ITEM_BATCH);
+        const filters = JSON.stringify([["name", "in", batch]]);
+        const fields = JSON.stringify(["name", "country_of_origin", "custom_country_claim_type"]);
+        const path =
+          `/api/resource/Item?filters=${encodeURIComponent(filters)}` +
+          `&fields=${encodeURIComponent(fields)}&limit_page_length=${ITEM_BATCH}`;
+        const json = await erpGetJson<{
+          data?: Array<{
+            name?: string;
+            country_of_origin?: string | null;
+            custom_country_claim_type?: string | null;
+          }>;
+        }>(inst.cfg, path);
+        for (const row of json.data ?? []) {
+          const name = row.name?.trim();
+          if (!name || result.has(name)) continue;
+          const country =
+            row.country_of_origin?.trim() || row.custom_country_claim_type?.trim() || "";
+          if (country) result.set(name, country);
+        }
+      }
+    } catch (err) {
+      if (!(err instanceof OsfErpError)) throw err;
+    }
+  }
+  return result;
+}
+
 export { getOsfErpCredentials, OsfErpError };

@@ -32,6 +32,8 @@ export const OSF_STATIC_ASSIGNABLE_COLUMNS: OsfAccessColumnMeta[] = [
   { id: "Cosmetics Margin %", label: "Cosmetics Margin %" },
   { id: "OGF Margin %", label: "OGF Margin %" },
   { id: OSF_ACCESS_SALES_UNITS, label: "Sales Units" },
+  { id: "Best Purchase Value", label: "Best Purchase Value" },
+  { id: "Best Supplier", label: "Best Supplier" },
   { id: OSF_ACCESS_PURCHASES, label: "Purchases" },
   { id: "Max sale", label: "Max sale" },
   { id: "AVE", label: "AVE" },
@@ -49,7 +51,7 @@ export const LEGACY_GROUP_TO_COLUMN_KEYS: Record<string, string[]> = {
   ],
   margins: ["Cosmetics Margin %", "OGF Margin %"],
   sales: [OSF_ACCESS_SALES_UNITS, "Max sale", "AVE"],
-  purchases: [OSF_ACCESS_PURCHASES],
+  purchases: [OSF_ACCESS_PURCHASES, "Best Purchase Value", "Best Supplier"],
 };
 
 export function stockAccessKey(columnKey: string): string {
@@ -142,6 +144,8 @@ export function buildOsfAccessCatalog(
         "Cosmetics Margin %",
         "OGF Margin %",
         OSF_ACCESS_SALES_UNITS,
+        "Best Purchase Value",
+        "Best Supplier",
         OSF_ACCESS_PURCHASES,
         "Max sale",
         "AVE",

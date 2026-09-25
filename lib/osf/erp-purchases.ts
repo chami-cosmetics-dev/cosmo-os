@@ -44,6 +44,13 @@ export type OsfMonthPurchaseCell = {
   netValue: number | null;
 };
 
+/** Lowest unit rate in the best-purchase window + the supplier who posted it. */
+export type OsfBestPurchase = {
+  value: number;
+  supplier: string;
+  date: string | null;
+};
+
 /** Receipt (Cosmo default) vs Invoice (Vault — PR rates often placeholder/stale). */
 export type PurchaseDocSource = "receipt" | "invoice";
 
@@ -551,9 +558,79 @@ export function mergeMonthlyPurchaseMaps(
   return out;
 }
 
+function purchaseLineRate(row: PurchaseRow): number | null {
+  const rateNum = row.rate != null ? Number(row.rate) : NaN;
+  if (Number.isFinite(rateNum) && rateNum > 0) return rateNum;
+  return null;
+}
+
+function isBetterPurchase(next: OsfBestPurchase, prev: OsfBestPurchase | undefined): boolean {
+  if (!prev) return true;
+  if (next.value < prev.value) return true;
+  if (next.value > prev.value) return false;
+  const nextDate = next.date ?? "";
+  const prevDate = prev.date ?? "";
+  if (nextDate !== prevDate) return nextDate > prevDate;
+  return next.supplier.localeCompare(prev.supplier) < 0;
+}
+
 /**
- * Purchase Receipt (default) lines in a posting-date window, bucketed by SKU-month.
- * Cosmo OSF last-purchase already uses receipts; the grid stays on the same source.
+ * Lowest positive unit rate in the window + supplier. Zero/blank rates skipped
+ * (Cosmo Purchase Receipts often post qty with rate 0 — invoices carry the price).
+ */
+export function accumulateBestPurchaseFromRows(input: {
+  rows: PurchaseRow[];
+  bounds: { start: string; end: string };
+  itemCodes?: Set<string>;
+  allowedSuppliers?: AllowedSupplier[];
+  result?: Map<string, OsfBestPurchase>;
+}): Map<string, OsfBestPurchase> {
+  const result = input.result ?? new Map<string, OsfBestPurchase>();
+  const allowlist = buildSupplierAllowlist(input.allowedSuppliers ?? []);
+
+  for (const row of input.rows) {
+    if (!isUsablePurchaseDoc(row)) continue;
+    if (isNoisePurchaseSupplier(row)) continue;
+    if (!isAllowedSupplier(row, allowlist)) continue;
+    const sku = row.item_code?.trim();
+    if (!sku) continue;
+    if (input.itemCodes && !input.itemCodes.has(sku)) continue;
+    const date = row.posting_date?.trim() ?? "";
+    if (!date || date < input.bounds.start || date > input.bounds.end) continue;
+    const rate = purchaseLineRate(row);
+    if (rate == null) continue;
+    const supplier = row.supplier_name?.trim() || row.supplier?.trim() || "";
+    if (!supplier) continue;
+    const candidate: OsfBestPurchase = { value: rate, supplier, date };
+    const prev = result.get(sku);
+    if (isBetterPurchase(candidate, prev)) result.set(sku, candidate);
+  }
+  return result;
+}
+
+/** Keep the lower unit rate across ERP instances (tie → newer date). */
+export function mergeBestPurchaseMaps(
+  maps: Array<Map<string, OsfBestPurchase>>,
+): Map<string, OsfBestPurchase> {
+  const out = new Map<string, OsfBestPurchase>();
+  for (const map of maps) {
+    for (const [sku, next] of map) {
+      const prev = out.get(sku);
+      if (isBetterPurchase(next, prev)) out.set(sku, next);
+    }
+  }
+  return out;
+}
+
+export type OsfPurchaseGridFetch = {
+  monthly: Map<string, Record<string, OsfMonthPurchaseCell>>;
+  best: Map<string, OsfBestPurchase>;
+};
+
+/**
+ * Purchase Invoice (Cosmo OSF) or Receipt lines in a posting-date window.
+ * Cosmo receipts often post qty with rate/amount 0 — invoices carry net_amount.
+ * Throws if the window exceeds the page cap so month totals cannot silently truncate.
  */
 export async function fetchMonthlyPurchasesInRange(input: {
   cfg: OsfErpCredentials;
@@ -561,13 +638,15 @@ export async function fetchMonthlyPurchasesInRange(input: {
   itemCodes?: string[];
   allowedSuppliers?: AllowedSupplier[];
   source?: PurchaseDocSource;
-}): Promise<Map<string, Record<string, OsfMonthPurchaseCell>>> {
+  /** When set, also pick lowest unit rate + supplier in this window. */
+  bestWindow?: { start: string; end: string };
+}): Promise<OsfPurchaseGridFetch> {
   const needed = input.itemCodes
     ? new Set(input.itemCodes.map((s) => s.trim()).filter(Boolean))
     : undefined;
-  const meta = purchaseDocMeta(input.source ?? "receipt");
-  const parentExtra = input.source === "invoice" ? (["is_return"] as const) : ([] as const);
-  const amountField = input.source === "invoice" ? "net_amount" : "amount";
+  const source = input.source ?? "receipt";
+  const meta = purchaseDocMeta(source);
+  const amountField = source === "invoice" ? "net_amount" : "amount";
   const fields = JSON.stringify([
     "name",
     "supplier",
@@ -575,7 +654,7 @@ export async function fetchMonthlyPurchasesInRange(input: {
     "posting_date",
     "docstatus",
     "status",
-    ...parentExtra,
+    "is_return",
     `\`${meta.childTable}\`.item_code`,
     `\`${meta.childTable}\`.qty`,
     `\`${meta.childTable}\`.rate`,
@@ -583,11 +662,13 @@ export async function fetchMonthlyPurchasesInRange(input: {
   ]);
   const filters = JSON.stringify([
     ["docstatus", "=", 1],
+    ["is_return", "=", 0],
     ["posting_date", ">=", input.bounds.start],
     ["posting_date", "<=", input.bounds.end],
   ]);
 
-  let result = new Map<string, Record<string, OsfMonthPurchaseCell>>();
+  let monthly = new Map<string, Record<string, OsfMonthPurchaseCell>>();
+  let best = new Map<string, OsfBestPurchase>();
   for (let page = 0; page < MAX_PAGES; page += 1) {
     const path =
       `/api/resource/${encodeURIComponent(meta.doctype)}?fields=${encodeURIComponent(fields)}` +
@@ -599,15 +680,29 @@ export async function fetchMonthlyPurchasesInRange(input: {
     const rows = json.data ?? [];
     if (rows.length === 0) break;
 
-    result = accumulateMonthlyPurchasesFromRows({
+    monthly = accumulateMonthlyPurchasesFromRows({
       rows,
       bounds: input.bounds,
       itemCodes: needed,
       allowedSuppliers: input.allowedSuppliers,
-      result,
+      result: monthly,
     });
+    if (input.bestWindow) {
+      best = accumulateBestPurchaseFromRows({
+        rows,
+        bounds: input.bestWindow,
+        itemCodes: needed,
+        allowedSuppliers: input.allowedSuppliers,
+        result: best,
+      });
+    }
 
     if (rows.length < PAGE_LENGTH) break;
+    if (page === MAX_PAGES - 1) {
+      throw new OsfErpError(
+        `${meta.doctype} scan exceeded ${MAX_PAGES * PAGE_LENGTH} lines for ${input.bounds.start}–${input.bounds.end}`,
+      );
+    }
   }
-  return result;
+  return { monthly, best };
 }

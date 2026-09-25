@@ -158,6 +158,24 @@ describe("enrichPurchaseHistoryRow", () => {
     expect(row.marginPct).toBeCloseTo(0.5);
     expect(row.brand).toBe("BrandX");
     expect(row.priority).toBe("Top Priority");
+    expect(row.commonSku).toBe("SKU1");
+    expect(row.country).toBeNull();
+  });
+
+  it("maps common SKU stem and catalog country", () => {
+    const row = enrichPurchaseHistoryRow(
+      { ...baseCosmo, sku: "CAN07_1" },
+      {
+        productTitle: "Item",
+        brand: "BrandX",
+        priority: null,
+        country: "USA",
+        mrp: 200,
+        discountedPrice: null,
+      },
+    );
+    expect(row.commonSku).toBe("CAN07");
+    expect(row.country).toBe("USA");
   });
 
   it("leaves margin blank when catalog sell missing", () => {
@@ -305,6 +323,70 @@ describe("matchesPurchaseHistoryFilters", () => {
       { from: "2026-01-01", to: "2026-12-31", priority: "Top Priority" },
     );
     expect(no).toBe(false);
+  });
+
+  it("filters by common SKU stem", () => {
+    const line = { ...baseCosmo, sku: "CAN07_2" };
+    expect(
+      matchesPurchaseHistoryFilters(line, undefined, {
+        from: "2026-01-01",
+        to: "2026-12-31",
+        commonSku: "can07",
+      }),
+    ).toBe(true);
+    expect(
+      matchesPurchaseHistoryFilters(line, undefined, {
+        from: "2026-01-01",
+        to: "2026-12-31",
+        commonSku: "NW005",
+      }),
+    ).toBe(false);
+  });
+
+  it("filters by country", () => {
+    const catalog = {
+      productTitle: "x",
+      brand: "Acme",
+      priority: null,
+      country: "Korea",
+      mrp: 1,
+      discountedPrice: null,
+    };
+    expect(
+      matchesPurchaseHistoryFilters(baseCosmo, catalog, {
+        from: "2026-01-01",
+        to: "2026-12-31",
+        country: "korea",
+      }),
+    ).toBe(true);
+    expect(
+      matchesPurchaseHistoryFilters(baseCosmo, catalog, {
+        from: "2026-01-01",
+        to: "2026-12-31",
+        country: "USA",
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps only margins strictly below the given percent", () => {
+    const catalog = {
+      productTitle: "x",
+      brand: "Acme",
+      priority: null,
+      mrp: 200,
+      discountedPrice: null,
+    };
+    const filters = { from: "2026-01-01", to: "2026-12-31", marginBelow: 30 };
+    expect(
+      matchesPurchaseHistoryFilters({ ...baseCosmo, rate: 150 }, catalog, filters),
+    ).toBe(true);
+    expect(
+      matchesPurchaseHistoryFilters({ ...baseCosmo, rate: 140 }, catalog, filters),
+    ).toBe(false);
+    expect(
+      matchesPurchaseHistoryFilters({ ...baseCosmo, rate: 100 }, catalog, filters),
+    ).toBe(false);
+    expect(matchesPurchaseHistoryFilters(baseCosmo, undefined, filters)).toBe(false);
   });
 });
 
@@ -454,11 +536,13 @@ describe("purchaseHistoryExportSheetRows", () => {
       {
         Date: "2026-04-01",
         SKU: "A",
+        "Common SKU": "A",
         Brand: "B",
         Priority: "Top Priority",
         Item: "Item",
         Supplier: "S",
         Company: "SupplementVault.lk",
+        Country: "",
         Qty: 2,
         Cost: 10,
         Amount: 20,

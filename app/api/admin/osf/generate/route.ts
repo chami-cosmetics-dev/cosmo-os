@@ -11,10 +11,16 @@ import { aggregateSalesBySkuByMonthInRange } from "@/lib/osf/assist-sales";
 import {
   fetchLastPurchaseByItem,
   fetchMonthlyPurchasesInRange,
+  mergeBestPurchaseMaps,
   mergeMonthlyPurchaseMaps,
 } from "@/lib/osf/erp-purchases";
 import { fetchBinActualQty, getAllOsfErpInstances, stockForColumn } from "@/lib/osf/erp-stock";
-import { aggregateMonthlySalesBySku, osfPurchaseGridBounds, osfSalesGridBounds } from "@/lib/osf/monthly-sales";
+import {
+  aggregateMonthlySalesBySku,
+  osfBestPurchaseBounds,
+  osfPurchaseGridBounds,
+  osfSalesGridBounds,
+} from "@/lib/osf/monthly-sales";
 import { syncOgfPricesFromErp } from "@/lib/osf/sync-ogf-prices-from-erp";
 import { isBelowReorderThreshold } from "@/lib/osf/threshold";
 import { filterCatalogByOsfVariant, type OsfVariant } from "@/lib/osf/vat-membership";
@@ -138,6 +144,7 @@ export async function POST(request: NextRequest) {
 
     const salesGridBounds = osfSalesGridBounds(asOfDate);
     const purchaseGridBounds = osfPurchaseGridBounds(asOfDate);
+    const bestPurchaseBounds = osfBestPurchaseBounds(asOfDate);
 
     const [catalogRaw, columns, profiles, ropRows, monthlySales, salesByMonthNested, buyers, allowedSuppliers] =
       await Promise.all([
@@ -219,6 +226,8 @@ export async function POST(request: NextRequest) {
             bounds: purchaseGridBounds,
             itemCodes: skus,
             allowedSuppliers,
+            source: "invoice",
+            bestWindow: bestPurchaseBounds,
           }),
         ]);
         return { bins, costs, purchases, monthlyPurchases };
@@ -272,7 +281,10 @@ export async function POST(request: NextRequest) {
     }));
     const { costMap, purchaseMap } = mergeInstanceErpData(skus, perInstanceErp);
     const purchasesByMonth = mergeMonthlyPurchaseMaps(
-      perInstanceResults.map((r) => r.monthlyPurchases),
+      perInstanceResults.map((r) => r.monthlyPurchases.monthly),
+    );
+    const bestPurchaseBySku = mergeBestPurchaseMaps(
+      perInstanceResults.map((r) => r.monthlyPurchases.best),
     );
 
     const effectiveColumnKeys = context?.user
@@ -291,6 +303,7 @@ export async function POST(request: NextRequest) {
       asOfDate,
       salesByMonth,
       purchasesByMonth,
+      bestPurchaseBySku,
       belowThresholdOnly,
       effectiveColumnKeys,
       osfVariant,

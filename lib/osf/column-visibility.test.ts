@@ -58,6 +58,8 @@ describe("buildOsfAccessCatalog", () => {
     expect(ids.has("Cosmetics MRP")).toBe(true);
     expect(ids.has("Sales Units")).toBe(true);
     expect(ids.has("Purchases")).toBe(true);
+    expect(ids.has("Best Purchase Value")).toBe(true);
+    expect(ids.has("Best Supplier")).toBe(true);
     expect(ids.has("Max sale")).toBe(true);
     expect(ids.has("AVE")).toBe(true);
   });

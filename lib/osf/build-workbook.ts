@@ -8,7 +8,7 @@ import {
 } from "@/lib/osf/column-access-catalog";
 import type { OsfResolvedColumn } from "@/lib/osf/column-config";
 import type { ItemCostSupplier } from "@/lib/osf/erp-cost-supplier";
-import type { ItemLastPurchase, OsfMonthPurchaseCell } from "@/lib/osf/erp-purchases";
+import type { ItemLastPurchase, OsfBestPurchase, OsfMonthPurchaseCell } from "@/lib/osf/erp-purchases";
 import { stockForColumn } from "@/lib/osf/erp-stock";
 import {
   cosmeticsMargin,
@@ -70,6 +70,8 @@ export type BuildWorkbookInput = {
   salesByMonth?: Map<string, Record<string, number>>;
   /** sku → YYYY-MM → purchase qty + value (April→as-of grid). */
   purchasesByMonth?: Map<string, Record<string, OsfMonthPurchaseCell>>;
+  /** Lowest invoice unit rate in the trailing 3-month window. */
+  bestPurchaseBySku?: Map<string, OsfBestPurchase>;
   /** When true, Info sheet explains reorder-only / empty filter. */
   belowThresholdOnly?: boolean;
   /**
@@ -327,6 +329,10 @@ export function buildMainSheetRows(input: BuildWorkbookInput): Record<string, st
 
     const months = monthKeysInWindow(input.asOfDate);
     const salesMonths = input.salesByMonth?.get(row.sku) ?? {};
+    const bestPurchase = input.bestPurchaseBySku?.get(row.sku);
+    record["Best Purchase Value"] = bestPurchase?.value ?? null;
+    record["Best Supplier"] = bestPurchase?.supplier ?? "";
+
     const purchMonths = input.purchasesByMonth?.get(row.sku) ?? {};
     const monthTotals: Array<number | null> = [];
     for (const month of months) {
@@ -486,10 +492,22 @@ export function mainColumnDescriptors(input: BuildWorkbookInput): OsfColumnDef[]
       band: "sales",
     });
   });
-  months.forEach((month, i) => {
+  defs.push({
+    header: "Best Purchase Value",
+    section: "Purchases",
+    pricing: true,
+    accessKey: "Best Purchase Value",
+    band: "purchase",
+  });
+  defs.push({
+    header: "Best Supplier",
+    pricing: true,
+    accessKey: "Best Supplier",
+    band: "purchase",
+  });
+  months.forEach((month) => {
     defs.push({
       header: monthPurchaseQtyHeader(month),
-      section: i === 0 ? "Purchases" : undefined,
       sum: true,
       pricing: true,
       accessKey: OSF_ACCESS_PURCHASES,
