@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
-import { sendRegisterWelcomeIfConfigured } from "@/lib/register-users/email";
+import {
+  sendRegisterWelcomeIfConfigured,
+  stampCaptureEmail,
+} from "@/lib/register-users/email";
 import { registerUsersResendEmailBodySchema } from "@/lib/validation/register-users";
 
 export async function POST(request: NextRequest) {
@@ -50,6 +53,7 @@ export async function POST(request: NextRequest) {
     name: capture.contact.name,
     email: capture.contact.email,
   });
+  await stampCaptureEmail(parsed.data.captureId, email);
   if (email.status !== "sent") {
     const message =
       email.status === "skipped" && email.reason === "no_email"

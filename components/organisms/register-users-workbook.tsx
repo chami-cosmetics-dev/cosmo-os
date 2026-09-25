@@ -84,6 +84,17 @@ function outcomeLabel(outcome: string) {
   return "created";
 }
 
+function mailStatusLabel(row: RegisterCaptureRow) {
+  if (row.mailStatus === "sent") return "Sent";
+  if (row.mailStatus === "failed") return row.mailError || "Failed";
+  if (row.mailStatus === "skipped") {
+    if (row.mailError === "no_email") return "No email";
+    if (row.mailError === "no_template") return "Template empty";
+    return "Not sent";
+  }
+  return "Not sent";
+}
+
 export function RegisterUsersWorkbook() {
   const today = useMemo(() => formatAppIsoDate(new Date()), []);
   const [header, setHeader] = useState<HeaderState>({
@@ -402,6 +413,7 @@ export function RegisterUsersWorkbook() {
         return;
       }
       notify.success("Welcome email sent.");
+      await loadPageData(historyDay);
     } catch (err) {
       notify.error(err instanceof Error ? err.message : "Resend failed.");
     } finally {
@@ -697,6 +709,7 @@ export function RegisterUsersWorkbook() {
                     <th className="py-2 pr-3">Badge</th>
                     <th className="py-2 pr-3">Outcome</th>
                     <th className="py-2 pr-3">Source</th>
+                    <th className="py-2 pr-3">Auto mail</th>
                     <th className="py-2">Mail</th>
                   </tr>
                 </thead>
@@ -712,6 +725,7 @@ export function RegisterUsersWorkbook() {
                       </td>
                       <td className="py-2 pr-3">{outcomeLabel(row.outcome)}</td>
                       <td className="py-2 pr-3">{row.source}</td>
+                      <td className="py-2 pr-3">{mailStatusLabel(row)}</td>
                       <td className="py-2">
                         {row.outcome === "created" ? (
                           <Button
@@ -726,8 +740,10 @@ export function RegisterUsersWorkbook() {
                                 <Loader2 className="animate-spin" aria-hidden />
                                 Sending…
                               </>
-                            ) : (
+                            ) : row.mailStatus === "sent" ? (
                               "Resend mail"
+                            ) : (
+                              "Send mail"
                             )}
                           </Button>
                         ) : null}

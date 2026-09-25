@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { prisma } from "@/lib/prisma";
-import { sendRegisterWelcomeIfConfigured } from "@/lib/register-users/email";
+import {
+  sendRegisterWelcomeIfConfigured,
+  stampCaptureEmail,
+} from "@/lib/register-users/email";
 import { saveRegisteredUser } from "@/lib/register-users/save";
 import { RegisterPhoneConflictError } from "@/lib/register-users/types";
 import { registerPortalSaveBodySchema } from "@/lib/validation/register-users";
@@ -66,6 +69,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       name: result.row.name,
       email: result.row.email,
     });
+    await stampCaptureEmail(result.row.id, email);
     return NextResponse.json({ ok: true, outcome: result.outcome, email });
   } catch (error) {
     if (error instanceof RegisterPhoneConflictError) {

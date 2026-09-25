@@ -15,6 +15,29 @@ export type RegisterWelcomeEmailResult =
   | { status: "skipped"; reason: "no_email" | "no_template" }
   | { status: "failed"; error: string };
 
+export async function stampCaptureEmail(
+  captureId: string,
+  result: RegisterWelcomeEmailResult,
+): Promise<void> {
+  try {
+    await prisma.osRegistrationCapture.update({
+      where: { id: captureId },
+      data: {
+        emailStatus: result.status,
+        emailError:
+          result.status === "failed"
+            ? result.error
+            : result.status === "skipped"
+              ? result.reason
+              : null,
+        emailSentAt: result.status === "sent" ? new Date() : null,
+      },
+    });
+  } catch (err) {
+    console.error("[register-users] stamp capture email failed:", err);
+  }
+}
+
 export async function sendRegisterWelcomeIfConfigured(input: {
   companyId: string;
   name: string;
