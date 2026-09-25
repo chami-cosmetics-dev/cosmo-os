@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Loader2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -109,6 +110,7 @@ export function RegisterUsersWorkbook() {
     photoUrl: null,
   });
   const [photoBusy, setPhotoBusy] = useState(false);
+  const photoInputRef = useRef<HTMLInputElement>(null);
 
   const headerReady =
     header.location.trim().length > 0 &&
@@ -492,16 +494,33 @@ export function RegisterUsersWorkbook() {
                 className="max-h-40 rounded-md border"
               />
             ) : null}
-            <Input
+            <input
+              ref={photoInputRef}
               type="file"
-              accept="image/jpeg,image/png,image/webp,image/gif"
-              disabled={busy || photoBusy}
+              accept=".jpg,.jpeg,.png,.webp,.gif,image/*"
+              className="hidden"
+              disabled={photoBusy}
               onChange={(e) => {
                 const file = e.target.files?.[0];
                 e.target.value = "";
                 if (file) void uploadEmailPhoto(file);
               }}
             />
+            <Button
+              type="button"
+              variant="outline"
+              disabled={busy || photoBusy}
+              onClick={() => photoInputRef.current?.click()}
+            >
+              {photoBusy ? (
+                <>
+                  <Loader2 className="animate-spin" aria-hidden />
+                  Uploading…
+                </>
+              ) : (
+                "Choose photo"
+              )}
+            </Button>
             <p className="text-muted-foreground text-xs">
               JPG, PNG, WEBP, or GIF. Max 5MB.
             </p>
