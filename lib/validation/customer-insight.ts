@@ -189,6 +189,8 @@ const customerInsightFilterFieldsSchema = z.object({
   assignedMerchant: trimmedString(1, LIMITS.knownName.max).optional(),
   purchaseLocationId: cuidSchema.optional(),
   osRegLocation: trimmedString(1, LIMITS.locationName.max).optional(),
+  osRegCreated: optionalBoolQuery,
+  osRegAlready: optionalBoolQuery,
   minTotal: z.coerce.number().min(0).optional(),
   maxTotal: z.coerce.number().min(0).optional(),
   birthdayFrom: monthDaySchema.optional(),

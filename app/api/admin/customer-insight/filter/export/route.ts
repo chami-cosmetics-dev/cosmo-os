@@ -47,6 +47,8 @@ export async function GET(request: NextRequest) {
     assignedMerchant: queryParam(sp.get("assignedMerchant")),
     purchaseLocationId: queryParam(sp.get("purchaseLocationId")),
     osRegLocation: queryParam(sp.get("osRegLocation")),
+    osRegCreated: queryParam(sp.get("osRegCreated")),
+    osRegAlready: queryParam(sp.get("osRegAlready")),
     minTotal: queryParam(sp.get("minTotal")),
     maxTotal: queryParam(sp.get("maxTotal")),
     birthdayFrom: queryParam(sp.get("birthdayFrom")),
@@ -98,6 +100,13 @@ export async function GET(request: NextRequest) {
     assignedMerchant: parsed.data.assignedMerchant,
     purchaseLocationId: parsed.data.purchaseLocationId,
     osRegLocation: parsed.data.osRegLocation,
+    osRegCreated:
+      parsed.data.osRegLocation ||
+      parsed.data.osRegCreated ||
+      parsed.data.osRegAlready
+        ? true
+        : undefined,
+    osRegAlready: undefined,
     minTotal: parsed.data.minTotal,
     maxTotal: parsed.data.maxTotal,
     birthdayFrom: parsed.data.birthdayFrom,

@@ -357,7 +357,6 @@ export async function listInsightOsRegLocationOptions(
   const rows = await prisma.contactMaster.findMany({
     where: {
       companyId,
-      osRegistrationCreated: true,
       osRegLocation: { not: null },
     },
     distinct: ["osRegLocation"],

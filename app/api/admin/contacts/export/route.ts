@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { Prisma } from "@prisma/client";
 
+import {
+  loadAllocatedMerchantByPhone,
+  resolveExportAssignedMerchant,
+} from "@/lib/contacts/export-allocated-merchant";
 import { getPurchaseSummarySyncStatus } from "@/lib/contacts/purchase-summary-cache";
 import { logReportDownload } from "@/lib/report-download-log";
 import { findContactsByPurchasedBrandRanked } from "@/lib/page-data/contact-brand-ids";
@@ -184,7 +188,10 @@ export async function GET(request: NextRequest) {
     { brandContactIds: brand ? brandRanks.map((r) => r.contactId) : undefined }
   );
 
-  const expectedRows = await prisma.contactMaster.count({ where });
+  const [expectedRows, allocatedByPhone] = await Promise.all([
+    prisma.contactMaster.count({ where }),
+    loadAllocatedMerchantByPhone(companyId),
+  ]);
 
   const fileName =
     mode === "purchase_summary"
@@ -261,7 +268,11 @@ export async function GET(request: NextRequest) {
               email: contact.email ?? "",
               phone_number: contact.phoneNumber ?? "",
               recent_merchant: contact.recentMerchant ?? "",
-              assigned_merchant: contact.assignedMerchant ?? "",
+              assigned_merchant: resolveExportAssignedMerchant(
+                contact.assignedMerchant,
+                [contact.phoneNumber],
+                allocatedByPhone
+              ),
               ...(brand
                 ? { brand_spend: (brandSpendById.get(contact.id) ?? 0).toFixed(2) }
                 : {}),

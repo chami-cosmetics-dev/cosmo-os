@@ -211,6 +211,8 @@ export type AllocatedFilterItemDto = {
   loyaltyOutreachStatus?: string | null;
   /** Human label for loyaltyOutreachStatus. */
   loyaltyStage?: string | null;
+  /** Set when admin OS-register filters are active. */
+  osRegKind?: "new" | "already_registered" | null;
 };
 
 export type AllocatedFilterResultDto = {
