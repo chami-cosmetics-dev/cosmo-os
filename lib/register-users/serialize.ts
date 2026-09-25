@@ -14,7 +14,15 @@ export function serializeCaptureRow(input: {
   source: string;
   outcome: string;
   createdAt: Date;
+  mailStatus?: "sent" | "skipped" | "failed" | null;
+  mailError?: string | null;
 }): RegisterCaptureRow {
+  const mailStatus =
+    input.mailStatus === "sent" ||
+    input.mailStatus === "skipped" ||
+    input.mailStatus === "failed"
+      ? input.mailStatus
+      : null;
   return {
     id: input.id,
     contactId: input.contactId,
@@ -27,5 +35,7 @@ export function serializeCaptureRow(input: {
     source: input.source === "portal" ? "portal" : "staff",
     outcome: input.outcome as RegisterOutcome,
     createdAt: input.createdAt.toISOString(),
+    mailStatus,
+    mailError: input.mailError ?? null,
   };
 }

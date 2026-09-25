@@ -1924,6 +1924,10 @@ model OsRegistrationCapture {
   source      String
   /// created | already_registered | updated
   outcome     String
+  /// sent | skipped | failed
+  emailStatus String?
+  emailError  String?
+  emailSentAt DateTime?
   actorUserId String?
   createdAt   DateTime          @default(now())
   company     Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)

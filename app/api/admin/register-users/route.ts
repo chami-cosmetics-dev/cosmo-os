@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { parseAppCalendarDayStart } from "@/lib/format-datetime";
 import { requirePermission } from "@/lib/rbac";
-import { sendRegisterWelcomeIfConfigured } from "@/lib/register-users/email";
+import {
+  sendRegisterWelcomeIfConfigured,
+  stampCaptureEmail,
+} from "@/lib/register-users/email";
 import { saveRegisteredUser } from "@/lib/register-users/save";
 import { RegisterPhoneConflictError } from "@/lib/register-users/types";
 import { registerUsersSaveBodySchema } from "@/lib/validation/register-users";
@@ -58,7 +61,21 @@ export async function POST(request: NextRequest) {
       name: result.row.name,
       email: result.row.email,
     });
-    return NextResponse.json({ ...result, email });
+    await stampCaptureEmail(result.row.id, email);
+    return NextResponse.json({
+      ...result,
+      email,
+      row: {
+        ...result.row,
+        mailStatus: email.status,
+        mailError:
+          email.status === "failed"
+            ? email.error
+            : email.status === "skipped"
+              ? email.reason
+              : null,
+      },
+    });
   } catch (error) {
     if (error instanceof RegisterPhoneConflictError) {
       return NextResponse.json(
