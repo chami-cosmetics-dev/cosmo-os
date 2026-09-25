@@ -56,6 +56,9 @@ describe("isIntercompanyPurchaseSupplier", () => {
     expect(isIntercompanyPurchaseSupplier("SV031", "Cash AE 001")).toBe(true);
     expect(isIntercompanyPurchaseSupplier(null, "SV Cash Cos 006")).toBe(true);
     expect(isIntercompanyPurchaseSupplier(null, "Cash OR 001 - SV029")).toBe(true);
+    expect(isIntercompanyPurchaseSupplier("OUT100Cash001", "OUT100Cash001")).toBe(true);
+    expect(isIntercompanyPurchaseSupplier("OUT140CASH140", null)).toBe(true);
+    expect(isIntercompanyPurchaseSupplier(null, "OUT600 CASH 006")).toBe(true);
     expect(isIntercompanyPurchaseSupplier("Jana", "Jana Cosmetics")).toBe(false);
   });
 });
@@ -122,6 +125,7 @@ describe("mergePurchaseHistoryLines", () => {
     const cosmo = [
       baseCosmo,
       { ...baseCosmo, sku: "SKU2", sourceRef: null, supplier: "Cash SV 001" },
+      { ...baseCosmo, sku: "SKU3", sourceRef: null, supplier: "OUT100Cash001" },
     ];
     const merged = mergePurchaseHistoryLines(cosmo, []);
     expect(merged).toHaveLength(1);

@@ -100,7 +100,7 @@ export function normalizeSupplierKey(value: string | null | undefined): string {
   return (value ?? "").trim().toLowerCase();
 }
 
-/** Vault intercompany cash suppliers — hide from SKU calculator and purchase history. */
+/** Vault + Cosmo intercompany cash suppliers — hide from SKU calculator and purchase history. */
 const INTERCOMPANY_SUPPLIER_CODES = new Set(["sv029", "sv030", "sv031"]);
 const INTERCOMPANY_SUPPLIER_NAMES = new Set([
   "cash or 001",
@@ -109,14 +109,31 @@ const INTERCOMPANY_SUPPLIER_NAMES = new Set([
   "sv cash cos 006",
 ]);
 
+/** Cosmo outlet cash books: OUT100Cash001, OUT140CASH140, OUT600 CASH 006. */
+const OUTLET_CASH_TRANSFER_RE = /^out\d+cash\d+$/;
+
 function normalizeSupplierToken(value: string | null | undefined): string {
   return (value ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function compactSupplierToken(value: string | null | undefined): string {
+  return (value ?? "").trim().toLowerCase().replace(/[\s\-_./]/g, "");
+}
+
+function isOutletCashTransferSupplier(
+  supplierCode: string | null | undefined,
+  supplierName: string | null | undefined,
+): boolean {
+  return [supplierCode, supplierName].some((value) =>
+    OUTLET_CASH_TRANSFER_RE.test(compactSupplierToken(value)),
+  );
 }
 
 export function isIntercompanyPurchaseSupplier(
   supplierCode: string | null | undefined,
   supplierName: string | null | undefined,
 ): boolean {
+  if (isOutletCashTransferSupplier(supplierCode, supplierName)) return true;
   const code = normalizeSupplierToken(supplierCode);
   const name = normalizeSupplierToken(supplierName);
   const haystack = `${code} ${name}`.trim();
