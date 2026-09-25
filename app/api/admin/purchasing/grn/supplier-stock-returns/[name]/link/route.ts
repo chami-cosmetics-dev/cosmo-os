@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
+import { attachPendingSupplierStockReturnPurchaseInvoices } from "@/lib/grn";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserContext, requirePermission } from "@/lib/rbac";
 
@@ -50,10 +51,11 @@ export async function POST(
     return NextResponse.json({ error: "Cancelled supplier stock returns cannot be linked" }, { status: 400 });
   }
 
+  let purchaseReceiptId: string | null = null;
   if (purchaseReceiptName) {
     const pr = await prisma.grnPurchaseReceipt.findUnique({
       where: { companyId_name: { companyId: purchaseReceiptCompanyId, name: purchaseReceiptName } },
-      select: { name: true, docstatus: true },
+      select: { id: true, name: true, docstatus: true },
     });
     if (!pr) {
       return NextResponse.json({ error: "Purchase receipt not found" }, { status: 404 });
@@ -61,22 +63,30 @@ export async function POST(
     if (pr.docstatus === 2) {
       return NextResponse.json({ error: "Cancelled purchase receipts cannot be linked" }, { status: 400 });
     }
+    purchaseReceiptId = pr.id;
   }
 
-  await prisma.$transaction([
-    prisma.grnPurchaseReceipt.updateMany({
+  await prisma.$transaction(async (tx) => {
+    await tx.grnPurchaseReceipt.updateMany({
       where: { supplierStockReturnName: stockReturnName },
       data: { supplierStockReturnName: null },
-    }),
-    prisma.grnPurchaseReceipt.updateMany({
+    });
+    await tx.grnPurchaseReceipt.updateMany({
       where: { companyId: purchaseReceiptCompanyId, name: purchaseReceiptName ?? "__none__" },
       data: { supplierStockReturnName: stockReturnName },
-    }),
-    prisma.grnSupplierStockReturn.update({
+    });
+    await tx.grnSupplierStockReturn.update({
       where: { companyId_name: { companyId: targetCompanyId, name: stockReturnName } },
       data: { purchaseReceiptName },
-    }),
-  ]);
+    });
+    if (purchaseReceiptName && purchaseReceiptId) {
+      await attachPendingSupplierStockReturnPurchaseInvoices(tx, {
+        stockReturnName,
+        purchaseReceiptId,
+        purchaseReceiptName,
+      });
+    }
+  });
 
   return NextResponse.json({ ok: true });
 }
