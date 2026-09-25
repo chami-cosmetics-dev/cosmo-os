@@ -321,8 +321,10 @@ export async function POST(request: NextRequest) {
     );
 
     const countryInstances = [erp1Inst, erp2Inst, ...erpInstances].filter(
-      (inst, idx, all): inst is NonNullable<typeof inst> =>
-        Boolean(inst) && all.findIndex((x) => x?.id === inst.id) === idx,
+      (inst, idx, all): inst is NonNullable<typeof inst> => {
+        if (!inst) return false;
+        return all.findIndex((x) => x?.id === inst.id) === idx;
+      },
     );
     const countryBySku = await fetchItemCountries({
       instances: countryInstances,
