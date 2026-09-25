@@ -212,9 +212,7 @@ export async function GET(request: NextRequest) {
       const purchaseInvoice =
         row.purchaseInvoices.find((invoice) =>
           invoice.items.some((item) => item.purchaseReceipt === row.name),
-        ) ??
-        row.purchaseInvoices[0] ??
-        null;
+        ) ?? null;
       const supplierStockReturnPurchaseInvoice = row.supplierStockReturnName
         ? row.purchaseInvoices.find((invoice) =>
             invoice.items.some((item) => item.supplierStockReturn === row.supplierStockReturnName),

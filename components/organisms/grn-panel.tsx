@@ -871,6 +871,39 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
     }
   }
 
+  async function unlinkSsr(row: SupplierStockReturnRow) {
+    if (!permissions.canMatchSsr) {
+      notify.error("You do not have permission to match SSRs");
+      return;
+    }
+    const key = `${row.companyId}:${row.name}`;
+    setBusyKey(`unlink:${key}`);
+    try {
+      const res = await fetch(
+        `/api/admin/purchasing/grn/supplier-stock-returns/${encodeURIComponent(row.name)}/link`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ purchaseReceiptName: null, companyId: row.companyId }),
+        },
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || "Failed to unlink SSR");
+      }
+      setSelectedPrBySsr((prev) => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+      await loadData();
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : "Failed to unlink SSR");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
   async function saveIntercompanySupplier() {
     if (!permissions.canMatchSsr) {
       notify.error("You do not have permission to manage matching suppliers");
@@ -1281,6 +1314,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                       />
                     </TableCell>
                     <TableCell>
+                      <div className="flex flex-wrap gap-2">
                       <Button
                         size="sm"
                         disabled={row.docstatus === 2 || !permissions.canMatchSsr || busyKey === `link:${rowKey}`}
@@ -1292,6 +1326,21 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                         <Link2 className="size-4" />
                         Save
                       </Button>
+                      {row.purchaseReceiptName && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={row.docstatus === 2 || !permissions.canMatchSsr || busyKey === `unlink:${rowKey}`}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            unlinkSsr(row);
+                          }}
+                        >
+                          <Trash2 className="size-4" />
+                          Unlink
+                        </Button>
+                      )}
+                      </div>
                     </TableCell>
                   </TableRow>
                   );
@@ -1380,6 +1429,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                           />
                         </TableCell>
                         <TableCell>
+                          <div className="flex flex-wrap gap-2">
                           {selectedPrChanged ? (
                             <Button
                               size="sm"
@@ -1395,6 +1445,21 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                           ) : (
                             <span className="text-xs text-muted-foreground">-</span>
                           )}
+                          {row.purchaseReceiptName && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={row.docstatus === 2 || !permissions.canMatchSsr || busyKey === `unlink:${rowKey}`}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                unlinkSsr(row);
+                              }}
+                            >
+                              <Trash2 className="size-4" />
+                              Unlink
+                            </Button>
+                          )}
+                          </div>
                         </TableCell>
                       </TableRow>
                     );
