@@ -1,7 +1,7 @@
-import { v2 as cloudinary } from "cloudinary";
 import { NextRequest, NextResponse } from "next/server";
 
 import { requirePermission } from "@/lib/rbac";
+import { uploadRegisterEmailPhotoToCloudinary } from "@/lib/register-users/email-photo-cloudinary";
 import {
   REGISTER_EMAIL_PHOTO_MAX_BYTES,
   isRemoteEmailPhotoUrl,
@@ -15,8 +15,6 @@ import {
 } from "@/lib/register-users/settings";
 
 export const dynamic = "force-dynamic";
-
-const CLOUDINARY_FOLDER = "cosmo-os";
 
 function asUploadBlob(value: FormDataEntryValue | null): {
   name: string;
@@ -118,24 +116,18 @@ export async function POST(request: NextRequest) {
 
   try {
     const buffer = Buffer.from(await file.arrayBuffer());
-    const dataUri = toEmailPhotoDataUrl(mime, buffer);
-    const result = await cloudinary.uploader.upload(dataUri, {
-      folder: CLOUDINARY_FOLDER,
-      public_id: `register-email-${companyId}`,
-      overwrite: true,
-      resource_type: "image",
-    });
-    if (!result?.secure_url) {
-      throw new Error("Upload failed");
-    }
+    const photoUrl = await uploadRegisterEmailPhotoToCloudinary(
+      companyId,
+      toEmailPhotoDataUrl(mime, buffer),
+    );
 
     const current = await getOrCreateRegisterSettings(companyId);
     await upsertRegisterEmailTemplate(companyId, {
       header: current.emailHeader,
       body: current.emailBody,
-      photoUrl: result.secure_url,
+      photoUrl,
     });
-    return NextResponse.json({ photoUrl: result.secure_url });
+    return NextResponse.json({ photoUrl });
   } catch (err) {
     console.error("Register email photo Cloudinary error:", err);
     const message =

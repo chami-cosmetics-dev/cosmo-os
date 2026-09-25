@@ -110,6 +110,7 @@ export function RegisterUsersWorkbook() {
     photoUrl: null,
   });
   const [photoBusy, setPhotoBusy] = useState(false);
+  const [resendId, setResendId] = useState<string | null>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
 
   const headerReady =
@@ -381,6 +382,30 @@ export function RegisterUsersWorkbook() {
       notify.error(err instanceof Error ? err.message : "Photo upload failed.");
     } finally {
       setPhotoBusy(false);
+    }
+  }
+
+  async function resendWelcomeEmail(row: RegisterCaptureRow) {
+    if (row.outcome !== "created") return;
+    setResendId(row.id);
+    try {
+      const res = await fetch("/api/admin/register-users/resend-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ captureId: row.id }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        notify.error(
+          typeof data.error === "string" ? data.error : "Resend failed.",
+        );
+        return;
+      }
+      notify.success("Welcome email sent.");
+    } catch (err) {
+      notify.error(err instanceof Error ? err.message : "Resend failed.");
+    } finally {
+      setResendId(null);
     }
   }
 
@@ -671,7 +696,8 @@ export function RegisterUsersWorkbook() {
                     <th className="py-2 pr-3">Location</th>
                     <th className="py-2 pr-3">Badge</th>
                     <th className="py-2 pr-3">Outcome</th>
-                    <th className="py-2">Source</th>
+                    <th className="py-2 pr-3">Source</th>
+                    <th className="py-2">Mail</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -685,7 +711,27 @@ export function RegisterUsersWorkbook() {
                         {row.badgeStart}–{row.badgeEnd}
                       </td>
                       <td className="py-2 pr-3">{outcomeLabel(row.outcome)}</td>
-                      <td className="py-2">{row.source}</td>
+                      <td className="py-2 pr-3">{row.source}</td>
+                      <td className="py-2">
+                        {row.outcome === "created" ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            disabled={busy || resendId != null || !row.email}
+                            onClick={() => void resendWelcomeEmail(row)}
+                          >
+                            {resendId === row.id ? (
+                              <>
+                                <Loader2 className="animate-spin" aria-hidden />
+                                Sending…
+                              </>
+                            ) : (
+                              "Resend mail"
+                            )}
+                          </Button>
+                        ) : null}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

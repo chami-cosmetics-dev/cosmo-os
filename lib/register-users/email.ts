@@ -5,11 +5,10 @@ import {
   escapeEmailHtml,
 } from "@/lib/email-templates/render";
 import {
-  isRemoteEmailPhotoUrl,
-  parseStoredEmailPhoto,
-} from "@/lib/register-users/email-photo";
-
-const PHOTO_CID = "register-photo";
+  REGISTER_EMAIL_PHOTO_CID,
+  resolveWelcomePhotoForMail,
+} from "@/lib/register-users/email-photo-cloudinary";
+import { upsertRegisterEmailTemplate } from "@/lib/register-users/settings";
 
 export type RegisterWelcomeEmailResult =
   | { status: "sent" }
@@ -46,11 +45,21 @@ export async function sendRegisterWelcomeIfConfigured(input: {
     const header = applyRegisterEmailName(settings.emailHeader, personName);
     const body = applyRegisterEmailName(settings.emailBody, personName);
     const subject = header.trim() || "Welcome";
-    const stored = settings.emailPhotoUrl?.trim();
-    const embedded = parseStoredEmailPhoto(stored);
-    const remote =
-      !embedded && isRemoteEmailPhotoUrl(stored) ? stored.trim() : null;
-    const photoSrc = embedded ? `cid:${PHOTO_CID}` : remote ? remote : null;
+    const photo = await resolveWelcomePhotoForMail({
+      companyId: input.companyId,
+      stored: settings.emailPhotoUrl,
+    });
+    if (
+      photo?.remoteUrl &&
+      photo.remoteUrl !== settings.emailPhotoUrl?.trim()
+    ) {
+      await upsertRegisterEmailTemplate(input.companyId, {
+        header: settings.emailHeader,
+        body: settings.emailBody,
+        photoUrl: photo.remoteUrl,
+      });
+    }
+    const photoSrc = photo?.photoSrc ?? null;
     const html = `
 <!DOCTYPE html>
 <html>
@@ -69,33 +78,70 @@ export async function sendRegisterWelcomeIfConfigured(input: {
 </body>
 </html>`;
 
-    const result = await sendOsRegistrationWelcomeEmail({
+    const result = await sendWelcomeEmailWithRetry({
       toEmail: to,
       subject: subject.slice(0, 180),
       html,
-      attachments: embedded
-        ? [
-            {
-              filename: `register-photo.${embedded.mime.split("/")[1] ?? "jpg"}`,
-              contentType: embedded.mime,
-              buffer: embedded.buffer,
-              inline: true,
-              contentId: PHOTO_CID,
-            },
-          ]
-        : undefined,
+      attachments: photo?.attachment ? [photo.attachment] : undefined,
+      fallbackHtml:
+        photo?.attachment && photo.remoteUrl
+          ? html.replace(
+              `cid:${REGISTER_EMAIL_PHOTO_CID}`,
+              escapeEmailHtml(photo.remoteUrl),
+            )
+          : undefined,
     });
     if (!result.success) {
       console.error("[register-users] welcome email failed:", result.message);
       return {
         status: "failed",
-        error: result.message ?? "Welcome email failed",
+        error: mailErrorMessage(result.message ?? "Welcome email failed"),
       };
     }
     return { status: "sent" };
   } catch (err) {
     const error = err instanceof Error ? err.message : "Welcome email failed";
     console.error("[register-users] welcome email failed:", error);
-    return { status: "failed", error };
+    return { status: "failed", error: mailErrorMessage(error) };
   }
+}
+
+async function sendWelcomeEmailWithRetry(input: {
+  toEmail: string;
+  subject: string;
+  html: string;
+  attachments?: Parameters<
+    typeof sendOsRegistrationWelcomeEmail
+  >[0]["attachments"];
+  fallbackHtml?: string;
+}) {
+  const first = await sendOsRegistrationWelcomeEmail(input);
+  if (first.success) return first;
+  if (input.attachments?.length && input.fallbackHtml) {
+    const linked = await sendOsRegistrationWelcomeEmail({
+      toEmail: input.toEmail,
+      subject: input.subject,
+      html: input.fallbackHtml,
+    });
+    if (linked.success) return linked;
+  }
+  if (!isTransientMailError(first.message)) return first;
+  return sendOsRegistrationWelcomeEmail({
+    toEmail: input.toEmail,
+    subject: input.subject,
+    html: input.fallbackHtml ?? input.html,
+  });
+}
+
+function isTransientMailError(message: string | undefined) {
+  return /fetch failed|network|econnreset|etimedout|socket/i.test(
+    message ?? "",
+  );
+}
+
+function mailErrorMessage(error: string) {
+  if (isTransientMailError(error)) {
+    return "Mail service unreachable. Try save again.";
+  }
+  return error;
 }
