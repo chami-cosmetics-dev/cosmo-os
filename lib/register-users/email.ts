@@ -1,8 +1,8 @@
 import { sendOsRegistrationWelcomeEmail } from "@/lib/maileroo";
 import { prisma } from "@/lib/prisma";
 import {
+  applyRegisterEmailName,
   escapeEmailHtml,
-  renderEmailTemplatePlaceholders,
 } from "@/lib/email-templates/render";
 import {
   isRemoteEmailPhotoUrl,
@@ -36,9 +36,9 @@ export async function sendRegisterWelcomeIfConfigured(input: {
     return;
   }
 
-  const vars = { name: input.name.trim() || "there" };
-  const header = renderEmailTemplatePlaceholders(settings.emailHeader, vars);
-  const body = renderEmailTemplatePlaceholders(settings.emailBody, vars);
+  const personName = input.name.trim() || "there";
+  const header = applyRegisterEmailName(settings.emailHeader, personName);
+  const body = applyRegisterEmailName(settings.emailBody, personName);
   const subject = header.trim() || "Welcome";
   const stored = settings.emailPhotoUrl?.trim();
   const embedded = parseStoredEmailPhoto(stored);
