@@ -86,7 +86,7 @@ function outcomeLabel(outcome: string) {
 
 function mailStatusLabel(row: RegisterCaptureRow) {
   if (row.mailStatus === "sent") return "Sent";
-  if (row.mailStatus === "failed") return row.mailError || "Failed";
+  if (row.mailStatus === "failed") return "Failed";
   if (row.mailStatus === "skipped") {
     if (row.mailError === "no_email") return "No email";
     if (row.mailError === "no_template") return "Template empty";
@@ -397,7 +397,6 @@ export function RegisterUsersWorkbook() {
   }
 
   async function resendWelcomeEmail(row: RegisterCaptureRow) {
-    if (row.outcome !== "created") return;
     setResendId(row.id);
     try {
       const res = await fetch("/api/admin/register-users/resend-email", {
@@ -725,28 +724,31 @@ export function RegisterUsersWorkbook() {
                       </td>
                       <td className="py-2 pr-3">{outcomeLabel(row.outcome)}</td>
                       <td className="py-2 pr-3">{row.source}</td>
-                      <td className="py-2 pr-3">{mailStatusLabel(row)}</td>
+                      <td
+                        className="py-2 pr-3"
+                        title={row.mailError ?? undefined}
+                      >
+                        {mailStatusLabel(row)}
+                      </td>
                       <td className="py-2">
-                        {row.outcome === "created" ? (
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            disabled={busy || resendId != null || !row.email}
-                            onClick={() => void resendWelcomeEmail(row)}
-                          >
-                            {resendId === row.id ? (
-                              <>
-                                <Loader2 className="animate-spin" aria-hidden />
-                                Sending…
-                              </>
-                            ) : row.mailStatus === "sent" ? (
-                              "Resend mail"
-                            ) : (
-                              "Send mail"
-                            )}
-                          </Button>
-                        ) : null}
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          disabled={busy || resendId != null || !row.email}
+                          onClick={() => void resendWelcomeEmail(row)}
+                        >
+                          {resendId === row.id ? (
+                            <>
+                              <Loader2 className="animate-spin" aria-hidden />
+                              Sending…
+                            </>
+                          ) : row.mailStatus === "sent" ? (
+                            "Resend mail"
+                          ) : (
+                            "Send mail"
+                          )}
+                        </Button>
                       </td>
                     </tr>
                   ))}

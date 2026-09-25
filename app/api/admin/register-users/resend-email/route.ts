@@ -34,18 +34,11 @@ export async function POST(request: NextRequest) {
   const capture = await prisma.osRegistrationCapture.findFirst({
     where: { id: parsed.data.captureId, companyId },
     select: {
-      outcome: true,
       contact: { select: { name: true, email: true } },
     },
   });
   if (!capture) {
     return NextResponse.json({ error: "Registration not found" }, { status: 404 });
-  }
-  if (capture.outcome !== "created") {
-    return NextResponse.json(
-      { error: "Resend is only for newly created users" },
-      { status: 400 },
-    );
   }
 
   const email = await sendRegisterWelcomeIfConfigured({
