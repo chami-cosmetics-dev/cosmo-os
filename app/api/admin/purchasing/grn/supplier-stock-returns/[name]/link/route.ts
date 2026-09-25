@@ -85,6 +85,20 @@ export async function POST(
         purchaseReceiptId,
         purchaseReceiptName,
       });
+    } else {
+      await tx.grnPurchaseInvoice.updateMany({
+        where: {
+          docstatus: { not: 2 },
+          OR: [
+            { billNo: `SSR-${stockReturnName}` },
+            { items: { some: { supplierStockReturn: stockReturnName } } },
+          ],
+        },
+        data: {
+          purchaseReceiptId: null,
+          purchaseReceiptName: null,
+        },
+      });
     }
   });
 
