@@ -635,6 +635,12 @@ export function CustomerInsightPanel({
   const [locationOptions, setLocationOptions] = useState<InsightSelectOption[]>([]);
   const [filterOsRegLocation, setFilterOsRegLocation] = useState("");
   const [osRegLocationOptions, setOsRegLocationOptions] = useState<InsightSelectOption[]>([]);
+  const [osRegResults, setOsRegResults] = useState<AllocatedFilterItemDto[] | null>(
+    null
+  );
+  const [osRegTotal, setOsRegTotal] = useState(0);
+  const [osRegIncludeNew, setOsRegIncludeNew] = useState(true);
+  const [osRegIncludeAlready, setOsRegIncludeAlready] = useState(true);
   const [filterBirthdayFrom, setFilterBirthdayFrom] = useState("");
   const [filterBirthdayTo, setFilterBirthdayTo] = useState("");
   const [filterLastFrom, setFilterLastFrom] = useState("");
@@ -1950,6 +1956,80 @@ export function CustomerInsightPanel({
     }
   }
 
+  function buildOsRegFilterParams(forExport = false) {
+    const params = new URLSearchParams();
+    if (filterOsRegLocation.trim()) {
+      params.set("osRegLocation", filterOsRegLocation.trim());
+    }
+    if (forExport) {
+      params.set("osRegCreated", "true");
+    } else if (osRegIncludeNew || osRegIncludeAlready) {
+      if (osRegIncludeNew) params.set("osRegCreated", "true");
+      if (osRegIncludeAlready) params.set("osRegAlready", "true");
+    } else {
+      params.set("osRegCreated", "true");
+      params.set("osRegAlready", "true");
+    }
+    params.set("page", "1");
+    params.set("pageSize", "50");
+    return params;
+  }
+
+  async function loadOsRegFilter() {
+    if (!canExportFilteredCsv) return;
+    setBusyKey("os-reg-filter");
+    try {
+      const res = await fetch(
+        `/api/admin/customer-insight/filter?${buildOsRegFilterParams(false)}`
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        notify.error(typeof data.error === "string" ? data.error : "Filter failed.");
+        return;
+      }
+      setOsRegResults((data.items ?? []) as AllocatedFilterItemDto[]);
+      setOsRegTotal(data.pagination?.total ?? 0);
+    } catch {
+      notify.error("Filter failed.");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function exportOsRegFilter() {
+    if (!canExportFilteredCsv) return;
+    setBusyKey("os-reg-export");
+    try {
+      const params = buildOsRegFilterParams(true);
+      params.delete("page");
+      params.delete("pageSize");
+      const res = await fetch(
+        `/api/admin/customer-insight/filter/export?${params.toString()}`
+      );
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        notify.error(
+          typeof data.error === "string" ? data.error : "Export failed."
+        );
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "new-register-users.csv";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      notify.success("New register users export downloaded.");
+    } catch {
+      notify.error("Export failed.");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
   function focusInvoicesForItem(itemName: string) {
     setItemFilter(itemName);
     invoicesRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -2253,7 +2333,7 @@ export function CustomerInsightPanel({
             ) : null}
             {canExportFilteredCsv ? (
               <label className="space-y-1 text-sm">
-                <span className="text-muted-foreground">New user location</span>
+                <span className="text-muted-foreground">New register location</span>
                 <InsightSearchableSelect
                   value={filterOsRegLocation}
                   options={osRegLocationOptions}
@@ -3998,6 +4078,141 @@ export function CustomerInsightPanel({
 
         {canExportFilteredCsv ? (
           <TabsContent value="admin" className="flex flex-col gap-6">
+      {canExportFilteredCsv ? (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">New register users</CardTitle>
+            <CardDescription>
+              Load shows new users and already-registered. Export is new users
+              only — already-registered stay out of the file.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              <label className="min-w-0 space-y-1 text-sm">
+                <span className="text-muted-foreground">New register location</span>
+                <InsightSearchableSelect
+                  value={filterOsRegLocation}
+                  options={osRegLocationOptions}
+                  placeholder="Any location"
+                  allLabel="Any location"
+                  searchPlaceholder="Search locations…"
+                  disabled={isBusy}
+                  onChange={setFilterOsRegLocation}
+                />
+              </label>
+              <div className="flex flex-wrap items-end gap-4 text-sm sm:col-span-2">
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={osRegIncludeNew}
+                    disabled={isBusy}
+                    onChange={(e) => setOsRegIncludeNew(e.target.checked)}
+                  />
+                  New users
+                </label>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={osRegIncludeAlready}
+                    disabled={isBusy}
+                    onChange={(e) => setOsRegIncludeAlready(e.target.checked)}
+                  />
+                  Already registered
+                </label>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-end gap-2">
+              <Button
+                type="button"
+                disabled={isBusy}
+                onClick={() => void loadOsRegFilter()}
+              >
+                {busyKey === "os-reg-filter" ? (
+                  <>
+                    <Loader2 className="animate-spin" aria-hidden />
+                    Loading...
+                  </>
+                ) : (
+                  "Load"
+                )}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isBusy}
+                onClick={() => void exportOsRegFilter()}
+              >
+                {busyKey === "os-reg-export" ? (
+                  <>
+                    <Loader2 className="animate-spin" aria-hidden />
+                    Exporting...
+                  </>
+                ) : (
+                  <>
+                    <Download aria-hidden />
+                    Export
+                  </>
+                )}
+              </Button>
+              {osRegResults ? (
+                <p className="text-sm text-muted-foreground">
+                  {osRegTotal.toLocaleString()} register user
+                  {osRegTotal === 1 ? "" : "s"}
+                </p>
+              ) : null}
+            </div>
+            {osRegResults ? (
+              <div className="overflow-x-auto rounded-md border text-xs">
+                <table className="w-full">
+                  <thead>
+                    <tr className="bg-muted/30 text-left">
+                      <th className="px-2 py-1">Name</th>
+                      <th className="px-2 py-1">Phone</th>
+                      <th className="px-2 py-1">Type</th>
+                      <th className="px-2 py-1">Merchant</th>
+                      <th className="px-2 py-1">Last purchased</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {osRegResults.length === 0 ? (
+                      <tr className="border-t">
+                        <td
+                          colSpan={5}
+                          className="text-muted-foreground px-2 py-2"
+                        >
+                          No register users for this selection.
+                        </td>
+                      </tr>
+                    ) : (
+                      osRegResults.map((row) => (
+                        <tr key={row.contactId} className="border-t">
+                          <td className="px-2 py-1">{row.name}</td>
+                          <td className="px-2 py-1">{row.phoneNumber ?? "—"}</td>
+                          <td className="px-2 py-1">
+                            {row.osRegKind === "already_registered"
+                              ? "Already registered"
+                              : "New user"}
+                          </td>
+                          <td className="px-2 py-1">
+                            {row.assignedMerchant ?? "Unallocated"}
+                          </td>
+                          <td className="px-2 py-1">
+                            {row.lastPurchaseAt
+                              ? formatAppDate(row.lastPurchaseAt)
+                              : "—"}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
+
       {canExportFilteredCsv ? (
         <Card>
           <CardHeader className="pb-2">

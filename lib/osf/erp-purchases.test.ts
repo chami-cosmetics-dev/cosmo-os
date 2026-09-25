@@ -312,6 +312,12 @@ describe("isNoisePurchaseSupplier", () => {
     expect(
       isNoisePurchaseSupplier({ supplier: "SV031", supplier_name: "Cash AE 001" }),
     ).toBe(true);
+    expect(
+      isNoisePurchaseSupplier({ supplier: "OUT010Cash010", supplier_name: "OUT010Cash010" }),
+    ).toBe(true);
+    expect(
+      isNoisePurchaseSupplier({ supplier: "OUT900CASH009", supplier_name: "OUT900Cash009" }),
+    ).toBe(true);
   });
 });
 

@@ -16,6 +16,71 @@ import { prisma } from "@/lib/prisma";
 
 export type MonthDay = { month: number; day: number };
 
+export type OsRegScope = {
+  active: boolean;
+  includeNew: boolean;
+  includeAlready: boolean;
+  location: string | undefined;
+};
+
+/** Location-only → both kinds. Kind flags without location still apply. */
+export function resolveOsRegScope(input: {
+  osRegLocation?: string;
+  osRegCreated?: boolean;
+  osRegAlready?: boolean;
+}): OsRegScope {
+  const location = input.osRegLocation?.trim() || undefined;
+  const includeNew = Boolean(input.osRegCreated);
+  const includeAlready = Boolean(input.osRegAlready);
+  const kindSpecified = includeNew || includeAlready;
+  if (!location && !kindSpecified) {
+    return {
+      active: false,
+      includeNew: false,
+      includeAlready: false,
+      location: undefined,
+    };
+  }
+  return {
+    active: true,
+    includeNew: kindSpecified ? includeNew : true,
+    includeAlready: kindSpecified ? includeAlready : true,
+    location,
+  };
+}
+
+/** Export never includes already-registered register stamps. */
+export function applyOsRegExportGuard(
+  scope: OsRegScope,
+  forExport?: boolean
+): OsRegScope {
+  if (!forExport || !scope.active) return scope;
+  return { ...scope, includeNew: true, includeAlready: false };
+}
+
+export function osRegWhereAnd(scope: OsRegScope): Record<string, unknown>[] {
+  if (!scope.active) return [];
+  const locationEq = scope.location
+    ? {
+        osRegLocation: {
+          equals: scope.location,
+          mode: "insensitive" as const,
+        },
+      }
+    : { osRegLocation: { not: null } };
+
+  if (scope.includeNew && scope.includeAlready) {
+    return [locationEq];
+  }
+  if (scope.includeNew) {
+    return [
+      { osRegistrationCreated: true },
+      ...(scope.location ? [locationEq] : []),
+    ];
+  }
+  return [{ osRegistrationCreated: { not: true } }, locationEq];
+}
+
 export type FilterQueryInput = {
   companyId: string;
   viewer: {
@@ -36,8 +101,12 @@ export type FilterQueryInput = {
   assignedMerchant?: string;
   /** Admin-only: company location id of the contact's latest purchase. */
   purchaseLocationId?: string;
-  /** Admin-only: OS-created registration location (osRegistrationCreated). */
+  /** Admin-only: OS registration location (created or already-registered stamp). */
   osRegLocation?: string;
+  /** Admin-only: include OS-created (new) registration contacts. */
+  osRegCreated?: boolean;
+  /** Admin-only: include already-registered contacts stamped via register. */
+  osRegAlready?: boolean;
   minTotal?: number;
   maxTotal?: number;
   birthdayFrom?: MonthDay;
@@ -233,6 +302,7 @@ type ContactCandidate = {
   loyaltyAssignedAt: Date | null;
   loyaltyAssignedTier: string | null;
   loyaltyOutreachStatus: string | null;
+  osRegistrationCreated: boolean;
   phones: { phoneNumber: string }[];
   emails: { email: string }[];
 };
@@ -317,23 +387,18 @@ async function buildAllocationWhere(input: FilterQueryInput): Promise<{
     ];
   }
 
-  const osRegLocationNeedle = input.osRegLocation?.trim();
-  if (osRegLocationNeedle) {
+  const osRegScope = applyOsRegExportGuard(
+    resolveOsRegScope(input),
+    input.forExport
+  );
+  const osRegClause = osRegWhereAnd(osRegScope);
+  if (osRegClause.length > 0) {
     const existingAnd = Array.isArray(where.AND)
       ? (where.AND as unknown[])
       : where.AND
         ? [where.AND]
         : [];
-    where.AND = [
-      ...existingAnd,
-      { osRegistrationCreated: true },
-      {
-        osRegLocation: {
-          equals: osRegLocationNeedle,
-          mode: "insensitive" as const,
-        },
-      },
-    ];
+    where.AND = [...existingAnd, ...osRegClause];
   }
 
   const assignedNeedle = input.assignedMerchant?.trim();
@@ -557,6 +622,7 @@ export async function filterAllocatedContacts(
     loyaltyAssignedAt: true,
     loyaltyAssignedTier: true,
     loyaltyOutreachStatus: true,
+    osRegistrationCreated: true,
     phones: { select: { phoneNumber: true } },
     emails: { select: { email: true } },
   } as const;
@@ -643,6 +709,11 @@ export async function filterAllocatedContacts(
     eligible
   );
 
+  const osRegScopeActive = applyOsRegExportGuard(
+    resolveOsRegScope(input),
+    input.forExport
+  ).active;
+
   const scored: Array<{
     contactId: string;
     name: string;
@@ -655,6 +726,7 @@ export async function filterAllocatedContacts(
     lastContactedAt: Date | null;
     key: LoyaltyTierKey;
     loyaltyOutreachStatus: string | null;
+    osRegKind: "new" | "already_registered" | null;
   }> = [];
 
   for (const contact of eligible) {
@@ -691,6 +763,11 @@ export async function filterAllocatedContacts(
       lastContactedAt: contacted.get(contact.id) ?? null,
       key,
       loyaltyOutreachStatus: contact.loyaltyOutreachStatus,
+      osRegKind: osRegScopeActive
+        ? contact.osRegistrationCreated
+          ? "new"
+          : "already_registered"
+        : null,
     });
   }
 
@@ -734,6 +811,7 @@ export async function filterAllocatedContacts(
         lastContactedAt: row.lastContactedAt?.toISOString() ?? null,
         loyaltyOutreachStatus: row.loyaltyOutreachStatus,
         loyaltyStage: loyaltyOutreachStageLabel(row.loyaltyOutreachStatus) || null,
+        osRegKind: row.osRegKind,
       };
     }),
     pagination: {
