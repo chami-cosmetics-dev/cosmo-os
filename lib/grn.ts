@@ -74,9 +74,9 @@ export async function attachPendingSupplierStockReturnPurchaseInvoices(
   const pendingInvoices = await tx.grnPurchaseInvoice.findMany({
     where: {
       docstatus: { not: 2 },
+      isReturn: 1,
       OR: [
         { billNo },
-        { supplierStockReturnName: input.stockReturnName },
         { items: { some: { supplierStockReturn: input.stockReturnName } } },
       ],
     },
@@ -236,9 +236,21 @@ export async function ingestPurchaseReceiptFromWebhook(
     }
 
     if (carriedStockReturnName) {
+      await tx.grnPurchaseReceipt.updateMany({
+        where: {
+          supplierStockReturnName: carriedStockReturnName,
+          NOT: { id: receipt.id },
+        },
+        data: { supplierStockReturnName: null },
+      });
       await tx.grnSupplierStockReturn.updateMany({
         where: { companyId, name: carriedStockReturnName, docstatus: { not: 2 } },
         data: { purchaseReceiptName: data.name },
+      });
+      await attachPendingSupplierStockReturnPurchaseInvoices(tx, {
+        stockReturnName: carriedStockReturnName,
+        purchaseReceiptId: receipt.id,
+        purchaseReceiptName: data.name,
       });
     }
   });

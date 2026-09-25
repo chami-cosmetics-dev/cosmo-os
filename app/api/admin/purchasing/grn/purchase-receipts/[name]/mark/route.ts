@@ -95,9 +95,7 @@ export async function POST(
     const purchaseInvoice =
       row.purchaseInvoices.find((invoice) =>
         invoice.items.some((item) => item.purchaseReceipt === row.name),
-      ) ??
-      row.purchaseInvoices[0] ??
-      null;
+      ) ?? null;
     if (!purchaseInvoice) return;
 
     if (!row.supplierStockReturnName) {
