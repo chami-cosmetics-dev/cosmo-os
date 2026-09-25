@@ -4,10 +4,7 @@ import {
   applyRegisterEmailName,
   escapeEmailHtml,
 } from "@/lib/email-templates/render";
-import {
-  REGISTER_EMAIL_PHOTO_CID,
-  resolveWelcomePhotoForMail,
-} from "@/lib/register-users/email-photo-cloudinary";
+import { resolveWelcomePhotoForMail } from "@/lib/register-users/email-photo-cloudinary";
 import { upsertRegisterEmailTemplate } from "@/lib/register-users/settings";
 
 export type RegisterWelcomeEmailResult =
@@ -82,7 +79,7 @@ export async function sendRegisterWelcomeIfConfigured(input: {
         photoUrl: photo.remoteUrl,
       });
     }
-    const photoSrc = photo?.photoSrc ?? null;
+    const photoSrc = photo?.remoteUrl ?? photo?.photoSrc ?? null;
     const html = `
 <!DOCTYPE html>
 <html>
@@ -105,14 +102,6 @@ export async function sendRegisterWelcomeIfConfigured(input: {
       toEmail: to,
       subject: subject.slice(0, 180),
       html,
-      attachments: photo?.attachment ? [photo.attachment] : undefined,
-      fallbackHtml:
-        photo?.attachment && photo.remoteUrl
-          ? html.replace(
-              `cid:${REGISTER_EMAIL_PHOTO_CID}`,
-              escapeEmailHtml(photo.remoteUrl),
-            )
-          : undefined,
     });
     if (!result.success) {
       console.error("[register-users] welcome email failed:", result.message);
@@ -133,27 +122,11 @@ async function sendWelcomeEmailWithRetry(input: {
   toEmail: string;
   subject: string;
   html: string;
-  attachments?: Parameters<
-    typeof sendOsRegistrationWelcomeEmail
-  >[0]["attachments"];
-  fallbackHtml?: string;
 }) {
   const first = await sendOsRegistrationWelcomeEmail(input);
-  if (first.success) return first;
-  if (input.attachments?.length && input.fallbackHtml) {
-    const linked = await sendOsRegistrationWelcomeEmail({
-      toEmail: input.toEmail,
-      subject: input.subject,
-      html: input.fallbackHtml,
-    });
-    if (linked.success) return linked;
-  }
-  if (!isTransientMailError(first.message)) return first;
-  return sendOsRegistrationWelcomeEmail({
-    toEmail: input.toEmail,
-    subject: input.subject,
-    html: input.fallbackHtml ?? input.html,
-  });
+  if (first.success || !isTransientMailError(first.message)) return first;
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  return sendOsRegistrationWelcomeEmail(input);
 }
 
 function isTransientMailError(message: string | undefined) {
