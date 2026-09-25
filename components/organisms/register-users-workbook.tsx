@@ -457,7 +457,7 @@ export function RegisterUsersWorkbook() {
           <CardDescription>
             Saved on the server. Everyone who registers today with an email
             gets this. Edit anytime — later saves use the new header, body, and
-            photo. Use {"{{name}}"} for the customer name.
+            photo. Use {"{{name}}"} or [Name] — send fills the registrant name.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -468,7 +468,7 @@ export function RegisterUsersWorkbook() {
               onChange={(e) =>
                 setEmailTpl((prev) => ({ ...prev, header: e.target.value }))
               }
-              placeholder="Welcome, {{name}}"
+              placeholder="Hi [Name]"
               disabled={busy}
             />
           </label>
