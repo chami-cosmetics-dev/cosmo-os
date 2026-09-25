@@ -61,12 +61,12 @@ export async function POST(request: NextRequest, context: RouteContext) {
       qrId: qr.id,
       applyBirthday: true,
     });
-    void sendRegisterWelcomeIfConfigured({
+    const email = await sendRegisterWelcomeIfConfigured({
       companyId: qr.companyId,
       name: result.row.name,
       email: result.row.email,
     });
-    return NextResponse.json({ ok: true, outcome: result.outcome });
+    return NextResponse.json({ ok: true, outcome: result.outcome, email });
   } catch (error) {
     if (error instanceof RegisterPhoneConflictError) {
       return NextResponse.json({ error: "Unable to save this phone" }, { status: 409 });

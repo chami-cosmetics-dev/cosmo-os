@@ -53,12 +53,12 @@ export async function POST(request: NextRequest) {
       actorUserId: userId,
       applyBirthday: true,
     });
-    void sendRegisterWelcomeIfConfigured({
+    const email = await sendRegisterWelcomeIfConfigured({
       companyId,
       name: result.row.name,
       email: result.row.email,
     });
-    return NextResponse.json(result);
+    return NextResponse.json({ ...result, email });
   } catch (error) {
     if (error instanceof RegisterPhoneConflictError) {
       return NextResponse.json(
