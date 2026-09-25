@@ -1,5 +1,9 @@
 import { getAppBaseUrl } from "@/lib/app-base-url";
 import {
+  REGISTER_EMAIL_PHOTO_PREVIEW_PATH,
+  isRemoteEmailPhotoUrl,
+} from "@/lib/register-users/email-photo";
+import {
   formatAppIsoDate,
   parseAppCalendarDayStart,
 } from "@/lib/format-datetime";
@@ -90,10 +94,15 @@ export function serializeEmailTemplate(settings: {
   emailBody: string;
   emailPhotoUrl: string | null;
 }): RegisterEmailTemplateDto {
+  const stored = settings.emailPhotoUrl?.trim() || null;
   return {
     header: settings.emailHeader,
     body: settings.emailBody,
-    photoUrl: settings.emailPhotoUrl,
+    photoUrl: stored
+      ? isRemoteEmailPhotoUrl(stored)
+        ? stored
+        : REGISTER_EMAIL_PHOTO_PREVIEW_PATH
+      : null,
   };
 }
 

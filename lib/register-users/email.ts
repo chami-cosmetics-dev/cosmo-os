@@ -4,6 +4,12 @@ import {
   escapeEmailHtml,
   renderEmailTemplatePlaceholders,
 } from "@/lib/email-templates/render";
+import {
+  isRemoteEmailPhotoUrl,
+  parseStoredEmailPhoto,
+} from "@/lib/register-users/email-photo";
+
+const PHOTO_CID = "register-photo";
 
 export async function sendRegisterWelcomeIfConfigured(input: {
   companyId: string;
@@ -34,15 +40,22 @@ export async function sendRegisterWelcomeIfConfigured(input: {
   const header = renderEmailTemplatePlaceholders(settings.emailHeader, vars);
   const body = renderEmailTemplatePlaceholders(settings.emailBody, vars);
   const subject = header.trim() || "Welcome";
-  const photo = settings.emailPhotoUrl?.trim();
+  const stored = settings.emailPhotoUrl?.trim();
+  const embedded = parseStoredEmailPhoto(stored);
+  const remote = !embedded && isRemoteEmailPhotoUrl(stored) ? stored.trim() : null;
+  const photoSrc = embedded
+    ? `cid:${PHOTO_CID}`
+    : remote
+      ? remote
+      : null;
   const html = `
 <!DOCTYPE html>
 <html>
 <body style="margin:0;padding:24px;font-family:Arial,sans-serif;color:#111;">
   ${header.trim() ? `<h1 style="font-size:22px;margin:0 0 16px;">${escapeEmailHtml(header)}</h1>` : ""}
   ${
-    photo
-      ? `<p style="margin:0 0 16px;"><img src="${escapeEmailHtml(photo)}" alt="" style="max-width:100%;height:auto;border-radius:8px;" /></p>`
+    photoSrc
+      ? `<p style="margin:0 0 16px;"><img src="${escapeEmailHtml(photoSrc)}" alt="" style="max-width:100%;height:auto;border-radius:8px;" /></p>`
       : ""
   }
   ${
@@ -57,6 +70,17 @@ export async function sendRegisterWelcomeIfConfigured(input: {
     toEmail: to,
     subject,
     html,
+    attachments: embedded
+      ? [
+          {
+            filename: `register-photo.${embedded.mime.split("/")[1] ?? "jpg"}`,
+            contentType: embedded.mime,
+            buffer: embedded.buffer,
+            inline: true,
+            contentId: PHOTO_CID,
+          },
+        ]
+      : undefined,
   });
   if (!result.success) {
     console.error("[register-users] welcome email failed:", result.message);
