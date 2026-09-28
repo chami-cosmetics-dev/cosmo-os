@@ -171,11 +171,24 @@ type GrnPanelPermissions = {
   canMarkReceived: boolean;
 };
 
-type GrnStageFilter = "all" | "not_handover" | "not_valued" | "not_received" | "completed" | "cancelled";
+type GrnActionStage = "handover" | "valued" | "received";
+type GrnStageStatusFilter = "all" | "pending" | "completed" | "mismatch";
+type GrnStageFilter = {
+  stage: GrnActionStage;
+  status: GrnStageStatusFilter;
+};
+type PrDialogFocus = "item-mismatch" | "price-mismatch" | null;
 
 const PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
 type PageSize = (typeof PAGE_SIZE_OPTIONS)[number];
 const DEFAULT_PAGE_SIZE: PageSize = 20;
+
+function firstAllowedStage(permissions: GrnPanelPermissions): GrnActionStage {
+  if (permissions.canMarkHandover) return "handover";
+  if (permissions.canMarkValued) return "valued";
+  if (permissions.canMarkReceived) return "received";
+  return "handover";
+}
 
 function formatDate(value: string | null) {
   if (!value) return "-";
@@ -213,7 +226,7 @@ function CancelledBadge() {
   );
 }
 
-function buildPriceTallyRows(_ssr: SupplierStockReturnRow, pr: PurchaseReceiptRow | null) {
+function buildPriceTallyRows(_ssr: SupplierStockReturnRow | null, pr: PurchaseReceiptRow | null) {
   if (!pr?.purchaseInvoice && !pr?.supplierStockReturnPurchaseInvoice) return [];
 
   const groupItems = (items: PurchaseInvoiceRef["items"]) => {
@@ -257,6 +270,28 @@ function buildPriceTallyRows(_ssr: SupplierStockReturnRow, pr: PurchaseReceiptRo
       };
     })
     .sort((a, b) => Number(a.issue) - Number(b.issue) || a.itemCode.localeCompare(b.itemCode));
+}
+
+function hasPriceMismatch(row: PurchaseReceiptRow) {
+  if (!row.purchaseInvoice || !row.supplierStockReturnPurchaseInvoice) return false;
+  return buildPriceTallyRows(null, row).some((priceRow) => priceRow.issue);
+}
+
+function itemIssueCount(row: PurchaseReceiptRow) {
+  return row.tallyIssues.length || row.tallyIssueItems.length;
+}
+
+function priceIssueCount(row: PurchaseReceiptRow) {
+  if (!row.purchaseInvoice || !row.supplierStockReturnPurchaseInvoice) return 0;
+  return buildPriceTallyRows(null, row).filter((priceRow) => priceRow.issue).length;
+}
+
+function linkModeLabel(ssr: SupplierStockReturnRow | null, pr: PurchaseReceiptRow | null) {
+  if (!ssr || !pr) return null;
+  const rec = ssr.matchRecommendation;
+  return rec && rec.companyId === pr.companyId && rec.name === pr.name && rec.percentage >= 100
+    ? "Auto matched"
+    : "Manually linked";
 }
 
 function PurchaseInvoiceStatusBadge({ row }: { row: PurchaseReceiptRow | null | undefined }) {
@@ -440,7 +475,11 @@ function GrnStageTimeline({ row }: { row: PurchaseReceiptRow }) {
               <div>
                 <div className="font-semibold">{stage.label}</div>
                 <div className="text-sm text-muted-foreground">
-                  {userLabel(stage.by) ? `by ${userLabel(stage.by)}` : complete && stage.fallbackBy ? `by ${stage.fallbackBy}` : "-"}
+                  {userLabel(stage.by)
+                    ? `Marked by ${userLabel(stage.by)}`
+                    : complete && stage.fallbackBy
+                      ? `Marked by ${stage.fallbackBy}`
+                      : "-"}
                 </div>
               </div>
               <div className="text-right text-sm text-muted-foreground">{formatDate(stage.at)}</div>
@@ -626,7 +665,10 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [ssrSearch, setSsrSearch] = useState("");
-  const [stageFilter, setStageFilter] = useState<GrnStageFilter>("all");
+  const [stageFilter, setStageFilter] = useState<GrnStageFilter>(() => ({
+    stage: firstAllowedStage(permissions),
+    status: "pending",
+  }));
   const [activeTab, setActiveTab] = useState("grn");
   const [prPage, setPrPage] = useState(1);
   const [ssrPage, setSsrPage] = useState(1);
@@ -635,7 +677,9 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
   const [dateRange, setDateRange] = useState(() => getCurrentMonthRange());
   const [selectedPrBySsr, setSelectedPrBySsr] = useState<Record<string, string>>({});
   const [selectedPr, setSelectedPr] = useState<PurchaseReceiptRow | null>(null);
+  const [selectedPrFocus, setSelectedPrFocus] = useState<PrDialogFocus>(null);
   const [selectedSsr, setSelectedSsr] = useState<SupplierStockReturnRow | null>(null);
+  const [selectedBulkPrKeys, setSelectedBulkPrKeys] = useState<Set<string>>(() => new Set());
   const [supplierDialogOpen, setSupplierDialogOpen] = useState(false);
   const [supplierForm, setSupplierForm] = useState({ id: "", supplier: "", supplierName: "" });
 
@@ -677,6 +721,18 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
   useEffect(() => {
     void loadData();
   }, [loadData]);
+
+  useEffect(() => {
+    setStageFilter((current) => {
+      const allowedStages: GrnActionStage[] = [
+        ...(permissions.canMarkHandover ? (["handover"] as const) : []),
+        ...(permissions.canMarkValued ? (["valued"] as const) : []),
+        ...(permissions.canMarkReceived ? (["received"] as const) : []),
+      ];
+      if (allowedStages.length === 0 || allowedStages.includes(current.stage)) return current;
+      return { stage: allowedStages[0], status: "pending" };
+    });
+  }, [permissions.canMarkHandover, permissions.canMarkReceived, permissions.canMarkValued]);
 
   const activePurchaseReceipts = useMemo(
     () => data.purchaseReceipts.filter((row) => !row.isCancelled),
@@ -745,23 +801,108 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
     ? buildPriceTallyRows(selectedSsr, selectedSsrPurchaseReceipt)
     : [];
 
+  const allowedStageFilters = useMemo(
+    () =>
+      [
+        permissions.canMarkHandover ? { key: "handover" as const, label: "Handover marking" } : null,
+        permissions.canMarkValued ? { key: "valued" as const, label: "Valued marking" } : null,
+        permissions.canMarkReceived ? { key: "received" as const, label: "GRN received" } : null,
+      ].filter((row): row is { key: GrnActionStage; label: string } => Boolean(row)),
+    [permissions.canMarkHandover, permissions.canMarkReceived, permissions.canMarkValued],
+  );
+
+  const rowBelongsToStage = useCallback((row: PurchaseReceiptRow, stage: GrnActionStage) => {
+    if (row.isCancelled) return false;
+    if (stage === "handover") return true;
+    if (stage === "valued") return Boolean(row.handoverAt);
+    return Boolean(row.valuedAt);
+  }, []);
+
+  const rowCompletedForStage = useCallback((row: PurchaseReceiptRow, stage: GrnActionStage) => {
+    if (stage === "handover") return Boolean(row.handoverAt);
+    if (stage === "valued") return Boolean(row.valuedAt);
+    return Boolean(row.receivedAt);
+  }, []);
+
+  const rowMismatchedForStage = useCallback((row: PurchaseReceiptRow, stage: GrnActionStage) => {
+    if (stage === "handover") return row.tallyStatus === "issue";
+    if (stage === "valued") return hasPriceMismatch(row);
+    return false;
+  }, []);
+
+  const stageCardCounts = useMemo(
+    () =>
+      Object.fromEntries(
+        allowedStageFilters.map(({ key }) => {
+          const rows = data.purchaseReceipts.filter((row) => rowBelongsToStage(row, key));
+          const completed = rows.filter((row) => rowCompletedForStage(row, key)).length;
+          const mismatch = rows.filter((row) => rowMismatchedForStage(row, key)).length;
+          return [
+            key,
+            {
+              all: rows.length,
+              pending: rows.length - completed,
+              completed,
+              mismatch,
+            },
+          ];
+        }),
+      ) as Record<GrnActionStage, Record<GrnStageStatusFilter, number>>,
+    [allowedStageFilters, data.purchaseReceipts, rowBelongsToStage, rowCompletedForStage, rowMismatchedForStage],
+  );
+
   const filteredPrs = useMemo(() => {
     const term = search.trim().toLowerCase();
     return data.purchaseReceipts.filter((row) => {
       const matchesStage =
-        stageFilter === "all" ||
-        (stageFilter === "not_handover" && !row.isCancelled && !row.handoverAt) ||
-        (stageFilter === "not_valued" && !row.isCancelled && !row.valuedAt) ||
-        (stageFilter === "not_received" && !row.isCancelled && !row.receivedAt) ||
-        (stageFilter === "completed" && !row.isCancelled && Boolean(row.receivedAt)) ||
-        (stageFilter === "cancelled" && row.isCancelled);
+        allowedStageFilters.length === 0
+          ? !row.isCancelled
+          : rowBelongsToStage(row, stageFilter.stage) &&
+        (stageFilter.status === "all" ||
+          (stageFilter.status === "pending" && !rowCompletedForStage(row, stageFilter.stage)) ||
+          (stageFilter.status === "completed" && rowCompletedForStage(row, stageFilter.stage)) ||
+          (stageFilter.status === "mismatch" && rowMismatchedForStage(row, stageFilter.stage)));
       if (!matchesStage) return false;
       if (!term) return true;
       return [row.name, row.adjustmentNo, row.supplier, row.supplierName, row.grnBy, row.companyName]
         .filter(Boolean)
         .some((value) => value!.toLowerCase().includes(term));
     });
-  }, [data.purchaseReceipts, search, stageFilter]);
+  }, [allowedStageFilters.length, data.purchaseReceipts, rowBelongsToStage, rowCompletedForStage, rowMismatchedForStage, search, stageFilter.stage, stageFilter.status]);
+
+  const fieldForStage = useCallback((stage: GrnActionStage): "handoverAt" | "valuedAt" | "receivedAt" => {
+    if (stage === "handover") return "handoverAt";
+    if (stage === "valued") return "valuedAt";
+    return "receivedAt";
+  }, []);
+
+  const canBulkMarkRow = useCallback(
+    (row: PurchaseReceiptRow) => {
+      if (row.isCancelled || rowCompletedForStage(row, stageFilter.stage)) return false;
+      if (stageFilter.stage === "handover") return permissions.canMarkHandover && row.tallyStatus !== "issue";
+      if (stageFilter.stage === "valued") {
+        return permissions.canMarkValued && Boolean(row.handoverAt) && !hasPriceMismatch(row);
+      }
+      return permissions.canMarkReceived && Boolean(row.handoverAt) && Boolean(row.valuedAt);
+    },
+    [
+      permissions.canMarkHandover,
+      permissions.canMarkReceived,
+      permissions.canMarkValued,
+      rowCompletedForStage,
+      stageFilter.stage,
+    ],
+  );
+
+  const bulkMarkablePrs = useMemo(
+    () => filteredPrs.filter((row) => canBulkMarkRow(row)),
+    [canBulkMarkRow, filteredPrs],
+  );
+
+  const bulkMarkableKeys = useMemo(
+    () => new Set(bulkMarkablePrs.map((row) => `${row.companyId}:${row.name}`)),
+    [bulkMarkablePrs],
+  );
 
   const ssrMatchesSearch = useCallback(
     (row: SupplierStockReturnRow) => {
@@ -780,10 +921,10 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
         (row) =>
           row.docstatus !== 2 &&
           (!row.purchaseReceiptName || (row.matchRecommendation?.percentage ?? 0) < 100) &&
-          intercompanySupplierSet.has(row.supplier) &&
+          (!permissions.canMatchSsr || intercompanySupplierSet.has(row.supplier)) &&
           ssrMatchesSearch(row),
       ),
-    [data.supplierStockReturns, intercompanySupplierSet, ssrMatchesSearch],
+    [data.supplierStockReturns, intercompanySupplierSet, permissions.canMatchSsr, ssrMatchesSearch],
   );
 
   const filteredMatchedSsrs = useMemo(
@@ -793,10 +934,10 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
           row.docstatus !== 2 &&
           Boolean(row.purchaseReceiptName) &&
           (row.matchRecommendation?.percentage ?? 0) >= 100 &&
-          intercompanySupplierSet.has(row.supplier) &&
+          (!permissions.canMatchSsr || intercompanySupplierSet.has(row.supplier)) &&
           ssrMatchesSearch(row),
       ),
-    [data.supplierStockReturns, intercompanySupplierSet, ssrMatchesSearch],
+    [data.supplierStockReturns, intercompanySupplierSet, permissions.canMatchSsr, ssrMatchesSearch],
   );
 
   const prPageCount = Math.max(1, Math.ceil(filteredPrs.length / prPageSize));
@@ -812,7 +953,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
 
   useEffect(() => {
     setPrPage(1);
-  }, [search, stageFilter, dateRange.from, dateRange.to, prPageSize]);
+  }, [search, stageFilter.stage, stageFilter.status, dateRange.from, dateRange.to, prPageSize]);
 
   useEffect(() => {
     setSsrPage(1);
@@ -825,6 +966,25 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
   useEffect(() => {
     if (ssrPage > ssrPageCount) setSsrPage(ssrPageCount);
   }, [ssrPage, ssrPageCount]);
+
+  useEffect(() => {
+    setSelectedBulkPrKeys((current) => {
+      const next = new Set([...current].filter((key) => bulkMarkableKeys.has(key)));
+      return next.size === current.size ? current : next;
+    });
+  }, [bulkMarkableKeys]);
+
+  function openPurchaseReceipt(row: PurchaseReceiptRow, focus: PrDialogFocus = null) {
+    setSelectedPrFocus(focus);
+    setSelectedPr(row);
+  }
+
+  function focusForCurrentMismatchFilter(row: PurchaseReceiptRow): PrDialogFocus {
+    if (stageFilter.status !== "mismatch") return null;
+    if (stageFilter.stage === "handover" && row.tallyStatus === "issue") return "item-mismatch";
+    if (stageFilter.stage === "valued" && hasPriceMismatch(row)) return "price-mismatch";
+    return null;
+  }
 
   async function mark(row: PurchaseReceiptRow, field: "handoverAt" | "valuedAt" | "receivedAt") {
     const key = `${row.companyId}:${row.name}:${field}`;
@@ -845,6 +1005,37 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
       await loadData();
     } catch (error) {
       notify.error(error instanceof Error ? error.message : "Failed to mark GRN row");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function markSelectedRows() {
+    const rows = bulkMarkablePrs.filter((row) => selectedBulkPrKeys.has(`${row.companyId}:${row.name}`));
+    if (rows.length === 0) {
+      notify.error("Select at least one clean pending row first");
+      return;
+    }
+    const field = fieldForStage(stageFilter.stage);
+    setBusyKey(`bulk:${field}`);
+    try {
+      const results = await Promise.all(
+        rows.map((row) =>
+          fetch(`/api/admin/purchasing/grn/purchase-receipts/${encodeURIComponent(row.name)}/mark`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ field, companyId: row.companyId }),
+          }),
+        ),
+      );
+      const failed = results.filter((res) => !res.ok).length;
+      if (failed > 0) {
+        notify.error(`${failed} row${failed === 1 ? "" : "s"} could not be marked`);
+      }
+      setSelectedBulkPrKeys(new Set());
+      await loadData();
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : "Failed to mark selected rows");
     } finally {
       setBusyKey(null);
     }
@@ -1024,6 +1215,42 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
         </TabsList>
 
         <TabsContent value="grn" className="space-y-4 rounded-lg border bg-card/60 p-4 md:p-6">
+          {allowedStageFilters.length > 0 && (
+            <div className="grid gap-3 xl:grid-cols-3">
+              {allowedStageFilters.map(({ key, label }) => (
+                <div key={key} className="rounded-lg border bg-background/45 p-3">
+                  <div className="mb-2 text-sm font-semibold">{label}</div>
+                  <div className={`grid gap-2 ${key === "received" ? "grid-cols-3" : "grid-cols-4"}`}>
+                    {(
+                      key === "received"
+                        ? (["all", "pending", "completed"] as const)
+                        : (["all", "pending", "completed", "mismatch"] as const)
+                    ).map((status) => {
+                      const active = stageFilter.stage === key && stageFilter.status === status;
+                      return (
+                        <button
+                          key={status}
+                          type="button"
+                          className={[
+                            "rounded-md border px-3 py-2 text-left transition-colors",
+                            active
+                              ? "border-primary bg-primary/10 text-primary"
+                              : "border-border bg-card hover:bg-muted/60",
+                          ].join(" ")}
+                          onClick={() => setStageFilter({ stage: key, status })}
+                        >
+                          <div className="text-xs font-medium capitalize text-muted-foreground">{status}</div>
+                          <div className="text-xl font-semibold leading-tight">
+                            {stageCardCounts[key]?.[status] ?? 0}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <h2 className="text-lg font-semibold">Purchase receipts</h2>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -1033,18 +1260,6 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
               />
-              <select
-                className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                value={stageFilter}
-                onChange={(event) => setStageFilter(event.target.value as GrnStageFilter)}
-              >
-                <option value="all">All stages</option>
-                <option value="not_handover">Not handed over</option>
-                <option value="not_valued">Not valued</option>
-                <option value="not_received">Not GRN received</option>
-                <option value="completed">Completed</option>
-                <option value="cancelled">Cancelled</option>
-              </select>
               <Button type="button" variant="outline" onClick={() => downloadGrnExport("xlsx")}>
                 <FileDown className="size-4" />
                 Excel
@@ -1055,10 +1270,61 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
               </Button>
             </div>
           </div>
+          {allowedStageFilters.length > 0 && (
+            <div className="flex flex-col gap-2 rounded-lg border bg-background/45 p-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="text-sm text-muted-foreground">
+                {selectedBulkPrKeys.size} selected from {bulkMarkablePrs.length} clean pending row{bulkMarkablePrs.length === 1 ? "" : "s"}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={bulkMarkablePrs.length === 0}
+                  onClick={() => setSelectedBulkPrKeys(new Set(bulkMarkablePrs.map((row) => `${row.companyId}:${row.name}`)))}
+                >
+                  Select all
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={selectedBulkPrKeys.size === 0}
+                  onClick={() => setSelectedBulkPrKeys(new Set())}
+                >
+                  Clear
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={selectedBulkPrKeys.size === 0 || busyKey === `bulk:${fieldForStage(stageFilter.stage)}`}
+                  onClick={markSelectedRows}
+                >
+                  {busyKey === `bulk:${fieldForStage(stageFilter.stage)}` && <Loader2 className="size-4 animate-spin" />}
+                  Mark all
+                </Button>
+              </div>
+            </div>
+          )}
           <div className="overflow-hidden rounded-lg border bg-background/45">
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-10">
+                  <input
+                    type="checkbox"
+                    aria-label="Select all clean pending rows"
+                    checked={bulkMarkablePrs.length > 0 && selectedBulkPrKeys.size === bulkMarkablePrs.length}
+                    disabled={bulkMarkablePrs.length === 0}
+                    onChange={(event) =>
+                      setSelectedBulkPrKeys(
+                        event.target.checked
+                          ? new Set(bulkMarkablePrs.map((row) => `${row.companyId}:${row.name}`))
+                          : new Set(),
+                      )
+                    }
+                  />
+                </TableHead>
                 <TableHead>PR No</TableHead>
                 <TableHead className="w-28 whitespace-normal leading-tight">Adjustment<br />No</TableHead>
                 <TableHead>GRN Date</TableHead>
@@ -1074,19 +1340,36 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={10} className="h-24 text-center text-muted-foreground">
+                  <TableCell colSpan={11} className="h-24 text-center text-muted-foreground">
                     Loading GRN data...
                   </TableCell>
                 </TableRow>
               ) : filteredPrs.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={10} className="h-24 text-center text-muted-foreground">
+                  <TableCell colSpan={11} className="h-24 text-center text-muted-foreground">
                     No purchase receipts found.
                   </TableCell>
                 </TableRow>
               ) : (
                 paginatedPrs.map((row) => (
-                  <TableRow key={`${row.companyId}:${row.name}`} className="cursor-pointer" onClick={() => setSelectedPr(row)}>
+                  <TableRow key={`${row.companyId}:${row.name}`} className="cursor-pointer" onClick={() => openPurchaseReceipt(row, focusForCurrentMismatchFilter(row))}>
+                    <TableCell onClick={(event) => event.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        aria-label={`Select ${row.name}`}
+                        checked={selectedBulkPrKeys.has(`${row.companyId}:${row.name}`)}
+                        disabled={!canBulkMarkRow(row)}
+                        onChange={(event) =>
+                          setSelectedBulkPrKeys((current) => {
+                            const next = new Set(current);
+                            const key = `${row.companyId}:${row.name}`;
+                            if (event.target.checked) next.add(key);
+                            else next.delete(key);
+                            return next;
+                          })
+                        }
+                      />
+                    </TableCell>
                     <TableCell className="font-medium">
                       <div className="flex flex-wrap items-center gap-2">
                         <button
@@ -1094,7 +1377,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                           className="text-left text-primary underline-offset-4 hover:underline"
                           onClick={(event) => {
                             event.stopPropagation();
-                            setSelectedPr(row);
+                            openPurchaseReceipt(row, focusForCurrentMismatchFilter(row));
                           }}
                         >
                           {row.name}
@@ -1103,6 +1386,34 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                       </div>
                       {row.amendedFrom && (
                         <div className="text-xs text-muted-foreground">Amended from {row.amendedFrom}</div>
+                      )}
+                      {(itemIssueCount(row) > 0 || priceIssueCount(row) > 0) && (
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          {itemIssueCount(row) > 0 && (
+                            <button
+                              type="button"
+                              className="rounded bg-amber-500/10 px-1.5 py-0.5 text-xs font-medium text-amber-800"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                openPurchaseReceipt(row, "item-mismatch");
+                              }}
+                            >
+                              {itemIssueCount(row)} item issue{itemIssueCount(row) === 1 ? "" : "s"}
+                            </button>
+                          )}
+                          {priceIssueCount(row) > 0 && (
+                            <button
+                              type="button"
+                              className="rounded bg-amber-500/10 px-1.5 py-0.5 text-xs font-medium text-amber-800"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                openPurchaseReceipt(row, "price-mismatch");
+                              }}
+                            >
+                              {priceIssueCount(row)} price issue{priceIssueCount(row) === 1 ? "" : "s"}
+                            </button>
+                          )}
+                        </div>
                       )}
                     </TableCell>
                     <TableCell>
@@ -1323,7 +1634,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                     <TableCell onClick={(event) => event.stopPropagation()}>
                       <PurchaseReceiptPicker
                         value={selectedPrBySsr[rowKey] ?? ""}
-                        disabled={row.docstatus === 2}
+                        disabled={row.docstatus === 2 || !permissions.canMatchSsr}
                         purchaseReceipts={activeIntercompanyPurchaseReceipts}
                         onChange={(value) =>
                           setSelectedPrBySsr((prev) => ({
@@ -1438,7 +1749,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                         <TableCell onClick={(event) => event.stopPropagation()}>
                           <PurchaseReceiptPicker
                             value={selectedPrBySsr[rowKey] ?? ""}
-                            disabled={row.docstatus === 2}
+                            disabled={row.docstatus === 2 || !permissions.canMatchSsr}
                             purchaseReceipts={activeIntercompanyPurchaseReceipts}
                             onChange={(value) =>
                               setSelectedPrBySsr((prev) => ({
@@ -1591,7 +1902,15 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
           </div>
         </DialogContent>
       </Dialog>
-      <Dialog open={Boolean(selectedPr)} onOpenChange={(open) => !open && setSelectedPr(null)}>
+      <Dialog
+        open={Boolean(selectedPr)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSelectedPr(null);
+            setSelectedPrFocus(null);
+          }
+        }}
+      >
         <DialogContent className="max-h-[calc(100dvh-2rem)] max-w-4xl overflow-y-auto overscroll-contain border-border/70 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_94%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))]">
           <DialogHeader>
             <div className="flex flex-col gap-2 pr-10">
@@ -1643,11 +1962,16 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                 ) : (
                   selectedPr.adjustmentNo ?? "-"
                 )}</div>
+                {linkModeLabel(selectedPrStockReturn, selectedPr) && (
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    {linkModeLabel(selectedPrStockReturn, selectedPr)}
+                  </div>
+                )}
               </div>
             </div>
               <GrnStageTimeline row={selectedPr} />
               {selectedPrStockReturn && (
-                <details className="rounded-lg border bg-background/50 p-3">
+                <details className="rounded-lg border bg-background/50 p-3" open={selectedPrFocus === "item-mismatch"}>
                   <summary className="cursor-pointer list-none">
                     <div className="flex flex-col gap-1">
                       <div className="text-sm font-semibold">
@@ -1693,7 +2017,11 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                 </details>
               )}
               {selectedPrStockReturn && (
-                <PurchaseInvoicePriceTallyDetails row={selectedPr} priceRows={selectedPrPriceRows} />
+                <PurchaseInvoicePriceTallyDetails
+                  row={selectedPr}
+                  priceRows={selectedPrPriceRows}
+                  defaultOpen={selectedPrFocus === "price-mismatch"}
+                />
               )}
             </>
           )}
@@ -1794,6 +2122,11 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                   >
                     {selectedSsrPurchaseReceipt.name}
                   </button>
+                  {linkModeLabel(selectedSsr, selectedSsrPurchaseReceipt) && (
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      {linkModeLabel(selectedSsr, selectedSsrPurchaseReceipt)}
+                    </div>
+                  )}
                 </div>
                 <div>
                   <div className="text-xs text-muted-foreground">Supplier</div>
@@ -1930,58 +2263,4 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
       </Dialog>    </div>
   );
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 

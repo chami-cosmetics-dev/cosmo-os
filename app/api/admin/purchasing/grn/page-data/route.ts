@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { resolveViewerFinanceLocationIds } from "@/lib/approval-workflow";
 import { autoMatchIntercompanyGrn, bestGrnMatchForStockReturn, calculateGrnMatchPercentage, tallyLinkedItems } from "@/lib/grn";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserContext, hasPermission, requirePermission } from "@/lib/rbac";
@@ -95,16 +96,42 @@ export async function GET(request: NextRequest) {
   }
 
   const context = await getCurrentUserContext();
-  const userCompanyId = context?.user?.companyId;
-  if (!userCompanyId) {
+  const user = context?.user;
+  if (!user?.companyId) {
     return NextResponse.json({ error: "No company associated with your account" }, { status: 404 });
   }
+  const userCompanyId = user.companyId;
+  const roleNames = context?.roleNames ?? [];
   const shouldScopeToUserCompany =
     hasPermission(context, "purchasing.grn.mark_received") &&
     !hasPermission(context, "purchasing.grn.mark_handover") &&
     !hasPermission(context, "purchasing.grn.mark_valued") &&
     !hasPermission(context, "purchasing.grn.match_ssr");
+  const shouldShowOnlyHandoveredForValued =
+    hasPermission(context, "purchasing.grn.mark_valued") &&
+    !hasPermission(context, "purchasing.grn.mark_handover") &&
+    !hasPermission(context, "purchasing.grn.match_ssr");
+  const shouldShowOnlyValuedForReceived =
+    hasPermission(context, "purchasing.grn.mark_received") &&
+    !hasPermission(context, "purchasing.grn.mark_handover") &&
+    !hasPermission(context, "purchasing.grn.mark_valued") &&
+    !hasPermission(context, "purchasing.grn.match_ssr");
+  const financeLocationIds = shouldScopeToUserCompany
+    ? await resolveViewerFinanceLocationIds(user.id, userCompanyId, roleNames)
+    : null;
   const companyScope = shouldScopeToUserCompany ? { companyId: userCompanyId } : {};
+  const locationScope =
+    shouldScopeToUserCompany && financeLocationIds !== null
+      ? financeLocationIds.length === 0
+        ? { id: "__no_finance_locations__" }
+        : { companyLocationId: { in: financeLocationIds } }
+      : {};
+  const stageVisibilityScope =
+    shouldShowOnlyValuedForReceived
+      ? { valuedAt: { not: null } }
+      : shouldShowOnlyHandoveredForValued
+        ? { handoverAt: { not: null } }
+        : {};
 
   const from = parseDateParam(request.nextUrl.searchParams.get("from"));
   const to = parseDateParam(request.nextUrl.searchParams.get("to"), true);
@@ -116,6 +143,8 @@ export async function GET(request: NextRequest) {
     prisma.grnPurchaseReceipt.findMany({
       where: {
         ...companyScope,
+        ...locationScope,
+        ...stageVisibilityScope,
         ...(dateFilter
           ? {
               OR: [
@@ -346,7 +375,4 @@ export async function GET(request: NextRequest) {
     })),
   });
 }
-
-
-
 

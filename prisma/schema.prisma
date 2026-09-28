@@ -657,6 +657,7 @@ model CompanyLocation {
   shadowLocations           CompanyLocation[]          @relation("LocationShadowParent")
   profiles                  EmployeeProfile[]
   failedOrderWebhooks       FailedOrderWebhook[]
+  grnPurchaseReceipts       GrnPurchaseReceipt[]
   invites                   Invite[]
   orders                    Order[]
   productItems              ProductItem[]
@@ -2348,6 +2349,7 @@ model OsfBuyer {
 model GrnPurchaseReceipt {
   id                      String                   @id @default(cuid())
   companyId               String
+  companyLocationId       String?
   name                    String
   supplier                String
   supplierName            String?
@@ -2369,6 +2371,7 @@ model GrnPurchaseReceipt {
   createdAt               DateTime                 @default(now())
   updatedAt               DateTime                 @updatedAt
   company                 Company                  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyLocation         CompanyLocation?         @relation(fields: [companyLocationId], references: [id], onDelete: SetNull)
   handoverBy              User?                    @relation("GrnPurchaseReceiptHandoverBy", fields: [handoverById], references: [id], onDelete: SetNull)
   items                   GrnPurchaseReceiptItem[]
   purchaseInvoices        GrnPurchaseInvoice[]
@@ -2380,6 +2383,7 @@ model GrnPurchaseReceipt {
   @@index([companyId, supplier])
   @@index([companyId, amendedFrom])
   @@index([companyId, supplierStockReturnName])
+  @@index([companyLocationId])
   @@index([handoverById])
   @@index([valuedById])
   @@index([receivedById])

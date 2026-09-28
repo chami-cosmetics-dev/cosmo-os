@@ -65,6 +65,7 @@ function supplierStockReturnNameFromBillNo(billNo: string | null | undefined) {
 export async function attachPendingSupplierStockReturnPurchaseInvoices(
   tx: Prisma.TransactionClient,
   input: {
+    companyId: string;
     stockReturnName: string;
     purchaseReceiptId: string;
     purchaseReceiptName: string;
@@ -73,10 +74,11 @@ export async function attachPendingSupplierStockReturnPurchaseInvoices(
   const billNo = `SSR-${input.stockReturnName}`;
   const pendingInvoices = await tx.grnPurchaseInvoice.findMany({
     where: {
+      companyId: input.companyId,
       docstatus: { not: 2 },
-      isReturn: 1,
       OR: [
         { billNo },
+        { supplierStockReturnName: input.stockReturnName },
         { items: { some: { supplierStockReturn: input.stockReturnName } } },
       ],
     },
@@ -99,11 +101,16 @@ export async function attachPendingSupplierStockReturnPurchaseInvoices(
   }
 }
 
-async function resolveCompanyId(erpCompany: string) {
+async function resolveCompanyLocationForErpCompany(erpCompany: string) {
   const location = await prisma.companyLocation.findFirst({
     where: { erpnextCompany: erpCompany },
-    select: { companyId: true },
+    select: { id: true, companyId: true },
   });
+  return location ?? null;
+}
+
+async function resolveCompanyId(erpCompany: string) {
+  const location = await resolveCompanyLocationForErpCompany(erpCompany);
   return location?.companyId ?? null;
 }
 
@@ -165,10 +172,11 @@ export async function ingestPurchaseReceiptFromWebhook(
   data: ErpnextPurchaseReceiptWebhookPayload,
   rawPayload: unknown,
 ) {
-  const companyId = await resolveCompanyId(data.company);
-  if (!companyId) {
+  const location = await resolveCompanyLocationForErpCompany(data.company);
+  if (!location) {
     return { ok: false as const, status: 404, error: "ERP company not mapped to a company location" };
   }
+  const companyId = location.companyId;
 
   await prisma.$transaction(async (tx) => {
     const existing = await tx.grnPurchaseReceipt.findUnique({
@@ -187,6 +195,7 @@ export async function ingestPurchaseReceiptFromWebhook(
       where: { companyId_name: { companyId, name: data.name } },
       create: {
         companyId,
+        companyLocationId: location.id,
         name: data.name,
         supplier: data.supplier,
         supplierName: data.supplier_name,
@@ -201,6 +210,7 @@ export async function ingestPurchaseReceiptFromWebhook(
         rawPayload: rawPayload as Prisma.InputJsonValue,
       },
       update: {
+        companyLocationId: location.id,
         supplier: data.supplier,
         supplierName: data.supplier_name,
         postingDate: parseDateOnly(data.posting_date),
@@ -248,6 +258,7 @@ export async function ingestPurchaseReceiptFromWebhook(
         data: { purchaseReceiptName: data.name },
       });
       await attachPendingSupplierStockReturnPurchaseInvoices(tx, {
+        companyId,
         stockReturnName: carriedStockReturnName,
         purchaseReceiptId: receipt.id,
         purchaseReceiptName: data.name,
@@ -349,6 +360,7 @@ export async function ingestSupplierStockReturnFromWebhook(
           }
         } else {
           await attachPendingSupplierStockReturnPurchaseInvoices(tx, {
+            companyId,
             stockReturnName: data.name,
             purchaseReceiptId: linkedPurchaseReceipt.id,
             purchaseReceiptName: carriedPurchaseReceiptName,
@@ -424,22 +436,48 @@ export async function ingestPurchaseInvoiceFromWebhook(
     return { ok: false as const, status: 404, error: "ERP company not mapped to a company location" };
   }
 
+  const existingInvoice = await prisma.grnPurchaseInvoice.findUnique({
+    where: { companyId_name: { companyId, name: data.name } },
+    select: {
+      purchaseReceiptName: true,
+      supplierStockReturnName: true,
+    },
+  });
+  const amendedFromInvoice = data.amended_from
+    ? await prisma.grnPurchaseInvoice.findUnique({
+        where: { companyId_name: { companyId, name: data.amended_from } },
+        select: {
+          purchaseReceiptName: true,
+          supplierStockReturnName: true,
+        },
+      })
+    : null;
+
   const linkedPurchaseReceiptNames = Array.from(
     new Set(
-      data.items
-        .map((item) => item.purchase_receipt)
-        .filter((value): value is string => Boolean(value)),
+      [
+        ...data.items.map((item) => item.purchase_receipt),
+        existingInvoice?.purchaseReceiptName,
+        amendedFromInvoice?.purchaseReceiptName,
+      ].filter((value): value is string => Boolean(value)),
     ),
   );
   const linkedSupplierStockReturnNames = Array.from(
     new Set(
-      data.items
-        .map((item) => item.supplier_stock_return)
-        .filter((value): value is string => Boolean(value)),
+      [
+        ...data.items.map((item) => item.supplier_stock_return),
+        existingInvoice?.supplierStockReturnName,
+        amendedFromInvoice?.supplierStockReturnName,
+      ].filter((value): value is string => Boolean(value)),
     ),
   );
 
-  const ssrNameFromBillNo = data.is_return === 1 ? supplierStockReturnNameFromBillNo(data.bill_no) : null;
+  const ssrNameFromBillNo =
+    (data.is_return === 1 ? supplierStockReturnNameFromBillNo(data.bill_no) : null) ??
+    existingInvoice?.supplierStockReturnName ??
+    amendedFromInvoice?.supplierStockReturnName ??
+    null;
+  const inheritedPurchaseReceiptName = linkedPurchaseReceiptNames.length === 1 ? linkedPurchaseReceiptNames[0] ?? null : null;
   let linkedStockReturn = ssrNameFromBillNo
     ? await prisma.grnSupplierStockReturn.findFirst({
         where: {
@@ -578,7 +616,7 @@ export async function ingestPurchaseInvoiceFromWebhook(
               qty: item.qty,
               rate: item.rate,
               amount: item.amount,
-              purchaseReceipt: item.purchase_receipt,
+              purchaseReceipt: item.purchase_receipt ?? inheritedPurchaseReceiptName,
               purchaseReceiptItem: item.purchase_receipt_item,
               supplierStockReturn: item.supplier_stock_return ?? pendingSupplierStockReturnName,
               supplierStockReturnItem: item.supplier_stock_return_item,
@@ -654,7 +692,7 @@ export async function ingestPurchaseInvoiceFromWebhook(
           qty: item.qty,
           rate: item.rate,
           amount: item.amount,
-          purchaseReceipt: item.purchase_receipt,
+          purchaseReceipt: item.purchase_receipt ?? inheritedPurchaseReceiptName,
           purchaseReceiptItem: item.purchase_receipt_item,
           supplierStockReturn: item.supplier_stock_return ?? (linkedStockReturn ? supplierStockReturnName : null),
           supplierStockReturnItem: item.supplier_stock_return_item,
@@ -929,6 +967,7 @@ export async function autoMatchIntercompanyGrn() {
         data: { purchaseReceiptName: best.name },
       });
       await attachPendingSupplierStockReturnPurchaseInvoices(tx, {
+        companyId: stockReturn.companyId,
         stockReturnName: stockReturn.name,
         purchaseReceiptId: linkedPurchaseReceipt.id,
         purchaseReceiptName: best.name,
@@ -940,5 +979,4 @@ export async function autoMatchIntercompanyGrn() {
 
   return { matched };
 }
-
 

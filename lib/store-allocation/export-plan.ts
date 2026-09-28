@@ -8,7 +8,13 @@ export type StoreAllocationExportInput = {
   barcode?: string | null;
   companyReorderQty: number;
   takeQty: number;
-  locations: Array<{ label: string; qty: number; columnKey?: string }>;
+  locations: Array<{
+    label: string;
+    locationRop: number;
+    stock: number;
+    qty: number;
+    columnKey?: string;
+  }>;
 };
 
 export type StoreAllocationMultiExportItem = StoreAllocationExportInput;
@@ -22,19 +28,21 @@ export function buildMultiStoreAllocationWorkbookBuffer(
 ): Buffer {
   const wb = XLSX.utils.book_new();
 
-  const byLocationRows: Array<Array<string | number>> = [["Location", "SKU", "Qty"]];
+  const byLocationRows: Array<Array<string | number>> = [
+    ["Location", "SKU", "ROP", "Stock Qty", "Qty"],
+  ];
   const locationTotals = new Map<string, number>();
   for (const item of items) {
     for (const loc of item.locations) {
       if (loc.qty <= 0) continue;
-      byLocationRows.push([loc.label, item.sku, loc.qty]);
+      byLocationRows.push([loc.label, item.sku, loc.locationRop, loc.stock, loc.qty]);
       locationTotals.set(loc.label, (locationTotals.get(loc.label) ?? 0) + loc.qty);
     }
   }
   byLocationRows.push([]);
-  byLocationRows.push(["Location", "Total qty", ""]);
+  byLocationRows.push(["Location", "Total qty", "", "", ""]);
   for (const [label, total] of locationTotals) {
-    byLocationRows.push([label, total, ""]);
+    byLocationRows.push([label, total, "", "", ""]);
   }
   XLSX.utils.book_append_sheet(
     wb,
@@ -50,9 +58,9 @@ export function buildMultiStoreAllocationWorkbookBuffer(
       ["Company reorder qty (TOTAL ORDER QTY)", item.companyReorderQty],
       ["Take qty", item.takeQty],
       [],
-      ["Location", "Qty"],
+      ["Location", "ROP", "Stock Qty", "Qty"],
     ];
-    const dataRows = item.locations.map((l) => [l.label, l.qty]);
+    const dataRows = item.locations.map((l) => [l.label, l.locationRop, l.stock, l.qty]);
     const sheetName = safeSheetName(item.sku);
     XLSX.utils.book_append_sheet(
       wb,
