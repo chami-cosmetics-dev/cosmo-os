@@ -81,6 +81,7 @@ export async function POST(
     });
     if (purchaseReceiptName && purchaseReceiptId) {
       await attachPendingSupplierStockReturnPurchaseInvoices(tx, {
+        companyId: targetCompanyId,
         stockReturnName,
         purchaseReceiptId,
         purchaseReceiptName,
@@ -104,5 +105,4 @@ export async function POST(
 
   return NextResponse.json({ ok: true });
 }
-
 
