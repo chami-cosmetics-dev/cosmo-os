@@ -151,7 +151,7 @@ export function OsfGeneratePanel({ canReorderOnly = false }: { canReorderOnly?: 
       <div>
         <h3 className="font-medium">Generate OSF</h3>
         <p className="text-sm text-muted-foreground">
-          Main = full catalog except discontinued SKUs. VAT Items = ERP Product Priority Vat only.
+          Main = full catalog. VAT Items = ERP Product Priority Vat only.
           Others (Non-VAT) excludes Vat. Missing ERP stock/cost stays blank.
         </p>
       </div>

@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 import { aggregateSalesBySkuInRange } from "@/lib/osf/assist-sales";
-import { osfExcludeDiscontinuedWhere } from "@/lib/osf/discontinued";
 import {
   matchesPriorityFilter,
   resolveAssistWindow,
@@ -66,7 +64,6 @@ export async function GET(request: NextRequest) {
     companyId,
     sku: { not: null as string | null },
     status: { not: "archived" },
-    ...(!isVaultOsDeployment() ? osfExcludeDiscontinuedWhere() : {}),
     ...(q
       ? {
           OR: [

@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { Prisma } from "@prisma/client";
 
-import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
-import { osfExcludeDiscontinuedWhere } from "@/lib/osf/discontinued";
 import { computeTotalOrderQtyForSkus } from "@/lib/osf/supplier-orders-reorder";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserContext, hasPermission } from "@/lib/rbac";
@@ -53,7 +51,6 @@ export async function GET(request: NextRequest) {
     companyId,
     sku: { not: null },
     status: { not: "archived" },
-    ...(!isVaultOsDeployment() ? osfExcludeDiscontinuedWhere() : {}),
   };
   if (vendorId) where.vendorId = vendorId;
 
