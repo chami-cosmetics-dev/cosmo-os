@@ -39,6 +39,12 @@ const contactExportSelect = {
   purchaseLastOrderAt: true,
   createdAt: true,
   updatedAt: true,
+  allocationUpdates: {
+    where: { category: { not: "allocation" } },
+    orderBy: { createdAt: "desc" as const },
+    take: 1,
+    select: { merchantName: true },
+  },
 } as const;
 
 type ContactExportRow = Prisma.ContactMasterGetPayload<{ select: typeof contactExportSelect }>;
@@ -217,6 +223,7 @@ export async function GET(request: NextRequest) {
     "last_purchased_date",
     "created_at",
     "updated_at",
+    "updated_by",
   ] as const;
 
   const purchaseHeaders = [
@@ -233,6 +240,7 @@ export async function GET(request: NextRequest) {
     "last_purchased_date",
     "created_at",
     "updated_at",
+    "updated_by",
   ] as const;
 
   const headers = mode === "purchase_summary" ? purchaseHeaders : baseHeaders;
@@ -280,6 +288,7 @@ export async function GET(request: NextRequest) {
               ),
               created_at: formatIsoDateTime(contact.createdAt),
               updated_at: formatIsoDateTime(contact.updatedAt),
+              updated_by: contact.allocationUpdates[0]?.merchantName ?? "",
             };
             lines.push(csvLine(headers, row));
           }
@@ -287,7 +296,7 @@ export async function GET(request: NextRequest) {
             controller.enqueue(encoder.encode(`${lines.join("\r\n")}\r\n`));
           }
         }
-        if (contactNo !== expectedRows) {
+        if (contactNo < expectedRows) {
           throw new Error(`Export incomplete: wrote ${contactNo} of ${expectedRows}`);
         }
         controller.close();

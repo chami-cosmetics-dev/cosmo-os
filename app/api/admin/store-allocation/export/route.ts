@@ -56,6 +56,8 @@ export async function POST(request: NextRequest) {
       takeQty: item.takeQty,
       locations: item.locations.map((l) => ({
         label: l.label,
+        locationRop: l.locationRop,
+        stock: l.stock,
         qty: l.qty,
         columnKey: l.columnKey,
       })),
@@ -99,7 +101,12 @@ export async function POST(request: NextRequest) {
       barcode: parsed.data.barcode,
       companyReorderQty: parsed.data.companyReorderQty,
       takeQty: parsed.data.takeQty,
-      locations: parsed.data.locations.map((l) => ({ label: l.label, qty: l.qty })),
+      locations: parsed.data.locations.map((l) => ({
+        label: l.label,
+        locationRop: l.locationRop,
+        stock: l.stock,
+        qty: l.qty,
+      })),
     },
   ]);
   const filename = storeAllocationExportFilename(parsed.data.sku);

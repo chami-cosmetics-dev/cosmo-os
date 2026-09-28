@@ -17,6 +17,8 @@ export const storeAllocationPlanQuerySchema = z.object({
 const locationQtySchema = z.object({
   columnKey: trimmedString(1, 64),
   label: trimmedString(1, LIMITS.locationShortName.max),
+  locationRop: z.number().finite().min(0).max(1_000_000),
+  stock: z.number().finite().min(0).max(1_000_000),
   qty: z.number().int().min(0).max(1_000_000),
 });
 
