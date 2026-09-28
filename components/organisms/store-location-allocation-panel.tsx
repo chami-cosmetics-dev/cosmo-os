@@ -362,6 +362,8 @@ export function StoreLocationAllocationPanel() {
             locations: item.locations.map((l) => ({
               columnKey: l.columnKey,
               label: l.label,
+              locationRop: l.locationRop,
+              stock: l.stock,
               qty: l.qty,
             })),
           })),
