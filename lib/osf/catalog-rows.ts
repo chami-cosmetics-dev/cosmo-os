@@ -2,7 +2,6 @@ import "server-only";
 
 import type { Prisma } from "@prisma/client";
 
-import { isDiscontinuedForOsf, osfExcludeDiscontinuedWhere } from "@/lib/osf/discontinued";
 import { prisma } from "@/lib/prisma";
 
 export type OsfCatalogRow = {
@@ -72,9 +71,6 @@ export async function buildCatalogRows(
     where.sku = { startsWith: filters.skuPrefix.trim(), mode: "insensitive" };
   }
 
-  const excludeDiscontinued = osfExcludeDiscontinuedWhere();
-  where.NOT = excludeDiscontinued.NOT;
-
   const items = await prisma.productItem.findMany({
     where,
     orderBy: { updatedAt: "desc" },
@@ -100,7 +96,6 @@ export async function buildCatalogRows(
   for (const item of items) {
     const sku = item.sku?.trim();
     if (!sku || bySku.has(sku)) continue;
-    if (isDiscontinuedForOsf(item)) continue;
     const title =
       item.variantTitle && item.variantTitle !== "Default Title"
         ? `${item.productTitle} - ${item.variantTitle}`

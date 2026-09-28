@@ -1,8 +1,6 @@
 import "server-only";
 
-import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 import { resolveOsfColumns } from "@/lib/osf/column-config";
-import { osfExcludeDiscontinuedWhere } from "@/lib/osf/discontinued";
 import { fetchBinActualQty, getAllOsfErpInstances, stockForColumn } from "@/lib/osf/erp-stock";
 import { isBelowReorderThreshold } from "@/lib/osf/threshold";
 import { prisma } from "@/lib/prisma";
@@ -41,7 +39,6 @@ export async function listBelowThresholdSkus(
         companyId,
         sku: { not: null },
         status: { not: "archived" },
-        ...(!isVaultOsDeployment() ? osfExcludeDiscontinuedWhere() : {}),
       },
       orderBy: { updatedAt: "desc" },
       select: { sku: true, productTitle: true, vendor: { select: { name: true } } },

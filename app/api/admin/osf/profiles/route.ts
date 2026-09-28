@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
-import { osfExcludeDiscontinuedWhere } from "@/lib/osf/discontinued";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { ensureVaultForceIncludedRops } from "@/lib/vault-osf/ensure-force-included-rops";
@@ -33,7 +32,6 @@ export async function GET(request: NextRequest) {
   const productWhere = {
     companyId,
     sku: { not: null as string | null },
-    ...(!isVaultOsDeployment() ? osfExcludeDiscontinuedWhere() : {}),
     ...(q
       ? {
           OR: [
