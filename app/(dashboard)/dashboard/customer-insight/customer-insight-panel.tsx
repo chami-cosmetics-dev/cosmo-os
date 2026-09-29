@@ -3559,6 +3559,11 @@ export function CustomerInsightPanel({
                                 Shop: {order.locationName}
                               </p>
                             ) : null}
+                            {order.merchantName ? (
+                              <p className="text-muted-foreground text-xs">
+                                Merchant: {order.merchantName}
+                              </p>
+                            ) : null}
                             {formatInvoiceCouponLabel(order) ? (
                               <p className="text-muted-foreground text-xs">
                                 Coupon: {formatInvoiceCouponLabel(order)}

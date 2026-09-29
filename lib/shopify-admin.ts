@@ -31,9 +31,26 @@ function getAdminToken(): string {
   return token;
 }
 
+export type ShopifyCancelOptions = {
+  /** When false, Shopify must not email/SMS the customer about the cancellation. Default true. */
+  notifyCustomer?: boolean;
+};
+
+/** REST cancel.json body. `email: false` skips Shopify's Order cancelled notification. */
+export function shopifyCancelPayload(options?: ShopifyCancelOptions): {
+  reason: "customer";
+  email: boolean;
+} {
+  return {
+    reason: "customer",
+    email: options?.notifyCustomer !== false,
+  };
+}
+
 export async function cancelShopifyOrder(
   shopifyOrderId: string,
   storeHandle: string,
+  options?: ShopifyCancelOptions,
 ): Promise<void> {
   const token = getAdminToken();
   const url = `https://${storeHandle}.myshopify.com/admin/api/${SHOPIFY_API_VERSION}/orders/${shopifyOrderId}/cancel.json`;
@@ -43,7 +60,7 @@ export async function cancelShopifyOrder(
       "X-Shopify-Access-Token": token,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ reason: "customer" }),
+    body: JSON.stringify(shopifyCancelPayload(options)),
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");

@@ -137,6 +137,7 @@ export async function loadCustomerInsight(input: {
       currency: true,
       lineItems: true,
       locationName: true,
+      merchantKnownName: true,
       companyLocation: { select: { name: true } },
     },
   });
@@ -162,7 +163,9 @@ export async function loadCustomerInsight(input: {
             discountCodes: true,
             rawPayload: true,
             companyLocation: { select: { name: true } },
-            assignedMerchant: { select: { couponCodes: true } },
+            assignedMerchant: {
+              select: { couponCodes: true, knownName: true, name: true, email: true },
+            },
             lineItems: {
               select: {
                 id: true,
@@ -329,6 +332,11 @@ export async function loadCustomerInsight(input: {
           rawPayload: o.rawPayload,
           assignedMerchantCouponCodes: o.assignedMerchant?.couponCodes ?? null,
         }),
+        merchantName:
+          o.assignedMerchant?.knownName?.trim() ||
+          o.assignedMerchant?.name?.trim() ||
+          o.assignedMerchant?.email?.trim() ||
+          null,
         lineItems,
       };
     }),
@@ -352,6 +360,7 @@ export async function loadCustomerInsight(input: {
         ttlAmount: r.ttlAmount.toString(),
         currency: r.currency,
         locationName: r.companyLocation?.name?.trim() || r.locationName || null,
+        merchantName: r.merchantKnownName,
         lineItems,
       };
     }),

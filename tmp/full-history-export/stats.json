@@ -1,0 +1,13 @@
+{
+  "adapt_invoices_read": 168953,
+  "adapt_product_lines": 278501,
+  "adapt_coupon_lines": 97379,
+  "adapt_shipping_lines": 132490,
+  "adapt_fee_lines": 2246,
+  "adapt_catalog_exact": 75319,
+  "adapt_catalog_oi": 102527,
+  "adapt_catalog_none": 100655,
+  "cosmo_orders_read": 14169,
+  "cosmo_product_lines": 20360,
+  "invoices": 183122
+}
