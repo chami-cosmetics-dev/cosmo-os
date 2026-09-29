@@ -41,6 +41,8 @@ import {
   totalRopForColumns,
   totalRopForVat,
 } from "@/lib/osf/vat-rop-columns";
+import { applyShopifyPricesToCatalog } from "@/lib/osf/shopify-catalog-prices";
+import { loadShopifyCatalogPricesForCompany } from "@/lib/osf/shopify-catalog-prices-load";
 import { ensureCosmeticsShopOsfColumns } from "@/lib/osf/shop-column-sync";
 import { prisma } from "@/lib/prisma";
 import { formatAppIsoDate } from "@/lib/format-datetime";
@@ -156,7 +158,17 @@ export async function POST(request: NextRequest) {
     const purchaseGridBounds = osfPurchaseGridBounds(asOfDate);
     const bestPurchaseBounds = osfBestPurchaseBounds(asOfDate);
 
-    const [catalogRaw, columns, profiles, ropRows, monthlySales, salesByMonthNested, buyers, allowedSuppliers] =
+    const [
+      catalogRaw,
+      columns,
+      profiles,
+      ropRows,
+      monthlySales,
+      salesByMonthNested,
+      buyers,
+      allowedSuppliers,
+      shopifyPrices,
+    ] =
       await Promise.all([
         buildCatalogRows(companyId, {
           includeInactive,
@@ -179,7 +191,12 @@ export async function POST(request: NextRequest) {
           where: { companyId },
           select: { name: true, code: true },
         }),
+        loadShopifyCatalogPricesForCompany(companyId),
       ]);
+    if (shopifyPrices.warning) {
+      console.warn("[OSF] Shopify catalog prices:", shopifyPrices.warning);
+    }
+    const catalogPriced = applyShopifyPricesToCatalog(catalogRaw, shopifyPrices.prices);
 
     const salesByMonth = new Map<string, Record<string, number>>();
     for (const [sku, months] of salesByMonthNested) {
@@ -206,7 +223,7 @@ export async function POST(request: NextRequest) {
       profileMap.set(r.sku, entry);
     }
 
-    const catalogSkus = catalogRaw.map((c) => c.sku);
+    const catalogSkus = catalogPriced.map((c) => c.sku);
     const slots = resolveErpSlots(erpInstances);
     const erp1Inst = slots.erp1
       ? (erpInstances.find((i) => i.id === slots.erp1!.id) ?? null)
@@ -223,7 +240,7 @@ export async function POST(request: NextRequest) {
         : Promise.resolve(new Map<string, string | null>()),
     ]);
     const catalogWithTax = applyTaxStatusToCatalog(
-      catalogRaw,
+      catalogPriced,
       erp1TaxBySku,
       erp2TaxBySku,
       normalizeSkuKey,

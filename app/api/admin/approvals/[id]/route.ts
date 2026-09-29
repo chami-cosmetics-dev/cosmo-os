@@ -464,6 +464,7 @@ export async function PATCH(
             erpnextInvoiceId: true,
             erpReturnSalesInvoiceIds: true,
             cancelReason: true,
+            cancelKind: true,
             companyLocation: { include: { erpnextInstance: true } },
           },
         },
@@ -492,6 +493,7 @@ export async function PATCH(
         erpnextInvoiceId: order.erpnextInvoiceId,
         erpReturnSalesInvoiceIds: order.erpReturnSalesInvoiceIds ?? [],
         cancelReason: order.cancelReason,
+        cancelKind: order.cancelKind ?? null,
       },
       location: order.companyLocation,
     });
@@ -612,6 +614,7 @@ export async function PATCH(
         erpnextInvoiceId: true,
         erpReturnSalesInvoiceIds: true,
         cancelReason: true,
+        cancelKind: true,
         companyLocation: { include: { erpnextInstance: true } },
       },
     });
@@ -637,6 +640,7 @@ export async function PATCH(
         erpnextInvoiceId: order.erpnextInvoiceId,
         erpReturnSalesInvoiceIds: order.erpReturnSalesInvoiceIds ?? [],
         cancelReason: order.cancelReason,
+        cancelKind: order.cancelKind ?? null,
       },
       location: order.companyLocation,
     });
@@ -1467,7 +1471,7 @@ export async function PATCH(
     try {
       const orderForCancel = await prisma.order.findUnique({
         where: { id: approval.orderId },
-        select: { companyLocationId: true },
+        select: { companyLocationId: true, cancelKind: true },
       });
       const location = orderForCancel?.companyLocationId
         ? await prisma.companyLocation.findUnique({
@@ -1476,7 +1480,9 @@ export async function PATCH(
           })
         : null;
       if (location?.shopifyAdminStoreHandle) {
-        await cancelShopifyOrder(approval.shopifyOrderId, location.shopifyAdminStoreHandle);
+        await cancelShopifyOrder(approval.shopifyOrderId, location.shopifyAdminStoreHandle, {
+          notifyCustomer: orderForCancel?.cancelKind !== "replacement",
+        });
         console.log(`[Cancel] Shopify order ${approval.shopifyOrderId} cancelled via approval ${approval.id}`);
       } else {
         console.warn(`[Cancel] No shopifyAdminStoreHandle for order ${approval.orderId} — skipping Shopify cancel`);

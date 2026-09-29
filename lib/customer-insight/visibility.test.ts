@@ -69,6 +69,7 @@ const sampleOwner: CustomerInsightDto = {
       locationName: "Colombo Shop",
       discountCouponCode: "SV20",
       merchantCouponCode: "MER91",
+      merchantName: "Dinuli",
       lineItems: [
         {
           id: "li1",

@@ -94,6 +94,33 @@ describe("runReturnCancelExternalCompletion", () => {
     expect(ensureErpnextCreditNote).toHaveBeenCalledOnce();
     expect(cancelErpnextSalesInvoice).not.toHaveBeenCalled();
     expect(cancelShopifyOrder).toHaveBeenCalledOnce();
+    expect(cancelShopifyOrder).toHaveBeenCalledWith("1234567890", "cosmo-store", {
+      notifyCustomer: true,
+    });
+  });
+
+  it("replacement skips Shopify customer cancel email", async () => {
+    const cancelShopifyOrder = vi.fn().mockResolvedValue(undefined);
+
+    const result = await runReturnCancelExternalCompletion({
+      order: baseOrder({ financialStatus: "pending", cancelKind: "replacement" }),
+      location: baseLocation(),
+      deps: {
+        ensureErpnextCreditNote: vi.fn(),
+        cancelErpnextSalesInvoice: vi.fn().mockResolvedValue({
+          outcome: "cancelled",
+          invoiceName: "ACC-SINV-1",
+        }),
+        cancelShopifyOrder,
+        shouldBlockShopifyCancelInOs: () => false,
+        isRealShopifyOrderId: () => true,
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    expect(cancelShopifyOrder).toHaveBeenCalledWith("1234567890", "cosmo-store", {
+      notifyCustomer: false,
+    });
   });
 
   it("paid path fails when ensure throws (e.g. original still Paid)", async () => {

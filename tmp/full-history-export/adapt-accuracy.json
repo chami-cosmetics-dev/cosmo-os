@@ -1,0 +1,72 @@
+{
+  "original_line_files": {
+    "rows": 512275,
+    "shipping": 133026,
+    "coupon": 97603,
+    "product": 279396,
+    "fee": 2250,
+    "invoices_with_product_lines": 169348,
+    "invoices_with_coupon_line": 97447,
+    "invoices_with_store_pickup": 5
+  },
+  "dump3_adapt": {
+    "product_rows": 278501,
+    "invoices": 168771
+  },
+  "invoice_header_file_rows_read": 175439,
+  "invoice_headers_matched_to_dump": 168771,
+  "overlap_invoices": 168771,
+  "dump_invoices_missing_from_line_files": 0,
+  "line_file_invoices_missing_from_dump": 577,
+  "product_line_match_on_overlap": {
+    "source_lines": 278501,
+    "dump_lines": 278501,
+    "matched_lines": 278485,
+    "missing_in_dump": 16,
+    "extra_in_dump": 16
+  },
+  "product_line_accuracy_pct_on_overlap": 99.99,
+  "product_line_coverage_pct_vs_all_original_product_rows": 99.67,
+  "invoice_field_accuracy": {
+    "invoice_date": {
+      "match": 168771,
+      "accuracy_pct": 100.0
+    },
+    "location_name": {
+      "match": 168771,
+      "accuracy_pct": 100.0
+    },
+    "grand_total": {
+      "match": 168771,
+      "accuracy_pct": 100.0
+    },
+    "payment_gateway": {
+      "match": 168771,
+      "accuracy_pct": 100.0
+    },
+    "merchant_name": {
+      "match": 168771,
+      "accuracy_pct": 100.0
+    }
+  },
+  "customer_name_exact_pct": 56.64,
+  "customer_name_normalized_pct": 59.59,
+  "merchant_coupon_pct": 100.0,
+  "merchant_coupon_detail": {
+    "match_when_present": 97219,
+    "blank_when_absent": 71552,
+    "missing": 0,
+    "wrong": 0
+  },
+  "pos_sale_pct": 100.0,
+  "source_name_adapt_pct": 100.0,
+  "derived_qty_times_price_pct": 100.0,
+  "discounted_eq_unit_pct": 100.0,
+  "after_discount_eq_line_pct": 100.0,
+  "core_invoice_fields_accuracy_pct": 100.0,
+  "compared_invoices_with_header_source": 168771,
+  "sample_dump_only_invoices": [],
+  "line_file_invoices_not_in_dump_count": 577,
+  "overall_imported_adapt_accuracy_pct": 100.0,
+  "note": "Product lines matched on invoice_no + sku + title + qty + unit_price. Customer name compared to Adapt attention_name; Dump 3 uses Contact Master, so that field can differ after later edits. Barcode/brand are catalog lookups, not Adapt columns, so they are excluded from this accuracy score."
+}
