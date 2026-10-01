@@ -177,7 +177,7 @@ type GrnStageFilter = {
   stage: GrnActionStage;
   status: GrnStageStatusFilter;
 };
-type PrDialogFocus = "item-mismatch" | "price-mismatch" | null;
+type PrDialogFocus = "item-mismatch" | "price-mismatch" | "missing-ssr" | null;
 
 const PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
 type PageSize = (typeof PAGE_SIZE_OPTIONS)[number];
@@ -490,7 +490,21 @@ function GrnStageTimeline({ row }: { row: PurchaseReceiptRow }) {
     </div>
   );
 }
-function TallyBadge({ row }: { row: PurchaseReceiptRow }) {
+function TallyBadge({
+  row,
+  missingSsrLink = false,
+}: {
+  row: PurchaseReceiptRow;
+  missingSsrLink?: boolean;
+}) {
+  if (missingSsrLink) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-md bg-amber-500/15 px-2 py-1 text-xs font-medium text-amber-300 ring-1 ring-amber-400/25">
+        <TriangleAlert className="size-3.5" />
+        Issue - missing SSR
+      </span>
+    );
+  }
   if (row.tallyStatus === "matched") {
     return (
       <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700">
@@ -824,11 +838,19 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
     return Boolean(row.receivedAt);
   }, []);
 
+  const rowMissingIntercompanySsr = useCallback(
+    (row: PurchaseReceiptRow) =>
+      !row.isCancelled &&
+      intercompanySupplierSet.has(row.supplier) &&
+      !row.adjustmentNo,
+    [intercompanySupplierSet],
+  );
+
   const rowMismatchedForStage = useCallback((row: PurchaseReceiptRow, stage: GrnActionStage) => {
-    if (stage === "handover") return row.tallyStatus === "issue";
+    if (stage === "handover") return row.tallyStatus === "issue" || rowMissingIntercompanySsr(row);
     if (stage === "valued") return hasPriceMismatch(row);
     return false;
-  }, []);
+  }, [rowMissingIntercompanySsr]);
 
   const stageCardCounts = useMemo(
     () =>
@@ -879,7 +901,9 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
   const canBulkMarkRow = useCallback(
     (row: PurchaseReceiptRow) => {
       if (row.isCancelled || rowCompletedForStage(row, stageFilter.stage)) return false;
-      if (stageFilter.stage === "handover") return permissions.canMarkHandover && row.tallyStatus !== "issue";
+      if (stageFilter.stage === "handover") {
+        return permissions.canMarkHandover && row.tallyStatus !== "issue" && !rowMissingIntercompanySsr(row);
+      }
       if (stageFilter.stage === "valued") {
         return permissions.canMarkValued && Boolean(row.handoverAt) && !hasPriceMismatch(row);
       }
@@ -890,6 +914,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
       permissions.canMarkReceived,
       permissions.canMarkValued,
       rowCompletedForStage,
+      rowMissingIntercompanySsr,
       stageFilter.stage,
     ],
   );
@@ -982,6 +1007,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
   function focusForCurrentMismatchFilter(row: PurchaseReceiptRow): PrDialogFocus {
     if (stageFilter.status !== "mismatch") return null;
     if (stageFilter.stage === "handover" && row.tallyStatus === "issue") return "item-mismatch";
+    if (stageFilter.stage === "handover" && rowMissingIntercompanySsr(row)) return "missing-ssr";
     if (stageFilter.stage === "valued" && hasPriceMismatch(row)) return "price-mismatch";
     return null;
   }
@@ -1387,8 +1413,20 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                       {row.amendedFrom && (
                         <div className="text-xs text-muted-foreground">Amended from {row.amendedFrom}</div>
                       )}
-                      {(itemIssueCount(row) > 0 || priceIssueCount(row) > 0) && (
+                      {(itemIssueCount(row) > 0 || priceIssueCount(row) > 0 || rowMissingIntercompanySsr(row)) && (
                         <div className="mt-1 flex flex-wrap gap-1">
+                          {rowMissingIntercompanySsr(row) && (
+                            <button
+                              type="button"
+                              className="rounded bg-amber-500/15 px-1.5 py-0.5 text-xs font-medium text-amber-300 ring-1 ring-amber-400/25 underline-offset-4 hover:underline"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                openPurchaseReceipt(row, "missing-ssr");
+                              }}
+                            >
+                              Missing SSR link
+                            </button>
+                          )}
                           {itemIssueCount(row) > 0 && (
                             <button
                               type="button"
@@ -1491,7 +1529,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                       )}
                     </TableCell>
                     <TableCell>
-                      <TallyBadge row={row} />
+                      <TallyBadge row={row} missingSsrLink={rowMissingIntercompanySsr(row)} />
                     </TableCell>
                   </TableRow>
                 ))
@@ -1970,6 +2008,24 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
               </div>
             </div>
               <GrnStageTimeline row={selectedPr} />
+              {rowMissingIntercompanySsr(selectedPr) && (
+                <details
+                  className="rounded-lg border border-amber-400/35 bg-amber-500/10 p-3"
+                  open={selectedPrFocus === "missing-ssr"}
+                >
+                  <summary className="cursor-pointer list-none">
+                    <div className="flex items-start gap-2">
+                      <TriangleAlert className="mt-0.5 size-4 text-amber-300" />
+                      <div className="flex flex-col gap-1">
+                        <div className="text-sm font-semibold">Missing SSR link</div>
+                        <div className="text-xs text-amber-100/80">
+                          This purchase receipt is from an intercompany supplier, but no supplier stock return is linked yet.
+                        </div>
+                      </div>
+                    </div>
+                  </summary>
+                </details>
+              )}
               {selectedPrStockReturn && (
                 <details className="rounded-lg border bg-background/50 p-3" open={selectedPrFocus === "item-mismatch"}>
                   <summary className="cursor-pointer list-none">

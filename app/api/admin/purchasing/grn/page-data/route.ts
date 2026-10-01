@@ -34,6 +34,22 @@ function erpCompanyFromPayload(rawPayload: unknown) {
     : null;
 }
 
+function erpPayloadFromRaw(rawPayload: unknown) {
+  if (!rawPayload || typeof rawPayload !== "object") return null;
+  const top = rawPayload as Record<string, unknown>;
+  return top.data && typeof top.data === "object" && !Array.isArray(top.data)
+    ? (top.data as Record<string, unknown>)
+    : top;
+}
+
+function erpPayloadIndicatesCancelled(rawPayload: unknown) {
+  const payload = erpPayloadFromRaw(rawPayload);
+  if (!payload) return false;
+  const docstatus = Number(payload.docstatus);
+  const status = typeof payload.status === "string" ? payload.status.trim().toLowerCase() : "";
+  return docstatus === 2 || status === "cancelled" || status === "canceled";
+}
+
 function erpBaseUrlForPayload(
   rawPayload: unknown,
   locations: Array<{
@@ -219,7 +235,16 @@ export async function GET(request: NextRequest) {
   const intercompanySupplierCodes = new Set(intercompanySuppliers.map((row) => row.supplier));
   const stockReturnByName = new Map(stockReturns.map((row) => [row.name, row]));
   const amendedPurchaseReceiptNames = new Set(purchaseReceipts.map((row) => row.amendedFrom).filter((name): name is string => Boolean(name)));
-  const isPurchaseReceiptCancelled = (row: (typeof purchaseReceipts)[number]) => row.docstatus === 2 || amendedPurchaseReceiptNames.has(row.name);
+  const isPurchaseReceiptCancelled = (row: (typeof purchaseReceipts)[number]) => {
+    const status = row.status?.trim().toLowerCase();
+    return (
+      row.docstatus === 2 ||
+      status === "cancelled" ||
+      status === "canceled" ||
+    erpPayloadIndicatesCancelled(row.rawPayload) ||
+      amendedPurchaseReceiptNames.has(row.name)
+    );
+  };
   const activePurchaseReceiptsForMatching = purchaseReceipts.filter((row) => !isPurchaseReceiptCancelled(row));
   const activePurchaseReceiptNames = new Set(activePurchaseReceiptsForMatching.map((row) => row.name));
   const activePurchaseReceiptByName = new Map(activePurchaseReceiptsForMatching.map((row) => [row.name, row]));
