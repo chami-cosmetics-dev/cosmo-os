@@ -153,13 +153,19 @@ function erpAddressDocToShippingAddress(
   address: ErpAddressDoc,
   customerName: string,
   fallbackPhone: string | null,
+  fallbackAddress?: Record<string, unknown> | null,
 ): Record<string, unknown> | null {
-  const address1 = textOrNull(address.address_line1);
-  const address2 = textOrNull(address.address_line2);
-  const city = textOrNull(address.city);
-  const zip = textOrNull(address.pincode);
-  const country = textOrNull(address.country);
-  const phone = textOrNull(address.phone) ?? fallbackPhone;
+  const fallbackText = (field: string) => {
+    const value = fallbackAddress?.[field];
+    return typeof value === "string" ? textOrNull(value) : null;
+  };
+
+  const address1 = textOrNull(address.address_line1) ?? fallbackText("address1");
+  const address2 = textOrNull(address.address_line2) ?? fallbackText("address2");
+  const city = textOrNull(address.city) ?? fallbackText("city");
+  const zip = textOrNull(address.pincode) ?? fallbackText("zip");
+  const country = textOrNull(address.country) ?? fallbackText("country");
+  const phone = textOrNull(address.phone) ?? fallbackPhone ?? fallbackText("phone");
 
   if (!address1 && !address2 && !city && !zip && !country && !phone) return null;
 
@@ -501,15 +507,16 @@ export async function ingestParsedErpSalesInvoice(input: {
   const structuredAddress =
     (await fetchErpAddressDoc(data.shipping_address_name, instanceCreds)) ??
     (await fetchErpAddressDoc(data.customer_address, instanceCreds));
+  const parsedAddress = parseErpShippingAddress(
+    nullIfNone(data.shipping_address) ?? nullIfNone(data.address_display),
+    erpCustomerName,
+    customerPhone,
+  );
   const shippingAddressObj =
     (structuredAddress
-      ? erpAddressDocToShippingAddress(structuredAddress, erpCustomerName, customerPhone)
+      ? erpAddressDocToShippingAddress(structuredAddress, erpCustomerName, customerPhone, parsedAddress)
       : null) ??
-    parseErpShippingAddress(
-      nullIfNone(data.shipping_address) ?? nullIfNone(data.address_display),
-      erpCustomerName,
-      customerPhone,
-    );
+    parsedAddress;
   const district = storedDistrictFromAddress(shippingAddressObj);
 
   // Try to match the owner (cashier for POS, merchant for non-POS) to a vault os user
