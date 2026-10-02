@@ -107,6 +107,73 @@ async function fetchPosDetailsFromSalesInvoice(
   }
 }
 
+type ErpAddressDoc = {
+  address_line1?: string | null;
+  address_line2?: string | null;
+  city?: string | null;
+  pincode?: string | null;
+  country?: string | null;
+  phone?: string | null;
+};
+
+async function fetchErpAddressDoc(
+  addressName: string | null | undefined,
+  creds: ErpSalesInvoiceIngestCreds,
+): Promise<ErpAddressDoc | null> {
+  const name = addressName?.trim();
+  if (!name) return null;
+
+  const fields = encodeURIComponent(
+    JSON.stringify(["address_line1", "address_line2", "city", "pincode", "country", "phone"]),
+  );
+
+  try {
+    const res = await fetch(
+      `${creds.baseUrl}/api/resource/Address/${encodeURIComponent(name)}?fields=${fields}`,
+      {
+        headers: {
+          Authorization: `token ${creds.apiKey}:${creds.apiSecret}`,
+        },
+      },
+    );
+    if (!res.ok) return null;
+    const json = (await res.json()) as { data?: ErpAddressDoc };
+    return json.data ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function textOrNull(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed && trimmed.toLowerCase() !== "none" ? trimmed : null;
+}
+
+function erpAddressDocToShippingAddress(
+  address: ErpAddressDoc,
+  customerName: string,
+  fallbackPhone: string | null,
+): Record<string, unknown> | null {
+  const address1 = textOrNull(address.address_line1);
+  const address2 = textOrNull(address.address_line2);
+  const city = textOrNull(address.city);
+  const zip = textOrNull(address.pincode);
+  const country = textOrNull(address.country);
+  const phone = textOrNull(address.phone) ?? fallbackPhone;
+
+  if (!address1 && !address2 && !city && !zip && !country && !phone) return null;
+
+  return {
+    name: customerName,
+    address1,
+    address2,
+    city,
+    zip,
+    country,
+    ...(phone ? { phone } : {}),
+  };
+}
+
 type InvoicePaymentSnapshot = {
   status: string | null;
   outstandingAmount: number | null;
@@ -431,11 +498,18 @@ export async function ingestParsedErpSalesInvoice(input: {
       `resolved display name: ${erpCustomerName} (source: ${customerNameResolution.source})`,
   );
 
-  const shippingAddressObj = parseErpShippingAddress(
-    nullIfNone(data.shipping_address) ?? nullIfNone(data.address_display),
-    erpCustomerName,
-    customerPhone,
-  );
+  const structuredAddress =
+    (await fetchErpAddressDoc(data.shipping_address_name, instanceCreds)) ??
+    (await fetchErpAddressDoc(data.customer_address, instanceCreds));
+  const shippingAddressObj =
+    (structuredAddress
+      ? erpAddressDocToShippingAddress(structuredAddress, erpCustomerName, customerPhone)
+      : null) ??
+    parseErpShippingAddress(
+      nullIfNone(data.shipping_address) ?? nullIfNone(data.address_display),
+      erpCustomerName,
+      customerPhone,
+    );
   const district = storedDistrictFromAddress(shippingAddressObj);
 
   // Try to match the owner (cashier for POS, merchant for non-POS) to a vault os user

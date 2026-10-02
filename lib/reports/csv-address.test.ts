@@ -138,4 +138,15 @@ describe("parseErpShippingAddress", () => {
     expect(parsed.address1).toBe("No 12 Main St");
     expect(resolveAddressDistrict(parsed)).toBe("Colombo");
   });
+
+  it("does not use a labeled phone line as city", () => {
+    const parsed = parseErpShippingAddress(
+      "No 96/10<br>William Gopallawa Mw<br>Phone: 0716980674<br>Sri Lanka",
+      "Amali Samarasekera",
+      "0716980674",
+    );
+    expect(parsed.city).toBe("William Gopallawa Mw");
+    expect(parsed.country).toBe("Sri Lanka");
+    expect(parsed.phone).toBe("0716980674");
+  });
 });
