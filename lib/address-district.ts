@@ -422,11 +422,13 @@ export function resolveOrderDistrict(
 }
 
 const COUNTRY_LINE = /^(sri\s*lanka|ceylon)$/i;
+const PHONE_LABEL = /^(phone|contact|mobile|tel|telephone)\s*:/i;
 const PHONE_LINE = /^[\d\s+\-()]{7,}$/;
 
 function isPhoneLine(value: string) {
-  if (!PHONE_LINE.test(value)) return false;
-  return value.replace(/\D/g, "").length >= 9;
+  const candidate = value.replace(PHONE_LABEL, "").trim();
+  if (!PHONE_LINE.test(candidate)) return false;
+  return candidate.replace(/\D/g, "").length >= 9;
 }
 
 /**
