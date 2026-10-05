@@ -447,6 +447,12 @@ export const waybillLookupPageDataQuerySchema = z.object({
     .transform((s) => s === "1" || s?.toLowerCase() === "true"),
 });
 
+/** Waybill Lookup first-mile scan CSV. Dates are Asia/Colombo booked days. */
+export const waybillFmScanExportQuerySchema = z.object({
+  from: ymdQuerySchema,
+  to: ymdQuerySchema,
+});
+
 /** Explicit rematch POST body. Default batch is 50; max 500 per request. */
 export const waybillRematchBodySchema = z.object({
   limit: z

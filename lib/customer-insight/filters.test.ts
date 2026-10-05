@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyOsRegExportGuard,
   hasNoPurchaseInDateRange,
+  purchasedAtBounds,
   hasNoPurchaseWithinMonths,
   matchesBirthdayRange,
   matchesBirthdayThisMonth,
@@ -59,6 +60,23 @@ describe("hasNoPurchaseWithinMonths", () => {
   const now = new Date("2026-08-11T06:00:00.000Z");
   it("treats never-purchased as inactive", () => {
     expect(hasNoPurchaseWithinMonths(null, 3, now)).toBe(true);
+  });
+});
+
+describe("purchasedAtBounds", () => {
+  it("uses inclusive Colombo calendar days", () => {
+    const bounds = purchasedAtBounds("2026-10-01", "2026-10-01");
+    expect(bounds?.gte?.toISOString()).toBe(
+      new Date("2026-10-01T00:00:00+05:30").toISOString()
+    );
+    expect(bounds?.lte?.toISOString()).toBe(
+      new Date("2026-10-01T23:59:59.999+05:30").toISOString()
+    );
+  });
+
+  it("returns null when both dates are empty", () => {
+    expect(purchasedAtBounds()).toBeNull();
+    expect(purchasedAtBounds("  ", "")).toBeNull();
   });
 });
 
