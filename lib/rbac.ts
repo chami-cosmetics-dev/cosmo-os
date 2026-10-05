@@ -74,6 +74,26 @@ const DEFAULT_PERMISSIONS = [
     description: "Manage vendors and categories",
   },
   {
+    key: "item_creation.admin.manage",
+    description: "Create item requests and manage the complete Item Creation workflow",
+  },
+  {
+    key: "item_creation.seo.manage",
+    description: "Manage SEO Item Creation steps and final activation",
+  },
+  {
+    key: "item_creation.digital_marketing.manage",
+    description: "Manage Item Creation image and Google Drive steps",
+  },
+  {
+    key: "item_creation.purchasing.manage",
+    description: "Manage Item Creation purchasing price checks",
+  },
+  {
+    key: "item_creation.stores.manage",
+    description: "Manage Item Creation store transfer and stock steps",
+  },
+  {
     key: "purchasing.osf.read",
     description: "Generate Order Support File and view OSF profiles",
   },
@@ -623,6 +643,11 @@ const DEFAULT_ROLES = [
       "settings.fulfillment",
       "products.read",
       "products.manage",
+      "item_creation.admin.manage",
+      "item_creation.seo.manage",
+      "item_creation.digital_marketing.manage",
+      "item_creation.purchasing.manage",
+      "item_creation.stores.manage",
       "purchasing.osf.read",
       "purchasing.osf.manage",
       "purchasing.osf.permission",

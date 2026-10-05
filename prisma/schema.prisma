@@ -9,102 +9,104 @@ datasource db {
 }
 
 model Company {
-  id                       String                     @id @default(cuid())
-  name                     String
-  employeeSize             String?
-  address                  String?
-  createdById              String                     @unique
-  createdAt                DateTime                   @default(now())
-  updatedAt                DateTime                   @updatedAt
-  logoUrl                  String?
-  faviconUrl               String?
-  categories               Category[]
-  createdBy                User                       @relation("CompanyCreator", fields: [createdById], references: [id], onDelete: Cascade)
-  locations                CompanyLocation[]
-  courierServices          CourierService[]
-  customers                Customer[]
-  departments              Department[]
-  designations             Designation[]
-  suppliers                Supplier[]
-  emailTemplates           EmailTemplate[]
-  employeeProfiles         EmployeeProfile[]
-  failedOrderWebhooks      FailedOrderWebhook[]
-  auditLogs                AuditLog[]
-  invites                  Invite[]
-  orders                   Order[]
-  packageHoldReasons       PackageHoldReason[]
-  nmrApprovedItemCodes     NmrApprovedItemCode[]
-  productItems             ProductItem[]
-  cosmoAcademyExplanations CosmoAcademyExplanation[]
-  cosmoAcademyProgress     CosmoAcademyProgress[]
-  sampleFreeIssueItems     SampleFreeIssueItem[]
-  shopifyWebhookSecrets    ShopifyWebhookSecret[]
-  stickerBatches           StickerBatch[]
-  stickerBatchItems        StickerBatchItem[]
-  merchantOrderReviews     MerchantOrderReview[]
-  orderExchanges           OrderExchange[]
-  orderReturns             OrderReturn[]
-  orderWaybillUploads      WaybillUpload[]
-  orderWaybills            OrderWaybill[]
-  approvalRequests         ApprovalRequest[]
-  approvalKokoReferences   ApprovalKokoReference[]
-  notifications            Notification[]
-  smsLogs                  SmsLog[]
-  smsNotificationConfigs   SmsNotificationConfig[]
-  smsPortalConfig          SmsPortalConfig?
-  users                    User[]                     @relation("CompanyMembers")
-  vendors                  Vendor[]
-  contacts                 ContactMaster[]
-  complaints               Complaint[]
-  shippingChargeOptions    ShippingChargeOption[]
-  erpWarehouses            CompanyLocationWarehouse[]
-  kokoCompanies            KokoCompany[]
-  citypakAccounts          CitypakAccount[]
-  dashboardBrandConfigs    DashboardBrandConfig[]
-  contactAllocationOptions ContactAllocationOption[]
-  productItemAssets        ProductItemAsset[]
-  printFormats             PrintFormat[]
-  files                    File[]
+  id                           String                             @id @default(cuid())
+  name                         String
+  employeeSize                 String?
+  address                      String?
+  createdById                  String                             @unique
+  createdAt                    DateTime                           @default(now())
+  updatedAt                    DateTime                           @updatedAt
+  logoUrl                      String?
+  faviconUrl                   String?
+  categories                   Category[]
+  createdBy                    User                               @relation("CompanyCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  locations                    CompanyLocation[]
+  courierServices              CourierService[]
+  customers                    Customer[]
+  departments                  Department[]
+  designations                 Designation[]
+  suppliers                    Supplier[]
+  emailTemplates               EmailTemplate[]
+  employeeProfiles             EmployeeProfile[]
+  failedOrderWebhooks          FailedOrderWebhook[]
+  auditLogs                    AuditLog[]
+  invites                      Invite[]
+  orders                       Order[]
+  packageHoldReasons           PackageHoldReason[]
+  nmrApprovedItemCodes         NmrApprovedItemCode[]
+  productItems                 ProductItem[]
+  cosmoAcademyExplanations     CosmoAcademyExplanation[]
+  cosmoAcademyProgress         CosmoAcademyProgress[]
+  sampleFreeIssueItems         SampleFreeIssueItem[]
+  shopifyWebhookSecrets        ShopifyWebhookSecret[]
+  stickerBatches               StickerBatch[]
+  stickerBatchItems            StickerBatchItem[]
+  merchantOrderReviews         MerchantOrderReview[]
+  orderExchanges               OrderExchange[]
+  orderReturns                 OrderReturn[]
+  orderWaybillUploads          WaybillUpload[]
+  orderWaybills                OrderWaybill[]
+  approvalRequests             ApprovalRequest[]
+  approvalKokoReferences       ApprovalKokoReference[]
+  notifications                Notification[]
+  smsLogs                      SmsLog[]
+  smsNotificationConfigs       SmsNotificationConfig[]
+  smsPortalConfig              SmsPortalConfig?
+  users                        User[]                             @relation("CompanyMembers")
+  vendors                      Vendor[]
+  contacts                     ContactMaster[]
+  complaints                   Complaint[]
+  shippingChargeOptions        ShippingChargeOption[]
+  erpWarehouses                CompanyLocationWarehouse[]
+  kokoCompanies                KokoCompany[]
+  citypakAccounts              CitypakAccount[]
+  dashboardBrandConfigs        DashboardBrandConfig[]
+  contactAllocationOptions     ContactAllocationOption[]
+  productItemAssets            ProductItemAsset[]
+  printFormats                 PrintFormat[]
+  files                        File[]
   // Call center performance tracking: records each time a merchant clicks Update
   // in the allocation panel — drives the dashboard performance analysis chart
-  contactAllocationUpdates ContactAllocationUpdate[]
-  erpnextInstances         ErpnextInstance[]
-  grnPurchaseReceipts      GrnPurchaseReceipt[]
-  grnSupplierStockReturns  GrnSupplierStockReturn[]
-  pickListGroups           PickListGroup[]
-  ogfEmailLogs             OgfEmailLog[]
-  financeScopes            UserFinanceScope[]
-  dailySalesSmsConfig           DailySalesSmsConfig?
-  dailySalesSmsSendLogs         DailySalesSmsSendLog[]
-  erpSyncFailureEmailConfig     ErpSyncFailureEmailConfig?
-  erpSyncFailureEmailSendLogs   ErpSyncFailureEmailSendLog[]
-  grnPendingEmailConfig         GrnPendingEmailConfig?
-  grnPendingEmailSendLogs       GrnPendingEmailSendLog[]
-  productOsfProfiles            ProductOsfProfile[]
-  productOsfRops                ProductOsfRop[]
-  osfColumnConfigs              OsfColumnConfig[]
-  osfMonthlySalesHistories      OsfMonthlySalesHistory[]
-  osfPurchaseHistoryLines       OsfPurchaseHistoryLine[]
-  osfBuyers                     OsfBuyer[]
-  osfUserColumnAccess           OsfUserColumnAccess[]
-  storeStockCountReports        StoreStockCountReport[]
-  storeStockCountItems          StoreStockCountReportItem[]
-  storeStockCountLanes          StoreStockCountItemLane[]
-  storeStockCountUserSaves      StoreStockCountUserSave[]
-  shopifyAbandonedCheckouts     ShopifyAbandonedCheckout[]
+  contactAllocationUpdates     ContactAllocationUpdate[]
+  erpnextInstances             ErpnextInstance[]
+  grnPurchaseReceipts          GrnPurchaseReceipt[]
+  grnSupplierStockReturns      GrnSupplierStockReturn[]
+  pickListGroups               PickListGroup[]
+  ogfEmailLogs                 OgfEmailLog[]
+  financeScopes                UserFinanceScope[]
+  dailySalesSmsConfig          DailySalesSmsConfig?
+  dailySalesSmsSendLogs        DailySalesSmsSendLog[]
+  erpSyncFailureEmailConfig    ErpSyncFailureEmailConfig?
+  erpSyncFailureEmailSendLogs  ErpSyncFailureEmailSendLog[]
+  grnPendingEmailConfig        GrnPendingEmailConfig?
+  grnPendingEmailSendLogs      GrnPendingEmailSendLog[]
+  productOsfProfiles           ProductOsfProfile[]
+  productOsfRops               ProductOsfRop[]
+  osfColumnConfigs             OsfColumnConfig[]
+  osfMonthlySalesHistories     OsfMonthlySalesHistory[]
+  osfPurchaseHistoryLines      OsfPurchaseHistoryLine[]
+  osfBuyers                    OsfBuyer[]
+  osfUserColumnAccess          OsfUserColumnAccess[]
+  storeStockCountReports       StoreStockCountReport[]
+  storeStockCountItems         StoreStockCountReportItem[]
+  storeStockCountLanes         StoreStockCountItemLane[]
+  storeStockCountUserSaves     StoreStockCountUserSave[]
+  shopifyAbandonedCheckouts    ShopifyAbandonedCheckout[]
   abandonedCheckoutSyncs       CompanyAbandonedCheckoutSync[]
   contactPurchaseSummarySync   CompanyContactPurchaseSummarySync?
-  adaptPurchaseHistories        AdaptPurchaseHistory[]
-  contactRemovedEmails          ContactRemovedEmail[]
-  contactInsightCallQueues      ContactInsightCallQueue[]
-  bookNoteDays                  BookNoteDay[]
-  merchantMonthlyTargets        MerchantMonthlyTarget[]
-  merchantMonthlyTargetHistory  MerchantMonthlyTargetHistory[]
-  marketCompetitorLinks         MarketCompetitorLink[]
-  erpStockSnapshots             ErpStockSnapshot[]
-  osRegistrationQrs             OsRegistrationQr[]
-  osRegistrationCaptures        OsRegistrationCapture[]
-  osRegistrationSettings        OsRegistrationSettings?
+  adaptPurchaseHistories       AdaptPurchaseHistory[]
+  contactRemovedEmails         ContactRemovedEmail[]
+  contactInsightCallQueues     ContactInsightCallQueue[]
+  bookNoteDays                 BookNoteDay[]
+  merchantMonthlyTargets       MerchantMonthlyTarget[]
+  merchantMonthlyTargetHistory MerchantMonthlyTargetHistory[]
+  marketCompetitorLinks        MarketCompetitorLink[]
+  erpStockSnapshots            ErpStockSnapshot[]
+  osRegistrationQrs            OsRegistrationQr[]
+  osRegistrationCaptures       OsRegistrationCapture[]
+  osRegistrationSettings       OsRegistrationSettings?
+  itemCreationRequests         ItemCreationRequest[]
+  itemCreationStockReceipts    ItemCreationStockReceipt[]
 }
 
 model PrintFormat {
@@ -290,6 +292,217 @@ model ProductItem {
   @@index([companyId, erp2ProductPriority])
 }
 
+model ItemCreationRequest {
+  id                      String                              @id @default(cuid())
+  companyId               String
+  sku                     String
+  description             String
+  standardPrice           Decimal                             @db.Decimal(12, 2)
+  ogfPrice                Decimal?                            @db.Decimal(12, 2)
+  country                 String
+  creationSources         Json                                @default("[\"SHOPIFY\"]")
+  overallStatus           ItemCreationOverallStatus           @default(IN_PROGRESS)
+  seoSetupStatus          ItemCreationSeoSetupStatus          @default(PENDING)
+  seoActivationStatus     ItemCreationSeoActivationStatus     @default(LOCKED)
+  digitalMarketingStatus  ItemCreationDigitalStatus           @default(PENDING)
+  purchasingStatus        ItemCreationPurchasingStatus        @default(LOCKED)
+  storeTransferStatus     ItemCreationStoreTransferStatus     @default(PENDING)
+  storeStockStatus        ItemCreationStoreStockStatus        @default(WAITING_FOR_PRICE)
+  imageDriveUrl           String?
+  itemCreatedAt           DateTime?
+  itemCreatedBy           String?
+  imageCreatedAt          DateTime?
+  imageCreatedBy          String?
+  imageUpdatedAt          DateTime?
+  imageUpdatedBy          String?
+  erpStandardPrice        Decimal?                            @db.Decimal(12, 2)
+  erpOgfPrice             Decimal?                            @db.Decimal(12, 2)
+  erp1ItemCode            String?
+  erp1ItemName            String?
+  erp1Brand               String?
+  erp1Barcodes            Json?
+  erp1ItemCreatedAt       DateTime?
+  erp2ItemCode            String?
+  erp2ItemCreatedAt       DateTime?
+  erp2ItemCreationStatus  ItemCreationErp2ItemStatus          @default(WAITING_ERP1)
+  erp2ItemCreationError   String?
+  erp1StandardPrice       Decimal?                            @db.Decimal(12, 2)
+  erp2StandardPrice       Decimal?                            @db.Decimal(12, 2)
+  erp2OgfPrice            Decimal?                            @db.Decimal(12, 2)
+  erp1StandardPriceStatus ItemCreationPriceOperationStatus    @default(PENDING)
+  erp2StandardPriceStatus ItemCreationPriceOperationStatus    @default(PENDING)
+  erp2OgfPriceStatus      ItemCreationPriceOperationStatus    @default(NOT_REQUIRED)
+  erp1StandardPriceError  String?
+  erp2StandardPriceError  String?
+  erp2OgfPriceError       String?
+  pricesUpdatedAt         DateTime?
+  pricesUpdatedBy         String?
+  standardPriceSeenAt     DateTime?
+  ogfPriceSeenAt          DateTime?
+  priceUpdatedAt          DateTime?
+  priceUpdatedBy          String?
+  priceUpdatedSource      ItemCreationUpdateSource?
+  sentAt                  DateTime?
+  sentBy                  String?
+  receivedAt              DateTime?
+  receivedBy              String?
+  stockReadyAt            DateTime?
+  stockAddedAt            DateTime?
+  stockAddedBy            String?
+  stockAddedSource        ItemCreationUpdateSource?
+  activatedAt             DateTime?
+  activatedBy             String?
+  shopifyProductId        String?
+  shopifyVariantId        String?
+  shopifyActivationStatus ItemCreationShopifyActivationStatus @default(LOCKED)
+  shopifyActivatedAt      DateTime?
+  shopifyActivationError  String?
+  completedAt             DateTime?
+  createdBy               String
+  createdAt               DateTime                            @default(now())
+  updatedAt               DateTime                            @updatedAt
+  company                 Company                             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  activities              ItemCreationActivity[]
+  stockReceiptItems       ItemCreationStockReceiptItem[]
+
+  @@index([companyId, sku])
+  @@index([companyId, overallStatus])
+  @@index([sku])
+  @@index([overallStatus])
+}
+
+model ItemCreationActivity {
+  id            String                   @id @default(cuid())
+  itemRequestId String
+  itemRequest   ItemCreationRequest      @relation(fields: [itemRequestId], references: [id], onDelete: Cascade)
+  type          String
+  source        ItemCreationUpdateSource
+  userId        String?
+  oldValue      String?
+  newValue      String?
+  metadata      Json?
+  createdAt     DateTime                 @default(now())
+
+  @@index([itemRequestId])
+  @@index([createdAt])
+}
+
+model ItemCreationStockReceipt {
+  id              String                         @id @default(cuid())
+  companyId       String
+  erp             ItemCreationErp
+  supplier        String
+  warehouse       String
+  purchaseReceipt String?
+  status          ItemCreationStockReceiptStatus @default(PENDING)
+  error           String?
+  createdBy       String?
+  createdAt       DateTime                       @default(now())
+  updatedAt       DateTime                       @updatedAt
+  submittedAt     DateTime?
+  company         Company                        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  items           ItemCreationStockReceiptItem[]
+
+  @@index([companyId, erp])
+  @@index([purchaseReceipt])
+  @@index([status])
+}
+
+model ItemCreationStockReceiptItem {
+  id             String                   @id @default(cuid())
+  stockReceiptId String
+  itemRequestId  String
+  itemCode       String
+  qty            Decimal                  @db.Decimal(12, 3)
+  stockReceipt   ItemCreationStockReceipt @relation(fields: [stockReceiptId], references: [id], onDelete: Cascade)
+  itemRequest    ItemCreationRequest      @relation(fields: [itemRequestId], references: [id], onDelete: Cascade)
+
+  @@index([itemRequestId])
+  @@index([stockReceiptId])
+}
+
+enum ItemCreationOverallStatus {
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum ItemCreationSeoSetupStatus {
+  PENDING
+  ITEM_CREATED
+  COMPLETED
+}
+
+enum ItemCreationSeoActivationStatus {
+  LOCKED
+  WAITING_ACTIVATION
+  ACTIVATED
+}
+
+enum ItemCreationDigitalStatus {
+  PENDING
+  IMAGE_CREATED
+}
+
+enum ItemCreationPurchasingStatus {
+  LOCKED
+  WAITING_FOR_PRICES
+  PRICE_UPDATED
+}
+
+enum ItemCreationStoreTransferStatus {
+  PENDING
+  SENT
+  RECEIVED
+}
+
+enum ItemCreationStoreStockStatus {
+  WAITING_FOR_PRICE
+  READY_FOR_STOCK
+  STOCK_ADDED
+}
+
+enum ItemCreationUpdateSource {
+  USER
+  ERP_WEBHOOK
+  SYSTEM
+}
+
+enum ItemCreationErp {
+  ERP1
+  ERP2
+}
+
+enum ItemCreationErp2ItemStatus {
+  WAITING_ERP1
+  CREATING_ERP2
+  COMPLETED
+  FAILED
+}
+
+enum ItemCreationPriceOperationStatus {
+  PENDING
+  UPDATING
+  UPDATED
+  FAILED
+  NOT_REQUIRED
+}
+
+enum ItemCreationStockReceiptStatus {
+  PENDING
+  CREATING
+  SUBMITTED
+  FAILED
+}
+
+enum ItemCreationShopifyActivationStatus {
+  LOCKED
+  WAITING
+  ACTIVATING
+  ACTIVE
+  FAILED
+}
+
 model Invite {
   id              String           @id @default(cuid())
   email           String
@@ -316,87 +529,87 @@ model Invite {
 }
 
 model User {
-  id                                  String                    @id @default(cuid())
-  auth0Id                             String                    @unique
-  email                               String?                   @unique
-  name                                String?
-  picture                             String?
-  createdAt                           DateTime                  @default(now())
-  updatedAt                           DateTime                  @updatedAt
-  companyId                           String?
-  dateOfBirth                         DateTime?
-  gender                              String?
-  knownName                           String?
-  mobile                              String?
-  nicNo                               String?
-  couponCodes                         String[]                  @default([])
-  wholesaleCouponCodes                String[]                  @default([])
-  shopifyUserIds                      String[]                  @default([])
-  erpnextUsername                     String?                   @unique
-  profilePhotoUrl                     String?
-  createdCompany                      Company?                  @relation("CompanyCreator")
-  defaultMerchantLocations            CompanyLocation[]         @relation("LocationDefaultMerchant")
-  employeeProfile                     EmployeeProfile?
-  invitesSent                         Invite[]                  @relation("InvitedBy")
-  assignedOrders                      Order[]                   @relation("OrderAssignedMerchant")
-  ordersDeliveryCompleteBy            Order[]                   @relation("OrderDeliveryCompleteBy")
-  ordersDispatchedBy                  Order[]                   @relation("OrderDispatchedBy")
-  dispatchedOrders                    Order[]                   @relation("OrderDispatchedByRider")
-  exchangeActions                     OrderExchange[]           @relation("OrderExchangeActionBy")
-  exchangeCreated                     OrderExchange[]           @relation("OrderExchangeCreatedBy")
-  exchangeMerchantAssignments         OrderExchange[]           @relation("OrderExchangeMerchantUser")
-  ordersInvoiceCompleteBy             Order[]                   @relation("OrderInvoiceCompleteBy")
-  ordersRevertedFromInvoiceCompleteBy Order[]                   @relation("OrderRevertedFromInvoiceCompleteBy")
-  ordersLastPrintedBy                 Order[]                   @relation("OrderLastPrintedBy")
-  ordersPackageReadyBy                Order[]                   @relation("OrderPackageReadyBy")
-  ordersSampleFreeIssueCompleteBy     Order[]                   @relation("OrderSampleFreeIssueCompleteBy")
-  ordersKokoLinkTimeConfirmedBy       Order[]                   @relation("OrderKokoLinkTimeConfirmedBy")
-  ordersCancelledBy                   Order[]                   @relation("OrderCancelledBy")
-  grnHandovers                        GrnPurchaseReceipt[]      @relation("GrnPurchaseReceiptHandoverBy")
-  grnValuations                       GrnPurchaseReceipt[]      @relation("GrnPurchaseReceiptValuedBy")
-  grnReceipts                         GrnPurchaseReceipt[]      @relation("GrnPurchaseReceiptReceivedBy")
-  orderRemarksAdded                   OrderRemark[]
-  orderSampleFreeIssuesAdded          OrderSampleFreeIssue[]
-  smsLogs                             SmsLog[]
-  company                             Company?                  @relation("CompanyMembers", fields: [companyId], references: [id])
-  deliveryPayments                    DeliveryPayment[]
-  mobileSessions                      RiderMobileSession[]
-  merchantOrderReviews                MerchantOrderReview[]     @relation("MerchantOrderReviewUser")
-  merchantOrderReturns                OrderReturn[]             @relation("OrderReturnMerchantUser")
-  orderReturnsActioned                OrderReturn[]             @relation("OrderReturnActionBy")
-  orderReturnsMarked                  OrderReturn[]             @relation("OrderReturnReturnedBy")
-  orderReturnsRidden                  OrderReturn[]             @relation("OrderReturnRider")
-  complaintsCreated                   Complaint[]               @relation("ComplaintCreatedBy")
-  complaintsResolved                  Complaint[]               @relation("ComplaintResolvedBy")
-  waybillUploads                      WaybillUpload[]
-  approvalRequestsRequested           ApprovalRequest[]         @relation("ApprovalRequestRequestedBy")
-  approvalRequestsReviewed            ApprovalRequest[]         @relation("ApprovalRequestReviewedBy")
-  notifications                       Notification[]
-  receivedCashHandovers               RiderCashHandover[]       @relation("RiderCashHandoverReceivedBy")
-  riderCashHandovers                  RiderCashHandover[]       @relation("RiderCashHandovers")
-  riderDeliveryTasks                  RiderDeliveryTask[]       @relation("RiderDeliveryTaskRider")
-  riderDeliveryTasksManualIncentive   RiderDeliveryTask[]       @relation("RiderDeliveryTaskManualIncentiveBy")
-  userRoles                           UserRole[]
-  osfUserColumnAccess                 OsfUserColumnAccess[]
-  storeStockCountReportsCreated       StoreStockCountReport[]    @relation("StoreStockCountReportCreatedBy")
-  storeStockCountReportsUpdated       StoreStockCountReport[]    @relation("StoreStockCountReportUpdatedBy")
-  storeStockCountReportsSubmitted     StoreStockCountReport[]    @relation("StoreStockCountReportSubmittedBy")
-  storeStockCountLanes                StoreStockCountItemLane[]
-  storeStockCountUserSaves            StoreStockCountUserSave[]
-  auditLogs                           AuditLog[]                @relation("AuditLogActor")
-  cosmoAcademyExplanationsCreated     CosmoAcademyExplanation[] @relation("CosmoAcademyExplanationCreatedBy")
-  cosmoAcademyProgress                CosmoAcademyProgress[]
-  productItemAssets                   ProductItemAsset[]
-  uploadedFiles                       File[]
+  id                                     String                         @id @default(cuid())
+  auth0Id                                String                         @unique
+  email                                  String?                        @unique
+  name                                   String?
+  picture                                String?
+  createdAt                              DateTime                       @default(now())
+  updatedAt                              DateTime                       @updatedAt
+  companyId                              String?
+  dateOfBirth                            DateTime?
+  gender                                 String?
+  knownName                              String?
+  mobile                                 String?
+  nicNo                                  String?
+  couponCodes                            String[]                       @default([])
+  wholesaleCouponCodes                   String[]                       @default([])
+  shopifyUserIds                         String[]                       @default([])
+  erpnextUsername                        String?                        @unique
+  profilePhotoUrl                        String?
+  createdCompany                         Company?                       @relation("CompanyCreator")
+  defaultMerchantLocations               CompanyLocation[]              @relation("LocationDefaultMerchant")
+  employeeProfile                        EmployeeProfile?
+  invitesSent                            Invite[]                       @relation("InvitedBy")
+  assignedOrders                         Order[]                        @relation("OrderAssignedMerchant")
+  ordersDeliveryCompleteBy               Order[]                        @relation("OrderDeliveryCompleteBy")
+  ordersDispatchedBy                     Order[]                        @relation("OrderDispatchedBy")
+  dispatchedOrders                       Order[]                        @relation("OrderDispatchedByRider")
+  exchangeActions                        OrderExchange[]                @relation("OrderExchangeActionBy")
+  exchangeCreated                        OrderExchange[]                @relation("OrderExchangeCreatedBy")
+  exchangeMerchantAssignments            OrderExchange[]                @relation("OrderExchangeMerchantUser")
+  ordersInvoiceCompleteBy                Order[]                        @relation("OrderInvoiceCompleteBy")
+  ordersRevertedFromInvoiceCompleteBy    Order[]                        @relation("OrderRevertedFromInvoiceCompleteBy")
+  ordersLastPrintedBy                    Order[]                        @relation("OrderLastPrintedBy")
+  ordersPackageReadyBy                   Order[]                        @relation("OrderPackageReadyBy")
+  ordersSampleFreeIssueCompleteBy        Order[]                        @relation("OrderSampleFreeIssueCompleteBy")
+  ordersKokoLinkTimeConfirmedBy          Order[]                        @relation("OrderKokoLinkTimeConfirmedBy")
+  ordersCancelledBy                      Order[]                        @relation("OrderCancelledBy")
+  grnHandovers                           GrnPurchaseReceipt[]           @relation("GrnPurchaseReceiptHandoverBy")
+  grnValuations                          GrnPurchaseReceipt[]           @relation("GrnPurchaseReceiptValuedBy")
+  grnReceipts                            GrnPurchaseReceipt[]           @relation("GrnPurchaseReceiptReceivedBy")
+  orderRemarksAdded                      OrderRemark[]
+  orderSampleFreeIssuesAdded             OrderSampleFreeIssue[]
+  smsLogs                                SmsLog[]
+  company                                Company?                       @relation("CompanyMembers", fields: [companyId], references: [id])
+  deliveryPayments                       DeliveryPayment[]
+  mobileSessions                         RiderMobileSession[]
+  merchantOrderReviews                   MerchantOrderReview[]          @relation("MerchantOrderReviewUser")
+  merchantOrderReturns                   OrderReturn[]                  @relation("OrderReturnMerchantUser")
+  orderReturnsActioned                   OrderReturn[]                  @relation("OrderReturnActionBy")
+  orderReturnsMarked                     OrderReturn[]                  @relation("OrderReturnReturnedBy")
+  orderReturnsRidden                     OrderReturn[]                  @relation("OrderReturnRider")
+  complaintsCreated                      Complaint[]                    @relation("ComplaintCreatedBy")
+  complaintsResolved                     Complaint[]                    @relation("ComplaintResolvedBy")
+  waybillUploads                         WaybillUpload[]
+  approvalRequestsRequested              ApprovalRequest[]              @relation("ApprovalRequestRequestedBy")
+  approvalRequestsReviewed               ApprovalRequest[]              @relation("ApprovalRequestReviewedBy")
+  notifications                          Notification[]
+  receivedCashHandovers                  RiderCashHandover[]            @relation("RiderCashHandoverReceivedBy")
+  riderCashHandovers                     RiderCashHandover[]            @relation("RiderCashHandovers")
+  riderDeliveryTasks                     RiderDeliveryTask[]            @relation("RiderDeliveryTaskRider")
+  riderDeliveryTasksManualIncentive      RiderDeliveryTask[]            @relation("RiderDeliveryTaskManualIncentiveBy")
+  userRoles                              UserRole[]
+  osfUserColumnAccess                    OsfUserColumnAccess[]
+  storeStockCountReportsCreated          StoreStockCountReport[]        @relation("StoreStockCountReportCreatedBy")
+  storeStockCountReportsUpdated          StoreStockCountReport[]        @relation("StoreStockCountReportUpdatedBy")
+  storeStockCountReportsSubmitted        StoreStockCountReport[]        @relation("StoreStockCountReportSubmittedBy")
+  storeStockCountLanes                   StoreStockCountItemLane[]
+  storeStockCountUserSaves               StoreStockCountUserSave[]
+  auditLogs                              AuditLog[]                     @relation("AuditLogActor")
+  cosmoAcademyExplanationsCreated        CosmoAcademyExplanation[]      @relation("CosmoAcademyExplanationCreatedBy")
+  cosmoAcademyProgress                   CosmoAcademyProgress[]
+  productItemAssets                      ProductItemAsset[]
+  uploadedFiles                          File[]
   // Call center performance tracking: records updates made by this merchant user
-  contactAllocationUpdates            ContactAllocationUpdate[]
-  pickListGroupsPrinted               PickListGroup[]           @relation("PickListGroupPrintedBy")
-  financeScopes                       UserFinanceScope[]
-  abandonedCheckoutFollowUps        ShopifyAbandonedCheckout[] @relation("ShopifyAbandonedCheckoutFollowUpBy")
-  bookNoteDaysCreated               BookNoteDay[]              @relation("BookNoteDayCreatedBy")
-  bookNoteDaysUpdated               BookNoteDay[]              @relation("BookNoteDayUpdatedBy")
-  merchantMonthlyTargets            MerchantMonthlyTarget[]    @relation("MerchantMonthlyTargetUser")
-  merchantTargetsAssigned           MerchantMonthlyTarget[]    @relation("MerchantMonthlyTargetAssignedBy")
+  contactAllocationUpdates               ContactAllocationUpdate[]
+  pickListGroupsPrinted                  PickListGroup[]                @relation("PickListGroupPrintedBy")
+  financeScopes                          UserFinanceScope[]
+  abandonedCheckoutFollowUps             ShopifyAbandonedCheckout[]     @relation("ShopifyAbandonedCheckoutFollowUpBy")
+  bookNoteDaysCreated                    BookNoteDay[]                  @relation("BookNoteDayCreatedBy")
+  bookNoteDaysUpdated                    BookNoteDay[]                  @relation("BookNoteDayUpdatedBy")
+  merchantMonthlyTargets                 MerchantMonthlyTarget[]        @relation("MerchantMonthlyTargetUser")
+  merchantTargetsAssigned                MerchantMonthlyTarget[]        @relation("MerchantMonthlyTargetAssignedBy")
   merchantMonthlyTargetHistoryAsMerchant MerchantMonthlyTargetHistory[] @relation("MerchantMonthlyTargetHistoryUser")
   merchantMonthlyTargetHistoryAssigned   MerchantMonthlyTargetHistory[] @relation("MerchantMonthlyTargetHistoryAssignedBy")
   loyaltyAssignments                     ContactMaster[]                @relation("ContactLoyaltyAssignedBy")
@@ -413,22 +626,22 @@ model User {
 
 /// Monthly sales target for a merchant-role user (Asia/Colombo calendar month).
 model MerchantMonthlyTarget {
-  id               String   @id @default(cuid())
-  companyId        String
-  userId           String
-  yearMonth        String
-  targetAmount           Decimal  @db.Decimal(14, 2)
-  shopTargetAmount       Decimal? @db.Decimal(14, 2)
-  onlineTargetAmount     Decimal? @db.Decimal(14, 2)
-  wholesaleTargetAmount  Decimal? @db.Decimal(14, 2)
-  assignedByUserId       String?
-  assignedAt             DateTime @default(now())
-  note                   String?
-  createdAt              DateTime @default(now())
-  updatedAt              DateTime @updatedAt
-  company                Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  user                   User     @relation("MerchantMonthlyTargetUser", fields: [userId], references: [id], onDelete: Cascade)
-  assignedBy             User?    @relation("MerchantMonthlyTargetAssignedBy", fields: [assignedByUserId], references: [id], onDelete: SetNull)
+  id                    String   @id @default(cuid())
+  companyId             String
+  userId                String
+  yearMonth             String
+  targetAmount          Decimal  @db.Decimal(14, 2)
+  shopTargetAmount      Decimal? @db.Decimal(14, 2)
+  onlineTargetAmount    Decimal? @db.Decimal(14, 2)
+  wholesaleTargetAmount Decimal? @db.Decimal(14, 2)
+  assignedByUserId      String?
+  assignedAt            DateTime @default(now())
+  note                  String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  company               Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user                  User     @relation("MerchantMonthlyTargetUser", fields: [userId], references: [id], onDelete: Cascade)
+  assignedBy            User?    @relation("MerchantMonthlyTargetAssignedBy", fields: [assignedByUserId], references: [id], onDelete: SetNull)
 
   @@unique([companyId, userId, yearMonth])
   @@index([companyId, yearMonth])
@@ -437,72 +650,72 @@ model MerchantMonthlyTarget {
 
 /// Append-only log of target set/update events for audit + history UI.
 model MerchantMonthlyTargetHistory {
-  id               String   @id @default(cuid())
-  companyId        String
-  userId           String
-  yearMonth        String
-  targetAmount           Decimal  @db.Decimal(14, 2)
-  shopTargetAmount       Decimal? @db.Decimal(14, 2)
-  onlineTargetAmount     Decimal? @db.Decimal(14, 2)
-  wholesaleTargetAmount  Decimal? @db.Decimal(14, 2)
-  action                 String
-  assignedByUserId       String?
-  note                   String?
-  createdAt              DateTime @default(now())
-  company                Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  user                   User     @relation("MerchantMonthlyTargetHistoryUser", fields: [userId], references: [id], onDelete: Cascade)
-  assignedBy             User?    @relation("MerchantMonthlyTargetHistoryAssignedBy", fields: [assignedByUserId], references: [id], onDelete: SetNull)
+  id                    String   @id @default(cuid())
+  companyId             String
+  userId                String
+  yearMonth             String
+  targetAmount          Decimal  @db.Decimal(14, 2)
+  shopTargetAmount      Decimal? @db.Decimal(14, 2)
+  onlineTargetAmount    Decimal? @db.Decimal(14, 2)
+  wholesaleTargetAmount Decimal? @db.Decimal(14, 2)
+  action                String
+  assignedByUserId      String?
+  note                  String?
+  createdAt             DateTime @default(now())
+  company               Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user                  User     @relation("MerchantMonthlyTargetHistoryUser", fields: [userId], references: [id], onDelete: Cascade)
+  assignedBy            User?    @relation("MerchantMonthlyTargetHistoryAssignedBy", fields: [assignedByUserId], references: [id], onDelete: SetNull)
 
   @@index([companyId, userId, yearMonth, createdAt(sort: Desc)])
   @@index([companyId, yearMonth])
 }
 
 model ShopifyAbandonedCheckout {
-  id                        String   @id @default(cuid())
-  companyId                 String
-  shopifyCheckoutGid       String
-  shopifyCheckoutId        String
-  shopifyAdminStoreHandle   String
-  companyLocationId        String?
+  id                      String  @id @default(cuid())
+  companyId               String
+  shopifyCheckoutGid      String
+  shopifyCheckoutId       String
+  shopifyAdminStoreHandle String
+  companyLocationId       String?
 
-  customerName             String?
-  customerEmail            String?
-  customerPhone            String?
-  billingAddressText       String?
-  shippingAddressText      String?
-  lineItemsSummary        String
-  lineItemsJson           Json?
-  totalPrice              Decimal
-  currency                 String
+  customerName        String?
+  customerEmail       String?
+  customerPhone       String?
+  billingAddressText  String?
+  shippingAddressText String?
+  lineItemsSummary    String
+  lineItemsJson       Json?
+  totalPrice          Decimal
+  currency            String
 
-  abandonedAt              DateTime
-  shopifyUpdatedAt         DateTime?
-  shopifyCompletedAt       DateTime?
-  shopifyRecoveredAt       DateTime?
-  abandonedCheckoutUrl     String?
+  abandonedAt          DateTime
+  shopifyUpdatedAt     DateTime?
+  shopifyCompletedAt   DateTime?
+  shopifyRecoveredAt   DateTime?
+  abandonedCheckoutUrl String?
 
-  followUpStatus           String   @default("pending")
-  customerResponse         String?
-  remark                   String?
-  abandonmentReason        String?
+  followUpStatus    String  @default("pending")
+  customerResponse  String?
+  remark            String?
+  abandonmentReason String?
 
-  phoneNormalized          String?
-  cartFingerprint          String?
-  exactDuplicateGroupId    String?
-  supersededByCheckoutId   String?
-  supersededAt             DateTime?
+  phoneNormalized        String?
+  cartFingerprint        String?
+  exactDuplicateGroupId  String?
+  supersededByCheckoutId String?
+  supersededAt           DateTime?
 
-  lastFollowUpById         String?
-  lastFollowUpAt           DateTime?
+  lastFollowUpById String?
+  lastFollowUpAt   DateTime?
 
-  createdAt                DateTime @default(now())
-  updatedAt                DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  company                   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  companyLocation          CompanyLocation? @relation(fields: [companyLocationId], references: [id], onDelete: SetNull)
-  lastFollowUpBy           User?  @relation("ShopifyAbandonedCheckoutFollowUpBy", fields: [lastFollowUpById], references: [id], onDelete: SetNull)
-  supersededByCheckout     ShopifyAbandonedCheckout?  @relation("ShopifyAbandonedCheckoutSupersededBy", fields: [supersededByCheckoutId], references: [id], onDelete: SetNull)
-  supersedesCheckouts      ShopifyAbandonedCheckout[] @relation("ShopifyAbandonedCheckoutSupersededBy")
+  company              Company                    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyLocation      CompanyLocation?           @relation(fields: [companyLocationId], references: [id], onDelete: SetNull)
+  lastFollowUpBy       User?                      @relation("ShopifyAbandonedCheckoutFollowUpBy", fields: [lastFollowUpById], references: [id], onDelete: SetNull)
+  supersededByCheckout ShopifyAbandonedCheckout?  @relation("ShopifyAbandonedCheckoutSupersededBy", fields: [supersededByCheckoutId], references: [id], onDelete: SetNull)
+  supersedesCheckouts  ShopifyAbandonedCheckout[] @relation("ShopifyAbandonedCheckoutSupersededBy")
 
   @@unique([companyId, shopifyCheckoutGid])
   @@index([companyId, followUpStatus, abandonedAt(sort: Desc)])
@@ -516,25 +729,24 @@ model ShopifyAbandonedCheckout {
 }
 
 model CompanyAbandonedCheckoutSync {
-  companyId       String   @id
-  lastSyncedAt    DateTime?
-  lastSyncError   String?
-  updatedAt       DateTime @updatedAt
+  companyId     String    @id
+  lastSyncedAt  DateTime?
+  lastSyncError String?
+  updatedAt     DateTime  @updatedAt
 
-  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 }
 
 /// Nightly / manual rebuild of ContactMaster purchase summary cache (export reads these).
 model CompanyContactPurchaseSummarySync {
-  companyId       String   @id
-  lastSyncedAt    DateTime?
-  lastSyncError   String?
-  contactCount    Int      @default(0)
-  updatedAt       DateTime @updatedAt
+  companyId     String    @id
+  lastSyncedAt  DateTime?
+  lastSyncError String?
+  contactCount  Int       @default(0)
+  updatedAt     DateTime  @updatedAt
 
-  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 }
-
 
 model CosmoAcademyExplanation {
   id                   String                 @id @default(cuid())
@@ -863,13 +1075,13 @@ model Order {
   erpnextSyncNextAutoRetryAt     DateTime?
   erpnextSyncRetryLeaseExpiresAt DateTime?
 
-  erpPeSyncError                 String?
-  erpPeSyncFailedAt              DateTime?
-  erpPeSyncMop                   String?
-  erpPeSyncAutoRetryCount        Int       @default(0)
-  erpPeSyncLastAutoRetryAt       DateTime?
-  erpPeSyncNextAutoRetryAt       DateTime?
-  erpPeSyncRetryLeaseExpiresAt   DateTime?
+  erpPeSyncError               String?
+  erpPeSyncFailedAt            DateTime?
+  erpPeSyncMop                 String?
+  erpPeSyncAutoRetryCount      Int       @default(0)
+  erpPeSyncLastAutoRetryAt     DateTime?
+  erpPeSyncNextAutoRetryAt     DateTime?
+  erpPeSyncRetryLeaseExpiresAt DateTime?
 
   ogfSyncedAt      DateTime?
   ogfSyncBatchCode String?
@@ -1029,46 +1241,46 @@ model OrderReturn {
 }
 
 model ApprovalRequest {
-  id            String       @id @default(cuid())
-  companyId     String
-  type          String
-  status        String       @default("pending")
-  orderId       String?
-  orderReturnId String?
-  requestedById String?
-  reviewedById  String?
-  requestNote   String?
-  reviewNote    String?
-  kokoReference String?
-  multipleKokoPayments Boolean @default(false)
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
-  reviewedAt    DateTime?
-  company       Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  order         Order?       @relation(fields: [orderId], references: [id], onDelete: SetNull)
-  orderReturn   OrderReturn? @relation(fields: [orderReturnId], references: [id], onDelete: SetNull)
-  requestedBy   User?        @relation("ApprovalRequestRequestedBy", fields: [requestedById], references: [id], onDelete: SetNull)
-  reviewedBy    User?        @relation("ApprovalRequestReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
-  paymentLines  ApprovalPaymentLine[]
-  kokoReferences ApprovalKokoReference[]
+  id                   String                  @id @default(cuid())
+  companyId            String
+  type                 String
+  status               String                  @default("pending")
+  orderId              String?
+  orderReturnId        String?
+  requestedById        String?
+  reviewedById         String?
+  requestNote          String?
+  reviewNote           String?
+  kokoReference        String?
+  multipleKokoPayments Boolean                 @default(false)
+  createdAt            DateTime                @default(now())
+  updatedAt            DateTime                @updatedAt
+  reviewedAt           DateTime?
+  company              Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  order                Order?                  @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  orderReturn          OrderReturn?            @relation(fields: [orderReturnId], references: [id], onDelete: SetNull)
+  requestedBy          User?                   @relation("ApprovalRequestRequestedBy", fields: [requestedById], references: [id], onDelete: SetNull)
+  reviewedBy           User?                   @relation("ApprovalRequestReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+  paymentLines         ApprovalPaymentLine[]
+  kokoReferences       ApprovalKokoReference[]
 
+  @@unique([companyId, kokoReference])
   @@index([companyId, status, createdAt(sort: Desc)])
   @@index([companyId, type, status, createdAt(sort: Desc)])
-  @@unique([companyId, kokoReference])
   @@index([orderId])
   @@index([orderReturnId])
 }
 
 /// Planned payment legs verified by one finance approval before ERP PEs are created.
 model ApprovalPaymentLine {
-  id                    String          @id @default(cuid())
-  approvalRequestId     String
-  paymentMethod         String
-  amount                Decimal         @db.Decimal(12, 2)
-  erpPaymentEntryName   String?
-  createdAt             DateTime        @default(now())
-  updatedAt             DateTime        @updatedAt
-  approvalRequest       ApprovalRequest @relation(fields: [approvalRequestId], references: [id], onDelete: Cascade)
+  id                  String          @id @default(cuid())
+  approvalRequestId   String
+  paymentMethod       String
+  amount              Decimal         @db.Decimal(12, 2)
+  erpPaymentEntryName String?
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+  approvalRequest     ApprovalRequest @relation(fields: [approvalRequestId], references: [id], onDelete: Cascade)
 
   @@unique([approvalRequestId, paymentMethod])
   @@index([approvalRequestId, createdAt])
@@ -1195,29 +1407,33 @@ model RiderDeliveryTask {
 }
 
 model DeliveryPayment {
-  id               String                   @id @default(cuid())
-  orderId          String                   @unique
-  riderId          String
-  cashHandoverId   String?
-  expectedAmount   Decimal                  @db.Decimal(12, 2)
-  collectedAmount  Decimal                  @db.Decimal(12, 2)
-  /** Cash bills/coins the customer handed over (tender). */
-  customerGaveAmount Decimal?               @db.Decimal(12, 2)
-  /** Change to return: customerGaveAmount − cash due. */
-  changeAmount     Decimal?                 @db.Decimal(12, 2)
-  paymentMethod    DeliveryPaymentMethod
-  collectionStatus DeliveryCollectionStatus
-  referenceNote    String?
-  bankReference    String?
-  cardReference    String?
-  collectedAt      DateTime?
-  idempotencyKey   String?                  @unique
-  createdAt        DateTime                 @default(now())
-  updatedAt        DateTime                 @updatedAt
-  cashHandover     RiderCashHandover?       @relation(fields: [cashHandoverId], references: [id], onDelete: SetNull)
-  order            Order                    @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  rider            User                     @relation(fields: [riderId], references: [id], onDelete: Cascade)
-  lines            DeliveryPaymentLine[]
+  id                 String                   @id @default(cuid())
+  orderId            String                   @unique
+  riderId            String
+  cashHandoverId     String?
+  expectedAmount     Decimal                  @db.Decimal(12, 2)
+  collectedAmount    Decimal                  @db.Decimal(12, 2)
+  /**
+   * Cash bills/coins the customer handed over (tender).
+   */
+  customerGaveAmount Decimal?                 @db.Decimal(12, 2)
+  /**
+   * Change to return: customerGaveAmount − cash due.
+   */
+  changeAmount       Decimal?                 @db.Decimal(12, 2)
+  paymentMethod      DeliveryPaymentMethod
+  collectionStatus   DeliveryCollectionStatus
+  referenceNote      String?
+  bankReference      String?
+  cardReference      String?
+  collectedAt        DateTime?
+  idempotencyKey     String?                  @unique
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
+  cashHandover       RiderCashHandover?       @relation(fields: [cashHandoverId], references: [id], onDelete: SetNull)
+  order              Order                    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  rider              User                     @relation(fields: [riderId], references: [id], onDelete: Cascade)
+  lines              DeliveryPaymentLine[]
 
   @@index([cashHandoverId])
   @@index([riderId, collectedAt(sort: Desc)])
@@ -1245,17 +1461,17 @@ model DeliveryPaymentLine {
 
 /// ERP Payment Entry allocation attributed to one Sales Invoice/order.
 model OrderPaymentEntry {
-  id                String   @id @default(cuid())
-  orderId           String
-  paymentEntryId    String
-  paymentType       String
-  modeOfPayment     String
-  amount            Decimal  @db.Decimal(12, 2)
-  allocatedAmount   Decimal  @db.Decimal(12, 2)
-  postingDate       DateTime
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  order             Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  id              String   @id @default(cuid())
+  orderId         String
+  paymentEntryId  String
+  paymentType     String
+  modeOfPayment   String
+  amount          Decimal  @db.Decimal(12, 2)
+  allocatedAmount Decimal  @db.Decimal(12, 2)
+  postingDate     DateTime
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  order           Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
   @@unique([orderId, paymentEntryId])
   @@index([paymentEntryId])
@@ -1807,75 +2023,75 @@ enum EmployeeStatus {
 }
 
 model ContactMaster {
-  id                String                    @id @default(cuid())
-  companyId         String
-  phoneNumber       String?
-  email             String?
-  name              String
-  lastPurchaseAt    DateTime?
-  recentMerchant    String?
-  assignedMerchant  String?
-  source            String?
-  country           String?
-  zone              String?
-  area              String?
-  exWebCustomer     Boolean?
-  exOffCustomer     Boolean?
+  id                       String                    @id @default(cuid())
+  companyId                String
+  phoneNumber              String?
+  email                    String?
+  name                     String
+  lastPurchaseAt           DateTime?
+  recentMerchant           String?
+  assignedMerchant         String?
+  source                   String?
+  country                  String?
+  zone                     String?
+  area                     String?
+  exWebCustomer            Boolean?
+  exOffCustomer            Boolean?
   // CRM profile fields
-  remarks           String?
-  gender            String?
-  language          String?
-  workPlace         String?
-  occupation        String?
-  address           String?
-  city              String?
-  birthYear         Int?
-  birthMonth        Int?
-  birthDay          Int?
-  birthdayUpdatedAt DateTime?
-  emailUpdatedAt    DateTime?
+  remarks                  String?
+  gender                   String?
+  language                 String?
+  workPlace                String?
+  occupation               String?
+  address                  String?
+  city                     String?
+  birthYear                Int?
+  birthMonth               Int?
+  birthDay                 Int?
+  birthdayUpdatedAt        DateTime?
+  emailUpdatedAt           DateTime?
   // Segmentation fields
-  serviceProvider   String?
-  district          String?
-  town              String?
-  origin            String?
-  customerType      String?
-  category          String?
-  loyaltyAssignedTier       String?
-  loyaltyAssignedAt         DateTime?
-  loyaltyAssignedByUserId   String?
-  loyaltyOutreachStatus     String?
+  serviceProvider          String?
+  district                 String?
+  town                     String?
+  origin                   String?
+  customerType             String?
+  category                 String?
+  loyaltyAssignedTier      String?
+  loyaltyAssignedAt        DateTime?
+  loyaltyAssignedByUserId  String?
+  loyaltyOutreachStatus    String?
   /// First time contact was marked loyalty-eligible (set once).
-  loyaltyEligibleAt         DateTime?
+  loyaltyEligibleAt        DateTime?
   /// Last loyalty outreach / assign status change.
-  loyaltyOutreachUpdatedAt  DateTime?
+  loyaltyOutreachUpdatedAt DateTime?
   // Contact preferences
-  contactSaved      Boolean?
-  whatsappAllowed   Boolean?
+  contactSaved             Boolean?
+  whatsappAllowed          Boolean?
   // Reminder
-  remindAt          DateTime?
-  remindTime        String?
+  remindAt                 DateTime?
+  remindTime               String?
   /// Cached Cosmo+Adapt purchase totals for Contact Master export (refreshed by cron).
-  purchaseOrderCount    Int                       @default(0)
-  purchaseTotalValue    Decimal                   @default(0) @db.Decimal(14, 2)
-  purchaseLastOrderAt   DateTime?
+  purchaseOrderCount       Int                       @default(0)
+  purchaseTotalValue       Decimal                   @default(0) @db.Decimal(14, 2)
+  purchaseLastOrderAt      DateTime?
   /// True only when Register new users created this row (admin filter + dump hold).
-  osRegistrationCreated Boolean                   @default(false)
-  osRegLocation         String?
-  osRegBadgeStart       DateTime?
-  osRegBadgeEnd         DateTime?
-  createdAt         DateTime                  @default(now())
-  updatedAt         DateTime                  @updatedAt
-  company           Company                   @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  loyaltyAssignedBy User?                     @relation("ContactLoyaltyAssignedBy", fields: [loyaltyAssignedByUserId], references: [id], onDelete: SetNull)
-  emails            ContactEmail[]
-  phones            ContactPhone[]
+  osRegistrationCreated    Boolean                   @default(false)
+  osRegLocation            String?
+  osRegBadgeStart          DateTime?
+  osRegBadgeEnd            DateTime?
+  createdAt                DateTime                  @default(now())
+  updatedAt                DateTime                  @updatedAt
+  company                  Company                   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  loyaltyAssignedBy        User?                     @relation("ContactLoyaltyAssignedBy", fields: [loyaltyAssignedByUserId], references: [id], onDelete: SetNull)
+  emails                   ContactEmail[]
+  phones                   ContactPhone[]
   // Call center performance tracking: records each allocation update event for this contact
-  allocationUpdates ContactAllocationUpdate[]
-  adaptPurchases    AdaptPurchaseHistory[]
-  removedEmails     ContactRemovedEmail[]
-  callQueueItems    ContactInsightCallQueue[]
-  osRegistrationCaptures OsRegistrationCapture[]
+  allocationUpdates        ContactAllocationUpdate[]
+  adaptPurchases           AdaptPurchaseHistory[]
+  removedEmails            ContactRemovedEmail[]
+  callQueueItems           ContactInsightCallQueue[]
+  osRegistrationCaptures   OsRegistrationCapture[]
 
   @@index([companyId, lastPurchaseAt])
   @@index([companyId, updatedAt(sort: Desc)])
@@ -1894,16 +2110,16 @@ model ContactMaster {
 
 /// Staff-created public registration portal token. Stamp is immutable after create.
 model OsRegistrationQr {
-  id              String                  @id @default(cuid())
+  id              String                   @id @default(cuid())
   companyId       String
-  token           String                  @unique
+  token           String                   @unique
   location        String
   badgeStart      DateTime
   badgeEnd        DateTime
   createdByUserId String
-  createdAt       DateTime                @default(now())
-  company         Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  createdBy       User                    @relation("OsRegistrationQrCreatedBy", fields: [createdByUserId], references: [id], onDelete: Cascade)
+  createdAt       DateTime                 @default(now())
+  company         Company                  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdBy       User                     @relation("OsRegistrationQrCreatedBy", fields: [createdByUserId], references: [id], onDelete: Cascade)
   captures        OsRegistrationCapture[]
   settingsLatest  OsRegistrationSettings[]
 
@@ -1956,27 +2172,27 @@ model OsRegistrationSettings {
 
 /// Admin-assigned call-update work queue for a merchant (Insight).
 model ContactInsightCallQueue {
-  id                String    @id @default(cuid())
-  companyId         String
-  contactId         String
+  id                    String        @id @default(cuid())
+  companyId             String
+  contactId             String
   /// Same value as Insight allocated-merchant filter (e.g. MER91).
-  merchantLabel     String
-  merchantUserId    String?
-  assignedByUserId  String?
-  assignedAt             DateTime  @default(now())
-  status                 String    @default("pending")
-  completedAt            DateTime?
-  completedByUserId      String?
-  lifetimeTotalAtAssign  Decimal?  @db.Decimal(14, 2)
+  merchantLabel         String
+  merchantUserId        String?
+  assignedByUserId      String?
+  assignedAt            DateTime      @default(now())
+  status                String        @default("pending")
+  completedAt           DateTime?
+  completedByUserId     String?
+  lifetimeTotalAtAssign Decimal?      @db.Decimal(14, 2)
   /// Set when contact came from another merchant (Excel import / reassignment).
-  newlyAllocated         Boolean   @default(false)
-  createdAt              DateTime  @default(now())
-  updatedAt              DateTime  @updatedAt
-  company                Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  contact                ContactMaster @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  merchantUser           User?     @relation("CallQueueMerchant", fields: [merchantUserId], references: [id], onDelete: SetNull)
-  assignedBy             User?     @relation("CallQueueAssignedBy", fields: [assignedByUserId], references: [id], onDelete: SetNull)
-  completedBy            User?     @relation("CallQueueCompletedBy", fields: [completedByUserId], references: [id], onDelete: SetNull)
+  newlyAllocated        Boolean       @default(false)
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+  company               Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  contact               ContactMaster @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  merchantUser          User?         @relation("CallQueueMerchant", fields: [merchantUserId], references: [id], onDelete: SetNull)
+  assignedBy            User?         @relation("CallQueueAssignedBy", fields: [assignedByUserId], references: [id], onDelete: SetNull)
+  completedBy           User?         @relation("CallQueueCompletedBy", fields: [completedByUserId], references: [id], onDelete: SetNull)
 
   @@index([companyId, contactId, status])
   @@index([companyId, merchantLabel, status])
@@ -2030,7 +2246,9 @@ model ContactEmail {
   @@index([contactId])
 }
 
-/** Emails cleared by contact email cleanup; kept for admin Insight display. */
+/**
+ * Emails cleared by contact email cleanup; kept for admin Insight display.
+ */
 model ContactRemovedEmail {
   id              String        @id @default(cuid())
   companyId       String
@@ -2112,15 +2330,15 @@ model KokoCompany {
 
 /// CityPak Falcon client-panel account. One token per invoice-series prefix (100, 110, SV200, …).
 model CitypakAccount {
-  id             String   @id @default(cuid())
-  companyId      String
-  label          String
-  accountId      String
-  apiToken       String
-  invoicePrefix  String
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  company        Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  id            String   @id @default(cuid())
+  companyId     String
+  label         String
+  accountId     String
+  apiToken      String
+  invoicePrefix String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
   @@unique([companyId, label])
   @@unique([companyId, invoicePrefix])
@@ -2176,18 +2394,17 @@ model ContactAllocationUpdate {
 // ── Outlet Reviews Feature ──────────────────────────────────────────────────
 
 model Outlet {
-  id        String         @id @default(cuid())
-  companyId String
-  name      String
-  createdAt DateTime       @default(now())
-  updatedAt DateTime       @updatedAt
-  reviews   OutletReview[]
+  id               String            @id @default(cuid())
+  companyId        String
+  name             String
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  reviews          OutletReview[]
   employeeProfiles EmployeeProfile[]
 
   @@unique([companyId, name])
   @@index([companyId])
 }
-
 
 model OutletReview {
   id              String   @id @default(cuid())
@@ -2207,30 +2424,30 @@ model OutletReview {
 // ── Order Support File (OSF) ────────────────────────────────────────────────
 
 model ProductOsfProfile {
-  id                       String   @id @default(cuid())
-  companyId                String
-  sku                      String
-  shopAvailability         String?
-  ogfPrice                 Decimal? @db.Decimal(12, 2)
+  id                      String   @id @default(cuid())
+  companyId               String
+  sku                     String
+  shopAvailability        String?
+  ogfPrice                Decimal? @db.Decimal(12, 2)
   /// Per-SKU reorder alert/filter threshold (1–100). Null ⇒ treat as 70 at runtime.
-  reorderThresholdPercent  Int?
-  createdAt                DateTime @default(now())
-  updatedAt                DateTime @updatedAt
-  company                  Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  reorderThresholdPercent Int?
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+  company                 Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
   @@unique([companyId, sku])
   @@index([companyId])
 }
 
 model ProductOsfRop {
-  id         String   @id @default(cuid())
-  companyId  String
-  sku        String
-  columnKey  String
-  ropQty     Int      @default(0)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  id        String   @id @default(cuid())
+  companyId String
+  sku       String
+  columnKey String
+  ropQty    Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
   @@unique([companyId, sku, columnKey])
   @@index([companyId, sku])
@@ -2489,23 +2706,23 @@ model GrnPurchaseInvoice {
 }
 
 model GrnPurchaseInvoiceItem {
-  id                    String             @id @default(cuid())
-  companyId             String
-  purchaseInvoiceId     String
-  name                  String
-  itemCode              String
-  itemName              String?
-  qty                   Decimal            @db.Decimal(18, 6)
-  rate                  Decimal            @db.Decimal(18, 6)
-  amount                Decimal            @db.Decimal(18, 6)
-  purchaseReceipt       String?
-  purchaseReceiptItem   String?
-  supplierStockReturn   String?
+  id                      String             @id @default(cuid())
+  companyId               String
+  purchaseInvoiceId       String
+  name                    String
+  itemCode                String
+  itemName                String?
+  qty                     Decimal            @db.Decimal(18, 6)
+  rate                    Decimal            @db.Decimal(18, 6)
+  amount                  Decimal            @db.Decimal(18, 6)
+  purchaseReceipt         String?
+  purchaseReceiptItem     String?
+  supplierStockReturn     String?
   supplierStockReturnItem String?
-  stockUom              String?
-  createdAt             DateTime           @default(now())
-  updatedAt             DateTime           @updatedAt
-  purchaseInvoice       GrnPurchaseInvoice @relation(fields: [purchaseInvoiceId], references: [id], onDelete: Cascade)
+  stockUom                String?
+  createdAt               DateTime           @default(now())
+  updatedAt               DateTime           @updatedAt
+  purchaseInvoice         GrnPurchaseInvoice @relation(fields: [purchaseInvoiceId], references: [id], onDelete: Cascade)
 
   @@unique([purchaseInvoiceId, name])
   @@index([companyId, itemCode])
@@ -2532,49 +2749,49 @@ model OsfUserColumnAccess {
 }
 
 model StoreStockCountReport {
-  id              String                      @id @default(cuid())
-  companyId       String
-  title           String
+  id                String                      @id @default(cuid())
+  companyId         String
+  title             String
   selectedCompanies Json
-  warehouses      Json                        @default("[]")
-  status          String                      @default("draft")
-  createdByUserId String?
-  updatedByUserId String?
+  warehouses        Json                        @default("[]")
+  status            String                      @default("draft")
+  createdByUserId   String?
+  updatedByUserId   String?
   submittedByUserId String?
-  submittedAt     DateTime?
-  combinedAt      DateTime?
-  createdAt       DateTime                    @default(now())
-  updatedAt       DateTime                    @updatedAt
-  company         Company                     @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  createdBy       User?                       @relation("StoreStockCountReportCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  updatedBy       User?                       @relation("StoreStockCountReportUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
-  submittedBy     User?                       @relation("StoreStockCountReportSubmittedBy", fields: [submittedByUserId], references: [id], onDelete: SetNull)
-  items           StoreStockCountReportItem[]
-  lanes           StoreStockCountItemLane[]
-  userSaves       StoreStockCountUserSave[]
+  submittedAt       DateTime?
+  combinedAt        DateTime?
+  createdAt         DateTime                    @default(now())
+  updatedAt         DateTime                    @updatedAt
+  company           Company                     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdBy         User?                       @relation("StoreStockCountReportCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedBy         User?                       @relation("StoreStockCountReportUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+  submittedBy       User?                       @relation("StoreStockCountReportSubmittedBy", fields: [submittedByUserId], references: [id], onDelete: SetNull)
+  items             StoreStockCountReportItem[]
+  lanes             StoreStockCountItemLane[]
+  userSaves         StoreStockCountUserSave[]
 
   @@index([companyId, updatedAt(sort: Desc)])
   @@index([companyId, status, updatedAt(sort: Desc)])
 }
 
 model StoreStockCountReportItem {
-  id          String                @id @default(cuid())
-  companyId   String
-  reportId    String
-  sku         String
-  skuKey      String
-  name        String
-  description String                @default("")
-  barcodes    String[]              @default([])
+  id               String                    @id @default(cuid())
+  companyId        String
+  reportId         String
+  sku              String
+  skuKey           String
+  name             String
+  description      String                    @default("")
+  barcodes         String[]                  @default([])
   stockByWarehouse Json
-  stockSum    Int?
-  qbStock     Int?
-  manualCount Int?
-  createdAt   DateTime              @default(now())
-  updatedAt   DateTime              @updatedAt
-  company     Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  report      StoreStockCountReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
-  lanes       StoreStockCountItemLane[]
+  stockSum         Int?
+  qbStock          Int?
+  manualCount      Int?
+  createdAt        DateTime                  @default(now())
+  updatedAt        DateTime                  @updatedAt
+  company          Company                   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  report           StoreStockCountReport     @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  lanes            StoreStockCountItemLane[]
 
   @@unique([reportId, skuKey])
   @@index([companyId, skuKey])
@@ -2585,18 +2802,18 @@ model StoreStockCountReportItem {
 }
 
 model StoreStockCountItemLane {
-  id        String                  @id @default(cuid())
+  id        String                    @id @default(cuid())
   companyId String
   reportId  String
   itemId    String
   userId    String
   quantity  Int
-  createdAt DateTime                @default(now())
-  updatedAt DateTime                @updatedAt
-  company   Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  report    StoreStockCountReport   @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  createdAt DateTime                  @default(now())
+  updatedAt DateTime                  @updatedAt
+  company   Company                   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  report    StoreStockCountReport     @relation(fields: [reportId], references: [id], onDelete: Cascade)
   item      StoreStockCountReportItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
-  user      User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([itemId, userId])
   @@index([reportId, userId])
@@ -2619,27 +2836,27 @@ model StoreStockCountUserSave {
 
 /// Singleton: one payday day-of-month for all companies in this database.
 model RiderPayPeriodConfig {
-  id                String   @id @default(cuid())
-  singletonKey      String   @unique @default("default")
-  paydayDayOfMonth  Int?
-  updatedAt         DateTime @updatedAt
-  createdAt         DateTime @default(now())
-  updatedById       String?
+  id               String   @id @default(cuid())
+  singletonKey     String   @unique @default("default")
+  paydayDayOfMonth Int?
+  updatedAt        DateTime @updatedAt
+  createdAt        DateTime @default(now())
+  updatedById      String?
 }
 
 /// Rider pay-by-area rules (from shipping spreadsheet). Shared across all companies in this DB.
 model RiderDeliveryChargeRule {
-  id                   String   @id @default(cuid())
+  id                  String   @id @default(cuid())
   /// Lowercased trimmed label for unique match against order shipping rule / line title
-  labelKey             String   @unique
-  label                String
-  district             String?
-  shippingAmount       Decimal  @db.Decimal(12, 2)
-  riderDeliveryCharge  Decimal  @db.Decimal(12, 2)
-  shippingAccount      String?
-  costCenter           String?
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
+  labelKey            String   @unique
+  label               String
+  district            String?
+  shippingAmount      Decimal  @db.Decimal(12, 2)
+  riderDeliveryCharge Decimal  @db.Decimal(12, 2)
+  shippingAccount     String?
+  costCenter          String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
   @@index([label])
 }
@@ -2661,27 +2878,27 @@ model RiderDeliveryZoneMember {
 
 /// Merchant daily book note — one ledger per location + Colombo calendar sales date.
 model BookNoteDay {
-  id                 String            @id @default(cuid())
-  companyId          String
-  companyLocationId  String
+  id                String            @id @default(cuid())
+  companyId         String
+  companyLocationId String
   /// Calendar posting date stored as UTC midnight (YYYY-MM-DD).
-  postingDate        DateTime
-  createdByUserId    String?
-  updatedByUserId    String?
+  postingDate       DateTime
+  createdByUserId   String?
+  updatedByUserId   String?
   /// Last successful push to ERP ss9 verify (null = never synced / needs sync).
-  erpSyncedAt        DateTime?
+  erpSyncedAt       DateTime?
   /// Last ERP push failure time (cleared on success).
-  erpSyncFailedAt    DateTime?
+  erpSyncFailedAt   DateTime?
   /// Short error from last failed ERP push.
-  erpSyncError       String?
-  createdAt          DateTime          @default(now())
-  updatedAt          DateTime          @updatedAt
-  company            Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  companyLocation    CompanyLocation   @relation(fields: [companyLocationId], references: [id], onDelete: Cascade)
-  createdBy          User?             @relation("BookNoteDayCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  updatedBy          User?             @relation("BookNoteDayUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
-  rows               BookNoteRow[]
-  receipts           BookNoteReceipt[]
+  erpSyncError      String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  company           Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyLocation   CompanyLocation   @relation(fields: [companyLocationId], references: [id], onDelete: Cascade)
+  createdBy         User?             @relation("BookNoteDayCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedBy         User?             @relation("BookNoteDayUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+  rows              BookNoteRow[]
+  receipts          BookNoteReceipt[]
 
   /// One sheet per shop, per day, PER MERCHANT. Two merchants working the same
   /// shop on the same day each keep their own book note; neither can open or
@@ -2694,24 +2911,24 @@ model BookNoteDay {
 }
 
 model BookNoteRow {
-  id             String      @id @default(cuid())
-  bookNoteDayId  String
-  idxNo          String
-  salesInvoice   String
-  cash           Decimal     @db.Decimal(12, 2)
-  card           Decimal     @db.Decimal(12, 2)
+  id                  String      @id @default(cuid())
+  bookNoteDayId       String
+  idxNo               String
+  salesInvoice        String
+  cash                Decimal     @db.Decimal(12, 2)
+  card                Decimal     @db.Decimal(12, 2)
   /// Last 4 digits of POS card receipt reference (required when card > 0).
   cardReceiptRefLast4 String?
-  koko           Decimal     @db.Decimal(12, 2)
-  bankTransfer   Decimal     @db.Decimal(12, 2)
+  koko                Decimal     @db.Decimal(12, 2)
+  bankTransfer        Decimal     @db.Decimal(12, 2)
   /// Free-text bank-recon note for this invoice line (ERP special_note, max 1500).
-  specialNote    String?
+  specialNote         String?
   /// When set, ERP send uses split_lines payload (ss9) instead of legacy columns.
-  splitLines     Json?
-  orderId        String?
-  sortOrder      Int         @default(0)
-  bookNoteDay    BookNoteDay @relation(fields: [bookNoteDayId], references: [id], onDelete: Cascade)
-  order          Order?      @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  splitLines          Json?
+  orderId             String?
+  sortOrder           Int         @default(0)
+  bookNoteDay         BookNoteDay @relation(fields: [bookNoteDayId], references: [id], onDelete: Cascade)
+  order               Order?      @relation(fields: [orderId], references: [id], onDelete: SetNull)
 
   @@index([bookNoteDayId, sortOrder])
   @@index([salesInvoice])
@@ -2736,40 +2953,40 @@ model BookNoteReceipt {
 // ── Market Competitor Price Compare ──────────────────────────────────────────
 
 model MarketCompetitor {
-  id             String                 @id @default(cuid())
-  slug           String                 @unique
-  name           String
-  websiteDomain  String
-  sortOrder      Int                    @default(0)
-  active         Boolean                @default(true)
-  createdAt      DateTime               @default(now())
-  updatedAt      DateTime               @updatedAt
-  links          MarketCompetitorLink[]
+  id            String                 @id @default(cuid())
+  slug          String                 @unique
+  name          String
+  websiteDomain String
+  sortOrder     Int                    @default(0)
+  active        Boolean                @default(true)
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+  links         MarketCompetitorLink[]
 }
 
 model MarketCompetitorLink {
-  id                     String                        @id @default(cuid())
-  companyId              String
-  sku                    String
-  competitorId           String
-  productUrl             String
-  competitorTitle        String
-  listedPriceLkr         Decimal                       @db.Decimal(12, 2)
-  inStock                Boolean                       @default(true)
-  checkDate              DateTime                      @db.Date
-  notes                  String?
-  packSizeNormalized     String?
-  sizeMismatchConfirmed  Boolean                       @default(false)
-  createdById            String?
-  updatedById            String?
-  createdAt              DateTime                      @default(now())
-  updatedAt              DateTime                      @updatedAt
+  id                    String   @id @default(cuid())
+  companyId             String
+  sku                   String
+  competitorId          String
+  productUrl            String
+  competitorTitle       String
+  listedPriceLkr        Decimal  @db.Decimal(12, 2)
+  inStock               Boolean  @default(true)
+  checkDate             DateTime @db.Date
+  notes                 String?
+  packSizeNormalized    String?
+  sizeMismatchConfirmed Boolean  @default(false)
+  createdById           String?
+  updatedById           String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
 
-  company                Company                       @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  competitor             MarketCompetitor              @relation(fields: [competitorId], references: [id], onDelete: Restrict)
-  createdBy              User?                         @relation("MarketCompetitorLinkCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
-  updatedBy              User?                         @relation("MarketCompetitorLinkUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
-  history                MarketCompetitorPriceHistory[]
+  company    Company                        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  competitor MarketCompetitor               @relation(fields: [competitorId], references: [id], onDelete: Restrict)
+  createdBy  User?                          @relation("MarketCompetitorLinkCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy  User?                          @relation("MarketCompetitorLinkUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  history    MarketCompetitorPriceHistory[]
 
   @@unique([companyId, sku, competitorId])
   @@index([companyId, sku])
@@ -2777,18 +2994,16 @@ model MarketCompetitorLink {
 }
 
 model MarketCompetitorPriceHistory {
-  id             String               @id @default(cuid())
+  id             String   @id @default(cuid())
   linkId         String
-  listedPriceLkr Decimal              @db.Decimal(12, 2)
-  inStock        Boolean              @default(true)
-  checkDate      DateTime             @db.Date
+  listedPriceLkr Decimal  @db.Decimal(12, 2)
+  inStock        Boolean  @default(true)
+  checkDate      DateTime @db.Date
   changedById    String?
-  createdAt      DateTime             @default(now())
+  createdAt      DateTime @default(now())
 
-  link           MarketCompetitorLink @relation(fields: [linkId], references: [id], onDelete: Cascade)
-  changedBy      User?                @relation("MarketPriceHistoryChangedBy", fields: [changedById], references: [id], onDelete: SetNull)
+  link      MarketCompetitorLink @relation(fields: [linkId], references: [id], onDelete: Cascade)
+  changedBy User?                @relation("MarketPriceHistoryChangedBy", fields: [changedById], references: [id], onDelete: SetNull)
 
   @@index([linkId, createdAt])
 }
-
-
