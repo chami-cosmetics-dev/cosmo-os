@@ -122,6 +122,10 @@ export type FilterQueryInput = {
   noPurchaseFrom?: string;
   noPurchaseTo?: string;
   noPurchaseMonths?: 3 | 6;
+  /** Last purchase on or after this Colombo calendar day (YYYY-MM-DD). */
+  purchasedFrom?: string;
+  /** Last purchase on or before this Colombo calendar day (YYYY-MM-DD). */
+  purchasedTo?: string;
   page: number;
   pageSize: number;
   /** When true, return all matches instead of one page. */
@@ -290,6 +294,20 @@ function endOfColomboDay(ymd: string): Date {
   return new Date(`${ymd}T23:59:59.999+05:30`);
 }
 
+/** Inclusive Colombo-day bounds for ContactMaster.lastPurchaseAt. Null when unset. */
+export function purchasedAtBounds(
+  fromYmd?: string,
+  toYmd?: string
+): { gte?: Date; lte?: Date } | null {
+  const from = fromYmd?.trim();
+  const to = toYmd?.trim();
+  if (!from && !to) return null;
+  const bounds: { gte?: Date; lte?: Date } = {};
+  if (from) bounds.gte = startOfColomboDay(from);
+  if (to) bounds.lte = endOfColomboDay(to);
+  return bounds;
+}
+
 type ContactCandidate = {
   id: string;
   name: string;
@@ -359,6 +377,19 @@ async function buildAllocationWhere(input: FilterQueryInput): Promise<{
         ? [where.AND]
         : [];
     where.AND = [...existingAnd, { loyaltyOutreachStatus: "not_interested" }];
+  }
+
+  const purchasedBounds = purchasedAtBounds(
+    input.purchasedFrom,
+    input.purchasedTo
+  );
+  if (purchasedBounds) {
+    const existingAnd = Array.isArray(where.AND)
+      ? (where.AND as unknown[])
+      : where.AND
+        ? [where.AND]
+        : [];
+    where.AND = [...existingAnd, { lastPurchaseAt: purchasedBounds }];
   }
 
   if (input.noPurchaseMonths === 3 || input.noPurchaseMonths === 6) {

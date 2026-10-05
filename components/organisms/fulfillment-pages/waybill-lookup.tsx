@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { Eye, Loader2, PackageSearch, Plus, RefreshCw, Search, Trash2, Truck, Upload } from "lucide-react";
+import { Download, Eye, Loader2, PackageSearch, Plus, RefreshCw, Search, Trash2, Truck, Upload } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { FulfillmentOrderReference } from "@/components/molecules/fulfillment-order-reference";
@@ -17,7 +17,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { notify } from "@/lib/notify";
-import { formatAppDateTime } from "@/lib/format-datetime";
+import { formatAppDateTime, formatAppIsoDate } from "@/lib/format-datetime";
 import {
   CITYPAK_WAYBILL_SOURCE,
   readCitypakWaybillStatus,
@@ -168,6 +168,9 @@ export function WaybillLookupFulfillmentPage({
   const [deletingUploadId, setDeletingUploadId] = useState<string | null>(null);
   const [refreshingStatusId, setRefreshingStatusId] = useState<string | null>(null);
   const [checkingAllStatuses, setCheckingAllStatuses] = useState(false);
+  const [exportFrom, setExportFrom] = useState(() => formatAppIsoDate(new Date()));
+  const [exportTo, setExportTo] = useState(() => formatAppIsoDate(new Date()));
+  const [exporting, setExporting] = useState(false);
   const [selectedDetails, setSelectedDetails] = useState<DetailsTarget | null>(null);
   const [activeTab, setActiveTab] = useState<"pending" | "uploads">("pending");
 
@@ -179,7 +182,8 @@ export function WaybillLookupFulfillmentPage({
     rematching ||
     Boolean(deletingUploadId) ||
     Boolean(refreshingStatusId) ||
-    checkingAllStatuses;
+    checkingAllStatuses ||
+    exporting;
 
   async function loadPageData(options?: { page?: number; uploadsPage?: number }) {
     const page = options?.page ?? pendingPage;
@@ -449,6 +453,52 @@ export function WaybillLookupFulfillmentPage({
     }
   }
 
+  async function handleExportFmScan() {
+    if (!exportFrom || !exportTo) {
+      notify.error("Pick a from and to date.");
+      return;
+    }
+    if (exportFrom > exportTo) {
+      notify.error("From date must be on or before to date.");
+      return;
+    }
+
+    setExporting(true);
+    try {
+      const params = new URLSearchParams({ from: exportFrom, to: exportTo });
+      const response = await fetch(`/api/admin/waybills/fm-scan?${params.toString()}`);
+      if (!response.ok) {
+        const data = (await response.json().catch(() => null)) as { error?: string } | null;
+        notify.error(data?.error ?? "Could not export the first mile scan.");
+        return;
+      }
+      const blob = await response.blob();
+      const filename =
+        response.headers.get("Content-Disposition")?.match(/filename="([^"]+)"/)?.[1] ??
+        `fm_scan-${exportFrom}-to-${exportTo}.csv`;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      const rowCount = response.headers.get("X-Export-Rows");
+      notify.success(
+        rowCount == null
+          ? "Exported first mile scan."
+          : rowCount === "0"
+            ? "No CityPak waybills booked in that range."
+            : `Exported ${rowCount} waybills.`
+      );
+    } catch {
+      notify.error("Could not export the first mile scan.");
+    } finally {
+      setExporting(false);
+    }
+  }
+
   const matchedOrder = result?.order ?? null;
   const waybills = result?.waybills ?? [];
   const pending = pageData?.pending ?? [];
@@ -484,6 +534,54 @@ export function WaybillLookupFulfillmentPage({
           upload history. CityPak API waybills carry live courier status.
         </p>
       </div>
+
+      <Card className="border-border/70 shadow-xs">
+        <CardHeader className="border-b border-border/50">
+          <CardTitle>First mile scan</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              void handleExportFmScan();
+            }}
+            className="flex flex-wrap items-end gap-3"
+          >
+            <label className="space-y-1 text-xs text-muted-foreground">
+              Booked from
+              <Input
+                type="date"
+                value={exportFrom}
+                onChange={(event) => setExportFrom(event.target.value)}
+                disabled={isBusy}
+                className="h-11 w-auto"
+              />
+            </label>
+            <label className="space-y-1 text-xs text-muted-foreground">
+              Booked to
+              <Input
+                type="date"
+                value={exportTo}
+                onChange={(event) => setExportTo(event.target.value)}
+                disabled={isBusy}
+                className="h-11 w-auto"
+              />
+            </label>
+            <Button type="submit" disabled={isBusy} className="h-11 gap-2">
+              {exporting ? (
+                <Loader2 className="size-4 animate-spin" aria-hidden />
+              ) : (
+                <Download className="size-4" aria-hidden />
+              )}
+              {exporting ? "Exporting..." : "Export CSV"}
+            </Button>
+          </form>
+          <p className="text-xs text-muted-foreground">
+            CityPak API waybills booked in this range. First mile, status, and delivered columns fill
+            after a status check.
+          </p>
+        </CardContent>
+      </Card>
 
       {canImportWaybills && (
         <Card className="border-border/70 shadow-xs">

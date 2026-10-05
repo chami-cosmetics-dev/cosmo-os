@@ -653,6 +653,8 @@ export function CustomerInsightPanel({
     useState(false);
   const [filterNoPurchaseFrom, setFilterNoPurchaseFrom] = useState("");
   const [filterNoPurchaseTo, setFilterNoPurchaseTo] = useState("");
+  const [filterPurchasedFrom, setFilterPurchasedFrom] = useState("");
+  const [filterPurchasedTo, setFilterPurchasedTo] = useState("");
   const [filterMin, setFilterMin] = useState("");
   const [filterMax, setFilterMax] = useState("");
   const [filterResults, setFilterResults] = useState<AllocatedFilterItemDto[] | null>(
@@ -1915,6 +1917,12 @@ export function CustomerInsightPanel({
       params.set("noPurchaseFrom", filterNoPurchaseFrom.trim());
       params.set("noPurchaseTo", filterNoPurchaseTo.trim());
     }
+    if (filterPurchasedFrom.trim()) {
+      params.set("purchasedFrom", filterPurchasedFrom.trim());
+    }
+    if (filterPurchasedTo.trim()) {
+      params.set("purchasedTo", filterPurchasedTo.trim());
+    }
     if (filterMin.trim()) params.set("minTotal", filterMin.trim());
     if (filterMax.trim()) params.set("maxTotal", filterMax.trim());
     params.set("page", String(page));
@@ -2063,6 +2071,8 @@ export function CustomerInsightPanel({
         filterNotInterestedInLoyalty ||
         filterNoPurchaseFrom.trim() ||
         filterNoPurchaseTo.trim() ||
+        filterPurchasedFrom.trim() ||
+        filterPurchasedTo.trim() ||
         filterMin.trim() ||
         filterMax.trim() ||
         filterResults
@@ -2088,6 +2098,8 @@ export function CustomerInsightPanel({
     setFilterNotInterestedInLoyalty(false);
     setFilterNoPurchaseFrom("");
     setFilterNoPurchaseTo("");
+    setFilterPurchasedFrom("");
+    setFilterPurchasedTo("");
     setFilterMin("");
     setFilterMax("");
     setFilterResults(null);
@@ -2480,6 +2492,36 @@ export function CustomerInsightPanel({
                 />
                 Not interested in loyalty
               </label>
+            </fieldset>
+
+            <fieldset className="space-y-2 rounded-lg border border-border/60 p-3">
+              <legend className="px-1 text-xs font-medium text-muted-foreground">
+                Purchased from
+              </legend>
+              <p className="text-muted-foreground text-xs">
+                Contacts whose last purchase falls on these dates. Results include
+                phone numbers. Same day in both fields = that date only.
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <label className="space-y-1 text-sm">
+                  <span className="text-muted-foreground">From</span>
+                  <Input
+                    type="date"
+                    value={filterPurchasedFrom}
+                    onChange={(e) => setFilterPurchasedFrom(e.target.value)}
+                    disabled={isBusy}
+                  />
+                </label>
+                <label className="space-y-1 text-sm">
+                  <span className="text-muted-foreground">To</span>
+                  <Input
+                    type="date"
+                    value={filterPurchasedTo}
+                    onChange={(e) => setFilterPurchasedTo(e.target.value)}
+                    disabled={isBusy}
+                  />
+                </label>
+              </div>
             </fieldset>
 
             <fieldset className="space-y-2 rounded-lg border border-border/60 p-3">
