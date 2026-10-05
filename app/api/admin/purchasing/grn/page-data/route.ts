@@ -105,6 +105,10 @@ function buildTallyIssues(
     .sort((a, b) => a.itemCode.localeCompare(b.itemCode));
 }
 
+function normalizeSupplierMatchValue(value: string | null | undefined) {
+  return value?.trim().toLowerCase() ?? "";
+}
+
 export async function GET(request: NextRequest) {
   const auth = await requirePermission("purchasing.grn.read");
   if (!auth.ok) {
@@ -155,7 +159,7 @@ export async function GET(request: NextRequest) {
 
   await autoMatchIntercompanyGrn();
 
-  const [purchaseReceipts, stockReturns, intercompanySuppliers] = await Promise.all([
+  const [purchaseReceipts, stockReturns, supplierPrefixLocations] = await Promise.all([
     prisma.grnPurchaseReceipt.findMany({
       where: {
         ...companyScope,
@@ -175,8 +179,11 @@ export async function GET(request: NextRequest) {
       include: {
         items: true,
         handoverBy: { select: { id: true, name: true, email: true } },
+        handoverRevertedBy: { select: { id: true, name: true, email: true } },
         valuedBy: { select: { id: true, name: true, email: true } },
+        valuedRevertedBy: { select: { id: true, name: true, email: true } },
         receivedBy: { select: { id: true, name: true, email: true } },
+        receivedRevertedBy: { select: { id: true, name: true, email: true } },
         purchaseInvoices: {
           where: { docstatus: { not: 2 } },
           orderBy: [{ postingDate: "desc" }, { createdAt: "desc" }],
@@ -227,12 +234,34 @@ export async function GET(request: NextRequest) {
         },
       },
     }),
-    prisma.grnIntercompanySupplier.findMany({
-      orderBy: [{ supplier: "asc" }],
+    prisma.companyLocation.findMany({
+      where: {
+        supplierPrefix: { not: null },
+      },
+      orderBy: [{ name: "asc" }],
+      select: {
+        id: true,
+        name: true,
+        companyId: true,
+        supplierPrefix: true,
+      },
     }),
   ]);
 
-  const intercompanySupplierCodes = new Set(intercompanySuppliers.map((row) => row.supplier));
+  const supplierPrefixRules = supplierPrefixLocations
+    .map((row) => ({
+      locationId: row.id,
+      locationName: row.name,
+      companyId: row.companyId,
+      supplier: row.supplierPrefix?.trim() ?? "",
+      supplierName: row.name,
+      key: normalizeSupplierMatchValue(row.supplierPrefix),
+    }))
+    .filter((row) => row.key.length > 0);
+  const supplierPrefixRuleForSupplier = (supplier: string) => {
+    const key = normalizeSupplierMatchValue(supplier);
+    return supplierPrefixRules.find((rule) => key.includes(rule.key)) ?? null;
+  };
   const stockReturnByName = new Map(stockReturns.map((row) => [row.name, row]));
   const amendedPurchaseReceiptNames = new Set(purchaseReceipts.map((row) => row.amendedFrom).filter((name): name is string => Boolean(name)));
   const isPurchaseReceiptCancelled = (row: (typeof purchaseReceipts)[number]) => {
@@ -250,9 +279,9 @@ export async function GET(request: NextRequest) {
   const activePurchaseReceiptByName = new Map(activePurchaseReceiptsForMatching.map((row) => [row.name, row]));
   const activeIntercompanyPurchaseReceipts = purchaseReceipts.filter(
     (row) =>
+      supplierPrefixRules.some((rule) => rule.locationId === row.companyLocationId) &&
       !isPurchaseReceiptCancelled(row) &&
-      !row.supplierStockReturnName &&
-      intercompanySupplierCodes.has(row.supplier),
+      !row.supplierStockReturnName,
   );
 
   return NextResponse.json({
@@ -267,7 +296,8 @@ export async function GET(request: NextRequest) {
       const tallyIssues = activeLinked ? buildTallyIssues(row.items, activeLinked.items) : [];
       const purchaseInvoice =
         row.purchaseInvoices.find((invoice) =>
-          invoice.items.some((item) => item.purchaseReceipt === row.name),
+          invoice.items.some((item) => item.purchaseReceipt === row.name) &&
+          !invoice.items.some((item) => item.supplierStockReturn),
         ) ?? null;
       const supplierStockReturnPurchaseInvoice = row.supplierStockReturnName
         ? row.purchaseInvoices.find((invoice) =>
@@ -303,6 +333,7 @@ export async function GET(request: NextRequest) {
           : null;
       return {
         companyId: row.companyId,
+        companyLocationId: row.companyLocationId,
         companyName: row.company.name,
         name: row.name,
         erpUrl: erpDocUrl(
@@ -319,10 +350,16 @@ export async function GET(request: NextRequest) {
         supplierName: row.supplierName,
         handoverAt: iso(row.handoverAt),
         handoverBy: row.handoverBy,
+        handoverRevertedAt: iso(row.handoverRevertedAt),
+        handoverRevertedBy: row.handoverRevertedBy,
         valuedAt: iso(row.valuedAt),
         valuedBy: row.valuedBy,
+        valuedRevertedAt: iso(row.valuedRevertedAt),
+        valuedRevertedBy: row.valuedRevertedBy,
         receivedAt: iso(row.receivedAt),
         receivedBy: row.receivedBy,
+        receivedRevertedAt: iso(row.receivedRevertedAt),
+        receivedRevertedBy: row.receivedRevertedBy,
         canMarkReceived: true,
         status: row.status,
         docstatus: row.docstatus,
@@ -349,14 +386,20 @@ export async function GET(request: NextRequest) {
       const linkedPurchaseReceipt = row.purchaseReceiptName
         ? activePurchaseReceiptByName.get(row.purchaseReceiptName) ?? null
         : null;
+      const supplierPrefixRule = supplierPrefixRuleForSupplier(row.supplier);
       const recommendation = linkedPurchaseReceipt
         ? {
             companyId: linkedPurchaseReceipt.companyId,
             name: linkedPurchaseReceipt.name,
             percentage: calculateGrnMatchPercentage(linkedPurchaseReceipt.items, row.items),
           }
-        : row.docstatus !== 2 && intercompanySupplierCodes.has(row.supplier)
-          ? bestGrnMatchForStockReturn(row, activeIntercompanyPurchaseReceipts)
+        : row.docstatus !== 2 && supplierPrefixRule
+          ? bestGrnMatchForStockReturn(
+              row,
+              activeIntercompanyPurchaseReceipts.filter(
+                (receipt) => receipt.companyLocationId === supplierPrefixRule.locationId,
+              ),
+            )
           : null;
       return {
         companyId: row.companyId,
@@ -393,8 +436,8 @@ export async function GET(request: NextRequest) {
         })),
       };
     }),
-    intercompanySuppliers: intercompanySuppliers.map((row) => ({
-      id: row.id,
+    intercompanySuppliers: supplierPrefixRules.map((row) => ({
+      id: row.locationId,
       supplier: row.supplier,
       supplierName: row.supplierName,
     })),

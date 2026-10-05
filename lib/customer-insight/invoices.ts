@@ -16,6 +16,7 @@ export type OrderInvoiceInput = {
   locationName?: string | null;
   discountCouponCode?: string | null;
   merchantCouponCode?: string | null;
+  merchantName?: string | null;
   lineItems?: InvoiceLineDto[];
 };
 
@@ -26,6 +27,7 @@ export type AdaptInvoiceInput = {
   ttlAmount: number | string;
   currency?: string | null;
   locationName?: string | null;
+  merchantName?: string | null;
   lineItems?: InvoiceLineDto[];
 };
 
@@ -66,6 +68,7 @@ export function mapOrderToInvoiceRow(order: OrderInvoiceInput): UnifiedInvoiceRo
     locationName: order.locationName?.trim() || null,
     discountCouponCode: order.discountCouponCode?.trim() || null,
     merchantCouponCode: order.merchantCouponCode?.trim() || null,
+    merchantName: order.merchantName?.trim() || null,
     lineItems: order.lineItems ?? [],
   };
 }
@@ -87,6 +90,7 @@ export function mapAdaptToInvoiceRow(row: AdaptInvoiceInput): UnifiedInvoiceRowD
     locationName: row.locationName?.trim() || null,
     discountCouponCode: null,
     merchantCouponCode: null,
+    merchantName: row.merchantName?.trim() || null,
     lineItems: row.lineItems ?? [],
   };
 }

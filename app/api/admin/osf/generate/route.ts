@@ -5,19 +5,35 @@ import { listOsfBuyers } from "@/lib/osf/buyer-config";
 import { buildCatalogRows } from "@/lib/osf/catalog-rows";
 import { resolveEffectiveOsfColumnKeys } from "@/lib/osf/column-visibility";
 import { resolveOsfColumns } from "@/lib/osf/column-config";
-import { fetchLatestCostAndSupplier, OsfErpError } from "@/lib/osf/erp-cost-supplier";
+import {
+  fetchItemCountries,
+  fetchLatestCostAndSupplier,
+  OsfErpError,
+} from "@/lib/osf/erp-cost-supplier";
 import { mergeInstanceErpData, type InstanceErpData } from "@/lib/osf/erp-merge";
 import { aggregateSalesBySkuByMonthInRange } from "@/lib/osf/assist-sales";
 import {
   fetchLastPurchaseByItem,
   fetchMonthlyPurchasesInRange,
+  mergeBestPurchaseMaps,
   mergeMonthlyPurchaseMaps,
 } from "@/lib/osf/erp-purchases";
 import { fetchBinActualQty, getAllOsfErpInstances, stockForColumn } from "@/lib/osf/erp-stock";
-import { aggregateMonthlySalesBySku, osfPurchaseGridBounds, osfSalesGridBounds } from "@/lib/osf/monthly-sales";
+import {
+  aggregateMonthlySalesBySku,
+  osfBestPurchaseBounds,
+  osfPurchaseGridBounds,
+  osfSalesGridBounds,
+} from "@/lib/osf/monthly-sales";
 import { syncOgfPricesFromErp } from "@/lib/osf/sync-ogf-prices-from-erp";
 import { isBelowReorderThreshold } from "@/lib/osf/threshold";
-import { filterCatalogByOsfVariant, type OsfVariant } from "@/lib/osf/vat-membership";
+import { fetchErpTaxStatusBySkus } from "@/lib/osf/erp-tax-status";
+import {
+  applyTaxStatusToCatalog,
+  filterCatalogByOsfVariant,
+  type OsfVariant,
+} from "@/lib/osf/vat-membership";
+import { normalizeSkuKey, resolveErpSlots } from "@/lib/product-items/erp-priority-sync";
 import {
   findCosmeticsLkRopColumn,
   selectVatRopColumns,
@@ -25,6 +41,8 @@ import {
   totalRopForColumns,
   totalRopForVat,
 } from "@/lib/osf/vat-rop-columns";
+import { applyShopifyPricesToCatalog } from "@/lib/osf/shopify-catalog-prices";
+import { loadShopifyCatalogPricesForCompany } from "@/lib/osf/shopify-catalog-prices-load";
 import { ensureCosmeticsShopOsfColumns } from "@/lib/osf/shop-column-sync";
 import { prisma } from "@/lib/prisma";
 import { formatAppIsoDate } from "@/lib/format-datetime";
@@ -138,8 +156,19 @@ export async function POST(request: NextRequest) {
 
     const salesGridBounds = osfSalesGridBounds(asOfDate);
     const purchaseGridBounds = osfPurchaseGridBounds(asOfDate);
+    const bestPurchaseBounds = osfBestPurchaseBounds(asOfDate);
 
-    const [catalogRaw, columns, profiles, ropRows, monthlySales, salesByMonthNested, buyers, allowedSuppliers] =
+    const [
+      catalogRaw,
+      columns,
+      profiles,
+      ropRows,
+      monthlySales,
+      salesByMonthNested,
+      buyers,
+      allowedSuppliers,
+      shopifyPrices,
+    ] =
       await Promise.all([
         buildCatalogRows(companyId, {
           includeInactive,
@@ -162,7 +191,12 @@ export async function POST(request: NextRequest) {
           where: { companyId },
           select: { name: true, code: true },
         }),
+        loadShopifyCatalogPricesForCompany(companyId),
       ]);
+    if (shopifyPrices.warning) {
+      console.warn("[OSF] Shopify catalog prices:", shopifyPrices.warning);
+    }
+    const catalogPriced = applyShopifyPricesToCatalog(catalogRaw, shopifyPrices.prices);
 
     const salesByMonth = new Map<string, Record<string, number>>();
     for (const [sku, months] of salesByMonthNested) {
@@ -189,7 +223,30 @@ export async function POST(request: NextRequest) {
       profileMap.set(r.sku, entry);
     }
 
-    let catalog = filterCatalogByOsfVariant(catalogRaw, osfVariant);
+    const catalogSkus = catalogPriced.map((c) => c.sku);
+    const slots = resolveErpSlots(erpInstances);
+    const erp1Inst = slots.erp1
+      ? (erpInstances.find((i) => i.id === slots.erp1!.id) ?? null)
+      : null;
+    const erp2Inst = slots.erp2
+      ? (erpInstances.find((i) => i.id === slots.erp2!.id) ?? null)
+      : null;
+    const [erp1TaxBySku, erp2TaxBySku] = await Promise.all([
+      erp1Inst
+        ? fetchErpTaxStatusBySkus(erp1Inst.cfg, catalogSkus)
+        : Promise.resolve(new Map<string, string | null>()),
+      erp2Inst
+        ? fetchErpTaxStatusBySkus(erp2Inst.cfg, catalogSkus)
+        : Promise.resolve(new Map<string, string | null>()),
+    ]);
+    const catalogWithTax = applyTaxStatusToCatalog(
+      catalogPriced,
+      erp1TaxBySku,
+      erp2TaxBySku,
+      normalizeSkuKey,
+    );
+
+    let catalog = filterCatalogByOsfVariant(catalogWithTax, osfVariant);
     let skus = catalog.map((c) => c.sku);
 
     const warehousesByInstance = new Map<string, Set<string>>();
@@ -219,6 +276,8 @@ export async function POST(request: NextRequest) {
             bounds: purchaseGridBounds,
             itemCodes: skus,
             allowedSuppliers,
+            source: "invoice",
+            bestWindow: bestPurchaseBounds,
           }),
         ]);
         return { bins, costs, purchases, monthlyPurchases };
@@ -272,8 +331,29 @@ export async function POST(request: NextRequest) {
     }));
     const { costMap, purchaseMap } = mergeInstanceErpData(skus, perInstanceErp);
     const purchasesByMonth = mergeMonthlyPurchaseMaps(
-      perInstanceResults.map((r) => r.monthlyPurchases),
+      perInstanceResults.map((r) => r.monthlyPurchases.monthly),
     );
+    const bestPurchaseBySku = mergeBestPurchaseMaps(
+      perInstanceResults.map((r) => r.monthlyPurchases.best),
+    );
+
+    const countryInstances = [erp1Inst, erp2Inst, ...erpInstances].filter(
+      (inst, idx, all): inst is NonNullable<typeof inst> => {
+        if (!inst) return false;
+        return all.findIndex((x) => x?.id === inst.id) === idx;
+      },
+    );
+    const countryBySku = await fetchItemCountries({
+      instances: countryInstances,
+      itemCodes: skus,
+    });
+    catalog = catalog.map((row) => ({
+      ...row,
+      country:
+        countryBySku.get(row.sku) ??
+        countryBySku.get(normalizeSkuKey(row.sku)) ??
+        row.country,
+    }));
 
     const effectiveColumnKeys = context?.user
       ? await resolveEffectiveOsfColumnKeys(context, companyId, osfVariant)
@@ -291,6 +371,7 @@ export async function POST(request: NextRequest) {
       asOfDate,
       salesByMonth,
       purchasesByMonth,
+      bestPurchaseBySku,
       belowThresholdOnly,
       effectiveColumnKeys,
       osfVariant,

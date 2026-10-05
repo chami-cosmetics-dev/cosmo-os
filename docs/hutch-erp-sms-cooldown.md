@@ -175,6 +175,15 @@ Error Log → filter method in ("Hutch Auth Cooldown", "Hutch SMS Paused", "Hutc
 During an outage you should now see roughly **4 login attempts per hour per instance**
 instead of one per invoice.
 
+## Token cache (applied 2026-09-28)
+
+`POS Invoice Auto SMS` on ERP_1 and ERP_2 now reuses a Hutch `accessToken` stored on
+Note **Hutch SMS Token Cache** for 45 minutes. Healthy volume is a handful of logins per
+hour, not one per invoice. Cooldown is 60 minutes. On login 401 the cached token is cleared.
+
+This does not unblock an already-locked Hutch API user. Ask Hutch to restore the account;
+after that the cache is what stops the next re-block.
+
 ## Not covered by this patch
 
 - **The password is still hardcoded in the script body** (plaintext, readable by anyone

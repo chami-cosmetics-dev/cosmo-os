@@ -100,10 +100,21 @@ async function sendMailerooEmail(input: {
 
     return { success: data?.success ?? true };
   } catch (error) {
-    console.error(`Failed to send ${input.errorLabel}:`, error);
+    const cause =
+      error instanceof Error &&
+      error.cause instanceof Error &&
+      error.cause.message
+        ? error.cause.message
+        : null;
+    console.error(`Failed to send ${input.errorLabel}:`, error, cause);
     return {
       success: false,
-      message: error instanceof Error ? error.message : "Failed to send email",
+      message:
+        error instanceof Error
+          ? cause
+            ? `${error.message} (${cause})`
+            : error.message
+          : "Failed to send email",
     };
   }
 }

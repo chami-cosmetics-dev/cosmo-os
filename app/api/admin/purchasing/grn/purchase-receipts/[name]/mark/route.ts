@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
-import { tallyPurchaseInvoicePrices } from "@/lib/grn";
+import { autoMatchIntercompanyGrn, tallyPurchaseInvoicePrices } from "@/lib/grn";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserContext, requirePermission } from "@/lib/rbac";
 
@@ -9,6 +9,7 @@ export const dynamic = "force-dynamic";
 
 const schema = z.object({
   field: z.enum(["handoverAt", "valuedAt", "receivedAt"]),
+  action: z.enum(["mark", "revert"]).optional().default("mark"),
   companyId: z.string().min(1).optional(),
 });
 
@@ -23,6 +24,20 @@ const FIELD_ACTOR_COLUMNS: Record<z.infer<typeof schema>["field"], string> = {
   valuedAt: "valuedById",
   receivedAt: "receivedById",
 };
+
+const FIELD_REVERTED_AT_COLUMNS: Record<z.infer<typeof schema>["field"], string> = {
+  handoverAt: "handoverRevertedAt",
+  valuedAt: "valuedRevertedAt",
+  receivedAt: "receivedRevertedAt",
+};
+
+const FIELD_REVERTED_BY_COLUMNS: Record<z.infer<typeof schema>["field"], string> = {
+  handoverAt: "handoverRevertedById",
+  valuedAt: "valuedRevertedById",
+  receivedAt: "receivedRevertedById",
+};
+
+const STAGE_ORDER: z.infer<typeof schema>["field"][] = ["handoverAt", "valuedAt", "receivedAt"];
 
 export async function POST(
   request: NextRequest,
@@ -58,6 +73,7 @@ export async function POST(
       docstatus: true,
       handoverAt: true,
       valuedAt: true,
+      receivedAt: true,
       supplierStockReturnName: true,
       purchaseInvoices: {
         where: { docstatus: { not: 2 } },
@@ -74,6 +90,27 @@ export async function POST(
   if (row.docstatus === 2) {
     return NextResponse.json({ error: "Cancelled purchase receipts cannot be marked" }, { status: 409 });
   }
+  if (parsed.data.action === "revert" && !row[parsed.data.field]) {
+    return NextResponse.json({ error: "This stage is not marked yet" }, { status: 409 });
+  }
+  if (parsed.data.action === "revert") {
+    const stageIndex = STAGE_ORDER.indexOf(parsed.data.field);
+    const now = new Date();
+    const data: Record<string, Date | string | null> = {};
+    for (const field of STAGE_ORDER.slice(stageIndex)) {
+      if (!row[field]) continue;
+      data[field] = null;
+      data[FIELD_ACTOR_COLUMNS[field]] = null;
+      data[FIELD_REVERTED_AT_COLUMNS[field]] = now;
+      data[FIELD_REVERTED_BY_COLUMNS[field]] = user.id;
+    }
+    await prisma.grnPurchaseReceipt.update({
+      where: { companyId_name: { companyId: targetCompanyId, name: decodedName } },
+      data,
+    });
+    await autoMatchIntercompanyGrn();
+    return NextResponse.json({ ok: true });
+  }
   if (parsed.data.field === "valuedAt" && !row.handoverAt) {
     return NextResponse.json({ error: "Mark handover before marking valued" }, { status: 409 });
   }
@@ -87,6 +124,8 @@ export async function POST(
       data: {
         [parsed.data.field]: new Date(),
         [FIELD_ACTOR_COLUMNS[parsed.data.field]]: user.id,
+        [FIELD_REVERTED_AT_COLUMNS[parsed.data.field]]: null,
+        [FIELD_REVERTED_BY_COLUMNS[parsed.data.field]]: null,
       },
     });
 
@@ -101,7 +140,12 @@ export async function POST(
     if (!row.supplierStockReturnName) {
       await tx.grnPurchaseReceipt.update({
         where: { id: row.id },
-        data: { valuedAt: new Date(), valuedById: null },
+        data: {
+          valuedAt: new Date(),
+          valuedById: null,
+          valuedRevertedAt: null,
+          valuedRevertedById: null,
+        },
       });
       return;
     }
@@ -124,7 +168,12 @@ export async function POST(
     if (priceTally.status !== "matched") return;
     await tx.grnPurchaseReceipt.update({
       where: { id: row.id },
-      data: { valuedAt: new Date(), valuedById: null },
+      data: {
+        valuedAt: new Date(),
+        valuedById: null,
+        valuedRevertedAt: null,
+        valuedRevertedById: null,
+      },
     });
   });
 

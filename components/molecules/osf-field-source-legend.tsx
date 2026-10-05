@@ -3,7 +3,7 @@
 type SourceRow = { column: string; source: string; note: string };
 
 const ROWS: SourceRow[] = [
-  { column: "Identity (SKU, description, brand, barcode, image, status)", source: "Cosmo", note: "Product catalog" },
+  { column: "Identity (SKU, description, brand, barcode, country, image, status, VAT Status)", source: "ERP", note: "Country = Item.country_of_origin (ERP1 then ERP2). VAT Status = Item Manufacturing Tax Status (Vat / Non Vat / Vat / Non Vat)" },
   { column: "Shop Availability", source: "Cosmo UI", note: "Edited on this page" },
   { column: "Stock locations", source: "ERP", note: "Bin actual_qty via location warehouses" },
   { column: "ROP / Common ROP", source: "Cosmo UI", note: "Edited on this page — not ERP" },
@@ -21,7 +21,12 @@ const ROWS: SourceRow[] = [
   {
     column: "Purchase grid (Apr→as-of)",
     source: "ERP",
-    note: "Purchase Receipt qty + amount per month; allowlisted suppliers only",
+    note: "Purchase Invoice qty + net_amount per month (receipts often have rate 0); allowlisted suppliers only",
+  },
+  {
+    column: "Best Purchase Value / Best Supplier",
+    source: "ERP",
+    note: "Lowest invoice unit rate in last 3 months including this month (Jul–as-of now; bump to 6 after history backfill)",
   },
   {
     column: "Max sale / AVE",

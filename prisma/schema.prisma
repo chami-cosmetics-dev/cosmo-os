@@ -566,8 +566,11 @@ model User {
   ordersKokoLinkTimeConfirmedBy          Order[]                        @relation("OrderKokoLinkTimeConfirmedBy")
   ordersCancelledBy                      Order[]                        @relation("OrderCancelledBy")
   grnHandovers                           GrnPurchaseReceipt[]           @relation("GrnPurchaseReceiptHandoverBy")
+  grnHandoverReverts                     GrnPurchaseReceipt[]           @relation("GrnPurchaseReceiptHandoverRevertedBy")
   grnValuations                          GrnPurchaseReceipt[]           @relation("GrnPurchaseReceiptValuedBy")
+  grnValuationReverts                    GrnPurchaseReceipt[]           @relation("GrnPurchaseReceiptValuedRevertedBy")
   grnReceipts                            GrnPurchaseReceipt[]           @relation("GrnPurchaseReceiptReceivedBy")
+  grnReceiptReverts                      GrnPurchaseReceipt[]           @relation("GrnPurchaseReceiptReceivedRevertedBy")
   orderRemarksAdded                      OrderRemark[]
   orderSampleFreeIssuesAdded             OrderSampleFreeIssue[]
   smsLogs                                SmsLog[]
@@ -856,6 +859,7 @@ model CompanyLocation {
   manualInvoicePrefix       String?
   manualInvoiceNextSeq      Int                        @default(0)
   manualInvoiceSeqPadding   Int                        @default(3)
+  supplierPrefix            String?
   erpnextCompany            String?
   erpnextWarehouse          String?
   erpnextInstanceId         String?
@@ -2141,6 +2145,10 @@ model OsRegistrationCapture {
   source      String
   /// created | already_registered | updated
   outcome     String
+  /// sent | skipped | failed
+  emailStatus String?
+  emailError  String?
+  emailSentAt DateTime?
   actorUserId String?
   createdAt   DateTime          @default(now())
   company     Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -2577,10 +2585,16 @@ model GrnPurchaseReceipt {
   creation                DateTime?
   handoverAt              DateTime?
   handoverById            String?
+  handoverRevertedAt      DateTime?
+  handoverRevertedById    String?
   valuedAt                DateTime?
   valuedById              String?
+  valuedRevertedAt        DateTime?
+  valuedRevertedById      String?
   receivedAt              DateTime?
   receivedById            String?
+  receivedRevertedAt      DateTime?
+  receivedRevertedById    String?
   supplierStockReturnName String?
   rawPayload              Json
   createdAt               DateTime                 @default(now())
@@ -2588,10 +2602,13 @@ model GrnPurchaseReceipt {
   company                 Company                  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   companyLocation         CompanyLocation?         @relation(fields: [companyLocationId], references: [id], onDelete: SetNull)
   handoverBy              User?                    @relation("GrnPurchaseReceiptHandoverBy", fields: [handoverById], references: [id], onDelete: SetNull)
+  handoverRevertedBy      User?                    @relation("GrnPurchaseReceiptHandoverRevertedBy", fields: [handoverRevertedById], references: [id], onDelete: SetNull)
   items                   GrnPurchaseReceiptItem[]
   purchaseInvoices        GrnPurchaseInvoice[]
   receivedBy              User?                    @relation("GrnPurchaseReceiptReceivedBy", fields: [receivedById], references: [id], onDelete: SetNull)
+  receivedRevertedBy      User?                    @relation("GrnPurchaseReceiptReceivedRevertedBy", fields: [receivedRevertedById], references: [id], onDelete: SetNull)
   valuedBy                User?                    @relation("GrnPurchaseReceiptValuedBy", fields: [valuedById], references: [id], onDelete: SetNull)
+  valuedRevertedBy        User?                    @relation("GrnPurchaseReceiptValuedRevertedBy", fields: [valuedRevertedById], references: [id], onDelete: SetNull)
 
   @@unique([companyId, name])
   @@index([companyId, creation(sort: Desc)])
@@ -2600,8 +2617,11 @@ model GrnPurchaseReceipt {
   @@index([companyId, supplierStockReturnName])
   @@index([companyLocationId])
   @@index([handoverById])
+  @@index([handoverRevertedById])
   @@index([valuedById])
+  @@index([valuedRevertedById])
   @@index([receivedById])
+  @@index([receivedRevertedById])
 }
 
 model GrnPurchaseReceiptItem {
@@ -2921,6 +2941,8 @@ model BookNoteRow {
   card                Decimal     @db.Decimal(12, 2)
   /// Last 4 digits of POS card receipt reference (required when card > 0).
   cardReceiptRefLast4 String?
+  /// KOKO order id when the amount is typed in the KOKO column (not split lines).
+  kokoReference       String?
   koko                Decimal     @db.Decimal(12, 2)
   bankTransfer        Decimal     @db.Decimal(12, 2)
   /// Free-text bank-recon note for this invoice line (ERP special_note, max 1500).

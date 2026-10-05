@@ -66,6 +66,7 @@ type ContactPurchaseOrder = {
   fulfillmentStatus: string | null;
   createdAt: string;
   source?: "cosmo" | "adapt";
+  merchantName?: string | null;
   lineItems: Array<{
     id: string;
     quantity: number;
@@ -671,6 +672,7 @@ export function ContactsPanel({
         fulfillmentStatus: row.companyLocationName ?? row.locationName ?? "Adapt",
         createdAt: row.invoiceDate,
         source: "adapt",
+        merchantName: row.merchantKnownName,
         lineItems: row.lineItems ?? [],
       }));
       setContactPurchases(
@@ -1479,6 +1481,11 @@ export function ContactsPanel({
                           <p className="text-muted-foreground text-xs">
                             {order.source === "adapt" ? "Adapt" : order.orderNumber ?? "N/A"}
                           </p>
+                          {order.merchantName ? (
+                            <p className="text-muted-foreground text-xs">
+                              Merchant: {order.merchantName}
+                            </p>
+                          ) : null}
                         </td>
                         <td className="px-4 py-2">
                           {order.lineItems.length > 0 ? (

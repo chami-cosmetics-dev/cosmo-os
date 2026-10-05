@@ -1,6 +1,10 @@
 import { z } from "zod";
 
-import { BOOK_NOTE_ERP_PAYMENT_METHODS } from "@/lib/book-notes/split-lines";
+import {
+  BOOK_NOTE_ERP_PAYMENT_METHODS,
+  missingKokoSplitReference,
+  normalizeKokoOrderReference,
+} from "@/lib/book-notes/split-lines";
 import { cuidSchema, LIMITS, trimmedString } from "@/lib/validation";
 
 const ymdSchema = z
@@ -13,6 +17,7 @@ export const BOOK_NOTE_ISSUE_STATUSES = [
   "no_payment_entry_linked",
   "sales_invoice_not_found",
   "no_invoice_number",
+  "koko_ref_missing",
 ] as const;
 
 export type BookNoteIssueStatus = (typeof BOOK_NOTE_ISSUE_STATUSES)[number];
@@ -100,7 +105,12 @@ const bookNoteSplitLineSchema = z.object({
       const t = (v ?? "").trim();
       return t.length === 0 ? null : t;
     }),
-  kokoReference: trimmedString(0, 120).optional().nullable(),
+  kokoReference: z
+    .string()
+    .max(120)
+    .optional()
+    .nullable()
+    .transform((v) => normalizeKokoOrderReference(v)),
   bankReference: trimmedString(0, 120).optional().nullable(),
 });
 
@@ -121,6 +131,12 @@ export const bookNotePutRowSchema = z
         return t.length === 0 ? null : t;
       }),
     koko: moneySchema.default(0),
+    kokoReference: z
+      .string()
+      .max(120)
+      .optional()
+      .nullable()
+      .transform((v) => normalizeKokoOrderReference(v)),
     bankTransfer: moneySchema.default(0),
     specialNote: z
       .string()
@@ -147,6 +163,14 @@ export const bookNotePutRowSchema = z
           path: ["splitLines"],
         });
       }
+      const missingKoko = missingKokoSplitReference(row.splitLines!);
+      if (missingKoko != null) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "KOKO order reference is required when KOKO amount is entered",
+          path: ["splitLines", missingKoko, "kokoReference"],
+        });
+      }
       row.splitLines!.forEach((sl, i) => {
         if (sl.amount <= 0) return;
         if (sl.paymentMethod === "Card" && sl.cardLast4 && !/^\d{4}$/.test(sl.cardLast4)) {
@@ -158,6 +182,14 @@ export const bookNotePutRowSchema = z
         }
       });
       return;
+    }
+
+    if (row.koko > 0 && !row.kokoReference) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "KOKO order reference is required when KOKO amount is entered",
+        path: ["kokoReference"],
+      });
     }
 
     if (row.card > 0) {

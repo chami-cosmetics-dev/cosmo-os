@@ -35,6 +35,15 @@ describe("erp-credit-note-order-sync", () => {
     expect(resolveOrderCancelledByLabel({ name: null, email: null })).toBe("ERP");
     expect(resolveOrderCancelledByLabel({ name: "Ada", email: "a@x.com" })).toBe("Ada");
     expect(resolveOrderCancelledByLabel({ name: "  ", email: "a@x.com" })).toBe("a@x.com");
+    expect(resolveOrderCancelledByLabel(null, "ERP credit note")).toBe("ERP");
+    expect(resolveOrderCancelledByLabel(null, "ERP cancel")).toBe("ERP");
+  });
+
+  it("labels Shopify voids as Shopify when no OS user", () => {
+    expect(resolveOrderCancelledByLabel(null, "Cancelled in Shopify")).toBe("Shopify");
+    expect(resolveOrderCancelledByLabel(null, "Refunded in Shopify")).toBe("Shopify");
+    expect(resolveOrderCancelledByLabel(null, "customer")).toBe("Shopify");
+    expect(resolveOrderCancelledByLabel({ name: "Ada", email: null }, "customer")).toBe("Ada");
   });
 
   it("erpDrivenCancelFields fills gaps only", () => {

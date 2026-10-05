@@ -54,6 +54,7 @@ export function serializeBookNoteRow(row: {
   card: unknown;
   cardReceiptRefLast4?: string | null;
   koko: unknown;
+  kokoReference?: string | null;
   bankTransfer: unknown;
   specialNote?: string | null;
   splitLines?: unknown;
@@ -69,6 +70,9 @@ export function serializeBookNoteRow(row: {
     ? fromSplit.cardReceiptRefLast4
     : (row.cardReceiptRefLast4?.trim() ?? "");
   const card_receipt_ref_last4 = ref && ref.length > 0 ? ref : null;
+  const kokoRef = fromSplit
+    ? ""
+    : (row.kokoReference?.replace(/\s+/g, "") ?? "");
   const note = row.specialNote?.trim() ?? "";
   const nonzero = split_lines
     ? split_lines.filter((sl) => sl.amount > 0).length
@@ -80,6 +84,7 @@ export function serializeBookNoteRow(row: {
     card,
     card_receipt_ref_last4,
     koko,
+    koko_reference: kokoRef.length > 0 ? kokoRef : null,
     bank_transfer,
     row_total: Math.round((cash + card + koko + bank_transfer) * 100) / 100,
     is_multi_method: nonzero > 1,
@@ -123,6 +128,7 @@ export function serializeBookNoteDay(input: {
     card: unknown;
     cardReceiptRefLast4?: string | null;
     koko: unknown;
+    kokoReference?: string | null;
     bankTransfer: unknown;
     specialNote?: string | null;
     splitLines?: unknown;

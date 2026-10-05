@@ -30,6 +30,8 @@ export type BookNotePaymentColumnsInput = {
   card: unknown;
   cardReceiptRefLast4?: string | null;
   koko: unknown;
+  /** Column-mode KOKO order id. Attached to the synthesized KOKO split line. */
+  kokoReference?: string | null;
   bankTransfer: unknown;
 };
 
@@ -46,6 +48,14 @@ function digits4(value: string | null | undefined): string | null {
 
 function textRef(value: string | null | undefined): string | null {
   const t = (value ?? "").trim();
+  return t.length > 0 ? t : null;
+}
+
+/** Strip spaces. Keeps digits, #11465305, and ORDER11465305. */
+export function normalizeKokoOrderReference(
+  value: string | null | undefined,
+): string | null {
+  const t = (value ?? "").replace(/\s+/g, "");
   return t.length > 0 ? t : null;
 }
 
@@ -81,7 +91,13 @@ export function columnsToSplitLines(
       cardLast4,
     });
   }
-  if (koko > 0) lines.push({ paymentMethod: "KOKO", amount: koko });
+  if (koko > 0) {
+    lines.push({
+      paymentMethod: "KOKO",
+      amount: koko,
+      kokoReference: normalizeKokoOrderReference(input.kokoReference),
+    });
+  }
   if (bank > 0) lines.push({ paymentMethod: "Bank Transfer", amount: bank });
 
   return lines;
@@ -177,13 +193,35 @@ export function normalizeBookNoteSplitLines(
       paymentMethod: pm,
       amount,
       cardLast4,
-      kokoReference: pm === "KOKO" ? textRef(sl.kokoReference) : null,
+      kokoReference:
+        pm === "KOKO" ? normalizeKokoOrderReference(sl.kokoReference) : null,
       bankReference:
         pm === "Bank Transfer" ? textRef(sl.bankReference) : null,
     });
   }
 
   return { ok: true, lines };
+}
+
+/** First KOKO split line that has an amount but no order reference. */
+export function missingKokoSplitReference(
+  lines: Array<{
+    paymentMethod: string;
+    amount: number;
+    kokoReference?: string | null;
+  }>,
+): number | null {
+  for (let i = 0; i < lines.length; i++) {
+    const sl = lines[i]!;
+    if (
+      sl.paymentMethod === "KOKO" &&
+      sl.amount > 0 &&
+      !normalizeKokoOrderReference(sl.kokoReference)
+    ) {
+      return i;
+    }
+  }
+  return null;
 }
 
 export type BookNoteErpVerifyRowPayload = {
@@ -211,11 +249,28 @@ export function buildBookNoteErpVerifyRow(input: {
   card: number;
   card_last_4?: string | null;
   koko: number;
+  /** Column-mode KOKO order id. Used when the row has no explicit split lines. */
+  koko_reference?: string | null;
   bank_transfer: number;
   split_lines?: BookNoteSplitLine[] | null;
 }): BookNoteErpVerifyRowPayload {
-  const split_lines = bookNoteRowUsesSplitPayload(input.split_lines)
-    ? input.split_lines!.map((sl) => {
+  const explicit = bookNoteRowUsesSplitPayload(input.split_lines)
+    ? input.split_lines!
+    : null;
+  const lines =
+    explicit ??
+    (input.koko > 0
+      ? columnsToSplitLines({
+          cash: input.cash,
+          card: input.card,
+          cardReceiptRefLast4: input.card_last_4,
+          koko: input.koko,
+          kokoReference: input.koko_reference,
+          bankTransfer: input.bank_transfer,
+        })
+      : null);
+  const split_lines = lines
+    ? lines.map((sl) => {
         const line: {
           payment_method: BookNoteErpPaymentMethod;
           amount: number;

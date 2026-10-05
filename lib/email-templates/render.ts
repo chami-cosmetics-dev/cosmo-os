@@ -9,6 +9,15 @@ export function renderEmailTemplatePlaceholders(
   });
 }
 
+/** Staff often type [Name] or {{name}}. Send path always fills the registrant name. */
+export function applyRegisterEmailName(text: string, name: string): string {
+  const safe = name.trim() || "there";
+  return text
+    .replace(/\{\{\s*name\s*\}\}/gi, safe)
+    .replace(/\{\s*name\s*\}/gi, safe)
+    .replace(/\[\s*name\s*\]/gi, safe);
+}
+
 export function parseEmailAddressList(raw: string | null | undefined): string[] {
   if (!raw?.trim()) return [];
   const seen = new Set<string>();

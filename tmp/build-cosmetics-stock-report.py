@@ -1,7 +1,8 @@
-"""Rebuild Cosmetics ERP1+ERP2 whole-company stock report from MCP dumps."""
+"""Build Cosmetics ERP1+ERP2 item stock report xlsx from MCP dumps."""
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from openpyxl import Workbook
@@ -13,41 +14,49 @@ OUT = Path(r"c:\dev\cosmo-os\tmp\cosmetics-erp1-erp2-item-stock-report.xlsx")
 
 ITEM_FILES = {
     "erp1": [
-        "50959d7c-58f2-46cc-9cf3-48a76c9c078a.txt",
-        "e0215ac7-e180-40da-ab2b-24133fdef5aa.txt",
-        "1be689a8-1b75-45ef-85b3-55682162c5eb.txt",
+        "aa4f33a6-6204-4f61-8829-fdd07c8c1347.txt",
+        "9636a7a2-bdc2-456e-ab24-9175fabfe37b.txt",
+        "39333429-6849-4eb2-8fdf-9b9b70e3b9a8.txt",
     ],
     "erp2": [
-        "9c5d7e9a-efe8-4761-890f-8a9e048a6bac.txt",
-        "0491feca-df27-47ba-a3a1-7f7c8e4fd515.txt",
-        "6afbe834-0a5f-4ac1-b874-1053c70d1e0b.txt",
+        "38dedccd-95d9-40f2-821c-77f703599e1c.txt",
+        "11cab512-e219-46cc-9192-ccd43c29492f.txt",
+        "6262a6d9-d297-48a1-8d7f-6a1a9b3cc73f.txt",
     ],
 }
-ERP1_STOCK = "c0f1c10b-7aa0-4ebd-801b-01b8f48b4a65.txt"
-ERP2_BINS = [
-    "7dc58849-3c1b-4d63-bd99-83cb14fd2f5f.txt",
-    "c1d6be09-1b83-4ced-a0c5-b0ada539d236.txt",
-]
-ERP1_SLE = [
-    "d6648734-83de-40ae-bac1-5eb621c8a6e0.txt",
-    "5037de43-020c-484c-a1ee-14bf268efd42.txt",
-]
-ERP2_SLE = [
-    "1d88aba5-9345-4aa7-a3e5-48881bdbae54.txt",
-    "835d74a4-c162-4fd4-a702-8a022bd817d2.txt",
-    "f0baeeff-b650-4880-9f1b-14d7f61dada0.txt",
-    "e0a3c9ee-f508-4d2c-891b-f8d3d2e0d312.txt",
-    "ce40a0da-bbb0-4a36-b55a-7f5d824ce1ce.txt",
-    "5daad0bb-853a-4df8-9d8a-54e52c5b8a1b.txt",
+
+ERP1_BIN_FILES = [
+    "76fe0826-56ed-4900-8985-2447db670ce3.txt",
+    "ab98ae3f-dfb6-4db3-ae6a-51dd5729d068.txt",
+    "ece3fb72-4d87-438e-8c38-1a5bdde4e2bd.txt",
+    # page 3 was inlined in tool result — saved separately below if present
 ]
 
-MONTHS = [
-    ("2026-08", "aug", "Aug Sale", "Aug 2026"),
-    ("2026-09", "sep", "Sep Sale", "Sep 2026"),
-    ("2026-10", "oct", "Oct Sale", "Oct 2026"),
+ERP2_BIN_FILES = [
+    "318f05e9-9de2-4266-b6a7-aa21d8fcfc8f.txt",
+    "2d248c1e-0111-41c9-9b3e-db6be7a1e68c.txt",
+    "1a7c0f02-8630-4e7b-a1d5-ad3b33e86779.txt",
+    "7073a60a-87f9-4130-b016-2e25ed130ffd.txt",
+    "e0c5649e-5784-4969-84f3-099d3e33f8d4.txt",
+    "ecd78b59-1e54-463f-b7b9-a34d5a00bb3b.txt",
+    "7b48babd-6af0-4912-84f4-f0324e5f1066.txt",
+    "657f69d9-cddb-4fa9-9a41-dd4ee40ea9e2.txt",
 ]
+
+# ERP1 page 3 bins were returned inline; also use Stock Balance as backup for Cosmetics.lk
+ERP1_STOCK_BALANCE = "f67fba6f-ec3a-45ec-9dcc-f9e58a448caa.txt"
 
 WAREHOUSE_COMPANY = {
+    # ERP1
+    "Cool Planet Nugegoda Shop Warehouse - Cosmo": "Cosmetics.lk",
+    "GCC Shop Warehouse - Cosmo": "Cosmetics.lk",
+    "Kiribathgoda Shop Warehouse - Cosmo": "Cosmetics.lk",
+    "Maharagama Shop Warehouse - Cosmo": "Cosmetics.lk",
+    "Main Warehouse - Cosmo": "Cosmetics.lk",
+    "Negombo Shop Warehouse - Cosmo": "Cosmetics.lk",
+    "OGF Shop Warehouse - Cosmo": "Cosmetics.lk",
+    "Pepiliyana Shop Warehouse - Cosmo": "Cosmetics.lk",
+    # ERP2
     "Finished Goods - CCON": "Cosmetics Consolidated",
     "Goods In Transit - CCON": "Cosmetics Consolidated",
     "Stores - CCON": "Cosmetics Consolidated",
@@ -92,7 +101,8 @@ COMPANY_COLS = [
 
 
 def load_json(path: Path):
-    data = json.loads(path.read_text(encoding="utf-8"))
+    raw = path.read_text(encoding="utf-8")
+    data = json.loads(raw)
     if isinstance(data, dict) and "message" in data:
         msg = data["message"]
         if isinstance(msg, dict) and "result" in msg:
@@ -101,22 +111,44 @@ def load_json(path: Path):
     return data
 
 
-def num(value) -> float:
+def common_sku(sku: str) -> str:
+    m = re.match(r"^(.*)_\d+$", sku.strip())
+    return (m.group(1).strip() if m else sku.strip()) or sku.strip()
+
+
+def num(v) -> float:
     try:
-        n = float(value or 0)
+        n = float(v or 0)
+        return n if n == n else 0.0
     except (TypeError, ValueError):
         return 0.0
-    return n if n == n else 0.0
 
 
-def common_sku(sku: str) -> str:
-    stem, sep, tail = sku.rpartition("_")
-    if sep and tail.isdigit() and stem.strip():
-        return stem.strip()
-    return sku.strip()
+def load_items(files: list[str]) -> dict[str, dict]:
+    by_sku: dict[str, dict] = {}
+    for name in files:
+        rows = load_json(AGENT / name)
+        for r in rows:
+            sku = (r.get("item_code") or "").strip()
+            if not sku:
+                continue
+            by_sku[sku] = r
+    return by_sku
 
 
-def merge_text(a, b) -> str:
+def load_bins(files: list[str]) -> list[dict]:
+    out: list[dict] = []
+    for name in files:
+        p = AGENT / name
+        if not p.exists():
+            continue
+        rows = load_json(p)
+        if isinstance(rows, list):
+            out.extend(rows)
+    return out
+
+
+def merge_priority(a: str | None, b: str | None) -> str:
     a = (a or "").strip()
     b = (b or "").strip()
     if a and b and a.lower() != b.lower():
@@ -124,28 +156,25 @@ def merge_text(a, b) -> str:
     return a or b
 
 
-def pick_positive(erp1: float, erp2: float) -> float:
+def merge_vat(a: str | None, b: str | None) -> str:
+    a = (a or "").strip()
+    b = (b or "").strip()
+    if a and b and a.lower() != b.lower():
+        return f"{a} / {b}"
+    return a or b
+
+
+def pick_rate(erp1: float, erp2: float) -> float:
+    """Prefer ERP1 when set; else ERP2."""
     if erp1 > 0:
         return erp1
     return erp2 if erp2 > 0 else 0.0
 
 
-def load_items(files: list[str]) -> dict[str, dict]:
-    by_sku: dict[str, dict] = {}
-    for name in files:
-        for row in load_json(AGENT / name):
-            sku = (row.get("item_code") or "").strip()
-            if sku:
-                by_sku[sku] = row
-    return by_sku
-
-
-def max_month_label(sales: dict[str, float]) -> tuple[float, str]:
-    pairs = [(label, sales.get(key, 0.0)) for _mk, key, _hdr, label in MONTHS]
-    peak = max(qty for _label, qty in pairs)
-    if peak <= 0:
-        return 0.0, ""
-    return peak, " / ".join(label for label, qty in pairs if qty == peak)
+def pick_purchase(erp1: float, erp2: float) -> float:
+    if erp1 > 0:
+        return erp1
+    return erp2 if erp2 > 0 else 0.0
 
 
 def main() -> None:
@@ -153,58 +182,85 @@ def main() -> None:
     erp2_items = load_items(ITEM_FILES["erp2"])
     print(f"ERP1 items: {len(erp1_items)}, ERP2 items: {len(erp2_items)}")
 
+    # stock[sku][company] = qty
     stock: dict[str, dict[str, float]] = {}
 
     def add_qty(sku: str, company: str, qty: float) -> None:
         if not sku or not company:
             return
-        bucket = stock.setdefault(sku, {})
-        bucket[company] = bucket.get(company, 0.0) + qty
+        stock.setdefault(sku, {})
+        stock[sku][company] = stock[sku].get(company, 0.0) + qty
 
-    for row in load_json(AGENT / ERP1_STOCK):
-        if not isinstance(row, dict):
-            continue
+    # ERP1 bins pages 0-2 + stock balance (covers all Cosmetics.lk warehouses)
+    for row in load_bins(ERP1_BIN_FILES):
         sku = (row.get("item_code") or "").strip()
-        if not sku:
+        wh = (row.get("warehouse") or "").strip()
+        company = WAREHOUSE_COMPANY.get(wh)
+        if not company:
             continue
-        add_qty(sku, "Cosmetics.lk", num(row.get("bal_qty")))
+        add_qty(sku, company, num(row.get("actual_qty")))
 
-    unknown: set[str] = set()
-    bin_rows = 0
-    for name in ERP2_BINS:
-        for row in load_json(AGENT / name):
-            bin_rows += 1
+    # ERP1 page 3 (SMB…ZGTS) — written beside script if present
+    p3 = Path(__file__).with_name("erp1-bins-page3.json")
+    if p3.exists():
+        for row in json.loads(p3.read_text(encoding="utf-8")):
             sku = (row.get("item_code") or "").strip()
-            warehouse = (row.get("warehouse") or "").strip()
-            company = WAREHOUSE_COMPANY.get(warehouse)
-            if not company:
-                unknown.add(warehouse)
+            wh = (row.get("warehouse") or "").strip()
+            company = WAREHOUSE_COMPANY.get(wh)
+            if company:
+                add_qty(sku, company, num(row.get("actual_qty")))
+    else:
+        # Rebuild Cosmetics.lk from Stock Balance (complete, no overlap issue if we
+        # zero Cosmetics.lk from partial bins first)
+        # Prefer stock balance as authoritative for Cosmetics.lk
+        stock_cosmo: dict[str, float] = {}
+        for row in load_json(AGENT / ERP1_STOCK_BALANCE):
+            if not isinstance(row, dict):
                 continue
-            add_qty(sku, company, num(row.get("actual_qty")))
-    print(f"ERP2 bin rows: {bin_rows}")
-    if unknown:
-        print("Unknown warehouses:", sorted(unknown))
-
-    sales: dict[str, dict[str, float]] = {}
-    sle_rows = 0
-    for name in ERP1_SLE + ERP2_SLE:
-        for row in load_json(AGENT / name):
-            sle_rows += 1
             sku = (row.get("item_code") or "").strip()
-            month = (row.get("posting_date") or "")[:7]
-            key = next((k for mk, k, _h, _l in MONTHS if mk == month), None)
-            if not sku or not key:
+            if not sku:
                 continue
-            bucket = sales.setdefault(sku, {})
-            bucket[key] = bucket.get(key, 0.0) + (-num(row.get("actual_qty")))
-    print(f"SLE rows: {sle_rows}, SKUs with sales: {len(sales)}")
+            stock_cosmo[sku] = stock_cosmo.get(sku, 0.0) + num(row.get("bal_qty"))
+        for sku, qty in stock_cosmo.items():
+            stock.setdefault(sku, {})
+            stock[sku]["Cosmetics.lk"] = qty
 
-    all_skus = sorted(set(erp1_items) | set(erp2_items) | set(stock) | set(sales), key=str.upper)
+    for row in load_bins(ERP2_BIN_FILES):
+        sku = (row.get("item_code") or "").strip()
+        wh = (row.get("warehouse") or "").strip()
+        company = WAREHOUSE_COMPANY.get(wh)
+        if not company:
+            print(f"WARN unknown warehouse: {wh}")
+            continue
+        add_qty(sku, company, num(row.get("actual_qty")))
+
+    # ERP2 last page was inline — load if saved
+    p8 = Path(__file__).with_name("erp2-bins-page8.json")
+    if p8.exists():
+        for row in json.loads(p8.read_text(encoding="utf-8-sig")):
+            sku = (row.get("item_code") or "").strip()
+            wh = (row.get("warehouse") or "").strip()
+            company = WAREHOUSE_COMPANY.get(wh)
+            if company:
+                add_qty(sku, company, num(row.get("actual_qty")))
+
+    sales_path = Path(__file__).with_name("sle-sales") / "sales-by-sku.json"
+    sales_by_sku: dict[str, dict] = {}
+    if sales_path.exists():
+        sales_by_sku = json.loads(sales_path.read_text(encoding="utf-8"))
+    print(f"Sales SKUs loaded: {len(sales_by_sku)}")
+
+    all_skus = sorted(
+        set(erp1_items) | set(erp2_items) | set(stock) | set(sales_by_sku),
+        key=lambda s: s.upper(),
+    )
     print(f"Unique SKUs: {len(all_skus)}")
 
     wb = Workbook()
+    # Whole-company sheet first (no per-company stock columns)
     ws = wb.active
     ws.title = "Whole Company"
+
     headers = [
         "Common SKU",
         "Variant SKU",
@@ -214,7 +270,9 @@ def main() -> None:
         "Standard Price",
         "Latest Purchased Price",
         "Total Qty",
-        *[header for _mk, _k, header, _label in MONTHS],
+        "Jul Sale",
+        "Aug Sale",
+        "Sep Sale",
         "Max Sale (3mo)",
         "Month of Max Sale",
         "Months Cover",
@@ -237,9 +295,9 @@ def main() -> None:
     qty_fmt = "#,##0.###"
     cover_fmt = "0.00"
 
-    def style_header(sheet, hdrs: list[str]) -> None:
-        for col, header in enumerate(hdrs, 1):
-            cell = sheet.cell(1, col, header)
+    def style_header(sheet, hdrs):
+        for col, h in enumerate(hdrs, 1):
+            cell = sheet.cell(1, col, h)
             cell.font = header_font
             cell.fill = header_fill
             cell.alignment = Alignment(wrap_text=True, horizontal="center", vertical="center")
@@ -248,61 +306,76 @@ def main() -> None:
         sheet.freeze_panes = "C2"
         sheet.auto_filter.ref = f"A1:{get_column_letter(len(hdrs))}1"
 
-    def identity(sku: str) -> tuple[str, str, str, float, float, bool, bool]:
-        item1 = erp1_items.get(sku)
-        item2 = erp2_items.get(sku)
-        source = item1 or item2 or {}
-        if item1 and item2:
-            desc = item1.get("item_name") or item2.get("item_name") or ""
-        else:
-            desc = source.get("item_name") or ""
-        return (
-            desc,
-            merge_text(
-                (item1 or {}).get("custom_product_priority"),
-                (item2 or {}).get("custom_product_priority"),
-            ),
-            merge_text(
-                (item1 or {}).get("custom_tax_status"),
-                (item2 or {}).get("custom_tax_status"),
-            ),
-            pick_positive(num((item1 or {}).get("standard_rate")), num((item2 or {}).get("standard_rate"))),
-            pick_positive(
-                num((item1 or {}).get("last_purchase_rate")),
-                num((item2 or {}).get("last_purchase_rate")),
-            ),
-            item1 is not None,
-            item2 is not None,
-        )
-
     style_header(ws, headers)
-    # H total qty, I-K months, L max, M month name, N months cover, O days, P amount
-    for index, sku in enumerate(all_skus):
-        row = index + 2
-        desc, priority, vat, standard, purchase, in1, in2 = identity(sku)
-        total_qty = sum(stock.get(sku, {}).get(company, 0.0) for company, _label in COMPANY_COLS)
-        month_qty = {key: float(sales.get(sku, {}).get(key, 0.0)) for _mk, key, _h, _l in MONTHS}
-        peak, peak_month = max_month_label(month_qty)
+
+    # Col map Whole Company (1-based):
+    # 1 Common 2 Variant 3 Desc 4 Priority 5 VAT 6 Std 7 Latest
+    # 8 Total Qty 9 Jul 10 Aug 11 Sep 12 Max 13 Months 14 Days 15 Amount 16 ERP1 17 ERP2
+    for i, sku in enumerate(all_skus):
+        row = i + 2
+        i1 = erp1_items.get(sku)
+        i2 = erp2_items.get(sku)
+        desc = ""
+        if i1 and i2:
+            desc = i1.get("item_name") or i2.get("item_name") or ""
+        else:
+            desc = (i1 or i2 or {}).get("item_name") or ""
+
+        priority = merge_priority(
+            (i1 or {}).get("custom_product_priority"),
+            (i2 or {}).get("custom_product_priority"),
+        )
+        vat = merge_vat(
+            (i1 or {}).get("custom_tax_status"),
+            (i2 or {}).get("custom_tax_status"),
+        )
+        std = pick_rate(num((i1 or {}).get("standard_rate")), num((i2 or {}).get("standard_rate")))
+        purchase = pick_purchase(
+            num((i1 or {}).get("last_purchase_rate")),
+            num((i2 or {}).get("last_purchase_rate")),
+        )
+        co_stock = stock.get(sku, {})
+        total_qty = sum(co_stock.get(c, 0.0) for c, _ in COMPANY_COLS)
+        s = sales_by_sku.get(sku, {})
+        jul = float(s.get("jul") or 0)
+        aug = float(s.get("aug") or 0)
+        sep = float(s.get("sep") or 0)
+        max_sale = float(s.get("max") or 0)
+        if max_sale <= 0:
+            max_sale = max(jul, aug, sep)
+        max_month = (s.get("max_month") or "").strip()
+        if not max_month and max_sale > 0:
+            tied = []
+            if jul == max_sale:
+                tied.append("Jul 2026")
+            if aug == max_sale:
+                tied.append("Aug 2026")
+            if sep == max_sale:
+                tied.append("Sep 2026")
+            max_month = " / ".join(tied)
+
         values = [
             common_sku(sku),
             sku,
             desc,
             priority,
             vat,
-            standard,
+            std,
             purchase,
             total_qty,
-            *[month_qty[key] for _mk, key, _h, _l in MONTHS],
-            peak,
-            peak_month,
-            None,
-            None,
-            None,
-            "Yes" if in1 else "No",
-            "Yes" if in2 else "No",
+            jul,
+            aug,
+            sep,
+            max_sale,
+            max_month,
+            None,  # Months Cover formula
+            None,  # Days Cover formula
+            None,  # Total Amount formula
+            "Yes" if i1 else "No",
+            "Yes" if i2 else "No",
         ]
-        for col, value in enumerate(values, 1):
-            cell = ws.cell(row, col, value)
+        for col, val in enumerate(values, 1):
+            cell = ws.cell(row, col, val)
             cell.font = body_font
             cell.border = thin
             if col in (6, 7, 16):
@@ -311,16 +384,24 @@ def main() -> None:
                 cell.number_format = qty_fmt
             elif col in (14, 15):
                 cell.number_format = cover_fmt
+
+        # Months Cover = Total Qty / Max Sale (col L)
         ws.cell(row, 14, f'=IF(L{row}=0,"",H{row}/L{row})')
-        ws.cell(row, 15, f'=IF(L{row}=0,"",H{row}*30/L{row})')
-        ws.cell(row, 16, f"=G{row}*H{row}")
-        for col in (14, 15, 16):
-            ws.cell(row, col).font = body_font
-            ws.cell(row, col).border = thin
+        ws.cell(row, 14).font = body_font
+        ws.cell(row, 14).border = thin
         ws.cell(row, 14).number_format = cover_fmt
+        # Days Cover = Total Qty * 30 / Max Sale
+        ws.cell(row, 15, f'=IF(L{row}=0,"",H{row}*30/L{row})')
+        ws.cell(row, 15).font = body_font
+        ws.cell(row, 15).border = thin
         ws.cell(row, 15).number_format = cover_fmt
+        # Total Amount = Latest Purchased Price * Total Qty
+        ws.cell(row, 16, f"=G{row}*H{row}")
+        ws.cell(row, 16).font = body_font
+        ws.cell(row, 16).border = thin
         ws.cell(row, 16).number_format = money_fmt
 
+    # Detail sheet with company stock columns
     detail = wb.create_sheet("By Company")
     detail_headers = [
         "Common SKU",
@@ -330,7 +411,7 @@ def main() -> None:
         "VAT Status",
         "Standard Price",
         "Latest Purchased Price",
-        *[label for _company, label in COMPANY_COLS],
+        *[label for _, label in COMPANY_COLS],
         "Total Qty",
         "Max Sale (3mo)",
         "Month of Max Sale",
@@ -340,84 +421,147 @@ def main() -> None:
     ]
     style_header(detail, detail_headers)
     first_co = 8
-    company_count = len(COMPANY_COLS)
-    total_qty_col = first_co + company_count
+    n_co = len(COMPANY_COLS)
+    total_qty_col = first_co + n_co
     max_col = total_qty_col + 1
-    months_col = max_col + 2
+    max_month_col = max_col + 1
+    months_col = max_month_col + 1
     days_col = months_col + 1
-    amount_col = days_col + 1
+    amt_col = days_col + 1
 
-    for index, sku in enumerate(all_skus):
-        row = index + 2
-        desc, priority, vat, standard, purchase, _in1, _in2 = identity(sku)
-        month_qty = {key: float(sales.get(sku, {}).get(key, 0.0)) for _mk, key, _h, _l in MONTHS}
-        peak, peak_month = max_month_label(month_qty)
-        values = [common_sku(sku), sku, desc, priority, vat, standard, purchase]
-        company_stock = stock.get(sku, {})
+    for i, sku in enumerate(all_skus):
+        row = i + 2
+        i1 = erp1_items.get(sku)
+        i2 = erp2_items.get(sku)
+        if i1 and i2:
+            desc = i1.get("item_name") or i2.get("item_name") or ""
+        else:
+            desc = (i1 or i2 or {}).get("item_name") or ""
+        s = sales_by_sku.get(sku, {})
+        jul = float(s.get("jul") or 0)
+        aug = float(s.get("aug") or 0)
+        sep = float(s.get("sep") or 0)
+        max_sale = float(s.get("max") or 0)
+        if max_sale <= 0:
+            max_sale = max(jul, aug, sep)
+        max_month = (s.get("max_month") or "").strip()
+        if not max_month and max_sale > 0:
+            tied = []
+            if jul == max_sale:
+                tied.append("Jul 2026")
+            if aug == max_sale:
+                tied.append("Aug 2026")
+            if sep == max_sale:
+                tied.append("Sep 2026")
+            max_month = " / ".join(tied)
+
+        values = [
+            common_sku(sku),
+            sku,
+            desc,
+            merge_priority(
+                (i1 or {}).get("custom_product_priority"),
+                (i2 or {}).get("custom_product_priority"),
+            ),
+            merge_vat(
+                (i1 or {}).get("custom_tax_status"),
+                (i2 or {}).get("custom_tax_status"),
+            ),
+            pick_rate(num((i1 or {}).get("standard_rate")), num((i2 or {}).get("standard_rate"))),
+            pick_purchase(
+                num((i1 or {}).get("last_purchase_rate")),
+                num((i2 or {}).get("last_purchase_rate")),
+            ),
+        ]
+        co_stock = stock.get(sku, {})
         for company, _label in COMPANY_COLS:
-            values.append(company_stock.get(company, 0.0))
-        values.extend([None, peak, peak_month, None, None, None])
-        for col, value in enumerate(values, 1):
-            cell = detail.cell(row, col, value)
+            values.append(co_stock.get(company, 0.0))
+        values.extend([None, max_sale, max_month, None, None, None])
+
+        for col, val in enumerate(values, 1):
+            cell = detail.cell(row, col, val)
             cell.font = body_font
             cell.border = thin
-            if col in (6, 7, amount_col):
+            if col in (6, 7, amt_col):
                 cell.number_format = money_fmt
             elif first_co <= col <= max_col:
                 cell.number_format = qty_fmt
             elif col in (months_col, days_col):
                 cell.number_format = cover_fmt
-        start = get_column_letter(first_co)
-        end = get_column_letter(first_co + company_count - 1)
-        total_letter = get_column_letter(total_qty_col)
-        max_letter = get_column_letter(max_col)
-        detail.cell(row, total_qty_col, f"=SUM({start}{row}:{end}{row})")
-        detail.cell(row, months_col, f'=IF({max_letter}{row}=0,"",{total_letter}{row}/{max_letter}{row})')
-        detail.cell(row, days_col, f'=IF({max_letter}{row}=0,"",{total_letter}{row}*30/{max_letter}{row})')
-        detail.cell(row, amount_col, f"=G{row}*{total_letter}{row}")
-        for col in (total_qty_col, months_col, days_col, amount_col):
-            detail.cell(row, col).font = body_font
-            detail.cell(row, col).border = thin
-        detail.cell(row, total_qty_col).number_format = qty_fmt
-        detail.cell(row, months_col).number_format = cover_fmt
-        detail.cell(row, days_col).number_format = cover_fmt
-        detail.cell(row, amount_col).number_format = money_fmt
 
-    notes = wb.create_sheet("Notes")
-    lines = [
-        "Cosmetics ERP1 + ERP2 item stock report — refreshed 2026-10-05",
+        start_l = get_column_letter(first_co)
+        end_l = get_column_letter(first_co + n_co - 1)
+        tq = get_column_letter(total_qty_col)
+        mx = get_column_letter(max_col)
+        detail.cell(row, total_qty_col, f"=SUM({start_l}{row}:{end_l}{row})")
+        detail.cell(row, total_qty_col).font = body_font
+        detail.cell(row, total_qty_col).border = thin
+        detail.cell(row, total_qty_col).number_format = qty_fmt
+        detail.cell(row, months_col, f'=IF({mx}{row}=0,"",{tq}{row}/{mx}{row})')
+        detail.cell(row, months_col).font = body_font
+        detail.cell(row, months_col).border = thin
+        detail.cell(row, months_col).number_format = cover_fmt
+        detail.cell(row, days_col, f'=IF({mx}{row}=0,"",{tq}{row}*30/{mx}{row})')
+        detail.cell(row, days_col).font = body_font
+        detail.cell(row, days_col).border = thin
+        detail.cell(row, days_col).number_format = cover_fmt
+        detail.cell(row, amt_col, f"=G{row}*{tq}{row}")
+        detail.cell(row, amt_col).font = body_font
+        detail.cell(row, amt_col).border = thin
+        detail.cell(row, amt_col).number_format = money_fmt
+
+    # Legend sheet
+    leg = wb.create_sheet("Notes")
+    notes = [
+        "Cosmetics ERP1 + ERP2 item stock report (whole company)",
         "Source: cosmetics-lk-01 (ERP1) + cosmetics-lk-02 (ERP2)",
         "Items: enabled stock items (disabled=0, is_stock_item=1)",
-        "Common SKU: stem before trailing _N (example ACN01_1 → ACN01)",
+        "Common SKU: stem before trailing _N (e.g. ACN01_1 → ACN01)",
+        "Variant SKU: Item.item_code",
         "Description: Item.item_name (ERP1 preferred)",
-        "Priority / VAT Status: ERP1 and ERP2 joined with / when they differ",
-        "Standard Price and Latest Purchased Price: ERP1 when > 0, else ERP2",
-        "Total Qty: Cosmetics.lk from Stock Balance bal_qty; other companies from Bin.actual_qty",
-        "Sales window: 2026-08-01 to 2026-10-05 (Aug, Sep, Oct month-to-date)",
-        "Oct Sale is 5 days only. Max Sale can understate a full October.",
-        "Sale qty: net Sales Invoice stock ledger (returns included) across ERP1 and ERP2",
-        "Max Sale (3mo): highest of Aug, Sep, Oct",
-        "Month of Max Sale: month or months that hit that peak",
-        "Months Cover: Total Qty / Max Sale. Blank when Max Sale is 0",
-        "Days Cover: Total Qty × 30 / Max Sale",
+        "Priority: custom_product_priority (ERP1 / ERP2 if both differ)",
+        "VAT Status: custom_tax_status (ERP1 / ERP2 if both differ)",
+        "Standard Price: Item.standard_rate (ERP1 if >0 else ERP2)",
+        "Latest Purchased Price: Item.last_purchase_rate (ERP1 if >0 else ERP2)",
+        "Total Qty: sum Bin.actual_qty across all companies (ERP1 Cosmetics.lk + ERP2 trading)",
+        "Jul/Aug/Sep Sale: net Sales Invoice SLE qty (ERP1+ERP2), returns netted",
+        "Window: 2026-07-01 to 2026-09-29 (last 3 months incl. MTD)",
+        "Max Sale (3mo): max(Jul, Aug, Sep) — peak monthly demand",
+        "Month of Max Sale: which month(s) hit that peak (ties joined with /)",
+        "Months Cover: Total Qty / Max Sale (blank if Max Sale = 0)",
+        "Days Cover: Total Qty × 30 / Max Sale (assumes 30-day month)",
         "Total Amount: Latest Purchased Price × Total Qty",
-        "By Company sheet keeps the same cover math with stock split by company",
-        f"Row count: {len(all_skus)}",
+        "Sheet 'By Company': same rows with per-company stock columns",
+        f"Generated row count: {len(all_skus)}",
     ]
-    for index, line in enumerate(lines, 1):
-        cell = notes.cell(index, 1, line)
-        cell.font = Font(name="Arial", size=11, bold=(index == 1))
+    for i, line in enumerate(notes, 1):
+        c = leg.cell(i, 1, line)
+        c.font = Font(name="Arial", size=11, bold=(i == 1))
 
     widths = {
-        "A": 14, "B": 16, "C": 48, "D": 18, "E": 16, "F": 14, "G": 18,
-        "H": 12, "I": 12, "J": 12, "K": 12, "L": 14, "M": 22, "N": 12, "O": 12, "P": 14,
+        "A": 14,
+        "B": 16,
+        "C": 48,
+        "D": 18,
+        "E": 16,
+        "F": 14,
+        "G": 18,
+        "H": 12,
+        "I": 10,
+        "J": 10,
+        "K": 10,
+        "L": 14,
+        "M": 18,
+        "N": 12,
+        "O": 12,
+        "P": 14,
     }
-    for letter, width in widths.items():
-        ws.column_dimensions[letter].width = width
-    for col in range(1, len(detail_headers) + 1):
-        detail.column_dimensions[get_column_letter(col)].width = 14 if col >= 8 else widths.get(get_column_letter(col), 14)
-    detail.column_dimensions["C"].width = 48
-    notes.column_dimensions["A"].width = 100
+    for letter, w in widths.items():
+        ws.column_dimensions[letter].width = w
+        detail.column_dimensions[letter].width = w
+    for col in range(8, len(detail_headers) + 1):
+        detail.column_dimensions[get_column_letter(col)].width = 12
+    leg.column_dimensions["A"].width = 90
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
     wb.save(OUT)

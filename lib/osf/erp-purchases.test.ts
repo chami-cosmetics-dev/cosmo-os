@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  accumulateBestPurchaseFromRows,
   accumulateLastPurchasesFromRows,
   accumulateMonthlyPurchasesFromRows,
   accumulateSupplierPurchasesFromRows,
@@ -8,8 +9,10 @@ import {
   isAllowedSupplier,
   isNoisePurchaseSupplier,
   isUsablePurchaseDoc,
+  mergeBestPurchaseMaps,
   mergeMonthlyPurchaseMaps,
   normalizeSupplierKey,
+  SKU_CALCULATOR_PURCHASE_SOURCE,
   type PurchaseRow,
 } from "@/lib/osf/erp-purchases";
 
@@ -321,6 +324,12 @@ describe("isNoisePurchaseSupplier", () => {
   });
 });
 
+describe("SKU_CALCULATOR_PURCHASE_SOURCE", () => {
+  it("uses invoices so Cosmo best-ever is not a stale priced receipt", () => {
+    expect(SKU_CALCULATOR_PURCHASE_SOURCE).toBe("invoice");
+  });
+});
+
 describe("accumulateSupplierPurchasesFromRows", () => {
   it("groups two suppliers with best-ever and last purchase", () => {
     const rows: PurchaseRow[] = [
@@ -520,6 +529,57 @@ describe("accumulateSupplierPurchasesFromRows", () => {
     expect(result.has("cash or 001")).toBe(false);
     expect(result.has("sync-test supplier")).toBe(false);
   });
+
+  it("ALT02_1 BeautyBee invoices: last and best-ever 6800, not July receipt 6950", () => {
+    const rows: PurchaseRow[] = [
+      {
+        name: "PI500-0124",
+        supplier: "OUT005",
+        supplier_name: "BeautyBee",
+        posting_date: "2026-09-23",
+        item_code: "ALT02_1",
+        qty: 4,
+        rate: 6800,
+        docstatus: 1,
+        status: "Overdue",
+        is_return: 0,
+      },
+      {
+        name: "PI900-0202",
+        supplier: "OUT005",
+        supplier_name: "BeautyBee",
+        posting_date: "2026-09-21",
+        item_code: "ALT02_1",
+        qty: 4,
+        rate: 6800,
+        docstatus: 1,
+        status: "Overdue",
+        is_return: 0,
+      },
+      {
+        name: "PI400-0026",
+        supplier: "OUT005",
+        supplier_name: "BeautyBee",
+        posting_date: "2026-08-07",
+        item_code: "ALT02_1",
+        qty: 2,
+        rate: 6950,
+        docstatus: 1,
+        status: "Paid",
+        is_return: 0,
+      },
+    ];
+    const result = accumulateSupplierPurchasesFromRows({
+      rows,
+      sku: "ALT02_1",
+      allowedSuppliers: [{ name: "BeautyBee", code: "OUT005" }],
+    });
+    const bee = result.get("beautybee")!;
+    expect(bee.lastRate).toBe(6800);
+    expect(bee.lastDate).toBe("2026-09-23");
+    expect(bee.bestEverRate).toBe(6800);
+    expect(bee.bestEverDate).toBe("2026-09-23");
+  });
 });
 
 describe("accumulateMonthlyPurchasesFromRows", () => {
@@ -602,6 +662,116 @@ describe("accumulateMonthlyPurchasesFromRows", () => {
     expect(merged.get("CAN07")).toEqual({
       "2026-04": { qty: 3, netValue: 30 },
       "2026-05": { qty: 1, netValue: 5 },
+    });
+  });
+});
+
+describe("accumulateBestPurchaseFromRows", () => {
+  const bounds = { start: "2026-07-01", end: "2026-09-25" };
+
+  it("picks lowest positive unit rate and its supplier inside the window", () => {
+    const rows: PurchaseRow[] = [
+      {
+        name: "PI-1",
+        supplier: "ACME",
+        supplier_name: "Acme",
+        posting_date: "2026-07-10",
+        item_code: "CAN07",
+        qty: 2,
+        rate: 50,
+        net_amount: 100,
+        docstatus: 1,
+        is_return: 0,
+      },
+      {
+        name: "PI-2",
+        supplier: "BETA",
+        supplier_name: "Beta Co",
+        posting_date: "2026-08-02",
+        item_code: "CAN07",
+        qty: 4,
+        rate: 40,
+        net_amount: 160,
+        docstatus: 1,
+        is_return: 0,
+      },
+      {
+        name: "PI-3",
+        supplier: "GAMMA",
+        supplier_name: "Gamma",
+        posting_date: "2026-06-30",
+        item_code: "CAN07",
+        qty: 1,
+        rate: 10,
+        net_amount: 10,
+        docstatus: 1,
+        is_return: 0,
+      },
+      {
+        name: "PI-4",
+        supplier: "DELTA",
+        supplier_name: "Delta",
+        posting_date: "2026-09-01",
+        item_code: "CAN07",
+        qty: 3,
+        rate: 0,
+        net_amount: 0,
+        docstatus: 1,
+        is_return: 0,
+      },
+    ];
+    const map = accumulateBestPurchaseFromRows({ rows, bounds });
+    expect(map.get("CAN07")).toEqual({ value: 40, supplier: "Beta Co", date: "2026-08-02" });
+  });
+
+  it("skips returns and ties on rate pick the newer date", () => {
+    const rows: PurchaseRow[] = [
+      {
+        name: "PI-R",
+        supplier: "ACME",
+        supplier_name: "Acme",
+        posting_date: "2026-09-01",
+        item_code: "CAN07",
+        qty: 1,
+        rate: 5,
+        net_amount: 5,
+        docstatus: 1,
+        is_return: 1,
+      },
+      {
+        name: "PI-OLD",
+        supplier: "ACME",
+        supplier_name: "Acme",
+        posting_date: "2026-07-01",
+        item_code: "CAN07",
+        qty: 1,
+        rate: 20,
+        net_amount: 20,
+        docstatus: 1,
+      },
+      {
+        name: "PI-NEW",
+        supplier: "BETA",
+        supplier_name: "Beta Co",
+        posting_date: "2026-09-10",
+        item_code: "CAN07",
+        qty: 1,
+        rate: 20,
+        net_amount: 20,
+        docstatus: 1,
+      },
+    ];
+    const map = accumulateBestPurchaseFromRows({ rows, bounds });
+    expect(map.get("CAN07")).toEqual({ value: 20, supplier: "Beta Co", date: "2026-09-10" });
+  });
+
+  it("merges best purchase across ERP instances by lowest rate", () => {
+    const a = new Map([["CAN07", { value: 45, supplier: "Acme", date: "2026-08-01" }]]);
+    const b = new Map([["CAN07", { value: 30, supplier: "Beta Co", date: "2026-07-15" }]]);
+    expect(mergeBestPurchaseMaps([a, b]).get("CAN07")).toEqual({
+      value: 30,
+      supplier: "Beta Co",
+      date: "2026-07-15",
     });
   });
 });

@@ -1530,7 +1530,9 @@ export async function PATCH(
       // Shopify after ERP — fatal; if this fails we don't mark as voided.
       // ERP-native orders use an "erp-" prefixed shopifyOrderId and have no real Shopify order — skip.
       if (isRealShopifyOrderId(order.shopifyOrderId) && location?.shopifyAdminStoreHandle) {
-        await cancelShopifyOrder(order.shopifyOrderId!, location.shopifyAdminStoreHandle);
+        await cancelShopifyOrder(order.shopifyOrderId!, location.shopifyAdminStoreHandle, {
+          notifyCustomer: cancelKind !== "replacement",
+        });
         console.log(`[Cancel] Shopify order ${order.shopifyOrderId} cancelled`);
       } else {
         console.warn(`[Cancel] Skipping Shopify cancel for order ${order.id} (ERP-native or no store handle)`);

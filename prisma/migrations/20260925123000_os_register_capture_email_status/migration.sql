@@ -1,0 +1,4 @@
+ALTER TABLE "OsRegistrationCapture"
+  ADD COLUMN IF NOT EXISTS "emailStatus" TEXT,
+  ADD COLUMN IF NOT EXISTS "emailError" TEXT,
+  ADD COLUMN IF NOT EXISTS "emailSentAt" TIMESTAMP(3);

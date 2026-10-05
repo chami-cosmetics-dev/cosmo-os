@@ -92,6 +92,8 @@ export async function GET(request: NextRequest) {
         source: row.source,
         outcome: row.outcome,
         createdAt: row.createdAt,
+        mailStatus: row.emailStatus as "sent" | "skipped" | "failed" | null,
+        mailError: row.emailError,
       }),
     ),
     historyDays: historyGroups.map((g) => ({

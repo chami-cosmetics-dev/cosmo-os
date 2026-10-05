@@ -55,6 +55,9 @@ Workbook history row. One per successful save.
 | `captureDate` | DateTime | Colombo calendar day of save. |
 | `source` | String | `staff` \| `portal` |
 | `outcome` | String | `created` \| `already_registered` \| `updated` |
+| `emailStatus` | String? | `sent` \| `skipped` \| `failed` after auto/manual welcome mail. |
+| `emailError` | String? | Skip reason or Maileroo error. |
+| `emailSentAt` | DateTime? | Set when status is `sent`. |
 | `actorUserId` | String? | Staff user; null on portal. |
 | `createdAt` | DateTime | |
 

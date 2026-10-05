@@ -139,6 +139,8 @@ export type UnifiedInvoiceRowDto = {
   discountCouponCode: string | null;
   /** Merchant tracking coupon (e.g. MER91), if any. */
   merchantCouponCode: string | null;
+  /** Merchant who placed / owned the sale (Adapt KnownName or Cosmo assigned merchant). */
+  merchantName: string | null;
   lineItems: InvoiceLineDto[];
 };
 

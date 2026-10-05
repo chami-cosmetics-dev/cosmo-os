@@ -6,6 +6,10 @@ import {
   type OsfErpCredentials,
 } from "@/lib/osf/erp-stock";
 
+function skuKey(value: string): string {
+  return value.trim().toUpperCase();
+}
+
 export type ItemCostSupplier = {
   cost: number | null;
   supplier: string | null;
@@ -64,6 +68,59 @@ export async function fetchLatestCostAndSupplier(input: {
     }
   }
 
+  return result;
+}
+
+/** Item.country_of_origin only — Cosmo list API rejects custom_country_claim_type. */
+export async function fetchItemCountries(input: {
+  instances: Array<{ cfg: OsfErpCredentials }>;
+  itemCodes: string[];
+}): Promise<Map<string, string>> {
+  const result = new Map<string, string>();
+  const items = [...new Set(input.itemCodes.map((s) => s.trim()).filter(Boolean))];
+  if (items.length === 0 || input.instances.length === 0) return result;
+
+  for (const inst of input.instances) {
+    const missing = items.filter(
+      (code) => !result.has(code) && !result.has(skuKey(code)),
+    );
+    if (missing.length === 0) break;
+    try {
+      for (let i = 0; i < missing.length; i += ITEM_BATCH) {
+        const batch = missing.slice(i, i + ITEM_BATCH);
+        const filters = JSON.stringify([["name", "in", batch]]);
+        const fields = JSON.stringify(["name", "item_code", "country_of_origin"]);
+        const path =
+          `/api/resource/Item?filters=${encodeURIComponent(filters)}` +
+          `&fields=${encodeURIComponent(fields)}&limit_page_length=${ITEM_BATCH}`;
+        const json = await erpGetJson<{
+          data?: Array<{
+            name?: string;
+            item_code?: string;
+            country_of_origin?: string | null;
+          }>;
+        }>(inst.cfg, path);
+        for (const row of json.data ?? []) {
+          const country = row.country_of_origin?.trim() || "";
+          if (!country) continue;
+          for (const key of [row.name, row.item_code]) {
+            const code = key?.trim();
+            if (!code) continue;
+            if (!result.has(code)) result.set(code, country);
+            const norm = skuKey(code);
+            if (norm && !result.has(norm)) result.set(norm, country);
+          }
+        }
+      }
+    } catch (err) {
+      if (!(err instanceof OsfErpError)) throw err;
+    }
+  }
+  for (const code of items) {
+    if (result.has(code)) continue;
+    const hit = result.get(skuKey(code));
+    if (hit) result.set(code, hit);
+  }
   return result;
 }
 

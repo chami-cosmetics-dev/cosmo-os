@@ -8,7 +8,7 @@ import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
 import { prisma } from "@/lib/prisma";
 import { eligibleMerchantUserWhere } from "@/lib/merchant-eligibility";
 import { cuidSchema, orderPaymentGatewayFilterSchema, type OrderStatusFilter } from "@/lib/validation";
-import { DELIVERY_PAYMENT_APPROVAL, DELIVERY_PAYMENT_FINANCE_UI_ENABLED, FINANCE_PENDING_FULFILLMENT_EXCLUSION, FINANCE_PENDING_SPLIT_PAYMENT_QUEUE, ORDER_PAYMENT_APPROVAL, PAYMENT_METHOD_CHANGE_APPROVAL } from "@/lib/approval-workflow";
+import { DELIVERY_PAYMENT_APPROVAL, DELIVERY_PAYMENT_FINANCE_UI_ENABLED, FINANCE_PENDING_FULFILLMENT_EXCLUSION, FINANCE_PENDING_SPLIT_PAYMENT_QUEUE, ORDER_PAYMENT_APPROVAL, PAYMENT_METHOD_CHANGE_APPROVAL, reconcilePendingOrderPaymentApprovalsForCardOnDelivery } from "@/lib/approval-workflow";
 import { maybeLogSlowDbRequest } from "@/lib/dbObservability";
 import { resolveStoredOrderCustomerName, enrichErpOrderCustomerNames } from "@/lib/erpnext-customer-display-name";
 import { isValidCustomerDisplayName } from "@/lib/reports/csv";
@@ -162,6 +162,8 @@ const getOrdersPageLookups = unstable_cache(
 
 export async function fetchOrdersPageData(companyId: string, params: OrdersPageParams = {}) {
   const startedAt = Date.now();
+  // Unblock Card on Delivery stuck behind legacy intake ORDER_PAYMENT finance.
+  await reconcilePendingOrderPaymentApprovalsForCardOnDelivery(companyId);
   const gatewayColumns = await getOrderPaymentGatewayColumnState();
   const page = params.page ?? 1;
   const limit = params.limit ?? 10;

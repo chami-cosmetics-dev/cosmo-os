@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Loader2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -83,6 +84,17 @@ function outcomeLabel(outcome: string) {
   return "created";
 }
 
+function mailStatusLabel(row: RegisterCaptureRow) {
+  if (row.mailStatus === "sent") return "Sent";
+  if (row.mailStatus === "failed") return "Failed";
+  if (row.mailStatus === "skipped") {
+    if (row.mailError === "no_email") return "No email";
+    if (row.mailError === "no_template") return "Template empty";
+    return "Not sent";
+  }
+  return "Not sent";
+}
+
 export function RegisterUsersWorkbook() {
   const today = useMemo(() => formatAppIsoDate(new Date()), []);
   const [header, setHeader] = useState<HeaderState>({
@@ -109,6 +121,8 @@ export function RegisterUsersWorkbook() {
     photoUrl: null,
   });
   const [photoBusy, setPhotoBusy] = useState(false);
+  const [resendId, setResendId] = useState<string | null>(null);
+  const photoInputRef = useRef<HTMLInputElement>(null);
 
   const headerReady =
     header.location.trim().length > 0 &&
@@ -252,6 +266,19 @@ export function RegisterUsersWorkbook() {
         return;
       }
       notify.success(`Saved: ${outcomeLabel(data.outcome)}`);
+      if (data.email?.status === "sent") {
+        notify.success("Welcome email sent.");
+      } else if (data.email?.status === "skipped" && data.email.reason === "no_email") {
+        notify.info("Saved. No email on this contact — mail skipped.");
+      } else if (data.email?.status === "skipped") {
+        notify.info("Saved. Email template empty — mail skipped.");
+      } else if (data.email?.status === "failed") {
+        notify.error(
+          typeof data.email.error === "string"
+            ? data.email.error
+            : "Welcome email failed.",
+        );
+      }
       setName("");
       setPhone("");
       setEmail("");
@@ -369,6 +396,30 @@ export function RegisterUsersWorkbook() {
     }
   }
 
+  async function resendWelcomeEmail(row: RegisterCaptureRow) {
+    setResendId(row.id);
+    try {
+      const res = await fetch("/api/admin/register-users/resend-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ captureId: row.id }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        notify.error(
+          typeof data.error === "string" ? data.error : "Resend failed.",
+        );
+        return;
+      }
+      notify.success("Welcome email sent.");
+      await loadPageData(historyDay);
+    } catch (err) {
+      notify.error(err instanceof Error ? err.message : "Resend failed.");
+    } finally {
+      setResendId(null);
+    }
+  }
+
   const rows = pageData?.rows ?? [];
 
   return (
@@ -455,7 +506,7 @@ export function RegisterUsersWorkbook() {
           <CardDescription>
             Saved on the server. Everyone who registers today with an email
             gets this. Edit anytime — later saves use the new header, body, and
-            photo. Use {"{{name}}"} for the customer name.
+            photo. Use {"{{name}}"} or [Name] — send fills the registrant name.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -466,7 +517,7 @@ export function RegisterUsersWorkbook() {
               onChange={(e) =>
                 setEmailTpl((prev) => ({ ...prev, header: e.target.value }))
               }
-              placeholder="Welcome, {{name}}"
+              placeholder="Hi [Name]"
               disabled={busy}
             />
           </label>
@@ -492,16 +543,33 @@ export function RegisterUsersWorkbook() {
                 className="max-h-40 rounded-md border"
               />
             ) : null}
-            <Input
+            <input
+              ref={photoInputRef}
               type="file"
-              accept="image/jpeg,image/png,image/webp,image/gif"
-              disabled={busy || photoBusy}
+              accept=".jpg,.jpeg,.png,.webp,.gif,image/*"
+              className="hidden"
+              disabled={photoBusy}
               onChange={(e) => {
                 const file = e.target.files?.[0];
                 e.target.value = "";
                 if (file) void uploadEmailPhoto(file);
               }}
             />
+            <Button
+              type="button"
+              variant="outline"
+              disabled={busy || photoBusy}
+              onClick={() => photoInputRef.current?.click()}
+            >
+              {photoBusy ? (
+                <>
+                  <Loader2 className="animate-spin" aria-hidden />
+                  Uploading…
+                </>
+              ) : (
+                "Choose photo"
+              )}
+            </Button>
             <p className="text-muted-foreground text-xs">
               JPG, PNG, WEBP, or GIF. Max 5MB.
             </p>
@@ -639,7 +707,9 @@ export function RegisterUsersWorkbook() {
                     <th className="py-2 pr-3">Location</th>
                     <th className="py-2 pr-3">Badge</th>
                     <th className="py-2 pr-3">Outcome</th>
-                    <th className="py-2">Source</th>
+                    <th className="py-2 pr-3">Source</th>
+                    <th className="py-2 pr-3">Auto mail</th>
+                    <th className="py-2">Mail</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -653,7 +723,33 @@ export function RegisterUsersWorkbook() {
                         {row.badgeStart}–{row.badgeEnd}
                       </td>
                       <td className="py-2 pr-3">{outcomeLabel(row.outcome)}</td>
-                      <td className="py-2">{row.source}</td>
+                      <td className="py-2 pr-3">{row.source}</td>
+                      <td
+                        className="py-2 pr-3"
+                        title={row.mailError ?? undefined}
+                      >
+                        {mailStatusLabel(row)}
+                      </td>
+                      <td className="py-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          disabled={busy || resendId != null || !row.email}
+                          onClick={() => void resendWelcomeEmail(row)}
+                        >
+                          {resendId === row.id ? (
+                            <>
+                              <Loader2 className="animate-spin" aria-hidden />
+                              Sending…
+                            </>
+                          ) : row.mailStatus === "sent" ? (
+                            "Resend mail"
+                          ) : (
+                            "Send mail"
+                          )}
+                        </Button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>

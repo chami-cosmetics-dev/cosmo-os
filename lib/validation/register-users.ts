@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { LIMITS, emailSchema, trimmedString } from "@/lib/validation";
+import { LIMITS, cuidSchema, emailSchema, trimmedString } from "@/lib/validation";
 
 const isoDate = z
   .string()
@@ -110,6 +110,10 @@ export const registerUsersLookupQuerySchema = z.object({
 
 export const registerUsersPageDataQuerySchema = z.object({
   day: isoDate.optional(),
+});
+
+export const registerUsersResendEmailBodySchema = z.object({
+  captureId: cuidSchema,
 });
 
 export const registerUsersEmailTemplateBodySchema = z.object({

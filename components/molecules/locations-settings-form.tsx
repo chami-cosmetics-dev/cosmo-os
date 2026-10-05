@@ -62,6 +62,7 @@ type Location = {
   manualInvoicePrefix?: string | null;
   manualInvoiceNextSeq?: number;
   manualInvoiceSeqPadding?: number;
+  supplierPrefix?: string | null;
   erpnextCompany?: string | null;
   erpnextWarehouse?: string | null;
   erpnextInstanceId?: string | null;
@@ -102,6 +103,7 @@ const emptyForm = (): LocationForm => ({
   defaultOrderPrintFormatId: null,
   manualInvoicePrefix: "",
   manualInvoiceSeqPadding: 3,
+  supplierPrefix: "",
   erpnextCompany: "",
   erpnextWarehouse: "",
   erpnextInstanceId: null,
@@ -314,6 +316,7 @@ export function LocationsSettingsForm({
       defaultOrderPrintFormatId: loc.defaultOrderPrintFormatId ?? null,
       manualInvoicePrefix: loc.manualInvoicePrefix ?? "",
       manualInvoiceSeqPadding: loc.manualInvoiceSeqPadding ?? 3,
+      supplierPrefix: loc.supplierPrefix ?? "",
       erpnextCompany: loc.erpnextCompany ?? "",
       erpnextWarehouse: loc.erpnextWarehouse ?? "",
       erpnextInstanceId: loc.erpnextInstanceId ?? null,
@@ -431,6 +434,7 @@ export function LocationsSettingsForm({
           (form.defaultOrderPrintFormatId ?? null) !== (editingLocation.defaultOrderPrintFormatId ?? null) ||
           (form.manualInvoicePrefix?.trim() ?? "") !== (editingLocation.manualInvoicePrefix ?? "").trim() ||
           (form.manualInvoiceSeqPadding ?? 3) !== (editingLocation.manualInvoiceSeqPadding ?? 3) ||
+          (form.supplierPrefix?.trim() ?? "") !== (editingLocation.supplierPrefix ?? "").trim() ||
           (form.erpnextCompany?.trim() ?? "") !== (editingLocation.erpnextCompany ?? "").trim() ||
           (form.erpnextWarehouse?.trim() ?? "") !== (editingLocation.erpnextWarehouse ?? "").trim() ||
           (form.erpnextInstanceId ?? null) !== (editingLocation.erpnextInstanceId ?? null) ||
@@ -469,6 +473,7 @@ export function LocationsSettingsForm({
             ? null
             : form.manualInvoicePrefix?.trim(),
         manualInvoiceSeqPadding: form.manualInvoiceSeqPadding ?? 3,
+        supplierPrefix: form.supplierPrefix?.trim() || null,
         erpnextCompany: form.erpnextCompany?.trim() || null,
         erpnextWarehouse: form.erpnextWarehouse?.trim() || null,
         erpnextInstanceId: form.erpnextInstanceId ?? null,
@@ -570,6 +575,7 @@ export function LocationsSettingsForm({
           ? null
           : form.manualInvoicePrefix?.trim(),
       manualInvoiceSeqPadding: form.manualInvoiceSeqPadding ?? 3,
+      supplierPrefix: form.supplierPrefix?.trim() || null,
       erpnextCompany: form.erpnextCompany?.trim() || null,
       erpnextWarehouse: form.erpnextWarehouse?.trim() || null,
       erpnextInstanceId: form.erpnextInstanceId ?? null,
@@ -1386,6 +1392,15 @@ export function LocationsSettingsForm({
                 }
                 disabled={isBusy}
                 maxLength={140}
+              />
+              <Input
+                placeholder="Supplier prefix for GRN matching (e.g. OUT600)"
+                value={form.supplierPrefix ?? ""}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, supplierPrefix: e.target.value }))
+                }
+                disabled={isBusy}
+                maxLength={80}
               />
               <Input
                 placeholder="ERPNext warehouse (e.g. Main Warehouse - SV1)"

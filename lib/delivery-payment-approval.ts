@@ -143,7 +143,7 @@ export async function resolvePostDeliveryInvoiceComplete(input: {
   }
 
   const earlyFinanceUserId = await getApprovedOrderPaymentReviewerId(order.id);
-  // Card-on-delivery intake finance is approved but stays unpaid — still need door collection.
+  // Prepaid intake finance paid — close. Card on Delivery stays unpaid until delivery payment approve.
   if (earlyFinanceUserId && order.financialStatus?.toLowerCase() === "paid") {
     return { kind: "close_invoice_complete", financeUserId: earlyFinanceUserId };
   }
@@ -263,7 +263,7 @@ export async function triggerDeliveryPaymentApprovalIfNeeded(input: {
   // KOKO / bank / other prepaid: use Order Payment approval, never Delivery Collection.
   if (shouldSkipDeliveryPaymentApproval(order)) return null;
 
-  // Prepaid order-payment finance covers the same confirmation. Card on Delivery still needs door collection.
+  // Prepaid order-payment finance covers the same confirmation. Card on Delivery always needs door collection.
   if (order.approvalRequests.length > 0 && !orderHasCardOnDeliveryGateway(order)) return null;
 
   const invoiceLabel = order.name ?? order.orderNumber ?? order.shopifyOrderId;

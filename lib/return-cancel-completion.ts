@@ -75,6 +75,7 @@ export type ReturnCancelCompletionOrder = {
   erpnextInvoiceId: string | null;
   erpReturnSalesInvoiceIds: string[];
   cancelReason: string | null;
+  cancelKind?: "customer_cancel" | "replacement" | null;
 };
 
 export type ReturnCancelCompletionDeps = {
@@ -108,7 +109,9 @@ async function cancelShopifyForReturn(
     return "not_applicable";
   }
   try {
-    await deps.cancelShopifyOrder(order.shopifyOrderId!, shopifyAdminStoreHandle.trim());
+    await deps.cancelShopifyOrder(order.shopifyOrderId!, shopifyAdminStoreHandle.trim(), {
+      notifyCustomer: order.cancelKind !== "replacement",
+    });
     return "cancelled";
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
