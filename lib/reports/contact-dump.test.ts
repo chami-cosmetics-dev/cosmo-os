@@ -5,8 +5,10 @@ import {
   CONTACT_DUMP_HEADERS,
   buildContactDumpCsv,
   buildContactDumpRow,
+  contactDumpListWhere,
   type ContactDumpSource,
 } from "@/lib/reports/contact-dump";
+import { shouldExcludeOsRegistrationFromDump } from "@/lib/register-users/dump-exclude";
 import {
   buildLastPurchasedDumpCsv,
   buildLoyaltyDumpCsv,
@@ -182,6 +184,28 @@ describe("contact list dumps", () => {
     expect(csv).toContain("gold");
     expect(csv).toContain("assigned");
     expect(csv).toContain("Dinuli");
+  });
+});
+
+describe("OS registration dump exclude", () => {
+  it("omits OS-created no-purchase contacts and keeps buyers", () => {
+    expect(
+      shouldExcludeOsRegistrationFromDump({
+        osRegistrationCreated: true,
+        lastPurchaseAt: null,
+        purchaseOrderCount: 0,
+      }),
+    ).toBe(true);
+    expect(
+      shouldExcludeOsRegistrationFromDump({
+        osRegistrationCreated: true,
+        lastPurchaseAt: new Date("2026-09-24T10:00:00.000Z"),
+        purchaseOrderCount: 1,
+      }),
+    ).toBe(false);
+    expect(contactDumpListWhere("co1")).toMatchObject({
+      companyId: "co1",
+    });
   });
 });
 

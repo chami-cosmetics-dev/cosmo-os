@@ -5,6 +5,7 @@ import {
   listCallQueueCandidates,
   type CallQueueAssignFilters,
 } from "@/lib/customer-insight/call-queue";
+import { loyaltyOutreachStageLabel } from "@/lib/customer-insight/loyalty-outreach";
 import { prisma } from "@/lib/prisma";
 import { formatAppIsoDate } from "@/lib/format-datetime";
 
@@ -59,6 +60,7 @@ export async function buildCallQueueAssignmentsWorkbook(input: {
           name: true,
           phoneNumber: true,
           category: true,
+          loyaltyOutreachStatus: true,
           phones: { select: { phoneNumber: true } },
         },
       },
@@ -72,6 +74,7 @@ export async function buildCallQueueAssignmentsWorkbook(input: {
     "Assigned at": "",
     "Queue status": "",
     Category: "",
+    "Loyalty stage": "",
     "Completed at": "",
     Assigner: "",
   };
@@ -90,6 +93,9 @@ export async function buildCallQueueAssignmentsWorkbook(input: {
             "Assigned at": row.assignedAt.toISOString(),
             "Queue status": row.status,
             Category: row.contact.category ?? "",
+            "Loyalty stage": loyaltyOutreachStageLabel(
+              row.contact.loyaltyOutreachStatus
+            ),
             "Completed at": row.completedAt?.toISOString() ?? "",
             Assigner: row.assignedBy?.name || row.assignedBy?.email || "",
           };
@@ -129,6 +135,7 @@ export async function buildCallQueueFilteredContactsWorkbook(input: {
     assignedFrom: input.assignedFrom,
     assignedTo: input.assignedTo,
     notContacted: input.notContacted,
+    notInterestedInLoyalty: input.notInterestedInLoyalty,
     brands: input.brands,
     brand: input.brand,
     hideFilter: input.hideFilter ?? "all",
@@ -153,6 +160,7 @@ export async function buildCallQueueFilteredContactsWorkbook(input: {
       assignedFrom: input.assignedFrom,
       assignedTo: input.assignedTo,
       notContacted: input.notContacted,
+      notInterestedInLoyalty: input.notInterestedInLoyalty,
       brands: input.brands,
       brand: input.brand,
       hideFilter: input.hideFilter ?? "all",
@@ -167,6 +175,7 @@ export async function buildCallQueueFilteredContactsWorkbook(input: {
     "Lifetime total": "",
     "Last purchase": "",
     "Last contacted": "",
+    "Loyalty stage": "",
     Queued: "",
     Hidden: "",
     "Hide reason": "",
@@ -181,6 +190,7 @@ export async function buildCallQueueFilteredContactsWorkbook(input: {
           "Lifetime total": row.lifetimeTotal,
           "Last purchase": row.lastPurchaseAt ?? "",
           "Last contacted": row.lastContactedAt ?? "",
+          "Loyalty stage": row.loyaltyStage ?? "",
           Queued: row.queued ? "yes" : "no",
           Hidden: row.hidden ? "yes" : "no",
           "Hide reason": row.hideReason ?? "",

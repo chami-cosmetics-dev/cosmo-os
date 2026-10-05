@@ -169,7 +169,7 @@ export async function POST(request: NextRequest) {
       phoneNumber: data.mobile_no,
       name: displayName,
       recentMerchant,
-      // Allocation is applied below only when this is a genuinely new contact.
+      // Allocation is applied below when still unallocated (created/enriched/unchanged).
       assignedMerchantMer: null,
       auditBehavior: "summary_only",
     });

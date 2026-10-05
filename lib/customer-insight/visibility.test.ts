@@ -30,6 +30,7 @@ const sampleOwner: CustomerInsightDto = {
     assignedMerchant: "Dinuli",
     category: "Interested",
     lastPurchaseAt: "2026-01-15T00:00:00.000Z",
+    osRegBadge: { location: "Kandy" },
     removedEmails: [],
   },
   frequency: {
@@ -107,6 +108,7 @@ describe("toLimitedInsightDto", () => {
       assignedMerchant: "Dinuli",
       category: null,
       lastPurchaseAt: null,
+      osRegBadge: { location: "Kandy" },
     });
     expect(limited.progressBar).toBeUndefined();
     expect(limited.series).toBeUndefined();

@@ -37,6 +37,7 @@ type OrderPaymentInferLike = {
   financialStatus?: string | null;
   paymentGatewayPrimary?: string | null;
   paymentGatewayNames?: string[] | null;
+  collectCashAmount?: number | null;
 };
 
 /**
@@ -68,12 +69,17 @@ export function resolveRiderOpsPaymentDisplay(input: {
     };
   }
 
-  const orderTotal = toMoney(input.order.totalPrice);
-  const method = inferExpectedPaymentMethod({
-    financialStatus: input.order.financialStatus ?? null,
-    paymentGatewayPrimary: input.order.paymentGatewayPrimary ?? null,
-    paymentGatewayNames: input.order.paymentGatewayNames ?? [],
-  });
+  const cashDue = input.order.collectCashAmount;
+  const orderTotal =
+    cashDue != null && cashDue > 0 ? cashDue.toFixed(2) : toMoney(input.order.totalPrice);
+  const method =
+    cashDue != null && cashDue > 0
+      ? "cod"
+      : inferExpectedPaymentMethod({
+          financialStatus: input.order.financialStatus ?? null,
+          paymentGatewayPrimary: input.order.paymentGatewayPrimary ?? null,
+          paymentGatewayNames: input.order.paymentGatewayNames ?? [],
+        });
 
   return {
     expectedAmount: orderTotal,

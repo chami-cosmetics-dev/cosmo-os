@@ -1,4 +1,5 @@
 import { cityForDisplay } from "@/lib/customer-insight/city";
+import { osRegBadgeDto } from "@/lib/register-users/badge";
 import { buildLoyaltyDto } from "@/lib/customer-insight/loyalty-tier";
 import { buildProgressBarDto } from "@/lib/customer-insight/progress-bar";
 import { pendingLoyaltySuggestion } from "@/lib/customer-insight/loyalty-outreach";
@@ -34,6 +35,9 @@ export function serializeContactInsight(input: {
   assignedMerchant?: string | null;
   category?: string | null;
   lastPurchaseAt?: Date | string | null;
+  osRegLocation?: string | null;
+  osRegBadgeStart?: Date | string | null;
+  osRegBadgeEnd?: Date | string | null;
   removedEmails?: Array<{
     email: string;
     reason: string;
@@ -61,6 +65,19 @@ export function serializeContactInsight(input: {
         : typeof input.lastPurchaseAt === "string" && input.lastPurchaseAt
           ? input.lastPurchaseAt
           : null,
+    osRegBadge: osRegBadgeDto(
+      input.osRegLocation,
+      input.osRegBadgeStart instanceof Date
+        ? input.osRegBadgeStart
+        : input.osRegBadgeStart
+          ? new Date(input.osRegBadgeStart)
+          : null,
+      input.osRegBadgeEnd instanceof Date
+        ? input.osRegBadgeEnd
+        : input.osRegBadgeEnd
+          ? new Date(input.osRegBadgeEnd)
+          : null,
+    ),
     removedEmails: (input.removedEmails ?? [])
       .map((row): ContactRemovedEmailDto | null => {
         if (row.reason !== "cosmetics_pattern" && row.reason !== "invalid") {

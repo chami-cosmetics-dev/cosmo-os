@@ -25,7 +25,7 @@ describe("requiresKokoApprovalReference", () => {
     ).toBe(true);
   });
 
-  it("requires a reference for a split plan even when Bank Transfer is primary", () => {
+  it("requires a reference for a KOKO split even when Bank Transfer is primary", () => {
     expect(
       requiresKokoApprovalReference({
         type: "order_payment_approval",
@@ -35,6 +35,18 @@ describe("requiresKokoApprovalReference", () => {
           "Split Payment — amount: LKR 7750.00\nKOKO: LKR 3000.00\nBank Transfer: LKR 4750.00",
       }),
     ).toBe(true);
+  });
+
+  it("does not require a KOKO reference for Bank Transfer + Cash splits", () => {
+    expect(
+      requiresKokoApprovalReference({
+        type: "order_payment_approval",
+        paymentGatewayPrimary: "KOKO",
+        paymentGatewayNames: [],
+        requestNote:
+          "Split Payment — amount: LKR 7750.00\nBank Transfer: LKR 5000.00\nCash: LKR 2750.00",
+      }),
+    ).toBe(false);
   });
 
   it("uses gateway names only when the primary gateway is missing", () => {

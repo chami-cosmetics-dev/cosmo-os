@@ -6,6 +6,7 @@ import { resolveMobileSpecialDelivery } from "@/lib/mobile/special-delivery";
 import { mobileDeliveryStatusFilterSchema } from "@/lib/mobile/validation";
 import { incentiveForOrder, loadRiderIncentiveContext } from "@/lib/rider-incentive-resolve";
 import { prisma } from "@/lib/prisma";
+import { loadSplitCashCollectByOrderIds } from "@/lib/order-split-payment";
 
 export async function GET(request: NextRequest) {
   const auth = await requireRiderMobileSession(request);
@@ -103,6 +104,8 @@ export async function GET(request: NextRequest) {
     loadRiderIncentiveContext(),
   ]);
 
+  const cashByOrder = await loadSplitCashCollectByOrderIds(tasks.map((task) => task.order.id));
+
   return NextResponse.json({
     deliveries: tasks.map((task) =>
       toMobileDeliveryDto({
@@ -120,6 +123,7 @@ export async function GET(request: NextRequest) {
           incentiveContext.zoneMembersByZone,
           task.manualIncentiveLabelKey
         ).toFixed(2),
+        collectCashAmount: cashByOrder.get(task.order.id) ?? null,
       })
     ),
   });

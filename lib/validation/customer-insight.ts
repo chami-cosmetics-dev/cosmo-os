@@ -173,6 +173,11 @@ const optionalIsoDate = z.preprocess(
     .optional()
 );
 
+const optionalBoolQuery = z
+  .union([z.literal("true"), z.literal("1"), z.literal("false"), z.literal("0")])
+  .optional()
+  .transform((v) => (v == null ? undefined : v === "true" || v === "1"));
+
 const customerInsightFilterFieldsSchema = z.object({
   brand: insightFilterListSchema(LIMITS.name.max),
   item: insightFilterListSchema(500),
@@ -183,6 +188,9 @@ const customerInsightFilterFieldsSchema = z.object({
   city: trimmedString(1, 100).optional(),
   assignedMerchant: trimmedString(1, LIMITS.knownName.max).optional(),
   purchaseLocationId: cuidSchema.optional(),
+  osRegLocation: trimmedString(1, LIMITS.locationName.max).optional(),
+  osRegCreated: optionalBoolQuery,
+  osRegAlready: optionalBoolQuery,
   minTotal: z.coerce.number().min(0).optional(),
   maxTotal: z.coerce.number().min(0).optional(),
   birthdayFrom: monthDaySchema.optional(),
@@ -193,6 +201,7 @@ const customerInsightFilterFieldsSchema = z.object({
   allocatedTo: optionalIsoDate,
   loyaltyRegisteredFrom: optionalIsoDate,
   loyaltyRegisteredTo: optionalIsoDate,
+  notInterestedInLoyalty: optionalBoolQuery,
   noPurchaseFrom: optionalIsoDate,
   noPurchaseTo: optionalIsoDate,
   /** Legacy presets still accepted. */
@@ -293,16 +302,12 @@ export const customerInsightFilterOptionsQuerySchema = z.object({
       "merchants",
       "call-queue-merchants",
       "locations",
+      "os-reg-locations",
     ])
     .default("brands"),
   brand: insightFilterListSchema(LIMITS.name.max),
   q: trimmedString(1, 100).optional(),
 });
-
-const optionalBoolQuery = z
-  .union([z.literal("true"), z.literal("1"), z.literal("false"), z.literal("0")])
-  .optional()
-  .transform((v) => (v == null ? undefined : v === "true" || v === "1"));
 
 export const customerInsightCallQueueCandidatesQuerySchema = z.object({
   /** Optional — empty = all allocated contacts (any merchant). */
@@ -322,6 +327,7 @@ export const customerInsightCallQueueCandidatesQuerySchema = z.object({
   assignedFrom: optionalIsoDate,
   assignedTo: optionalIsoDate,
   notContacted: optionalBoolQuery,
+  notInterestedInLoyalty: optionalBoolQuery,
   brand: insightFilterListSchema(LIMITS.name.max),
   hideFilter: z.preprocess(
     (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
@@ -346,6 +352,7 @@ export const customerInsightCallQueueEligibleIdsQuerySchema = z.object({
   assignedFrom: optionalIsoDate,
   assignedTo: optionalIsoDate,
   notContacted: optionalBoolQuery,
+  notInterestedInLoyalty: optionalBoolQuery,
   brand: insightFilterListSchema(LIMITS.name.max),
 });
 
@@ -366,6 +373,7 @@ export const customerInsightCallQueueExportQuerySchema = z.object({
   assignedFrom: optionalIsoDate,
   assignedTo: optionalIsoDate,
   notContacted: optionalBoolQuery,
+  notInterestedInLoyalty: optionalBoolQuery,
   brand: insightFilterListSchema(LIMITS.name.max),
   hideFilter: z.preprocess(
     (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
@@ -381,6 +389,7 @@ export const customerInsightCallQueueReportQuerySchema = z.object({
   pushToGold: optionalBoolQuery,
   pushToPlatinum: optionalBoolQuery,
   notContacted: optionalBoolQuery,
+  notInterestedInLoyalty: optionalBoolQuery,
 });
 
 export const customerInsightCallQueueAssignBodySchema = z.object({

@@ -50,6 +50,8 @@
 
 :root {
   --radius: 0.625rem;
+  --font-geist-sans: Arial, Helvetica, sans-serif;
+  --font-geist-mono: "Courier New", Courier, monospace;
   --background: #f4f8ff;
   --foreground: #122033;
   --card: #ffffff;

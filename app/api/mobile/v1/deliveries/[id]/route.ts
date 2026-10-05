@@ -6,6 +6,8 @@ import { findRiderTaskById } from "@/lib/mobile/orders";
 import { resolveMobileSpecialDelivery } from "@/lib/mobile/special-delivery";
 import { mobileRouteIdSchema } from "@/lib/mobile/validation";
 import { incentiveForOrder, loadRiderIncentiveContext } from "@/lib/rider-incentive-resolve";
+import { loadLatestOrderSplitPaymentLines } from "@/lib/order-split-payment";
+import { approvalSplitCashCollectAmount } from "@/lib/approval-payment-split";
 
 export async function GET(
   request: NextRequest,
@@ -30,6 +32,10 @@ export async function GET(
     return mobileError("Delivery not found", 404);
   }
 
+  const collectCashAmount = approvalSplitCashCollectAmount(
+    await loadLatestOrderSplitPaymentLines(task.order.id),
+  );
+
   return NextResponse.json({
     delivery: {
       ...toMobileDeliveryDto({
@@ -47,6 +53,7 @@ export async function GET(
           incentiveContext.zoneMembersByZone,
           task.manualIncentiveLabelKey
         ).toFixed(2),
+        collectCashAmount,
       }),
       lineItems: task.order.lineItems.map((item) => ({
         id: item.id,

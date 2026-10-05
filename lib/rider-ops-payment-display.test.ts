@@ -78,4 +78,19 @@ describe("resolveRiderOpsPaymentDisplay", () => {
     expect(result.paymentMethod).toBe("cod+card");
     expect(result.paymentLines).toHaveLength(2);
   });
+
+  it("uses cash-split collect amount as rider expected cash", () => {
+    const result = resolveRiderOpsPaymentDisplay({
+      deliveryPayment: null,
+      order: {
+        totalPrice: { toString: () => "7750.00" },
+        financialStatus: "pending",
+        paymentGatewayPrimary: "KOKO",
+        collectCashAmount: 2000,
+      },
+    });
+
+    expect(result.expectedAmount).toBe("2000.00");
+    expect(result.paymentMethod).toBe("cod");
+  });
 });

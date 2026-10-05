@@ -49,6 +49,7 @@ export type SearchMatchDto = {
   loyaltyAssignedTier: "gold" | "platinum" | null;
   suggestedTier: "gold" | "platinum" | null;
   suggestionKind: "new" | "upgrade" | null;
+  osRegBadge: { location: string } | null;
 };
 
 export type LoyaltyEligibilityDto = {
@@ -74,6 +75,7 @@ export type ContactInsightDto = {
   category: string | null;
   /** ContactMaster.lastPurchaseAt ISO timestamp, or null. */
   lastPurchaseAt: string | null;
+  osRegBadge: { location: string } | null;
   /** Admin / Insight admin view only — emails cleared by cleanup. */
   removedEmails?: ContactRemovedEmailDto[];
 };
@@ -205,6 +207,12 @@ export type AllocatedFilterItemDto = {
   lastPurchaseAt: string | null;
   /** Latest non-allocation ContactAllocationUpdate ISO timestamp, or null. */
   lastContactedAt: string | null;
+  /** ContactMaster.loyaltyOutreachStatus, when set. */
+  loyaltyOutreachStatus?: string | null;
+  /** Human label for loyaltyOutreachStatus. */
+  loyaltyStage?: string | null;
+  /** Set when admin OS-register filters are active. */
+  osRegKind?: "new" | "already_registered" | null;
 };
 
 export type AllocatedFilterResultDto = {

@@ -17,6 +17,7 @@ import {
 } from "@/lib/order-dispatch";
 import { isExplicitlyPackageReady } from "@/lib/fulfillment-stage-display";
 import { draftCitypakShipmentFields } from "@/lib/citypak-api";
+import { approvalSplitCashCollectAmount } from "@/lib/approval-payment-split";
 import { isCitypakCourier } from "@/lib/courier";
 import type { FulfillmentOrder } from "./fulfillment-order-selector";
 
@@ -40,6 +41,9 @@ type DispatchOrderDetail = {
   customerPhone: string | null;
   shippingAddress: unknown;
   billingAddress?: unknown;
+  paymentApproval?: {
+    paymentLines?: Array<{ paymentMethod: string; amount: string }>;
+  } | null;
   totalShipping?: string | null;
   shippingRuleLabel?: string | null;
   lineItems: Array<{
@@ -273,6 +277,7 @@ export function FulfillmentDispatchPanel({
             paymentGatewayPrimary: detail?.paymentGatewayPrimary ?? order?.paymentGatewayPrimary,
             paymentGatewayNames: detail?.paymentGatewayNames ?? order?.paymentGatewayNames,
             totalPrice: detail?.totalPrice ?? order?.totalPrice,
+            cashToCollect: approvalSplitCashCollectAmount(detail?.paymentApproval?.paymentLines ?? []),
           }),
         },
       ]}

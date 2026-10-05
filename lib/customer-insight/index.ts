@@ -74,6 +74,8 @@ export {
   canAssignLoyaltyTier,
   canAssignOrUpgradeLoyaltyTier,
   isLoyaltyEligibleByTotal,
+  isNotInterestedLoyaltyStatus,
+  loyaltyOutreachStageLabel,
   nextOutreachStatus,
   parseLoyaltyOutreachStatus,
   pendingLoyaltySuggestion,

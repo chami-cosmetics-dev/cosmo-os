@@ -118,7 +118,7 @@ export async function GET(request: NextRequest) {
             fetchLastPurchaseByItem({
               cfg: inst.cfg,
               itemCodes: skus,
-              // Vault: show every real PI supplier (Cash AE etc.), not only OS allowlist.
+              // Vault: all submitted PIs except intercompany cash transfers.
               // Cosmo: keep Supplier allowlist (skips intercompany).
               allowedSuppliers: vault ? [] : suppliers,
               source: purchaseSource,

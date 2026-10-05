@@ -1,3 +1,4 @@
+import { isNotInterestedLoyaltyStatus } from "@/lib/customer-insight/loyalty-outreach";
 import { classifyLoyaltyTierKey } from "@/lib/customer-insight/loyalty-tier";
 import { matchesCallQueuePushBands } from "@/lib/customer-insight/call-queue-push";
 
@@ -11,6 +12,7 @@ export type CallQueueAssignFilterValues = {
   allocatedTo?: string;
   brand?: string;
   brands?: string[];
+  notInterestedInLoyalty?: boolean;
 };
 
 function isSet(value?: string | null): boolean {
@@ -80,6 +82,7 @@ export function matchesCallQueueAssignFilters(
     lastPurchaseAt: Date | null;
     allocationAt: Date | null;
     loyaltyAssignedTier: string | null | undefined;
+    loyaltyOutreachStatus?: string | null;
     boughtBrand: boolean;
   },
   filters: CallQueueAssignFilterValues
@@ -123,6 +126,12 @@ export function matchesCallQueueAssignFilters(
   if (
     (isSet(filters.brand) || (filters.brands?.length ?? 0) > 0) &&
     !row.boughtBrand
+  ) {
+    return false;
+  }
+  if (
+    filters.notInterestedInLoyalty &&
+    !isNotInterestedLoyaltyStatus(row.loyaltyOutreachStatus)
   ) {
     return false;
   }

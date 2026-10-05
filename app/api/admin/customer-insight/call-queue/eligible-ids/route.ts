@@ -40,6 +40,7 @@ export async function GET(request: NextRequest) {
     assignedFrom: sp.get("assignedFrom") ?? undefined,
     assignedTo: sp.get("assignedTo") ?? undefined,
     notContacted: sp.get("notContacted") ?? undefined,
+    notInterestedInLoyalty: sp.get("notInterestedInLoyalty") ?? undefined,
     brand: readInsightFilterList(sp, "brand"),
   });
   if (!parsed.success) {
@@ -63,6 +64,7 @@ export async function GET(request: NextRequest) {
     assignedFrom: parsed.data.assignedFrom,
     assignedTo: parsed.data.assignedTo,
     notContacted: parsed.data.notContacted,
+    notInterestedInLoyalty: parsed.data.notInterestedInLoyalty,
     brands: parsed.data.brand,
   });
   return NextResponse.json(result);

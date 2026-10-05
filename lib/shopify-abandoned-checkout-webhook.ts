@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 
 import { addressFromShopifyRest } from "@/lib/abandoned-checkout-address";
+import { hasAbandonedCheckoutContacts } from "@/lib/abandoned-checkout-contact";
 import { refreshCheckoutDedupeFields } from "@/lib/abandoned-checkout-dedupe";
 import {
   isBlockedAbandonedCheckoutEmail,
@@ -169,7 +170,10 @@ export async function upsertAbandonedCheckoutFromWebhook(input: {
   const customerPhone = preferText(resolveCustomerPhone(input.data), existing?.customerPhone);
 
   const staffEmails = await loadCompanyStaffEmails(input.companyId);
-  if (isBlockedAbandonedCheckoutEmail(customerEmail, staffEmails)) {
+  const skipIngest =
+    !hasAbandonedCheckoutContacts(customerEmail, customerPhone) ||
+    isBlockedAbandonedCheckoutEmail(customerEmail, staffEmails);
+  if (skipIngest) {
     if (existing) {
       await prisma.shopifyAbandonedCheckout.delete({
         where: {

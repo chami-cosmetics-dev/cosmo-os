@@ -127,7 +127,11 @@ export function buildLoyaltyDumpCsv(rows: ContactListDumpSource[]) {
       assigned_merchant: dumpText(contact.assignedMerchant),
       loyalty_tier: dumpText(contact.loyaltyAssignedTier),
       loyalty_assigned_at: dumpDateTime(contact.loyaltyAssignedAt),
-      loyalty_outreach_status: dumpText(contact.loyaltyOutreachStatus),
+      loyalty_outreach_status: dumpText(
+        contact.loyaltyOutreachStatus === "not_interested"
+          ? "Not interested"
+          : contact.loyaltyOutreachStatus
+      ),
       updated_on: dumpDate(contact.updatedAt),
     }))
   );

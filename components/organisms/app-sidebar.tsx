@@ -30,11 +30,13 @@ import {
   SendHorizonal,
   ClipboardList,
   NotebookPen,
+  UserPlus,
   UserSearch,
   FileSpreadsheet,
   TrendingUp,
   Scale,
   ReceiptText,
+  ClipboardCheck,
 } from "lucide-react";
 import { usePathname } from "next/navigation";
 import {
@@ -92,6 +94,12 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
   const canViewReturns = hasSidebarPermission("returns.read");
   const canViewExchanges = hasSidebarPermission("exchanges.read");
   const canViewProducts = hasSidebarPermission("products.read");
+  const canViewItemCreation =
+    hasSidebarPermission("item_creation.admin.manage") ||
+    hasSidebarPermission("item_creation.seo.manage") ||
+    hasSidebarPermission("item_creation.digital_marketing.manage") ||
+    hasSidebarPermission("item_creation.purchasing.manage") ||
+    hasSidebarPermission("item_creation.stores.manage");
   const canViewOsf =
     hasSidebarPermission("purchasing.osf.read") ||
     hasSidebarPermission("purchasing.osf.manage");
@@ -99,13 +107,21 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
   const canViewPurchasingTools =
     hasSidebarPermission("purchasing.tools.read") ||
     hasSidebarPermission("purchasing.tools.manage");
+  const canViewPurchaseHistory = hasSidebarPermission(
+    "purchasing.purchase_history.read",
+  );
   const canViewItemTrends = hasSidebarPermission("purchasing.item_trends.read");
   const canViewMarketPrices =
     hasSidebarPermission("purchasing.market_prices.read") ||
     hasSidebarPermission("purchasing.market_prices.manage");
   const canViewGrn = hasSidebarPermission("purchasing.grn.read");
   const canViewPurchasing =
-    canViewOsf || canViewPurchasingTools || canViewItemTrends || canViewMarketPrices || canViewGrn;
+    canViewOsf ||
+    canViewPurchasingTools ||
+    canViewPurchaseHistory ||
+    canViewItemTrends ||
+    canViewMarketPrices ||
+    canViewGrn;
   const canViewStoreAllocation = hasSidebarPermission("store.allocation.read");
   const canViewStoreStockCount = hasSidebarPermission("store.stock_count.read");
   const canViewStore = canViewStoreAllocation || canViewStoreStockCount;
@@ -148,6 +164,7 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
   const canManageBookNotes = hasSidebarPermission("book_notes.manage");
   const canReadBookNotes = hasSidebarPermission("book_notes.read");
   const canViewCustomerInsight = hasSidebarPermission("contacts.insight.read");
+  const canRegisterUsers = hasSidebarPermission("contacts.register");
   const fulfillmentLinks = [
     {
       href: "/dashboard/fulfillment/sample-free-issue",
@@ -185,7 +202,8 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
     canViewEmailCleanup ||
     canViewMerchantReviews ||
     canViewOutletReviews ||
-    canViewCustomerInsight;
+    canViewCustomerInsight ||
+    canRegisterUsers;
   const canViewSettings =
     canViewCompanySettings ||
     canViewEmailTemplates ||
@@ -375,6 +393,14 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
                   isActive={pathname === "/dashboard/customer-insight"}
                 />
               )}
+              {canRegisterUsers && (
+                <NavItem
+                  href="/dashboard/register-users"
+                  icon={UserPlus}
+                  label="Register new users"
+                  isActive={pathname === "/dashboard/register-users"}
+                />
+              )}
               {canViewContactMaster && (
                 <NavItem
                   href="/dashboard/contacts"
@@ -553,12 +579,15 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
             </SidebarGroupContent>
           </SidebarGroup>
         )}
-        {canViewProductManagement && (
+        {(canViewProductManagement || canViewItemCreation) && (
           <SidebarGroup>
             <SidebarGroupLabel>Product Management</SidebarGroupLabel>
             <SidebarGroupContent>
               {canViewProducts && (
                 <NavItem href="/dashboard/products/items" icon={Package} label="Items" isActive={pathname === "/dashboard/products/items"} />
+              )}
+              {canViewItemCreation && (
+                <NavItem href="/dashboard/products/item-creation" icon={ClipboardCheck} label="Item Creation" isActive={pathname.startsWith("/dashboard/products/item-creation")} />
               )}
               {canViewProducts && (
                 <NavItem href="/dashboard/products/vendors-categories" icon={Tags} label="Vendors & Categories" isActive={pathname === "/dashboard/products/vendors-categories"} />
@@ -576,7 +605,7 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
               {canViewPurchasingTools && (
                 <NavItem href="/dashboard/purchasing/calculator" icon={Calculator} label="SKU Calculator" isActive={pathname === "/dashboard/purchasing/calculator"} />
               )}
-              {canViewPurchasingTools && (
+              {canViewPurchaseHistory && (
                 <NavItem
                   href="/dashboard/purchasing/purchase-history"
                   icon={History}
@@ -641,5 +670,3 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
     </Sidebar>
   );
 }
-
-

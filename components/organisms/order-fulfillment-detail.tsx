@@ -56,6 +56,7 @@ import {
   VAULT_SHOPIFY_CANCEL_BLOCKED_MESSAGE,
 } from "@/lib/shopify-admin";
 import { draftCitypakShipmentFields } from "@/lib/citypak-api";
+import { approvalSplitCashCollectAmount } from "@/lib/approval-payment-split";
 import { isCitypakCourier } from "@/lib/courier";
 import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 import { CitypakShipmentReviewDialog } from "@/components/molecules/citypak-shipment-review-dialog";
@@ -113,6 +114,9 @@ type OrderDetail = {
   financialStatus: string | null;
   paymentGatewayPrimary?: string | null;
   paymentGatewayNames?: string[] | null;
+  paymentApproval?: {
+    paymentLines?: Array<{ paymentMethod: string; amount: string }>;
+  } | null;
   fulfillmentStatus: string | null;
   deliveryOutcome?: "pending" | "delivered" | "failed" | null;
   deliveryFailedReason?: string | null;
@@ -1283,6 +1287,9 @@ export function OrderFulfillmentDetail({
               paymentGatewayPrimary: orderDetail.paymentGatewayPrimary,
               paymentGatewayNames: orderDetail.paymentGatewayNames,
               totalPrice: orderDetail.totalPrice,
+              cashToCollect: approvalSplitCashCollectAmount(
+                orderDetail.paymentApproval?.paymentLines ?? [],
+              ),
             }),
           },
         ]}

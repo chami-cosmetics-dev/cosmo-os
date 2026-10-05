@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  applyOsRegExportGuard,
   hasNoPurchaseInDateRange,
   hasNoPurchaseWithinMonths,
   matchesBirthdayRange,
   matchesBirthdayThisMonth,
   mergeRankedSpendMaps,
   monthDayKey,
+  osRegWhereAnd,
+  resolveOsRegScope,
 } from "@/lib/customer-insight/filters";
 import {
   canAssignLoyaltyTier,
@@ -119,5 +122,91 @@ describe("mergeRankedSpendMaps", () => {
       [{ contactId: "cosrx-only", spend: 99 }],
     ]);
     expect(merged.sortedContactIds).toEqual(["cosrx-only", "anua-only"]);
+  });
+});
+
+describe("resolveOsRegScope", () => {
+  it("is inactive with no location or kind flags", () => {
+    expect(resolveOsRegScope({})).toEqual({
+      active: false,
+      includeNew: false,
+      includeAlready: false,
+      location: undefined,
+    });
+  });
+
+  it("location only includes both kinds", () => {
+    expect(resolveOsRegScope({ osRegLocation: " Kandy " })).toEqual({
+      active: true,
+      includeNew: true,
+      includeAlready: true,
+      location: "Kandy",
+    });
+  });
+
+  it("created flag alone is new users only", () => {
+    expect(resolveOsRegScope({ osRegCreated: true })).toMatchObject({
+      active: true,
+      includeNew: true,
+      includeAlready: false,
+    });
+  });
+
+  it("already flag alone is already-registered only", () => {
+    expect(resolveOsRegScope({ osRegAlready: true })).toMatchObject({
+      active: true,
+      includeNew: false,
+      includeAlready: true,
+    });
+  });
+});
+
+describe("applyOsRegExportGuard", () => {
+  it("drops already-registered on export", () => {
+    const scoped = applyOsRegExportGuard(
+      {
+        active: true,
+        includeNew: true,
+        includeAlready: true,
+        location: "Kandy",
+      },
+      true
+    );
+    expect(scoped).toMatchObject({
+      includeNew: true,
+      includeAlready: false,
+      location: "Kandy",
+    });
+  });
+});
+
+describe("osRegWhereAnd", () => {
+  it("both kinds + location match location only", () => {
+    expect(
+      osRegWhereAnd({
+        active: true,
+        includeNew: true,
+        includeAlready: true,
+        location: "Kandy",
+      })
+    ).toEqual([
+      {
+        osRegLocation: { equals: "Kandy", mode: "insensitive" },
+      },
+    ]);
+  });
+
+  it("already-registered only excludes osRegistrationCreated", () => {
+    expect(
+      osRegWhereAnd({
+        active: true,
+        includeNew: false,
+        includeAlready: true,
+        location: "Kandy",
+      })
+    ).toEqual([
+      { osRegistrationCreated: { not: true } },
+      { osRegLocation: { equals: "Kandy", mode: "insensitive" } },
+    ]);
   });
 });

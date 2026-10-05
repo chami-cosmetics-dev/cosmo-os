@@ -100,13 +100,67 @@ export function normalizeSupplierKey(value: string | null | undefined): string {
   return (value ?? "").trim().toLowerCase();
 }
 
-/** Sync / test ERP suppliers — never show in OS cost or supplier compare. */
+/** Vault + Cosmo intercompany cash suppliers — hide from SKU calculator and purchase history. */
+const INTERCOMPANY_SUPPLIER_CODES = new Set(["sv029", "sv030", "sv031"]);
+const INTERCOMPANY_SUPPLIER_NAMES = new Set([
+  "cash or 001",
+  "cash sv 001",
+  "cash ae 001",
+  "sv cash cos 006",
+]);
+
+/** Cosmo outlet cash books: OUT100Cash001, OUT140CASH140, OUT600 CASH 006. */
+const OUTLET_CASH_TRANSFER_RE = /^out\d+cash\d+$/;
+
+function normalizeSupplierToken(value: string | null | undefined): string {
+  return (value ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function compactSupplierToken(value: string | null | undefined): string {
+  return (value ?? "").trim().toLowerCase().replace(/[\s\-_./]/g, "");
+}
+
+function isOutletCashTransferSupplier(
+  supplierCode: string | null | undefined,
+  supplierName: string | null | undefined,
+): boolean {
+  return [supplierCode, supplierName].some((value) =>
+    OUTLET_CASH_TRANSFER_RE.test(compactSupplierToken(value)),
+  );
+}
+
+export function isIntercompanyPurchaseSupplier(
+  supplierCode: string | null | undefined,
+  supplierName: string | null | undefined,
+): boolean {
+  if (isOutletCashTransferSupplier(supplierCode, supplierName)) return true;
+  const code = normalizeSupplierToken(supplierCode);
+  const name = normalizeSupplierToken(supplierName);
+  const haystack = `${code} ${name}`.trim();
+  if (!haystack) return false;
+  if (code && (INTERCOMPANY_SUPPLIER_CODES.has(code) || INTERCOMPANY_SUPPLIER_NAMES.has(code))) {
+    return true;
+  }
+  if (name && (INTERCOMPANY_SUPPLIER_CODES.has(name) || INTERCOMPANY_SUPPLIER_NAMES.has(name))) {
+    return true;
+  }
+  for (const token of INTERCOMPANY_SUPPLIER_CODES) {
+    if (haystack.includes(token)) return true;
+  }
+  for (const token of INTERCOMPANY_SUPPLIER_NAMES) {
+    if (haystack.includes(token)) return true;
+  }
+  return false;
+}
+
+/** Sync-test and intercompany transfers — never show in OS cost or supplier compare. */
 export function isNoisePurchaseSupplier(
   row: Pick<PurchaseRow, "supplier" | "supplier_name">,
 ): boolean {
   const id = normalizeSupplierKey(row.supplier);
   const name = normalizeSupplierKey(row.supplier_name);
-  return id.includes("sync-test") || name.includes("sync-test");
+  if (id.includes("sync-test") || name.includes("sync-test")) return true;
+  return isIntercompanyPurchaseSupplier(row.supplier, row.supplier_name);
 }
 
 /** Build allowlist from Cosmo/Vault company Supplier name + code. */

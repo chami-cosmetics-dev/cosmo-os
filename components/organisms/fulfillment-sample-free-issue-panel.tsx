@@ -25,8 +25,19 @@ import {
 } from "@/components/ui/command";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { notify } from "@/lib/notify";
 import { formatAppDateTime, formatAppIsoCalendarDate, formatAppIsoDate } from "@/lib/format-datetime";
+import {
+  APPROVAL_SPLIT_KOKO,
+  APPROVAL_SPLIT_PAIR_LABELS,
+  APPROVAL_SPLIT_PAIRS,
+  approvalSplitLineLabel,
+  approvalSplitPairId,
+  sortApprovalSplitLines,
+  splitIncludesKoko,
+  type ApprovalSplitPairId,
+} from "@/lib/approval-payment-split";
 import {
   needsKokoLinkTimeConfirm,
   parseKokoLinkGeneratedAt,
@@ -170,8 +181,9 @@ export function FulfillmentSampleFreeIssuePanel({
   const [mintpayBusy, setMintpayBusy] = useState(false);
   const [showSplitPaymentDialog, setShowSplitPaymentDialog] = useState(false);
   const [splitPaymentBusy, setSplitPaymentBusy] = useState(false);
-  const [splitKokoAmount, setSplitKokoAmount] = useState("");
-  const [splitBankAmount, setSplitBankAmount] = useState("");
+  const [splitPair, setSplitPair] = useState<ApprovalSplitPairId>("koko_bank");
+  const [splitAmountA, setSplitAmountA] = useState("");
+  const [splitAmountB, setSplitAmountB] = useState("");
   const [kokoLinkLocal, setKokoLinkLocal] = useState("");
   const [kokoMultiPayment, setKokoMultiPayment] = useState(false);
   const [kokoExtraLinkLocals, setKokoExtraLinkLocals] = useState<string[]>([]);
@@ -481,9 +493,11 @@ export function FulfillmentSampleFreeIssuePanel({
     );
   }, [detail, order]);
   const financeApprovalPending = detail?.paymentApproval?.status === "pending";
-  const hasKokoSplitLeg = (detail?.paymentApproval?.paymentLines ?? []).some(
-    (line) => line.paymentMethod === "koko",
+  const splitPaymentLines = detail?.paymentApproval?.paymentLines ?? [];
+  const hasKokoSplitLeg = splitPaymentLines.some(
+    (line) => line.paymentMethod === APPROVAL_SPLIT_KOKO,
   );
+  const hasSplitPaymentPlan = splitPaymentLines.length === 2;
   const awaitingKokoLinkTime = detail
     ? needsKokoLinkTimeConfirm({
         sourceName: detail.sourceName,
@@ -491,6 +505,7 @@ export function FulfillmentSampleFreeIssuePanel({
         paymentGatewayNames: detail.paymentGatewayNames,
         kokoLinkTimeConfirmedAt: detail.kokoLinkTimeConfirmedAt,
         hasKokoSplitLeg,
+        hasSplitPaymentPlan,
         createdAt: detail.createdAt,
       })
     : false;
@@ -546,8 +561,6 @@ export function FulfillmentSampleFreeIssuePanel({
     }
   }
 
-  const splitPaymentLines = detail?.paymentApproval?.paymentLines ?? [];
-  const hasSplitPaymentPlan = splitPaymentLines.length === 2;
   const canConfigureSplitPayment =
     perms.canManageSplitPayment &&
     financeApprovalPending &&
@@ -557,30 +570,49 @@ export function FulfillmentSampleFreeIssuePanel({
       const normalized = gateway?.toLowerCase() ?? "";
       return normalized.includes("koko") || normalized.includes("bank");
     });
+  const splitPairMethods = APPROVAL_SPLIT_PAIRS[splitPair];
+
+  function amountForMethod(method: string): string {
+    return splitPaymentLines.find((line) => line.paymentMethod === method)?.amount ?? "";
+  }
 
   function openSplitPaymentDialog() {
-    const koko = splitPaymentLines.find((line) => line.paymentMethod === "koko");
-    const bank = splitPaymentLines.find((line) => line.paymentMethod === "bank_transfer");
-    setSplitKokoAmount(koko?.amount ?? "");
-    setSplitBankAmount(bank?.amount ?? "");
+    const pair =
+      approvalSplitPairId(splitPaymentLines.map((line) => line.paymentMethod)) ?? "koko_bank";
+    const methods = APPROVAL_SPLIT_PAIRS[pair];
+    setSplitPair(pair);
+    setSplitAmountA(amountForMethod(methods[0]));
+    setSplitAmountB(amountForMethod(methods[1]));
     setShowSplitPaymentDialog(true);
+  }
+
+  function handleSplitPairChange(nextPair: ApprovalSplitPairId) {
+    const previousMethods = APPROVAL_SPLIT_PAIRS[splitPair];
+    const nextMethods = APPROVAL_SPLIT_PAIRS[nextPair];
+    const amountsByMethod: Record<string, string> = {
+      [previousMethods[0]]: splitAmountA,
+      [previousMethods[1]]: splitAmountB,
+    };
+    setSplitPair(nextPair);
+    setSplitAmountA(amountsByMethod[nextMethods[0]] ?? "");
+    setSplitAmountB(amountsByMethod[nextMethods[1]] ?? "");
   }
 
   async function handleSaveSplitPayment() {
     if (!orderId) return;
-    const kokoAmount = Number(splitKokoAmount);
-    const bankTransferAmount = Number(splitBankAmount);
+    const amountA = Number(splitAmountA);
+    const amountB = Number(splitAmountB);
     const invoiceTotal = Number(detail?.totalPrice ?? order?.totalPrice ?? 0);
     if (
-      !Number.isFinite(kokoAmount) ||
-      !Number.isFinite(bankTransferAmount) ||
-      kokoAmount <= 0 ||
-      bankTransferAmount <= 0
+      !Number.isFinite(amountA) ||
+      !Number.isFinite(amountB) ||
+      amountA <= 0 ||
+      amountB <= 0
     ) {
-      notify.error("Enter valid KOKO and Bank Transfer amounts.");
+      notify.error("Enter valid amounts for both split methods.");
       return;
     }
-    if (Math.round((kokoAmount + bankTransferAmount) * 100) !== Math.round(invoiceTotal * 100)) {
+    if (Math.round((amountA + amountB) * 100) !== Math.round(invoiceTotal * 100)) {
       notify.error("Split payment amounts must equal the invoice total.");
       return;
     }
@@ -590,17 +622,24 @@ export function FulfillmentSampleFreeIssuePanel({
       const response = await fetch(`/api/admin/orders/${orderId}/payment-split-plan`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ kokoAmount, bankTransferAmount }),
+        body: JSON.stringify({
+          lines: [
+            { paymentMethod: splitPairMethods[0], amount: amountA },
+            { paymentMethod: splitPairMethods[1], amount: amountB },
+          ],
+        }),
       });
       const data = (await response.json()) as { error?: string };
       if (!response.ok) {
         notify.error(data.error ?? "Failed to save split payment");
         return;
       }
+      const needsKokoLink =
+        splitIncludesKoko(splitPairMethods) && !detail?.kokoLinkTimeConfirmedAt;
       notify.success(
-        detail?.kokoLinkTimeConfirmedAt
-          ? "Split payment sent to finance for approval."
-          : "Split payment saved. Confirm KOKO link generated time before continuing.",
+        needsKokoLink
+          ? "Split payment saved. Confirm KOKO link generated time before continuing."
+          : "Split payment sent to finance for approval.",
       );
       setShowSplitPaymentDialog(false);
       await reloadDetail();
@@ -789,14 +828,12 @@ export function FulfillmentSampleFreeIssuePanel({
                 </div>
                 {hasSplitPaymentPlan ? (
                   <p className="text-xs text-muted-foreground">
-                    KOKO {formatPrice(
-                      splitPaymentLines.find((line) => line.paymentMethod === "koko")?.amount,
-                      currency,
-                    )}{" "}
-                    + Bank Transfer {formatPrice(
-                      splitPaymentLines.find((line) => line.paymentMethod === "bank_transfer")?.amount,
-                      currency,
-                    )}
+                    {sortApprovalSplitLines(splitPaymentLines)
+                      .map(
+                        (line) =>
+                          `${approvalSplitLineLabel(line.paymentMethod)} ${formatPrice(line.amount, currency)}`,
+                      )
+                      .join(" + ")}
                   </p>
                 ) : null}
                 <p><span className="font-medium">Total:</span> {formatPrice(detail?.totalPrice ?? order?.totalPrice, currency)}</p>
@@ -1446,38 +1483,60 @@ export function FulfillmentSampleFreeIssuePanel({
     >
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Split KOKO + Bank Transfer</AlertDialogTitle>
+          <AlertDialogTitle>Split Payment</AlertDialogTitle>
           <AlertDialogDescription>
-            Enter both paid amounts. Finance will verify the KOKO reference and approval will create
-            one ERP Payment Entry for each method.
+            {splitIncludesKoko(splitPairMethods)
+              ? "Enter both paid amounts. Finance will verify the KOKO reference and approval will create one ERP Payment Entry for each method."
+              : "Enter both paid amounts. Finance approval will create one ERP Payment Entry for each method."}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <div className="space-y-4">
           <div>
-            <label className="mb-1.5 block text-sm font-medium" htmlFor="split-koko-amount">
-              KOKO amount
+            <label className="mb-1.5 block text-sm font-medium" htmlFor="split-pair">
+              Methods
+            </label>
+            <Select
+              value={splitPair}
+              onValueChange={(value) => handleSplitPairChange(value as ApprovalSplitPairId)}
+              disabled={splitPaymentBusy}
+            >
+              <SelectTrigger id="split-pair">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {(Object.keys(APPROVAL_SPLIT_PAIR_LABELS) as ApprovalSplitPairId[]).map((pairId) => (
+                  <SelectItem key={pairId} value={pairId}>
+                    {APPROVAL_SPLIT_PAIR_LABELS[pairId]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <label className="mb-1.5 block text-sm font-medium" htmlFor="split-amount-a">
+              {approvalSplitLineLabel(splitPairMethods[0])} amount
             </label>
             <Input
-              id="split-koko-amount"
+              id="split-amount-a"
               type="number"
               min="0.01"
               step="0.01"
-              value={splitKokoAmount}
-              onChange={(event) => setSplitKokoAmount(event.target.value)}
+              value={splitAmountA}
+              onChange={(event) => setSplitAmountA(event.target.value)}
               disabled={splitPaymentBusy}
             />
           </div>
           <div>
-            <label className="mb-1.5 block text-sm font-medium" htmlFor="split-bank-amount">
-              Bank Transfer amount
+            <label className="mb-1.5 block text-sm font-medium" htmlFor="split-amount-b">
+              {approvalSplitLineLabel(splitPairMethods[1])} amount
             </label>
             <Input
-              id="split-bank-amount"
+              id="split-amount-b"
               type="number"
               min="0.01"
               step="0.01"
-              value={splitBankAmount}
-              onChange={(event) => setSplitBankAmount(event.target.value)}
+              value={splitAmountB}
+              onChange={(event) => setSplitAmountB(event.target.value)}
               disabled={splitPaymentBusy}
             />
           </div>

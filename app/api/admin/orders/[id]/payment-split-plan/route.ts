@@ -3,9 +3,14 @@ import { z } from "zod";
 
 import {
   APPROVAL_SPLIT_BANK_TRANSFER,
+  APPROVAL_SPLIT_CASH,
   APPROVAL_SPLIT_KOKO,
   buildApprovalSplitRequestNote,
+  isApprovalSplitPaymentMethod,
+  sortApprovalSplitLines,
+  splitIncludesKoko,
   validateApprovalSplitAmounts,
+  type ApprovalSplitAmountLine,
 } from "@/lib/approval-payment-split";
 import { ORDER_PAYMENT_APPROVAL } from "@/lib/approval-workflow";
 import { isSplitPaymentEligibleSource } from "@/lib/koko-order";
@@ -15,9 +20,21 @@ import { cuidSchema } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
 
+const splitMethodSchema = z.enum([
+  APPROVAL_SPLIT_KOKO,
+  APPROVAL_SPLIT_BANK_TRANSFER,
+  APPROVAL_SPLIT_CASH,
+]);
+
 const bodySchema = z.object({
-  kokoAmount: z.number().finite().positive(),
-  bankTransferAmount: z.number().finite().positive(),
+  lines: z
+    .array(
+      z.object({
+        paymentMethod: splitMethodSchema,
+        amount: z.number().finite().positive(),
+      }),
+    )
+    .length(2),
 });
 
 export async function PATCH(
@@ -47,9 +64,17 @@ export async function PATCH(
   const parsed = bodySchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
     return NextResponse.json(
-      { error: "Enter valid KOKO and Bank Transfer amounts.", details: parsed.error.flatten() },
+      { error: "Enter two valid split payment amounts.", details: parsed.error.flatten() },
       { status: 400 },
     );
+  }
+
+  const lines: ApprovalSplitAmountLine[] = parsed.data.lines.map((line) => ({
+    paymentMethod: line.paymentMethod,
+    amount: line.amount,
+  }));
+  if (lines.some((line) => !isApprovalSplitPaymentMethod(line.paymentMethod))) {
+    return NextResponse.json({ error: "Invalid split payment method." }, { status: 400 });
   }
 
   const order = await prisma.order.findFirst({
@@ -122,74 +147,65 @@ export async function PATCH(
 
   const invoiceTotal = Number(order.totalPrice);
   const validationError = validateApprovalSplitAmounts({
-    kokoAmount: parsed.data.kokoAmount,
-    bankTransferAmount: parsed.data.bankTransferAmount,
+    lines,
     invoiceTotal,
   });
   if (validationError) {
     return NextResponse.json({ error: validationError }, { status: 400 });
   }
 
+  const orderedLines = sortApprovalSplitLines(lines);
   const requestNote = buildApprovalSplitRequestNote({
-    kokoAmount: parsed.data.kokoAmount,
-    bankTransferAmount: parsed.data.bankTransferAmount,
+    lines: orderedLines,
     invoiceTotal,
     currency: order.currency,
   });
+  const keepMethods = orderedLines.map((line) => line.paymentMethod);
 
   await prisma.$transaction(async (tx) => {
     await tx.approvalRequest.update({
       where: { id: approval.id },
-      data: { requestNote, requestedById: userId },
+      data: {
+        requestNote,
+        requestedById: userId,
+        ...(splitIncludesKoko(keepMethods)
+          ? {}
+          : { kokoReference: null, multipleKokoPayments: false }),
+      },
     });
     await tx.approvalPaymentLine.deleteMany({
       where: {
         approvalRequestId: approval.id,
-        paymentMethod: { notIn: [APPROVAL_SPLIT_KOKO, APPROVAL_SPLIT_BANK_TRANSFER] },
+        paymentMethod: { notIn: keepMethods },
       },
     });
-    await Promise.all([
-      tx.approvalPaymentLine.upsert({
-        where: {
-          approvalRequestId_paymentMethod: {
-            approvalRequestId: approval.id,
-            paymentMethod: APPROVAL_SPLIT_KOKO,
+    await Promise.all(
+      orderedLines.map((line) =>
+        tx.approvalPaymentLine.upsert({
+          where: {
+            approvalRequestId_paymentMethod: {
+              approvalRequestId: approval.id,
+              paymentMethod: line.paymentMethod,
+            },
           },
-        },
-        create: {
-          approvalRequestId: approval.id,
-          paymentMethod: APPROVAL_SPLIT_KOKO,
-          amount: parsed.data.kokoAmount,
-        },
-        update: { amount: parsed.data.kokoAmount },
-      }),
-      tx.approvalPaymentLine.upsert({
-        where: {
-          approvalRequestId_paymentMethod: {
+          create: {
             approvalRequestId: approval.id,
-            paymentMethod: APPROVAL_SPLIT_BANK_TRANSFER,
+            paymentMethod: line.paymentMethod,
+            amount: line.amount,
           },
-        },
-        create: {
-          approvalRequestId: approval.id,
-          paymentMethod: APPROVAL_SPLIT_BANK_TRANSFER,
-          amount: parsed.data.bankTransferAmount,
-        },
-        update: { amount: parsed.data.bankTransferAmount },
-      }),
-    ]);
+          update: { amount: line.amount },
+        }),
+      ),
+    );
   });
 
   return NextResponse.json({
     ok: true,
     approvalId: approval.id,
     requestNote,
-    paymentLines: [
-      { paymentMethod: APPROVAL_SPLIT_KOKO, amount: parsed.data.kokoAmount.toFixed(2) },
-      {
-        paymentMethod: APPROVAL_SPLIT_BANK_TRANSFER,
-        amount: parsed.data.bankTransferAmount.toFixed(2),
-      },
-    ],
+    paymentLines: orderedLines.map((line) => ({
+      paymentMethod: line.paymentMethod,
+      amount: line.amount.toFixed(2),
+    })),
   });
 }

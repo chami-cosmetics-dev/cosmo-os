@@ -1,6 +1,10 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
 
 import { formatAbandonedCheckoutAddress } from "@/lib/abandoned-checkout-address";
+import {
+  hasAbandonedCheckoutContacts,
+  purgeAbandonedCheckoutsMissingContact,
+} from "@/lib/abandoned-checkout-contact";
 import { dedupeAbandonedCheckoutsForCompany } from "@/lib/abandoned-checkout-dedupe";
 import {
   isBlockedAbandonedCheckoutEmail,
@@ -386,6 +390,14 @@ export async function syncAbandonedCheckoutsForCompany(companyId: string): Promi
     if (!token) {
       // Vault OS: no Admin API token — abandoned checkouts arrive via checkouts/* webhooks.
       // Do not set lastSyncError (that shows as a red banner); webhook ingest clears/sets sync meta itself.
+      try {
+        await purgeAbandonedCheckoutsMissingContact(companyId);
+      } catch (purgeErr) {
+        console.error("[Shopify abandonedCheckouts] contact purge failed", {
+          companyId,
+          error: purgeErr instanceof Error ? purgeErr.message : String(purgeErr),
+        });
+      }
       await prisma.companyAbandonedCheckoutSync.upsert({
         where: { companyId },
         create: {
@@ -554,7 +566,10 @@ export async function syncAbandonedCheckoutsForCompany(companyId: string): Promi
               current?.customerEmail
             );
 
-            if (isBlockedAbandonedCheckoutEmail(customerEmail, staffEmails)) {
+            if (
+              !hasAbandonedCheckoutContacts(customerEmail, customerPhone) ||
+              isBlockedAbandonedCheckoutEmail(customerEmail, staffEmails)
+            ) {
               if (current) {
                 await prisma.shopifyAbandonedCheckout.delete({
                   where: {
@@ -709,8 +724,9 @@ export async function syncAbandonedCheckoutsForCompany(companyId: string): Promi
 
     try {
       await purgeStaffAbandonedCheckouts(companyId);
+      await purgeAbandonedCheckoutsMissingContact(companyId);
     } catch (purgeErr) {
-      console.error("[Shopify abandonedCheckouts] staff email purge failed", {
+      console.error("[Shopify abandonedCheckouts] staff/contact purge failed", {
         companyId,
         error: purgeErr instanceof Error ? purgeErr.message : String(purgeErr),
       });

@@ -6,6 +6,7 @@ import {
   listInsightCallQueueMerchantOptions,
   listInsightCityOptions,
   listInsightItemOptions,
+  listInsightOsRegLocationOptions,
   listInsightPurchaseLocationOptions,
 } from "@/lib/customer-insight/filter-options";
 import { readInsightFilterList } from "@/lib/customer-insight/filter-query-params";
@@ -47,7 +48,8 @@ export async function GET(request: NextRequest) {
   if (
     parsed.data.type === "merchants" ||
     parsed.data.type === "call-queue-merchants" ||
-    parsed.data.type === "locations"
+    parsed.data.type === "locations" ||
+    parsed.data.type === "os-reg-locations"
   ) {
     if (!isAdminView) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -85,6 +87,14 @@ export async function GET(request: NextRequest) {
 
   if (parsed.data.type === "locations") {
     const options = await listInsightPurchaseLocationOptions(
+      companyId,
+      parsed.data.q
+    );
+    return NextResponse.json({ options, brands: [] });
+  }
+
+  if (parsed.data.type === "os-reg-locations") {
+    const options = await listInsightOsRegLocationOptions(
       companyId,
       parsed.data.q
     );

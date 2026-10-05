@@ -1,4 +1,5 @@
 import type { Prisma } from "@prisma/client";
+import { osRegistrationDumpExcludeWhere } from "@/lib/register-users/dump-exclude";
 import { buildCsv } from "@/lib/reports/csv";
 import {
   contactEmails,
@@ -96,6 +97,13 @@ export const CONTACT_DUMP_SELECT = {
     select: { merchantName: true },
   },
 } satisfies Prisma.ContactMasterSelect;
+
+export function contactDumpListWhere(companyId: string): Prisma.ContactMasterWhereInput {
+  return {
+    companyId,
+    AND: [osRegistrationDumpExcludeWhere()],
+  };
+}
 
 export const CONTACT_DUMP_HEADERS = [
   "id",
@@ -206,7 +214,11 @@ export function buildContactDumpRow(contact: ContactDumpSource) {
     "Main Profile No": phones.primary,
     loyalty_tier: dumpText(contact.loyaltyAssignedTier),
     loyalty_assigned_at: dumpDateTime(contact.loyaltyAssignedAt),
-    loyalty_outreach_status: dumpText(contact.loyaltyOutreachStatus),
+    loyalty_outreach_status: dumpText(
+      contact.loyaltyOutreachStatus === "not_interested"
+        ? "Not interested"
+        : contact.loyaltyOutreachStatus
+    ),
   };
 }
 

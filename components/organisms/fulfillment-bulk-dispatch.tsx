@@ -33,6 +33,7 @@ import { notify } from "@/lib/notify";
 import { formatAppDate, formatAppDateTime } from "@/lib/format-datetime";
 import { isExplicitlyPackageReady } from "@/lib/fulfillment-stage-display";
 import { draftCitypakShipmentFields } from "@/lib/citypak-api";
+import { approvalSplitCashCollectAmount } from "@/lib/approval-payment-split";
 import { isCitypakCourier } from "@/lib/courier";
 
 type Lookups = {
@@ -101,6 +102,9 @@ type OrderDetail = {
   currency?: string | null;
   totalPrice: string;
   financialStatus?: string | null;
+  paymentApproval?: {
+    paymentLines?: Array<{ paymentMethod: string; amount: string }>;
+  } | null;
   discountCodes: Array<{ code: string }> | null;
   lineItems: Array<{
     id: string;
@@ -403,6 +407,9 @@ export function FulfillmentBulkDispatch({
               paymentGatewayPrimary: order.paymentGatewayPrimary,
               paymentGatewayNames: order.paymentGatewayNames,
               totalPrice: order.totalPrice,
+              cashToCollect: approvalSplitCashCollectAmount(
+                details[order.id]?.paymentApproval?.paymentLines ?? [],
+              ),
             }),
           }))
         );

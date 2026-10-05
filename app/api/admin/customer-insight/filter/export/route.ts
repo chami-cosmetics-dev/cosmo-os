@@ -46,6 +46,9 @@ export async function GET(request: NextRequest) {
     city: queryParam(sp.get("city")),
     assignedMerchant: queryParam(sp.get("assignedMerchant")),
     purchaseLocationId: queryParam(sp.get("purchaseLocationId")),
+    osRegLocation: queryParam(sp.get("osRegLocation")),
+    osRegCreated: queryParam(sp.get("osRegCreated")),
+    osRegAlready: queryParam(sp.get("osRegAlready")),
     minTotal: queryParam(sp.get("minTotal")),
     maxTotal: queryParam(sp.get("maxTotal")),
     birthdayFrom: queryParam(sp.get("birthdayFrom")),
@@ -56,6 +59,7 @@ export async function GET(request: NextRequest) {
     allocatedTo: queryParam(sp.get("allocatedTo")),
     loyaltyRegisteredFrom: queryParam(sp.get("loyaltyRegisteredFrom")),
     loyaltyRegisteredTo: queryParam(sp.get("loyaltyRegisteredTo")),
+    notInterestedInLoyalty: queryParam(sp.get("notInterestedInLoyalty")),
     noPurchaseFrom: queryParam(sp.get("noPurchaseFrom")),
     noPurchaseTo: queryParam(sp.get("noPurchaseTo")),
     noPurchaseMonths: queryParam(sp.get("noPurchaseMonths")),
@@ -95,6 +99,14 @@ export async function GET(request: NextRequest) {
     city: parsed.data.city,
     assignedMerchant: parsed.data.assignedMerchant,
     purchaseLocationId: parsed.data.purchaseLocationId,
+    osRegLocation: parsed.data.osRegLocation,
+    osRegCreated:
+      parsed.data.osRegLocation ||
+      parsed.data.osRegCreated ||
+      parsed.data.osRegAlready
+        ? true
+        : undefined,
+    osRegAlready: undefined,
     minTotal: parsed.data.minTotal,
     maxTotal: parsed.data.maxTotal,
     birthdayFrom: parsed.data.birthdayFrom,
@@ -105,6 +117,7 @@ export async function GET(request: NextRequest) {
     allocatedTo: parsed.data.allocatedTo,
     loyaltyRegisteredFrom: parsed.data.loyaltyRegisteredFrom,
     loyaltyRegisteredTo: parsed.data.loyaltyRegisteredTo,
+    notInterestedInLoyalty: parsed.data.notInterestedInLoyalty,
     noPurchaseFrom: parsed.data.noPurchaseFrom,
     noPurchaseTo: parsed.data.noPurchaseTo,
     noPurchaseMonths: parsed.data.noPurchaseMonths,
@@ -125,6 +138,7 @@ export async function GET(request: NextRequest) {
     "lifetime_total",
     "loyalty_tier",
     "loyalty_code",
+    "loyalty_stage",
     "last_purchased_date",
     "last_contacted_date",
     ...(includeBrand ? (["brand_spend"] as const) : []),
@@ -139,6 +153,7 @@ export async function GET(request: NextRequest) {
     lifetime_total: row.lifetimeTotal.toFixed(2),
     loyalty_tier: row.loyalty.label,
     loyalty_code: row.loyalty.code ?? "",
+    loyalty_stage: row.loyaltyStage ?? "",
     last_purchased_date: row.lastPurchaseAt
       ? formatIsoDate(new Date(row.lastPurchaseAt))
       : "",

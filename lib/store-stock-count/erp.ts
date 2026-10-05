@@ -13,6 +13,8 @@ import type {
   StoreStockCountApiItem,
   StoreStockCountWarehouseColumn,
 } from "@/lib/store-stock-count/types";
+import { catalogForWarehouses } from "@/lib/store-stock-count/warehouse-items";
+import { isExcludedErpCompany } from "@/lib/vault-osf/types";
 
 const PAGE_LENGTH = 1000;
 const MAX_PAGES = 80;
@@ -107,7 +109,7 @@ export async function listErpCompaniesForOsCompany(
         okCount += 1;
         for (const row of rows) {
           const name = String(row.name ?? "").trim();
-          if (!name) continue;
+          if (!name || isExcludedErpCompany(name)) continue;
           companies.push({
             instanceId: inst.id,
             instanceLabel: (inst.label ?? inst.id).trim() || inst.id,
@@ -142,6 +144,9 @@ function resolveInstance(
 }
 
 async function assertCompanyExists(cfg: OsfErpCredentials, erpCompany: string): Promise<void> {
+  if (isExcludedErpCompany(erpCompany)) {
+    throw new OsfErpError(`Unknown ERP company: ${erpCompany}`);
+  }
   const filters = [["name", "=", erpCompany]];
   const fields = encodeURIComponent(JSON.stringify(["name"]));
   const path =
@@ -406,7 +411,12 @@ function catalogToApiItems(
   binQty: Map<string, Map<string, number>>,
   warehouseColumns: StoreStockCountWarehouseColumn[],
 ): StoreStockCountApiItem[] {
-  return catalog.map((row) => ({
+  const scoped = catalogForWarehouses(
+    catalog,
+    binQty,
+    warehouseColumns.map((col) => col.warehouse),
+  );
+  return scoped.map((row) => ({
     sku: row.item_code,
     name: row.item_name || row.item_code,
     description: row.description,

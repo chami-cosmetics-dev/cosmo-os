@@ -43,7 +43,13 @@ import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
 import { isCitypakCourier } from "@/lib/courier";
 import {
   APPROVAL_SPLIT_BANK_TRANSFER,
+  APPROVAL_SPLIT_CASH,
   APPROVAL_SPLIT_KOKO,
+  approvalSplitLineLabel,
+  isApprovalSplitPaymentMethod,
+  sortApprovalSplitLines,
+  splitIncludesCash,
+  splitIncludesKoko,
   validateApprovalSplitAmounts,
 } from "@/lib/approval-payment-split";
 
@@ -204,7 +210,8 @@ function resolvePrepaidMop(cfg: ErpConfig, gateways: string[]): string | null {
 /**
  * After SI exists: create prepaid PE for paid gateways.
  * CC Checkout / WebXPay also set early `invoiceCompleteAt` so they skip manual invoice-complete.
- * KOKO / bank / mintpay wait for finance approval (PE + invoiceCompleteAt), including splits.
+ * KOKO / bank / mintpay wait for finance approval (PE + invoiceCompleteAt).
+ * Cash splits post the prepaid PE at approval; cash PE waits for invoice complete.
  */
 async function syncPaidGatewayPeAndMaybeCcInvoiceComplete(input: {
   order: {
@@ -1261,6 +1268,8 @@ export async function syncOrderDeliveryPaymentEntriesToErp(
     requireMop?: boolean;
     /** Force a single full PE with this MOP (finance override / legacy retry). Ignored for split payments. */
     mopNameOverride?: string;
+    /** Remaining cash from a KOKO/Bank + Cash split. */
+    paidAmount?: number;
   },
 ): Promise<CreateDeliveryPaymentEntryResult> {
   const payment = await prisma.deliveryPayment.findUnique({
@@ -1275,6 +1284,7 @@ export async function syncOrderDeliveryPaymentEntriesToErp(
     return createDeliveryPaymentEntry(order, location, completedAt, {
       mopNameOverride: options.mopNameOverride,
       requireMop: options?.requireMop,
+      paidAmount: options?.paidAmount,
     });
   }
 
@@ -1282,6 +1292,7 @@ export async function syncOrderDeliveryPaymentEntriesToErp(
     return createDeliveryPaymentEntry(order, location, completedAt, {
       requireMop: options?.requireMop,
       mopNameOverride: options?.mopNameOverride,
+      paidAmount: options?.paidAmount,
     });
   }
 
@@ -1373,8 +1384,18 @@ export async function syncOrderDeliveryPaymentEntriesToErp(
   return { outcome: "skipped" };
 }
 
+function splitLineMopName(
+  cfg: ErpConfig,
+  paymentMethod: string,
+): string {
+  if (paymentMethod === APPROVAL_SPLIT_KOKO) return cfg.kokoMop.trim();
+  if (paymentMethod === APPROVAL_SPLIT_BANK_TRANSFER) return cfg.bankTransferMop.trim();
+  if (paymentMethod === APPROVAL_SPLIT_CASH) return cfg.cashMop.trim();
+  return "";
+}
+
 /**
- * Create one KOKO PE and one Bank Transfer PE for a single order-payment approval.
+ * Create one ERP PE per split approval line (KOKO/Bank/Cash pairs).
  * Persisting each PE name makes retries safe when the first leg succeeds and the second fails.
  */
 export async function syncApprovalSplitPaymentEntriesToErp(
@@ -1400,40 +1421,48 @@ export async function syncApprovalSplitPaymentEntriesToErp(
   location: LocationWithErpInstance,
   approvedAt: Date,
 ): Promise<CreateDeliveryPaymentEntryResult> {
-  const kokoLine = approval.paymentLines.find(
-    (line) => line.paymentMethod === APPROVAL_SPLIT_KOKO,
-  );
-  const bankLine = approval.paymentLines.find(
-    (line) => line.paymentMethod === APPROVAL_SPLIT_BANK_TRANSFER,
-  );
-  if (!kokoLine || !bankLine || approval.paymentLines.length !== 2) {
-    throw new Error("Split payment approval must contain one KOKO and one Bank Transfer line");
+  if (
+    approval.paymentLines.length !== 2 ||
+    approval.paymentLines.some((line) => !isApprovalSplitPaymentMethod(line.paymentMethod))
+  ) {
+    throw new Error(
+      "Split payment approval must contain two lines from KOKO, Bank Transfer, or Cash",
+    );
   }
-  if (!approval.kokoReference?.trim()) {
+  if (
+    splitIncludesKoko(approval.paymentLines.map((line) => line.paymentMethod)) &&
+    !approval.kokoReference?.trim()
+  ) {
     throw new Error("KOKO reference number is required for split payment approval");
   }
 
   const validationError = validateApprovalSplitAmounts({
-    kokoAmount: Number(kokoLine.amount),
-    bankTransferAmount: Number(bankLine.amount),
+    lines: approval.paymentLines.map((line) => ({
+      paymentMethod: line.paymentMethod,
+      amount: Number(line.amount),
+    })),
     invoiceTotal: Number(order.totalPrice),
   });
   if (validationError) throw new Error(validationError);
 
   const cfg = getErpConfig(location.erpnextInstance);
-  const orderedLines = [kokoLine, bankLine];
+  const orderedLines = sortApprovalSplitLines(approval.paymentLines);
   let createdCount = 0;
   let lastPaymentEntryName: string | undefined;
+  const collectCashAtDelivery = splitIncludesCash(
+    approval.paymentLines.map((line) => line.paymentMethod),
+  );
 
   for (const line of orderedLines) {
     if (line.erpPaymentEntryName) continue;
-    const mopName =
-      line.paymentMethod === APPROVAL_SPLIT_KOKO
-        ? cfg.kokoMop.trim()
-        : cfg.bankTransferMop.trim();
+    if (line.paymentMethod === APPROVAL_SPLIT_CASH && collectCashAtDelivery) {
+      // Cash is collected by rider / CityPak. PE waits for finance invoice complete.
+      continue;
+    }
+    const mopName = splitLineMopName(cfg, line.paymentMethod);
     if (!mopName) {
       throw new Error(
-        `${line.paymentMethod === APPROVAL_SPLIT_KOKO ? "KOKO" : "Bank Transfer"} ERP payment mode is not configured`,
+        `${approvalSplitLineLabel(line.paymentMethod)} ERP payment mode is not configured`,
       );
     }
 
@@ -1444,7 +1473,7 @@ export async function syncApprovalSplitPaymentEntriesToErp(
       paidAmount: Number(line.amount),
       referenceNo:
         line.paymentMethod === APPROVAL_SPLIT_KOKO
-          ? approval.kokoReference.trim()
+          ? approval.kokoReference!.trim()
           : `OS-OPA-${line.id}`,
     });
     if (result.outcome !== "created" || !result.paymentEntryName) {

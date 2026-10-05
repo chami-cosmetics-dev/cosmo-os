@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client";
 
 import { pickCosmoCatalogErpInstance, pickCosmoCatalogErp2Fallback } from "@/lib/cosmo-catalog-erp";
 import { planStandardSellingPriceUpdates } from "@/lib/erp-item-price-decision";
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 import {
   getAllOsfErpInstances,
   OsfErpError,
@@ -11,6 +12,7 @@ import {
   type OsfErpInstance,
 } from "@/lib/osf/erp-stock";
 import { prisma } from "@/lib/prisma";
+import { resolveErpSlots } from "@/lib/product-items/erp-priority-sync";
 import { mergeErpPriceMapsPreferPrimary, lookupErpPriceBySku } from "@/lib/sticker-unit-price";
 
 export {
@@ -157,7 +159,13 @@ export async function resolveCosmoStandardSellingErpPair(
   const fallback = pickedFallback
     ? (instances.find((row) => row.id === pickedFallback.id) ?? null)
     : null;
-  return { primary, fallback };
+  if (primary || !isVaultOsDeployment()) return { primary, fallback };
+
+  const slots = resolveErpSlots(instances);
+  return {
+    primary: slots.erp1 ? (instances.find((row) => row.id === slots.erp1!.id) ?? null) : null,
+    fallback: slots.erp2 ? (instances.find((row) => row.id === slots.erp2!.id) ?? null) : null,
+  };
 }
 
 async function fetchSellingPricesBySku(input: {

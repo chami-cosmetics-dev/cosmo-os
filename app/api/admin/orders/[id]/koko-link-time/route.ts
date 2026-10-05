@@ -167,10 +167,16 @@ export async function GET(_req: Request, { params }: Params) {
     return NextResponse.json({ error: "Order not found" }, { status: 404 });
   }
 
-  const hasKokoSplitLeg = (order.approvalRequests[0]?.paymentLines ?? []).some(
+  const paymentLines = order.approvalRequests[0]?.paymentLines ?? [];
+  const hasKokoSplitLeg = paymentLines.some(
     (line) => line.paymentMethod === APPROVAL_SPLIT_KOKO,
   );
-  const linkCandidate = isKokoLinkTimeCandidate({ ...order, hasKokoSplitLeg });
+  const hasSplitPaymentPlan = paymentLines.length >= 2;
+  const linkCandidate = isKokoLinkTimeCandidate({
+    ...order,
+    hasKokoSplitLeg,
+    hasSplitPaymentPlan,
+  });
 
   const duplicateNotice = linkCandidate ? await loadDuplicateNotice(order) : [];
 
@@ -184,6 +190,7 @@ export async function GET(_req: Request, { params }: Params) {
       canEditKokoLinkTime({
         ...order,
         hasKokoSplitLeg,
+        hasSplitPaymentPlan,
         paymentApprovalStatus: order.approvalRequests[0]?.status ?? null,
       }) && order.kokoLinkTimeConfirmedAt == null,
     duplicateNotice,
@@ -278,10 +285,12 @@ export async function POST(req: Request, { params }: Params) {
   if (!order) {
     return NextResponse.json({ error: "Order not found" }, { status: 404 });
   }
-  const hasKokoSplitLeg = (order.approvalRequests[0]?.paymentLines ?? []).some(
+  const paymentLines = order.approvalRequests[0]?.paymentLines ?? [];
+  const hasKokoSplitLeg = paymentLines.some(
     (line) => line.paymentMethod === APPROVAL_SPLIT_KOKO,
   );
-  if (!isKokoLinkTimeCandidate({ ...order, hasKokoSplitLeg })) {
+  const hasSplitPaymentPlan = paymentLines.length >= 2;
+  if (!isKokoLinkTimeCandidate({ ...order, hasKokoSplitLeg, hasSplitPaymentPlan })) {
     return NextResponse.json(
       { error: "Only ERP/Shopify KOKO (or split with KOKO) orders require link generated time" },
       { status: 400 },
@@ -290,6 +299,7 @@ export async function POST(req: Request, { params }: Params) {
   if (!canEditKokoLinkTime({
     ...order,
     hasKokoSplitLeg,
+    hasSplitPaymentPlan,
     paymentApprovalStatus: order.approvalRequests[0]?.status ?? null,
   })) {
     return NextResponse.json(

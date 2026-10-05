@@ -10,6 +10,8 @@ import {
 } from "@/lib/citypak-api";
 import { updateCitypakWaybillPrintDetails } from "@/lib/citypak-dispatch";
 import { prisma } from "@/lib/prisma";
+import { approvalSplitCashCollectAmount } from "@/lib/approval-payment-split";
+import { loadLatestOrderSplitPaymentLines } from "@/lib/order-split-payment";
 import { requireAnyPermission } from "@/lib/rbac";
 import { cuidOrUuidSchema } from "@/lib/validation";
 
@@ -63,6 +65,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
       rawPayload: true,
       order: {
         select: {
+          id: true,
           shippingAddress: true,
           billingAddress: true,
           rawPayload: true,
@@ -97,6 +100,9 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
           paymentGatewayPrimary: waybill.order.paymentGatewayPrimary,
           paymentGatewayNames: waybill.order.paymentGatewayNames,
           totalPrice: waybill.order.totalPrice?.toString(),
+          cashToCollect: approvalSplitCashCollectAmount(
+            await loadLatestOrderSplitPaymentLines(waybill.order.id),
+          ),
         })
       : {
           receiverName: "",

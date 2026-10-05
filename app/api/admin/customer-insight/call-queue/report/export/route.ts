@@ -35,6 +35,7 @@ export async function GET(request: NextRequest) {
     pushToGold: sp.get("pushToGold") ?? undefined,
     pushToPlatinum: sp.get("pushToPlatinum") ?? undefined,
     notContacted: sp.get("notContacted") ?? undefined,
+    notInterestedInLoyalty: sp.get("notInterestedInLoyalty") ?? undefined,
   });
   if (!parsed.success) {
     return NextResponse.json(

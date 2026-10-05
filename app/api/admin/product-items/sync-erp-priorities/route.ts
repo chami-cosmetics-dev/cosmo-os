@@ -13,7 +13,7 @@ export const maxDuration = 300;
 /**
  * POST /api/admin/product-items/sync-erp-priorities
  * Cosmo: Product Priority + Standard Selling + LWK OGF.
- * Vault: upsert all ERP1/ERP2 stock Items into ProductItem, then priorities.
+ * Vault: upsert ERP1/ERP2 stock Items (price from Item Price Standard Selling), then priorities.
  */
 export async function POST() {
   const auth = await requirePermission("products.read");
@@ -50,9 +50,7 @@ export async function POST() {
 
     const [result, prices, ogfPrices] = await Promise.all([
       syncErpProductPriorities(companyId),
-      vault
-        ? Promise.resolve({ status: "skipped" as const, updated: 0, error: null })
-        : syncStandardSellingToProductItems(companyId),
+      syncStandardSellingToProductItems(companyId),
       vault
         ? Promise.resolve({ status: "skipped" as const, updated: 0, error: null })
         : syncOgfPricesFromErp(companyId),

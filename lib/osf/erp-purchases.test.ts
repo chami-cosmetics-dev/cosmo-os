@@ -304,6 +304,21 @@ describe("isNoisePurchaseSupplier", () => {
       isNoisePurchaseSupplier({ supplier: "SV005", supplier_name: "Sachintha" }),
     ).toBe(false);
   });
+
+  it("flags intercompany cash transfer suppliers", () => {
+    expect(
+      isNoisePurchaseSupplier({ supplier: "SV030", supplier_name: "Cash SV 001" }),
+    ).toBe(true);
+    expect(
+      isNoisePurchaseSupplier({ supplier: "SV031", supplier_name: "Cash AE 001" }),
+    ).toBe(true);
+    expect(
+      isNoisePurchaseSupplier({ supplier: "OUT010Cash010", supplier_name: "OUT010Cash010" }),
+    ).toBe(true);
+    expect(
+      isNoisePurchaseSupplier({ supplier: "OUT900CASH009", supplier_name: "OUT900Cash009" }),
+    ).toBe(true);
+  });
 });
 
 describe("accumulateSupplierPurchasesFromRows", () => {
@@ -444,7 +459,7 @@ describe("accumulateSupplierPurchasesFromRows", () => {
     expect(s.bestEverRate).toBe(4650);
   });
 
-  it("lists every real supplier and ranks by best-ever (Cash AE + Sachintha)", () => {
+  it("lists real suppliers only and skips intercompany cash transfers", () => {
     const rows: PurchaseRow[] = [
       {
         name: "PI-CASH",
@@ -499,9 +514,9 @@ describe("accumulateSupplierPurchasesFromRows", () => {
       sku: "BV001-1",
       allowedSuppliers: [],
     });
-    expect(result.size).toBe(2);
+    expect(result.size).toBe(1);
     expect(result.get("sachintha")!.bestEverRate).toBe(4650);
-    expect(result.get("cash ae 001")!.lastRate).toBe(5990);
+    expect(result.has("cash ae 001")).toBe(false);
     expect(result.has("cash or 001")).toBe(false);
     expect(result.has("sync-test supplier")).toBe(false);
   });

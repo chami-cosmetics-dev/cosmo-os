@@ -307,6 +307,8 @@ type CallQueueRow = {
   hidden?: boolean;
   hideReason?: string | null;
   newlyAllocatedBadge?: boolean;
+  loyaltyOutreachStatus?: string | null;
+  loyaltyStage?: string | null;
 };
 
 function formatQueueDate(value: string | null) {
@@ -631,6 +633,14 @@ export function CustomerInsightPanel({
   const [queueMerchantOptions, setQueueMerchantOptions] = useState<InsightSelectOption[]>([]);
   const [filterPurchaseLocationId, setFilterPurchaseLocationId] = useState("");
   const [locationOptions, setLocationOptions] = useState<InsightSelectOption[]>([]);
+  const [filterOsRegLocation, setFilterOsRegLocation] = useState("");
+  const [osRegLocationOptions, setOsRegLocationOptions] = useState<InsightSelectOption[]>([]);
+  const [osRegResults, setOsRegResults] = useState<AllocatedFilterItemDto[] | null>(
+    null
+  );
+  const [osRegTotal, setOsRegTotal] = useState(0);
+  const [osRegIncludeNew, setOsRegIncludeNew] = useState(true);
+  const [osRegIncludeAlready, setOsRegIncludeAlready] = useState(true);
   const [filterBirthdayFrom, setFilterBirthdayFrom] = useState("");
   const [filterBirthdayTo, setFilterBirthdayTo] = useState("");
   const [filterLastFrom, setFilterLastFrom] = useState("");
@@ -639,6 +649,8 @@ export function CustomerInsightPanel({
   const [filterAllocatedTo, setFilterAllocatedTo] = useState("");
   const [filterLoyaltyRegFrom, setFilterLoyaltyRegFrom] = useState("");
   const [filterLoyaltyRegTo, setFilterLoyaltyRegTo] = useState("");
+  const [filterNotInterestedInLoyalty, setFilterNotInterestedInLoyalty] =
+    useState(false);
   const [filterNoPurchaseFrom, setFilterNoPurchaseFrom] = useState("");
   const [filterNoPurchaseTo, setFilterNoPurchaseTo] = useState("");
   const [filterMin, setFilterMin] = useState("");
@@ -698,6 +710,8 @@ export function CustomerInsightPanel({
   const [queueAssignedFrom, setQueueAssignedFrom] = useState("");
   const [queueAssignedTo, setQueueAssignedTo] = useState("");
   const [queueNotContacted, setQueueNotContacted] = useState(false);
+  const [queueNotInterestedInLoyalty, setQueueNotInterestedInLoyalty] =
+    useState(false);
   const [queueHideFilter, setQueueHideFilter] = useState<"all" | "eligible" | "hidden">(
     "all"
   );
@@ -717,6 +731,7 @@ export function CustomerInsightPanel({
       lifetimeTotalAtAssign: number;
       salesAfterAssignment: number;
       salesAfterContact: number;
+      loyaltyStage?: string | null;
     }>;
     byMerchant: Array<{
       merchantLabel: string;
@@ -897,18 +912,20 @@ export function CustomerInsightPanel({
     let cancelled = false;
     void (async () => {
       try {
-        const [merchantsRes, queueMerchantsRes, locationsRes, brandsRes] = await Promise.all([
+        const [merchantsRes, queueMerchantsRes, locationsRes, brandsRes, osRegRes] = await Promise.all([
           fetch(`/api/admin/customer-insight/filter-options?type=merchants`),
           fetch(
             `/api/admin/customer-insight/filter-options?type=call-queue-merchants`
           ),
           fetch(`/api/admin/customer-insight/filter-options?type=locations`),
           fetch(`/api/admin/customer-insight/filter-options?type=brands`),
+          fetch(`/api/admin/customer-insight/filter-options?type=os-reg-locations`),
         ]);
         const merchantsData = await merchantsRes.json().catch(() => ({}));
         const queueMerchantsData = await queueMerchantsRes.json().catch(() => ({}));
         const locationsData = await locationsRes.json().catch(() => ({}));
         const brandsData = await brandsRes.json().catch(() => ({}));
+        const osRegData = await osRegRes.json().catch(() => ({}));
         if (cancelled) return;
         if (merchantsRes.ok && Array.isArray(merchantsData.options)) {
           setMerchantOptions(
@@ -940,6 +957,13 @@ export function CustomerInsightPanel({
         if (brandsRes.ok && Array.isArray(brandsData.options)) {
           setQueueBrandOptions(
             (brandsData.options as Array<{ value?: string; label?: string }>)
+              .filter((o): o is { value: string; label?: string } => typeof o.value === "string")
+              .map((o) => ({ value: o.value, label: o.label ?? o.value }))
+          );
+        }
+        if (osRegRes.ok && Array.isArray(osRegData.options)) {
+          setOsRegLocationOptions(
+            (osRegData.options as Array<{ value?: string; label?: string }>)
               .filter((o): o is { value: string; label?: string } => typeof o.value === "string")
               .map((o) => ({ value: o.value, label: o.label ?? o.value }))
           );
@@ -1181,6 +1205,7 @@ export function CustomerInsightPanel({
       params.set("assignedTo", queueAssignedTo.trim());
     }
     if (queueNotContacted) params.set("notContacted", "true");
+    if (queueNotInterestedInLoyalty) params.set("notInterestedInLoyalty", "true");
     params.set("hideFilter", queueHideFilter);
   }
 
@@ -1195,6 +1220,7 @@ export function CustomerInsightPanel({
       params.set("assignedTo", queueAssignedTo.trim());
     }
     if (queueNotContacted) params.set("notContacted", "true");
+    if (queueNotInterestedInLoyalty) params.set("notInterestedInLoyalty", "true");
   }
 
   async function loadQueueCandidates(page = 1) {
@@ -1209,7 +1235,8 @@ export function CustomerInsightPanel({
       Boolean(queueAllocatedTo.trim()) ||
       Boolean(queueAssignedFrom.trim()) ||
       Boolean(queueAssignedTo.trim()) ||
-      queueNotContacted;
+      queueNotContacted ||
+      queueNotInterestedInLoyalty;
     if (!queueMerchant.trim() && !hasQueueFilter) {
       notify.error(
         "Select a merchant, or add a brand / other filter to load all allocated contacts."
@@ -1860,6 +1887,9 @@ export function CustomerInsightPanel({
     if (canExportFilteredCsv && filterPurchaseLocationId.trim()) {
       params.set("purchaseLocationId", filterPurchaseLocationId.trim());
     }
+    if (canExportFilteredCsv && filterOsRegLocation.trim()) {
+      params.set("osRegLocation", filterOsRegLocation.trim());
+    }
     if (filterBirthdayFrom.trim() && filterBirthdayTo.trim()) {
       params.set("birthdayFrom", filterBirthdayFrom.trim());
       params.set("birthdayTo", filterBirthdayTo.trim());
@@ -1877,6 +1907,9 @@ export function CustomerInsightPanel({
     }
     if (filterLoyaltyRegTo.trim()) {
       params.set("loyaltyRegisteredTo", filterLoyaltyRegTo.trim());
+    }
+    if (filterNotInterestedInLoyalty) {
+      params.set("notInterestedInLoyalty", "true");
     }
     if (filterNoPurchaseFrom.trim() && filterNoPurchaseTo.trim()) {
       params.set("noPurchaseFrom", filterNoPurchaseFrom.trim());
@@ -1923,6 +1956,80 @@ export function CustomerInsightPanel({
     }
   }
 
+  function buildOsRegFilterParams(forExport = false) {
+    const params = new URLSearchParams();
+    if (filterOsRegLocation.trim()) {
+      params.set("osRegLocation", filterOsRegLocation.trim());
+    }
+    if (forExport) {
+      params.set("osRegCreated", "true");
+    } else if (osRegIncludeNew || osRegIncludeAlready) {
+      if (osRegIncludeNew) params.set("osRegCreated", "true");
+      if (osRegIncludeAlready) params.set("osRegAlready", "true");
+    } else {
+      params.set("osRegCreated", "true");
+      params.set("osRegAlready", "true");
+    }
+    params.set("page", "1");
+    params.set("pageSize", "50");
+    return params;
+  }
+
+  async function loadOsRegFilter() {
+    if (!canExportFilteredCsv) return;
+    setBusyKey("os-reg-filter");
+    try {
+      const res = await fetch(
+        `/api/admin/customer-insight/filter?${buildOsRegFilterParams(false)}`
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        notify.error(typeof data.error === "string" ? data.error : "Filter failed.");
+        return;
+      }
+      setOsRegResults((data.items ?? []) as AllocatedFilterItemDto[]);
+      setOsRegTotal(data.pagination?.total ?? 0);
+    } catch {
+      notify.error("Filter failed.");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function exportOsRegFilter() {
+    if (!canExportFilteredCsv) return;
+    setBusyKey("os-reg-export");
+    try {
+      const params = buildOsRegFilterParams(true);
+      params.delete("page");
+      params.delete("pageSize");
+      const res = await fetch(
+        `/api/admin/customer-insight/filter/export?${params.toString()}`
+      );
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        notify.error(
+          typeof data.error === "string" ? data.error : "Export failed."
+        );
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "new-register-users.csv";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      notify.success("New register users export downloaded.");
+    } catch {
+      notify.error("Export failed.");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
   function focusInvoicesForItem(itemName: string) {
     setItemFilter(itemName);
     invoicesRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1953,6 +2060,7 @@ export function CustomerInsightPanel({
         filterAllocatedTo.trim() ||
         filterLoyaltyRegFrom.trim() ||
         filterLoyaltyRegTo.trim() ||
+        filterNotInterestedInLoyalty ||
         filterNoPurchaseFrom.trim() ||
         filterNoPurchaseTo.trim() ||
         filterMin.trim() ||
@@ -1977,6 +2085,7 @@ export function CustomerInsightPanel({
     setFilterAllocatedTo("");
     setFilterLoyaltyRegFrom("");
     setFilterLoyaltyRegTo("");
+    setFilterNotInterestedInLoyalty(false);
     setFilterNoPurchaseFrom("");
     setFilterNoPurchaseTo("");
     setFilterMin("");
@@ -2222,6 +2331,19 @@ export function CustomerInsightPanel({
                 />
               </label>
             ) : null}
+            {canExportFilteredCsv ? (
+              <label className="space-y-1 text-sm">
+                <span className="text-muted-foreground">New register location</span>
+                <InsightSearchableSelect
+                  value={filterOsRegLocation}
+                  options={osRegLocationOptions}
+                  placeholder="Any"
+                  searchPlaceholder="Search new-user locations…"
+                  disabled={isBusy}
+                  onChange={setFilterOsRegLocation}
+                />
+              </label>
+            ) : null}
             <div className="grid grid-cols-2 gap-2 sm:col-span-2">
               <label className="space-y-1 text-sm">
                 <span className="text-muted-foreground">Min total</span>
@@ -2347,6 +2469,17 @@ export function CustomerInsightPanel({
                   />
                 </label>
               </div>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={filterNotInterestedInLoyalty}
+                  disabled={isBusy}
+                  onChange={(e) =>
+                    setFilterNotInterestedInLoyalty(e.target.checked)
+                  }
+                />
+                Not interested in loyalty
+              </label>
             </fieldset>
 
             <fieldset className="space-y-2 rounded-lg border border-border/60 p-3">
@@ -2460,6 +2593,17 @@ export function CustomerInsightPanel({
                         >
                           {row.loyalty.label}
                         </span>
+                        {row.loyaltyStage ? (
+                          <span
+                            className={`rounded-md border px-2 py-0.5 text-[11px] font-medium ${
+                              row.loyaltyOutreachStatus === "not_interested"
+                                ? "border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-800 dark:bg-rose-950 dark:text-rose-200"
+                                : "border-border/70 bg-muted/60 text-muted-foreground"
+                            }`}
+                          >
+                            {row.loyaltyStage}
+                          </span>
+                        ) : null}
                         {row.brandSpend != null ? (
                           <span className="rounded-md bg-muted/60 px-2 py-1 text-[11px] tabular-nums text-muted-foreground">
                             Brand{" "}
@@ -2564,7 +2708,15 @@ export function CustomerInsightPanel({
                 }
                 className="flex w-full flex-col rounded-md border px-3 py-2 text-left text-sm transition hover:bg-muted/50 disabled:opacity-50 sm:flex-row sm:items-center sm:justify-between"
               >
-                <span className="font-medium">{m.name}</span>
+                <span className="font-medium">
+                  {m.name}
+                  {m.osRegBadge?.location ? (
+                    <span className="ml-2 inline-flex items-center gap-1 rounded-md border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[11px] font-medium text-amber-800 dark:text-amber-200">
+                      <MapPin className="size-3" aria-hidden />
+                      {m.osRegBadge.location}
+                    </span>
+                  ) : null}
+                </span>
                 <span className="text-muted-foreground">
                   {m.phoneNumber ?? "—"}
                   {m.email ? ` · ${m.email}` : ""}
@@ -2646,6 +2798,12 @@ export function CustomerInsightPanel({
                   <div className="space-y-1">
                     <CardTitle className="text-xl">
                       {insight.contact?.name?.trim() || "Customer (limited view)"}
+                      {insight.contact?.osRegBadge?.location ? (
+                        <span className="ml-2 inline-flex align-middle items-center gap-1 rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-800 dark:text-amber-200">
+                          <MapPin className="size-3" aria-hidden />
+                          {insight.contact.osRegBadge.location}
+                        </span>
+                      ) : null}
                     </CardTitle>
                     <CardDescription>
                       Allocated merchant:{" "}
@@ -2739,6 +2897,12 @@ export function CustomerInsightPanel({
                       <div className="space-y-1.5">
                         <h2 className="text-xl font-semibold tracking-tight">
                           {insight.contact.name}
+                          {insight.contact.osRegBadge?.location ? (
+                            <span className="ml-2 inline-flex align-middle items-center gap-1 rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-800 dark:text-amber-200">
+                              <MapPin className="size-3" aria-hidden />
+                              {insight.contact.osRegBadge.location}
+                            </span>
+                          ) : null}
                         </h2>
                         <div className="flex flex-col gap-1.5 text-sm text-muted-foreground">
                           {contactPhoneList(insight.contact).length > 0 ? (
@@ -3917,6 +4081,141 @@ export function CustomerInsightPanel({
       {canExportFilteredCsv ? (
         <Card>
           <CardHeader className="pb-2">
+            <CardTitle className="text-base">New register users</CardTitle>
+            <CardDescription>
+              Load shows new users and already-registered. Export is new users
+              only — already-registered stay out of the file.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              <label className="min-w-0 space-y-1 text-sm">
+                <span className="text-muted-foreground">New register location</span>
+                <InsightSearchableSelect
+                  value={filterOsRegLocation}
+                  options={osRegLocationOptions}
+                  placeholder="Any location"
+                  allLabel="Any location"
+                  searchPlaceholder="Search locations…"
+                  disabled={isBusy}
+                  onChange={setFilterOsRegLocation}
+                />
+              </label>
+              <div className="flex flex-wrap items-end gap-4 text-sm sm:col-span-2">
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={osRegIncludeNew}
+                    disabled={isBusy}
+                    onChange={(e) => setOsRegIncludeNew(e.target.checked)}
+                  />
+                  New users
+                </label>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={osRegIncludeAlready}
+                    disabled={isBusy}
+                    onChange={(e) => setOsRegIncludeAlready(e.target.checked)}
+                  />
+                  Already registered
+                </label>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-end gap-2">
+              <Button
+                type="button"
+                disabled={isBusy}
+                onClick={() => void loadOsRegFilter()}
+              >
+                {busyKey === "os-reg-filter" ? (
+                  <>
+                    <Loader2 className="animate-spin" aria-hidden />
+                    Loading...
+                  </>
+                ) : (
+                  "Load"
+                )}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isBusy}
+                onClick={() => void exportOsRegFilter()}
+              >
+                {busyKey === "os-reg-export" ? (
+                  <>
+                    <Loader2 className="animate-spin" aria-hidden />
+                    Exporting...
+                  </>
+                ) : (
+                  <>
+                    <Download aria-hidden />
+                    Export
+                  </>
+                )}
+              </Button>
+              {osRegResults ? (
+                <p className="text-sm text-muted-foreground">
+                  {osRegTotal.toLocaleString()} register user
+                  {osRegTotal === 1 ? "" : "s"}
+                </p>
+              ) : null}
+            </div>
+            {osRegResults ? (
+              <div className="overflow-x-auto rounded-md border text-xs">
+                <table className="w-full">
+                  <thead>
+                    <tr className="bg-muted/30 text-left">
+                      <th className="px-2 py-1">Name</th>
+                      <th className="px-2 py-1">Phone</th>
+                      <th className="px-2 py-1">Type</th>
+                      <th className="px-2 py-1">Merchant</th>
+                      <th className="px-2 py-1">Last purchased</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {osRegResults.length === 0 ? (
+                      <tr className="border-t">
+                        <td
+                          colSpan={5}
+                          className="text-muted-foreground px-2 py-2"
+                        >
+                          No register users for this selection.
+                        </td>
+                      </tr>
+                    ) : (
+                      osRegResults.map((row) => (
+                        <tr key={row.contactId} className="border-t">
+                          <td className="px-2 py-1">{row.name}</td>
+                          <td className="px-2 py-1">{row.phoneNumber ?? "—"}</td>
+                          <td className="px-2 py-1">
+                            {row.osRegKind === "already_registered"
+                              ? "Already registered"
+                              : "New user"}
+                          </td>
+                          <td className="px-2 py-1">
+                            {row.assignedMerchant ?? "Unallocated"}
+                          </td>
+                          <td className="px-2 py-1">
+                            {row.lastPurchaseAt
+                              ? formatAppDate(row.lastPurchaseAt)
+                              : "—"}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {canExportFilteredCsv ? (
+        <Card>
+          <CardHeader className="pb-2">
             <CardTitle className="text-base">Merchant Allocation - Data Collection</CardTitle>
             <CardDescription>
               How many Contact Master rows are allocated to each merchant, split
@@ -4641,6 +4940,17 @@ export function CustomerInsightPanel({
                   />
                   Not contacted
                 </label>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={queueNotInterestedInLoyalty}
+                    disabled={isBusy}
+                    onChange={(e) =>
+                      setQueueNotInterestedInLoyalty(e.target.checked)
+                    }
+                  />
+                  Not interested in loyalty
+                </label>
               </div>
             </div>
             <div className="flex flex-wrap items-end gap-2">
@@ -4884,6 +5194,9 @@ export function CustomerInsightPanel({
                             <span className="text-muted-foreground block text-xs">
                               Last contacted {formatQueueDate(row.lastContactedAt)} · last
                               purchased {formatQueueDate(row.lastPurchaseAt)}
+                              {row.loyaltyStage
+                                ? ` · ${row.loyaltyStage}`
+                                : ""}
                             </span>
                           </span>
                         </label>
@@ -4987,6 +5300,7 @@ export function CustomerInsightPanel({
                           <th className="px-2 py-1">Merchant</th>
                           <th className="px-2 py-1">Name</th>
                           <th className="px-2 py-1">Status</th>
+                          <th className="px-2 py-1">Loyalty stage</th>
                           <th className="px-2 py-1 text-right">After assign</th>
                           <th className="px-2 py-1 text-right">After contact</th>
                         </tr>
@@ -5000,6 +5314,9 @@ export function CustomerInsightPanel({
                             <td className="px-2 py-1">{row.merchantLabel}</td>
                             <td className="px-2 py-1">{row.name}</td>
                             <td className="px-2 py-1">{row.status}</td>
+                            <td className="px-2 py-1">
+                              {row.loyaltyStage ?? "—"}
+                            </td>
                             <td className="px-2 py-1 text-right">
                               {formatMoney(row.salesAfterAssignment)}
                             </td>

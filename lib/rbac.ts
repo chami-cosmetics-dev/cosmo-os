@@ -74,6 +74,26 @@ const DEFAULT_PERMISSIONS = [
     description: "Manage vendors and categories",
   },
   {
+    key: "item_creation.admin.manage",
+    description: "Create item requests and manage the complete Item Creation workflow",
+  },
+  {
+    key: "item_creation.seo.manage",
+    description: "Manage SEO Item Creation steps and final activation",
+  },
+  {
+    key: "item_creation.digital_marketing.manage",
+    description: "Manage Item Creation image and Google Drive steps",
+  },
+  {
+    key: "item_creation.purchasing.manage",
+    description: "Manage Item Creation purchasing price checks",
+  },
+  {
+    key: "item_creation.stores.manage",
+    description: "Manage Item Creation store transfer and stock steps",
+  },
+  {
     key: "purchasing.osf.read",
     description: "Generate Order Support File and view OSF profiles",
   },
@@ -99,6 +119,10 @@ const DEFAULT_PERMISSIONS = [
   {
     key: "purchasing.tools.manage",
     description: "Edit SKU reorder threshold % and purchasing tool settings",
+  },
+  {
+    key: "purchasing.purchase_history.read",
+    description: "View the Purchase History dashboard",
   },
   {
     key: "purchasing.item_trends.read",
@@ -216,6 +240,11 @@ const DEFAULT_PERMISSIONS = [
   {
     key: "contacts.allocation.settings",
     description: "Manage contact allocation option types in Settings",
+  },
+  {
+    key: "contacts.register",
+    description:
+      "Open Register new users workbook, save contacts, and create registration QR (not Contact Master directory)",
   },
   {
     key: "orders.read",
@@ -614,11 +643,17 @@ const DEFAULT_ROLES = [
       "settings.fulfillment",
       "products.read",
       "products.manage",
+      "item_creation.admin.manage",
+      "item_creation.seo.manage",
+      "item_creation.digital_marketing.manage",
+      "item_creation.purchasing.manage",
+      "item_creation.stores.manage",
       "purchasing.osf.read",
       "purchasing.osf.manage",
       "purchasing.osf.permission",
       "purchasing.tools.read",
       "purchasing.tools.manage",
+      "purchasing.purchase_history.read",
       "purchasing.item_trends.read",
       "purchasing.market_prices.read",
       "purchasing.market_prices.manage",
@@ -642,6 +677,7 @@ const DEFAULT_ROLES = [
       "contacts.allocation.read",
       "contacts.allocation.manage",
       "contacts.allocation.settings",
+      "contacts.register",
       "orders.read",
       "orders.manage",
       "orders.create_manual",

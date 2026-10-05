@@ -10,6 +10,7 @@ import {
 } from "@/lib/reports/contact-list-dump";
 import { getContactReportPermission } from "@/lib/report-permissions";
 import { requirePermission } from "@/lib/rbac";
+import { osRegistrationDumpExcludeWhere } from "@/lib/register-users/dump-exclude";
 
 type ContactReportKind = "last-purchased" | "log" | "loyalty";
 
@@ -36,14 +37,19 @@ export async function GET(request: NextRequest) {
   const contacts = await prisma.contactMaster.findMany({
     where: {
       companyId,
-      ...(report === "loyalty"
-        ? {
-            OR: [
-              { lastPurchaseAt: { not: null } },
-              { loyaltyAssignedTier: { not: null } },
-            ],
-          }
-        : {}),
+      AND: [
+        osRegistrationDumpExcludeWhere(),
+        ...(report === "loyalty"
+          ? [
+              {
+                OR: [
+                  { lastPurchaseAt: { not: null } },
+                  { loyaltyAssignedTier: { not: null } },
+                ],
+              },
+            ]
+          : []),
+      ],
     },
     orderBy: [{ lastPurchaseAt: "desc" }, { updatedAt: "desc" }],
     select: CONTACT_LIST_DUMP_SELECT,

@@ -323,7 +323,7 @@ export function ProductItemsPanel({ initialData, canManage = false }: ProductIte
           `Partial priority sync: ${failed.map((s) => s.label).join(", ")} unavailable. Other ERP updated.`,
         );
       }
-      if (!vault && data.prices?.status === "failed") {
+      if (data.prices?.status === "failed") {
         notify.error(data.prices.error ?? "Price sync failed");
       } else if (!vault && data.prices?.status === "not_configured") {
         notify.error(data.prices.error ?? "No Cosmo ERP instance for price sync");
@@ -335,7 +335,7 @@ export function ProductItemsPanel({ initialData, canManage = false }: ProductIte
       }
       if (vault && data.catalog?.status === "ok") {
         notify.success(
-          `Catalog synced from ERP1 (${data.catalog.erp1Count?.toLocaleString() ?? 0}) + ERP2 (${data.catalog.erp2Count?.toLocaleString() ?? 0}). Added ${(data.catalog.created ?? 0).toLocaleString()}, updated ${(data.catalog.updated ?? 0).toLocaleString()}. Priorities: ${(data.updatedRows ?? 0).toLocaleString()} rows.`,
+          `Catalog synced from ERP1 (${data.catalog.erp1Count?.toLocaleString() ?? 0}) + ERP2 (${data.catalog.erp2Count?.toLocaleString() ?? 0}). Added ${(data.catalog.created ?? 0).toLocaleString()}, updated ${(data.catalog.updated ?? 0).toLocaleString()}. Standard Selling (${(data.prices?.updated ?? 0).toLocaleString()}). Priorities: ${(data.updatedRows ?? 0).toLocaleString()} rows.`,
         );
       } else if (!vault) {
         const catalogOk =
@@ -435,7 +435,7 @@ export function ProductItemsPanel({ initialData, canManage = false }: ProductIte
           </h1>
           <p className="text-muted-foreground mt-1 text-xs">
             {vault
-              ? "Sync from ERP pulls all stock Items from ERP1 + ERP2 into this list, then Product Priority. Search works for every supplement SKU after sync."
+              ? "Sync from ERP pulls stock Items from ERP1 + ERP2, then Standard Selling price and Product Priority. Search works for every supplement SKU after sync."
               : "Product Priority from ERP1 / ERP2 (Manufacturing). LWK location = OGF Price List. Other locations = Cosmo Standard Selling. Syncs when you open this page."}
           </p>
         </div>
