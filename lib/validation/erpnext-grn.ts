@@ -67,6 +67,9 @@ export const erpnextPurchaseInvoiceWebhookSchema = z.object({
   posting_date: nullableString,
   docstatus: optionalNumber,
   status: nullableString,
+  is_return: optionalNumber,
+  return_against: nullableString,
+  bill_no: nullableString,
   amended_from: nullableString,
   owner: nullableString,
   creation: nullableString,
@@ -81,6 +84,8 @@ export const erpnextPurchaseInvoiceWebhookSchema = z.object({
         amount: z.coerce.number(),
         purchase_receipt: nullableString,
         purchase_receipt_item: nullableString,
+        supplier_stock_return: nullableString,
+        supplier_stock_return_item: nullableString,
         stock_uom: nullableString,
       }),
     )
@@ -99,3 +104,4 @@ export type ErpnextSupplierStockReturnWebhookPayload = z.infer<
 export type ErpnextPurchaseInvoiceWebhookPayload = z.infer<
   typeof erpnextPurchaseInvoiceWebhookSchema
 >;
+

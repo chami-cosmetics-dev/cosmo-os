@@ -19,11 +19,98 @@ function parseDateTime(value: string | null | undefined) {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-async function resolveCompanyId(erpCompany: string) {
+function unwrapRawPayload(rawPayload: unknown) {
+  if (!rawPayload || typeof rawPayload !== "object" || Array.isArray(rawPayload)) return null;
+  const top = rawPayload as Record<string, unknown>;
+  return top.data && typeof top.data === "object" && !Array.isArray(top.data)
+    ? (top.data as Record<string, unknown>)
+    : top;
+}
+
+function collectDelimitedNames(value: unknown) {
+  if (typeof value !== "string") return [];
+  return value
+    .split(/[,;\n]+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function extractPurchaseInvoiceReturnNames(rawPayload: unknown) {
+  const payload = unwrapRawPayload(rawPayload);
+  if (!payload) return [];
+  const names = new Set<string>();
+  for (const key of ["purchase_invoice_returns", "purchase_invoice_return", "purchase_invoice"]) {
+    for (const name of collectDelimitedNames(payload[key])) names.add(name);
+  }
+  const table = payload.purchase_invoice_returns;
+  if (Array.isArray(table)) {
+    for (const row of table) {
+      if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+      const record = row as Record<string, unknown>;
+      for (const key of ["purchase_invoice", "purchase_invoice_return", "name"]) {
+        for (const name of collectDelimitedNames(record[key])) names.add(name);
+      }
+    }
+  }
+  return Array.from(names);
+}
+
+function supplierStockReturnNameFromBillNo(billNo: string | null | undefined) {
+  const trimmed = billNo?.trim();
+  if (!trimmed?.startsWith("SSR-")) return null;
+  const name = trimmed.slice(4).trim();
+  return name || null;
+}
+
+export async function attachPendingSupplierStockReturnPurchaseInvoices(
+  tx: Prisma.TransactionClient,
+  input: {
+    companyId: string;
+    stockReturnName: string;
+    purchaseReceiptId: string;
+    purchaseReceiptName: string;
+  },
+) {
+  const billNo = `SSR-${input.stockReturnName}`;
+  const pendingInvoices = await tx.grnPurchaseInvoice.findMany({
+    where: {
+      companyId: input.companyId,
+      docstatus: { not: 2 },
+      OR: [
+        { billNo },
+        { supplierStockReturnName: input.stockReturnName },
+        { items: { some: { supplierStockReturn: input.stockReturnName } } },
+      ],
+    },
+    select: { id: true },
+  });
+
+  for (const invoice of pendingInvoices) {
+    await tx.grnPurchaseInvoice.update({
+      where: { id: invoice.id },
+      data: {
+        purchaseReceiptId: input.purchaseReceiptId,
+        purchaseReceiptName: input.purchaseReceiptName,
+        supplierStockReturnName: input.stockReturnName,
+      },
+    });
+    await tx.grnPurchaseInvoiceItem.updateMany({
+      where: { purchaseInvoiceId: invoice.id, supplierStockReturn: null },
+      data: { supplierStockReturn: input.stockReturnName },
+    });
+  }
+}
+
+async function resolveCompanyLocationForErpCompany(erpCompany: string) {
   const location = await prisma.companyLocation.findFirst({
     where: { erpnextCompany: erpCompany },
-    select: { companyId: true },
+    select: { id: true, companyId: true },
   });
+  return location ?? null;
+}
+
+async function resolveCompanyId(erpCompany: string) {
+  const location = await resolveCompanyLocationForErpCompany(erpCompany);
   return location?.companyId ?? null;
 }
 
@@ -85,10 +172,11 @@ export async function ingestPurchaseReceiptFromWebhook(
   data: ErpnextPurchaseReceiptWebhookPayload,
   rawPayload: unknown,
 ) {
-  const companyId = await resolveCompanyId(data.company);
-  if (!companyId) {
+  const location = await resolveCompanyLocationForErpCompany(data.company);
+  if (!location) {
     return { ok: false as const, status: 404, error: "ERP company not mapped to a company location" };
   }
+  const companyId = location.companyId;
 
   await prisma.$transaction(async (tx) => {
     const existing = await tx.grnPurchaseReceipt.findUnique({
@@ -107,6 +195,7 @@ export async function ingestPurchaseReceiptFromWebhook(
       where: { companyId_name: { companyId, name: data.name } },
       create: {
         companyId,
+        companyLocationId: location.id,
         name: data.name,
         supplier: data.supplier,
         supplierName: data.supplier_name,
@@ -121,6 +210,7 @@ export async function ingestPurchaseReceiptFromWebhook(
         rawPayload: rawPayload as Prisma.InputJsonValue,
       },
       update: {
+        companyLocationId: location.id,
         supplier: data.supplier,
         supplierName: data.supplier_name,
         postingDate: parseDateOnly(data.posting_date),
@@ -136,10 +226,10 @@ export async function ingestPurchaseReceiptFromWebhook(
       select: { id: true },
     });
 
-    await tx.grnPurchaseReceiptItem.deleteMany({
-      where: { purchaseReceiptId: receipt.id },
-    });
     if (data.items.length > 0) {
+      await tx.grnPurchaseReceiptItem.deleteMany({
+        where: { purchaseReceiptId: receipt.id },
+      });
       await tx.grnPurchaseReceiptItem.createMany({
         data: data.items.map((item) => ({
           companyId,
@@ -156,9 +246,22 @@ export async function ingestPurchaseReceiptFromWebhook(
     }
 
     if (carriedStockReturnName) {
+      await tx.grnPurchaseReceipt.updateMany({
+        where: {
+          supplierStockReturnName: carriedStockReturnName,
+          NOT: { id: receipt.id },
+        },
+        data: { supplierStockReturnName: null },
+      });
       await tx.grnSupplierStockReturn.updateMany({
         where: { companyId, name: carriedStockReturnName, docstatus: { not: 2 } },
         data: { purchaseReceiptName: data.name },
+      });
+      await attachPendingSupplierStockReturnPurchaseInvoices(tx, {
+        companyId,
+        stockReturnName: carriedStockReturnName,
+        purchaseReceiptId: receipt.id,
+        purchaseReceiptName: data.name,
       });
     }
   });
@@ -218,12 +321,89 @@ export async function ingestSupplierStockReturnFromWebhook(
     });
 
     if (carriedPurchaseReceiptName) {
-      await tx.grnPurchaseReceipt.updateMany({
+      const linkedPurchaseReceipt = await tx.grnPurchaseReceipt.findFirst({
         where: { companyId, name: carriedPurchaseReceiptName, docstatus: { not: 2 } },
-        data: { supplierStockReturnName: data.name },
+        select: { id: true, handoverAt: true, valuedAt: true },
       });
-    }
+      if (linkedPurchaseReceipt) {
+        await tx.grnPurchaseReceipt.update({
+          where: { id: linkedPurchaseReceipt.id },
+          data: { supplierStockReturnName: data.name },
+        });
 
+        const purchaseInvoiceReturnNames = extractPurchaseInvoiceReturnNames(rawPayload);
+        if (purchaseInvoiceReturnNames.length > 0) {
+          const linkedInvoices = await tx.grnPurchaseInvoice.findMany({
+            where: {
+              OR: [
+                { companyId, name: { in: purchaseInvoiceReturnNames } },
+                { billNo: `SSR-${data.name}` },
+              ],
+              docstatus: { not: 2 },
+            },
+            include: { items: true },
+          });
+
+          for (const invoice of linkedInvoices) {
+            await tx.grnPurchaseInvoice.update({
+              where: { id: invoice.id },
+              data: {
+                purchaseReceiptId: linkedPurchaseReceipt.id,
+                purchaseReceiptName: carriedPurchaseReceiptName,
+                supplierStockReturnName: data.name,
+              },
+            });
+            await tx.grnPurchaseInvoiceItem.updateMany({
+              where: { purchaseInvoiceId: invoice.id, supplierStockReturn: null },
+              data: { supplierStockReturn: data.name },
+            });
+          }
+        } else {
+          await attachPendingSupplierStockReturnPurchaseInvoices(tx, {
+            companyId,
+            stockReturnName: data.name,
+            purchaseReceiptId: linkedPurchaseReceipt.id,
+            purchaseReceiptName: carriedPurchaseReceiptName,
+          });
+        }
+
+        if (linkedPurchaseReceipt.handoverAt && !linkedPurchaseReceipt.valuedAt) {
+            const [prInvoice, ssrInvoice] = await Promise.all([
+              tx.grnPurchaseInvoice.findFirst({
+                where: {
+                  purchaseReceiptId: linkedPurchaseReceipt.id,
+                  docstatus: { not: 2 },
+                  items: { some: { purchaseReceipt: carriedPurchaseReceiptName } },
+                },
+                orderBy: [{ postingDate: "desc" }, { createdAt: "desc" }],
+                include: { items: true },
+              }),
+              tx.grnPurchaseInvoice.findFirst({
+                where: {
+                  purchaseReceiptId: linkedPurchaseReceipt.id,
+                  docstatus: { not: 2 },
+                  items: { some: { supplierStockReturn: data.name } },
+                },
+                orderBy: [{ postingDate: "desc" }, { createdAt: "desc" }],
+                include: { items: true },
+              }),
+            ]);
+
+            if (prInvoice && ssrInvoice) {
+              const priceTally = tallyPurchaseInvoicePrices(
+                prInvoice.items.filter((item) => item.purchaseReceipt === carriedPurchaseReceiptName),
+                ssrInvoice.items.filter((item) => item.supplierStockReturn === data.name),
+              );
+              if (priceTally.status === "matched") {
+                await tx.grnPurchaseReceipt.update({
+                  where: { id: linkedPurchaseReceipt.id },
+                  data: { valuedAt: new Date(), valuedById: null },
+                });
+              }
+            }
+        }
+      }
+    }
     await tx.grnSupplierStockReturnItem.deleteMany({
       where: { supplierStockReturnId: stockReturn.id },
     });
@@ -256,14 +436,104 @@ export async function ingestPurchaseInvoiceFromWebhook(
     return { ok: false as const, status: 404, error: "ERP company not mapped to a company location" };
   }
 
+  const existingInvoice = await prisma.grnPurchaseInvoice.findUnique({
+    where: { companyId_name: { companyId, name: data.name } },
+    select: {
+      purchaseReceiptName: true,
+      supplierStockReturnName: true,
+    },
+  });
+  const amendedFromInvoice = data.amended_from
+    ? await prisma.grnPurchaseInvoice.findUnique({
+        where: { companyId_name: { companyId, name: data.amended_from } },
+        select: {
+          purchaseReceiptName: true,
+          supplierStockReturnName: true,
+        },
+      })
+    : null;
+
   const linkedPurchaseReceiptNames = Array.from(
     new Set(
-      data.items
-        .map((item) => item.purchase_receipt)
-        .filter((value): value is string => Boolean(value)),
+      [
+        ...data.items.map((item) => item.purchase_receipt),
+        existingInvoice?.purchaseReceiptName,
+        amendedFromInvoice?.purchaseReceiptName,
+      ].filter((value): value is string => Boolean(value)),
     ),
   );
-  if (linkedPurchaseReceiptNames.length === 0) {
+  const linkedSupplierStockReturnNames = Array.from(
+    new Set(
+      [
+        ...data.items.map((item) => item.supplier_stock_return),
+        existingInvoice?.supplierStockReturnName,
+        amendedFromInvoice?.supplierStockReturnName,
+      ].filter((value): value is string => Boolean(value)),
+    ),
+  );
+
+  const ssrNameFromBillNo =
+    (data.is_return === 1 ? supplierStockReturnNameFromBillNo(data.bill_no) : null) ??
+    existingInvoice?.supplierStockReturnName ??
+    amendedFromInvoice?.supplierStockReturnName ??
+    null;
+  const inheritedPurchaseReceiptName = linkedPurchaseReceiptNames.length === 1 ? linkedPurchaseReceiptNames[0] ?? null : null;
+  let linkedStockReturn = ssrNameFromBillNo
+    ? await prisma.grnSupplierStockReturn.findFirst({
+        where: {
+          name: ssrNameFromBillNo,
+          docstatus: { not: 2 },
+        },
+        select: { name: true, purchaseReceiptName: true },
+      })
+    : linkedSupplierStockReturnNames.length
+      ? await prisma.grnSupplierStockReturn.findFirst({
+          where: {
+            name: { in: linkedSupplierStockReturnNames },
+            docstatus: { not: 2 },
+          },
+          select: { name: true, purchaseReceiptName: true },
+        })
+      : null;
+  if (linkedStockReturn && !linkedStockReturn.purchaseReceiptName) {
+    await autoMatchIntercompanyGrn();
+    linkedStockReturn = await prisma.grnSupplierStockReturn.findFirst({
+      where: {
+        name: linkedStockReturn.name,
+        docstatus: { not: 2 },
+      },
+      select: { name: true, purchaseReceiptName: true },
+    });
+  }
+  let linkedStockReturnPurchaseReceiptName = linkedStockReturn?.purchaseReceiptName ?? null;
+  if (linkedStockReturn && !linkedStockReturnPurchaseReceiptName) {
+    const reverseLinkedPurchaseReceipt = await prisma.grnPurchaseReceipt.findFirst({
+      where: {
+        supplierStockReturnName: linkedStockReturn.name,
+        docstatus: { not: 2 },
+      },
+      select: { name: true },
+    });
+    linkedStockReturnPurchaseReceiptName = reverseLinkedPurchaseReceipt?.name ?? null;
+  }
+  if (!linkedStockReturn && linkedSupplierStockReturnNames.length === 0) {
+    const candidateStockReturns = await prisma.grnSupplierStockReturn.findMany({
+      where: {
+        companyId,
+        supplier: data.supplier,
+        docstatus: { not: 2 },
+      },
+      orderBy: [{ creation: "desc" }, { createdAt: "desc" }],
+      take: 200,
+      select: { name: true, purchaseReceiptName: true, rawPayload: true },
+    });
+    linkedStockReturn =
+      candidateStockReturns.find((row) =>
+        extractPurchaseInvoiceReturnNames(row.rawPayload).includes(data.name),
+      ) ?? null;
+    linkedStockReturnPurchaseReceiptName = linkedStockReturn?.purchaseReceiptName ?? null;
+  }
+  if (linkedPurchaseReceiptNames.length === 0 && !linkedStockReturnPurchaseReceiptName && !linkedStockReturn && !ssrNameFromBillNo) {
     await prisma.grnPurchaseInvoice.deleteMany({
       where: { companyId, name: data.name },
     });
@@ -272,20 +542,99 @@ export async function ingestPurchaseInvoiceFromWebhook(
 
   const purchaseReceipt = await prisma.grnPurchaseReceipt.findFirst({
     where: {
-      companyId,
-      name: { in: linkedPurchaseReceiptNames },
       docstatus: { not: 2 },
-      supplierStockReturnName: { not: null },
+      OR: [
+        ...(linkedPurchaseReceiptNames.length
+          ? [
+              {
+                companyId,
+                name: { in: linkedPurchaseReceiptNames },
+              },
+            ]
+          : []),
+        ...(linkedStockReturnPurchaseReceiptName
+          ? [{ name: linkedStockReturnPurchaseReceiptName }]
+          : []),
+      ],
     },
-    select: { id: true, name: true, supplierStockReturnName: true },
+    select: { id: true, name: true, supplierStockReturnName: true, handoverAt: true, valuedAt: true, valuedById: true },
   });
-  if (!purchaseReceipt?.supplierStockReturnName) {
+  if (!purchaseReceipt) {
+    const pendingSupplierStockReturnName = linkedStockReturn?.name ?? ssrNameFromBillNo;
+    if (pendingSupplierStockReturnName) {
+      await prisma.$transaction(async (tx) => {
+        const invoice = await tx.grnPurchaseInvoice.upsert({
+          where: { companyId_name: { companyId, name: data.name } },
+          create: {
+            companyId,
+            purchaseReceiptId: null,
+            name: data.name,
+            supplier: data.supplier,
+            supplierName: data.supplier_name,
+            postingDate: parseDateOnly(data.posting_date),
+            docstatus: data.docstatus == null ? null : Number(data.docstatus),
+            status: data.status,
+            isReturn: data.is_return == null ? null : Number(data.is_return),
+            returnAgainst: data.return_against,
+            billNo: data.bill_no,
+            amendedFrom: data.amended_from,
+            owner: data.owner,
+            creation: parseDateTime(data.creation),
+            purchaseReceiptName: null,
+            supplierStockReturnName: pendingSupplierStockReturnName,
+            rawPayload: rawPayload as Prisma.InputJsonValue,
+          },
+          update: {
+            supplier: data.supplier,
+            supplierName: data.supplier_name,
+            postingDate: parseDateOnly(data.posting_date),
+            docstatus: data.docstatus == null ? null : Number(data.docstatus),
+            status: data.status,
+            isReturn: data.is_return == null ? null : Number(data.is_return),
+            returnAgainst: data.return_against,
+            billNo: data.bill_no,
+            amendedFrom: data.amended_from,
+            owner: data.owner,
+            creation: parseDateTime(data.creation),
+            supplierStockReturnName: pendingSupplierStockReturnName,
+            rawPayload: rawPayload as Prisma.InputJsonValue,
+          },
+          select: { id: true },
+        });
+
+        await tx.grnPurchaseInvoiceItem.deleteMany({
+          where: { purchaseInvoiceId: invoice.id },
+        });
+        if (data.items.length > 0) {
+          await tx.grnPurchaseInvoiceItem.createMany({
+            data: data.items.map((item) => ({
+              companyId,
+              purchaseInvoiceId: invoice.id,
+              name: item.name,
+              itemCode: item.item_code,
+              itemName: item.item_name,
+              qty: item.qty,
+              rate: item.rate,
+              amount: item.amount,
+              purchaseReceipt: item.purchase_receipt ?? inheritedPurchaseReceiptName,
+              purchaseReceiptItem: item.purchase_receipt_item,
+              supplierStockReturn: item.supplier_stock_return ?? pendingSupplierStockReturnName,
+              supplierStockReturnItem: item.supplier_stock_return_item,
+              stockUom: item.stock_uom,
+            })),
+          });
+        }
+      });
+      return { ok: true as const, ignored: false as const, pending: true as const };
+    }
+
     await prisma.grnPurchaseInvoice.deleteMany({
       where: { companyId, name: data.name },
     });
     return { ok: true as const, ignored: true as const };
   }
-  const supplierStockReturnName = purchaseReceipt.supplierStockReturnName;
+
+  const supplierStockReturnName = purchaseReceipt.supplierStockReturnName ?? linkedStockReturn?.name ?? null;
 
   await prisma.$transaction(async (tx) => {
     const invoice = await tx.grnPurchaseInvoice.upsert({
@@ -299,6 +648,9 @@ export async function ingestPurchaseInvoiceFromWebhook(
         postingDate: parseDateOnly(data.posting_date),
         docstatus: data.docstatus == null ? null : Number(data.docstatus),
         status: data.status,
+        isReturn: data.is_return == null ? null : Number(data.is_return),
+        returnAgainst: data.return_against,
+        billNo: data.bill_no,
         amendedFrom: data.amended_from,
         owner: data.owner,
         creation: parseDateTime(data.creation),
@@ -313,6 +665,9 @@ export async function ingestPurchaseInvoiceFromWebhook(
         postingDate: parseDateOnly(data.posting_date),
         docstatus: data.docstatus == null ? null : Number(data.docstatus),
         status: data.status,
+        isReturn: data.is_return == null ? null : Number(data.is_return),
+        returnAgainst: data.return_against,
+        billNo: data.bill_no,
         amendedFrom: data.amended_from,
         owner: data.owner,
         creation: parseDateTime(data.creation),
@@ -326,10 +681,9 @@ export async function ingestPurchaseInvoiceFromWebhook(
     await tx.grnPurchaseInvoiceItem.deleteMany({
       where: { purchaseInvoiceId: invoice.id },
     });
-    const linkedItems = data.items.filter((item) => item.purchase_receipt === purchaseReceipt.name);
-    if (linkedItems.length > 0) {
+    if (data.items.length > 0) {
       await tx.grnPurchaseInvoiceItem.createMany({
-        data: linkedItems.map((item) => ({
+        data: data.items.map((item) => ({
           companyId,
           purchaseInvoiceId: invoice.id,
           name: item.name,
@@ -338,10 +692,75 @@ export async function ingestPurchaseInvoiceFromWebhook(
           qty: item.qty,
           rate: item.rate,
           amount: item.amount,
-          purchaseReceipt: item.purchase_receipt,
+          purchaseReceipt: item.purchase_receipt ?? inheritedPurchaseReceiptName,
           purchaseReceiptItem: item.purchase_receipt_item,
+          supplierStockReturn: item.supplier_stock_return ?? supplierStockReturnName,
+          supplierStockReturnItem: item.supplier_stock_return_item,
           stockUom: item.stock_uom,
         })),
+      });
+    }
+
+    if (!purchaseReceipt.handoverAt) return;
+
+    if (!supplierStockReturnName) {
+      if (!purchaseReceipt.valuedAt) {
+        await tx.grnPurchaseReceipt.update({
+          where: { id: purchaseReceipt.id },
+          data: { valuedAt: new Date(), valuedById: null },
+        });
+      }
+      return;
+    }
+
+    const [prInvoice, ssrInvoice] = await Promise.all([
+      tx.grnPurchaseInvoice.findFirst({
+        where: {
+          purchaseReceiptId: purchaseReceipt.id,
+          docstatus: { not: 2 },
+          items: { some: { purchaseReceipt: purchaseReceipt.name } },
+        },
+        orderBy: [{ postingDate: "desc" }, { createdAt: "desc" }],
+        include: { items: true },
+      }),
+      tx.grnPurchaseInvoice.findFirst({
+        where: {
+          purchaseReceiptId: purchaseReceipt.id,
+          docstatus: { not: 2 },
+          items: { some: { supplierStockReturn: supplierStockReturnName } },
+        },
+        orderBy: [{ postingDate: "desc" }, { createdAt: "desc" }],
+        include: { items: true },
+      }),
+    ]);
+
+    if (!prInvoice || !ssrInvoice) {
+      if (purchaseReceipt.valuedAt && !purchaseReceipt.valuedById) {
+        await tx.grnPurchaseReceipt.update({
+          where: { id: purchaseReceipt.id },
+          data: { valuedAt: null, valuedById: null },
+        });
+      }
+      return;
+    }
+    const priceTally = tallyPurchaseInvoicePrices(
+      prInvoice.items.filter((item) => item.purchaseReceipt === purchaseReceipt.name),
+      ssrInvoice.items.filter((item) => item.supplierStockReturn === supplierStockReturnName),
+    );
+    if (priceTally.status !== "matched") {
+      if (purchaseReceipt.valuedAt && !purchaseReceipt.valuedById) {
+        await tx.grnPurchaseReceipt.update({
+          where: { id: purchaseReceipt.id },
+          data: { valuedAt: null, valuedById: null },
+        });
+      }
+      return;
+    }
+
+    if (!purchaseReceipt.valuedAt) {
+      await tx.grnPurchaseReceipt.update({
+        where: { id: purchaseReceipt.id },
+        data: { valuedAt: new Date(), valuedById: null },
       });
     }
   });
@@ -350,6 +769,56 @@ export async function ingestPurchaseInvoiceFromWebhook(
 }
 
 export type GrnTallyStatus = "not_linked" | "matched" | "issue";
+
+type PriceTallyInvoiceItem = {
+  itemCode: string;
+  qty: Prisma.Decimal | number;
+  rate: Prisma.Decimal | number;
+  amount: Prisma.Decimal | number;
+};
+
+export function tallyPurchaseInvoicePrices(
+  purchaseReceiptInvoiceItems: PriceTallyInvoiceItem[],
+  supplierStockReturnInvoiceItems: PriceTallyInvoiceItem[],
+) {
+  const prByItem = new Map<string, { qty: number; amount: number }>();
+  const ssrByItem = new Map<string, { qty: number; amount: number }>();
+
+  for (const item of purchaseReceiptInvoiceItems) {
+    const code = normalizeItemCode(item.itemCode);
+    const current = prByItem.get(code);
+    prByItem.set(code, {
+      qty: (current?.qty ?? 0) + Number(item.qty),
+      amount: (current?.amount ?? 0) + Number(item.amount),
+    });
+  }
+  for (const item of supplierStockReturnInvoiceItems) {
+    const code = normalizeItemCode(item.itemCode);
+    const current = ssrByItem.get(code);
+    ssrByItem.set(code, {
+      qty: (current?.qty ?? 0) + Number(item.qty),
+      amount: (current?.amount ?? 0) + Number(item.amount),
+    });
+  }
+
+  const issueItems = new Set<string>();
+  const codes = new Set([...prByItem.keys(), ...ssrByItem.keys()]);
+  for (const code of codes) {
+    const pr = prByItem.get(code);
+    const ssr = ssrByItem.get(code);
+    if (
+      Math.abs(Math.abs(pr?.qty ?? 0) - Math.abs(ssr?.qty ?? 0)) > 0.000001 ||
+      Math.abs((pr?.amount ?? 0) + (ssr?.amount ?? 0)) > 0.000001
+    ) {
+      issueItems.add(code);
+    }
+  }
+
+  return {
+    status: issueItems.size > 0 ? ("issue" as const) : ("matched" as const),
+    issueItems: Array.from(issueItems).sort(),
+  };
+}
 
 export function tallyLinkedItems(
   prItems: Array<{ itemCode: string; stockQty: Prisma.Decimal | number | null; qty: Prisma.Decimal | number }>,
@@ -386,6 +855,7 @@ type MatchPurchaseReceipt = {
   name: string;
   supplier: string;
   docstatus: number | null;
+  creation: Date | null;
   supplierStockReturnName: string | null;
   items: Array<{ itemCode: string; stockQty: Prisma.Decimal | number | null; qty: Prisma.Decimal | number }>;
 };
@@ -395,9 +865,12 @@ type MatchSupplierStockReturn = {
   name: string;
   supplier: string;
   docstatus: number | null;
+  creation: Date | null;
   purchaseReceiptName: string | null;
   items: Array<{ itemCode: string; qty: Prisma.Decimal | number }>;
 };
+
+const GRN_MATCH_CREATION_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 function normalizeItemCode(value: string) {
   return value.trim().toUpperCase();
@@ -436,12 +909,25 @@ export function calculateGrnMatchPercentage(
   return Math.round((matchedQty / totalQty) * 10000) / 100;
 }
 
+export function isWithinGrnMatchCreationWindow(
+  purchaseReceipt: Pick<MatchPurchaseReceipt, "creation">,
+  stockReturn: Pick<MatchSupplierStockReturn, "creation">,
+) {
+  if (!purchaseReceipt.creation || !stockReturn.creation) return false;
+  return Math.abs(purchaseReceipt.creation.getTime() - stockReturn.creation.getTime()) <= GRN_MATCH_CREATION_WINDOW_MS;
+}
+
 export function bestGrnMatchForStockReturn(
   stockReturn: MatchSupplierStockReturn,
   purchaseReceipts: MatchPurchaseReceipt[],
 ) {
   return purchaseReceipts
-    .filter((receipt) => receipt.docstatus !== 2 && !receipt.supplierStockReturnName)
+    .filter(
+      (receipt) =>
+        receipt.docstatus !== 2 &&
+        !receipt.supplierStockReturnName &&
+        isWithinGrnMatchCreationWindow(receipt, stockReturn),
+    )
     .map((receipt) => ({
       companyId: receipt.companyId,
       name: receipt.name,
@@ -486,25 +972,31 @@ export async function autoMatchIntercompanyGrn() {
     const best = bestGrnMatchForStockReturn(stockReturn, candidates);
     if (!best || best.percentage !== 100) continue;
 
-    await prisma.$transaction([
-      prisma.grnPurchaseReceipt.updateMany({
+    await prisma.$transaction(async (tx) => {
+      await tx.grnPurchaseReceipt.updateMany({
         where: { supplierStockReturnName: stockReturn.name },
         data: { supplierStockReturnName: null },
-      }),
-      prisma.grnPurchaseReceipt.update({
+      });
+      const linkedPurchaseReceipt = await tx.grnPurchaseReceipt.update({
         where: { companyId_name: { companyId: best.companyId, name: best.name } },
         data: { supplierStockReturnName: stockReturn.name },
-      }),
-      prisma.grnSupplierStockReturn.update({
+        select: { id: true },
+      });
+      await tx.grnSupplierStockReturn.update({
         where: { companyId_name: { companyId: stockReturn.companyId, name: stockReturn.name } },
         data: { purchaseReceiptName: best.name },
-      }),
-    ]);
+      });
+      await attachPendingSupplierStockReturnPurchaseInvoices(tx, {
+        companyId: stockReturn.companyId,
+        stockReturnName: stockReturn.name,
+        purchaseReceiptId: linkedPurchaseReceipt.id,
+        purchaseReceiptName: best.name,
+      });
+    });
     usedPurchaseReceipts.add(`${best.companyId}:${best.name}`);
     matched += 1;
   }
 
   return { matched };
 }
-
 

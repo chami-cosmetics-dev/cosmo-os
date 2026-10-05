@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
+import { tallyPurchaseInvoicePrices } from "@/lib/grn";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserContext, requirePermission } from "@/lib/rbac";
 
@@ -51,7 +52,20 @@ export async function POST(
 
   const row = await prisma.grnPurchaseReceipt.findUnique({
     where: { companyId_name: { companyId: targetCompanyId, name: decodedName } },
-    select: { docstatus: true, handoverAt: true, valuedAt: true },
+    select: {
+      id: true,
+      name: true,
+      docstatus: true,
+      handoverAt: true,
+      valuedAt: true,
+      supplierStockReturnName: true,
+      purchaseInvoices: {
+        where: { docstatus: { not: 2 } },
+        orderBy: [{ postingDate: "desc" }, { createdAt: "desc" }],
+        take: 5,
+        include: { items: true },
+      },
+    },
   });
 
   if (!row) {
@@ -67,16 +81,56 @@ export async function POST(
     return NextResponse.json({ error: "Mark handover and valued before marking GRN received" }, { status: 409 });
   }
 
-  await prisma.grnPurchaseReceipt.update({
-    where: { companyId_name: { companyId: targetCompanyId, name: decodedName } },
-    data: {
-      [parsed.data.field]: new Date(),
-      [FIELD_ACTOR_COLUMNS[parsed.data.field]]: user.id,
-    },
+  await prisma.$transaction(async (tx) => {
+    await tx.grnPurchaseReceipt.update({
+      where: { companyId_name: { companyId: targetCompanyId, name: decodedName } },
+      data: {
+        [parsed.data.field]: new Date(),
+        [FIELD_ACTOR_COLUMNS[parsed.data.field]]: user.id,
+      },
+    });
+
+    if (parsed.data.field !== "handoverAt" || row.valuedAt) return;
+
+    const purchaseInvoice =
+      row.purchaseInvoices.find((invoice) =>
+        invoice.items.some((item) => item.purchaseReceipt === row.name),
+      ) ?? null;
+    if (!purchaseInvoice) return;
+
+    if (!row.supplierStockReturnName) {
+      await tx.grnPurchaseReceipt.update({
+        where: { id: row.id },
+        data: { valuedAt: new Date(), valuedById: null },
+      });
+      return;
+    }
+
+    const ssrInvoice = await tx.grnPurchaseInvoice.findFirst({
+      where: {
+        purchaseReceiptId: row.id,
+        docstatus: { not: 2 },
+        items: { some: { supplierStockReturn: row.supplierStockReturnName } },
+      },
+      orderBy: [{ postingDate: "desc" }, { createdAt: "desc" }],
+      include: { items: true },
+    });
+    if (!ssrInvoice) return;
+
+    const priceTally = tallyPurchaseInvoicePrices(
+      purchaseInvoice.items.filter((item) => item.purchaseReceipt === row.name),
+      ssrInvoice.items.filter((item) => item.supplierStockReturn === row.supplierStockReturnName),
+    );
+    if (priceTally.status !== "matched") return;
+    await tx.grnPurchaseReceipt.update({
+      where: { id: row.id },
+      data: { valuedAt: new Date(), valuedById: null },
+    });
   });
 
   return NextResponse.json({ ok: true });
 }
+
 
 
 

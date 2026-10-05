@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { CalendarIcon, Download, Loader2, Search } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -53,6 +53,9 @@ type InitialData = {
 const REVIEW_STATUS_OPTIONS = ["Yes", "No", "Pending", "Already Done"] as const;
 type ReviewStatus = (typeof REVIEW_STATUS_OPTIONS)[number];
 type EditState = { reviewRequested: ReviewStatus; reviewCollected: ReviewStatus; remarks: string };
+type PageSize = 20 | 50 | 100;
+
+const PAGE_SIZE_OPTIONS: PageSize[] = [20, 50, 100];
 
 function toReviewStatus(value: string): ReviewStatus {
   return REVIEW_STATUS_OPTIONS.find((option) => option === value) ?? "Pending";
@@ -79,6 +82,8 @@ export function OutletReviewPanel({
   const [exporting, setExporting] = useState(false);
   const [editMap, setEditMap] = useState<Map<string, EditState>>(new Map());
   const [savingIds, setSavingIds] = useState<Set<string>>(new Set());
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<PageSize>(50);
 
   const filteredReviews = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -100,6 +105,20 @@ export function OutletReviewPanel({
     });
   }, [reviews, search]);
 
+  const pageCount = Math.max(1, Math.ceil(filteredReviews.length / pageSize));
+  const safePage = Math.min(page, pageCount);
+  const pagedReviews = filteredReviews.slice((safePage - 1) * pageSize, safePage * pageSize);
+  const pageStart = filteredReviews.length === 0 ? 0 : (safePage - 1) * pageSize + 1;
+  const pageEnd = Math.min(safePage * pageSize, filteredReviews.length);
+
+  useEffect(() => {
+    setPage(1);
+  }, [search, reviews.length, pageSize]);
+
+  useEffect(() => {
+    if (page > pageCount) setPage(pageCount);
+  }, [page, pageCount]);
+
   async function applyFilters() {
     setLoading(true);
     try {
@@ -115,6 +134,7 @@ export function OutletReviewPanel({
       }
       setReviews(data.reviews ?? []);
       setEditMap(new Map());
+      setPage(1);
     } catch {
       notify.error("Failed to load data");
     } finally {
@@ -363,7 +383,7 @@ export function OutletReviewPanel({
                     </TableCell>
                   </TableRow>
                 )}
-                {filteredReviews.map((review) => {
+                {pagedReviews.map((review) => {
                   const editing = editMap.get(review.orderId);
                   const saving = savingIds.has(review.orderId);
                   return (
@@ -482,6 +502,47 @@ export function OutletReviewPanel({
                 })}
               </TableBody>
             </Table>
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/50 px-4 py-3 text-sm text-muted-foreground">
+            <div>
+              Showing {pageStart}-{pageEnd} of {filteredReviews.length}
+            </div>
+            <div className="flex items-center gap-2">
+              <Select
+                value={String(pageSize)}
+                onValueChange={(value) => setPageSize(Number(value) as PageSize)}
+              >
+                <SelectTrigger className="h-9 w-[120px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {PAGE_SIZE_OPTIONS.map((option) => (
+                    <SelectItem key={option} value={String(option)}>
+                      {option} / page
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={safePage <= 1}
+                onClick={() => setPage((current) => Math.max(1, current - 1))}
+              >
+                Previous
+              </Button>
+              <span className="min-w-[88px] text-center">
+                Page {safePage} of {pageCount}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={safePage >= pageCount}
+                onClick={() => setPage((current) => Math.min(pageCount, current + 1))}
+              >
+                Next
+              </Button>
+            </div>
           </div>
         </CardContent>
       </Card>

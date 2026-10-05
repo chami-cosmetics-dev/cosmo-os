@@ -57,17 +57,40 @@ type UserRef = {
   email: string | null;
 };
 
+type PurchaseInvoiceRef = {
+  name: string;
+  erpUrl: string | null;
+  postingDate: string | null;
+  docstatus: number | null;
+  status: string | null;
+  items: {
+    name: string;
+    itemCode: string;
+    itemName: string | null;
+    qty: number;
+    rate: number;
+    amount: number;
+    purchaseReceipt: string | null;
+    purchaseReceiptItem: string | null;
+    supplierStockReturn: string | null;
+    supplierStockReturnItem: string | null;
+    stockUom: string | null;
+  }[];
+};
+
 type PurchaseReceiptRow = {
   companyId: string;
   companyName: string;
   name: string;
   erpUrl: string | null;
   adjustmentNo: string | null;
+  adjustmentDocstatus: number | null;
   grnDate: string | null;
   grnBy: string | null;
   supplier: string;
   supplierName: string | null;
   docstatus: number | null;
+  isCancelled: boolean;
   amendedFrom: string | null;
   handoverAt: string | null;
   handoverBy: UserRef | null;
@@ -87,6 +110,7 @@ type PurchaseReceiptRow = {
     stockUom: string | null;
   }[];
   tallyStatus: "not_linked" | "matched" | "issue";
+  tallyPercentage: number | null;
   tallyIssueItems: string[];
   tallyIssues: {
     itemCode: string;
@@ -94,24 +118,8 @@ type PurchaseReceiptRow = {
     prQty: number;
     ssrQty: number;
   }[];
-  purchaseInvoice: {
-    name: string;
-    erpUrl: string | null;
-    postingDate: string | null;
-    docstatus: number | null;
-    status: string | null;
-    items: {
-      name: string;
-      itemCode: string;
-      itemName: string | null;
-      qty: number;
-      rate: number;
-      amount: number;
-      purchaseReceipt: string | null;
-      purchaseReceiptItem: string | null;
-      stockUom: string | null;
-    }[];
-  } | null;
+  purchaseInvoice: PurchaseInvoiceRef | null;
+  supplierStockReturnPurchaseInvoice: PurchaseInvoiceRef | null;
 };
 
 type SupplierStockReturnRow = {
@@ -125,6 +133,7 @@ type SupplierStockReturnRow = {
   creation: string | null;
   purchaseReceiptName: string | null;
   docstatus: number | null;
+  isCancelled: boolean;
   amendedFrom: string | null;
   canTally: boolean;
   itemCount: number;
@@ -133,7 +142,7 @@ type SupplierStockReturnRow = {
     name: string;
     percentage: number;
   } | null;
-  matchReviewStatus: "review" | "waiting" | null;
+  matchReviewStatus: "matched" | "review" | "waiting" | null;
   items: {
     name: string;
     itemCode: string;
@@ -162,11 +171,24 @@ type GrnPanelPermissions = {
   canMarkReceived: boolean;
 };
 
-type GrnStageFilter = "all" | "not_handover" | "not_valued" | "not_received" | "completed" | "cancelled";
+type GrnActionStage = "handover" | "valued" | "received";
+type GrnStageStatusFilter = "all" | "pending" | "completed" | "mismatch";
+type GrnStageFilter = {
+  stage: GrnActionStage;
+  status: GrnStageStatusFilter;
+};
+type PrDialogFocus = "item-mismatch" | "price-mismatch" | "missing-ssr" | null;
 
 const PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
 type PageSize = (typeof PAGE_SIZE_OPTIONS)[number];
 const DEFAULT_PAGE_SIZE: PageSize = 20;
+
+function firstAllowedStage(permissions: GrnPanelPermissions): GrnActionStage {
+  if (permissions.canMarkHandover) return "handover";
+  if (permissions.canMarkValued) return "valued";
+  if (permissions.canMarkReceived) return "received";
+  return "handover";
+}
 
 function formatDate(value: string | null) {
   if (!value) return "-";
@@ -196,43 +218,238 @@ function userLabel(user: UserRef | null) {
   return user?.name?.trim() || user?.email?.trim() || null;
 }
 
-function buildPriceTallyRows(ssr: SupplierStockReturnRow, pr: PurchaseReceiptRow | null) {
-  if (!pr?.purchaseInvoice) return [];
+function CancelledBadge() {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-md bg-destructive/10 px-2 py-1 text-xs font-medium text-destructive">
+      Cancelled
+    </span>
+  );
+}
 
-  const invoiceByItem = new Map<string, { itemName: string | null; qty: number; amount: number; uom: string | null }>();
-  for (const item of pr.purchaseInvoice.items) {
-    const current = invoiceByItem.get(item.itemCode);
-    invoiceByItem.set(item.itemCode, {
+function buildPriceTallyRows(_ssr: SupplierStockReturnRow | null, pr: PurchaseReceiptRow | null) {
+  if (!pr?.purchaseInvoice && !pr?.supplierStockReturnPurchaseInvoice) return [];
+
+  const groupItems = (items: PurchaseInvoiceRef["items"]) => {
+    const grouped = new Map<string, { itemName: string | null; qty: number; amount: number; uom: string | null }>();
+    for (const item of items) {
+      const current = grouped.get(item.itemCode);
+      grouped.set(item.itemCode, {
+        itemName: current?.itemName ?? item.itemName,
+        qty: (current?.qty ?? 0) + item.qty,
+        amount: (current?.amount ?? 0) + item.amount,
+        uom: current?.uom ?? item.stockUom,
+      });
+    }
+    return grouped;
+  };
+
+  const prByItem = groupItems(pr.purchaseInvoice?.items.filter((item) => item.purchaseReceipt === pr.name) ?? []);
+  const ssrByItem = groupItems(
+    pr.supplierStockReturnPurchaseInvoice?.items.filter((item) => item.supplierStockReturn === pr.adjustmentNo) ?? [],
+  );
+
+  return Array.from(new Set([...prByItem.keys(), ...ssrByItem.keys()]))
+    .map((itemCode) => {
+      const prItem = prByItem.get(itemCode);
+      const ssrItem = ssrByItem.get(itemCode);
+      const prRate = prItem?.qty ? prItem.amount / prItem.qty : null;
+      const ssrRate = ssrItem?.qty ? Math.abs(ssrItem.amount / ssrItem.qty) : null;
+      return {
+        itemCode,
+        itemName: prItem?.itemName ?? ssrItem?.itemName ?? null,
+        prQty: prItem?.qty ?? 0,
+        ssrQty: ssrItem?.qty ?? 0,
+        prRate,
+        ssrRate,
+        prAmount: prItem?.amount ?? 0,
+        ssrAmount: ssrItem?.amount ?? 0,
+        uom: prItem?.uom ?? ssrItem?.uom ?? null,
+        issue:
+          Math.abs(Math.abs(prItem?.qty ?? 0) - Math.abs(ssrItem?.qty ?? 0)) > 0.000001 ||
+          Math.abs((prItem?.amount ?? 0) + (ssrItem?.amount ?? 0)) > 0.000001,
+      };
+    })
+    .sort((a, b) => Number(a.issue) - Number(b.issue) || a.itemCode.localeCompare(b.itemCode));
+}
+
+function hasPriceMismatch(row: PurchaseReceiptRow) {
+  if (!row.purchaseInvoice || !row.supplierStockReturnPurchaseInvoice) return false;
+  return buildPriceTallyRows(null, row).some((priceRow) => priceRow.issue);
+}
+
+function itemIssueCount(row: PurchaseReceiptRow) {
+  return row.tallyIssues.length || row.tallyIssueItems.length;
+}
+
+function priceIssueCount(row: PurchaseReceiptRow) {
+  if (!row.purchaseInvoice || !row.supplierStockReturnPurchaseInvoice) return 0;
+  return buildPriceTallyRows(null, row).filter((priceRow) => priceRow.issue).length;
+}
+
+function linkModeLabel(ssr: SupplierStockReturnRow | null, pr: PurchaseReceiptRow | null) {
+  if (!ssr || !pr) return null;
+  const rec = ssr.matchRecommendation;
+  return rec && rec.companyId === pr.companyId && rec.name === pr.name && rec.percentage >= 100
+    ? "Auto matched"
+    : "Manually linked";
+}
+
+function PurchaseInvoiceStatusBadge({ row }: { row: PurchaseReceiptRow | null | undefined }) {
+  if (!row?.purchaseInvoice && !row?.supplierStockReturnPurchaseInvoice) {
+    return <span className="text-xs text-muted-foreground">No PI prices</span>;
+  }
+
+  const hasPrPi = Boolean(row.purchaseInvoice);
+  const hasSsrPi = Boolean(row.supplierStockReturnPurchaseInvoice);
+  const label = row.adjustmentNo
+    ? hasPrPi && hasSsrPi
+      ? "PI linked"
+      : hasPrPi
+        ? "PR PI linked"
+        : "SSR PI linked"
+    : "PI linked";
+  const complete = !row.adjustmentNo || (hasPrPi && hasSsrPi);
+
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium ${
+        complete
+          ? "bg-emerald-50 text-emerald-700"
+          : "bg-amber-50 text-amber-700"
+      }`}
+    >
+      <CheckCircle2 className="size-3.5" />
+      {label}
+    </span>
+  );
+}
+
+function PurchaseInvoicePriceTallyDetails({
+  row,
+  priceRows,
+  defaultOpen = false,
+}: {
+  row: PurchaseReceiptRow;
+  priceRows: ReturnType<typeof buildPriceTallyRows>;
+  defaultOpen?: boolean;
+}) {
+  return (
+    <details className="rounded-lg border bg-background/50 p-3" open={defaultOpen}>
+      <summary className="cursor-pointer list-none">
+        <div className="flex flex-col gap-1">
+          <div className="text-sm font-semibold">Purchase invoice price tally</div>
+          <div className="text-xs text-muted-foreground">
+            {!row.purchaseInvoice
+              ? "No linked purchase receipt invoice stored yet."
+              : !row.supplierStockReturnPurchaseInvoice
+                ? "No linked supplier stock return invoice stored yet."
+                : `${row.purchaseInvoice.name} vs ${row.supplierStockReturnPurchaseInvoice.name}`}
+          </div>
+        </div>
+      </summary>
+      <div className="mt-3 space-y-3">
+        <div className="flex flex-wrap gap-3">
+          {row.purchaseInvoice?.erpUrl && (
+            <a
+              href={row.purchaseInvoice.erpUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex w-fit items-center gap-2 text-sm text-primary hover:underline"
+            >
+              <ExternalLink className="size-4" />
+              Open PR PI
+            </a>
+          )}
+          {row.supplierStockReturnPurchaseInvoice?.erpUrl && (
+            <a
+              href={row.supplierStockReturnPurchaseInvoice.erpUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex w-fit items-center gap-2 text-sm text-primary hover:underline"
+            >
+              <ExternalLink className="size-4" />
+              Open SSR PI
+            </a>
+          )}
+        </div>
+        {(row.purchaseInvoice || row.supplierStockReturnPurchaseInvoice) && (
+          <div className="overflow-x-auto rounded-md border bg-background/70">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>SKU</TableHead>
+                  <TableHead>Item Name</TableHead>
+                    <TableHead className="text-right">PR Price</TableHead>
+                    <TableHead className="text-right">SSR Price</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {priceRows.length === 0 ? (
+                  <TableRow>
+                      <TableCell colSpan={4} className="h-16 text-center text-muted-foreground">
+                      No price rows found.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  priceRows.map((item) => (
+                    <TableRow key={item.itemCode} className={item.issue ? "bg-amber-500/10" : undefined}>
+                      <TableCell className="font-medium">{item.itemCode}</TableCell>
+                      <TableCell>{item.itemName ?? "-"}</TableCell>
+                      <TableCell className="text-right">{item.prRate == null ? "-" : item.prRate.toFixed(2)}</TableCell>
+                      <TableCell className="text-right">{item.ssrRate == null ? "-" : item.ssrRate.toFixed(2)}</TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </div>
+    </details>
+  );
+}
+
+function buildItemMatchRows(pr: PurchaseReceiptRow, ssr: SupplierStockReturnRow | null) {
+  if (!ssr) return [];
+  const prTotals = new Map<string, { itemName: string | null; qty: number }>();
+  const ssrTotals = new Map<string, { itemName: string | null; qty: number }>();
+
+  for (const item of pr.items) {
+    const current = prTotals.get(item.itemCode);
+    prTotals.set(item.itemCode, {
+      itemName: current?.itemName ?? item.itemName,
+      qty: (current?.qty ?? 0) + (item.stockQty ?? item.qty),
+    });
+  }
+  for (const item of ssr.items) {
+    const current = ssrTotals.get(item.itemCode);
+    ssrTotals.set(item.itemCode, {
       itemName: current?.itemName ?? item.itemName,
       qty: (current?.qty ?? 0) + item.qty,
-      amount: (current?.amount ?? 0) + item.amount,
-      uom: current?.uom ?? item.stockUom,
     });
   }
 
-  return ssr.items.map((item) => {
-    const invoiceItem = invoiceByItem.get(item.itemCode);
-    const invoiceQty = invoiceItem?.qty ?? 0;
-    const invoiceAmount = invoiceItem?.amount ?? 0;
-    const rate = invoiceQty ? invoiceAmount / invoiceQty : null;
-    return {
-      itemCode: item.itemCode,
-      itemName: item.itemName ?? invoiceItem?.itemName ?? null,
-      ssrQty: item.qty,
-      invoiceQty,
-      rate,
-      amount: rate == null ? null : rate * item.qty,
-      uom: item.stockUom ?? invoiceItem?.uom ?? null,
-      issue: Math.abs(item.qty - invoiceQty) > 0.000001 || rate == null,
-    };
-  });
+  return Array.from(new Set([...prTotals.keys(), ...ssrTotals.keys()]))
+    .map((itemCode) => {
+      const prItem = prTotals.get(itemCode);
+      const ssrItem = ssrTotals.get(itemCode);
+      const prQty = prItem?.qty ?? 0;
+      const ssrQty = ssrItem?.qty ?? 0;
+      return {
+        itemCode,
+        itemName: prItem?.itemName ?? ssrItem?.itemName ?? null,
+        prQty,
+        ssrQty,
+        matched: Math.abs(prQty - ssrQty) <= 0.000001,
+      };
+    })
+    .sort((a, b) => Number(a.matched) - Number(b.matched) || a.itemCode.localeCompare(b.itemCode));
 }
-
 function GrnStageTimeline({ row }: { row: PurchaseReceiptRow }) {
   const stages = [
-    { label: "Handover", at: row.handoverAt, by: row.handoverBy },
-    { label: "Valued", at: row.valuedAt, by: row.valuedBy },
-    { label: "GRN Received", at: row.receivedAt, by: row.receivedBy },
+    { label: "Handover", at: row.handoverAt, by: row.handoverBy, fallbackBy: null },
+    { label: "Valued", at: row.valuedAt, by: row.valuedBy, fallbackBy: "Cosmo API" },
+    { label: "GRN Received", at: row.receivedAt, by: row.receivedBy, fallbackBy: null },
   ];
 
   return (
@@ -257,7 +474,13 @@ function GrnStageTimeline({ row }: { row: PurchaseReceiptRow }) {
               </span>
               <div>
                 <div className="font-semibold">{stage.label}</div>
-                <div className="text-sm text-muted-foreground">{userLabel(stage.by) ? `by ${userLabel(stage.by)}` : "-"}</div>
+                <div className="text-sm text-muted-foreground">
+                  {userLabel(stage.by)
+                    ? `Marked by ${userLabel(stage.by)}`
+                    : complete && stage.fallbackBy
+                      ? `Marked by ${stage.fallbackBy}`
+                      : "-"}
+                </div>
               </div>
               <div className="text-right text-sm text-muted-foreground">{formatDate(stage.at)}</div>
             </div>
@@ -267,12 +490,26 @@ function GrnStageTimeline({ row }: { row: PurchaseReceiptRow }) {
     </div>
   );
 }
-function TallyBadge({ row }: { row: PurchaseReceiptRow }) {
+function TallyBadge({
+  row,
+  missingSsrLink = false,
+}: {
+  row: PurchaseReceiptRow;
+  missingSsrLink?: boolean;
+}) {
+  if (missingSsrLink) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-md bg-amber-500/15 px-2 py-1 text-xs font-medium text-amber-300 ring-1 ring-amber-400/25">
+        <TriangleAlert className="size-3.5" />
+        Issue - missing SSR
+      </span>
+    );
+  }
   if (row.tallyStatus === "matched") {
     return (
       <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700">
         <CheckCircle2 className="size-3.5" />
-        Matched
+        Matched {row.tallyPercentage == null ? "" : `${row.tallyPercentage.toFixed(2)}%`}
       </span>
     );
   }
@@ -283,7 +520,7 @@ function TallyBadge({ row }: { row: PurchaseReceiptRow }) {
         title={row.tallyIssueItems.join(", ")}
       >
         <TriangleAlert className="size-3.5" />
-        Issue
+        Issue {row.tallyPercentage == null ? "" : `${row.tallyPercentage.toFixed(2)}%`}
       </span>
     );
   }
@@ -442,7 +679,10 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [ssrSearch, setSsrSearch] = useState("");
-  const [stageFilter, setStageFilter] = useState<GrnStageFilter>("all");
+  const [stageFilter, setStageFilter] = useState<GrnStageFilter>(() => ({
+    stage: firstAllowedStage(permissions),
+    status: "pending",
+  }));
   const [activeTab, setActiveTab] = useState("grn");
   const [prPage, setPrPage] = useState(1);
   const [ssrPage, setSsrPage] = useState(1);
@@ -451,7 +691,9 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
   const [dateRange, setDateRange] = useState(() => getCurrentMonthRange());
   const [selectedPrBySsr, setSelectedPrBySsr] = useState<Record<string, string>>({});
   const [selectedPr, setSelectedPr] = useState<PurchaseReceiptRow | null>(null);
+  const [selectedPrFocus, setSelectedPrFocus] = useState<PrDialogFocus>(null);
   const [selectedSsr, setSelectedSsr] = useState<SupplierStockReturnRow | null>(null);
+  const [selectedBulkPrKeys, setSelectedBulkPrKeys] = useState<Set<string>>(() => new Set());
   const [supplierDialogOpen, setSupplierDialogOpen] = useState(false);
   const [supplierForm, setSupplierForm] = useState({ id: "", supplier: "", supplierName: "" });
 
@@ -477,7 +719,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
             `${row.companyId}:${row.name}`,
             row.purchaseReceiptName
               ? purchaseReceiptKeyByName.get(row.purchaseReceiptName) ?? row.purchaseReceiptName
-              : row.matchRecommendation
+              : row.matchRecommendation && row.matchRecommendation.percentage > 0
                 ? `${row.matchRecommendation.companyId}:${row.matchRecommendation.name}`
                 : "",
           ]),
@@ -494,8 +736,20 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
     void loadData();
   }, [loadData]);
 
+  useEffect(() => {
+    setStageFilter((current) => {
+      const allowedStages: GrnActionStage[] = [
+        ...(permissions.canMarkHandover ? (["handover"] as const) : []),
+        ...(permissions.canMarkValued ? (["valued"] as const) : []),
+        ...(permissions.canMarkReceived ? (["received"] as const) : []),
+      ];
+      if (allowedStages.length === 0 || allowedStages.includes(current.stage)) return current;
+      return { stage: allowedStages[0], status: "pending" };
+    });
+  }, [permissions.canMarkHandover, permissions.canMarkReceived, permissions.canMarkValued]);
+
   const activePurchaseReceipts = useMemo(
-    () => data.purchaseReceipts.filter((row) => row.docstatus !== 2),
+    () => data.purchaseReceipts.filter((row) => !row.isCancelled),
     [data.purchaseReceipts],
   );
 
@@ -505,7 +759,10 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
   );
 
   const activeIntercompanyPurchaseReceipts = useMemo(
-    () => activePurchaseReceipts.filter((row) => intercompanySupplierSet.has(row.supplier)),
+    () =>
+      activePurchaseReceipts.filter(
+        (row) => !row.adjustmentNo && intercompanySupplierSet.has(row.supplier),
+      ),
     [activePurchaseReceipts, intercompanySupplierSet],
   );
 
@@ -514,48 +771,199 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
     [data.purchaseReceipts],
   );
 
+  const supplierStockReturnByName = useMemo(
+    () => new Map(data.supplierStockReturns.map((row) => [row.name, row])),
+    [data.supplierStockReturns],
+  );
+
+
+
   const purchaseReceiptByKey = useMemo(
     () => new Map(data.purchaseReceipts.map((row) => [`${row.companyId}:${row.name}`, row])),
     [data.purchaseReceipts],
   );
 
+  const selectedPrStockReturn = selectedPr?.adjustmentNo
+    ? supplierStockReturnByName.get(selectedPr.adjustmentNo) ?? null
+    : null;
+  const selectedPrMatchRows = selectedPr
+    ? buildItemMatchRows(selectedPr, selectedPrStockReturn)
+    : [];
+  const selectedPrPriceRows = selectedPr && selectedPrStockReturn
+    ? buildPriceTallyRows(selectedPrStockReturn, selectedPr)
+    : [];
+
   const selectedSsrPurchaseReceipt = selectedSsr?.purchaseReceiptName
     ? purchaseReceiptByName.get(selectedSsr.purchaseReceiptName) ?? null
     : null;
 
-    const selectedSsrPriceRows = selectedSsr
+  const selectedSsrKey = selectedSsr ? `${selectedSsr.companyId}:${selectedSsr.name}` : "";
+  const selectedSsrPickerValue = selectedSsrKey ? selectedPrBySsr[selectedSsrKey] ?? "" : "";
+  const selectedSsrPickerPurchaseReceipt = selectedSsrPickerValue
+    ? purchaseReceiptByKey.get(selectedSsrPickerValue) ?? purchaseReceiptByName.get(selectedSsrPickerValue) ?? null
+    : null;
+  const selectedSsrSuggestedPurchaseReceipt = selectedSsr?.matchRecommendation
+    ? purchaseReceiptByKey.get(`${selectedSsr.matchRecommendation.companyId}:${selectedSsr.matchRecommendation.name}`) ?? null
+    : null;
+  const selectedSsrComparisonPurchaseReceipt =
+    selectedSsrPurchaseReceipt ?? selectedSsrPickerPurchaseReceipt ?? selectedSsrSuggestedPurchaseReceipt;
+  const selectedSsrMatchRows = selectedSsrComparisonPurchaseReceipt
+    ? buildItemMatchRows(selectedSsrComparisonPurchaseReceipt, selectedSsr)
+    : [];
+
+  const selectedSsrPriceRows = selectedSsr
     ? buildPriceTallyRows(selectedSsr, selectedSsrPurchaseReceipt)
     : [];
-const filteredPrs = useMemo(() => {
+
+  const allowedStageFilters = useMemo(
+    () =>
+      [
+        permissions.canMarkHandover ? { key: "handover" as const, label: "Handover marking" } : null,
+        permissions.canMarkValued ? { key: "valued" as const, label: "Valued marking" } : null,
+        permissions.canMarkReceived ? { key: "received" as const, label: "GRN received" } : null,
+      ].filter((row): row is { key: GrnActionStage; label: string } => Boolean(row)),
+    [permissions.canMarkHandover, permissions.canMarkReceived, permissions.canMarkValued],
+  );
+
+  const rowBelongsToStage = useCallback((row: PurchaseReceiptRow, stage: GrnActionStage) => {
+    if (row.isCancelled) return false;
+    if (stage === "handover") return true;
+    if (stage === "valued") return Boolean(row.handoverAt);
+    return Boolean(row.valuedAt);
+  }, []);
+
+  const rowCompletedForStage = useCallback((row: PurchaseReceiptRow, stage: GrnActionStage) => {
+    if (stage === "handover") return Boolean(row.handoverAt);
+    if (stage === "valued") return Boolean(row.valuedAt);
+    return Boolean(row.receivedAt);
+  }, []);
+
+  const rowMissingIntercompanySsr = useCallback(
+    (row: PurchaseReceiptRow) =>
+      !row.isCancelled &&
+      intercompanySupplierSet.has(row.supplier) &&
+      !row.adjustmentNo,
+    [intercompanySupplierSet],
+  );
+
+  const rowMismatchedForStage = useCallback((row: PurchaseReceiptRow, stage: GrnActionStage) => {
+    if (stage === "handover") return row.tallyStatus === "issue" || rowMissingIntercompanySsr(row);
+    if (stage === "valued") return hasPriceMismatch(row);
+    return false;
+  }, [rowMissingIntercompanySsr]);
+
+  const stageCardCounts = useMemo(
+    () =>
+      Object.fromEntries(
+        allowedStageFilters.map(({ key }) => {
+          const rows = data.purchaseReceipts.filter((row) => rowBelongsToStage(row, key));
+          const completed = rows.filter((row) => rowCompletedForStage(row, key)).length;
+          const mismatch = rows.filter((row) => rowMismatchedForStage(row, key)).length;
+          return [
+            key,
+            {
+              all: rows.length,
+              pending: rows.length - completed,
+              completed,
+              mismatch,
+            },
+          ];
+        }),
+      ) as Record<GrnActionStage, Record<GrnStageStatusFilter, number>>,
+    [allowedStageFilters, data.purchaseReceipts, rowBelongsToStage, rowCompletedForStage, rowMismatchedForStage],
+  );
+
+  const filteredPrs = useMemo(() => {
     const term = search.trim().toLowerCase();
     return data.purchaseReceipts.filter((row) => {
       const matchesStage =
-        stageFilter === "all" ||
-        (stageFilter === "not_handover" && row.docstatus !== 2 && !row.handoverAt) ||
-        (stageFilter === "not_valued" && row.docstatus !== 2 && !row.valuedAt) ||
-        (stageFilter === "not_received" && row.docstatus !== 2 && !row.receivedAt) ||
-        (stageFilter === "completed" && row.docstatus !== 2 && Boolean(row.receivedAt)) ||
-        (stageFilter === "cancelled" && row.docstatus === 2);
+        allowedStageFilters.length === 0
+          ? !row.isCancelled
+          : rowBelongsToStage(row, stageFilter.stage) &&
+        (stageFilter.status === "all" ||
+          (stageFilter.status === "pending" && !rowCompletedForStage(row, stageFilter.stage)) ||
+          (stageFilter.status === "completed" && rowCompletedForStage(row, stageFilter.stage)) ||
+          (stageFilter.status === "mismatch" && rowMismatchedForStage(row, stageFilter.stage)));
       if (!matchesStage) return false;
       if (!term) return true;
       return [row.name, row.adjustmentNo, row.supplier, row.supplierName, row.grnBy, row.companyName]
         .filter(Boolean)
         .some((value) => value!.toLowerCase().includes(term));
     });
-  }, [data.purchaseReceipts, search, stageFilter]);
+  }, [allowedStageFilters.length, data.purchaseReceipts, rowBelongsToStage, rowCompletedForStage, rowMismatchedForStage, search, stageFilter.stage, stageFilter.status]);
 
-  const filteredSsrs = useMemo(() => {
-    const term = ssrSearch.trim().toLowerCase();
-    const reviewRows = data.supplierStockReturns.filter(
-      (row) => row.docstatus !== 2 && !row.purchaseReceiptName && intercompanySupplierSet.has(row.supplier),
-    );
-    if (!term) return reviewRows;
-    return reviewRows.filter((row) =>
-      [row.name, row.supplier, row.purchaseReceiptName, row.owner, row.companyName, row.matchRecommendation?.name]
+  const fieldForStage = useCallback((stage: GrnActionStage): "handoverAt" | "valuedAt" | "receivedAt" => {
+    if (stage === "handover") return "handoverAt";
+    if (stage === "valued") return "valuedAt";
+    return "receivedAt";
+  }, []);
+
+  const canBulkMarkRow = useCallback(
+    (row: PurchaseReceiptRow) => {
+      if (row.isCancelled || rowCompletedForStage(row, stageFilter.stage)) return false;
+      if (stageFilter.stage === "handover") {
+        return permissions.canMarkHandover && row.tallyStatus !== "issue" && !rowMissingIntercompanySsr(row);
+      }
+      if (stageFilter.stage === "valued") {
+        return permissions.canMarkValued && Boolean(row.handoverAt) && !hasPriceMismatch(row);
+      }
+      return permissions.canMarkReceived && Boolean(row.handoverAt) && Boolean(row.valuedAt);
+    },
+    [
+      permissions.canMarkHandover,
+      permissions.canMarkReceived,
+      permissions.canMarkValued,
+      rowCompletedForStage,
+      rowMissingIntercompanySsr,
+      stageFilter.stage,
+    ],
+  );
+
+  const bulkMarkablePrs = useMemo(
+    () => filteredPrs.filter((row) => canBulkMarkRow(row)),
+    [canBulkMarkRow, filteredPrs],
+  );
+
+  const bulkMarkableKeys = useMemo(
+    () => new Set(bulkMarkablePrs.map((row) => `${row.companyId}:${row.name}`)),
+    [bulkMarkablePrs],
+  );
+
+  const ssrMatchesSearch = useCallback(
+    (row: SupplierStockReturnRow) => {
+      const term = ssrSearch.trim().toLowerCase();
+      if (!term) return true;
+      return [row.name, row.supplier, row.purchaseReceiptName, row.owner, row.companyName, row.matchRecommendation?.name]
         .filter(Boolean)
-        .some((value) => value!.toLowerCase().includes(term)),
-    );
-  }, [data.supplierStockReturns, intercompanySupplierSet, ssrSearch]);
+        .some((value) => value!.toLowerCase().includes(term));
+    },
+    [ssrSearch],
+  );
+
+  const filteredSsrs = useMemo(
+    () =>
+      data.supplierStockReturns.filter(
+        (row) =>
+          row.docstatus !== 2 &&
+          (!row.purchaseReceiptName || (row.matchRecommendation?.percentage ?? 0) < 100) &&
+          (!permissions.canMatchSsr || intercompanySupplierSet.has(row.supplier)) &&
+          ssrMatchesSearch(row),
+      ),
+    [data.supplierStockReturns, intercompanySupplierSet, permissions.canMatchSsr, ssrMatchesSearch],
+  );
+
+  const filteredMatchedSsrs = useMemo(
+    () =>
+      data.supplierStockReturns.filter(
+        (row) =>
+          row.docstatus !== 2 &&
+          Boolean(row.purchaseReceiptName) &&
+          (row.matchRecommendation?.percentage ?? 0) >= 100 &&
+          (!permissions.canMatchSsr || intercompanySupplierSet.has(row.supplier)) &&
+          ssrMatchesSearch(row),
+      ),
+    [data.supplierStockReturns, intercompanySupplierSet, permissions.canMatchSsr, ssrMatchesSearch],
+  );
 
   const prPageCount = Math.max(1, Math.ceil(filteredPrs.length / prPageSize));
   const ssrPageCount = Math.max(1, Math.ceil(filteredSsrs.length / ssrPageSize));
@@ -570,7 +978,7 @@ const filteredPrs = useMemo(() => {
 
   useEffect(() => {
     setPrPage(1);
-  }, [search, stageFilter, dateRange.from, dateRange.to, prPageSize]);
+  }, [search, stageFilter.stage, stageFilter.status, dateRange.from, dateRange.to, prPageSize]);
 
   useEffect(() => {
     setSsrPage(1);
@@ -583,6 +991,26 @@ const filteredPrs = useMemo(() => {
   useEffect(() => {
     if (ssrPage > ssrPageCount) setSsrPage(ssrPageCount);
   }, [ssrPage, ssrPageCount]);
+
+  useEffect(() => {
+    setSelectedBulkPrKeys((current) => {
+      const next = new Set([...current].filter((key) => bulkMarkableKeys.has(key)));
+      return next.size === current.size ? current : next;
+    });
+  }, [bulkMarkableKeys]);
+
+  function openPurchaseReceipt(row: PurchaseReceiptRow, focus: PrDialogFocus = null) {
+    setSelectedPrFocus(focus);
+    setSelectedPr(row);
+  }
+
+  function focusForCurrentMismatchFilter(row: PurchaseReceiptRow): PrDialogFocus {
+    if (stageFilter.status !== "mismatch") return null;
+    if (stageFilter.stage === "handover" && row.tallyStatus === "issue") return "item-mismatch";
+    if (stageFilter.stage === "handover" && rowMissingIntercompanySsr(row)) return "missing-ssr";
+    if (stageFilter.stage === "valued" && hasPriceMismatch(row)) return "price-mismatch";
+    return null;
+  }
 
   async function mark(row: PurchaseReceiptRow, field: "handoverAt" | "valuedAt" | "receivedAt") {
     const key = `${row.companyId}:${row.name}:${field}`;
@@ -603,6 +1031,37 @@ const filteredPrs = useMemo(() => {
       await loadData();
     } catch (error) {
       notify.error(error instanceof Error ? error.message : "Failed to mark GRN row");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function markSelectedRows() {
+    const rows = bulkMarkablePrs.filter((row) => selectedBulkPrKeys.has(`${row.companyId}:${row.name}`));
+    if (rows.length === 0) {
+      notify.error("Select at least one clean pending row first");
+      return;
+    }
+    const field = fieldForStage(stageFilter.stage);
+    setBusyKey(`bulk:${field}`);
+    try {
+      const results = await Promise.all(
+        rows.map((row) =>
+          fetch(`/api/admin/purchasing/grn/purchase-receipts/${encodeURIComponent(row.name)}/mark`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ field, companyId: row.companyId }),
+          }),
+        ),
+      );
+      const failed = results.filter((res) => !res.ok).length;
+      if (failed > 0) {
+        notify.error(`${failed} row${failed === 1 ? "" : "s"} could not be marked`);
+      }
+      setSelectedBulkPrKeys(new Set());
+      await loadData();
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : "Failed to mark selected rows");
     } finally {
       setBusyKey(null);
     }
@@ -635,6 +1094,39 @@ const filteredPrs = useMemo(() => {
       await loadData();
     } catch (error) {
       notify.error(error instanceof Error ? error.message : "Failed to link SSR");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function unlinkSsr(row: SupplierStockReturnRow) {
+    if (!permissions.canMatchSsr) {
+      notify.error("You do not have permission to match SSRs");
+      return;
+    }
+    const key = `${row.companyId}:${row.name}`;
+    setBusyKey(`unlink:${key}`);
+    try {
+      const res = await fetch(
+        `/api/admin/purchasing/grn/supplier-stock-returns/${encodeURIComponent(row.name)}/link`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ purchaseReceiptName: null, companyId: row.companyId }),
+        },
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || "Failed to unlink SSR");
+      }
+      setSelectedPrBySsr((prev) => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+      await loadData();
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : "Failed to unlink SSR");
     } finally {
       setBusyKey(null);
     }
@@ -749,6 +1241,42 @@ const filteredPrs = useMemo(() => {
         </TabsList>
 
         <TabsContent value="grn" className="space-y-4 rounded-lg border bg-card/60 p-4 md:p-6">
+          {allowedStageFilters.length > 0 && (
+            <div className="grid gap-3 xl:grid-cols-3">
+              {allowedStageFilters.map(({ key, label }) => (
+                <div key={key} className="rounded-lg border bg-background/45 p-3">
+                  <div className="mb-2 text-sm font-semibold">{label}</div>
+                  <div className={`grid gap-2 ${key === "received" ? "grid-cols-3" : "grid-cols-4"}`}>
+                    {(
+                      key === "received"
+                        ? (["all", "pending", "completed"] as const)
+                        : (["all", "pending", "completed", "mismatch"] as const)
+                    ).map((status) => {
+                      const active = stageFilter.stage === key && stageFilter.status === status;
+                      return (
+                        <button
+                          key={status}
+                          type="button"
+                          className={[
+                            "rounded-md border px-3 py-2 text-left transition-colors",
+                            active
+                              ? "border-primary bg-primary/10 text-primary"
+                              : "border-border bg-card hover:bg-muted/60",
+                          ].join(" ")}
+                          onClick={() => setStageFilter({ stage: key, status })}
+                        >
+                          <div className="text-xs font-medium capitalize text-muted-foreground">{status}</div>
+                          <div className="text-xl font-semibold leading-tight">
+                            {stageCardCounts[key]?.[status] ?? 0}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <h2 className="text-lg font-semibold">Purchase receipts</h2>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -758,18 +1286,6 @@ const filteredPrs = useMemo(() => {
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
               />
-              <select
-                className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                value={stageFilter}
-                onChange={(event) => setStageFilter(event.target.value as GrnStageFilter)}
-              >
-                <option value="all">All stages</option>
-                <option value="not_handover">Not handed over</option>
-                <option value="not_valued">Not valued</option>
-                <option value="not_received">Not GRN received</option>
-                <option value="completed">Completed</option>
-                <option value="cancelled">Cancelled</option>
-              </select>
               <Button type="button" variant="outline" onClick={() => downloadGrnExport("xlsx")}>
                 <FileDown className="size-4" />
                 Excel
@@ -780,54 +1296,170 @@ const filteredPrs = useMemo(() => {
               </Button>
             </div>
           </div>
+          {allowedStageFilters.length > 0 && (
+            <div className="flex flex-col gap-2 rounded-lg border bg-background/45 p-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="text-sm text-muted-foreground">
+                {selectedBulkPrKeys.size} selected from {bulkMarkablePrs.length} clean pending row{bulkMarkablePrs.length === 1 ? "" : "s"}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={bulkMarkablePrs.length === 0}
+                  onClick={() => setSelectedBulkPrKeys(new Set(bulkMarkablePrs.map((row) => `${row.companyId}:${row.name}`)))}
+                >
+                  Select all
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={selectedBulkPrKeys.size === 0}
+                  onClick={() => setSelectedBulkPrKeys(new Set())}
+                >
+                  Clear
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={selectedBulkPrKeys.size === 0 || busyKey === `bulk:${fieldForStage(stageFilter.stage)}`}
+                  onClick={markSelectedRows}
+                >
+                  {busyKey === `bulk:${fieldForStage(stageFilter.stage)}` && <Loader2 className="size-4 animate-spin" />}
+                  Mark all
+                </Button>
+              </div>
+            </div>
+          )}
           <div className="overflow-hidden rounded-lg border bg-background/45">
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-10">
+                  <input
+                    type="checkbox"
+                    aria-label="Select all clean pending rows"
+                    checked={bulkMarkablePrs.length > 0 && selectedBulkPrKeys.size === bulkMarkablePrs.length}
+                    disabled={bulkMarkablePrs.length === 0}
+                    onChange={(event) =>
+                      setSelectedBulkPrKeys(
+                        event.target.checked
+                          ? new Set(bulkMarkablePrs.map((row) => `${row.companyId}:${row.name}`))
+                          : new Set(),
+                      )
+                    }
+                  />
+                </TableHead>
                 <TableHead>PR No</TableHead>
-                <TableHead>Adjustment No</TableHead>
+                <TableHead className="w-28 whitespace-normal leading-tight">Adjustment<br />No</TableHead>
                 <TableHead>GRN Date</TableHead>
                 <TableHead>GRN By</TableHead>
                 <TableHead>Supplier</TableHead>
-                <TableHead>Handover Date</TableHead>
+                <TableHead className="w-24 whitespace-normal leading-tight">Handover<br />Date</TableHead>
                 <TableHead>Valued</TableHead>
-                <TableHead>GRN Received</TableHead>
+                <TableHead className="w-20 whitespace-normal leading-tight">PI<br />Prices</TableHead>
+                <TableHead className="w-24 whitespace-normal leading-tight">GRN<br />Received</TableHead>
                 <TableHead>Tally</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">
+                  <TableCell colSpan={11} className="h-24 text-center text-muted-foreground">
                     Loading GRN data...
                   </TableCell>
                 </TableRow>
               ) : filteredPrs.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">
+                  <TableCell colSpan={11} className="h-24 text-center text-muted-foreground">
                     No purchase receipts found.
                   </TableCell>
                 </TableRow>
               ) : (
                 paginatedPrs.map((row) => (
-                  <TableRow key={`${row.companyId}:${row.name}`} className="cursor-pointer" onClick={() => setSelectedPr(row)}>
+                  <TableRow key={`${row.companyId}:${row.name}`} className="cursor-pointer" onClick={() => openPurchaseReceipt(row, focusForCurrentMismatchFilter(row))}>
+                    <TableCell onClick={(event) => event.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        aria-label={`Select ${row.name}`}
+                        checked={selectedBulkPrKeys.has(`${row.companyId}:${row.name}`)}
+                        disabled={!canBulkMarkRow(row)}
+                        onChange={(event) =>
+                          setSelectedBulkPrKeys((current) => {
+                            const next = new Set(current);
+                            const key = `${row.companyId}:${row.name}`;
+                            if (event.target.checked) next.add(key);
+                            else next.delete(key);
+                            return next;
+                          })
+                        }
+                      />
+                    </TableCell>
                     <TableCell className="font-medium">
-                      <button
-                        type="button"
-                        className="text-left text-primary underline-offset-4 hover:underline"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          setSelectedPr(row);
-                        }}
-                      >
-                        {row.name}
-                      </button>
-                      {row.docstatus === 2 && <div className="text-xs text-destructive">Cancelled</div>}
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          className="text-left text-primary underline-offset-4 hover:underline"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            openPurchaseReceipt(row, focusForCurrentMismatchFilter(row));
+                          }}
+                        >
+                          {row.name}
+                        </button>
+                        {row.isCancelled && <CancelledBadge />}
+                      </div>
                       {row.amendedFrom && (
                         <div className="text-xs text-muted-foreground">Amended from {row.amendedFrom}</div>
                       )}
+                      {(itemIssueCount(row) > 0 || priceIssueCount(row) > 0 || rowMissingIntercompanySsr(row)) && (
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          {rowMissingIntercompanySsr(row) && (
+                            <button
+                              type="button"
+                              className="rounded bg-amber-500/15 px-1.5 py-0.5 text-xs font-medium text-amber-300 ring-1 ring-amber-400/25 underline-offset-4 hover:underline"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                openPurchaseReceipt(row, "missing-ssr");
+                              }}
+                            >
+                              Missing SSR link
+                            </button>
+                          )}
+                          {itemIssueCount(row) > 0 && (
+                            <button
+                              type="button"
+                              className="rounded bg-amber-500/10 px-1.5 py-0.5 text-xs font-medium text-amber-800"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                openPurchaseReceipt(row, "item-mismatch");
+                              }}
+                            >
+                              {itemIssueCount(row)} item issue{itemIssueCount(row) === 1 ? "" : "s"}
+                            </button>
+                          )}
+                          {priceIssueCount(row) > 0 && (
+                            <button
+                              type="button"
+                              className="rounded bg-amber-500/10 px-1.5 py-0.5 text-xs font-medium text-amber-800"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                openPurchaseReceipt(row, "price-mismatch");
+                              }}
+                            >
+                              {priceIssueCount(row)} price issue{priceIssueCount(row) === 1 ? "" : "s"}
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </TableCell>
-                    <TableCell>{row.adjustmentNo ?? "-"}</TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span>{row.adjustmentNo ?? "-"}</span>
+                        {row.adjustmentDocstatus === 2 && <CancelledBadge />}
+                      </div>
+                    </TableCell>
                     <TableCell>{formatDate(row.grnDate)}</TableCell>
                     <TableCell>{row.grnBy ?? "-"}</TableCell>
                     <TableCell>
@@ -843,7 +1475,7 @@ const filteredPrs = useMemo(() => {
                         <Button
                           size="sm"
                           variant="outline"
-                          disabled={row.docstatus === 2 || busyKey === `${row.companyId}:${row.name}:handoverAt`}
+                          disabled={row.isCancelled || busyKey === `${row.companyId}:${row.name}:handoverAt`}
                           onClick={(event) => {
                             event.stopPropagation();
                             mark(row, "handoverAt");
@@ -862,7 +1494,7 @@ const filteredPrs = useMemo(() => {
                         <Button
                           size="sm"
                           variant="outline"
-                          disabled={row.docstatus === 2 || !row.handoverAt || busyKey === `${row.companyId}:${row.name}:valuedAt`}
+                          disabled={row.isCancelled || !row.handoverAt || busyKey === `${row.companyId}:${row.name}:valuedAt`}
                           onClick={(event) => {
                             event.stopPropagation();
                             mark(row, "valuedAt");
@@ -875,13 +1507,16 @@ const filteredPrs = useMemo(() => {
                       )}
                     </TableCell>
                     <TableCell>
+                      <PurchaseInvoiceStatusBadge row={row} />
+                    </TableCell>
+                    <TableCell>
                       {row.receivedAt ? (
                         formatDate(row.receivedAt)
                       ) : permissions.canMarkReceived ? (
                         <Button
                           size="sm"
                           variant="outline"
-                          disabled={row.docstatus === 2 || !row.handoverAt || !row.valuedAt || busyKey === `${row.companyId}:${row.name}:receivedAt`}
+                          disabled={row.isCancelled || !row.handoverAt || !row.valuedAt || busyKey === `${row.companyId}:${row.name}:receivedAt`}
                           onClick={(event) => {
                             event.stopPropagation();
                             mark(row, "receivedAt");
@@ -894,7 +1529,7 @@ const filteredPrs = useMemo(() => {
                       )}
                     </TableCell>
                     <TableCell>
-                      <TallyBadge row={row} />
+                      <TallyBadge row={row} missingSsrLink={rowMissingIntercompanySsr(row)} />
                     </TableCell>
                   </TableRow>
                 ))
@@ -940,6 +1575,7 @@ const filteredPrs = useMemo(() => {
                 <TableHead>Details</TableHead>
                 <TableHead>Suggested PR</TableHead>
                 <TableHead>Match</TableHead>
+                <TableHead className="w-20 whitespace-normal leading-tight">PI<br />Prices</TableHead>
                 <TableHead>Purchase Receipt</TableHead>
                 <TableHead className="w-24">Link</TableHead>
               </TableRow>
@@ -947,30 +1583,32 @@ const filteredPrs = useMemo(() => {
             <TableBody>
               {filteredSsrs.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
+                  <TableCell colSpan={10} className="h-24 text-center text-muted-foreground">
                     No supplier stock returns waiting for review.
                   </TableCell>
                 </TableRow>
               ) : (
                 paginatedSsrs.map((row) => {
                   const rowKey = `${row.companyId}:${row.name}`;
-                  const suggestedPr = row.matchRecommendation
+                  const suggestedPr = row.matchRecommendation && row.matchRecommendation.percentage > 0
                     ? purchaseReceiptByKey.get(`${row.matchRecommendation.companyId}:${row.matchRecommendation.name}`) ?? null
                     : null;
                   return (
                   <TableRow key={rowKey} className="cursor-pointer" onClick={() => setSelectedSsr(row)}>
                     <TableCell className="font-medium">
-                      <button
-                        type="button"
-                        className="text-left text-primary underline-offset-4 hover:underline"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          setSelectedSsr(row);
-                        }}
-                      >
-                        {row.name}
-                      </button>
-                      {row.docstatus === 2 && <div className="text-xs text-destructive">Cancelled</div>}
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          className="text-left text-primary underline-offset-4 hover:underline"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setSelectedSsr(row);
+                          }}
+                        >
+                          {row.name}
+                        </button>
+                        {row.docstatus === 2 && <CancelledBadge />}
+                      </div>
                       {row.amendedFrom && (
                         <div className="text-xs text-muted-foreground">Amended from {row.amendedFrom}</div>
                       )}
@@ -1011,21 +1649,30 @@ const filteredPrs = useMemo(() => {
                       )}
                     </TableCell>
                     <TableCell>
-                      {row.matchRecommendation ? (
+                      {row.matchRecommendation && row.matchRecommendation.percentage > 0 ? (
                         <div>
                           <div className="font-medium">{row.matchRecommendation.percentage.toFixed(2)}%</div>
                           <div className="text-xs text-muted-foreground">
-                            {row.matchReviewStatus === "review" ? "Review" : "Waiting"}
+                            {row.matchReviewStatus === "matched"
+                              ? "Matched"
+                              : row.matchReviewStatus === "review"
+                                ? "Review"
+                                : row.matchRecommendation.percentage === 0
+                                  ? "Waiting - no SKU/qty overlap"
+                                  : "Waiting"}
                           </div>
                         </div>
                       ) : (
                         <span className="text-xs text-muted-foreground">No candidate</span>
                       )}
                     </TableCell>
+                    <TableCell>
+                      <PurchaseInvoiceStatusBadge row={suggestedPr} />
+                    </TableCell>
                     <TableCell onClick={(event) => event.stopPropagation()}>
                       <PurchaseReceiptPicker
                         value={selectedPrBySsr[rowKey] ?? ""}
-                        disabled={row.docstatus === 2}
+                        disabled={row.docstatus === 2 || !permissions.canMatchSsr}
                         purchaseReceipts={activeIntercompanyPurchaseReceipts}
                         onChange={(value) =>
                           setSelectedPrBySsr((prev) => ({
@@ -1036,6 +1683,7 @@ const filteredPrs = useMemo(() => {
                       />
                     </TableCell>
                     <TableCell>
+                      <div className="flex flex-wrap gap-2">
                       <Button
                         size="sm"
                         disabled={row.docstatus === 2 || !permissions.canMatchSsr || busyKey === `link:${rowKey}`}
@@ -1047,6 +1695,21 @@ const filteredPrs = useMemo(() => {
                         <Link2 className="size-4" />
                         Save
                       </Button>
+                      {row.purchaseReceiptName && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={row.docstatus === 2 || !permissions.canMatchSsr || busyKey === `unlink:${rowKey}`}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            unlinkSsr(row);
+                          }}
+                        >
+                          <Trash2 className="size-4" />
+                          Unlink
+                        </Button>
+                      )}
+                      </div>
                     </TableCell>
                   </TableRow>
                   );
@@ -1063,11 +1726,123 @@ const filteredPrs = useMemo(() => {
             onPageSizeChange={setSsrPageSize}
           />
         </div>
+
+        <div className="space-y-3">
+          <h3 className="text-base font-semibold">Linked SSR records</h3>
+          <div className="overflow-hidden rounded-lg border bg-background/45">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>SSR No</TableHead>
+                  <TableHead>Supplier</TableHead>
+                  <TableHead>Current PR</TableHead>
+                  <TableHead>Match</TableHead>
+                  <TableHead className="w-20 whitespace-normal leading-tight">PI<br />Prices</TableHead>
+                  <TableHead>Change Purchase Receipt</TableHead>
+                  <TableHead className="w-24">Save</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredMatchedSsrs.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={7} className="h-20 text-center text-muted-foreground">
+                      No linked SSR records found.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  filteredMatchedSsrs.map((row) => {
+                    const rowKey = `${row.companyId}:${row.name}`;
+                    const linkedPr = row.purchaseReceiptName
+                      ? purchaseReceiptByName.get(row.purchaseReceiptName) ?? null
+                      : row.matchRecommendation
+                        ? purchaseReceiptByKey.get(`${row.matchRecommendation.companyId}:${row.matchRecommendation.name}`) ?? null
+                        : null;
+                    const linkedPrKey = linkedPr ? `${linkedPr.companyId}:${linkedPr.name}` : "";
+                    const selectedPrChanged =
+                      Boolean(selectedPrBySsr[rowKey]) &&
+                      selectedPrBySsr[rowKey] !== linkedPrKey &&
+                      selectedPrBySsr[rowKey] !== row.purchaseReceiptName;
+                    const matchedPercentage = row.matchRecommendation?.percentage ?? 0;
+                    const isCleanMatch = matchedPercentage >= 100;
+                    return (
+                      <TableRow key={`matched:${rowKey}`} className="cursor-pointer" onClick={() => setSelectedSsr(row)}>
+                        <TableCell className="font-medium">{row.name}</TableCell>
+                        <TableCell>{row.supplier}</TableCell>
+                        <TableCell>{linkedPr?.name ?? row.purchaseReceiptName ?? "-"}</TableCell>
+                        <TableCell>
+                          {row.matchRecommendation ? (
+                            <div>
+                              <div className="font-medium">{row.matchRecommendation.percentage.toFixed(2)}%</div>
+                              <div className="text-xs text-muted-foreground">
+                                {isCleanMatch ? "Matched" : matchedPercentage <= 0 ? "Issue - no SKU/qty overlap" : "Issue - needs review"}
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">-</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <PurchaseInvoiceStatusBadge row={linkedPr} />
+                        </TableCell>
+                        <TableCell onClick={(event) => event.stopPropagation()}>
+                          <PurchaseReceiptPicker
+                            value={selectedPrBySsr[rowKey] ?? ""}
+                            disabled={row.docstatus === 2 || !permissions.canMatchSsr}
+                            purchaseReceipts={activeIntercompanyPurchaseReceipts}
+                            onChange={(value) =>
+                              setSelectedPrBySsr((prev) => ({
+                                ...prev,
+                                [rowKey]: value,
+                              }))
+                            }
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-wrap gap-2">
+                          {selectedPrChanged ? (
+                            <Button
+                              size="sm"
+                              disabled={row.docstatus === 2 || !permissions.canMatchSsr || busyKey === `link:${rowKey}`}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                linkSsr(row);
+                              }}
+                            >
+                              <Link2 className="size-4" />
+                              Save
+                            </Button>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">-</span>
+                          )}
+                          {row.purchaseReceiptName && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={row.docstatus === 2 || !permissions.canMatchSsr || busyKey === `unlink:${rowKey}`}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                unlinkSsr(row);
+                              }}
+                            >
+                              <Trash2 className="size-4" />
+                              Unlink
+                            </Button>
+                          )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </div>
         </TabsContent>
       </Tabs>
 
       <Dialog open={supplierDialogOpen} onOpenChange={setSupplierDialogOpen}>
-        <DialogContent className="flex max-h-[85vh] max-w-3xl flex-col overflow-hidden">
+        <DialogContent className="max-h-[calc(100dvh-2rem)] max-w-3xl overflow-y-auto overscroll-contain">
           <DialogHeader>
             <DialogTitle>Intercompany suppliers</DialogTitle>
             <DialogDescription>
@@ -1109,7 +1884,7 @@ const filteredPrs = useMemo(() => {
               )}
             </div>
           </div>
-          <div className="overflow-auto rounded-md border">
+          <div className="overflow-x-auto rounded-md border">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -1165,8 +1940,16 @@ const filteredPrs = useMemo(() => {
           </div>
         </DialogContent>
       </Dialog>
-      <Dialog open={Boolean(selectedPr)} onOpenChange={(open) => !open && setSelectedPr(null)}>
-        <DialogContent className="flex max-h-[85vh] max-w-4xl flex-col overflow-hidden border-border/70 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_94%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))]">
+      <Dialog
+        open={Boolean(selectedPr)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSelectedPr(null);
+            setSelectedPrFocus(null);
+          }
+        }}
+      >
+        <DialogContent className="max-h-[calc(100dvh-2rem)] max-w-4xl overflow-y-auto overscroll-contain border-border/70 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_94%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))]">
           <DialogHeader>
             <div className="flex flex-col gap-2 pr-10">
               <div>
@@ -1203,51 +1986,148 @@ const filteredPrs = useMemo(() => {
               </div>
               <div>
                 <div className="text-xs text-muted-foreground">Adjustment No</div>
-                <div className="font-medium">{selectedPr.adjustmentNo ?? "-"}</div>
+                <div className="font-medium">{selectedPrStockReturn ? (
+                  <button
+                    type="button"
+                    className="text-primary underline-offset-4 hover:underline"
+                    onClick={() => {
+                      setSelectedPr(null);
+                      setSelectedSsr(selectedPrStockReturn);
+                    }}
+                  >
+                    {selectedPrStockReturn.name}
+                  </button>
+                ) : (
+                  selectedPr.adjustmentNo ?? "-"
+                )}</div>
+                {linkModeLabel(selectedPrStockReturn, selectedPr) && (
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    {linkModeLabel(selectedPrStockReturn, selectedPr)}
+                  </div>
+                )}
               </div>
             </div>
               <GrnStageTimeline row={selectedPr} />
+              {rowMissingIntercompanySsr(selectedPr) && (
+                <details
+                  className="rounded-lg border border-amber-400/35 bg-amber-500/10 p-3"
+                  open={selectedPrFocus === "missing-ssr"}
+                >
+                  <summary className="cursor-pointer list-none">
+                    <div className="flex items-start gap-2">
+                      <TriangleAlert className="mt-0.5 size-4 text-amber-300" />
+                      <div className="flex flex-col gap-1">
+                        <div className="text-sm font-semibold">Missing SSR link</div>
+                        <div className="text-xs text-amber-100/80">
+                          This purchase receipt is from an intercompany supplier, but no supplier stock return is linked yet.
+                        </div>
+                      </div>
+                    </div>
+                  </summary>
+                </details>
+              )}
+              {selectedPrStockReturn && (
+                <details className="rounded-lg border bg-background/50 p-3" open={selectedPrFocus === "item-mismatch"}>
+                  <summary className="cursor-pointer list-none">
+                    <div className="flex flex-col gap-1">
+                      <div className="text-sm font-semibold">
+                        SSR/PR matched products {selectedPr.tallyPercentage == null ? "" : `(${selectedPr.tallyPercentage.toFixed(2)}%)`}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        100% means every SKU and quantity matches. Lower percentages mean missing, extra, or different quantities.
+                      </div>
+                    </div>
+                  </summary>
+                  <div className="mt-3 overflow-x-auto rounded-md border bg-background/70">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>SKU</TableHead>
+                          <TableHead>Item Name</TableHead>
+                          <TableHead className="text-right">PR Qty</TableHead>
+                          <TableHead className="text-right">SSR Qty</TableHead>
+                          <TableHead>Status</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {selectedPrMatchRows.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={5} className="h-16 text-center text-muted-foreground">
+                              No linked SSR items found.
+                            </TableCell>
+                          </TableRow>
+                        ) : (
+                          selectedPrMatchRows.map((item) => (
+                            <TableRow key={item.itemCode} className={item.matched ? undefined : "bg-amber-500/10"}>
+                              <TableCell className="font-medium">{item.itemCode}</TableCell>
+                              <TableCell>{item.itemName ?? "-"}</TableCell>
+                              <TableCell className="text-right">{item.prQty}</TableCell>
+                              <TableCell className="text-right">{item.ssrQty}</TableCell>
+                              <TableCell>{item.matched ? "Matched" : "Mismatch"}</TableCell>
+                            </TableRow>
+                          ))
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </details>
+              )}
+              {selectedPrStockReturn && (
+                <PurchaseInvoicePriceTallyDetails
+                  row={selectedPr}
+                  priceRows={selectedPrPriceRows}
+                  defaultOpen={selectedPrFocus === "price-mismatch"}
+                />
+              )}
             </>
           )}
-          <div className="overflow-auto rounded-lg border bg-background/60">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Item Code</TableHead>
-                  <TableHead>Item Name</TableHead>
-                  <TableHead className="text-right">Qty</TableHead>
-                  <TableHead className="text-right">Stock Qty</TableHead>
-                  <TableHead>Warehouse</TableHead>
-                  <TableHead>UOM</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {!selectedPr || selectedPr.items.length === 0 ? (
+          <details className="rounded-lg border bg-background/50 p-3">
+            <summary className="cursor-pointer list-none">
+              <div className="flex flex-col gap-1">
+                <div className="text-sm font-semibold">Purchase receipt items</div>
+                <div className="text-xs text-muted-foreground">{selectedPr?.items.length ?? 0} items</div>
+              </div>
+            </summary>
+            <div className="mt-3 overflow-x-auto rounded-lg border bg-background/60">
+              <Table>
+                <TableHeader>
                   <TableRow>
-                    <TableCell colSpan={6} className="h-20 text-center text-muted-foreground">
-                      No items found.
-                    </TableCell>
+                    <TableHead>Item Code</TableHead>
+                    <TableHead>Item Name</TableHead>
+                    <TableHead className="text-right">Qty</TableHead>
+                    <TableHead className="text-right">Stock Qty</TableHead>
+                    <TableHead>Warehouse</TableHead>
+                    <TableHead>UOM</TableHead>
                   </TableRow>
-                ) : (
-                  selectedPr.items.map((item) => (
-                    <TableRow key={item.name}>
-                      <TableCell className="font-medium">{item.itemCode}</TableCell>
-                      <TableCell>{item.itemName ?? "-"}</TableCell>
-                      <TableCell className="text-right">{item.qty}</TableCell>
-                      <TableCell className="text-right">{item.stockQty ?? "-"}</TableCell>
-                      <TableCell>{item.warehouse ?? "-"}</TableCell>
-                      <TableCell>{item.stockUom ?? "-"}</TableCell>
+                </TableHeader>
+                <TableBody>
+                  {!selectedPr || selectedPr.items.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={6} className="h-20 text-center text-muted-foreground">
+                        No items found.
+                      </TableCell>
                     </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </div>
+                  ) : (
+                    selectedPr.items.map((item) => (
+                      <TableRow key={item.name}>
+                        <TableCell className="font-medium">{item.itemCode}</TableCell>
+                        <TableCell>{item.itemName ?? "-"}</TableCell>
+                        <TableCell className="text-right">{item.qty}</TableCell>
+                        <TableCell className="text-right">{item.stockQty ?? "-"}</TableCell>
+                        <TableCell>{item.warehouse ?? "-"}</TableCell>
+                        <TableCell>{item.stockUom ?? "-"}</TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </details>
         </DialogContent>
       </Dialog>
 
       <Dialog open={Boolean(selectedSsr)} onOpenChange={(open) => !open && setSelectedSsr(null)}>
-        <DialogContent className="flex max-h-[85vh] max-w-4xl flex-col overflow-hidden border-border/70 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_94%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))]">
+        <DialogContent className="max-h-[calc(100dvh-2rem)] max-w-4xl overflow-y-auto overscroll-contain border-border/70 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_94%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))]">
           <DialogHeader>
             <div className="flex flex-col gap-2 pr-10">
               <div>
@@ -1269,37 +2149,61 @@ const filteredPrs = useMemo(() => {
                   Open in ERP
                 </a>
               )}
+              {selectedSsrPurchaseReceipt && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="w-fit"
+                  onClick={() => {
+                    setSelectedSsr(null);
+                    setSelectedPr(selectedSsrPurchaseReceipt);
+                  }}
+                >
+                  Back to PR
+                </Button>
+              )}
             </div>
           </DialogHeader>
           {selectedSsrPurchaseReceipt && (
-            <div className="grid gap-3 rounded-lg border bg-background/50 p-3 text-sm sm:grid-cols-3">
-              <div>
-                <div className="text-xs text-muted-foreground">Linked PR</div>
-                <button
-                  type="button"
-                  className="font-medium text-primary underline-offset-4 hover:underline"
-                  onClick={() => setSelectedPr(selectedSsrPurchaseReceipt)}
-                >
-                  {selectedSsrPurchaseReceipt.name}
-                </button>
-              </div>
-              <div>
-                <div className="text-xs text-muted-foreground">Supplier</div>
-                <div className="font-medium">{selectedSsrPurchaseReceipt.supplierName ?? selectedSsrPurchaseReceipt.supplier}</div>
-              </div>
-              <div>
-                <div className="text-xs text-muted-foreground">Tally</div>
-                <div className="mt-1"><TallyBadge row={selectedSsrPurchaseReceipt} /></div>
+            <div className="rounded-lg border bg-background/50 p-3">
+              <div className="text-sm font-semibold">Linked purchase receipt</div>
+              <div className="mt-3 grid gap-3 text-sm sm:grid-cols-3">
+                <div>
+                  <div className="text-xs text-muted-foreground">Linked PR</div>
+                  <button
+                    type="button"
+                    className="font-medium text-primary underline-offset-4 hover:underline"
+                    onClick={() => setSelectedPr(selectedSsrPurchaseReceipt)}
+                  >
+                    {selectedSsrPurchaseReceipt.name}
+                  </button>
+                  {linkModeLabel(selectedSsr, selectedSsrPurchaseReceipt) && (
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      {linkModeLabel(selectedSsr, selectedSsrPurchaseReceipt)}
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground">Supplier</div>
+                  <div className="font-medium">{selectedSsrPurchaseReceipt.supplierName ?? selectedSsrPurchaseReceipt.supplier}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground">Tally</div>
+                  <div className="mt-1"><TallyBadge row={selectedSsrPurchaseReceipt} /></div>
+                </div>
               </div>
             </div>
           )}
           {selectedSsrPurchaseReceipt?.tallyStatus === "issue" && selectedSsrPurchaseReceipt.tallyIssues.length > 0 && (
-            <div className="rounded-lg border border-amber-200 bg-amber-50/80 p-3 text-amber-950">
-              <div className="mb-2 flex items-center gap-2 text-sm font-semibold">
-                <TriangleAlert className="size-4" />
-                Tally mismatch
-              </div>
-              <div className="overflow-auto rounded-md border border-amber-200 bg-background/80">
+            <details className="rounded-lg border border-amber-400/60 bg-amber-500/10 p-3">
+              <summary className="cursor-pointer list-none">
+                <div className="flex items-center gap-2 text-sm font-semibold text-amber-200">
+                  <TriangleAlert className="size-4" />
+                  Tally mismatch
+                </div>
+              </summary>
+              <div className="mt-3 overflow-x-auto rounded-md border border-amber-400/40 bg-background/70">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -1323,71 +2227,64 @@ const filteredPrs = useMemo(() => {
                   </TableBody>
                 </Table>
               </div>
+            </details>
+          )}
+          {selectedSsr && selectedSsrComparisonPurchaseReceipt && (
+            <div className="rounded-lg border bg-background/50 p-3">
+              <div className="flex flex-col gap-1">
+                <div className="text-sm font-semibold">
+                  SSR/PR matched products{" "}
+                  {selectedSsr.matchRecommendation ? `(${selectedSsr.matchRecommendation.percentage.toFixed(2)}%)` : ""}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  Comparing against {selectedSsrComparisonPurchaseReceipt.name}. 100% means every SKU and quantity matches.
+                </div>
+              </div>
+              <div className="mt-3 overflow-x-auto rounded-md border bg-background/70">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>SKU</TableHead>
+                      <TableHead>Item Name</TableHead>
+                      <TableHead className="text-right">PR Qty</TableHead>
+                      <TableHead className="text-right">SSR Qty</TableHead>
+                      <TableHead>Status</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {selectedSsrMatchRows.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={5} className="h-16 text-center text-muted-foreground">
+                          No comparable items found.
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      selectedSsrMatchRows.map((item) => (
+                        <TableRow key={item.itemCode} className={item.matched ? undefined : "bg-amber-500/10"}>
+                          <TableCell className="font-medium">{item.itemCode}</TableCell>
+                          <TableCell>{item.itemName ?? "-"}</TableCell>
+                          <TableCell className="text-right">{item.prQty}</TableCell>
+                          <TableCell className="text-right">{item.ssrQty}</TableCell>
+                          <TableCell>{item.matched ? "Matched" : "Mismatch"}</TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
             </div>
           )}
           {selectedSsrPurchaseReceipt && (
-            <div className="rounded-lg border bg-background/50 p-3">
-              <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <div className="text-sm font-semibold">Purchase invoice price tally</div>
-                  <div className="text-xs text-muted-foreground">
-                    {selectedSsrPurchaseReceipt.purchaseInvoice
-                      ? `${selectedSsrPurchaseReceipt.purchaseInvoice.name} - ${formatDate(selectedSsrPurchaseReceipt.purchaseInvoice.postingDate)}`
-                      : "No linked purchase invoice stored yet."}
-                  </div>
-                </div>
-                {selectedSsrPurchaseReceipt.purchaseInvoice?.erpUrl && (
-                  <a
-                    href={selectedSsrPurchaseReceipt.purchaseInvoice.erpUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex w-fit items-center gap-2 text-sm text-primary hover:underline"
-                  >
-                    <ExternalLink className="size-4" />
-                    Open PI in ERP
-                  </a>
-                )}
+            <PurchaseInvoicePriceTallyDetails row={selectedSsrPurchaseReceipt} priceRows={selectedSsrPriceRows} />
+          )}
+          <details className="rounded-lg border bg-background/50 p-3">
+            <summary className="cursor-pointer list-none">
+              <div className="flex flex-col gap-1">
+                <div className="text-sm font-semibold">Supplier stock return items</div>
+                <div className="text-xs text-muted-foreground">{selectedSsr?.items.length ?? 0} items</div>
               </div>
-              {selectedSsrPurchaseReceipt.purchaseInvoice && (
-                <div className="overflow-auto rounded-md border bg-background/70">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>SKU</TableHead>
-                        <TableHead>Item Name</TableHead>
-                        <TableHead className="text-right">SSR Qty</TableHead>
-                        <TableHead className="text-right">PI Qty</TableHead>
-                        <TableHead className="text-right">Rate</TableHead>
-                        <TableHead className="text-right">SSR Value</TableHead>
-                        <TableHead>UOM</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {selectedSsrPriceRows.length === 0 ? (
-                        <TableRow>
-                          <TableCell colSpan={7} className="h-16 text-center text-muted-foreground">
-                            No price rows found.
-                          </TableCell>
-                        </TableRow>
-                      ) : (
-                        selectedSsrPriceRows.map((item) => (
-                          <TableRow key={item.itemCode} className={item.issue ? "bg-amber-500/10" : undefined}>
-                            <TableCell className="font-medium">{item.itemCode}</TableCell>
-                            <TableCell>{item.itemName ?? "-"}</TableCell>
-                            <TableCell className="text-right">{item.ssrQty}</TableCell>
-                            <TableCell className="text-right">{item.invoiceQty}</TableCell>
-                            <TableCell className="text-right">{item.rate == null ? "-" : item.rate.toFixed(2)}</TableCell>
-                            <TableCell className="text-right">{item.amount == null ? "-" : item.amount.toFixed(2)}</TableCell>
-                            <TableCell>{item.uom ?? "-"}</TableCell>
-                          </TableRow>
-                        ))
-                      )}
-                    </TableBody>
-                  </Table>
-                </div>
-              )}
-            </div>
-          )}          <div className="overflow-auto rounded-lg border bg-background/60">
+            </summary>
+            <div className="mt-3 overflow-x-auto rounded-lg border bg-background/60">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -1416,35 +2313,10 @@ const filteredPrs = useMemo(() => {
                 )}
               </TableBody>
             </Table>
-          </div>
+            </div>
+          </details>
         </DialogContent>
       </Dialog>    </div>
   );
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 

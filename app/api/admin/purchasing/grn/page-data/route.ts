@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { autoMatchIntercompanyGrn, bestGrnMatchForStockReturn, tallyLinkedItems } from "@/lib/grn";
+import { resolveViewerFinanceLocationIds } from "@/lib/approval-workflow";
+import { autoMatchIntercompanyGrn, bestGrnMatchForStockReturn, calculateGrnMatchPercentage, tallyLinkedItems } from "@/lib/grn";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserContext, hasPermission, requirePermission } from "@/lib/rbac";
 
@@ -31,6 +32,22 @@ function erpCompanyFromPayload(rawPayload: unknown) {
   return typeof payload.company === "string" && payload.company.trim()
     ? payload.company.trim()
     : null;
+}
+
+function erpPayloadFromRaw(rawPayload: unknown) {
+  if (!rawPayload || typeof rawPayload !== "object") return null;
+  const top = rawPayload as Record<string, unknown>;
+  return top.data && typeof top.data === "object" && !Array.isArray(top.data)
+    ? (top.data as Record<string, unknown>)
+    : top;
+}
+
+function erpPayloadIndicatesCancelled(rawPayload: unknown) {
+  const payload = erpPayloadFromRaw(rawPayload);
+  if (!payload) return false;
+  const docstatus = Number(payload.docstatus);
+  const status = typeof payload.status === "string" ? payload.status.trim().toLowerCase() : "";
+  return docstatus === 2 || status === "cancelled" || status === "canceled";
 }
 
 function erpBaseUrlForPayload(
@@ -95,16 +112,42 @@ export async function GET(request: NextRequest) {
   }
 
   const context = await getCurrentUserContext();
-  const userCompanyId = context?.user?.companyId;
-  if (!userCompanyId) {
+  const user = context?.user;
+  if (!user?.companyId) {
     return NextResponse.json({ error: "No company associated with your account" }, { status: 404 });
   }
+  const userCompanyId = user.companyId;
+  const roleNames = context?.roleNames ?? [];
   const shouldScopeToUserCompany =
     hasPermission(context, "purchasing.grn.mark_received") &&
     !hasPermission(context, "purchasing.grn.mark_handover") &&
     !hasPermission(context, "purchasing.grn.mark_valued") &&
     !hasPermission(context, "purchasing.grn.match_ssr");
+  const shouldShowOnlyHandoveredForValued =
+    hasPermission(context, "purchasing.grn.mark_valued") &&
+    !hasPermission(context, "purchasing.grn.mark_handover") &&
+    !hasPermission(context, "purchasing.grn.match_ssr");
+  const shouldShowOnlyValuedForReceived =
+    hasPermission(context, "purchasing.grn.mark_received") &&
+    !hasPermission(context, "purchasing.grn.mark_handover") &&
+    !hasPermission(context, "purchasing.grn.mark_valued") &&
+    !hasPermission(context, "purchasing.grn.match_ssr");
+  const financeLocationIds = shouldScopeToUserCompany
+    ? await resolveViewerFinanceLocationIds(user.id, userCompanyId, roleNames)
+    : null;
   const companyScope = shouldScopeToUserCompany ? { companyId: userCompanyId } : {};
+  const locationScope =
+    shouldScopeToUserCompany && financeLocationIds !== null
+      ? financeLocationIds.length === 0
+        ? { id: "__no_finance_locations__" }
+        : { companyLocationId: { in: financeLocationIds } }
+      : {};
+  const stageVisibilityScope =
+    shouldShowOnlyValuedForReceived
+      ? { valuedAt: { not: null } }
+      : shouldShowOnlyHandoveredForValued
+        ? { handoverAt: { not: null } }
+        : {};
 
   const from = parseDateParam(request.nextUrl.searchParams.get("from"));
   const to = parseDateParam(request.nextUrl.searchParams.get("to"), true);
@@ -116,6 +159,8 @@ export async function GET(request: NextRequest) {
     prisma.grnPurchaseReceipt.findMany({
       where: {
         ...companyScope,
+        ...locationScope,
+        ...stageVisibilityScope,
         ...(dateFilter
           ? {
               OR: [
@@ -135,7 +180,7 @@ export async function GET(request: NextRequest) {
         purchaseInvoices: {
           where: { docstatus: { not: 2 } },
           orderBy: [{ postingDate: "desc" }, { createdAt: "desc" }],
-          take: 1,
+          take: 5,
           include: { items: true },
         },
         company: {
@@ -189,12 +234,23 @@ export async function GET(request: NextRequest) {
 
   const intercompanySupplierCodes = new Set(intercompanySuppliers.map((row) => row.supplier));
   const stockReturnByName = new Map(stockReturns.map((row) => [row.name, row]));
-  const activePurchaseReceiptNames = new Set(
-    purchaseReceipts.filter((row) => row.docstatus !== 2).map((row) => row.name),
-  );
+  const amendedPurchaseReceiptNames = new Set(purchaseReceipts.map((row) => row.amendedFrom).filter((name): name is string => Boolean(name)));
+  const isPurchaseReceiptCancelled = (row: (typeof purchaseReceipts)[number]) => {
+    const status = row.status?.trim().toLowerCase();
+    return (
+      row.docstatus === 2 ||
+      status === "cancelled" ||
+      status === "canceled" ||
+    erpPayloadIndicatesCancelled(row.rawPayload) ||
+      amendedPurchaseReceiptNames.has(row.name)
+    );
+  };
+  const activePurchaseReceiptsForMatching = purchaseReceipts.filter((row) => !isPurchaseReceiptCancelled(row));
+  const activePurchaseReceiptNames = new Set(activePurchaseReceiptsForMatching.map((row) => row.name));
+  const activePurchaseReceiptByName = new Map(activePurchaseReceiptsForMatching.map((row) => [row.name, row]));
   const activeIntercompanyPurchaseReceipts = purchaseReceipts.filter(
     (row) =>
-      row.docstatus !== 2 &&
+      !isPurchaseReceiptCancelled(row) &&
       !row.supplierStockReturnName &&
       intercompanySupplierCodes.has(row.supplier),
   );
@@ -204,12 +260,47 @@ export async function GET(request: NextRequest) {
       const linked = row.supplierStockReturnName
         ? stockReturnByName.get(row.supplierStockReturnName)
         : null;
-      const activeLinked = row.docstatus !== 2 && linked?.docstatus !== 2 ? linked : null;
+      const activeLinked = !isPurchaseReceiptCancelled(row) && linked?.docstatus !== 2 ? linked : null;
       const tally = activeLinked
         ? tallyLinkedItems(row.items, activeLinked.items)
         : { status: "not_linked" as const, issueItems: [] };
       const tallyIssues = activeLinked ? buildTallyIssues(row.items, activeLinked.items) : [];
-      const purchaseInvoice = row.purchaseInvoices[0] ?? null;
+      const purchaseInvoice =
+        row.purchaseInvoices.find((invoice) =>
+          invoice.items.some((item) => item.purchaseReceipt === row.name),
+        ) ?? null;
+      const supplierStockReturnPurchaseInvoice = row.supplierStockReturnName
+        ? row.purchaseInvoices.find((invoice) =>
+            invoice.items.some((item) => item.supplierStockReturn === row.supplierStockReturnName),
+          ) ?? null
+        : null;
+      const serializePurchaseInvoice = (invoice: (typeof row.purchaseInvoices)[number] | null) =>
+        invoice
+          ? {
+              name: invoice.name,
+              erpUrl: erpDocUrl(
+                erpBaseUrlForPayload(invoice.rawPayload, row.company.locations),
+                "purchase-invoice",
+                invoice.name,
+              ),
+              postingDate: iso(invoice.postingDate),
+              docstatus: invoice.docstatus,
+              status: invoice.status,
+              items: invoice.items.map((item) => ({
+                name: item.name,
+                itemCode: item.itemCode,
+                itemName: item.itemName,
+                qty: Number(item.qty),
+                rate: Number(item.rate),
+                amount: Number(item.amount),
+                purchaseReceipt: item.purchaseReceipt,
+                purchaseReceiptItem: item.purchaseReceiptItem,
+                supplierStockReturn: item.supplierStockReturn,
+                supplierStockReturnItem: item.supplierStockReturnItem,
+                stockUom: item.stockUom,
+              })),
+            }
+          : null;
       return {
         companyId: row.companyId,
         companyName: row.company.name,
@@ -220,6 +311,7 @@ export async function GET(request: NextRequest) {
           row.name,
         ),
         adjustmentNo: row.supplierStockReturnName,
+        adjustmentDocstatus: linked?.docstatus ?? null,
         amendedFrom: row.amendedFrom,
         grnDate: iso(row.creation ?? row.postingDate),
         grnBy: row.owner,
@@ -234,6 +326,7 @@ export async function GET(request: NextRequest) {
         canMarkReceived: true,
         status: row.status,
         docstatus: row.docstatus,
+        isCancelled: isPurchaseReceiptCancelled(row),
         itemCount: row.items.length,
         items: row.items.map((item) => ({
           name: item.name,
@@ -245,37 +338,24 @@ export async function GET(request: NextRequest) {
           stockUom: item.stockUom,
         })),
         tallyStatus: tally.status,
+        tallyPercentage: activeLinked ? calculateGrnMatchPercentage(row.items, activeLinked.items) : null,
         tallyIssueItems: tally.issueItems,
         tallyIssues,
-        purchaseInvoice: purchaseInvoice
-          ? {
-              name: purchaseInvoice.name,
-              erpUrl: erpDocUrl(
-                erpBaseUrlForPayload(purchaseInvoice.rawPayload, row.company.locations),
-                "purchase-invoice",
-                purchaseInvoice.name,
-              ),
-              postingDate: iso(purchaseInvoice.postingDate),
-              docstatus: purchaseInvoice.docstatus,
-              status: purchaseInvoice.status,
-              items: purchaseInvoice.items.map((item) => ({
-                name: item.name,
-                itemCode: item.itemCode,
-                itemName: item.itemName,
-                qty: Number(item.qty),
-                rate: Number(item.rate),
-                amount: Number(item.amount),
-                purchaseReceipt: item.purchaseReceipt,
-                purchaseReceiptItem: item.purchaseReceiptItem,
-                stockUom: item.stockUom,
-              })),
-            }
-          : null,
+        purchaseInvoice: serializePurchaseInvoice(purchaseInvoice),
+        supplierStockReturnPurchaseInvoice: serializePurchaseInvoice(supplierStockReturnPurchaseInvoice),
       };
     }),
     supplierStockReturns: stockReturns.map((row) => {
-      const recommendation =
-        row.docstatus !== 2 && !row.purchaseReceiptName && intercompanySupplierCodes.has(row.supplier)
+      const linkedPurchaseReceipt = row.purchaseReceiptName
+        ? activePurchaseReceiptByName.get(row.purchaseReceiptName) ?? null
+        : null;
+      const recommendation = linkedPurchaseReceipt
+        ? {
+            companyId: linkedPurchaseReceipt.companyId,
+            name: linkedPurchaseReceipt.name,
+            percentage: calculateGrnMatchPercentage(linkedPurchaseReceipt.items, row.items),
+          }
+        : row.docstatus !== 2 && intercompanySupplierCodes.has(row.supplier)
           ? bestGrnMatchForStockReturn(row, activeIntercompanyPurchaseReceipts)
           : null;
       return {
@@ -297,11 +377,13 @@ export async function GET(request: NextRequest) {
         canTally: row.docstatus !== 2 && (!row.purchaseReceiptName || activePurchaseReceiptNames.has(row.purchaseReceiptName)),
         itemCount: row.items.length,
         matchRecommendation: recommendation,
-        matchReviewStatus: recommendation
-          ? recommendation.percentage > 90
-            ? "review"
-            : "waiting"
-          : null,
+        matchReviewStatus: linkedPurchaseReceipt
+          ? "matched"
+          : recommendation
+            ? recommendation.percentage > 90
+              ? "review"
+              : "waiting"
+            : null,
         items: row.items.map((item) => ({
           name: item.name,
           itemCode: item.itemCode,
@@ -318,6 +400,4 @@ export async function GET(request: NextRequest) {
     })),
   });
 }
-
-
 
