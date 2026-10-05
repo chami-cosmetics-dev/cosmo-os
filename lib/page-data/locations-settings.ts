@@ -27,6 +27,7 @@ export type LocationsSettingsLocation = {
   manualInvoicePrefix: string | null;
   manualInvoiceNextSeq: number;
   manualInvoiceSeqPadding: number;
+  supplierPrefix: string | null;
   erpnextCompany: string | null;
   erpnextWarehouse: string | null;
   fulfillmentBlocked: boolean;
@@ -78,6 +79,7 @@ export async function getLocationsSettingsInitialData(
         locationReference: true,
         defaultMerchantUserId: true,
         defaultOrderPrintFormatId: true,
+        supplierPrefix: true,
         erpnextCompany: true,
         erpnextWarehouse: true,
         fulfillmentBlocked: true,
@@ -100,6 +102,7 @@ export async function getLocationsSettingsInitialData(
     manualInvoicePrefix: invoiceFields.get(l.id)?.manualInvoicePrefix ?? null,
     manualInvoiceNextSeq: invoiceFields.get(l.id)?.manualInvoiceNextSeq ?? 0,
     manualInvoiceSeqPadding: invoiceFields.get(l.id)?.manualInvoiceSeqPadding ?? 3,
+    supplierPrefix: l.supplierPrefix,
     erpnextCompany: l.erpnextCompany,
     erpnextWarehouse: l.erpnextWarehouse,
     fulfillmentBlocked: l.fulfillmentBlocked,
