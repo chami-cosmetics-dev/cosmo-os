@@ -26,7 +26,7 @@ export const ITEM_CREATION_PERMISSIONS = {
 
 export const ITEM_CREATION_PRICE_LISTS = {
   STANDARD: process.env.ITEM_CREATION_STANDARD_PRICE_LIST ?? "Standard Selling",
-  OGF: process.env.ITEM_CREATION_OGF_PRICE_LIST ?? "OGF Selling",
+  OGF: process.env.ITEM_CREATION_OGF_PRICE_LIST ?? "OGF Price List",
 } as const;
 
 const ITEM_CREATION_SOURCE_VALUES = new Set(["SHOPIFY", "ERP2"]);
@@ -62,6 +62,10 @@ function trimSku(sku: string) {
   const value = sku.trim();
   if (!value) throw new Error("SKU is required");
   return value;
+}
+
+function samePriceList(left: string, right: string) {
+  return left.trim().toLowerCase() === right.trim().toLowerCase();
 }
 
 function toDecimal(value: unknown, label: string) {
@@ -634,13 +638,13 @@ export async function recordErpItemPrice(input: {
       where: { sku, overallStatus: "IN_PROGRESS" },
     });
     for (const request of requests) {
-      if (priceList === ITEM_CREATION_PRICE_LISTS.STANDARD) {
+      if (samePriceList(priceList, ITEM_CREATION_PRICE_LISTS.STANDARD)) {
         await tx.itemCreationRequest.update({
           where: { id: request.id },
           data: { erpStandardPrice: price, standardPriceSeenAt: new Date() },
         });
         await activity(tx, request.id, "ERP_STANDARD_PRICE_DETECTED", "ERP_WEBHOOK", null, String(request.erpStandardPrice ?? ""), String(price), { sku, priceList, erpPrice: Number(price) });
-      } else if (priceList === ITEM_CREATION_PRICE_LISTS.OGF) {
+      } else if (samePriceList(priceList, ITEM_CREATION_PRICE_LISTS.OGF)) {
         await tx.itemCreationRequest.update({
           where: { id: request.id },
           data: { erpOgfPrice: price, ogfPriceSeenAt: new Date() },

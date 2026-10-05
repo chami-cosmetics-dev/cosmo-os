@@ -349,18 +349,19 @@ async function upsertItemPrice(input: {
   priceList: string;
   rate: Prisma.Decimal;
 }) {
+  const priceList = await resolvePriceListName(input.cfg, input.priceList);
   const existing = await findErpDoc<{ name: string; price_list_rate?: number }>(
     input.cfg,
     "Item Price",
     [
       ["item_code", "=", input.itemCode],
-      ["price_list", "=", input.priceList],
+      ["price_list", "=", priceList],
     ],
     ["name", "price_list_rate"],
   );
   const body = {
     item_code: input.itemCode,
-    price_list: input.priceList,
+    price_list: priceList,
     price_list_rate: Number(input.rate),
     currency: process.env.ITEM_CREATION_ERP_CURRENCY ?? "LKR",
     uom: process.env.ITEM_CREATION_ERP_STOCK_UOM ?? "Nos",
@@ -369,7 +370,17 @@ async function upsertItemPrice(input: {
     ? await updateErpDoc<Record<string, unknown>>(input.cfg, "Item Price", existing.name, body)
     : await createErpDoc<Record<string, unknown>>(input.cfg, "Item Price", body);
   const resultRate = new Prisma.Decimal(String(doc.price_list_rate ?? input.rate));
-  return { name: String(doc.name ?? existing?.name ?? ""), rate: resultRate };
+  return { name: String(doc.name ?? existing?.name ?? ""), rate: resultRate, priceList };
+}
+
+async function resolvePriceListName(cfg: OsfErpCredentials, requestedName: string) {
+  const normalized = requestedName.trim().toLowerCase();
+  const rows = await erpJson<Array<{ name?: string }>>(
+    cfg,
+    `/api/resource/Price List?fields=${encodeURIComponent(JSON.stringify(["name"]))}&limit_page_length=500`,
+  );
+  const match = rows.find((row) => row.name?.trim().toLowerCase() === normalized);
+  return match?.name?.trim() || requestedName;
 }
 
 export async function updateItemCreationPrices(context: UserContext, id: string) {
@@ -427,7 +438,7 @@ export async function updateItemCreationPrices(context: UserContext, id: string)
         await activity(tx, id, `${eventBase}_UPDATED`, "SYSTEM", userId(context), {
           erp: op.erp,
           itemCode: request.sku,
-          priceList: op.priceList,
+          priceList: saved.priceList,
           rate: Number(saved.rate),
           itemPrice: saved.name,
         });
