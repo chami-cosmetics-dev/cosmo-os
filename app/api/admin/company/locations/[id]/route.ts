@@ -35,6 +35,7 @@ const updateLocationSchema = z.object({
     .nullable()
     .optional(),
   manualInvoiceSeqPadding: manualInvoiceSeqPaddingSchema.optional(),
+  supplierPrefix: z.string().max(80).optional().nullable(),
   erpnextCompany: z.string().max(140).optional().nullable(),
   erpnextWarehouse: z.string().max(140).optional().nullable(),
   erpnextInstanceId: cuidSchema.nullable().optional(),
@@ -159,6 +160,7 @@ export async function PATCH(
       ...(d.manualInvoiceSeqPadding !== undefined && {
         manualInvoiceSeqPadding: d.manualInvoiceSeqPadding,
       }),
+      supplierPrefix: toOpt(d.supplierPrefix ?? undefined),
       erpnextCompany: toOpt(d.erpnextCompany ?? undefined),
       erpnextWarehouse: toOpt(d.erpnextWarehouse ?? undefined),
       ...(d.erpnextInstanceId !== undefined && { erpnextInstanceId: d.erpnextInstanceId }),
@@ -189,6 +191,7 @@ export async function PATCH(
       manualInvoicePrefix: true,
       manualInvoiceNextSeq: true,
       manualInvoiceSeqPadding: true,
+      supplierPrefix: true,
       erpnextCompany: true,
       erpnextWarehouse: true,
       erpnextInstanceId: true,

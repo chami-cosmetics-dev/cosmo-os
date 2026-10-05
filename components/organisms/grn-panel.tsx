@@ -10,8 +10,6 @@ import {
   FileDown,
   Link2,
   Loader2,
-  Pencil,
-  Plus,
   RefreshCw,
   Trash2,
   TriangleAlert,
@@ -80,6 +78,7 @@ type PurchaseInvoiceRef = {
 
 type PurchaseReceiptRow = {
   companyId: string;
+  companyLocationId: string | null;
   companyName: string;
   name: string;
   erpUrl: string | null;
@@ -94,10 +93,16 @@ type PurchaseReceiptRow = {
   amendedFrom: string | null;
   handoverAt: string | null;
   handoverBy: UserRef | null;
+  handoverRevertedAt: string | null;
+  handoverRevertedBy: UserRef | null;
   valuedAt: string | null;
   valuedBy: UserRef | null;
+  valuedRevertedAt: string | null;
+  valuedRevertedBy: UserRef | null;
   receivedAt: string | null;
   receivedBy: UserRef | null;
+  receivedRevertedAt: string | null;
+  receivedRevertedBy: UserRef | null;
   canMarkReceived: boolean;
   itemCount: number;
   items: {
@@ -264,9 +269,7 @@ function buildPriceTallyRows(_ssr: SupplierStockReturnRow | null, pr: PurchaseRe
         prAmount: prItem?.amount ?? 0,
         ssrAmount: ssrItem?.amount ?? 0,
         uom: prItem?.uom ?? ssrItem?.uom ?? null,
-        issue:
-          Math.abs(Math.abs(prItem?.qty ?? 0) - Math.abs(ssrItem?.qty ?? 0)) > 0.000001 ||
-          Math.abs((prItem?.amount ?? 0) + (ssrItem?.amount ?? 0)) > 0.000001,
+        issue: prRate == null || ssrRate == null || Math.abs(prRate - ssrRate) > 0.000001,
       };
     })
     .sort((a, b) => Number(a.issue) - Number(b.issue) || a.itemCode.localeCompare(b.itemCode));
@@ -445,11 +448,48 @@ function buildItemMatchRows(pr: PurchaseReceiptRow, ssr: SupplierStockReturnRow 
     })
     .sort((a, b) => Number(a.matched) - Number(b.matched) || a.itemCode.localeCompare(b.itemCode));
 }
-function GrnStageTimeline({ row }: { row: PurchaseReceiptRow }) {
+function GrnStageTimeline({
+  row,
+  permissions,
+  busyKey,
+  onRevert,
+}: {
+  row: PurchaseReceiptRow;
+  permissions: GrnPanelPermissions;
+  busyKey: string | null;
+  onRevert: (row: PurchaseReceiptRow, field: "handoverAt" | "valuedAt" | "receivedAt") => void;
+}) {
   const stages = [
-    { label: "Handover", at: row.handoverAt, by: row.handoverBy, fallbackBy: null },
-    { label: "Valued", at: row.valuedAt, by: row.valuedBy, fallbackBy: "Cosmo API" },
-    { label: "GRN Received", at: row.receivedAt, by: row.receivedBy, fallbackBy: null },
+    {
+      label: "Handover",
+      field: "handoverAt" as const,
+      at: row.handoverAt,
+      by: row.handoverBy,
+      fallbackBy: null,
+      revertedAt: row.handoverRevertedAt,
+      revertedBy: row.handoverRevertedBy,
+      canRevert: permissions.canMarkHandover,
+    },
+    {
+      label: "Valued",
+      field: "valuedAt" as const,
+      at: row.valuedAt,
+      by: row.valuedBy,
+      fallbackBy: "Cosmo API",
+      revertedAt: row.valuedRevertedAt,
+      revertedBy: row.valuedRevertedBy,
+      canRevert: permissions.canMarkValued,
+    },
+    {
+      label: "GRN Received",
+      field: "receivedAt" as const,
+      at: row.receivedAt,
+      by: row.receivedBy,
+      fallbackBy: null,
+      revertedAt: row.receivedRevertedAt,
+      revertedBy: row.receivedRevertedBy,
+      canRevert: permissions.canMarkReceived,
+    },
   ];
 
   return (
@@ -481,8 +521,29 @@ function GrnStageTimeline({ row }: { row: PurchaseReceiptRow }) {
                       ? `Marked by ${stage.fallbackBy}`
                       : "-"}
                 </div>
+                {stage.revertedAt && (
+                  <div className="text-xs text-amber-300">
+                    Reverted by {userLabel(stage.revertedBy) ?? "Unknown"} on {formatDate(stage.revertedAt)}
+                  </div>
+                )}
               </div>
-              <div className="text-right text-sm text-muted-foreground">{formatDate(stage.at)}</div>
+              <div className="flex flex-col items-end gap-2 text-right text-sm text-muted-foreground">
+                <span>{formatDate(stage.at)}</span>
+                {complete && stage.canRevert && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={row.isCancelled || busyKey === `${row.companyId}:${row.name}:${stage.field}:revert`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onRevert(row, stage.field);
+                    }}
+                  >
+                    Revert
+                  </Button>
+                )}
+              </div>
             </div>
           );
         })}
@@ -694,8 +755,6 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
   const [selectedPrFocus, setSelectedPrFocus] = useState<PrDialogFocus>(null);
   const [selectedSsr, setSelectedSsr] = useState<SupplierStockReturnRow | null>(null);
   const [selectedBulkPrKeys, setSelectedBulkPrKeys] = useState<Set<string>>(() => new Set());
-  const [supplierDialogOpen, setSupplierDialogOpen] = useState(false);
-  const [supplierForm, setSupplierForm] = useState({ id: "", supplier: "", supplierName: "" });
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -753,17 +812,43 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
     [data.purchaseReceipts],
   );
 
-  const intercompanySupplierSet = useMemo(
-    () => new Set(data.intercompanySuppliers.map((row) => row.supplier)),
+  const intercompanySupplierPrefixes = useMemo(
+    () =>
+      data.intercompanySuppliers
+        .map((row) => ({
+          locationId: row.id,
+          supplier: row.supplier,
+          key: row.supplier.trim().toLowerCase(),
+        }))
+        .filter((row) => row.key.length > 0),
     [data.intercompanySuppliers],
+  );
+  const intercompanySupplierRuleForSupplier = useCallback(
+    (supplier: string) => {
+      const key = supplier.trim().toLowerCase();
+      return intercompanySupplierPrefixes.find((row) => key.includes(row.key)) ?? null;
+    },
+    [intercompanySupplierPrefixes],
   );
 
   const activeIntercompanyPurchaseReceipts = useMemo(
     () =>
       activePurchaseReceipts.filter(
-        (row) => !row.adjustmentNo && intercompanySupplierSet.has(row.supplier),
+        (row) =>
+          !row.adjustmentNo &&
+          intercompanySupplierPrefixes.some((rule) => rule.locationId === row.companyLocationId),
       ),
-    [activePurchaseReceipts, intercompanySupplierSet],
+    [activePurchaseReceipts, intercompanySupplierPrefixes],
+  );
+  const purchaseReceiptOptionsForSsr = useCallback(
+    (row: SupplierStockReturnRow) => {
+      const rule = intercompanySupplierRuleForSupplier(row.supplier);
+      if (!rule) return [];
+      return activeIntercompanyPurchaseReceipts.filter(
+        (receipt) => receipt.companyLocationId === rule.locationId,
+      );
+    },
+    [activeIntercompanyPurchaseReceipts, intercompanySupplierRuleForSupplier],
   );
 
   const purchaseReceiptByName = useMemo(
@@ -839,11 +924,14 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
   }, []);
 
   const rowMissingIntercompanySsr = useCallback(
-    (row: PurchaseReceiptRow) =>
-      !row.isCancelled &&
-      intercompanySupplierSet.has(row.supplier) &&
-      !row.adjustmentNo,
-    [intercompanySupplierSet],
+    (row: PurchaseReceiptRow) => {
+      return (
+        !row.isCancelled &&
+        Boolean(intercompanySupplierRuleForSupplier(row.supplier)) &&
+        !row.adjustmentNo
+      );
+    },
+    [intercompanySupplierRuleForSupplier],
   );
 
   const rowMismatchedForStage = useCallback((row: PurchaseReceiptRow, stage: GrnActionStage) => {
@@ -946,10 +1034,10 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
         (row) =>
           row.docstatus !== 2 &&
           (!row.purchaseReceiptName || (row.matchRecommendation?.percentage ?? 0) < 100) &&
-          (!permissions.canMatchSsr || intercompanySupplierSet.has(row.supplier)) &&
+          (!permissions.canMatchSsr || Boolean(intercompanySupplierRuleForSupplier(row.supplier))) &&
           ssrMatchesSearch(row),
       ),
-    [data.supplierStockReturns, intercompanySupplierSet, permissions.canMatchSsr, ssrMatchesSearch],
+    [data.supplierStockReturns, intercompanySupplierRuleForSupplier, permissions.canMatchSsr, ssrMatchesSearch],
   );
 
   const filteredMatchedSsrs = useMemo(
@@ -959,10 +1047,10 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
           row.docstatus !== 2 &&
           Boolean(row.purchaseReceiptName) &&
           (row.matchRecommendation?.percentage ?? 0) >= 100 &&
-          (!permissions.canMatchSsr || intercompanySupplierSet.has(row.supplier)) &&
+          (!permissions.canMatchSsr || Boolean(intercompanySupplierRuleForSupplier(row.supplier))) &&
           ssrMatchesSearch(row),
       ),
-    [data.supplierStockReturns, intercompanySupplierSet, permissions.canMatchSsr, ssrMatchesSearch],
+    [data.supplierStockReturns, intercompanySupplierRuleForSupplier, permissions.canMatchSsr, ssrMatchesSearch],
   );
 
   const prPageCount = Math.max(1, Math.ceil(filteredPrs.length / prPageSize));
@@ -1012,8 +1100,8 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
     return null;
   }
 
-  async function mark(row: PurchaseReceiptRow, field: "handoverAt" | "valuedAt" | "receivedAt") {
-    const key = `${row.companyId}:${row.name}:${field}`;
+  async function mark(row: PurchaseReceiptRow, field: "handoverAt" | "valuedAt" | "receivedAt", action: "mark" | "revert" = "mark") {
+    const key = `${row.companyId}:${row.name}:${field}:${action}`;
     setBusyKey(key);
     try {
       const res = await fetch(
@@ -1021,16 +1109,16 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ field, companyId: row.companyId }),
+          body: JSON.stringify({ field, action, companyId: row.companyId }),
         },
       );
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || "Failed to mark GRN row");
+        throw new Error(body.error || (action === "revert" ? "Failed to revert GRN row" : "Failed to mark GRN row"));
       }
       await loadData();
     } catch (error) {
-      notify.error(error instanceof Error ? error.message : "Failed to mark GRN row");
+      notify.error(error instanceof Error ? error.message : action === "revert" ? "Failed to revert GRN row" : "Failed to mark GRN row");
     } finally {
       setBusyKey(null);
     }
@@ -1127,66 +1215,6 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
       await loadData();
     } catch (error) {
       notify.error(error instanceof Error ? error.message : "Failed to unlink SSR");
-    } finally {
-      setBusyKey(null);
-    }
-  }
-
-  async function saveIntercompanySupplier() {
-    if (!permissions.canMatchSsr) {
-      notify.error("You do not have permission to manage matching suppliers");
-      return;
-    }
-    const supplier = supplierForm.supplier.trim();
-    if (!supplier) {
-      notify.error("Enter a supplier id");
-      return;
-    }
-    const editing = Boolean(supplierForm.id);
-    setBusyKey(editing ? `supplier:${supplierForm.id}` : "supplier:new");
-    try {
-      const res = await fetch(
-        editing
-          ? `/api/admin/purchasing/grn/intercompany-suppliers/${encodeURIComponent(supplierForm.id)}`
-          : "/api/admin/purchasing/grn/intercompany-suppliers",
-        {
-          method: editing ? "PATCH" : "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ supplier, supplierName: supplierForm.supplierName }),
-        },
-      );
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || "Failed to save supplier");
-      }
-      setSupplierForm({ id: "", supplier: "", supplierName: "" });
-      await loadData();
-    } catch (error) {
-      notify.error(error instanceof Error ? error.message : "Failed to save supplier");
-    } finally {
-      setBusyKey(null);
-    }
-  }
-
-  async function deleteIntercompanySupplier(row: IntercompanySupplierRow) {
-    if (!permissions.canMatchSsr) {
-      notify.error("You do not have permission to manage matching suppliers");
-      return;
-    }
-    setBusyKey(`supplier:${row.id}`);
-    try {
-      const res = await fetch(
-        `/api/admin/purchasing/grn/intercompany-suppliers/${encodeURIComponent(row.id)}`,
-        { method: "DELETE" },
-      );
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || "Failed to delete supplier");
-      }
-      if (supplierForm.id === row.id) setSupplierForm({ id: "", supplier: "", supplierName: "" });
-      await loadData();
-    } catch (error) {
-      notify.error(error instanceof Error ? error.message : "Failed to delete supplier");
     } finally {
       setBusyKey(null);
     }
@@ -1475,7 +1503,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                         <Button
                           size="sm"
                           variant="outline"
-                          disabled={row.isCancelled || busyKey === `${row.companyId}:${row.name}:handoverAt`}
+                          disabled={row.isCancelled || busyKey === `${row.companyId}:${row.name}:handoverAt:mark`}
                           onClick={(event) => {
                             event.stopPropagation();
                             mark(row, "handoverAt");
@@ -1494,7 +1522,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                         <Button
                           size="sm"
                           variant="outline"
-                          disabled={row.isCancelled || !row.handoverAt || busyKey === `${row.companyId}:${row.name}:valuedAt`}
+                          disabled={row.isCancelled || !row.handoverAt || busyKey === `${row.companyId}:${row.name}:valuedAt:mark`}
                           onClick={(event) => {
                             event.stopPropagation();
                             mark(row, "valuedAt");
@@ -1516,7 +1544,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                         <Button
                           size="sm"
                           variant="outline"
-                          disabled={row.isCancelled || !row.handoverAt || !row.valuedAt || busyKey === `${row.companyId}:${row.name}:receivedAt`}
+                          disabled={row.isCancelled || !row.handoverAt || !row.valuedAt || busyKey === `${row.companyId}:${row.name}:receivedAt:mark`}
                           onClick={(event) => {
                             event.stopPropagation();
                             mark(row, "receivedAt");
@@ -1557,12 +1585,6 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                 value={ssrSearch}
                 onChange={(event) => setSsrSearch(event.target.value)}
               />
-              {permissions.canMatchSsr && (
-                <Button type="button" variant="outline" onClick={() => setSupplierDialogOpen(true)}>
-                  <Plus className="size-4" />
-                  Intercompany suppliers
-                </Button>
-              )}
             </div>
           </div>
         <div className="overflow-hidden rounded-lg border bg-background/45">
@@ -1673,7 +1695,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                       <PurchaseReceiptPicker
                         value={selectedPrBySsr[rowKey] ?? ""}
                         disabled={row.docstatus === 2 || !permissions.canMatchSsr}
-                        purchaseReceipts={activeIntercompanyPurchaseReceipts}
+                        purchaseReceipts={purchaseReceiptOptionsForSsr(row)}
                         onChange={(value) =>
                           setSelectedPrBySsr((prev) => ({
                             ...prev,
@@ -1788,7 +1810,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                           <PurchaseReceiptPicker
                             value={selectedPrBySsr[rowKey] ?? ""}
                             disabled={row.docstatus === 2 || !permissions.canMatchSsr}
-                            purchaseReceipts={activeIntercompanyPurchaseReceipts}
+                            purchaseReceipts={purchaseReceiptOptionsForSsr(row)}
                             onChange={(value) =>
                               setSelectedPrBySsr((prev) => ({
                                 ...prev,
@@ -1841,105 +1863,6 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
         </TabsContent>
       </Tabs>
 
-      <Dialog open={supplierDialogOpen} onOpenChange={setSupplierDialogOpen}>
-        <DialogContent className="max-h-[calc(100dvh-2rem)] max-w-3xl overflow-y-auto overscroll-contain">
-          <DialogHeader>
-            <DialogTitle>Intercompany suppliers</DialogTitle>
-            <DialogDescription>
-              These suppliers narrow which PRs and SSRs enter automated matching.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-2 md:grid-cols-[1fr_1fr_auto]">
-            <Input
-              placeholder="Supplier id"
-              value={supplierForm.supplier}
-              onChange={(event) =>
-                setSupplierForm((current) => ({ ...current, supplier: event.target.value }))
-              }
-            />
-            <Input
-              placeholder="Supplier name"
-              value={supplierForm.supplierName}
-              onChange={(event) =>
-                setSupplierForm((current) => ({ ...current, supplierName: event.target.value }))
-              }
-            />
-            <div className="flex gap-2">
-              <Button
-                type="button"
-                onClick={saveIntercompanySupplier}
-                disabled={busyKey === "supplier:new" || (supplierForm.id ? busyKey === `supplier:${supplierForm.id}` : false)}
-              >
-                {supplierForm.id ? <Pencil className="size-4" /> : <Plus className="size-4" />}
-                {supplierForm.id ? "Update" : "Add"}
-              </Button>
-              {supplierForm.id && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setSupplierForm({ id: "", supplier: "", supplierName: "" })}
-                >
-                  Cancel
-                </Button>
-              )}
-            </div>
-          </div>
-          <div className="overflow-x-auto rounded-md border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Supplier</TableHead>
-                  <TableHead>Supplier Name</TableHead>
-                  <TableHead className="w-28 text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {data.intercompanySuppliers.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={3} className="h-16 text-center text-muted-foreground">
-                      No intercompany suppliers added.
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  data.intercompanySuppliers.map((row) => (
-                    <TableRow key={row.id}>
-                      <TableCell className="font-medium">{row.supplier}</TableCell>
-                      <TableCell>{row.supplierName ?? "-"}</TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex justify-end gap-2">
-                          <Button
-                            type="button"
-                            size="icon"
-                            variant="outline"
-                            onClick={() =>
-                              setSupplierForm({
-                                id: row.id,
-                                supplier: row.supplier,
-                                supplierName: row.supplierName ?? "",
-                              })
-                            }
-                          >
-                            <Pencil className="size-4" />
-                          </Button>
-                          <Button
-                            type="button"
-                            size="icon"
-                            variant="outline"
-                            disabled={busyKey === `supplier:${row.id}`}
-                            onClick={() => deleteIntercompanySupplier(row)}
-                          >
-                            <Trash2 className="size-4" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </div>
-        </DialogContent>
-      </Dialog>
       <Dialog
         open={Boolean(selectedPr)}
         onOpenChange={(open) => {
@@ -2007,7 +1930,12 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                 )}
               </div>
             </div>
-              <GrnStageTimeline row={selectedPr} />
+              <GrnStageTimeline
+                row={selectedPr}
+                permissions={permissions}
+                busyKey={busyKey}
+                onRevert={(row, field) => mark(row, field, "revert")}
+              />
               {rowMissingIntercompanySsr(selectedPr) && (
                 <details
                   className="rounded-lg border border-amber-400/35 bg-amber-500/10 p-3"

@@ -852,6 +852,7 @@ export function tallyLinkedItems(
 
 type MatchPurchaseReceipt = {
   companyId: string;
+  companyLocationId: string | null;
   name: string;
   supplier: string;
   docstatus: number | null;
@@ -936,17 +937,35 @@ export function bestGrnMatchForStockReturn(
     .sort((a, b) => b.percentage - a.percentage || a.name.localeCompare(b.name))[0] ?? null;
 }
 
+function normalizeSupplierMatchValue(value: string | null | undefined) {
+  return value?.trim().toLowerCase() ?? "";
+}
+
 export async function autoMatchIntercompanyGrn() {
-  const suppliers = await prisma.grnIntercompanySupplier.findMany({
-    select: { supplier: true },
+  const supplierPrefixLocations = await prisma.companyLocation.findMany({
+    where: {
+      supplierPrefix: { not: null },
+    },
+    select: { id: true, supplierPrefix: true },
   });
-  const supplierCodes = suppliers.map((row) => row.supplier).filter(Boolean);
-  if (supplierCodes.length === 0) return { matched: 0 };
+  const supplierPrefixRules = supplierPrefixLocations
+    .map((row) => ({
+      locationId: row.id,
+      prefix: row.supplierPrefix?.trim() ?? "",
+      key: normalizeSupplierMatchValue(row.supplierPrefix),
+    }))
+    .filter((row) => row.key.length > 0);
+  if (supplierPrefixRules.length === 0) return { matched: 0 };
+
+  const ruleForSupplier = (supplier: string) => {
+    const key = normalizeSupplierMatchValue(supplier);
+    return supplierPrefixRules.find((rule) => key.includes(rule.key)) ?? null;
+  };
 
   const [purchaseReceipts, stockReturns] = await Promise.all([
     prisma.grnPurchaseReceipt.findMany({
       where: {
-        supplier: { in: supplierCodes },
+        companyLocationId: { in: supplierPrefixRules.map((rule) => rule.locationId) },
         docstatus: { not: 2 },
         supplierStockReturnName: null,
       },
@@ -954,7 +973,9 @@ export async function autoMatchIntercompanyGrn() {
     }),
     prisma.grnSupplierStockReturn.findMany({
       where: {
-        supplier: { in: supplierCodes },
+        OR: supplierPrefixRules.map((rule) => ({
+          supplier: { contains: rule.prefix, mode: "insensitive" as const },
+        })),
         docstatus: { not: 2 },
         purchaseReceiptName: null,
       },
@@ -966,8 +987,12 @@ export async function autoMatchIntercompanyGrn() {
   let matched = 0;
   const usedPurchaseReceipts = new Set<string>();
   for (const stockReturn of stockReturns) {
+    const rule = ruleForSupplier(stockReturn.supplier);
+    if (!rule) continue;
     const candidates = purchaseReceipts.filter(
-      (receipt) => !usedPurchaseReceipts.has(`${receipt.companyId}:${receipt.name}`),
+      (receipt) =>
+        receipt.companyLocationId === rule.locationId &&
+        !usedPurchaseReceipts.has(`${receipt.companyId}:${receipt.name}`),
     );
     const best = bestGrnMatchForStockReturn(stockReturn, candidates);
     if (!best || best.percentage !== 100) continue;
