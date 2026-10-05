@@ -48,9 +48,11 @@ import {
   totalStickerCount,
 } from "@/lib/sticker-print-quantity";
 import {
+  isChamiLocation,
   isLwkLocation,
   lookupErpPriceBySku,
   resolveStickerUnitPrice,
+  type StickerPriceChannel,
 } from "@/lib/sticker-unit-price";
 
 const isVault = process.env.NEXT_PUBLIC_APP_NAME === "Vault OS";
@@ -172,6 +174,8 @@ interface StickerBatchClientProps {
   lwkPriceBySku: Record<string, string>;
   /** Cosmo ERP Standard Selling rates keyed by SKU (non-LWK stickers). */
   standardSellingBySku: Record<string, string>;
+  /** ERP GCC PRICE LIST rates keyed by SKU (Chami location 005 shop). */
+  gccPriceBySku: Record<string, string>;
   companyName: string;
   companyAddress: string;
   initialBatches: BatchOption[];
@@ -268,6 +272,7 @@ export function StickerBatchClient({
   itemCatalog,
   lwkPriceBySku: initialLwkPriceBySku,
   standardSellingBySku: initialStandardSellingBySku,
+  gccPriceBySku: initialGccPriceBySku,
   companyName,
   companyAddress,
   initialBatches,
@@ -302,6 +307,9 @@ export function StickerBatchClient({
   const [standardSellingBySku, setStandardSellingBySku] = useState(
     initialStandardSellingBySku
   );
+  const [gccPriceBySku, setGccPriceBySku] = useState(initialGccPriceBySku);
+  const [chamiChannel, setChamiChannel] = useState<StickerPriceChannel>("online");
+  const chamiChannelTouchedRef = useRef(false);
   const [loadedSnapshot, setLoadedSnapshot] = useState<LoadedBatchSnapshot | null>(null);
   const [previewMeta, setPreviewMeta] = useState<BatchPreviewMeta>({
     supplierName: "",
@@ -370,15 +378,32 @@ export function StickerBatchClient({
       ),
     [locations]
   );
+  const chamiLocationIds = useMemo(
+    () =>
+      new Set(
+        locations
+          .filter((location) =>
+            isChamiLocation(location.locationReference, location.name)
+          )
+          .map((location) => location.id)
+      ),
+    [locations]
+  );
+  const chamiPriceActive =
+    isChamiLocation(selectedLocation?.locationReference, selectedLocation?.name) ||
+    rows.some((row) => chamiLocationIds.has(row.locationId));
   const lwkPriceFetchAttemptedRef = useRef(new Set<string>());
   const standardSellingFetchAttemptedRef = useRef(new Set<string>());
+  const gccPriceFetchAttemptedRef = useRef(new Set<string>());
 
   useEffect(() => {
     setLwkPriceBySku(initialLwkPriceBySku);
     setStandardSellingBySku(initialStandardSellingBySku);
+    setGccPriceBySku(initialGccPriceBySku);
     lwkPriceFetchAttemptedRef.current = new Set();
     standardSellingFetchAttemptedRef.current = new Set();
-  }, [initialLwkPriceBySku, initialStandardSellingBySku]);
+    gccPriceFetchAttemptedRef.current = new Set();
+  }, [initialLwkPriceBySku, initialStandardSellingBySku, initialGccPriceBySku]);
 
   // On open / after ERP maps refresh: fill blank or zero unit prices from latest sources.
   useEffect(() => {
@@ -404,6 +429,8 @@ export function StickerBatchClient({
   }, [
     lwkPriceBySku,
     standardSellingBySku,
+    gccPriceBySku,
+    chamiChannel,
     itemCatalog,
     selectedLocationId,
     locations,
@@ -487,7 +514,11 @@ export function StickerBatchClient({
         rows
           .filter((row) => {
             const locationId = row.locationId.trim() || selectedLocationId;
-            return !locationId || !lwkLocationIds.has(locationId);
+            return (
+              !locationId ||
+              (!lwkLocationIds.has(locationId) &&
+                !(chamiChannel === "shop" && chamiLocationIds.has(locationId)))
+            );
           })
           .map((row) => row.itemCode.trim())
           .filter(
@@ -522,6 +553,13 @@ export function StickerBatchClient({
           prev.map((row) => {
             const locationId = row.locationId.trim() || selectedLocationId;
             if (locationId && lwkLocationIds.has(locationId)) return row;
+            if (
+              chamiChannel === "shop" &&
+              locationId &&
+              chamiLocationIds.has(locationId)
+            ) {
+              return row;
+            }
             const sku = row.itemCode.trim();
             const nextPrice = lookupErpPriceBySku(prices, sku);
             if (!nextPrice) return row;
@@ -536,7 +574,93 @@ export function StickerBatchClient({
     return () => {
       cancelled = true;
     };
-  }, [rows, lwkLocationIds, standardSellingBySku, selectedLocationId]);
+  }, [rows, lwkLocationIds, chamiLocationIds, chamiChannel, standardSellingBySku, selectedLocationId]);
+
+  useEffect(() => {
+    if (chamiChannel !== "shop") return;
+    const usingChami =
+      isChamiLocation(selectedLocation?.locationReference, selectedLocation?.name) ||
+      rows.some((row) => chamiLocationIds.has(row.locationId));
+    if (!usingChami) return;
+
+    const missingSkus = [
+      ...new Set(
+        rows
+          .map((row) => row.itemCode.trim())
+          .filter(
+            (sku) =>
+              Boolean(sku) &&
+              !lookupErpPriceBySku(gccPriceBySku, sku) &&
+              !gccPriceFetchAttemptedRef.current.has(sku)
+          )
+      ),
+    ].slice(0, 50);
+    if (missingSkus.length === 0) return;
+
+    for (const sku of missingSkus) {
+      gccPriceFetchAttemptedRef.current.add(sku);
+    }
+
+    const params = new URLSearchParams();
+    for (const sku of missingSkus) params.append("sku", sku);
+    let cancelled = false;
+
+    fetch(`/api/admin/stickers/gcc-prices?${params.toString()}`)
+      .then(async (res) => {
+        if (!res.ok) return null;
+        return (await res.json()) as { prices?: Record<string, string> };
+      })
+      .then((data) => {
+        if (cancelled || !data?.prices) return;
+        const prices = data.prices;
+        if (Object.keys(prices).length === 0) return;
+        setGccPriceBySku((prev) => ({ ...prev, ...prices }));
+        if (!chamiChannelTouchedRef.current) return;
+        setRows((prev) =>
+          prev.map((row) => {
+            const locationId = row.locationId.trim() || selectedLocationId;
+            if (!chamiLocationIds.has(locationId)) return row;
+            const sku = row.itemCode.trim();
+            const nextPrice = lookupErpPriceBySku(prices, sku);
+            if (!nextPrice) return row;
+            return { ...row, unitPrice: nextPrice };
+          })
+        );
+      })
+      .catch(() => {
+        /* leave prices empty — never invent */
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    rows,
+    chamiLocationIds,
+    chamiChannel,
+    gccPriceBySku,
+    selectedLocation,
+    selectedLocationId,
+  ]);
+
+  useEffect(() => {
+    if (!chamiChannelTouchedRef.current) return;
+    setRows((prev) => {
+      let changed = false;
+      const next = prev.map((row) => {
+        const locationId = row.locationId.trim() || selectedLocationId;
+        if (!chamiLocationIds.has(locationId)) return row;
+        const item = matchItem(row.itemCode, locationId || undefined);
+        if (!item) return row;
+        const nextPrice = resolveUnitPriceForItem(item, locationId);
+        if (nextPrice === row.unitPrice) return row;
+        changed = true;
+        return { ...row, unitPrice: nextPrice };
+      });
+      return changed ? next : prev;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reprice Chami rows when shop/online changes
+  }, [chamiChannel, gccPriceBySku, standardSellingBySku, chamiLocationIds, selectedLocationId]);
 
   function resolveLocationPhone(locationId?: string | null): string {
     const fromRow = locationId
@@ -920,14 +1044,27 @@ export function StickerBatchClient({
       location?.locationReference,
       location?.name
     );
+    const isChami = isChamiLocation(
+      location?.locationReference,
+      location?.name
+    );
     const sku = item.sku?.trim() ?? "";
 
     return resolveStickerUnitPrice({
       lwkErpPrice: lookupErpPriceBySku(lwkPriceBySku, sku),
       standardSellingErpPrice: lookupErpPriceBySku(standardSellingBySku, sku),
+      gccErpPrice: lookupErpPriceBySku(gccPriceBySku, sku),
       catalogPrice: item.price,
       isLwk,
+      isChami,
+      channel: chamiChannel,
     });
+  }
+
+  function selectChamiChannel(channel: StickerPriceChannel) {
+    if (channel === chamiChannel) return;
+    chamiChannelTouchedRef.current = true;
+    setChamiChannel(channel);
   }
 
   function setRow(rowId: string, patch: Partial<ItemRow>) {
@@ -1705,6 +1842,27 @@ export function StickerBatchClient({
                 </SelectContent>
               </Select>
             </div>
+            {chamiPriceActive ? (
+              <div className="flex items-center gap-3 pb-2">
+                <span className="text-sm font-medium">Chami 005</span>
+                <label className="flex items-center gap-1.5 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={chamiChannel === "shop"}
+                    onChange={() => selectChamiChannel("shop")}
+                  />
+                  Shop
+                </label>
+                <label className="flex items-center gap-1.5 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={chamiChannel === "online"}
+                    onChange={() => selectChamiChannel("online")}
+                  />
+                  Online
+                </label>
+              </div>
+            ) : null}
             <div className="w-[120px] min-w-[120px] space-y-2">
               <label className="text-sm font-medium">Add Rows</label>
               <Input

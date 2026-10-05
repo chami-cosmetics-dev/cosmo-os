@@ -5,11 +5,13 @@ import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
 import {
+  loadGccStickerPricesBySku,
   loadLwkStickerPricesBySku,
   loadStandardSellingPricesBySku,
   syncStandardSellingToProductItems,
 } from "@/lib/sticker-lwk-erp-price";
 import { getStickerBatchRetentionCutoff } from "@/lib/sticker-batch-retention";
+import { syncGccPricesFromErp } from "@/lib/osf/sync-gcc-prices-from-erp";
 import { syncOgfPricesFromErp } from "@/lib/osf/sync-ogf-prices-from-erp";
 import { StickerBatchClient } from "./sticker-batch-client";
 
@@ -51,6 +53,8 @@ export default async function StickerBatchPage({
     rawItemCatalog,
     lwkPriceBySku,
     standardSellingBySku,
+    gccPriceBySku,
+    ,
     ,
     ,
     company,
@@ -96,7 +100,9 @@ export default async function StickerBatchPage({
       }),
       loadLwkStickerPricesBySku(companyId),
       loadStandardSellingPricesBySku(companyId),
+      loadGccStickerPricesBySku(companyId),
       syncOgfPricesFromErp(companyId),
+      syncGccPricesFromErp(companyId),
       syncStandardSellingToProductItems(companyId),
       prisma.company.findUnique({
         where: { id: companyId },
@@ -111,7 +117,7 @@ export default async function StickerBatchPage({
           }),
     ]);
 
-  // Stickers use live ERP maps; sync helpers write OS ProductItem / OSF ogfPrice.
+  // Stickers use live ERP maps; sync helpers write OS ProductItem / OSF ogfPrice / gccPrice.
 
   let initialBatches: Array<{
     id: string;
@@ -213,6 +219,7 @@ export default async function StickerBatchPage({
       itemCatalog={itemCatalog}
       lwkPriceBySku={lwkPriceBySku}
       standardSellingBySku={standardSellingBySku}
+      gccPriceBySku={gccPriceBySku}
       companyName={company?.name ?? ""}
       companyAddress={company?.address ?? ""}
       initialBatches={initialBatches}

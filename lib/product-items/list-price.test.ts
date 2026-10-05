@@ -35,6 +35,30 @@ describe("resolveProductItemsDisplayedPrice", () => {
       }),
     ).toEqual({ price: "4900.00", priceDisplay: "4900.00" });
   });
+
+  it("uses GCC price for Chami shop", () => {
+    expect(
+      resolveProductItemsDisplayedPrice({
+        isLwkView: false,
+        isChamiShopView: true,
+        catalogPrice: "4900.00",
+        ogfPrice: null,
+        gccPrice: "2100",
+      }),
+    ).toEqual({ price: "2100.00", priceDisplay: "2100.00" });
+  });
+
+  it("keeps catalog for Chami shop when GCC price is missing", () => {
+    expect(
+      resolveProductItemsDisplayedPrice({
+        isLwkView: false,
+        isChamiShopView: true,
+        catalogPrice: "4900.00",
+        ogfPrice: null,
+        gccPrice: null,
+      }),
+    ).toEqual({ price: "4900.00", priceDisplay: "4900.00" });
+  });
 });
 
 describe("ogfPriceForSku", () => {

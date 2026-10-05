@@ -36,6 +36,7 @@ export async function GET(request: NextRequest) {
       searchParams.get("item_status_category")?.trim() ||
       undefined,
     search: searchParams.get("search")?.trim() ?? undefined,
+    priceChannel: searchParams.get("price_channel") === "shop" ? "shop" : "online",
   });
 
   const headers = [

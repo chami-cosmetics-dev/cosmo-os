@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
+import { syncGccPricesFromErp } from "@/lib/osf/sync-gcc-prices-from-erp";
 import { syncOgfPricesFromErp } from "@/lib/osf/sync-ogf-prices-from-erp";
 import { syncErpProductPriorities } from "@/lib/product-items/erp-priority-sync";
 import { syncVaultErpCatalogToProductItems } from "@/lib/product-items/vault-erp-catalog-sync";
@@ -12,7 +13,7 @@ export const maxDuration = 300;
 
 /**
  * POST /api/admin/product-items/sync-erp-priorities
- * Cosmo: Product Priority + Standard Selling + LWK OGF.
+ * Cosmo: Product Priority + Standard Selling + LWK OGF + Chami GCC.
  * Vault: upsert ERP1/ERP2 stock Items (price from Item Price Standard Selling), then priorities.
  */
 export async function POST() {
@@ -48,12 +49,15 @@ export async function POST() {
       );
     }
 
-    const [result, prices, ogfPrices] = await Promise.all([
+    const [result, prices, ogfPrices, gccPrices] = await Promise.all([
       syncErpProductPriorities(companyId),
       syncStandardSellingToProductItems(companyId),
       vault
         ? Promise.resolve({ status: "skipped" as const, updated: 0, error: null })
         : syncOgfPricesFromErp(companyId),
+      vault
+        ? Promise.resolve({ status: "skipped" as const, updated: 0, error: null })
+        : syncGccPricesFromErp(companyId),
     ]);
     const anyOk = result.sources.some((s) => s.status === "ok");
     const anyFailed = result.sources.some((s) => s.status === "failed");
@@ -61,7 +65,7 @@ export async function POST() {
     const ogfFailed = ogfPrices.status === "failed";
     if (!vault && !anyOk && anyFailed && priceFailed && ogfFailed) {
       return NextResponse.json(
-        { error: "ERP priority and price sync failed", ...result, prices, ogfPrices, catalog },
+        { error: "ERP priority and price sync failed", ...result, prices, ogfPrices, gccPrices, catalog },
         { status: 502 },
       );
     }
@@ -72,12 +76,13 @@ export async function POST() {
           ...result,
           prices,
           ogfPrices,
+          gccPrices,
           catalog,
         },
         { status: 502 },
       );
     }
-    return NextResponse.json({ ...result, prices, ogfPrices, catalog });
+    return NextResponse.json({ ...result, prices, ogfPrices, gccPrices, catalog });
   } catch (err) {
     const message = err instanceof Error ? err.message : "ERP sync failed";
     return NextResponse.json({ error: message.slice(0, 300) }, { status: 502 });

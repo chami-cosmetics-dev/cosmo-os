@@ -1,14 +1,23 @@
+import { CHAMI_LOCATION_REFERENCE } from "@/lib/sticker-lwk-erp-price-list";
+
+export type StickerPriceChannel = "shop" | "online";
+
 export type StickerPriceInputs = {
   /** Cosmo ERP "OGF Price List" rate for LWK. */
   lwkErpPrice?: string | number | null | undefined;
   /** Cosmo ERP "Standard Selling" rate for non-LWK stickers. */
   standardSellingErpPrice?: string | number | null | undefined;
+  /** Cosmo ERP "GCC PRICE LIST" rate for Chami shop (location 005). */
+  gccErpPrice?: string | number | null | undefined;
   /**
    * OS catalog / ProductItem.price (Shopify or last synced sell).
    * Non-LWK only: used when Standard Selling is missing or ≤ 0.
    */
   catalogPrice?: string | number | null | undefined;
   isLwk: boolean;
+  /** Location 005. Shop uses GCC PRICE LIST; online uses Standard Selling. */
+  isChami?: boolean;
+  channel?: StickerPriceChannel;
 };
 
 function toMoney(value: string | number | null | undefined): string | null {
@@ -31,6 +40,17 @@ export function isLwkLocation(
   if (ref === "LWK") return true;
   const name = (locationName ?? "").trim().toUpperCase();
   return name.includes("LWK");
+}
+
+/** Chami shop/online: location reference 005, or a location name that contains Chami. */
+export function isChamiLocation(
+  locationReference: string | null | undefined,
+  locationName?: string | null | undefined
+): boolean {
+  const ref = (locationReference ?? "").trim();
+  if (ref === CHAMI_LOCATION_REFERENCE) return true;
+  const name = (locationName ?? "").trim().toUpperCase();
+  return name.includes("CHAMI");
 }
 
 /** Case-insensitive lookup into sku → price map. */
@@ -71,12 +91,15 @@ export function mergeErpPriceMapsPreferPrimary(
 /**
  * Resolve sticker unit price:
  * - LWK → Cosmo ERP OGF Price List only (no Cosmo/Shopify fallback)
- * - other → Cosmo ERP Standard Selling, else OS catalog ProductItem.price
- *   (covers ERP rows at 0 / missing while Product Items still show sell price)
+ * - Chami location 005 + shop → GCC PRICE LIST only
+ * - Chami location 005 + online, and every other location → Standard Selling, else catalog
  */
 export function resolveStickerUnitPrice(input: StickerPriceInputs): string {
   if (input.isLwk) {
     return toMoney(input.lwkErpPrice) ?? "";
+  }
+  if (input.isChami && input.channel === "shop") {
+    return toMoney(input.gccErpPrice) ?? "";
   }
   return (
     toMoney(input.standardSellingErpPrice) ??
