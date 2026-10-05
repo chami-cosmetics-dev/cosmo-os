@@ -39,6 +39,11 @@ import {
   isOrderPaymentRequiresApproval,
 } from "@/lib/approval-workflow";
 import { orderStageUpdate, orderStageUpdateIfChanged } from "@/lib/order-stage-timing";
+import {
+  INVOICE_REVERT_CREDIT_NOTE_TEMPLATE,
+  INVOICE_REVERT_MODES,
+  INVOICE_REVERT_STAGE_ONLY_TEMPLATE,
+} from "@/lib/invoice-revert";
 import { getErpOutOfStockFulfillmentBlock } from "@/lib/erp-fulfillment-block";
 import { isExplicitlyPackageReady } from "@/lib/fulfillment-stage-display";
 import { releaseKokoReferencesForOrder } from "@/lib/koko-approval-references";
@@ -118,6 +123,7 @@ const fulfillmentActionSchema = z.discriminatedUnion("action", [
     ]),
     revertReason: z.string().trim().min(1).max(500),
     remarkTemplate: z.enum(RETURN_REMARK_TEMPLATE_CODES).optional(),
+    invoiceRevertMode: z.enum(INVOICE_REVERT_MODES).optional(),
   }),
 ]);
 
@@ -1130,6 +1136,16 @@ export async function PATCH(
       // Item is physically out with customer (not yet returned), so we track a "refunded" partial-void state.
       const isInvoiceCompleteRevert =
         currentStage === "invoice_complete" && targetStage === "delivery_complete";
+      if (isInvoiceCompleteRevert && !data.invoiceRevertMode) {
+        return NextResponse.json(
+          { error: "Choose revert with credit note or revert only" },
+          { status: 400 },
+        );
+      }
+      const isStageOnlyRevert = isInvoiceCompleteRevert && data.invoiceRevertMode === "stage_only";
+      const invoiceRevertTemplate = isStageOnlyRevert
+        ? INVOICE_REVERT_STAGE_ONLY_TEMPLATE
+        : INVOICE_REVERT_CREDIT_NOTE_TEMPLATE;
       const shouldRecordReturn =
         !isInvoiceCompleteRevert &&
         currentIdx >= dispatchedIdx &&
@@ -1191,7 +1207,10 @@ export async function PATCH(
       if (isInvoiceCompleteRevert) {
         updateData.revertedFromInvoiceCompleteAt = now;
         updateData.revertedFromInvoiceCompleteById = auth.context!.user!.id;
-        updateData.financialStatus = "refunded";
+        // Credit-note path marks the payment refunded. Revert-only keeps the PE and paid status.
+        if (!isStageOnlyRevert) {
+          updateData.financialStatus = "refunded";
+        }
       }
       if (shouldRecordReturn) {
         updateData.fulfillmentStatus = "unfulfilled";
@@ -1279,7 +1298,7 @@ export async function PATCH(
 
       if (isInvoiceCompleteRevert) {
         const existingRevertReturn = await prisma.orderReturn.findFirst({
-          where: { orderId: order.id, companyId, remarkTemplate: "invoice_revert" },
+          where: { orderId: order.id, companyId, remarkTemplate: invoiceRevertTemplate },
           select: { id: true },
         });
         if (!existingRevertReturn) {
@@ -1297,7 +1316,7 @@ export async function PATCH(
               courierServiceId: order.dispatchedByCourierServiceId,
               returnedById: auth.context!.user!.id,
               returnRemark: data.revertReason,
-              remarkTemplate: "invoice_revert",
+              remarkTemplate: invoiceRevertTemplate,
               actionStatus: "pending",
             },
           });
@@ -1308,34 +1327,43 @@ export async function PATCH(
             action: "returned_order_recorded",
             entityType: "OrderReturn",
             entityId: createdReturn.id,
-            summary: `Finance reverted order ${order.orderNumber ?? order.name ?? order.id} from invoice complete — credit refund pending`,
-            afterData: { orderId: order.id, remarkTemplate: "invoice_revert", source: "invoice_complete_revert" },
+            summary: isStageOnlyRevert
+              ? `Finance reverted order ${order.orderNumber ?? order.name ?? order.id} from invoice complete without a credit note — rearrange and dispatch again`
+              : `Finance reverted order ${order.orderNumber ?? order.name ?? order.id} from invoice complete — credit refund pending`,
+            afterData: {
+              orderId: order.id,
+              remarkTemplate: invoiceRevertTemplate,
+              source: "invoice_complete_revert",
+              invoiceRevertMode: data.invoiceRevertMode,
+            },
           });
         }
-        // Create ERP credit note — awaited; failure surfaced as warning flag (order is already reverted in DB)
+        // Credit note only when finance chose that path. Failure is a warning; the order is already reverted.
         let erpCreditNoteFailed = false;
         let erpCreditNoteError: string | undefined;
         let erpCreditNoteName: string | undefined;
-        try {
-          const withLocation = await prisma.order.findUnique({
-            where: { id: order.id },
-            include: { companyLocation: { include: { erpnextInstance: true } } },
-          });
-          if (withLocation?.companyLocation) {
-            const cn = await createErpnextCreditNote(
-              {
-                ...order,
-                erpnextInvoiceId: withLocation.erpnextInvoiceId,
-                erpReturnSalesInvoiceIds: withLocation.erpReturnSalesInvoiceIds,
-              },
-              withLocation.companyLocation,
-            );
-            erpCreditNoteName = cn.creditNoteName;
+        if (!isStageOnlyRevert) {
+          try {
+            const withLocation = await prisma.order.findUnique({
+              where: { id: order.id },
+              include: { companyLocation: { include: { erpnextInstance: true } } },
+            });
+            if (withLocation?.companyLocation) {
+              const cn = await createErpnextCreditNote(
+                {
+                  ...order,
+                  erpnextInvoiceId: withLocation.erpnextInvoiceId,
+                  erpReturnSalesInvoiceIds: withLocation.erpReturnSalesInvoiceIds,
+                },
+                withLocation.companyLocation,
+              );
+              erpCreditNoteName = cn.creditNoteName;
+            }
+          } catch (err) {
+            console.error("[ERPNext] createErpnextCreditNote failed:", err);
+            erpCreditNoteFailed = true;
+            erpCreditNoteError = err instanceof Error ? err.message : String(err);
           }
-        } catch (err) {
-          console.error("[ERPNext] createErpnextCreditNote failed:", err);
-          erpCreditNoteFailed = true;
-          erpCreditNoteError = err instanceof Error ? err.message : String(err);
         }
 
         await logOrderFulfillmentAudit({
@@ -1345,10 +1373,17 @@ export async function PATCH(
           summary: `Reverted order ${order.orderNumber ?? order.name ?? order.id} to ${targetStage}`,
           beforeStage: order.fulfillmentStage,
           afterStage: targetStage,
-          metadata: { action: data.action, targetStage, returnRecorded: shouldRecordReturn, revertReason: data.revertReason },
+          metadata: {
+            action: data.action,
+            targetStage,
+            returnRecorded: shouldRecordReturn,
+            revertReason: data.revertReason,
+            invoiceRevertMode: data.invoiceRevertMode ?? null,
+          },
         });
         return NextResponse.json({
           success: true,
+          invoiceRevertMode: data.invoiceRevertMode,
           erpCreditNoteFailed,
           erpCreditNoteError,
           erpCreditNoteName,
