@@ -36,6 +36,7 @@ import {
   TrendingUp,
   Scale,
   ReceiptText,
+  ClipboardCheck,
 } from "lucide-react";
 import { usePathname } from "next/navigation";
 import {
@@ -93,6 +94,12 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
   const canViewReturns = hasSidebarPermission("returns.read");
   const canViewExchanges = hasSidebarPermission("exchanges.read");
   const canViewProducts = hasSidebarPermission("products.read");
+  const canViewItemCreation =
+    hasSidebarPermission("item_creation.admin.manage") ||
+    hasSidebarPermission("item_creation.seo.manage") ||
+    hasSidebarPermission("item_creation.digital_marketing.manage") ||
+    hasSidebarPermission("item_creation.purchasing.manage") ||
+    hasSidebarPermission("item_creation.stores.manage");
   const canViewOsf =
     hasSidebarPermission("purchasing.osf.read") ||
     hasSidebarPermission("purchasing.osf.manage");
@@ -572,12 +579,15 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
             </SidebarGroupContent>
           </SidebarGroup>
         )}
-        {canViewProductManagement && (
+        {(canViewProductManagement || canViewItemCreation) && (
           <SidebarGroup>
             <SidebarGroupLabel>Product Management</SidebarGroupLabel>
             <SidebarGroupContent>
               {canViewProducts && (
                 <NavItem href="/dashboard/products/items" icon={Package} label="Items" isActive={pathname === "/dashboard/products/items"} />
+              )}
+              {canViewItemCreation && (
+                <NavItem href="/dashboard/products/item-creation" icon={ClipboardCheck} label="Item Creation" isActive={pathname.startsWith("/dashboard/products/item-creation")} />
               )}
               {canViewProducts && (
                 <NavItem href="/dashboard/products/vendors-categories" icon={Tags} label="Vendors & Categories" isActive={pathname === "/dashboard/products/vendors-categories"} />
@@ -660,5 +670,3 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
     </Sidebar>
   );
 }
-
-

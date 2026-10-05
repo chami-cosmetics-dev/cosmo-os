@@ -17,16 +17,14 @@ import {
 } from "recharts";
 
 import { Card, CardContent } from "@/components/ui/card";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 
 type BaseRow = { label: string; value: number; count: number };
 type ChartMode = "bar" | "line" | "area";
+const CHART_MODES: Array<{ value: ChartMode; label: string }> = [
+  { value: "bar", label: "Bar" },
+  { value: "line", label: "Line" },
+  { value: "area", label: "Area" },
+];
 type SalesTooltipPayload = {
   name?: string;
   value?: number;
@@ -68,20 +66,21 @@ export function DashboardSalesCharts({ stats }: DashboardSalesChartsProps) {
             </p>
           </div>
           <div className="flex flex-col gap-3 sm:items-end">
-            <div className="w-[180px]">
-              <Select
-                value={chartMode}
-                onValueChange={(value) => setChartMode(value as ChartMode)}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select chart type" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="bar">Bar Chart</SelectItem>
-                  <SelectItem value="line">Line Chart</SelectItem>
-                  <SelectItem value="area">Area Chart</SelectItem>
-                </SelectContent>
-              </Select>
+            <div className="grid h-9 grid-cols-3 overflow-hidden rounded-md border bg-background text-sm">
+              {CHART_MODES.map((mode) => (
+                <button
+                  key={mode.value}
+                  type="button"
+                  onClick={() => setChartMode(mode.value)}
+                  className={
+                    chartMode === mode.value
+                      ? "bg-primary px-3 font-medium text-primary-foreground"
+                      : "px-3 text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                  }
+                >
+                  {mode.label}
+                </button>
+              ))}
             </div>
             <div className="flex flex-wrap gap-2 text-xs">
                 <span className="rounded-full border border-border bg-secondary/20 px-3 py-1">

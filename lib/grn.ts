@@ -226,10 +226,10 @@ export async function ingestPurchaseReceiptFromWebhook(
       select: { id: true },
     });
 
-    await tx.grnPurchaseReceiptItem.deleteMany({
-      where: { purchaseReceiptId: receipt.id },
-    });
     if (data.items.length > 0) {
+      await tx.grnPurchaseReceiptItem.deleteMany({
+        where: { purchaseReceiptId: receipt.id },
+      });
       await tx.grnPurchaseReceiptItem.createMany({
         data: data.items.map((item) => ({
           companyId,
@@ -557,7 +557,7 @@ export async function ingestPurchaseInvoiceFromWebhook(
           : []),
       ],
     },
-    select: { id: true, name: true, supplierStockReturnName: true, handoverAt: true, valuedAt: true },
+    select: { id: true, name: true, supplierStockReturnName: true, handoverAt: true, valuedAt: true, valuedById: true },
   });
   if (!purchaseReceipt) {
     const pendingSupplierStockReturnName = linkedStockReturn?.name ?? ssrNameFromBillNo;
@@ -694,20 +694,22 @@ export async function ingestPurchaseInvoiceFromWebhook(
           amount: item.amount,
           purchaseReceipt: item.purchase_receipt ?? inheritedPurchaseReceiptName,
           purchaseReceiptItem: item.purchase_receipt_item,
-          supplierStockReturn: item.supplier_stock_return ?? (linkedStockReturn ? supplierStockReturnName : null),
+          supplierStockReturn: item.supplier_stock_return ?? supplierStockReturnName,
           supplierStockReturnItem: item.supplier_stock_return_item,
           stockUom: item.stock_uom,
         })),
       });
     }
 
-    if (!purchaseReceipt.handoverAt || purchaseReceipt.valuedAt) return;
+    if (!purchaseReceipt.handoverAt) return;
 
     if (!supplierStockReturnName) {
-      await tx.grnPurchaseReceipt.update({
-        where: { id: purchaseReceipt.id },
-        data: { valuedAt: new Date(), valuedById: null },
-      });
+      if (!purchaseReceipt.valuedAt) {
+        await tx.grnPurchaseReceipt.update({
+          where: { id: purchaseReceipt.id },
+          data: { valuedAt: new Date(), valuedById: null },
+        });
+      }
       return;
     }
 
@@ -732,17 +734,35 @@ export async function ingestPurchaseInvoiceFromWebhook(
       }),
     ]);
 
-    if (!prInvoice || !ssrInvoice) return;
+    if (!prInvoice || !ssrInvoice) {
+      if (purchaseReceipt.valuedAt && !purchaseReceipt.valuedById) {
+        await tx.grnPurchaseReceipt.update({
+          where: { id: purchaseReceipt.id },
+          data: { valuedAt: null, valuedById: null },
+        });
+      }
+      return;
+    }
     const priceTally = tallyPurchaseInvoicePrices(
       prInvoice.items.filter((item) => item.purchaseReceipt === purchaseReceipt.name),
       ssrInvoice.items.filter((item) => item.supplierStockReturn === supplierStockReturnName),
     );
-    if (priceTally.status !== "matched") return;
+    if (priceTally.status !== "matched") {
+      if (purchaseReceipt.valuedAt && !purchaseReceipt.valuedById) {
+        await tx.grnPurchaseReceipt.update({
+          where: { id: purchaseReceipt.id },
+          data: { valuedAt: null, valuedById: null },
+        });
+      }
+      return;
+    }
 
-    await tx.grnPurchaseReceipt.update({
-      where: { id: purchaseReceipt.id },
-      data: { valuedAt: new Date(), valuedById: null },
-    });
+    if (!purchaseReceipt.valuedAt) {
+      await tx.grnPurchaseReceipt.update({
+        where: { id: purchaseReceipt.id },
+        data: { valuedAt: new Date(), valuedById: null },
+      });
+    }
   });
 
   return { ok: true as const, ignored: false as const };

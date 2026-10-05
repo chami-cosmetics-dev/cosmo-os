@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { recordErpItemPrice } from "@/lib/item-creation/workflow";
 import {
   applyErpStandardSellingToProductItems,
   resolveCompanyIdsForErpWebhookSecret,
@@ -18,12 +19,6 @@ function unwrapErpPayload(raw: unknown): Record<string, unknown> {
   return top ?? {};
 }
 
-/**
- * ERPNext Item Price → Cosmo ProductItem.price (Standard Selling only).
- *
- * ERP setup: Webhook on Item Price (after insert / after update) →
- * POST /api/webhooks/erpnext/item-price with header x-erpnext-secret.
- */
 export async function POST(request: NextRequest) {
   const incomingSecret = request.headers.get("x-erpnext-secret") ?? "";
 
@@ -34,24 +29,38 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
+  const payload = unwrapErpPayload(rawPayload);
   const companyIds = await resolveCompanyIdsForErpWebhookSecret(incomingSecret);
   if (companyIds.length === 0) {
     console.error("[ERPNext Item Price webhook] Unauthorized or unknown secret");
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const parsed = erpnextItemPriceWebhookSchema.safeParse(unwrapErpPayload(rawPayload));
+  const itemCreationResult = await recordErpItemPrice(payload as {
+    item_code: string;
+    price_list: string;
+    price_list_rate: unknown;
+  }).catch((error) => ({
+    error: error instanceof Error ? error.message : "Item Creation webhook failed",
+  }));
+
+  const parsed = erpnextItemPriceWebhookSchema.safeParse(payload);
   if (!parsed.success) {
     console.error("[ERPNext Item Price webhook] Validation failed", parsed.error.flatten());
     return NextResponse.json(
-      { error: "Invalid payload", details: parsed.error.flatten() },
+      { error: "Invalid payload", details: parsed.error.flatten(), itemCreation: itemCreationResult },
       { status: 400 },
     );
   }
 
   const decision = decideErpItemPriceProductSync(parsed.data);
   if (!decision.apply) {
-    return NextResponse.json({ ok: true, skipped: true, reason: decision.reason });
+    return NextResponse.json({
+      ok: true,
+      skipped: true,
+      reason: decision.reason,
+      itemCreation: itemCreationResult,
+    });
   }
 
   let updated = 0;
@@ -73,5 +82,6 @@ export async function POST(request: NextRequest) {
     rate: decision.rate,
     updated,
     companies: companyIds.length,
+    itemCreation: itemCreationResult,
   });
 }
