@@ -16,11 +16,14 @@ import { resolveErpSlots } from "@/lib/product-items/erp-priority-sync";
 import { mergeErpPriceMapsPreferPrimary, lookupErpPriceBySku } from "@/lib/sticker-unit-price";
 
 export {
+  GCC_PRICE_LIST,
   LWK_STICKER_PRICE_LIST,
   STANDARD_SELLING_PRICE_LIST,
 } from "@/lib/sticker-lwk-erp-price-list";
 
 import {
+  CHAMI_LOCATION_REFERENCE,
+  GCC_PRICE_LIST,
   LWK_STICKER_PRICE_LIST,
   STANDARD_SELLING_PRICE_LIST,
 } from "@/lib/sticker-lwk-erp-price-list";
@@ -228,6 +231,18 @@ export async function fetchStandardSellingPricesBySku(input: {
   });
 }
 
+/** Fetch GCC PRICE LIST rates for specific item codes (SKU). */
+export async function fetchGccItemPricesBySku(input: {
+  cfg: OsfErpCredentials;
+  itemCodes: string[];
+}): Promise<Record<string, string>> {
+  return fetchSellingPricesBySku({
+    cfg: input.cfg,
+    priceList: GCC_PRICE_LIST,
+    itemCodes: input.itemCodes,
+  });
+}
+
 /** Paginate all selling rates on the LWK/OGF price list. */
 export async function fetchAllLwkItemPrices(
   cfg: OsfErpCredentials
@@ -240,6 +255,13 @@ export async function fetchAllStandardSellingPrices(
   cfg: OsfErpCredentials
 ): Promise<Record<string, string>> {
   return fetchAllItemPricesForList(cfg, STANDARD_SELLING_PRICE_LIST);
+}
+
+/** Paginate all selling rates on GCC PRICE LIST (Chami shop). */
+export async function fetchAllGccItemPrices(
+  cfg: OsfErpCredentials
+): Promise<Record<string, string>> {
+  return fetchAllItemPricesForList(cfg, GCC_PRICE_LIST);
 }
 
 async function fetchAllItemPricesForList(
@@ -293,6 +315,103 @@ export async function loadLwkStickerPricesBySku(
   } catch {
     return {};
   }
+}
+
+/**
+ * ERP linked to location 005, else Cosmo catalog ERP (GCC PRICE LIST lives with selling lists).
+ */
+export async function resolveChamiErpInstance(
+  companyId: string
+): Promise<OsfErpInstance | null> {
+  const chamiLocation = await prisma.companyLocation.findFirst({
+    where: {
+      companyId,
+      locationReference: CHAMI_LOCATION_REFERENCE,
+    },
+    select: {
+      erpnextInstance: {
+        select: {
+          id: true,
+          label: true,
+          baseUrl: true,
+          apiKey: true,
+          apiSecret: true,
+        },
+      },
+    },
+  });
+
+  const linked = chamiLocation?.erpnextInstance;
+  if (linked?.baseUrl && linked.apiKey && linked.apiSecret) {
+    return {
+      id: linked.id,
+      label: linked.label,
+      cfg: {
+        baseUrl: linked.baseUrl.replace(/\/$/, ""),
+        apiKey: linked.apiKey,
+        apiSecret: linked.apiSecret,
+      },
+    };
+  }
+
+  const pair = await resolveCosmoStandardSellingErpPair(companyId);
+  return pair.primary ?? pair.fallback;
+}
+
+async function loadGccPricesFromInstances(
+  companyId: string,
+  itemCodes?: string[]
+): Promise<Record<string, string>> {
+  const preferred = await resolveChamiErpInstance(companyId);
+  const { primary, fallback } = await resolveCosmoStandardSellingErpPair(companyId);
+  const ordered = [preferred, primary, fallback].filter(
+    (row): row is OsfErpInstance => Boolean(row)
+  );
+  const seen = new Set<string>();
+  let merged: Record<string, string> = {};
+
+  for (const instance of ordered) {
+    if (seen.has(instance.id)) continue;
+    seen.add(instance.id);
+    try {
+      const prices = itemCodes
+        ? await fetchGccItemPricesBySku({ cfg: instance.cfg, itemCodes })
+        : await fetchAllGccItemPrices(instance.cfg);
+      const before = Object.keys(merged).length;
+      merged = mergeErpPriceMapsPreferPrimary(merged, prices);
+      if (Object.keys(prices).length > 0 && before === 0 && preferred?.id === instance.id) {
+        break;
+      }
+    } catch {
+      // try the next ERP instance
+    }
+  }
+
+  return merged;
+}
+
+/**
+ * Load Chami shop sticker prices from ERP GCC PRICE LIST.
+ * Returns {} on missing instance / ERP errors — never invents prices.
+ */
+export async function loadGccStickerPricesBySku(
+  companyId: string
+): Promise<Record<string, string>> {
+  try {
+    return await loadGccPricesFromInstances(companyId);
+  } catch {
+    return {};
+  }
+}
+
+/** GCC PRICE LIST for specific SKUs. */
+export async function loadGccPricesForSkus(input: {
+  companyId: string;
+  itemCodes: string[];
+}): Promise<Record<string, string>> {
+  const itemCodes = [...new Set(input.itemCodes.map((s) => s.trim()).filter(Boolean))];
+  if (itemCodes.length === 0) return {};
+  return loadGccPricesFromInstances(input.companyId, itemCodes);
 }
 
 /**

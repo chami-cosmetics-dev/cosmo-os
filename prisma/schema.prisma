@@ -2437,6 +2437,8 @@ model ProductOsfProfile {
   sku                     String
   shopAvailability        String?
   ogfPrice                Decimal? @db.Decimal(12, 2)
+  /// Chami shop selling rate from ERP "GCC PRICE LIST". Online stays on ProductItem.price.
+  gccPrice                Decimal? @db.Decimal(12, 2)
   /// Per-SKU reorder alert/filter threshold (1–100). Null ⇒ treat as 70 at runtime.
   reorderThresholdPercent Int?
   createdAt               DateTime @default(now())

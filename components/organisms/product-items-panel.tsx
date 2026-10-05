@@ -25,6 +25,7 @@ import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 import { createClientPerfLogger } from "@/lib/client-perf";
 import { notify } from "@/lib/notify";
 import { mergeErpPriorityFilterOptions } from "@/lib/product-items/erp-priority-options";
+import { isChamiLocation, type StickerPriceChannel } from "@/lib/sticker-unit-price";
 import { cn } from "@/lib/utils";
 
 type ProductItem = {
@@ -59,7 +60,7 @@ export type ProductItemsPanelInitialData = {
   total: number;
   page: number;
   limit: number;
-  locations: Array<{ id: string; name: string }>;
+  locations: Array<{ id: string; name: string; locationReference?: string | null }>;
   vendors: Array<{ id: string; name: string }>;
   categories: Array<{ id: string; name: string }>;
   families: Array<{ id: string; name: string }>;
@@ -195,6 +196,7 @@ export function ProductItemsPanel({ initialData, canManage = false }: ProductIte
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [locationFilter, setLocationFilter] = useState("");
+  const [priceChannel, setPriceChannel] = useState<StickerPriceChannel>("online");
   const [vendorFilter, setVendorFilter] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
   const [familyFilter, setFamilyFilter] = useState("");
@@ -233,6 +235,10 @@ export function ProductItemsPanel({ initialData, canManage = false }: ProductIte
   }, [search]);
 
   const effectiveSearch = useMemo(() => debouncedSearch.trim(), [debouncedSearch]);
+  const chamiLocationSelected = useMemo(() => {
+    const location = locations.find((entry) => entry.id === locationFilter);
+    return isChamiLocation(location?.locationReference, location?.name);
+  }, [locations, locationFilter]);
 
   const fetchPageData = useCallback(async () => {
     const perf = createClientPerfLogger("product-items.panel.fetch", {
@@ -243,6 +249,7 @@ export function ProductItemsPanel({ initialData, canManage = false }: ProductIte
     const params = new URLSearchParams();
     if (effectiveSearch) params.set("search", effectiveSearch);
     if (locationFilter) params.set("location_id", locationFilter);
+    if (chamiLocationSelected && priceChannel === "shop") params.set("price_channel", "shop");
     if (vendorFilter) params.set("vendor_id", vendorFilter);
     if (categoryFilter) params.set("category_id", categoryFilter);
     if (familyFilter) params.set("family_id", familyFilter);
@@ -279,6 +286,8 @@ export function ProductItemsPanel({ initialData, canManage = false }: ProductIte
     hasInitialData,
     priorityFilter,
     locationFilter,
+    chamiLocationSelected,
+    priceChannel,
     page,
     limit,
     sortBy,
@@ -303,6 +312,7 @@ export function ProductItemsPanel({ initialData, canManage = false }: ProductIte
         sources?: Array<{ id: string; label: string; status: string; error?: string | null }>;
         prices?: { status?: string; updated?: number; error?: string | null };
         ogfPrices?: { status?: string; updated?: number; error?: string | null };
+        gccPrices?: { status?: string; updated?: number; error?: string | null };
         catalog?: {
           status?: string;
           created?: number;
@@ -342,7 +352,7 @@ export function ProductItemsPanel({ initialData, canManage = false }: ProductIte
           data.prices?.status !== "failed" && data.prices?.status !== "not_configured";
         if (failed.length === 0 && catalogOk) {
           notify.success(
-            `Priorities synced (${data.updatedRows?.toLocaleString() ?? 0} rows). Standard Selling (${(data.prices?.updated ?? 0).toLocaleString()}). LWK OGF (${(data.ogfPrices?.updated ?? 0).toLocaleString()}).`,
+            `Priorities synced (${data.updatedRows?.toLocaleString() ?? 0} rows). Standard Selling (${(data.prices?.updated ?? 0).toLocaleString()}). LWK OGF (${(data.ogfPrices?.updated ?? 0).toLocaleString()}). Chami GCC (${(data.gccPrices?.updated ?? 0).toLocaleString()}).`,
           );
         } else if (failed.length === 0) {
           notify.success(`Priorities synced (${data.updatedRows?.toLocaleString() ?? 0} rows).`);
@@ -405,6 +415,7 @@ export function ProductItemsPanel({ initialData, canManage = false }: ProductIte
     const params = new URLSearchParams();
     if (effectiveSearch) params.set("search", effectiveSearch);
     if (locationFilter) params.set("location_id", locationFilter);
+    if (chamiLocationSelected && priceChannel === "shop") params.set("price_channel", "shop");
     if (vendorFilter) params.set("vendor_id", vendorFilter);
     if (categoryFilter) params.set("category_id", categoryFilter);
     if (familyFilter) params.set("family_id", familyFilter);
@@ -436,7 +447,7 @@ export function ProductItemsPanel({ initialData, canManage = false }: ProductIte
           <p className="text-muted-foreground mt-1 text-xs">
             {vault
               ? "Sync from ERP pulls stock Items from ERP1 + ERP2, then Standard Selling price and Product Priority. Search works for every supplement SKU after sync."
-              : "Product Priority from ERP1 / ERP2 (Manufacturing). LWK location = OGF Price List. Other locations = Cosmo Standard Selling. Syncs when you open this page."}
+              : "Product Priority from ERP1 / ERP2 (Manufacturing). LWK location = OGF Price List. Chami 005 shop = GCC PRICE LIST, online = Standard Selling. Other locations = Cosmo Standard Selling. Syncs when you open this page."}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-sm">
@@ -502,6 +513,34 @@ export function ProductItemsPanel({ initialData, canManage = false }: ProductIte
               setPage(1);
             }}
           />
+          {chamiLocationSelected ? (
+            <div className="flex items-center gap-3 text-sm">
+              <label className="flex items-center gap-1.5">
+                <input
+                  type="checkbox"
+                  checked={priceChannel === "shop"}
+                  disabled={isBusy}
+                  onChange={() => {
+                    setPriceChannel("shop");
+                    setPage(1);
+                  }}
+                />
+                Shop
+              </label>
+              <label className="flex items-center gap-1.5">
+                <input
+                  type="checkbox"
+                  checked={priceChannel === "online"}
+                  disabled={isBusy}
+                  onChange={() => {
+                    setPriceChannel("online");
+                    setPage(1);
+                  }}
+                />
+                Online
+              </label>
+            </div>
+          ) : null}
           <SearchableFilter
             value={vendorFilter}
             options={vendors}

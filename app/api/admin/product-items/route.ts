@@ -44,6 +44,7 @@ export async function GET(request: NextRequest) {
     familyId: searchParams.get("family_id") ?? undefined,
     itemStatusCategory: searchParams.get("item_status_category") ?? undefined,
     search: searchParams.get("search")?.trim() ?? undefined,
+    priceChannel: searchParams.get("price_channel") === "shop" ? "shop" : "online",
   });
 
   if (!usePaginatedShape) {
