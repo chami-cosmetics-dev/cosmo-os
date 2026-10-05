@@ -18,6 +18,8 @@ export type BookNoteRowDto = {
   /** Last 4 digits of POS card receipt reference (when card > 0). */
   card_receipt_ref_last4: string | null;
   koko: number;
+  /** KOKO order id when the amount was typed in the KOKO column. */
+  koko_reference: string | null;
   bank_transfer: number;
   row_total: number;
   is_multi_method: boolean;

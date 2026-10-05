@@ -70,6 +70,80 @@ describe("bookNotePutBodySchema", () => {
     expect(ok.success).toBe(true);
   });
 
+  it("requires a KOKO order reference when the KOKO amount is above 0", () => {
+    const missing = bookNotePutBodySchema.safeParse({
+      companyLocationId: LOC,
+      postingDate: "2026-08-03",
+      rows: [
+        {
+          idxNo: "3",
+          salesInvoice: "400-000401",
+          cash: 0,
+          card: 4450,
+          cardReceiptRefLast4: "3109",
+          koko: 13000,
+          bankTransfer: 0,
+        },
+      ],
+    });
+    expect(missing.success).toBe(false);
+
+    const ok = bookNotePutBodySchema.safeParse({
+      companyLocationId: LOC,
+      postingDate: "2026-08-03",
+      rows: [
+        {
+          idxNo: "3",
+          salesInvoice: "400-000401",
+          cash: 0,
+          card: 4450,
+          cardReceiptRefLast4: "3109",
+          koko: 13000,
+          kokoReference: " ORDER 11465305 ",
+          bankTransfer: 0,
+        },
+      ],
+    });
+    expect(ok.success).toBe(true);
+    if (ok.success) {
+      expect(ok.data.rows[0]!.kokoReference).toBe("ORDER11465305");
+    }
+  });
+
+  it("requires a reference on every KOKO split line", () => {
+    const missing = bookNotePutBodySchema.safeParse({
+      companyLocationId: LOC,
+      postingDate: "2026-08-03",
+      rows: [
+        {
+          idxNo: "1",
+          salesInvoice: "INV-1",
+          splitLines: [
+            { paymentMethod: "KOKO", amount: 1000, kokoReference: "11465305" },
+            { paymentMethod: "KOKO", amount: 500 },
+          ],
+        },
+      ],
+    });
+    expect(missing.success).toBe(false);
+
+    const ok = bookNotePutBodySchema.safeParse({
+      companyLocationId: LOC,
+      postingDate: "2026-08-03",
+      rows: [
+        {
+          idxNo: "1",
+          salesInvoice: "INV-1",
+          splitLines: [
+            { paymentMethod: "KOKO", amount: 1000, kokoReference: "#11465305" },
+            { paymentMethod: "KOKO", amount: 500, kokoReference: "00011465305" },
+          ],
+        },
+      ],
+    });
+    expect(ok.success).toBe(true);
+  });
+
   it("accepts split payment rows without legacy card ref", () => {
     const r = bookNotePutBodySchema.safeParse({
       companyLocationId: LOC,

@@ -47,6 +47,8 @@ export type FinanceApprovalItem = {
   }>;
   createdAt: string;
   reviewedAt: string | null;
+  requestedByName: string | null;
+  requestedByEmail: string | null;
   reviewedByName: string | null;
   reviewedByEmail: string | null;
   shopifyOrderId?: string | null;
@@ -213,6 +215,12 @@ function approvalErrorMessage(data: { error?: string; code?: string }) {
   return data.error ?? "Failed to review approval";
 }
 
+function requestedByLabel(
+  approval: Pick<FinanceApprovalItem, "requestedByName" | "requestedByEmail">,
+) {
+  return approval.requestedByName ?? approval.requestedByEmail ?? "-";
+}
+
 function riderLabel(approval: Pick<FinanceApprovalItem, "riderName" | "riderMobile" | "riderId">) {
   return approval.riderName?.trim() || approval.riderMobile?.trim() || (approval.riderId ? "Rider" : "No rider / non-rider");
 }
@@ -250,6 +258,8 @@ function matchesApprovalSearch(approval: FinanceApprovalItem, term: string) {
     approval.requestNote,
     approval.reviewNote,
     approval.kokoReference,
+    approval.requestedByName,
+    approval.requestedByEmail,
     approval.returnedByName,
     approval.returnedByEmail,
     approval.cancelRequestedByName,
@@ -737,6 +747,7 @@ export function FinanceApprovalsPanel({
                     <th className="px-3 py-3 font-medium">Payment</th>
                     {groupByRider && <th className="px-3 py-3 font-medium">Rider</th>}
                     <th className="px-3 py-3 font-medium">Amount</th>
+                    <th className="px-3 py-3 font-medium">Requested by</th>
                     <th className="px-3 py-3 font-medium">Requested</th>
                   </tr>
                 </thead>
@@ -745,7 +756,7 @@ export function FinanceApprovalsPanel({
                     ? deliveryRiderGroups.flatMap((group) => [
                         <tr key={`rider-${group.key}`} className="bg-muted/50">
                           <td
-                            colSpan={6}
+                            colSpan={7}
                             className="px-3 py-2 text-xs font-semibold tracking-wide text-foreground uppercase"
                           >
                             {group.label}
@@ -783,6 +794,7 @@ export function FinanceApprovalsPanel({
                             </td>
                             <td className="px-3 py-3 text-muted-foreground">{riderLabel(approval)}</td>
                             <td className="px-3 py-3">{formatAmount(approval.totalPrice)}</td>
+                            <td className="px-3 py-3 text-muted-foreground">{requestedByLabel(approval)}</td>
                             <td className="px-3 py-3 text-muted-foreground">{formatDate(approval.createdAt)}</td>
                           </tr>
                         )),
@@ -815,12 +827,13 @@ export function FinanceApprovalsPanel({
                         <KokoLinkTimeLine approval={approval} />
                       </td>
                       <td className="px-3 py-3">{formatAmount(approval.totalPrice)}</td>
+                      <td className="px-3 py-3 text-muted-foreground">{requestedByLabel(approval)}</td>
                       <td className="px-3 py-3 text-muted-foreground">{formatDate(approval.createdAt)}</td>
                     </tr>
                   ))}
                   {searchedApprovals.length === 0 && (
                     <tr>
-                      <td colSpan={groupByRider ? 6 : 5} className="px-3 py-10 text-center text-muted-foreground">
+                      <td colSpan={groupByRider ? 7 : 6} className="px-3 py-10 text-center text-muted-foreground">
                         {effectiveSearch
                           ? "No approval requests match your search."
                           : view === "pending"
@@ -907,6 +920,12 @@ export function FinanceApprovalsPanel({
                   {selected.type === "delivery_payment_approval" && (
                     <p><span className="font-medium">Rider:</span> {riderLabel(selected)}</p>
                   )}
+                  <p>
+                    <span className="font-medium">Requested by:</span> {requestedByLabel(selected)}
+                    {selected.requestedByName && selected.requestedByEmail ? (
+                      <span className="text-muted-foreground"> · {selected.requestedByEmail}</span>
+                    ) : null}
+                  </p>
                   <p><span className="font-medium">Requested:</span> {formatDate(selected.createdAt)}</p>
                   {selected.type === "return_cancel" && (
                     <div className="space-y-3 border-t border-border/60 pt-3">

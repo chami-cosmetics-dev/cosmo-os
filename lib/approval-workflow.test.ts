@@ -158,7 +158,7 @@ describe("isOrderPaymentRequiresApproval", () => {
     ).toBe(false);
   });
 
-  it("requires Vault card on delivery approval, not Cosmo", () => {
+  it("does not require intake finance for Card on Delivery (Vault or Cosmo)", () => {
     expect(
       isOrderPaymentRequiresApproval(
         { paymentGatewayPrimary: "Card on Delivery", paymentGatewayNames: [] },
@@ -170,13 +170,13 @@ describe("isOrderPaymentRequiresApproval", () => {
         { paymentGatewayPrimary: "Card on Delivery", paymentGatewayNames: [] },
         { vaultOs: true },
       ),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       isOrderPaymentRequiresApproval(
         { paymentGatewayPrimary: null, paymentGatewayNames: ["card_on_delivery"] },
         { vaultOs: true },
       ),
-    ).toBe(true);
+    ).toBe(false);
   });
 });
 

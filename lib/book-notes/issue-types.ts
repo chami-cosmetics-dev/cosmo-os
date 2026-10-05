@@ -122,6 +122,7 @@ export function emptyByStatus(): BookNoteIssueByStatus {
     no_payment_entry_linked: 0,
     sales_invoice_not_found: 0,
     no_invoice_number: 0,
+    koko_ref_missing: 0,
   };
 }
 
@@ -138,4 +139,5 @@ export const BOOK_NOTE_ISSUE_STATUS_LABELS: Record<BookNoteIssueStatus, string> 
     no_payment_entry_linked: "No payment entry",
     sales_invoice_not_found: "Invoice not found",
     no_invoice_number: "No invoice number",
+    koko_ref_missing: "KOKO reference missing",
   };

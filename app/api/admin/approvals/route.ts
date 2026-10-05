@@ -16,6 +16,7 @@ import {
   reconcilePendingDeliveryApprovalsForCourierOrders,
   reconcilePendingDeliveryApprovalsForCustomerPickupOrders,
   reconcilePendingDeliveryApprovalsForInvoiceCompleteOrders,
+  reconcilePendingOrderPaymentApprovalsForCardOnDelivery,
   resolveViewerFinanceLocationIds,
 } from "@/lib/approval-workflow";
 import { enrichApprovalDisplay } from "@/lib/approval-display";
@@ -59,6 +60,7 @@ export async function GET() {
   await Promise.all([
     reconcilePendingApprovalsForVoidedOrders(companyId),
     reconcileOrphanPendingPaymentApprovalsForPaidOrders(companyId),
+    reconcilePendingOrderPaymentApprovalsForCardOnDelivery(companyId),
     reconcilePendingDeliveryApprovalsForInvoiceCompleteOrders(companyId),
     reconcilePendingDeliveryApprovalsForCourierOrders(companyId),
     reconcilePendingDeliveryApprovalsForCustomerPickupOrders(companyId),
@@ -87,6 +89,8 @@ export async function GET() {
     customerPhone: string | null;
     customerEmail: string | null;
     orderLinked: boolean;
+    requestedByName: string | null;
+    requestedByEmail: string | null;
     reviewedByName: string | null;
     reviewedByEmail: string | null;
     shopifyOrderId: string | null;
@@ -125,6 +129,8 @@ export async function GET() {
         o."customerPhone",
         o."customerEmail",
         (o."id" IS NOT NULL) AS "orderLinked",
+        reqUser."name" AS "requestedByName",
+        reqUser."email" AS "requestedByEmail",
         rev."name" AS "reviewedByName",
         rev."email" AS "reviewedByEmail",
         o."shopifyOrderId",
@@ -151,6 +157,7 @@ export async function GET() {
       LEFT JOIN "Order" ort_order ON ort_order."id" = ort."orderId"
       LEFT JOIN "CompanyLocation" cl ON cl."id" = COALESCE(o."companyLocationId", ort_order."companyLocationId")
       LEFT JOIN "ErpnextInstance" ei ON ei."id" = cl."erpnextInstanceId"
+      LEFT JOIN "User" reqUser ON reqUser."id" = ar."requestedById"
       LEFT JOIN "User" rev ON rev."id" = ar."reviewedById"
       LEFT JOIN "User" returnedBy ON returnedBy."id" = ort."returnedById"
       LEFT JOIN "User" cancelBy ON cancelBy."id" = ort."actionById"

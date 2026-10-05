@@ -8,6 +8,8 @@ import {
 } from "@/lib/erp-return-si";
 import { prisma } from "@/lib/prisma";
 
+export { resolveOrderCancelledByLabel } from "@/lib/order-cancelled-by-label";
+
 export const ERP_CREDIT_NOTE_ISSUED_STATUS = "Credit Note Issued";
 
 /** Vault OS order state after ERP issues a credit note against the invoice. */
@@ -38,17 +40,6 @@ export function erpDrivenCancelFields(input: {
     ...(input.cancelledAt ? {} : { cancelledAt: now }),
     ...(input.cancelReason?.trim() ? {} : { cancelReason: input.reason }),
   };
-}
-
-/** Display label for cancel actor — OS user name/email, else ERP. */
-export function resolveOrderCancelledByLabel(
-  cancelledBy: { name?: string | null; email?: string | null } | null | undefined,
-): string {
-  const name = cancelledBy?.name?.trim();
-  if (name) return name;
-  const email = cancelledBy?.email?.trim();
-  if (email) return email;
-  return "ERP";
 }
 
 export type ErpSalesInvoiceCreditNoteSignal = {
