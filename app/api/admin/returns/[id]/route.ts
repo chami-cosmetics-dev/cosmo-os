@@ -13,6 +13,7 @@ import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
 import { orderStageUpdate } from "@/lib/order-stage-timing";
+import { INVOICE_REVERT_STAGE_ONLY_TEMPLATE } from "@/lib/invoice-revert";
 
 const returnActionSchema = z.object({
   actionStatus: z.enum(["pending", "solved"]).optional(),
@@ -235,6 +236,22 @@ export async function PUT(
           : (parsed.data.actionStatus ?? existing.actionStatus);
 
   let approvalRequestId: string | null = null;
+  const stageOnlyRevertClear =
+    existing.remarkTemplate === INVOICE_REVERT_STAGE_ONLY_TEMPLATE
+      ? {
+          revertedFromInvoiceCompleteAt: null,
+          revertedFromInvoiceCompleteById: null,
+          dispatchedAt: null,
+          dispatchedById: null,
+          dispatchedByRiderId: null,
+          dispatchedByCourierServiceId: null,
+          dispatchedToCustomer: false,
+          riderDeliveryToken: null,
+          deliveryCompleteAt: null,
+          deliveryCompleteById: null,
+          lastRiderUpdateAt: null,
+        }
+      : {};
   const updated = await prisma.$transaction(async (tx) => {
     const returnedOrder = await tx.orderReturn.update({
       where: { id: existing.id },
@@ -269,6 +286,7 @@ export async function PUT(
           packageHoldReasonId: null,
           deliveryOutcome: "pending",
           deliveryFailedReason: null,
+          ...stageOnlyRevertClear,
         },
       });
       await tx.riderDeliveryTask.updateMany({
@@ -303,6 +321,7 @@ export async function PUT(
           packageHoldReasonId: null,
           deliveryOutcome: "pending",
           deliveryFailedReason: null,
+          ...stageOnlyRevertClear,
         },
       });
       await tx.riderDeliveryTask.updateMany({
