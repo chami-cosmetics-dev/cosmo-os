@@ -45,6 +45,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { resolveOrderCancelledByLabel } from "@/lib/order-cancelled-by-label";
 import { notify } from "@/lib/notify";
 import {
   DISPATCH_CUSTOMER_PICKUP,
@@ -962,10 +963,7 @@ export function OrderFulfillmentDetail({
                   When: {orderDetail.cancelledAt ? formatDate(orderDetail.cancelledAt) : "—"}
                 </p>
                 <p className="mt-1 text-muted-foreground">
-                  By:{" "}
-                  {orderDetail.cancelledBy?.name?.trim() ||
-                    orderDetail.cancelledBy?.email?.trim() ||
-                    "ERP"}
+                  By: {resolveOrderCancelledByLabel(orderDetail.cancelledBy, orderDetail.cancelReason)}
                 </p>
                 {orderDetail.cancelKind === "replacement" ? (
                   <p className="mt-1 text-muted-foreground">Type: Replacement (no customer SMS)</p>

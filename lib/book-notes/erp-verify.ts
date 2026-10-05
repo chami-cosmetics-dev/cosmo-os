@@ -21,6 +21,8 @@ export type BookNoteErpVerifyRowInput = {
   /** Last 4 digits of POS card receipt ref (ss9 `card_last_4`). */
   card_last_4?: string | null;
   koko: number;
+  /** Column-mode KOKO order id. Folded into a KOKO split line on send. */
+  koko_reference?: string | null;
   bank_transfer: number;
   /** When set, ERP receives split_lines instead of legacy columns. */
   split_lines?: BookNoteSplitLine[] | null;

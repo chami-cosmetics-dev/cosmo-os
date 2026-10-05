@@ -84,7 +84,7 @@ describe("orderPaymentFinanceApproveMarksPaid", () => {
 });
 
 describe("isUnpaidCardOnDeliveryFinance", () => {
-  it("is Vault-only", () => {
+  it("never requires intake finance (door collection after delivery)", () => {
     expect(
       isUnpaidCardOnDeliveryFinance(
         { paymentGatewayPrimary: "Card on Delivery", paymentGatewayNames: [] },
@@ -96,7 +96,7 @@ describe("isUnpaidCardOnDeliveryFinance", () => {
         { paymentGatewayPrimary: "Card on Delivery", paymentGatewayNames: [] },
         { vaultOs: true },
       ),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       isUnpaidCardOnDeliveryFinance(
         { paymentGatewayPrimary: "KOKO", paymentGatewayNames: [] },

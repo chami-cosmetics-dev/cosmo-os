@@ -2,7 +2,7 @@ import { randomUUID } from "crypto";
 import { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
-import { isUnpaidCardOnDeliveryFinance, orderHasCardOnDeliveryGateway } from "@/lib/payment-method-label";
+import { orderHasCardOnDeliveryGateway, isCardOnDeliveryGateway } from "@/lib/payment-method-label";
 import { needsKokoLinkTimeConfirm } from "@/lib/koko-order";
 import { APPROVAL_SPLIT_KOKO } from "@/lib/approval-payment-split";
 
@@ -161,11 +161,12 @@ export function isOrderPaymentRequiresApproval(
     paymentGatewayPrimary: string | null;
     paymentGatewayNames: string[];
   },
-  options?: { vaultOs?: boolean },
+  _options?: { vaultOs?: boolean },
 ): boolean {
   // When primary is known, check only that — paymentGatewayNames includes all
   // payment methods available at checkout, not just the one the customer used,
   // which causes false positives (e.g. "Bank Deposit" alongside a COD order).
+  // Card on Delivery is door collection only — no intake ORDER_PAYMENT (Vault).
   if (order.paymentGatewayPrimary) {
     const g = order.paymentGatewayPrimary.toLowerCase().trim();
     if (g.includes("koko") || g.includes("mintpay") || g.includes("bank")) return true;
@@ -177,7 +178,7 @@ export function isOrderPaymentRequiresApproval(
       return true;
     }
   }
-  return isUnpaidCardOnDeliveryFinance(order, options);
+  return false;
 }
 
 export function isPlaceholderErpInvoiceId(id: string | null | undefined) {
@@ -288,7 +289,7 @@ export async function reconcilePendingDeliveryApprovalsForPrepaidOrders(companyI
   const ids = pending
     .filter((row) => {
       if (!row.order) return false;
-      // Card on Delivery still collects at the door after intake finance.
+      // Card on Delivery always needs door collection after delivery.
       if (orderHasCardOnDeliveryGateway(row.order)) return false;
       if (isOrderPaymentRequiresApproval(row.order)) return true;
       const primary = row.order.paymentGatewayPrimary?.toLowerCase().trim() ?? "";
@@ -314,6 +315,54 @@ export async function reconcilePendingDeliveryApprovalsForPrepaidOrders(companyI
       status: "cancelled",
       reviewNote:
         "Prepaid / order-payment path — Delivery Collection not required (KOKO, bank transfer, or order payment already handled).",
+      updatedAt: now,
+    },
+  });
+  return result.count;
+}
+
+/**
+ * Cancel stale intake ORDER_PAYMENT rows for Card on Delivery.
+ * Payment confirm is DELIVERY_PAYMENT after delivery complete — intake finance blocks fulfillment wrongly.
+ */
+export async function reconcilePendingOrderPaymentApprovalsForCardOnDelivery(
+  companyId: string,
+): Promise<number> {
+  const now = new Date();
+  const pending = await prisma.approvalRequest.findMany({
+    where: {
+      companyId,
+      status: "pending",
+      type: ORDER_PAYMENT_APPROVAL,
+      orderId: { not: null },
+    },
+    select: {
+      id: true,
+      requestNote: true,
+      order: {
+        select: {
+          paymentGatewayPrimary: true,
+          paymentGatewayNames: true,
+        },
+      },
+    },
+  });
+
+  const ids = pending
+    .filter((row) => {
+      if (row.order && orderHasCardOnDeliveryGateway(row.order)) return true;
+      return isCardOnDeliveryGateway(row.requestNote);
+    })
+    .map((row) => row.id);
+
+  if (ids.length === 0) return 0;
+
+  const result = await prisma.approvalRequest.updateMany({
+    where: { id: { in: ids } },
+    data: {
+      status: "cancelled",
+      reviewNote:
+        "Card on Delivery — confirm payment after delivery complete (intake Order Payment not required).",
       updatedAt: now,
     },
   });

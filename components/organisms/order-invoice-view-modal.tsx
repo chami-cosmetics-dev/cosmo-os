@@ -47,6 +47,7 @@ import {
   formatOrderPaymentBreakdown,
 } from "@/lib/order-payment-entries";
 import { getPaymentMethodInfo } from "@/lib/payment-method-label";
+import { resolveOrderCancelledByLabel } from "@/lib/order-cancelled-by-label";
 import { notify } from "@/lib/notify";
 import {
   RETURN_REMARK_TEMPLATES,
@@ -1615,10 +1616,7 @@ export function OrderInvoiceViewModal({
                     : "—"}
                 </p>
                 <p className="mt-1 text-muted-foreground">
-                  By:{" "}
-                  {orderDetail.cancelledBy?.name?.trim() ||
-                    orderDetail.cancelledBy?.email?.trim() ||
-                    "ERP"}
+                  By: {resolveOrderCancelledByLabel(orderDetail.cancelledBy, orderDetail.cancelReason)}
                 </p>
                 {orderDetail.cancelKind === "replacement" ? (
                   <p className="mt-1 text-muted-foreground">Type: Replacement (no customer SMS)</p>

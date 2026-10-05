@@ -9,7 +9,11 @@ import {
   markBookNoteErpSyncFailed,
 } from "@/lib/book-notes/erp-sync-status";
 import { loadBookNoteDayDto } from "@/lib/book-notes/load";
-import { bookNoteRowUsesSplitPayload } from "@/lib/book-notes/split-lines";
+import {
+  bookNoteRowUsesSplitPayload,
+  missingKokoSplitReference,
+  normalizeKokoOrderReference,
+} from "@/lib/book-notes/split-lines";
 import {
   collectBookNoteNamesFromVerifyRows,
   loadReceiptsForDay,
@@ -128,7 +132,36 @@ export async function pushBookNoteDayToErp(input: {
   }
 
   for (const r of day.rows) {
-    if (bookNoteRowUsesSplitPayload(r.split_lines)) continue;
+    if (bookNoteRowUsesSplitPayload(r.split_lines)) {
+      const missing = missingKokoSplitReference(r.split_lines!);
+      if (missing != null) {
+        const err = `Row ${r.idx_no || "?"} (${r.sales_invoice || "no invoice"}): KOKO split line ${missing + 1} needs a KOKO order reference. Open the day, fill KOKO order ref, save, then send again.`;
+        await markBookNoteErpSyncFailed(input.bookNoteDayId, err);
+        return {
+          ok: false,
+          status: 400,
+          code: "KOKO_REF_MISSING",
+          error: err,
+          step: "validate",
+          locationName: shopLabel,
+          postingDate: input.postingDateYmd,
+        };
+      }
+      continue;
+    }
+    if (r.koko > 0 && !normalizeKokoOrderReference(r.koko_reference)) {
+      const err = `Row ${r.idx_no || "?"} (${r.sales_invoice || "no invoice"}): KOKO amount entered but KOKO order reference missing. Open the day, fill KOKO order ref, save, then send again.`;
+      await markBookNoteErpSyncFailed(input.bookNoteDayId, err);
+      return {
+        ok: false,
+        status: 400,
+        code: "KOKO_REF_MISSING",
+        error: err,
+        step: "validate",
+        locationName: shopLabel,
+        postingDate: input.postingDateYmd,
+      };
+    }
     if (r.card > 0 && !r.card_receipt_ref_last4) {
       const err = `Row ${r.idx_no || "?"} (${r.sales_invoice || "no invoice"}): card amount entered but card receipt last 4 digits missing. Open the day, fill Last 4 ref, save, then send again.`;
       await markBookNoteErpSyncFailed(input.bookNoteDayId, err);
@@ -157,6 +190,7 @@ export async function pushBookNoteDayToErp(input: {
       card: r.card,
       card_last_4: r.card_receipt_ref_last4,
       koko: r.koko,
+      koko_reference: r.koko_reference,
       bank_transfer: r.bank_transfer,
       split_lines: r.split_lines,
     })),

@@ -317,6 +317,7 @@ export async function PUT(request: NextRequest) {
             ? r.cardReceiptRefLast4
             : null,
         koko: agg ? agg.koko : r.koko,
+        kokoReference: usesSplit ? null : r.koko > 0 ? r.kokoReference : null,
         bankTransfer: agg ? agg.bankTransfer : r.bankTransfer,
         specialNote: r.specialNote ?? null,
         splitLines: usesSplit ? splitLines : null,
@@ -409,6 +410,7 @@ export async function PUT(request: NextRequest) {
           card: r.card,
           cardReceiptRefLast4: r.cardReceiptRefLast4,
           koko: r.koko,
+          kokoReference: r.kokoReference,
           bankTransfer: r.bankTransfer,
           specialNote: r.specialNote
             ? r.specialNote.slice(0, LIMITS.bookNoteSpecialNote.max)

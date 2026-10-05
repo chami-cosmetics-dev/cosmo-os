@@ -47,7 +47,6 @@ import {
 import {
   canRequestPaymentMethodChange,
   getPaymentMethodInfo,
-  isUnpaidCardOnDeliveryFinance,
 } from "@/lib/payment-method-label";
 import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 import { KOKO_MAX_PAYMENTS, LIMITS } from "@/lib/validation";
@@ -487,10 +486,7 @@ export function FulfillmentSampleFreeIssuePanel({
       gateways.paymentGatewayPrimary,
       ...gateways.paymentGatewayNames,
     ].map((g) => g?.toLowerCase().trim() ?? "").filter(Boolean);
-    return (
-      names.some((g) => g.includes("koko") || g.includes("mintpay") || g.includes("bank")) ||
-      isUnpaidCardOnDeliveryFinance(gateways)
-    );
+    return names.some((g) => g.includes("koko") || g.includes("mintpay") || g.includes("bank"));
   }, [detail, order]);
   const financeApprovalPending = detail?.paymentApproval?.status === "pending";
   const splitPaymentLines = detail?.paymentApproval?.paymentLines ?? [];
@@ -1366,12 +1362,7 @@ export function FulfillmentSampleFreeIssuePanel({
               <p className="font-medium text-amber-800 dark:text-amber-400">Finance approval required</p>
               <p className="text-amber-700 dark:text-amber-500">
                 This order uses {paymentMethod} which requires finance team approval before it can proceed to print.
-                {isUnpaidCardOnDeliveryFinance({
-                  paymentGatewayPrimary: detail?.paymentGatewayPrimary ?? order?.paymentGatewayPrimary ?? null,
-                  paymentGatewayNames: detail?.paymentGatewayNames ?? order?.paymentGatewayNames ?? [],
-                })
-                  ? " After approve, order stays unpaid and moves to print. Payment is collected at delivery."
-                  : " An approval request has been sent automatically when samples were added."}
+                {" "}An approval request has been sent automatically when samples were added.
               </p>
             </div>
           </div>
