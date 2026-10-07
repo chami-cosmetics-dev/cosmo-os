@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 
 const schema = z.object({
   field: z.enum(["handoverAt", "valuedAt", "receivedAt"]),
-  action: z.enum(["mark", "revert"]).optional().default("mark"),
+  action: z.enum(["mark", "revert", "not_received"]).optional().default("mark"),
   companyId: z.string().min(1).optional(),
 });
 
@@ -49,7 +49,11 @@ export async function POST(
     return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
   }
 
-  const auth = await requirePermission(FIELD_PERMISSIONS[parsed.data.field]);
+  const auth = await requirePermission(
+    parsed.data.action === "not_received"
+      ? "purchasing.grn.mark_valued"
+      : FIELD_PERMISSIONS[parsed.data.field],
+  );
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
@@ -90,6 +94,32 @@ export async function POST(
   if (row.docstatus === 2) {
     return NextResponse.json({ error: "Cancelled purchase receipts cannot be marked" }, { status: 409 });
   }
+  if (parsed.data.action === "not_received") {
+    if (parsed.data.field !== "handoverAt") {
+      return NextResponse.json({ error: "Only handover can be marked not received" }, { status: 400 });
+    }
+    if (!row.handoverAt) {
+      return NextResponse.json({ error: "Only handovered rows can be marked not received" }, { status: 409 });
+    }
+    if (row.receivedAt) {
+      return NextResponse.json({ error: "GRN received rows cannot be marked not received" }, { status: 409 });
+    }
+    await prisma.grnPurchaseReceipt.update({
+      where: { companyId_name: { companyId: targetCompanyId, name: decodedName } },
+      data: {
+        handoverAt: null,
+        handoverById: null,
+        valuedAt: null,
+        valuedById: null,
+        receivedAt: null,
+        receivedById: null,
+        notReceivedAt: new Date(),
+        notReceivedById: user.id,
+      },
+    });
+    await autoMatchIntercompanyGrn();
+    return NextResponse.json({ ok: true });
+  }
   if (parsed.data.action === "revert" && !row[parsed.data.field]) {
     return NextResponse.json({ error: "This stage is not marked yet" }, { status: 409 });
   }
@@ -126,6 +156,10 @@ export async function POST(
         [FIELD_ACTOR_COLUMNS[parsed.data.field]]: user.id,
         [FIELD_REVERTED_AT_COLUMNS[parsed.data.field]]: null,
         [FIELD_REVERTED_BY_COLUMNS[parsed.data.field]]: null,
+        ...(parsed.data.field === "handoverAt" && {
+          notReceivedAt: null,
+          notReceivedById: null,
+        }),
       },
     });
 
