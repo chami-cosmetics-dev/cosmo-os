@@ -288,9 +288,8 @@ function validateCreateInput(input: {
   const standardPrice = toDecimal(input.standardPrice, "Standard Price");
   const ogfPrice = toDecimal(input.ogfPrice, "OGF Price");
   const gccPrice = toDecimal(input.gccPrice, "GCC Price");
-  const addErp1OgfPrice = toBoolean(input.addErp1OgfPrice);
+  const requestedErp1OgfPrice = toBoolean(input.addErp1OgfPrice);
   if (!standardPrice) throw new Error("Standard Price is required");
-  if (addErp1OgfPrice && !ogfPrice) throw new Error("OGF Price is required when adding OGF to ERP1");
   const description = input.description?.trim();
   const country = input.country?.trim();
   if (!description) throw new Error("Description is required");
@@ -306,6 +305,8 @@ function validateCreateInput(input: {
     ),
   ];
   if (creationSources.length === 0) throw new Error("At least one creation source is required");
+  const addErp1OgfPrice = requestedErp1OgfPrice || Boolean(ogfPrice && !creationSources.includes("ERP2"));
+  if (addErp1OgfPrice && !ogfPrice) throw new Error("OGF Price is required when adding OGF to ERP1");
   return { sku, standardPrice, ogfPrice, gccPrice, addErp1OgfPrice, description, country, creationSources };
 }
 

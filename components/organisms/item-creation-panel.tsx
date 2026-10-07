@@ -74,8 +74,18 @@ type TeamSection = {
 };
 
 const status = (value: string) => ITEM_CREATION_STATUS_LABELS[value] ?? value;
-const money = (value: string | number | null) =>
-  value === null ? "-" : Number(value).toFixed(2);
+const money = (value: string | number | null | undefined) => {
+  if (value === null || value === undefined || value === "") return "-";
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric.toFixed(2) : "-";
+};
+const dateFormatter = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "UTC",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+const formatDate = (value: string) => dateFormatter.format(new Date(value));
 
 const inputClass =
   "h-10 w-full min-w-0 rounded-md border bg-background px-3 text-sm outline-none transition focus:border-primary";
@@ -307,6 +317,17 @@ export function ItemCreationPanel({
     });
   }
 
+  function refreshRequests() {
+    startTransition(async () => {
+      try {
+        await refresh();
+        setMessage("Refreshed");
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : "Refresh failed");
+      }
+    });
+  }
+
   function deleteRequest(id: string) {
     startTransition(async () => {
       try {
@@ -510,13 +531,23 @@ export function ItemCreationPanel({
               <h2 className="text-lg font-semibold tracking-normal">
                 Create Item Request
               </h2>
-              <button
-                type="button"
-                onClick={addCreateRow}
-                className={secondaryButtonClass}
-              >
-                Add Item
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  disabled={isPending}
+                  onClick={refreshRequests}
+                  className={secondaryButtonClass}
+                >
+                  Refresh
+                </button>
+                <button
+                  type="button"
+                  onClick={addCreateRow}
+                  className={secondaryButtonClass}
+                >
+                  Add Item
+                </button>
+              </div>
             </div>
             <div className="grid gap-3">
               <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border bg-muted/20 px-3 py-2">
@@ -748,6 +779,7 @@ export function ItemCreationPanel({
           onDelete={deleteRequest}
           onUpdate={updateRequest}
           onAction={runAction}
+          onRefresh={refreshRequests}
         />
       )}
 
@@ -755,6 +787,8 @@ export function ItemCreationPanel({
         <TeamWorkflowView
           teamLabel={teamViewLabel(activeView)}
           sections={visibleSections}
+          isPending={isPending}
+          onRefresh={refreshRequests}
         />
       )}
     </div>
@@ -775,9 +809,13 @@ function MetricCard({ label, value }: { label: string; value: number }) {
 function TeamWorkflowView({
   teamLabel,
   sections,
+  isPending,
+  onRefresh,
 }: {
   teamLabel: string;
   sections: TeamSection[];
+  isPending: boolean;
+  onRefresh: () => void;
 }) {
   const total = sections.reduce((sum, section) => sum + section.items.length, 0);
   const activeSections = sections.filter((section) => section.items.length > 0);
@@ -793,9 +831,19 @@ function TeamWorkflowView({
               : `${total} request${total === 1 ? "" : "s"} need attention across the stages below.`}
           </p>
         </div>
-        <span className="w-fit rounded-md bg-muted px-3 py-1.5 text-sm font-medium">
-          {total} Active
-        </span>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            disabled={isPending}
+            onClick={onRefresh}
+            className="h-9 rounded-md border bg-background px-3 text-sm font-medium transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            Refresh
+          </button>
+          <span className="w-fit rounded-md bg-muted px-3 py-1.5 text-sm font-medium">
+            {total} Active
+          </span>
+        </div>
       </div>
 
       <div className="grid gap-3 border-b p-4 md:grid-cols-2 xl:grid-cols-4">
@@ -803,9 +851,19 @@ function TeamWorkflowView({
           <div key={section.title} className="rounded-md border bg-background p-3">
             <div className="flex items-center justify-between gap-3">
               <div className="font-medium">{section.title}</div>
-              <span className="rounded-md bg-muted px-2.5 py-1 text-sm font-semibold">
-                {section.items.length}
-              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={isPending}
+                  onClick={onRefresh}
+                  className="h-8 rounded-md border px-2 text-xs font-medium transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Refresh
+                </button>
+                <span className="rounded-md bg-muted px-2.5 py-1 text-sm font-semibold">
+                  {section.items.length}
+                </span>
+              </div>
             </div>
             <p className="mt-1 text-xs text-muted-foreground">{section.subtitle}</p>
           </div>
@@ -826,9 +884,19 @@ function TeamWorkflowView({
               <div key={`active-${section.title}`} className="space-y-3">
                 <div className="flex items-center justify-between gap-3">
                   <h3 className="font-semibold tracking-normal">{section.title}</h3>
-                  <span className="text-sm text-muted-foreground">
-                    {section.items.length} request{section.items.length === 1 ? "" : "s"}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={isPending}
+                      onClick={onRefresh}
+                      className="h-8 rounded-md border px-2 text-xs font-medium transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Refresh
+                    </button>
+                    <span className="text-sm text-muted-foreground">
+                      {section.items.length} request{section.items.length === 1 ? "" : "s"}
+                    </span>
+                  </div>
                 </div>
                 <div className="grid gap-3 xl:grid-cols-2">
                   {section.items.map((item) => (
@@ -886,6 +954,18 @@ function DriveLink({ url }: { url: string | null }) {
 
 function RequestCard({ item, action }: { item: ItemCreationItem; action: ReactNode }) {
   const priceStatus = getPriceStatus(item);
+  const needsErp2 = item.creationSources.includes("ERP2");
+  const needsErp1Ogf = item.addErp1OgfPrice || (item.ogfPrice !== null && !needsErp2);
+  const ogfTarget = needsErp1Ogf
+    ? `ERP1 ${money(item.erp1OgfPrice)}`
+    : needsErp2
+      ? `ERP2 ${money(item.erpOgfPrice)}`
+      : "Not required";
+  const ogfTally = needsErp1Ogf
+    ? getOgfPriceTally({ ogfPrice: item.ogfPrice, erpOgfPrice: item.erp1OgfPrice })
+    : needsErp2
+      ? getOgfPriceTally(item)
+      : "NOT_REQUIRED";
   return (
     <div className="rounded-lg border bg-background p-4 text-sm">
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
@@ -915,16 +995,18 @@ function RequestCard({ item, action }: { item: ItemCreationItem; action: ReactNo
         />
         <InfoBlock
           label="OGF Price"
-          value={`${money(item.ogfPrice)} / ERP2 ${money(item.erpOgfPrice)} (${getOgfPriceTally(item)})`}
+          value={`${money(item.ogfPrice)} / ${ogfTarget} (${ogfTally})`}
         />
         <InfoBlock
           label="ERP1 OGF"
-          value={item.addErp1OgfPrice ? money(item.erp1OgfPrice) : "Not required"}
+          value={needsErp1Ogf ? money(item.erp1OgfPrice) : "Not required"}
         />
-        <InfoBlock
-          label="GCC Price"
-          value={`${money(item.gccPrice)} / ERP2 ${money(item.erp2GccPrice)} (${getGccPriceTally(item)})`}
-        />
+        {needsErp2 && (
+          <InfoBlock
+            label="GCC Price"
+            value={`${money(item.gccPrice)} / ERP2 ${money(item.erp2GccPrice)} (${getGccPriceTally(item)})`}
+          />
+        )}
       </div>
     </div>
   );
@@ -976,12 +1058,14 @@ function AdminTable({
   onDelete,
   onUpdate,
   onAction,
+  onRefresh,
 }: {
   items: ItemCreationItem[];
   isPending: boolean;
   onDelete: (id: string) => void;
   onUpdate: (id: string, body: unknown) => void;
   onAction: (url: string, body?: unknown) => void;
+  onRefresh: () => void;
 }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editRow, setEditRow] = useState<Omit<CreateRow, "key" | "creationSources">>({
@@ -1031,9 +1115,19 @@ function AdminTable({
             Full workflow status across every team.
           </p>
         </div>
-        <span className="rounded-md bg-muted px-2.5 py-1 text-sm font-medium">
-          {items.length}
-        </span>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            disabled={isPending}
+            onClick={onRefresh}
+            className="h-9 rounded-md border bg-background px-3 text-sm font-medium transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            Refresh
+          </button>
+          <span className="rounded-md bg-muted px-2.5 py-1 text-sm font-medium">
+            {items.length}
+          </span>
+        </div>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full min-w-[1100px] text-left text-sm">
@@ -1174,7 +1268,7 @@ function AdminTable({
                   <td className="px-3 py-3"><StatusPill value={item.seoActivationStatus} /></td>
                   <td className="px-3 py-3"><StatusPill value={item.overallStatus} /></td>
                   <td className="px-3 py-3">
-                    {new Date(item.createdAt).toLocaleDateString()}
+                    {formatDate(item.createdAt)}
                   </td>
                   <td className="px-3 py-3">
                     {isEditing ? (
