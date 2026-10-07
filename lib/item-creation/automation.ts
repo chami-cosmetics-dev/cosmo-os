@@ -13,17 +13,16 @@ import { getAllOsfErpInstances, type OsfErpCredentials, type OsfErpInstance } fr
 import { normalizeSkuKey } from "@/lib/product-items/erp-priority-sync";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserContext, hasPermission } from "@/lib/rbac";
-import { normalizeShopifyStoreHandle } from "@/lib/shopify-admin";
 
 type UserContext = NonNullable<Awaited<ReturnType<typeof getCurrentUserContext>>>;
 type Tx = Prisma.TransactionClient;
-
-const SHOPIFY_API_VERSION = "2024-10";
 
 type ErpSlotSet = {
   erp1: OsfErpInstance | null;
   erp2: OsfErpInstance | null;
 };
+
+const SHOPIFY_ACTIVATION_ERP_METHOD = "item_creation.activate_shopify_product";
 
 type ErpItemWebhookPayload = {
   name?: string;
@@ -394,19 +393,27 @@ export async function updateItemCreationPrices(context: UserContext, id: string)
   const { erp1, erp2 } = await resolveErps(request.companyId);
   const operations = [
     { key: "erp1Standard" as const, erp: ItemCreationErp.ERP1, cfg: erp1?.cfg ?? null, priceList: ITEM_CREATION_PRICE_LISTS.STANDARD, rate: request.standardPrice },
+    ...(request.addErp1OgfPrice
+      ? [{ key: "erp1Ogf" as const, erp: ItemCreationErp.ERP1, cfg: erp1?.cfg ?? null, priceList: ITEM_CREATION_PRICE_LISTS.OGF, rate: request.ogfPrice }]
+      : []),
     { key: "erp2Standard" as const, erp: ItemCreationErp.ERP2, cfg: erp2?.cfg ?? null, priceList: ITEM_CREATION_PRICE_LISTS.STANDARD, rate: request.standardPrice },
     { key: "erp2Ogf" as const, erp: ItemCreationErp.ERP2, cfg: erp2?.cfg ?? null, priceList: ITEM_CREATION_PRICE_LISTS.OGF, rate: request.ogfPrice },
+    { key: "erp2Gcc" as const, erp: ItemCreationErp.ERP2, cfg: erp2?.cfg ?? null, priceList: ITEM_CREATION_PRICE_LISTS.GCC, rate: request.gccPrice },
   ];
 
   await prisma.itemCreationRequest.update({
     where: { id },
     data: {
       erp1StandardPriceStatus: "UPDATING",
+      erp1OgfPriceStatus: request.addErp1OgfPrice && request.ogfPrice ? "UPDATING" : "NOT_REQUIRED",
       erp2StandardPriceStatus: "UPDATING",
       erp2OgfPriceStatus: request.ogfPrice ? "UPDATING" : "NOT_REQUIRED",
+      erp2GccPriceStatus: request.gccPrice ? "UPDATING" : "NOT_REQUIRED",
       erp1StandardPriceError: null,
+      erp1OgfPriceError: null,
       erp2StandardPriceError: null,
       erp2OgfPriceError: null,
+      erp2GccPriceError: null,
     },
   });
 
@@ -416,9 +423,13 @@ export async function updateItemCreationPrices(context: UserContext, id: string)
     const eventBase =
       op.key === "erp1Standard"
         ? "ERP1_STANDARD_PRICE"
-        : op.key === "erp2Standard"
-          ? "ERP2_STANDARD_PRICE"
-          : "ERP2_OGF_PRICE";
+        : op.key === "erp1Ogf"
+          ? "ERP1_OGF_PRICE"
+          : op.key === "erp2Standard"
+            ? "ERP2_STANDARD_PRICE"
+            : op.key === "erp2Ogf"
+              ? "ERP2_OGF_PRICE"
+              : "ERP2_GCC_PRICE";
     try {
       if (!op.cfg) throw new Error(`${op.erp} instance is not configured`);
       const saved = await upsertItemPrice({
@@ -430,9 +441,13 @@ export async function updateItemCreationPrices(context: UserContext, id: string)
       const data =
         op.key === "erp1Standard"
           ? { erp1StandardPrice: saved.rate, erp1StandardPriceStatus: "UPDATED" as const }
-          : op.key === "erp2Standard"
-            ? { erp2StandardPrice: saved.rate, erp2StandardPriceStatus: "UPDATED" as const }
-            : { erp2OgfPrice: saved.rate, erp2OgfPriceStatus: "UPDATED" as const };
+          : op.key === "erp1Ogf"
+            ? { erp1OgfPrice: saved.rate, erp1OgfPriceStatus: "UPDATED" as const }
+            : op.key === "erp2Standard"
+              ? { erp2StandardPrice: saved.rate, erp2StandardPriceStatus: "UPDATED" as const }
+              : op.key === "erp2Ogf"
+                ? { erp2OgfPrice: saved.rate, erp2OgfPriceStatus: "UPDATED" as const }
+                : { erp2GccPrice: saved.rate, erp2GccPriceStatus: "UPDATED" as const };
       await prisma.$transaction(async (tx) => {
         await tx.itemCreationRequest.update({ where: { id }, data });
         await activity(tx, id, `${eventBase}_UPDATED`, "SYSTEM", userId(context), {
@@ -449,9 +464,13 @@ export async function updateItemCreationPrices(context: UserContext, id: string)
       const data =
         op.key === "erp1Standard"
           ? { erp1StandardPriceStatus: "FAILED" as const, erp1StandardPriceError: message.slice(0, 1000) }
-          : op.key === "erp2Standard"
-            ? { erp2StandardPriceStatus: "FAILED" as const, erp2StandardPriceError: message.slice(0, 1000) }
-            : { erp2OgfPriceStatus: "FAILED" as const, erp2OgfPriceError: message.slice(0, 1000) };
+          : op.key === "erp1Ogf"
+            ? { erp1OgfPriceStatus: "FAILED" as const, erp1OgfPriceError: message.slice(0, 1000) }
+            : op.key === "erp2Standard"
+              ? { erp2StandardPriceStatus: "FAILED" as const, erp2StandardPriceError: message.slice(0, 1000) }
+              : op.key === "erp2Ogf"
+                ? { erp2OgfPriceStatus: "FAILED" as const, erp2OgfPriceError: message.slice(0, 1000) }
+                : { erp2GccPriceStatus: "FAILED" as const, erp2GccPriceError: message.slice(0, 1000) };
       await prisma.$transaction(async (tx) => {
         await tx.itemCreationRequest.update({ where: { id }, data });
         await activity(tx, id, `${eventBase}_FAILED`, "SYSTEM", userId(context), {
@@ -469,8 +488,10 @@ export async function updateItemCreationPrices(context: UserContext, id: string)
   const refreshed = await prisma.itemCreationRequest.findUniqueOrThrow({ where: { id } });
   const requiredUpdated =
     refreshed.erp1StandardPriceStatus === "UPDATED" &&
+    (!refreshed.addErp1OgfPrice || refreshed.erp1OgfPriceStatus === "UPDATED") &&
     refreshed.erp2StandardPriceStatus === "UPDATED" &&
-    (!refreshed.ogfPrice || refreshed.erp2OgfPriceStatus === "UPDATED");
+    (!refreshed.ogfPrice || refreshed.erp2OgfPriceStatus === "UPDATED") &&
+    (!refreshed.gccPrice || refreshed.erp2GccPriceStatus === "UPDATED");
   if (requiredUpdated) {
     await prisma.$transaction(async (tx) => {
       await tx.itemCreationRequest.update({
@@ -500,15 +521,23 @@ export async function getItemCreationPricing(context: UserContext, id: string) {
     select: {
       standardPrice: true,
       ogfPrice: true,
+      gccPrice: true,
+      addErp1OgfPrice: true,
       erp1StandardPrice: true,
+      erp1OgfPrice: true,
       erp2StandardPrice: true,
       erp2OgfPrice: true,
+      erp2GccPrice: true,
       erp1StandardPriceStatus: true,
+      erp1OgfPriceStatus: true,
       erp2StandardPriceStatus: true,
       erp2OgfPriceStatus: true,
+      erp2GccPriceStatus: true,
       erp1StandardPriceError: true,
+      erp1OgfPriceError: true,
       erp2StandardPriceError: true,
       erp2OgfPriceError: true,
+      erp2GccPriceError: true,
       pricesUpdatedAt: true,
     },
   });
@@ -804,72 +833,73 @@ export async function retryPurchaseReceipt(context: UserContext, receiptId: stri
   });
 }
 
-function getShopifyToken() {
-  const token = process.env.SHOPIFY_ADMIN_ACCESS_TOKEN;
-  if (!token) throw new Error("SHOPIFY_ADMIN_ACCESS_TOKEN is not configured");
-  return token;
-}
+type ShopifyActivationResult = {
+  productId: string;
+  variantId: string;
+  alreadyActive?: boolean;
+  via: "erp_script" | "direct";
+};
 
-async function shopifyJson<T>(storeHandle: string, path: string, init?: RequestInit) {
-  const res = await fetch(`https://${storeHandle}.myshopify.com/admin/api/${SHOPIFY_API_VERSION}${path}`, {
-    ...init,
-    headers: {
-      "X-Shopify-Access-Token": getShopifyToken(),
-      "Content-Type": "application/json",
-      ...(init?.headers ?? {}),
-    },
-  });
-  const text = await res.text().catch(() => "");
-  let data: T | null = null;
-  try {
-    data = text ? (JSON.parse(text) as T) : null;
-  } catch {
-    data = null;
+function unwrapFrappeMethodResponse(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object") return {};
+  const row = value as Record<string, unknown>;
+  const message = row.message;
+  if (message && typeof message === "object" && !Array.isArray(message)) {
+    return message as Record<string, unknown>;
   }
-  if (!res.ok) throw new Error(`Shopify ${init?.method ?? "GET"} ${path} [${res.status}]: ${text.slice(0, 700)}`);
-  return data;
+  return row;
 }
 
-async function findShopifyProductBySku(company: string, sku: string) {
-  const item = await prisma.productItem.findFirst({
-    where: { companyId: company, sku: { equals: sku, mode: "insensitive" } },
-    orderBy: { updatedAt: "desc" },
-    select: {
-      shopifyProductId: true,
-      shopifyVariantId: true,
-      companyLocation: { select: { shopifyAdminStoreHandle: true, shopifyShopName: true } },
-    },
+async function activateShopifyViaErpScript(input: {
+  companyId: string;
+  itemRequestId: string;
+  sku: string;
+}): Promise<ShopifyActivationResult | null> {
+  const { erp1 } = await resolveErps(input.companyId);
+  if (!erp1) throw new Error("ERP1 instance is not configured");
+
+  const response = await erpJson<Record<string, unknown>>(erp1.cfg, `/api/method/${SHOPIFY_ACTIVATION_ERP_METHOD}`, {
+    method: "POST",
+    body: JSON.stringify({
+      sku: input.sku,
+      item_code: input.sku,
+      itemRequestId: input.itemRequestId,
+      item_request_id: input.itemRequestId,
+    }),
   });
-  if (!item) throw new Error(`No Shopify ProductItem found for SKU ${sku}`);
-  const storeHandle = normalizeShopifyStoreHandle(
-    item.companyLocation.shopifyAdminStoreHandle ?? item.companyLocation.shopifyShopName ?? "",
-  );
-  if (!storeHandle) throw new Error(`No Shopify Admin store handle configured for SKU ${sku}`);
+  const data = unwrapFrappeMethodResponse(response);
+  if (data.ok === false || data.success === false) {
+    throw new Error(String(data.error || data.message || "ERP Shopify activation script failed"));
+  }
+
+  const productId = String(data.product_id ?? data.productId ?? data.shopify_product_id ?? "").replace(/\D/g, "");
+  const variantId = String(data.variant_id ?? data.variantId ?? data.shopify_variant_id ?? "").replace(/\D/g, "");
+  if (!productId) {
+    throw new Error("ERP Shopify activation script did not return product_id");
+  }
+
   return {
-    storeHandle,
-    productId: item.shopifyProductId.replace(/\D/g, ""),
-    variantId: item.shopifyVariantId.replace(/\D/g, ""),
+    productId,
+    variantId,
+    alreadyActive: Boolean(data.already_active ?? data.alreadyActive),
+    via: "erp_script",
   };
 }
 
-async function activateShopifyProduct(storeHandle: string, productId: string) {
-  const got = await shopifyJson<{ product?: { id: number; status?: string } }>(
-    storeHandle,
-    `/products/${productId}.json?fields=id,status`,
-  );
-  if (got?.product?.status?.toLowerCase() === "active") return { alreadyActive: true };
-  await shopifyJson(storeHandle, `/products/${productId}.json`, {
-    method: "PUT",
-    body: JSON.stringify({ product: { id: Number(productId), status: "active" } }),
+async function activateShopifyForItemRequest(request: {
+  id: string;
+  companyId: string;
+  sku: string;
+  shopifyProductId: string | null;
+  shopifyVariantId: string | null;
+}): Promise<ShopifyActivationResult> {
+  const scripted = await activateShopifyViaErpScript({
+    companyId: request.companyId,
+    itemRequestId: request.id,
+    sku: request.sku,
   });
-  const confirmed = await shopifyJson<{ product?: { status?: string } }>(
-    storeHandle,
-    `/products/${productId}.json?fields=id,status`,
-  );
-  if (confirmed?.product?.status?.toLowerCase() !== "active") {
-    throw new Error("Shopify did not confirm ACTIVE status");
-  }
-  return { alreadyActive: false };
+  if (!scripted) throw new Error("ERP Shopify activation script did not return a result");
+  return scripted;
 }
 
 export async function activateItemCreationShopify(context: UserContext, id: string) {
@@ -894,18 +924,13 @@ export async function activateItemCreationShopify(context: UserContext, id: stri
   });
 
   try {
-    const found =
-      request.shopifyProductId && request.shopifyVariantId
-        ? { storeHandle: "", productId: request.shopifyProductId, variantId: request.shopifyVariantId }
-        : await findShopifyProductBySku(request.companyId, request.sku);
-    const storeHandle = found.storeHandle || (await findShopifyProductBySku(request.companyId, request.sku)).storeHandle;
-    const result = await activateShopifyProduct(storeHandle, found.productId);
+    const result = await activateShopifyForItemRequest(request);
     await prisma.$transaction(async (tx) => {
       await tx.itemCreationRequest.update({
         where: { id },
         data: {
-          shopifyProductId: found.productId,
-          shopifyVariantId: found.variantId,
+          shopifyProductId: result.productId,
+          shopifyVariantId: result.variantId || request.shopifyVariantId,
           shopifyActivationStatus: "ACTIVE",
           shopifyActivatedAt: new Date(),
           shopifyActivationError: null,
@@ -916,9 +941,10 @@ export async function activateItemCreationShopify(context: UserContext, id: stri
       await activity(tx, id, "STORES_DONE", "USER", userId(context), { itemCode: request.sku });
       await activity(tx, id, "SHOPIFY_ACTIVATED", "SYSTEM", userId(context), {
         itemCode: request.sku,
-        productId: found.productId,
-        variantId: found.variantId,
+        productId: result.productId,
+        variantId: result.variantId || request.shopifyVariantId || "",
         alreadyActive: result.alreadyActive,
+        via: result.via,
       });
     });
     return { ok: true };
