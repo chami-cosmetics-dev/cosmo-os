@@ -60,6 +60,15 @@ const sampleScan = {
     missingOgfCount: 1,
     missingBothCount: 0,
   },
+  standardMismatches: [
+    {
+      sku: "C-1",
+      itemName: "Item C",
+      erp1Rate: "1500.00",
+      erp2Rate: "1400.00",
+      diff: "100.00",
+    },
+  ],
 };
 
 describe("classifyPriceGap", () => {
@@ -99,6 +108,24 @@ describe("buildStockPriceMissingEmailContent", () => {
     expect(built.html).toContain("VAT - Selling is optional");
     expect(built.html).toContain("A-1");
     expect(built.html).toContain("B-1");
+    expect(built.subject).toContain("std mismatch 1");
+    expect(built.html).toContain("Standard Selling mismatch");
+    expect(built.html).toContain("C-1");
+    expect(built.html).toContain("1500.00");
+    expect(built.html).toContain("1400.00");
+  });
+
+  it("appends mismatch section when a saved template lacks the placeholder", () => {
+    const built = buildStockPriceMissingEmailContent({
+      companyName: "Cosmetics.lk",
+      subjectTemplate: "{{reportDate}} — gaps ERP1 {{erp1Count}}",
+      bodyHtmlTemplate: "<p>ERP1 {{erp1Count}}</p><p>Cosmo OS automated report.</p>",
+      now: new Date("2026-09-22T04:00:00.000Z"),
+      scan: sampleScan,
+    });
+    expect(built.subject).toContain("std mismatch 1");
+    expect(built.html).toContain("C-1");
+    expect(built.html.indexOf("C-1")).toBeLessThan(built.html.indexOf("Cosmo OS automated report"));
   });
 });
 
@@ -106,12 +133,18 @@ describe("buildStockPriceMissingWorkbook", () => {
   it("writes one sheet per ERP with fixed names", () => {
     const buffer = buildStockPriceMissingWorkbook(sampleScan);
     const wb = XLSX.read(buffer, { type: "buffer" });
-    expect(wb.SheetNames).toEqual(["ERP1", "ERP2"]);
+    expect(wb.SheetNames).toEqual(["ERP1", "ERP2", "Std mismatch"]);
     const sheet2 = XLSX.utils.sheet_to_json<Record<string, unknown>>(
       wb.Sheets["ERP2"]!,
     );
     expect(sheet2[0]?.SKU).toBe("B-1");
     expect(sheet2[0]?.Gap).toBe("OGF");
+    const mismatch = XLSX.utils.sheet_to_json<Record<string, unknown>>(
+      wb.Sheets["Std mismatch"]!,
+    );
+    expect(mismatch[0]?.SKU).toBe("C-1");
+    expect(mismatch[0]?.["ERP1 Standard Selling"]).toBe("1500.00");
+    expect(mismatch[0]?.["ERP2 Standard Selling"]).toBe("1400.00");
   });
 
   it("builds safe file name", () => {

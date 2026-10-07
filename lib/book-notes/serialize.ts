@@ -4,6 +4,7 @@ import {
 } from "@/lib/book-notes/lock";
 import {
   aggregateSplitLines,
+  normalizeMintpayReference,
   parseStoredSplitLines,
 } from "@/lib/book-notes/split-lines";
 import type {
@@ -55,6 +56,8 @@ export function serializeBookNoteRow(row: {
   cardReceiptRefLast4?: string | null;
   koko: unknown;
   kokoReference?: string | null;
+  mintpay: unknown;
+  mintpayReference?: string | null;
   bankTransfer: unknown;
   specialNote?: string | null;
   splitLines?: unknown;
@@ -65,6 +68,7 @@ export function serializeBookNoteRow(row: {
   const cash = fromSplit ? fromSplit.cash : money(row.cash);
   const card = fromSplit ? fromSplit.card : money(row.card);
   const koko = fromSplit ? fromSplit.koko : money(row.koko);
+  const mintpay = fromSplit ? fromSplit.mintpay : money(row.mintpay);
   const bank_transfer = fromSplit ? fromSplit.bankTransfer : money(row.bankTransfer);
   const ref = fromSplit
     ? fromSplit.cardReceiptRefLast4
@@ -73,10 +77,13 @@ export function serializeBookNoteRow(row: {
   const kokoRef = fromSplit
     ? ""
     : (row.kokoReference?.replace(/\s+/g, "") ?? "");
+  const mintpayRef = fromSplit
+    ? ""
+    : (normalizeMintpayReference(row.mintpayReference) ?? "");
   const note = row.specialNote?.trim() ?? "";
   const nonzero = split_lines
     ? split_lines.filter((sl) => sl.amount > 0).length
-    : [cash, card, koko, bank_transfer].filter((a) => a > 0).length;
+    : [cash, card, koko, mintpay, bank_transfer].filter((a) => a > 0).length;
   return {
     idx_no: row.idxNo,
     sales_invoice: row.salesInvoice,
@@ -85,8 +92,11 @@ export function serializeBookNoteRow(row: {
     card_receipt_ref_last4,
     koko,
     koko_reference: kokoRef.length > 0 ? kokoRef : null,
+    mintpay,
+    mintpay_reference: mintpayRef.length > 0 ? mintpayRef : null,
     bank_transfer,
-    row_total: Math.round((cash + card + koko + bank_transfer) * 100) / 100,
+    row_total:
+      Math.round((cash + card + koko + mintpay + bank_transfer) * 100) / 100,
     is_multi_method: nonzero > 1,
     special_note: note.length > 0 ? note : null,
     split_lines,
@@ -129,6 +139,8 @@ export function serializeBookNoteDay(input: {
     cardReceiptRefLast4?: string | null;
     koko: unknown;
     kokoReference?: string | null;
+    mintpay: unknown;
+    mintpayReference?: string | null;
     bankTransfer: unknown;
     specialNote?: string | null;
     splitLines?: unknown;

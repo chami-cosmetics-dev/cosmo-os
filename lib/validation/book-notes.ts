@@ -3,7 +3,9 @@ import { z } from "zod";
 import {
   BOOK_NOTE_ERP_PAYMENT_METHODS,
   missingKokoSplitReference,
+  missingMintpaySplitReference,
   normalizeKokoOrderReference,
+  normalizeMintpayReference,
 } from "@/lib/book-notes/split-lines";
 import { cuidSchema, LIMITS, trimmedString } from "@/lib/validation";
 
@@ -18,6 +20,7 @@ export const BOOK_NOTE_ISSUE_STATUSES = [
   "sales_invoice_not_found",
   "no_invoice_number",
   "koko_ref_missing",
+  "mintpay_ref_missing",
 ] as const;
 
 export type BookNoteIssueStatus = (typeof BOOK_NOTE_ISSUE_STATUSES)[number];
@@ -111,6 +114,12 @@ const bookNoteSplitLineSchema = z.object({
     .optional()
     .nullable()
     .transform((v) => normalizeKokoOrderReference(v)),
+  mintpayReference: z
+    .string()
+    .max(120)
+    .optional()
+    .nullable()
+    .transform((v) => normalizeMintpayReference(v)),
   bankReference: trimmedString(0, 120).optional().nullable(),
 });
 
@@ -137,6 +146,13 @@ export const bookNotePutRowSchema = z
       .optional()
       .nullable()
       .transform((v) => normalizeKokoOrderReference(v)),
+    mintpay: moneySchema.default(0),
+    mintpayReference: z
+      .string()
+      .max(120)
+      .optional()
+      .nullable()
+      .transform((v) => normalizeMintpayReference(v)),
     bankTransfer: moneySchema.default(0),
     specialNote: z
       .string()
@@ -171,6 +187,15 @@ export const bookNotePutRowSchema = z
           path: ["splitLines", missingKoko, "kokoReference"],
         });
       }
+      const missingMintpay = missingMintpaySplitReference(row.splitLines!);
+      if (missingMintpay != null) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            "MintPay Order ID is required when a MintPay amount is entered",
+          path: ["splitLines", missingMintpay, "mintpayReference"],
+        });
+      }
       row.splitLines!.forEach((sl, i) => {
         if (sl.amount <= 0) return;
         if (sl.paymentMethod === "Card" && sl.cardLast4 && !/^\d{4}$/.test(sl.cardLast4)) {
@@ -189,6 +214,15 @@ export const bookNotePutRowSchema = z
         code: z.ZodIssueCode.custom,
         message: "KOKO order reference is required when KOKO amount is entered",
         path: ["kokoReference"],
+      });
+    }
+
+    if (row.mintpay > 0 && !row.mintpayReference) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "MintPay Order ID is required when a MintPay amount is entered",
+        path: ["mintpayReference"],
       });
     }
 

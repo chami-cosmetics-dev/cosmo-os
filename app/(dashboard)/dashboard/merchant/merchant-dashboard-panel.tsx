@@ -477,7 +477,9 @@ export function MerchantDashboardPanel({ initialData }: Props) {
   const [wishCode, setWishCode] = useState("");
   const [wishMessage, setWishMessage] = useState("");
   const [callUpdateRow, setCallUpdateRow] = useState<CallQueueRowDto | null>(null);
-  const [callOutcome, setCallOutcome] = useState(CALL_CENTER_UNCONTACTED_CATEGORY);
+  const [callOutcome, setCallOutcome] = useState<string>(
+    CALL_CENTER_UNCONTACTED_CATEGORY,
+  );
   const [callRemark, setCallRemark] = useState("");
   const [notInterestedRow, setNotInterestedRow] = useState<{
     contactId: string;

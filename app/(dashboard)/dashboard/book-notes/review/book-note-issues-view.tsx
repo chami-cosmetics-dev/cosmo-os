@@ -619,6 +619,9 @@ function IssueDetail({
                     {sl.amount_display ?? sl.amount}
                   </span>
                   {sl.card_last_4 ? ` · ****${sl.card_last_4}` : ""}
+                  {sl.mintpay_reference
+                    ? ` · MintPay Order ID ${sl.mintpay_reference}`
+                    : ""}
                 </li>
               ))}
             </ul>
