@@ -17,6 +17,7 @@ import {
   type CsvPrimitive,
 } from "@/lib/reports/csv";
 import { DUMP_TOTAL_HEADER } from "@/lib/reports/dump-download";
+import { firstPurchaseAtByContactIds } from "@/lib/customer-insight/first-purchase";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
 
@@ -228,6 +229,7 @@ export async function GET(request: NextRequest) {
     "assigned_merchant",
     ...(brand ? (["brand_spend"] as const) : []),
     "last_purchased_date",
+    "first_purchased_date",
     "created_at",
     "updated_at",
     "updated_by",
@@ -245,6 +247,7 @@ export async function GET(request: NextRequest) {
     "total_purchase_value",
     "last_order_date",
     "last_purchased_date",
+    "first_purchased_date",
     "created_at",
     "updated_at",
     "updated_by",
@@ -265,6 +268,10 @@ export async function GET(request: NextRequest) {
           if (request.signal.aborted) {
             throw new Error("Export aborted");
           }
+          const firstPurchaseById = await firstPurchaseAtByContactIds(
+            companyId,
+            batch.map((contact) => contact.id)
+          );
           const lines: string[] = [];
           for (const contact of batch) {
             contactNo += 1;
@@ -297,6 +304,7 @@ export async function GET(request: NextRequest) {
                   ? purchaseLast
                   : contact.lastPurchaseAt
               ),
+              first_purchased_date: formatIsoDate(firstPurchaseById.get(contact.id)),
               created_at: formatIsoDateTime(contact.createdAt),
               updated_at: formatIsoDateTime(contact.updatedAt),
               updated_by: contact.allocationUpdates[0]?.merchantName ?? "",

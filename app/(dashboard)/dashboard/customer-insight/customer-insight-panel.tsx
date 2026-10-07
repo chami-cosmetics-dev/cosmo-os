@@ -302,6 +302,7 @@ type CallQueueRow = {
   assignedMerchant: string | null;
   lifetimeTotal: number;
   lastPurchaseAt: string | null;
+  firstPurchaseAt?: string | null;
   lastContactedAt: string | null;
   queued: boolean;
   hidden?: boolean;
@@ -725,17 +726,22 @@ export function CustomerInsightPanel({
   const [queueEligibleTotal, setQueueEligibleTotal] = useState(0);
   const [queueAllocatedTotal, setQueueAllocatedTotal] = useState(0);
   const [queueReport, setQueueReport] = useState<{
+    mode?: "sales" | "unallocated";
+    total?: number;
     rows: Array<{
-      queueId: string;
+      queueId?: string;
+      contactId?: string;
       name: string;
       phoneNumber: string | null;
-      merchantLabel: string;
-      assignedAt: string;
-      status: string;
-      category: string | null;
-      lifetimeTotalAtAssign: number;
-      salesAfterAssignment: number;
-      salesAfterContact: number;
+      lastContactedAt?: string | null;
+      firstPurchaseAt?: string | null;
+      merchantLabel?: string;
+      assignedAt?: string;
+      status?: string;
+      category?: string | null;
+      lifetimeTotalAtAssign?: number;
+      salesAfterAssignment?: number;
+      salesAfterContact?: number;
       loyaltyStage?: string | null;
     }>;
     byMerchant: Array<{
@@ -2713,6 +2719,14 @@ export function CustomerInsightPanel({
                           </span>
                         </span>
                         <span className="rounded-md bg-muted/60 px-2 py-1 text-[11px] text-muted-foreground">
+                          First purchased{" "}
+                          <span className="font-medium text-foreground">
+                            {row.firstPurchaseAt
+                              ? formatAppDate(row.firstPurchaseAt, "—")
+                              : "never"}
+                          </span>
+                        </span>
+                        <span className="rounded-md bg-muted/60 px-2 py-1 text-[11px] text-muted-foreground">
                           Last contacted{" "}
                           <span className="font-medium text-foreground">
                             {row.lastContactedAt
@@ -4134,7 +4148,8 @@ export function CustomerInsightPanel({
                         {row.phoneNumber ?? "No phone"} · tot {formatMoney(row.lifetimeTotal)}
                       </p>
                       <p className="text-muted-foreground text-xs">
-                        Last contacted {formatQueueDate(row.lastContactedAt)} · last purchased{" "}
+                        Last contacted {formatQueueDate(row.lastContactedAt)} · first purchased{" "}
+                        {formatQueueDate(row.firstPurchaseAt ?? null)} · last purchased{" "}
                         {formatQueueDate(row.lastPurchaseAt)}
                       </p>
                     </div>
@@ -4871,7 +4886,8 @@ export function CustomerInsightPanel({
               all allocated contacts. Push labels do not show amounts. Hidden logic: purchased or contacted
               within 2 months, 7-day Not Responding, Black List / Wrong Number,
               already queued (no allocation cooling). Not allocated = no merchant, with a
-              phone. Export Excel downloads the filtered list (same filters as Load).
+              phone. Export Excel downloads that filtered list (same filters as Load).
+              Export report is the sales report only.
               Import Excel reallocates
               Contact Master to the merchant, queues them, and shows Newly
               allocated (hidden if contacted within 2 months). Call update
@@ -5299,7 +5315,8 @@ export function CustomerInsightPanel({
                               {formatMoney(row.lifetimeTotal)}
                             </span>
                             <span className="text-muted-foreground block text-xs">
-                              Last contacted {formatQueueDate(row.lastContactedAt)} · last
+                              Last contacted {formatQueueDate(row.lastContactedAt)} · first
+                              purchased {formatQueueDate(row.firstPurchaseAt ?? null)} · last
                               purchased {formatQueueDate(row.lastPurchaseAt)}
                               {row.loyaltyStage
                                 ? ` · ${row.loyaltyStage}`
@@ -5414,9 +5431,9 @@ export function CustomerInsightPanel({
                       </thead>
                       <tbody>
                         {queueReport.rows.map((row) => (
-                          <tr key={row.queueId} className="border-t">
+                          <tr key={row.queueId ?? row.contactId ?? row.name} className="border-t">
                             <td className="px-2 py-1 whitespace-nowrap">
-                              {formatQueueDate(row.assignedAt)}
+                              {formatQueueDate(row.assignedAt ?? null)}
                             </td>
                             <td className="px-2 py-1">{row.merchantLabel}</td>
                             <td className="px-2 py-1">{row.name}</td>
@@ -5425,10 +5442,10 @@ export function CustomerInsightPanel({
                               {row.loyaltyStage ?? "—"}
                             </td>
                             <td className="px-2 py-1 text-right">
-                              {formatMoney(row.salesAfterAssignment)}
+                              {formatMoney(row.salesAfterAssignment ?? 0)}
                             </td>
                             <td className="px-2 py-1 text-right">
-                              {formatMoney(row.salesAfterContact)}
+                              {formatMoney(row.salesAfterContact ?? 0)}
                             </td>
                           </tr>
                         ))}

@@ -45,6 +45,7 @@ export type ContactDumpSource = {
   contactSaved: boolean | null;
   whatsappAllowed: boolean | null;
   lastPurchaseAt: Date | null;
+  firstPurchaseAt?: Date | null;
   createdAt: Date;
   updatedAt: Date;
   emails: { email: string }[];
@@ -144,7 +145,8 @@ export const CONTACT_DUMP_HEADERS = [
   "NEW ALLOCATION",
   "Contact Saved By Customer",
   "Allowed to Whatsapp Msg",
-  "Last Purchased Date",
+    "Last Purchased Date",
+  "First Purchased Date",
   "Main Profile No",
   "loyalty_tier",
   "loyalty_assigned_at",
@@ -211,6 +213,7 @@ export function buildContactDumpRow(contact: ContactDumpSource) {
     "Contact Saved By Customer": dumpYesNo(contact.contactSaved),
     "Allowed to Whatsapp Msg": dumpYesNo(contact.whatsappAllowed),
     "Last Purchased Date": dumpDate(contact.lastPurchaseAt),
+    "First Purchased Date": dumpDate(contact.firstPurchaseAt),
     "Main Profile No": phones.primary,
     loyalty_tier: dumpText(contact.loyaltyAssignedTier),
     loyalty_assigned_at: dumpDateTime(contact.loyaltyAssignedAt),
