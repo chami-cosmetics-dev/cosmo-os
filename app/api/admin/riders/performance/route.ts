@@ -75,6 +75,7 @@ export async function GET(request: NextRequest) {
         riderId: true,
         completedAt: true,
         manualIncentiveLabelKey: true,
+        manualIncentiveAmount: true,
         manualIncentiveLabel: true,
         rider: { select: { name: true, knownName: true } },
         order: {
@@ -138,7 +139,8 @@ export async function GET(request: NextRequest) {
       task.order,
       incentiveContext.chargeByLabelKey,
       incentiveContext.zoneMembersByZone,
-      task.manualIncentiveLabelKey
+      task.manualIncentiveLabelKey,
+      task.manualIncentiveAmount
     );
 
     if (

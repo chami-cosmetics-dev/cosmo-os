@@ -126,6 +126,8 @@ export type FilterQueryInput = {
   purchasedFrom?: string;
   /** Last purchase on or before this Colombo calendar day (YYYY-MM-DD). */
   purchasedTo?: string;
+  /** ContactMaster.category — latest call update status. */
+  callUpdateStatus?: string;
   page: number;
   pageSize: number;
   /** When true, return all matches instead of one page. */
@@ -377,6 +379,19 @@ async function buildAllocationWhere(input: FilterQueryInput): Promise<{
         ? [where.AND]
         : [];
     where.AND = [...existingAnd, { loyaltyOutreachStatus: "not_interested" }];
+  }
+
+  const callUpdateStatus = input.callUpdateStatus?.trim();
+  if (callUpdateStatus) {
+    const existingAnd = Array.isArray(where.AND)
+      ? (where.AND as unknown[])
+      : where.AND
+        ? [where.AND]
+        : [];
+    where.AND = [
+      ...existingAnd,
+      { category: { equals: callUpdateStatus } },
+    ];
   }
 
   const purchasedBounds = purchasedAtBounds(

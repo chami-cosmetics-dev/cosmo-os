@@ -64,6 +64,7 @@ export async function GET(request: NextRequest) {
     noPurchaseTo: queryParam(sp.get("noPurchaseTo")),
     purchasedFrom: queryParam(sp.get("purchasedFrom")),
     purchasedTo: queryParam(sp.get("purchasedTo")),
+    callUpdateStatus: queryParam(sp.get("callUpdateStatus")),
     noPurchaseMonths: queryParam(sp.get("noPurchaseMonths")),
   });
   if (!parsed.success) {
@@ -124,6 +125,7 @@ export async function GET(request: NextRequest) {
     noPurchaseTo: parsed.data.noPurchaseTo,
     purchasedFrom: parsed.data.purchasedFrom,
     purchasedTo: parsed.data.purchasedTo,
+    callUpdateStatus: parsed.data.callUpdateStatus,
     noPurchaseMonths: parsed.data.noPurchaseMonths,
     page: 1,
     pageSize: 25,

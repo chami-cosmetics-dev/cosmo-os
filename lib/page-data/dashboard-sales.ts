@@ -259,6 +259,7 @@ export function isDashboardSalesOrderEligible(
 
   // bill_done_in_dates / bill_done_old — date filter already scopes invoiceCompleteAt.
   if (normalizeStatus(order.financialStatus) === "voided") return false;
+  if (normalizeStatus(order.fulfillmentStage) === "returned_to_store") return false;
   if (isPosOrder(order.sourceName)) return true;
   return normalizeStatus(order.fulfillmentStatus) === "fulfilled";
 }

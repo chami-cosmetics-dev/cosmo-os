@@ -148,6 +148,7 @@ export function resolveRiderIncentiveFromRules(input: {
   shippingCity?: string | null;
   zoneMembersByZone?: Map<string, Set<string>>;
   manualIncentiveLabelKey?: string | null;
+  manualIncentiveAmount?: Prisma.Decimal | number | string | null;
 }): Prisma.Decimal {
   return resolveRiderIncentiveMatch(input).amount;
 }
@@ -155,10 +156,11 @@ export function resolveRiderIncentiveFromRules(input: {
 /**
  * Resolve rider incentive.
  * 1) Excluded labels (Pick Up / FREESHIP / STAFFDC) → no pay.
- * 2) Staff manual district key → charge sheet.
- * 3) Label lookup keys against charge sheet (DTD peel included).
- * 4) Zone A/B → shipping city → charge sheet (zone membership when loaded).
- * 5) Generic ERP "Delivery" or missing label → shipping city → charge sheet.
+ * 2) Staff-typed manual amount → that pay.
+ * 3) Staff manual district key → charge sheet.
+ * 4) Label lookup keys against charge sheet (DTD peel included).
+ * 5) Zone A/B → shipping city → charge sheet (zone membership when loaded).
+ * 6) Generic ERP "Delivery" or missing label → shipping city → charge sheet.
  */
 export function resolveRiderIncentiveMatch(input: {
   shippingRuleLabel: string | null | undefined;
@@ -166,6 +168,7 @@ export function resolveRiderIncentiveMatch(input: {
   shippingCity?: string | null;
   zoneMembersByZone?: Map<string, Set<string>>;
   manualIncentiveLabelKey?: string | null;
+  manualIncentiveAmount?: Prisma.Decimal | number | string | null;
 }): {
   amount: Prisma.Decimal;
   matched: boolean;
@@ -179,6 +182,15 @@ export function resolveRiderIncentiveMatch(input: {
       matched: true,
       labelKey: normalizeShippingRuleLabelKey(input.shippingRuleLabel),
       excludedFromIncentive: true,
+    };
+  }
+
+  if (input.manualIncentiveAmount != null && String(input.manualIncentiveAmount).trim() !== "") {
+    return {
+      amount: riderDeliveryChargeAmount(input.manualIncentiveAmount),
+      matched: true,
+      labelKey: null,
+      manualOverride: true,
     };
   }
 

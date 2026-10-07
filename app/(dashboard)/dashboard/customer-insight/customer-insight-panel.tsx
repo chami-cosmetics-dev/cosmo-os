@@ -655,6 +655,7 @@ export function CustomerInsightPanel({
   const [filterNoPurchaseTo, setFilterNoPurchaseTo] = useState("");
   const [filterPurchasedFrom, setFilterPurchasedFrom] = useState("");
   const [filterPurchasedTo, setFilterPurchasedTo] = useState("");
+  const [filterCallUpdateStatus, setFilterCallUpdateStatus] = useState("");
   const [filterMin, setFilterMin] = useState("");
   const [filterMax, setFilterMax] = useState("");
   const [filterResults, setFilterResults] = useState<AllocatedFilterItemDto[] | null>(
@@ -714,6 +715,8 @@ export function CustomerInsightPanel({
   const [queueNotContacted, setQueueNotContacted] = useState(false);
   const [queueNotInterestedInLoyalty, setQueueNotInterestedInLoyalty] =
     useState(false);
+  const [queueNotAllocated, setQueueNotAllocated] = useState(false);
+  const [queueCallUpdateStatus, setQueueCallUpdateStatus] = useState("");
   const [queueHideFilter, setQueueHideFilter] = useState<"all" | "eligible" | "hidden">(
     "all"
   );
@@ -1208,6 +1211,10 @@ export function CustomerInsightPanel({
     }
     if (queueNotContacted) params.set("notContacted", "true");
     if (queueNotInterestedInLoyalty) params.set("notInterestedInLoyalty", "true");
+    if (queueNotAllocated) params.set("notAllocated", "true");
+    if (queueCallUpdateStatus.trim()) {
+      params.set("callUpdateStatus", queueCallUpdateStatus.trim());
+    }
     params.set("hideFilter", queueHideFilter);
   }
 
@@ -1238,7 +1245,9 @@ export function CustomerInsightPanel({
       Boolean(queueAssignedFrom.trim()) ||
       Boolean(queueAssignedTo.trim()) ||
       queueNotContacted ||
-      queueNotInterestedInLoyalty;
+      queueNotInterestedInLoyalty ||
+      queueNotAllocated ||
+      Boolean(queueCallUpdateStatus.trim());
     if (!queueMerchant.trim() && !hasQueueFilter) {
       notify.error(
         "Select a merchant, or add a brand / other filter to load all allocated contacts."
@@ -1248,7 +1257,7 @@ export function CustomerInsightPanel({
     setBusyKey("queue-candidates");
     try {
       const params = new URLSearchParams();
-      if (queueMerchant.trim()) {
+      if (queueMerchant.trim() && !queueNotAllocated) {
         params.set("assignedMerchant", queueMerchant.trim());
       }
       params.set("page", String(page));
@@ -1331,14 +1340,16 @@ export function CustomerInsightPanel({
   }
 
   async function selectQueueEligibleCount(limit?: number) {
-    if (!queueMerchant.trim()) {
+    if (!queueMerchant.trim() && !queueNotAllocated) {
       notify.error("Select a merchant.");
       return;
     }
     setBusyKey("queue-eligible");
     try {
       const params = new URLSearchParams();
-      params.set("assignedMerchant", queueMerchant.trim());
+      if (queueMerchant.trim() && !queueNotAllocated) {
+        params.set("assignedMerchant", queueMerchant.trim());
+      }
       appendQueueFilterParams(params);
       if (limit != null) params.set("limit", String(limit));
       const res = await fetch(
@@ -1366,7 +1377,9 @@ export function CustomerInsightPanel({
     setBusyKey("queue-export");
     try {
       const params = new URLSearchParams();
-      if (queueMerchant.trim()) params.set("assignedMerchant", queueMerchant.trim());
+      if (queueMerchant.trim() && !queueNotAllocated) {
+        params.set("assignedMerchant", queueMerchant.trim());
+      }
       appendQueueFilterParams(params);
       params.set("kind", "filtered");
       const res = await fetch(
@@ -1923,6 +1936,9 @@ export function CustomerInsightPanel({
     if (filterPurchasedTo.trim()) {
       params.set("purchasedTo", filterPurchasedTo.trim());
     }
+    if (filterCallUpdateStatus.trim()) {
+      params.set("callUpdateStatus", filterCallUpdateStatus.trim());
+    }
     if (filterMin.trim()) params.set("minTotal", filterMin.trim());
     if (filterMax.trim()) params.set("maxTotal", filterMax.trim());
     params.set("page", String(page));
@@ -2073,6 +2089,7 @@ export function CustomerInsightPanel({
         filterNoPurchaseTo.trim() ||
         filterPurchasedFrom.trim() ||
         filterPurchasedTo.trim() ||
+        filterCallUpdateStatus.trim() ||
         filterMin.trim() ||
         filterMax.trim() ||
         filterResults
@@ -2100,6 +2117,7 @@ export function CustomerInsightPanel({
     setFilterNoPurchaseTo("");
     setFilterPurchasedFrom("");
     setFilterPurchasedTo("");
+    setFilterCallUpdateStatus("");
     setFilterMin("");
     setFilterMax("");
     setFilterResults(null);
@@ -2308,6 +2326,22 @@ export function CustomerInsightPanel({
                 disabled={isBusy}
                 onChange={setFilterCity}
               />
+            </label>
+            <label className="space-y-1 text-sm">
+              <span className="text-muted-foreground">Call update status</span>
+              <select
+                className="border-input bg-background h-9 w-full rounded-md border px-2 text-sm"
+                value={filterCallUpdateStatus}
+                disabled={isBusy}
+                onChange={(e) => setFilterCallUpdateStatus(e.target.value)}
+              >
+                <option value="">Any</option>
+                {CALL_CENTER_CATEGORY_VALUES.map((status) => (
+                  <option key={status} value={status}>
+                    {status}
+                  </option>
+                ))}
+              </select>
             </label>
             {canExportFilteredCsv ? (
               <label className="space-y-1 text-sm">
@@ -4836,8 +4870,9 @@ export function CustomerInsightPanel({
               filters AND (Push to Gold + Push to Platinum = either band). Merchant Any =
               all allocated contacts. Push labels do not show amounts. Hidden logic: purchased or contacted
               within 2 months, 7-day Not Responding, Black List / Wrong Number,
-              already queued (no allocation cooling). Export Excel downloads the filtered
-              allocated list (same filters as Load). Import Excel reallocates
+              already queued (no allocation cooling). Not allocated = no merchant, with a
+              phone. Export Excel downloads the filtered list (same filters as Load).
+              Import Excel reallocates
               Contact Master to the merchant, queues them, and shows Newly
               allocated (hidden if contacted within 2 months). Call update
               clears the row and updates last contacted. Assign / Import still need a merchant.
@@ -4874,6 +4909,22 @@ export function CustomerInsightPanel({
                   <option value="standard">Standard</option>
                   <option value="gold">Gold</option>
                   <option value="platinum">Platinum</option>
+                </select>
+              </label>
+              <label className="min-w-0 space-y-1 text-sm">
+                <span className="text-muted-foreground">Call update status</span>
+                <select
+                  className="border-input bg-background h-9 w-full rounded-md border px-2 text-sm"
+                  value={queueCallUpdateStatus}
+                  disabled={isBusy}
+                  onChange={(e) => setQueueCallUpdateStatus(e.target.value)}
+                >
+                  <option value="">Any</option>
+                  {CALL_CENTER_CATEGORY_VALUES.map((status) => (
+                    <option key={status} value={status}>
+                      {status}
+                    </option>
+                  ))}
                 </select>
               </label>
               <label className="min-w-0 space-y-1 text-sm">
@@ -4997,6 +5048,15 @@ export function CustomerInsightPanel({
                     }
                   />
                   Not interested in loyalty
+                </label>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={queueNotAllocated}
+                    disabled={isBusy}
+                    onChange={(e) => setQueueNotAllocated(e.target.checked)}
+                  />
+                  Not allocated
                 </label>
               </div>
             </div>

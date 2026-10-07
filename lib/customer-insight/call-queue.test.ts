@@ -5,7 +5,17 @@ import {
   compareOldestContactedFirst,
   compareOldestPurchaseFirst,
   takeFirstEligibleContactIds,
+  unassignedMerchantWhere,
 } from "@/lib/customer-insight/call-queue";
+
+describe("unassignedMerchantWhere", () => {
+  it("keeps contacts with no merchant", () => {
+    expect(unassignedMerchantWhere("co_1")).toEqual({
+      companyId: "co_1",
+      OR: [{ assignedMerchant: null }, { assignedMerchant: "" }],
+    });
+  });
+});
 
 describe("compareOldestContactedFirst", () => {
   it("puts never-contacted first", () => {

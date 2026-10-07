@@ -13,6 +13,10 @@ export const REMINDER_BUBBLE_PERMISSIONS = [
     category: "merchant_payment_approval" as const,
   },
   {
+    key: "reminders.merchant_dispatch_pending",
+    category: "merchant_dispatch_pending" as const,
+  },
+  {
     key: "reminders.add_samples",
     category: "add_samples" as const,
   },
@@ -59,6 +63,7 @@ const REMINDER_BUBBLE_LABELS: Record<ReminderBubbleCategory, string> = {
   erp_sync_warning: "ERP sync warnings",
   finance_approval: "Finance approvals",
   merchant_payment_approval: "My payment approvals",
+  merchant_dispatch_pending: "My dispatch pending orders",
   add_samples: "Samples / free issue",
   print: "Print",
   ready_dispatch: "Ready to dispatch",

@@ -21,6 +21,7 @@ type TaskReminder = {
   body: string;
   href: string;
   waitingHours: number;
+  placedAgeLabel?: string;
   orderId?: string;
   invoiceLabel: string;
 };
@@ -36,6 +37,7 @@ const CATEGORY_ORDER = [
   "erp_sync_warning",
   "finance_approval",
   "merchant_payment_approval",
+  "merchant_dispatch_pending",
   "add_samples",
   "print",
   "ready_dispatch",
@@ -50,6 +52,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   erp_sync_warning: "ERP sync warnings",
   finance_approval: "Finance approvals",
   merchant_payment_approval: "My payment approvals",
+  merchant_dispatch_pending: "My dispatch pending orders",
   add_samples: "Samples / free issue",
   print: "Print",
   rearrange_dispatch: "Rearrange dispatch",
@@ -64,6 +67,7 @@ const CATEGORY_NODE_LABELS: Record<string, string> = {
   erp_sync_warning: "Warning",
   finance_approval: "Finance approvals",
   merchant_payment_approval: "My payment approvals",
+  merchant_dispatch_pending: "My dispatch pending",
   add_samples: "Samples",
   print: "Print",
   rearrange_dispatch: "Rearrange",
@@ -232,6 +236,70 @@ function PurchasingRopDownloadPanel({
           Open Order Support File page
         </Link>
       </div>
+    </ReminderPanelShell>
+  );
+}
+
+function MerchantDispatchPendingPanel({
+  items,
+  totalCount,
+  onClose,
+}: {
+  items: TaskReminder[];
+  totalCount?: number;
+  onClose: () => void;
+}) {
+  const pendingCount = totalCount ?? items.length;
+  const listCapped = totalCount != null && totalCount > items.length;
+
+  return (
+    <ReminderPanelShell
+      title="My dispatch pending orders"
+      subtitle={
+        <>
+          <span className="text-red-400">{pendingCount}</span> pending
+          {listCapped ? <> · showing {items.length}</> : null} · time since placed
+        </>
+      }
+      onClose={onClose}
+      footer={
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="w-full font-mono text-cyan-300 hover:bg-cyan-500/10 hover:text-cyan-100"
+          onClick={onClose}
+        >
+          <ChevronDown className="mr-1 size-4" />
+          MINIMIZE_HUD
+        </Button>
+      }
+    >
+      <ul className="max-h-[min(24rem,55vh)] space-y-2 overflow-y-auto px-3 py-3">
+        {items.length === 0 ? (
+          <li className="rounded-md border border-dashed border-cyan-500/25 bg-slate-950/30 px-4 py-8 text-center text-sm text-cyan-200/70">
+            No pending orders. Store dispatch removes an order from this list.
+          </li>
+        ) : (
+          items.map((item) => (
+            <li key={item.id}>
+              <Link
+                href={item.href}
+                className={cn(
+                  "block rounded-md border border-cyan-500/20 bg-slate-950/50 px-3 py-2.5 transition-all",
+                  "hover:-translate-y-0.5 hover:border-cyan-400/45 hover:bg-cyan-950/40 hover:shadow-[0_0_16px_rgba(34,211,238,0.15)]",
+                )}
+              >
+                <span className="block text-sm font-medium text-cyan-50">{item.title}</span>
+                <span className="mt-1 block text-xs leading-relaxed text-cyan-100/65">{item.body}</span>
+                <span className="mt-2 inline-flex rounded border border-amber-500/50 bg-amber-950/50 px-2 py-0.5 font-mono text-[10px] font-bold text-amber-200">
+                  Placed {item.placedAgeLabel ?? `${item.waitingHours}h`} ago
+                </span>
+              </Link>
+            </li>
+          ))
+        )}
+      </ul>
     </ReminderPanelShell>
   );
 }
@@ -597,6 +665,12 @@ export function TaskReminderBubbles() {
             {activeCategory === "purchasing_rop_threshold" ? (
               <PurchasingRopDownloadPanel
                 overdueCount={activeTotalCount}
+                onClose={() => setActiveCategory(null)}
+              />
+            ) : activeCategory === "merchant_dispatch_pending" ? (
+              <MerchantDispatchPendingPanel
+                items={activeItems}
+                totalCount={activeTotalCount}
                 onClose={() => setActiveCategory(null)}
               />
             ) : (

@@ -178,6 +178,11 @@ const optionalBoolQuery = z
   .optional()
   .transform((v) => (v == null ? undefined : v === "true" || v === "1"));
 
+const optionalCallUpdateStatus = z.preprocess(
+  (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+  z.enum(CALL_CENTER_CATEGORY_VALUES).optional()
+);
+
 const customerInsightFilterFieldsSchema = z.object({
   brand: insightFilterListSchema(LIMITS.name.max),
   item: insightFilterListSchema(500),
@@ -206,6 +211,7 @@ const customerInsightFilterFieldsSchema = z.object({
   noPurchaseTo: optionalIsoDate,
   purchasedFrom: optionalIsoDate,
   purchasedTo: optionalIsoDate,
+  callUpdateStatus: optionalCallUpdateStatus,
   /** Legacy presets still accepted. */
   noPurchaseMonths: z
     .union([z.literal("3"), z.literal("6"), z.literal(3), z.literal(6)])
@@ -343,6 +349,8 @@ export const customerInsightCallQueueCandidatesQuerySchema = z.object({
   assignedTo: optionalIsoDate,
   notContacted: optionalBoolQuery,
   notInterestedInLoyalty: optionalBoolQuery,
+  notAllocated: optionalBoolQuery,
+  callUpdateStatus: optionalCallUpdateStatus,
   brand: insightFilterListSchema(LIMITS.name.max),
   hideFilter: z.preprocess(
     (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
@@ -368,6 +376,8 @@ export const customerInsightCallQueueEligibleIdsQuerySchema = z.object({
   assignedTo: optionalIsoDate,
   notContacted: optionalBoolQuery,
   notInterestedInLoyalty: optionalBoolQuery,
+  notAllocated: optionalBoolQuery,
+  callUpdateStatus: optionalCallUpdateStatus,
   brand: insightFilterListSchema(LIMITS.name.max),
 });
 
@@ -389,6 +399,8 @@ export const customerInsightCallQueueExportQuerySchema = z.object({
   assignedTo: optionalIsoDate,
   notContacted: optionalBoolQuery,
   notInterestedInLoyalty: optionalBoolQuery,
+  notAllocated: optionalBoolQuery,
+  callUpdateStatus: optionalCallUpdateStatus,
   brand: insightFilterListSchema(LIMITS.name.max),
   hideFilter: z.preprocess(
     (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
