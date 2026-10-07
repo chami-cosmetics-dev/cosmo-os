@@ -63,6 +63,7 @@ export function VatStatusPanel() {
   const [suggestSettled, setSuggestSettled] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
   const [result, setResult] = useState<VatStatusLookup | null>(null);
+  const [fetchedAt, setFetchedAt] = useState<Date | null>(null);
   const boxRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -131,6 +132,7 @@ export function VatStatusPanel() {
         throw new Error(data.error ?? "VAT status lookup failed");
       }
       setResult(data);
+      setFetchedAt(new Date());
     } catch (error) {
       notify.error(error instanceof Error ? error.message : "VAT status lookup failed");
     } finally {
@@ -234,6 +236,11 @@ export function VatStatusPanel() {
       {result ? (
         <div className="space-y-3">
           <p className="text-sm font-medium">SKU {result.sku}</p>
+          {fetchedAt ? (
+            <p className="text-muted-foreground text-xs">
+              Read from ERP at {fetchedAt.toLocaleTimeString()}
+            </p>
+          ) : null}
           <div className="grid gap-4 md:grid-cols-2">
             <SlotCard slot={result.erp1} />
             <SlotCard slot={result.erp2} />

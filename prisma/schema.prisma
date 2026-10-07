@@ -270,6 +270,10 @@ model ProductItem {
   erp1ProductPriority             String?
   /// Raw Product Priority from Cosmetics.lk ERP2 (Manufacturing tab)
   erp2ProductPriority             String?
+  /// Item Manufacturing Tax Status from ERP1 (`Vat` / `Non Vat` / `Vat / Non Vat`)
+  erp1TaxStatus                   String?
+  /// Item Manufacturing Tax Status from ERP2 (`Vat` / `Non Vat` / `Vat / Non Vat`)
+  erp2TaxStatus                   String?
   erpPrioritySyncedAt             DateTime?
   inventoryQuantity               Int                       @default(0)
   createdAt                       DateTime                  @default(now())

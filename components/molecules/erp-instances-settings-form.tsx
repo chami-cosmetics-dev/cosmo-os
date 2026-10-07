@@ -438,7 +438,10 @@ export function ErpInstancesSettingsForm({ canEdit }: ErpInstancesSettingsFormPr
                   <span className="font-medium">Item Price</span> (after insert/update) →{" "}
                   <code className="rounded bg-muted px-1 py-0.5">/api/webhooks/erpnext/item-price</code>{" "}
                   with this secret. Only <span className="font-medium">Standard Selling</span> updates
-                  product prices in OS.
+                  product prices in OS. Item VAT status: webhook on{" "}
+                  <span className="font-medium">Item</span> (after insert/update) →{" "}
+                  <code className="rounded bg-muted px-1 py-0.5">/api/webhooks/erpnext/item</code>.
+                  Each ERP uses its own secret so ERP1 and ERP2 tax status stay separate.
                 </p>
               </div>
             </div>
