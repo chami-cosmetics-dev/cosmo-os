@@ -1,3 +1,4 @@
+import { baseSku } from "@/lib/osf/base-sku";
 import { originalSellingPrice } from "@/lib/osf/formulas";
 import { formatPercentPoints, sellingMargin } from "@/lib/osf/pricing-math";
 import { isIntercompanyPurchaseSupplier } from "@/lib/osf/erp-purchases";
@@ -118,6 +119,7 @@ export type CatalogSellInfo = {
   productTitle: string | null;
   brand: string | null;
   priority: string | null;
+  country?: string | null;
   mrp: number | null;
   discountedPrice: number | null;
 };
@@ -125,9 +127,11 @@ export type CatalogSellInfo = {
 export type PurchaseHistoryRow = {
   postingDate: string;
   sku: string;
+  commonSku: string | null;
   brand: string | null;
   priority: string | null;
   productTitle: string | null;
+  country: string | null;
   supplier: string;
   qty: number;
   rate: number;
@@ -153,6 +157,7 @@ export type PurchaseHistoryFilters = {
   from: string;
   to: string;
   sku?: string;
+  commonSku?: string;
   supplier?: string;
   brand?: string;
   /** Matches catalog product title (contains, case-insensitive). */
@@ -160,6 +165,9 @@ export type PurchaseHistoryFilters = {
   priority?: string;
   company?: string;
   companies?: string[];
+  country?: string;
+  /** Keep rows whose margin % is strictly below this number (e.g. 30). */
+  marginBelow?: number;
   erpSlot?: string;
 };
 
@@ -305,6 +313,22 @@ export function matchesPurchaseHistoryFilters(
     const q = filters.erpSlot.trim().toUpperCase();
     if (q && (line.erpSlot ?? "") !== q) return false;
   }
+  if (filters.commonSku) {
+    const q = filters.commonSku.trim().toLowerCase();
+    const common = baseSku(line.sku).toLowerCase();
+    if (q && !common.includes(q)) return false;
+  }
+  if (filters.country) {
+    const q = filters.country.trim().toLowerCase();
+    const country = catalog?.country?.trim().toLowerCase() ?? "";
+    if (q && country !== q) return false;
+  }
+  if (filters.marginBelow != null && Number.isFinite(filters.marginBelow)) {
+    const selling = originalSellingPrice(catalog?.mrp, catalog?.discountedPrice);
+    const margin = sellingMargin(selling, line.rate);
+    const points = formatPercentPoints(margin);
+    if (points == null || points >= filters.marginBelow) return false;
+  }
   return true;
 }
 
@@ -317,9 +341,11 @@ export function enrichPurchaseHistoryRow(
   return {
     postingDate: line.postingDate,
     sku: line.sku,
+    commonSku: baseSku(line.sku) || null,
     brand: catalog?.brand ?? null,
     priority: catalog?.priority ?? null,
     productTitle: catalog?.productTitle ?? null,
+    country: catalog?.country?.trim() || null,
     supplier: line.supplier,
     qty: line.qty,
     rate: line.rate,
@@ -364,11 +390,13 @@ export function purchaseHistoryExportSheetRows(
     return {
       Date: row.postingDate,
       SKU: row.sku,
+      "Common SKU": row.commonSku ?? "",
       Brand: row.brand ?? "",
       Priority: row.priority ?? "",
       Item: row.productTitle ?? "",
       Supplier: row.supplier,
       Company: row.company ?? "",
+      Country: row.country ?? "",
       Qty: row.qty,
       Cost: row.rate,
       Amount: row.netValue,

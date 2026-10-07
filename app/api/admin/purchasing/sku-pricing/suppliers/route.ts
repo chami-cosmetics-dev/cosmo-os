@@ -3,7 +3,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 import { OsfErpError } from "@/lib/osf/erp-cost-supplier";
 import { mergeInstanceSupplierPurchases } from "@/lib/osf/erp-merge";
-import { fetchSupplierPurchasesBySku } from "@/lib/osf/erp-purchases";
+import {
+  fetchSupplierPurchasesBySku,
+  SKU_CALCULATOR_PURCHASE_SOURCE,
+} from "@/lib/osf/erp-purchases";
 import { getAllOsfErpInstances } from "@/lib/osf/erp-stock";
 import { rankSupplierOptions } from "@/lib/osf/supplier-compare";
 import { prisma } from "@/lib/prisma";
@@ -51,8 +54,8 @@ export async function GET(request: NextRequest) {
   });
 
   const erpInstances = await getAllOsfErpInstances(companyId);
-  const purchaseSource = isVaultOsDeployment() ? "invoice" : "receipt";
-  const vault = purchaseSource === "invoice";
+  const vault = isVaultOsDeployment();
+  const purchaseSource = SKU_CALCULATOR_PURCHASE_SOURCE;
 
   async function cosmoSupplierMap() {
     if (!vault) return new Map();

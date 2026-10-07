@@ -47,11 +47,13 @@ import {
   formatOrderPaymentBreakdown,
 } from "@/lib/order-payment-entries";
 import { getPaymentMethodInfo } from "@/lib/payment-method-label";
+import { resolveOrderCancelledByLabel } from "@/lib/order-cancelled-by-label";
 import { notify } from "@/lib/notify";
 import {
   RETURN_REMARK_TEMPLATES,
   type ReturnRemarkTemplateCode,
 } from "@/lib/return-remark-templates";
+import type { InvoiceRevertMode } from "@/lib/invoice-revert";
 import {
   isPackageReadyMilestoneComplete,
   resolvePackageReadyMilestoneDate,
@@ -766,8 +768,14 @@ export function OrderInvoiceViewModal({
     setConfirmRevertStage({ targetStage, label });
   }
 
-  async function handleConfirmRevert() {
+  async function handleConfirmRevert(invoiceRevertMode?: InvoiceRevertMode) {
     if (!orderId || !confirmRevertStage) return;
+    const choosingInvoiceRevert =
+      stage === "invoice_complete" && confirmRevertStage.targetStage === "delivery_complete";
+    if (choosingInvoiceRevert && !invoiceRevertMode) {
+      notify.error("Choose revert with credit note or revert only.");
+      return;
+    }
     if (!revertReason.trim() && revertRemarkTemplate === "CUSTOM") {
       notify.error("Please provide a custom remark for reverting.");
       return;
@@ -782,11 +790,13 @@ export function OrderInvoiceViewModal({
           targetStage: confirmRevertStage.targetStage,
           revertReason: revertReason.trim() || RETURN_REMARK_TEMPLATES.find((item) => item.code === revertRemarkTemplate)?.label || "Reverted",
           remarkTemplate: revertRemarkTemplate,
+          ...(invoiceRevertMode ? { invoiceRevertMode } : {}),
         }),
       });
       const data = (await res.json()) as {
         success?: boolean;
         error?: string;
+        invoiceRevertMode?: InvoiceRevertMode;
         erpCreditNoteFailed?: boolean;
         erpCreditNoteError?: string;
         erpCreditNoteName?: string;
@@ -795,7 +805,9 @@ export function OrderInvoiceViewModal({
         notify.error(data.error ?? "Failed to revert stage");
         return;
       }
-      if (data.erpCreditNoteFailed) {
+      if (data.invoiceRevertMode === "stage_only") {
+        notify.success("Order reverted without a credit note. Rearrange it from Returned Orders.");
+      } else if (data.erpCreditNoteFailed) {
         notify.error(`Order reverted but ERP credit note could not be created. Create it manually in ERPNext. (${data.erpCreditNoteError ?? "unknown error"})`);
       } else if (data.erpCreditNoteName) {
         notify.success(`Order reverted. ERP credit note ${data.erpCreditNoteName} created.`);
@@ -1615,10 +1627,7 @@ export function OrderInvoiceViewModal({
                     : "—"}
                 </p>
                 <p className="mt-1 text-muted-foreground">
-                  By:{" "}
-                  {orderDetail.cancelledBy?.name?.trim() ||
-                    orderDetail.cancelledBy?.email?.trim() ||
-                    "ERP"}
+                  By: {resolveOrderCancelledByLabel(orderDetail.cancelledBy, orderDetail.cancelReason)}
                 </p>
                 {orderDetail.cancelKind === "replacement" ? (
                   <p className="mt-1 text-muted-foreground">Type: Replacement (no customer SMS)</p>
@@ -1800,9 +1809,9 @@ export function OrderInvoiceViewModal({
         <AlertDialogHeader>
           <AlertDialogTitle>Revert to {confirmRevertStage?.label}</AlertDialogTitle>
           <AlertDialogDescription>
-            This will undo all progress after that stage. The order will return to{" "}
-            {confirmRevertStage?.label}. Rider delivery link will be invalidated if the order was dispatched. This
-            action cannot be undone.
+            {stage === "invoice_complete" && confirmRevertStage?.targetStage === "delivery_complete"
+              ? "This paid invoice-complete order goes back to Delivery Complete and appears on Returned Orders. Revert with credit note creates an ERP credit note and follows the void path after the item is back in store. Revert only skips the credit note so the order can be rearranged and dispatched again."
+              : `This will undo all progress after that stage. The order will return to ${confirmRevertStage?.label}. Rider delivery link will be invalidated if the order was dispatched. This action cannot be undone.`}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <div className="space-y-3 py-1">
@@ -1843,21 +1852,56 @@ export function OrderInvoiceViewModal({
         </div>
         <AlertDialogFooter>
           <AlertDialogCancel disabled={!!revertingToStage}>Cancel</AlertDialogCancel>
-          <Button
-            variant="destructive"
-            disabled={!!revertingToStage || (revertRemarkTemplate === "CUSTOM" && !revertReason.trim())}
-            onClick={handleConfirmRevert}
-            className="gap-2"
-          >
-            {revertingToStage ? (
-              <>
-                <Loader2 className="size-4 animate-spin" aria-hidden />
-                Reverting...
-              </>
-            ) : (
-              "Revert"
-            )}
-          </Button>
+          {stage === "invoice_complete" && confirmRevertStage?.targetStage === "delivery_complete" ? (
+            <>
+              <Button
+                variant="outline"
+                disabled={!!revertingToStage || (revertRemarkTemplate === "CUSTOM" && !revertReason.trim())}
+                onClick={() => void handleConfirmRevert("stage_only")}
+                className="gap-2"
+              >
+                {revertingToStage ? (
+                  <>
+                    <Loader2 className="size-4 animate-spin" aria-hidden />
+                    Reverting...
+                  </>
+                ) : (
+                  "Revert only"
+                )}
+              </Button>
+              <Button
+                variant="destructive"
+                disabled={!!revertingToStage || (revertRemarkTemplate === "CUSTOM" && !revertReason.trim())}
+                onClick={() => void handleConfirmRevert("credit_note")}
+                className="gap-2"
+              >
+                {revertingToStage ? (
+                  <>
+                    <Loader2 className="size-4 animate-spin" aria-hidden />
+                    Reverting...
+                  </>
+                ) : (
+                  "Revert with credit note"
+                )}
+              </Button>
+            </>
+          ) : (
+            <Button
+              variant="destructive"
+              disabled={!!revertingToStage || (revertRemarkTemplate === "CUSTOM" && !revertReason.trim())}
+              onClick={() => void handleConfirmRevert()}
+              className="gap-2"
+            >
+              {revertingToStage ? (
+                <>
+                  <Loader2 className="size-4 animate-spin" aria-hidden />
+                  Reverting...
+                </>
+              ) : (
+                "Revert"
+              )}
+            </Button>
+          )}
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

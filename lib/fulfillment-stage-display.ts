@@ -10,6 +10,7 @@ export const FULFILLMENT_STAGE_LABELS: Record<string, string> = {
   invoice_complete: "Invoice Complete",
   delivery_complete: "Delivery Complete",
   partial_void: "Partial Void",
+  invoice_revert_redispatch: "Revert — redispatch",
   pending_approval: "Pending Approval",
   printed: "Printed",
 };
@@ -25,6 +26,7 @@ export const FULFILLMENT_STAGE_COLORS: Record<string, string> = {
   dispatched: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-300",
   delivery_complete: "bg-teal-100 text-teal-800 dark:bg-teal-900/30 dark:text-teal-300",
   partial_void: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
+  invoice_revert_redispatch: "bg-sky-100 text-sky-800 dark:bg-sky-900/30 dark:text-sky-300",
   invoice_complete: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300",
   pending_approval: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300",
   printed: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300",
@@ -133,14 +135,23 @@ export function getOrderListFulfillmentStageBadges(input: {
 
   const stage = resolveListFulfillmentStage(input);
 
-  // Finance-reverted from invoice_complete: item is still with customer, credit note pending physical return.
+  // Finance-reverted from invoice_complete. Refunded = credit note / void path.
+  // Still paid = revert only, waiting to rearrange and dispatch again.
   if (stage === "delivery_complete" && input.revertedFromInvoiceCompleteAt) {
+    const financial = input.financialStatus?.toLowerCase() ?? "";
+    const creditNotePath = financial === "refunded" || financial === "voided";
     return [
-      {
-        key: "partial_void",
-        label: FULFILLMENT_STAGE_LABELS.partial_void,
-        className: FULFILLMENT_STAGE_COLORS.partial_void,
-      },
+      creditNotePath
+        ? {
+            key: "partial_void",
+            label: FULFILLMENT_STAGE_LABELS.partial_void,
+            className: FULFILLMENT_STAGE_COLORS.partial_void,
+          }
+        : {
+            key: "invoice_revert_redispatch",
+            label: FULFILLMENT_STAGE_LABELS.invoice_revert_redispatch,
+            className: FULFILLMENT_STAGE_COLORS.invoice_revert_redispatch,
+          },
     ];
   }
 

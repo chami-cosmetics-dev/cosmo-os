@@ -2146,6 +2146,10 @@ model OsRegistrationCapture {
   source      String
   /// created | already_registered | updated
   outcome     String
+  /// sent | skipped | failed
+  emailStatus String?
+  emailError  String?
+  emailSentAt DateTime?
   actorUserId String?
   createdAt   DateTime          @default(now())
   company     Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -2434,6 +2438,8 @@ model ProductOsfProfile {
   sku                     String
   shopAvailability        String?
   ogfPrice                Decimal? @db.Decimal(12, 2)
+  /// Chami shop selling rate from ERP "GCC PRICE LIST". Online stays on ProductItem.price.
+  gccPrice                Decimal? @db.Decimal(12, 2)
   /// Per-SKU reorder alert/filter threshold (1–100). Null ⇒ treat as 70 at runtime.
   reorderThresholdPercent Int?
   createdAt               DateTime @default(now())
@@ -2940,6 +2946,8 @@ model BookNoteRow {
   card                Decimal     @db.Decimal(12, 2)
   /// Last 4 digits of POS card receipt reference (required when card > 0).
   cardReceiptRefLast4 String?
+  /// KOKO order id when the amount is typed in the KOKO column (not split lines).
+  kokoReference       String?
   koko                Decimal     @db.Decimal(12, 2)
   bankTransfer        Decimal     @db.Decimal(12, 2)
   /// Free-text bank-recon note for this invoice line (ERP special_note, max 1500).

@@ -24,6 +24,10 @@ describe("isShopOsfColumn", () => {
     expect(isShopOsfColumn({ key: "cosmo_shop_gcc", label: "GCC Shop" })).toBe(true);
     expect(isShopOsfColumn({ key: "lmj", label: "LMJ" })).toBe(false);
     expect(isShopOsfColumn({ key: "cosmetics_lk", label: "Cosmetics.lk" })).toBe(false);
+    expect(isShopOsfColumn({ key: "chami_shop_gcc", label: "Chami ShopWarehouse GCC" })).toBe(true);
+    expect(
+      isShopOsfColumn({ key: "chami", label: "Chami Main Warehouse -Online" }),
+    ).toBe(false);
   });
 });
 

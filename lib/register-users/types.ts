@@ -14,6 +14,8 @@ export type RegisterCaptureRow = {
   source: RegisterSource;
   outcome: RegisterOutcome;
   createdAt: string;
+  mailStatus: "sent" | "skipped" | "failed" | null;
+  mailError: string | null;
 };
 
 export type RegisterPhoneMatch = {

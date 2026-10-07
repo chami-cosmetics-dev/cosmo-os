@@ -204,6 +204,8 @@ const customerInsightFilterFieldsSchema = z.object({
   notInterestedInLoyalty: optionalBoolQuery,
   noPurchaseFrom: optionalIsoDate,
   noPurchaseTo: optionalIsoDate,
+  purchasedFrom: optionalIsoDate,
+  purchasedTo: optionalIsoDate,
   /** Legacy presets still accepted. */
   noPurchaseMonths: z
     .union([z.literal("3"), z.literal("6"), z.literal(3), z.literal(6)])
@@ -221,6 +223,8 @@ function refineCustomerInsightFilterRanges<
     maxTotal?: number;
     birthdayFrom?: unknown;
     birthdayTo?: unknown;
+    purchasedFrom?: string;
+    purchasedTo?: string;
   },
 >(val: T, ctx: z.RefinementCtx) {
   if (
@@ -239,6 +243,17 @@ function refineCustomerInsightFilterRanges<
       code: z.ZodIssueCode.custom,
       message: "birthdayFrom and birthdayTo must both be set",
       path: ["birthdayFrom"],
+    });
+  }
+  if (
+    val.purchasedFrom &&
+    val.purchasedTo &&
+    val.purchasedFrom > val.purchasedTo
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "purchasedFrom cannot be after purchasedTo",
+      path: ["purchasedFrom"],
     });
   }
 }

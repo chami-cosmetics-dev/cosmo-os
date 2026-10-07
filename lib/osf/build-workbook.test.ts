@@ -24,6 +24,9 @@ const catalog: OsfCatalogRow[] = [
     itemStatusCategory: "CONTINUE",
     erp1ProductPriority: "Continue",
     erp2ProductPriority: "Continue",
+    erp1TaxStatus: "Non Vat",
+    erp2TaxStatus: null,
+    country: "Korea, Republic of",
     mrp: 100,
     discountedPrice: 80,
     vendorId: null,
@@ -39,6 +42,9 @@ const catalog: OsfCatalogRow[] = [
     itemStatusCategory: "CONTINUE",
     erp1ProductPriority: "Continue",
     erp2ProductPriority: "Continue",
+    erp1TaxStatus: "Non Vat",
+    erp2TaxStatus: null,
+    country: null,
     mrp: 100,
     discountedPrice: 80,
     vendorId: null,
@@ -120,6 +126,20 @@ describe("buildMainSheetRows", () => {
     expect(first).toHaveProperty("April 2026 Purchase Qty");
     expect(first).toHaveProperty("April 2026 Purchase Total");
     expect(first["Shop Availability"]).toBe("Allowed");
+    expect(first["VAT Status"]).toBe("Non Vat");
+    expect(first.Country).toBe("Korea, Republic of");
+    const vatOnly = buildMainSheetRows({
+      catalog: [{ ...catalog[0]!, erp1TaxStatus: "Vat" }],
+      columns,
+      profiles: new Map(),
+      binMap: new Map(),
+      costMap: new Map(),
+      purchaseMap: new Map(),
+      monthlySales: new Map(),
+      salesMonth: "2026-06",
+      asOfDate: "2026-07-16",
+    });
+    expect(vatOnly[0]!["VAT Status"]).toBe("Vat");
     // OGF margin = (90-40)/90
     expect(first["OGF Margin %"]).toBeCloseTo(55.56, 1);
     // Purchasing data from ERP purchase receipts
@@ -130,6 +150,7 @@ describe("buildMainSheetRows", () => {
     expect(first["Purchased (last 30d)"]).toBe(18);
     // Item without a purchase record stays blank
     const second = rows[1]!;
+    expect(second.Country).toBe("");
     expect(second["Last Purchase Qty"]).toBeNull();
     expect(second["Days Since Last Purchase"]).toBeNull();
     expect(second["Purchased (last 30d)"]).toBeNull();
@@ -162,6 +183,25 @@ describe("buildMainSheetRows", () => {
     expect(row).not.toHaveProperty("July 2026 Sales Total");
     expect(row["Max sale"]).toBe(9);
     expect(row.AVE).toBe(6);
+  });
+
+  it("writes Best Purchase Value and Best Supplier from the 3-month window", () => {
+    const rows = buildMainSheetRows({
+      catalog: [catalog[0]!],
+      columns,
+      profiles: new Map(),
+      binMap: new Map(),
+      costMap: new Map(),
+      purchaseMap: new Map(),
+      monthlySales: new Map(),
+      salesMonth: "2026-09",
+      asOfDate: "2026-09-25",
+      bestPurchaseBySku: new Map([
+        ["CAN07_1", { value: 40, supplier: "Beta Co", date: "2026-08-02" }],
+      ]),
+    });
+    expect(rows[0]!["Best Purchase Value"]).toBe(40);
+    expect(rows[0]!["Best Supplier"]).toBe("Beta Co");
   });
 
   it("VAT OSF: Cosmetics.lk + shop ROP only; Total ROP = Cosmetics.lk (not shop sum)", () => {
@@ -447,6 +487,8 @@ describe("buildOsfWorkbookBuffer", () => {
       expect(headers).toContain("Total Stock");
       expect(headers).toContain("Total ROP");
       expect(headers).toContain("April 2026 Sales Total");
+      expect(headers).toContain("Best Purchase Value");
+      expect(headers).toContain("Best Supplier");
       expect(headers).toContain("April 2026 Purchase Qty");
       expect(headers).toContain("June 2026 Purchase Total");
       expect(headers).toContain("Max sale");

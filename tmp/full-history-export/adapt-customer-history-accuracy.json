@@ -1,0 +1,74 @@
+{
+  "invoices_in_dump_and_db": 168953,
+  "invoices_found_in_adapt_header_file": 168953,
+  "customer_identity": {
+    "phone_match_pct": 99.47,
+    "phone_matched": 168050,
+    "phone_compared": 168950,
+    "name_exact_pct": 56.65,
+    "name_normalized_pct": 59.61,
+    "name_compared": 168953
+  },
+  "customer_purchase_history": {
+    "adapt_customers_with_imported_invoices": 24743,
+    "history_kept_on_one_cosmo_contact_pct": 94.92,
+    "intact_customers": 23486,
+    "split_across_contacts": 1257,
+    "item_lines_matching_pct": 100.0,
+    "customers_with_perfect_item_set_pct": 100.0,
+    "customers_with_items": 24725,
+    "split_examples": [
+      {
+        "adapt_customer": "204",
+        "contacts": 293,
+        "invoices": 444
+      },
+      {
+        "adapt_customer": "265",
+        "contacts": 18880,
+        "invoices": 31617
+      },
+      {
+        "adapt_customer": "381",
+        "contacts": 1137,
+        "invoices": 1562
+      },
+      {
+        "adapt_customer": "376",
+        "contacts": 555,
+        "invoices": 662
+      },
+      {
+        "adapt_customer": "1152",
+        "contacts": 2,
+        "invoices": 7
+      },
+      {
+        "adapt_customer": "250",
+        "contacts": 249,
+        "invoices": 279
+      },
+      {
+        "adapt_customer": "207",
+        "contacts": 2,
+        "invoices": 4
+      },
+      {
+        "adapt_customer": "1204",
+        "contacts": 144,
+        "invoices": 194
+      }
+    ]
+  },
+  "item_wise_purchase_history": {
+    "by_invoice_line_match_pct": 100.0,
+    "invoices_with_perfect_item_set_pct": 100.0,
+    "invoices_with_items": 168771,
+    "matched_lines": 278501,
+    "original_product_lines": 278501,
+    "by_cosmo_contact_line_match_pct": 100.0,
+    "cosmo_contacts_with_perfect_item_set_pct": 100.0,
+    "cosmo_contacts_with_adapt_items": 78331
+  },
+  "note": "Customer purchase history: Adapt customer_master_id (else phone) invoice set vs Cosmo Contact Master. Intact = all of that person's imported invoices sit on one contact. Item-wise ignores coupon/shipping/fee lines. Newline differences in titles are treated as the same item."
+}

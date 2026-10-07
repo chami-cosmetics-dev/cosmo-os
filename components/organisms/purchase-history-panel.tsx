@@ -14,9 +14,11 @@ import { erpProductPriorityFilterOptions } from "@/lib/product-items/erp-priorit
 type Row = {
   postingDate: string;
   sku: string;
+  commonSku: string | null;
   brand: string | null;
   priority: string | null;
   productTitle: string | null;
+  country: string | null;
   supplier: string;
   qty: number;
   rate: number;
@@ -63,16 +65,20 @@ export function PurchaseHistoryPanel() {
   const [from, setFrom] = useState(defaults.from);
   const [to, setTo] = useState(defaults.to);
   const [sku, setSku] = useState("");
+  const [commonSku, setCommonSku] = useState("");
   const [description, setDescription] = useState("");
   const [supplier, setSupplier] = useState("");
   const [brand, setBrand] = useState("");
   const [priority, setPriority] = useState("");
   const [selectedCompanies, setSelectedCompanies] = useState<string[]>([]);
+  const [country, setCountry] = useState("");
+  const [marginBelow, setMarginBelow] = useState("");
   const [erpSlot, setErpSlot] = useState("");
   const [brands, setBrands] = useState<string[]>([]);
   const [suppliers, setSuppliers] = useState<string[]>([]);
   const [priorities, setPriorities] = useState<string[]>([]);
   const [companies, setCompanies] = useState<string[]>([]);
+  const [countries, setCountries] = useState<string[]>([]);
   const [rows, setRows] = useState<Row[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [total, setTotal] = useState(0);
@@ -86,15 +92,18 @@ export function PurchaseHistoryPanel() {
     (fromDate: string, toDate: string) => {
       const params = new URLSearchParams({ from: fromDate, to: toDate });
       if (sku.trim()) params.set("sku", sku.trim());
+      if (commonSku.trim()) params.set("commonSku", commonSku.trim());
       if (description.trim()) params.set("description", description.trim());
       if (supplier.trim()) params.set("supplier", supplier.trim());
       if (brand.trim()) params.set("brand", brand.trim());
       if (priority.trim()) params.set("priority", priority.trim());
       if (selectedCompanies.length > 0) params.set("companies", selectedCompanies.join(","));
+      if (country.trim()) params.set("country", country.trim());
+      if (marginBelow.trim()) params.set("marginBelow", marginBelow.trim());
       if (erpSlot.trim()) params.set("erpSlot", erpSlot.trim());
       return params;
     },
-    [sku, description, supplier, brand, priority, selectedCompanies, erpSlot],
+    [sku, commonSku, description, supplier, brand, priority, selectedCompanies, country, marginBelow, erpSlot],
   );
 
   const load = useCallback(
@@ -128,6 +137,7 @@ export function PurchaseHistoryPanel() {
         setSuppliers(json.filterOptions?.suppliers ?? []);
         setPriorities(json.filterOptions?.priorities ?? []);
         setCompanies(json.filterOptions?.companies ?? []);
+        setCountries(json.filterOptions?.countries ?? []);
         if (json.erpError) {
           notify.error(`ERP: ${json.erpError}`);
         } else if (options?.sync) {
@@ -216,6 +226,16 @@ export function PurchaseHistoryPanel() {
             disabled={busy}
             onChange={(e) => setSku(e.target.value)}
             placeholder="All dates…"
+            className="w-[140px]"
+          />
+        </label>
+        <label className="space-y-1 text-sm">
+          <span className="text-muted-foreground">Common SKU</span>
+          <Input
+            value={commonSku}
+            disabled={busy}
+            onChange={(e) => setCommonSku(e.target.value)}
+            placeholder="CAN07…"
             className="w-[140px]"
           />
         </label>
@@ -338,6 +358,36 @@ export function PurchaseHistoryPanel() {
           </Popover>
         </label>
         <label className="space-y-1 text-sm">
+          <span className="text-muted-foreground">Country</span>
+          <select
+            className="border-input bg-background h-9 rounded-md border px-2 text-sm"
+            value={country}
+            disabled={busy}
+            onChange={(e) => setCountry(e.target.value)}
+          >
+            <option value="">Any</option>
+            {countries.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="space-y-1 text-sm">
+          <span className="text-muted-foreground">Margin below %</span>
+          <Input
+            type="number"
+            min={0}
+            max={100}
+            step={1}
+            value={marginBelow}
+            disabled={busy}
+            onChange={(e) => setMarginBelow(e.target.value)}
+            placeholder="e.g. 30"
+            className="w-[110px]"
+          />
+        </label>
+        <label className="space-y-1 text-sm">
           <span className="text-muted-foreground">ERP</span>
           <select
             className="border-input bg-background h-9 rounded-md border px-2 text-sm"
@@ -417,10 +467,12 @@ export function PurchaseHistoryPanel() {
           <thead className="bg-muted/50 text-left">
             <tr>
               <th className="p-2 font-medium">SKU</th>
+              <th className="p-2 font-medium">Common SKU</th>
               <th className="p-2 font-medium">Priority</th>
               <th className="p-2 font-medium">Item</th>
               <th className="p-2 font-medium">Supplier</th>
               <th className="p-2 font-medium">Company</th>
+              <th className="p-2 font-medium">Country</th>
               <th className="p-2 font-medium text-right">Qty</th>
               <th className="p-2 font-medium text-right">Cost</th>
               <th className="p-2 font-medium text-right">Amount</th>
@@ -432,7 +484,7 @@ export function PurchaseHistoryPanel() {
           <tbody>
             {rows.length === 0 && !busy ? (
               <tr>
-                <td colSpan={11} className="p-4 text-muted-foreground">
+                <td colSpan={13} className="p-4 text-muted-foreground">
                   No purchase lines for these filters.
                 </td>
               </tr>
@@ -456,12 +508,14 @@ export function PurchaseHistoryPanel() {
                       {row.postingDate}
                     </div>
                   </td>
+                  <td className="p-2 font-mono whitespace-nowrap">{row.commonSku ?? "—"}</td>
                   <td className="p-2 whitespace-nowrap">{row.priority ?? "—"}</td>
                   <td className="p-2 max-w-[220px] truncate" title={row.productTitle ?? undefined}>
                     {row.productTitle ?? "—"}
                   </td>
                   <td className="p-2">{row.supplier}</td>
                   <td className="p-2">{row.company ?? "—"}</td>
+                  <td className="p-2">{row.country ?? "—"}</td>
                   <td className="p-2 text-right tabular-nums">{money(row.qty)}</td>
                   <td className="p-2 text-right tabular-nums">{money(row.rate)}</td>
                   <td className="p-2 text-right tabular-nums">{money(row.netValue)}</td>

@@ -11,6 +11,12 @@ import {
   RETURN_REMARK_TEMPLATE_CODES,
 } from "@/lib/return-remark-templates";
 import { orderStageUpdate } from "@/lib/order-stage-timing";
+import {
+  INVOICE_REVERT_CREDIT_NOTE_TEMPLATE,
+  INVOICE_REVERT_STAGE_ONLY_TEMPLATE,
+  isFinanceCreditNoteRevert,
+  isInvoiceRevertStageOnly,
+} from "@/lib/invoice-revert";
 import { parseAppCalendarDayStart } from "@/lib/format-datetime";
 
 const bulkReturnEntrySchema = z.object({
@@ -178,6 +184,12 @@ async function buildPreviewRows(companyId: string, entries: NormalizedEntry[]): 
           fulfillmentStage: true,
           dispatchedAt: true,
           revertedFromInvoiceCompleteAt: true,
+          returns: {
+            where: {
+              remarkTemplate: { in: [INVOICE_REVERT_CREDIT_NOTE_TEMPLATE, INVOICE_REVERT_STAGE_ONLY_TEMPLATE] },
+            },
+            select: { remarkTemplate: true },
+          },
           assignedMerchantId: true,
           shippingAddress: true,
           customer: { select: { firstName: true, lastName: true } },
@@ -261,8 +273,20 @@ async function buildPreviewRows(companyId: string, entries: NormalizedEntry[]): 
       returnRemark,
     };
 
-    const isFinanceReverted =
-      order.fulfillmentStage === "delivery_complete" && !!order.revertedFromInvoiceCompleteAt;
+    const returnTemplates = order.returns.map((item) => item.remarkTemplate);
+    const isStageOnlyRevert = isInvoiceRevertStageOnly(returnTemplates);
+    const isFinanceReverted = isFinanceCreditNoteRevert({
+      fulfillmentStage: order.fulfillmentStage,
+      revertedFromInvoiceCompleteAt: order.revertedFromInvoiceCompleteAt,
+      returnTemplates,
+    });
+    if (isStageOnlyRevert) {
+      return {
+        ...base,
+        status: "not_dispatched",
+        message: "Revert-only order. Rearrange it from Returned Orders.",
+      };
+    }
     if (!isFinanceReverted && order.fulfillmentStage !== "dispatched") {
       return {
         ...base,
@@ -365,6 +389,12 @@ export async function POST(request: NextRequest) {
         include: {
           dispatchedByCourierService: true,
           dispatchedByRider: true,
+          returns: {
+            where: {
+              remarkTemplate: { in: [INVOICE_REVERT_CREDIT_NOTE_TEMPLATE, INVOICE_REVERT_STAGE_ONLY_TEMPLATE] },
+            },
+            select: { remarkTemplate: true },
+          },
         },
       });
 
@@ -373,8 +403,22 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
-      const isFinanceReverted =
-        order.fulfillmentStage === "delivery_complete" && !!order.revertedFromInvoiceCompleteAt;
+      const returnTemplates = order.returns.map((item) => item.remarkTemplate);
+      const isStageOnlyRevert = isInvoiceRevertStageOnly(returnTemplates);
+      const isFinanceReverted = isFinanceCreditNoteRevert({
+        fulfillmentStage: order.fulfillmentStage,
+        revertedFromInvoiceCompleteAt: order.revertedFromInvoiceCompleteAt,
+        returnTemplates,
+      });
+
+      if (isStageOnlyRevert) {
+        results.push({
+          ...row,
+          status: "not_dispatched",
+          message: "Revert-only order. Rearrange it from Returned Orders.",
+        });
+        continue;
+      }
 
       if (!isFinanceReverted && order.fulfillmentStage !== "dispatched") {
         results.push({
@@ -394,7 +438,7 @@ export async function POST(request: NextRequest) {
       if (isFinanceReverted) {
         // Finance-reverted path: update existing invoice_revert OrderReturn + trigger void approval
         const existingReturn = await prisma.orderReturn.findFirst({
-          where: { orderId: order.id, companyId, remarkTemplate: "invoice_revert" },
+          where: { orderId: order.id, companyId, remarkTemplate: INVOICE_REVERT_CREDIT_NOTE_TEMPLATE },
           select: { id: true },
         });
         const orderLabel = order.name ?? order.orderNumber ?? order.shopifyOrderId;

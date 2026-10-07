@@ -1,6 +1,4 @@
-﻿import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
-
-export type PaymentMethodVariant = "cod" | "bank" | "card" | "cash" | "paid" | "other";
+﻿export type PaymentMethodVariant = "cod" | "bank" | "card" | "cash" | "paid" | "other";
 
 export type PaymentMethodInfo = {
   label: string;
@@ -145,22 +143,25 @@ export function orderHasCardOnDeliveryGateway(order: {
 }
 
 /**
- * Vault OS Card on Delivery: finance gates fulfillment, SI stays unpaid, PE waits for door collection.
- * Cosmo: treat as normal unpaid delivery collection (no intake finance).
+ * Card on Delivery is Vault-only door collection — no intake ORDER_PAYMENT finance.
+ * Payment confirmation runs after delivery complete (DELIVERY_PAYMENT_APPROVAL),
+ * then finance confirm marks paid + invoice complete.
+ * Kept as always-false so callers that still gate on "intake card finance" stay correct.
  */
 export function isUnpaidCardOnDeliveryFinance(
-  order: {
+  _order: {
     paymentGatewayPrimary?: string | null;
     paymentGatewayNames?: string[] | null;
   },
-  options?: { vaultOs?: boolean },
+  _options?: { vaultOs?: boolean },
 ): boolean {
-  const vaultOs = options?.vaultOs ?? isVaultOsDeployment();
-  if (!vaultOs) return false;
-  return orderHasCardOnDeliveryGateway(order);
+  return false;
 }
 
-/** ORDER_PAYMENT finance approve must never mark Card on Delivery paid. */
+/**
+ * ORDER_PAYMENT finance approve must never mark Card on Delivery paid.
+ * Legacy intake rows (if any) stay unpaid; door collection PE / delivery approval settles payment.
+ */
 export function orderPaymentFinanceApproveMarksPaid(
   order: {
     paymentGatewayPrimary?: string | null;

@@ -19,6 +19,7 @@ export function isCosmeticsLkRopColumn(
   );
 }
 
+/** Cosmetics.lk POS shops only — trading shop floors stay off VAT OSF. */
 export function isShopRopColumn(
   col: Pick<
     OsfResolvedColumn,
@@ -26,7 +27,7 @@ export function isShopRopColumn(
   >,
 ): boolean {
   if (isCosmeticsLkRopColumn(col)) return false;
-  return isShopOsfColumn(col) || isCosmeticsLkInternalShopColumn(col);
+  return isCosmeticsLkInternalShopColumn(col);
 }
 
 /** Location columns allowed on VAT Items OSF: Cosmetics.lk + shops only. */

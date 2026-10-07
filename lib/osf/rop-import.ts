@@ -1,8 +1,6 @@
 import * as XLSX from "xlsx";
 
 import type { OsfResolvedColumn } from "@/lib/osf/column-config";
-import { isDiscontinuedForOsf } from "@/lib/osf/discontinued";
-import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 import { prisma } from "@/lib/prisma";
 
 export type RopImportError = {
@@ -35,15 +33,54 @@ function readWorkbook(buffer: Buffer, filename: string) {
   return XLSX.read(buffer, { type: "buffer", cellDates: false });
 }
 
+/** Computed Cosmo ROP template column: Cosmetics.lk Main + ERP1 shop ROPs. */
+export const ERP_01_TOTAL_ROP_HEADER = "ERP 01 Total ROP";
+
+/** Headers that are identity / computed — never a location ROP column. */
+export const ROP_SKIP_HEADERS = new Set([
+  "barcode",
+  "variant barcode",
+  ERP_01_TOTAL_ROP_HEADER.toLowerCase(),
+  "erp01 total rop",
+  "erp 1 total rop",
+  "cosmetics.lk erp 01",
+  "erp02",
+  "erp 02",
+]);
+
+/**
+ * Extra Excel headers → column key. Lets old templates and the 2026-09-25
+ * Cosmo ROP file import after label renames / Chami split.
+ */
+export const ROP_HEADER_ALIASES: Record<string, string> = {
+  "cosmetics.lk": "cosmetics_lk",
+  "cosmetics.lk main warehouse": "cosmetics_lk",
+  chami: "chami",
+  "chami main warehouse -online": "chami",
+  "chami main warehouse - online": "chami",
+  "chami shopwarehouse gcc": "chami_shop_gcc",
+  "chami shop warehouse gcc": "chami_shop_gcc",
+  dtd: "thewan",
+  thewan: "thewan",
+  "thewan / dtd": "thewan",
+  "cool planet shop": "cosmo_shop_coolplanet",
+  "cool planet nugegoda shop": "cosmo_shop_coolplanet",
+};
+
 /** Map template header → OsfColumnConfig.key for active includeInRop columns. */
 export function buildRopHeaderToKeyMap(
   ropColumns: Array<{ key: string; label: string }>,
 ): Map<string, string> {
   const map = new Map<string, string>();
+  const knownKeys = new Set(ropColumns.map((c) => c.key));
   for (const col of ropColumns) {
     map.set(normalizeHeader(col.label), col.key);
     map.set(normalizeHeader(col.key), col.key);
     map.set(normalizeHeader(`${col.label} ROP`), col.key);
+  }
+  for (const [alias, key] of Object.entries(ROP_HEADER_ALIASES)) {
+    if (!knownKeys.has(key) || map.has(alias)) continue;
+    map.set(alias, key);
   }
   return map;
 }
@@ -116,7 +153,7 @@ export function parseRopImportSheet(
   for (let i = 0; i < headers.length; i++) {
     if (i === skuIndex) continue;
     const h = headerNorm[i]!;
-    if (!h || h === "barcode" || h === "variant barcode") continue;
+    if (!h || ROP_SKIP_HEADERS.has(h)) continue;
     const key = headerMap.get(h);
     if (!key) {
       unknownHeaders.push(headers[i]!);
@@ -225,35 +262,16 @@ export async function applyRopImport(params: {
     orderBy: { updatedAt: "desc" },
     select: {
       sku: true,
-      erp1ProductPriority: true,
-      erp2ProductPriority: true,
-      itemStatusCategory: true,
     },
   });
   const knownSkus = new Set<string>();
-  const discontinuedSkus = new Set<string>();
-  const seenSku = new Set<string>();
   for (const item of catalog) {
     const sku = (item.sku ?? "").trim().toLowerCase();
-    if (!sku || seenSku.has(sku)) continue;
-    seenSku.add(sku);
-    if (!isVaultOsDeployment() && isDiscontinuedForOsf(item)) {
-      discontinuedSkus.add(sku);
-    } else {
-      knownSkus.add(sku);
-    }
+    if (sku) knownSkus.add(sku);
   }
 
   for (const row of parsed.rows) {
     const skuKey = row.sku.toLowerCase();
-    if (discontinuedSkus.has(skuKey)) {
-      errors.push({
-        row: row.sheetRow,
-        sku: row.sku,
-        message: "Discontinued SKU — excluded from OSF",
-      });
-      continue;
-    }
     if (!knownSkus.has(skuKey)) {
       errors.push({
         row: row.sheetRow,
@@ -297,14 +315,41 @@ export async function applyRopImport(params: {
   };
 }
 
+/** Sum Cosmetics.lk Main + ERP1 shop ROPs. Null when every cell empty. */
+export function erp1TotalRop(
+  rops: Record<string, number | null | undefined> | undefined,
+  keys: string[],
+): number | null {
+  if (!rops || keys.length === 0) return null;
+  let total = 0;
+  let any = false;
+  for (const key of keys) {
+    const val = rops[key];
+    if (val == null || !Number.isFinite(val)) continue;
+    any = true;
+    total += val;
+  }
+  return any ? total : null;
+}
+
 export function buildRopTemplateAoa(params: {
   rows: Array<{ sku: string; barcode: string | null; rops: Record<string, number | null> }>;
   ropColumns: Array<{ key: string; label: string }>;
+  /** When set, insert computed ERP 01 Total ROP after Barcode. */
+  erp1TotalKeys?: string[];
 }): (string | number | null)[][] {
-  const headers = ["SKU", "Barcode", ...params.ropColumns.map((c) => c.label)];
+  const erp1Keys = params.erp1TotalKeys ?? [];
+  const includeErp1Total = erp1Keys.length > 0;
+  const headers = [
+    "SKU",
+    "Barcode",
+    ...(includeErp1Total ? [ERP_01_TOTAL_ROP_HEADER] : []),
+    ...params.ropColumns.map((c) => c.label),
+  ];
   const data = params.rows.map((r) => [
     r.sku,
     r.barcode ?? "",
+    ...(includeErp1Total ? [erp1TotalRop(r.rops, erp1Keys) ?? ""] : []),
     ...params.ropColumns.map((c) => {
       const v = r.rops[c.key];
       return v == null ? "" : v;

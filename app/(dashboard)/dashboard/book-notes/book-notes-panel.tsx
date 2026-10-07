@@ -42,6 +42,8 @@ import type {
 import {
   BOOK_NOTE_ERP_PAYMENT_METHODS,
   columnsToSplitLines,
+  missingKokoSplitReference,
+  normalizeKokoOrderReference,
   rowTotalFromSplitLines,
   type BookNoteErpPaymentMethod,
 } from "@/lib/book-notes/split-lines";
@@ -65,6 +67,7 @@ type LedgerRow = {
   card: string;
   cardReceiptRefLast4: string;
   koko: string;
+  kokoReference: string;
   bankTransfer: string;
   /** Bank-recon special note (ERP, max 1500). */
   specialNote: string;
@@ -126,8 +129,8 @@ function splitLinesToPayload(lines: SplitLineForm[]): BookNoteSplitLine[] {
           ? sl.cardLast4.trim()
           : null,
       kokoReference:
-        sl.paymentMethod === "KOKO" && sl.kokoReference.trim()
-          ? sl.kokoReference.trim()
+        sl.paymentMethod === "KOKO"
+          ? normalizeKokoOrderReference(sl.kokoReference)
           : null,
       bankReference:
         sl.paymentMethod === "Bank Transfer" && sl.bankReference.trim()
@@ -158,6 +161,7 @@ function emptyRow(idx: number): LedgerRow {
     card: "",
     cardReceiptRefLast4: "",
     koko: "",
+    kokoReference: "",
     bankTransfer: "",
     specialNote: "",
     splitMode: false,
@@ -186,6 +190,7 @@ function dayToRows(day: BookNoteDayDto | null): LedgerRow[] {
       card: r.card ? String(r.card) : "",
       cardReceiptRefLast4: r.card_receipt_ref_last4 ?? "",
       koko: r.koko ? String(r.koko) : "",
+      kokoReference: splitMode ? "" : (r.koko_reference ?? ""),
       bankTransfer: r.bank_transfer ? String(r.bank_transfer) : "",
       specialNote: r.special_note ?? "",
       splitMode,
@@ -211,6 +216,7 @@ function rowsFingerprint(rows: LedgerRow[]): string {
       r.card,
       r.cardReceiptRefLast4,
       r.koko,
+      r.kokoReference,
       r.bankTransfer,
       r.specialNote,
       r.splitMode,
@@ -400,6 +406,9 @@ export function BookNotesPanel({
         if ("card" in patch && toNum(next.card) === 0) {
           next.cardReceiptRefLast4 = "";
         }
+        if ("koko" in patch && toNum(next.koko) === 0) {
+          next.kokoReference = "";
+        }
         return next;
       }),
     );
@@ -469,6 +478,7 @@ export function BookNotesPanel({
             .filter((sl) => sl.paymentMethod === "Bank Transfer")
             .reduce((s, sl) => s + sl.amount, 0);
           const cardLines = payload.filter((sl) => sl.paymentMethod === "Card");
+          const kokoLines = payload.filter((sl) => sl.paymentMethod === "KOKO");
           return {
             ...r,
             splitMode: false,
@@ -476,6 +486,10 @@ export function BookNotesPanel({
             cash: cash ? String(cash) : "",
             card: card ? String(card) : "",
             koko: koko ? String(koko) : "",
+            kokoReference:
+              kokoLines.length === 1
+                ? (kokoLines[0]?.kokoReference ?? "")
+                : "",
             bankTransfer: bank ? String(bank) : "",
             cardReceiptRefLast4:
               cardLines.length === 1 && cardLines[0]?.cardLast4
@@ -488,6 +502,7 @@ export function BookNotesPanel({
           card: r.card,
           cardReceiptRefLast4: r.cardReceiptRefLast4,
           koko: r.koko,
+          kokoReference: r.kokoReference,
           bankTransfer: r.bankTransfer,
         });
         const splitLines =
@@ -502,6 +517,7 @@ export function BookNotesPanel({
           card: "",
           cardReceiptRefLast4: "",
           koko: "",
+          kokoReference: "",
           bankTransfer: "",
         };
       }),
@@ -670,6 +686,7 @@ export function BookNotesPanel({
       card: useSplit ? "" : s.card ? String(s.card) : "",
       cardReceiptRefLast4: "",
       koko: useSplit ? "" : s.koko ? String(s.koko) : "",
+      kokoReference: "",
       bankTransfer: useSplit ? "" : s.bankTransfer ? String(s.bankTransfer) : "",
       splitMode: useSplit,
       splitLines: useSplit ? s.splitLines!.map(splitLineToForm) : [],
@@ -757,7 +774,21 @@ export function BookNotesPanel({
             return null;
           }
         }
+        const missingKoko = missingKokoSplitReference(payload);
+        if (missingKoko != null) {
+          showError(
+            `Row ${r.idxNo || "?"} split line ${missingKoko + 1}: enter the KOKO order reference`,
+          );
+          return null;
+        }
         continue;
+      }
+      const kokoAmt = toNum(r.koko);
+      if (kokoAmt > 0 && !normalizeKokoOrderReference(r.kokoReference)) {
+        showError(
+          `Row ${r.idxNo || "?"}: enter the KOKO order reference when a KOKO amount is entered`,
+        );
+        return null;
       }
       const cardAmt = toNum(r.card);
       const ref = r.cardReceiptRefLast4.trim();
@@ -787,6 +818,10 @@ export function BookNotesPanel({
               ? r.cardReceiptRefLast4.trim() || null
               : null,
           koko: r.splitMode ? 0 : toNum(r.koko),
+          kokoReference:
+            !r.splitMode && toNum(r.koko) > 0
+              ? normalizeKokoOrderReference(r.kokoReference)
+              : null,
           bankTransfer: r.splitMode ? 0 : toNum(r.bankTransfer),
           specialNote: r.specialNote.trim() || null,
           splitLines,
@@ -983,6 +1018,29 @@ export function BookNotesPanel({
     } | null;
     if (specialNotes && (specialNotes.attempted ?? 0) > 0) {
       line += ` · notes ${specialNotes.succeeded ?? 0}/${specialNotes.attempted}`;
+    }
+    const verifyRows = Array.isArray(data.rows) ? data.rows : [];
+    const missingKoko = verifyRows.flatMap((row) => {
+      if (!row || typeof row !== "object") return [];
+      const rec = row as {
+        status?: unknown;
+        sales_invoice?: unknown;
+        idx_no?: unknown;
+      };
+      if (rec.status !== "koko_ref_missing") return [];
+      const invoice =
+        typeof rec.sales_invoice === "string" ? rec.sales_invoice.trim() : "";
+      const idx = rec.idx_no != null ? String(rec.idx_no) : "";
+      return [invoice || (idx ? `row ${idx}` : "a row")];
+    });
+    if (missingKoko.length > 0) {
+      line += ` · KOKO reference missing: ${missingKoko.join(", ")}`;
+      setStatusLine(line);
+      notify.error(
+        `KOKO order reference missing for ${missingKoko.join(", ")}. Enter the KOKO order ID and send again.`,
+      );
+      await refreshHistory();
+      return false;
     }
     setStatusLine(line);
     notify.success(line);
@@ -1522,7 +1580,7 @@ export function BookNotesPanel({
               <th className="p-2">Sales Invoice</th>
               <th className="p-2 w-28 text-right">Cash</th>
               <th className="p-2 w-32 text-right">Card</th>
-              <th className="p-2 w-28 text-right">KOKO</th>
+              <th className="p-2 w-36 text-right">KOKO</th>
               <th className="p-2 w-28 text-right">Bank</th>
               <th className="p-2 w-28 text-right">Row Total</th>
               <th className="p-2 w-20 text-center">Split</th>
@@ -1669,24 +1727,40 @@ export function BookNotesPanel({
                       />
                     ) : null}
                   </td>
-                  {(
-                    [
-                      ["koko", row.koko],
-                      ["bankTransfer", row.bankTransfer],
-                    ] as const
-                  ).map(([field, value]) => (
-                    <td key={field} className="p-1">
+                  <td className="p-1 align-top">
+                    <Input
+                      inputMode="decimal"
+                      value={row.koko}
+                      disabled={isBusy || readOnly || row.splitMode}
+                      className="h-8 text-right font-mono text-xs"
+                      onChange={(e) =>
+                        updateRow(row.key, { koko: e.target.value })
+                      }
+                    />
+                    {koko > 0 && !row.splitMode ? (
                       <Input
-                        inputMode="decimal"
-                        value={value}
-                        disabled={isBusy || readOnly || row.splitMode}
-                        className="h-8 text-right font-mono text-xs"
+                        value={row.kokoReference}
+                        disabled={isBusy || readOnly}
+                        placeholder="KOKO order ref"
+                        aria-label="KOKO order reference"
+                        className="mt-1 h-7 font-mono text-xs"
                         onChange={(e) =>
-                          updateRow(row.key, { [field]: e.target.value })
+                          updateRow(row.key, { kokoReference: e.target.value })
                         }
                       />
-                    </td>
-                  ))}
+                    ) : null}
+                  </td>
+                  <td className="p-1">
+                    <Input
+                      inputMode="decimal"
+                      value={row.bankTransfer}
+                      disabled={isBusy || readOnly || row.splitMode}
+                      className="h-8 text-right font-mono text-xs"
+                      onChange={(e) =>
+                        updateRow(row.key, { bankTransfer: e.target.value })
+                      }
+                    />
+                  </td>
                   <td className="p-2 text-right font-mono font-semibold">
                     {rowTotalAmt.toFixed(2)}
                   </td>
@@ -1816,6 +1890,8 @@ export function BookNotesPanel({
                                         value={sl.kokoReference}
                                         disabled={isBusy || readOnly}
                                         placeholder="KOKO order ref"
+                                        aria-label="KOKO order reference"
+                                        required={toNum(sl.amount) > 0}
                                         className="h-8"
                                         onChange={(e) =>
                                           updateSplitLine(row.key, sl.key, {

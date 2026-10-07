@@ -69,6 +69,7 @@ type ContactPurchaseOrder = {
   source?: "cosmo" | "adapt";
   locationLabel?: string | null;
   paymentMethod?: string | null;
+  merchantName?: string | null;
 };
 
 type AdaptPurchaseRow = {
@@ -306,7 +307,8 @@ export function ContactUpdatesPanel({
               createdAt: row.invoiceDate,
               source: "adapt",
               locationLabel: row.companyLocationName ?? row.locationName,
-              paymentMethod: row.paymentMethod ?? row.merchantKnownName,
+              paymentMethod: row.paymentMethod,
+              merchantName: row.merchantKnownName,
             })
           );
           setOrders(
@@ -750,9 +752,13 @@ export function ContactUpdatesPanel({
                           </td>
                           <td className="px-4 py-3">
                             {order.source === "adapt"
-                              ? order.paymentMethod ??
-                                order.locationLabel ??
-                                "Adapt history"
+                              ? [
+                                  order.merchantName ? `Merchant: ${order.merchantName}` : null,
+                                  order.paymentMethod,
+                                  order.locationLabel,
+                                ]
+                                  .filter(Boolean)
+                                  .join(" · ") || "Adapt history"
                               : "No Detail"}
                           </td>
                           <td className="px-4 py-3">

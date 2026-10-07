@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   attributedSalesMonth,
   monthKeyInColombo,
+  osfBestPurchaseBounds,
   osfPurchaseGridBounds,
   osfSalesGridBounds,
   salesMonthBounds,
@@ -32,6 +33,17 @@ describe("monthly sales helpers", () => {
     expect(osfPurchaseGridBounds("2026-06-18")).toEqual({
       start: "2026-04-01",
       end: "2026-06-18",
+    });
+  });
+
+  it("best purchase window is last 3 months including as-of month", () => {
+    expect(osfBestPurchaseBounds("2026-09-25")).toEqual({
+      start: "2026-07-01",
+      end: "2026-09-25",
+    });
+    expect(osfBestPurchaseBounds("2026-09-25", 6)).toEqual({
+      start: "2026-04-01",
+      end: "2026-09-25",
     });
   });
 });

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  isChamiLocation,
   isLwkLocation,
   lookupErpPriceBySku,
   mergeErpPriceMapsPreferPrimary,
@@ -19,6 +20,19 @@ describe("isLwkLocation", () => {
     expect(isLwkLocation("003", "LWK Enterprises Pvt Ltd")).toBe(true);
     expect(isLwkLocation("003", "Cosmetics.lk")).toBe(false);
     expect(isLwkLocation(null, "lwk shop")).toBe(true);
+  });
+});
+
+describe("isChamiLocation", () => {
+  it("matches location reference 005", () => {
+    expect(isChamiLocation("005")).toBe(true);
+    expect(isChamiLocation(" 005 ")).toBe(true);
+    expect(isChamiLocation("003")).toBe(false);
+    expect(isChamiLocation("006", "Cosmetics.lk")).toBe(false);
+  });
+
+  it("matches a location named Chami", () => {
+    expect(isChamiLocation("12", "Chami Shop")).toBe(true);
   });
 });
 
@@ -94,6 +108,45 @@ describe("resolveStickerUnitPrice", () => {
         standardSellingErpPrice: "8250.00",
         catalogPrice: "7450.00",
         isLwk: true,
+      })
+    ).toBe("");
+  });
+
+  it("uses Standard Selling for Chami online", () => {
+    expect(
+      resolveStickerUnitPrice({
+        standardSellingErpPrice: "8250.00",
+        gccErpPrice: "4100.00",
+        catalogPrice: "7450.00",
+        isLwk: false,
+        isChami: true,
+        channel: "online",
+      })
+    ).toBe("8250.00");
+  });
+
+  it("uses GCC PRICE LIST for Chami shop", () => {
+    expect(
+      resolveStickerUnitPrice({
+        standardSellingErpPrice: "8250.00",
+        gccErpPrice: "4100.00",
+        catalogPrice: "7450.00",
+        isLwk: false,
+        isChami: true,
+        channel: "shop",
+      })
+    ).toBe("4100.00");
+  });
+
+  it("does not fall back when Chami shop GCC price is missing", () => {
+    expect(
+      resolveStickerUnitPrice({
+        standardSellingErpPrice: "8250.00",
+        gccErpPrice: null,
+        catalogPrice: "7450.00",
+        isLwk: false,
+        isChami: true,
+        channel: "shop",
       })
     ).toBe("");
   });

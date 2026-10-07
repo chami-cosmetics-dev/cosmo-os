@@ -6,11 +6,12 @@ import { cuidSchema } from "@/lib/validation";
 import { maybeLogSlowDbRequest } from "@/lib/dbObservability";
 import { mergeErpPriorityFilterOptions } from "@/lib/product-items/erp-priority-options";
 import {
+  gccPriceForSku,
   ogfPriceForSku,
   resolveProductItemsDisplayedPrice,
 } from "@/lib/product-items/list-price";
 import { getProductFamilyName } from "@/lib/product-item-family";
-import { isLwkLocation } from "@/lib/sticker-unit-price";
+import { isChamiLocation, isLwkLocation } from "@/lib/sticker-unit-price";
 
 export type ProductItemsPageParams = {
   page?: number;
@@ -25,6 +26,8 @@ export type ProductItemsPageParams = {
   /** Match ERP1 or ERP2 product priority (exact string) */
   erpProductPriority?: string | null;
   search?: string | null;
+  /** Chami location 005: shop = GCC PRICE LIST, online = Standard Selling. */
+  priceChannel?: "shop" | "online" | null;
 };
 
 type RawProductItem = Prisma.ProductItemGetPayload<{
@@ -158,7 +161,7 @@ const getProductItemsPageLookups = unstable_cache(
     const locations = await prisma.companyLocation.findMany({
       where: { companyId },
       orderBy: { name: "asc" },
-      select: { id: true, name: true },
+      select: { id: true, name: true, locationReference: true },
     });
     const vendors = await prisma.vendor.findMany({
       where: { companyId },
@@ -198,7 +201,7 @@ const getProductItemsPageLookups = unstable_cache(
       priorities: mergeErpPriorityFilterOptions(prioritySet),
     };
   },
-  ["product-items-page-lookups-v3"],
+  ["product-items-page-lookups-v4"],
   { revalidate: 60 }
 );
 
@@ -214,6 +217,7 @@ export async function fetchProductItemsPageData(companyId: string, params: Produ
   };
 
   let locationFilterIsLwk = false;
+  let locationFilterIsChami = false;
   if (params.locationId) {
     const idResult = cuidSchema.safeParse(params.locationId);
     if (idResult.success) {
@@ -223,12 +227,14 @@ export async function fetchProductItemsPageData(companyId: string, params: Produ
       });
       if (location) {
         locationFilterIsLwk = isLwkLocation(location.locationReference, location.name);
+        locationFilterIsChami = isChamiLocation(location.locationReference, location.name);
         where.companyLocationId = getShadowSourceLocationId(location);
       } else {
         where.companyLocationId = idResult.data;
       }
     }
   }
+  const chamiShopView = locationFilterIsChami && params.priceChannel === "shop";
 
   if (params.vendorId) {
     const idResult = cuidSchema.safeParse(params.vendorId);
@@ -276,7 +282,7 @@ export async function fetchProductItemsPageData(companyId: string, params: Produ
     }
   }
 
-  const [itemsResult, lookups, ogfRows] = await Promise.all([
+  const [itemsResult, lookups, ogfRows, gccRows] = await Promise.all([
     prisma.productItem.findMany({
         where,
         orderBy: [{ productTitle: "asc" }, { variantTitle: "asc" }, { sku: "asc" }],
@@ -293,6 +299,12 @@ export async function fetchProductItemsPageData(companyId: string, params: Produ
           select: { sku: true, ogfPrice: true },
         })
       : Promise.resolve([]),
+    chamiShopView
+      ? prisma.productOsfProfile.findMany({
+          where: { companyId, gccPrice: { not: null } },
+          select: { sku: true, gccPrice: true },
+        })
+      : Promise.resolve([]),
   ]);
 
   const familyFilter = params.familyId?.trim();
@@ -300,7 +312,23 @@ export async function fetchProductItemsPageData(companyId: string, params: Produ
     familyFilter ? item.familyName === familyFilter : true
   );
 
-  if (locationFilterIsLwk) {
+  if (chamiShopView) {
+    const gccBySku: Record<string, string> = {};
+    for (const row of gccRows) {
+      if (row.gccPrice == null) continue;
+      gccBySku[row.sku] = row.gccPrice.toFixed(2);
+    }
+    grouped = grouped.map((item) => {
+      const resolved = resolveProductItemsDisplayedPrice({
+        isLwkView: false,
+        isChamiShopView: true,
+        catalogPrice: item.price,
+        ogfPrice: null,
+        gccPrice: gccPriceForSku(gccBySku, item.sku),
+      });
+      return { ...item, ...resolved };
+    });
+  } else if (locationFilterIsLwk) {
     const ogfBySku: Record<string, string> = {};
     for (const row of ogfRows) {
       if (row.ogfPrice == null) continue;

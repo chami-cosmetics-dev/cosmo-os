@@ -26,6 +26,10 @@ import {
   RETURN_REMARK_TEMPLATES,
   type ReturnRemarkTemplateCode,
 } from "@/lib/return-remark-templates";
+import {
+  INVOICE_REVERT_CREDIT_NOTE_TEMPLATE,
+  INVOICE_REVERT_STAGE_ONLY_TEMPLATE,
+} from "@/lib/invoice-revert";
 import { TASK_REMINDER_ORDER_ID_PARAM } from "@/lib/task-reminder-links";
 
 type BulkReturnRow = {
@@ -82,7 +86,13 @@ function formatDateOnly(value?: string | null) {
 }
 
 function actionTypeBadge(item: ReturnTrackingItem) {
-  if (item.remarkTemplate === "invoice_revert") {
+  if (item.remarkTemplate === INVOICE_REVERT_STAGE_ONLY_TEMPLATE) {
+    if (item.actionStatus === "solved" && item.actionType === "rearrange") {
+      return { label: "Rearranged", className: "border-sky-500/30 bg-sky-500/10 text-sky-700" };
+    }
+    return { label: "Revert only", className: "border-sky-500/30 bg-sky-500/10 text-sky-700" };
+  }
+  if (item.remarkTemplate === INVOICE_REVERT_CREDIT_NOTE_TEMPLATE) {
     if (item.actionStatus === "solved" && item.actionType === "void") {
       return { label: "Finance Reverted — Voided", className: "border-purple-500/30 bg-purple-500/10 text-purple-700" };
     }
@@ -333,7 +343,12 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
 
   function canTakeAction(item: ReturnTrackingItem | null) {
     if (!item || item.actionStatus !== "pending") return false;
-    if (item.remarkTemplate === "invoice_revert") return false;
+    if (
+      item.remarkTemplate === INVOICE_REVERT_CREDIT_NOTE_TEMPLATE ||
+      item.remarkTemplate === INVOICE_REVERT_STAGE_ONLY_TEMPLATE
+    ) {
+      return false;
+    }
     if (item.actionType === "cancel") return false;
     if (!item.actionType) return true;
     return isBankTransferRearrangePending(item);
@@ -859,7 +874,36 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
                         <div className="mt-1 text-muted-foreground">Return remark: {selected.returnRemark}</div>
                       )}
                     </div>
-                    {selected.remarkTemplate === "invoice_revert" && (
+                    {selected.remarkTemplate === INVOICE_REVERT_STAGE_ONLY_TEMPLATE && (
+                      <div className="space-y-2">
+                        <div className="rounded-md border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-sm text-sky-800 dark:text-sky-300">
+                          <p className="font-medium">Revert only — no credit note</p>
+                          <p className="mt-0.5">
+                            {selected.actionStatus === "solved"
+                              ? "Rearranged. Dispatch this paid order to the rider again."
+                              : "Paid order. Rearrange it, then dispatch to the rider again. No finance void request."}
+                          </p>
+                          {selected.revertedFromInvoiceCompleteAt && (
+                            <p className="mt-1 text-xs opacity-75">
+                              Reverted on {formatDateOnly(selected.revertedFromInvoiceCompleteAt)}
+                            </p>
+                          )}
+                        </div>
+                        {selected.actionStatus === "pending" && !selected.actionType && (
+                          <Button className="w-full" disabled={saving} onClick={() => void saveAction("rearrange")}>
+                            {saving ? (
+                              <>
+                                <Loader2 className="size-4 animate-spin" aria-hidden />
+                                Processing...
+                              </>
+                            ) : (
+                              "Rearrange"
+                            )}
+                          </Button>
+                        )}
+                      </div>
+                    )}
+                    {selected.remarkTemplate === INVOICE_REVERT_CREDIT_NOTE_TEMPLATE && (
                       <div className="space-y-2">
                         <div className="rounded-md border border-orange-500/30 bg-orange-500/10 px-3 py-2 text-sm text-orange-800 dark:text-orange-300">
                           <p className="font-medium">Finance Reverted — Partial Void</p>
@@ -889,7 +933,7 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
                               )}
                             </Button>
                           )}
-                        {selected.remarkTemplate === "invoice_revert" &&
+                        {selected.remarkTemplate === INVOICE_REVERT_CREDIT_NOTE_TEMPLATE &&
                           selected.orderFulfillmentStage === "returned_to_store" && (
                             <Button
                               variant="outline"
@@ -968,9 +1012,9 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
                           )}
                         </div>
                       </>
-                    ) : (
+                    ) : selected.remarkTemplate === INVOICE_REVERT_STAGE_ONLY_TEMPLATE ? null : (
                       <p className="text-muted-foreground text-sm">
-                        {selected.remarkTemplate === "invoice_revert"
+                        {selected.remarkTemplate === INVOICE_REVERT_CREDIT_NOTE_TEMPLATE
                           ? selected.actionStatus === "solved"
                             ? "Order has been fully voided. Credit note remains in ERP."
                             : "Finance-reverted order — item has been returned to store, awaiting void approval from finance."

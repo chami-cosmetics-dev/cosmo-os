@@ -19,6 +19,7 @@ import {
   reconcileOrphanPendingPaymentApprovalsForPaidOrders,
   reconcilePendingApprovalsForVoidedOrders,
   reconcilePendingDeliveryApprovalsForPrepaidOrders,
+  reconcilePendingOrderPaymentApprovalsForCardOnDelivery,
   resolveViewerFinanceLocationIds,
 } from "@/lib/approval-workflow";
 import { enrichApprovalDisplay } from "@/lib/approval-display";
@@ -65,6 +66,8 @@ async function fetchInitialApprovals(
       customerPhone: string | null;
       customerEmail: string | null;
       orderLinked: boolean;
+      requestedByName: string | null;
+      requestedByEmail: string | null;
       reviewedByName: string | null;
       reviewedByEmail: string | null;
       shopifyOrderId: string | null;
@@ -102,6 +105,8 @@ async function fetchInitialApprovals(
         o."customerPhone",
         o."customerEmail",
         (o."id" IS NOT NULL) AS "orderLinked",
+        reqUser."name" AS "requestedByName",
+        reqUser."email" AS "requestedByEmail",
         rev."name" AS "reviewedByName",
         rev."email" AS "reviewedByEmail",
         o."shopifyOrderId",
@@ -125,6 +130,7 @@ async function fetchInitialApprovals(
       LEFT JOIN "Order" o ON o."id" = ar."orderId"
       LEFT JOIN "CompanyLocation" cl ON cl."id" = o."companyLocationId"
       LEFT JOIN "ErpnextInstance" ei ON ei."id" = cl."erpnextInstanceId"
+      LEFT JOIN "User" reqUser ON reqUser."id" = ar."requestedById"
       LEFT JOIN "User" rev ON rev."id" = ar."reviewedById"
       LEFT JOIN "OrderReturn" ort ON ort."id" = ar."orderReturnId"
       LEFT JOIN "Order" ort_order ON ort_order."id" = ort."orderId"
@@ -236,6 +242,7 @@ export default async function FinanceApprovalsPage() {
 
   await reconcilePendingApprovalsForVoidedOrders(companyId);
   await reconcileOrphanPendingPaymentApprovalsForPaidOrders(companyId);
+  await reconcilePendingOrderPaymentApprovalsForCardOnDelivery(companyId);
   await reconcilePendingDeliveryApprovalsForPrepaidOrders(companyId);
 
   const financeLocationIds = await resolveViewerFinanceLocationIds(

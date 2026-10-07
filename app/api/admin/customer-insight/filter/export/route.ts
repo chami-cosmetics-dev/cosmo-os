@@ -62,6 +62,8 @@ export async function GET(request: NextRequest) {
     notInterestedInLoyalty: queryParam(sp.get("notInterestedInLoyalty")),
     noPurchaseFrom: queryParam(sp.get("noPurchaseFrom")),
     noPurchaseTo: queryParam(sp.get("noPurchaseTo")),
+    purchasedFrom: queryParam(sp.get("purchasedFrom")),
+    purchasedTo: queryParam(sp.get("purchasedTo")),
     noPurchaseMonths: queryParam(sp.get("noPurchaseMonths")),
   });
   if (!parsed.success) {
@@ -120,6 +122,8 @@ export async function GET(request: NextRequest) {
     notInterestedInLoyalty: parsed.data.notInterestedInLoyalty,
     noPurchaseFrom: parsed.data.noPurchaseFrom,
     noPurchaseTo: parsed.data.noPurchaseTo,
+    purchasedFrom: parsed.data.purchasedFrom,
+    purchasedTo: parsed.data.purchasedTo,
     noPurchaseMonths: parsed.data.noPurchaseMonths,
     page: 1,
     pageSize: 25,
