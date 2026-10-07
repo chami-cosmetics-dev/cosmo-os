@@ -391,24 +391,30 @@ export async function updateItemCreationPrices(context: UserContext, id: string)
     throw new Error("Only waiting purchasing requests can update prices");
   }
   const { erp1, erp2 } = await resolveErps(request.companyId);
+  const needsErp2 = requestNeedsErp2(request.creationSources);
+  const needsErp1Ogf = request.addErp1OgfPrice || Boolean(request.ogfPrice && !needsErp2);
   const operations = [
     { key: "erp1Standard" as const, erp: ItemCreationErp.ERP1, cfg: erp1?.cfg ?? null, priceList: ITEM_CREATION_PRICE_LISTS.STANDARD, rate: request.standardPrice },
-    ...(request.addErp1OgfPrice
+    ...(needsErp1Ogf
       ? [{ key: "erp1Ogf" as const, erp: ItemCreationErp.ERP1, cfg: erp1?.cfg ?? null, priceList: ITEM_CREATION_PRICE_LISTS.OGF, rate: request.ogfPrice }]
       : []),
-    { key: "erp2Standard" as const, erp: ItemCreationErp.ERP2, cfg: erp2?.cfg ?? null, priceList: ITEM_CREATION_PRICE_LISTS.STANDARD, rate: request.standardPrice },
-    { key: "erp2Ogf" as const, erp: ItemCreationErp.ERP2, cfg: erp2?.cfg ?? null, priceList: ITEM_CREATION_PRICE_LISTS.OGF, rate: request.ogfPrice },
-    { key: "erp2Gcc" as const, erp: ItemCreationErp.ERP2, cfg: erp2?.cfg ?? null, priceList: ITEM_CREATION_PRICE_LISTS.GCC, rate: request.gccPrice },
+    ...(needsErp2
+      ? [
+          { key: "erp2Standard" as const, erp: ItemCreationErp.ERP2, cfg: erp2?.cfg ?? null, priceList: ITEM_CREATION_PRICE_LISTS.STANDARD, rate: request.standardPrice },
+          { key: "erp2Ogf" as const, erp: ItemCreationErp.ERP2, cfg: erp2?.cfg ?? null, priceList: ITEM_CREATION_PRICE_LISTS.OGF, rate: request.ogfPrice },
+          { key: "erp2Gcc" as const, erp: ItemCreationErp.ERP2, cfg: erp2?.cfg ?? null, priceList: ITEM_CREATION_PRICE_LISTS.GCC, rate: request.gccPrice },
+        ]
+      : []),
   ];
 
   await prisma.itemCreationRequest.update({
     where: { id },
     data: {
       erp1StandardPriceStatus: "UPDATING",
-      erp1OgfPriceStatus: request.addErp1OgfPrice && request.ogfPrice ? "UPDATING" : "NOT_REQUIRED",
-      erp2StandardPriceStatus: "UPDATING",
-      erp2OgfPriceStatus: request.ogfPrice ? "UPDATING" : "NOT_REQUIRED",
-      erp2GccPriceStatus: request.gccPrice ? "UPDATING" : "NOT_REQUIRED",
+      erp1OgfPriceStatus: needsErp1Ogf && request.ogfPrice ? "UPDATING" : "NOT_REQUIRED",
+      erp2StandardPriceStatus: needsErp2 ? "UPDATING" : "NOT_REQUIRED",
+      erp2OgfPriceStatus: needsErp2 && request.ogfPrice ? "UPDATING" : "NOT_REQUIRED",
+      erp2GccPriceStatus: needsErp2 && request.gccPrice ? "UPDATING" : "NOT_REQUIRED",
       erp1StandardPriceError: null,
       erp1OgfPriceError: null,
       erp2StandardPriceError: null,
@@ -488,10 +494,12 @@ export async function updateItemCreationPrices(context: UserContext, id: string)
   const refreshed = await prisma.itemCreationRequest.findUniqueOrThrow({ where: { id } });
   const requiredUpdated =
     refreshed.erp1StandardPriceStatus === "UPDATED" &&
-    (!refreshed.addErp1OgfPrice || refreshed.erp1OgfPriceStatus === "UPDATED") &&
-    refreshed.erp2StandardPriceStatus === "UPDATED" &&
-    (!refreshed.ogfPrice || refreshed.erp2OgfPriceStatus === "UPDATED") &&
-    (!refreshed.gccPrice || refreshed.erp2GccPriceStatus === "UPDATED");
+    (!(refreshed.addErp1OgfPrice || (refreshed.ogfPrice && !requestNeedsErp2(refreshed.creationSources))) ||
+      refreshed.erp1OgfPriceStatus === "UPDATED") &&
+    (!requestNeedsErp2(refreshed.creationSources) ||
+      (refreshed.erp2StandardPriceStatus === "UPDATED" &&
+        (!refreshed.ogfPrice || refreshed.erp2OgfPriceStatus === "UPDATED") &&
+        (!refreshed.gccPrice || refreshed.erp2GccPriceStatus === "UPDATED")));
   if (requiredUpdated) {
     await prisma.$transaction(async (tx) => {
       await tx.itemCreationRequest.update({

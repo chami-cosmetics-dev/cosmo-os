@@ -39,58 +39,73 @@ function normalizeDecimal(value: DecimalLike) {
   return `${whole.replace(/^0+(?=\d)/, "")}.${fraction.padEnd(6, "0").slice(0, 6)}`;
 }
 
-function decimalsEqual(a: DecimalLike | null, b: DecimalLike | null) {
-  if (a === null || b === null) return false;
+function decimalsEqual(a: DecimalLike | null | undefined, b: DecimalLike | null | undefined) {
+  if (a === null || a === undefined || b === null || b === undefined) return false;
   return normalizeDecimal(a) === normalizeDecimal(b);
 }
 
 export function getStandardPriceTally(request: {
-  standardPrice: DecimalLike;
-  erpStandardPrice: DecimalLike | null;
+  standardPrice: DecimalLike | null | undefined;
+  erpStandardPrice: DecimalLike | null | undefined;
 }) {
-  if (request.erpStandardPrice === null) return "WAITING";
+  if (request.standardPrice === null || request.standardPrice === undefined) return "NOT_REQUIRED";
+  if (request.erpStandardPrice === null || request.erpStandardPrice === undefined) return "WAITING";
   return decimalsEqual(request.standardPrice, request.erpStandardPrice)
     ? "MATCHED"
     : "DIFFERENT";
 }
 
 export function getOgfPriceTally(request: {
-  ogfPrice: DecimalLike | null;
-  erpOgfPrice: DecimalLike | null;
+  ogfPrice: DecimalLike | null | undefined;
+  erpOgfPrice: DecimalLike | null | undefined;
 }) {
-  if (request.ogfPrice === null) return "NOT_REQUIRED";
-  if (request.erpOgfPrice === null) return "WAITING";
+  if (request.ogfPrice === null || request.ogfPrice === undefined) return "NOT_REQUIRED";
+  if (request.erpOgfPrice === null || request.erpOgfPrice === undefined) return "WAITING";
   return decimalsEqual(request.ogfPrice, request.erpOgfPrice)
     ? "MATCHED"
     : "DIFFERENT";
 }
 
 export function getGccPriceTally(request: {
-  gccPrice: DecimalLike | null;
-  erp2GccPrice: DecimalLike | null;
+  gccPrice: DecimalLike | null | undefined;
+  erp2GccPrice: DecimalLike | null | undefined;
 }) {
-  if (request.gccPrice === null) return "NOT_REQUIRED";
-  if (request.erp2GccPrice === null) return "WAITING";
+  if (request.gccPrice === null || request.gccPrice === undefined) return "NOT_REQUIRED";
+  if (request.erp2GccPrice === null || request.erp2GccPrice === undefined) return "WAITING";
   return decimalsEqual(request.gccPrice, request.erp2GccPrice)
     ? "MATCHED"
     : "DIFFERENT";
 }
 
 export function getPriceStatus(request: {
-  ogfPrice: DecimalLike | null;
-  gccPrice: DecimalLike | null;
-  erpStandardPrice: DecimalLike | null;
-  erpOgfPrice: DecimalLike | null;
-  erp2GccPrice: DecimalLike | null;
+  ogfPrice: DecimalLike | null | undefined;
+  gccPrice: DecimalLike | null | undefined;
+  addErp1OgfPrice?: boolean | null | undefined;
+  creationSources?: unknown;
+  erpStandardPrice: DecimalLike | null | undefined;
+  erp1OgfPrice?: DecimalLike | null | undefined;
+  erpOgfPrice: DecimalLike | null | undefined;
+  erp2GccPrice: DecimalLike | null | undefined;
 }): PriceStatus {
-  const standardExists = request.erpStandardPrice !== null;
-  const ogfRequired = request.ogfPrice !== null;
-  const gccRequired = request.gccPrice !== null;
-  const ogfExists = request.erpOgfPrice !== null;
-  const gccExists = request.erp2GccPrice !== null;
+  const standardExists = request.erpStandardPrice !== null && request.erpStandardPrice !== undefined;
+  const needsErp2 = Array.isArray(request.creationSources) && request.creationSources.includes("ERP2");
+  const hasOgfPrice = request.ogfPrice !== null && request.ogfPrice !== undefined;
+  const needsErp1Ogf = Boolean(request.addErp1OgfPrice) || (hasOgfPrice && !needsErp2);
+  const ogfRequired = needsErp2 && request.ogfPrice !== null && request.ogfPrice !== undefined;
+  const gccRequired = needsErp2 && request.gccPrice !== null && request.gccPrice !== undefined;
+  const erp1OgfRequired = needsErp1Ogf && request.ogfPrice !== null && request.ogfPrice !== undefined;
+  const ogfExists = request.erpOgfPrice !== null && request.erpOgfPrice !== undefined;
+  const erp1OgfExists = request.erp1OgfPrice !== null && request.erp1OgfPrice !== undefined;
+  const gccExists = request.erp2GccPrice !== null && request.erp2GccPrice !== undefined;
 
-  if (!standardExists && ((ogfRequired && !ogfExists) || (gccRequired && !gccExists))) return "WAITING_BOTH";
+  if (
+    !standardExists &&
+    ((ogfRequired && !ogfExists) ||
+      (erp1OgfRequired && !erp1OgfExists) ||
+      (gccRequired && !gccExists))
+  ) return "WAITING_BOTH";
   if (!standardExists) return "WAITING_STANDARD";
+  if (erp1OgfRequired && !erp1OgfExists) return "WAITING_OGF";
   if (ogfRequired && !ogfExists) return "WAITING_OGF";
   if (gccRequired && !gccExists) return "WAITING_GCC";
   return "READY";
