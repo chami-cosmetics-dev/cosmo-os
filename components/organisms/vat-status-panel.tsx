@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, KeyboardEvent, useEffect, useRef, useState } from "react";
 import { Loader2, Search } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { notify } from "@/lib/notify";
 import type { VatStatusLookup, VatStatusSlot } from "@/lib/vat-status/types";
+
+type SkuSuggestion = {
+  sku: string;
+  title: string;
+};
 
 function statusText(slot: VatStatusSlot): string {
   if (!slot.configured) return "ERP not configured";
@@ -52,16 +57,72 @@ function SlotCard({ slot }: { slot: VatStatusSlot }) {
 export function VatStatusPanel() {
   const [sku, setSku] = useState("");
   const [busy, setBusy] = useState(false);
+  const [suggesting, setSuggesting] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [suggestions, setSuggestions] = useState<SkuSuggestion[]>([]);
+  const [suggestSettled, setSuggestSettled] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
   const [result, setResult] = useState<VatStatusLookup | null>(null);
+  const boxRef = useRef<HTMLDivElement>(null);
 
-  async function onSearch(event: FormEvent) {
-    event.preventDefault();
+  useEffect(() => {
+    if (!open) return;
     const query = sku.trim();
+    if (query.length < 1) {
+      setSuggestions([]);
+      setSuggesting(false);
+      setSuggestSettled(false);
+      return;
+    }
+
+    setSuggestSettled(false);
+
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      setSuggesting(true);
+      try {
+        const res = await fetch(
+          `/api/admin/products/vat-status/suggest?q=${encodeURIComponent(query)}`,
+          { signal: controller.signal },
+        );
+        const data = (await res.json()) as { suggestions?: SkuSuggestion[]; error?: string };
+        if (!res.ok) throw new Error(data.error ?? "SKU suggestions failed");
+        setSuggestions(data.suggestions ?? []);
+        setActiveIndex(-1);
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        setSuggestions([]);
+      } finally {
+        if (!controller.signal.aborted) {
+          setSuggesting(false);
+          setSuggestSettled(true);
+        }
+      }
+    }, 200);
+
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [sku, open]);
+
+  useEffect(() => {
+    function onPointerDown(event: MouseEvent) {
+      if (!boxRef.current?.contains(event.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onPointerDown);
+    return () => document.removeEventListener("mousedown", onPointerDown);
+  }, []);
+
+  async function lookup(raw: string) {
+    const query = raw.trim();
     if (!query) {
       notify.error("Enter a SKU");
       return;
     }
 
+    setOpen(false);
+    setSku(query);
     setBusy(true);
     try {
       const res = await fetch(`/api/admin/products/vat-status?sku=${encodeURIComponent(query)}`);
@@ -77,6 +138,31 @@ export function VatStatusPanel() {
     }
   }
 
+  function onSearch(event: FormEvent) {
+    event.preventDefault();
+    if (open && activeIndex >= 0 && suggestions[activeIndex]) {
+      void lookup(suggestions[activeIndex].sku);
+      return;
+    }
+    void lookup(sku);
+  }
+
+  function onKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (!open || suggestions.length === 0) return;
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setActiveIndex((index) => (index + 1) % suggestions.length);
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setActiveIndex((index) => (index <= 0 ? suggestions.length - 1 : index - 1));
+    } else if (event.key === "Escape") {
+      setOpen(false);
+    }
+  }
+
+  const showList =
+    open && sku.trim().length > 0 && (suggesting || suggestSettled || suggestions.length > 0);
+
   return (
     <div className="space-y-6">
       <div>
@@ -86,14 +172,51 @@ export function VatStatusPanel() {
         </p>
       </div>
       <form className="flex max-w-xl gap-2" onSubmit={onSearch}>
-        <Input
-          value={sku}
-          onChange={(event) => setSku(event.target.value)}
-          placeholder="Search by SKU"
-          disabled={busy}
-          autoComplete="off"
-          aria-label="SKU"
-        />
+        <div className="relative min-w-0 flex-1" ref={boxRef}>
+          <Input
+            value={sku}
+            onChange={(event) => {
+              setSku(event.target.value);
+              setOpen(true);
+            }}
+            onFocus={() => setOpen(true)}
+            onKeyDown={onKeyDown}
+            placeholder="Search by SKU"
+            disabled={busy}
+            autoComplete="off"
+            aria-label="SKU"
+            aria-autocomplete="list"
+            aria-expanded={showList}
+            role="combobox"
+          />
+          {showList ? (
+            <ul className="absolute z-20 mt-1 max-h-72 w-full overflow-auto rounded-md border bg-popover text-popover-foreground shadow-md">
+              {suggesting && suggestions.length === 0 ? (
+                <li className="text-muted-foreground px-3 py-2 text-sm">Searching SKUs...</li>
+              ) : null}
+              {suggestions.map((item, index) => (
+                <li key={item.sku}>
+                  <button
+                    type="button"
+                    className={`flex w-full flex-col items-start px-3 py-2 text-left text-sm ${
+                      index === activeIndex ? "bg-muted" : "hover:bg-muted/60"
+                    }`}
+                    onMouseEnter={() => setActiveIndex(index)}
+                    onClick={() => void lookup(item.sku)}
+                  >
+                    <span className="font-medium">{item.sku}</span>
+                    {item.title ? (
+                      <span className="text-muted-foreground line-clamp-1 text-xs">{item.title}</span>
+                    ) : null}
+                  </button>
+                </li>
+              ))}
+              {!suggesting && suggestions.length === 0 ? (
+                <li className="text-muted-foreground px-3 py-2 text-sm">No matching SKUs</li>
+              ) : null}
+            </ul>
+          ) : null}
+        </div>
         <Button type="submit" disabled={busy}>
           {busy ? (
             <>

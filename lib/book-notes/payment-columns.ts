@@ -12,7 +12,7 @@ function toAmount(value: unknown): number {
 }
 
 function emptyColumns(): BookNotePaymentColumns {
-  return { cash: 0, card: 0, koko: 0, bankTransfer: 0 };
+  return { cash: 0, card: 0, koko: 0, mintpay: 0, bankTransfer: 0 };
 }
 
 export type BookNotePaymentBucket = keyof BookNotePaymentColumns;
@@ -33,7 +33,7 @@ export type BookNotePaymentSuggestion = {
   columns: BookNotePaymentColumns;
   /**
    * Set only when 2+ legs share the same method (two cards, two KOKO).
-   * Mixed Cash+Card stays in the four columns — no SPLIT panel.
+   * Mixed methods stay in the Cash / Card / KOKO / MintPay / Bank columns — no SPLIT panel.
    */
   splitLines: BookNoteSplitLine[] | null;
 };
@@ -44,6 +44,7 @@ export function mopToBookNoteBucket(mop: string | null | undefined): BookNotePay
   if (!low) return null;
 
   if (low.includes("koko")) return "koko";
+  if (low.includes("mintpay") || low.includes("mint pay")) return "mintpay";
 
   if (
     low.includes("bank") ||
@@ -87,6 +88,7 @@ const BUCKET_TO_ERP_METHOD: Record<BookNotePaymentBucket, BookNoteErpPaymentMeth
   cash: "Cash",
   card: "Card",
   koko: "KOKO",
+  mintpay: "MintPay",
   bankTransfer: "Bank Transfer",
 };
 
@@ -164,6 +166,7 @@ function suggestionFromLegs(legs: BookNotePaymentLeg[]): BookNotePaymentSuggesti
       cash: agg.cash,
       card: agg.card,
       koko: agg.koko,
+      mintpay: agg.mintpay,
       bankTransfer: agg.bankTransfer,
     },
     splitLines: sameMethodAppearsTwice(splitLines) ? splitLines : null,
@@ -171,7 +174,7 @@ function suggestionFromLegs(legs: BookNotePaymentLeg[]): BookNotePaymentSuggesti
 }
 
 /**
- * Map OS order payment data → Cash / Card / KOKO / Bank columns.
+ * Map OS order payment data → Cash / Card / KOKO / MintPay / Bank columns.
  * Prefer rawPayload.payments[]; else single total into primary gateway bucket; else Cash.
  */
 export function mapOrderPaymentsToBookNoteColumns(input: {
@@ -186,7 +189,7 @@ export function mapOrderPaymentsToBookNoteColumns(input: {
 /**
  * Suggestion autofill: prefer synced ERP payment entries, then POS payments[],
  * then the primary gateway total. Same-method duplicate legs return splitLines
- * (SPLIT panel). Different methods fill Cash / Card / KOKO / Bank columns.
+ * (SPLIT panel). Different methods fill Cash / Card / KOKO / MintPay / Bank columns.
  */
 export function mapOrderPaymentsToBookNoteSuggestion(input: {
   totalPrice?: unknown;

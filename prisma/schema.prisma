@@ -2960,6 +2960,9 @@ model BookNoteRow {
   /// KOKO order id when the amount is typed in the KOKO column (not split lines).
   kokoReference       String?
   koko                Decimal     @db.Decimal(12, 2)
+  /// MintPay Order ID when the amount is typed in the MintPay column (not split lines).
+  mintpayReference    String?
+  mintpay             Decimal     @default(0) @db.Decimal(12, 2)
   bankTransfer        Decimal     @db.Decimal(12, 2)
   /// Free-text bank-recon note for this invoice line (ERP special_note, max 1500).
   specialNote         String?

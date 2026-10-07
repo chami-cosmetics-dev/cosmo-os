@@ -4,6 +4,7 @@ import {
 } from "@/lib/email-templates/render";
 import { formatAppDateShort, formatAppDateTimeShort } from "@/lib/format-datetime";
 import type { StockPriceMissingGap } from "@/lib/stock-price-missing/gap";
+import type { StandardPriceMismatchRow } from "@/lib/stock-price-missing/standard-mismatch";
 
 export type StockPriceMissingLocationStock = {
   locationLabel: string;
@@ -32,6 +33,7 @@ export type StockPriceMissingScanSummary = {
   companyId: string;
   erp1: StockPriceMissingErpSection;
   erp2: StockPriceMissingErpSection;
+  standardMismatches: StandardPriceMismatchRow[];
 };
 
 export function formatLocationsCell(locations: StockPriceMissingLocationStock[]): string {
@@ -83,6 +85,49 @@ function buildErpTableHtml(
 </table>`;
 }
 
+export function buildStandardMismatchTableHtml(rows: StandardPriceMismatchRow[]): string {
+  if (rows.length === 0) {
+    return "<p>No Standard Selling mismatches between ERP1 and ERP2.</p>";
+  }
+
+  const body = rows
+    .map((row, index) => {
+      return `<tr>
+  <td style="padding:6px;border:1px solid #ddd;text-align:right">${index + 1}</td>
+  <td style="padding:6px;border:1px solid #ddd">${escapeEmailHtml(row.sku)}</td>
+  <td style="padding:6px;border:1px solid #ddd">${escapeEmailHtml(row.itemName)}</td>
+  <td style="padding:6px;border:1px solid #ddd;text-align:right">${escapeEmailHtml(row.erp1Rate)}</td>
+  <td style="padding:6px;border:1px solid #ddd;text-align:right">${escapeEmailHtml(row.erp2Rate)}</td>
+  <td style="padding:6px;border:1px solid #ddd;text-align:right">${escapeEmailHtml(row.diff)}</td>
+</tr>`;
+    })
+    .join("");
+
+  return `<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;font-size:13px">
+<thead>
+<tr>
+  <th style="padding:6px;border:1px solid #ddd;background:#f5f5f5">#</th>
+  <th style="padding:6px;border:1px solid #ddd;background:#f5f5f5">SKU</th>
+  <th style="padding:6px;border:1px solid #ddd;background:#f5f5f5">Item name</th>
+  <th style="padding:6px;border:1px solid #ddd;background:#f5f5f5">ERP1 Standard</th>
+  <th style="padding:6px;border:1px solid #ddd;background:#f5f5f5">ERP2 Standard</th>
+  <th style="padding:6px;border:1px solid #ddd;background:#f5f5f5">Diff (ERP1−ERP2)</th>
+</tr>
+</thead>
+<tbody>${body}</tbody>
+</table>`;
+}
+
+function standardMismatchBlock(count: number, tableHtml: string): string {
+  return `<p><strong>3) Standard Selling mismatch (ERP1 vs ERP2)</strong></p>
+<p>Same SKU, both ERPs have Standard Selling, rates differ.</p>
+<ul>
+  <li>Total: ${count}</li>
+</ul>
+${tableHtml}
+`;
+}
+
 export function buildStockPriceMissingEmailContent(input: {
   companyName: string;
   scan: StockPriceMissingScanSummary;
@@ -94,6 +139,9 @@ export function buildStockPriceMissingEmailContent(input: {
   const reportDate = formatAppDateShort(now);
   const generatedAt = formatAppDateTimeShort(now);
   const itemCount = String(input.scan.erp1.rows.length + input.scan.erp2.rows.length);
+  const mismatches = input.scan.standardMismatches ?? [];
+  const standardMismatchCount = String(mismatches.length);
+  const standardMismatchTableHtml = buildStandardMismatchTableHtml(mismatches);
 
   const vars: Record<string, string> = {
     companyName: escapeEmailHtml(input.companyName),
@@ -131,6 +179,8 @@ export function buildStockPriceMissingEmailContent(input: {
       input.scan.erp2,
       "No ERP2 items with Standard / OGF gap.",
     ),
+    standardMismatchCount,
+    standardMismatchTableHtml,
   };
 
   const subjectVars: Record<string, string> = {
@@ -140,8 +190,21 @@ export function buildStockPriceMissingEmailContent(input: {
     erp2Label: input.scan.erp2.label,
   };
 
-  const subject = renderEmailTemplatePlaceholders(input.subjectTemplate, subjectVars);
-  const html = renderEmailTemplatePlaceholders(input.bodyHtmlTemplate, vars);
+  let subject = renderEmailTemplatePlaceholders(input.subjectTemplate, subjectVars);
+  if (!input.subjectTemplate.includes("{{standardMismatchCount}}")) {
+    subject = `${subject} · std mismatch ${standardMismatchCount}`;
+  }
+  let html = renderEmailTemplatePlaceholders(input.bodyHtmlTemplate, vars);
+  if (!input.bodyHtmlTemplate.includes("{{standardMismatchTableHtml}}")) {
+    const block = standardMismatchBlock(mismatches.length, standardMismatchTableHtml);
+    const footerAt = html.lastIndexOf("Cosmo OS automated report");
+    if (footerAt >= 0) {
+      const pStart = html.lastIndexOf("<p", footerAt);
+      html = pStart >= 0 ? html.slice(0, pStart) + block + html.slice(pStart) : html + block;
+    } else {
+      html += block;
+    }
+  }
   const plain = html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
   return { subject, html, plain };
 }

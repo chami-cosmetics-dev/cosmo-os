@@ -27,6 +27,7 @@ import type {
   StockPriceMissingRow,
   StockPriceMissingScanSummary,
 } from "@/lib/stock-price-missing/build-content";
+import { buildStandardPriceMismatches } from "@/lib/stock-price-missing/standard-mismatch";
 import type { SellingPricesBySku } from "@/lib/stock-price-missing/erp-selling-prices";
 
 export type { StockPriceMissingRow, StockPriceMissingScanSummary };
@@ -235,6 +236,7 @@ function buildErpSection(input: {
  * OGF: ERP1 only Cerave; ERP2 all brands except skip-list (Acnes…Cerave).
  * Live ERP Product Priority: exclude Discontinue on that ERP; ERP2 also excludes Vat.
  * VAT - Selling price list ignored.
+ * Also lists every SKU whose Standard Selling differs between ERP1 and ERP2. Stock ignored.
  */
 export async function scanStockPriceMissing(
   companyId: string,
@@ -269,7 +271,12 @@ export async function scanStockPriceMissing(
   });
 
   const allSkus = [
-    ...new Set([...stock1.keys(), ...stock2.keys()]),
+    ...new Set([
+      ...stock1.keys(),
+      ...stock2.keys(),
+      ...Object.keys(prices1.standard),
+      ...Object.keys(prices2.standard),
+    ]),
   ];
   const [catalog, brands1, brands2] = await Promise.all([
     loadItemCatalog(companyId, allSkus),
@@ -297,8 +304,15 @@ export async function scanStockPriceMissing(
     dropVat: true,
   });
 
+  const standardMismatches = buildStandardPriceMismatches({
+    standard1: prices1.standard,
+    standard2: prices2.standard,
+    nameBySku: catalog.nameBySku,
+  });
+
   return {
     companyId,
+    standardMismatches,
     erp1: buildErpSection({
       label: erp1.label?.trim() || "ERP1",
       erp: "erp1",

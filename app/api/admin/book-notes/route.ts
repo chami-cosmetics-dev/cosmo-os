@@ -318,6 +318,12 @@ export async function PUT(request: NextRequest) {
             : null,
         koko: agg ? agg.koko : r.koko,
         kokoReference: usesSplit ? null : r.koko > 0 ? r.kokoReference : null,
+        mintpay: agg ? agg.mintpay : r.mintpay,
+        mintpayReference: usesSplit
+          ? null
+          : r.mintpay > 0
+            ? r.mintpayReference
+            : null,
         bankTransfer: agg ? agg.bankTransfer : r.bankTransfer,
         specialNote: r.specialNote ?? null,
         splitLines: usesSplit ? splitLines : null,
@@ -325,14 +331,14 @@ export async function PUT(request: NextRequest) {
       };
     })
     .filter((r) => {
-      const total = r.cash + r.card + r.koko + r.bankTransfer;
+      const total = r.cash + r.card + r.koko + r.mintpay + r.bankTransfer;
       const hasInvoice = r.salesInvoice.length > 0;
       if (!hasInvoice && total === 0) return false;
       return true;
     });
 
   for (const r of cleaned) {
-    const total = r.cash + r.card + r.koko + r.bankTransfer;
+    const total = r.cash + r.card + r.koko + r.mintpay + r.bankTransfer;
     if (!r.salesInvoice && total > 0) {
       return NextResponse.json(
         { error: "Sales invoice is required when amounts are entered" },
@@ -411,6 +417,8 @@ export async function PUT(request: NextRequest) {
           cardReceiptRefLast4: r.cardReceiptRefLast4,
           koko: r.koko,
           kokoReference: r.kokoReference,
+          mintpay: r.mintpay,
+          mintpayReference: r.mintpayReference,
           bankTransfer: r.bankTransfer,
           specialNote: r.specialNote
             ? r.specialNote.slice(0, LIMITS.bookNoteSpecialNote.max)
