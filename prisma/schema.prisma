@@ -299,6 +299,8 @@ model ItemCreationRequest {
   description             String
   standardPrice           Decimal                             @db.Decimal(12, 2)
   ogfPrice                Decimal?                            @db.Decimal(12, 2)
+  gccPrice                Decimal?                            @db.Decimal(12, 2)
+  addErp1OgfPrice         Boolean                             @default(false)
   country                 String
   creationSources         Json                                @default("[\"SHOPIFY\"]")
   overallStatus           ItemCreationOverallStatus           @default(IN_PROGRESS)
@@ -327,18 +329,25 @@ model ItemCreationRequest {
   erp2ItemCreationStatus  ItemCreationErp2ItemStatus          @default(WAITING_ERP1)
   erp2ItemCreationError   String?
   erp1StandardPrice       Decimal?                            @db.Decimal(12, 2)
+  erp1OgfPrice            Decimal?                            @db.Decimal(12, 2)
   erp2StandardPrice       Decimal?                            @db.Decimal(12, 2)
   erp2OgfPrice            Decimal?                            @db.Decimal(12, 2)
+  erp2GccPrice            Decimal?                            @db.Decimal(12, 2)
   erp1StandardPriceStatus ItemCreationPriceOperationStatus    @default(PENDING)
+  erp1OgfPriceStatus      ItemCreationPriceOperationStatus    @default(NOT_REQUIRED)
   erp2StandardPriceStatus ItemCreationPriceOperationStatus    @default(PENDING)
   erp2OgfPriceStatus      ItemCreationPriceOperationStatus    @default(NOT_REQUIRED)
+  erp2GccPriceStatus      ItemCreationPriceOperationStatus    @default(NOT_REQUIRED)
   erp1StandardPriceError  String?
+  erp1OgfPriceError       String?
   erp2StandardPriceError  String?
   erp2OgfPriceError       String?
+  erp2GccPriceError       String?
   pricesUpdatedAt         DateTime?
   pricesUpdatedBy         String?
   standardPriceSeenAt     DateTime?
   ogfPriceSeenAt          DateTime?
+  gccPriceSeenAt          DateTime?
   priceUpdatedAt          DateTime?
   priceUpdatedBy          String?
   priceUpdatedSource      ItemCreationUpdateSource?
