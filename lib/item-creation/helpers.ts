@@ -21,12 +21,14 @@ export type PriceStatus =
   | "WAITING_BOTH"
   | "WAITING_STANDARD"
   | "WAITING_OGF"
+  | "WAITING_GCC"
   | "READY";
 
 export const PRICE_STATUS_LABELS: Record<PriceStatus, string> = {
-  WAITING_BOTH: "Waiting for Standard and OGF Price",
+  WAITING_BOTH: "Waiting for required prices",
   WAITING_STANDARD: "Waiting for Standard Price",
   WAITING_OGF: "Waiting for OGF Price",
+  WAITING_GCC: "Waiting for GCC Price",
   READY: "Price Updated",
 };
 
@@ -63,17 +65,33 @@ export function getOgfPriceTally(request: {
     : "DIFFERENT";
 }
 
+export function getGccPriceTally(request: {
+  gccPrice: DecimalLike | null;
+  erp2GccPrice: DecimalLike | null;
+}) {
+  if (request.gccPrice === null) return "NOT_REQUIRED";
+  if (request.erp2GccPrice === null) return "WAITING";
+  return decimalsEqual(request.gccPrice, request.erp2GccPrice)
+    ? "MATCHED"
+    : "DIFFERENT";
+}
+
 export function getPriceStatus(request: {
   ogfPrice: DecimalLike | null;
+  gccPrice: DecimalLike | null;
   erpStandardPrice: DecimalLike | null;
   erpOgfPrice: DecimalLike | null;
+  erp2GccPrice: DecimalLike | null;
 }): PriceStatus {
   const standardExists = request.erpStandardPrice !== null;
   const ogfRequired = request.ogfPrice !== null;
+  const gccRequired = request.gccPrice !== null;
   const ogfExists = request.erpOgfPrice !== null;
+  const gccExists = request.erp2GccPrice !== null;
 
-  if (!standardExists && ogfRequired && !ogfExists) return "WAITING_BOTH";
+  if (!standardExists && ((ogfRequired && !ogfExists) || (gccRequired && !gccExists))) return "WAITING_BOTH";
   if (!standardExists) return "WAITING_STANDARD";
   if (ogfRequired && !ogfExists) return "WAITING_OGF";
+  if (gccRequired && !gccExists) return "WAITING_GCC";
   return "READY";
 }

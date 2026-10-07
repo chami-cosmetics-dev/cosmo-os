@@ -27,6 +27,7 @@ export const ITEM_CREATION_PERMISSIONS = {
 export const ITEM_CREATION_PRICE_LISTS = {
   STANDARD: process.env.ITEM_CREATION_STANDARD_PRICE_LIST ?? "Standard Selling",
   OGF: process.env.ITEM_CREATION_OGF_PRICE_LIST ?? "OGF Price List",
+  GCC: process.env.ITEM_CREATION_GCC_PRICE_LIST ?? "GCC PRICE LIST",
 } as const;
 
 const ITEM_CREATION_SOURCE_VALUES = new Set(["SHOPIFY", "ERP2"]);
@@ -75,6 +76,12 @@ function toDecimal(value: unknown, label: string) {
     throw new Error(`${label} must be a positive number`);
   }
   return decimal;
+}
+
+function toBoolean(value: unknown) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") return ["true", "1", "yes", "on"].includes(value.trim().toLowerCase());
+  return false;
 }
 
 function assertHttpUrl(value: string) {
@@ -257,6 +264,8 @@ export async function createItemRequest(
     description: string;
     standardPrice: unknown;
     ogfPrice?: unknown;
+    gccPrice?: unknown;
+    addErp1OgfPrice?: unknown;
     country: string;
     creationSources?: unknown;
   }
@@ -270,13 +279,18 @@ function validateCreateInput(input: {
   description: string;
   standardPrice: unknown;
   ogfPrice?: unknown;
+  gccPrice?: unknown;
+  addErp1OgfPrice?: unknown;
   country: string;
   creationSources?: unknown;
 }) {
   const sku = trimSku(input.sku);
   const standardPrice = toDecimal(input.standardPrice, "Standard Price");
   const ogfPrice = toDecimal(input.ogfPrice, "OGF Price");
+  const gccPrice = toDecimal(input.gccPrice, "GCC Price");
+  const addErp1OgfPrice = toBoolean(input.addErp1OgfPrice);
   if (!standardPrice) throw new Error("Standard Price is required");
+  if (addErp1OgfPrice && !ogfPrice) throw new Error("OGF Price is required when adding OGF to ERP1");
   const description = input.description?.trim();
   const country = input.country?.trim();
   if (!description) throw new Error("Description is required");
@@ -292,7 +306,7 @@ function validateCreateInput(input: {
     ),
   ];
   if (creationSources.length === 0) throw new Error("At least one creation source is required");
-  return { sku, standardPrice, ogfPrice, description, country, creationSources };
+  return { sku, standardPrice, ogfPrice, gccPrice, addErp1OgfPrice, description, country, creationSources };
 }
 
 function validateDetailsInput(input: {
@@ -300,6 +314,8 @@ function validateDetailsInput(input: {
   description: string;
   standardPrice: unknown;
   ogfPrice?: unknown;
+  gccPrice?: unknown;
+  addErp1OgfPrice?: unknown;
   country: string;
 }) {
   return validateCreateInput(input);
@@ -312,6 +328,8 @@ export async function createItemRequests(
     description: string;
     standardPrice: unknown;
     ogfPrice?: unknown;
+    gccPrice?: unknown;
+    addErp1OgfPrice?: unknown;
     country: string;
     creationSources?: unknown;
   }>
@@ -351,6 +369,8 @@ export async function createItemRequests(
           description: item.description,
           standardPrice: item.standardPrice,
           ogfPrice: item.ogfPrice,
+          gccPrice: item.gccPrice,
+          addErp1OgfPrice: item.addErp1OgfPrice,
           country: item.country,
           creationSources: item.creationSources,
           createdBy: userId(context),
@@ -428,6 +448,8 @@ export async function updateItemRequestDetails(
     description: string;
     standardPrice: unknown;
     ogfPrice?: unknown;
+    gccPrice?: unknown;
+    addErp1OgfPrice?: unknown;
     country: string;
     creationSources?: unknown;
   }
@@ -458,6 +480,8 @@ export async function updateItemRequestDetails(
         description: details.description,
         standardPrice: details.standardPrice,
         ogfPrice: details.ogfPrice,
+        gccPrice: details.gccPrice,
+        addErp1OgfPrice: details.addErp1OgfPrice,
         country: details.country,
       },
     });
@@ -472,6 +496,8 @@ export async function updateItemRequestDetails(
         description: request.description,
         standardPrice: request.standardPrice.toString(),
         ogfPrice: request.ogfPrice?.toString() ?? null,
+        gccPrice: request.gccPrice?.toString() ?? null,
+        addErp1OgfPrice: request.addErp1OgfPrice,
         country: request.country,
       }),
       JSON.stringify({
@@ -479,6 +505,8 @@ export async function updateItemRequestDetails(
         description: details.description,
         standardPrice: details.standardPrice.toString(),
         ogfPrice: details.ogfPrice?.toString() ?? null,
+        gccPrice: details.gccPrice?.toString() ?? null,
+        addErp1OgfPrice: details.addErp1OgfPrice,
         country: details.country,
       })
     );
@@ -650,6 +678,12 @@ export async function recordErpItemPrice(input: {
           data: { erpOgfPrice: price, ogfPriceSeenAt: new Date() },
         });
         await activity(tx, request.id, "ERP_OGF_PRICE_DETECTED", "ERP_WEBHOOK", null, String(request.erpOgfPrice ?? ""), String(price), { sku, priceList, erpPrice: Number(price) });
+      } else if (samePriceList(priceList, ITEM_CREATION_PRICE_LISTS.GCC)) {
+        await tx.itemCreationRequest.update({
+          where: { id: request.id },
+          data: { erp2GccPrice: price, gccPriceSeenAt: new Date() },
+        });
+        await activity(tx, request.id, "ERP_GCC_PRICE_DETECTED", "ERP_WEBHOOK", null, String(request.erp2GccPrice ?? ""), String(price), { sku, priceList, erpPrice: Number(price) });
       }
       await evaluatePriceCompletion(tx, request.id, "ERP_WEBHOOK");
     }

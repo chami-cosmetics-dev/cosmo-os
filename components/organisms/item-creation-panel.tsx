@@ -3,6 +3,7 @@
 import { useState, useTransition, type ReactNode } from "react";
 
 import {
+  getGccPriceTally,
   getOgfPriceTally,
   getPriceStatus,
   getStandardPriceTally,
@@ -16,6 +17,8 @@ type ItemCreationItem = {
   description: string;
   standardPrice: string | number;
   ogfPrice: string | number | null;
+  gccPrice: string | number | null;
+  addErp1OgfPrice: boolean;
   country: string;
   creationSources: string[];
   overallStatus: string;
@@ -28,6 +31,8 @@ type ItemCreationItem = {
   imageDriveUrl: string | null;
   erpStandardPrice: string | number | null;
   erpOgfPrice: string | number | null;
+  erp1OgfPrice: string | number | null;
+  erp2GccPrice: string | number | null;
   erp2ItemCreationStatus: string;
   erp2ItemCreationError: string | null;
   erp2ItemCode: string | null;
@@ -54,6 +59,8 @@ type CreateRow = {
   description: string;
   standardPrice: string;
   ogfPrice: string;
+  gccPrice: string;
+  addErp1OgfPrice: boolean;
   country: string;
   creationSources: string[];
 };
@@ -71,7 +78,7 @@ const money = (value: string | number | null) =>
   value === null ? "-" : Number(value).toFixed(2);
 
 const inputClass =
-  "h-10 rounded-md border bg-background px-3 text-sm outline-none transition focus:border-primary";
+  "h-10 w-full min-w-0 rounded-md border bg-background px-3 text-sm outline-none transition focus:border-primary";
 const primaryButtonClass =
   "h-10 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60";
 const secondaryButtonClass =
@@ -106,6 +113,8 @@ const emptyCreateRow = (key: number): CreateRow => ({
   description: "",
   standardPrice: "",
   ogfPrice: "",
+  gccPrice: "",
+  addErp1OgfPrice: false,
   country: "",
   creationSources: ["SHOPIFY"],
 });
@@ -128,7 +137,19 @@ export function ItemCreationPanel({
   const [filters, setFilters] = useState<Record<string, string>>(initialFilters);
   const [activeView, setActiveView] = useState<TeamView>(defaultView(permissions));
   const [createRows, setCreateRows] = useState<CreateRow[]>([emptyCreateRow(1)]);
+  const [selectedCreateRows, setSelectedCreateRows] = useState<Set<number>>(new Set());
   const [isPending, startTransition] = useTransition();
+
+  const allCreateRowsSelected =
+    createRows.length > 0 && createRows.every((row) => selectedCreateRows.has(row.key));
+  const selectedCreateRowCount = selectedCreateRows.size;
+  const selectedRowsForBulk = createRows.filter((row) => selectedCreateRows.has(row.key));
+  const selectedShopifyChecked =
+    selectedRowsForBulk.length > 0 && selectedRowsForBulk.every((row) => row.creationSources.includes("SHOPIFY"));
+  const selectedErp2Checked =
+    selectedRowsForBulk.length > 0 && selectedRowsForBulk.every((row) => row.creationSources.includes("ERP2"));
+  const selectedErp1OgfChecked =
+    selectedRowsForBulk.length > 0 && selectedRowsForBulk.every((row) => row.addErp1OgfPrice);
 
   const canAct = (area: keyof Props["permissions"]) =>
     permissions.admin || permissions[area];
@@ -178,19 +199,22 @@ export function ItemCreationPanel({
             description: row.description.trim(),
             standardPrice: row.standardPrice,
             ogfPrice: row.ogfPrice,
+            gccPrice: row.gccPrice,
+            addErp1OgfPrice: row.addErp1OgfPrice,
             country: row.country.trim(),
             creationSources: row.creationSources,
           }))
           .filter((row) => row.sku || row.description || row.standardPrice || row.country);
         await post("/api/item-creation", { items });
         setCreateRows([emptyCreateRow(Date.now())]);
+        setSelectedCreateRows(new Set());
       } catch (error) {
         setMessage(error instanceof Error ? error.message : "Create failed");
       }
     });
   }
 
-  function updateCreateRow(key: number, field: keyof Omit<CreateRow, "key">, value: string) {
+  function updateCreateRow(key: number, field: keyof Omit<CreateRow, "key">, value: string | boolean) {
     setCreateRows((rows) =>
       rows.map((row) => (row.key === key ? { ...row, [field]: value } : row))
     );
@@ -208,6 +232,46 @@ export function ItemCreationPanel({
     );
   }
 
+  function toggleCreateRowSelection(key: number) {
+    setSelectedCreateRows((selected) => {
+      const next = new Set(selected);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  }
+
+  function toggleAllCreateRows() {
+    setSelectedCreateRows((selected) =>
+      createRows.every((row) => selected.has(row.key))
+        ? new Set()
+        : new Set(createRows.map((row) => row.key))
+    );
+  }
+
+  function setSelectedCreateSource(source: string, checked: boolean) {
+    setCreateRows((rows) =>
+      rows.map((row) => {
+        if (!selectedCreateRows.has(row.key)) return row;
+        const sources = checked
+          ? [...new Set([...row.creationSources, source])]
+          : row.creationSources.filter((value) => value !== source);
+        return { ...row, creationSources: sources.length ? sources : [source] };
+      })
+    );
+  }
+
+  function setSelectedErp1Ogf(checked: boolean) {
+    setCreateRows((rows) =>
+      rows.map((row) =>
+        selectedCreateRows.has(row.key) ? { ...row, addErp1OgfPrice: checked } : row
+      )
+    );
+  }
+
   function addCreateRow() {
     setCreateRows((rows) => [...rows, emptyCreateRow(Date.now())]);
   }
@@ -216,6 +280,11 @@ export function ItemCreationPanel({
     setCreateRows((rows) =>
       rows.length === 1 ? [emptyCreateRow(Date.now())] : rows.filter((row) => row.key !== key)
     );
+    setSelectedCreateRows((selected) => {
+      const next = new Set(selected);
+      next.delete(key);
+      return next;
+    });
   }
 
   function runAction(url: string, body?: unknown) {
@@ -450,25 +519,83 @@ export function ItemCreationPanel({
               </button>
             </div>
             <div className="grid gap-3">
-              {createRows.map((row, index) => (
-                <div
-                  key={row.key}
-                  className="grid gap-3 rounded-md border bg-background p-3"
-                >
-                  <div className="grid gap-3 xl:grid-cols-[1fr_2fr_1fr_1fr_1fr_auto]">
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border bg-muted/20 px-3 py-2">
+                <label className="flex h-8 items-center gap-2 rounded-md border bg-background px-3 text-sm font-medium">
+                  <input
+                    type="checkbox"
+                    checked={allCreateRowsSelected}
+                    onChange={toggleAllCreateRows}
+                    className="size-4"
+                  />
+                  Select all
+                </label>
+                <span className="text-xs font-medium text-muted-foreground">
+                  {selectedCreateRowCount} selected
+                </span>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-medium text-muted-foreground">
+                    Mark selected as
+                  </span>
+                  <label className="flex h-8 items-center gap-2 rounded-md border bg-background px-3 text-sm font-medium text-muted-foreground">
+                    <input
+                      type="checkbox"
+                      disabled={selectedCreateRowCount === 0}
+                      checked={selectedShopifyChecked}
+                      onChange={(event) => setSelectedCreateSource("SHOPIFY", event.target.checked)}
+                      className="size-4"
+                    />
+                    Shopify
+                  </label>
+                  <label className="flex h-8 items-center gap-2 rounded-md border bg-background px-3 text-sm font-medium text-muted-foreground">
+                    <input
+                      type="checkbox"
+                      disabled={selectedCreateRowCount === 0}
+                      checked={selectedErp2Checked}
+                      onChange={(event) => setSelectedCreateSource("ERP2", event.target.checked)}
+                      className="size-4"
+                    />
+                    ERP 02
+                  </label>
+                  <label className="flex h-8 items-center gap-2 rounded-md border bg-background px-3 text-sm font-medium text-muted-foreground">
+                    <input
+                      type="checkbox"
+                      disabled={selectedCreateRowCount === 0}
+                      checked={selectedErp1OgfChecked}
+                      onChange={(event) => setSelectedErp1Ogf(event.target.checked)}
+                      className="size-4"
+                    />
+                    ERP1 OGF
+                  </label>
+                </div>
+              </div>
+              <div className="grid gap-2">
+                {createRows.map((row, index) => (
+                  <div
+                    key={row.key}
+                    className="grid gap-3 rounded-md border bg-background p-3 xl:grid-cols-[auto_150px_minmax(280px,1.7fr)_repeat(4,minmax(120px,1fr))_auto] xl:grid-rows-2"
+                  >
+                    <label className="flex h-10 items-center justify-center self-center rounded-md border bg-muted/20 px-3 xl:row-span-2">
+                      <input
+                        type="checkbox"
+                        checked={selectedCreateRows.has(row.key)}
+                        onChange={() => toggleCreateRowSelection(row.key)}
+                        className="size-4"
+                        aria-label={`Select item ${index + 1}`}
+                      />
+                    </label>
                     <input
                       value={row.sku}
                       onChange={(event) => updateCreateRow(row.key, "sku", event.target.value)}
                       required
                       placeholder="SKU"
-                      className={inputClass}
+                      className={`${inputClass} self-center xl:row-span-2`}
                     />
-                    <input
+                    <textarea
                       value={row.description}
                       onChange={(event) => updateCreateRow(row.key, "description", event.target.value)}
                       required
                       placeholder="Description"
-                      className={inputClass}
+                      className={`${inputClass} h-full min-h-20 resize-none py-2 xl:row-span-2`}
                     />
                     <input
                       value={row.standardPrice}
@@ -476,7 +603,7 @@ export function ItemCreationPanel({
                       required
                       type="number"
                       step="0.01"
-                      placeholder="Standard Price"
+                      placeholder="Standard"
                       className={inputClass}
                     />
                     <input
@@ -484,7 +611,15 @@ export function ItemCreationPanel({
                       onChange={(event) => updateCreateRow(row.key, "ogfPrice", event.target.value)}
                       type="number"
                       step="0.01"
-                      placeholder="OGF Price"
+                      placeholder="OGF"
+                      className={inputClass}
+                    />
+                    <input
+                      value={row.gccPrice}
+                      onChange={(event) => updateCreateRow(row.key, "gccPrice", event.target.value)}
+                      type="number"
+                      step="0.01"
+                      placeholder="GCC"
                       className={inputClass}
                     />
                     <input
@@ -497,42 +632,43 @@ export function ItemCreationPanel({
                     <button
                       type="button"
                       onClick={() => removeCreateRow(row.key)}
-                      className={`${secondaryButtonClass} px-3`}
+                      className={`${secondaryButtonClass} h-10 px-3 xl:row-span-2`}
                       aria-label={`Remove item ${index + 1}`}
                     >
                       Remove
                     </button>
-                  </div>
-                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border bg-muted/20 px-3 py-2">
-                    <span className="text-xs font-medium text-muted-foreground">
-                      Sources to create
-                    </span>
-                    <div className="flex flex-wrap items-center gap-2">
-                      {[
-                        { value: "SHOPIFY", label: "Shopify" },
-                        { value: "ERP2", label: "ERP 02" },
-                      ].map((source) => (
-                        <label
-                          key={source.value}
-                          className={`flex h-8 items-center gap-2 rounded-md border px-3 text-sm font-medium transition ${
-                            row.creationSources.includes(source.value)
-                              ? "border-primary bg-primary/10 text-foreground"
-                              : "bg-background text-muted-foreground"
-                          }`}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={row.creationSources.includes(source.value)}
-                            onChange={() => toggleCreateSource(row.key, source.value)}
-                            className="size-4"
-                          />
-                          {source.label}
-                        </label>
-                      ))}
+                    <div className="flex flex-wrap items-center gap-2 xl:col-start-4 xl:col-end-8">
+                      <label className="flex h-9 items-center gap-2 rounded-md border px-3 text-sm font-medium">
+                        <input
+                          type="checkbox"
+                          checked={row.creationSources.includes("SHOPIFY")}
+                          onChange={() => toggleCreateSource(row.key, "SHOPIFY")}
+                          className="size-4"
+                        />
+                        Shopify
+                      </label>
+                      <label className="flex h-9 items-center gap-2 rounded-md border px-3 text-sm font-medium">
+                        <input
+                          type="checkbox"
+                          checked={row.creationSources.includes("ERP2")}
+                          onChange={() => toggleCreateSource(row.key, "ERP2")}
+                          className="size-4"
+                        />
+                        ERP 02
+                      </label>
+                      <label className="flex h-9 items-center gap-2 rounded-md border px-3 text-sm font-medium">
+                        <input
+                          type="checkbox"
+                          checked={row.addErp1OgfPrice}
+                          onChange={(event) => updateCreateRow(row.key, "addErp1OgfPrice", event.target.checked)}
+                          className="size-4"
+                        />
+                        ERP1 OGF
+                      </label>
                     </div>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
               <div className="flex justify-end">
                 <button disabled={isPending} className={primaryButtonClass}>
                   Create {createRows.length === 1 ? "Item Request" : "Item Requests"}
@@ -772,14 +908,22 @@ function RequestCard({ item, action }: { item: ItemCreationItem; action: ReactNo
         <InfoBlock label="Google Drive" value={<DriveLink url={item.imageDriveUrl} />} />
       </div>
 
-      <div className="mt-3 grid gap-3 md:grid-cols-2">
+      <div className="mt-3 grid gap-3 md:grid-cols-3">
         <InfoBlock
           label="Standard Price"
           value={`${money(item.standardPrice)} / ERP ${money(item.erpStandardPrice)} (${getStandardPriceTally(item)})`}
         />
         <InfoBlock
           label="OGF Price"
-          value={`${money(item.ogfPrice)} / ERP ${money(item.erpOgfPrice)} (${getOgfPriceTally(item)})`}
+          value={`${money(item.ogfPrice)} / ERP2 ${money(item.erpOgfPrice)} (${getOgfPriceTally(item)})`}
+        />
+        <InfoBlock
+          label="ERP1 OGF"
+          value={item.addErp1OgfPrice ? money(item.erp1OgfPrice) : "Not required"}
+        />
+        <InfoBlock
+          label="GCC Price"
+          value={`${money(item.gccPrice)} / ERP2 ${money(item.erp2GccPrice)} (${getGccPriceTally(item)})`}
         />
       </div>
     </div>
@@ -845,6 +989,8 @@ function AdminTable({
     description: "",
     standardPrice: "",
     ogfPrice: "",
+    gccPrice: "",
+    addErp1OgfPrice: false,
     country: "",
   });
 
@@ -855,6 +1001,8 @@ function AdminTable({
       description: item.description,
       standardPrice: String(item.standardPrice),
       ogfPrice: item.ogfPrice === null ? "" : String(item.ogfPrice),
+      gccPrice: item.gccPrice === null ? "" : String(item.gccPrice),
+      addErp1OgfPrice: item.addErp1OgfPrice,
       country: item.country,
     });
   }
@@ -967,6 +1115,25 @@ function AdminTable({
                           placeholder="OGF Price"
                           className="h-9 w-32 rounded-md border bg-background px-2 text-sm"
                         />
+                        <input
+                          value={editRow.gccPrice}
+                          onChange={(event) => setEditRow((row) => ({ ...row, gccPrice: event.target.value }))}
+                          type="number"
+                          step="0.01"
+                          placeholder="GCC Price"
+                          className="h-9 w-32 rounded-md border bg-background px-2 text-sm"
+                        />
+                        <label className="flex w-fit items-center gap-2 rounded-md border bg-background px-2 py-2 text-xs font-medium text-muted-foreground">
+                          <input
+                            type="checkbox"
+                            checked={editRow.addErp1OgfPrice}
+                            onChange={(event) =>
+                              setEditRow((row) => ({ ...row, addErp1OgfPrice: event.target.checked }))
+                            }
+                            className="size-4"
+                          />
+                          Add OGF to ERP1
+                        </label>
                       </div>
                     )}
                   </td>
