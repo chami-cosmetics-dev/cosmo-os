@@ -51,7 +51,8 @@ export async function GET(
           task.order,
           incentiveContext.chargeByLabelKey,
           incentiveContext.zoneMembersByZone,
-          task.manualIncentiveLabelKey
+          task.manualIncentiveLabelKey,
+          task.manualIncentiveAmount
         ).toFixed(2),
         collectCashAmount,
       }),

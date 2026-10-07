@@ -121,7 +121,8 @@ export async function GET(request: NextRequest) {
           task.order,
           incentiveContext.chargeByLabelKey,
           incentiveContext.zoneMembersByZone,
-          task.manualIncentiveLabelKey
+          task.manualIncentiveLabelKey,
+          task.manualIncentiveAmount
         ).toFixed(2),
         collectCashAmount: cashByOrder.get(task.order.id) ?? null,
       })

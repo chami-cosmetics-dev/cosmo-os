@@ -276,6 +276,29 @@ describe("resolveRiderIncentiveMatch", () => {
     ).toBe("300");
   });
 
+  it("uses a typed manual amount over an unmatched label", () => {
+    const map = new Map<string, string>([["mattakkuliya", "300.00"]]);
+    expect(
+      resolveRiderIncentiveMatch({
+        shippingRuleLabel: "Delivery",
+        shippingCity: "Sri Lanka",
+        chargeByLabelKey: map,
+        manualIncentiveAmount: "450.50",
+      })
+    ).toMatchObject({
+      matched: true,
+      manualOverride: true,
+      labelKey: null,
+    });
+    expect(
+      resolveRiderIncentiveFromRules({
+        shippingRuleLabel: "Delivery",
+        chargeByLabelKey: map,
+        manualIncentiveAmount: "450.50",
+      }).toString()
+    ).toBe("450.5");
+  });
+
   it("keeps Pick Up excluded even when manual key present", () => {
     const map = new Map<string, string>([["nugegoda", "300.00"]]);
     expect(

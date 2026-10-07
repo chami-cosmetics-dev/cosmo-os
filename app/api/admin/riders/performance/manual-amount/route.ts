@@ -1,15 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { z } from "zod";
 
-import { normalizeShippingRuleLabelKey } from "@/lib/rider-delivery-charge";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
 
 const bodySchema = z.object({
   taskId: cuidSchema,
-  labelKey: z.string().trim().min(1).max(200),
+  amount: z.union([z.number(), z.string()]),
 });
+
+function parseAmount(raw: number | string): Prisma.Decimal | null {
+  const text = String(raw).trim().replace(/,/g, "");
+  if (!/^\d+(\.\d{1,2})?$/.test(text)) return null;
+  const value = new Prisma.Decimal(text);
+  if (value.lt(0) || value.gt(100000)) return null;
+  return value;
+}
 
 export async function POST(request: NextRequest) {
   const auth = await requirePermission("riders.performance.manage");
@@ -32,20 +40,12 @@ export async function POST(request: NextRequest) {
 
   const parsed = bodySchema.safeParse(json);
   if (!parsed.success) {
-    return NextResponse.json({ error: "Invalid taskId or labelKey" }, { status: 400 });
+    return NextResponse.json({ error: "Invalid task or amount" }, { status: 400 });
   }
 
-  const labelKey = normalizeShippingRuleLabelKey(parsed.data.labelKey);
-  if (!labelKey) {
-    return NextResponse.json({ error: "Invalid labelKey" }, { status: 400 });
-  }
-
-  const rule = await prisma.riderDeliveryChargeRule.findUnique({
-    where: { labelKey },
-    select: { label: true, labelKey: true, riderDeliveryCharge: true },
-  });
-  if (!rule) {
-    return NextResponse.json({ error: "District not found in uploaded charge sheet" }, { status: 400 });
+  const amount = parseAmount(parsed.data.amount);
+  if (!amount) {
+    return NextResponse.json({ error: "Enter an amount from 0 to 100000, up to 2 decimals" }, { status: 400 });
   }
 
   const task = await prisma.riderDeliveryTask.findFirst({
@@ -63,9 +63,9 @@ export async function POST(request: NextRequest) {
   await prisma.riderDeliveryTask.update({
     where: { id: task.id },
     data: {
-      manualIncentiveLabelKey: rule.labelKey,
-      manualIncentiveLabel: rule.label,
-      manualIncentiveAmount: null,
+      manualIncentiveAmount: amount,
+      manualIncentiveLabelKey: null,
+      manualIncentiveLabel: null,
       manualIncentiveSetAt: new Date(),
       manualIncentiveSetById: userId,
     },
@@ -74,8 +74,6 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({
     ok: true,
     taskId: task.id,
-    labelKey: rule.labelKey,
-    label: rule.label,
-    incentiveAmount: rule.riderDeliveryCharge.toFixed(2),
+    incentiveAmount: amount.toFixed(2),
   });
 }

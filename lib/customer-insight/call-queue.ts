@@ -74,6 +74,10 @@ export type CallQueueAssignFilters = {
   assignedTo?: string;
   notContacted?: boolean;
   notInterestedInLoyalty?: boolean;
+  /** Contacts with no assigned merchant, and a phone number. */
+  notAllocated?: boolean;
+  /** ContactMaster.category — latest call update status. */
+  callUpdateStatus?: string;
   /** Purchased brand needles (OR). Empty/undefined = off. */
   brands?: string[];
   /** @deprecated use brands */
@@ -299,6 +303,14 @@ async function lastNonAllocationEventMap(
   return map;
 }
 
+/** No merchant on the contact. */
+export function unassignedMerchantWhere(companyId: string) {
+  return {
+    companyId,
+    OR: [{ assignedMerchant: null }, { assignedMerchant: "" }],
+  };
+}
+
 export function assignedMerchantWhere(companyId: string, aliases: string[]) {
   if (aliases.length === 0) {
     return {
@@ -364,7 +376,10 @@ async function listRankedEligibleContacts(input: {
   companyId: string;
   filters: CallQueueAssignFilters;
 }): Promise<{ ranked: RankedContact[]; allocatedTotal: number }> {
-  const merchantNeedle = input.filters.merchantValue?.trim() ?? "";
+  const notAllocated = Boolean(input.filters.notAllocated);
+  const merchantNeedle = notAllocated
+    ? ""
+    : (input.filters.merchantValue?.trim() ?? "");
   const aliases = merchantNeedle
     ? await resolveAssignedMerchantFilterLabels(input.companyId, merchantNeedle)
     : [];
@@ -438,15 +453,29 @@ async function listRankedEligibleContacts(input: {
     if (contactIdAllow.size === 0) return { ranked: [], allocatedTotal: 0 };
   }
 
+  const merchantWhere = notAllocated
+    ? unassignedMerchantWhere(input.companyId)
+    : assignedMerchantWhere(input.companyId, aliases);
   const contacts = await prisma.contactMaster.findMany({
     where: {
-      ...assignedMerchantWhere(input.companyId, aliases),
+      ...merchantWhere,
       ...(purchase ?? {}),
       ...(contactIdAllow
         ? { id: { in: [...contactIdAllow] } }
         : {}),
+      ...(notAllocated
+        ? {
+            AND: [
+              { phoneNumber: { not: null } },
+              { phoneNumber: { not: "" } },
+            ],
+          }
+        : {}),
       ...(input.filters.notInterestedInLoyalty
         ? { loyaltyOutreachStatus: "not_interested" }
+        : {}),
+      ...(input.filters.callUpdateStatus?.trim()
+        ? { category: { equals: input.filters.callUpdateStatus.trim() } }
         : {}),
     },
     select: {

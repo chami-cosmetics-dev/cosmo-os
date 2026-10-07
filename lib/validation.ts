@@ -610,3 +610,4 @@ export const itemTrendsCoverQuerySchema = z.object({
     .optional()
     .transform((v) => v === "true"),
 });
+

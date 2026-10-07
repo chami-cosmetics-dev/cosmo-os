@@ -39,7 +39,7 @@ const DEFAULT_PERMISSIONS = [
   },
   {
     key: "riders.performance.manage",
-    description: "Set manual district for unmatched rider incentives",
+    description: "Set manual district or rider pay for unmatched incentives",
   },
   {
     key: "roles.read",

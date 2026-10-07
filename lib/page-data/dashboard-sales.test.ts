@@ -267,6 +267,37 @@ describe("isDashboardSalesOrderEligible", () => {
     ).toBe(false);
   });
 
+  it("excludes returned to store from invoice-date totals", () => {
+    const returnedToStore = {
+      sourceName: "web",
+      financialStatus: "paid",
+      fulfillmentStatus: "fulfilled",
+      fulfillmentStage: "returned_to_store",
+      invoiceCompleteAt: closedAt,
+    };
+    expect(isDashboardSalesOrderEligible(returnedToStore, "bill_done_in_dates")).toBe(false);
+    expect(isDashboardSalesOrderEligible(returnedToStore, "bill_done_old")).toBe(false);
+    expect(
+      isDashboardSalesOrderEligible(
+        { ...returnedToStore, sourceName: "erpnext-pos" },
+        "bill_done_in_dates",
+      ),
+    ).toBe(false);
+    expect(
+      isDashboardSalesOrderEligible(
+        {
+          sourceName: "web",
+          financialStatus: "paid",
+          fulfillmentStatus: "fulfilled",
+          fulfillmentStage: "invoice_complete",
+          invoiceCompleteAt: closedAt,
+        },
+        "bill_done_in_dates",
+      ),
+    ).toBe(true);
+    expect(isDashboardSalesOrderEligible(returnedToStore, "all_orders")).toBe(true);
+  });
+
   it("includes non-voided POS in bill_done_old and done_after_delivery", () => {
     expect(
       isDashboardSalesOrderEligible(

@@ -64,7 +64,8 @@ export function incentiveForOrder(
   order: RiderIncentiveOrder,
   chargeByLabelKey: Map<string, Prisma.Decimal | number | string>,
   zoneMembersByZone?: Map<string, Set<string>>,
-  manualIncentiveLabelKey?: string | null
+  manualIncentiveLabelKey?: string | null,
+  manualIncentiveAmount?: Prisma.Decimal | number | string | null
 ): Prisma.Decimal {
   return resolveRiderIncentiveFromRules({
     shippingRuleLabel: orderShippingLabel(order),
@@ -72,6 +73,7 @@ export function incentiveForOrder(
     shippingCity: extractOrderShippingCity(order),
     zoneMembersByZone,
     manualIncentiveLabelKey,
+    manualIncentiveAmount,
   });
 }
 
@@ -80,7 +82,8 @@ export function incentiveMatchForOrder(
   order: RiderIncentiveOrder,
   chargeByLabelKey: Map<string, Prisma.Decimal | number | string>,
   zoneMembersByZone?: Map<string, Set<string>>,
-  manualIncentiveLabelKey?: string | null
+  manualIncentiveLabelKey?: string | null,
+  manualIncentiveAmount?: Prisma.Decimal | number | string | null
 ): {
   amount: Prisma.Decimal;
   matched: boolean;
@@ -94,5 +97,6 @@ export function incentiveMatchForOrder(
     shippingCity: extractOrderShippingCity(order),
     zoneMembersByZone,
     manualIncentiveLabelKey,
+    manualIncentiveAmount,
   });
 }
