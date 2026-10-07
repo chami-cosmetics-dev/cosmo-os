@@ -66,15 +66,33 @@ describe("FINANCE_PENDING_FULFILLMENT_EXCLUSION", () => {
 });
 
 describe("FINANCE_PENDING_SPLIT_PAYMENT_QUEUE", () => {
-  it("shows ERP and Shopify KOKO/Bank orders with a pending payment approval", () => {
+  it("shows ERP and Shopify KOKO/Bank orders before finance approval and while approval is pending", () => {
     expect(FINANCE_PENDING_SPLIT_PAYMENT_QUEUE).toEqual({
       sourceName: { in: ["erpnext", "web"] },
-      approvalRequests: {
-        some: { type: "order_payment_approval", status: "pending" },
-      },
-      OR: [
-        { paymentGatewayPrimary: { contains: "koko", mode: "insensitive" } },
-        { paymentGatewayPrimary: { contains: "bank", mode: "insensitive" } },
+      AND: [
+        {
+          OR: [
+            { paymentGatewayPrimary: { contains: "koko", mode: "insensitive" } },
+            { paymentGatewayPrimary: { contains: "bank", mode: "insensitive" } },
+          ],
+        },
+        {
+          OR: [
+            {
+              approvalRequests: {
+                none: {
+                  type: "order_payment_approval",
+                  status: { in: ["pending", "approved"] },
+                },
+              },
+            },
+            {
+              approvalRequests: {
+                some: { type: "order_payment_approval", status: "pending" },
+              },
+            },
+          ],
+        },
       ],
     });
   });

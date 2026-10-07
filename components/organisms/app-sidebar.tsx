@@ -94,6 +94,7 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
   const canViewReturns = hasSidebarPermission("returns.read");
   const canViewExchanges = hasSidebarPermission("exchanges.read");
   const canViewProducts = hasSidebarPermission("products.read");
+  const canViewVatStatus = hasSidebarPermission("products.vat_status.read");
   const canViewItemCreation =
     hasSidebarPermission("item_creation.admin.manage") ||
     hasSidebarPermission("item_creation.seo.manage") ||
@@ -219,7 +220,7 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
     canManageBookNotes ||
     Boolean(fulfillmentHref);
   const canViewStickers = canStickerBatch || canStickerPrint;
-  const canViewProductManagement = canViewProducts;
+  const canViewProductManagement = canViewProducts || canViewVatStatus;
   const pathname = usePathname();
 
   return (
@@ -585,6 +586,14 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
             <SidebarGroupContent>
               {canViewProducts && (
                 <NavItem href="/dashboard/products/items" icon={Package} label="Items" isActive={pathname === "/dashboard/products/items"} />
+              )}
+              {canViewVatStatus && (
+                <NavItem
+                  href="/dashboard/products/vat-status"
+                  icon={BadgeCheck}
+                  label="VAT Status"
+                  isActive={pathname === "/dashboard/products/vat-status"}
+                />
               )}
               {canViewItemCreation && (
                 <NavItem href="/dashboard/products/item-creation" icon={ClipboardCheck} label="Item Creation" isActive={pathname.startsWith("/dashboard/products/item-creation")} />
