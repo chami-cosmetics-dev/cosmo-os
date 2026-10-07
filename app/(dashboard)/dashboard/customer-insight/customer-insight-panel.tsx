@@ -78,7 +78,11 @@ import {
   CONTACT_GENDER_OPTIONS,
   CONTACT_LANGUAGE_OPTIONS,
 } from "@/lib/customer-insight/contact-profile-options";
-import { CALL_CENTER_CATEGORY_VALUES } from "@/lib/contact-call-center-categories";
+import {
+  CALL_CENTER_CATEGORY_VALUES,
+  CALL_CENTER_OUTCOME_VALUES,
+  CALL_CENTER_UNCONTACTED_CATEGORY,
+} from "@/lib/contact-call-center-categories";
 import { formatAppDate, formatAppDateTime } from "@/lib/format-datetime";
 import { loyaltyProfileIncompleteMessage, getLoyaltyProfileMissingFields } from "@/lib/customer-insight/loyalty-profile-complete";
 import { notify } from "@/lib/notify";
@@ -675,7 +679,9 @@ export function CustomerInsightPanel({
       outcome: string | null;
     }>
   >([]);
-  const [callOutcome, setCallOutcome] = useState<string>("N/A");
+  const [callOutcome, setCallOutcome] = useState<string>(
+    CALL_CENTER_UNCONTACTED_CATEGORY,
+  );
   const [contactRemark, setContactRemark] = useState("");
   const [notInterestedOpen, setNotInterestedOpen] = useState(false);
   const [notInterestedReason, setNotInterestedReason] = useState("");
@@ -1764,7 +1770,10 @@ export function CustomerInsightPanel({
 
   async function markContacted() {
     if (!selectedContactId) return;
-    if (!callOutcome.trim()) {
+    if (
+      !callOutcome.trim() ||
+      callOutcome === CALL_CENTER_UNCONTACTED_CATEGORY
+    ) {
       notify.error("Select a call outcome.");
       return;
     }
@@ -3927,7 +3936,12 @@ export function CustomerInsightPanel({
                         disabled={isBusy}
                         onChange={(e) => setCallOutcome(e.target.value)}
                       >
-                        {CALL_CENTER_CATEGORY_VALUES.map((opt) => (
+                        {callOutcome === CALL_CENTER_UNCONTACTED_CATEGORY ? (
+                          <option value={CALL_CENTER_UNCONTACTED_CATEGORY} hidden>
+                            {CALL_CENTER_UNCONTACTED_CATEGORY}
+                          </option>
+                        ) : null}
+                        {CALL_CENTER_OUTCOME_VALUES.map((opt) => (
                           <option key={opt} value={opt}>
                             {opt}
                           </option>

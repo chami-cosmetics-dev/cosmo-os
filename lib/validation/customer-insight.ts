@@ -4,7 +4,10 @@ import {
   CONTACT_GENDER_OPTIONS,
   CONTACT_LANGUAGE_OPTIONS,
 } from "@/lib/customer-insight/contact-profile-options";
-import { CALL_CENTER_CATEGORY_VALUES } from "@/lib/contact-call-center-categories";
+import {
+  CALL_CENTER_CATEGORY_VALUES,
+  CALL_CENTER_OUTCOME_VALUES,
+} from "@/lib/contact-call-center-categories";
 import { INSIGHT_FILTER_LIST_MAX } from "@/lib/customer-insight/filter-query-params";
 import { PRODUCT_ITEM_STATUS_CATEGORIES } from "@/lib/product-item-status";
 import {
@@ -124,16 +127,7 @@ export const customerInsightProfilePatchSchema = z
   );
 
 export const customerInsightContactedBodySchema = z.object({
-  category: z.enum([
-    "N/A",
-    "Interested",
-    "Not Interested",
-    "Not Responding",
-    "Wrong Number",
-    "Black List",
-    "Busy",
-    "Interested-SMS",
-  ]),
+  category: z.enum(CALL_CENTER_OUTCOME_VALUES),
   note: z.string().trim().max(500).optional().nullable(),
   remark: z.string().trim().max(2000).optional().nullable(),
   outcome: z
@@ -308,7 +302,7 @@ export const merchantLoyaltyOutreachBodySchema = z.object({
 
 export const merchantCallUpdateBodySchema = z.object({
   contactId: cuidSchema,
-  category: z.enum(CALL_CENTER_CATEGORY_VALUES),
+  category: z.enum(CALL_CENTER_OUTCOME_VALUES),
   remark: z.string().trim().max(2000).optional().nullable(),
   /** Dashboard merchant slice — admin may pass selected merchant user id. */
   merchantUserId: cuidSchema.optional(),

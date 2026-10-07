@@ -3,7 +3,10 @@ import { describe, expect, it } from "vitest";
 import {
   CALL_CENTER_CATEGORY_COLORS,
   CALL_CENTER_CHART_EXCLUDED_CATEGORIES,
+  CALL_CENTER_OUTCOME_VALUES,
+  CALL_CENTER_UNCONTACTED_CATEGORY,
   callCenterCategoryColor,
+  isCallCenterOutcome,
   sortCallCenterCategories,
 } from "@/lib/contact-call-center-categories";
 
@@ -40,5 +43,11 @@ describe("call center categories", () => {
 
   it("hides bulk allocation only", () => {
     expect([...CALL_CENTER_CHART_EXCLUDED_CATEGORIES]).toEqual(["allocation"]);
+  });
+
+  it("keeps N/A off the merchant choice list", () => {
+    expect(CALL_CENTER_OUTCOME_VALUES).not.toContain(CALL_CENTER_UNCONTACTED_CATEGORY);
+    expect(isCallCenterOutcome("N/A")).toBe(false);
+    expect(isCallCenterOutcome("Interested")).toBe(true);
   });
 });
