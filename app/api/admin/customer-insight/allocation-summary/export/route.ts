@@ -9,6 +9,7 @@ import {
   uniqueContactPhones,
   type PurchaseCountFilter,
 } from "@/lib/customer-insight/allocation-summary";
+import { firstPurchaseAtByContactIds } from "@/lib/customer-insight/first-purchase";
 import { resolveAssignedMerchantFilterLabels } from "@/lib/customer-insight/merchant-label-aliases";
 import { hasInsightAdminView } from "@/lib/customer-insight/ownership";
 import { prisma } from "@/lib/prisma";
@@ -18,6 +19,7 @@ import {
   buildCsv,
   formatCsvDataLine,
   formatCsvHeaderLine,
+  formatIsoDate,
   type CsvPrimitive,
 } from "@/lib/reports/csv";
 
@@ -30,6 +32,7 @@ const CONTACT_EXPORT_HEADERS = [
   "name",
   "phone_number",
   "extra_phones",
+  "first_purchased_date",
 ] as const;
 
 type AllocationContactExportRow = Record<
@@ -160,6 +163,10 @@ async function exportAllocatedContactsCsv(
           });
           if (batch.length === 0) break;
 
+          const firstPurchaseById = await firstPurchaseAtByContactIds(
+            companyId,
+            batch.map((contact) => contact.id)
+          );
           const lines: string[] = [];
           for (const contact of batch) {
             const raw = contact.assignedMerchant?.trim() ?? "";
@@ -175,6 +182,7 @@ async function exportAllocatedContactsCsv(
               name: contact.name,
               phone_number: phones[0] ?? "",
               extra_phones: phones.slice(1).join("; "),
+              first_purchased_date: formatIsoDate(firstPurchaseById.get(contact.id)),
             };
             lines.push(formatCsvDataLine(CONTACT_EXPORT_HEADERS, row));
           }

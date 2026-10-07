@@ -19,6 +19,7 @@ export type ContactListDumpSource = {
   loyaltyAssignedAt?: Date | null;
   loyaltyOutreachStatus?: string | null;
   lastPurchaseAt: Date | null;
+  firstPurchaseAt?: Date | null;
   createdAt: Date;
   updatedAt: Date;
   emails: { email: string }[];
@@ -51,6 +52,7 @@ const LAST_PURCHASED_HEADERS = [
   "extra_phones",
   "recent_merchant",
   "last_purchased_date",
+  "first_purchased_date",
   "updated_on",
 ] as const;
 
@@ -65,6 +67,7 @@ const LOG_HEADERS = [
   "updated_at",
   "recent_merchant",
   "last_purchased_date",
+  "first_purchased_date",
 ] as const;
 
 const LOYALTY_HEADERS = [
@@ -77,6 +80,7 @@ const LOYALTY_HEADERS = [
   "recent_merchant",
   "assigned_merchant",
   "last_purchased_date",
+  "first_purchased_date",
   "loyalty_tier",
   "loyalty_assigned_at",
   "loyalty_outreach_status",
@@ -95,6 +99,7 @@ function identityCells(contact: ContactListDumpSource) {
     extra_phones: phones.extra,
     recent_merchant: dumpText(contact.recentMerchant),
     last_purchased_date: dumpDate(contact.lastPurchaseAt),
+    first_purchased_date: dumpDate(contact.firstPurchaseAt),
   };
 }
 

@@ -32,7 +32,7 @@ export function SampleFreeIssueFulfillmentPage({
       <div className="space-y-4">
         <FulfillmentOrderSelector
         title="Sample / Free Issue"
-        description="Select an order to add samples or free issues. Use Split Payments to load finance-pending ERP orders."
+        description="Select an order to add samples or free issues. Split Payments lists every KOKO and Bank order before it goes to finance approval."
         stages="order_received,sample_free_issue"
         selectedOrderId={selectedOrder?.id ?? null}
         onSelectOrder={setSelectedOrder}

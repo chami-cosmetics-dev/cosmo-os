@@ -74,6 +74,10 @@ const DEFAULT_PERMISSIONS = [
     description: "Manage vendors and categories",
   },
   {
+    key: "products.vat_status.read",
+    description: "Search a SKU and view live VAT tax status from ERP1 and ERP2",
+  },
+  {
     key: "item_creation.admin.manage",
     description: "Create item requests and manage the complete Item Creation workflow",
   },

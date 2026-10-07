@@ -34,6 +34,7 @@ import {
   isRealShopifyOrderId,
   shouldBlockShopifyCancelInOs,
 } from "@/lib/shopify-admin";
+import { needsKokoLinkTimeConfirm } from "@/lib/koko-order";
 import { prisma } from "@/lib/prisma";
 import { formatAppIsoDate } from "@/lib/format-datetime";
 import { requirePermission } from "@/lib/rbac";
@@ -325,6 +326,40 @@ export async function PATCH(
       : [];
   const isSplitOrderPaymentApproval =
     approval.type === ORDER_PAYMENT_APPROVAL && splitPaymentLines.length > 0;
+  if (
+    parsed.data.action === "approve" &&
+    approval.orderId &&
+    approval.type === ORDER_PAYMENT_APPROVAL
+  ) {
+    const orderRow = await prisma.order.findUnique({
+      where: { id: approval.orderId },
+      select: {
+        sourceName: true,
+        createdAt: true,
+        kokoLinkTimeConfirmedAt: true,
+        cancelledAt: true,
+        financialStatus: true,
+        paymentGatewayPrimary: true,
+        paymentGatewayNames: true,
+      },
+    });
+    if (
+      orderRow &&
+      needsKokoLinkTimeConfirm({
+        ...orderRow,
+        paymentApprovalStatus: "pending",
+        hasKokoSplitLeg: splitPaymentLines.some(
+          (line) => line.paymentMethod === APPROVAL_SPLIT_KOKO,
+        ),
+        hasSplitPaymentPlan: splitPaymentLines.length >= 2,
+      })
+    ) {
+      return NextResponse.json(
+        { error: "Confirm KOKO link generated time before finance approval." },
+        { status: 409 },
+      );
+    }
+  }
   const requiresKokoReference = requiresKokoApprovalReference({
     type: approval.type,
     requestNote: approval.requestNote,

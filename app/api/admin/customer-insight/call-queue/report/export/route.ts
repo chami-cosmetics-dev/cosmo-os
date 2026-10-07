@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { buildCallQueueSalesReportWorkbook } from "@/lib/customer-insight/call-queue-report-export";
 import { listCallQueueSalesReport } from "@/lib/customer-insight/call-queue-report";
+import { firstPurchaseAtByContactIds } from "@/lib/customer-insight/first-purchase";
 import { hasInsightAdminView } from "@/lib/customer-insight/ownership";
 import { requirePermission } from "@/lib/rbac";
 import { customerInsightCallQueueReportQuerySchema } from "@/lib/validation/customer-insight";
@@ -48,8 +49,15 @@ export async function GET(request: NextRequest) {
     companyId,
     ...parsed.data,
   });
+  const firstPurchaseById = await firstPurchaseAtByContactIds(
+    companyId,
+    report.rows.map((row) => row.contactId)
+  );
   const { buffer, filename } = buildCallQueueSalesReportWorkbook({
-    rows: report.rows,
+    rows: report.rows.map((row) => ({
+      ...row,
+      firstPurchaseAt: firstPurchaseById.get(row.contactId)?.toISOString() ?? null,
+    })),
   });
 
   return new NextResponse(new Uint8Array(buffer), {

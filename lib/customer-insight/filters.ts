@@ -12,6 +12,7 @@ import { findContactsByPurchasedBrandRanked } from "@/lib/page-data/contact-bran
 import { findContactsByPurchasedItemRanked } from "@/lib/customer-insight/item-filter";
 import { findContactsByPurchasedItemStatusRanked } from "@/lib/customer-insight/item-status-filter";
 import { resolveAssignedMerchantFilterLabels } from "@/lib/customer-insight/merchant-label-aliases";
+import { firstPurchaseAtByContactIds } from "@/lib/customer-insight/first-purchase";
 import { prisma } from "@/lib/prisma";
 
 export type MonthDay = { month: number; day: number };
@@ -837,6 +838,10 @@ export async function filterAllocatedContacts(
   const exportRows = input.forExport ? scored : null;
   const start = (input.page - 1) * input.pageSize;
   const pageItems = exportRows ?? scored.slice(start, start + input.pageSize);
+  const firstPurchaseById = await firstPurchaseAtByContactIds(
+    input.companyId,
+    pageItems.map((row) => row.contactId)
+  );
 
   return {
     items: pageItems.map((row) => {
@@ -854,6 +859,7 @@ export async function filterAllocatedContacts(
         },
         assignedMerchant: row.assignedMerchant,
         lastPurchaseAt: row.lastPurchaseAt?.toISOString() ?? null,
+        firstPurchaseAt: firstPurchaseById.get(row.contactId)?.toISOString() ?? null,
         lastContactedAt: row.lastContactedAt?.toISOString() ?? null,
         loyaltyOutreachStatus: row.loyaltyOutreachStatus,
         loyaltyStage: loyaltyOutreachStageLabel(row.loyaltyOutreachStatus) || null,

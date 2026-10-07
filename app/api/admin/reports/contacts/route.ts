@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { firstPurchaseAtByContactIds } from "@/lib/customer-insight/first-purchase";
 import { prisma } from "@/lib/prisma";
 import { logReportDownload } from "@/lib/report-download-log";
 import {
@@ -55,12 +56,20 @@ export async function GET(request: NextRequest) {
     select: CONTACT_LIST_DUMP_SELECT,
   });
 
+  const firstPurchaseById = await firstPurchaseAtByContactIds(
+    companyId,
+    contacts.map((contact) => contact.id)
+  );
+  const withFirstPurchase = contacts.map((contact) => ({
+    ...contact,
+    firstPurchaseAt: firstPurchaseById.get(contact.id) ?? null,
+  }));
   const payload =
     report === "log"
-      ? buildContactLogDumpCsv(contacts)
+      ? buildContactLogDumpCsv(withFirstPurchase)
       : report === "loyalty"
-        ? buildLoyaltyDumpCsv(contacts)
-        : buildLastPurchasedDumpCsv(contacts);
+        ? buildLoyaltyDumpCsv(withFirstPurchase)
+        : buildLastPurchasedDumpCsv(withFirstPurchase);
 
   const fileName =
     report === "log"

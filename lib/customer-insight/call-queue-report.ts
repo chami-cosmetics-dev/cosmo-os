@@ -31,6 +31,7 @@ export type CallQueueReportRow = {
   firstContactAfterAssignAt: string | null;
   loyaltyOutreachStatus: string | null;
   loyaltyStage: string | null;
+  firstPurchaseAt?: string | null;
 };
 
 export type CallQueueMerchantSummary = {

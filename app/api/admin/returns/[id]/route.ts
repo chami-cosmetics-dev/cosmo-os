@@ -10,6 +10,7 @@ import {
 import { writeAuditLog } from "@/lib/audit-log";
 import { isCitypakCourier, isRiderReturn } from "@/lib/courier";
 import { prisma } from "@/lib/prisma";
+import { canTakeMerchantReturnActions, isMerchantReturnAction } from "@/lib/return-action-access";
 import { requirePermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
 import { orderStageUpdate } from "@/lib/order-stage-timing";
@@ -121,6 +122,13 @@ export async function PUT(
   const isCancelRequest = parsed.data.actionType === "request_cancel";
   const isMarkReturnedToStore = parsed.data.actionType === "mark_returned_to_store";
   const isResendVoidApproval = parsed.data.actionType === "resend_void_approval";
+
+  if (isMerchantReturnAction(parsed.data.actionType) && !canTakeMerchantReturnActions(auth.context!.roleNames)) {
+    return NextResponse.json(
+      { error: "Only a merchant can rearrange, cancel, or change payment on a returned order" },
+      { status: 403 }
+    );
+  }
 
   if (isCancelRequest) {
     const cancelRemark = parsed.data.cancelRemark?.trim();

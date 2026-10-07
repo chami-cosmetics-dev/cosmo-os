@@ -23,6 +23,7 @@ import {
   contactAllocatedToMerchantAliases,
   shouldShowNewlyAllocatedBadge,
 } from "@/lib/customer-insight/call-queue-newly-allocated";
+import { firstPurchaseAtByContactIds } from "@/lib/customer-insight/first-purchase";
 import { chunkArray } from "@/lib/customer-insight/purchase-scan";
 import { findContactsByPurchasedBrandRanked } from "@/lib/page-data/contact-brand-ids";
 import {
@@ -50,6 +51,8 @@ export type CallQueueRowDto = {
   assignedMerchant: string | null;
   lifetimeTotal: number;
   lastPurchaseAt: string | null;
+  /** Earliest completed Cosmo order or Adapt invoice. */
+  firstPurchaseAt?: string | null;
   lastContactedAt: string | null;
   queued: boolean;
   hidden?: boolean;
@@ -603,9 +606,15 @@ export async function listCallQueueCandidates(input: {
   const pageRows = shown.slice(start, start + pageSize);
 
   const lifetimeAlready = callQueueNeedsLifetimeTotals(input);
-  const pageTotals = lifetimeAlready
-    ? null
-    : await lifetimeTotalsByContactId(input.companyId, pageRows);
+  const [pageTotals, firstPurchaseById] = await Promise.all([
+    lifetimeAlready
+      ? Promise.resolve(null)
+      : lifetimeTotalsByContactId(input.companyId, pageRows),
+    firstPurchaseAtByContactIds(
+      input.companyId,
+      pageRows.map((row) => row.id)
+    ),
+  ]);
 
   return {
     items: pageRows.map((c) => ({
@@ -615,6 +624,7 @@ export async function listCallQueueCandidates(input: {
       assignedMerchant: c.assignedMerchant,
       lifetimeTotal: pageTotals?.get(c.id) ?? c.lifetimeTotal,
       lastPurchaseAt: c.lastPurchaseAt?.toISOString() ?? null,
+      firstPurchaseAt: firstPurchaseById.get(c.id)?.toISOString() ?? null,
       lastContactedAt: c.lastContactedAt?.toISOString() ?? null,
       queued: c.queued,
       hidden: c.hidden,
@@ -1048,9 +1058,10 @@ export async function listMerchantCallQueue(input: {
   const newlyAllocatedByContactId = new Map(
     rows.map((r) => [r.contactId, r.newlyAllocated] as const)
   );
-  const [contacted, lifetimeById] = await Promise.all([
+  const [contacted, lifetimeById, firstPurchaseById] = await Promise.all([
     lastContactedMap(input.companyId, ids),
     lifetimeTotalsByContactId(input.companyId, contacts),
+    firstPurchaseAtByContactIds(input.companyId, ids),
   ]);
 
   const now = new Date();
@@ -1064,6 +1075,7 @@ export async function listMerchantCallQueue(input: {
         assignedMerchant: c.assignedMerchant,
         lifetimeTotal: lifetimeById.get(c.id) ?? 0,
         lastPurchaseAt: c.lastPurchaseAt?.toISOString() ?? null,
+        firstPurchaseAt: firstPurchaseById.get(c.id)?.toISOString() ?? null,
         lastContactedAt: lastContactedAtDate?.toISOString() ?? null,
         queued: true,
         newlyAllocatedBadge: shouldShowNewlyAllocatedBadge({

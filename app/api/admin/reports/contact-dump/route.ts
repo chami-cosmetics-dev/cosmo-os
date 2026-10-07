@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { firstPurchaseAtByContactIds } from "@/lib/customer-insight/first-purchase";
 import { prisma } from "@/lib/prisma";
 import { logReportDownload } from "@/lib/report-download-log";
 import {
@@ -42,7 +43,16 @@ export async function GET(request: NextRequest) {
     select: CONTACT_DUMP_SELECT,
   });
 
-  const csv = buildContactDumpCsv(contacts);
+  const firstPurchaseById = await firstPurchaseAtByContactIds(
+    companyId,
+    contacts.map((contact) => contact.id)
+  );
+  const csv = buildContactDumpCsv(
+    contacts.map((contact) => ({
+      ...contact,
+      firstPurchaseAt: firstPurchaseById.get(contact.id) ?? null,
+    }))
+  );
   const today = formatAppIsoDate(new Date());
   const suffix = part === "all" ? "all" : part.replace("_", "-");
   const fileName = `contact-dump-${suffix}-${today}.csv`;

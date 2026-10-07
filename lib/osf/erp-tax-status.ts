@@ -2,6 +2,7 @@ import "server-only";
 
 import { OsfErpError, type OsfErpCredentials } from "@/lib/osf/erp-stock";
 import { normalizeSkuKey } from "@/lib/product-items/erp-priority-sync";
+import type { ErpItemTaxHit } from "@/lib/vat-status/types";
 
 /** Cosmetics.lk / trading Item Manufacturing → Tax Status. */
 export const ERP_TAX_STATUS_FIELD = "custom_tax_status";
@@ -28,6 +29,45 @@ function pickTaxStatus(row: Record<string, unknown>): string | null {
   if (value == null) return null;
   const text = String(value).trim();
   return text || null;
+}
+
+function pickItemName(row: Record<string, unknown>): string | null {
+  const value = row.item_name;
+  if (value == null) return null;
+  const text = String(value).trim();
+  return text || null;
+}
+
+/** Item rows for the given codes. Missing item codes are omitted. */
+export async function fetchErpItemTaxHits(
+  cfg: OsfErpCredentials,
+  itemCodes: string[],
+): Promise<ErpItemTaxHit[]> {
+  const items = [...new Set(itemCodes.map((s) => s.trim()).filter(Boolean))];
+  const hits: ErpItemTaxHit[] = [];
+  if (items.length === 0) return hits;
+
+  const fields = JSON.stringify(["name", "item_code", "item_name", ERP_TAX_STATUS_FIELD]);
+
+  for (let i = 0; i < items.length; i += ITEM_BATCH) {
+    const batch = items.slice(i, i + ITEM_BATCH);
+    const filters = JSON.stringify([["item_code", "in", batch]]);
+    const path =
+      `/api/resource/Item?filters=${encodeURIComponent(filters)}` +
+      `&fields=${encodeURIComponent(fields)}&limit_page_length=${ITEM_BATCH}`;
+    const json = await erpGetJson<{ data?: Array<Record<string, unknown>> }>(cfg, path);
+    for (const row of json.data ?? []) {
+      const code = String(row.item_code ?? row.name ?? "").trim();
+      if (!code) continue;
+      hits.push({
+        itemCode: code,
+        itemName: pickItemName(row),
+        taxStatus: pickTaxStatus(row),
+      });
+    }
+  }
+
+  return hits;
 }
 
 /** SKU → Tax Status (`Vat` / `Non Vat` / `Vat / Non Vat`). Missing item omitted. */
