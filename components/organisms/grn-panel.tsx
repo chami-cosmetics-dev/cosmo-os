@@ -95,6 +95,8 @@ type PurchaseReceiptRow = {
   handoverBy: UserRef | null;
   handoverRevertedAt: string | null;
   handoverRevertedBy: UserRef | null;
+  notReceivedAt: string | null;
+  notReceivedBy: UserRef | null;
   valuedAt: string | null;
   valuedBy: UserRef | null;
   valuedRevertedAt: string | null;
@@ -177,7 +179,7 @@ type GrnPanelPermissions = {
 };
 
 type GrnActionStage = "handover" | "valued" | "received";
-type GrnStageStatusFilter = "all" | "pending" | "completed" | "mismatch";
+type GrnStageStatusFilter = "all" | "pending" | "completed" | "mismatch" | "verify";
 type GrnStageFilter = {
   stage: GrnActionStage;
   status: GrnStageStatusFilter;
@@ -453,11 +455,13 @@ function GrnStageTimeline({
   permissions,
   busyKey,
   onRevert,
+  onNotReceived,
 }: {
   row: PurchaseReceiptRow;
   permissions: GrnPanelPermissions;
   busyKey: string | null;
   onRevert: (row: PurchaseReceiptRow, field: "handoverAt" | "valuedAt" | "receivedAt") => void;
+  onNotReceived: (row: PurchaseReceiptRow) => void;
 }) {
   const stages = [
     {
@@ -468,7 +472,10 @@ function GrnStageTimeline({
       fallbackBy: null,
       revertedAt: row.handoverRevertedAt,
       revertedBy: row.handoverRevertedBy,
+      notReceivedAt: row.notReceivedAt,
+      notReceivedBy: row.notReceivedBy,
       canRevert: permissions.canMarkHandover,
+      canMarkNotReceived: permissions.canMarkValued,
     },
     {
       label: "Valued",
@@ -478,7 +485,10 @@ function GrnStageTimeline({
       fallbackBy: "Cosmo API",
       revertedAt: row.valuedRevertedAt,
       revertedBy: row.valuedRevertedBy,
+      notReceivedAt: null,
+      notReceivedBy: null,
       canRevert: permissions.canMarkValued,
+      canMarkNotReceived: false,
     },
     {
       label: "GRN Received",
@@ -488,7 +498,10 @@ function GrnStageTimeline({
       fallbackBy: null,
       revertedAt: row.receivedRevertedAt,
       revertedBy: row.receivedRevertedBy,
+      notReceivedAt: null,
+      notReceivedBy: null,
       canRevert: permissions.canMarkReceived,
+      canMarkNotReceived: false,
     },
   ];
 
@@ -526,22 +539,43 @@ function GrnStageTimeline({
                     Reverted by {userLabel(stage.revertedBy) ?? "Unknown"} on {formatDate(stage.revertedAt)}
                   </div>
                 )}
+                {stage.notReceivedAt && (
+                  <div className="text-xs text-amber-300">
+                    Marked not received by {userLabel(stage.notReceivedBy) ?? "Unknown"} on {formatDate(stage.notReceivedAt)}
+                  </div>
+                )}
               </div>
               <div className="flex flex-col items-end gap-2 text-right text-sm text-muted-foreground">
                 <span>{formatDate(stage.at)}</span>
                 {complete && stage.canRevert && (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    disabled={row.isCancelled || busyKey === `${row.companyId}:${row.name}:${stage.field}:revert`}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onRevert(row, stage.field);
-                    }}
-                  >
-                    Revert
-                  </Button>
+                  <div className="flex flex-wrap justify-end gap-2">
+                    {stage.canMarkNotReceived && !row.receivedAt && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={row.isCancelled || busyKey === `${row.companyId}:${row.name}:${stage.field}:not_received`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onNotReceived(row);
+                        }}
+                      >
+                        Not received
+                      </Button>
+                    )}
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={row.isCancelled || busyKey === `${row.companyId}:${row.name}:${stage.field}:revert`}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onRevert(row, stage.field);
+                      }}
+                    >
+                      Revert
+                    </Button>
+                  </div>
                 )}
               </div>
             </div>
@@ -923,6 +957,11 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
     return Boolean(row.receivedAt);
   }, []);
 
+  const rowNeedsVerification = useCallback(
+    (row: PurchaseReceiptRow) => !row.isCancelled && Boolean(row.notReceivedAt) && !row.handoverAt,
+    [],
+  );
+
   const rowMissingIntercompanySsr = useCallback(
     (row: PurchaseReceiptRow) => {
       return (
@@ -947,6 +986,10 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
           const rows = data.purchaseReceipts.filter((row) => rowBelongsToStage(row, key));
           const completed = rows.filter((row) => rowCompletedForStage(row, key)).length;
           const mismatch = rows.filter((row) => rowMismatchedForStage(row, key)).length;
+          const verify =
+            key === "received"
+              ? 0
+              : data.purchaseReceipts.filter((row) => rowNeedsVerification(row)).length;
           return [
             key,
             {
@@ -954,11 +997,12 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
               pending: rows.length - completed,
               completed,
               mismatch,
+              verify,
             },
           ];
         }),
       ) as Record<GrnActionStage, Record<GrnStageStatusFilter, number>>,
-    [allowedStageFilters, data.purchaseReceipts, rowBelongsToStage, rowCompletedForStage, rowMismatchedForStage],
+    [allowedStageFilters, data.purchaseReceipts, rowBelongsToStage, rowCompletedForStage, rowMismatchedForStage, rowNeedsVerification],
   );
 
   const filteredPrs = useMemo(() => {
@@ -967,7 +1011,9 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
       const matchesStage =
         allowedStageFilters.length === 0
           ? !row.isCancelled
-          : rowBelongsToStage(row, stageFilter.stage) &&
+          : stageFilter.status === "verify"
+            ? stageFilter.stage !== "received" && rowNeedsVerification(row)
+            : rowBelongsToStage(row, stageFilter.stage) &&
         (stageFilter.status === "all" ||
           (stageFilter.status === "pending" && !rowCompletedForStage(row, stageFilter.stage)) ||
           (stageFilter.status === "completed" && rowCompletedForStage(row, stageFilter.stage)) ||
@@ -978,7 +1024,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
         .filter(Boolean)
         .some((value) => value!.toLowerCase().includes(term));
     });
-  }, [allowedStageFilters.length, data.purchaseReceipts, rowBelongsToStage, rowCompletedForStage, rowMismatchedForStage, search, stageFilter.stage, stageFilter.status]);
+  }, [allowedStageFilters.length, data.purchaseReceipts, rowBelongsToStage, rowCompletedForStage, rowMismatchedForStage, rowNeedsVerification, search, stageFilter.stage, stageFilter.status]);
 
   const fieldForStage = useCallback((stage: GrnActionStage): "handoverAt" | "valuedAt" | "receivedAt" => {
     if (stage === "handover") return "handoverAt";
@@ -1100,7 +1146,11 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
     return null;
   }
 
-  async function mark(row: PurchaseReceiptRow, field: "handoverAt" | "valuedAt" | "receivedAt", action: "mark" | "revert" = "mark") {
+  async function mark(
+    row: PurchaseReceiptRow,
+    field: "handoverAt" | "valuedAt" | "receivedAt",
+    action: "mark" | "revert" | "not_received" = "mark",
+  ) {
     const key = `${row.companyId}:${row.name}:${field}:${action}`;
     setBusyKey(key);
     try {
@@ -1114,11 +1164,26 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
       );
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || (action === "revert" ? "Failed to revert GRN row" : "Failed to mark GRN row"));
+        throw new Error(
+          body.error ||
+            (action === "revert"
+              ? "Failed to revert GRN row"
+              : action === "not_received"
+                ? "Failed to mark GRN row as not received"
+                : "Failed to mark GRN row"),
+        );
       }
       await loadData();
     } catch (error) {
-      notify.error(error instanceof Error ? error.message : action === "revert" ? "Failed to revert GRN row" : "Failed to mark GRN row");
+      notify.error(
+        error instanceof Error
+          ? error.message
+          : action === "revert"
+            ? "Failed to revert GRN row"
+            : action === "not_received"
+              ? "Failed to mark GRN row as not received"
+              : "Failed to mark GRN row",
+      );
     } finally {
       setBusyKey(null);
     }
@@ -1274,11 +1339,17 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
               {allowedStageFilters.map(({ key, label }) => (
                 <div key={key} className="rounded-lg border bg-background/45 p-3">
                   <div className="mb-2 text-sm font-semibold">{label}</div>
-                  <div className={`grid gap-2 ${key === "received" ? "grid-cols-3" : "grid-cols-4"}`}>
+                  <div
+                    className={
+                      key === "received"
+                        ? "grid grid-cols-[repeat(auto-fit,minmax(96px,1fr))] gap-2"
+                        : "grid grid-cols-[repeat(auto-fit,minmax(104px,1fr))] gap-2"
+                    }
+                  >
                     {(
                       key === "received"
                         ? (["all", "pending", "completed"] as const)
-                        : (["all", "pending", "completed", "mismatch"] as const)
+                        : (["all", "pending", "completed", "mismatch", "verify"] as const)
                     ).map((status) => {
                       const active = stageFilter.stage === key && stageFilter.status === status;
                       return (
@@ -1286,14 +1357,16 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                           key={status}
                           type="button"
                           className={[
-                            "rounded-md border px-3 py-2 text-left transition-colors",
+                            "min-w-0 rounded-md border px-3 py-2 text-left transition-colors",
                             active
                               ? "border-primary bg-primary/10 text-primary"
                               : "border-border bg-card hover:bg-muted/60",
                           ].join(" ")}
                           onClick={() => setStageFilter({ stage: key, status })}
                         >
-                          <div className="text-xs font-medium capitalize text-muted-foreground">{status}</div>
+                          <div className="truncate text-xs font-medium capitalize text-muted-foreground">
+                            {status}
+                          </div>
                           <div className="text-xl font-semibold leading-tight">
                             {stageCardCounts[key]?.[status] ?? 0}
                           </div>
@@ -1935,6 +2008,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                 permissions={permissions}
                 busyKey={busyKey}
                 onRevert={(row, field) => mark(row, field, "revert")}
+                onNotReceived={(row) => mark(row, "handoverAt", "not_received")}
               />
               {rowMissingIntercompanySsr(selectedPr) && (
                 <details
