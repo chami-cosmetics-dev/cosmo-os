@@ -209,6 +209,7 @@ async function unlockStoreStock(tx: Tx, id: string) {
 async function unlockSeoActivation(tx: Tx, id: string) {
   const request = await tx.itemCreationRequest.findUniqueOrThrow({ where: { id } });
   if (
+    request.purchasingStatus === ItemCreationPurchasingStatus.PRICE_UPDATED &&
     request.storeStockStatus === ItemCreationStoreStockStatus.STOCK_ADDED &&
     request.seoActivationStatus === ItemCreationSeoActivationStatus.LOCKED
   ) {
@@ -255,6 +256,7 @@ async function evaluatePriceCompletion(tx: Tx, id: string, source: ItemCreationU
     ItemCreationPurchasingStatus.PRICE_UPDATED
   );
   await unlockStoreStock(tx, id);
+  await unlockSeoActivation(tx, id);
 }
 
 export async function createItemRequest(
@@ -598,6 +600,7 @@ export async function markPriceUpdatedManually(context: UserContext, id: string)
     });
     await activity(tx, id, "PRICE_UPDATED_MANUALLY", "USER", userId(context), request.purchasingStatus, "PRICE_UPDATED");
     await unlockStoreStock(tx, id);
+    await unlockSeoActivation(tx, id);
   });
 }
 
@@ -626,7 +629,7 @@ export async function markStockAddedManually(context: UserContext, id: string) {
   requireWorkflowPermission(context, ITEM_CREATION_PERMISSIONS.stores);
   return prisma.$transaction(async (tx) => {
     const request = await getScopedRequest(tx, id, companyId(context));
-    if (request.storeStockStatus !== "READY_FOR_STOCK") throw new Error("Only ready-for-stock requests can be marked stock added");
+    if (request.storeStockStatus === "STOCK_ADDED") throw new Error("Stock is already marked added");
     await tx.itemCreationRequest.update({
       where: { id },
       data: { storeStockStatus: "STOCK_ADDED", stockAddedAt: new Date(), stockAddedBy: userId(context), stockAddedSource: "USER" },
@@ -710,7 +713,7 @@ export async function recordErpStockMovement(input: {
 
   return prisma.$transaction(async (tx) => {
     const requests = await tx.itemCreationRequest.findMany({
-      where: { sku, overallStatus: "IN_PROGRESS", storeStockStatus: "READY_FOR_STOCK" },
+      where: { sku, overallStatus: "IN_PROGRESS", NOT: { storeStockStatus: "STOCK_ADDED" } },
     });
     let matched = 0;
     for (const request of requests) {

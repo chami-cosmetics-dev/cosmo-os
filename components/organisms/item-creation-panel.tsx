@@ -420,9 +420,14 @@ export function ItemCreationPanel({
       visible: canAct("purchasing"),
       items: items.filter((item) => item.purchasingStatus === "WAITING_FOR_PRICES"),
       action: (item: ItemCreationItem) => (
-        <ActionButton onClick={() => runAction(`/api/item-creation/${item.id}/pricing/update`)}>
-          Update Prices
-        </ActionButton>
+        <>
+          <ActionButton onClick={() => runAction(`/api/item-creation/${item.id}/pricing/update`)}>
+            Update Prices
+          </ActionButton>
+          <ActionButton onClick={() => runAction(`/api/item-creation/${item.id}/purchasing/price-updated`)}>
+            Mark Priced
+          </ActionButton>
+        </>
       ),
     },
     {
@@ -452,18 +457,15 @@ export function ItemCreationPanel({
     },
     {
       title: "Stock",
-      subtitle: "Add stock after purchasing has confirmed prices.",
+      subtitle: "Add stock in parallel with pricing.",
       team: "stores",
       visible: canAct("stores"),
       items: items.filter((item) => item.storeStockStatus !== "STOCK_ADDED"),
-      action: (item: ItemCreationItem) =>
-        item.storeStockStatus === "READY_FOR_STOCK" ? (
-          <ActionButton onClick={() => runAction(`/api/item-creation/${item.id}/stores/stock-added`)}>
-            Mark Stock Added
-          </ActionButton>
-        ) : (
-          <span className="text-sm text-muted-foreground">Waiting for price</span>
-        ),
+      action: (item: ItemCreationItem) => (
+        <ActionButton onClick={() => runAction(`/api/item-creation/${item.id}/stores/stock-added`)}>
+          Mark Stock Added
+        </ActionButton>
+      ),
     },
   ];
 

@@ -8,7 +8,7 @@ export const ITEM_CREATION_STATUS_LABELS: Record<string, string> = {
   ACTIVATED: "Activated",
   WAITING_FOR_PRICES: "Waiting for Prices",
   PRICE_UPDATED: "Price Updated",
-  WAITING_FOR_PRICE: "Waiting for Price",
+  WAITING_FOR_PRICE: "Awaiting Stock",
   READY_FOR_STOCK: "Ready for Stock",
   STOCK_ADDED: "Stock Added",
   SENT: "Sent",
