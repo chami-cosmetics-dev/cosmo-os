@@ -58,10 +58,24 @@ export function riderIncentiveMatchDisplayLabel(label: string | null | undefined
   return trimmed || "(no shipping label)";
 }
 
+/** District qualifier on a shipping label. Not a company code, so it stays part of the city key. */
+const DISTRICT_LABEL_SUFFIXES = new Set([
+  "colombo",
+  "galle",
+  "gampaha",
+  "kalutara",
+  "kegalle",
+  "kurunegala",
+  "matale",
+  "matara",
+  "nuwara eliya",
+  "yakkala",
+]);
+
 /**
  * Lookup candidates for an order shipping label.
- * Exact key first, then peel trailing " - …" segments so "Colombo 2 - DTD" → "colombo 2".
- * Sheet keys stay as uploaded; peeling is match-time only.
+ * Exact key first, then peel a trailing company code so "Colombo 2 - DTD" → "colombo 2".
+ * "Pelawatta - Colombo" stays whole. It is not the same row as "Pelawatta".
  */
 export function shippingRuleLabelLookupKeys(label: string | null | undefined): string[] {
   const key = normalizeShippingRuleLabelKey(label);
@@ -71,6 +85,8 @@ export function shippingRuleLabelLookupKeys(label: string | null | undefined): s
   while (true) {
     const idx = current.lastIndexOf(" - ");
     if (idx <= 0) break;
+    const suffix = current.slice(idx + 3).trim();
+    if (DISTRICT_LABEL_SUFFIXES.has(suffix)) break;
     current = current.slice(0, idx).trim();
     if (!current || keys.includes(current)) break;
     keys.push(current);
@@ -125,6 +141,32 @@ export function riderDeliveryChargeAmount(
   return value.gt(0) ? value : new Prisma.Decimal(0);
 }
 
+/**
+ * Bare city → one glued sheet row, e.g. "kohilawatta" → "kohilawatta-colombo".
+ * Spaced labels such as "Pelawatta - Colombo" are a different row and are not used.
+ */
+function matchHyphenQualifiedCity(
+  keys: string[],
+  chargeByLabelKey: Map<string, Prisma.Decimal | number | string>
+): { amount: Prisma.Decimal; matched: boolean; labelKey: string | null } | null {
+  for (const key of keys) {
+    if (key.length < 4 || key.includes("-")) continue;
+    const hits: Array<{ labelKey: string; charge: Prisma.Decimal | number | string }> = [];
+    for (const [sheetKey, charge] of chargeByLabelKey) {
+      if (sheetKey.startsWith(`${key}-`)) {
+        hits.push({ labelKey: sheetKey, charge });
+      }
+    }
+    if (hits.length !== 1) continue;
+    return {
+      amount: riderDeliveryChargeAmount(hits[0].charge),
+      matched: true,
+      labelKey: hits[0].labelKey,
+    };
+  }
+  return null;
+}
+
 function matchChargeForKeys(
   keys: string[],
   chargeByLabelKey: Map<string, Prisma.Decimal | number | string>
@@ -138,7 +180,7 @@ function matchChargeForKeys(
       labelKey: key,
     };
   }
-  return null;
+  return matchHyphenQualifiedCity(keys, chargeByLabelKey);
 }
 
 /** Resolve rider incentive from uploaded rule table; unmatched labels → 0. */
@@ -159,6 +201,8 @@ export function resolveRiderIncentiveFromRules(input: {
  * 2) Staff-typed manual amount → that pay.
  * 3) Staff manual district key → charge sheet.
  * 4) Label lookup keys against charge sheet (DTD peel included).
+ *    "Kohilawatta" matches the glued row "Kohilawatta-Colombo".
+ *    "Pelawatta - Colombo" stays that row and does not use plain "Pelawatta".
  * 5) Zone A/B → shipping city → charge sheet (zone membership when loaded).
  * 6) Generic ERP "Delivery" or missing label → shipping city → charge sheet.
  */

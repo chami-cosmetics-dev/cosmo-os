@@ -19,6 +19,7 @@ import { orderStageUpdate } from "@/lib/order-stage-timing";
 import { approvalSplitCashCollectAmount } from "@/lib/approval-payment-split";
 import { loadLatestOrderSplitPaymentLines } from "@/lib/order-split-payment";
 import { prisma } from "@/lib/prisma";
+import { shouldCommitInvoiceComplete } from "@/lib/rider-handover";
 
 export { markOrderFinanciallyInvoiceComplete } from "@/lib/financial-invoice-complete";
 
@@ -51,6 +52,16 @@ export async function markOrderInvoiceComplete(input: {
   /** When omitted, PE uses the order's Vault payment method mapped to ERP. */
   modeOfPayment?: string;
   bulk?: boolean;
+  /**
+   * POS delivery close. Payment already sits on the Sales Invoice.
+   * Skip the finance-approval gate and do not create a Payment Entry.
+   */
+  posAlreadyPaid?: boolean;
+  /**
+   * Rider handover close. Create the payment entry first and stamp invoice
+   * complete only when that entry is created or the invoice is already paid.
+   */
+  commitOnlyWhenPaymentEntrySucceeds?: boolean;
 }): Promise<MarkOrderInvoiceCompleteResult> {
   const now = new Date();
   const mopOverride = input.modeOfPayment?.trim() || undefined;
@@ -67,14 +78,16 @@ export async function markOrderInvoiceComplete(input: {
   if (!order) {
     return { success: false, ref, error: "Order not found" };
   }
-  const financeBlock = await getFinancePaymentApprovalBlockReason({
-    id: order.id,
-    paymentGatewayPrimary: order.paymentGatewayPrimary,
-    paymentGatewayNames: order.paymentGatewayNames ?? [],
-    erpnextInvoiceId: order.erpnextInvoiceId,
-  });
-  if (financeBlock) {
-    return { success: false, ref, error: financeBlock };
+  if (!input.posAlreadyPaid) {
+    const financeBlock = await getFinancePaymentApprovalBlockReason({
+      id: order.id,
+      paymentGatewayPrimary: order.paymentGatewayPrimary,
+      paymentGatewayNames: order.paymentGatewayNames ?? [],
+      erpnextInvoiceId: order.erpnextInvoiceId,
+    });
+    if (financeBlock) {
+      return { success: false, ref, error: financeBlock };
+    }
   }
   if (order.fulfillmentStage !== "delivery_complete") {
     return {
@@ -111,41 +124,49 @@ export async function markOrderInvoiceComplete(input: {
     now,
     userId: input.userId,
   });
-
-  await prisma.$transaction(async (tx) => {
-    await tx.order.update({
-      where: { id: order.id },
-      data: {
-        ...orderStageUpdate("invoice_complete", now),
-        fulfillmentStatus: "fulfilled",
-        financialStatus: "paid",
-        invoiceCompleteAt: stamp.invoiceCompleteAt,
-        invoiceCompleteById: stamp.invoiceCompleteById,
-      },
-    });
-
-    await tx.approvalRequest.updateMany({
-      where: {
-        orderId: order.id,
-        status: "pending",
-        type: { in: [ORDER_PAYMENT_APPROVAL, DELIVERY_PAYMENT_APPROVAL] },
-      },
-      data: {
-        status: "cancelled",
-        reviewNote: "Invoice marked complete by finance.",
-        updatedAt: now,
-      },
-    });
-  });
-
-  let erpPeError: string | undefined;
-  let peStatus: "created" | "already_paid" | undefined;
   const mopForFailure = resolvedMop ?? mopOverride ?? ERP_PE_SYNC_MOP_ORDER_AUTO;
 
-  if (!order.companyLocation) {
-    erpPeError = "Order has no company location — cannot create ERP payment entry";
-    await markOrderErpPeSyncFailed(order.id, erpPeError, mopForFailure, now);
-  } else {
+  const stampInvoice = async () => {
+    await prisma.$transaction(async (tx) => {
+      await tx.order.update({
+        where: { id: order.id },
+        data: {
+          ...orderStageUpdate("invoice_complete", now),
+          fulfillmentStatus: "fulfilled",
+          financialStatus: "paid",
+          invoiceCompleteAt: stamp.invoiceCompleteAt,
+          invoiceCompleteById: stamp.invoiceCompleteById,
+        },
+      });
+
+      await tx.approvalRequest.updateMany({
+        where: {
+          orderId: order.id,
+          status: "pending",
+          type: { in: [ORDER_PAYMENT_APPROVAL, DELIVERY_PAYMENT_APPROVAL] },
+        },
+        data: {
+          status: "cancelled",
+          reviewNote: "Invoice marked complete by finance.",
+          updatedAt: now,
+        },
+      });
+    });
+  };
+
+  const attemptPe = async (): Promise<{
+    outcome: "created" | "already_paid" | "skipped" | "error";
+    peStatus?: "created" | "already_paid";
+    erpPeError?: string;
+  }> => {
+    if (input.posAlreadyPaid) {
+      return { outcome: "already_paid", peStatus: "already_paid" };
+    }
+    if (!order.companyLocation) {
+      const erpPeError = "Order has no company location — cannot create ERP payment entry";
+      await markOrderErpPeSyncFailed(order.id, erpPeError, mopForFailure, now);
+      return { outcome: "error", erpPeError };
+    }
     try {
       const peResult = await syncOrderDeliveryPaymentEntriesToErp(
         {
@@ -167,48 +188,75 @@ export async function markOrderInvoiceComplete(input: {
         },
       );
       if (peResult.outcome === "skipped") {
-        erpPeError = "ERP payment entry was skipped unexpectedly";
+        const erpPeError = "ERP payment entry was skipped unexpectedly";
         await markOrderErpPeSyncFailed(order.id, erpPeError, mopForFailure, now);
-      } else {
-        peStatus = peResult.outcome;
-        await clearOrderErpPeSyncFailure(order.id);
+        return { outcome: "skipped", erpPeError };
       }
+      await clearOrderErpPeSyncFailure(order.id);
+      return { outcome: peResult.outcome, peStatus: peResult.outcome };
     } catch (err) {
-      erpPeError = err instanceof Error ? err.message : String(err);
+      const erpPeError = err instanceof Error ? err.message : String(err);
       console.error("[ERPNext] invoice-complete PE failed:", erpPeError);
       await markOrderErpPeSyncFailed(order.id, erpPeError, mopForFailure, now);
+      return { outcome: "error", erpPeError };
     }
+  };
+
+  const writeCompleteAudit = async (pe: { erpPeError?: string; peStatus?: "created" | "already_paid" }) => {
+    const orderNum = order.orderNumber ?? order.name ?? order.id;
+    await writeAuditLog({
+      companyId: input.companyId,
+      actorUserId: input.userId.trim() || stamp.invoiceCompleteById,
+      module: "orders",
+      action: "fulfillment_updated",
+      entityType: "Order",
+      entityId: order.id,
+      summary: pe.erpPeError
+        ? `Marked invoice complete for ${orderNum} (ERP payment entry failed)`
+        : pe.peStatus === "already_paid"
+          ? `Marked invoice complete for ${orderNum} (ERP already paid)`
+          : `Marked invoice complete for ${orderNum}`,
+      beforeData: { fulfillmentStage: order.fulfillmentStage },
+      afterData: { fulfillmentStage: "invoice_complete" },
+      metadata: {
+        action: "mark_invoice_complete",
+        bulk: input.bulk ?? false,
+        erpPeError: pe.erpPeError ?? null,
+        peStatus: pe.peStatus ?? null,
+        paymentMop: mopOverride ?? resolvedMop ?? null,
+        paymentMopSource: mopOverride ? "override" : "order",
+        posAlreadyPaid: input.posAlreadyPaid ?? false,
+        commitOnlyWhenPaymentEntrySucceeds: input.commitOnlyWhenPaymentEntrySucceeds ?? false,
+      },
+    });
+  };
+
+  if (input.commitOnlyWhenPaymentEntrySucceeds) {
+    const pe = await attemptPe();
+    if (!shouldCommitInvoiceComplete(pe.outcome)) {
+      return {
+        success: false,
+        ref,
+        error: pe.erpPeError ?? "ERP payment entry was not created",
+      };
+    }
+    await stampInvoice();
+    await writeCompleteAudit(pe);
+    return {
+      success: true,
+      ref,
+      ...(pe.peStatus ? { peStatus: pe.peStatus } : {}),
+    };
   }
 
-  const orderNum = order.orderNumber ?? order.name ?? order.id;
-  await writeAuditLog({
-    companyId: input.companyId,
-    actorUserId: input.userId.trim() || stamp.invoiceCompleteById,
-    module: "orders",
-    action: "fulfillment_updated",
-    entityType: "Order",
-    entityId: order.id,
-    summary: erpPeError
-      ? `Marked invoice complete for ${orderNum} (ERP payment entry failed)`
-      : peStatus === "already_paid"
-        ? `Marked invoice complete for ${orderNum} (ERP already paid)`
-        : `Marked invoice complete for ${orderNum}`,
-    beforeData: { fulfillmentStage: order.fulfillmentStage },
-    afterData: { fulfillmentStage: "invoice_complete" },
-    metadata: {
-      action: "mark_invoice_complete",
-      bulk: input.bulk ?? false,
-      erpPeError: erpPeError ?? null,
-      peStatus: peStatus ?? null,
-      paymentMop: mopOverride ?? resolvedMop ?? null,
-      paymentMopSource: mopOverride ? "override" : "order",
-    },
-  });
+  await stampInvoice();
+  const pe = await attemptPe();
+  await writeCompleteAudit(pe);
 
   return {
     success: true,
     ref,
-    ...(erpPeError ? { erpPeError } : {}),
-    ...(peStatus ? { peStatus } : {}),
+    ...(pe.erpPeError ? { erpPeError: pe.erpPeError } : {}),
+    ...(pe.peStatus ? { peStatus: pe.peStatus } : {}),
   };
 }

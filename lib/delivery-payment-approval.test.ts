@@ -7,6 +7,7 @@ import {
   normalizePaymentGatewayKey,
   orderHasCcCheckoutGateway,
   orderHasEarlyFinancialInvoiceCompleteGateway,
+  shouldClosePosOnDelivery,
   shouldSkipDeliveryPaymentApproval,
 } from "@/lib/delivery-payment-approval";
 
@@ -77,6 +78,39 @@ describe("isPrePaidGateway", () => {
     expect(isPrePaidGateway("cc_checkout")).toBe(true);
     expect(isPrePaidGateway("cod")).toBe(false);
     expect(isPrePaidGateway("card on delivery")).toBe(false);
+  });
+});
+
+describe("shouldClosePosOnDelivery", () => {
+  it("closes erpnext-pos and pos when delivery completes", () => {
+    expect(shouldClosePosOnDelivery({ sourceName: "erpnext-pos", financialStatus: "paid" })).toBe(
+      true,
+    );
+    expect(shouldClosePosOnDelivery({ sourceName: "pos", financialStatus: "paid" })).toBe(true);
+  });
+
+  it("leaves web, refunded, voided, and finance-reverted orders for manual invoice complete", () => {
+    expect(shouldClosePosOnDelivery({ sourceName: "web", financialStatus: "paid" })).toBe(false);
+    expect(shouldClosePosOnDelivery({ sourceName: "erpnext", financialStatus: "paid" })).toBe(false);
+    expect(
+      shouldClosePosOnDelivery({ sourceName: "erpnext-pos", financialStatus: "refunded" }),
+    ).toBe(false);
+    expect(shouldClosePosOnDelivery({ sourceName: "erpnext-pos", financialStatus: "voided" })).toBe(
+      false,
+    );
+    expect(
+      shouldClosePosOnDelivery({
+        sourceName: "pos",
+        financialStatus: "partially_refunded",
+      }),
+    ).toBe(false);
+    expect(
+      shouldClosePosOnDelivery({
+        sourceName: "erpnext-pos",
+        financialStatus: "paid",
+        revertedFromInvoiceCompleteAt: new Date(),
+      }),
+    ).toBe(false);
   });
 });
 

@@ -87,4 +87,38 @@ describe("aggregateRiderIncentives", () => {
     expect(rows[0]?.unmatchedCount).toBe(1);
     expect(rows[0]?.incentiveTotal).toBe("300.00");
   });
+
+  it("adds incentive only after the invoice is closed", () => {
+    const rows = aggregateRiderIncentives([
+      {
+        riderId: "r1",
+        riderName: "A",
+        knownName: null,
+        incentiveAmount: 300,
+        matched: false,
+        invoiceClosed: false,
+        financialStatus: "paid",
+      },
+      {
+        riderId: "r1",
+        riderName: "A",
+        knownName: null,
+        incentiveAmount: 400,
+        matched: true,
+        invoiceClosed: true,
+        financialStatus: "paid",
+      },
+      {
+        riderId: "r1",
+        riderName: "A",
+        knownName: null,
+        incentiveAmount: 100,
+        invoiceClosed: true,
+        financialStatus: "refunded",
+      },
+    ]);
+    expect(rows[0]?.completedCount).toBe(2);
+    expect(rows[0]?.incentiveTotal).toBe("400.00");
+    expect(rows[0]?.unmatchedCount).toBe(1);
+  });
 });
