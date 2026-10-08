@@ -266,9 +266,15 @@ export async function GET(request: NextRequest) {
       key: normalizeSupplierMatchValue(row.supplierPrefix),
     }))
     .filter((row) => row.key.length > 0);
-  const supplierPrefixRuleForSupplier = (supplier: string) => {
-    const key = normalizeSupplierMatchValue(supplier);
-    return supplierPrefixRules.find((rule) => key.includes(rule.key)) ?? null;
+  const supplierPrefixRuleForSupplier = (
+    supplier: string | null | undefined,
+    supplierName?: string | null,
+  ) => {
+    const values = [
+      normalizeSupplierMatchValue(supplier),
+      normalizeSupplierMatchValue(supplierName),
+    ].filter(Boolean);
+    return supplierPrefixRules.find((rule) => values.some((value) => value.includes(rule.key))) ?? null;
   };
   const stockReturnByName = new Map(stockReturns.map((row) => [row.name, row]));
   const amendedPurchaseReceiptNames = new Set(purchaseReceipts.map((row) => row.amendedFrom).filter((name): name is string => Boolean(name)));
@@ -396,7 +402,7 @@ export async function GET(request: NextRequest) {
       const linkedPurchaseReceipt = row.purchaseReceiptName
         ? activePurchaseReceiptByName.get(row.purchaseReceiptName) ?? null
         : null;
-      const supplierPrefixRule = supplierPrefixRuleForSupplier(row.supplier);
+      const supplierPrefixRule = supplierPrefixRuleForSupplier(row.supplier, row.supplierName);
       const recommendation = linkedPurchaseReceipt
         ? {
             companyId: linkedPurchaseReceipt.companyId,
@@ -421,6 +427,7 @@ export async function GET(request: NextRequest) {
           row.name,
         ),
         supplier: row.supplier,
+        supplierName: row.supplierName,
         returnDate: iso(row.returnDate),
         docstatus: row.docstatus,
         owner: row.owner,

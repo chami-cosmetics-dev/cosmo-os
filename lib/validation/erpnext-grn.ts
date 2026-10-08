@@ -40,6 +40,7 @@ export const erpnextSupplierStockReturnWebhookSchema = z.object({
   name: z.string().min(1),
   company: z.string().min(1),
   supplier: z.string().min(1),
+  supplier_name: nullableString,
   return_date: nullableString,
   docstatus: optionalNumber,
   amended_from: nullableString,

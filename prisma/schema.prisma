@@ -2695,6 +2695,7 @@ model GrnSupplierStockReturn {
   companyId           String
   name                String
   supplier            String
+  supplierName        String?
   returnDate          DateTime?
   docstatus           Int?
   amendedFrom         String?
@@ -2710,6 +2711,7 @@ model GrnSupplierStockReturn {
   @@unique([companyId, name])
   @@index([companyId, creation(sort: Desc)])
   @@index([companyId, supplier])
+  @@index([companyId, supplierName])
   @@index([companyId, amendedFrom])
   @@index([companyId, purchaseReceiptName])
 }
