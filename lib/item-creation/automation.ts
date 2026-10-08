@@ -247,6 +247,7 @@ export async function handleErp1ItemWebhook(companyIds: string[], payload: ErpIt
   let completed = 0;
   let failed = 0;
   let skippedErp2 = 0;
+  let advancedSeo = 0;
   for (const request of requests) {
     await prisma.$transaction(async (tx) => {
       await tx.itemCreationRequest.update({
@@ -270,6 +271,27 @@ export async function handleErp1ItemWebhook(companyIds: string[], payload: ErpIt
     });
 
     if (!requestNeedsErp2(request.creationSources)) {
+      const updated = await prisma.itemCreationRequest.updateMany({
+        where: { id: request.id, seoSetupStatus: "PENDING" },
+        data: {
+          seoSetupStatus: "ITEM_CREATED",
+          itemCreatedAt: now,
+          itemCreatedBy: null,
+        },
+      });
+      if (updated.count > 0) {
+        advancedSeo += 1;
+        await prisma.itemCreationActivity.create({
+          data: {
+            itemRequestId: request.id,
+            type: "SEO_ITEM_CREATED",
+            source: "SYSTEM",
+            oldValue: "PENDING",
+            newValue: "ITEM_CREATED",
+            metadata: { itemCode, reason: "ERP2 not selected" },
+          },
+        });
+      }
       skippedErp2 += 1;
       continue;
     }
@@ -320,7 +342,7 @@ export async function handleErp1ItemWebhook(companyIds: string[], payload: ErpIt
       });
     }
   }
-  return { matched: requests.length, completed, failed, skippedErp2 };
+  return { matched: requests.length, completed, failed, skippedErp2, advancedSeo };
 }
 
 export async function retryErp2ItemCreation(context: UserContext, id: string) {
@@ -511,12 +533,21 @@ export async function updateItemCreationPrices(context: UserContext, id: string)
           priceUpdatedSource: "USER",
           pricesUpdatedAt: new Date(),
           pricesUpdatedBy: userId(context),
-          storeStockStatus: "READY_FOR_STOCK",
-          stockReadyAt: new Date(),
+          storeStockStatus: refreshed.storeStockStatus === "STOCK_ADDED" ? "STOCK_ADDED" : "READY_FOR_STOCK",
+          stockReadyAt: refreshed.stockReadyAt ?? new Date(),
         },
       });
       await activity(tx, id, "PRICE_UPDATED_MANUALLY", "USER", userId(context));
-      await activity(tx, id, "STORE_STOCK_READY", "SYSTEM", null);
+      if (refreshed.storeStockStatus !== "STOCK_ADDED") {
+        await activity(tx, id, "STORE_STOCK_READY", "SYSTEM", null);
+      }
+      if (refreshed.storeStockStatus === "STOCK_ADDED" && refreshed.seoActivationStatus === "LOCKED") {
+        await tx.itemCreationRequest.update({
+          where: { id },
+          data: { seoActivationStatus: "WAITING_ACTIVATION" },
+        });
+        await activity(tx, id, "SEO_ACTIVATION_UNLOCKED", "SYSTEM", null);
+      }
     });
   }
   return { ok: requiredUpdated, results };
@@ -647,8 +678,8 @@ export async function createWarehousePurchaseReceipts(
       if (normalizeSkuKey(request.sku) !== normalizeSkuKey(item.itemCode)) {
         throw new Error(`SKU mismatch for ${item.itemCode}`);
       }
-      if (erp === "ERP1" && request.storeStockStatus !== "READY_FOR_STOCK") {
-        throw new Error(`${item.itemCode} is not ready for stock`);
+      if (erp === "ERP1" && request.storeStockStatus === "STOCK_ADDED") {
+        throw new Error(`${item.itemCode} already has stock added`);
       }
     }
 
@@ -781,6 +812,13 @@ async function updateStockCompletion(company: string, erp: ItemCreationErp, item
             },
           });
           await activity(tx, id, "ERP1_STOCK_COMPLETED", "SYSTEM", actorId ?? null);
+          if (request.purchasingStatus === "PRICE_UPDATED" && request.seoActivationStatus === "LOCKED") {
+            await tx.itemCreationRequest.update({
+              where: { id },
+              data: { seoActivationStatus: "WAITING_ACTIVATION" },
+            });
+            await activity(tx, id, "SEO_ACTIVATION_UNLOCKED", "SYSTEM", null);
+          }
         }
       });
     } else {
@@ -916,6 +954,7 @@ export async function activateItemCreationShopify(context: UserContext, id: stri
     where: { id, companyId: companyId(context) },
   });
   if (request.storeStockStatus !== "STOCK_ADDED") throw new Error("ERP1 stock must be completed first");
+  if (request.purchasingStatus !== "PRICE_UPDATED") throw new Error("Price must be updated before Shopify activation");
 
   await prisma.itemCreationRequest.update({
     where: { id },
