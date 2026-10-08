@@ -941,8 +941,6 @@ export async function buildCallCenterPerformanceReport(input: {
   };
 
   for (const row of primaryCat) {
-    // N/A is a default dropdown value, not a useful outcome column.
-    if (row.category === "N/A") continue;
     categorySet.add(row.category);
     const entry = ensureOutcome(row.merchantId, row.orphanName);
     entry.primaryByCategory[row.category] =
@@ -950,7 +948,6 @@ export async function buildCallCenterPerformanceReport(input: {
     entry.primaryTotal += row.count;
   }
   for (const row of secondaryCat) {
-    if (row.category === "N/A") continue;
     categorySet.add(row.category);
     const entry = ensureOutcome(row.merchantId, row.orphanName);
     entry.secondaryByCategory[row.category] =
@@ -962,7 +959,6 @@ export async function buildCallCenterPerformanceReport(input: {
     ...CALL_CENTER_CATEGORY_VALUES,
     CALL_CENTER_CONTACTED_CATEGORY,
   ]);
-  preferred.delete("N/A");
   const outcomeCategories = sortCallCenterCategories([
     ...[...preferred].filter((c) => categorySet.has(c)),
     ...[...categorySet].filter((c) => !preferred.has(c)),

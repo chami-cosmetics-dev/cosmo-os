@@ -30,7 +30,7 @@ export function buildCallQueueSalesReportWorkbook(input: {
           Phone: row.phoneNumber ?? "",
           "Assigned date": row.assignedAt,
           Status: row.status,
-          Category: row.category ?? "",
+          Category: row.category?.trim() || "N/A",
           "Loyalty stage": row.loyaltyStage ?? "",
           "Lifetime at assign": row.lifetimeTotalAtAssign,
           "Sales after assign": row.salesAfterAssignment,

@@ -211,6 +211,8 @@ export type AllocatedFilterItemDto = {
   firstPurchaseAt?: string | null;
   /** Latest non-allocation ContactAllocationUpdate ISO timestamp, or null. */
   lastContactedAt: string | null;
+  /** Call outcome. N/A when the contact has never been contacted. */
+  callUpdateStatus: string;
   /** ContactMaster.loyaltyOutreachStatus, when set. */
   loyaltyOutreachStatus?: string | null;
   /** Human label for loyaltyOutreachStatus. */

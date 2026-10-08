@@ -135,10 +135,10 @@ export async function resolvePostDeliveryInvoiceComplete(input: {
     return { kind: "awaiting_manual_invoice_complete" };
   }
 
-  // Already marked invoice complete at finance approval (timestamp set, then went to print).
+  // Already marked invoice complete at finance approval or CC/WebXPay payment.
+  // Only a finance approver is stamped. The store user who marks delivery is not.
   if (order.invoiceCompleteAt) {
-    const reviewerId =
-      (await getApprovedOrderPaymentReviewerId(order.id)) ?? input.requestedById ?? "";
+    const reviewerId = (await getApprovedOrderPaymentReviewerId(order.id)) ?? "";
     return { kind: "close_invoice_complete", financeUserId: reviewerId };
   }
 
@@ -148,12 +148,13 @@ export async function resolvePostDeliveryInvoiceComplete(input: {
     return { kind: "close_invoice_complete", financeUserId: earlyFinanceUserId };
   }
 
-  // Prepaid already paid (e.g. approval path set paid + PE) but timestamp missing — still close.
+  // Prepaid already paid (CC Checkout, WebXPay, or finance-approved) but timestamp missing — still close.
+  // No finance reviewer: leave invoice-complete person blank. UI shows the payment gateway.
   if (
     shouldSkipDeliveryPaymentApproval(order) &&
     order.financialStatus?.toLowerCase() === "paid"
   ) {
-    return { kind: "close_invoice_complete", financeUserId: input.requestedById ?? "" };
+    return { kind: "close_invoice_complete", financeUserId: "" };
   }
 
   return { kind: "awaiting_manual_invoice_complete" };
@@ -175,7 +176,7 @@ export async function applyPostDeliveryInvoiceAndPayment(input: {
 }): Promise<PostDeliveryApplyResult> {
   const postDelivery = await resolvePostDeliveryInvoiceComplete(input);
   if (postDelivery.kind === "close_invoice_complete") {
-    const actorId = postDelivery.financeUserId.trim() || input.requestedById?.trim() || "";
+    const actorId = postDelivery.financeUserId.trim();
     const outcome = await markOrderInvoiceComplete({
       companyId: input.companyId,
       orderId: input.orderId,

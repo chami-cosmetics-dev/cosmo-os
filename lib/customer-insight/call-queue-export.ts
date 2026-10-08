@@ -1,5 +1,6 @@
 import * as XLSX from "xlsx";
 
+import { displayCallCenterCategory } from "@/lib/contact-call-center-categories";
 import { uniqueContactPhones } from "@/lib/customer-insight/allocation-summary";
 import {
   listCallQueueCandidates,
@@ -92,7 +93,7 @@ export async function buildCallQueueAssignmentsWorkbook(input: {
             Phone: phones.join("; "),
             "Assigned at": row.assignedAt.toISOString(),
             "Queue status": row.status,
-            Category: row.contact.category ?? "",
+            Category: displayCallCenterCategory(row.contact.category),
             "Loyalty stage": loyaltyOutreachStageLabel(
               row.contact.loyaltyOutreachStatus
             ),
@@ -180,6 +181,7 @@ export async function buildCallQueueFilteredContactsWorkbook(input: {
     "Last purchase": "",
     "First purchase": "",
     "Last contacted": "",
+    "Call update status": "",
     "Loyalty stage": "",
     Queued: "",
     Hidden: "",
@@ -196,6 +198,7 @@ export async function buildCallQueueFilteredContactsWorkbook(input: {
           "Last purchase": row.lastPurchaseAt ?? "",
           "First purchase": row.firstPurchaseAt ?? "",
           "Last contacted": row.lastContactedAt ?? "",
+          "Call update status": row.callUpdateStatus,
           "Loyalty stage": row.loyaltyStage ?? "",
           Queued: row.queued ? "yes" : "no",
           Hidden: row.hidden ? "yes" : "no",

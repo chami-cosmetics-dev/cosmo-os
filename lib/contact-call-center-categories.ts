@@ -61,6 +61,45 @@ export function isCallCenterOutcome(value: string): value is CallCenterOutcome {
   return (CALL_CENTER_OUTCOME_VALUES as readonly string[]).includes(value);
 }
 
+/** Blank category means never contacted. Reports and lists show N/A. */
+export function displayCallCenterCategory(
+  category: string | null | undefined,
+): string {
+  const value = category?.trim() ?? "";
+  return value || CALL_CENTER_UNCONTACTED_CATEGORY;
+}
+
+export type CallUpdateStatusMatch =
+  | { category: { equals: string } }
+  | {
+      OR: Array<
+        | { category: null }
+        | { category: "" }
+        | { category: { equals: typeof CALL_CENTER_UNCONTACTED_CATEGORY } }
+      >;
+    };
+
+/**
+ * Insight "Call update status".
+ * N/A means not contacted yet: stored N/A, blank, or no category.
+ */
+export function callUpdateStatusMatch(
+  status: string | null | undefined,
+): CallUpdateStatusMatch | null {
+  const value = status?.trim() ?? "";
+  if (!value) return null;
+  if (value.toLowerCase() === CALL_CENTER_UNCONTACTED_CATEGORY.toLowerCase()) {
+    return {
+      OR: [
+        { category: null },
+        { category: "" },
+        { category: { equals: CALL_CENTER_UNCONTACTED_CATEGORY } },
+      ],
+    };
+  }
+  return { category: { equals: value } };
+}
+
 export function callCenterCategoryColor(category: string, index = 0): string {
   if (isCallCenterCategory(category)) {
     return CALL_CENTER_CATEGORY_COLORS[category];

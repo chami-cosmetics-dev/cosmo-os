@@ -1,3 +1,7 @@
+import {
+  callUpdateStatusMatch,
+  displayCallCenterCategory,
+} from "@/lib/contact-call-center-categories";
 import { effectiveLoyaltyTierKey } from "@/lib/customer-insight/erp-loyalty";
 import { findContactIdsByLastPurchaseLocation } from "@/lib/customer-insight/last-purchase-location";
 import { lifetimeTotalsByContactId } from "@/lib/customer-insight/lifetime-totals-batch";
@@ -323,6 +327,7 @@ type ContactCandidate = {
   loyaltyAssignedAt: Date | null;
   loyaltyAssignedTier: string | null;
   loyaltyOutreachStatus: string | null;
+  category: string | null;
   osRegistrationCreated: boolean;
   phones: { phoneNumber: string }[];
   emails: { email: string }[];
@@ -382,17 +387,14 @@ async function buildAllocationWhere(input: FilterQueryInput): Promise<{
     where.AND = [...existingAnd, { loyaltyOutreachStatus: "not_interested" }];
   }
 
-  const callUpdateStatus = input.callUpdateStatus?.trim();
+  const callUpdateStatus = callUpdateStatusMatch(input.callUpdateStatus);
   if (callUpdateStatus) {
     const existingAnd = Array.isArray(where.AND)
       ? (where.AND as unknown[])
       : where.AND
         ? [where.AND]
         : [];
-    where.AND = [
-      ...existingAnd,
-      { category: { equals: callUpdateStatus } },
-    ];
+    where.AND = [...existingAnd, callUpdateStatus];
   }
 
   const purchasedBounds = purchasedAtBounds(
@@ -669,6 +671,7 @@ export async function filterAllocatedContacts(
     loyaltyAssignedAt: true,
     loyaltyAssignedTier: true,
     loyaltyOutreachStatus: true,
+    category: true,
     osRegistrationCreated: true,
     phones: { select: { phoneNumber: true } },
     emails: { select: { email: true } },
@@ -771,6 +774,7 @@ export async function filterAllocatedContacts(
     assignedMerchant: string | null;
     lastPurchaseAt: Date | null;
     lastContactedAt: Date | null;
+    callUpdateStatus: string;
     key: LoyaltyTierKey;
     loyaltyOutreachStatus: string | null;
     osRegKind: "new" | "already_registered" | null;
@@ -808,6 +812,7 @@ export async function filterAllocatedContacts(
       assignedMerchant: contact.assignedMerchant,
       lastPurchaseAt: contact.lastPurchaseAt,
       lastContactedAt: contacted.get(contact.id) ?? null,
+      callUpdateStatus: displayCallCenterCategory(contact.category),
       key,
       loyaltyOutreachStatus: contact.loyaltyOutreachStatus,
       osRegKind: osRegScopeActive
@@ -861,6 +866,7 @@ export async function filterAllocatedContacts(
         lastPurchaseAt: row.lastPurchaseAt?.toISOString() ?? null,
         firstPurchaseAt: firstPurchaseById.get(row.contactId)?.toISOString() ?? null,
         lastContactedAt: row.lastContactedAt?.toISOString() ?? null,
+        callUpdateStatus: row.callUpdateStatus,
         loyaltyOutreachStatus: row.loyaltyOutreachStatus,
         loyaltyStage: loyaltyOutreachStageLabel(row.loyaltyOutreachStatus) || null,
         osRegKind: row.osRegKind,

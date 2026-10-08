@@ -2066,7 +2066,8 @@ model ContactMaster {
   town                     String?
   origin                   String?
   customerType             String?
-  category                 String?
+  /// Call outcome. N/A means never contacted.
+  category                 String?                   @default("N/A")
   loyaltyAssignedTier      String?
   loyaltyAssignedAt        DateTime?
   loyaltyAssignedByUserId  String?

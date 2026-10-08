@@ -1,3 +1,4 @@
+import { displayCallCenterCategory } from "@/lib/contact-call-center-categories";
 import type { Prisma } from "@prisma/client";
 import { osRegistrationDumpExcludeWhere } from "@/lib/register-users/dump-exclude";
 import { buildCsv } from "@/lib/reports/csv";
@@ -198,7 +199,7 @@ export function buildContactDumpRow(contact: ContactDumpSource) {
     email: emails.primary,
     extra_emails: emails.extra,
     extra_phones: phones.extra,
-    category_name: dumpText(contact.category),
+    category_name: displayCallCenterCategory(contact.category),
     "Customer Type": dumpText(contact.customerType),
     updated_on: dumpDate(contact.updatedAt),
     last_updated_by: updatedBy,

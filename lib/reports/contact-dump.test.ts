@@ -152,7 +152,7 @@ describe("contact dump 1", () => {
     );
     expect(row["Exsisting Web Customer"]).toBe("");
     expect(row["Allowed to Whatsapp Msg"]).toBe("");
-    expect(row.category_name).toBe("");
+    expect(row.category_name).toBe("N/A");
   });
 
   it("drops junk sample columns and writes a CSV with real contact id", () => {
