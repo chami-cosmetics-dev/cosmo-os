@@ -163,10 +163,19 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "No company associated with your account" }, { status: 404 });
   }
 
+  const canViewHandover =
+    hasPermission(context, "purchasing.grn.view_handover") ||
+    hasPermission(context, "purchasing.grn.mark_handover");
+  const canViewValued =
+    hasPermission(context, "purchasing.grn.view_valued") ||
+    hasPermission(context, "purchasing.grn.mark_valued");
+  const canViewReceived =
+    hasPermission(context, "purchasing.grn.view_received") ||
+    hasPermission(context, "purchasing.grn.mark_received");
   const shouldScopeToUserCompany =
-    hasPermission(context, "purchasing.grn.mark_received") &&
-    !hasPermission(context, "purchasing.grn.mark_handover") &&
-    !hasPermission(context, "purchasing.grn.mark_valued") &&
+    canViewReceived &&
+    !canViewHandover &&
+    !canViewValued &&
     !hasPermission(context, "purchasing.grn.match_ssr");
 
   const from = parseDateParam(request.nextUrl.searchParams.get("from"));
