@@ -148,12 +148,24 @@ const DEFAULT_PERMISSIONS = [
     description: "Match supplier stock returns to GRN purchase receipts",
   },
   {
+    key: "purchasing.grn.view_handover",
+    description: "View GRN handover stage status",
+  },
+  {
     key: "purchasing.grn.mark_handover",
     description: "Mark GRN purchase receipts as handed over",
   },
   {
+    key: "purchasing.grn.view_valued",
+    description: "View GRN valued stage status",
+  },
+  {
     key: "purchasing.grn.mark_valued",
     description: "Mark GRN purchase receipts as valued",
+  },
+  {
+    key: "purchasing.grn.view_received",
+    description: "View GRN received stage status",
   },
   {
     key: "purchasing.grn.mark_received",

@@ -121,20 +121,29 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "No company associated with your account" }, { status: 404 });
   }
   const userCompanyId = user.companyId;
+  const canViewHandover =
+    hasPermission(context, "purchasing.grn.view_handover") ||
+    hasPermission(context, "purchasing.grn.mark_handover");
+  const canViewValued =
+    hasPermission(context, "purchasing.grn.view_valued") ||
+    hasPermission(context, "purchasing.grn.mark_valued");
+  const canViewReceived =
+    hasPermission(context, "purchasing.grn.view_received") ||
+    hasPermission(context, "purchasing.grn.mark_received");
   const roleNames = context?.roleNames ?? [];
   const shouldScopeToUserCompany =
-    hasPermission(context, "purchasing.grn.mark_received") &&
-    !hasPermission(context, "purchasing.grn.mark_handover") &&
-    !hasPermission(context, "purchasing.grn.mark_valued") &&
+    canViewReceived &&
+    !canViewHandover &&
+    !canViewValued &&
     !hasPermission(context, "purchasing.grn.match_ssr");
   const shouldShowOnlyHandoveredForValued =
-    hasPermission(context, "purchasing.grn.mark_valued") &&
-    !hasPermission(context, "purchasing.grn.mark_handover") &&
+    canViewValued &&
+    !canViewHandover &&
     !hasPermission(context, "purchasing.grn.match_ssr");
   const shouldShowOnlyValuedForReceived =
-    hasPermission(context, "purchasing.grn.mark_received") &&
-    !hasPermission(context, "purchasing.grn.mark_handover") &&
-    !hasPermission(context, "purchasing.grn.mark_valued") &&
+    canViewReceived &&
+    !canViewHandover &&
+    !canViewValued &&
     !hasPermission(context, "purchasing.grn.match_ssr");
   const financeLocationIds = shouldScopeToUserCompany
     ? await resolveViewerFinanceLocationIds(user.id, userCompanyId, roleNames)
@@ -175,7 +184,6 @@ export async function GET(request: NextRequest) {
           : {}),
       },
       orderBy: [{ creation: "desc" }, { createdAt: "desc" }],
-      take: 200,
       include: {
         items: true,
         handoverBy: { select: { id: true, name: true, email: true } },
@@ -218,7 +226,6 @@ export async function GET(request: NextRequest) {
           : {}),
       },
       orderBy: [{ creation: "desc" }, { createdAt: "desc" }],
-      take: 200,
       include: {
         items: true,
         company: {

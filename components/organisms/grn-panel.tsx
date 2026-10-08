@@ -173,8 +173,11 @@ type IntercompanySupplierRow = {
 
 type GrnPanelPermissions = {
   canMatchSsr: boolean;
+  canViewHandover: boolean;
   canMarkHandover: boolean;
+  canViewValued: boolean;
   canMarkValued: boolean;
+  canViewReceived: boolean;
   canMarkReceived: boolean;
 };
 
@@ -191,9 +194,9 @@ type PageSize = (typeof PAGE_SIZE_OPTIONS)[number];
 const DEFAULT_PAGE_SIZE: PageSize = 20;
 
 function firstAllowedStage(permissions: GrnPanelPermissions): GrnActionStage {
-  if (permissions.canMarkHandover) return "handover";
-  if (permissions.canMarkValued) return "valued";
-  if (permissions.canMarkReceived) return "received";
+  if (permissions.canViewHandover) return "handover";
+  if (permissions.canViewValued) return "valued";
+  if (permissions.canViewReceived) return "received";
   return "handover";
 }
 
@@ -832,14 +835,14 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
   useEffect(() => {
     setStageFilter((current) => {
       const allowedStages: GrnActionStage[] = [
-        ...(permissions.canMarkHandover ? (["handover"] as const) : []),
-        ...(permissions.canMarkValued ? (["valued"] as const) : []),
-        ...(permissions.canMarkReceived ? (["received"] as const) : []),
+        ...(permissions.canViewHandover ? (["handover"] as const) : []),
+        ...(permissions.canViewValued ? (["valued"] as const) : []),
+        ...(permissions.canViewReceived ? (["received"] as const) : []),
       ];
       if (allowedStages.length === 0 || allowedStages.includes(current.stage)) return current;
       return { stage: allowedStages[0], status: "pending" };
     });
-  }, [permissions.canMarkHandover, permissions.canMarkReceived, permissions.canMarkValued]);
+  }, [permissions.canViewHandover, permissions.canViewReceived, permissions.canViewValued]);
 
   const activePurchaseReceipts = useMemo(
     () => data.purchaseReceipts.filter((row) => !row.isCancelled),
@@ -937,12 +940,17 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
   const allowedStageFilters = useMemo(
     () =>
       [
-        permissions.canMarkHandover ? { key: "handover" as const, label: "Handover marking" } : null,
-        permissions.canMarkValued ? { key: "valued" as const, label: "Valued marking" } : null,
-        permissions.canMarkReceived ? { key: "received" as const, label: "GRN received" } : null,
+        permissions.canViewHandover ? { key: "handover" as const, label: "Handover marking" } : null,
+        permissions.canViewValued ? { key: "valued" as const, label: "Valued marking" } : null,
+        permissions.canViewReceived ? { key: "received" as const, label: "GRN received" } : null,
       ].filter((row): row is { key: GrnActionStage; label: string } => Boolean(row)),
-    [permissions.canMarkHandover, permissions.canMarkReceived, permissions.canMarkValued],
+    [permissions.canViewHandover, permissions.canViewReceived, permissions.canViewValued],
   );
+  const visibleStageColumnCount =
+    (permissions.canViewHandover ? 1 : 0) +
+    (permissions.canViewValued ? 1 : 0) +
+    (permissions.canViewReceived ? 1 : 0);
+  const prTableColumnCount = 8 + visibleStageColumnCount;
 
   const rowBelongsToStage = useCallback((row: PurchaseReceiptRow, stage: GrnActionStage) => {
     if (row.isCancelled) return false;
@@ -1008,6 +1016,12 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
   const filteredPrs = useMemo(() => {
     const term = search.trim().toLowerCase();
     return data.purchaseReceipts.filter((row) => {
+      if (term) {
+        const matchesSearch = [row.name, row.adjustmentNo, row.supplier, row.supplierName, row.grnBy, row.companyName]
+          .filter(Boolean)
+          .some((value) => value!.toLowerCase().includes(term));
+        return matchesSearch && !row.isCancelled;
+      }
       const matchesStage =
         allowedStageFilters.length === 0
           ? !row.isCancelled
@@ -1018,11 +1032,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
           (stageFilter.status === "pending" && !rowCompletedForStage(row, stageFilter.stage)) ||
           (stageFilter.status === "completed" && rowCompletedForStage(row, stageFilter.stage)) ||
           (stageFilter.status === "mismatch" && rowMismatchedForStage(row, stageFilter.stage)));
-      if (!matchesStage) return false;
-      if (!term) return true;
-      return [row.name, row.adjustmentNo, row.supplier, row.supplierName, row.grnBy, row.companyName]
-        .filter(Boolean)
-        .some((value) => value!.toLowerCase().includes(term));
+      return matchesStage;
     });
   }, [allowedStageFilters.length, data.purchaseReceipts, rowBelongsToStage, rowCompletedForStage, rowMismatchedForStage, rowNeedsVerification, search, stageFilter.stage, stageFilter.status]);
 
@@ -1457,23 +1467,27 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                 <TableHead>GRN Date</TableHead>
                 <TableHead>GRN By</TableHead>
                 <TableHead>Supplier</TableHead>
-                <TableHead className="w-24 whitespace-normal leading-tight">Handover<br />Date</TableHead>
-                <TableHead>Valued</TableHead>
+                {permissions.canViewHandover && (
+                  <TableHead className="w-24 whitespace-normal leading-tight">Handover<br />Date</TableHead>
+                )}
+                {permissions.canViewValued && <TableHead>Valued</TableHead>}
                 <TableHead className="w-20 whitespace-normal leading-tight">PI<br />Prices</TableHead>
-                <TableHead className="w-24 whitespace-normal leading-tight">GRN<br />Received</TableHead>
+                {permissions.canViewReceived && (
+                  <TableHead className="w-24 whitespace-normal leading-tight">GRN<br />Received</TableHead>
+                )}
                 <TableHead>Tally</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={11} className="h-24 text-center text-muted-foreground">
+                  <TableCell colSpan={prTableColumnCount} className="h-24 text-center text-muted-foreground">
                     Loading GRN data...
                   </TableCell>
                 </TableRow>
               ) : filteredPrs.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={11} className="h-24 text-center text-muted-foreground">
+                  <TableCell colSpan={prTableColumnCount} className="h-24 text-center text-muted-foreground">
                     No purchase receipts found.
                   </TableCell>
                 </TableRow>
@@ -1569,66 +1583,72 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                         <div className="text-xs text-muted-foreground">{row.supplierName}</div>
                       )}
                     </TableCell>
-                    <TableCell>
-                      {row.handoverAt ? (
-                        formatDate(row.handoverAt)
-                      ) : permissions.canMarkHandover ? (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={row.isCancelled || busyKey === `${row.companyId}:${row.name}:handoverAt:mark`}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            mark(row, "handoverAt");
-                          }}
-                        >
-                          Mark
-                        </Button>
-                      ) : (
-                        <span className="text-muted-foreground">-</span>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {row.valuedAt ? (
-                        formatDate(row.valuedAt)
-                      ) : permissions.canMarkValued ? (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={row.isCancelled || !row.handoverAt || busyKey === `${row.companyId}:${row.name}:valuedAt:mark`}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            mark(row, "valuedAt");
-                          }}
-                        >
-                          Mark
-                        </Button>
-                      ) : (
-                        <span className="text-muted-foreground">-</span>
-                      )}
-                    </TableCell>
+                    {permissions.canViewHandover && (
+                      <TableCell>
+                        {row.handoverAt ? (
+                          formatDate(row.handoverAt)
+                        ) : permissions.canMarkHandover ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={row.isCancelled || busyKey === `${row.companyId}:${row.name}:handoverAt:mark`}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              mark(row, "handoverAt");
+                            }}
+                          >
+                            Mark
+                          </Button>
+                        ) : (
+                          <span className="text-muted-foreground">-</span>
+                        )}
+                      </TableCell>
+                    )}
+                    {permissions.canViewValued && (
+                      <TableCell>
+                        {row.valuedAt ? (
+                          formatDate(row.valuedAt)
+                        ) : permissions.canMarkValued ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={row.isCancelled || !row.handoverAt || busyKey === `${row.companyId}:${row.name}:valuedAt:mark`}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              mark(row, "valuedAt");
+                            }}
+                          >
+                            Mark
+                          </Button>
+                        ) : (
+                          <span className="text-muted-foreground">-</span>
+                        )}
+                      </TableCell>
+                    )}
                     <TableCell>
                       <PurchaseInvoiceStatusBadge row={row} />
                     </TableCell>
-                    <TableCell>
-                      {row.receivedAt ? (
-                        formatDate(row.receivedAt)
-                      ) : permissions.canMarkReceived ? (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={row.isCancelled || !row.handoverAt || !row.valuedAt || busyKey === `${row.companyId}:${row.name}:receivedAt:mark`}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            mark(row, "receivedAt");
-                          }}
-                        >
-                          Mark
-                        </Button>
-                      ) : (
-                        <span className="text-muted-foreground">-</span>
-                      )}
-                    </TableCell>
+                    {permissions.canViewReceived && (
+                      <TableCell>
+                        {row.receivedAt ? (
+                          formatDate(row.receivedAt)
+                        ) : permissions.canMarkReceived ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={row.isCancelled || !row.handoverAt || !row.valuedAt || busyKey === `${row.companyId}:${row.name}:receivedAt:mark`}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              mark(row, "receivedAt");
+                            }}
+                          >
+                            Mark
+                          </Button>
+                        ) : (
+                          <span className="text-muted-foreground">-</span>
+                        )}
+                      </TableCell>
+                    )}
                     <TableCell>
                       <TallyBadge row={row} missingSsrLink={rowMissingIntercompanySsr(row)} />
                     </TableCell>
