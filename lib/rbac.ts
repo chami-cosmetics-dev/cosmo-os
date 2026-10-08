@@ -42,6 +42,15 @@ const DEFAULT_PERMISSIONS = [
     description: "Set manual district or rider pay for unmatched incentives",
   },
   {
+    key: "riders.handover.summary",
+    description: "Generate and print the rider company cash handover slip",
+  },
+  {
+    key: "riders.handover.receive",
+    description:
+      "Mark rider cash received, load delivery orders, set the ERP payment type, and mark invoices completed",
+  },
+  {
     key: "roles.read",
     description: "View roles and permissions",
   },
@@ -172,6 +181,11 @@ const DEFAULT_PERMISSIONS = [
     key: "store.stock_count.read",
     description:
       "Use store stock count worksheet (ERP live stock vs scanned count)",
+  },
+  {
+    key: "store.material_transfer.write",
+    description:
+      "Create ERP material transfers and see every shop's receipt status",
   },
   {
     key: "academy.learn",
@@ -770,6 +784,8 @@ const DEFAULT_ROLES = [
       "book_notes.read",
       "riders.read",
       "riders.performance.read",
+      "riders.handover.summary",
+      "riders.handover.receive",
       "dashboard.view",
       DASHBOARD_DATE_TYPE_PERMISSIONS.placedAll,
       DASHBOARD_DATE_TYPE_PERMISSIONS.placedBreakdown,
@@ -950,6 +966,8 @@ const PINNED_CUSTOM_ROLE_PERMISSIONS: {
   { roleName: "stores-level-02", permissionKey: "store.allocation.read" },
   { roleName: "stores-level-01", permissionKey: "store.stock_count.read" },
   { roleName: "stores-level-02", permissionKey: "store.stock_count.read" },
+  { roleName: "stores-level-01", permissionKey: "store.material_transfer.write" },
+  { roleName: "stores-level-02", permissionKey: "store.material_transfer.write" },
   { roleName: "stores-level-01", permissionKey: "purchasing.item_trends.read" },
   { roleName: "stores-level-02", permissionKey: "purchasing.item_trends.read" },
 ];

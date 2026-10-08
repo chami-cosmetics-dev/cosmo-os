@@ -88,6 +88,7 @@ model Company {
   osfBuyers                    OsfBuyer[]
   osfUserColumnAccess          OsfUserColumnAccess[]
   storeStockCountReports       StoreStockCountReport[]
+  materialTransfers            MaterialTransfer[]
   storeStockCountItems         StoreStockCountReportItem[]
   storeStockCountLanes         StoreStockCountItemLane[]
   storeStockCountUserSaves     StoreStockCountUserSave[]
@@ -107,6 +108,7 @@ model Company {
   osRegistrationSettings       OsRegistrationSettings?
   itemCreationRequests         ItemCreationRequest[]
   itemCreationStockReceipts    ItemCreationStockReceipt[]
+  riderFinanceCashReceipts     RiderFinanceCashReceipt[]
 }
 
 model PrintFormat {
@@ -554,6 +556,8 @@ model User {
   createdCompany                         Company?                       @relation("CompanyCreator")
   defaultMerchantLocations               CompanyLocation[]              @relation("LocationDefaultMerchant")
   employeeProfile                        EmployeeProfile?
+  materialTransfersCreated               MaterialTransfer[]             @relation("MaterialTransferCreatedBy")
+  materialTransfersReceived              MaterialTransfer[]             @relation("MaterialTransferReceivedBy")
   invitesSent                            Invite[]                       @relation("InvitedBy")
   assignedOrders                         Order[]                        @relation("OrderAssignedMerchant")
   ordersDeliveryCompleteBy               Order[]                        @relation("OrderDeliveryCompleteBy")
@@ -594,6 +598,8 @@ model User {
   notifications                          Notification[]
   receivedCashHandovers                  RiderCashHandover[]            @relation("RiderCashHandoverReceivedBy")
   riderCashHandovers                     RiderCashHandover[]            @relation("RiderCashHandovers")
+  financeCashReceiptsAsRider             RiderFinanceCashReceipt[]      @relation("RiderFinanceCashReceiptRider")
+  financeCashReceiptsReceived            RiderFinanceCashReceipt[]      @relation("RiderFinanceCashReceiptReceivedBy")
   riderDeliveryTasks                     RiderDeliveryTask[]            @relation("RiderDeliveryTaskRider")
   riderDeliveryTasksManualIncentive      RiderDeliveryTask[]            @relation("RiderDeliveryTaskManualIncentiveBy")
   userRoles                              UserRole[]
@@ -1523,6 +1529,26 @@ model RiderCashHandoverItem {
 
   @@unique([handoverId, companyLocationId])
   @@index([handoverId])
+}
+
+/// Finance accepted a printed rider cash slip for one rider and date range.
+model RiderFinanceCashReceipt {
+  id            String   @id @default(cuid())
+  companyId     String
+  riderId       String
+  periodFrom    DateTime @db.Date
+  periodTo      DateTime @db.Date
+  receivedById  String
+  receivedAt    DateTime @default(now())
+  companyTotals Json
+  fullTotal     Decimal  @db.Decimal(12, 2)
+  createdAt     DateTime @default(now())
+  company       Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  rider         User     @relation("RiderFinanceCashReceiptRider", fields: [riderId], references: [id], onDelete: Restrict)
+  receivedBy    User     @relation("RiderFinanceCashReceiptReceivedBy", fields: [receivedById], references: [id], onDelete: Restrict)
+
+  @@index([companyId, riderId, periodFrom, periodTo])
+  @@index([receivedById])
 }
 
 model OrderLineItem {
@@ -2775,6 +2801,49 @@ model OsfUserColumnAccess {
   @@unique([companyId, userId, osfVariant])
   @@index([companyId])
   @@index([userId])
+}
+
+enum MaterialTransferStatus {
+  sent
+  received
+}
+
+model MaterialTransfer {
+  id               String                 @id @default(cuid())
+  companyId        String
+  slot             String
+  erpName          String
+  erpCompany       String
+  sourceWarehouse  String
+  targetWarehouse  String
+  status           MaterialTransferStatus @default(sent)
+  createdByUserId  String?
+  receivedByUserId String?
+  receivedAt       DateTime?
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+  company          Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdBy        User?                  @relation("MaterialTransferCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  receivedBy       User?                  @relation("MaterialTransferReceivedBy", fields: [receivedByUserId], references: [id], onDelete: SetNull)
+  lines            MaterialTransferLine[]
+
+  @@unique([companyId, slot, erpName])
+  @@index([companyId, createdAt(sort: Desc)])
+  @@index([companyId, targetWarehouse, status])
+}
+
+model MaterialTransferLine {
+  id           String           @id @default(cuid())
+  transferId   String
+  itemCode     String
+  itemName     String
+  barcode      String           @default("")
+  uom          String           @default("Nos")
+  sentQty      Int
+  receivedQty  Int              @default(0)
+  transfer     MaterialTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+
+  @@index([transferId])
 }
 
 model StoreStockCountReport {

@@ -4,7 +4,7 @@ import { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
 
-export const AUDIT_LOG_MODULES = ["reports", "users", "roles", "orders", "contacts", "settings", "staff", "complaints", "academy", "products", "store-allocation", "customer-insight", "merchant-dashboard"] as const;
+export const AUDIT_LOG_MODULES = ["reports", "users", "roles", "orders", "contacts", "settings", "staff", "complaints", "academy", "products", "store-allocation", "material-transfer", "customer-insight", "merchant-dashboard"] as const;
 
 export const AUDIT_LOG_ACTIONS = [
   "download",
@@ -64,6 +64,8 @@ export const AUDIT_LOG_ACTIONS = [
   "storage_file_uploaded",
   "storage_file_deleted",
   "discontinue_continued",
+  "material_transfer_submitted",
+  "material_transfer_received",
   "contact_merged",
   "insight_contacted",
   "loyalty_responded",
@@ -162,6 +164,11 @@ export const AUDIT_LOG_ACTION_GROUPS = [
     key: "products",
     label: "Products",
     actions: ["storage_file_uploaded", "storage_file_deleted"],
+  },
+  {
+    key: "material-transfer",
+    label: "Material transfer",
+    actions: ["material_transfer_submitted", "material_transfer_received"],
   },
   {
     key: "customer-insight",

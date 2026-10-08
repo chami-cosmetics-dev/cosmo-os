@@ -37,6 +37,7 @@ import {
   Scale,
   ReceiptText,
   ClipboardCheck,
+  ArrowLeftRight,
 } from "lucide-react";
 import { usePathname } from "next/navigation";
 import {
@@ -63,9 +64,16 @@ interface AppSidebarProps {
   permissionKeys?: string[];
   roleNames?: string[];
   hasOgf?: boolean;
+  hasOutlet?: boolean;
 }
 
-export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf = false }: AppSidebarProps) {
+export function AppSidebar({
+  user,
+  permissionKeys = [],
+  roleNames = [],
+  hasOgf = false,
+  hasOutlet = false,
+}: AppSidebarProps) {
   const { setOpen, state } = useSidebar();
   const hasSidebarPermission = (permission: string) =>
     roleNames.includes("super_admin") ||
@@ -125,7 +133,9 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
     canViewGrn;
   const canViewStoreAllocation = hasSidebarPermission("store.allocation.read");
   const canViewStoreStockCount = hasSidebarPermission("store.stock_count.read");
-  const canViewStore = canViewStoreAllocation || canViewStoreStockCount;
+  const canViewMaterialTransfer = hasSidebarPermission("store.material_transfer.write");
+  const canViewStore =
+    canViewStoreAllocation || canViewStoreStockCount || canViewMaterialTransfer || hasOutlet;
   const canViewCompanySettings = hasSidebarPermission("settings.company");
   const canViewEmailTemplates = hasSidebarPermission("settings.email_templates");
   const canViewSmsSettings = hasSidebarPermission("settings.sms_portal");
@@ -667,6 +677,22 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
                   icon={ClipboardList}
                   label="Stock count"
                   isActive={pathname === "/dashboard/store/stock-count"}
+                />
+              )}
+              {canViewMaterialTransfer && (
+                <NavItem
+                  href="/dashboard/store/material-transfer"
+                  icon={ArrowLeftRight}
+                  label="Material transfer"
+                  isActive={pathname === "/dashboard/store/material-transfer"}
+                />
+              )}
+              {hasOutlet && (
+                <NavItem
+                  href="/dashboard/store/material-transfer/receive"
+                  icon={PackageCheck}
+                  label="Receive transfer"
+                  isActive={pathname === "/dashboard/store/material-transfer/receive"}
                 />
               )}
             </SidebarGroupContent>

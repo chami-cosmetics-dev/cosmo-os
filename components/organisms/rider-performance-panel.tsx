@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 
+import { RiderHandoverPanel } from "@/components/organisms/rider-handover-panel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -62,8 +63,14 @@ function riderDisplayName(row: RiderPerformanceRow) {
 
 export function RiderPerformancePanel({
   canManagePerformance = false,
+  canHandoverSummary = false,
+  canHandoverReceive = false,
+  riders = [],
 }: {
   canManagePerformance?: boolean;
+  canHandoverSummary?: boolean;
+  canHandoverReceive?: boolean;
+  riders?: Array<{ id: string; name: string | null; knownName: string | null }>;
 }) {
   const [from, setFrom] = useState(todayInputValue);
   const [to, setTo] = useState(todayInputValue);
@@ -221,6 +228,17 @@ export function RiderPerformancePanel({
           </div>
         </CardHeader>
       </Card>
+
+      {canHandoverSummary || canHandoverReceive ? (
+        <RiderHandoverPanel
+          from={from}
+          to={to}
+          riders={riders}
+          canHandoverSummary={canHandoverSummary}
+          canHandoverReceive={canHandoverReceive}
+          disabled={isBusy || loading}
+        />
+      ) : null}
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <Card>

@@ -10,6 +10,11 @@ export type RiderIncentiveInputRow = {
   matched?: boolean;
   /** Pick up / free-ship — not payable, not unmatched. */
   excludedFromIncentive?: boolean;
+  /**
+   * When false, the delivery still counts as completed but adds no incentive.
+   * Omitted means the charge counts (callers that have not learned the gate).
+   */
+  invoiceClosed?: boolean;
   financialStatus: string | null;
 };
 
@@ -72,7 +77,9 @@ export function aggregateRiderIncentives(rows: RiderIncentiveInputRow[]): Array<
         unmatchedCount: 0,
       };
     existing.completedCount += 1;
-    existing.incentiveTotal = existing.incentiveTotal.add(normalizeIncentiveAmount(row.incentiveAmount));
+    if (row.invoiceClosed !== false) {
+      existing.incentiveTotal = existing.incentiveTotal.add(normalizeIncentiveAmount(row.incentiveAmount));
+    }
     if (row.matched === false && !row.excludedFromIncentive) {
       existing.unmatchedCount += 1;
     }

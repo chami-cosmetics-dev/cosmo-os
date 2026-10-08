@@ -38,6 +38,7 @@ import {
   getFinancePaymentApprovalBlockReason,
   isOrderPaymentRequiresApproval,
 } from "@/lib/approval-workflow";
+import { isPosOrderSource } from "@/lib/fulfillment-queue-filters";
 import { orderStageUpdate, orderStageUpdateIfChanged } from "@/lib/order-stage-timing";
 import {
   INVOICE_REVERT_CREDIT_NOTE_TEMPLATE,
@@ -706,6 +707,12 @@ export async function PATCH(
     }
 
     if (data.action === "dispatch") {
+      if (isPosOrderSource(order.sourceName)) {
+        return NextResponse.json(
+          { error: "POS orders are completed in store. They are not dispatched to riders." },
+          { status: 400 },
+        );
+      }
       const pendingCancelApproval = await prisma.approvalRequest.findFirst({
         where: { orderId: order.id, type: "order_cancel_approval", status: "pending" },
         select: { id: true },
@@ -1567,7 +1574,7 @@ export async function PATCH(
     }
 
     if (data.action === "complete_pos") {
-      if (order.sourceName !== "pos") {
+      if (!isPosOrderSource(order.sourceName)) {
         return NextResponse.json(
           { error: "Complete POS is only for POS orders" },
           { status: 400 }
@@ -1578,7 +1585,7 @@ export async function PATCH(
       await prisma.order.update({
         where: { id: order.id },
         data: {
-          ...orderStageUpdate("delivery_complete", now),
+          ...orderStageUpdate("invoice_complete", now),
           fulfillmentStatus: "fulfilled",
           printCount: { increment: 1 },
           packageReadyAt: now,
@@ -1608,7 +1615,7 @@ export async function PATCH(
         orderId: order.id,
         summary: `Completed POS order ${order.orderNumber ?? order.name ?? order.id}`,
         beforeStage: order.fulfillmentStage,
-        afterStage: "delivery_complete",
+        afterStage: "invoice_complete",
         metadata: { action: data.action },
       });
       return NextResponse.json({ success: true });

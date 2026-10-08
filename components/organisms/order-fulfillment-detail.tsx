@@ -304,9 +304,9 @@ export function OrderFulfillmentDetail({
 
   const isBusy = busyKey !== null;
   const stage = (orderDetail?.fulfillmentStage ?? "order_received") as FulfillmentStage;
-  const isPos = orderDetail?.sourceName === "pos";
+  const isPos = orderDetail?.sourceName === "pos" || orderDetail?.sourceName === "erpnext-pos";
   const isErpOrder = orderDetail?.sourceName === "erpnext" || orderDetail?.sourceName === "erpnext-pos";
-  const isComplete = stage === "delivery_complete";
+  const isComplete = stage === "delivery_complete" || stage === "invoice_complete";
   const selectedDispatchService = parseDispatchService(dispatchService);
 
   useEffect(() => {
