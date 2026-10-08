@@ -135,6 +135,7 @@ type SupplierStockReturnRow = {
   name: string;
   erpUrl: string | null;
   supplier: string;
+  supplierName: string | null;
   returnDate: string | null;
   owner: string | null;
   creation: string | null;
@@ -861,9 +862,11 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
     [data.intercompanySuppliers],
   );
   const intercompanySupplierRuleForSupplier = useCallback(
-    (supplier: string) => {
-      const key = supplier.trim().toLowerCase();
-      return intercompanySupplierPrefixes.find((row) => key.includes(row.key)) ?? null;
+    (supplier: string | null | undefined, supplierName?: string | null) => {
+      const values = [supplier, supplierName]
+        .map((value) => value?.trim().toLowerCase() ?? "")
+        .filter(Boolean);
+      return intercompanySupplierPrefixes.find((row) => values.some((value) => value.includes(row.key))) ?? null;
     },
     [intercompanySupplierPrefixes],
   );
@@ -879,7 +882,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
   );
   const purchaseReceiptOptionsForSsr = useCallback(
     (row: SupplierStockReturnRow) => {
-      const rule = intercompanySupplierRuleForSupplier(row.supplier);
+      const rule = intercompanySupplierRuleForSupplier(row.supplier, row.supplierName);
       if (!rule) return [];
       return activeIntercompanyPurchaseReceipts.filter(
         (receipt) => receipt.companyLocationId === rule.locationId,
@@ -974,7 +977,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
     (row: PurchaseReceiptRow) => {
       return (
         !row.isCancelled &&
-        Boolean(intercompanySupplierRuleForSupplier(row.supplier)) &&
+        Boolean(intercompanySupplierRuleForSupplier(row.supplier, row.supplierName)) &&
         !row.adjustmentNo
       );
     },
@@ -1077,7 +1080,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
     (row: SupplierStockReturnRow) => {
       const term = ssrSearch.trim().toLowerCase();
       if (!term) return true;
-      return [row.name, row.supplier, row.purchaseReceiptName, row.owner, row.companyName, row.matchRecommendation?.name]
+      return [row.name, row.supplier, row.supplierName, row.purchaseReceiptName, row.owner, row.companyName, row.matchRecommendation?.name]
         .filter(Boolean)
         .some((value) => value!.toLowerCase().includes(term));
     },
@@ -1090,7 +1093,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
         (row) =>
           row.docstatus !== 2 &&
           (!row.purchaseReceiptName || (row.matchRecommendation?.percentage ?? 0) < 100) &&
-          (!permissions.canMatchSsr || Boolean(intercompanySupplierRuleForSupplier(row.supplier))) &&
+          (!permissions.canMatchSsr || Boolean(intercompanySupplierRuleForSupplier(row.supplier, row.supplierName))) &&
           ssrMatchesSearch(row),
       ),
     [data.supplierStockReturns, intercompanySupplierRuleForSupplier, permissions.canMatchSsr, ssrMatchesSearch],
@@ -1103,7 +1106,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
           row.docstatus !== 2 &&
           Boolean(row.purchaseReceiptName) &&
           (row.matchRecommendation?.percentage ?? 0) >= 100 &&
-          (!permissions.canMatchSsr || Boolean(intercompanySupplierRuleForSupplier(row.supplier))) &&
+          (!permissions.canMatchSsr || Boolean(intercompanySupplierRuleForSupplier(row.supplier, row.supplierName))) &&
           ssrMatchesSearch(row),
       ),
     [data.supplierStockReturns, intercompanySupplierRuleForSupplier, permissions.canMatchSsr, ssrMatchesSearch],
@@ -1729,7 +1732,12 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                       )}
                     </TableCell>
                     <TableCell>{formatDate(row.returnDate ?? row.creation)}</TableCell>
-                    <TableCell>{row.supplier}</TableCell>
+                    <TableCell>
+                      <div>{row.supplier}</div>
+                      {row.supplierName && (
+                        <div className="text-xs text-muted-foreground">{row.supplierName}</div>
+                      )}
+                    </TableCell>
                     <TableCell>
                       <Button
                         type="button"
@@ -1882,7 +1890,12 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                     return (
                       <TableRow key={`matched:${rowKey}`} className="cursor-pointer" onClick={() => setSelectedSsr(row)}>
                         <TableCell className="font-medium">{row.name}</TableCell>
-                        <TableCell>{row.supplier}</TableCell>
+                        <TableCell>
+                          <div>{row.supplier}</div>
+                          {row.supplierName && (
+                            <div className="text-xs text-muted-foreground">{row.supplierName}</div>
+                          )}
+                        </TableCell>
                         <TableCell>{linkedPr?.name ?? row.purchaseReceiptName ?? "-"}</TableCell>
                         <TableCell>
                           {row.matchRecommendation ? (
@@ -2156,7 +2169,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                 <DialogTitle>{selectedSsr?.name ?? "Supplier stock return"}</DialogTitle>
                 <DialogDescription>
                   {selectedSsr
-                    ? `${selectedSsr.supplier} - ${formatDate(selectedSsr.returnDate ?? selectedSsr.creation)}`
+                    ? `${selectedSsr.supplierName ?? selectedSsr.supplier} - ${formatDate(selectedSsr.returnDate ?? selectedSsr.creation)}`
                     : "Supplier stock return details"}
                 </DialogDescription>
               </div>
