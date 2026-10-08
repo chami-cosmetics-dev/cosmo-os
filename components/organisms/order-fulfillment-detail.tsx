@@ -772,6 +772,8 @@ export function OrderFulfillmentDetail({
                   <p className="text-muted-foreground text-sm">
                     {formatInvoiceCompleteTimelineWho({
                       invoiceCompleteBy: orderDetail.invoiceCompleteBy,
+                      paymentGatewayPrimary: orderDetail.paymentGatewayPrimary,
+                      paymentGatewayNames: orderDetail.paymentGatewayNames,
                       deliveryPaymentApproval: orderDetail.deliveryPaymentApproval,
                     })}{" "}
                     · {formatDate(orderDetail.invoiceCompleteAt)}

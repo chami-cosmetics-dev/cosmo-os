@@ -1,5 +1,10 @@
 import { Prisma } from "@prisma/client";
 
+import {
+  callUpdateStatusMatch,
+  displayCallCenterCategory,
+} from "@/lib/contact-call-center-categories";
+
 import { writeAuditLog } from "@/lib/audit-log";
 import {
   callQueueNeedsLifetimeTotals,
@@ -54,6 +59,8 @@ export type CallQueueRowDto = {
   /** Earliest completed Cosmo order or Adapt invoice. */
   firstPurchaseAt?: string | null;
   lastContactedAt: string | null;
+  /** Call outcome. N/A when the contact has never been contacted. */
+  callUpdateStatus: string;
   queued: boolean;
   hidden?: boolean;
   hideReason?: string | null;
@@ -97,11 +104,23 @@ function brandNeedlesFromFilters(filters: CallQueueAssignFilters): string[] {
   return single ? [single] : [];
 }
 
-function usesQueueHistoryMode(filters: CallQueueAssignFilters): boolean {
-  return Boolean(
-    filters.assignedFrom?.trim() ||
-      filters.assignedTo?.trim() ||
-      filters.notContacted
+/** Assigned-date filters read call-queue rows. Not contacted stays on the allocated list. */
+export function usesCallQueueHistoryMode(filters: {
+  assignedFrom?: string;
+  assignedTo?: string;
+}): boolean {
+  return Boolean(filters.assignedFrom?.trim() || filters.assignedTo?.trim());
+}
+
+/** True when a real call happened after this queue assignment. */
+export function queueRowContactedAfterAssign(
+  updates: Array<{ contactId: string; createdAt: Date }>,
+  row: { contactId: string; assignedAt: Date }
+): boolean {
+  return updates.some(
+    (u) =>
+      u.contactId === row.contactId &&
+      u.createdAt.getTime() > row.assignedAt.getTime()
   );
 }
 export type CallQueueAssignResult = {
@@ -395,7 +414,7 @@ async function listRankedEligibleContacts(input: {
     input.filters.lastPurchaseTo
   );
   const brandNeedles = brandNeedlesFromFilters(input.filters);
-  const queueHistory = usesQueueHistoryMode(input.filters);
+  const queueHistory = usesCallQueueHistoryMode(input.filters);
 
   let contactIdAllow: Set<string> | null = null;
   if (queueHistory) {
@@ -434,22 +453,21 @@ async function listRankedEligibleContacts(input: {
       const updates =
         contactIds.length === 0
           ? []
-          : await prisma.contactAllocationUpdate.findMany({
-              where: {
-                companyId: input.companyId,
-                contactId: { in: contactIds },
-              },
-              select: { contactId: true, createdAt: true },
-              orderBy: { createdAt: "asc" },
-            });
-      rows = rows.filter((row) => {
-        const hit = updates.some(
-          (u) =>
-            u.contactId === row.contactId &&
-            u.createdAt.getTime() > row.assignedAt.getTime()
-        );
-        return !hit;
-      });
+          : (
+              await Promise.all(
+                idChunks(contactIds).map((slice) =>
+                  prisma.contactAllocationUpdate.findMany({
+                    where: {
+                      companyId: input.companyId,
+                      contactId: { in: slice },
+                      NOT: { category: "allocation" },
+                    },
+                    select: { contactId: true, createdAt: true },
+                  })
+                )
+              )
+            ).flat();
+      rows = rows.filter((row) => !queueRowContactedAfterAssign(updates, row));
     }
 
     contactIdAllow = new Set(rows.map((r) => r.contactId));
@@ -477,9 +495,7 @@ async function listRankedEligibleContacts(input: {
       ...(input.filters.notInterestedInLoyalty
         ? { loyaltyOutreachStatus: "not_interested" }
         : {}),
-      ...(input.filters.callUpdateStatus?.trim()
-        ? { category: { equals: input.filters.callUpdateStatus.trim() } }
-        : {}),
+      ...(callUpdateStatusMatch(input.filters.callUpdateStatus) ?? {}),
     },
     select: {
       id: true,
@@ -545,7 +561,7 @@ async function listRankedEligibleContacts(input: {
     )
   );
 
-  const ranked = matched
+  let ranked = matched
     .map((c) => {
       const ev = lastEvent.get(c.id);
       const hideReason = callQueueHideReason({
@@ -566,6 +582,12 @@ async function listRankedEligibleContacts(input: {
       };
     })
     .sort(compareCallQueueCandidateOrder);
+
+  // Queue-history mode already dropped post-assign calls. Here, Not contacted
+  // means no real call at all (allocation events are not calls).
+  if (input.filters.notContacted && !queueHistory) {
+    ranked = ranked.filter((c) => c.lastContactedAt == null);
+  }
 
   return { ranked, allocatedTotal };
 }
@@ -626,6 +648,7 @@ export async function listCallQueueCandidates(input: {
       lastPurchaseAt: c.lastPurchaseAt?.toISOString() ?? null,
       firstPurchaseAt: firstPurchaseById.get(c.id)?.toISOString() ?? null,
       lastContactedAt: c.lastContactedAt?.toISOString() ?? null,
+      callUpdateStatus: displayCallCenterCategory(c.category),
       queued: c.queued,
       hidden: c.hidden,
       hideReason: c.hideReason,
@@ -1046,6 +1069,7 @@ export async function listMerchantCallQueue(input: {
           assignedMerchant: true,
           lastPurchaseAt: true,
           email: true,
+          category: true,
           phones: { select: { phoneNumber: true } },
           emails: { select: { email: true } },
         },
@@ -1077,6 +1101,7 @@ export async function listMerchantCallQueue(input: {
         lastPurchaseAt: c.lastPurchaseAt?.toISOString() ?? null,
         firstPurchaseAt: firstPurchaseById.get(c.id)?.toISOString() ?? null,
         lastContactedAt: lastContactedAtDate?.toISOString() ?? null,
+        callUpdateStatus: displayCallCenterCategory(c.category),
         queued: true,
         newlyAllocatedBadge: shouldShowNewlyAllocatedBadge({
           newlyAllocated: newlyAllocatedByContactId.get(c.id) ?? false,

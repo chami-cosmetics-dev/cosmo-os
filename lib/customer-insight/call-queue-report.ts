@@ -1,3 +1,4 @@
+import { displayCallCenterCategory } from "@/lib/contact-call-center-categories";
 import { contactOrderLookupKeys } from "@/lib/contact-purchase-lookup";
 import { matchesCallQueuePushBands } from "@/lib/customer-insight/call-queue-push";
 import {
@@ -278,7 +279,7 @@ export async function listCallQueueSalesReport(input: {
       merchantLabel: row.merchantLabel,
       assignedAt: row.assignedAt.toISOString(),
       status: row.status,
-      category: row.contact.category,
+      category: displayCallCenterCategory(row.contact.category),
       lifetimeTotalAtAssign: snapshot,
       salesAfterAssignment: sumAfter(row.contactId, row.assignedAt),
       salesAfterContact: firstContact ? sumAfter(row.contactId, firstContact) : 0,

@@ -308,6 +308,7 @@ type CallQueueRow = {
   lastPurchaseAt: string | null;
   firstPurchaseAt?: string | null;
   lastContactedAt: string | null;
+  callUpdateStatus?: string;
   queued: boolean;
   hidden?: boolean;
   hideReason?: string | null;
@@ -2736,6 +2737,12 @@ export function CustomerInsightPanel({
                           </span>
                         </span>
                         <span className="rounded-md bg-muted/60 px-2 py-1 text-[11px] text-muted-foreground">
+                          Call status{" "}
+                          <span className="font-medium text-foreground">
+                            {row.callUpdateStatus}
+                          </span>
+                        </span>
+                        <span className="rounded-md bg-muted/60 px-2 py-1 text-[11px] text-muted-foreground">
                           Last contacted{" "}
                           <span className="font-medium text-foreground">
                             {row.lastContactedAt
@@ -4902,7 +4909,8 @@ export function CustomerInsightPanel({
               already queued (no allocation cooling). Not allocated = no merchant, with a
               phone. Export Excel downloads that filtered list (same filters as Load).
               Export report is the sales report only.
-              Import Excel reallocates
+              Not contacted = no real call yet (allocation does not count). Assigned
+              from/to limits to queue rows in that range. Import Excel reallocates
               Contact Master to the merchant, queues them, and shows Newly
               allocated (hidden if contacted within 2 months). Call update
               clears the row and updates last contacted. Assign / Import still need a merchant.
@@ -5329,7 +5337,8 @@ export function CustomerInsightPanel({
                               {formatMoney(row.lifetimeTotal)}
                             </span>
                             <span className="text-muted-foreground block text-xs">
-                              Last contacted {formatQueueDate(row.lastContactedAt)} · first
+                              Call status {row.callUpdateStatus ?? "N/A"} · Last contacted{" "}
+                              {formatQueueDate(row.lastContactedAt)} · first
                               purchased {formatQueueDate(row.firstPurchaseAt ?? null)} · last
                               purchased {formatQueueDate(row.lastPurchaseAt)}
                               {row.loyaltyStage
@@ -5438,6 +5447,7 @@ export function CustomerInsightPanel({
                           <th className="px-2 py-1">Merchant</th>
                           <th className="px-2 py-1">Name</th>
                           <th className="px-2 py-1">Status</th>
+                          <th className="px-2 py-1">Call status</th>
                           <th className="px-2 py-1">Loyalty stage</th>
                           <th className="px-2 py-1 text-right">After assign</th>
                           <th className="px-2 py-1 text-right">After contact</th>
@@ -5452,6 +5462,7 @@ export function CustomerInsightPanel({
                             <td className="px-2 py-1">{row.merchantLabel}</td>
                             <td className="px-2 py-1">{row.name}</td>
                             <td className="px-2 py-1">{row.status}</td>
+                            <td className="px-2 py-1">{row.category?.trim() || "N/A"}</td>
                             <td className="px-2 py-1">
                               {row.loyaltyStage ?? "—"}
                             </td>

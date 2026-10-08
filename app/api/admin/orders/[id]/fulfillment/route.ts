@@ -154,7 +154,7 @@ function getRequiredPermissionsForAction(action: string): string[] {
     case "mark_delivered":
       return ["fulfillment.delivery_invoice.mark_delivered"];
     case "mark_invoice_complete":
-      return ["fulfillment.delivery_invoice.mark_complete"];
+      return ["finance.approvals.manage"];
     case "cancel_order":
       return ["orders.cancel"];
     case "complete_pos":

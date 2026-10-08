@@ -1,3 +1,5 @@
+import { getPaymentMethodInfo, orderAlreadyPaidByCardCheckout } from "@/lib/payment-method-label";
+
 /** Select value for in-store customer pickup dispatch. */
 export const DISPATCH_CUSTOMER_PICKUP = "customer:pickup";
 
@@ -69,11 +71,24 @@ export function formatDeliveredTimelineWho(params: {
 /** Invoice complete row: finance approver when payment was confirmed after delivery. */
 export function formatInvoiceCompleteTimelineWho(params: {
   invoiceCompleteBy: UserLabel;
+  paymentGatewayPrimary?: string | null;
+  paymentGatewayNames?: string[] | null;
   deliveryPaymentApproval?: {
     status?: string;
     reviewedBy?: UserLabel;
   } | null;
 }): string {
+  if (
+    orderAlreadyPaidByCardCheckout({
+      paymentGatewayPrimary: params.paymentGatewayPrimary,
+      paymentGatewayNames: params.paymentGatewayNames,
+    })
+  ) {
+    return getPaymentMethodInfo({
+      paymentGatewayPrimary: params.paymentGatewayPrimary,
+      paymentGatewayNames: params.paymentGatewayNames,
+    }).label;
+  }
   const fromOrder = userDisplayName(params.invoiceCompleteBy);
   if (fromOrder) return fromOrder;
   if (

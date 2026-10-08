@@ -148,6 +148,7 @@ export async function GET(request: NextRequest) {
     "last_purchased_date",
     "first_purchased_date",
     "last_contacted_date",
+    "call_update_status",
     ...(includeBrand ? (["brand_spend"] as const) : []),
     ...(includeItem ? (["item_spend"] as const) : []),
   ] as const;
@@ -170,6 +171,7 @@ export async function GET(request: NextRequest) {
     last_contacted_date: row.lastContactedAt
       ? formatIsoDate(new Date(row.lastContactedAt))
       : "",
+    call_update_status: row.callUpdateStatus,
     ...(includeBrand
       ? { brand_spend: (row.brandSpend ?? 0).toFixed(2) }
       : {}),
