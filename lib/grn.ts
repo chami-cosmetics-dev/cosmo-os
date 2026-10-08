@@ -299,6 +299,7 @@ export async function ingestSupplierStockReturnFromWebhook(
         companyId,
         name: data.name,
         supplier: data.supplier,
+        supplierName: data.supplier_name,
         returnDate: parseDateOnly(data.return_date),
         docstatus: data.docstatus == null ? null : Number(data.docstatus),
         amendedFrom: data.amended_from,
@@ -309,6 +310,7 @@ export async function ingestSupplierStockReturnFromWebhook(
       },
       update: {
         supplier: data.supplier,
+        supplierName: data.supplier_name,
         returnDate: parseDateOnly(data.return_date),
         docstatus: data.docstatus == null ? null : Number(data.docstatus),
         amendedFrom: data.amended_from,
@@ -957,9 +959,12 @@ export async function autoMatchIntercompanyGrn() {
     .filter((row) => row.key.length > 0);
   if (supplierPrefixRules.length === 0) return { matched: 0 };
 
-  const ruleForSupplier = (supplier: string) => {
-    const key = normalizeSupplierMatchValue(supplier);
-    return supplierPrefixRules.find((rule) => key.includes(rule.key)) ?? null;
+  const ruleForSupplier = (supplier: string | null | undefined, supplierName?: string | null) => {
+    const values = [
+      normalizeSupplierMatchValue(supplier),
+      normalizeSupplierMatchValue(supplierName),
+    ].filter(Boolean);
+    return supplierPrefixRules.find((rule) => values.some((value) => value.includes(rule.key))) ?? null;
   };
 
   const [purchaseReceipts, stockReturns] = await Promise.all([
@@ -973,9 +978,10 @@ export async function autoMatchIntercompanyGrn() {
     }),
     prisma.grnSupplierStockReturn.findMany({
       where: {
-        OR: supplierPrefixRules.map((rule) => ({
-          supplier: { contains: rule.prefix, mode: "insensitive" as const },
-        })),
+        OR: supplierPrefixRules.flatMap((rule) => [
+          { supplier: { contains: rule.prefix, mode: "insensitive" as const } },
+          { supplierName: { contains: rule.prefix, mode: "insensitive" as const } },
+        ]),
         docstatus: { not: 2 },
         purchaseReceiptName: null,
       },
@@ -987,7 +993,7 @@ export async function autoMatchIntercompanyGrn() {
   let matched = 0;
   const usedPurchaseReceipts = new Set<string>();
   for (const stockReturn of stockReturns) {
-    const rule = ruleForSupplier(stockReturn.supplier);
+    const rule = ruleForSupplier(stockReturn.supplier, stockReturn.supplierName);
     if (!rule) continue;
     const candidates = purchaseReceipts.filter(
       (receipt) =>
