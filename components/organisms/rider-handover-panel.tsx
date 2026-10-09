@@ -1,10 +1,11 @@
 "use client";
 
 import { Loader2 } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { notify } from "@/lib/notify";
 
 type RiderOption = {
@@ -68,6 +69,25 @@ function formatWhen(iso: string) {
   return date.toLocaleString();
 }
 
+function orderMatchesQuery(row: OrderRow, query: string) {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return true;
+  const haystack = [
+    row.orderNumber,
+    row.companyName,
+    row.cashAmount,
+    row.paymentMethod,
+    row.paymentGatewayPrimary,
+    row.invoiceClosed ? "complete" : "open",
+    row.blockReason,
+    row.selectedMop,
+  ]
+    .filter((value): value is string => Boolean(value))
+    .join(" ")
+    .toLowerCase();
+  return haystack.includes(needle);
+}
+
 export function RiderHandoverPanel({
   from,
   to,
@@ -86,12 +106,17 @@ export function RiderHandoverPanel({
   const [riderId, setRiderId] = useState("");
   const [summary, setSummary] = useState<SummaryResponse | null>(null);
   const [orders, setOrders] = useState<OrderRow[] | null>(null);
+  const [orderQuery, setOrderQuery] = useState("");
   const [modeByOrder, setModeByOrder] = useState<Record<string, string>>({});
   const [receipt, setReceipt] = useState<ReceiptView | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const isBusy = busyKey !== null || disabled;
   const slip = summary && summary.riderId === riderId && summary.from === from && summary.to === to ? summary : null;
   const shownReceipt = slip?.latestReceipt ?? receipt;
+  const visibleOrders = useMemo(
+    () => (orders ?? []).filter((row) => orderMatchesQuery(row, orderQuery)),
+    [orders, orderQuery],
+  );
 
   async function readError(res: Response) {
     const data = (await res.json().catch(() => ({}))) as { error?: string; latestReceipt?: ReceiptView };
@@ -279,6 +304,7 @@ export function RiderHandoverPanel({
                 setRiderId(event.target.value);
                 setSummary(null);
                 setOrders(null);
+                setOrderQuery("");
                 setReceipt(null);
               }}
             >
@@ -395,6 +421,19 @@ export function RiderHandoverPanel({
 
         {canHandoverReceive && orders ? (
           <div className="space-y-3 print:hidden">
+            <div className="flex flex-wrap items-center gap-3">
+              <Input
+                value={orderQuery}
+                onChange={(event) => setOrderQuery(event.target.value)}
+                placeholder="Search order, company, payment"
+                aria-label="Search loaded orders"
+                className="max-w-sm"
+                disabled={isBusy}
+              />
+              <p className="text-muted-foreground text-xs">
+                {visibleOrders.length} of {orders.length}
+              </p>
+            </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
@@ -414,8 +453,14 @@ export function RiderHandoverPanel({
                         No delivery-complete orders in this range.
                       </td>
                     </tr>
+                  ) : visibleOrders.length === 0 ? (
+                    <tr>
+                      <td className="px-2 py-2" colSpan={6}>
+                        No orders match this search.
+                      </td>
+                    </tr>
                   ) : (
-                    orders.map((row) => (
+                    visibleOrders.map((row) => (
                       <tr key={row.orderId} className="border-b">
                         <td className="px-2 py-2">{row.orderNumber}</td>
                         <td className="px-2 py-2">{row.companyName}</td>

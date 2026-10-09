@@ -11,6 +11,7 @@ import {
 import { getErpConfig, resolveOrderPaymentMop } from "@/lib/erpnext-sync";
 import { parseAppCalendarDayEnd, parseAppCalendarDayStart } from "@/lib/format-datetime";
 import { cashAmountFromDeliveryPayment } from "@/lib/mobile/payment-lines";
+import { resolveOrderDisplayTotal } from "@/lib/order-shipping-display";
 import { prisma } from "@/lib/prisma";
 
 const YMD = /^\d{4}-\d{2}-\d{2}$/;
@@ -18,6 +19,8 @@ const YMD = /^\d{4}-\d{2}-\d{2}$/;
 export type CashGroupInput = {
   erpnextCompany: string | null;
   locationName: string;
+  /** Precomputed cash. When set, this wins over `payment`. */
+  cashAmount?: Prisma.Decimal | number | string | null;
   payment: {
     paymentMethod: DeliveryPaymentMethod;
     collectedAmount: Prisma.Decimal | number | string;
@@ -29,6 +32,58 @@ export type CompanyCashLine = {
   companyName: string;
   cashAmount: string;
 };
+
+const PREPAID_GATEWAY = ["koko", "mintpay", "webxpay", "cc checkout", "bank", "card", "visa", "master"];
+
+/** Order was placed as cash/COD, not a prepaid gateway. */
+export function isCashHandoverGateway(
+  primary: string | null | undefined,
+  names: string[] | null | undefined,
+): boolean {
+  const values = [primary, ...(names ?? [])]
+    .map((value) => value?.trim().toLowerCase() ?? "")
+    .filter(Boolean);
+  if (values.length === 0) return false;
+  if (values.some((value) => PREPAID_GATEWAY.some((token) => value.includes(token)))) return false;
+  return values.some(
+    (value) =>
+      value === "cash" ||
+      value === "manual" ||
+      value.includes("cod") ||
+      value.includes("cash on delivery"),
+  );
+}
+
+function decimalText(value: Prisma.Decimal | number | string | null | undefined): string | null {
+  if (value == null) return null;
+  return value.toString();
+}
+
+/**
+ * Cash the rider must hand over.
+ * Deliveries are closed from the rider link, so there is no mobile collection.
+ * A cash/COD order uses the order amount including shipping. Prepaid gateways stay at 0.
+ */
+export function handoverCashAmount(input: {
+  totalPrice: Prisma.Decimal | number | string | null;
+  subtotalPrice?: Prisma.Decimal | number | string | null;
+  totalShipping?: Prisma.Decimal | number | string | null;
+  paymentGatewayPrimary: string | null;
+  paymentGatewayNames?: string[] | null;
+}): Prisma.Decimal {
+  if (!isCashHandoverGateway(input.paymentGatewayPrimary, input.paymentGatewayNames)) {
+    return new Prisma.Decimal(0);
+  }
+  const totalPrice = decimalText(input.totalPrice);
+  if (totalPrice == null) return new Prisma.Decimal(0);
+  const amount = resolveOrderDisplayTotal({
+    totalPrice,
+    subtotalSale: decimalText(input.subtotalPrice),
+    totalShipping: decimalText(input.totalShipping),
+  });
+  const total = new Prisma.Decimal(amount);
+  return total.gt(0) ? total : new Prisma.Decimal(0);
+}
 
 export function handoverCompanyName(
   erpnextCompany: string | null | undefined,
@@ -47,7 +102,12 @@ export function groupCashByErpCompany(rows: CashGroupInput[]): {
 } {
   const totals = new Map<string, Prisma.Decimal>();
   for (const row of rows) {
-    const cash = row.payment ? cashAmountFromDeliveryPayment(row.payment) : new Prisma.Decimal(0);
+    const cash =
+      row.cashAmount != null
+        ? new Prisma.Decimal(row.cashAmount.toString())
+        : row.payment
+          ? cashAmountFromDeliveryPayment(row.payment)
+          : new Prisma.Decimal(0);
     if (cash.lte(0)) continue;
     const name = handoverCompanyName(row.erpnextCompany, row.locationName);
     totals.set(name, (totals.get(name) ?? new Prisma.Decimal(0)).add(cash));
@@ -175,6 +235,9 @@ export async function loadRiderHandoverDeliveries(input: {
           id: true,
           orderNumber: true,
           name: true,
+          totalPrice: true,
+          subtotalPrice: true,
+          totalShipping: true,
           paymentGatewayPrimary: true,
           paymentGatewayNames: true,
           erpnextInvoiceId: true,
@@ -210,6 +273,13 @@ export async function loadRiderHandoverDeliveries(input: {
         }
       : null;
     const orderNumber = order.orderNumber?.trim() || order.name?.trim() || order.id;
+    const cashAmount = handoverCashAmount({
+      totalPrice: order.totalPrice,
+      subtotalPrice: order.subtotalPrice,
+      totalShipping: order.totalShipping,
+      paymentGatewayPrimary: order.paymentGatewayPrimary,
+      paymentGatewayNames: order.paymentGatewayNames,
+    });
     return {
       orderId: order.id,
       orderNumber,
@@ -226,7 +296,7 @@ export async function loadRiderHandoverDeliveries(input: {
       courierServiceName: order.dispatchedByCourierService?.name ?? null,
       paymentMethod: order.deliveryPayment?.paymentMethod ?? null,
       collectedAmount: collectedAmountLabel(payment),
-      cashAmount: payment ? cashAmountFromDeliveryPayment(payment).toFixed(2) : "0.00",
+      cashAmount: cashAmount.toFixed(2),
       payment,
     };
   });

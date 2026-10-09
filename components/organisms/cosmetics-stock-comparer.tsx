@@ -25,35 +25,44 @@ import {
   COSMETICS_STOCK_REPORT_HEADERS,
   matchesIdentityFilters,
   type BrandWarehouseViolation,
+  type CatalogIdentityFields,
   type CosmeticsStockReportDetail,
-  type FocusCompareRow,
   type LocationStock,
-  type RopWatchRow,
-  type ShopCompareRow,
-  type WarehouseOption,
 } from "@/lib/cosmetics-stock-comparer";
 
 type LiveStockResponse = {
   threshold: number;
   ropPercent?: number | null;
-  focusWarehouse?: string | null;
   itemCount: number;
   warehouseCount: number;
-  watchedWarehouseCount?: number;
-  warehouses?: WarehouseOption[];
   salesWindow?: { from: string; to: string; timezone: string; days: number } | null;
   salesStatus?: "ok" | "unavailable";
   criticalCutoffUnits?: number | null;
   rows: CosmeticsStockReportDetail[];
   brandViolations: BrandWarehouseViolation[];
-  ropWatch?: RopWatchRow[];
-  shopCompare?: ShopCompareRow[];
-  focusCompare?: FocusCompareRow[];
   error?: string;
   detail?: string;
 };
 
 type MainFilter = "all" | "critical" | "elsewhere" | "none";
+type CompareWith = "both" | "shops" | "other";
+
+function reportIdentity(row: CosmeticsStockReportDetail): CatalogIdentityFields {
+  return {
+    SKU: row.SKU,
+    commonSku: row.commonSku ?? row.SKU,
+    "Product Title": row["Product Title"],
+    erp1ProductPriority: row.erp1ProductPriority ?? null,
+    erp2ProductPriority: row.erp2ProductPriority ?? null,
+    vatStatus: row.vatStatus ?? "",
+  };
+}
+
+function hasElsewhere(row: CosmeticsStockReportDetail, compareWith: CompareWith): boolean {
+  if (compareWith === "shops") return row.shops.length > 0;
+  if (compareWith === "other") return row.online.length > 0;
+  return row["Stock Available Elsewhere"] === "Yes";
+}
 
 const STOCK_EXPORT_HEADERS = [
   ...COSMETICS_STOCK_REPORT_HEADERS.slice(0, 5),
@@ -318,30 +327,6 @@ function StatButton({
   );
 }
 
-function exportRows(filename: string, headers: string[], rows: Array<Array<string | number>>) {
-  const workbook = XLSX.utils.book_new();
-  const sheetRows = [headers, ...rows];
-  const worksheet = XLSX.utils.aoa_to_sheet(sheetRows);
-  worksheet["!autofilter"] = {
-    ref: XLSX.utils.encode_range({
-      s: { r: 0, c: 0 },
-      e: { r: Math.max(sheetRows.length - 1, 0), c: Math.max(headers.length - 1, 0) },
-    }),
-  };
-  XLSX.utils.book_append_sheet(workbook, worksheet, "Report");
-  const today = new Date().toISOString().slice(0, 10);
-  XLSX.writeFile(workbook, `${filename}-${today}.xlsx`);
-}
-
-function formatPercent(ratio: number | null): string {
-  if (ratio == null || !Number.isFinite(ratio)) return "";
-  return `${Math.round(ratio * 1000) / 10}%`;
-}
-
-function locationText(items: LocationStock[]): string {
-  return items.map((item) => `${item.name} (${item.qty})`).join(", ");
-}
-
 function EmptyState({
   icon: Icon,
   title,
@@ -364,7 +349,7 @@ export function CosmeticsStockComparer() {
   const [tab, setTab] = useState("main");
   const [threshold, setThreshold] = useState("0");
   const [ropPercentInput, setRopPercentInput] = useState("");
-  const [focusWarehouse, setFocusWarehouse] = useState("");
+  const [compareWith, setCompareWith] = useState<CompareWith>("both");
   const [commonSku, setCommonSku] = useState("");
   const [variantSku, setVariantSku] = useState("");
   const [priority, setPriority] = useState("");
@@ -372,10 +357,6 @@ export function CosmeticsStockComparer() {
   const [mainFilter, setMainFilter] = useState<MainFilter>("all");
   const [reportRows, setReportRows] = useState<CosmeticsStockReportDetail[]>([]);
   const [brandViolations, setBrandViolations] = useState<BrandWarehouseViolation[]>([]);
-  const [warehouses, setWarehouses] = useState<WarehouseOption[]>([]);
-  const [ropWatch, setRopWatch] = useState<RopWatchRow[]>([]);
-  const [shopCompare, setShopCompare] = useState<ShopCompareRow[]>([]);
-  const [focusCompare, setFocusCompare] = useState<FocusCompareRow[]>([]);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [hasRun, setHasRun] = useState(false);
   const [lastLoad, setLastLoad] = useState<{
@@ -383,78 +364,52 @@ export function CosmeticsStockComparer() {
     ropPercent: number | null;
     itemCount: number;
     warehouseCount: number;
-    watchedWarehouseCount: number;
     salesStatus: "ok" | "unavailable";
     salesWindow: LiveStockResponse["salesWindow"];
   } | null>(null);
 
   const isBusy = busyKey !== null;
-
-  const availableCount = reportRows.filter((row) => row["Stock Available Elsewhere"] === "Yes").length;
-  const criticalCount = reportRows.filter((row) => row.critical).length;
-  const noneCount = reportRows.length - availableCount;
-
-  const filteredRows = useMemo(() => {
-    if (mainFilter === "critical") return reportRows.filter((row) => row.critical);
-    if (mainFilter === "elsewhere") {
-      return reportRows.filter((row) => row["Stock Available Elsewhere"] === "Yes");
-    }
-    if (mainFilter === "none") {
-      return reportRows.filter((row) => row["Stock Available Elsewhere"] === "No");
-    }
-    return reportRows;
-  }, [mainFilter, reportRows]);
+  const showOther = compareWith !== "shops";
+  const showShops = compareWith !== "other";
 
   const identityFilter = useMemo(
     () => ({ commonSku, variantSku, priority, vatStatus }),
     [commonSku, priority, variantSku, vatStatus],
   );
-  const filteredWatch = useMemo(
-    () => ropWatch.filter((row) => matchesIdentityFilters(row, identityFilter)),
-    [identityFilter, ropWatch],
+  const identityRows = useMemo(
+    () => reportRows.filter((row) => matchesIdentityFilters(reportIdentity(row), identityFilter)),
+    [identityFilter, reportRows],
   );
-  const filteredShops = useMemo(
-    () => shopCompare.filter((row) => matchesIdentityFilters(row, identityFilter)),
-    [identityFilter, shopCompare],
-  );
-  const filteredFocus = useMemo(
-    () => focusCompare.filter((row) => matchesIdentityFilters(row, identityFilter)),
-    [focusCompare, identityFilter],
-  );
+  const availableCount = identityRows.filter((row) => hasElsewhere(row, compareWith)).length;
+  const criticalCount = identityRows.filter((row) => row.critical).length;
+  const noneCount = identityRows.length - availableCount;
+
+  const filteredRows = useMemo(() => {
+    if (mainFilter === "critical") return identityRows.filter((row) => row.critical);
+    if (mainFilter === "elsewhere") return identityRows.filter((row) => hasElsewhere(row, compareWith));
+    if (mainFilter === "none") return identityRows.filter((row) => !hasElsewhere(row, compareWith));
+    return identityRows;
+  }, [compareWith, identityRows, mainFilter]);
+
   const priorityOptions = useMemo(() => {
     const values = new Set<string>(ERP_PRODUCT_PRIORITY_OPTIONS);
-    for (const row of [...ropWatch, ...shopCompare, ...focusCompare]) {
+    for (const row of reportRows) {
       if (row.erp1ProductPriority) values.add(row.erp1ProductPriority);
       if (row.erp2ProductPriority) values.add(row.erp2ProductPriority);
     }
     return [...values].sort((a, b) => a.localeCompare(b, "en", { sensitivity: "base" }));
-  }, [focusCompare, ropWatch, shopCompare]);
+  }, [reportRows]);
   const vatOptions = useMemo(() => {
     const values = new Set<string>();
-    for (const row of [...ropWatch, ...shopCompare, ...focusCompare]) {
-      if (row.vatStatus.trim()) values.add(row.vatStatus.trim());
+    for (const row of reportRows) {
+      if (row.vatStatus?.trim()) values.add(row.vatStatus.trim());
     }
     return [...values].sort((a, b) => a.localeCompare(b, "en", { sensitivity: "base" }));
-  }, [focusCompare, ropWatch, shopCompare]);
+  }, [reportRows]);
 
   const mainPager = usePagedRows(
     filteredRows,
-    (row) => [row.SKU, row["Product Title"]],
-    50,
-  );
-  const watchPager = usePagedRows(
-    filteredWatch,
     (row) => [row.SKU, row.commonSku, row["Product Title"]],
-    50,
-  );
-  const shopPager = usePagedRows(
-    filteredShops,
-    (row) => [row.SKU, row.commonSku, row["Product Title"], ...row.shops.map((shop) => shop.name)],
-    50,
-  );
-  const focusPager = usePagedRows(
-    filteredFocus,
-    (row) => [row.SKU, row.commonSku, row["Product Title"], row.focusWarehouse],
     50,
   );
   const brandPager = usePagedRows(
@@ -466,10 +421,6 @@ export function CosmeticsStockComparer() {
   function clearReport() {
     setReportRows([]);
     setBrandViolations([]);
-    setRopWatch([]);
-    setShopCompare([]);
-    setFocusCompare([]);
-    setWarehouses([]);
     setHasRun(false);
     setLastLoad(null);
   }
@@ -489,20 +440,11 @@ export function CosmeticsStockComparer() {
         return;
       }
     }
-    if (tab === "compare" && focusWarehouse && ropPercentNumber == null) {
-      notify.error("Enter a reorder percent from 0 through 100");
-      return;
-    }
-    if (tab === "compare" && warehouses.length > 0 && !focusWarehouse) {
-      notify.error("Select a warehouse to compare");
-      return;
-    }
 
     setBusyKey("run-report");
     try {
       const params = new URLSearchParams({ threshold: String(thresholdNumber) });
       if (ropPercentNumber != null) params.set("ropPercent", String(ropPercentNumber));
-      if (ropPercentNumber != null && focusWarehouse) params.set("focusWarehouse", focusWarehouse);
       const res = await fetch(`/api/admin/reports/stock-comparer?${params}`, {
         method: "GET",
         cache: "no-store",
@@ -513,10 +455,6 @@ export function CosmeticsStockComparer() {
       }
       setReportRows(data.rows ?? []);
       setBrandViolations(data.brandViolations ?? []);
-      setWarehouses(data.warehouses ?? []);
-      setRopWatch(data.ropWatch ?? []);
-      setShopCompare(data.shopCompare ?? []);
-      setFocusCompare(data.focusCompare ?? []);
       setHasRun(true);
       setMainFilter("all");
       setLastLoad({
@@ -524,11 +462,10 @@ export function CosmeticsStockComparer() {
         ropPercent: data.ropPercent ?? null,
         itemCount: data.itemCount ?? 0,
         warehouseCount: data.warehouseCount ?? 0,
-        watchedWarehouseCount: data.watchedWarehouseCount ?? 0,
         salesStatus: data.salesStatus === "unavailable" ? "unavailable" : "ok",
         salesWindow: data.salesWindow ?? null,
       });
-      notify.success(`Report ready for ${data.itemCount ?? 0} SKU(s)`);
+      notify.success(`Report ready for ${data.rows?.length ?? 0} item(s)`);
     } catch (err) {
       clearReport();
       notify.error(err instanceof Error ? err.message : "Could not run report");
@@ -548,9 +485,8 @@ export function CosmeticsStockComparer() {
         <CardHeader className="border-b pb-4">
           <CardTitle className="text-base">Live stock run</CardTitle>
           <CardDescription>
-            Threshold 0 lists an empty Cosmetics main. Reorder percent lists items at or below that
-            share of each watched warehouse’s reorder point (Cosmetics main and the other company’s
-            non-shop warehouses). Empty Cosmetics main means cosmetics.lk is out of stock.
+            Out of stock on Cosmetics main, compared with other warehouses and shops. Reorder %
+            keeps the same table and lists items at or below that share of the main reorder point.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4 pt-0 sm:flex-row sm:items-end sm:justify-between">
@@ -588,19 +524,16 @@ export function CosmeticsStockComparer() {
               />
             </label>
             <label className="text-sm font-medium">
-              Compare warehouse
+              Compare with
               <select
-                className="mt-1 h-9 w-56 rounded-md border bg-background px-2 text-sm"
-                value={focusWarehouse}
-                onChange={(event) => setFocusWarehouse(event.target.value)}
-                disabled={isBusy || warehouses.length === 0}
+                className="mt-1 h-9 w-52 rounded-md border bg-background px-2 text-sm"
+                value={compareWith}
+                onChange={(event) => setCompareWith(event.target.value as CompareWith)}
+                disabled={isBusy}
               >
-                <option value="">Select after a run</option>
-                {warehouses.map((warehouse) => (
-                  <option key={warehouse.name} value={warehouse.name}>
-                    {warehouse.name}
-                  </option>
-                ))}
+                <option value="both">Other warehouses and shops</option>
+                <option value="shops">Shops</option>
+                <option value="other">Other warehouses</option>
               </select>
             </label>
             <Button type="button" onClick={() => void runReport()} disabled={isBusy} className="gap-2">
@@ -620,8 +553,6 @@ export function CosmeticsStockComparer() {
                   <>
                     {" · "}
                     reorder <span className="font-medium text-foreground">{lastLoad.ropPercent}%</span>
-                    {" · "}
-                    {lastLoad.watchedWarehouseCount} watched warehouses
                   </>
                 ) : null}
                 {" · "}
@@ -643,8 +574,8 @@ export function CosmeticsStockComparer() {
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatButton
           label="Flagged SKUs"
-          value={reportRows.length}
-          hint="At or below last-run threshold"
+          value={identityRows.length}
+          hint="Out of stock, or at or below the reorder percent"
           active={tab === "main" && mainFilter === "all"}
           onClick={() => applyMainFilter("all")}
           disabled={!hasRun}
@@ -652,7 +583,7 @@ export function CosmeticsStockComparer() {
         <StatButton
           label="Stock elsewhere"
           value={availableCount}
-          hint="Can pull from online or shops"
+          hint="Stock in the warehouses you are comparing"
           active={tab === "main" && mainFilter === "elsewhere"}
           onClick={() => applyMainFilter("elsewhere")}
           disabled={!hasRun}
@@ -746,13 +677,7 @@ export function CosmeticsStockComparer() {
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
           <TabsTrigger value="main" disabled={isBusy}>
-            Availability{hasRun ? ` (${reportRows.length})` : ""}
-          </TabsTrigger>
-          <TabsTrigger value="shops" disabled={isBusy}>
-            Shops{hasRun ? ` (${filteredShops.length})` : ""}
-          </TabsTrigger>
-          <TabsTrigger value="compare" disabled={isBusy}>
-            Compare{hasRun ? ` (${filteredFocus.length})` : ""}
+            Availability{hasRun ? ` (${identityRows.length})` : ""}
           </TabsTrigger>
           <TabsTrigger value="brand" disabled={isBusy}>
             Brand check{hasRun ? ` (${brandViolations.length})` : ""}
@@ -760,138 +685,12 @@ export function CosmeticsStockComparer() {
         </TabsList>
 
         <TabsContent value="main" className="mt-4 space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-sm font-medium">
-              Reorder watch
-              {lastLoad?.ropPercent != null ? ` at ${lastLoad.ropPercent}%` : ""}
-              {hasRun ? ` (${filteredWatch.length})` : ""}
-            </p>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() =>
-                exportRows(
-                  "cosmetics-rop-watch",
-                  ["SKU", "Common SKU", "Product Title", "Warehouse", "Qty", "ROP", "% of ROP", "Website OOS", "Priority", "VAT", "Elsewhere"],
-                  filteredWatch.flatMap((row) =>
-                    row.hits.map((hit) => [
-                      row.SKU,
-                      row.commonSku,
-                      row["Product Title"],
-                      hit.warehouse,
-                      hit.qty,
-                      hit.rop ?? "",
-                      formatPercent(hit.percentOfRop),
-                      hit.websiteOutOfStock ? "Yes" : "",
-                      [row.erp1ProductPriority, row.erp2ProductPriority].filter(Boolean).join(" / "),
-                      row.vatStatus,
-                      locationText(row.elsewhere),
-                    ]),
-                  ),
-                )
-              }
-              disabled={isBusy || filteredWatch.length === 0}
-              className="gap-2"
-            >
-              <Download className="size-4" />
-              Export reorder watch
-            </Button>
-          </div>
-          {!hasRun || lastLoad?.ropPercent == null ? (
-            <EmptyState
-              icon={PackageSearch}
-              title="Enter a reorder percent and run"
-              detail="Example: 30 lists items whose stock is 30% of that warehouse’s reorder point or less. Reorder point 100 includes stock 30 and leaves out 31."
-            />
-          ) : filteredWatch.length === 0 ? (
-            <EmptyState
-              icon={Warehouse}
-              title="No reorder-point hits"
-              detail="Nothing is at or below that percent on Cosmetics main or the other company’s non-shop warehouses. Missing reorder points are not listed."
-            />
-          ) : (
-            <Card className="gap-0 py-4">
-              <CardContent className="px-4">
-                <ListPager
-                  query={watchPager.query}
-                  onQueryChange={watchPager.setQuery}
-                  page={watchPager.page}
-                  pageCount={watchPager.pageCount}
-                  total={watchPager.total}
-                  from={watchPager.from}
-                  to={watchPager.to}
-                  onPage={watchPager.setPage}
-                  searchPlaceholder="Search SKU or title…"
-                />
-                <div className="max-h-[32rem] overflow-auto rounded-md border">
-                  <Table>
-                    <TableHeader className="sticky top-0 z-10 bg-background">
-                      <TableRow>
-                        <TableHead className="min-w-56">Item</TableHead>
-                        <TableHead>Watched hit</TableHead>
-                        <TableHead className="w-20 text-right">Qty</TableHead>
-                        <TableHead className="w-20 text-right">ROP</TableHead>
-                        <TableHead className="w-24 text-right">% of ROP</TableHead>
-                        <TableHead>Elsewhere</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {watchPager.slice.map((row) => (
-                        <TableRow key={row.SKU}>
-                          <TableCell className="whitespace-normal align-top">
-                            <p className="font-medium">{row.SKU}</p>
-                            <p className="text-xs text-muted-foreground">{row.commonSku}</p>
-                            <p className="mt-0.5 max-w-xs text-xs text-muted-foreground">{row["Product Title"]}</p>
-                          </TableCell>
-                          <TableCell className="whitespace-normal align-top">
-                            {row.hits.map((hit) => (
-                              <p key={`${hit.warehouse}-${hit.role}`} className="text-sm">
-                                {hit.label}
-                                {hit.websiteOutOfStock ? (
-                                  <span className="ml-2 rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-red-800 dark:bg-red-950 dark:text-red-200">
-                                    cosmetics.lk out of stock
-                                  </span>
-                                ) : null}
-                              </p>
-                            ))}
-                            {row.context.filter((item) => item.ropMissing).map((item) => (
-                              <p key={item.warehouse} className="text-xs text-muted-foreground">
-                                {item.label}: reorder point missing
-                              </p>
-                            ))}
-                          </TableCell>
-                          <TableCell className="align-top text-right tabular-nums">
-                            {row.hits.map((hit) => (
-                              <p key={`${hit.warehouse}-qty`}>{hit.qty}</p>
-                            ))}
-                          </TableCell>
-                          <TableCell className="align-top text-right tabular-nums">
-                            {row.hits.map((hit) => (
-                              <p key={`${hit.warehouse}-rop`}>{hit.rop ?? "—"}</p>
-                            ))}
-                          </TableCell>
-                          <TableCell className="align-top text-right tabular-nums">
-                            {row.hits.map((hit) => (
-                              <p key={`${hit.warehouse}-pct`}>{formatPercent(hit.percentOfRop) || "—"}</p>
-                            ))}
-                          </TableCell>
-                          <TableCell className="whitespace-normal align-top">
-                            <LocationPills items={row.elsewhere} empty="None" />
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              </CardContent>
-            </Card>
-          )}
 
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex flex-wrap gap-1.5">
               {(
                 [
-                  ["all", "All", reportRows.length],
+                  ["all", "All", identityRows.length],
                   ["critical", "Critical", criticalCount],
                   ["elsewhere", "Elsewhere", availableCount],
                   ["none", "None elsewhere", noneCount],
@@ -912,8 +711,8 @@ export function CosmeticsStockComparer() {
             <Button
               type="button"
               variant="outline"
-              onClick={() => exportStockReport(reportRows)}
-              disabled={isBusy || reportRows.length === 0}
+              onClick={() => exportStockReport(filteredRows)}
+              disabled={isBusy || filteredRows.length === 0}
               className="gap-2"
             >
               <Download className="size-4" />
@@ -932,8 +731,10 @@ export function CosmeticsStockComparer() {
               icon={Warehouse}
               title="No items in this view"
               detail={
-                reportRows.length === 0
-                  ? `Nothing at or below threshold ${lastLoad?.threshold ?? threshold}.`
+                identityRows.length === 0
+                  ? lastLoad?.ropPercent != null
+                    ? `Nothing at or below ${lastLoad.ropPercent}% of the main reorder point.`
+                    : `Nothing at or below threshold ${lastLoad?.threshold ?? threshold}.`
                   : "Try another filter or search."
               }
             />
@@ -958,18 +759,22 @@ export function CosmeticsStockComparer() {
                         <TableHead className="min-w-56">Item</TableHead>
                         <TableHead className="w-24 text-right">Main</TableHead>
                         <TableHead className="w-24 text-right">90d sales</TableHead>
-                        <TableHead className="min-w-44">
-                          <span className="inline-flex items-center gap-1">
-                            <Warehouse className="size-3.5" aria-hidden />
-                            Other mains
-                          </span>
-                        </TableHead>
-                        <TableHead className="min-w-44">
-                          <span className="inline-flex items-center gap-1">
-                            <Store className="size-3.5" aria-hidden />
-                            Shops
-                          </span>
-                        </TableHead>
+                        {showOther ? (
+                          <TableHead className="min-w-44">
+                            <span className="inline-flex items-center gap-1">
+                              <Warehouse className="size-3.5" aria-hidden />
+                              Other warehouses
+                            </span>
+                          </TableHead>
+                        ) : null}
+                        {showShops ? (
+                          <TableHead className="min-w-44">
+                            <span className="inline-flex items-center gap-1">
+                              <Store className="size-3.5" aria-hidden />
+                              Shops
+                            </span>
+                          </TableHead>
+                        ) : null}
                         <TableHead className="w-28">Elsewhere</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -995,14 +800,18 @@ export function CosmeticsStockComparer() {
                           <TableCell className="align-top text-right tabular-nums">
                             {row.sales90d}
                           </TableCell>
-                          <TableCell className="whitespace-normal align-top">
-                            <LocationPills items={row.online} empty="None" />
-                          </TableCell>
-                          <TableCell className="whitespace-normal align-top">
-                            <LocationPills items={row.shops} empty="None" />
-                          </TableCell>
+                          {showOther ? (
+                            <TableCell className="whitespace-normal align-top">
+                              <LocationPills items={row.online} empty="None" />
+                            </TableCell>
+                          ) : null}
+                          {showShops ? (
+                            <TableCell className="whitespace-normal align-top">
+                              <LocationPills items={row.shops} empty="None" />
+                            </TableCell>
+                          ) : null}
                           <TableCell className="align-top">
-                            {row["Stock Available Elsewhere"] === "Yes" ? (
+                            {hasElsewhere(row, compareWith) ? (
                               <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">
                                 Yes
                               </span>
@@ -1011,179 +820,6 @@ export function CosmeticsStockComparer() {
                                 No
                               </span>
                             )}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-        </TabsContent>
-
-        <TabsContent value="shops" className="mt-4 space-y-3">
-          <div className="flex justify-end">
-            <Button
-              type="button"
-              variant="outline"
-              className="gap-2"
-              disabled={isBusy || filteredShops.length === 0}
-              onClick={() =>
-                exportRows(
-                  "cosmetics-shop-compare",
-                  ["SKU", "Common SKU", "Product Title", "Main Qty", "Website OOS", "Shop", "Shop Qty"],
-                  filteredShops.flatMap((row) => {
-                    const shops = row.shops.length > 0 ? row.shops : [{ name: "", qty: "" as const, kind: "shop" as const, warehouse: "" }];
-                    return shops.map((shop, index) => [
-                      index === 0 ? row.SKU : "",
-                      index === 0 ? row.commonSku : "",
-                      index === 0 ? row["Product Title"] : "",
-                      index === 0 ? (row.mainQty ?? "") : "",
-                      index === 0 ? (row.websiteOutOfStock ? "Yes" : "") : "",
-                      shop.name,
-                      shop.qty,
-                    ]);
-                  }),
-                )
-              }
-            >
-              <Download className="size-4" />
-              Export shops
-            </Button>
-          </div>
-          {!hasRun ? (
-            <EmptyState icon={Store} title="Run the report to compare shops" detail="Cosmetics main quantity sits beside each shop that has stock." />
-          ) : filteredShops.length === 0 ? (
-            <EmptyState icon={Store} title="No shop rows" detail="Nothing is at the main threshold or at or below the reorder percent on Cosmetics main." />
-          ) : (
-            <Card className="gap-0 py-4">
-              <CardContent className="px-4">
-                <ListPager
-                  query={shopPager.query}
-                  onQueryChange={shopPager.setQuery}
-                  page={shopPager.page}
-                  pageCount={shopPager.pageCount}
-                  total={shopPager.total}
-                  from={shopPager.from}
-                  to={shopPager.to}
-                  onPage={shopPager.setPage}
-                  searchPlaceholder="Search SKU, title, or shop…"
-                />
-                <div className="max-h-[32rem] overflow-auto rounded-md border">
-                  <Table>
-                    <TableHeader className="sticky top-0 z-10 bg-background">
-                      <TableRow>
-                        <TableHead>Item</TableHead>
-                        <TableHead className="w-24 text-right">Main</TableHead>
-                        <TableHead>Shops</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {shopPager.slice.map((row) => (
-                        <TableRow key={row.SKU}>
-                          <TableCell className="whitespace-normal align-top">
-                            <p className="font-medium">{row.SKU}</p>
-                            <p className="max-w-xs text-xs text-muted-foreground">{row["Product Title"]}</p>
-                          </TableCell>
-                          <TableCell className="align-top text-right tabular-nums font-semibold">
-                            {row.mainQty ?? "—"}
-                            {row.websiteOutOfStock ? (
-                              <p className="text-[10px] font-semibold uppercase text-red-700">cosmetics.lk out of stock</p>
-                            ) : null}
-                          </TableCell>
-                          <TableCell className="whitespace-normal align-top">
-                            <LocationPills items={row.shops} empty="No shop stock" />
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-        </TabsContent>
-
-        <TabsContent value="compare" className="mt-4 space-y-3">
-          <div className="flex justify-end">
-            <Button
-              type="button"
-              variant="outline"
-              className="gap-2"
-              disabled={isBusy || filteredFocus.length === 0}
-              onClick={() =>
-                exportRows(
-                  "cosmetics-warehouse-compare",
-                  ["SKU", "Common SKU", "Product Title", "Focus", "Qty", "ROP", "% of ROP", "Elsewhere"],
-                  filteredFocus.map((row) => [
-                    row.SKU,
-                    row.commonSku,
-                    row["Product Title"],
-                    row.focusWarehouse,
-                    row.qty,
-                    row.rop ?? "",
-                    formatPercent(row.percentOfRop),
-                    locationText(row.elsewhere),
-                  ]),
-                )
-              }
-            >
-              <Download className="size-4" />
-              Export compare
-            </Button>
-          </div>
-          {!hasRun || lastLoad?.ropPercent == null ? (
-            <EmptyState
-              icon={Warehouse}
-              title="Pick a warehouse and a reorder percent"
-              detail="Run again after choosing a warehouse. The list is items at or below that percent of the chosen warehouse’s reorder point."
-            />
-          ) : filteredFocus.length === 0 ? (
-            <EmptyState
-              icon={Warehouse}
-              title="No items for this warehouse"
-              detail="Nothing is at or below the percent, or this warehouse has no reorder point. The chosen warehouse is not repeated as elsewhere."
-            />
-          ) : (
-            <Card className="gap-0 py-4">
-              <CardContent className="px-4">
-                <ListPager
-                  query={focusPager.query}
-                  onQueryChange={focusPager.setQuery}
-                  page={focusPager.page}
-                  pageCount={focusPager.pageCount}
-                  total={focusPager.total}
-                  from={focusPager.from}
-                  to={focusPager.to}
-                  onPage={focusPager.setPage}
-                  searchPlaceholder="Search SKU or title…"
-                />
-                <div className="max-h-[32rem] overflow-auto rounded-md border">
-                  <Table>
-                    <TableHeader className="sticky top-0 z-10 bg-background">
-                      <TableRow>
-                        <TableHead>Item</TableHead>
-                        <TableHead>Focus</TableHead>
-                        <TableHead className="text-right">Qty</TableHead>
-                        <TableHead className="text-right">ROP</TableHead>
-                        <TableHead className="text-right">% of ROP</TableHead>
-                        <TableHead>Elsewhere</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {focusPager.slice.map((row) => (
-                        <TableRow key={row.SKU}>
-                          <TableCell className="whitespace-normal align-top">
-                            <p className="font-medium">{row.SKU}</p>
-                            <p className="max-w-xs text-xs text-muted-foreground">{row["Product Title"]}</p>
-                          </TableCell>
-                          <TableCell className="align-top">{row.focusWarehouse}</TableCell>
-                          <TableCell className="align-top text-right tabular-nums">{row.qty}</TableCell>
-                          <TableCell className="align-top text-right tabular-nums">{row.rop ?? "—"}</TableCell>
-                          <TableCell className="align-top text-right tabular-nums">{formatPercent(row.percentOfRop) || "—"}</TableCell>
-                          <TableCell className="whitespace-normal align-top">
-                            <LocationPills items={row.elsewhere} empty="None" />
                           </TableCell>
                         </TableRow>
                       ))}

@@ -37,6 +37,10 @@ export type CosmeticsStockReportDetail = CosmeticsStockReportRow & {
   critical: boolean;
   online: LocationStock[];
   shops: LocationStock[];
+  commonSku?: string;
+  erp1ProductPriority?: string | null;
+  erp2ProductPriority?: string | null;
+  vatStatus?: string;
 };
 
 export type BrandWarehouseViolation = {
@@ -831,6 +835,29 @@ export function buildFocusCompare(input: {
 
 function filterText(value: string | null | undefined): string {
   return (value ?? "").trim().toLowerCase();
+}
+
+export function filterReportByMainRopPercent(
+  rows: CosmeticsStockReportDetail[],
+  ropBySkuColumn: Map<string, number>,
+  mainColumnKey: string | null,
+  percent: number,
+): CosmeticsStockReportDetail[] {
+  if (!mainColumnKey) return [];
+  return rows.filter((row) => {
+    const rop = ropBySkuColumn.get(`${key(row.SKU)}::${mainColumnKey}`);
+    return isAtOrBelowRopPercent(row["Main Warehouse Qty"], rop, percent);
+  });
+}
+
+export function decorateReportRows(
+  rows: CosmeticsStockReportDetail[],
+  identities: SkuIdentity[],
+): CosmeticsStockReportDetail[] {
+  return rows.map((row) => ({
+    ...row,
+    ...toIdentity(row.SKU, row["Product Title"], identities),
+  }));
 }
 
 export function matchesIdentityFilters(row: CatalogIdentityFields, filter: IdentityFilter): boolean {

@@ -7,6 +7,8 @@ import {
   buildFocusCompare,
   buildRopWatch,
   buildShopCompare,
+  decorateReportRows,
+  filterReportByMainRopPercent,
   classifyWarehouseKind,
   computeCriticalCutoff,
   isAtOrBelowRopPercent,
@@ -521,6 +523,41 @@ describe("buildFocusCompare", () => {
     expect(rows.map((item) => item.SKU)).toEqual(["HIT"]);
     expect(rows[0]?.elsewhere.map((location) => location.warehouse)).toEqual(["Website Inventory - Cosmo"]);
     expect(rows[0]?.elsewhere.some((location) => location.warehouse === "Main Warehouse - Trading A")).toBe(false);
+  });
+});
+
+describe("filterReportByMainRopPercent", () => {
+  it("keeps main stock at or below the percent of the Cosmetics main reorder point", () => {
+    const details = buildCosmeticsStockReportDetails(
+      [
+        row({ Item: "LOW", "Balance Qty": 30 }),
+        row({ Item: "HIGH", "Balance Qty": 31 }),
+        row({ Item: "NOROP", "Balance Qty": 0 }),
+      ],
+      100,
+    );
+    const kept = filterReportByMainRopPercent(
+      details,
+      new Map([
+        ["low::cosmetics_lk", 100],
+        ["high::cosmetics_lk", 100],
+      ]),
+      "cosmetics_lk",
+      30,
+    );
+    expect(kept.map((item) => item.SKU)).toEqual(["LOW"]);
+    const decorated = decorateReportRows(kept, [
+      {
+        sku: "LOW",
+        productTitle: "Low item",
+        erp1ProductPriority: "Top Priority",
+        erp2ProductPriority: null,
+        vatStatus: "Vat",
+      },
+    ]);
+    expect(decorated[0]?.commonSku).toBe("LOW");
+    expect(decorated[0]?.erp1ProductPriority).toBe("Top Priority");
+    expect(decorated[0]?.vatStatus).toBe("Vat");
   });
 });
 
