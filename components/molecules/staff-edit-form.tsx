@@ -38,24 +38,27 @@ type StaffMember = {
   dateOfBirth: string | null;
   mobile: string | null;
   knownName: string | null;
+  userRoles: Array<{ id: string; name: string }>;
   shopifyUserIds?: string[];
   couponCodes?: string[];
   wholesaleCouponCodes?: string[];
   financeLocationIds?: string[];
   outlets?: Outlet[];
   employeeProfile: {
+    id: string;
     employeeNumber: string | null;
     epfNumber: string | null;
     locationId: string | null;
-    location?: { id: string; name: string } | null;
+    location: { id: string; name: string } | null;
     departmentId: string | null;
-    department?: { id: string; name: string } | null;
+    department: { id: string; name: string } | null;
     designationId: string | null;
-    designation?: { id: string; name: string } | null;
+    designation: { id: string; name: string } | null;
     outletId: string | null;
-    outlet?: { id: string; name: string } | null;
+    outlet: { id: string; name: string } | null;
     appointmentDate: string | null;
     status: string;
+    resignedAt: string | null;
     isRider: boolean;
     isShopMerchant?: boolean;
   } | null;
@@ -69,7 +72,7 @@ interface StaffEditFormProps {
   designations: Designation[];
   outlets: Outlet[];
   canEdit: boolean;
-  onSaved: () => void;
+  onSaved: (updatedStaff: StaffMember) => void | Promise<void>;
   onClose: () => void;
 }
 
@@ -136,11 +139,7 @@ export function StaffEditForm({
     initialData?.employeeProfile?.designationId ||
     initialData?.employeeProfile?.designation?.id ||
     "";
-  const effectiveOutletId =
-    outletId ||
-    initialData?.employeeProfile?.outletId ||
-    initialData?.employeeProfile?.outlet?.id ||
-    "";
+  const effectiveOutletId = outletId;
   const genderLabel =
     GENDER_OPTIONS.find((option) => option.value === effectiveGender)?.label ?? "Select gender";
   const locationOptions = withSelectedOption(
@@ -172,8 +171,6 @@ export function StaffEditForm({
   const designationLabel =
     designationOptions.find((designation) => designation.id === effectiveDesignationId)?.name ??
     "Select designation";
-  const outletLabel =
-    outletOptions.find((outlet) => outlet.id === effectiveOutletId)?.name ?? "Select outlet";
 
   useEffect(() => {
     if (initialData) {
@@ -227,12 +224,13 @@ export function StaffEditForm({
     e.preventDefault();
     if (!canEdit) return;
 
-    if (isShopMerchant && !effectiveLocationId) {
+    if (isShopMerchant && !effectiveOutletId) {
       notify.error("Select an outlet for shop merchants");
       return;
     }
     setBusyKey("save");
     try {
+      const requestedOutletId = outletId || null;
       const res = await fetch(`/api/admin/staff/${staffId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -248,7 +246,7 @@ export function StaffEditForm({
           locationId: locationId || null,
           departmentId: departmentId || null,
           designationId: designationId || null,
-          outletId: outletId || null,
+          outletId: requestedOutletId,
           appointmentDate: appointmentDate || undefined,
           shopifyUserIds: shopifyUserIds
             .split(",")
@@ -275,8 +273,13 @@ export function StaffEditForm({
         return;
       }
 
+      if ((data.employeeProfile?.outletId ?? null) !== requestedOutletId) {
+        notify.error("Outlet did not save. Please try again.");
+        return;
+      }
+
       notify.success("Staff details updated.");
-      onSaved();
+      await onSaved(data);
       onClose();
     } catch {
       notify.error("Failed to update staff");
@@ -497,25 +500,20 @@ export function StaffEditForm({
         <label className="text-sm font-medium">
           Outlet
         </label>
-        <Select
-          value={effectiveOutletId || NONE_VALUE}
-          onValueChange={(value) =>
-            setOutletId(value === NONE_VALUE ? "" : value)
-          }
+        <select
+          id="staff-outlet"
+          value={effectiveOutletId}
+          onChange={(event) => setOutletId(event.target.value)}
           disabled={!canEdit || isBusy}
+          className="border-input bg-transparent ring-offset-background focus-visible:ring-ring flex h-9 w-full rounded-md border px-3 py-2 text-sm shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          <SelectTrigger id="staff-outlet">
-            <SelectValue placeholder="Select outlet">{outletLabel}</SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={NONE_VALUE}>Select outlet</SelectItem>
-            {outletOptions.map((outlet) => (
-              <SelectItem key={outlet.id} value={outlet.id}>
-                {outlet.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+          <option value="">No outlet</option>
+          {outletOptions.map((outlet) => (
+            <option key={outlet.id} value={outlet.id}>
+              {outlet.name}
+            </option>
+          ))}
+        </select>
       </div>
       <div className="space-y-2">
         <label htmlFor="staff-appointmentDate" className="text-sm font-medium">
