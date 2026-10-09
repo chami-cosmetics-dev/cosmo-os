@@ -24,13 +24,12 @@ Manual checks after implement. See [data-model.md](./data-model.md) and [contrac
 
 ## 2. Hide windows
 
-1. Allocate a contact today with no recent purchase/contact → **still eligible** (no allocation cooling).
-2. Contact with `lastPurchaseAt` within last 2 months → hidden (“Purchased < 2 months”).
-3. Assign + merchant sets Interested or Not Interested today → absent until +2 months.
-4. Assign + **Not Responding** → absent 7 days, then appears again.
-5. **Black List** / **Wrong Number** → never on load (still in Excel if previously assigned).
-6. Loyalty “Not responded” alone does not start the 1-week clock.
-7. Allocated from/to filter → only contacts whose last allocation event falls in range.
+1. Allocate a contact today with no recent contact → **still eligible** (no allocation cooling). Recent purchase does **not** hide the contact.
+2. Assign + merchant sets Interested or Not Interested today → absent until +2 months.
+3. Assign + **Not Responding** → absent 7 days, then appears again.
+4. **Black List** / **Wrong Number** → never on load (still in Excel if previously assigned).
+5. Loyalty “Not responded” alone does not start the 1-week clock.
+6. Allocated from/to filter → only contacts whose last allocation event falls in range.
 
 ## 3. Select count / page / all
 
@@ -54,4 +53,4 @@ User without insight admin view: candidates / assign / export / report → 403.
 npm test -- lib/customer-insight/call-queue
 ```
 
-Expect unit tests for inclusive push bands, hide windows (purchase/contact 2 months / 7 days Not Responding / Black List), allocated-date filter, eligible-N skipping queued.
+Expect unit tests for inclusive push bands, hide windows (contact 2 months / 7 days Not Responding / Black List), allocated-date filter, eligible-N skipping queued.

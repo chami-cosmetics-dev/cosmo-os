@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { loadAssignedMerchantAliasMap } from "@/lib/customer-insight/allocation-summary";
 import { firstPurchaseAtByContactIds } from "@/lib/customer-insight/first-purchase";
 import { prisma } from "@/lib/prisma";
 import { logReportDownload } from "@/lib/report-download-log";
@@ -56,20 +57,23 @@ export async function GET(request: NextRequest) {
     select: CONTACT_LIST_DUMP_SELECT,
   });
 
-  const firstPurchaseById = await firstPurchaseAtByContactIds(
-    companyId,
-    contacts.map((contact) => contact.id)
-  );
+  const [firstPurchaseById, aliasToRoster] = await Promise.all([
+    firstPurchaseAtByContactIds(
+      companyId,
+      contacts.map((contact) => contact.id)
+    ),
+    loadAssignedMerchantAliasMap(companyId),
+  ]);
   const withFirstPurchase = contacts.map((contact) => ({
     ...contact,
     firstPurchaseAt: firstPurchaseById.get(contact.id) ?? null,
   }));
   const payload =
     report === "log"
-      ? buildContactLogDumpCsv(withFirstPurchase)
+      ? buildContactLogDumpCsv(withFirstPurchase, aliasToRoster)
       : report === "loyalty"
-        ? buildLoyaltyDumpCsv(withFirstPurchase)
-        : buildLastPurchasedDumpCsv(withFirstPurchase);
+        ? buildLoyaltyDumpCsv(withFirstPurchase, aliasToRoster)
+        : buildLastPurchasedDumpCsv(withFirstPurchase, aliasToRoster);
 
   const fileName =
     report === "log"
