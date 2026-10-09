@@ -19,6 +19,7 @@ export default async function RiderPerformancePage() {
   }
 
   const canManagePerformance = hasPermission(auth.context, "riders.performance.manage");
+  const canExportIncentive = hasPermission(auth.context, "riders.incentive.export");
   const canViewRiders = hasPermission(auth.context, "riders.read");
   const canHandoverSummary = hasPermission(auth.context, "riders.handover.summary");
   const canHandoverReceive = hasPermission(auth.context, "riders.handover.receive");
@@ -43,6 +44,7 @@ export default async function RiderPerformancePage() {
       </div>
       <RiderPerformancePanel
         canManagePerformance={canManagePerformance}
+        canExportIncentive={canExportIncentive}
         canHandoverSummary={canHandoverSummary}
         canHandoverReceive={canHandoverReceive}
         riders={riders}
