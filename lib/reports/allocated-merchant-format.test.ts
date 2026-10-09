@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   formatAllocatedMerchantExport,
   formatStoredAllocatedMerchant,
+  formatTransferMerchantOptions,
 } from "@/lib/reports/allocated-merchant-format";
 
 describe("formatAllocatedMerchantExport", () => {
@@ -62,6 +63,21 @@ describe("formatStoredAllocatedMerchant", () => {
       "Dulshi(MER40)"
     );
     expect(formatStoredAllocatedMerchant("Dulshan", merchants)).toBe("Dulshan");
+  });
+
+  it("lists each merchant once as name(MER)", () => {
+    expect(
+      formatTransferMerchantOptions([
+        { value: "MER40", label: "Dulshi (MER40)" },
+        { value: "MER40", label: "Dulshi Rathnasooriya" },
+        { value: "DM - General", label: "DM - General (MER115 / DM_General)" },
+        { value: "ERROR NUMBER", label: "Error number category" },
+      ])
+    ).toEqual([
+      { value: "DM - General", label: "DM - General(MER115)" },
+      { value: "MER40", label: "Dulshi(MER40)" },
+      { value: "ERROR NUMBER", label: "Error number category" },
+    ]);
   });
 
   it("leaves an unknown label unchanged", () => {
