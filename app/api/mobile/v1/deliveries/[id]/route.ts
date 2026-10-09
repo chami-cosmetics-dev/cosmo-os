@@ -5,6 +5,7 @@ import { toMobileDeliveryDto } from "@/lib/mobile/dto";
 import { findRiderTaskById } from "@/lib/mobile/orders";
 import { resolveMobileSpecialDelivery } from "@/lib/mobile/special-delivery";
 import { mobileRouteIdSchema } from "@/lib/mobile/validation";
+import { isRiderIncentiveUnlocked } from "@/lib/rider-incentive";
 import { incentiveForOrder, loadRiderIncentiveContext } from "@/lib/rider-incentive-resolve";
 import { loadLatestOrderSplitPaymentLines } from "@/lib/order-split-payment";
 import { approvalSplitCashCollectAmount } from "@/lib/approval-payment-split";
@@ -47,13 +48,15 @@ export async function GET(
           order: task.order,
           task,
         }),
-        incentiveAmount: incentiveForOrder(
-          task.order,
-          incentiveContext.chargeByLabelKey,
-          incentiveContext.zoneMembersByZone,
-          task.manualIncentiveLabelKey,
-          task.manualIncentiveAmount
-        ).toFixed(2),
+        incentiveAmount: isRiderIncentiveUnlocked(task.order)
+          ? incentiveForOrder(
+              task.order,
+              incentiveContext.chargeByLabelKey,
+              incentiveContext.zoneMembersByZone,
+              task.manualIncentiveLabelKey,
+              task.manualIncentiveAmount
+            ).toFixed(2)
+          : "0.00",
         collectCashAmount,
       }),
       lineItems: task.order.lineItems.map((item) => ({

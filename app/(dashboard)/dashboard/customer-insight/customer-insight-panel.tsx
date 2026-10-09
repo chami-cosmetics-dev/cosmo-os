@@ -4904,7 +4904,7 @@ export function CustomerInsightPanel({
             <CardDescription>
               Pick a merchant (or leave Any), then use any filter alone or together. Combined
               filters AND (Push to Gold + Push to Platinum = either band). Merchant Any =
-              all allocated contacts. Push labels do not show amounts. Hidden logic: purchased or contacted
+              all allocated contacts. Push labels do not show amounts. Hidden logic: contacted
               within 2 months, 7-day Not Responding, Black List / Wrong Number,
               already queued (no allocation cooling). Not allocated = no merchant, with a
               phone. Export Excel downloads that filtered list (same filters as Load).
@@ -5208,7 +5208,7 @@ export function CustomerInsightPanel({
                     queueAllocatedTotal > queueEligibleTotal ? (
                       <>
                         {" "}
-                        · rest hidden (purchased/contacted within 2 months, Not Responding
+                        · rest hidden (contacted within 2 months, Not Responding
                         7 days, already queued, Black List / Wrong Number)
                       </>
                     ) : null}

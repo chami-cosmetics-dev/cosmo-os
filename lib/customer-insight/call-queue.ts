@@ -567,7 +567,6 @@ async function listRankedEligibleContacts(input: {
       const hideReason = callQueueHideReason({
         now,
         currentCategory: c.category,
-        lastPurchaseAt: c.lastPurchaseAt,
         lastNonAllocationAt: ev?.at ?? null,
         lastNonAllocationCategory: ev?.category ?? c.category,
         hasPendingQueue: queued.has(c.id),
@@ -768,7 +767,6 @@ export async function assignCallQueue(input: {
       isHiddenFromCallQueueAssign({
         now,
         currentCategory: contact.category,
-        lastPurchaseAt: contact.lastPurchaseAt,
         lastNonAllocationAt: ev?.at ?? null,
         lastNonAllocationCategory: ev?.category ?? contact.category,
         hasPendingQueue: false,

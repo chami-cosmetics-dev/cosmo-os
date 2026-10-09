@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { loadAssignedMerchantAliasMap } from "@/lib/customer-insight/allocation-summary";
 import { filterAllocatedContacts } from "@/lib/customer-insight/filters";
 import { readInsightFilterList } from "@/lib/customer-insight/filter-query-params";
 import {
@@ -9,6 +10,7 @@ import {
 import { prisma } from "@/lib/prisma";
 import { logReportDownload } from "@/lib/report-download-log";
 import { requirePermission } from "@/lib/rbac";
+import { formatStoredAllocatedMerchant } from "@/lib/reports/allocated-merchant-format";
 import { buildCsv, formatIsoDate, type CsvPrimitive } from "@/lib/reports/csv";
 import { customerInsightFilterExportQuerySchema } from "@/lib/validation/customer-insight";
 
@@ -91,7 +93,8 @@ export async function GET(request: NextRequest) {
     permissionKeys,
   });
 
-  const result = await filterAllocatedContacts({
+  const [result, aliasToRoster] = await Promise.all([
+    filterAllocatedContacts({
     companyId,
     viewer,
     isAdmin: true,
@@ -130,7 +133,9 @@ export async function GET(request: NextRequest) {
     page: 1,
     pageSize: 25,
     forExport: true,
-  });
+  }),
+    loadAssignedMerchantAliasMap(companyId),
+  ]);
 
   const includeBrand = Boolean(parsed.data.brand?.length);
   const includeItem = Boolean(
@@ -157,7 +162,10 @@ export async function GET(request: NextRequest) {
     contact_id: row.contactId,
     name: row.name,
     phone_number: row.phoneNumber ?? "",
-    assigned_merchant: row.assignedMerchant ?? "",
+    assigned_merchant: formatStoredAllocatedMerchant(
+      row.assignedMerchant,
+      aliasToRoster
+    ),
     lifetime_total: row.lifetimeTotal.toFixed(2),
     loyalty_tier: row.loyalty.label,
     loyalty_code: row.loyalty.code ?? "",

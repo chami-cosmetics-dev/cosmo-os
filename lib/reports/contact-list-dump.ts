@@ -1,4 +1,8 @@
 import type { Prisma } from "@prisma/client";
+import {
+  formatStoredAllocatedMerchant,
+  type AllocatedMerchantRosterMatch,
+} from "@/lib/reports/allocated-merchant-format";
 import { buildCsv } from "@/lib/reports/csv";
 import {
   contactEmails,
@@ -87,7 +91,10 @@ const LOYALTY_HEADERS = [
   "updated_on",
 ] as const;
 
-function identityCells(contact: ContactListDumpSource) {
+function identityCells(
+  contact: ContactListDumpSource,
+  aliasToRoster?: Map<string, AllocatedMerchantRosterMatch> | null
+) {
   const emails = contactEmails(contact);
   const phones = contactPhones(contact);
   return {
@@ -97,39 +104,54 @@ function identityCells(contact: ContactListDumpSource) {
     extra_emails: emails.extra,
     phone_number: phones.primary,
     extra_phones: phones.extra,
-    recent_merchant: dumpText(contact.recentMerchant),
+    recent_merchant: formatStoredAllocatedMerchant(
+      contact.recentMerchant,
+      aliasToRoster
+    ),
     last_purchased_date: dumpDate(contact.lastPurchaseAt),
     first_purchased_date: dumpDate(contact.firstPurchaseAt),
   };
 }
 
-export function buildLastPurchasedDumpCsv(rows: ContactListDumpSource[]) {
+export function buildLastPurchasedDumpCsv(
+  rows: ContactListDumpSource[],
+  aliasToRoster?: Map<string, AllocatedMerchantRosterMatch> | null
+) {
   return buildCsv(
     LAST_PURCHASED_HEADERS,
     rows.map((contact) => ({
-      ...identityCells(contact),
+      ...identityCells(contact, aliasToRoster),
       updated_on: dumpDate(contact.updatedAt),
     }))
   );
 }
 
-export function buildContactLogDumpCsv(rows: ContactListDumpSource[]) {
+export function buildContactLogDumpCsv(
+  rows: ContactListDumpSource[],
+  aliasToRoster?: Map<string, AllocatedMerchantRosterMatch> | null
+) {
   return buildCsv(
     LOG_HEADERS,
     rows.map((contact) => ({
-      ...identityCells(contact),
+      ...identityCells(contact, aliasToRoster),
       created_at: dumpDateTime(contact.createdAt),
       updated_at: dumpDateTime(contact.updatedAt),
     }))
   );
 }
 
-export function buildLoyaltyDumpCsv(rows: ContactListDumpSource[]) {
+export function buildLoyaltyDumpCsv(
+  rows: ContactListDumpSource[],
+  aliasToRoster?: Map<string, AllocatedMerchantRosterMatch> | null
+) {
   return buildCsv(
     LOYALTY_HEADERS,
     rows.map((contact) => ({
-      ...identityCells(contact),
-      assigned_merchant: dumpText(contact.assignedMerchant),
+      ...identityCells(contact, aliasToRoster),
+      assigned_merchant: formatStoredAllocatedMerchant(
+        contact.assignedMerchant,
+        aliasToRoster
+      ),
       loyalty_tier: dumpText(contact.loyaltyAssignedTier),
       loyalty_assigned_at: dumpDateTime(contact.loyaltyAssignedAt),
       loyalty_outreach_status: dumpText(

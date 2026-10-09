@@ -1,6 +1,10 @@
 import { displayCallCenterCategory } from "@/lib/contact-call-center-categories";
 import type { Prisma } from "@prisma/client";
 import { osRegistrationDumpExcludeWhere } from "@/lib/register-users/dump-exclude";
+import {
+  formatStoredAllocatedMerchant,
+  type AllocatedMerchantRosterMatch,
+} from "@/lib/reports/allocated-merchant-format";
 import { buildCsv } from "@/lib/reports/csv";
 import {
   contactEmails,
@@ -163,16 +167,21 @@ export const CONTACT_DUMP_PARTS = {
 
 export type ContactDumpPartKey = keyof typeof CONTACT_DUMP_PARTS;
 
-function lastUpdatedBy(contact: ContactDumpSource) {
-  return dumpText(contact.allocationUpdates[0]?.merchantName);
-}
-
-export function buildContactDumpRow(contact: ContactDumpSource) {
+export function buildContactDumpRow(
+  contact: ContactDumpSource,
+  aliasToRoster?: Map<string, AllocatedMerchantRosterMatch> | null
+) {
   const emails = contactEmails(contact);
   const phones = contactPhones(contact);
   const area = dumpText(contact.area);
-  const assigned = dumpText(contact.assignedMerchant);
-  const updatedBy = lastUpdatedBy(contact);
+  const assigned = formatStoredAllocatedMerchant(
+    contact.assignedMerchant,
+    aliasToRoster
+  );
+  const updatedBy = formatStoredAllocatedMerchant(
+    contact.allocationUpdates[0]?.merchantName,
+    aliasToRoster
+  );
 
   return {
     id: contact.id,
@@ -209,7 +218,10 @@ export function buildContactDumpRow(contact: ContactDumpSource) {
     "Called By": updatedBy,
     "Exsisting Web Customer": dumpYesNo(contact.exWebCustomer),
     "Offline Customer": dumpYesNo(contact.exOffCustomer),
-    "Recent Merchent": dumpText(contact.recentMerchant),
+    "Recent Merchent": formatStoredAllocatedMerchant(
+      contact.recentMerchant,
+      aliasToRoster
+    ),
     "NEW ALLOCATION": assigned,
     "Contact Saved By Customer": dumpYesNo(contact.contactSaved),
     "Allowed to Whatsapp Msg": dumpYesNo(contact.whatsappAllowed),
@@ -226,6 +238,12 @@ export function buildContactDumpRow(contact: ContactDumpSource) {
   };
 }
 
-export function buildContactDumpCsv(rows: ContactDumpSource[]) {
-  return buildCsv(CONTACT_DUMP_HEADERS, rows.map(buildContactDumpRow));
+export function buildContactDumpCsv(
+  rows: ContactDumpSource[],
+  aliasToRoster?: Map<string, AllocatedMerchantRosterMatch> | null
+) {
+  return buildCsv(
+    CONTACT_DUMP_HEADERS,
+    rows.map((row) => buildContactDumpRow(row, aliasToRoster))
+  );
 }

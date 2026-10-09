@@ -17,7 +17,9 @@ import {
   type CsvPrimitive,
 } from "@/lib/reports/csv";
 import { DUMP_TOTAL_HEADER } from "@/lib/reports/dump-download";
+import { loadAssignedMerchantAliasMap } from "@/lib/customer-insight/allocation-summary";
 import { firstPurchaseAtByContactIds } from "@/lib/customer-insight/first-purchase";
+import { formatStoredAllocatedMerchant } from "@/lib/reports/allocated-merchant-format";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
 
@@ -195,9 +197,10 @@ export async function GET(request: NextRequest) {
     { brandContactIds: brand ? brandRanks.map((r) => r.contactId) : undefined }
   );
 
-  const [expectedRows, allocatedByPhone] = await Promise.all([
+  const [expectedRows, allocatedByPhone, aliasToRoster] = await Promise.all([
     prisma.contactMaster.count({ where }),
     loadAllocatedMerchantByPhone(companyId),
+    loadAssignedMerchantAliasMap(companyId),
   ]);
 
   const fileName =
@@ -282,11 +285,17 @@ export async function GET(request: NextRequest) {
               name: contact.name,
               email: contact.email ?? "",
               phone_number: contact.phoneNumber ?? "",
-              recent_merchant: contact.recentMerchant ?? "",
-              assigned_merchant: resolveExportAssignedMerchant(
-                contact.assignedMerchant,
-                [contact.phoneNumber],
-                allocatedByPhone
+              recent_merchant: formatStoredAllocatedMerchant(
+                contact.recentMerchant,
+                aliasToRoster
+              ),
+              assigned_merchant: formatStoredAllocatedMerchant(
+                resolveExportAssignedMerchant(
+                  contact.assignedMerchant,
+                  [contact.phoneNumber],
+                  allocatedByPhone
+                ),
+                aliasToRoster
               ),
               ...(brand
                 ? { brand_spend: (brandSpendById.get(contact.id) ?? 0).toFixed(2) }
@@ -307,7 +316,10 @@ export async function GET(request: NextRequest) {
               first_purchased_date: formatIsoDate(firstPurchaseById.get(contact.id)),
               created_at: formatIsoDateTime(contact.createdAt),
               updated_at: formatIsoDateTime(contact.updatedAt),
-              updated_by: contact.allocationUpdates[0]?.merchantName ?? "",
+              updated_by: formatStoredAllocatedMerchant(
+                contact.allocationUpdates[0]?.merchantName,
+                aliasToRoster
+              ),
             };
             lines.push(csvLine(headers, row));
           }
