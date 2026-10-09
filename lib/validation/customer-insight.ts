@@ -432,4 +432,5 @@ export const customerInsightLoyaltyEligibleListQuerySchema = z.object({
 export const customerInsightLoyaltyEligibleSummaryQuerySchema = z.object({
   asOf: optionalIsoDate,
   weekEnd: optionalIsoDate,
+  assignedMerchant: trimmedString(1, LIMITS.knownName.max).optional(),
 });

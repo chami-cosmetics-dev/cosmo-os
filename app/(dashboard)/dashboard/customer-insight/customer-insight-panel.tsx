@@ -640,6 +640,7 @@ export function CustomerInsightPanel({
   const [filterPurchaseLocationId, setFilterPurchaseLocationId] = useState("");
   const [locationOptions, setLocationOptions] = useState<InsightSelectOption[]>([]);
   const [filterOsRegLocation, setFilterOsRegLocation] = useState("");
+  const [osRegAssignedMerchant, setOsRegAssignedMerchant] = useState("");
   const [osRegLocationOptions, setOsRegLocationOptions] = useState<InsightSelectOption[]>([]);
   const [osRegResults, setOsRegResults] = useState<AllocatedFilterItemDto[] | null>(
     null
@@ -759,6 +760,7 @@ export function CustomerInsightPanel({
       salesAfterContact: number;
     }>;
   } | null>(null);
+  const [loyaltyAssignedMerchant, setLoyaltyAssignedMerchant] = useState("");
   const [loyaltyEligibleSummary, setLoyaltyEligibleSummary] = useState<{
     company: { pending: number; mtdUpdated: number };
     merchants: Array<{
@@ -807,6 +809,7 @@ export function CustomerInsightPanel({
     | "over-365"
     | "custom";
 
+  const [purchaseAssignedMerchant, setPurchaseAssignedMerchant] = useState("");
   const [purchasePreset, setPurchasePreset] = useState<PurchaseCountPreset>("today");
   const [purchaseCustomFrom, setPurchaseCustomFrom] = useState("");
   const [purchaseCustomTo, setPurchaseCustomTo] = useState("");
@@ -1507,8 +1510,12 @@ export function CustomerInsightPanel({
     if (!canExportFilteredCsv) return;
     setBusyKey("loyalty-eligible-summary");
     try {
+      const params = new URLSearchParams();
+      if (loyaltyAssignedMerchant.trim()) {
+        params.set("assignedMerchant", loyaltyAssignedMerchant.trim());
+      }
       const res = await fetch(
-        "/api/admin/customer-insight/loyalty-eligible/summary"
+        `/api/admin/customer-insight/loyalty-eligible/summary?${params.toString()}`
       );
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -2000,6 +2007,9 @@ export function CustomerInsightPanel({
     const params = new URLSearchParams();
     if (filterOsRegLocation.trim()) {
       params.set("osRegLocation", filterOsRegLocation.trim());
+    }
+    if (osRegAssignedMerchant.trim()) {
+      params.set("assignedMerchant", osRegAssignedMerchant.trim());
     }
     if (forExport) {
       params.set("osRegCreated", "true");
@@ -4207,6 +4217,18 @@ export function CustomerInsightPanel({
           <CardContent className="space-y-3">
             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
               <label className="min-w-0 space-y-1 text-sm">
+                <span className="text-muted-foreground">Allocated merchant</span>
+                <InsightSearchableSelect
+                  value={osRegAssignedMerchant}
+                  options={merchantOptions}
+                  placeholder="Any merchant"
+                  allLabel="Any merchant"
+                  searchPlaceholder="Search merchants…"
+                  disabled={isBusy}
+                  onChange={setOsRegAssignedMerchant}
+                />
+              </label>
+              <label className="min-w-0 space-y-1 text-sm">
                 <span className="text-muted-foreground">New register location</span>
                 <InsightSearchableSelect
                   value={filterOsRegLocation}
@@ -4548,7 +4570,13 @@ export function CustomerInsightPanel({
                     </tr>
                   </thead>
                   <tbody className="divide-y">
-                    {allocationSummary.rows.map((row) => (
+                    {allocationSummary.rows
+                      .filter((row) => {
+                        const pick = allocationContactsMerchant.trim();
+                        if (!pick) return true;
+                        return row.merchantValue === pick;
+                      })
+                      .map((row) => (
                       <tr
                         key={row.merchantValue}
                         className="cursor-pointer hover:bg-muted/40"
@@ -4608,7 +4636,7 @@ export function CustomerInsightPanel({
                           {row.completePercent}%
                         </td>
                       </tr>
-                    ))}
+                    )))}
                     <tr className="bg-muted/30">
                       <td className="px-3 py-2 text-muted-foreground">
                         Unallocated
@@ -4650,6 +4678,18 @@ export function CustomerInsightPanel({
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="flex flex-wrap items-end gap-2">
+              <label className="min-w-[12rem] space-y-1 text-sm">
+                <span className="text-muted-foreground">Allocated merchant</span>
+                <InsightSearchableSelect
+                  value={purchaseAssignedMerchant}
+                  options={merchantOptions}
+                  placeholder="All merchants"
+                  allLabel="All merchants"
+                  searchPlaceholder="Search merchants…"
+                  disabled={isBusy}
+                  onChange={setPurchaseAssignedMerchant}
+                />
+              </label>
               <label className="space-y-1 text-sm">
                 <span className="text-muted-foreground">Range</span>
                 <select
@@ -4771,7 +4811,13 @@ export function CustomerInsightPanel({
                     </tr>
                   </thead>
                   <tbody className="divide-y">
-                    {purchaseCountSummary.rows.map((row) => (
+                    {purchaseCountSummary.rows
+                      .filter((row) => {
+                        const pick = purchaseAssignedMerchant.trim();
+                        if (!pick) return true;
+                        return row.merchantValue === pick;
+                      })
+                      .map((row) => (
                       <tr
                         key={row.merchantValue}
                         className="cursor-pointer hover:bg-muted/40"
@@ -4807,7 +4853,7 @@ export function CustomerInsightPanel({
                           {row.purchaseCount.total.toLocaleString()}
                         </td>
                       </tr>
-                    ))}
+                    )))}
                   </tbody>
                 </table>
               </div>
@@ -4826,7 +4872,19 @@ export function CustomerInsightPanel({
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-end gap-2">
+              <label className="min-w-[12rem] space-y-1 text-sm">
+                <span className="text-muted-foreground">Allocated merchant</span>
+                <InsightSearchableSelect
+                  value={loyaltyAssignedMerchant}
+                  options={merchantOptions}
+                  placeholder="All merchants"
+                  allLabel="All merchants"
+                  searchPlaceholder="Search merchants…"
+                  disabled={isBusy}
+                  onChange={setLoyaltyAssignedMerchant}
+                />
+              </label>
               <Button
                 type="button"
                 size="sm"
@@ -4844,7 +4902,7 @@ export function CustomerInsightPanel({
               </Button>
               {loyaltyEligibleSummary ? (
                 <p className="text-sm">
-                  Company pending:{" "}
+                  {loyaltyAssignedMerchant.trim() ? "Pending" : "Company pending"}:{" "}
                   <span className="font-semibold tabular-nums">
                     {loyaltyEligibleSummary.company.pending.toLocaleString()}
                   </span>

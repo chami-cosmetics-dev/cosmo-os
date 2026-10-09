@@ -26,6 +26,27 @@ function nameAfterMerCoupon(text: string, mer: string): string | null {
   return name || null;
 }
 
+/** One dropdown row per roster merchant: `Sandali(MER91)`. */
+export function formatTransferMerchantOptions(
+  roster: Array<{ value: string; label: string }>
+): Array<{ value: string; label: string }> {
+  const seen = new Set<string>();
+  const out: Array<{ value: string; label: string }> = [];
+  for (const option of roster) {
+    const value = option.value.trim();
+    if (!value) continue;
+    const key = value.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const label = formatAllocatedMerchantExport(option.label, value) || value;
+    out.push({ value, label });
+  }
+  out.sort((a, b) =>
+    a.label.localeCompare(b.label, undefined, { sensitivity: "base" })
+  );
+  return out;
+}
+
 /** `Sandali(MER91)`. Name only, or MER only, when the other half is missing. */
 export function formatAllocatedMerchantExport(
   label: string | null | undefined,

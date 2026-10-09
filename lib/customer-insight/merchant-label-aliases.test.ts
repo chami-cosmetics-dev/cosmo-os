@@ -43,7 +43,15 @@ describe("assigned merchant aliases", () => {
     expect(findAssignedMerchantAliasGroup("Error Number")?.value).toBe(
       "ERROR NUMBER"
     );
-    expect(expandAssignedMerchantFilter("ERROR NUMBER")).toEqual(["ERROR NUMBER"]);
+    expect(findAssignedMerchantAliasGroup("Error number category")?.value).toBe(
+      "ERROR NUMBER"
+    );
+    expect(expandAssignedMerchantFilter("ERROR NUMBER")).toEqual(
+      expect.arrayContaining(["ERROR NUMBER", "Error number category"])
+    );
+    expect(expandAssignedMerchantFilter("Error number category")).toEqual(
+      expect.arrayContaining(["ERROR NUMBER", "Error number category"])
+    );
   });
 
   it("treats Semini, MER103 and Sanda/semini as the same merchant", () => {

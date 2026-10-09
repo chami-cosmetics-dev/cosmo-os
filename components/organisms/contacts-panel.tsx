@@ -113,6 +113,7 @@ type ContactsPanelInitialData = {
   };
   options?: {
     assignedMerchants: string[];
+    transferMerchants?: Array<{ value: string; label: string }>;
     brands: string[];
     assignees: Array<{ id: string; label: string }>;
   };
@@ -203,7 +204,12 @@ export function ContactsPanel({
   const [allocatedTo, setAllocatedTo] = useState<string>("__all");
   const [brand, setBrand] = useState<string>("__all");
   const [filterOptions, setFilterOptions] = useState(
-    initialData.options ?? { assignedMerchants: [], brands: [], assignees: [] }
+    initialData.options ?? {
+      assignedMerchants: [],
+      transferMerchants: [],
+      brands: [],
+      assignees: [],
+    }
   );
   const [brandFilterActive, setBrandFilterActive] = useState(
     Boolean(initialData.brandFilterActive)
@@ -822,9 +828,9 @@ export function ContactsPanel({
                   <SelectValue placeholder="From merchant" />
                 </SelectTrigger>
                 <SelectContent>
-                  {filterOptions.assignedMerchants.map((label) => (
-                    <SelectItem key={`from-${label}`} value={label}>
-                      {formatAllocationAssigneeLabel(label)}
+                  {(filterOptions.transferMerchants ?? []).map((merchant) => (
+                    <SelectItem key={`from-${merchant.value}`} value={merchant.value}>
+                      {merchant.label}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -834,9 +840,9 @@ export function ContactsPanel({
                   <SelectValue placeholder="To merchant" />
                 </SelectTrigger>
                 <SelectContent>
-                  {filterOptions.assignees.map((a) => (
-                    <SelectItem key={`to-${a.id}`} value={a.label}>
-                      {formatAllocationAssigneeLabel(a.label)}
+                  {(filterOptions.transferMerchants ?? []).map((merchant) => (
+                    <SelectItem key={`to-${merchant.value}`} value={merchant.value}>
+                      {merchant.label}
                     </SelectItem>
                   ))}
                 </SelectContent>
