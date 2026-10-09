@@ -4636,7 +4636,7 @@ export function CustomerInsightPanel({
                           {row.completePercent}%
                         </td>
                       </tr>
-                    )))}
+                    ))}
                     <tr className="bg-muted/30">
                       <td className="px-3 py-2 text-muted-foreground">
                         Unallocated
@@ -4853,7 +4853,7 @@ export function CustomerInsightPanel({
                           {row.purchaseCount.total.toLocaleString()}
                         </td>
                       </tr>
-                    )))}
+                    ))}
                   </tbody>
                 </table>
               </div>
