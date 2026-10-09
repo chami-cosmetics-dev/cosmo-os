@@ -1,7 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
-import { groupCashByErpCompany, latestHandoverReceipt, loadRiderHandoverDeliveries } from "@/lib/rider-handover";
+import {
+  groupCashByErpCompany,
+  handoverReceiptsCovering,
+  handoverSummaryCashAmount,
+  latestHandoverReceipt,
+  listHandoverClosedInvoices,
+  loadRiderHandoverDeliveries,
+} from "@/lib/rider-handover";
 import { requirePermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
 
@@ -49,16 +56,24 @@ export async function GET(request: NextRequest) {
     loaded.deliveries.map((delivery) => ({
       erpnextCompany: delivery.erpnextCompany,
       locationName: delivery.locationName,
-      cashAmount: delivery.cashAmount,
+      cashAmount: handoverSummaryCashAmount(delivery),
       payment: delivery.payment,
     })),
   );
-  const latestReceipt = await latestHandoverReceipt({
-    companyId,
-    riderId: loaded.riderId,
-    fromYmd: parsed.data.from,
-    toYmd: parsed.data.to,
-  });
+  const [latestReceipt, coveringReceipts] = await Promise.all([
+    latestHandoverReceipt({
+      companyId,
+      riderId: loaded.riderId,
+      fromYmd: parsed.data.from,
+      toYmd: parsed.data.to,
+    }),
+    handoverReceiptsCovering({
+      companyId,
+      riderId: loaded.riderId,
+      fromYmd: parsed.data.from,
+      toYmd: parsed.data.to,
+    }),
+  ]);
 
   return NextResponse.json({
     riderId: loaded.riderId,
@@ -67,6 +82,8 @@ export async function GET(request: NextRequest) {
     to: parsed.data.to,
     companies: grouped.companies,
     fullTotal: grouped.fullTotal,
+    closedInvoices: listHandoverClosedInvoices(loaded.deliveries),
     latestReceipt,
+    coveringReceipts,
   });
 }

@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import {
   groupCashByErpCompany,
   handoverPeriodDates,
+  handoverSummaryCashAmount,
   latestHandoverReceipt,
   loadRiderHandoverDeliveries,
   receiptDuplicateDecision,
@@ -77,7 +78,7 @@ export async function POST(request: NextRequest) {
     loaded.deliveries.map((delivery) => ({
       erpnextCompany: delivery.erpnextCompany,
       locationName: delivery.locationName,
-      cashAmount: delivery.cashAmount,
+      cashAmount: handoverSummaryCashAmount(delivery),
       payment: delivery.payment,
     })),
   );

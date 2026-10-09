@@ -48,7 +48,7 @@ type LiveStockResponse = {
 };
 
 type MainFilter = "all" | "critical" | "elsewhere" | "none";
-type CompareWith = "both" | "shops" | "other";
+const COSMETICS_MAIN_WAREHOUSE = "main warehouse - cosmo";
 
 function reportIdentity(row: CosmeticsStockReportDetail): CatalogIdentityFields {
   return {
@@ -61,10 +61,13 @@ function reportIdentity(row: CosmeticsStockReportDetail): CatalogIdentityFields 
   };
 }
 
-function hasElsewhere(row: CosmeticsStockReportDetail, compareWith: CompareWith): boolean {
-  if (compareWith === "shops") return row.shops.length > 0;
-  if (compareWith === "other") return row.online.length > 0;
+function hasElsewhere(row: CosmeticsStockReportDetail): boolean {
   return row["Stock Available Elsewhere"] === "Yes";
+}
+
+function focusIsOtherWarehouse(name: string | null | undefined): boolean {
+  const trimmed = (name ?? "").trim().toLowerCase();
+  return trimmed.length > 0 && trimmed !== COSMETICS_MAIN_WAREHOUSE;
 }
 
 const STOCK_EXPORT_HEADERS = [
@@ -354,7 +357,6 @@ export function CosmeticsStockComparer() {
   const [ropPercentInput, setRopPercentInput] = useState("");
   const [focusWarehouse, setFocusWarehouse] = useState("");
   const [warehouses, setWarehouses] = useState<WarehouseOption[]>([]);
-  const [compareWith, setCompareWith] = useState<CompareWith>("both");
   const [commonSku, setCommonSku] = useState("");
   const [variantSku, setVariantSku] = useState("");
   const [priority, setPriority] = useState("");
@@ -375,8 +377,7 @@ export function CosmeticsStockComparer() {
   } | null>(null);
 
   const isBusy = busyKey !== null;
-  const showOther = compareWith !== "shops";
-  const showShops = compareWith !== "other";
+  const showFocusColumn = focusIsOtherWarehouse(lastLoad?.focusWarehouse);
 
   const identityFilter = useMemo(
     () => ({ commonSku, variantSku, priority, vatStatus }),
@@ -386,16 +387,16 @@ export function CosmeticsStockComparer() {
     () => reportRows.filter((row) => matchesIdentityFilters(reportIdentity(row), identityFilter)),
     [identityFilter, reportRows],
   );
-  const availableCount = identityRows.filter((row) => hasElsewhere(row, compareWith)).length;
+  const availableCount = identityRows.filter((row) => hasElsewhere(row)).length;
   const criticalCount = identityRows.filter((row) => row.critical).length;
   const noneCount = identityRows.length - availableCount;
 
   const filteredRows = useMemo(() => {
     if (mainFilter === "critical") return identityRows.filter((row) => row.critical);
-    if (mainFilter === "elsewhere") return identityRows.filter((row) => hasElsewhere(row, compareWith));
-    if (mainFilter === "none") return identityRows.filter((row) => !hasElsewhere(row, compareWith));
+    if (mainFilter === "elsewhere") return identityRows.filter((row) => hasElsewhere(row));
+    if (mainFilter === "none") return identityRows.filter((row) => !hasElsewhere(row));
     return identityRows;
-  }, [compareWith, identityRows, mainFilter]);
+  }, [identityRows, mainFilter]);
 
   const priorityOptions = useMemo(() => {
     const values = new Set<string>(ERP_PRODUCT_PRIORITY_OPTIONS);
@@ -495,8 +496,8 @@ export function CosmeticsStockComparer() {
         <CardHeader className="border-b pb-4">
           <CardTitle className="text-base">Live stock run</CardTitle>
           <CardDescription>
-            Out of stock on the chosen warehouse, compared with the others. Leave the warehouse
-            on Cosmetics main, or pick any warehouse and run again.
+            Out of stock on the chosen warehouse. Cosmetics main, other warehouses, and shop
+            warehouses stay in their own columns.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4 pt-0 sm:flex-row sm:items-end sm:justify-between">
@@ -547,19 +548,6 @@ export function CosmeticsStockComparer() {
                     {warehouse.name}
                   </option>
                 ))}
-              </select>
-            </label>
-            <label className="text-sm font-medium">
-              Compare with
-              <select
-                className="mt-1 h-9 w-52 rounded-md border bg-background px-2 text-sm"
-                value={compareWith}
-                onChange={(event) => setCompareWith(event.target.value as CompareWith)}
-                disabled={isBusy}
-              >
-                <option value="both">Other warehouses and shops</option>
-                <option value="shops">Shops</option>
-                <option value="other">Other warehouses</option>
               </select>
             </label>
             <Button type="button" onClick={() => void runReport()} disabled={isBusy} className="gap-2">
@@ -778,32 +766,31 @@ export function CosmeticsStockComparer() {
                   onPage={mainPager.setPage}
                   searchPlaceholder="Search SKU or title…"
                 />
-                <div className="max-h-[32rem] overflow-auto rounded-md border">
+                <div className="max-h-[32rem] overflow-auto rounded-md border [&_[data-slot=table-container]]:overflow-visible">
                   <Table>
-                    <TableHeader className="sticky top-0 z-10 bg-background">
+                    <TableHeader>
                       <TableRow>
-                        <TableHead className="min-w-56">Item</TableHead>
-                        <TableHead className="w-28 text-right">
-                          {lastLoad?.focusWarehouse ?? "Main"}
+                        <TableHead className="sticky top-0 z-10 min-w-56 bg-background">Item</TableHead>
+                        {showFocusColumn ? (
+                          <TableHead className="sticky top-0 z-10 w-36 bg-background text-right">
+                            {lastLoad?.focusWarehouse}
+                          </TableHead>
+                        ) : null}
+                        <TableHead className="sticky top-0 z-10 w-28 bg-background text-right">Main</TableHead>
+                        <TableHead className="sticky top-0 z-10 w-24 bg-background text-right">90d sales</TableHead>
+                        <TableHead className="sticky top-0 z-10 min-w-44 bg-background">
+                          <span className="inline-flex items-center gap-1">
+                            <Warehouse className="size-3.5" aria-hidden />
+                            Other warehouses
+                          </span>
                         </TableHead>
-                        <TableHead className="w-24 text-right">90d sales</TableHead>
-                        {showOther ? (
-                          <TableHead className="min-w-44">
-                            <span className="inline-flex items-center gap-1">
-                              <Warehouse className="size-3.5" aria-hidden />
-                              Other warehouses
-                            </span>
-                          </TableHead>
-                        ) : null}
-                        {showShops ? (
-                          <TableHead className="min-w-44">
-                            <span className="inline-flex items-center gap-1">
-                              <Store className="size-3.5" aria-hidden />
-                              Shops
-                            </span>
-                          </TableHead>
-                        ) : null}
-                        <TableHead className="w-28">Elsewhere</TableHead>
+                        <TableHead className="sticky top-0 z-10 min-w-44 bg-background">
+                          <span className="inline-flex items-center gap-1">
+                            <Store className="size-3.5" aria-hidden />
+                            Shops
+                          </span>
+                        </TableHead>
+                        <TableHead className="sticky top-0 z-10 w-28 bg-background">Elsewhere</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -822,24 +809,25 @@ export function CosmeticsStockComparer() {
                               {row["Product Title"]}
                             </p>
                           </TableCell>
+                          {showFocusColumn ? (
+                            <TableCell className="align-top text-right tabular-nums font-semibold">
+                              {row["Main Warehouse Qty"]}
+                            </TableCell>
+                          ) : null}
                           <TableCell className="align-top text-right tabular-nums font-semibold">
-                            {row["Main Warehouse Qty"]}
+                            {showFocusColumn ? (row.cosmeticsMainQty ?? "") : row["Main Warehouse Qty"]}
                           </TableCell>
                           <TableCell className="align-top text-right tabular-nums">
                             {row.sales90d}
                           </TableCell>
-                          {showOther ? (
-                            <TableCell className="whitespace-normal align-top">
-                              <LocationPills items={row.online} empty="None" />
-                            </TableCell>
-                          ) : null}
-                          {showShops ? (
-                            <TableCell className="whitespace-normal align-top">
-                              <LocationPills items={row.shops} empty="None" />
-                            </TableCell>
-                          ) : null}
+                          <TableCell className="whitespace-normal align-top">
+                            <LocationPills items={row.online} empty="None" />
+                          </TableCell>
+                          <TableCell className="whitespace-normal align-top">
+                            <LocationPills items={row.shops} empty="None" />
+                          </TableCell>
                           <TableCell className="align-top">
-                            {hasElsewhere(row, compareWith) ? (
+                            {hasElsewhere(row) ? (
                               <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">
                                 Yes
                               </span>
@@ -899,16 +887,16 @@ export function CosmeticsStockComparer() {
                   onPage={brandPager.setPage}
                   searchPlaceholder="Search brand, SKU, warehouse…"
                 />
-                <div className="max-h-[32rem] overflow-auto rounded-md border">
+                <div className="max-h-[32rem] overflow-auto rounded-md border [&_[data-slot=table-container]]:overflow-visible">
                   <Table>
-                    <TableHeader className="sticky top-0 z-10 bg-background">
+                    <TableHeader>
                       <TableRow>
-                        <TableHead>Item</TableHead>
-                        <TableHead>Brand</TableHead>
-                        <TableHead>Company</TableHead>
-                        <TableHead>Warehouse</TableHead>
-                        <TableHead className="text-right">Qty</TableHead>
-                        <TableHead>Rule</TableHead>
+                        <TableHead className="sticky top-0 z-10 bg-background">Item</TableHead>
+                        <TableHead className="sticky top-0 z-10 bg-background">Brand</TableHead>
+                        <TableHead className="sticky top-0 z-10 bg-background">Company</TableHead>
+                        <TableHead className="sticky top-0 z-10 bg-background">Warehouse</TableHead>
+                        <TableHead className="sticky top-0 z-10 bg-background text-right">Qty</TableHead>
+                        <TableHead className="sticky top-0 z-10 bg-background">Rule</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
