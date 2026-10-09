@@ -7,7 +7,6 @@ import { endOfDay, startOfDay } from "@/lib/mobile/dates";
 import { formatBusinessOrderNumber } from "@/lib/order-display-label";
 import { prisma } from "@/lib/prisma";
 import { isIncentiveEligibleOrder } from "@/lib/rider-incentive";
-import { isInvoiceClosed } from "@/lib/rider-handover";
 import { incentiveForOrder, loadRiderIncentiveContext } from "@/lib/rider-incentive-resolve";
 import { resolvePayPeriodWindow, type PayPeriodKind } from "@/lib/rider-pay-period";
 
@@ -27,8 +26,6 @@ const orderIncentiveSelect = {
   sourceName: true,
   discountCodes: true,
   financialStatus: true,
-  fulfillmentStage: true,
-  invoiceCompleteAt: true,
 } as const;
 
 export async function GET(request: NextRequest) {
@@ -77,17 +74,15 @@ export async function GET(request: NextRequest) {
   for (const task of todayTasks) {
     if (!isIncentiveEligibleOrder(task.order.financialStatus)) continue;
     todayCompletedCount += 1;
-    if (isInvoiceClosed(task.order)) {
-      todayIncentive = todayIncentive.add(
-        incentiveForOrder(
-          task.order,
-          incentiveContext.chargeByLabelKey,
-          incentiveContext.zoneMembersByZone,
-          task.manualIncentiveLabelKey,
-          task.manualIncentiveAmount
-        )
-      );
-    }
+    todayIncentive = todayIncentive.add(
+      incentiveForOrder(
+        task.order,
+        incentiveContext.chargeByLabelKey,
+        incentiveContext.zoneMembersByZone,
+        task.manualIncentiveLabelKey,
+        task.manualIncentiveAmount
+      )
+    );
   }
 
   const periodWindow = resolvePayPeriodWindow(paydayDayOfMonth, periodKind);
@@ -150,15 +145,13 @@ export async function GET(request: NextRequest) {
 
   for (const task of completedTasks) {
     if (!isIncentiveEligibleOrder(task.order.financialStatus)) continue;
-    const amount = isInvoiceClosed(task.order)
-      ? incentiveForOrder(
-          task.order,
-          incentiveContext.chargeByLabelKey,
-          incentiveContext.zoneMembersByZone,
-          task.manualIncentiveLabelKey,
-          task.manualIncentiveAmount
-        )
-      : new Prisma.Decimal(0);
+    const amount = incentiveForOrder(
+      task.order,
+      incentiveContext.chargeByLabelKey,
+      incentiveContext.zoneMembersByZone,
+      task.manualIncentiveLabelKey,
+      task.manualIncentiveAmount
+    );
     completedCount += 1;
     incentiveTotal = incentiveTotal.add(amount);
     lines.push({
