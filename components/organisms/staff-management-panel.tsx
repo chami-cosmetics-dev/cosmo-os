@@ -220,6 +220,12 @@ export function StaffManagementPanel({
     setEditData(null);
   }
 
+  function handleEditSaved(updatedStaff: StaffMember) {
+    setStaff((prev) =>
+      prev.map((member) => (member.id === updatedStaff.id ? { ...member, ...updatedStaff } : member))
+    );
+  }
+
   function openResignForm(member: StaffMember) {
     setResigningMember(member);
   }
@@ -523,7 +529,7 @@ export function StaffManagementPanel({
               designations={editData?.designations ?? designations}
               outlets={editData?.outlets ?? outlets}
               canEdit={canManageStaff}
-              onSaved={fetchPageData}
+              onSaved={handleEditSaved}
               onClose={closeEdit}
             />
           )}
