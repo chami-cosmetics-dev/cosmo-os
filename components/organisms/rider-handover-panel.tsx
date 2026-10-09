@@ -46,6 +46,7 @@ type OrderRow = {
   paymentGatewayPrimary: string | null;
   invoiceClosed: boolean;
   eligible: boolean;
+  canEditPaymentType?: boolean;
   blockReason: string | null;
   modes: Array<{ key: string; label: string; mopName: string }>;
   selectedMop: string | null;
@@ -57,6 +58,7 @@ type CloseResult = {
   success: boolean;
   error?: string;
   peStatus?: string;
+  kind?: "close" | "payment";
 };
 
 function riderLabel(rider: RiderOption) {
@@ -219,13 +221,15 @@ export function RiderHandoverPanel({
     }
     setBusyKey("close");
     try {
-      const modes = (orders ?? [])
-        .filter((row) => row.eligible)
-        .map((row) => ({
-          orderId: row.orderId,
-          modeOfPayment: modeByOrder[row.orderId] || row.selectedMop || "",
-        }))
-        .filter((row) => row.modeOfPayment);
+      const modes = (orders ?? []).flatMap((row) => {
+        const modeOfPayment = modeByOrder[row.orderId] || row.selectedMop || "";
+        if (!modeOfPayment || !row.canEditPaymentType) return [];
+        if (row.eligible) return [{ orderId: row.orderId, modeOfPayment }];
+        if (row.invoiceClosed && modeOfPayment !== (row.selectedMop ?? "")) {
+          return [{ orderId: row.orderId, modeOfPayment }];
+        }
+        return [];
+      });
       const res = await fetch("/api/admin/riders/handover/invoice-complete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -238,9 +242,14 @@ export function RiderHandoverPanel({
       }
       const results = ((data as { results?: CloseResult[] }).results ?? []);
       const failed = results.filter((row) => !row.success);
-      const closed = results.length - failed.length;
+      const closed = results.filter((row) => row.success && row.kind !== "payment").length;
+      const payments = results.filter((row) => row.success && row.kind === "payment").length;
       if (failed.length === 0) {
-        notify.success(closed === 0 ? "No orders to close" : `Marked ${closed} invoice${closed === 1 ? "" : "s"} completed`);
+        const parts = [
+          closed > 0 ? `Marked ${closed} invoice${closed === 1 ? "" : "s"} completed` : "",
+          payments > 0 ? `Updated payment type on ${payments}` : "",
+        ].filter(Boolean);
+        notify.success(parts.length > 0 ? parts.join(". ") : "No orders to close");
       } else {
         const detail = failed
           .slice(0, 3)
@@ -462,13 +471,13 @@ export function RiderHandoverPanel({
                   ) : (
                     visibleOrders.map((row) => (
                       <tr key={row.orderId} className="border-b">
-                        <td className="px-2 py-2">{row.orderNumber}</td>
+                        <td className="px-2 py-2 whitespace-nowrap">{row.orderNumber}</td>
                         <td className="px-2 py-2">{row.companyName}</td>
                         <td className="px-2 py-2 text-right tabular-nums">{row.cashAmount}</td>
                         <td className="px-2 py-2">{row.paymentMethod || row.paymentGatewayPrimary || "—"}</td>
                         <td className="px-2 py-2">{row.invoiceClosed ? "Complete" : row.blockReason || "Open"}</td>
                         <td className="px-2 py-2">
-                          {row.eligible ? (
+                          {row.canEditPaymentType ? (
                             <select
                               className="border-input bg-background h-8 rounded-md border px-2 text-sm"
                               value={modeByOrder[row.orderId] ?? row.selectedMop ?? ""}

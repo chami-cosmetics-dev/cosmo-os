@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   groupCashByErpCompany,
   handoverCashAmount,
+  handoverOrderNumber,
   isInvoiceClosed,
   receiptDuplicateDecision,
   shouldCommitInvoiceComplete,
@@ -61,6 +62,19 @@ describe("groupCashByErpCompany", () => {
       { companyName: "Other Co", cashAmount: "40.00" },
     ]);
     expect(result.fullTotal).toBe("250.00");
+  });
+});
+
+describe("handoverOrderNumber", () => {
+  it("shows the Shopify number and the ERP invoice together", () => {
+    expect(
+      handoverOrderNumber({
+        name: "#19938",
+        orderNumber: "19938",
+        erpnextInvoiceId: "600-019938",
+        sourceName: "web",
+      }),
+    ).toBe("#19938 / 600-019938");
   });
 });
 

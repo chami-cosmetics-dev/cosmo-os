@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   buildBrandWarehouseViolations,
   buildCosmeticsStockReportDetails,
+  buildFocusedStockReport,
   decorateReportRows,
   filterReportByMainRopPercent,
   listWarehouseOptions,
@@ -167,7 +168,9 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const thresholdRows = buildCosmeticsStockReportDetails(stockRows, threshold);
+    const thresholdRows = focusWarehouse
+      ? buildFocusedStockReport(stockRows, focusWarehouse, threshold)
+      : buildCosmeticsStockReportDetails(stockRows, threshold);
     const brandViolations = buildBrandWarehouseViolations(stockRows);
 
     let salesStatus: "ok" | "unavailable" = "ok";
@@ -190,7 +193,9 @@ export async function GET(request: NextRequest) {
     const listSource =
       ropPercent == null
         ? thresholdRows
-        : buildCosmeticsStockReportDetails(stockRows, Number.POSITIVE_INFINITY);
+        : focusWarehouse
+          ? buildFocusedStockReport(stockRows, focusWarehouse, Number.POSITIVE_INFINITY)
+          : buildCosmeticsStockReportDetails(stockRows, Number.POSITIVE_INFINITY);
     const { rows: marked, cutoff } = markCriticalTopSellers(listSource, salesBySku, salesStatus === "ok");
 
     const identities = catalog.map((item) => ({
@@ -201,6 +206,11 @@ export async function GET(request: NextRequest) {
       vatStatus: vatStatusLabel(item),
     }));
     const mainColumnKey = watchedTargets.find((target) => target.role === "cosmetics-main")?.columnKey ?? null;
+    const focusColumnKey = focusWarehouse
+      ? (ropColumns.find((column) =>
+          column.warehouses.some((warehouse) => warehouse.trim().toLowerCase() === focusWarehouse.toLowerCase()),
+        )?.key ?? null)
+      : mainColumnKey;
     const ropBySkuColumn = new Map<string, number>();
     if (ropPercent != null) {
       const ropRows = await prisma.productOsfRop.findMany({
@@ -214,7 +224,7 @@ export async function GET(request: NextRequest) {
     const percentRows =
       ropPercent == null
         ? marked
-        : filterReportByMainRopPercent(marked, ropBySkuColumn, mainColumnKey, ropPercent);
+        : filterReportByMainRopPercent(marked, ropBySkuColumn, focusColumnKey, ropPercent);
     const rows = decorateReportRows(percentRows, identities);
 
     return NextResponse.json({

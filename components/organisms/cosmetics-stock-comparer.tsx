@@ -28,11 +28,14 @@ import {
   type CatalogIdentityFields,
   type CosmeticsStockReportDetail,
   type LocationStock,
+  type WarehouseOption,
 } from "@/lib/cosmetics-stock-comparer";
 
 type LiveStockResponse = {
   threshold: number;
   ropPercent?: number | null;
+  focusWarehouse?: string | null;
+  warehouses?: WarehouseOption[];
   itemCount: number;
   warehouseCount: number;
   salesWindow?: { from: string; to: string; timezone: string; days: number } | null;
@@ -349,6 +352,8 @@ export function CosmeticsStockComparer() {
   const [tab, setTab] = useState("main");
   const [threshold, setThreshold] = useState("0");
   const [ropPercentInput, setRopPercentInput] = useState("");
+  const [focusWarehouse, setFocusWarehouse] = useState("");
+  const [warehouses, setWarehouses] = useState<WarehouseOption[]>([]);
   const [compareWith, setCompareWith] = useState<CompareWith>("both");
   const [commonSku, setCommonSku] = useState("");
   const [variantSku, setVariantSku] = useState("");
@@ -362,6 +367,7 @@ export function CosmeticsStockComparer() {
   const [lastLoad, setLastLoad] = useState<{
     threshold: number;
     ropPercent: number | null;
+    focusWarehouse: string | null;
     itemCount: number;
     warehouseCount: number;
     salesStatus: "ok" | "unavailable";
@@ -421,6 +427,7 @@ export function CosmeticsStockComparer() {
   function clearReport() {
     setReportRows([]);
     setBrandViolations([]);
+    setWarehouses([]);
     setHasRun(false);
     setLastLoad(null);
   }
@@ -445,6 +452,7 @@ export function CosmeticsStockComparer() {
     try {
       const params = new URLSearchParams({ threshold: String(thresholdNumber) });
       if (ropPercentNumber != null) params.set("ropPercent", String(ropPercentNumber));
+      if (focusWarehouse) params.set("focusWarehouse", focusWarehouse);
       const res = await fetch(`/api/admin/reports/stock-comparer?${params}`, {
         method: "GET",
         cache: "no-store",
@@ -455,11 +463,13 @@ export function CosmeticsStockComparer() {
       }
       setReportRows(data.rows ?? []);
       setBrandViolations(data.brandViolations ?? []);
+      setWarehouses(data.warehouses ?? []);
       setHasRun(true);
       setMainFilter("all");
       setLastLoad({
         threshold: data.threshold ?? thresholdNumber,
         ropPercent: data.ropPercent ?? null,
+        focusWarehouse: data.focusWarehouse ?? null,
         itemCount: data.itemCount ?? 0,
         warehouseCount: data.warehouseCount ?? 0,
         salesStatus: data.salesStatus === "unavailable" ? "unavailable" : "ok",
@@ -485,8 +495,8 @@ export function CosmeticsStockComparer() {
         <CardHeader className="border-b pb-4">
           <CardTitle className="text-base">Live stock run</CardTitle>
           <CardDescription>
-            Out of stock on Cosmetics main, compared with other warehouses and shops. Reorder %
-            keeps the same table and lists items at or below that share of the main reorder point.
+            Out of stock on the chosen warehouse, compared with the others. Leave the warehouse
+            on Cosmetics main, or pick any warehouse and run again.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4 pt-0 sm:flex-row sm:items-end sm:justify-between">
@@ -522,6 +532,22 @@ export function CosmeticsStockComparer() {
                 }}
                 disabled={isBusy}
               />
+            </label>
+            <label className="text-sm font-medium">
+              Warehouse
+              <select
+                className="mt-1 h-9 w-56 rounded-md border bg-background px-2 text-sm"
+                value={focusWarehouse}
+                onChange={(event) => setFocusWarehouse(event.target.value)}
+                disabled={isBusy || warehouses.length === 0}
+              >
+                <option value="">Cosmetics main</option>
+                {warehouses.map((warehouse) => (
+                  <option key={warehouse.name} value={warehouse.name}>
+                    {warehouse.name}
+                  </option>
+                ))}
+              </select>
             </label>
             <label className="text-sm font-medium">
               Compare with
@@ -757,7 +783,9 @@ export function CosmeticsStockComparer() {
                     <TableHeader className="sticky top-0 z-10 bg-background">
                       <TableRow>
                         <TableHead className="min-w-56">Item</TableHead>
-                        <TableHead className="w-24 text-right">Main</TableHead>
+                        <TableHead className="w-28 text-right">
+                          {lastLoad?.focusWarehouse ?? "Main"}
+                        </TableHead>
                         <TableHead className="w-24 text-right">90d sales</TableHead>
                         {showOther ? (
                           <TableHead className="min-w-44">
