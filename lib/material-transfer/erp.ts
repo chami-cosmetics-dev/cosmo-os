@@ -4,6 +4,7 @@ import { isVatTaxStatus } from "@/lib/osf/vat-membership";
 import { getAllOsfErpInstances, type OsfErpCredentials, type OsfErpInstance } from "@/lib/osf/erp-stock";
 import { ERP_TAX_STATUS_FIELD } from "@/lib/osf/erp-tax-status";
 import { erpErrorMessage } from "@/lib/material-transfer/erp-error";
+import { itemCodeFromScanBarcode } from "@/lib/material-transfer/scan-barcode";
 import { buildMaterialTransferBody } from "@/lib/material-transfer/payload";
 import type { TransferLookupItem, TransferSlot, TransferWarehouse } from "@/lib/material-transfer/types";
 import { companyForWarehouses, warehouseOptions } from "@/lib/material-transfer/warehouses";
@@ -165,44 +166,16 @@ async function findItemByCode(cfg: OsfErpCredentials, code: string): Promise<Erp
 }
 
 async function findItemByBarcode(cfg: OsfErpCredentials, code: string): Promise<ErpItemRow | null> {
-  const barcodeRows = await listResource<{ parent?: string; barcode?: string }>(
-    cfg,
-    "Item Barcode",
-    [["barcode", "=", code]],
-    ["parent", "barcode"],
-    5,
-  );
-  const parents = [
-    ...new Set(barcodeRows.map((row) => String(row.parent ?? "").trim()).filter(Boolean)),
-  ];
-  if (parents.length > 1) {
-    throw new MaterialTransferError(`Barcode ${code} matches more than one item`);
-  }
-  if (parents[0]) return getItem(cfg, parents[0]);
-
   try {
-    const rows = await listResource<ErpItemRow>(
-      cfg,
-      "Item",
-      [["barcode", "=", code]],
-      ["name", "item_code", "item_name", "stock_uom", "barcode", "disabled", ERP_TAX_STATUS_FIELD],
-      2,
-    );
-    if (rows.length > 1) {
-      throw new MaterialTransferError(`Barcode ${code} matches more than one item`);
-    }
-    return rows[0] ?? null;
-  } catch (error) {
-    if (error instanceof MaterialTransferError) throw error;
-    const message = error instanceof Error ? error.message : "";
-    if (
-      message.includes("Field not permitted") ||
-      message.includes("Unknown column") ||
-      /invalid field/i.test(message)
-    ) {
-      return null;
-    }
-    throw error;
+    const json = await erpJson<unknown>(cfg, "/api/method/erpnext.stock.utils.scan_barcode", {
+      method: "POST",
+      body: JSON.stringify({ search_value: code }),
+    });
+    const itemCode = itemCodeFromScanBarcode(json);
+    if (!itemCode) return null;
+    return (await getItem(cfg, itemCode)) ?? (await findItemByCode(cfg, itemCode));
+  } catch {
+    return null;
   }
 }
 

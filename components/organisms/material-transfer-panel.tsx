@@ -71,6 +71,7 @@ export function MaterialTransferPanel() {
   const [busyKey, setBusyKey] = useState<"page" | "lookup" | "submit" | null>("page");
   const [confirmOpen, setConfirmOpen] = useState(false);
   const scanRef = useRef<HTMLInputElement>(null);
+  const scanValueRef = useRef("");
   const linesRef = useRef<TransferLine[]>([]);
   const queueRef = useRef<
     Array<{ code: string; slot: TransferSlot; source: string; company: string }>
@@ -207,6 +208,7 @@ export function MaterialTransferPanel() {
       playScanErrorSound();
       return;
     }
+    scanValueRef.current = "";
     setScan("");
     queueRef.current.push({ code, slot, source, company });
     void drainQueue();
@@ -378,7 +380,7 @@ export function MaterialTransferPanel() {
         className="flex gap-2"
         onSubmit={(event) => {
           event.preventDefault();
-          void addCode(scan);
+          void addCode(scanRef.current?.value || scanValueRef.current || scan);
         }}
       >
         <Input
@@ -388,7 +390,10 @@ export function MaterialTransferPanel() {
           placeholder="Scan barcode or type SKU"
           autoComplete="off"
           onFocus={unlockScanSound}
-          onChange={(event) => setScan(event.target.value)}
+          onChange={(event) => {
+            scanValueRef.current = event.target.value;
+            setScan(event.target.value);
+          }}
         />
         <Button type="submit" disabled={scanLocked || !scan.trim()}>
           {busyKey === "lookup" ? (

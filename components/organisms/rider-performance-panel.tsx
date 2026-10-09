@@ -493,19 +493,17 @@ export function RiderPerformancePanel({
                   rows.map((row) => {
                     const unmatched = row.unmatchedCount ?? 0;
                     return (
-                      <tr key={row.riderId} className="border-t">
+                      <tr
+                        key={row.riderId}
+                        className={
+                          canExportIncentive
+                            ? "hover:bg-secondary/40 cursor-pointer border-t"
+                            : "border-t"
+                        }
+                        onClick={canExportIncentive ? () => setStatementRider(row) : undefined}
+                      >
                         <td className="px-3 py-2">
-                          {canExportIncentive ? (
-                            <button
-                              type="button"
-                              className="text-left font-medium underline-offset-2 hover:underline"
-                              onClick={() => setStatementRider(row)}
-                            >
-                              {riderDisplayName(row)}
-                            </button>
-                          ) : (
-                            riderDisplayName(row)
-                          )}
+                          {riderDisplayName(row)}
                           {unmatched > 0 ? (
                             <span className="bg-destructive/10 text-destructive ml-2 rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide">
                               unmatched

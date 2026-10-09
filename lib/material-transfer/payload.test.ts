@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { erpErrorMessage } from "@/lib/material-transfer/erp-error";
+import { itemCodeFromScanBarcode } from "@/lib/material-transfer/scan-barcode";
 import { buildMaterialTransferBody } from "@/lib/material-transfer/payload";
 
 describe("buildMaterialTransferBody", () => {
@@ -31,6 +32,17 @@ describe("buildMaterialTransferBody", () => {
         },
       ],
     });
+  });
+});
+
+describe("itemCodeFromScanBarcode", () => {
+  it("reads the item code from ERP scan_barcode", () => {
+    expect(
+      itemCodeFromScanBarcode({
+        message: { barcode: "062600656827", item_code: "NEH09_1" },
+      }),
+    ).toBe("NEH09_1");
+    expect(itemCodeFromScanBarcode({ message: {} })).toBeNull();
   });
 });
 

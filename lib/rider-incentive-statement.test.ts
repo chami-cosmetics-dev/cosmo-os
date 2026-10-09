@@ -4,7 +4,28 @@ import {
   groupIncentiveStatement,
   incentiveExportBlockReason,
   incentiveStatementCsv,
+  type IncentiveStatementInput,
 } from "@/lib/rider-incentive-statement";
+
+function line(overrides: Partial<IncentiveStatementInput> & Pick<IncentiveStatementInput, "company" | "invoiceNumber">): IncentiveStatementInput {
+  return {
+    date: "2026-08-01",
+    shopifyOrderId: "gid",
+    shopifyOrderNumber: "#1",
+    customerName: "Nimal",
+    phone: "0770000000",
+    address: "12 Galle Rd, Colombo",
+    deliveryCity: "Colombo",
+    deliveryCompletedAt: "2026-08-01 10:00:00",
+    invoiceCompletedAt: "2026-07-28 09:00:00",
+    deliveryStatus: "Complete",
+    invoiceStatus: "Complete",
+    shippingCost: 0,
+    riderPayment: 0,
+    unmatched: false,
+    ...overrides,
+  };
+}
 
 describe("incentiveExportBlockReason", () => {
   it("blocks export while unmatched orders remain", () => {
@@ -17,39 +38,31 @@ describe("incentiveExportBlockReason", () => {
 describe("groupIncentiveStatement", () => {
   it("splits orders by company and keeps open invoices at zero pay", () => {
     const statement = groupIncentiveStatement([
-      {
+      line({
         date: "2026-08-02",
-        orderNumber: "2",
+        shopifyOrderNumber: "#2",
         invoiceNumber: "600-2",
         company: "SPK Trading (Pvt) Ltd",
-        deliveryStatus: "Complete",
         invoiceStatus: "Open",
+        invoiceCompletedAt: "",
         shippingCost: 400,
-        riderPayment: 0,
-        unmatched: false,
-      },
-      {
+      }),
+      line({
         date: "2026-08-01",
-        orderNumber: "1",
+        shopifyOrderNumber: "#1",
         invoiceNumber: "600-1",
         company: "SPK Trading (Pvt) Ltd",
-        deliveryStatus: "Complete",
-        invoiceStatus: "Complete",
         shippingCost: 400,
         riderPayment: 300,
-        unmatched: false,
-      },
-      {
+      }),
+      line({
         date: "2026-08-03",
-        orderNumber: "3",
+        shopifyOrderNumber: "#3",
         invoiceNumber: "800-3",
         company: "DTD Trading (Pvt) Ltd",
-        deliveryStatus: "Complete",
-        invoiceStatus: "Complete",
         shippingCost: 500,
-        riderPayment: 0,
         unmatched: true,
-      },
+      }),
     ]);
 
     expect(statement.companies.map((company) => company.company)).toEqual([
@@ -71,17 +84,14 @@ describe("groupIncentiveStatement", () => {
 describe("incentiveStatementCsv", () => {
   it("writes company totals and a full total", () => {
     const statement = groupIncentiveStatement([
-      {
-        date: "2026-08-01",
-        orderNumber: "1",
+      line({
         invoiceNumber: "600-1",
         company: "SPK",
-        deliveryStatus: "Complete",
-        invoiceStatus: "Complete",
+        shopifyOrderId: "555",
+        deliveryCity: "Nugegoda",
         shippingCost: 400,
         riderPayment: 300,
-        unmatched: false,
-      },
+      }),
     ]);
     const csv = incentiveStatementCsv({
       riderName: "Sampath",
@@ -89,7 +99,11 @@ describe("incentiveStatementCsv", () => {
       shippingTotal: statement.shippingTotal,
       riderPaymentTotal: statement.riderPaymentTotal,
     });
-    expect(csv).toContain("Sampath");
+    expect(csv).toContain("Shopify order id");
+    expect(csv).toContain("555");
+    expect(csv).toContain("Nugegoda");
+    expect(csv).toContain("2026-07-28 09:00:00");
+    expect(csv).toContain("2026-08-01 10:00:00");
     expect(csv).toContain("Company total");
     expect(csv).toContain("Full total");
     expect(csv).toContain("300.00");

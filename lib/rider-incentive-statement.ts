@@ -4,8 +4,15 @@ import { escapeCsvCell } from "@/lib/reports/csv";
 
 export type IncentiveStatementLine = {
   date: string;
-  orderNumber: string;
+  shopifyOrderId: string;
+  shopifyOrderNumber: string;
   invoiceNumber: string;
+  customerName: string;
+  phone: string;
+  address: string;
+  deliveryCity: string;
+  deliveryCompletedAt: string;
+  invoiceCompletedAt: string;
   deliveryStatus: string;
   invoiceStatus: "Complete" | "Open";
   shippingCost: string;
@@ -22,8 +29,15 @@ export type IncentiveStatementCompany = {
 
 export type IncentiveStatementInput = {
   date: string;
-  orderNumber: string;
+  shopifyOrderId: string;
+  shopifyOrderNumber: string;
   invoiceNumber: string;
+  customerName: string;
+  phone: string;
+  address: string;
+  deliveryCity: string;
+  deliveryCompletedAt: string;
+  invoiceCompletedAt: string;
   company: string;
   deliveryStatus: string;
   invoiceStatus: "Complete" | "Open";
@@ -76,8 +90,15 @@ export function groupIncentiveStatement(rows: IncentiveStatementInput[]): {
         companyPay = companyPay.add(money(order.riderPayment));
         return {
           date: order.date,
-          orderNumber: order.orderNumber,
+          shopifyOrderId: order.shopifyOrderId,
+          shopifyOrderNumber: order.shopifyOrderNumber,
           invoiceNumber: order.invoiceNumber,
+          customerName: order.customerName,
+          phone: order.phone,
+          address: order.address,
+          deliveryCity: order.deliveryCity,
+          deliveryCompletedAt: order.deliveryCompletedAt,
+          invoiceCompletedAt: order.invoiceCompletedAt,
           deliveryStatus: order.deliveryStatus,
           invoiceStatus: order.invoiceStatus,
           shippingCost: money(order.shippingCost).toFixed(2),
@@ -103,11 +124,16 @@ export function groupIncentiveStatement(rows: IncentiveStatementInput[]): {
 
 const CSV_HEADERS = [
   "Rider",
-  "Date",
-  "Order number",
-  "Invoice number",
+  "Shopify order id",
+  "Shopify order number",
+  "ERP invoice",
   "Company",
-  "Delivery status",
+  "Customer",
+  "Phone",
+  "Address",
+  "Delivery city",
+  "Delivery completed",
+  "Invoice completed",
   "Invoice status",
   "Shipping cost",
   "Rider payment",
@@ -125,11 +151,16 @@ export function incentiveStatementCsv(input: {
       lines.push(
         [
           input.riderName,
-          order.date,
-          order.orderNumber,
+          order.shopifyOrderId,
+          order.shopifyOrderNumber,
           order.invoiceNumber,
           company.company,
-          order.deliveryStatus,
+          order.customerName,
+          order.phone,
+          order.address,
+          order.deliveryCity,
+          order.deliveryCompletedAt,
+          order.invoiceCompletedAt,
           order.invoiceStatus,
           order.shippingCost,
           order.riderPayment,
@@ -139,13 +170,28 @@ export function incentiveStatementCsv(input: {
       );
     }
     lines.push(
-      ["", "", "", "", company.company, "", "Company total", company.shippingTotal, company.riderPaymentTotal]
+      [
+        "",
+        "",
+        "",
+        "",
+        company.company,
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "Company total",
+        company.shippingTotal,
+        company.riderPaymentTotal,
+      ]
         .map((cell) => escapeCsvCell(cell))
         .join(","),
     );
   }
   lines.push(
-    ["", "", "", "", "", "", "Full total", input.shippingTotal, input.riderPaymentTotal]
+    ["", "", "", "", "", "", "", "", "", "", "", "Full total", input.shippingTotal, input.riderPaymentTotal]
       .map((cell) => escapeCsvCell(cell))
       .join(","),
   );
