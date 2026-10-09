@@ -10,7 +10,7 @@ import {
 } from "@/lib/erp-payment-modes";
 import { getErpConfig, resolveOrderPaymentMop } from "@/lib/erpnext-sync";
 import { formatInvoiceOrderReference } from "@/lib/fulfillment-order-reference";
-import { parseAppCalendarDayEnd, parseAppCalendarDayStart } from "@/lib/format-datetime";
+import { formatAppIsoCalendarDate, parseAppCalendarDayEnd, parseAppCalendarDayStart } from "@/lib/format-datetime";
 import { cashAmountFromDeliveryPayment } from "@/lib/mobile/payment-lines";
 import { resolveOrderDisplayTotal } from "@/lib/order-shipping-display";
 import { prisma } from "@/lib/prisma";
@@ -133,6 +133,56 @@ export function receiptDuplicateDecision<T extends { id: string }>(input: {
     return { action: "reject", existing: input.existing };
   }
   return { action: "create" };
+}
+
+/**
+ * A money-received mark covers a summary when the periods overlap.
+ * Day 1–day 2 handover still shows on a later day 2 summary.
+ */
+export function handoverReceiptOverlaps(input: {
+  receiptFrom: string;
+  receiptTo: string;
+  from: string;
+  to: string;
+}): boolean {
+  return input.receiptFrom <= input.to && input.receiptTo >= input.from;
+}
+
+/** Invoice-complete deliveries stay off the company cash and the full total. */
+export function handoverSummaryCashAmount(delivery: {
+  cashAmount: string;
+  invoiceCompleteAt: Date | string | null;
+  fulfillmentStage: string;
+}): string {
+  if (isInvoiceClosed(delivery)) return "0.00";
+  return delivery.cashAmount;
+}
+
+export type HandoverClosedInvoice = {
+  orderNumber: string;
+  companyName: string;
+  invoiceCompleteAt: string | null;
+};
+
+export function listHandoverClosedInvoices(
+  deliveries: Array<{
+    orderNumber: string;
+    erpnextCompany: string | null;
+    locationName: string;
+    invoiceCompleteAt: Date | null;
+    fulfillmentStage: string;
+  }>,
+): HandoverClosedInvoice[] {
+  return deliveries.flatMap((delivery) => {
+    if (!isInvoiceClosed(delivery)) return [];
+    return [
+      {
+        orderNumber: delivery.orderNumber,
+        companyName: handoverCompanyName(delivery.erpnextCompany, delivery.locationName),
+        invoiceCompleteAt: delivery.invoiceCompleteAt?.toISOString() ?? null,
+      },
+    ];
+  });
 }
 
 /** Shopify number plus ERP invoice when both exist. Shopify order_number alone is only half the reference. */
@@ -336,8 +386,8 @@ export type HandoverOrderView = {
   invoiceClosed: boolean;
   fulfillmentStage: string;
   eligible: boolean;
-  /** Payment type can be set on open invoices and corrected on closed ones. */
   canEditPaymentType: boolean;
+  invoiceCompleteAt: string | null;
   blockReason: string | null;
   modes: ErpPaymentModeOption[];
   selectedMop: string | null;
@@ -379,10 +429,7 @@ export async function buildHandoverOrders(deliveries: HandoverDelivery[]): Promi
         blockReason = financeBlock;
       }
     }
-    const canEditPaymentType =
-      modes.length > 0 &&
-      !financeBlock &&
-      (invoiceClosed || delivery.fulfillmentStage === "delivery_complete");
+    const canEditPaymentType = eligible;
     views.push({
       orderId: delivery.orderId,
       orderNumber: delivery.orderNumber,
@@ -396,6 +443,7 @@ export async function buildHandoverOrders(deliveries: HandoverDelivery[]): Promi
       fulfillmentStage: delivery.fulfillmentStage,
       eligible,
       canEditPaymentType,
+      invoiceCompleteAt: delivery.invoiceCompleteAt?.toISOString() ?? null,
       blockReason,
       modes,
       selectedMop,
@@ -406,6 +454,8 @@ export async function buildHandoverOrders(deliveries: HandoverDelivery[]): Promi
 
 export type StoredReceiptView = {
   id: string;
+  periodFrom: string;
+  periodTo: string;
   receivedAt: string;
   receivedByName: string;
   companies: CompanyCashLine[];
@@ -414,6 +464,8 @@ export type StoredReceiptView = {
 
 export function toStoredReceiptView(receipt: {
   id: string;
+  periodFrom: Date;
+  periodTo: Date;
   receivedAt: Date;
   fullTotal: Prisma.Decimal | number | string;
   companyTotals: Prisma.JsonValue;
@@ -429,6 +481,8 @@ export function toStoredReceiptView(receipt: {
     : [];
   return {
     id: receipt.id,
+    periodFrom: formatAppIsoCalendarDate(receipt.periodFrom),
+    periodTo: formatAppIsoCalendarDate(receipt.periodTo),
     receivedAt: receipt.receivedAt.toISOString(),
     receivedByName: receipt.receivedBy.knownName?.trim() || receipt.receivedBy.name?.trim() || "Staff",
     companies,
@@ -454,4 +508,25 @@ export async function latestHandoverReceipt(input: {
     include: { receivedBy: { select: { name: true, knownName: true } } },
   });
   return receipt ? toStoredReceiptView(receipt) : null;
+}
+
+/** Receipts whose period overlaps this summary, newest first. */
+export async function handoverReceiptsCovering(input: {
+  companyId: string;
+  riderId: string;
+  fromYmd: string;
+  toYmd: string;
+}): Promise<StoredReceiptView[]> {
+  const dates = handoverPeriodDates(input.fromYmd, input.toYmd);
+  const receipts = await prisma.riderFinanceCashReceipt.findMany({
+    where: {
+      companyId: input.companyId,
+      riderId: input.riderId,
+      periodFrom: { lte: dates.periodTo },
+      periodTo: { gte: dates.periodFrom },
+    },
+    orderBy: { receivedAt: "desc" },
+    include: { receivedBy: { select: { name: true, knownName: true } } },
+  });
+  return receipts.map(toStoredReceiptView);
 }

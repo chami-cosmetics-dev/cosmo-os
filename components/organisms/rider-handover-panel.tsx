@@ -21,10 +21,18 @@ type CompanyLine = {
 
 type ReceiptView = {
   id: string;
+  periodFrom?: string;
+  periodTo?: string;
   receivedAt: string;
   receivedByName: string;
   companies: CompanyLine[];
   fullTotal: string;
+};
+
+type ClosedInvoice = {
+  orderNumber: string;
+  companyName: string;
+  invoiceCompleteAt: string | null;
 };
 
 type SummaryResponse = {
@@ -34,7 +42,9 @@ type SummaryResponse = {
   to: string;
   companies: CompanyLine[];
   fullTotal: string;
+  closedInvoices?: ClosedInvoice[];
   latestReceipt: ReceiptView | null;
+  coveringReceipts?: ReceiptView[];
 };
 
 type OrderRow = {
@@ -45,6 +55,7 @@ type OrderRow = {
   paymentMethod: string | null;
   paymentGatewayPrimary: string | null;
   invoiceClosed: boolean;
+  invoiceCompleteAt?: string | null;
   eligible: boolean;
   canEditPaymentType?: boolean;
   blockReason: string | null;
@@ -58,7 +69,6 @@ type CloseResult = {
   success: boolean;
   error?: string;
   peStatus?: string;
-  kind?: "close" | "payment";
 };
 
 function riderLabel(rider: RiderOption) {
@@ -221,15 +231,13 @@ export function RiderHandoverPanel({
     }
     setBusyKey("close");
     try {
-      const modes = (orders ?? []).flatMap((row) => {
-        const modeOfPayment = modeByOrder[row.orderId] || row.selectedMop || "";
-        if (!modeOfPayment || !row.canEditPaymentType) return [];
-        if (row.eligible) return [{ orderId: row.orderId, modeOfPayment }];
-        if (row.invoiceClosed && modeOfPayment !== (row.selectedMop ?? "")) {
-          return [{ orderId: row.orderId, modeOfPayment }];
-        }
-        return [];
-      });
+      const modes = (orders ?? [])
+        .filter((row) => row.eligible)
+        .map((row) => ({
+          orderId: row.orderId,
+          modeOfPayment: modeByOrder[row.orderId] || row.selectedMop || "",
+        }))
+        .filter((row) => row.modeOfPayment);
       const res = await fetch("/api/admin/riders/handover/invoice-complete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -242,14 +250,9 @@ export function RiderHandoverPanel({
       }
       const results = ((data as { results?: CloseResult[] }).results ?? []);
       const failed = results.filter((row) => !row.success);
-      const closed = results.filter((row) => row.success && row.kind !== "payment").length;
-      const payments = results.filter((row) => row.success && row.kind === "payment").length;
+      const closed = results.length - failed.length;
       if (failed.length === 0) {
-        const parts = [
-          closed > 0 ? `Marked ${closed} invoice${closed === 1 ? "" : "s"} completed` : "",
-          payments > 0 ? `Updated payment type on ${payments}` : "",
-        ].filter(Boolean);
-        notify.success(parts.length > 0 ? parts.join(". ") : "No orders to close");
+        notify.success(closed === 0 ? "No orders to close" : `Marked ${closed} invoice${closed === 1 ? "" : "s"} completed`);
       } else {
         const detail = failed
           .slice(0, 3)
@@ -368,7 +371,7 @@ export function RiderHandoverPanel({
           ) : null}
         </div>
 
-        {shownReceipt ? (
+        {shownReceipt && !slip ? (
           <p className="text-muted-foreground text-sm print:hidden">
             Money received {formatWhen(shownReceipt.receivedAt)} by {shownReceipt.receivedByName}. Full total{" "}
             {shownReceipt.fullTotal}.
@@ -384,6 +387,18 @@ export function RiderHandoverPanel({
                 {slip.from} to {slip.to}
               </p>
             </div>
+            {(slip.coveringReceipts ?? []).length > 0 ? (
+              <div>
+                <h3 className="text-sm font-semibold">Money received</h3>
+                {(slip.coveringReceipts ?? []).map((line) => (
+                  <p key={line.id}>
+                    Money received {formatWhen(line.receivedAt)} by {line.receivedByName}
+                    {line.periodFrom && line.periodTo ? ` for ${line.periodFrom} to ${line.periodTo}` : ""}. Full
+                    total {line.fullTotal}.
+                  </p>
+                ))}
+              </div>
+            ) : null}
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b text-left">
@@ -414,6 +429,31 @@ export function RiderHandoverPanel({
                 </tr>
               </tfoot>
             </table>
+            {(slip.closedInvoices ?? []).length > 0 ? (
+              <div>
+                <h3 className="text-sm font-semibold">Invoice complete</h3>
+                <table className="mt-1 w-full text-sm">
+                  <thead>
+                    <tr className="border-b text-left">
+                      <th className="py-1">Order</th>
+                      <th className="py-1">Company</th>
+                      <th className="py-1">Marked</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(slip.closedInvoices ?? []).map((line) => (
+                      <tr key={`${line.orderNumber}-${line.invoiceCompleteAt ?? ""}`} className="border-b">
+                        <td className="py-1 whitespace-nowrap">{line.orderNumber}</td>
+                        <td className="py-1">{line.companyName}</td>
+                        <td className="py-1 whitespace-nowrap">
+                          {line.invoiceCompleteAt ? formatWhen(line.invoiceCompleteAt) : "Invoice complete"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
             <div className="grid gap-8 pt-10 sm:grid-cols-2">
               <div>
                 <p>Handover by</p>
@@ -473,9 +513,13 @@ export function RiderHandoverPanel({
                       <tr key={row.orderId} className="border-b">
                         <td className="px-2 py-2 whitespace-nowrap">{row.orderNumber}</td>
                         <td className="px-2 py-2">{row.companyName}</td>
-                        <td className="px-2 py-2 text-right tabular-nums">{row.cashAmount}</td>
+                        <td className="px-2 py-2 text-right tabular-nums">{row.invoiceClosed ? "—" : row.cashAmount}</td>
                         <td className="px-2 py-2">{row.paymentMethod || row.paymentGatewayPrimary || "—"}</td>
-                        <td className="px-2 py-2">{row.invoiceClosed ? "Complete" : row.blockReason || "Open"}</td>
+                        <td className="px-2 py-2">
+                          {row.invoiceClosed
+                            ? `Complete${row.invoiceCompleteAt ? ` ${formatWhen(row.invoiceCompleteAt)}` : ""}`
+                            : row.blockReason || "Open"}
+                        </td>
                         <td className="px-2 py-2">
                           {row.canEditPaymentType ? (
                             <select

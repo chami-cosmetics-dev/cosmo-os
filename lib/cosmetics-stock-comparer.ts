@@ -37,6 +37,8 @@ export type CosmeticsStockReportDetail = CosmeticsStockReportRow & {
   critical: boolean;
   online: LocationStock[];
   shops: LocationStock[];
+  /** Cosmetics main qty when the subject column is a different warehouse. */
+  cosmeticsMainQty?: number | null;
   commonSku?: string;
   erp1ProductPriority?: string | null;
   erp2ProductPriority?: string | null;
@@ -224,6 +226,7 @@ function toDetail(
   shops: LocationStock[],
   sales90d = 0,
   critical = false,
+  cosmeticsMainQty: number | null = null,
 ): CosmeticsStockReportDetail {
   const onlineSummary = summarizeLocations(online);
   const shopSummary = summarizeLocations(shops);
@@ -242,7 +245,58 @@ function toDetail(
     critical,
     online,
     shops,
+    cosmeticsMainQty,
   };
+}
+
+/** Outlet main/back stock and shop-floor stock stay in separate lists, including a zero when the other side has stock. */
+function partitionLocations(
+  skuRows: ParsedStockRow[],
+  excludeWarehouses: Set<string>,
+): { online: LocationStock[]; shops: LocationStock[] } {
+  const groups = new Map<string, ParsedStockRow[]>();
+  for (const row of skuRows) {
+    const warehouseKey = key(row.warehouse);
+    if (!warehouseKey || excludeWarehouses.has(warehouseKey)) continue;
+    if (classifyWarehouseKind(row.warehouse) === "main") continue;
+    const outletKey = key(outletFromRow(row)) || warehouseKey;
+    groups.set(outletKey, [...(groups.get(outletKey) ?? []), row]);
+  }
+
+  const online: LocationStock[] = [];
+  const shops: LocationStock[] = [];
+  for (const groupRows of groups.values()) {
+    const shopRows = groupRows.filter((row) => classifyWarehouseKind(row.warehouse) === "shop");
+    const otherRows = groupRows.filter((row) => classifyWarehouseKind(row.warehouse) !== "shop");
+    const shopQty = shopRows.reduce((sum, row) => sum + row.qty, 0);
+    const otherQty = otherRows.reduce((sum, row) => sum + row.qty, 0);
+    if (otherQty <= 0 && shopQty <= 0) continue;
+
+    const showBoth = otherRows.length > 0 && shopRows.length > 0;
+    const otherSelected = otherRows.find((row) => row.qty > 0) ?? otherRows[0] ?? null;
+    const shopSelected = pickComparisonRow(shopRows);
+    if (otherSelected && (otherQty > 0 || showBoth)) {
+      const outletName = outletFromRow(otherSelected);
+      online.push({
+        name: outletName || otherSelected.warehouse,
+        qty: otherQty,
+        kind: "online",
+        warehouse: otherSelected.warehouse,
+      });
+    }
+    if (shopSelected && (shopQty > 0 || showBoth)) {
+      shops.push({
+        name: outletFromRow(shopSelected),
+        qty: shopQty,
+        kind: "shop",
+        warehouse: shopSelected.warehouse,
+      });
+    }
+  }
+
+  online.sort((a, b) => a.name.localeCompare(b.name));
+  shops.sort((a, b) => a.name.localeCompare(b.name));
+  return { online, shops };
 }
 
 function compareReportRows(a: CosmeticsStockReportDetail, b: CosmeticsStockReportDetail): number {
@@ -267,7 +321,16 @@ export function markCriticalTopSellers(
 ): { rows: CosmeticsStockReportDetail[]; cutoff: number | null } {
   if (!salesOk) {
     const cleared = rows
-      .map((row) => toDetail({ sku: row.SKU, productTitle: row["Product Title"], company: "", warehouse: "", qty: row["Main Warehouse Qty"], erpSource: "" }, row.online, row.shops, 0, false))
+      .map((row) =>
+        toDetail(
+          { sku: row.SKU, productTitle: row["Product Title"], company: "", warehouse: "", qty: row["Main Warehouse Qty"], erpSource: "" },
+          row.online,
+          row.shops,
+          0,
+          false,
+          row.cosmeticsMainQty ?? null,
+        ),
+      )
       .sort(compareReportRows);
     return { rows: cleared, cutoff: null };
   }
@@ -294,6 +357,7 @@ export function markCriticalTopSellers(
       row.shops,
       sales90d,
       critical,
+      row.cosmeticsMainQty ?? null,
     );
   });
 
@@ -337,53 +401,8 @@ export function buildCosmeticsStockReportDetails(
     const mainRow = skuRows.find((row) => key(row.warehouse) === MAIN_COSMO_WAREHOUSE);
     if (!mainRow || mainRow.qty > threshold) continue;
 
-    const shopGroups = new Map<string, ParsedStockRow[]>();
-    const onlineGroups = new Map<string, ParsedStockRow[]>();
-
-    for (const row of skuRows) {
-      if (row === mainRow) continue;
-      const kind = classifyWarehouseKind(row.warehouse);
-      if (kind === "main") continue;
-      if (kind === "shop") {
-        const outletKey = key(outletFromRow(row));
-        if (!outletKey) continue;
-        shopGroups.set(outletKey, [...(shopGroups.get(outletKey) ?? []), row]);
-        continue;
-      }
-      const warehouseKey = key(row.warehouse);
-      if (!warehouseKey) continue;
-      onlineGroups.set(warehouseKey, [...(onlineGroups.get(warehouseKey) ?? []), row]);
-    }
-
-    const online: LocationStock[] = [];
-    for (const groupRows of onlineGroups.values()) {
-      const selected = groupRows.find((row) => row.qty > 0) ?? null;
-      if (!selected) continue;
-      const outletName = outletFromRow(selected);
-      online.push({
-        name: outletName || selected.warehouse,
-        qty: selected.qty,
-        kind: "online",
-        warehouse: selected.warehouse,
-      });
-    }
-
-    const shops: LocationStock[] = [];
-    for (const groupRows of shopGroups.values()) {
-      const selected = pickComparisonRow(groupRows);
-      if (!selected || selected.qty <= 0) continue;
-      shops.push({
-        name: outletFromRow(selected),
-        qty: selected.qty,
-        kind: "shop",
-        warehouse: selected.warehouse,
-      });
-    }
-
-    online.sort((a, b) => a.name.localeCompare(b.name));
-    shops.sort((a, b) => a.name.localeCompare(b.name));
-
-    reportRows.push(toDetail(mainRow, online, shops));
+    const { online, shops } = partitionLocations(skuRows, new Set([key(mainRow.warehouse)]));
+    reportRows.push(toDetail(mainRow, online, shops, 0, false, mainRow.qty));
   }
 
   return reportRows.sort(compareReportRows);
@@ -407,14 +426,9 @@ export function buildFocusedStockReport(
   for (const skuRows of rowsBySku.values()) {
     const focusRow = skuRows.find((row) => key(row.warehouse) === focusKey);
     if (!focusRow || focusRow.qty > threshold) continue;
-    const beside = locationsBeside(skuRows, new Set([focusKey]), { includeMain: true });
-    reportRows.push(
-      toDetail(
-        focusRow,
-        beside.filter((item) => item.kind === "online"),
-        beside.filter((item) => item.kind === "shop"),
-      ),
-    );
+    const cosmeticsMain = skuRows.find((row) => key(row.warehouse) === MAIN_COSMO_WAREHOUSE);
+    const { online, shops } = partitionLocations(skuRows, new Set([focusKey, MAIN_COSMO_WAREHOUSE]));
+    reportRows.push(toDetail(focusRow, online, shops, 0, false, cosmeticsMain?.qty ?? null));
   }
   return reportRows.sort(compareReportRows);
 }

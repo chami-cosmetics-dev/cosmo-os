@@ -4,6 +4,8 @@ import {
   groupCashByErpCompany,
   handoverCashAmount,
   handoverOrderNumber,
+  handoverReceiptOverlaps,
+  handoverSummaryCashAmount,
   isInvoiceClosed,
   receiptDuplicateDecision,
   shouldCommitInvoiceComplete,
@@ -62,6 +64,49 @@ describe("groupCashByErpCompany", () => {
       { companyName: "Other Co", cashAmount: "40.00" },
     ]);
     expect(result.fullTotal).toBe("250.00");
+  });
+});
+
+describe("handoverReceiptOverlaps", () => {
+  it("shows a day 1 to day 2 handover on a later day 2 summary", () => {
+    expect(
+      handoverReceiptOverlaps({
+        receiptFrom: "2026-10-08",
+        receiptTo: "2026-10-09",
+        from: "2026-10-09",
+        to: "2026-10-09",
+      }),
+    ).toBe(true);
+  });
+
+  it("leaves a day 1 handover off a day 2 summary", () => {
+    expect(
+      handoverReceiptOverlaps({
+        receiptFrom: "2026-10-08",
+        receiptTo: "2026-10-08",
+        from: "2026-10-09",
+        to: "2026-10-09",
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("handoverSummaryCashAmount", () => {
+  it("drops invoice-complete cash from the handover total", () => {
+    expect(
+      handoverSummaryCashAmount({
+        cashAmount: "1715.00",
+        invoiceCompleteAt: "2026-10-09T04:00:00.000Z",
+        fulfillmentStage: "invoice_complete",
+      }),
+    ).toBe("0.00");
+    expect(
+      handoverSummaryCashAmount({
+        cashAmount: "1715.00",
+        invoiceCompleteAt: null,
+        fulfillmentStage: "delivery_complete",
+      }),
+    ).toBe("1715.00");
   });
 });
 

@@ -541,9 +541,33 @@ describe("buildFocusedStockReport", () => {
     );
     expect(report.map((item) => item.SKU)).toEqual(["SKU-1"]);
     expect(report[0]?.["Main Warehouse Qty"]).toBe(0);
-    expect(report[0]?.online.map((item) => item.warehouse)).toContain("Main Warehouse - Cosmo");
+    expect(report[0]?.cosmeticsMainQty).toBe(8);
+    expect(report[0]?.online.some((item) => item.warehouse === "Main Warehouse - Cosmo")).toBe(false);
     expect(report[0]?.online.some((item) => item.warehouse === "Main Warehouse - Trading A")).toBe(false);
     expect(report[0]?.shops).toEqual([]);
+  });
+});
+
+describe("partition outlet main and shop", () => {
+  it("shows an outlet main warehouse and its shop warehouse on separate columns", () => {
+    const details = buildCosmeticsStockReportDetails([
+      row({ Item: "SKU-1", "Balance Qty": 0 }),
+      row({
+        Item: "SKU-1",
+        Company: "LMJ",
+        Warehouse: "Pepiliyana Main Warehouse",
+        "Balance Qty": 3,
+      }),
+      row({
+        Item: "SKU-1",
+        Company: "LMJ",
+        Warehouse: "Pepiliyana Shop Warehouse",
+        "Balance Qty": 0,
+      }),
+    ]);
+
+    expect(details[0]?.online).toMatchObject([{ name: "Pepiliyana", qty: 3, kind: "online" }]);
+    expect(details[0]?.shops).toMatchObject([{ name: "Pepiliyana", qty: 0, kind: "shop" }]);
   });
 });
 

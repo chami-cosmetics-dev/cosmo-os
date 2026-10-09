@@ -19,7 +19,7 @@ import { orderStageUpdate } from "@/lib/order-stage-timing";
 import { approvalSplitCashCollectAmount } from "@/lib/approval-payment-split";
 import { loadLatestOrderSplitPaymentLines } from "@/lib/order-split-payment";
 import { prisma } from "@/lib/prisma";
-import { isInvoiceClosed, shouldCommitInvoiceComplete } from "@/lib/rider-handover";
+import { shouldCommitInvoiceComplete } from "@/lib/rider-handover";
 
 export { markOrderFinanciallyInvoiceComplete } from "@/lib/financial-invoice-complete";
 
@@ -62,11 +62,6 @@ export async function markOrderInvoiceComplete(input: {
    * complete only when that entry is created or the invoice is already paid.
    */
   commitOnlyWhenPaymentEntrySucceeds?: boolean;
-  /**
-   * Invoice is already complete. Create a payment entry with the chosen mode
-   * and leave the invoice stamp alone.
-   */
-  paymentEntryOnly?: boolean;
 }): Promise<MarkOrderInvoiceCompleteResult> {
   const now = new Date();
   const mopOverride = input.modeOfPayment?.trim() || undefined;
@@ -83,7 +78,7 @@ export async function markOrderInvoiceComplete(input: {
   if (!order) {
     return { success: false, ref, error: "Order not found" };
   }
-  if (!input.posAlreadyPaid && !input.paymentEntryOnly) {
+  if (!input.posAlreadyPaid) {
     const financeBlock = await getFinancePaymentApprovalBlockReason({
       id: order.id,
       paymentGatewayPrimary: order.paymentGatewayPrimary,
@@ -94,7 +89,7 @@ export async function markOrderInvoiceComplete(input: {
       return { success: false, ref, error: financeBlock };
     }
   }
-  if (!input.paymentEntryOnly && order.fulfillmentStage !== "delivery_complete") {
+  if (order.fulfillmentStage !== "delivery_complete") {
     return {
       success: false,
       ref,
@@ -235,33 +230,6 @@ export async function markOrderInvoiceComplete(input: {
       },
     });
   };
-
-  if (input.paymentEntryOnly) {
-    if (
-      !isInvoiceClosed({
-        invoiceCompleteAt: order.invoiceCompleteAt,
-        fulfillmentStage: order.fulfillmentStage,
-      })
-    ) {
-      return { success: false, ref, error: "Invoice is not complete" };
-    }
-    const pe = await attemptPe();
-    if (pe.outcome === "already_paid") {
-      return {
-        success: false,
-        ref,
-        error: "Invoice is already paid in ERP. Payment type was not changed.",
-      };
-    }
-    if (pe.outcome !== "created") {
-      return {
-        success: false,
-        ref,
-        error: pe.erpPeError ?? "ERP payment entry was not created",
-      };
-    }
-    return { success: true, ref, peStatus: "created" };
-  }
 
   if (input.commitOnlyWhenPaymentEntrySucceeds) {
     const pe = await attemptPe();

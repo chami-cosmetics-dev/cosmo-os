@@ -1196,8 +1196,45 @@ export function isUsableErpSalesInvoiceId(value: string | null | undefined): boo
   return isUsableErpInvoiceId(value);
 }
 
+async function findExistingReceivePaymentEntry(
+  cfg: ErpConfig,
+  invoiceName: string,
+  orderId?: string,
+): Promise<string | null> {
+  if (orderId) {
+    const stored = await prisma.orderPaymentEntry.findFirst({
+      where: { orderId, paymentType: "Receive" },
+      select: { paymentEntryId: true },
+    });
+    const storedName = stored?.paymentEntryId?.trim();
+    if (storedName) return storedName;
+  }
+
+  try {
+    const filters = encodeURIComponent(
+      JSON.stringify([
+        ["docstatus", "=", 1],
+        ["payment_type", "=", "Receive"],
+        ["Payment Entry Reference", "reference_doctype", "=", "Sales Invoice"],
+        ["Payment Entry Reference", "reference_name", "=", invoiceName],
+      ]),
+    );
+    const fields = encodeURIComponent(JSON.stringify(["name"]));
+    const rows = await erpnextGet<Array<{ name: string }>>(
+      cfg,
+      `/api/resource/Payment Entry?filters=${filters}&fields=${fields}&limit=1`,
+    );
+    const name = rows?.[0]?.name?.trim();
+    return name || null;
+  } catch (err) {
+    console.error("[ERPNext] existing Payment Entry lookup failed:", err);
+    return null;
+  }
+}
+
 export async function createDeliveryPaymentEntry(
   order: {
+    id?: string;
     name: string | null;
     shopifyOrderId: string;
     sourceName: string | null;
@@ -1217,6 +1254,7 @@ export async function createDeliveryPaymentEntry(
 
 async function createDeliveryPaymentEntryOnce(
   order: {
+    id?: string;
     name: string | null;
     shopifyOrderId: string;
     sourceName: string | null;
@@ -1310,6 +1348,16 @@ async function createDeliveryPaymentEntryOnce(
     }
     console.warn(`[ERPNext] No submitted Sales Invoice for "${label}" — skipping delivery PE`);
     return { outcome: "skipped" };
+  }
+
+  if (options?.paidAmount == null) {
+    const existingPe = await findExistingReceivePaymentEntry(cfg, invoice.name, order.id);
+    if (existingPe) {
+      console.log(
+        `[ERPNext] Sales Invoice ${invoice.name} already has Payment Entry ${existingPe} — skipping a second PE`,
+      );
+      return { outcome: "already_paid", paymentEntryName: existingPe };
+    }
   }
 
   if (invoice.outstanding_amount <= 0) {
