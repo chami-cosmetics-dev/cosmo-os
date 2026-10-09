@@ -62,7 +62,6 @@ function decimalText(value: Prisma.Decimal | number | string | null | undefined)
 
 /**
  * Cash the rider must hand over.
- * Deliveries are closed from the rider link, so there is no mobile collection.
  * A cash/COD order uses the order amount including shipping. Prepaid gateways stay at 0.
  */
 export function handoverCashAmount(input: {

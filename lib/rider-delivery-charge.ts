@@ -18,14 +18,19 @@ export function isZoneShippingLabelKey(labelKey: string | null | undefined): boo
   return Boolean(labelKey && /^zone\b/.test(labelKey));
 }
 
-/** Pick up / free-ship / staff DC — completed delivery but no rider delivery incentive. */
+/** Pick up / staff DC — completed delivery but no rider delivery incentive. */
 export function isExcludedFromRiderIncentiveLabel(label: string | null | undefined): boolean {
   const key = normalizeShippingRuleLabelKey(label);
   if (!key) return false;
   if (key === "pick up" || key === "pickup") return true;
-  if (key === "freeship" || key === "free ship") return true;
   if (key === "staffdc") return true;
   return false;
+}
+
+/** Customer free shipping. Rider pay still uses the delivery district. */
+export function isFreeShipIncentiveLabel(label: string | null | undefined): boolean {
+  const key = normalizeShippingRuleLabelKey(label).replace(/\s+/g, "");
+  return key === "freeship" || key === "freeshipping";
 }
 
 /** ERP generic label — resolve pay from shipping address city instead. */
@@ -197,7 +202,8 @@ export function resolveRiderIncentiveFromRules(input: {
 
 /**
  * Resolve rider incentive.
- * 1) Excluded labels (Pick Up / FREESHIP / STAFFDC) → no pay.
+ * 1) Excluded labels (Pick Up / STAFFDC) → no pay.
+ *    FREESHIP still pays from the shipping city.
  * 2) Staff-typed manual amount → that pay.
  * 3) Staff manual district key → charge sheet.
  * 4) Label lookup keys against charge sheet (DTD peel included).
@@ -249,6 +255,16 @@ export function resolveRiderIncentiveMatch(input: {
       matched: false,
       labelKey: manualKey,
       manualOverride: true,
+    };
+  }
+
+  if (isFreeShipIncentiveLabel(input.shippingRuleLabel)) {
+    const viaCity = matchIncentiveViaShippingCity(input.shippingCity, input.chargeByLabelKey);
+    if (viaCity) return viaCity;
+    return {
+      amount: new Prisma.Decimal(0),
+      matched: false,
+      labelKey: normalizeShippingRuleLabelKey(input.shippingCity) || "freeship",
     };
   }
 

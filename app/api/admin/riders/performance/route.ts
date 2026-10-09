@@ -21,7 +21,6 @@ import { incentiveMatchForOrder, loadRiderIncentiveContext } from "@/lib/rider-i
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { aggregateRiderIncentives, isIncentiveEligibleOrder } from "@/lib/rider-incentive";
-import { isInvoiceClosed } from "@/lib/rider-handover";
 import { cuidSchema } from "@/lib/validation";
 
 const ymdSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
@@ -89,8 +88,6 @@ export async function GET(request: NextRequest) {
             sourceName: true,
             discountCodes: true,
             financialStatus: true,
-            fulfillmentStage: true,
-            invoiceCompleteAt: true,
             orderNumber: true,
             name: true,
             customerPhone: true,
@@ -200,7 +197,6 @@ export async function GET(request: NextRequest) {
       matched: match.matched,
       excludedFromIncentive: match.excludedFromIncentive,
       financialStatus: task.order.financialStatus,
-      invoiceClosed: isInvoiceClosed(task.order),
       completedAt: task.completedAt,
     };
   });
@@ -212,9 +208,7 @@ export async function GET(request: NextRequest) {
   let excludedFromIncentiveTotal = 0;
   for (const row of rowInputs) {
     if (!isIncentiveEligibleOrder(row.financialStatus)) continue;
-    if (row.invoiceClosed) {
-      totalIncentive = totalIncentive.add(row.incentiveAmount);
-    }
+    totalIncentive = totalIncentive.add(row.incentiveAmount);
     if (row.excludedFromIncentive) {
       excludedFromIncentiveTotal += 1;
     } else if (!row.matched) {

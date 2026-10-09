@@ -278,13 +278,13 @@ describe("resolveRiderIncentiveMatch", () => {
     ).toBe("300");
   });
 
-  it("excludes Pick Up and FREESHIP from incentive (not unmatched)", () => {
+  it("excludes Pick Up and STAFFDC from incentive (not unmatched)", () => {
     const map = new Map<string, string>([
       ["nugegoda", "300.00"],
       ["delgoda", "400.00"],
     ]);
     expect(isExcludedFromRiderIncentiveLabel("Pick Up")).toBe(true);
-    expect(isExcludedFromRiderIncentiveLabel("FREESHIP")).toBe(true);
+    expect(isExcludedFromRiderIncentiveLabel("FREESHIP")).toBe(false);
     expect(isExcludedFromRiderIncentiveLabel("STAFFDC")).toBe(true);
     expect(
       resolveRiderIncentiveMatch({
@@ -298,6 +298,20 @@ describe("resolveRiderIncentiveMatch", () => {
       amount: expect.anything(),
     });
     expect(
+      resolveRiderIncentiveFromRules({
+        shippingRuleLabel: "Pick Up",
+        shippingCity: "delgoda",
+        chargeByLabelKey: map,
+      }).toString()
+    ).toBe("0");
+  });
+
+  it("pays FREESHIP from the delivery district", () => {
+    const map = new Map<string, string>([
+      ["nugegoda", "300.00"],
+      ["delgoda", "400.00"],
+    ]);
+    expect(
       resolveRiderIncentiveMatch({
         shippingRuleLabel: "FREESHIP",
         shippingCity: "Nugegoda",
@@ -305,15 +319,15 @@ describe("resolveRiderIncentiveMatch", () => {
       })
     ).toMatchObject({
       matched: true,
-      excludedFromIncentive: true,
+      labelKey: "nugegoda",
     });
     expect(
       resolveRiderIncentiveFromRules({
-        shippingRuleLabel: "Pick Up",
+        shippingRuleLabel: "free shipping",
         shippingCity: "delgoda",
         chargeByLabelKey: map,
       }).toString()
-    ).toBe("0");
+    ).toBe("400");
   });
 
   it("matches ERP Delivery + city mattakkuliya to district charge", () => {
