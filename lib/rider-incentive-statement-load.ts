@@ -2,7 +2,9 @@ import "server-only";
 
 import { Prisma } from "@prisma/client";
 
-import { formatAppIsoDate } from "@/lib/format-datetime";
+import { formatAppIsoDate, formatAppIsoDateTime } from "@/lib/format-datetime";
+import { formatAddress, getCustomerName } from "@/lib/reports/csv";
+import { extractOrderShippingCity } from "@/lib/rider-delivery-charge";
 import { incentiveMatchForOrder, loadRiderIncentiveContext } from "@/lib/rider-incentive-resolve";
 import {
   isIncentiveEligibleOrder,
@@ -25,6 +27,7 @@ export async function loadRiderIncentiveStatement(input: {
       where: {
         riderId: input.riderId,
         status: "completed",
+        // Month is the delivery-complete day. An earlier invoice close (KOKO, card, bank) does not move the pay.
         completedAt: { gte: input.from, lte: input.to },
         order: { companyId: input.companyId },
       },
@@ -35,9 +38,11 @@ export async function loadRiderIncentiveStatement(input: {
         rider: { select: { name: true, knownName: true } },
         order: {
           select: {
+            shopifyOrderId: true,
             orderNumber: true,
             name: true,
             erpnextInvoiceId: true,
+            customerPhone: true,
             financialStatus: true,
             fulfillmentStage: true,
             invoiceCompleteAt: true,
@@ -78,8 +83,15 @@ export async function loadRiderIncentiveStatement(input: {
       eligible && unlocked && !match.excludedFromIncentive ? match.amount : new Prisma.Decimal(0);
     return {
       date: formatAppIsoDate(task.completedAt),
-      orderNumber: task.order.orderNumber?.trim() || task.order.name?.trim() || "",
+      shopifyOrderId: task.order.shopifyOrderId?.trim() || "",
+      shopifyOrderNumber: task.order.name?.trim() || task.order.orderNumber?.trim() || "",
       invoiceNumber: task.order.erpnextInvoiceId?.trim() || "",
+      customerName: getCustomerName(task.order.shippingAddress),
+      phone: task.order.customerPhone?.trim() || "",
+      address: formatAddress(task.order.shippingAddress),
+      deliveryCity: extractOrderShippingCity(task.order) ?? "",
+      deliveryCompletedAt: formatAppIsoDateTime(task.completedAt),
+      invoiceCompletedAt: unlocked ? formatAppIsoDateTime(task.order.invoiceCompleteAt) : "",
       company:
         task.order.companyLocation.erpnextCompany?.trim() ||
         task.order.companyLocation.name.trim() ||

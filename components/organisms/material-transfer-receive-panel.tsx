@@ -61,6 +61,7 @@ export function MaterialTransferReceivePanel() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [historyKey, setHistoryKey] = useState(0);
   const scanRef = useRef<HTMLInputElement>(null);
+  const scanValueRef = useRef("");
   const countPromise = useRef<Promise<void>>(Promise.resolve());
   const isBusy = busyKey !== null;
 
@@ -186,8 +187,10 @@ export function MaterialTransferReceivePanel() {
             className="flex gap-2"
             onSubmit={(event) => {
               event.preventDefault();
-              const code = scan.trim();
+              const code = (scanRef.current?.value || scanValueRef.current || scan).trim();
               if (!code || isBusy) return;
+              scanValueRef.current = "";
+              setScan("");
               void postCount({ code }, "scan");
             }}
           >
@@ -198,7 +201,10 @@ export function MaterialTransferReceivePanel() {
               placeholder="Scan barcode or type SKU"
               autoComplete="off"
               onFocus={unlockScanSound}
-              onChange={(event) => setScan(event.target.value)}
+              onChange={(event) => {
+                scanValueRef.current = event.target.value;
+                setScan(event.target.value);
+              }}
             />
             <Button type="submit" disabled={isBusy || !scan.trim()}>
               {busyKey === "scan" ? (
