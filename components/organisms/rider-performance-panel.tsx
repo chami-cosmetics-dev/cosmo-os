@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 
 import { RiderHandoverPanel } from "@/components/organisms/rider-handover-panel";
+import { RiderIncentiveStatementDialog } from "@/components/organisms/rider-incentive-statement-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -63,11 +64,13 @@ function riderDisplayName(row: RiderPerformanceRow) {
 
 export function RiderPerformancePanel({
   canManagePerformance = false,
+  canExportIncentive = false,
   canHandoverSummary = false,
   canHandoverReceive = false,
   riders = [],
 }: {
   canManagePerformance?: boolean;
+  canExportIncentive?: boolean;
   canHandoverSummary?: boolean;
   canHandoverReceive?: boolean;
   riders?: Array<{ id: string; name: string | null; knownName: string | null }>;
@@ -83,6 +86,8 @@ export function RiderPerformancePanel({
   const [amountByTask, setAmountByTask] = useState<Record<string, string>>({});
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [statementRider, setStatementRider] = useState<RiderPerformanceRow | null>(null);
+  const [statementRefresh, setStatementRefresh] = useState(0);
   const isBusy = busyKey !== null;
 
   const load = useCallback(async () => {
@@ -107,6 +112,7 @@ export function RiderPerformancePanel({
       setSelectedByTask({});
       setFilterByTask({});
       setAmountByTask({});
+      setStatementRefresh((value) => value + 1);
     } catch {
       notify.error("Failed to load performance");
       setRows([]);
@@ -489,7 +495,17 @@ export function RiderPerformancePanel({
                     return (
                       <tr key={row.riderId} className="border-t">
                         <td className="px-3 py-2">
-                          {riderDisplayName(row)}
+                          {canExportIncentive ? (
+                            <button
+                              type="button"
+                              className="text-left font-medium underline-offset-2 hover:underline"
+                              onClick={() => setStatementRider(row)}
+                            >
+                              {riderDisplayName(row)}
+                            </button>
+                          ) : (
+                            riderDisplayName(row)
+                          )}
                           {unmatched > 0 ? (
                             <span className="bg-destructive/10 text-destructive ml-2 rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide">
                               unmatched
@@ -508,6 +524,20 @@ export function RiderPerformancePanel({
           </div>
         </CardContent>
       </Card>
+
+      {canExportIncentive ? (
+        <RiderIncentiveStatementDialog
+          open={statementRider !== null}
+          onOpenChange={(open) => {
+            if (!open) setStatementRider(null);
+          }}
+          riderId={statementRider?.riderId ?? null}
+          riderLabel={statementRider ? riderDisplayName(statementRider) : ""}
+          from={from}
+          to={to}
+          refreshKey={statementRefresh}
+        />
+      ) : null}
     </div>
   );
 }

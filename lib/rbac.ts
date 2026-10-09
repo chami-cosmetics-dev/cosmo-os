@@ -42,6 +42,11 @@ const DEFAULT_PERMISSIONS = [
     description: "Set manual district or rider pay for unmatched incentives",
   },
   {
+    key: "riders.incentive.export",
+    description:
+      "Open a rider incentive breakdown by company and export it after unmatched orders are set",
+  },
+  {
     key: "riders.handover.summary",
     description: "Generate and print the rider company cash handover slip",
   },
@@ -796,6 +801,7 @@ const DEFAULT_ROLES = [
       "book_notes.read",
       "riders.read",
       "riders.performance.read",
+      "riders.incentive.export",
       "riders.handover.summary",
       "riders.handover.receive",
       "dashboard.view",
