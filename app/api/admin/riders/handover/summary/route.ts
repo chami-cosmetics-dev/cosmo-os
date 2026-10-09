@@ -49,6 +49,7 @@ export async function GET(request: NextRequest) {
     loaded.deliveries.map((delivery) => ({
       erpnextCompany: delivery.erpnextCompany,
       locationName: delivery.locationName,
+      cashAmount: delivery.cashAmount,
       payment: delivery.payment,
     })),
   );

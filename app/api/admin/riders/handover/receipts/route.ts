@@ -77,6 +77,7 @@ export async function POST(request: NextRequest) {
     loaded.deliveries.map((delivery) => ({
       erpnextCompany: delivery.erpnextCompany,
       locationName: delivery.locationName,
+      cashAmount: delivery.cashAmount,
       payment: delivery.payment,
     })),
   );

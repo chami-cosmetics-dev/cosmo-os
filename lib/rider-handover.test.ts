@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   groupCashByErpCompany,
+  handoverCashAmount,
   isInvoiceClosed,
   receiptDuplicateDecision,
   shouldCommitInvoiceComplete,
@@ -60,6 +61,47 @@ describe("groupCashByErpCompany", () => {
       { companyName: "Other Co", cashAmount: "40.00" },
     ]);
     expect(result.fullTotal).toBe("250.00");
+  });
+});
+
+describe("handoverCashAmount", () => {
+  it("uses the order total when shipping is already included", () => {
+    expect(
+      handoverCashAmount({
+        totalPrice: "11200.00",
+        subtotalPrice: "10800.00",
+        totalShipping: "400.00",
+        paymentGatewayPrimary: "Cash",
+      }).toFixed(2),
+    ).toBe("11200.00");
+  });
+
+  it("adds shipping when the stored total is the order amount only", () => {
+    expect(
+      handoverCashAmount({
+        totalPrice: "10800.00",
+        subtotalPrice: "10800.00",
+        totalShipping: "400.00",
+        paymentGatewayPrimary: "Cash",
+      }).toFixed(2),
+    ).toBe("11200.00");
+  });
+
+  it("leaves prepaid gateways at zero", () => {
+    expect(
+      handoverCashAmount({
+        totalPrice: "4500.00",
+        totalShipping: "400.00",
+        paymentGatewayPrimary: "KOKO",
+      }).toFixed(2),
+    ).toBe("0.00");
+    expect(
+      handoverCashAmount({
+        totalPrice: "4500.00",
+        totalShipping: "400.00",
+        paymentGatewayPrimary: "CC Checkout",
+      }).toFixed(2),
+    ).toBe("0.00");
   });
 });
 
