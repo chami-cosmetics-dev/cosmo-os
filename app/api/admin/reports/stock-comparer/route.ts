@@ -3,9 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   buildBrandWarehouseViolations,
   buildCosmeticsStockReportDetails,
-  buildFocusCompare,
-  buildRopWatch,
-  buildShopCompare,
+  decorateReportRows,
+  filterReportByMainRopPercent,
   listWarehouseOptions,
   markCriticalTopSellers,
   selectWatchedTargets,
@@ -168,7 +167,7 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const baseRows = buildCosmeticsStockReportDetails(stockRows, threshold);
+    const thresholdRows = buildCosmeticsStockReportDetails(stockRows, threshold);
     const brandViolations = buildBrandWarehouseViolations(stockRows);
 
     let salesStatus: "ok" | "unavailable" = "ok";
@@ -188,7 +187,11 @@ export async function GET(request: NextRequest) {
       salesStatus = "unavailable";
     }
 
-    const { rows, cutoff } = markCriticalTopSellers(baseRows, salesBySku, salesStatus === "ok");
+    const listSource =
+      ropPercent == null
+        ? thresholdRows
+        : buildCosmeticsStockReportDetails(stockRows, Number.POSITIVE_INFINITY);
+    const { rows: marked, cutoff } = markCriticalTopSellers(listSource, salesBySku, salesStatus === "ok");
 
     const identities = catalog.map((item) => ({
       sku: item.sku,
@@ -197,6 +200,7 @@ export async function GET(request: NextRequest) {
       erp2ProductPriority: item.erp2ProductPriority,
       vatStatus: vatStatusLabel(item),
     }));
+    const mainColumnKey = watchedTargets.find((target) => target.role === "cosmetics-main")?.columnKey ?? null;
     const ropBySkuColumn = new Map<string, number>();
     if (ropPercent != null) {
       const ropRows = await prisma.productOsfRop.findMany({
@@ -207,33 +211,11 @@ export async function GET(request: NextRequest) {
         ropBySkuColumn.set(`${rop.sku.trim().toLowerCase()}::${rop.columnKey}`, rop.ropQty);
       }
     }
-    const watch =
+    const percentRows =
       ropPercent == null
-        ? { rows: [], watchedWarehouseCount: watchedTargets.length, warehouses }
-        : buildRopWatch({
-            columns: ropColumns,
-            stockRows,
-            ropBySkuColumn,
-            identities,
-            percent: ropPercent,
-          });
-    const shopCompare = buildShopCompare({
-      stockRows,
-      threshold,
-      ropWatch: watch.rows,
-      identities,
-    });
-    const focusCompare =
-      ropPercent != null && focusWarehouse
-        ? buildFocusCompare({
-            stockRows,
-            columns: ropColumns,
-            focusWarehouse,
-            ropBySkuColumn,
-            identities,
-            percent: ropPercent,
-          })
-        : [];
+        ? marked
+        : filterReportByMainRopPercent(marked, ropBySkuColumn, mainColumnKey, ropPercent);
+    const rows = decorateReportRows(percentRows, identities);
 
     return NextResponse.json({
       threshold,
@@ -241,16 +223,13 @@ export async function GET(request: NextRequest) {
       focusWarehouse,
       itemCount: itemCodes.length,
       warehouseCount: new Set(stockRows.map((row) => String(row.Warehouse))).size,
-      watchedWarehouseCount: watch.watchedWarehouseCount,
+      watchedWarehouseCount: watchedTargets.length,
       warehouses,
       salesWindow,
       salesStatus,
       criticalCutoffUnits: cutoff,
       rows,
       brandViolations,
-      ropWatch: watch.rows,
-      shopCompare,
-      focusCompare,
     });
   } catch (err) {
     if (err instanceof OsfErpError) {
