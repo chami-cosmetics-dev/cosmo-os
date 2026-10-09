@@ -58,17 +58,23 @@ export async function POST(request: NextRequest) {
   }
 
   const orders = await buildHandoverOrders(loaded.deliveries);
+  const overrideByOrder = new Map(
+    (parsed.data.modes ?? []).map((mode) => [mode.orderId, mode.modeOfPayment.trim()]),
+  );
   const eligible = orders.filter((order) => order.eligible);
-  if (eligible.length > ELIGIBLE_CAP) {
+  const paymentUpdates = orders.filter((order) => {
+    if (order.eligible || !order.invoiceClosed || !order.canEditPaymentType) return false;
+    const override = overrideByOrder.get(order.orderId);
+    if (!override || override === (order.selectedMop ?? "")) return false;
+    return true;
+  });
+  if (eligible.length + paymentUpdates.length > ELIGIBLE_CAP) {
     return NextResponse.json(
       { error: "Too many orders for one close. Shorten the date range." },
       { status: 400 },
     );
   }
 
-  const overrideByOrder = new Map(
-    (parsed.data.modes ?? []).map((mode) => [mode.orderId, mode.modeOfPayment.trim()]),
-  );
   const eligibleIds = new Set(eligible.map((order) => order.orderId));
 
   const results: Array<{
@@ -77,6 +83,7 @@ export async function POST(request: NextRequest) {
     success: boolean;
     error?: string;
     peStatus?: "created" | "already_paid";
+    kind?: "close" | "payment";
   }> = [];
 
   for (const order of eligible) {
@@ -126,6 +133,46 @@ export async function POST(request: NextRequest) {
       orderId: order.orderId,
       ref: outcome.ref,
       success: true,
+      kind: "close",
+      ...(outcome.peStatus ? { peStatus: outcome.peStatus } : {}),
+    });
+  }
+
+  for (const order of paymentUpdates) {
+    const override = overrideByOrder.get(order.orderId) ?? "";
+    if (!isAllowedCompanyErpPaymentMode(order.modes, override)) {
+      results.push({
+        orderId: order.orderId,
+        ref: order.ref,
+        success: false,
+        kind: "payment",
+        error: "Invalid ERP payment mode",
+      });
+      continue;
+    }
+    const outcome = await markOrderInvoiceComplete({
+      companyId,
+      orderId: order.orderId,
+      userId,
+      modeOfPayment: override,
+      bulk: true,
+      paymentEntryOnly: true,
+    });
+    if (!outcome.success) {
+      results.push({
+        orderId: order.orderId,
+        ref: outcome.ref,
+        success: false,
+        kind: "payment",
+        error: outcome.error,
+      });
+      continue;
+    }
+    results.push({
+      orderId: order.orderId,
+      ref: outcome.ref,
+      success: true,
+      kind: "payment",
       ...(outcome.peStatus ? { peStatus: outcome.peStatus } : {}),
     });
   }

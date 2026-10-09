@@ -4,6 +4,7 @@ import {
   buildBrandWarehouseViolations,
   buildCosmeticsStockReport,
   buildCosmeticsStockReportDetails,
+  buildFocusedStockReport,
   buildFocusCompare,
   buildRopWatch,
   buildShopCompare,
@@ -523,6 +524,26 @@ describe("buildFocusCompare", () => {
     expect(rows.map((item) => item.SKU)).toEqual(["HIT"]);
     expect(rows[0]?.elsewhere.map((location) => location.warehouse)).toEqual(["Website Inventory - Cosmo"]);
     expect(rows[0]?.elsewhere.some((location) => location.warehouse === "Main Warehouse - Trading A")).toBe(false);
+  });
+});
+
+describe("buildFocusedStockReport", () => {
+  it("uses the chosen warehouse as the subject and keeps it out of the other columns", () => {
+    const report = buildFocusedStockReport(
+      [
+        row({ Item: "SKU-1", Warehouse: "Main Warehouse - Cosmo", "Balance Qty": 8 }),
+        row({ Item: "SKU-1", Warehouse: "Pepiliyana Shop Warehouse", Company: "LMJ", "Balance Qty": 0 }),
+        row({ Item: "SKU-1", Warehouse: "Main Warehouse - Trading A", "Balance Qty": 0, "__ERP Source": "ERP2" }),
+        row({ Item: "HIGH", Warehouse: "Main Warehouse - Trading A", "Balance Qty": 9, "__ERP Source": "ERP2" }),
+      ],
+      "Main Warehouse - Trading A",
+      0,
+    );
+    expect(report.map((item) => item.SKU)).toEqual(["SKU-1"]);
+    expect(report[0]?.["Main Warehouse Qty"]).toBe(0);
+    expect(report[0]?.online.map((item) => item.warehouse)).toContain("Main Warehouse - Cosmo");
+    expect(report[0]?.online.some((item) => item.warehouse === "Main Warehouse - Trading A")).toBe(false);
+    expect(report[0]?.shops).toEqual([]);
   });
 });
 

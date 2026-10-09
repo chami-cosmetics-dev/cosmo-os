@@ -9,6 +9,7 @@ import {
   type ErpPaymentModeOption,
 } from "@/lib/erp-payment-modes";
 import { getErpConfig, resolveOrderPaymentMop } from "@/lib/erpnext-sync";
+import { formatInvoiceOrderReference } from "@/lib/fulfillment-order-reference";
 import { parseAppCalendarDayEnd, parseAppCalendarDayStart } from "@/lib/format-datetime";
 import { cashAmountFromDeliveryPayment } from "@/lib/mobile/payment-lines";
 import { resolveOrderDisplayTotal } from "@/lib/order-shipping-display";
@@ -134,6 +135,18 @@ export function receiptDuplicateDecision<T extends { id: string }>(input: {
   return { action: "create" };
 }
 
+/** Shopify number plus ERP invoice when both exist. Shopify order_number alone is only half the reference. */
+export function handoverOrderNumber(order: {
+  id?: string;
+  name?: string | null;
+  orderNumber?: string | null;
+  shopifyOrderId?: string | null;
+  erpnextInvoiceId?: string | null;
+  sourceName?: string | null;
+}): string {
+  return formatInvoiceOrderReference(order).primary;
+}
+
 export function isInvoiceClosed(order: {
   invoiceCompleteAt: Date | string | null;
   fulfillmentStage: string;
@@ -235,6 +248,8 @@ export async function loadRiderHandoverDeliveries(input: {
           id: true,
           orderNumber: true,
           name: true,
+          sourceName: true,
+          shopifyOrderId: true,
           totalPrice: true,
           subtotalPrice: true,
           totalShipping: true,
@@ -272,7 +287,7 @@ export async function loadRiderHandoverDeliveries(input: {
           lines: order.deliveryPayment.lines,
         }
       : null;
-    const orderNumber = order.orderNumber?.trim() || order.name?.trim() || order.id;
+    const orderNumber = handoverOrderNumber(order);
     const cashAmount = handoverCashAmount({
       totalPrice: order.totalPrice,
       subtotalPrice: order.subtotalPrice,
@@ -284,7 +299,7 @@ export async function loadRiderHandoverDeliveries(input: {
       orderId: order.id,
       orderNumber,
       orderName: order.name,
-      ref: order.name ?? order.orderNumber ?? order.id,
+      ref: orderNumber,
       paymentGatewayPrimary: order.paymentGatewayPrimary,
       paymentGatewayNames: order.paymentGatewayNames ?? [],
       erpnextInvoiceId: order.erpnextInvoiceId,
@@ -321,6 +336,8 @@ export type HandoverOrderView = {
   invoiceClosed: boolean;
   fulfillmentStage: string;
   eligible: boolean;
+  /** Payment type can be set on open invoices and corrected on closed ones. */
+  canEditPaymentType: boolean;
   blockReason: string | null;
   modes: ErpPaymentModeOption[];
   selectedMop: string | null;
@@ -340,6 +357,7 @@ export async function buildHandoverOrders(deliveries: HandoverDelivery[]): Promi
     const invoiceClosed = isInvoiceClosed(delivery);
     let eligible = true;
     let blockReason: string | null = null;
+    let financeBlock: string | null = null;
     if (invoiceClosed) {
       eligible = false;
       blockReason = "Already invoice complete";
@@ -350,7 +368,7 @@ export async function buildHandoverOrders(deliveries: HandoverDelivery[]): Promi
       eligible = false;
       blockReason = "No payment types for this company";
     } else {
-      const financeBlock = await getFinancePaymentApprovalBlockReason({
+      financeBlock = await getFinancePaymentApprovalBlockReason({
         id: delivery.orderId,
         paymentGatewayPrimary: delivery.paymentGatewayPrimary,
         paymentGatewayNames: delivery.paymentGatewayNames,
@@ -361,6 +379,10 @@ export async function buildHandoverOrders(deliveries: HandoverDelivery[]): Promi
         blockReason = financeBlock;
       }
     }
+    const canEditPaymentType =
+      modes.length > 0 &&
+      !financeBlock &&
+      (invoiceClosed || delivery.fulfillmentStage === "delivery_complete");
     views.push({
       orderId: delivery.orderId,
       orderNumber: delivery.orderNumber,
@@ -373,6 +395,7 @@ export async function buildHandoverOrders(deliveries: HandoverDelivery[]): Promi
       invoiceClosed,
       fulfillmentStage: delivery.fulfillmentStage,
       eligible,
+      canEditPaymentType,
       blockReason,
       modes,
       selectedMop,

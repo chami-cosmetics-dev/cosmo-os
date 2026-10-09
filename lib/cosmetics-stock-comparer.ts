@@ -389,6 +389,36 @@ export function buildCosmeticsStockReportDetails(
   return reportRows.sort(compareReportRows);
 }
 
+/** Same availability table, with one chosen warehouse as the subject and every other location beside it. */
+export function buildFocusedStockReport(
+  inputRows: StockBalanceRow[],
+  focusWarehouse: string,
+  threshold = 0,
+): CosmeticsStockReportDetail[] {
+  const focusKey = key(focusWarehouse);
+  const rows = parseRows(inputRows);
+  const rowsBySku = new Map<string, ParsedStockRow[]>();
+  for (const row of rows) {
+    const skuKey = key(row.sku);
+    rowsBySku.set(skuKey, [...(rowsBySku.get(skuKey) ?? []), row]);
+  }
+
+  const reportRows: CosmeticsStockReportDetail[] = [];
+  for (const skuRows of rowsBySku.values()) {
+    const focusRow = skuRows.find((row) => key(row.warehouse) === focusKey);
+    if (!focusRow || focusRow.qty > threshold) continue;
+    const beside = locationsBeside(skuRows, new Set([focusKey]), { includeMain: true });
+    reportRows.push(
+      toDetail(
+        focusRow,
+        beside.filter((item) => item.kind === "online"),
+        beside.filter((item) => item.kind === "shop"),
+      ),
+    );
+  }
+  return reportRows.sort(compareReportRows);
+}
+
 export function buildBrandWarehouseViolations(inputRows: StockBalanceRow[]): BrandWarehouseViolation[] {
   const violations: BrandWarehouseViolation[] = [];
 
@@ -643,13 +673,18 @@ function toIdentity(sku: string, title: string, identities: SkuIdentity[]): Cata
 function locationsBeside(
   skuRows: ParsedStockRow[],
   excludeWarehouses: Set<string>,
+  options?: { includeMain?: boolean },
 ): LocationStock[] {
   const shopGroups = new Map<string, ParsedStockRow[]>();
   const onlineGroups = new Map<string, ParsedStockRow[]>();
   for (const row of skuRows) {
     if (excludeWarehouses.has(key(row.warehouse))) continue;
     const kind = classifyWarehouseKind(row.warehouse);
-    if (kind === "main") continue;
+    if (kind === "main") {
+      if (!options?.includeMain || row.qty <= 0) continue;
+      onlineGroups.set(key(row.warehouse), [...(onlineGroups.get(key(row.warehouse)) ?? []), row]);
+      continue;
+    }
     if (kind === "shop") {
       const outletKey = key(outletFromRow(row));
       if (!outletKey) continue;
