@@ -273,11 +273,11 @@ export async function PATCH(
 
   const nextIsShopMerchant =
     data.isShopMerchant ?? targetUser.employeeProfile?.isShopMerchant ?? false;
-  const nextLocationId =
-    data.locationId !== undefined
-      ? data.locationId
-      : targetUser.employeeProfile?.locationId ?? null;
-  if (nextIsShopMerchant && !nextLocationId) {
+  const nextOutletId =
+    data.outletId !== undefined
+      ? data.outletId
+      : targetUser.employeeProfile?.outletId ?? null;
+  if (nextIsShopMerchant && !nextOutletId) {
     return NextResponse.json(
       { error: "Outlet is required for shop merchants" },
       { status: 400 },
