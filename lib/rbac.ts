@@ -359,6 +359,15 @@ const DEFAULT_PERMISSIONS = [
       "Update abandoned order follow-up status, customer response, and remarks",
   },
   {
+    key: "stock_requests.read",
+    description:
+      "View Wishlist Buddy stock requests (sold-out notify-me requests) and re-check ERP stock",
+  },
+  {
+    key: "stock_requests.manage",
+    description: "Update stock request status, remarks, and the warehouse the sale came from",
+  },
+  {
     key: "finance.approvals.read",
     description: "View finance approval requests",
   },

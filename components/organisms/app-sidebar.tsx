@@ -37,6 +37,7 @@ import {
   Scale,
   ReceiptText,
   ClipboardCheck,
+  BellRing,
   ArrowLeftRight,
 } from "lucide-react";
 import { usePathname } from "next/navigation";
@@ -87,6 +88,7 @@ export function AppSidebar({
   const canViewRiderPerformance = hasSidebarPermission("riders.performance.read");
   const canViewOrders = hasSidebarPermission("orders.read");
   const canViewAbandonedOrders = hasSidebarPermission("abandoned_orders.read");
+  const canViewStockRequests = hasSidebarPermission("stock_requests.read");
   const canViewContactMaster =
     hasSidebarPermission("contacts.master.read") ||
     hasSidebarPermission("contacts.read");
@@ -224,6 +226,7 @@ export function AppSidebar({
   const canViewOrderManagement =
     canViewOrders ||
     canViewAbandonedOrders ||
+    canViewStockRequests ||
     canCreateManualOrder ||
     canViewReturns ||
     canViewExchanges ||
@@ -356,6 +359,14 @@ export function AppSidebar({
                   icon={ClipboardList}
                   label="Abandoned Orders"
                   isActive={pathname === "/dashboard/orders/abandoned-orders"}
+                />
+              )}
+              {canViewStockRequests && (
+                <NavItem
+                  href="/dashboard/orders/stock-requests"
+                  icon={BellRing}
+                  label="Stock Requests"
+                  isActive={pathname === "/dashboard/orders/stock-requests"}
                 />
               )}
               {canViewOrders && (
