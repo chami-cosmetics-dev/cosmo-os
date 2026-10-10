@@ -20,15 +20,26 @@ import {
 import { fetchInventoryItemSku, fetchShopifyVariantInfo } from "@/lib/wishlist-buddy/shopify-variant";
 import { lookupStockAcrossErps } from "@/lib/wishlist-buddy/stock-lookup";
 import {
+  canEditRequest,
+  canViewRequest,
+  canViewScope,
+  scopeFilter,
+  STAFF_REQUEST_SOURCE,
+  type StockRequestScope,
+  type StockRequestViewer,
+} from "@/lib/wishlist-buddy/access";
+import {
   demoStockLookup,
   excludedWarehousesFor,
+  priorityWarehouses,
   resolveStockLookupMode,
   resolveStoreHandleForLocation,
 } from "@/lib/wishlist-buddy/config";
-import { classifyStockLookup, type StockSource } from "@/lib/wishlist-buddy/stock-sources";
+import { classifyStockLookup, type StockLookupResult, type StockSource } from "@/lib/wishlist-buddy/stock-sources";
 import type { StockRequestItem, StockRequestListResponse } from "@/lib/wishlist-buddy/types";
 import type {
   NotifyRequestBody,
+  StaffStockRequestCreateBody,
   StockRequestListFilter,
   StockRequestPatchBody,
   StockRequestStockFilter,
@@ -40,6 +51,14 @@ export class StockRequestInputError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "StockRequestInputError";
+  }
+}
+
+/** The viewer may not see or change this request / tab. Routes map it to 403. */
+export class StockRequestForbiddenError extends Error {
+  constructor(message = "Permission denied") {
+    super(message);
+    this.name = "StockRequestForbiddenError";
   }
 }
 
@@ -127,13 +146,53 @@ function emailInput(row: {
 }
 
 /**
- * Checks every ERP warehouse for the request's SKU and saves the result. When stock exists
- * elsewhere, sends the one-time "we're checking availability and will call you" email.
- * No email is sent when there is no stock anywhere or the lookup failed.
+ * ERP stock for a SKU. Website requests exclude the warehouse Shopify sells from (it is sold out
+ * there); staff requests include it and list the priority warehouses (Main Warehouse - Cosmo) first.
+ */
+async function lookupStockForRequest(input: {
+  companyId: string;
+  sku: string;
+  isStaff: boolean;
+  companyLocationId: string | null;
+  mode: "erp" | "demo";
+}): Promise<StockLookupResult> {
+  if (input.mode === "demo") return demoStockLookup(input.sku);
+  const priority = priorityWarehouses(process.env.WISHLIST_BUDDY_PRIORITY_WAREHOUSES);
+  if (input.isStaff) {
+    return lookupStockAcrossErps({ companyId: input.companyId, itemCode: input.sku, priorityWarehouses: priority });
+  }
+  const location = input.companyLocationId
+    ? await prisma.companyLocation.findUnique({
+        where: { id: input.companyLocationId },
+        select: { erpnextWarehouse: true },
+      })
+    : null;
+  return lookupStockAcrossErps({
+    companyId: input.companyId,
+    itemCode: input.sku,
+    excludeWarehouses: excludedWarehousesFor(location?.erpnextWarehouse, process.env.WISHLIST_BUDDY_EXCLUDE_WAREHOUSES),
+    priorityWarehouses: priority,
+  });
+}
+
+function lookupErrorText(result: StockLookupResult): string | null {
+  return result.failedInstances.length
+    ? result.failedInstances.map((f) => `${f.instanceLabel || "ERP"}: ${f.error}`).join(" | ").slice(0, 2000)
+    : null;
+}
+
+/**
+ * Checks every ERP warehouse for the request's SKU and saves the result. For website requests,
+ * when stock exists elsewhere, sends the one-time "we're checking availability and will call you"
+ * email. No email is sent when there is no stock anywhere or the lookup failed.
+ *
+ * `initialStaffLookup`: first check of a staff request. No stock found (or the check failed) marks
+ * it `awaitingStock`, so a later ERP restock reminds the creator and emails the customer; stock
+ * already available means no reminder.
  */
 export async function runStockLookupForRequest(
   id: string,
-  options: { sendAvailabilityEmail: boolean } = { sendAvailabilityEmail: true },
+  options: { sendAvailabilityEmail: boolean; initialStaffLookup?: boolean } = { sendAvailabilityEmail: true },
 ): Promise<void> {
   const row = await prisma.stockRequest.findUnique({ where: { id } });
   if (!row) return;
@@ -154,33 +213,21 @@ export async function runStockLookupForRequest(
     return;
   }
 
-  const location = row.companyLocationId
-    ? await prisma.companyLocation.findUnique({
-        where: { id: row.companyLocationId },
-        select: { erpnextWarehouse: true },
-      })
-    : null;
-
+  const isStaff = row.source === STAFF_REQUEST_SOURCE;
   let status: "found" | "none" | "error";
   let sources: unknown[] = [];
   let errorText: string | null = null;
   try {
-    const result =
-      mode === "demo"
-        ? demoStockLookup(row.sku)
-        : await lookupStockAcrossErps({
-            companyId: row.companyId,
-            itemCode: row.sku,
-            excludeWarehouses: excludedWarehousesFor(
-              location?.erpnextWarehouse,
-              process.env.WISHLIST_BUDDY_EXCLUDE_WAREHOUSES,
-            ),
-          });
+    const result = await lookupStockForRequest({
+      companyId: row.companyId,
+      sku: row.sku,
+      isStaff,
+      companyLocationId: row.companyLocationId,
+      mode,
+    });
     status = classifyStockLookup(result);
     sources = result.sources;
-    errorText = result.failedInstances.length
-      ? result.failedInstances.map((f) => `${f.instanceLabel || "ERP"}: ${f.error}`).join(" | ").slice(0, 2000)
-      : null;
+    errorText = lookupErrorText(result);
   } catch (error) {
     status = "error";
     errorText = (error instanceof Error ? error.message : String(error)).slice(0, 2000);
@@ -193,10 +240,11 @@ export async function runStockLookupForRequest(
       stockLookupAt: new Date(),
       stockLookupJson: sources as Prisma.InputJsonValue,
       stockLookupError: errorText,
+      ...(isStaff && options.initialStaffLookup ? { awaitingStock: status !== "found" } : {}),
     },
   });
 
-  if (status !== "found" || !options.sendAvailabilityEmail || !row.customerEmail) return;
+  if (isStaff || status !== "found" || !options.sendAvailabilityEmail || !row.customerEmail) return;
   const toEmail = row.customerEmail;
 
   // Claim first so concurrent lookups can't send twice.
@@ -282,32 +330,169 @@ export async function sendRestockEmailsForInventoryItem(input: {
   let sent = 0;
   let failed = 0;
   for (const row of rows) {
-    if (!row.customerEmail) continue;
-    const toEmail = row.customerEmail;
-    const claimed = await prisma.stockRequest.updateMany({
-      where: { id: row.id, restockEmailSentAt: null, status: { in: OPEN_STATUSES } },
-      data: { restockEmailSentAt: new Date(), restockEmailError: null },
-    });
-    if (claimed.count === 0) continue;
-
-    const email = buildBackInStockEmail(emailInput(row));
-    const result = await sendCustomerEmail({
-      toEmail,
-      ...email,
-      errorLabel: "wishlist-buddy restock",
-    });
-    if (result.success) {
-      sent += 1;
-    } else {
-      failed += 1;
-      // Release the claim so the next inventory update retries this request.
-      await prisma.stockRequest.update({
-        where: { id: row.id },
-        data: { restockEmailSentAt: null, restockEmailError: (result.message ?? "Send failed").slice(0, 500) },
-      });
-    }
+    const outcome = await sendBackInStockEmailOnce(row);
+    if (outcome === "sent") sent += 1;
+    if (outcome === "failed") failed += 1;
   }
   return { restocked: restocked.count, sent, failed };
+}
+
+/**
+ * Back-in-stock email for one open request, at most once: the row is claimed before sending and
+ * released on failure so the next restock event retries it.
+ */
+async function sendBackInStockEmailOnce(row: {
+  id: string;
+  customerEmail: string | null;
+  customerName: string;
+  productTitle: string;
+  variantTitle: string | null;
+  productUrl: string | null;
+  shopName: string | null;
+}): Promise<"sent" | "failed" | "skipped"> {
+  if (!row.customerEmail) return "skipped";
+  const claimed = await prisma.stockRequest.updateMany({
+    where: { id: row.id, restockEmailSentAt: null, status: { in: OPEN_STATUSES } },
+    data: { restockEmailSentAt: new Date(), restockEmailError: null },
+  });
+  if (claimed.count === 0) return "skipped";
+
+  const result = await sendCustomerEmail({
+    toEmail: row.customerEmail,
+    ...buildBackInStockEmail(emailInput(row)),
+    errorLabel: "wishlist-buddy restock",
+  });
+  if (result.success) return "sent";
+  await prisma.stockRequest.update({
+    where: { id: row.id },
+    data: { restockEmailSentAt: null, restockEmailError: (result.message ?? "Send failed").slice(0, 500) },
+  });
+  return "failed";
+}
+
+/**
+ * Staff requests waiting for stock: when the SKU has stock in any ERP1/ERP2 warehouse (Main
+ * Warehouse - Cosmo included), mark them restocked (reminds the creator via the reminder bubble)
+ * and email customers who gave an email. Called from the ERP stock webhook (`skus`) and a cron.
+ */
+export async function checkStaffRequestsForRestock(input: {
+  companyIds?: string[];
+  skus?: string[];
+  limit?: number;
+}): Promise<{ checked: number; restocked: number; sent: number; failed: number }> {
+  const totals = { checked: 0, restocked: 0, sent: 0, failed: 0 };
+  const mode = resolveStockLookupMode(process.env.WISHLIST_BUDDY_STOCK_LOOKUP, process.env.NODE_ENV);
+  if (mode === "off") return totals;
+
+  const waiting = await prisma.stockRequest.findMany({
+    where: {
+      source: STAFF_REQUEST_SOURCE,
+      awaitingStock: true,
+      restockedAt: null,
+      status: { in: OPEN_STATUSES },
+      sku: input.skus?.length ? { in: input.skus } : { not: null },
+      ...(input.companyIds?.length ? { companyId: { in: input.companyIds } } : {}),
+    },
+    select: { id: true, companyId: true, sku: true },
+    orderBy: { createdAt: "asc" },
+    take: input.limit ?? 500,
+  });
+
+  const groups = new Map<string, { companyId: string; sku: string; ids: string[] }>();
+  for (const row of waiting) {
+    const key = `${row.companyId}::${row.sku}`;
+    const group = groups.get(key) ?? { companyId: row.companyId, sku: row.sku!, ids: [] };
+    group.ids.push(row.id);
+    groups.set(key, group);
+  }
+
+  for (const group of groups.values()) {
+    totals.checked += group.ids.length;
+    let result: StockLookupResult;
+    try {
+      result = await lookupStockForRequest({
+        companyId: group.companyId,
+        sku: group.sku,
+        isStaff: true,
+        companyLocationId: null,
+        mode,
+      });
+    } catch (error) {
+      console.error("[Wishlist Buddy] staff restock lookup failed", { sku: group.sku, error });
+      continue;
+    }
+    const status = classifyStockLookup(result);
+    const now = new Date();
+    if (status !== "found") {
+      // Keep waiting; record the latest check so staff see it is being watched.
+      await prisma.stockRequest.updateMany({
+        where: { id: { in: group.ids } },
+        data: {
+          stockLookupStatus: status,
+          stockLookupAt: now,
+          stockLookupJson: result.sources as unknown as Prisma.InputJsonValue,
+          stockLookupError: lookupErrorText(result),
+        },
+      });
+      continue;
+    }
+
+    const marked = await prisma.stockRequest.updateMany({
+      where: { id: { in: group.ids }, restockedAt: null },
+      data: {
+        restockedAt: now,
+        restockedWarehouse: result.sources[0]?.warehouse ?? null,
+        awaitingStock: false,
+        stockLookupStatus: "found",
+        stockLookupAt: now,
+        stockLookupJson: result.sources as unknown as Prisma.InputJsonValue,
+        stockLookupError: lookupErrorText(result),
+      },
+    });
+    totals.restocked += marked.count;
+
+    const rows = await prisma.stockRequest.findMany({
+      where: { id: { in: group.ids }, customerEmail: { not: null }, restockEmailSentAt: null },
+    });
+    for (const row of rows) {
+      const outcome = await sendBackInStockEmailOnce(row);
+      if (outcome === "sent") totals.sent += 1;
+      if (outcome === "failed") totals.failed += 1;
+    }
+  }
+  return totals;
+}
+
+/** Restocked staff requests the creator has not acted on yet (still "New"): reminder bubble. */
+export async function listRestockedRequestsForCreator(input: {
+  companyId: string;
+  userId: string;
+  limit: number;
+}) {
+  const where: Prisma.StockRequestWhereInput = {
+    companyId: input.companyId,
+    source: STAFF_REQUEST_SOURCE,
+    createdById: input.userId,
+    status: "new",
+    restockedAt: { not: null },
+  };
+  const [rows, totalCount] = await Promise.all([
+    prisma.stockRequest.findMany({
+      where,
+      select: {
+        id: true,
+        sku: true,
+        productTitle: true,
+        customerName: true,
+        restockedAt: true,
+        restockedWarehouse: true,
+      },
+      orderBy: { restockedAt: "asc" },
+      take: input.limit,
+    }),
+    prisma.stockRequest.count({ where }),
+  ]);
+  return { rows, totalCount };
 }
 
 const listSelect = {
@@ -332,7 +517,11 @@ const listSelect = {
   restockEmailSentAt: true,
   restockEmailError: true,
   restockedAt: true,
+  restockedWarehouse: true,
+  awaitingStock: true,
   source: true,
+  createdById: true,
+  createdBy: { select: { id: true, name: true, email: true } },
   lastActionAt: true,
   lastActionBy: { select: { id: true, name: true, email: true } },
 } satisfies Prisma.StockRequestSelect;
@@ -366,7 +555,10 @@ export function serializeStockRequest(row: StockRequestListRow): StockRequestIte
     restockEmailSentAt: iso(row.restockEmailSentAt),
     restockEmailError: row.restockEmailError,
     restockedAt: iso(row.restockedAt),
+    restockedWarehouse: row.restockedWarehouse,
+    awaitingStock: row.awaitingStock,
     source: row.source,
+    createdBy: row.createdBy,
     lastActionAt: iso(row.lastActionAt),
     lastActionBy: row.lastActionBy,
   };
@@ -374,12 +566,15 @@ export function serializeStockRequest(row: StockRequestListRow): StockRequestIte
 
 export async function listStockRequests(input: {
   companyId: string;
+  viewer: StockRequestViewer;
+  scope: StockRequestScope;
   status?: StockRequestListFilter;
   stock?: StockRequestStockFilter;
   search?: string;
   page?: number;
   limit?: number;
 }): Promise<StockRequestListResponse> {
+  if (!canViewScope(input.viewer, input.scope)) throw new StockRequestForbiddenError();
   const page = input.page ?? 1;
   const limit = input.limit ?? 25;
   const search = input.search?.trim();
@@ -397,6 +592,7 @@ export async function listStockRequests(input: {
         : {};
   const where: Prisma.StockRequestWhereInput = {
     companyId: input.companyId,
+    ...scopeFilter(input.viewer, input.scope),
     ...statusWhere,
     ...stockWhere,
     ...(search
@@ -424,21 +620,47 @@ export async function listStockRequests(input: {
   return { items: items.map(serializeStockRequest), total, page, limit };
 }
 
+async function findRequestForViewer(input: {
+  id: string;
+  companyId: string;
+  viewer: StockRequestViewer;
+  mode: "view" | "edit";
+}) {
+  const row = await prisma.stockRequest.findFirst({
+    where: { id: input.id, companyId: input.companyId },
+    select: {
+      id: true,
+      source: true,
+      createdById: true,
+      status: true,
+      remark: true,
+      soldFromInstanceId: true,
+      soldFromWarehouse: true,
+    },
+  });
+  if (!row) throw new Error("Not found");
+  const allowed = input.mode === "edit" ? canEditRequest(input.viewer, row) : canViewRequest(input.viewer, row);
+  if (!allowed) throw new StockRequestForbiddenError();
+  return row;
+}
+
 export async function updateStockRequest(input: {
   id: string;
   companyId: string;
-  actorUserId: string;
+  viewer: StockRequestViewer;
   body: StockRequestPatchBody;
 }): Promise<StockRequestItem> {
-  const before = await prisma.stockRequest.findFirst({
-    where: { id: input.id, companyId: input.companyId },
-    select: { id: true, status: true, remark: true, soldFromInstanceId: true, soldFromWarehouse: true },
-  });
-  if (!before) throw new Error("Not found");
+  const found = await findRequestForViewer({ ...input, mode: "edit" });
+  const before = {
+    status: found.status,
+    remark: found.remark,
+    soldFromInstanceId: found.soldFromInstanceId,
+    soldFromWarehouse: found.soldFromWarehouse,
+  };
 
   const data: Prisma.StockRequestUpdateInput = {
     lastActionAt: new Date(),
-    lastActionBy: { connect: { id: input.actorUserId } },
+    lastActionBy: { connect: { id: input.viewer.userId } },
   };
   if (input.body.status !== undefined) data.status = input.body.status;
   if (input.body.remark !== undefined) data.remark = input.body.remark || null;
@@ -456,7 +678,7 @@ export async function updateStockRequest(input: {
     : updated.status;
   await writeAuditLog({
     companyId: input.companyId,
-    actorUserId: input.actorUserId,
+    actorUserId: input.viewer.userId,
     module: "orders",
     action: "stock_request_updated",
     entityType: "stock_request",
@@ -475,14 +697,100 @@ export async function updateStockRequest(input: {
 }
 
 /** Staff "refresh stock": re-runs the lookup without re-sending the availability email. */
-export async function refreshStockLookup(input: { id: string; companyId: string }): Promise<StockRequestItem> {
-  const row = await prisma.stockRequest.findFirst({
-    where: { id: input.id, companyId: input.companyId },
-    select: { id: true },
-  });
-  if (!row) throw new Error("Not found");
+export async function refreshStockLookup(input: {
+  id: string;
+  companyId: string;
+  viewer: StockRequestViewer;
+}): Promise<StockRequestItem> {
+  const row = await findRequestForViewer({ ...input, mode: "view" });
   await runStockLookupForRequest(row.id, { sendAvailabilityEmail: false });
   return serializeStockRequest(
     await prisma.stockRequest.findUniqueOrThrow({ where: { id: row.id }, select: listSelect }),
   );
+}
+
+export type CreateStaffStockRequestResult = { item: StockRequestItem; duplicate: boolean };
+
+/**
+ * Staff/merchant request created in Cosmo OS (My requests). Product details come from the Cosmo
+ * product list when the SKU is there (website link), otherwise from the ERP item name the staff
+ * picked. Runs the stock check right away; no stock means it waits for an ERP restock.
+ */
+export async function createStaffStockRequest(input: {
+  companyId: string;
+  viewer: StockRequestViewer;
+  body: StaffStockRequestCreateBody;
+}): Promise<CreateStaffStockRequestResult> {
+  if (!input.viewer.canCreate) throw new StockRequestForbiddenError();
+  const { body } = input;
+
+  const existing = await prisma.stockRequest.findFirst({
+    where: {
+      companyId: input.companyId,
+      source: STAFF_REQUEST_SOURCE,
+      createdById: input.viewer.userId,
+      sku: body.sku,
+      customerPhone: body.customerPhone,
+      status: { in: OPEN_STATUSES },
+    },
+    select: listSelect,
+  });
+  if (existing) return { item: serializeStockRequest(existing), duplicate: true };
+
+  const product = await prisma.productItem.findFirst({
+    where: { companyId: input.companyId, sku: { equals: body.sku, mode: "insensitive" } },
+    select: {
+      sku: true,
+      productTitle: true,
+      variantTitle: true,
+      shopifyVariantId: true,
+      shopifyProductId: true,
+      handle: true,
+    },
+    orderBy: { updatedAt: "desc" },
+  });
+  const storefrontUrl = process.env.WISHLIST_BUDDY_STOREFRONT_URL?.trim().replace(/\/$/, "") || null;
+
+  const created = await prisma.stockRequest.create({
+    data: {
+      companyId: input.companyId,
+      source: STAFF_REQUEST_SOURCE,
+      createdById: input.viewer.userId,
+      sku: product?.sku ?? body.sku,
+      productTitle: product?.productTitle ?? body.productTitle ?? body.sku,
+      variantTitle: product?.variantTitle && product.variantTitle !== "Default Title" ? product.variantTitle : null,
+      shopifyVariantId: product?.shopifyVariantId ?? null,
+      shopifyProductId: product?.shopifyProductId ?? null,
+      productUrl:
+        storefrontUrl && product?.handle
+          ? `${storefrontUrl}/products/${product.handle}${product.shopifyVariantId ? `?variant=${product.shopifyVariantId}` : ""}`
+          : null,
+      customerName: body.customerName,
+      customerPhone: body.customerPhone,
+      customerEmail: body.customerEmail ?? null,
+      remark: body.remark ?? null,
+      stockLookupStatus: "pending",
+      lastActionAt: new Date(),
+      lastActionById: input.viewer.userId,
+    },
+    select: { id: true },
+  });
+
+  await writeAuditLog({
+    companyId: input.companyId,
+    actorUserId: input.viewer.userId,
+    module: "orders",
+    action: "stock_request_created",
+    entityType: "stock_request",
+    entityId: created.id,
+    summary: `Stock request created for ${product?.sku ?? body.sku}`,
+  });
+
+  await runStockLookupForRequest(created.id, { sendAvailabilityEmail: false, initialStaffLookup: true });
+  return {
+    item: serializeStockRequest(
+      await prisma.stockRequest.findUniqueOrThrow({ where: { id: created.id }, select: listSelect }),
+    ),
+    duplicate: false,
+  };
 }

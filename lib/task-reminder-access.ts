@@ -135,6 +135,7 @@ const ALL_TASK_REMINDER_CATEGORIES = [
   "invoice_complete",
   "return_action",
   "purchasing_rop_threshold",
+  "stock_request_restocked",
 ] as const satisfies readonly TaskReminderCategory[];
 
 export function listVisibleTaskReminderCategories(

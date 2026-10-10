@@ -75,3 +75,16 @@ export function demoStockLookup(sku: string): StockLookupResult {
     failedInstances: [],
   };
 }
+
+/** `WISHLIST_BUDDY_ERP_ORDER`: ERP instance label hints, first listed first. Default ERP2 then ERP1. */
+export function erpOrderHints(raw: string | undefined): string[] {
+  return parseWarehouseList(raw ?? "ERP_2,ERP_1");
+}
+
+/**
+ * `WISHLIST_BUDDY_PRIORITY_WAREHOUSES`: warehouses listed first for staff requests (they include
+ * the main warehouse). Default Main Warehouse - Cosmo.
+ */
+export function priorityWarehouses(raw: string | undefined): string[] {
+  return parseWarehouseList(raw ?? "Main Warehouse - Cosmo");
+}

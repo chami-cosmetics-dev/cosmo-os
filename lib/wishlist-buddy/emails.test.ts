@@ -38,3 +38,12 @@ describe("buildBackInStockEmail", () => {
     expect(buildBackInStockEmail({ ...base, shopName: null }).fromName).toBe("Cosmetics.lk");
   });
 });
+
+describe("buildBackInStockEmail without a product link", () => {
+  it("tells the customer the team will contact them", () => {
+    const email = buildBackInStockEmail({ ...base, productUrl: null });
+    expect(email.plain).toContain("We'll contact you shortly to arrange your order.");
+    expect(email.plain).not.toContain("order soon");
+    expect(email.html).not.toContain("Shop now");
+  });
+});

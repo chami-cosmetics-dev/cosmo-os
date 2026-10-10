@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import { ExternalLink, Mail, Phone, RefreshCw } from "lucide-react";
+import { ExternalLink, Mail, Package, Phone, Plus, RefreshCw, Search } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,6 +22,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { TableSkeleton } from "@/components/skeletons/table-skeleton";
 import { formatAppDateTime } from "@/lib/format-datetime";
@@ -93,21 +94,55 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function StockRequestsPanel({
+export type StockRequestsViewerProps = {
+  userId: string;
+  isAdmin: boolean;
+  canViewWeb: boolean;
+  canManageWeb: boolean;
+  canCreate: boolean;
+};
+
+type Scope = "web" | "mine";
+
+const SCOPE_COPY: Record<Scope, { title: string; description: string; restockedLabel: string }> = {
+  web: {
+    title: "Website requests",
+    description:
+      "Customers who asked to be notified about sold-out products on Shopify. Call those with stock in another warehouse. Open requests (New and Contacted) get a back-in-stock email when Shopify restocks; Order placed and Not interested do not.",
+    restockedLabel: "Back in stock on Shopify",
+  },
+  mine: {
+    title: "My requests",
+    description:
+      "Wishlist requests you created for customers. When an item with no stock anywhere comes back in any warehouse, you get a reminder and the customer gets an email (if they gave one).",
+    restockedLabel: "Back in stock",
+  },
+};
+
+function StockRequestsList({
+  scope,
   initialData,
-  canManage,
+  viewer,
 }: {
-  initialData: StockRequestListResponse;
-  canManage: boolean;
+  scope: Scope;
+  /** Null when this tab was not pre-loaded by the server: it loads on first open. */
+  initialData: StockRequestListResponse | null;
+  viewer: StockRequestsViewerProps;
 }) {
-  const [data, setData] = useState<StockRequestListResponse>(initialData);
+  const copy = SCOPE_COPY[scope];
+  const canEdit = (item: StockRequestItem) =>
+    scope === "web" ? viewer.canManageWeb : viewer.isAdmin || item.createdBy?.id === viewer.userId;
+  const [creating, setCreating] = useState(false);
+  const [data, setData] = useState<StockRequestListResponse>(
+    initialData ?? { items: [], total: 0, page: 1, limit: 25 },
+  );
   const [status, setStatus] = useState<string>("open");
   const [stock, setStock] = useState<string>("all");
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
-  const [page, setPage] = useState(initialData.page);
-  const [limit, setLimit] = useState(initialData.limit);
-  const [loading, setLoading] = useState(false);
+  const [page, setPage] = useState(initialData?.page ?? 1);
+  const [limit, setLimit] = useState(initialData?.limit ?? 25);
+  const [loading, setLoading] = useState(initialData === null);
   const [recheckingId, setRecheckingId] = useState<string | null>(null);
 
   const [editing, setEditing] = useState<StockRequestItem | null>(null);
@@ -116,7 +151,7 @@ export function StockRequestsPanel({
   const [formRemark, setFormRemark] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const firstLoad = useRef(true);
+  const firstLoad = useRef(initialData !== null);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -137,6 +172,7 @@ export function StockRequestsPanel({
       setLoading(true);
       try {
         const params = new URLSearchParams();
+        params.set("scope", scope);
         if (status !== "all") params.set("status", status);
         if (stock !== "all") params.set("stock", stock);
         if (search) params.set("search", search);
@@ -159,7 +195,7 @@ export function StockRequestsPanel({
     return () => {
       cancelled = true;
     };
-  }, [status, stock, search, page, limit]);
+  }, [scope, status, stock, search, page, limit]);
 
   function replaceItem(item: StockRequestItem) {
     setData((d) => ({ ...d, items: d.items.map((i) => (i.id === item.id ? item : i)) }));
@@ -233,18 +269,22 @@ export function StockRequestsPanel({
   return (
     <div className="space-y-4">
       <Card>
-        <CardHeader>
-          <CardTitle>Stock Requests</CardTitle>
-          <p className="text-sm text-muted-foreground">
-            Customers who asked to be notified about sold-out products on Shopify. Call those with stock
-            in another warehouse. Open requests (New and Contacted) get a back-in-stock email when Shopify
-            restocks; Order placed and Not interested do not.
-          </p>
+        <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3 space-y-0">
+          <div className="min-w-0 flex-1 space-y-1.5">
+            <CardTitle>{copy.title}</CardTitle>
+            <p className="text-sm text-muted-foreground">{copy.description}</p>
+          </div>
+          {scope === "mine" && viewer.canCreate && (
+            <Button type="button" onClick={() => setCreating(true)}>
+              <Plus className="mr-1.5 size-4" aria-hidden />
+              New request
+            </Button>
+          )}
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[220px_220px_minmax(0,1fr)]">
             <div className="space-y-1">
-              <label className="text-sm font-medium" htmlFor="stock-requests-status">
+              <label className="text-sm font-medium" htmlFor={`stock-requests-status-${scope}`}>
                 Status
               </label>
               <Select
@@ -254,7 +294,7 @@ export function StockRequestsPanel({
                   setStatus(v);
                 }}
               >
-                <SelectTrigger id="stock-requests-status" className="w-full">
+                <SelectTrigger id={`stock-requests-status-${scope}`} className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -269,7 +309,7 @@ export function StockRequestsPanel({
               </Select>
             </div>
             <div className="space-y-1">
-              <label className="text-sm font-medium" htmlFor="stock-requests-stock">
+              <label className="text-sm font-medium" htmlFor={`stock-requests-stock-${scope}`}>
                 Stock
               </label>
               <Select
@@ -279,24 +319,24 @@ export function StockRequestsPanel({
                   setStock(v);
                 }}
               >
-                <SelectTrigger id="stock-requests-stock" className="w-full">
+                <SelectTrigger id={`stock-requests-stock-${scope}`} className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All</SelectItem>
                   <SelectItem value="found">{STOCK_LOOKUP_STATUS_LABELS.found}</SelectItem>
-                  <SelectItem value="restocked">Back in stock on Shopify</SelectItem>
+                  <SelectItem value="restocked">{copy.restockedLabel}</SelectItem>
                   <SelectItem value="none">{STOCK_LOOKUP_STATUS_LABELS.none}</SelectItem>
                   <SelectItem value="error">{STOCK_LOOKUP_STATUS_LABELS.error}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-1 sm:col-span-2 lg:col-span-1">
-              <label className="text-sm font-medium" htmlFor="stock-requests-search">
+              <label className="text-sm font-medium" htmlFor={`stock-requests-search-${scope}`}>
                 Search
               </label>
               <Input
-                id="stock-requests-search"
+                id={`stock-requests-search-${scope}`}
                 placeholder="Name, phone, email, SKU or product"
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
@@ -336,12 +376,25 @@ export function StockRequestsPanel({
                         {item.restockedAt && (
                           <span
                             className="inline-flex items-center rounded border border-emerald-500/40 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-800 dark:text-emerald-200"
-                            title={`Back in stock on Shopify ${formatAppDateTime(new Date(item.restockedAt))}`}
+                            title={`${copy.restockedLabel} ${formatAppDateTime(new Date(item.restockedAt))}${item.restockedWarehouse ? ` (${item.restockedWarehouse})` : ""}`}
                           >
                             Back in stock
                           </span>
                         )}
+                        {scope === "mine" && item.awaitingStock && !item.restockedAt && (
+                          <span
+                            className="inline-flex items-center rounded border border-sky-500/40 bg-sky-500/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-sky-800 dark:text-sky-200"
+                            title="No stock anywhere yet. You'll get a reminder when it comes back."
+                          >
+                            Watching
+                          </span>
+                        )}
                       </div>
+                      {scope === "mine" && viewer.isAdmin && item.createdBy && (
+                        <div className="text-xs leading-snug text-muted-foreground">
+                          Created by {item.createdBy.name ?? item.createdBy.email ?? "staff"}
+                        </div>
+                      )}
                       {(item.lastActionBy?.name || item.lastActionAt) && (
                         <div className="text-xs leading-snug text-muted-foreground">
                           Updated
@@ -500,7 +553,7 @@ export function StockRequestsPanel({
                       )}
                     </div>
 
-                    {canManage && (
+                    {canEdit(item) && (
                       <div className="flex items-start justify-end lg:pl-2">
                         <Button type="button" variant="outline" size="sm" onClick={() => openEditor(item)}>
                           Update
@@ -526,9 +579,9 @@ export function StockRequestsPanel({
             />
           </div>
 
-          {!canManage && (
+          {scope === "web" && !viewer.canManageWeb && (
             <div className="text-xs text-muted-foreground">
-              View-only: updating stock requests is not available for your role.
+              View-only: updating website requests is not available for your role.
             </div>
           )}
         </CardContent>
@@ -615,6 +668,338 @@ export function StockRequestsPanel({
           )}
         </DialogContent>
       </Dialog>
+
+      {scope === "mine" && (
+        <NewStockRequestDialog
+          open={creating}
+          onOpenChange={setCreating}
+          onCreated={(item, duplicate) => {
+            setData((d) => ({
+              ...d,
+              items: [item, ...d.items.filter((i) => i.id !== item.id)],
+              total: duplicate ? d.total : d.total + 1,
+            }));
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+type ProductHit = {
+  sku: string;
+  title: string;
+  variantTitle: string | null;
+  imageUrl: string | null;
+  onWebsite: boolean;
+  inErp: boolean;
+};
+
+function NewStockRequestDialog({
+  open,
+  onOpenChange,
+  onCreated,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onCreated: (item: StockRequestItem, duplicate: boolean) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [hits, setHits] = useState<ProductHit[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [erpWarning, setErpWarning] = useState<string | null>(null);
+  const [product, setProduct] = useState<ProductHit | null>(null);
+  const [customerName, setCustomerName] = useState("");
+  const [customerPhone, setCustomerPhone] = useState("");
+  const [customerEmail, setCustomerEmail] = useState("");
+  const [remark, setRemark] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!open) {
+      setQuery("");
+      setHits([]);
+      setProduct(null);
+      setCustomerName("");
+      setCustomerPhone("");
+      setCustomerEmail("");
+      setRemark("");
+      setErpWarning(null);
+    }
+  }, [open]);
+
+  useEffect(() => {
+    const q = query.trim();
+    if (product || q.length < 2) {
+      setHits([]);
+      return;
+    }
+    let cancelled = false;
+    const t = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const res = await fetch(`/api/admin/stock-requests/product-search?q=${encodeURIComponent(q)}`);
+        const body = (await res.json().catch(() => ({}))) as {
+          hits?: ProductHit[];
+          erpErrors?: string[];
+          error?: string;
+        };
+        if (cancelled) return;
+        if (!res.ok) {
+          notify.error(body.error ?? "Product search failed");
+          return;
+        }
+        setHits(body.hits ?? []);
+        setErpWarning(body.erpErrors?.length ? "Some ERP item lists could not be searched." : null);
+      } finally {
+        if (!cancelled) setSearching(false);
+      }
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [query, product]);
+
+  async function submit() {
+    if (!product) {
+      notify.error("Pick a product first");
+      return;
+    }
+    setSaving(true);
+    try {
+      const res = await fetch("/api/admin/stock-requests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sku: product.sku,
+          productTitle: product.title,
+          customerName,
+          customerPhone,
+          customerEmail: customerEmail.trim() || undefined,
+          remark: remark.trim() || undefined,
+        }),
+      });
+      const body = (await res.json().catch(() => ({}))) as {
+        item?: StockRequestItem;
+        duplicate?: boolean;
+        error?: string;
+      };
+      if (!res.ok || !body.item) {
+        notify.error(body.error ?? "Could not create the request");
+        return;
+      }
+      onCreated(body.item, Boolean(body.duplicate));
+      notify.success(
+        body.duplicate
+          ? "This customer already has an open request for this item."
+          : body.item.stockLookupStatus === "found"
+            ? "Request saved. This item is in stock now; see where below."
+            : "Request saved. You'll get a reminder when it's back in stock.",
+      );
+      onOpenChange(false);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>New stock request</DialogTitle>
+          <DialogDescription>
+            Add a customer to the wishlist for an item. We check every warehouse now and remind you when it comes back.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <div className="space-y-1">
+            <label className="text-sm font-medium" htmlFor="new-stock-request-product">
+              Product
+            </label>
+            {product ? (
+              <div className="flex items-center gap-3 rounded-md border border-border p-2">
+                <ProductThumb hit={product} />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-medium">{product.title}</div>
+                  <div className="font-mono text-xs text-muted-foreground">{product.sku}</div>
+                </div>
+                <Button type="button" variant="ghost" size="sm" onClick={() => setProduct(null)}>
+                  Change
+                </Button>
+              </div>
+            ) : (
+              <>
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+                  <Input
+                    id="new-stock-request-product"
+                    className="pl-8"
+                    placeholder="Search by SKU or product name"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    autoComplete="off"
+                    autoFocus
+                  />
+                </div>
+                {searching && <div className="text-xs text-muted-foreground">Searching…</div>}
+                {!searching && query.trim().length >= 2 && hits.length === 0 && (
+                  <div className="text-xs text-muted-foreground">No products found.</div>
+                )}
+                {erpWarning && <div className="text-xs text-amber-700 dark:text-amber-300">{erpWarning}</div>}
+                {hits.length > 0 && (
+                  <ul className="max-h-64 divide-y divide-border overflow-y-auto rounded-md border border-border">
+                    {hits.map((hit) => (
+                      <li key={hit.sku}>
+                        <button
+                          type="button"
+                          className="flex w-full items-center gap-3 p-2 text-left hover:bg-muted/60 focus-visible:bg-muted/60 focus-visible:outline-none"
+                          onClick={() => setProduct(hit)}
+                        >
+                          <ProductThumb hit={hit} />
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate text-sm font-medium">{hit.title}</div>
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                              <span className="font-mono">{hit.sku}</span>
+                              <span
+                                className={cn(
+                                  "rounded px-1 py-px text-[10px] font-medium uppercase tracking-wide",
+                                  hit.onWebsite
+                                    ? "bg-emerald-500/10 text-emerald-800 dark:text-emerald-200"
+                                    : "bg-muted text-muted-foreground",
+                                )}
+                              >
+                                {hit.onWebsite ? "Website" : "ERP only"}
+                              </span>
+                            </div>
+                          </div>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </>
+            )}
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1 sm:col-span-2">
+              <label className="text-sm font-medium" htmlFor="new-stock-request-name">
+                Customer name
+              </label>
+              <Input id="new-stock-request-name" value={customerName} onChange={(e) => setCustomerName(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm font-medium" htmlFor="new-stock-request-phone">
+                Phone
+              </label>
+              <Input
+                id="new-stock-request-phone"
+                type="tel"
+                inputMode="tel"
+                placeholder="07X XXX XXXX"
+                value={customerPhone}
+                onChange={(e) => setCustomerPhone(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm font-medium" htmlFor="new-stock-request-email">
+                Email <span className="font-normal text-muted-foreground">(optional)</span>
+              </label>
+              <Input
+                id="new-stock-request-email"
+                type="email"
+                value={customerEmail}
+                onChange={(e) => setCustomerEmail(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1 sm:col-span-2">
+              <label className="text-sm font-medium" htmlFor="new-stock-request-remark">
+                Remark <span className="font-normal text-muted-foreground">(optional)</span>
+              </label>
+              <Textarea
+                id="new-stock-request-remark"
+                rows={2}
+                maxLength={2000}
+                value={remark}
+                onChange={(e) => setRemark(e.target.value)}
+              />
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            With an email, the customer is emailed automatically when the item is back in stock.
+          </p>
+
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
+              Cancel
+            </Button>
+            <Button type="button" onClick={() => void submit()} disabled={saving || !product}>
+              {saving ? "Saving and checking stock…" : "Save request"}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ProductThumb({ hit }: { hit: ProductHit }) {
+  return hit.imageUrl ? (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img src={hit.imageUrl} alt="" className="size-10 shrink-0 rounded object-cover" loading="lazy" />
+  ) : (
+    <div className="flex size-10 shrink-0 items-center justify-center rounded bg-muted text-muted-foreground">
+      <Package className="size-4" aria-hidden />
+    </div>
+  );
+}
+
+/**
+ * Stock Requests: "Website requests" (stock_requests.read) and "My requests"
+ * (stock_requests.create). Users with both, and admins, see both tabs.
+ */
+export function StockRequestsPanel({
+  viewer,
+  initialTab,
+  initialData,
+}: {
+  viewer: StockRequestsViewerProps;
+  initialTab: Scope;
+  initialData: StockRequestListResponse;
+}) {
+  const tabs: Scope[] = [
+    ...(viewer.canViewWeb ? (["web"] as const) : []),
+    ...(viewer.canCreate ? (["mine"] as const) : []),
+  ];
+  const [tab, setTab] = useState<Scope>(initialTab);
+
+  if (tabs.length <= 1) {
+    return <StockRequestsList scope={initialTab} initialData={initialData} viewer={viewer} />;
+  }
+
+  return (
+    <Tabs
+      value={tab}
+      onValueChange={(value) => {
+        const next = value as Scope;
+        setTab(next);
+        const url = new URL(window.location.href);
+        url.searchParams.set("tab", next);
+        window.history.replaceState(null, "", url);
+      }}
+      className="space-y-4"
+    >
+      <TabsList>
+        <TabsTrigger value="web">Website requests</TabsTrigger>
+        <TabsTrigger value="mine">My requests</TabsTrigger>
+      </TabsList>
+      {tabs.map((scope) => (
+        <TabsContent key={scope} value={scope}>
+          <StockRequestsList scope={scope} initialData={scope === initialTab ? initialData : null} viewer={viewer} />
+        </TabsContent>
+      ))}
+    </Tabs>
   );
 }

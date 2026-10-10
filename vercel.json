@@ -72,6 +72,10 @@
     {
       "path": "/api/cron/stock-price-missing-email",
       "schedule": "30 10 * * *"
+    },
+    {
+      "path": "/api/cron/wishlist-buddy-staff-restock",
+      "schedule": "*/30 * * * *"
     }
   ],
   "ignoreCommand": "node scripts/vercel-should-build.mjs",

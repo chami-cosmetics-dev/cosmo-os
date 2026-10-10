@@ -1,22 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { requirePermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
 import { updateStockRequest } from "@/lib/wishlist-buddy/requests";
+import { requireStockRequestViewer, stockRequestErrorResponse } from "@/lib/wishlist-buddy/route-auth";
 import { stockRequestPatchBodySchema } from "@/lib/wishlist-buddy/validation";
 
 export const dynamic = "force-dynamic";
 
+/** Website requests need stock_requests.manage; staff requests can be updated by their creator. */
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requirePermission("stock_requests.manage");
-  if (!auth.ok) {
-    return NextResponse.json({ error: auth.error }, { status: auth.status });
-  }
-  const companyId = auth.context!.user?.companyId;
-  const actorUserId = auth.context!.user?.id;
-  if (!companyId || !actorUserId) {
-    return NextResponse.json({ error: "No company associated with your account" }, { status: 404 });
-  }
+  const auth = await requireStockRequestViewer(["stock_requests.manage", "stock_requests.create"]);
+  if (!auth.ok) return auth.response;
 
   const idResult = cuidSchema.safeParse((await params).id);
   if (!idResult.success) {
@@ -29,10 +23,14 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   }
 
   try {
-    const item = await updateStockRequest({ id: idResult.data, companyId, actorUserId, body: bodyResult.data });
+    const item = await updateStockRequest({
+      id: idResult.data,
+      companyId: auth.companyId,
+      viewer: auth.viewer,
+      body: bodyResult.data,
+    });
     return NextResponse.json({ item });
-  } catch (e) {
-    const message = e instanceof Error ? e.message : String(e);
-    return NextResponse.json({ error: message }, { status: message === "Not found" ? 404 : 400 });
+  } catch (error) {
+    return stockRequestErrorResponse(error);
   }
 }
