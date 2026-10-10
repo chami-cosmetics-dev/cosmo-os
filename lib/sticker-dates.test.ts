@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   expireFromManufacture,
   formatDateTyping,
+  isManufactureDateAllowed,
   normalizeStickerDate,
 } from "@/lib/sticker-dates";
 
@@ -29,6 +30,19 @@ describe("expireFromManufacture", () => {
   it("adds 3 years", () => {
     expect(expireFromManufacture("03/07/2026")).toBe("03/07/2029");
     expect(expireFromManufacture("20260703")).toBe("03/07/2029");
+  });
+});
+
+describe("isManufactureDateAllowed", () => {
+  it("allows blank and 2024 onward", () => {
+    expect(isManufactureDateAllowed("")).toBe(true);
+    expect(isManufactureDateAllowed("01/01/2024")).toBe(true);
+    expect(isManufactureDateAllowed("03/07/2026")).toBe(true);
+  });
+
+  it("rejects 2023 and older", () => {
+    expect(isManufactureDateAllowed("31/12/2023")).toBe(false);
+    expect(isManufactureDateAllowed("01/01/2022")).toBe(false);
   });
 });
 

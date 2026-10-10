@@ -188,6 +188,53 @@ function matchChargeForKeys(
   return matchHyphenQualifiedCity(keys, chargeByLabelKey);
 }
 
+const zoneDefaultCache = new WeakMap<
+  Map<string, Prisma.Decimal | number | string>,
+  WeakMap<Set<string>, Prisma.Decimal | null>
+>();
+
+/**
+ * Most common rider charge among a zone's member cities that are on the charge sheet.
+ * Ties pick the lower amount. Null when no member city is priced.
+ */
+export function zoneDefaultRiderCharge(
+  members: Set<string>,
+  chargeByLabelKey: Map<string, Prisma.Decimal | number | string>
+): Prisma.Decimal | null {
+  let byMembers = zoneDefaultCache.get(chargeByLabelKey);
+  if (!byMembers) {
+    byMembers = new WeakMap();
+    zoneDefaultCache.set(chargeByLabelKey, byMembers);
+  }
+  if (byMembers.has(members)) return byMembers.get(members) ?? null;
+
+  const counts = new Map<string, number>();
+  for (const key of members) {
+    const charge = chargeByLabelKey.get(key);
+    if (charge == null) continue;
+    const amount = riderDeliveryChargeAmount(charge);
+    if (amount.lte(0)) continue;
+    const k = amount.toFixed(2);
+    counts.set(k, (counts.get(k) ?? 0) + 1);
+  }
+
+  let best: string | null = null;
+  let bestCount = 0;
+  for (const [k, count] of counts) {
+    if (
+      count > bestCount ||
+      (count === bestCount && best != null && new Prisma.Decimal(k).lt(best))
+    ) {
+      best = k;
+      bestCount = count;
+    }
+  }
+
+  const result = best ? new Prisma.Decimal(best) : null;
+  byMembers.set(members, result);
+  return result;
+}
+
 /** Resolve rider incentive from uploaded rule table; unmatched labels → 0. */
 export function resolveRiderIncentiveFromRules(input: {
   shippingRuleLabel: string | null | undefined;
@@ -210,6 +257,7 @@ export function resolveRiderIncentiveFromRules(input: {
  *    "Kohilawatta" matches the glued row "Kohilawatta-Colombo".
  *    "Pelawatta - Colombo" stays that row and does not use plain "Pelawatta".
  * 5) Zone A/B → shipping city → charge sheet (zone membership when loaded).
+ *    City not on the sheet → zone's most common member-city rider charge.
  * 6) Generic ERP "Delivery" or missing label → shipping city → charge sheet.
  */
 export function resolveRiderIncentiveMatch(input: {
@@ -277,23 +325,23 @@ export function resolveRiderIncentiveMatch(input: {
     const zoneKey = keys.find((k) => isZoneShippingLabelKey(k));
     if (zoneKey) {
       const cityKeys = shippingRuleLabelLookupKeys(input.shippingCity);
-      if (cityKeys.length === 0) {
-        return {
-          amount: new Prisma.Decimal(0),
-          matched: false,
-          labelKey: zoneKey,
-        };
-      }
-
       const members = input.zoneMembersByZone?.get(zoneKey);
-      if (members && members.size > 0) {
-        const preferred = cityKeys.filter((k) => members.has(k));
-        const preferredMatch = matchChargeForKeys(preferred, input.chargeByLabelKey);
-        if (preferredMatch) return preferredMatch;
+
+      if (cityKeys.length > 0) {
+        if (members && members.size > 0) {
+          const preferred = cityKeys.filter((k) => members.has(k));
+          const preferredMatch = matchChargeForKeys(preferred, input.chargeByLabelKey);
+          if (preferredMatch) return preferredMatch;
+        }
+
+        const cityMatch = matchChargeForKeys(cityKeys, input.chargeByLabelKey);
+        if (cityMatch) return cityMatch;
       }
 
-      const cityMatch = matchChargeForKeys(cityKeys, input.chargeByLabelKey);
-      if (cityMatch) return cityMatch;
+      const zoneRate = members ? zoneDefaultRiderCharge(members, input.chargeByLabelKey) : null;
+      if (zoneRate) {
+        return { amount: zoneRate, matched: true, labelKey: zoneKey };
+      }
 
       return {
         amount: new Prisma.Decimal(0),

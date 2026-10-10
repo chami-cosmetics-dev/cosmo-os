@@ -1,7 +1,7 @@
 "use client";
 
 import { Loader2 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -81,25 +81,6 @@ function formatWhen(iso: string) {
   return date.toLocaleString();
 }
 
-function orderMatchesQuery(row: OrderRow, query: string) {
-  const needle = query.trim().toLowerCase();
-  if (!needle) return true;
-  const haystack = [
-    row.orderNumber,
-    row.companyName,
-    row.cashAmount,
-    row.paymentMethod,
-    row.paymentGatewayPrimary,
-    row.invoiceClosed ? "complete" : "open",
-    row.blockReason,
-    row.selectedMop,
-  ]
-    .filter((value): value is string => Boolean(value))
-    .join(" ")
-    .toLowerCase();
-  return haystack.includes(needle);
-}
-
 export function RiderHandoverPanel({
   from,
   to,
@@ -118,17 +99,22 @@ export function RiderHandoverPanel({
   const [riderId, setRiderId] = useState("");
   const [summary, setSummary] = useState<SummaryResponse | null>(null);
   const [orders, setOrders] = useState<OrderRow[] | null>(null);
+  const [ordersRequested, setOrdersRequested] = useState(false);
   const [orderQuery, setOrderQuery] = useState("");
+  const [appliedQuery, setAppliedQuery] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageCount, setPageCount] = useState(1);
+  const [orderTotal, setOrderTotal] = useState(0);
+  const [ordersRefresh, setOrdersRefresh] = useState(0);
   const [modeByOrder, setModeByOrder] = useState<Record<string, string>>({});
   const [receipt, setReceipt] = useState<ReceiptView | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const isBusy = busyKey !== null || disabled;
   const slip = summary && summary.riderId === riderId && summary.from === from && summary.to === to ? summary : null;
   const shownReceipt = slip?.latestReceipt ?? receipt;
-  const visibleOrders = useMemo(
-    () => (orders ?? []).filter((row) => orderMatchesQuery(row, orderQuery)),
-    [orders, orderQuery],
-  );
+  const pageSize = 20;
+  const rangeStart = orderTotal === 0 ? 0 : (page - 1) * pageSize + 1;
+  const rangeEnd = Math.min(orderTotal, page * pageSize);
 
   async function readError(res: Response) {
     const data = (await res.json().catch(() => ({}))) as { error?: string; latestReceipt?: ReceiptView };
@@ -196,32 +182,76 @@ export function RiderHandoverPanel({
     }
   }
 
-  async function loadOrders() {
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const next = orderQuery.trim();
+      setAppliedQuery((current) => {
+        if (current !== next) setPage(1);
+        return next;
+      });
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [orderQuery]);
+
+  useEffect(() => {
+    if (!ordersRequested || !riderId) return;
+    const controller = new AbortController();
+    async function run() {
+      setBusyKey("orders");
+      try {
+        const params = new URLSearchParams({
+          riderId,
+          from,
+          to,
+          page: String(page),
+          q: appliedQuery,
+        });
+        const res = await fetch(`/api/admin/riders/handover/orders?${params.toString()}`, {
+          signal: controller.signal,
+        });
+        const data = await readError(res);
+        if (!res.ok) {
+          notify.error(data.error ?? "Could not load orders");
+          return;
+        }
+        const payload = data as {
+          orders?: OrderRow[];
+          total?: number;
+          page?: number;
+          pageCount?: number;
+        };
+        const rows = payload.orders ?? [];
+        setOrders(rows);
+        setOrderTotal(payload.total ?? rows.length);
+        setPageCount(payload.pageCount ?? 1);
+        if (typeof payload.page === "number" && payload.page !== page) setPage(payload.page);
+        setModeByOrder((current) => {
+          const next = { ...current };
+          for (const row of rows) {
+            if (!next[row.orderId] && row.selectedMop) next[row.orderId] = row.selectedMop;
+          }
+          return next;
+        });
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        notify.error("Could not load orders");
+      } finally {
+        if (!controller.signal.aborted) setBusyKey(null);
+      }
+    }
+    void run();
+    return () => controller.abort();
+  }, [ordersRequested, riderId, from, to, page, appliedQuery, ordersRefresh]);
+
+  function loadOrders() {
     if (!riderId) {
       notify.error("Select a rider");
       return;
     }
-    setBusyKey("orders");
-    try {
-      const params = new URLSearchParams({ riderId, from, to });
-      const res = await fetch(`/api/admin/riders/handover/orders?${params.toString()}`);
-      const data = await readError(res);
-      if (!res.ok) {
-        notify.error(data.error ?? "Could not load orders");
-        return;
-      }
-      const rows = ((data as { orders?: OrderRow[] }).orders ?? []);
-      setOrders(rows);
-      setModeByOrder((current) => {
-        const next = { ...current };
-        for (const row of rows) {
-          if (!next[row.orderId] && row.selectedMop) next[row.orderId] = row.selectedMop;
-        }
-        return next;
-      });
-    } finally {
-      setBusyKey(null);
-    }
+    setOrdersRequested(true);
+    setPage(1);
+    setAppliedQuery(orderQuery.trim());
+    setOrdersRefresh((value) => value + 1);
   }
 
   async function markInvoices() {
@@ -231,12 +261,8 @@ export function RiderHandoverPanel({
     }
     setBusyKey("close");
     try {
-      const modes = (orders ?? [])
-        .filter((row) => row.eligible)
-        .map((row) => ({
-          orderId: row.orderId,
-          modeOfPayment: modeByOrder[row.orderId] || row.selectedMop || "",
-        }))
+      const modes = Object.entries(modeByOrder)
+        .map(([orderId, modeOfPayment]) => ({ orderId, modeOfPayment: modeOfPayment.trim() }))
         .filter((row) => row.modeOfPayment);
       const res = await fetch("/api/admin/riders/handover/invoice-complete", {
         method: "POST",
@@ -260,20 +286,7 @@ export function RiderHandoverPanel({
           .join(" ");
         notify.error(`${closed} closed, ${failed.length} failed. ${detail}`);
       }
-      const params = new URLSearchParams({ riderId, from, to });
-      const refresh = await fetch(`/api/admin/riders/handover/orders?${params.toString()}`);
-      if (refresh.ok) {
-        const refreshed = (await refresh.json()) as { orders?: OrderRow[] };
-        const rows = refreshed.orders ?? [];
-        setOrders(rows);
-        setModeByOrder((current) => {
-          const next = { ...current };
-          for (const row of rows) {
-            if (!next[row.orderId] && row.selectedMop) next[row.orderId] = row.selectedMop;
-          }
-          return next;
-        });
-      }
+      setOrdersRefresh((value) => value + 1);
     } finally {
       setBusyKey(null);
     }
@@ -316,7 +329,11 @@ export function RiderHandoverPanel({
                 setRiderId(event.target.value);
                 setSummary(null);
                 setOrders(null);
+                setOrdersRequested(false);
                 setOrderQuery("");
+                setAppliedQuery("");
+                setPage(1);
+                setOrderTotal(0);
                 setReceipt(null);
               }}
             >
@@ -358,7 +375,7 @@ export function RiderHandoverPanel({
             </Button>
           ) : null}
           {canHandoverReceive ? (
-            <Button type="button" variant="outline" disabled={isBusy} onClick={() => void loadOrders()}>
+            <Button type="button" variant="outline" disabled={isBusy} onClick={() => loadOrders()}>
               {busyKey === "orders" ? (
                 <>
                   <Loader2 className="animate-spin" aria-hidden />
@@ -468,7 +485,7 @@ export function RiderHandoverPanel({
           </div>
         ) : null}
 
-        {canHandoverReceive && orders ? (
+        {canHandoverReceive && ordersRequested ? (
           <div className="space-y-3 print:hidden">
             <div className="flex flex-wrap items-center gap-3">
               <Input
@@ -477,10 +494,9 @@ export function RiderHandoverPanel({
                 placeholder="Search order, company, payment"
                 aria-label="Search loaded orders"
                 className="max-w-sm"
-                disabled={isBusy}
               />
               <p className="text-muted-foreground text-xs">
-                {visibleOrders.length} of {orders.length}
+                {rangeStart}–{rangeEnd} of {orderTotal}
               </p>
             </div>
             <div className="overflow-x-auto">
@@ -496,20 +512,22 @@ export function RiderHandoverPanel({
                   </tr>
                 </thead>
                 <tbody>
-                  {orders.length === 0 ? (
+                  {busyKey === "orders" && !orders ? (
                     <tr>
                       <td className="px-2 py-2" colSpan={6}>
-                        No delivery-complete orders in this range.
+                        Loading…
                       </td>
                     </tr>
-                  ) : visibleOrders.length === 0 ? (
+                  ) : orderTotal === 0 ? (
                     <tr>
                       <td className="px-2 py-2" colSpan={6}>
-                        No orders match this search.
+                        {appliedQuery
+                          ? "No orders match this search."
+                          : "No delivery-complete orders in this range."}
                       </td>
                     </tr>
                   ) : (
-                    visibleOrders.map((row) => (
+                    (orders ?? []).map((row) => (
                       <tr key={row.orderId} className="border-b">
                         <td className="px-2 py-2 whitespace-nowrap">{row.orderNumber}</td>
                         <td className="px-2 py-2">{row.companyName}</td>
@@ -550,6 +568,36 @@ export function RiderHandoverPanel({
                 </tbody>
               </table>
             </div>
+            {orderTotal > pageSize ? (
+              <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                <span className="text-muted-foreground tabular-nums">
+                  {rangeStart}–{rangeEnd} of {orderTotal}
+                </span>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={isBusy || page <= 1}
+                    onClick={() => setPage((current) => Math.max(1, current - 1))}
+                  >
+                    Previous
+                  </Button>
+                  <span className="tabular-nums">
+                    {page} / {pageCount}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={isBusy || page >= pageCount}
+                    onClick={() => setPage((current) => current + 1)}
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
+            ) : null}
             <Button type="button" disabled={isBusy} onClick={() => void markInvoices()}>
               {busyKey === "close" ? (
                 <>

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
-import { buildHandoverOrders, loadRiderHandoverDeliveries } from "@/lib/rider-handover";
+import { buildHandoverOrders, loadRiderHandoverDeliveries, pageHandoverDeliveries } from "@/lib/rider-handover";
 import { requirePermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
 
@@ -11,6 +11,8 @@ const querySchema = z.object({
   riderId: cuidSchema,
   from: z.string(),
   to: z.string(),
+  page: z.coerce.number().int().min(1).optional(),
+  q: z.string().optional(),
 });
 
 export async function GET(request: NextRequest) {
@@ -27,6 +29,8 @@ export async function GET(request: NextRequest) {
     riderId: request.nextUrl.searchParams.get("riderId") ?? "",
     from: request.nextUrl.searchParams.get("from") ?? "",
     to: request.nextUrl.searchParams.get("to") ?? "",
+    page: request.nextUrl.searchParams.get("page") ?? undefined,
+    q: request.nextUrl.searchParams.get("q") ?? "",
   });
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid date range" }, { status: 400 });
@@ -45,12 +49,20 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Invalid date range" }, { status: 400 });
   }
 
-  const orders = await buildHandoverOrders(loaded.deliveries);
+  const paged = pageHandoverDeliveries(loaded.deliveries, {
+    query: parsed.data.q,
+    page: parsed.data.page,
+  });
+  const orders = await buildHandoverOrders(paged.deliveries);
   return NextResponse.json({
     riderId: loaded.riderId,
     riderName: loaded.riderName,
     from: parsed.data.from,
     to: parsed.data.to,
+    page: paged.page,
+    pageSize: paged.pageSize,
+    total: paged.total,
+    pageCount: paged.pageCount,
     orders,
   });
 }
