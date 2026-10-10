@@ -299,6 +299,24 @@ export function StockRequestsPanel({
                         {formatAppDateTime(new Date(item.createdAt))}
                       </div>
                       <div className="text-sm font-medium">{STOCK_REQUEST_STATUS_LABELS[item.status]}</div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {item.source === "import" && (
+                          <span
+                            className="inline-flex items-center rounded border border-border bg-muted/60 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
+                            title="Imported from the previous back-in-stock app"
+                          >
+                            Imported
+                          </span>
+                        )}
+                        {item.restockedAt && (
+                          <span
+                            className="inline-flex items-center rounded border border-emerald-500/40 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-800 dark:text-emerald-200"
+                            title={`Back in stock on Shopify ${formatAppDateTime(new Date(item.restockedAt))}`}
+                          >
+                            Back in stock
+                          </span>
+                        )}
+                      </div>
                       {(item.lastActionBy?.name || item.lastActionAt) && (
                         <div className="text-xs leading-snug text-muted-foreground">
                           Updated
@@ -312,20 +330,28 @@ export function StockRequestsPanel({
                       <div className="min-w-0 space-y-1">
                         <SectionLabel>Customer</SectionLabel>
                         <div className="font-medium break-words">{item.customerName}</div>
-                        <a
-                          href={`tel:${item.customerPhone}`}
-                          className="inline-flex items-center gap-1.5 font-medium hover:underline"
-                        >
-                          <Phone className="size-3.5 shrink-0" aria-hidden />
-                          <span className="break-all">{item.customerPhone}</span>
-                        </a>
-                        <a
-                          href={`mailto:${item.customerEmail}`}
-                          className="flex items-center gap-1.5 break-all text-sm hover:underline"
-                        >
-                          <Mail className="size-3.5 shrink-0" aria-hidden />
-                          {item.customerEmail}
-                        </a>
+                        {item.customerPhone ? (
+                          <a
+                            href={`tel:${item.customerPhone}`}
+                            className="inline-flex items-center gap-1.5 font-medium hover:underline"
+                          >
+                            <Phone className="size-3.5 shrink-0" aria-hidden />
+                            <span className="break-all">{item.customerPhone}</span>
+                          </a>
+                        ) : (
+                          <div className="text-sm text-muted-foreground">Phone: —</div>
+                        )}
+                        {item.customerEmail ? (
+                          <a
+                            href={`mailto:${item.customerEmail}`}
+                            className="flex items-center gap-1.5 break-all text-sm hover:underline"
+                          >
+                            <Mail className="size-3.5 shrink-0" aria-hidden />
+                            {item.customerEmail}
+                          </a>
+                        ) : (
+                          <div className="text-sm text-muted-foreground">Email: — (call only)</div>
+                        )}
                       </div>
 
                       <div className="min-w-0 space-y-1">

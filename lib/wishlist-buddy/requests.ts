@@ -17,7 +17,7 @@ import {
   buildCheckingAvailabilityEmail,
   type StockRequestEmailInput,
 } from "@/lib/wishlist-buddy/emails";
-import { fetchShopifyVariantInfo } from "@/lib/wishlist-buddy/shopify-variant";
+import { fetchInventoryItemSku, fetchShopifyVariantInfo } from "@/lib/wishlist-buddy/shopify-variant";
 import { lookupStockAcrossErps } from "@/lib/wishlist-buddy/stock-lookup";
 import {
   demoStockLookup,
@@ -43,7 +43,7 @@ export class StockRequestInputError extends Error {
 }
 
 /** The Cosmo location connected to this Shopify store (not a shadow location), honouring aliases. */
-async function findStoreLocation(storeHandle: string) {
+export async function findStoreLocation(storeHandle: string) {
   const handle = resolveStoreHandleForLocation(storeHandle, process.env.WISHLIST_BUDDY_STORE_ALIASES);
   return prisma.companyLocation.findFirst({
     where: { shopifyAdminStoreHandle: handle, shadowParentLocationId: null },
@@ -195,7 +195,8 @@ export async function runStockLookupForRequest(
     },
   });
 
-  if (status !== "found" || !options.sendAvailabilityEmail) return;
+  if (status !== "found" || !options.sendAvailabilityEmail || !row.customerEmail) return;
+  const toEmail = row.customerEmail;
 
   // Claim first so concurrent lookups can't send twice.
   const claimed = await prisma.stockRequest.updateMany({
@@ -206,7 +207,7 @@ export async function runStockLookupForRequest(
 
   const email = buildCheckingAvailabilityEmail(emailInput(row));
   const sent = await sendCustomerEmail({
-    toEmail: row.customerEmail,
+    toEmail,
     ...email,
     errorLabel: "wishlist-buddy availability",
   });
@@ -217,24 +218,61 @@ export async function runStockLookupForRequest(
 }
 
 /**
- * Shopify `inventory_levels/update`: when available > 0, email every still-open request for
- * that inventory item once. Order placed / Not interested requests are skipped.
+ * Shopify `inventory_levels/update`: when available > 0, marks every still-open request for that
+ * item as restocked (phone-only requests too, so staff can call) and emails those with an email
+ * once. Order placed / Not interested requests are skipped.
+ *
+ * Imported requests have no inventory item ID, so they are matched by the item's SKU, read from
+ * Shopify; the ID is then filled in.
  */
 export async function sendRestockEmailsForInventoryItem(input: {
   shopDomain: string;
   inventoryItemId: string;
   available: number;
-}): Promise<{ sent: number; failed: number }> {
-  if (!(input.available > 0)) return { sent: 0, failed: 0 };
+}): Promise<{ restocked: number; sent: number; failed: number }> {
+  const none = { restocked: 0, sent: 0, failed: 0 };
+  if (!(input.available > 0)) return none;
   const storeHandle = normalizeShopifyStoreHandle(input.shopDomain);
-  if (!storeHandle) return { sent: 0, failed: 0 };
+  if (!storeHandle) return none;
+
+  let sku: string | null = null;
+  try {
+    sku = await fetchInventoryItemSku({ storeHandle, inventoryItemId: input.inventoryItemId });
+  } catch (error) {
+    console.warn("[Wishlist Buddy] inventory item SKU lookup failed; matching by inventory item only", {
+      inventoryItemId: input.inventoryItemId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  const match: Prisma.StockRequestWhereInput = {
+    shopifyStoreHandle: storeHandle,
+    status: { in: OPEN_STATUSES },
+    OR: [
+      { shopifyInventoryItemId: input.inventoryItemId },
+      ...(sku ? [{ shopifyInventoryItemId: null, sku }] : []),
+    ],
+  };
+
+  const now = new Date();
+  const restocked = await prisma.stockRequest.updateMany({
+    where: { ...match, restockedAt: null },
+    data: { restockedAt: now },
+  });
+  if (sku) {
+    await prisma.stockRequest.updateMany({
+      where: { shopifyStoreHandle: storeHandle, shopifyInventoryItemId: null, sku },
+      data: { shopifyInventoryItemId: input.inventoryItemId },
+    });
+  }
 
   const rows = await prisma.stockRequest.findMany({
     where: {
       shopifyStoreHandle: storeHandle,
-      shopifyInventoryItemId: input.inventoryItemId,
       status: { in: OPEN_STATUSES },
+      shopifyInventoryItemId: input.inventoryItemId,
       restockEmailSentAt: null,
+      customerEmail: { not: null },
     },
     orderBy: { createdAt: "asc" },
     take: 500,
@@ -243,6 +281,8 @@ export async function sendRestockEmailsForInventoryItem(input: {
   let sent = 0;
   let failed = 0;
   for (const row of rows) {
+    if (!row.customerEmail) continue;
+    const toEmail = row.customerEmail;
     const claimed = await prisma.stockRequest.updateMany({
       where: { id: row.id, restockEmailSentAt: null, status: { in: OPEN_STATUSES } },
       data: { restockEmailSentAt: new Date(), restockEmailError: null },
@@ -251,7 +291,7 @@ export async function sendRestockEmailsForInventoryItem(input: {
 
     const email = buildBackInStockEmail(emailInput(row));
     const result = await sendCustomerEmail({
-      toEmail: row.customerEmail,
+      toEmail,
       ...email,
       errorLabel: "wishlist-buddy restock",
     });
@@ -266,7 +306,7 @@ export async function sendRestockEmailsForInventoryItem(input: {
       });
     }
   }
-  return { sent, failed };
+  return { restocked: restocked.count, sent, failed };
 }
 
 const listSelect = {
@@ -290,6 +330,8 @@ const listSelect = {
   availabilityEmailSentAt: true,
   restockEmailSentAt: true,
   restockEmailError: true,
+  restockedAt: true,
+  source: true,
   lastActionAt: true,
   lastActionBy: { select: { id: true, name: true, email: true } },
 } satisfies Prisma.StockRequestSelect;
@@ -322,6 +364,8 @@ export function serializeStockRequest(row: StockRequestListRow): StockRequestIte
     availabilityEmailSentAt: iso(row.availabilityEmailSentAt),
     restockEmailSentAt: iso(row.restockEmailSentAt),
     restockEmailError: row.restockEmailError,
+    restockedAt: iso(row.restockedAt),
+    source: row.source,
     lastActionAt: iso(row.lastActionAt),
     lastActionBy: row.lastActionBy,
   };

@@ -3138,8 +3138,9 @@ model StockRequest {
   companyLocationId       String?
   /// Shop subdomain only (e.g. `cosmetics-lk`).
   shopifyStoreHandle      String
-  /// Numeric Shopify IDs (not GIDs).
-  shopifyVariantId        String
+  /// Numeric Shopify IDs (not GIDs). Variant is null for imported requests whose SKU is not in the
+  /// Cosmo product list.
+  shopifyVariantId        String?
   shopifyProductId        String?
   shopifyInventoryItemId  String?
   shopifyCustomerId       String?
@@ -3150,9 +3151,14 @@ model StockRequest {
   productUrl              String?
   shopName                String?
   customerName            String
-  customerEmail           String
+  /// At least one of email / phone is set (imported requests may have only one).
+  customerEmail           String?
   /// ERP-safe local format (0XXXXXXXXX).
-  customerPhone           String
+  customerPhone           String?
+  /// shopify (storefront form) | import (e.g. Restock Rocket export)
+  source                  String    @default("shopify")
+  /// Idempotency key for imports (e.g. restockrocket:<contact>|<sku>).
+  externalRef             String?
   /// new | contacted | order_placed | not_interested
   status                  String    @default("new")
   remark                  String?
@@ -3166,6 +3172,8 @@ model StockRequest {
   availabilityEmailSentAt DateTime?
   restockEmailSentAt      DateTime?
   restockEmailError       String?
+  /// When Shopify inventory came back while the request was open (set even without an email).
+  restockedAt             DateTime?
   lastActionById          String?
   lastActionAt            DateTime?
   createdAt               DateTime  @default(now())
@@ -3177,4 +3185,6 @@ model StockRequest {
   @@index([companyId, status, createdAt(sort: Desc)])
   @@index([companyId, shopifyVariantId, customerPhone])
   @@index([shopifyInventoryItemId, restockEmailSentAt])
+  @@unique([companyId, externalRef])
+  @@index([shopifyStoreHandle, sku])
 }
