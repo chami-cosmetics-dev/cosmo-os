@@ -39,6 +39,10 @@ export type CosmeticsStockReportDetail = CosmeticsStockReportRow & {
   shops: LocationStock[];
   /** Cosmetics main qty when the subject column is a different warehouse. */
   cosmeticsMainQty?: number | null;
+  /** Reorder point for the subject warehouse (focus, else Cosmetics main). */
+  rop?: number | null;
+  /** Subject stock ÷ ROP × 100. Null when ROP is missing or zero. */
+  stockPctOfRop?: number | null;
   commonSku?: string;
   erp1ProductPriority?: string | null;
   erp2ProductPriority?: string | null;
@@ -884,6 +888,24 @@ export function buildFocusCompare(input: {
 
 function filterText(value: string | null | undefined): string {
   return (value ?? "").trim().toLowerCase();
+}
+
+/** Subject warehouse stock as a percent of its ROP. Missing or zero ROP stays blank. */
+export function attachSubjectRopPercent(
+  rows: CosmeticsStockReportDetail[],
+  ropBySkuColumn: Map<string, number>,
+  columnKey: string | null,
+): CosmeticsStockReportDetail[] {
+  return rows.map((row) => {
+    const stored = columnKey ? ropBySkuColumn.get(`${key(row.SKU)}::${columnKey}`) : undefined;
+    const rop = stored != null && Number.isFinite(stored) && stored > 0 ? stored : null;
+    const ratio = percentOfRop(row["Main Warehouse Qty"], rop);
+    return {
+      ...row,
+      rop,
+      stockPctOfRop: ratio == null ? null : Math.round(ratio * 10000) / 100,
+    };
+  });
 }
 
 export function filterReportByMainRopPercent(

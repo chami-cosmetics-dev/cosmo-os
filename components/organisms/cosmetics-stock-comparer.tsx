@@ -76,7 +76,7 @@ const STOCK_EXPORT_HEADERS = [
   "Online Qty",
   "Shop Warehouse",
   "Shop Qty",
-  "Stock Available Elsewhere",
+  "% of ROP",
 ] as const;
 
 function appendBrandCheckSheet(workbook: XLSX.WorkBook, rows: BrandWarehouseViolation[]) {
@@ -156,7 +156,7 @@ function exportBrandReport(rows: BrandWarehouseViolation[]) {
   XLSX.writeFile(workbook, `cosmetics-brand-erp-check-${today}.xlsx`);
 }
 
-function exportStockReport(rows: CosmeticsStockReportDetail[]) {
+function exportStockReport(rows: CosmeticsStockReportDetail[], ropCutoff: number | null) {
   const workbook = XLSX.utils.book_new();
   const sheetRows: Array<Array<string | number>> = [[...STOCK_EXPORT_HEADERS]];
   const merges: XLSX.Range[] = [];
@@ -175,7 +175,7 @@ function exportStockReport(rows: CosmeticsStockReportDetail[]) {
         row.online[i]?.qty ?? "",
         row.shops[i]?.name ?? "",
         row.shops[i]?.qty ?? "",
-        i === 0 ? row["Stock Available Elsewhere"].toUpperCase() : "",
+        i === 0 ? (row.stockPctOfRop ?? "") : "",
       ]);
     }
 
@@ -246,15 +246,17 @@ function exportStockReport(rows: CosmeticsStockReportDetail[]) {
   }
 
   for (let r = 1; r <= range.e.r; r++) {
-    const elsewhereRef = XLSX.utils.encode_cell({ r, c: 9 });
-    const elsewhere = worksheet[elsewhereRef];
-    if (elsewhere) {
-      elsewhere.s = {
-        ...(elsewhere.s ?? {}),
+    const pctRef = XLSX.utils.encode_cell({ r, c: 9 });
+    const pct = worksheet[pctRef];
+    if (pct && typeof pct.v === "number") {
+      const low = ropCutoff != null ? pct.v <= ropCutoff : pct.v <= 0;
+      pct.s = {
+        ...(pct.s ?? {}),
         alignment: { horizontal: "center", vertical: "center" },
-        font: { bold: true, color: { rgb: "006100" } },
-        fill: { patternType: "solid", fgColor: { rgb: "C6E8C8" } },
+        font: { bold: true, color: { rgb: low ? "9F1D1D" : "006100" } },
+        fill: { patternType: "solid", fgColor: { rgb: low ? "F8D0D0" : "C6E8C8" } },
         border,
+        numFmt: '0.##"%"',
       };
     }
     const criticalRef = XLSX.utils.encode_cell({ r, c: 4 });
@@ -273,6 +275,30 @@ function exportStockReport(rows: CosmeticsStockReportDetail[]) {
   XLSX.utils.book_append_sheet(workbook, worksheet, "Stock Compare");
   const today = new Date().toISOString().slice(0, 10);
   XLSX.writeFile(workbook, `cosmetics-stock-compare-${today}.xlsx`);
+}
+
+function RopPercent({
+  value,
+  cutoff,
+}: {
+  value: number | null | undefined;
+  cutoff: number | null | undefined;
+}) {
+  if (value == null || !Number.isFinite(value)) {
+    return <span className="text-xs text-muted-foreground">—</span>;
+  }
+  const low = cutoff != null ? value <= cutoff : value <= 0;
+  return (
+    <span
+      className={
+        low
+          ? "font-semibold text-red-700 dark:text-red-300"
+          : "font-medium text-foreground"
+      }
+    >
+      {value}%
+    </span>
+  );
 }
 
 function LocationPills({
@@ -725,7 +751,7 @@ export function CosmeticsStockComparer() {
             <Button
               type="button"
               variant="outline"
-              onClick={() => exportStockReport(filteredRows)}
+              onClick={() => exportStockReport(filteredRows, lastLoad?.ropPercent ?? null)}
               disabled={isBusy || filteredRows.length === 0}
               className="gap-2"
             >
@@ -790,7 +816,7 @@ export function CosmeticsStockComparer() {
                             Shops
                           </span>
                         </TableHead>
-                        <TableHead className="sticky top-0 z-10 w-28 bg-background">Elsewhere</TableHead>
+                        <TableHead className="sticky top-0 z-10 w-24 bg-background text-right">% of ROP</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -826,16 +852,8 @@ export function CosmeticsStockComparer() {
                           <TableCell className="whitespace-normal align-top">
                             <LocationPills items={row.shops} empty="None" />
                           </TableCell>
-                          <TableCell className="align-top">
-                            {hasElsewhere(row) ? (
-                              <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">
-                                Yes
-                              </span>
-                            ) : (
-                              <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-                                No
-                              </span>
-                            )}
+                          <TableCell className="align-top text-right tabular-nums">
+                            <RopPercent value={row.stockPctOfRop} cutoff={lastLoad?.ropPercent} />
                           </TableCell>
                         </TableRow>
                       ))}

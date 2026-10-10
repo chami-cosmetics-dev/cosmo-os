@@ -4,6 +4,7 @@ import {
   buildBrandWarehouseViolations,
   buildCosmeticsStockReportDetails,
   buildFocusedStockReport,
+  attachSubjectRopPercent,
   decorateReportRows,
   filterReportByMainRopPercent,
   listWarehouseOptions,
@@ -212,20 +213,22 @@ export async function GET(request: NextRequest) {
         )?.key ?? null)
       : mainColumnKey;
     const ropBySkuColumn = new Map<string, number>();
-    if (ropPercent != null) {
-      const ropRows = await prisma.productOsfRop.findMany({
-        where: { companyId },
-        select: { sku: true, columnKey: true, ropQty: true },
-      });
-      for (const rop of ropRows) {
-        ropBySkuColumn.set(`${rop.sku.trim().toLowerCase()}::${rop.columnKey}`, rop.ropQty);
-      }
+    const ropRows = await prisma.productOsfRop.findMany({
+      where: { companyId },
+      select: { sku: true, columnKey: true, ropQty: true },
+    });
+    for (const rop of ropRows) {
+      ropBySkuColumn.set(`${rop.sku.trim().toLowerCase()}::${rop.columnKey}`, rop.ropQty);
     }
     const percentRows =
       ropPercent == null
         ? marked
         : filterReportByMainRopPercent(marked, ropBySkuColumn, focusColumnKey, ropPercent);
-    const rows = decorateReportRows(percentRows, identities);
+    const rows = attachSubjectRopPercent(
+      decorateReportRows(percentRows, identities),
+      ropBySkuColumn,
+      focusColumnKey,
+    );
 
     return NextResponse.json({
       threshold,

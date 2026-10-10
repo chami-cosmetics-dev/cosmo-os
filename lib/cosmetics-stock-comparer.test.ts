@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  attachSubjectRopPercent,
   buildBrandWarehouseViolations,
   buildCosmeticsStockReport,
   buildCosmeticsStockReportDetails,
@@ -568,6 +569,22 @@ describe("partition outlet main and shop", () => {
 
     expect(details[0]?.online).toMatchObject([{ name: "Pepiliyana", qty: 3, kind: "online" }]);
     expect(details[0]?.shops).toMatchObject([{ name: "Pepiliyana", qty: 0, kind: "shop" }]);
+  });
+});
+
+describe("attachSubjectRopPercent", () => {
+  it("sets stock as a percent of the subject reorder point", () => {
+    const details = buildCosmeticsStockReportDetails(
+      [row({ Item: "LOW", "Balance Qty": 15 }), row({ Item: "NOROP", "Balance Qty": 0 })],
+      100,
+    );
+    const attached = attachSubjectRopPercent(details, new Map([["low::cosmetics_lk", 100]]), "cosmetics_lk");
+    const low = attached.find((item) => item.SKU === "LOW");
+    const missing = attached.find((item) => item.SKU === "NOROP");
+    expect(low?.rop).toBe(100);
+    expect(low?.stockPctOfRop).toBe(15);
+    expect(missing?.rop).toBeNull();
+    expect(missing?.stockPctOfRop).toBeNull();
   });
 });
 
