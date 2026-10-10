@@ -11,6 +11,7 @@ import {
   resolveRiderIncentiveMatch,
   shippingRuleLabelLookupKeys,
   suggestRiderDistrictsFromAddress,
+  zoneDefaultRiderCharge,
 } from "@/lib/rider-delivery-charge";
 
 describe("normalizeShippingRuleLabelKey", () => {
@@ -450,6 +451,67 @@ describe("resolveRiderIncentiveMatch", () => {
       matched: true,
       labelKey: "negombo",
     });
+  });
+
+  it("pays the zone's common member rate when the city is not on the sheet", () => {
+    const map = new Map<string, string>([
+      ["galle", "400.00"],
+      ["hikkaduwa", "400.00"],
+      ["ahangama", "350.00"],
+      ["colombo 2", "300.00"],
+    ]);
+    const zoneMembersByZone = new Map<string, Set<string>>([
+      ["zone c-1", new Set(["galle", "hikkaduwa", "ahangama", "baddegama"])],
+    ]);
+    const baddegama = resolveRiderIncentiveMatch({
+      shippingRuleLabel: "Zone C-1",
+      shippingCity: "Baddegama",
+      chargeByLabelKey: map,
+      zoneMembersByZone,
+    });
+    expect(baddegama).toMatchObject({ matched: true, labelKey: "zone c-1" });
+    expect(baddegama.amount.toString()).toBe("400");
+
+    const balangoda = resolveRiderIncentiveMatch({
+      shippingRuleLabel: "Zone C-1",
+      shippingCity: "Balangoda",
+      chargeByLabelKey: map,
+      zoneMembersByZone,
+    });
+    expect(balangoda.amount.toString()).toBe("400");
+
+    const ahangama = resolveRiderIncentiveMatch({
+      shippingRuleLabel: "Zone C-1",
+      shippingCity: "Ahangama",
+      chargeByLabelKey: map,
+      zoneMembersByZone,
+    });
+    expect(ahangama).toMatchObject({ matched: true, labelKey: "ahangama" });
+    expect(ahangama.amount.toString()).toBe("350");
+  });
+
+  it("stays unmatched when no zone member city is priced", () => {
+    const map = new Map<string, string>([["colombo 2", "300.00"]]);
+    const zoneMembersByZone = new Map<string, Set<string>>([
+      ["zone c-1", new Set(["baddegama"])],
+    ]);
+    expect(
+      resolveRiderIncentiveMatch({
+        shippingRuleLabel: "Zone C-1",
+        shippingCity: "Baddegama",
+        chargeByLabelKey: map,
+        zoneMembersByZone,
+      })
+    ).toMatchObject({ matched: false, labelKey: "baddegama" });
+  });
+
+  it("zoneDefaultRiderCharge picks the lower amount on a tie", () => {
+    const map = new Map<string, string>([
+      ["a", "400.00"],
+      ["b", "350.00"],
+    ]);
+    expect(zoneDefaultRiderCharge(new Set(["a", "b"]), map)?.toString()).toBe("350");
+    expect(zoneDefaultRiderCharge(new Set(["x"]), map)).toBeNull();
   });
 });
 

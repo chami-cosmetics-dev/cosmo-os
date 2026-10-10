@@ -392,6 +392,57 @@ export type HandoverOrderView = {
   selectedMop: string | null;
 };
 
+export const HANDOVER_ORDERS_PAGE_SIZE = 20;
+
+export function handoverDeliveryMatchesQuery(
+  delivery: Pick<
+    HandoverDelivery,
+    | "orderNumber"
+    | "erpnextCompany"
+    | "locationName"
+    | "cashAmount"
+    | "paymentMethod"
+    | "paymentGatewayPrimary"
+    | "invoiceCompleteAt"
+    | "fulfillmentStage"
+  >,
+  query: string,
+): boolean {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return true;
+  const haystack = [
+    delivery.orderNumber,
+    handoverCompanyName(delivery.erpnextCompany, delivery.locationName),
+    delivery.cashAmount,
+    delivery.paymentMethod,
+    delivery.paymentGatewayPrimary,
+    isInvoiceClosed(delivery) ? "complete" : "open",
+  ]
+    .filter((value): value is string => Boolean(value))
+    .join(" ")
+    .toLowerCase();
+  return haystack.includes(needle);
+}
+
+export function pageHandoverDeliveries<T extends Parameters<typeof handoverDeliveryMatchesQuery>[0]>(
+  deliveries: T[],
+  input: { query?: string; page?: number; pageSize?: number },
+): { page: number; pageSize: number; total: number; pageCount: number; deliveries: T[] } {
+  const pageSize = input.pageSize ?? HANDOVER_ORDERS_PAGE_SIZE;
+  const matched = deliveries.filter((delivery) => handoverDeliveryMatchesQuery(delivery, input.query ?? ""));
+  const total = matched.length;
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
+  const page = Math.min(Math.max(1, input.page ?? 1), pageCount);
+  const start = (page - 1) * pageSize;
+  return {
+    page,
+    pageSize,
+    total,
+    pageCount,
+    deliveries: matched.slice(start, start + pageSize),
+  };
+}
+
 export async function buildHandoverOrders(deliveries: HandoverDelivery[]): Promise<HandoverOrderView[]> {
   const views: HandoverOrderView[] = [];
   for (const delivery of deliveries) {

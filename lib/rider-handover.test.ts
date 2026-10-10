@@ -7,9 +7,37 @@ import {
   handoverReceiptOverlaps,
   handoverSummaryCashAmount,
   isInvoiceClosed,
+  pageHandoverDeliveries,
   receiptDuplicateDecision,
   shouldCommitInvoiceComplete,
 } from "@/lib/rider-handover";
+
+describe("pageHandoverDeliveries", () => {
+  const row = (orderNumber: string, company: string) => ({
+    orderNumber,
+    erpnextCompany: company,
+    locationName: company,
+    cashAmount: "100.00",
+    paymentMethod: "Cash",
+    paymentGatewayPrimary: "Cash",
+    invoiceCompleteAt: null,
+    fulfillmentStage: "delivery_complete",
+  });
+
+  it("returns 20 rows and searches the whole list", () => {
+    const deliveries = Array.from({ length: 25 }, (_, index) =>
+      row(String(index + 1), index === 24 ? "Needle Co" : "Other Co"),
+    );
+    const first = pageHandoverDeliveries(deliveries, { page: 1 });
+    expect(first.total).toBe(25);
+    expect(first.deliveries).toHaveLength(20);
+    expect(first.pageCount).toBe(2);
+
+    const found = pageHandoverDeliveries(deliveries, { query: "needle", page: 1 });
+    expect(found.total).toBe(1);
+    expect(found.deliveries[0]?.orderNumber).toBe("25");
+  });
+});
 
 describe("groupCashByErpCompany", () => {
   it("groups by ERP company, drops zero cash, and sums the full total", () => {

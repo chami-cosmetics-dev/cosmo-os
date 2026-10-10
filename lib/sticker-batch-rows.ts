@@ -1,4 +1,4 @@
-import { parseDDMMYYYY } from "@/lib/sticker-dates";
+import { isManufactureDateAllowed, parseDDMMYYYY } from "@/lib/sticker-dates";
 
 export type StickerBatchRowFields = {
   locationId: string;
@@ -22,6 +22,7 @@ function datesAreValid(row: StickerBatchRowFields): boolean {
   const mfg = mfgRaw ? parseDDMMYYYY(mfgRaw) : null;
   const exp = expRaw ? parseDDMMYYYY(expRaw) : null;
   if (mfgRaw && !mfg) return false;
+  if (mfgRaw && !isManufactureDateAllowed(mfgRaw)) return false;
   if (expRaw && !exp) return false;
   if (mfg && exp && exp < mfg) return false;
   return true;
