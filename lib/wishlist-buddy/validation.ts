@@ -49,8 +49,16 @@ export type StockRequestPatchBody = z.infer<typeof stockRequestPatchBodySchema>;
 export const STOCK_REQUEST_LIST_FILTERS = ["open", ...STOCK_REQUEST_STATUSES] as const;
 export type StockRequestListFilter = (typeof STOCK_REQUEST_LIST_FILTERS)[number];
 
+/**
+ * Stock filter: found = stock in another warehouse (call now), restocked = Shopify restocked while
+ * open, none = no stock anywhere, error = stock check failed.
+ */
+export const STOCK_REQUEST_STOCK_FILTERS = ["found", "restocked", "none", "error"] as const;
+export type StockRequestStockFilter = (typeof STOCK_REQUEST_STOCK_FILTERS)[number];
+
 export const stockRequestListQuerySchema = z.object({
   status: z.enum(STOCK_REQUEST_LIST_FILTERS).optional(),
+  stock: z.enum(STOCK_REQUEST_STOCK_FILTERS).optional(),
   search: z.string().trim().max(100).optional(),
   page: z.coerce.number().int().min(1).optional(),
   limit: z.coerce.number().int().min(1).max(100).optional(),

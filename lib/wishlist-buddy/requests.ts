@@ -560,6 +560,7 @@ export function serializeStockRequest(row: StockRequestListRow): StockRequestIte
 export async function listStockRequests(input: {
   companyId: string;
   status?: StockRequestListFilter;
+  stock?: StockRequestStockFilter;
   search?: string;
   page?: number;
   limit?: number;
@@ -573,9 +574,16 @@ export async function listStockRequests(input: {
       : input.status
         ? { status: input.status }
         : {};
+  const stockWhere: Prisma.StockRequestWhereInput =
+    input.stock === "restocked"
+      ? { restockedAt: { not: null } }
+      : input.stock
+        ? { stockLookupStatus: input.stock }
+        : {};
   const where: Prisma.StockRequestWhereInput = {
     companyId: input.companyId,
     ...statusWhere,
+    ...stockWhere,
     ...(search
       ? {
           OR: [

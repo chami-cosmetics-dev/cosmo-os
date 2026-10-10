@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { notifyRequestBodySchema, shopifyNumericId, stockRequestPatchBodySchema } from "./validation";
+import {
+  notifyRequestBodySchema,
+  shopifyNumericId,
+  stockRequestListQuerySchema,
+  stockRequestPatchBodySchema,
+} from "./validation";
 
 describe("shopifyNumericId", () => {
   it("accepts numbers and GIDs", () => {
@@ -31,5 +36,16 @@ describe("stockRequestPatchBodySchema", () => {
     expect(stockRequestPatchBodySchema.safeParse({}).success).toBe(false);
     expect(stockRequestPatchBodySchema.safeParse({ status: "closed" }).success).toBe(false);
     expect(stockRequestPatchBodySchema.safeParse({ status: "order_placed" }).success).toBe(true);
+  });
+});
+
+describe("stockRequestListQuerySchema", () => {
+  it("accepts known stock filters and rejects others", () => {
+    expect(stockRequestListQuerySchema.parse({ stock: "found" }).stock).toBe("found");
+    expect(stockRequestListQuerySchema.parse({ stock: "restocked", status: "open" })).toMatchObject({
+      stock: "restocked",
+      status: "open",
+    });
+    expect(stockRequestListQuerySchema.safeParse({ stock: "pending" }).success).toBe(false);
   });
 });
