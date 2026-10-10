@@ -3,13 +3,22 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   buildBrandWarehouseViolations,
   buildCosmeticsStockReportDetails,
+  buildFocusedStockReport,
+  attachSubjectRopPercent,
+  decorateReportRows,
+  filterReportByMainRopPercent,
+  listWarehouseOptions,
   markCriticalTopSellers,
+  selectWatchedTargets,
+  type RopColumnRef,
   type StockBalanceRow,
 } from "@/lib/cosmetics-stock-comparer";
 import { loadWebsiteSalesLast90d } from "@/lib/cosmetics-stock-comparer-sales";
 import { buildCatalogRows } from "@/lib/osf/catalog-rows";
 import { resolveOsfColumns } from "@/lib/osf/column-config";
 import { fetchBinActualQty, getAllOsfErpInstances, OsfErpError } from "@/lib/osf/erp-stock";
+import { vatStatusLabel } from "@/lib/osf/vat-membership";
+import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
@@ -19,6 +28,14 @@ function parseThreshold(request: NextRequest) {
   const raw = request.nextUrl.searchParams.get("threshold") ?? "0";
   const parsed = Number(raw);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseRopPercent(request: NextRequest): number | null | "invalid" {
+  const raw = request.nextUrl.searchParams.get("ropPercent");
+  if (raw == null || raw.trim() === "") return null;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 100) return "invalid";
+  return parsed;
 }
 
 function erpSourceFromLabel(label: string | null, index: number): "ERP1" | "ERP2" {
@@ -42,6 +59,14 @@ export async function GET(request: NextRequest) {
   const threshold = parseThreshold(request);
   if (threshold == null) {
     return NextResponse.json({ error: "Stock threshold must be a number" }, { status: 400 });
+  }
+
+  const ropPercent = parseRopPercent(request);
+  if (ropPercent === "invalid") {
+    return NextResponse.json(
+      { error: "Reorder percent must be a number from 0 through 100" },
+      { status: 400 },
+    );
   }
 
   const [catalog, columns, erpInstances] = await Promise.all([
@@ -76,7 +101,32 @@ export async function GET(request: NextRequest) {
     warehousesByInstance.set(column.erpnextInstanceId, set);
   }
 
-  if (![...warehousesByInstance.values()].some((warehouses) => warehouses.size > 0)) {
+  const ropColumns: RopColumnRef[] = columns
+    .filter((column) => column.active)
+    .map((column) => ({
+      key: column.key,
+      label: column.label,
+      warehouses: column.warehouses,
+      erpSource: column.erpnextInstanceId
+        ? (sourceByInstanceId.get(column.erpnextInstanceId) ?? "")
+        : "",
+      active: column.active,
+      includeInRop: column.includeInRop,
+      companyLocationName: column.companyLocationName,
+    }));
+  const watchedTargets = selectWatchedTargets(ropColumns);
+  const warehouses = listWarehouseOptions(ropColumns, watchedTargets);
+  const focusRaw = request.nextUrl.searchParams.get("focusWarehouse")?.trim() ?? "";
+  let focusWarehouse: string | null = null;
+  if (focusRaw) {
+    const match = warehouses.find((warehouse) => warehouse.name.toLowerCase() === focusRaw.toLowerCase());
+    if (!match) {
+      return NextResponse.json({ error: "Unknown warehouse" }, { status: 400 });
+    }
+    focusWarehouse = match.name;
+  }
+
+  if (![...warehousesByInstance.values()].some((names) => names.size > 0)) {
     return NextResponse.json(
       {
         error: "ERP warehouses missing",
@@ -89,15 +139,15 @@ export async function GET(request: NextRequest) {
 
   try {
     const perInstanceBins = await Promise.all(
-      [...warehousesByInstance.entries()].map(async ([instanceId, warehouses]) => {
+      [...warehousesByInstance.entries()].map(async ([instanceId, names]) => {
         const instance = instanceById.get(instanceId);
-        if (!instance) return { instanceId, warehouses: [...warehouses], bins: new Map<string, number>() };
+        if (!instance) return { instanceId, warehouses: [...names], bins: new Map<string, number>() };
         const bins = await fetchBinActualQty({
           cfg: instance.cfg,
-          warehouses: [...warehouses],
+          warehouses: [...names],
           itemCodes,
         });
-        return { instanceId, warehouses: [...warehouses], bins };
+        return { instanceId, warehouses: [...names], bins };
       }),
     );
 
@@ -119,7 +169,9 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const baseRows = buildCosmeticsStockReportDetails(stockRows, threshold);
+    const thresholdRows = focusWarehouse
+      ? buildFocusedStockReport(stockRows, focusWarehouse, threshold)
+      : buildCosmeticsStockReportDetails(stockRows, threshold);
     const brandViolations = buildBrandWarehouseViolations(stockRows);
 
     let salesStatus: "ok" | "unavailable" = "ok";
@@ -139,12 +191,53 @@ export async function GET(request: NextRequest) {
       salesStatus = "unavailable";
     }
 
-    const { rows, cutoff } = markCriticalTopSellers(baseRows, salesBySku, salesStatus === "ok");
+    const listSource =
+      ropPercent == null
+        ? thresholdRows
+        : focusWarehouse
+          ? buildFocusedStockReport(stockRows, focusWarehouse, Number.POSITIVE_INFINITY)
+          : buildCosmeticsStockReportDetails(stockRows, Number.POSITIVE_INFINITY);
+    const { rows: marked, cutoff } = markCriticalTopSellers(listSource, salesBySku, salesStatus === "ok");
+
+    const identities = catalog.map((item) => ({
+      sku: item.sku,
+      productTitle: item.productTitle,
+      erp1ProductPriority: item.erp1ProductPriority,
+      erp2ProductPriority: item.erp2ProductPriority,
+      vatStatus: vatStatusLabel(item),
+    }));
+    const mainColumnKey = watchedTargets.find((target) => target.role === "cosmetics-main")?.columnKey ?? null;
+    const focusColumnKey = focusWarehouse
+      ? (ropColumns.find((column) =>
+          column.warehouses.some((warehouse) => warehouse.trim().toLowerCase() === focusWarehouse.toLowerCase()),
+        )?.key ?? null)
+      : mainColumnKey;
+    const ropBySkuColumn = new Map<string, number>();
+    const ropRows = await prisma.productOsfRop.findMany({
+      where: { companyId },
+      select: { sku: true, columnKey: true, ropQty: true },
+    });
+    for (const rop of ropRows) {
+      ropBySkuColumn.set(`${rop.sku.trim().toLowerCase()}::${rop.columnKey}`, rop.ropQty);
+    }
+    const percentRows =
+      ropPercent == null
+        ? marked
+        : filterReportByMainRopPercent(marked, ropBySkuColumn, focusColumnKey, ropPercent);
+    const rows = attachSubjectRopPercent(
+      decorateReportRows(percentRows, identities),
+      ropBySkuColumn,
+      focusColumnKey,
+    );
 
     return NextResponse.json({
       threshold,
+      ropPercent,
+      focusWarehouse,
       itemCount: itemCodes.length,
       warehouseCount: new Set(stockRows.map((row) => String(row.Warehouse))).size,
+      watchedWarehouseCount: watchedTargets.length,
+      warehouses,
       salesWindow,
       salesStatus,
       criticalCutoffUnits: cutoff,

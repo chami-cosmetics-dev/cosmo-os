@@ -31,6 +31,8 @@ describe("shippingRuleLabelLookupKeys", () => {
       "colombo 2",
     ]);
     expect(shippingRuleLabelLookupKeys("Ja-Ela - DTD")).toEqual(["ja-ela - dtd", "ja-ela"]);
+    expect(shippingRuleLabelLookupKeys("Pelawatta - Colombo")).toEqual(["pelawatta - colombo"]);
+    expect(shippingRuleLabelLookupKeys("Pelawatta - PEVI")).toEqual(["pelawatta - pevi", "pelawatta"]);
   });
 });
 
@@ -135,6 +137,96 @@ describe("resolveRiderIncentiveMatch", () => {
     });
   });
 
+  it("matches Kohilawatta - PEVI to sheet Kohilawatta-Colombo", () => {
+    const map = new Map<string, string>([
+      ["kohilawatta-colombo", "400.00"],
+      ["ambathale", "400.00"],
+      ["ja-ela", "400.00"],
+    ]);
+    expect(
+      resolveRiderIncentiveMatch({
+        shippingRuleLabel: "Kohilawatta - PEVI",
+        chargeByLabelKey: map,
+      })
+    ).toMatchObject({
+      matched: true,
+      labelKey: "kohilawatta-colombo",
+      amount: expect.anything(),
+    });
+    expect(
+      resolveRiderIncentiveFromRules({
+        shippingRuleLabel: "Kohilawatta - PEVI",
+        chargeByLabelKey: map,
+      }).toString()
+    ).toBe("400");
+    expect(
+      resolveRiderIncentiveMatch({
+        shippingRuleLabel: "Ja-Ela - DTD",
+        chargeByLabelKey: map,
+      })
+    ).toMatchObject({
+      matched: true,
+      labelKey: "ja-ela",
+    });
+  });
+
+  it("keeps Pelawatta separate from Pelawatta - Colombo", () => {
+    const map = new Map<string, string>([
+      ["pelawatta", "180.00"],
+      ["pelawatta - colombo", "300.00"],
+      ["pelawatta - kalutara", "400.00"],
+    ]);
+    expect(
+      resolveRiderIncentiveMatch({
+        shippingRuleLabel: "Pelawatta - PEVI",
+        chargeByLabelKey: map,
+      })
+    ).toMatchObject({
+      matched: true,
+      labelKey: "pelawatta",
+    });
+    expect(
+      resolveRiderIncentiveFromRules({
+        shippingRuleLabel: "Pelawatta - Colombo",
+        chargeByLabelKey: map,
+      }).toString()
+    ).toBe("300");
+    expect(
+      resolveRiderIncentiveMatch({
+        shippingRuleLabel: "Pelawatta - Colombo",
+        chargeByLabelKey: new Map<string, string>([["pelawatta", "180.00"]]),
+      })
+    ).toMatchObject({
+      matched: false,
+      labelKey: "pelawatta - colombo",
+    });
+    expect(
+      resolveRiderIncentiveMatch({
+        shippingRuleLabel: "Pelawatte",
+        chargeByLabelKey: map,
+      })
+    ).toMatchObject({
+      matched: false,
+      labelKey: "pelawatte",
+    });
+  });
+
+  it("does not guess when two district rows share the city", () => {
+    const map = new Map<string, string>([
+      ["moragala - gampaha", "400.00"],
+      ["moragala - kalutara", "400.00"],
+    ]);
+    expect(
+      resolveRiderIncentiveMatch({
+        shippingRuleLabel: "Moragala - PEVI",
+        chargeByLabelKey: map,
+      })
+    ).toMatchObject({
+      matched: false,
+      labelKey: "moragala - pevi",
+    });
+  });
+
   it("matches Colombo 2 - DTD to sheet Colombo 2", () => {
     const map = new Map<string, string>([
       ["colombo 2", "300.00"],
@@ -186,13 +278,13 @@ describe("resolveRiderIncentiveMatch", () => {
     ).toBe("300");
   });
 
-  it("excludes Pick Up and FREESHIP from incentive (not unmatched)", () => {
+  it("excludes Pick Up and STAFFDC from incentive (not unmatched)", () => {
     const map = new Map<string, string>([
       ["nugegoda", "300.00"],
       ["delgoda", "400.00"],
     ]);
     expect(isExcludedFromRiderIncentiveLabel("Pick Up")).toBe(true);
-    expect(isExcludedFromRiderIncentiveLabel("FREESHIP")).toBe(true);
+    expect(isExcludedFromRiderIncentiveLabel("FREESHIP")).toBe(false);
     expect(isExcludedFromRiderIncentiveLabel("STAFFDC")).toBe(true);
     expect(
       resolveRiderIncentiveMatch({
@@ -206,6 +298,20 @@ describe("resolveRiderIncentiveMatch", () => {
       amount: expect.anything(),
     });
     expect(
+      resolveRiderIncentiveFromRules({
+        shippingRuleLabel: "Pick Up",
+        shippingCity: "delgoda",
+        chargeByLabelKey: map,
+      }).toString()
+    ).toBe("0");
+  });
+
+  it("pays FREESHIP from the delivery district", () => {
+    const map = new Map<string, string>([
+      ["nugegoda", "300.00"],
+      ["delgoda", "400.00"],
+    ]);
+    expect(
       resolveRiderIncentiveMatch({
         shippingRuleLabel: "FREESHIP",
         shippingCity: "Nugegoda",
@@ -213,15 +319,15 @@ describe("resolveRiderIncentiveMatch", () => {
       })
     ).toMatchObject({
       matched: true,
-      excludedFromIncentive: true,
+      labelKey: "nugegoda",
     });
     expect(
       resolveRiderIncentiveFromRules({
-        shippingRuleLabel: "Pick Up",
+        shippingRuleLabel: "free shipping",
         shippingCity: "delgoda",
         chargeByLabelKey: map,
       }).toString()
-    ).toBe("0");
+    ).toBe("400");
   });
 
   it("matches ERP Delivery + city mattakkuliya to district charge", () => {
@@ -274,6 +380,29 @@ describe("resolveRiderIncentiveMatch", () => {
         manualIncentiveLabelKey: "mattakkuliya",
       }).toString()
     ).toBe("300");
+  });
+
+  it("uses a typed manual amount over an unmatched label", () => {
+    const map = new Map<string, string>([["mattakkuliya", "300.00"]]);
+    expect(
+      resolveRiderIncentiveMatch({
+        shippingRuleLabel: "Delivery",
+        shippingCity: "Sri Lanka",
+        chargeByLabelKey: map,
+        manualIncentiveAmount: "450.50",
+      })
+    ).toMatchObject({
+      matched: true,
+      manualOverride: true,
+      labelKey: null,
+    });
+    expect(
+      resolveRiderIncentiveFromRules({
+        shippingRuleLabel: "Delivery",
+        chargeByLabelKey: map,
+        manualIncentiveAmount: "450.50",
+      }).toString()
+    ).toBe("450.5");
   });
 
   it("keeps Pick Up excluded even when manual key present", () => {

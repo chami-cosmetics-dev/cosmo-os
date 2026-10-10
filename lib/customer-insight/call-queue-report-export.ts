@@ -2,6 +2,7 @@ import * as XLSX from "xlsx";
 
 import type { CallQueueReportRow } from "@/lib/customer-insight/call-queue-report";
 import { formatAppIsoDate } from "@/lib/format-datetime";
+import { formatIsoDate } from "@/lib/reports/csv";
 
 export function buildCallQueueSalesReportWorkbook(input: {
   rows: CallQueueReportRow[];
@@ -18,6 +19,7 @@ export function buildCallQueueSalesReportWorkbook(input: {
     "Sales after assign": "",
     "Sales after contact": "",
     "First contact after assign": "",
+    "First purchase": "",
   };
 
   const sheetRows =
@@ -28,12 +30,15 @@ export function buildCallQueueSalesReportWorkbook(input: {
           Phone: row.phoneNumber ?? "",
           "Assigned date": row.assignedAt,
           Status: row.status,
-          Category: row.category ?? "",
+          Category: row.category?.trim() || "N/A",
           "Loyalty stage": row.loyaltyStage ?? "",
           "Lifetime at assign": row.lifetimeTotalAtAssign,
           "Sales after assign": row.salesAfterAssignment,
           "Sales after contact": row.salesAfterContact,
           "First contact after assign": row.firstContactAfterAssignAt ?? "",
+          "First purchase": row.firstPurchaseAt
+            ? formatIsoDate(new Date(row.firstPurchaseAt))
+            : "",
         }))
       : [emptyRow];
 

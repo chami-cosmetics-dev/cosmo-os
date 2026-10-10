@@ -27,6 +27,10 @@ describe("canRequestPaymentMethodChange", () => {
   it("blocks bank transfer, card, and Mintpay", () => {
     expect(canRequestPaymentMethodChange({ paymentGatewayPrimary: "bank_transfer" })).toBe(false);
     expect(canRequestPaymentMethodChange({ paymentGatewayPrimary: "cc_checkout" })).toBe(false);
+    expect(getPaymentMethodInfo({ paymentGatewayPrimary: "cc_checkout" })).toEqual({
+      label: "CC Checkout",
+      variant: "card",
+    });
     expect(canRequestPaymentMethodChange({ paymentGatewayPrimary: "mintpay" })).toBe(false);
   });
 

@@ -14,6 +14,7 @@ import { eligibleMerchantUserWhere } from "@/lib/merchant-eligibility";
 import { resolveErpWebhookCustomerName } from "@/lib/erpnext-customer-display-name";
 import { findBarcodeForSku } from "@/lib/product-item-barcode.server";
 import { erpInvoiceReferenceLookupValues } from "@/lib/erp-invoice-reference";
+import { shouldVoidOrderForCancelledSalesInvoice } from "@/lib/erp-duplicate-sales-invoice";
 import {
   handleErpSalesInvoiceCreditNoteEvent,
   isErpReturnSalesInvoice,
@@ -74,6 +75,7 @@ async function findLinkedVaultOrderForErpInvoice(data: {
       orderNumber: true,
       companyId: true,
       financialStatus: true,
+      erpnextInvoiceId: true,
       assignedMerchant: { select: { name: true } },
     },
   });
@@ -348,6 +350,18 @@ export async function ingestParsedErpSalesInvoice(input: {
   const linkedVaultOrder = await findLinkedVaultOrderForErpInvoice(data);
   if (linkedVaultOrder) {
     if (data.docstatus === 2) {
+      if (
+        !shouldVoidOrderForCancelledSalesInvoice({
+          cancelledInvoiceName: data.name,
+          linkedInvoiceId: linkedVaultOrder.erpnextInvoiceId,
+        })
+      ) {
+        console.log(
+          `[ERPNext webhook] Cancelled duplicate invoice ${data.name} — order ${linkedVaultOrder.name ?? linkedVaultOrder.orderNumber ?? linkedVaultOrder.id} stays on ${linkedVaultOrder.erpnextInvoiceId}`,
+        );
+        return { ok: true, skipped: true, reason: "duplicate_invoice_cancel" };
+      }
+
       await prisma.order.update({
         where: { id: linkedVaultOrder.id },
         data: { financialStatus: "voided" },

@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { loadAssignedMerchantAliasMap } from "@/lib/customer-insight/allocation-summary";
 import { buildCallQueueSalesReportWorkbook } from "@/lib/customer-insight/call-queue-report-export";
 import { listCallQueueSalesReport } from "@/lib/customer-insight/call-queue-report";
+import { firstPurchaseAtByContactIds } from "@/lib/customer-insight/first-purchase";
+import { formatStoredAllocatedMerchant } from "@/lib/reports/allocated-merchant-format";
 import { hasInsightAdminView } from "@/lib/customer-insight/ownership";
 import { requirePermission } from "@/lib/rbac";
 import { customerInsightCallQueueReportQuerySchema } from "@/lib/validation/customer-insight";
@@ -44,12 +47,26 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const report = await listCallQueueSalesReport({
+  const [report, aliasToRoster] = await Promise.all([
+    listCallQueueSalesReport({
+      companyId,
+      ...parsed.data,
+    }),
+    loadAssignedMerchantAliasMap(companyId),
+  ]);
+  const firstPurchaseById = await firstPurchaseAtByContactIds(
     companyId,
-    ...parsed.data,
-  });
+    report.rows.map((row) => row.contactId)
+  );
   const { buffer, filename } = buildCallQueueSalesReportWorkbook({
-    rows: report.rows,
+    rows: report.rows.map((row) => ({
+      ...row,
+      merchantLabel: formatStoredAllocatedMerchant(
+        row.merchantLabel,
+        aliasToRoster
+      ),
+      firstPurchaseAt: firstPurchaseById.get(row.contactId)?.toISOString() ?? null,
+    })),
   });
 
   return new NextResponse(new Uint8Array(buffer), {

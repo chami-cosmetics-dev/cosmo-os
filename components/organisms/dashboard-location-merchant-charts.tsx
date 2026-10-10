@@ -83,11 +83,11 @@ export function DashboardLocationMerchantCharts({
       case "done_after_delivery":
         return "Created in range, delivered and invoice complete.";
       case "bill_done_in_dates":
-        return "Created in range and invoice completed in range (separate scoreboard).";
+        return "Created in range and invoice completed in range (separate scoreboard). Returned to store excluded.";
       case "delivered_in_dates":
         return "Created in range and delivery completed in range (non-POS, still at delivery complete).";
       case "bill_done_old":
-        return "Invoice completed in range for orders placed before the range.";
+        return "Invoice completed in range for orders placed before the range. Returned to store excluded.";
       case "delivered_old":
         return "Delivery completed in range for orders placed before the range (non-POS).";
       case "still_bill_open":

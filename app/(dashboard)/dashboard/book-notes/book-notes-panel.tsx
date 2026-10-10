@@ -42,8 +42,12 @@ import type {
 import {
   BOOK_NOTE_ERP_PAYMENT_METHODS,
   columnsToSplitLines,
+  MINTPAY_ORDER_ID_LABEL,
+  mintpayReferenceDigitWarning,
   missingKokoSplitReference,
+  missingMintpaySplitReference,
   normalizeKokoOrderReference,
+  normalizeMintpayReference,
   rowTotalFromSplitLines,
   type BookNoteErpPaymentMethod,
 } from "@/lib/book-notes/split-lines";
@@ -56,6 +60,7 @@ type SplitLineForm = {
   amount: string;
   cardLast4: string;
   kokoReference: string;
+  mintpayReference: string;
   bankReference: string;
 };
 
@@ -68,6 +73,8 @@ type LedgerRow = {
   cardReceiptRefLast4: string;
   koko: string;
   kokoReference: string;
+  mintpay: string;
+  mintpayReference: string;
   bankTransfer: string;
   /** Bank-recon special note (ERP, max 1500). */
   specialNote: string;
@@ -93,6 +100,7 @@ function suggestionAmountHint(s: BookNoteOrderSuggestion): string {
   if (s.cash > 0) parts.push(`Cash ${s.cash.toFixed(2)}`);
   if (s.card > 0) parts.push(`Card ${s.card.toFixed(2)}`);
   if (s.koko > 0) parts.push(`KOKO ${s.koko.toFixed(2)}`);
+  if (s.mintpay > 0) parts.push(`MintPay ${s.mintpay.toFixed(2)}`);
   if (s.bankTransfer > 0) parts.push(`Bank ${s.bankTransfer.toFixed(2)}`);
   return parts.length > 0 ? parts.join(" · ") : s.totalPrice.toFixed(2);
 }
@@ -104,8 +112,46 @@ function emptySplitLine(paymentMethod: BookNoteErpPaymentMethod = "Card"): Split
     amount: "",
     cardLast4: "",
     kokoReference: "",
+    mintpayReference: "",
     bankReference: "",
   };
+}
+
+function MintpayReferenceInput({
+  value,
+  disabled,
+  onChange,
+  showLabel = true,
+}: {
+  value: string;
+  disabled: boolean;
+  onChange: (value: string) => void;
+  showLabel?: boolean;
+}) {
+  const warning = mintpayReferenceDigitWarning(value);
+  return (
+    <div>
+      {showLabel ? (
+        <label className="text-muted-foreground mb-1 block text-[10px] leading-snug">
+          {MINTPAY_ORDER_ID_LABEL}
+        </label>
+      ) : null}
+      <Input
+        value={value}
+        disabled={disabled}
+        inputMode="numeric"
+        aria-label={MINTPAY_ORDER_ID_LABEL}
+        required
+        className="h-8 font-mono text-xs"
+        onChange={(e) => onChange(e.target.value)}
+      />
+      {warning ? (
+        <p className="mt-1 text-[10px] leading-snug text-amber-700 dark:text-amber-400">
+          Usually 6–8 digits. You can still save.
+        </p>
+      ) : null}
+    </div>
+  );
 }
 
 function splitLineToForm(sl: BookNoteSplitLine): SplitLineForm {
@@ -115,6 +161,7 @@ function splitLineToForm(sl: BookNoteSplitLine): SplitLineForm {
     amount: sl.amount ? String(sl.amount) : "",
     cardLast4: sl.cardLast4 ?? "",
     kokoReference: sl.kokoReference ?? "",
+    mintpayReference: sl.mintpayReference ?? "",
     bankReference: sl.bankReference ?? "",
   };
 }
@@ -132,6 +179,10 @@ function splitLinesToPayload(lines: SplitLineForm[]): BookNoteSplitLine[] {
         sl.paymentMethod === "KOKO"
           ? normalizeKokoOrderReference(sl.kokoReference)
           : null,
+      mintpayReference:
+        sl.paymentMethod === "MintPay"
+          ? normalizeMintpayReference(sl.mintpayReference)
+          : null,
       bankReference:
         sl.paymentMethod === "Bank Transfer" && sl.bankReference.trim()
           ? sl.bankReference.trim()
@@ -148,6 +199,7 @@ function rowTotal(row: LedgerRow): number {
     toNum(row.cash) +
     toNum(row.card) +
     toNum(row.koko) +
+    toNum(row.mintpay) +
     toNum(row.bankTransfer)
   );
 }
@@ -162,6 +214,8 @@ function emptyRow(idx: number): LedgerRow {
     cardReceiptRefLast4: "",
     koko: "",
     kokoReference: "",
+    mintpay: "",
+    mintpayReference: "",
     bankTransfer: "",
     specialNote: "",
     splitMode: false,
@@ -191,6 +245,8 @@ function dayToRows(day: BookNoteDayDto | null): LedgerRow[] {
       cardReceiptRefLast4: r.card_receipt_ref_last4 ?? "",
       koko: r.koko ? String(r.koko) : "",
       kokoReference: splitMode ? "" : (r.koko_reference ?? ""),
+      mintpay: r.mintpay ? String(r.mintpay) : "",
+      mintpayReference: splitMode ? "" : (r.mintpay_reference ?? ""),
       bankTransfer: r.bank_transfer ? String(r.bank_transfer) : "",
       specialNote: r.special_note ?? "",
       splitMode,
@@ -217,6 +273,8 @@ function rowsFingerprint(rows: LedgerRow[]): string {
       r.cardReceiptRefLast4,
       r.koko,
       r.kokoReference,
+      r.mintpay,
+      r.mintpayReference,
       r.bankTransfer,
       r.specialNote,
       r.splitMode,
@@ -225,6 +283,7 @@ function rowsFingerprint(rows: LedgerRow[]): string {
         sl.amount,
         sl.cardLast4,
         sl.kokoReference,
+        sl.mintpayReference,
         sl.bankReference,
       ]),
     ]),
@@ -409,6 +468,9 @@ export function BookNotesPanel({
         if ("koko" in patch && toNum(next.koko) === 0) {
           next.kokoReference = "";
         }
+        if ("mintpay" in patch && toNum(next.mintpay) === 0) {
+          next.mintpayReference = "";
+        }
         return next;
       }),
     );
@@ -474,11 +536,17 @@ export function BookNotesPanel({
           const koko = payload
             .filter((sl) => sl.paymentMethod === "KOKO")
             .reduce((s, sl) => s + sl.amount, 0);
+          const mintpay = payload
+            .filter((sl) => sl.paymentMethod === "MintPay")
+            .reduce((s, sl) => s + sl.amount, 0);
           const bank = payload
             .filter((sl) => sl.paymentMethod === "Bank Transfer")
             .reduce((s, sl) => s + sl.amount, 0);
           const cardLines = payload.filter((sl) => sl.paymentMethod === "Card");
           const kokoLines = payload.filter((sl) => sl.paymentMethod === "KOKO");
+          const mintpayLines = payload.filter(
+            (sl) => sl.paymentMethod === "MintPay",
+          );
           return {
             ...r,
             splitMode: false,
@@ -489,6 +557,11 @@ export function BookNotesPanel({
             kokoReference:
               kokoLines.length === 1
                 ? (kokoLines[0]?.kokoReference ?? "")
+                : "",
+            mintpay: mintpay ? String(mintpay) : "",
+            mintpayReference:
+              mintpayLines.length === 1
+                ? (mintpayLines[0]?.mintpayReference ?? "")
                 : "",
             bankTransfer: bank ? String(bank) : "",
             cardReceiptRefLast4:
@@ -503,6 +576,8 @@ export function BookNotesPanel({
           cardReceiptRefLast4: r.cardReceiptRefLast4,
           koko: r.koko,
           kokoReference: r.kokoReference,
+          mintpay: r.mintpay,
+          mintpayReference: r.mintpayReference,
           bankTransfer: r.bankTransfer,
         });
         const splitLines =
@@ -518,6 +593,8 @@ export function BookNotesPanel({
           cardReceiptRefLast4: "",
           koko: "",
           kokoReference: "",
+          mintpay: "",
+          mintpayReference: "",
           bankTransfer: "",
         };
       }),
@@ -542,6 +619,9 @@ export function BookNotesPanel({
             }
             if ("paymentMethod" in patch && patch.paymentMethod !== "KOKO") {
               next.kokoReference = "";
+            }
+            if ("paymentMethod" in patch && patch.paymentMethod !== "MintPay") {
+              next.mintpayReference = "";
             }
             if (
               "paymentMethod" in patch &&
@@ -687,6 +767,8 @@ export function BookNotesPanel({
       cardReceiptRefLast4: "",
       koko: useSplit ? "" : s.koko ? String(s.koko) : "",
       kokoReference: "",
+      mintpay: useSplit ? "" : s.mintpay ? String(s.mintpay) : "",
+      mintpayReference: "",
       bankTransfer: useSplit ? "" : s.bankTransfer ? String(s.bankTransfer) : "",
       splitMode: useSplit,
       splitLines: useSplit ? s.splitLines!.map(splitLineToForm) : [],
@@ -781,12 +863,26 @@ export function BookNotesPanel({
           );
           return null;
         }
+        const missingMintpay = missingMintpaySplitReference(payload);
+        if (missingMintpay != null) {
+          showError(
+            `Row ${r.idxNo || "?"} split line ${missingMintpay + 1}: enter the ${MINTPAY_ORDER_ID_LABEL}`,
+          );
+          return null;
+        }
         continue;
       }
       const kokoAmt = toNum(r.koko);
       if (kokoAmt > 0 && !normalizeKokoOrderReference(r.kokoReference)) {
         showError(
           `Row ${r.idxNo || "?"}: enter the KOKO order reference when a KOKO amount is entered`,
+        );
+        return null;
+      }
+      const mintpayAmt = toNum(r.mintpay);
+      if (mintpayAmt > 0 && !normalizeMintpayReference(r.mintpayReference)) {
+        showError(
+          `Row ${r.idxNo || "?"}: enter the ${MINTPAY_ORDER_ID_LABEL} when a MintPay amount is entered`,
         );
         return null;
       }
@@ -821,6 +917,11 @@ export function BookNotesPanel({
           kokoReference:
             !r.splitMode && toNum(r.koko) > 0
               ? normalizeKokoOrderReference(r.kokoReference)
+              : null,
+          mintpay: r.splitMode ? 0 : toNum(r.mintpay),
+          mintpayReference:
+            !r.splitMode && toNum(r.mintpay) > 0
+              ? normalizeMintpayReference(r.mintpayReference)
               : null,
           bankTransfer: r.splitMode ? 0 : toNum(r.bankTransfer),
           specialNote: r.specialNote.trim() || null,
@@ -1033,12 +1134,39 @@ export function BookNotesPanel({
       const idx = rec.idx_no != null ? String(rec.idx_no) : "";
       return [invoice || (idx ? `row ${idx}` : "a row")];
     });
-    if (missingKoko.length > 0) {
-      line += ` · KOKO reference missing: ${missingKoko.join(", ")}`;
+    const missingMintpay = verifyRows.flatMap((row) => {
+      if (!row || typeof row !== "object") return [];
+      const rec = row as {
+        status?: unknown;
+        sales_invoice?: unknown;
+        idx_no?: unknown;
+      };
+      if (rec.status !== "mintpay_ref_missing") return [];
+      const invoice =
+        typeof rec.sales_invoice === "string" ? rec.sales_invoice.trim() : "";
+      const idx = rec.idx_no != null ? String(rec.idx_no) : "";
+      return [invoice || (idx ? `row ${idx}` : "a row")];
+    });
+    if (missingKoko.length > 0 || missingMintpay.length > 0) {
+      if (missingKoko.length > 0) {
+        line += ` · KOKO reference missing: ${missingKoko.join(", ")}`;
+      }
+      if (missingMintpay.length > 0) {
+        line += ` · MintPay Order ID missing: ${missingMintpay.join(", ")}`;
+      }
       setStatusLine(line);
-      notify.error(
-        `KOKO order reference missing for ${missingKoko.join(", ")}. Enter the KOKO order ID and send again.`,
-      );
+      const parts: string[] = [];
+      if (missingKoko.length > 0) {
+        parts.push(
+          `KOKO order reference missing for ${missingKoko.join(", ")}.`,
+        );
+      }
+      if (missingMintpay.length > 0) {
+        parts.push(
+          `${MINTPAY_ORDER_ID_LABEL} missing for ${missingMintpay.join(", ")}.`,
+        );
+      }
+      notify.error(`${parts.join(" ")} Enter it and send again.`);
       await refreshHistory();
       return false;
     }
@@ -1193,6 +1321,7 @@ export function BookNotesPanel({
       Cash: blank(),
       Card: blank(),
       KOKO: blank(),
+      MintPay: blank(),
       "Bank Transfer": blank(),
     };
     for (const r of rows) {
@@ -1209,6 +1338,7 @@ export function BookNotesPanel({
         ["Cash", toNum(r.cash)],
         ["Card", toNum(r.card)],
         ["KOKO", toNum(r.koko)],
+        ["MintPay", toNum(r.mintpay)],
         ["Bank Transfer", toNum(r.bankTransfer)],
       ];
       for (const [method, amount] of legs) {
@@ -1285,11 +1415,14 @@ export function BookNotesPanel({
     }
   }
 
+  const methodTotal = (method: BookNoteErpPaymentMethod) =>
+    summary.methods.find((m) => m.method === method)?.total ?? 0;
   const totals = {
-    cash: summary.methods[0]!.total,
-    card: summary.methods[1]!.total,
-    koko: summary.methods[2]!.total,
-    bank: summary.methods[3]!.total,
+    cash: methodTotal("Cash"),
+    card: methodTotal("Card"),
+    koko: methodTotal("KOKO"),
+    mintpay: methodTotal("MintPay"),
+    bank: methodTotal("Bank Transfer"),
   };
   const grand = summary.grandTotal;
 
@@ -1301,8 +1434,10 @@ export function BookNotesPanel({
           Enter shop invoices and payment splits as recorded in the physical
           book. Use <span className="font-semibold text-violet-700">SPLIT</span>{" "}
           when one invoice has multiple payment legs (e.g. two cards with
-          different receipt refs). When a normal row includes card payment,
-          enter the last 4 digits of the POS receipt reference. Pick any past
+          different receipt refs).           When a normal row includes card payment,
+          enter the last 4 digits of the POS receipt reference. When MintPay is
+          used, enter the MintPay Order ID shown in the MintPay app after
+          payment (7 digits). Pick any past
           date to create or edit your own sheet for that day (not future).
           Another merchant at the same shop keeps a separate sheet.
           {canAdminBookNotes
@@ -1581,6 +1716,7 @@ export function BookNotesPanel({
               <th className="p-2 w-28 text-right">Cash</th>
               <th className="p-2 w-32 text-right">Card</th>
               <th className="p-2 w-36 text-right">KOKO</th>
+              <th className="p-2 w-44 text-right">MintPay</th>
               <th className="p-2 w-28 text-right">Bank</th>
               <th className="p-2 w-28 text-right">Row Total</th>
               <th className="p-2 w-20 text-center">Split</th>
@@ -1591,7 +1727,7 @@ export function BookNotesPanel({
             {rows.length === 0 ? (
               <tr>
                 <td
-                  colSpan={9}
+                  colSpan={10}
                   className="text-muted-foreground p-6 text-center text-sm"
                 >
                   No rows yet. Enter a row count above and click Create rows, or
@@ -1603,11 +1739,13 @@ export function BookNotesPanel({
               const cash = toNum(row.cash);
               const card = toNum(row.card);
               const koko = toNum(row.koko);
+              const mintpay = toNum(row.mintpay);
               const bank = toNum(row.bankTransfer);
               const rowTotalAmt = rowTotal(row);
               const multi =
                 row.splitMode ||
-                [cash, card, koko, bank].filter((a) => a > 0).length > 1;
+                [cash, card, koko, mintpay, bank].filter((a) => a > 0).length >
+                  1;
               return (
                 <Fragment key={row.key}>
                 <tr
@@ -1750,6 +1888,28 @@ export function BookNotesPanel({
                       />
                     ) : null}
                   </td>
+                  <td className="p-1 align-top">
+                    <Input
+                      inputMode="decimal"
+                      value={row.mintpay}
+                      disabled={isBusy || readOnly || row.splitMode}
+                      className="h-8 text-right font-mono text-xs"
+                      onChange={(e) =>
+                        updateRow(row.key, { mintpay: e.target.value })
+                      }
+                    />
+                    {mintpay > 0 && !row.splitMode ? (
+                      <div className="mt-1">
+                        <MintpayReferenceInput
+                          value={row.mintpayReference}
+                          disabled={isBusy || readOnly}
+                          onChange={(mintpayReference) =>
+                            updateRow(row.key, { mintpayReference })
+                          }
+                        />
+                      </div>
+                    ) : null}
+                  </td>
                   <td className="p-1">
                     <Input
                       inputMode="decimal"
@@ -1796,7 +1956,7 @@ export function BookNotesPanel({
                 </tr>
                 {row.splitMode ? (
                   <tr key={`${row.key}-split`} className="border-b bg-violet-50/50 dark:bg-violet-950/20">
-                    <td colSpan={9} className="p-3">
+                    <td colSpan={10} className="p-3">
                       <div className="space-y-2">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <p className="text-xs font-semibold uppercase tracking-wide text-violet-800 dark:text-violet-300">
@@ -1821,6 +1981,9 @@ export function BookNotesPanel({
                                 <th className="p-2 w-28 text-right">Amount</th>
                                 <th className="p-2 w-24">Card last 4</th>
                                 <th className="p-2">KOKO ref</th>
+                                <th className="p-2 min-w-[16rem] normal-case tracking-normal">
+                                  {MINTPAY_ORDER_ID_LABEL}
+                                </th>
                                 <th className="p-2">Bank ref</th>
                                 <th className="p-2 w-10" />
                               </tr>
@@ -1904,6 +2067,22 @@ export function BookNotesPanel({
                                     )}
                                   </td>
                                   <td className="p-1">
+                                    {sl.paymentMethod === "MintPay" ? (
+                                      <MintpayReferenceInput
+                                        value={sl.mintpayReference}
+                                        disabled={isBusy || readOnly}
+                                        showLabel={false}
+                                        onChange={(mintpayReference) =>
+                                          updateSplitLine(row.key, sl.key, {
+                                            mintpayReference,
+                                          })
+                                        }
+                                      />
+                                    ) : (
+                                      <span className="text-muted-foreground px-2">—</span>
+                                    )}
+                                  </td>
+                                  <td className="p-1">
                                     {sl.paymentMethod === "Bank Transfer" ? (
                                       <Input
                                         value={sl.bankReference}
@@ -1962,12 +2141,15 @@ export function BookNotesPanel({
                 {totals.koko.toFixed(2)}
               </td>
               <td className="p-2 text-right font-mono font-semibold">
+                {totals.mintpay.toFixed(2)}
+              </td>
+              <td className="p-2 text-right font-mono font-semibold">
                 {totals.bank.toFixed(2)}
               </td>
               <td colSpan={3} />
             </tr>
             <tr>
-              <td colSpan={6} className="p-2 text-right text-muted-foreground">
+              <td colSpan={7} className="p-2 text-right text-muted-foreground">
                 Grand total
               </td>
               <td className="p-2 text-right font-mono text-base font-bold">
@@ -1990,7 +2172,7 @@ export function BookNotesPanel({
             across {rows.length} invoice row{rows.length === 1 ? "" : "s"}
           </span>
         </div>
-        <dl className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <dl className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
           {summary.methods.map((m) => (
             <div
               key={m.method}

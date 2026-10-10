@@ -20,6 +20,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { CALL_CENTER_UNCONTACTED_CATEGORY } from "@/lib/contact-call-center-categories";
 import { notify } from "@/lib/notify";
 import { formatAppDate, formatAppIsoDate } from "@/lib/format-datetime";
 import { buildPhoneLookupVariants } from "@/lib/phone-lookup";
@@ -195,7 +196,7 @@ function buildInitialForm(contact: ContactItem | null): DetailForm {
     birthMonth: contact?.birthMonth != null ? String(contact.birthMonth) : "0",
     birthDay: contact?.birthDay != null ? String(contact.birthDay) : "0",
     email: contact?.email ?? "",
-    category: contact?.category ?? "N/A",
+    category: contact?.category?.trim() || CALL_CENTER_UNCONTACTED_CATEGORY,
     contactSaved: contact?.contactSaved === true ? "YES" : "NO",
     whatsappAllowed: contact?.whatsappAllowed !== false ? "YES" : "NO",
     mainProfileNo: contact?.phoneNumber ?? "",
@@ -1060,16 +1061,21 @@ export function ContactUpdatesPanel({
                   <div className="space-y-2 xl:col-span-4">
                     <label className="text-sm font-medium">Category</label>
                     <Select
-                      value={form.category}
+                      value={
+                        form.category === CALL_CENTER_UNCONTACTED_CATEGORY
+                          ? undefined
+                          : form.category
+                      }
                       onValueChange={(value) => updateForm("category", value)}
                       disabled={!canManage}
                     >
                       <SelectTrigger>
-                        <SelectValue />
+                        <SelectValue placeholder={CALL_CENTER_UNCONTACTED_CATEGORY} />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="N/A">N/A</SelectItem>
-                        {segmentOptions.category.map((opt) => (
+                        {segmentOptions.category
+                          .filter((opt) => opt !== CALL_CENTER_UNCONTACTED_CATEGORY)
+                          .map((opt) => (
                           <SelectItem key={opt} value={opt}>{opt}</SelectItem>
                         ))}
                       </SelectContent>

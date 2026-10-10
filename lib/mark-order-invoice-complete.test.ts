@@ -34,6 +34,21 @@ describe("resolveInvoiceCompleteStamp", () => {
     });
   });
 
+  it("does not stamp a store user when CC Checkout has no finance actor", () => {
+    const paidAt = new Date("2026-10-04T12:16:44.000Z");
+    expect(
+      resolveInvoiceCompleteStamp({
+        invoiceCompleteAt: paidAt,
+        invoiceCompleteById: null,
+        now,
+        userId: "",
+      }),
+    ).toEqual({
+      invoiceCompleteAt: paidAt,
+      invoiceCompleteById: null,
+    });
+  });
+
   it("ignores blank actor when stamp already exists", () => {
     const financeAt = new Date("2026-08-06T03:40:47.000Z");
     expect(

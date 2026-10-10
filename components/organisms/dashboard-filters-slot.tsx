@@ -71,11 +71,11 @@ function getActiveFilterHelp(dateType: DashboardSalesDateType) {
     case "done_after_delivery":
       return "Delivered and invoice finished.";
     case "bill_done_in_dates":
-      return "Created and invoice finished in this range — separate from All orders.";
+      return "Created and invoice finished in this range — separate from All orders. Returned to store excluded.";
     case "delivered_in_dates":
       return "Created and delivered in this range — separate from All orders.";
     case "bill_done_old":
-      return "Invoice finished in this range, but order was created earlier.";
+      return "Invoice finished in this range, but order was created earlier. Returned to store excluded.";
     case "delivered_old":
       return "Delivered in this range, but order was created earlier.";
     case "still_bill_open":

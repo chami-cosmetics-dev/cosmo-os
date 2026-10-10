@@ -8,10 +8,20 @@ export type RiderIncentiveInputRow = {
   incentiveAmount: Prisma.Decimal | number | string | null;
   /** False when no shipping-rule charge matched (incentive is 0). */
   matched?: boolean;
-  /** Pick up / free-ship — not payable, not unmatched. */
+  /** Pick up / staff DC — not payable, not unmatched. */
   excludedFromIncentive?: boolean;
+  /** Incentive counts only after invoice close. Delivery count does not use this. */
+  invoiceClosed: boolean;
   financialStatus: string | null;
 };
+
+/** Same close rule as handover `isInvoiceClosed`: stamp or stage. */
+export function isRiderIncentiveUnlocked(order: {
+  invoiceCompleteAt?: Date | string | null;
+  fulfillmentStage?: string | null;
+}): boolean {
+  return order.invoiceCompleteAt != null || order.fulfillmentStage === "invoice_complete";
+}
 
 const VOID_STATUSES = new Set(["voided", "cancelled", "canceled", "refunded"]);
 
@@ -72,9 +82,11 @@ export function aggregateRiderIncentives(rows: RiderIncentiveInputRow[]): Array<
         unmatchedCount: 0,
       };
     existing.completedCount += 1;
-    existing.incentiveTotal = existing.incentiveTotal.add(normalizeIncentiveAmount(row.incentiveAmount));
-    if (row.matched === false && !row.excludedFromIncentive) {
-      existing.unmatchedCount += 1;
+    if (row.invoiceClosed) {
+      existing.incentiveTotal = existing.incentiveTotal.add(normalizeIncentiveAmount(row.incentiveAmount));
+      if (row.matched === false && !row.excludedFromIncentive) {
+        existing.unmatchedCount += 1;
+      }
     }
     map.set(row.riderId, existing);
   }

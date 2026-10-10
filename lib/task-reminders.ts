@@ -33,6 +33,7 @@ export type TaskReminderCategory =
   | "erp_sync_warning"
   | "finance_approval"
   | "merchant_payment_approval"
+  | "merchant_dispatch_pending"
   | "add_samples"
   | "print"
   | "rearrange_dispatch"
@@ -49,6 +50,8 @@ export type TaskReminder = {
   body: string;
   href: string;
   waitingHours: number;
+  /** Human duration since the order was placed. Dispatch-pending tab only. */
+  placedAgeLabel?: string;
   orderId?: string;
   invoiceLabel: string;
 };
@@ -90,6 +93,21 @@ export function isTaskReminderOverdue(since: Date | null | undefined, now: Date 
 
 export function slaCutoff(now: Date = new Date()): Date {
   return new Date(now.getTime() - TASK_REMINDER_SLA_MS);
+}
+
+/** Duration since the order was placed: `45m`, `3h 12m`, `2d 5h`. */
+export function formatPlacedAge(since: Date, now: Date): string {
+  const totalMinutes = Math.max(0, Math.floor((now.getTime() - since.getTime()) / 60_000));
+  const days = Math.floor(totalMinutes / (60 * 24));
+  const hours = Math.floor((totalMinutes % (60 * 24)) / 60);
+  const minutes = totalMinutes % 60;
+  if (days > 0) {
+    return hours > 0 ? `${days}d ${hours}h` : `${days}d`;
+  }
+  if (hours > 0) {
+    return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+  }
+  return `${minutes}m`;
 }
 
 function orderInvoiceLabel(order: {
@@ -302,6 +320,84 @@ async function fetchMerchantPaymentApprovalReminders(
     reminders: approvals.map((approval) =>
       mapMerchantPaymentApprovalReminder(approval, now),
     ),
+  };
+}
+
+const MERCHANT_DISPATCH_PENDING_STAGES = [
+  "order_received",
+  "sample_free_issue",
+  "print",
+  "ready_to_dispatch",
+] as const;
+
+export function buildMerchantDispatchPendingWhere(
+  companyId: string,
+  merchantUserId: string,
+): Prisma.OrderWhereInput {
+  return {
+    companyId,
+    assignedMerchantId: merchantUserId,
+    cancelledAt: null,
+    dispatchedAt: null,
+    fulfillmentStage: { in: [...MERCHANT_DISPATCH_PENDING_STAGES] },
+    ...excludePosOrdersWhere,
+    NOT: { financialStatus: { equals: "voided", mode: "insensitive" } },
+  };
+}
+
+export function mapMerchantDispatchPendingReminder(
+  order: {
+    id: string;
+    name: string | null;
+    orderNumber: string | null;
+    shopifyOrderId: string | null;
+    createdAt: Date;
+  },
+  now: Date,
+): TaskReminder {
+  const invoiceLabel = orderInvoiceLabel(order);
+  const waitingHours = waitingHoursSince(order.createdAt, now);
+  const placedAgeLabel = formatPlacedAge(order.createdAt, now);
+  return {
+    id: `merchant_dispatch_pending:${order.id}`,
+    category: "merchant_dispatch_pending",
+    title: "Dispatch pending",
+    body: `${invoiceLabel} placed ${placedAgeLabel} ago. Still pending dispatch.`,
+    href: taskReminderHref("/dashboard/merchant", { orderId: order.id }),
+    waitingHours,
+    placedAgeLabel,
+    orderId: order.id,
+    invoiceLabel,
+  };
+}
+
+async function fetchMerchantDispatchPendingReminders(
+  companyId: string,
+  context: PermissionContext,
+  now: Date,
+): Promise<CappedReminders> {
+  if (!context.userId) {
+    return { reminders: [], totalCount: 0 };
+  }
+
+  const where = buildMerchantDispatchPendingWhere(companyId, context.userId);
+  const totalCount = await prisma.order.count({ where });
+  const orders = await prisma.order.findMany({
+    where,
+    orderBy: { createdAt: "asc" },
+    take: REMINDER_LIMIT_PER_CATEGORY,
+    select: {
+      id: true,
+      name: true,
+      orderNumber: true,
+      shopifyOrderId: true,
+      createdAt: true,
+    },
+  });
+
+  return {
+    totalCount,
+    reminders: orders.map((order) => mapMerchantDispatchPendingReminder(order, now)),
   };
 }
 
@@ -760,6 +856,15 @@ export async function fetchTaskReminders(
     reminders.push(...merchantPayment.reminders);
     categoryCounts.merchant_payment_approval = merchantPayment.totalCount;
   }
+  if (canSeeTaskReminderCategory(context, "merchant_dispatch_pending")) {
+    const merchantDispatch = await fetchMerchantDispatchPendingReminders(
+      companyId,
+      context,
+      now,
+    );
+    reminders.push(...merchantDispatch.reminders);
+    categoryCounts.merchant_dispatch_pending = merchantDispatch.totalCount;
+  }
   if (canSeeTaskReminderCategory(context, "add_samples")) {
     const samples = await fetchSampleReminders(companyId, now, context);
     reminders.push(...samples.reminders);
@@ -808,6 +913,7 @@ export async function fetchTaskReminders(
   const cappedCountCategories = new Set<TaskReminderCategory>([
     "finance_approval",
     "merchant_payment_approval",
+    "merchant_dispatch_pending",
     "add_samples",
     "print",
     "ready_dispatch",

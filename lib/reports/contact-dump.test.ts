@@ -137,6 +137,24 @@ describe("contact dump 1", () => {
     expect(row.loyalty_tier).toBe("gold");
   });
 
+  it("writes allocated merchant as name(MER)", () => {
+    const roster = new Map([
+      ["dinuli", { value: "MER56", label: "Dinuli (MER56)" }],
+      ["mer56", { value: "MER56", label: "Dinuli (MER56)" }],
+    ]);
+    const row = buildContactDumpRow(
+      baseContact({ assignedMerchant: "MER56" }),
+      roster
+    );
+    expect(row["NEW ALLOCATION"]).toBe("Dinuli(MER56)");
+    expect(row.ba_name).toBe("Dinuli(MER56)");
+    const loyalty = buildLoyaltyDumpCsv(
+      [listContact({ assignedMerchant: "Dinuli" })],
+      roster
+    );
+    expect(loyalty).toContain("Dinuli(MER56)");
+  });
+
   it("leaves unknown flags empty instead of inferring from email or phone", () => {
     const row = buildContactDumpRow(
       baseContact({
@@ -152,7 +170,7 @@ describe("contact dump 1", () => {
     );
     expect(row["Exsisting Web Customer"]).toBe("");
     expect(row["Allowed to Whatsapp Msg"]).toBe("");
-    expect(row.category_name).toBe("");
+    expect(row.category_name).toBe("N/A");
   });
 
   it("drops junk sample columns and writes a CSV with real contact id", () => {

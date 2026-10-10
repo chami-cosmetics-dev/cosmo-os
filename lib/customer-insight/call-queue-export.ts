@@ -1,5 +1,8 @@
 import * as XLSX from "xlsx";
 
+import { displayCallCenterCategory } from "@/lib/contact-call-center-categories";
+import { loadAssignedMerchantAliasMap } from "@/lib/customer-insight/allocation-summary";
+import { formatStoredAllocatedMerchant } from "@/lib/reports/allocated-merchant-format";
 import { uniqueContactPhones } from "@/lib/customer-insight/allocation-summary";
 import {
   listCallQueueCandidates,
@@ -36,7 +39,8 @@ export async function buildCallQueueAssignmentsWorkbook(input: {
   companyId: string;
   assignedMerchant?: string;
 }): Promise<{ buffer: Buffer; filename: string }> {
-  const rows = await prisma.contactInsightCallQueue.findMany({
+  const [rows, aliasToRoster] = await Promise.all([
+    prisma.contactInsightCallQueue.findMany({
     where: {
       companyId: input.companyId,
       ...(input.assignedMerchant
@@ -65,7 +69,9 @@ export async function buildCallQueueAssignmentsWorkbook(input: {
         },
       },
     },
-  });
+    }),
+    loadAssignedMerchantAliasMap(input.companyId),
+  ]);
 
   const emptyRow = {
     Merchant: "",
@@ -87,12 +93,15 @@ export async function buildCallQueueAssignmentsWorkbook(input: {
             row.contact.phones
           );
           return {
-            Merchant: row.merchantLabel,
+            Merchant: formatStoredAllocatedMerchant(
+              row.merchantLabel,
+              aliasToRoster
+            ),
             Name: row.contact.name,
             Phone: phones.join("; "),
             "Assigned at": row.assignedAt.toISOString(),
             "Queue status": row.status,
-            Category: row.contact.category ?? "",
+            Category: displayCallCenterCategory(row.contact.category),
             "Loyalty stage": loyaltyOutreachStageLabel(
               row.contact.loyaltyOutreachStatus
             ),
@@ -120,7 +129,8 @@ export async function buildCallQueueFilteredContactsWorkbook(input: {
   companyId: string;
 } & CallQueueAssignFilters): Promise<{ buffer: Buffer; filename: string }> {
   const pageSize = 100;
-  const first = await listCallQueueCandidates({
+  const [first, aliasToRoster] = await Promise.all([
+    listCallQueueCandidates({
     companyId: input.companyId,
     page: 1,
     pageSize,
@@ -136,10 +146,14 @@ export async function buildCallQueueFilteredContactsWorkbook(input: {
     assignedTo: input.assignedTo,
     notContacted: input.notContacted,
     notInterestedInLoyalty: input.notInterestedInLoyalty,
+    notAllocated: input.notAllocated,
+    callUpdateStatus: input.callUpdateStatus,
     brands: input.brands,
     brand: input.brand,
     hideFilter: input.hideFilter ?? "all",
-  });
+  }),
+    loadAssignedMerchantAliasMap(input.companyId),
+  ]);
 
   const total = first.pagination.total;
   const items = [...first.items];
@@ -161,6 +175,8 @@ export async function buildCallQueueFilteredContactsWorkbook(input: {
       assignedTo: input.assignedTo,
       notContacted: input.notContacted,
       notInterestedInLoyalty: input.notInterestedInLoyalty,
+      notAllocated: input.notAllocated,
+      callUpdateStatus: input.callUpdateStatus,
       brands: input.brands,
       brand: input.brand,
       hideFilter: input.hideFilter ?? "all",
@@ -174,7 +190,9 @@ export async function buildCallQueueFilteredContactsWorkbook(input: {
     Phone: "",
     "Lifetime total": "",
     "Last purchase": "",
+    "First purchase": "",
     "Last contacted": "",
+    "Call update status": "",
     "Loyalty stage": "",
     Queued: "",
     Hidden: "",
@@ -184,12 +202,17 @@ export async function buildCallQueueFilteredContactsWorkbook(input: {
   const sheetRows =
     items.length > 0
       ? items.map((row) => ({
-          Merchant: row.assignedMerchant ?? "",
+          Merchant: formatStoredAllocatedMerchant(
+            row.assignedMerchant,
+            aliasToRoster
+          ),
           Name: row.name,
           Phone: row.phoneNumber ?? "",
           "Lifetime total": row.lifetimeTotal,
           "Last purchase": row.lastPurchaseAt ?? "",
+          "First purchase": row.firstPurchaseAt ?? "",
           "Last contacted": row.lastContactedAt ?? "",
+          "Call update status": row.callUpdateStatus,
           "Loyalty stage": row.loyaltyStage ?? "",
           Queued: row.queued ? "yes" : "no",
           Hidden: row.hidden ? "yes" : "no",

@@ -58,6 +58,7 @@ export function summarizeBookNoteRows(
       ["Cash", money(row.cash)],
       ["Card", money(row.card)],
       ["KOKO", money(row.koko)],
+      ["MintPay", money(row.mintpay)],
       ["Bank Transfer", money(row.bank_transfer)],
     ];
     for (const [method, amount] of legs) {

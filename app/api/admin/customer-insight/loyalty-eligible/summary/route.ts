@@ -31,6 +31,7 @@ export async function GET(request: NextRequest) {
   const parsed = customerInsightLoyaltyEligibleSummaryQuerySchema.safeParse({
     asOf: sp.get("asOf") ?? undefined,
     weekEnd: sp.get("weekEnd") ?? undefined,
+    assignedMerchant: sp.get("assignedMerchant") ?? undefined,
   });
   if (!parsed.success) {
     return NextResponse.json(
@@ -43,6 +44,7 @@ export async function GET(request: NextRequest) {
     companyId,
     asOfYmd: parsed.data.asOf,
     weekEndYmd: parsed.data.weekEnd,
+    assignedMerchant: parsed.data.assignedMerchant,
   });
   return NextResponse.json(summary);
 }

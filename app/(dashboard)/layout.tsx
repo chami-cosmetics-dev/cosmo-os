@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 
 import { DashboardTemplate } from "@/components/templates/dashboard-template";
+import { loadShopScope } from "@/lib/material-transfer/scope";
 import { getCurrentUserContext } from "@/lib/rbac";
 
 export default async function DashboardLayout({
@@ -19,6 +20,10 @@ export default async function DashboardLayout({
     null;
   const permissionKeys = (context.permissionKeys ?? []) as string[];
   const roleNames = (context.roleNames ?? []) as string[];
+  const outletScope =
+    context.user?.id && context.user.companyId
+      ? await loadShopScope(context.user.id, context.user.companyId)
+      : null;
   const isSeoOnly =
     permissionKeys.includes("seo.welcome") &&
     permissionKeys.length === 1 &&
@@ -36,6 +41,7 @@ export default async function DashboardLayout({
       roleNames={roleNames}
       seoOnly={isSeoOnly}
       hasOgf={Boolean(process.env.OGF_LOCATION_ID)}
+      hasOutlet={Boolean(outletScope?.outletName)}
     >
       {children}
     </DashboardTemplate>

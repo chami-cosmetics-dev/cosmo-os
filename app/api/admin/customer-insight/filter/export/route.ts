@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { loadAssignedMerchantAliasMap } from "@/lib/customer-insight/allocation-summary";
 import { filterAllocatedContacts } from "@/lib/customer-insight/filters";
 import { readInsightFilterList } from "@/lib/customer-insight/filter-query-params";
 import {
@@ -9,6 +10,7 @@ import {
 import { prisma } from "@/lib/prisma";
 import { logReportDownload } from "@/lib/report-download-log";
 import { requirePermission } from "@/lib/rbac";
+import { formatStoredAllocatedMerchant } from "@/lib/reports/allocated-merchant-format";
 import { buildCsv, formatIsoDate, type CsvPrimitive } from "@/lib/reports/csv";
 import { customerInsightFilterExportQuerySchema } from "@/lib/validation/customer-insight";
 
@@ -64,6 +66,7 @@ export async function GET(request: NextRequest) {
     noPurchaseTo: queryParam(sp.get("noPurchaseTo")),
     purchasedFrom: queryParam(sp.get("purchasedFrom")),
     purchasedTo: queryParam(sp.get("purchasedTo")),
+    callUpdateStatus: queryParam(sp.get("callUpdateStatus")),
     noPurchaseMonths: queryParam(sp.get("noPurchaseMonths")),
   });
   if (!parsed.success) {
@@ -90,7 +93,8 @@ export async function GET(request: NextRequest) {
     permissionKeys,
   });
 
-  const result = await filterAllocatedContacts({
+  const [result, aliasToRoster] = await Promise.all([
+    filterAllocatedContacts({
     companyId,
     viewer,
     isAdmin: true,
@@ -124,11 +128,14 @@ export async function GET(request: NextRequest) {
     noPurchaseTo: parsed.data.noPurchaseTo,
     purchasedFrom: parsed.data.purchasedFrom,
     purchasedTo: parsed.data.purchasedTo,
+    callUpdateStatus: parsed.data.callUpdateStatus,
     noPurchaseMonths: parsed.data.noPurchaseMonths,
     page: 1,
     pageSize: 25,
     forExport: true,
-  });
+  }),
+    loadAssignedMerchantAliasMap(companyId),
+  ]);
 
   const includeBrand = Boolean(parsed.data.brand?.length);
   const includeItem = Boolean(
@@ -144,7 +151,9 @@ export async function GET(request: NextRequest) {
     "loyalty_code",
     "loyalty_stage",
     "last_purchased_date",
+    "first_purchased_date",
     "last_contacted_date",
+    "call_update_status",
     ...(includeBrand ? (["brand_spend"] as const) : []),
     ...(includeItem ? (["item_spend"] as const) : []),
   ] as const;
@@ -153,7 +162,10 @@ export async function GET(request: NextRequest) {
     contact_id: row.contactId,
     name: row.name,
     phone_number: row.phoneNumber ?? "",
-    assigned_merchant: row.assignedMerchant ?? "",
+    assigned_merchant: formatStoredAllocatedMerchant(
+      row.assignedMerchant,
+      aliasToRoster
+    ),
     lifetime_total: row.lifetimeTotal.toFixed(2),
     loyalty_tier: row.loyalty.label,
     loyalty_code: row.loyalty.code ?? "",
@@ -161,9 +173,13 @@ export async function GET(request: NextRequest) {
     last_purchased_date: row.lastPurchaseAt
       ? formatIsoDate(new Date(row.lastPurchaseAt))
       : "",
+    first_purchased_date: row.firstPurchaseAt
+      ? formatIsoDate(new Date(row.firstPurchaseAt))
+      : "",
     last_contacted_date: row.lastContactedAt
       ? formatIsoDate(new Date(row.lastContactedAt))
       : "",
+    call_update_status: row.callUpdateStatus,
     ...(includeBrand
       ? { brand_spend: (row.brandSpend ?? 0).toFixed(2) }
       : {}),

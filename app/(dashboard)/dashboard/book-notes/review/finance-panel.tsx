@@ -73,6 +73,7 @@ type SpecialNoteItem = {
   cash: number;
   card: number;
   koko: number;
+  mintpay: number;
   bank_transfer: number;
   row_total: number;
   card_receipt_ref_last4: string | null;
@@ -168,6 +169,7 @@ export function BookNoteFinancePanel({
           cash: r.cash,
           card: r.card,
           koko: r.koko,
+          mintpay: r.mintpay,
           bank_transfer: r.bank_transfer,
           row_total: r.row_total,
           card_receipt_ref_last4: r.card_receipt_ref_last4,
@@ -442,6 +444,7 @@ export function BookNoteFinancePanel({
                       <th className="p-2 text-right">Cash</th>
                       <th className="p-2 text-right">Card</th>
                       <th className="p-2 text-right">KOKO</th>
+                      <th className="p-2 text-right">MintPay</th>
                       <th className="p-2 text-right">Bank</th>
                       <th className="p-2 text-right">Total</th>
                       <th className="p-2 text-center">Photos</th>
@@ -467,7 +470,7 @@ export function BookNoteFinancePanel({
                         <td className="p-2 text-right font-mono">
                           {c.rowCount}
                         </td>
-                        {["Cash", "Card", "KOKO", "Bank Transfer"].map((m) => {
+                        {["Cash", "Card", "KOKO", "MintPay", "Bank Transfer"].map((m) => {
                           const bucket = c.methods.find((x) => x.method === m);
                           return (
                             <td
@@ -527,6 +530,7 @@ export function BookNoteFinancePanel({
                   <th className="p-2 text-right">Cash</th>
                   <th className="p-2 text-right">Card</th>
                   <th className="p-2 text-right">KOKO</th>
+                  <th className="p-2 text-right">MintPay</th>
                   <th className="p-2 text-right">Bank</th>
                   <th className="p-2 text-right">Total</th>
                   <th className="p-2 text-center">Photos</th>
@@ -581,7 +585,7 @@ export function BookNoteFinancePanel({
                         <td className="p-2 text-right font-mono">
                           {day.rowCount}
                         </td>
-                        {["Cash", "Card", "KOKO", "Bank Transfer"].map((m) => {
+                        {["Cash", "Card", "KOKO", "MintPay", "Bank Transfer"].map((m) => {
                           const bucket = byMethod(m);
                           return (
                             <td
@@ -614,7 +618,7 @@ export function BookNoteFinancePanel({
                       </tr>
                       {open ? (
                         <tr className="border-b bg-muted/20">
-                          <td colSpan={11} className="p-4">
+                          <td colSpan={12} className="p-4">
                             <div className="space-y-4">
                               <div className="overflow-x-auto rounded-md border bg-background">
                                 <table className="w-full min-w-[720px] text-xs">
@@ -625,6 +629,7 @@ export function BookNoteFinancePanel({
                                       <th className="p-2 text-right">Cash</th>
                                       <th className="p-2 text-right">Card</th>
                                       <th className="p-2 text-right">KOKO</th>
+                                      <th className="p-2 text-right">MintPay</th>
                                       <th className="p-2 text-right">Bank</th>
                                       <th className="p-2 text-right">
                                         Row total
@@ -635,7 +640,7 @@ export function BookNoteFinancePanel({
                                     {day.rows.length === 0 ? (
                                       <tr>
                                         <td
-                                          colSpan={7}
+                                          colSpan={8}
                                           className="text-muted-foreground p-4 text-center"
                                         >
                                           No invoice rows saved for this day.
@@ -678,6 +683,14 @@ export function BookNoteFinancePanel({
                                               {r.koko > 0 ? money(r.koko) : "—"}
                                             </td>
                                             <td className="p-2 text-right font-mono tabular-nums">
+                                              {r.mintpay > 0 ? money(r.mintpay) : "—"}
+                                              {r.mintpay_reference ? (
+                                                <span className="text-muted-foreground mt-0.5 block text-[10px]">
+                                                  MintPay Order ID {r.mintpay_reference}
+                                                </span>
+                                              ) : null}
+                                            </td>
+                                            <td className="p-2 text-right font-mono tabular-nums">
                                               {r.bank_transfer > 0
                                                 ? money(r.bank_transfer)
                                                 : "—"}
@@ -689,7 +702,7 @@ export function BookNoteFinancePanel({
                                           {r.split_lines?.length ? (
                                             <tr className="border-b bg-violet-50/50 dark:bg-violet-950/20">
                                               <td />
-                                              <td colSpan={6} className="p-2">
+                                              <td colSpan={7} className="p-2">
                                                 <span className="text-[10px] font-semibold uppercase tracking-wide text-violet-800 dark:text-violet-300">
                                                   Split payment lines
                                                 </span>
@@ -707,6 +720,9 @@ export function BookNoteFinancePanel({
                                                           : ""}
                                                         {sl.kokoReference
                                                           ? ` · KOKO ${sl.kokoReference}`
+                                                          : ""}
+                                                        {sl.mintpayReference
+                                                          ? ` · MintPay Order ID ${sl.mintpayReference}`
                                                           : ""}
                                                         {sl.bankReference
                                                           ? ` · bank ${sl.bankReference}`
@@ -810,6 +826,7 @@ export function BookNoteFinancePanel({
                   <th className="p-2 text-right">Cash</th>
                   <th className="p-2 text-right">Card</th>
                   <th className="p-2 text-right">KOKO</th>
+                  <th className="p-2 text-right">MintPay</th>
                   <th className="p-2 text-right">Bank</th>
                   <th className="p-2 text-right">Total</th>
                 </tr>
@@ -851,6 +868,9 @@ export function BookNoteFinancePanel({
                     </td>
                     <td className="p-2 text-right font-mono tabular-nums">
                       {item.koko > 0 ? money(item.koko) : "—"}
+                    </td>
+                    <td className="p-2 text-right font-mono tabular-nums">
+                      {item.mintpay > 0 ? money(item.mintpay) : "—"}
                     </td>
                     <td className="p-2 text-right font-mono tabular-nums">
                       {item.bank_transfer > 0

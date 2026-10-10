@@ -38,6 +38,7 @@ import {
   ReceiptText,
   ClipboardCheck,
   BellRing,
+  ArrowLeftRight,
 } from "lucide-react";
 import { usePathname } from "next/navigation";
 import {
@@ -64,9 +65,16 @@ interface AppSidebarProps {
   permissionKeys?: string[];
   roleNames?: string[];
   hasOgf?: boolean;
+  hasOutlet?: boolean;
 }
 
-export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf = false }: AppSidebarProps) {
+export function AppSidebar({
+  user,
+  permissionKeys = [],
+  roleNames = [],
+  hasOgf = false,
+  hasOutlet = false,
+}: AppSidebarProps) {
   const { setOpen, state } = useSidebar();
   const hasSidebarPermission = (permission: string) =>
     roleNames.includes("super_admin") ||
@@ -96,6 +104,7 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
   const canViewReturns = hasSidebarPermission("returns.read");
   const canViewExchanges = hasSidebarPermission("exchanges.read");
   const canViewProducts = hasSidebarPermission("products.read");
+  const canViewVatStatus = hasSidebarPermission("products.vat_status.read");
   const canViewItemCreation =
     hasSidebarPermission("item_creation.admin.manage") ||
     hasSidebarPermission("item_creation.seo.manage") ||
@@ -126,7 +135,9 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
     canViewGrn;
   const canViewStoreAllocation = hasSidebarPermission("store.allocation.read");
   const canViewStoreStockCount = hasSidebarPermission("store.stock_count.read");
-  const canViewStore = canViewStoreAllocation || canViewStoreStockCount;
+  const canViewMaterialTransfer = hasSidebarPermission("store.material_transfer.write");
+  const canViewStore =
+    canViewStoreAllocation || canViewStoreStockCount || canViewMaterialTransfer || hasOutlet;
   const canViewCompanySettings = hasSidebarPermission("settings.company");
   const canViewEmailTemplates = hasSidebarPermission("settings.email_templates");
   const canViewSmsSettings = hasSidebarPermission("settings.sms_portal");
@@ -222,7 +233,7 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
     canManageBookNotes ||
     Boolean(fulfillmentHref);
   const canViewStickers = canStickerBatch || canStickerPrint;
-  const canViewProductManagement = canViewProducts;
+  const canViewProductManagement = canViewProducts || canViewVatStatus;
   const pathname = usePathname();
 
   return (
@@ -597,6 +608,14 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
               {canViewProducts && (
                 <NavItem href="/dashboard/products/items" icon={Package} label="Items" isActive={pathname === "/dashboard/products/items"} />
               )}
+              {canViewVatStatus && (
+                <NavItem
+                  href="/dashboard/products/vat-status"
+                  icon={BadgeCheck}
+                  label="VAT Status"
+                  isActive={pathname === "/dashboard/products/vat-status"}
+                />
+              )}
               {canViewItemCreation && (
                 <NavItem href="/dashboard/products/item-creation" icon={ClipboardCheck} label="Item Creation" isActive={pathname.startsWith("/dashboard/products/item-creation")} />
               )}
@@ -669,6 +688,22 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
                   icon={ClipboardList}
                   label="Stock count"
                   isActive={pathname === "/dashboard/store/stock-count"}
+                />
+              )}
+              {canViewMaterialTransfer && (
+                <NavItem
+                  href="/dashboard/store/material-transfer"
+                  icon={ArrowLeftRight}
+                  label="Material transfer"
+                  isActive={pathname === "/dashboard/store/material-transfer"}
+                />
+              )}
+              {hasOutlet && (
+                <NavItem
+                  href="/dashboard/store/material-transfer/receive"
+                  icon={PackageCheck}
+                  label="Receive transfer"
+                  isActive={pathname === "/dashboard/store/material-transfer/receive"}
                 />
               )}
             </SidebarGroupContent>

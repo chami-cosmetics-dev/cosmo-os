@@ -9,15 +9,18 @@ import {
   uniqueContactPhones,
   type PurchaseCountFilter,
 } from "@/lib/customer-insight/allocation-summary";
+import { firstPurchaseAtByContactIds } from "@/lib/customer-insight/first-purchase";
 import { resolveAssignedMerchantFilterLabels } from "@/lib/customer-insight/merchant-label-aliases";
 import { hasInsightAdminView } from "@/lib/customer-insight/ownership";
 import { prisma } from "@/lib/prisma";
+import { formatAllocatedMerchantExport } from "@/lib/reports/allocated-merchant-format";
 import { logReportDownload } from "@/lib/report-download-log";
 import { requirePermission } from "@/lib/rbac";
 import {
   buildCsv,
   formatCsvDataLine,
   formatCsvHeaderLine,
+  formatIsoDate,
   type CsvPrimitive,
 } from "@/lib/reports/csv";
 
@@ -26,10 +29,10 @@ export const maxDuration = 300;
 
 const CONTACT_EXPORT_HEADERS = [
   "merchant",
-  "merchant_value",
   "name",
   "phone_number",
   "extra_phones",
+  "first_purchased_date",
 ] as const;
 
 type AllocationContactExportRow = Record<
@@ -160,6 +163,10 @@ async function exportAllocatedContactsCsv(
           });
           if (batch.length === 0) break;
 
+          const firstPurchaseById = await firstPurchaseAtByContactIds(
+            companyId,
+            batch.map((contact) => contact.id)
+          );
           const lines: string[] = [];
           for (const contact of batch) {
             const raw = contact.assignedMerchant?.trim() ?? "";
@@ -170,11 +177,11 @@ async function exportAllocatedContactsCsv(
               contact.phones
             );
             const row: AllocationContactExportRow = {
-              merchant: merchant.label,
-              merchant_value: merchant.value,
+              merchant: formatAllocatedMerchantExport(merchant.label, merchant.value),
               name: contact.name,
               phone_number: phones[0] ?? "",
               extra_phones: phones.slice(1).join("; "),
+              first_purchased_date: formatIsoDate(firstPurchaseById.get(contact.id)),
             };
             lines.push(formatCsvDataLine(CONTACT_EXPORT_HEADERS, row));
           }
@@ -248,7 +255,6 @@ export async function GET(request: NextRequest) {
     fileName = "insight-merchant-purchase-performance.csv";
     headers = [
       "merchant",
-      "merchant_value",
       "platinum",
       "gold",
       "other",
@@ -259,8 +265,7 @@ export async function GET(request: NextRequest) {
       "purchase_total",
     ];
     rows = purchaseCountSummary.rows.map((r) => ({
-      merchant: r.merchantLabel,
-      merchant_value: r.merchantValue,
+      merchant: formatAllocatedMerchantExport(r.merchantLabel, r.merchantValue),
       platinum: r.allocation.platinum,
       gold: r.allocation.gold,
       other: r.allocation.other,
@@ -280,7 +285,6 @@ export async function GET(request: NextRequest) {
     fileName = "insight-merchant-data-collection.csv";
     const baseHeaders = [
       "merchant",
-      "merchant_value",
       "platinum",
       "gold",
       "other",
@@ -302,8 +306,7 @@ export async function GET(request: NextRequest) {
 
     rows = [
       ...summary.rows.map((r) => ({
-        merchant: r.merchantLabel,
-        merchant_value: r.merchantValue,
+        merchant: formatAllocatedMerchantExport(r.merchantLabel, r.merchantValue),
         platinum: r.platinum,
         gold: r.gold,
         other: r.other,
@@ -322,7 +325,6 @@ export async function GET(request: NextRequest) {
       })),
       {
         merchant: "Unallocated",
-        merchant_value: "",
         platinum: "",
         gold: "",
         other: "",

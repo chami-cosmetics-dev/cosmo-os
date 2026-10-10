@@ -9,6 +9,10 @@ import {
   pendingLoyaltySuggestion,
   type PendingLoyaltySuggestion,
 } from "@/lib/customer-insight/loyalty-outreach";
+import {
+  findAssignedMerchantAliasGroup,
+  resolveAssignedMerchantFilterLabels,
+} from "@/lib/customer-insight/merchant-label-aliases";
 import { prisma } from "@/lib/prisma";
 
 const LIFETIME_CHUNK = 400;
@@ -167,8 +171,33 @@ type ContactRow = {
 };
 
 function normalizeMerchantLabel(label: string | null | undefined): string {
+  const group = findAssignedMerchantAliasGroup(label);
+  if (group) return group.label;
   const t = label?.trim();
   return t && t.length > 0 ? t : "Unallocated";
+}
+
+async function assignedMerchantWhere(companyId: string, assignedMerchant?: string) {
+  const needle = assignedMerchant?.trim();
+  if (!needle) return {};
+  const aliases = await resolveAssignedMerchantFilterLabels(companyId, needle);
+  const labels = aliases.length > 0 ? aliases : [needle];
+  if (labels.length === 1) {
+    return {
+      assignedMerchant: {
+        equals: labels[0],
+        mode: "insensitive" as const,
+      },
+    };
+  }
+  return {
+    OR: labels.map((alias) => ({
+      assignedMerchant: {
+        equals: alias,
+        mode: "insensitive" as const,
+      },
+    })),
+  };
 }
 
 function isOpenPendingStatus(
@@ -190,28 +219,25 @@ async function loadCandidateContacts(
   companyId: string,
   assignedMerchant?: string
 ): Promise<ContactRow[]> {
-  const merchantFilter = assignedMerchant?.trim()
-    ? {
-        assignedMerchant: {
-          equals: assignedMerchant.trim(),
-          mode: "insensitive" as const,
-        },
-      }
-    : {};
+  const merchantFilter = await assignedMerchantWhere(companyId, assignedMerchant);
 
   const [unassigned, goldAssigned] = await Promise.all([
     prisma.contactMaster.findMany({
       where: {
         companyId,
         loyaltyAssignedTier: null,
-        ...merchantFilter,
-        OR: [
+        AND: [
+          ...(Object.keys(merchantFilter).length > 0 ? [merchantFilter] : []),
           {
-            loyaltyOutreachStatus: {
-              in: [...LOYALTY_OUTREACH_QUEUE_STATUSES],
-            },
+            OR: [
+              {
+                loyaltyOutreachStatus: {
+                  in: [...LOYALTY_OUTREACH_QUEUE_STATUSES],
+                },
+              },
+              { loyaltyOutreachStatus: null },
+            ],
           },
-          { loyaltyOutreachStatus: null },
         ],
       },
       select: {
@@ -343,13 +369,17 @@ export async function buildLoyaltyEligibleMerchantSummary(input: {
   companyId: string;
   asOfYmd?: string;
   weekEndYmd?: string;
+  assignedMerchant?: string;
 }): Promise<LoyaltyEligibleSummaryDto> {
   const asOf = input.asOfYmd ?? formatAppIsoDate(new Date());
   const weekTo = input.weekEndYmd ?? defaultWeekEndYmd(asOf);
   const week = weekWindowFromEnd(weekTo);
   const mtdFrom = mtdFromYmd(asOf);
 
-  const contacts = await loadCandidateContacts(input.companyId);
+  const contacts = await loadCandidateContacts(
+    input.companyId,
+    input.assignedMerchant
+  );
   const lifetimeById =
     contacts.length > 0
       ? await lifetimeMap(input.companyId, contacts)
@@ -497,7 +527,17 @@ export async function buildLoyaltyEligibleMerchantSummary(input: {
     )
     .sort((a, b) => b.pending - a.pending || a.merchantLabel.localeCompare(b.merchantLabel));
 
-  const company = merchants.reduce(
+  const pickedGroup = findAssignedMerchantAliasGroup(input.assignedMerchant);
+  const pickedLabel = (
+    pickedGroup?.label ??
+    input.assignedMerchant?.trim() ??
+    ""
+  ).toLowerCase();
+  const visibleMerchants = pickedLabel
+    ? merchants.filter((m) => m.merchantLabel.toLowerCase() === pickedLabel)
+    : merchants;
+
+  const company = visibleMerchants.reduce(
     (acc, m) => {
       acc.pending += m.pending;
       acc.mtdNewlyEligible += m.mtdNewlyEligible;
@@ -521,6 +561,6 @@ export async function buildLoyaltyEligibleMerchantSummary(input: {
     weekFrom: week.from,
     weekTo: week.to,
     company,
-    merchants,
+    merchants: visibleMerchants,
   };
 }

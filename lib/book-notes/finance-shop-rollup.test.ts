@@ -13,6 +13,8 @@ function row(over: Partial<BookNoteRowDto>): BookNoteRowDto {
     card_receipt_ref_last4: null,
     koko: 0,
     koko_reference: null,
+    mintpay: 0,
+    mintpay_reference: null,
     bank_transfer: 0,
     row_total: 0,
     is_multi_method: false,

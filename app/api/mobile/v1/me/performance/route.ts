@@ -6,7 +6,7 @@ import { requireRiderMobileSession } from "@/lib/mobile/api";
 import { endOfDay, startOfDay } from "@/lib/mobile/dates";
 import { formatBusinessOrderNumber } from "@/lib/order-display-label";
 import { prisma } from "@/lib/prisma";
-import { isIncentiveEligibleOrder } from "@/lib/rider-incentive";
+import { isIncentiveEligibleOrder, isRiderIncentiveUnlocked } from "@/lib/rider-incentive";
 import { incentiveForOrder, loadRiderIncentiveContext } from "@/lib/rider-incentive-resolve";
 import { resolvePayPeriodWindow, type PayPeriodKind } from "@/lib/rider-pay-period";
 
@@ -26,6 +26,8 @@ const orderIncentiveSelect = {
   sourceName: true,
   discountCodes: true,
   financialStatus: true,
+  fulfillmentStage: true,
+  invoiceCompleteAt: true,
 } as const;
 
 export async function GET(request: NextRequest) {
@@ -64,6 +66,7 @@ export async function GET(request: NextRequest) {
     },
     select: {
       manualIncentiveLabelKey: true,
+      manualIncentiveAmount: true,
       order: { select: orderIncentiveSelect },
     },
   });
@@ -73,12 +76,14 @@ export async function GET(request: NextRequest) {
   for (const task of todayTasks) {
     if (!isIncentiveEligibleOrder(task.order.financialStatus)) continue;
     todayCompletedCount += 1;
+    if (!isRiderIncentiveUnlocked(task.order)) continue;
     todayIncentive = todayIncentive.add(
       incentiveForOrder(
         task.order,
         incentiveContext.chargeByLabelKey,
         incentiveContext.zoneMembersByZone,
-        task.manualIncentiveLabelKey
+        task.manualIncentiveLabelKey,
+        task.manualIncentiveAmount
       )
     );
   }
@@ -109,6 +114,7 @@ export async function GET(request: NextRequest) {
         id: true,
         completedAt: true,
         manualIncentiveLabelKey: true,
+      manualIncentiveAmount: true,
         order: {
           select: {
             id: true,
@@ -142,12 +148,16 @@ export async function GET(request: NextRequest) {
 
   for (const task of completedTasks) {
     if (!isIncentiveEligibleOrder(task.order.financialStatus)) continue;
-    const amount = incentiveForOrder(
-      task.order,
-      incentiveContext.chargeByLabelKey,
-      incentiveContext.zoneMembersByZone,
-      task.manualIncentiveLabelKey
-    );
+    const unlocked = isRiderIncentiveUnlocked(task.order);
+    const amount = unlocked
+      ? incentiveForOrder(
+          task.order,
+          incentiveContext.chargeByLabelKey,
+          incentiveContext.zoneMembersByZone,
+          task.manualIncentiveLabelKey,
+          task.manualIncentiveAmount
+        )
+      : new Prisma.Decimal(0);
     completedCount += 1;
     incentiveTotal = incentiveTotal.add(amount);
     lines.push({

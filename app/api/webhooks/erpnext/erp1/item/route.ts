@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { resolveCompanyIdsForErpWebhookSecret } from "@/lib/erp-item-price-sync";
 import { handleErp1ItemWebhook } from "@/lib/item-creation/automation";
+import {
+  findErpInstancesForWebhookSecret,
+  syncItemTaxStatusFromWebhook,
+} from "@/lib/vat-status/sync-from-webhook";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -30,8 +34,16 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const result = await handleErp1ItemWebhook(companyIds, unwrapErpPayload(rawPayload));
-    return NextResponse.json({ ok: true, ...result });
+    const payload = unwrapErpPayload(rawPayload);
+    const instances = await findErpInstancesForWebhookSecret(incomingSecret);
+    const taxStatus = await syncItemTaxStatusFromWebhook({
+      instanceIds: instances.map((row) => row.id),
+      payload,
+    }).catch((error: unknown) => ({
+      error: error instanceof Error ? error.message : "Item tax status sync failed",
+    }));
+    const result = await handleErp1ItemWebhook(companyIds, payload);
+    return NextResponse.json({ ok: true, ...result, taxStatus });
   } catch (error) {
     const message = error instanceof Error ? error.message : "ERP1 Item webhook failed";
     return NextResponse.json({ error: message }, { status: 400 });

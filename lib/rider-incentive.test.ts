@@ -36,6 +36,7 @@ describe("aggregateRiderIncentives", () => {
         riderName: "A",
         knownName: null,
         incentiveAmount: 300,
+        invoiceClosed: true,
         financialStatus: "paid",
       },
       {
@@ -43,6 +44,7 @@ describe("aggregateRiderIncentives", () => {
         riderName: "A",
         knownName: null,
         incentiveAmount: 400,
+        invoiceClosed: true,
         financialStatus: "paid",
       },
       {
@@ -50,6 +52,7 @@ describe("aggregateRiderIncentives", () => {
         riderName: "A",
         knownName: null,
         incentiveAmount: 100,
+        invoiceClosed: true,
         financialStatus: "voided",
       },
     ]);
@@ -73,6 +76,7 @@ describe("aggregateRiderIncentives", () => {
         knownName: null,
         incentiveAmount: 0,
         matched: false,
+        invoiceClosed: true,
         financialStatus: "paid",
       },
       {
@@ -81,10 +85,45 @@ describe("aggregateRiderIncentives", () => {
         knownName: null,
         incentiveAmount: 300,
         matched: true,
+        invoiceClosed: true,
         financialStatus: "paid",
       },
     ]);
     expect(rows[0]?.unmatchedCount).toBe(1);
     expect(rows[0]?.incentiveTotal).toBe("300.00");
+  });
+
+  it("pays only when delivery and invoice are both complete", () => {
+    const rows = aggregateRiderIncentives([
+      {
+        riderId: "r1",
+        riderName: "A",
+        knownName: null,
+        incentiveAmount: 300,
+        matched: false,
+        invoiceClosed: true,
+        financialStatus: "paid",
+      },
+      {
+        riderId: "r1",
+        riderName: "A",
+        knownName: null,
+        incentiveAmount: 400,
+        matched: true,
+        invoiceClosed: false,
+        financialStatus: "pending",
+      },
+      {
+        riderId: "r1",
+        riderName: "A",
+        knownName: null,
+        incentiveAmount: 100,
+        invoiceClosed: true,
+        financialStatus: "refunded",
+      },
+    ]);
+    expect(rows[0]?.completedCount).toBe(2);
+    expect(rows[0]?.incentiveTotal).toBe("300.00");
+    expect(rows[0]?.unmatchedCount).toBe(1);
   });
 });

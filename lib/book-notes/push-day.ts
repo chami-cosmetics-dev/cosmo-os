@@ -12,7 +12,9 @@ import { loadBookNoteDayDto } from "@/lib/book-notes/load";
 import {
   bookNoteRowUsesSplitPayload,
   missingKokoSplitReference,
+  missingMintpaySplitReference,
   normalizeKokoOrderReference,
+  normalizeMintpayReference,
 } from "@/lib/book-notes/split-lines";
 import {
   collectBookNoteNamesFromVerifyRows,
@@ -147,6 +149,20 @@ export async function pushBookNoteDayToErp(input: {
           postingDate: input.postingDateYmd,
         };
       }
+      const missingMintpay = missingMintpaySplitReference(r.split_lines!);
+      if (missingMintpay != null) {
+        const err = `Row ${r.idx_no || "?"} (${r.sales_invoice || "no invoice"}): MintPay split line ${missingMintpay + 1} needs a MintPay Order ID. Open the day, fill the MintPay Order ID shown in the MintPay app, save, then send again.`;
+        await markBookNoteErpSyncFailed(input.bookNoteDayId, err);
+        return {
+          ok: false,
+          status: 400,
+          code: "MINTPAY_REF_MISSING",
+          error: err,
+          step: "validate",
+          locationName: shopLabel,
+          postingDate: input.postingDateYmd,
+        };
+      }
       continue;
     }
     if (r.koko > 0 && !normalizeKokoOrderReference(r.koko_reference)) {
@@ -156,6 +172,19 @@ export async function pushBookNoteDayToErp(input: {
         ok: false,
         status: 400,
         code: "KOKO_REF_MISSING",
+        error: err,
+        step: "validate",
+        locationName: shopLabel,
+        postingDate: input.postingDateYmd,
+      };
+    }
+    if (r.mintpay > 0 && !normalizeMintpayReference(r.mintpay_reference)) {
+      const err = `Row ${r.idx_no || "?"} (${r.sales_invoice || "no invoice"}): MintPay amount entered but MintPay Order ID missing. Open the day, fill the MintPay Order ID shown in the MintPay app, save, then send again.`;
+      await markBookNoteErpSyncFailed(input.bookNoteDayId, err);
+      return {
+        ok: false,
+        status: 400,
+        code: "MINTPAY_REF_MISSING",
         error: err,
         step: "validate",
         locationName: shopLabel,
@@ -191,6 +220,8 @@ export async function pushBookNoteDayToErp(input: {
       card_last_4: r.card_receipt_ref_last4,
       koko: r.koko,
       koko_reference: r.koko_reference,
+      mintpay: r.mintpay,
+      mintpay_reference: r.mintpay_reference,
       bank_transfer: r.bank_transfer,
       split_lines: r.split_lines,
     })),

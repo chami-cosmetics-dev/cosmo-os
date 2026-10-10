@@ -1,6 +1,8 @@
-/** Canonical call-outcome templates for Contact Updates + Call Center chart. */
-export const CALL_CENTER_CATEGORY_VALUES = [
-  "N/A",
+/** Stored mark for a contact nobody has updated yet. Not a merchant choice. */
+export const CALL_CENTER_UNCONTACTED_CATEGORY = "N/A" as const;
+
+/** Merchant-selectable call outcomes. Uncontacted contacts stay N/A until one of these is saved. */
+export const CALL_CENTER_OUTCOME_VALUES = [
   "Interested",
   "Not Interested",
   "Not Responding",
@@ -8,6 +10,14 @@ export const CALL_CENTER_CATEGORY_VALUES = [
   "Black List",
   "Busy",
   "Interested-SMS",
+] as const;
+
+export type CallCenterOutcome = (typeof CALL_CENTER_OUTCOME_VALUES)[number];
+
+/** Canonical call-outcome templates for Contact Updates + Call Center chart. */
+export const CALL_CENTER_CATEGORY_VALUES = [
+  CALL_CENTER_UNCONTACTED_CATEGORY,
+  ...CALL_CENTER_OUTCOME_VALUES,
 ] as const;
 
 export type CallCenterCategory = (typeof CALL_CENTER_CATEGORY_VALUES)[number];
@@ -45,6 +55,49 @@ export const CALL_CENTER_CHART_EXCLUDED_CATEGORIES = new Set(["allocation"]);
 
 export function isCallCenterCategory(value: string): value is CallCenterCategory {
   return (CALL_CENTER_CATEGORY_VALUES as readonly string[]).includes(value);
+}
+
+export function isCallCenterOutcome(value: string): value is CallCenterOutcome {
+  return (CALL_CENTER_OUTCOME_VALUES as readonly string[]).includes(value);
+}
+
+/** Blank category means never contacted. Reports and lists show N/A. */
+export function displayCallCenterCategory(
+  category: string | null | undefined,
+): string {
+  const value = category?.trim() ?? "";
+  return value || CALL_CENTER_UNCONTACTED_CATEGORY;
+}
+
+export type CallUpdateStatusMatch =
+  | { category: { equals: string } }
+  | {
+      OR: Array<
+        | { category: null }
+        | { category: "" }
+        | { category: { equals: typeof CALL_CENTER_UNCONTACTED_CATEGORY } }
+      >;
+    };
+
+/**
+ * Insight "Call update status".
+ * N/A means not contacted yet: stored N/A, blank, or no category.
+ */
+export function callUpdateStatusMatch(
+  status: string | null | undefined,
+): CallUpdateStatusMatch | null {
+  const value = status?.trim() ?? "";
+  if (!value) return null;
+  if (value.toLowerCase() === CALL_CENTER_UNCONTACTED_CATEGORY.toLowerCase()) {
+    return {
+      OR: [
+        { category: null },
+        { category: "" },
+        { category: { equals: CALL_CENTER_UNCONTACTED_CATEGORY } },
+      ],
+    };
+  }
+  return { category: { equals: value } };
 }
 
 export function callCenterCategoryColor(category: string, index = 0): string {

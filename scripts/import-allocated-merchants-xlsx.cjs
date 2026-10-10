@@ -113,6 +113,29 @@ function normalizeMerchant(raw) {
     .slice(0, 255);
 }
 
+/** File labels → ContactMaster.assignedMerchant stored values. */
+function canonicalAllocatedMerchant(raw) {
+  const merchant = normalizeMerchant(raw);
+  const key = merchant.toLowerCase();
+  if (
+    key === "error number" ||
+    key === "error number category"
+  ) {
+    return "ERROR NUMBER";
+  }
+  if (
+    key === "dm - general" ||
+    key === "dm-general" ||
+    key === "dm general" ||
+    key === "dm_general" ||
+    key === "mer115"
+  ) {
+    return "DM - General";
+  }
+  if (key === "staff sales" || key === "staff category") return "STAFF SALES";
+  return merchant;
+}
+
 function sameMerchant(a, b) {
   return String(a || "")
     .trim()
@@ -261,6 +284,7 @@ async function main() {
       const phoneRaw = row.PHONE_NUMBER ?? row.phone_number ?? row.Phone ?? row.phone;
       const merchantRaw =
         row["Allocated Merchant"] ??
+        row.ALLOCATED_MERCHANT ??
         row.allocated_merchant ??
         row.AllocatedMerchant ??
         row.Merchant;
@@ -276,7 +300,7 @@ async function main() {
         continue;
       }
 
-      const merchant = normalizeMerchant(merchantRaw);
+      const merchant = canonicalAllocatedMerchant(merchantRaw);
       if (!merchant) {
         summary.blankMerchant += 1;
         leftovers.push({

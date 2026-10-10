@@ -278,6 +278,7 @@ def main() -> None:
         "Months Cover",
         "Days Cover",
         "Total Amount",
+        "Total Value",
         "In ERP1",
         "In ERP2",
     ]
@@ -371,6 +372,7 @@ def main() -> None:
             None,  # Months Cover formula
             None,  # Days Cover formula
             None,  # Total Amount formula
+            None,  # Total Value formula
             "Yes" if i1 else "No",
             "Yes" if i2 else "No",
         ]
@@ -378,7 +380,7 @@ def main() -> None:
             cell = ws.cell(row, col, val)
             cell.font = body_font
             cell.border = thin
-            if col in (6, 7, 16):
+            if col in (6, 7, 16, 17):
                 cell.number_format = money_fmt
             elif col in (8, 9, 10, 11, 12):
                 cell.number_format = qty_fmt
@@ -400,6 +402,11 @@ def main() -> None:
         ws.cell(row, 16).font = body_font
         ws.cell(row, 16).border = thin
         ws.cell(row, 16).number_format = money_fmt
+        # Total Value = Standard Price * Total Qty
+        ws.cell(row, 17, f"=F{row}*H{row}")
+        ws.cell(row, 17).font = body_font
+        ws.cell(row, 17).border = thin
+        ws.cell(row, 17).number_format = money_fmt
 
     # Detail sheet with company stock columns
     detail = wb.create_sheet("By Company")
@@ -418,6 +425,7 @@ def main() -> None:
         "Months Cover",
         "Days Cover",
         "Total Amount",
+        "Total Value",
     ]
     style_header(detail, detail_headers)
     first_co = 8
@@ -428,6 +436,7 @@ def main() -> None:
     months_col = max_month_col + 1
     days_col = months_col + 1
     amt_col = days_col + 1
+    value_col = amt_col + 1
 
     for i, sku in enumerate(all_skus):
         row = i + 2
@@ -476,13 +485,13 @@ def main() -> None:
         co_stock = stock.get(sku, {})
         for company, _label in COMPANY_COLS:
             values.append(co_stock.get(company, 0.0))
-        values.extend([None, max_sale, max_month, None, None, None])
+        values.extend([None, max_sale, max_month, None, None, None, None])
 
         for col, val in enumerate(values, 1):
             cell = detail.cell(row, col, val)
             cell.font = body_font
             cell.border = thin
-            if col in (6, 7, amt_col):
+            if col in (6, 7, amt_col, value_col):
                 cell.number_format = money_fmt
             elif first_co <= col <= max_col:
                 cell.number_format = qty_fmt
@@ -509,6 +518,10 @@ def main() -> None:
         detail.cell(row, amt_col).font = body_font
         detail.cell(row, amt_col).border = thin
         detail.cell(row, amt_col).number_format = money_fmt
+        detail.cell(row, value_col, f"=F{row}*{tq}{row}")
+        detail.cell(row, value_col).font = body_font
+        detail.cell(row, value_col).border = thin
+        detail.cell(row, value_col).number_format = money_fmt
 
     # Legend sheet
     leg = wb.create_sheet("Notes")
@@ -531,6 +544,7 @@ def main() -> None:
         "Months Cover: Total Qty / Max Sale (blank if Max Sale = 0)",
         "Days Cover: Total Qty × 30 / Max Sale (assumes 30-day month)",
         "Total Amount: Latest Purchased Price × Total Qty",
+        "Total Value: Total Qty × Standard Price (standard selling)",
         "Sheet 'By Company': same rows with per-company stock columns",
         f"Generated row count: {len(all_skus)}",
     ]
@@ -555,6 +569,7 @@ def main() -> None:
         "N": 12,
         "O": 12,
         "P": 14,
+        "Q": 14,
     }
     for letter, w in widths.items():
         ws.column_dimensions[letter].width = w
