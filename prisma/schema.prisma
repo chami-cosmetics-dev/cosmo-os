@@ -107,6 +107,7 @@ model Company {
   osRegistrationSettings       OsRegistrationSettings?
   itemCreationRequests         ItemCreationRequest[]
   itemCreationStockReceipts    ItemCreationStockReceipt[]
+  stockRequests                StockRequest[]
 }
 
 model PrintFormat {
@@ -619,6 +620,7 @@ model User {
   pickListGroupsPrinted                  PickListGroup[]                @relation("PickListGroupPrintedBy")
   financeScopes                          UserFinanceScope[]
   abandonedCheckoutFollowUps             ShopifyAbandonedCheckout[]     @relation("ShopifyAbandonedCheckoutFollowUpBy")
+  stockRequestActions                    StockRequest[]                 @relation("StockRequestLastActionBy")
   bookNoteDaysCreated                    BookNoteDay[]                  @relation("BookNoteDayCreatedBy")
   bookNoteDaysUpdated                    BookNoteDay[]                  @relation("BookNoteDayUpdatedBy")
   merchantMonthlyTargets                 MerchantMonthlyTarget[]        @relation("MerchantMonthlyTargetUser")
@@ -3046,4 +3048,54 @@ model MarketCompetitorPriceHistory {
   changedBy User?                @relation("MarketPriceHistoryChangedBy", fields: [changedById], references: [id], onDelete: SetNull)
 
   @@index([linkId, createdAt])
+}
+
+/// Wishlist Buddy "Notify me when available" request from a sold-out Shopify variant.
+/// Staff call customers when the SKU is in stock at another warehouse; open requests get one
+/// back-in-stock email when Shopify inventory returns.
+model StockRequest {
+  id                      String    @id @default(cuid())
+  companyId               String
+  companyLocationId       String?
+  /// Shop subdomain only (e.g. `cosmetics-lk`).
+  shopifyStoreHandle      String
+  /// Numeric Shopify IDs (not GIDs).
+  shopifyVariantId        String
+  shopifyProductId        String?
+  shopifyInventoryItemId  String?
+  shopifyCustomerId       String?
+  /// Shopify variant SKU = ERPNext item code. Null when the variant has no SKU.
+  sku                     String?
+  productTitle            String
+  variantTitle            String?
+  productUrl              String?
+  shopName                String?
+  customerName            String
+  customerEmail           String
+  /// ERP-safe local format (0XXXXXXXXX).
+  customerPhone           String
+  /// new | contacted | order_placed | not_interested
+  status                  String    @default("new")
+  remark                  String?
+  soldFromInstanceId      String?
+  soldFromWarehouse       String?
+  /// pending | found | none | error | no_sku
+  stockLookupStatus       String    @default("pending")
+  stockLookupAt           DateTime?
+  stockLookupJson         Json?
+  stockLookupError        String?
+  availabilityEmailSentAt DateTime?
+  restockEmailSentAt      DateTime?
+  restockEmailError       String?
+  lastActionById          String?
+  lastActionAt            DateTime?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+
+  company      Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  lastActionBy User?   @relation("StockRequestLastActionBy", fields: [lastActionById], references: [id], onDelete: SetNull)
+
+  @@index([companyId, status, createdAt(sort: Desc)])
+  @@index([companyId, shopifyVariantId, customerPhone])
+  @@index([shopifyInventoryItemId, restockEmailSentAt])
 }
