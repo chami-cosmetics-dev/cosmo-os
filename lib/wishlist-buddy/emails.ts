@@ -56,22 +56,28 @@ export function buildCheckingAvailabilityEmail(input: StockRequestEmailInput): B
   return { subject, html, plain, fromName: shopName };
 }
 
-/** Sent once, when Shopify inventory for the variant comes back. */
+/**
+ * Sent once when the item comes back. With a product link (website items) the customer can order
+ * online; without one (items only in the ERP) the team will contact them.
+ */
 export function buildBackInStockEmail(input: StockRequestEmailInput): BuiltEmail {
   const shopName = input.shopName?.trim() || DEFAULT_SHOP_NAME;
   const item = itemLabel(input);
   const subject = `Back in stock: ${item}`;
+  const next = input.productUrl
+    ? "Stock can sell out quickly, so order soon if you'd like it."
+    : "We'll contact you shortly to arrange your order.";
   const html = layout(
     shopName,
     [
       `Hi ${escapeHtml(firstName(input.customerName))},`,
-      `Good news: <strong>${escapeHtml(item)}</strong> is back in stock. Stock can sell out quickly, so order soon if you'd like it.`,
+      `Good news: <strong>${escapeHtml(item)}</strong> is back in stock. ${next}`,
     ],
     input.productUrl ? { label: "Shop now", url: input.productUrl } : undefined,
   );
   const plain =
     `Hi ${firstName(input.customerName)},\n\n` +
-    `Good news: ${item} is back in stock. Stock can sell out quickly, so order soon if you'd like it.\n\n` +
+    `Good news: ${item} is back in stock. ${next}\n\n` +
     (input.productUrl ? `${input.productUrl}\n\n` : "") +
     shopName;
   return { subject, html, plain, fromName: shopName };

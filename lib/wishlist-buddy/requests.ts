@@ -517,7 +517,11 @@ const listSelect = {
   restockEmailSentAt: true,
   restockEmailError: true,
   restockedAt: true,
+  restockedWarehouse: true,
+  awaitingStock: true,
   source: true,
+  createdById: true,
+  createdBy: { select: { id: true, name: true, email: true } },
   lastActionAt: true,
   lastActionBy: { select: { id: true, name: true, email: true } },
 } satisfies Prisma.StockRequestSelect;
@@ -551,7 +555,10 @@ export function serializeStockRequest(row: StockRequestListRow): StockRequestIte
     restockEmailSentAt: iso(row.restockEmailSentAt),
     restockEmailError: row.restockEmailError,
     restockedAt: iso(row.restockedAt),
+    restockedWarehouse: row.restockedWarehouse,
+    awaitingStock: row.awaitingStock,
     source: row.source,
+    createdBy: row.createdBy,
     lastActionAt: iso(row.lastActionAt),
     lastActionBy: row.lastActionBy,
   };
@@ -559,12 +566,15 @@ export function serializeStockRequest(row: StockRequestListRow): StockRequestIte
 
 export async function listStockRequests(input: {
   companyId: string;
+  viewer: StockRequestViewer;
+  scope: StockRequestScope;
   status?: StockRequestListFilter;
   stock?: StockRequestStockFilter;
   search?: string;
   page?: number;
   limit?: number;
 }): Promise<StockRequestListResponse> {
+  if (!canViewScope(input.viewer, input.scope)) throw new StockRequestForbiddenError();
   const page = input.page ?? 1;
   const limit = input.limit ?? 25;
   const search = input.search?.trim();
@@ -582,6 +592,7 @@ export async function listStockRequests(input: {
         : {};
   const where: Prisma.StockRequestWhereInput = {
     companyId: input.companyId,
+    ...scopeFilter(input.viewer, input.scope),
     ...statusWhere,
     ...stockWhere,
     ...(search
@@ -609,21 +620,47 @@ export async function listStockRequests(input: {
   return { items: items.map(serializeStockRequest), total, page, limit };
 }
 
+async function findRequestForViewer(input: {
+  id: string;
+  companyId: string;
+  viewer: StockRequestViewer;
+  mode: "view" | "edit";
+}) {
+  const row = await prisma.stockRequest.findFirst({
+    where: { id: input.id, companyId: input.companyId },
+    select: {
+      id: true,
+      source: true,
+      createdById: true,
+      status: true,
+      remark: true,
+      soldFromInstanceId: true,
+      soldFromWarehouse: true,
+    },
+  });
+  if (!row) throw new Error("Not found");
+  const allowed = input.mode === "edit" ? canEditRequest(input.viewer, row) : canViewRequest(input.viewer, row);
+  if (!allowed) throw new StockRequestForbiddenError();
+  return row;
+}
+
 export async function updateStockRequest(input: {
   id: string;
   companyId: string;
-  actorUserId: string;
+  viewer: StockRequestViewer;
   body: StockRequestPatchBody;
 }): Promise<StockRequestItem> {
-  const before = await prisma.stockRequest.findFirst({
-    where: { id: input.id, companyId: input.companyId },
-    select: { id: true, status: true, remark: true, soldFromInstanceId: true, soldFromWarehouse: true },
-  });
-  if (!before) throw new Error("Not found");
+  const found = await findRequestForViewer({ ...input, mode: "edit" });
+  const before = {
+    status: found.status,
+    remark: found.remark,
+    soldFromInstanceId: found.soldFromInstanceId,
+    soldFromWarehouse: found.soldFromWarehouse,
+  };
 
   const data: Prisma.StockRequestUpdateInput = {
     lastActionAt: new Date(),
-    lastActionBy: { connect: { id: input.actorUserId } },
+    lastActionBy: { connect: { id: input.viewer.userId } },
   };
   if (input.body.status !== undefined) data.status = input.body.status;
   if (input.body.remark !== undefined) data.remark = input.body.remark || null;
@@ -641,7 +678,7 @@ export async function updateStockRequest(input: {
     : updated.status;
   await writeAuditLog({
     companyId: input.companyId,
-    actorUserId: input.actorUserId,
+    actorUserId: input.viewer.userId,
     module: "orders",
     action: "stock_request_updated",
     entityType: "stock_request",
@@ -660,14 +697,100 @@ export async function updateStockRequest(input: {
 }
 
 /** Staff "refresh stock": re-runs the lookup without re-sending the availability email. */
-export async function refreshStockLookup(input: { id: string; companyId: string }): Promise<StockRequestItem> {
-  const row = await prisma.stockRequest.findFirst({
-    where: { id: input.id, companyId: input.companyId },
-    select: { id: true },
-  });
-  if (!row) throw new Error("Not found");
+export async function refreshStockLookup(input: {
+  id: string;
+  companyId: string;
+  viewer: StockRequestViewer;
+}): Promise<StockRequestItem> {
+  const row = await findRequestForViewer({ ...input, mode: "view" });
   await runStockLookupForRequest(row.id, { sendAvailabilityEmail: false });
   return serializeStockRequest(
     await prisma.stockRequest.findUniqueOrThrow({ where: { id: row.id }, select: listSelect }),
   );
+}
+
+export type CreateStaffStockRequestResult = { item: StockRequestItem; duplicate: boolean };
+
+/**
+ * Staff/merchant request created in Cosmo OS (My requests). Product details come from the Cosmo
+ * product list when the SKU is there (website link), otherwise from the ERP item name the staff
+ * picked. Runs the stock check right away; no stock means it waits for an ERP restock.
+ */
+export async function createStaffStockRequest(input: {
+  companyId: string;
+  viewer: StockRequestViewer;
+  body: StaffStockRequestCreateBody;
+}): Promise<CreateStaffStockRequestResult> {
+  if (!input.viewer.canCreate) throw new StockRequestForbiddenError();
+  const { body } = input;
+
+  const existing = await prisma.stockRequest.findFirst({
+    where: {
+      companyId: input.companyId,
+      source: STAFF_REQUEST_SOURCE,
+      createdById: input.viewer.userId,
+      sku: body.sku,
+      customerPhone: body.customerPhone,
+      status: { in: OPEN_STATUSES },
+    },
+    select: listSelect,
+  });
+  if (existing) return { item: serializeStockRequest(existing), duplicate: true };
+
+  const product = await prisma.productItem.findFirst({
+    where: { companyId: input.companyId, sku: { equals: body.sku, mode: "insensitive" } },
+    select: {
+      sku: true,
+      productTitle: true,
+      variantTitle: true,
+      shopifyVariantId: true,
+      shopifyProductId: true,
+      handle: true,
+    },
+    orderBy: { updatedAt: "desc" },
+  });
+  const storefrontUrl = process.env.WISHLIST_BUDDY_STOREFRONT_URL?.trim().replace(/\/$/, "") || null;
+
+  const created = await prisma.stockRequest.create({
+    data: {
+      companyId: input.companyId,
+      source: STAFF_REQUEST_SOURCE,
+      createdById: input.viewer.userId,
+      sku: product?.sku ?? body.sku,
+      productTitle: product?.productTitle ?? body.productTitle ?? body.sku,
+      variantTitle: product?.variantTitle && product.variantTitle !== "Default Title" ? product.variantTitle : null,
+      shopifyVariantId: product?.shopifyVariantId ?? null,
+      shopifyProductId: product?.shopifyProductId ?? null,
+      productUrl:
+        storefrontUrl && product?.handle
+          ? `${storefrontUrl}/products/${product.handle}${product.shopifyVariantId ? `?variant=${product.shopifyVariantId}` : ""}`
+          : null,
+      customerName: body.customerName,
+      customerPhone: body.customerPhone,
+      customerEmail: body.customerEmail ?? null,
+      remark: body.remark ?? null,
+      stockLookupStatus: "pending",
+      lastActionAt: new Date(),
+      lastActionById: input.viewer.userId,
+    },
+    select: { id: true },
+  });
+
+  await writeAuditLog({
+    companyId: input.companyId,
+    actorUserId: input.viewer.userId,
+    module: "orders",
+    action: "stock_request_created",
+    entityType: "stock_request",
+    entityId: created.id,
+    summary: `Stock request created for ${product?.sku ?? body.sku}`,
+  });
+
+  await runStockLookupForRequest(created.id, { sendAvailabilityEmail: false, initialStaffLookup: true });
+  return {
+    item: serializeStockRequest(
+      await prisma.stockRequest.findUniqueOrThrow({ where: { id: created.id }, select: listSelect }),
+    ),
+    duplicate: false,
+  };
 }

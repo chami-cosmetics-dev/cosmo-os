@@ -368,6 +368,11 @@ const DEFAULT_PERMISSIONS = [
     description: "Update stock request status, remarks, and the warehouse the sale came from",
   },
   {
+    key: "stock_requests.create",
+    description:
+      "Create stock requests (wishlist) for customers in Cosmo OS and manage your own under My requests",
+  },
+  {
     key: "finance.approvals.read",
     description: "View finance approval requests",
   },

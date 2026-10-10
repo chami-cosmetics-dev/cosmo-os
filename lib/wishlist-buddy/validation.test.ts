@@ -49,3 +49,28 @@ describe("stockRequestListQuerySchema", () => {
     expect(stockRequestListQuerySchema.safeParse({ stock: "pending" }).success).toBe(false);
   });
 });
+
+describe("staffStockRequestCreateBodySchema", () => {
+  it("requires product, name and a valid phone; email is optional", async () => {
+    const { staffStockRequestCreateBodySchema } = await import("./validation");
+    const ok = staffStockRequestCreateBodySchema.parse({
+      sku: " TK02_1 ",
+      productTitle: "Conditioner",
+      customerName: "Nimal",
+      customerPhone: "+94 77 123 4567",
+      customerEmail: "",
+    });
+    expect(ok).toMatchObject({ sku: "TK02_1", customerPhone: "0771234567" });
+    expect(ok.customerEmail).toBeUndefined();
+
+    expect(
+      staffStockRequestCreateBodySchema.parse({ sku: "A", customerName: "N", customerPhone: "0771234567", customerEmail: "A@B.CO" })
+        .customerEmail,
+    ).toBe("a@b.co");
+    expect(staffStockRequestCreateBodySchema.safeParse({ sku: "", customerName: "N", customerPhone: "0771234567" }).success).toBe(false);
+    expect(staffStockRequestCreateBodySchema.safeParse({ sku: "A", customerName: "N", customerPhone: "123" }).success).toBe(false);
+    expect(
+      staffStockRequestCreateBodySchema.safeParse({ sku: "A", customerName: "N", customerPhone: "0771234567", customerEmail: "bad" }).success,
+    ).toBe(false);
+  });
+});

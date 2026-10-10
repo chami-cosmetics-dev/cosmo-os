@@ -41,7 +41,8 @@ export type TaskReminderCategory =
   | "return_action"
   | "delivery_pending"
   | "invoice_complete"
-  | "purchasing_rop_threshold";
+  | "purchasing_rop_threshold"
+  | "stock_request_restocked";
 
 export type TaskReminder = {
   id: string;
@@ -821,6 +822,35 @@ async function fetchPurchasingRopThresholdReminders(companyId: string) {
   }
 }
 
+/** Creator's staff stock requests whose item is back in stock and still marked New. */
+async function fetchStockRequestRestockedReminders(
+  companyId: string,
+  userId: string,
+  now: Date,
+): Promise<CappedReminders> {
+  const { listRestockedRequestsForCreator } = await import("@/lib/wishlist-buddy/requests");
+  try {
+    const { rows, totalCount } = await listRestockedRequestsForCreator({
+      companyId,
+      userId,
+      limit: REMINDER_LIMIT_PER_CATEGORY,
+    });
+    const reminders = rows.map((row) => ({
+      id: `stock_request_restocked:${row.id}`,
+      category: "stock_request_restocked" as const,
+      title: `${row.sku ?? row.productTitle} is back in stock`,
+      body: `${row.productTitle} for ${row.customerName}${row.restockedWarehouse ? ` (in ${row.restockedWarehouse})` : ""}. Contact the customer and update the request.`,
+      href: "/dashboard/orders/stock-requests?tab=mine",
+      waitingHours: row.restockedAt ? waitingHoursSince(row.restockedAt, now) : 0,
+      invoiceLabel: row.sku ?? row.productTitle,
+    }));
+    return { reminders, totalCount };
+  } catch (err) {
+    console.error("[reminders] stock_request_restocked", err);
+    return { reminders: [], totalCount: 0 };
+  }
+}
+
 export async function fetchTaskReminders(
   companyId: string,
   context: PermissionContext,
@@ -907,6 +937,11 @@ export async function fetchTaskReminders(
     reminders.push(...purchasing.reminders);
     categoryCounts.purchasing_rop_threshold = purchasing.totalCount;
   }
+  if (canSeeTaskReminderCategory(context, "stock_request_restocked") && context.userId) {
+    const restocked = await fetchStockRequestRestockedReminders(companyId, context.userId, now);
+    reminders.push(...restocked.reminders);
+    categoryCounts.stock_request_restocked = restocked.totalCount;
+  }
 
   reminders.sort((a, b) => b.waitingHours - a.waitingHours);
 
@@ -920,6 +955,7 @@ export async function fetchTaskReminders(
     "rearrange_dispatch",
     "delivery_pending",
     "invoice_complete",
+    "stock_request_restocked",
   ]);
 
   for (const reminder of reminders) {

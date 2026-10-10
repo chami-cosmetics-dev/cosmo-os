@@ -48,6 +48,10 @@ export const REMINDER_BUBBLE_PERMISSIONS = [
     key: "reminders.purchasing_rop_threshold",
     category: "purchasing_rop_threshold" as const,
   },
+  {
+    key: "reminders.stock_request_restocked",
+    category: "stock_request_restocked" as const,
+  },
 ] as const;
 
 export type ReminderBubbleCategory =
@@ -72,6 +76,7 @@ const REMINDER_BUBBLE_LABELS: Record<ReminderBubbleCategory, string> = {
   invoice_complete: "Invoice complete",
   return_action: "Returned orders",
   purchasing_rop_threshold: "Purchasing ROP threshold",
+  stock_request_restocked: "Wishlist items back in stock",
 };
 
 export function buildReminderBubblePermissionDescription(

@@ -26,8 +26,14 @@ export type StockRequestItem = {
   restockEmailError: string | null;
   /** When Shopify inventory came back while the request was open. */
   restockedAt: string | null;
-  /** shopify | import */
+  /** Staff requests: first warehouse with stock when the ERP restock was detected. */
+  restockedWarehouse: string | null;
+  /** Staff requests: no stock at creation, waiting for an ERP restock. */
+  awaitingStock: boolean;
+  /** shopify | import | staff */
   source: string;
+  /** Staff requests: who created it. */
+  createdBy: { id: string; name: string | null; email: string | null } | null;
   lastActionAt: string | null;
   lastActionBy: { id: string; name: string | null; email: string | null } | null;
 };
