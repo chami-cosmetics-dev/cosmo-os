@@ -34,6 +34,8 @@ async function sendMailerooEmail(input: {
   plain: string;
   attachments?: MailerooAttachment[];
   errorLabel: string;
+  /** Sender display name; defaults to the OS name. */
+  fromName?: string;
 }): Promise<{ success: boolean; message?: string }> {
   const apiKey = process.env.MAILEROO_API_KEY;
   const fromEmail = process.env.MAILEROO_FROM_EMAIL;
@@ -60,7 +62,7 @@ async function sendMailerooEmail(input: {
       body: JSON.stringify({
         from: {
           address: fromEmail,
-          display_name: APP_NAME,
+          display_name: input.fromName?.trim() || APP_NAME,
         },
         to: validEmails.map((address) => ({ address })),
         subject: input.subject,
@@ -117,6 +119,25 @@ async function sendMailerooEmail(input: {
           : "Failed to send email",
     };
   }
+}
+
+/** Customer-facing email (e.g. Wishlist Buddy), sent under the store's name rather than the OS name. */
+export async function sendCustomerEmail(input: {
+  toEmail: string;
+  subject: string;
+  html: string;
+  plain: string;
+  fromName: string;
+  errorLabel: string;
+}): Promise<{ success: boolean; message?: string }> {
+  return sendMailerooEmail({
+    toEmails: [input.toEmail],
+    subject: input.subject,
+    html: input.html,
+    plain: input.plain,
+    fromName: input.fromName,
+    errorLabel: input.errorLabel,
+  });
 }
 
 export async function sendOsRegistrationWelcomeEmail(input: {
