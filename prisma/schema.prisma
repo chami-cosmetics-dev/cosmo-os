@@ -631,6 +631,7 @@ model User {
   financeScopes                          UserFinanceScope[]
   abandonedCheckoutFollowUps             ShopifyAbandonedCheckout[]     @relation("ShopifyAbandonedCheckoutFollowUpBy")
   stockRequestActions                    StockRequest[]                 @relation("StockRequestLastActionBy")
+  stockRequestsCreated                   StockRequest[]                 @relation("StockRequestCreatedBy")
   bookNoteDaysCreated                    BookNoteDay[]                  @relation("BookNoteDayCreatedBy")
   bookNoteDaysUpdated                    BookNoteDay[]                  @relation("BookNoteDayUpdatedBy")
   merchantMonthlyTargets                 MerchantMonthlyTarget[]        @relation("MerchantMonthlyTargetUser")
@@ -3136,8 +3137,8 @@ model StockRequest {
   id                      String    @id @default(cuid())
   companyId               String
   companyLocationId       String?
-  /// Shop subdomain only (e.g. `cosmetics-lk`).
-  shopifyStoreHandle      String
+  /// Shop subdomain only (e.g. `cosmetics-lk`). Null for staff-created requests.
+  shopifyStoreHandle      String?
   /// Numeric Shopify IDs (not GIDs). Variant is null for imported requests whose SKU is not in the
   /// Cosmo product list.
   shopifyVariantId        String?
@@ -3155,8 +3156,15 @@ model StockRequest {
   customerEmail           String?
   /// ERP-safe local format (0XXXXXXXXX).
   customerPhone           String?
-  /// shopify (storefront form) | import (e.g. Restock Rocket export)
+  /// shopify (storefront form) | import (e.g. Restock Rocket export) | staff (created in Cosmo OS)
   source                  String    @default("shopify")
+  /// Staff requests: the Cosmo OS user who created it (sees it under "My requests").
+  createdById             String?
+  /// Staff requests: no stock anywhere at creation, so a restock in any ERP warehouse should remind
+  /// the creator and email the customer.
+  awaitingStock           Boolean   @default(false)
+  /// Staff requests: first warehouse with stock when the ERP restock was detected.
+  restockedWarehouse      String?
   /// Idempotency key for imports (e.g. restockrocket:<contact>|<sku>).
   externalRef             String?
   /// new | contacted | order_placed | not_interested
@@ -3181,10 +3189,13 @@ model StockRequest {
 
   company      Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
   lastActionBy User?   @relation("StockRequestLastActionBy", fields: [lastActionById], references: [id], onDelete: SetNull)
+  createdBy    User?   @relation("StockRequestCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
 
   @@index([companyId, status, createdAt(sort: Desc)])
   @@index([companyId, shopifyVariantId, customerPhone])
   @@index([shopifyInventoryItemId, restockEmailSentAt])
   @@unique([companyId, externalRef])
   @@index([shopifyStoreHandle, sku])
+  @@index([companyId, source, createdById, createdAt(sort: Desc)])
+  @@index([source, awaitingStock, restockedAt])
 }

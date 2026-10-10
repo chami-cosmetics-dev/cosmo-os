@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildInstanceStockSources,
   classifyStockLookup,
+  orderInstancesByLabel,
   sortStockSources,
   type StockSource,
 } from "./stock-sources";
@@ -88,5 +89,31 @@ describe("classifyStockLookup", () => {
     expect(classifyStockLookup({ sources: [], failedInstances: failed })).toBe("error");
     expect(classifyStockLookup({ sources: [], failedInstances: [] })).toBe("none");
     expect(classifyStockLookup({ sources: [src("erp1", "A", 1)], failedInstances: failed })).toBe("found");
+  });
+});
+
+describe("sortStockSources with priority warehouses", () => {
+  it("puts priority warehouses first, then instance order", () => {
+    const main = { ...src("erp1", "Cosmetics.lk", 1), warehouse: "Main Warehouse - Cosmo" };
+    const sorted = sortStockSources(
+      [src("erp1", "Cosmetics.lk", 9), src("erp2", "Chami", 2), main],
+      ["erp2", "erp1"],
+      ["Main Warehouse - Cosmo"],
+    );
+    expect(sorted.map((s) => s.warehouse)).toEqual(["Main Warehouse - Cosmo", "Chami-2", "Cosmetics.lk-9"]);
+  });
+});
+
+describe("orderInstancesByLabel", () => {
+  it("orders by label hints and keeps setup order for the rest", () => {
+    const ordered = orderInstancesByLabel(
+      [
+        { id: "a", label: "ERP_1 - Main" },
+        { id: "b", label: "Other" },
+        { id: "c", label: "ERP_2 - Main" },
+      ],
+      ["ERP_2", "ERP_1"],
+    );
+    expect(ordered.map((i) => i.id)).toEqual(["c", "a", "b"]);
   });
 });

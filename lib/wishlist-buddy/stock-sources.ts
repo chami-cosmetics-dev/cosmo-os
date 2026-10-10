@@ -98,12 +98,20 @@ export function buildInstanceStockSources(input: {
 }
 
 /**
- * Instances keep their configured order (ERP1 = Cosmetics.lk own shops first), then company,
- * then highest available qty.
+ * Order: priority warehouses first (in the given order, e.g. Main Warehouse - Cosmo), then by ERP
+ * instance order (e.g. ERP2 before ERP1), then company, then highest available qty.
  */
-export function sortStockSources(sources: StockSource[], instanceOrder: string[]): StockSource[] {
+export function sortStockSources(
+  sources: StockSource[],
+  instanceOrder: string[],
+  priorityWarehouses: string[] = [],
+): StockSource[] {
   const rank = new Map(instanceOrder.map((id, i) => [id, i]));
+  const priority = new Map(priorityWarehouses.map((w, i) => [w.trim().toLowerCase(), i]));
   return [...sources].sort((a, b) => {
+    const pa = priority.get(a.warehouse.toLowerCase()) ?? Number.MAX_SAFE_INTEGER;
+    const pb = priority.get(b.warehouse.toLowerCase()) ?? Number.MAX_SAFE_INTEGER;
+    if (pa !== pb) return pa - pb;
     const ra = rank.get(a.instanceId) ?? Number.MAX_SAFE_INTEGER;
     const rb = rank.get(b.instanceId) ?? Number.MAX_SAFE_INTEGER;
     if (ra !== rb) return ra - rb;
@@ -111,6 +119,26 @@ export function sortStockSources(sources: StockSource[], instanceOrder: string[]
     if (c !== 0) return c;
     return b.availableQty - a.availableQty;
   });
+}
+
+/**
+ * Order ERP instances by label hints (e.g. ["ERP_2", "ERP_1"]): instances whose label contains an
+ * earlier hint come first; the rest keep their original (setup) order.
+ */
+export function orderInstancesByLabel<T extends { id: string; label: string | null }>(
+  instances: T[],
+  labelHints: string[],
+): T[] {
+  const hints = labelHints.map((h) => h.trim().toLowerCase()).filter(Boolean);
+  const hintRank = (label: string | null) => {
+    const l = (label ?? "").toLowerCase();
+    const i = hints.findIndex((h) => l.includes(h));
+    return i === -1 ? Number.MAX_SAFE_INTEGER : i;
+  };
+  return instances
+    .map((inst, index) => ({ inst, index, r: hintRank(inst.label) }))
+    .sort((a, b) => a.r - b.r || a.index - b.index)
+    .map((x) => x.inst);
 }
 
 export type StockLookupOutcome = "found" | "none" | "error";
