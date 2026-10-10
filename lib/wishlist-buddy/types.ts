@@ -10,8 +10,9 @@ export type StockRequestItem = {
   variantTitle: string | null;
   productUrl: string | null;
   customerName: string;
-  customerEmail: string;
-  customerPhone: string;
+  /** At least one of email / phone is set. */
+  customerEmail: string | null;
+  customerPhone: string | null;
   status: StockRequestStatus;
   remark: string | null;
   soldFromInstanceId: string | null;
@@ -23,6 +24,10 @@ export type StockRequestItem = {
   availabilityEmailSentAt: string | null;
   restockEmailSentAt: string | null;
   restockEmailError: string | null;
+  /** When Shopify inventory came back while the request was open. */
+  restockedAt: string | null;
+  /** shopify | import */
+  source: string;
   lastActionAt: string | null;
   lastActionBy: { id: string; name: string | null; email: string | null } | null;
 };
