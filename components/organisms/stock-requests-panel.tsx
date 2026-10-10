@@ -102,6 +102,7 @@ export function StockRequestsPanel({
 }) {
   const [data, setData] = useState<StockRequestListResponse>(initialData);
   const [status, setStatus] = useState<string>("open");
+  const [stock, setStock] = useState<string>("all");
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(initialData.page);
@@ -137,6 +138,7 @@ export function StockRequestsPanel({
       try {
         const params = new URLSearchParams();
         if (status !== "all") params.set("status", status);
+        if (stock !== "all") params.set("stock", stock);
         if (search) params.set("search", search);
         params.set("page", String(page));
         params.set("limit", String(limit));
@@ -157,7 +159,7 @@ export function StockRequestsPanel({
     return () => {
       cancelled = true;
     };
-  }, [status, search, page, limit]);
+  }, [status, stock, search, page, limit]);
 
   function replaceItem(item: StockRequestItem) {
     setData((d) => ({ ...d, items: d.items.map((i) => (i.id === item.id ? item : i)) }));
@@ -240,7 +242,7 @@ export function StockRequestsPanel({
           </p>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-3 sm:grid-cols-[220px_minmax(0,1fr)]">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[220px_220px_minmax(0,1fr)]">
             <div className="space-y-1">
               <label className="text-sm font-medium" htmlFor="stock-requests-status">
                 Status
@@ -267,6 +269,29 @@ export function StockRequestsPanel({
               </Select>
             </div>
             <div className="space-y-1">
+              <label className="text-sm font-medium" htmlFor="stock-requests-stock">
+                Stock
+              </label>
+              <Select
+                value={stock}
+                onValueChange={(v) => {
+                  setPage(1);
+                  setStock(v);
+                }}
+              >
+                <SelectTrigger id="stock-requests-stock" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All</SelectItem>
+                  <SelectItem value="found">{STOCK_LOOKUP_STATUS_LABELS.found}</SelectItem>
+                  <SelectItem value="restocked">Back in stock on Shopify</SelectItem>
+                  <SelectItem value="none">{STOCK_LOOKUP_STATUS_LABELS.none}</SelectItem>
+                  <SelectItem value="error">{STOCK_LOOKUP_STATUS_LABELS.error}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1 sm:col-span-2 lg:col-span-1">
               <label className="text-sm font-medium" htmlFor="stock-requests-search">
                 Search
               </label>

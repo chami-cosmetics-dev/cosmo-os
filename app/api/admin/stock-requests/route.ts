@@ -19,6 +19,7 @@ export async function GET(request: NextRequest) {
   const sp = request.nextUrl.searchParams;
   const parsed = stockRequestListQuerySchema.safeParse({
     status: sp.get("status") || undefined,
+    stock: sp.get("stock") || undefined,
     search: sp.get("search") || undefined,
     page: sp.get("page") || undefined,
     limit: sp.get("limit") || undefined,
