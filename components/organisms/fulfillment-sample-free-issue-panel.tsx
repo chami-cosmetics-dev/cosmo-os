@@ -559,7 +559,7 @@ export function FulfillmentSampleFreeIssuePanel({
 
   const canConfigureSplitPayment =
     perms.canManageSplitPayment &&
-    financeApprovalPending &&
+    detail?.paymentApproval?.status !== "approved" &&
     !splitPaymentLines.some((line) => line.erpPaymentEntryName) &&
     isSplitPaymentEligibleSource(detail?.sourceName) &&
     [detail?.paymentGatewayPrimary, ...(detail?.paymentGatewayNames ?? [])].some((gateway) => {

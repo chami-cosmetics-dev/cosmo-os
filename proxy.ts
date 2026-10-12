@@ -12,6 +12,7 @@ export async function proxy(request: NextRequest) {
     request.nextUrl.pathname.startsWith("/auth/") ||
     request.nextUrl.pathname.startsWith("/api/webhooks/") ||
     request.nextUrl.pathname.startsWith("/api/public/") ||
+    request.nextUrl.pathname.startsWith("/api/merchant/") ||
     request.nextUrl.pathname.startsWith("/r/")
   ) {
     return response;

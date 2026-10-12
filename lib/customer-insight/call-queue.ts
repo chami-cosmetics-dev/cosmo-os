@@ -1,5 +1,10 @@
 import { Prisma } from "@prisma/client";
 
+import {
+  callUpdateStatusMatch,
+  displayCallCenterCategory,
+} from "@/lib/contact-call-center-categories";
+
 import { writeAuditLog } from "@/lib/audit-log";
 import {
   callQueueNeedsLifetimeTotals,
@@ -23,6 +28,7 @@ import {
   contactAllocatedToMerchantAliases,
   shouldShowNewlyAllocatedBadge,
 } from "@/lib/customer-insight/call-queue-newly-allocated";
+import { firstPurchaseAtByContactIds } from "@/lib/customer-insight/first-purchase";
 import { chunkArray } from "@/lib/customer-insight/purchase-scan";
 import { findContactsByPurchasedBrandRanked } from "@/lib/page-data/contact-brand-ids";
 import {
@@ -50,7 +56,11 @@ export type CallQueueRowDto = {
   assignedMerchant: string | null;
   lifetimeTotal: number;
   lastPurchaseAt: string | null;
+  /** Earliest completed Cosmo order or Adapt invoice. */
+  firstPurchaseAt?: string | null;
   lastContactedAt: string | null;
+  /** Call outcome. N/A when the contact has never been contacted. */
+  callUpdateStatus: string;
   queued: boolean;
   hidden?: boolean;
   hideReason?: string | null;
@@ -74,6 +84,10 @@ export type CallQueueAssignFilters = {
   assignedTo?: string;
   notContacted?: boolean;
   notInterestedInLoyalty?: boolean;
+  /** Contacts with no assigned merchant, and a phone number. */
+  notAllocated?: boolean;
+  /** ContactMaster.category — latest call update status. */
+  callUpdateStatus?: string;
   /** Purchased brand needles (OR). Empty/undefined = off. */
   brands?: string[];
   /** @deprecated use brands */
@@ -90,11 +104,23 @@ function brandNeedlesFromFilters(filters: CallQueueAssignFilters): string[] {
   return single ? [single] : [];
 }
 
-function usesQueueHistoryMode(filters: CallQueueAssignFilters): boolean {
-  return Boolean(
-    filters.assignedFrom?.trim() ||
-      filters.assignedTo?.trim() ||
-      filters.notContacted
+/** Assigned-date filters read call-queue rows. Not contacted stays on the allocated list. */
+export function usesCallQueueHistoryMode(filters: {
+  assignedFrom?: string;
+  assignedTo?: string;
+}): boolean {
+  return Boolean(filters.assignedFrom?.trim() || filters.assignedTo?.trim());
+}
+
+/** True when a real call happened after this queue assignment. */
+export function queueRowContactedAfterAssign(
+  updates: Array<{ contactId: string; createdAt: Date }>,
+  row: { contactId: string; assignedAt: Date }
+): boolean {
+  return updates.some(
+    (u) =>
+      u.contactId === row.contactId &&
+      u.createdAt.getTime() > row.assignedAt.getTime()
   );
 }
 export type CallQueueAssignResult = {
@@ -299,6 +325,14 @@ async function lastNonAllocationEventMap(
   return map;
 }
 
+/** No merchant on the contact. */
+export function unassignedMerchantWhere(companyId: string) {
+  return {
+    companyId,
+    OR: [{ assignedMerchant: null }, { assignedMerchant: "" }],
+  };
+}
+
 export function assignedMerchantWhere(companyId: string, aliases: string[]) {
   if (aliases.length === 0) {
     return {
@@ -364,7 +398,10 @@ async function listRankedEligibleContacts(input: {
   companyId: string;
   filters: CallQueueAssignFilters;
 }): Promise<{ ranked: RankedContact[]; allocatedTotal: number }> {
-  const merchantNeedle = input.filters.merchantValue?.trim() ?? "";
+  const notAllocated = Boolean(input.filters.notAllocated);
+  const merchantNeedle = notAllocated
+    ? ""
+    : (input.filters.merchantValue?.trim() ?? "");
   const aliases = merchantNeedle
     ? await resolveAssignedMerchantFilterLabels(input.companyId, merchantNeedle)
     : [];
@@ -377,7 +414,7 @@ async function listRankedEligibleContacts(input: {
     input.filters.lastPurchaseTo
   );
   const brandNeedles = brandNeedlesFromFilters(input.filters);
-  const queueHistory = usesQueueHistoryMode(input.filters);
+  const queueHistory = usesCallQueueHistoryMode(input.filters);
 
   let contactIdAllow: Set<string> | null = null;
   if (queueHistory) {
@@ -416,38 +453,49 @@ async function listRankedEligibleContacts(input: {
       const updates =
         contactIds.length === 0
           ? []
-          : await prisma.contactAllocationUpdate.findMany({
-              where: {
-                companyId: input.companyId,
-                contactId: { in: contactIds },
-              },
-              select: { contactId: true, createdAt: true },
-              orderBy: { createdAt: "asc" },
-            });
-      rows = rows.filter((row) => {
-        const hit = updates.some(
-          (u) =>
-            u.contactId === row.contactId &&
-            u.createdAt.getTime() > row.assignedAt.getTime()
-        );
-        return !hit;
-      });
+          : (
+              await Promise.all(
+                idChunks(contactIds).map((slice) =>
+                  prisma.contactAllocationUpdate.findMany({
+                    where: {
+                      companyId: input.companyId,
+                      contactId: { in: slice },
+                      NOT: { category: "allocation" },
+                    },
+                    select: { contactId: true, createdAt: true },
+                  })
+                )
+              )
+            ).flat();
+      rows = rows.filter((row) => !queueRowContactedAfterAssign(updates, row));
     }
 
     contactIdAllow = new Set(rows.map((r) => r.contactId));
     if (contactIdAllow.size === 0) return { ranked: [], allocatedTotal: 0 };
   }
 
+  const merchantWhere = notAllocated
+    ? unassignedMerchantWhere(input.companyId)
+    : assignedMerchantWhere(input.companyId, aliases);
   const contacts = await prisma.contactMaster.findMany({
     where: {
-      ...assignedMerchantWhere(input.companyId, aliases),
+      ...merchantWhere,
       ...(purchase ?? {}),
       ...(contactIdAllow
         ? { id: { in: [...contactIdAllow] } }
         : {}),
+      ...(notAllocated
+        ? {
+            AND: [
+              { phoneNumber: { not: null } },
+              { phoneNumber: { not: "" } },
+            ],
+          }
+        : {}),
       ...(input.filters.notInterestedInLoyalty
         ? { loyaltyOutreachStatus: "not_interested" }
         : {}),
+      ...(callUpdateStatusMatch(input.filters.callUpdateStatus) ?? {}),
     },
     select: {
       id: true,
@@ -513,13 +561,12 @@ async function listRankedEligibleContacts(input: {
     )
   );
 
-  const ranked = matched
+  let ranked = matched
     .map((c) => {
       const ev = lastEvent.get(c.id);
       const hideReason = callQueueHideReason({
         now,
         currentCategory: c.category,
-        lastPurchaseAt: c.lastPurchaseAt,
         lastNonAllocationAt: ev?.at ?? null,
         lastNonAllocationCategory: ev?.category ?? c.category,
         hasPendingQueue: queued.has(c.id),
@@ -534,6 +581,12 @@ async function listRankedEligibleContacts(input: {
       };
     })
     .sort(compareCallQueueCandidateOrder);
+
+  // Queue-history mode already dropped post-assign calls. Here, Not contacted
+  // means no real call at all (allocation events are not calls).
+  if (input.filters.notContacted && !queueHistory) {
+    ranked = ranked.filter((c) => c.lastContactedAt == null);
+  }
 
   return { ranked, allocatedTotal };
 }
@@ -574,9 +627,15 @@ export async function listCallQueueCandidates(input: {
   const pageRows = shown.slice(start, start + pageSize);
 
   const lifetimeAlready = callQueueNeedsLifetimeTotals(input);
-  const pageTotals = lifetimeAlready
-    ? null
-    : await lifetimeTotalsByContactId(input.companyId, pageRows);
+  const [pageTotals, firstPurchaseById] = await Promise.all([
+    lifetimeAlready
+      ? Promise.resolve(null)
+      : lifetimeTotalsByContactId(input.companyId, pageRows),
+    firstPurchaseAtByContactIds(
+      input.companyId,
+      pageRows.map((row) => row.id)
+    ),
+  ]);
 
   return {
     items: pageRows.map((c) => ({
@@ -586,7 +645,9 @@ export async function listCallQueueCandidates(input: {
       assignedMerchant: c.assignedMerchant,
       lifetimeTotal: pageTotals?.get(c.id) ?? c.lifetimeTotal,
       lastPurchaseAt: c.lastPurchaseAt?.toISOString() ?? null,
+      firstPurchaseAt: firstPurchaseById.get(c.id)?.toISOString() ?? null,
       lastContactedAt: c.lastContactedAt?.toISOString() ?? null,
+      callUpdateStatus: displayCallCenterCategory(c.category),
       queued: c.queued,
       hidden: c.hidden,
       hideReason: c.hideReason,
@@ -706,7 +767,6 @@ export async function assignCallQueue(input: {
       isHiddenFromCallQueueAssign({
         now,
         currentCategory: contact.category,
-        lastPurchaseAt: contact.lastPurchaseAt,
         lastNonAllocationAt: ev?.at ?? null,
         lastNonAllocationCategory: ev?.category ?? contact.category,
         hasPendingQueue: false,
@@ -1007,6 +1067,7 @@ export async function listMerchantCallQueue(input: {
           assignedMerchant: true,
           lastPurchaseAt: true,
           email: true,
+          category: true,
           phones: { select: { phoneNumber: true } },
           emails: { select: { email: true } },
         },
@@ -1019,9 +1080,10 @@ export async function listMerchantCallQueue(input: {
   const newlyAllocatedByContactId = new Map(
     rows.map((r) => [r.contactId, r.newlyAllocated] as const)
   );
-  const [contacted, lifetimeById] = await Promise.all([
+  const [contacted, lifetimeById, firstPurchaseById] = await Promise.all([
     lastContactedMap(input.companyId, ids),
     lifetimeTotalsByContactId(input.companyId, contacts),
+    firstPurchaseAtByContactIds(input.companyId, ids),
   ]);
 
   const now = new Date();
@@ -1035,7 +1097,9 @@ export async function listMerchantCallQueue(input: {
         assignedMerchant: c.assignedMerchant,
         lifetimeTotal: lifetimeById.get(c.id) ?? 0,
         lastPurchaseAt: c.lastPurchaseAt?.toISOString() ?? null,
+        firstPurchaseAt: firstPurchaseById.get(c.id)?.toISOString() ?? null,
         lastContactedAt: lastContactedAtDate?.toISOString() ?? null,
+        callUpdateStatus: displayCallCenterCategory(c.category),
         queued: true,
         newlyAllocatedBadge: shouldShowNewlyAllocatedBadge({
           newlyAllocated: newlyAllocatedByContactId.get(c.id) ?? false,

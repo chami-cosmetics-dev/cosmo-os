@@ -105,3 +105,36 @@ export async function fetchShopifyVariantInfo(input: {
       storefrontUrl && productHandle ? `${storefrontUrl}/products/${productHandle}?variant=${variantId}` : null,
   };
 }
+
+/** SKU of a Shopify inventory item (the restock webhook only reports the inventory item ID). */
+export async function fetchInventoryItemSku(input: {
+  storeHandle: string;
+  inventoryItemId: string;
+}): Promise<string | null> {
+  const handle = normalizeShopifyStoreHandle(input.storeHandle);
+  if (!handle) throw new Error(`[Wishlist Buddy] Invalid store handle: "${input.storeHandle}"`);
+  const token = await getWishlistBuddyAdminToken(handle);
+  const res = await fetch(`https://${handle}.myshopify.com/admin/api/${SHOPIFY_API_VERSION}/graphql.json`, {
+    method: "POST",
+    headers: { "X-Shopify-Access-Token": token, "Content-Type": "application/json" },
+    cache: "no-store",
+    signal: AbortSignal.timeout(15_000),
+    body: JSON.stringify({
+      query: `query WishlistBuddyInventoryItem($id: ID!) { inventoryItem(id: $id) { sku } }`,
+      variables: { id: `gid://shopify/InventoryItem/${input.inventoryItemId}` },
+    }),
+  });
+  if (!res.ok) {
+    if (res.status === 401) forgetWishlistBuddyAdminToken(handle);
+    const text = await res.text().catch(() => "");
+    throw new Error(`[Wishlist Buddy] inventory item lookup [${res.status}]: ${text.slice(0, 300)}`);
+  }
+  const json = (await res.json()) as {
+    data?: { inventoryItem?: { sku?: string | null } | null };
+    errors?: Array<{ message?: string }>;
+  };
+  if (json.errors?.length) {
+    throw new Error(`[Wishlist Buddy] inventory item lookup: ${json.errors.map((e) => e.message).join("; ")}`);
+  }
+  return json.data?.inventoryItem?.sku?.trim() || null;
+}

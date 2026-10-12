@@ -30,6 +30,7 @@ export type BookNoteIssueSplitLine = {
   amount_display: string | null;
   card_last_4: string | null;
   koko_reference: string | null;
+  mintpay_reference: string | null;
   bank_reference: string | null;
 };
 
@@ -53,6 +54,7 @@ export type BookNoteIssueRow = {
   card: number;
   card_last_4: string | null;
   koko: number;
+  mintpay: number;
   bank_transfer: number;
   row_total: number;
   is_multi_method: boolean;
@@ -123,6 +125,7 @@ export function emptyByStatus(): BookNoteIssueByStatus {
     sales_invoice_not_found: 0,
     no_invoice_number: 0,
     koko_ref_missing: 0,
+    mintpay_ref_missing: 0,
   };
 }
 
@@ -140,4 +143,5 @@ export const BOOK_NOTE_ISSUE_STATUS_LABELS: Record<BookNoteIssueStatus, string> 
     sales_invoice_not_found: "Invoice not found",
     no_invoice_number: "No invoice number",
     koko_ref_missing: "KOKO reference missing",
+    mintpay_ref_missing: "MintPay Order ID missing",
   };

@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 
+import { RiderHandoverPanel } from "@/components/organisms/rider-handover-panel";
+import { RiderIncentiveStatementDialog } from "@/components/organisms/rider-incentive-statement-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -62,8 +64,16 @@ function riderDisplayName(row: RiderPerformanceRow) {
 
 export function RiderPerformancePanel({
   canManagePerformance = false,
+  canExportIncentive = false,
+  canHandoverSummary = false,
+  canHandoverReceive = false,
+  riders = [],
 }: {
   canManagePerformance?: boolean;
+  canExportIncentive?: boolean;
+  canHandoverSummary?: boolean;
+  canHandoverReceive?: boolean;
+  riders?: Array<{ id: string; name: string | null; knownName: string | null }>;
 }) {
   const [from, setFrom] = useState(todayInputValue);
   const [to, setTo] = useState(todayInputValue);
@@ -73,8 +83,11 @@ export function RiderPerformancePanel({
   const [districtOptions, setDistrictOptions] = useState<DistrictOption[]>([]);
   const [selectedByTask, setSelectedByTask] = useState<Record<string, string>>({});
   const [filterByTask, setFilterByTask] = useState<Record<string, string>>({});
+  const [amountByTask, setAmountByTask] = useState<Record<string, string>>({});
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [statementRider, setStatementRider] = useState<RiderPerformanceRow | null>(null);
+  const [statementRefresh, setStatementRefresh] = useState(0);
   const isBusy = busyKey !== null;
 
   const load = useCallback(async () => {
@@ -98,6 +111,8 @@ export function RiderPerformancePanel({
       setDistrictOptions(Array.isArray(data.districtOptions) ? data.districtOptions : []);
       setSelectedByTask({});
       setFilterByTask({});
+      setAmountByTask({});
+      setStatementRefresh((value) => value + 1);
     } catch {
       notify.error("Failed to load performance");
       setRows([]);
@@ -121,7 +136,7 @@ export function RiderPerformancePanel({
       notify.error("Select a district first");
       return;
     }
-    setBusyKey(taskId);
+    setBusyKey(`district:${taskId}`);
     try {
       const res = await fetch("/api/admin/riders/performance/manual-district", {
         method: "POST",
@@ -136,6 +151,33 @@ export function RiderPerformancePanel({
       notify.success(
         `Saved ${data.label ?? labelKey} · ${data.incentiveAmount ?? "0.00"} rider pay`
       );
+      await load();
+    } catch {
+      notify.error("Save failed");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function saveManualAmount(taskId: string) {
+    const amount = (amountByTask[taskId] ?? "").trim();
+    if (!amount) {
+      notify.error("Enter a rider pay amount");
+      return;
+    }
+    setBusyKey(`amount:${taskId}`);
+    try {
+      const res = await fetch("/api/admin/riders/performance/manual-amount", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ taskId, amount }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        notify.error(typeof data.error === "string" ? data.error : "Save failed");
+        return;
+      }
+      notify.success(`Saved manual pay ${data.incentiveAmount ?? amount}`);
       await load();
     } catch {
       notify.error("Save failed");
@@ -163,8 +205,8 @@ export function RiderPerformancePanel({
             <CardTitle>Rider performance</CardTitle>
             <CardDescription className="mt-1">
               Completed deliveries and rider pay from shipping-rule charges (Asia/Colombo dates).
-              Pick up, free-ship, and STAFFDC are not paid. Unmatched rows can be assigned a district
-              manually from the uploaded charge sheet.
+              Pick up, free-ship, and STAFFDC are not paid. Unmatched rows can take a district
+              from the charge sheet, or a typed rider pay when no district fits.
             </CardDescription>
           </div>
           <div className="flex flex-wrap items-end gap-2">
@@ -192,6 +234,17 @@ export function RiderPerformancePanel({
           </div>
         </CardHeader>
       </Card>
+
+      {canHandoverSummary || canHandoverReceive ? (
+        <RiderHandoverPanel
+          from={from}
+          to={to}
+          riders={riders}
+          canHandoverSummary={canHandoverSummary}
+          canHandoverReceive={canHandoverReceive}
+          disabled={isBusy || loading}
+        />
+      ) : null}
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <Card>
@@ -244,7 +297,7 @@ export function RiderPerformancePanel({
           <CardTitle className="text-base">Unmatched under riders</CardTitle>
           <CardDescription>
             {canManagePerformance
-              ? "Review address, pick a suggested district or search the uploaded charge sheet, then save. Pay uses that district's rider charge."
+              ? "Review the address. Pick a district, or type a rider pay amount when no district fits, then save."
               : "Orders that need a district for rider pay. Assign riders.performance.manage to set districts."}
           </CardDescription>
         </CardHeader>
@@ -266,7 +319,8 @@ export function RiderPerformancePanel({
                   {group.orders.map((order) => {
                     const selected = selectedByTask[order.taskId] ?? "";
                     const options = filteredOptions(order.taskId);
-                    const saving = busyKey === order.taskId;
+                    const savingDistrict = busyKey === `district:${order.taskId}`;
+                    const savingAmount = busyKey === `amount:${order.taskId}`;
                     return (
                       <div key={order.taskId} className="space-y-3 p-3">
                         <div className="flex flex-wrap items-start justify-between gap-2">
@@ -312,6 +366,7 @@ export function RiderPerformancePanel({
                         ) : null}
 
                         {canManagePerformance ? (
+                          <>
                           <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
                             <div className="min-w-0 flex-1 space-y-1">
                               <label className="text-muted-foreground block text-xs">
@@ -357,7 +412,7 @@ export function RiderPerformancePanel({
                               disabled={isBusy || !selected}
                               onClick={() => void saveManualDistrict(order.taskId)}
                             >
-                              {saving ? (
+                              {savingDistrict ? (
                                 <>
                                   <Loader2 className="animate-spin" aria-hidden />
                                   Saving...
@@ -367,6 +422,40 @@ export function RiderPerformancePanel({
                               )}
                             </Button>
                           </div>
+                          <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+                            <div className="w-full space-y-1 sm:max-w-xs">
+                              <label className="text-muted-foreground block text-xs">
+                                Manual rider pay
+                              </label>
+                              <Input
+                                inputMode="decimal"
+                                value={amountByTask[order.taskId] ?? ""}
+                                disabled={isBusy}
+                                placeholder="Amount"
+                                onChange={(e) =>
+                                  setAmountByTask((prev) => ({
+                                    ...prev,
+                                    [order.taskId]: e.target.value,
+                                  }))
+                                }
+                              />
+                            </div>
+                            <Button
+                              type="button"
+                              disabled={isBusy || !(amountByTask[order.taskId] ?? "").trim()}
+                              onClick={() => void saveManualAmount(order.taskId)}
+                            >
+                              {savingAmount ? (
+                                <>
+                                  <Loader2 className="animate-spin" aria-hidden />
+                                  Saving...
+                                </>
+                              ) : (
+                                "Save amount"
+                              )}
+                            </Button>
+                          </div>
+                          </>
                         ) : null}
                       </div>
                     );
@@ -404,7 +493,15 @@ export function RiderPerformancePanel({
                   rows.map((row) => {
                     const unmatched = row.unmatchedCount ?? 0;
                     return (
-                      <tr key={row.riderId} className="border-t">
+                      <tr
+                        key={row.riderId}
+                        className={
+                          canExportIncentive
+                            ? "hover:bg-secondary/40 cursor-pointer border-t"
+                            : "border-t"
+                        }
+                        onClick={canExportIncentive ? () => setStatementRider(row) : undefined}
+                      >
                         <td className="px-3 py-2">
                           {riderDisplayName(row)}
                           {unmatched > 0 ? (
@@ -425,6 +522,20 @@ export function RiderPerformancePanel({
           </div>
         </CardContent>
       </Card>
+
+      {canExportIncentive ? (
+        <RiderIncentiveStatementDialog
+          open={statementRider !== null}
+          onOpenChange={(open) => {
+            if (!open) setStatementRider(null);
+          }}
+          riderId={statementRider?.riderId ?? null}
+          riderLabel={statementRider ? riderDisplayName(statementRider) : ""}
+          from={from}
+          to={to}
+          refreshKey={statementRefresh}
+        />
+      ) : null}
     </div>
   );
 }

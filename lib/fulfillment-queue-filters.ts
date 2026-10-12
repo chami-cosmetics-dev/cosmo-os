@@ -95,6 +95,11 @@ export const deliveryPipelineWhere = {} satisfies Prisma.OrderWhereInput;
 /** Counter / POS sales — skip warehouse fulfillment queues (dispatch, invoice-complete, etc.). */
 export const POS_ORDER_SOURCE_NAMES = ["pos", "erpnext-pos"] as const;
 
+export function isPosOrderSource(sourceName: string | null | undefined): boolean {
+  const normalized = sourceName?.trim().toLowerCase() ?? "";
+  return (POS_ORDER_SOURCE_NAMES as readonly string[]).includes(normalized);
+}
+
 export const excludePosOrdersWhere = {
   sourceName: { notIn: [...POS_ORDER_SOURCE_NAMES] },
 } satisfies Prisma.OrderWhereInput;

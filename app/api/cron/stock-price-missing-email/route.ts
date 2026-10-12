@@ -11,7 +11,7 @@ function isAuthorizedCronRequest(request: NextRequest) {
   return request.headers.get("authorization") === `Bearer ${cronSecret}`;
 }
 
-/** Daily 16:00 Asia/Colombo — stock in both ERPs, Standard/OGF price missing. */
+/** Daily 16:00 Asia/Colombo — stock Standard/OGF gaps, plus ERP1 vs ERP2 Standard Selling mismatches. */
 export async function GET(request: NextRequest) {
   if (!isAuthorizedCronRequest(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

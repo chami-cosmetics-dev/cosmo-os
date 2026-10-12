@@ -3,6 +3,10 @@ import { z } from "zod";
 
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
+import {
+  isManufactureDateAllowed,
+  MANUFACTURE_DATE_TOO_OLD_MESSAGE,
+} from "@/lib/sticker-dates";
 
 const dateStringSchema = z.string().regex(/^\d{2}\/\d{2}\/\d{4}$/);
 
@@ -163,6 +167,12 @@ export async function POST(
     if (item.manufactureDate && !manufactureDate) {
       return NextResponse.json(
         { error: "Invalid manufacture date in rows" },
+        { status: 400 }
+      );
+    }
+    if (item.manufactureDate && !isManufactureDateAllowed(item.manufactureDate)) {
+      return NextResponse.json(
+        { error: MANUFACTURE_DATE_TOO_OLD_MESSAGE },
         { status: 400 }
       );
     }

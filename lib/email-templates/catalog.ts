@@ -55,7 +55,7 @@ export const BUILTIN_EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
     key: STOCK_PRICE_MISSING_DAILY_KEY,
     name: "Stock — selling price missing",
     subject:
-      "{{reportDate}} — Selling price gaps ({{itemCount}}: ERP1 {{erp1Count}}, ERP2 {{erp2Count}})",
+      "{{reportDate}} — Selling price gaps ({{itemCount}}: ERP1 {{erp1Count}}, ERP2 {{erp2Count}}) · std mismatch {{standardMismatchCount}}",
     bodyHtml: `<p>Daily report for <strong>{{companyName}}</strong>.</p>
 <p>Generated: <strong>{{generatedAt}}</strong> (Colombo)</p>
 <p>
@@ -84,11 +84,18 @@ export const BUILTIN_EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
 </ul>
 {{erp2TableHtml}}
 
+<p><strong>3) Standard Selling mismatch (ERP1 vs ERP2)</strong></p>
+<p>Same SKU, both ERPs have Standard Selling, rates differ.</p>
+<ul>
+  <li>Total: {{standardMismatchCount}}</li>
+</ul>
+{{standardMismatchTableHtml}}
+
 <p style="color:#666;font-size:12px;margin-top:24px;">
   Cosmo OS automated report.
   Standard Selling required for all.
   ERP1: OGF only Cerave. ERP2: OGF skip list Acnes, Hada Labo, Jovees, Keune, lipIce, Melano CC, Olay, Palmers, Savol, wella, ZGTS, Sebamed, Cerave.
-  ERP1/ERP2 exclude Discontinue; ERP2 also excludes Vat. Excel attached (one sheet per ERP).
+  ERP1/ERP2 exclude Discontinue; ERP2 also excludes Vat. Excel attached (ERP1, ERP2, standard-price mismatch).
 </p>`,
     recipients: "asitha@cosmetics.lk",
     ccRecipients:
@@ -110,6 +117,8 @@ export const BUILTIN_EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
       "erp2MissingBothCount",
       "erp1TableHtml",
       "erp2TableHtml",
+      "standardMismatchCount",
+      "standardMismatchTableHtml",
     ],
     builtin: true,
     automated: true,

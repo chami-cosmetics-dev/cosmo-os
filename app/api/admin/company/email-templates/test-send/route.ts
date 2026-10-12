@@ -56,6 +56,8 @@ const SAMPLE_PLACEHOLDERS: Record<string, string | number> = {
   erp2MissingBothCount: 3,
   erp1TableHtml: "<p>Sample ERP 1 table.</p>",
   erp2TableHtml: "<p>Sample ERP 2 table.</p>",
+  standardMismatchCount: 1,
+  standardMismatchTableHtml: "<p>Sample standard price mismatch table.</p>",
 };
 
 function htmlToPlain(html: string) {

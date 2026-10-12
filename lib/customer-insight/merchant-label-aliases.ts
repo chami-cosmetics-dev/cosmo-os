@@ -52,8 +52,8 @@ export const ASSIGNED_MERCHANT_ALIAS_GROUPS: AssignedMerchantAliasGroup[] = [
   },
   {
     value: "ERROR NUMBER",
-    label: "ERROR NUMBER",
-    aliases: ["ERROR NUMBER"],
+    label: "Error number category",
+    aliases: ["ERROR NUMBER", "Error number category", "Error Number"],
   },
   {
     value: "Sanda/semini",

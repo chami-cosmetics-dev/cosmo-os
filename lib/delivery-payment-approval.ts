@@ -7,12 +7,30 @@ import {
   isOrderPaymentRequiresApproval,
   ORDER_PAYMENT_APPROVAL,
 } from "@/lib/approval-workflow";
+import { isPosOrderSource } from "@/lib/fulfillment-queue-filters";
 import { markOrderInvoiceComplete } from "@/lib/mark-order-invoice-complete";
 import { orderHasCardOnDeliveryGateway } from "@/lib/payment-method-label";
 
 export type PostDeliveryInvoiceResult =
   | { kind: "awaiting_manual_invoice_complete" }
-  | { kind: "close_invoice_complete"; financeUserId: string };
+  | { kind: "close_invoice_complete"; financeUserId: string; posAlreadyPaid?: boolean };
+
+/**
+ * POS payment is on the Sales Invoice. Delivery complete closes invoice complete.
+ * Refunded, voided, and finance-reverted orders stay for a manual decision.
+ */
+export function shouldClosePosOnDelivery(input: {
+  sourceName?: string | null;
+  financialStatus?: string | null;
+  revertedFromInvoiceCompleteAt?: Date | null;
+}): boolean {
+  if (input.revertedFromInvoiceCompleteAt) return false;
+  const financial = input.financialStatus?.trim().toLowerCase() ?? "";
+  if (financial === "refunded" || financial === "voided" || financial === "partially_refunded") {
+    return false;
+  }
+  return isPosOrderSource(input.sourceName);
+}
 
 /** Normalize gateway strings for matching (case, underscores, hyphens). */
 export function normalizePaymentGatewayKey(gateway: string): string {
@@ -102,6 +120,8 @@ export function shouldSkipDeliveryPaymentApproval(order: {
 
 /**
  * After mark delivered:
+ * - POS (`pos`, `erpnext-pos`): close to invoice_complete. Payment is already on the
+ *   Sales Invoice, so no finance gate and no Payment Entry.
  * - Finance-approved prepaid (already invoice-complete + PE at approval): close fulfillment
  *   stage to invoice_complete (PE usually already paid / no-op).
  * - Everyone else: stay on delivery_complete for manual /fulfillment/invoice-complete.
@@ -120,6 +140,7 @@ export async function resolvePostDeliveryInvoiceComplete(input: {
       paymentGatewayNames: true,
       invoiceCompleteAt: true,
       revertedFromInvoiceCompleteAt: true,
+      sourceName: true,
     },
   });
   if (!order) {
@@ -135,10 +156,14 @@ export async function resolvePostDeliveryInvoiceComplete(input: {
     return { kind: "awaiting_manual_invoice_complete" };
   }
 
-  // Already marked invoice complete at finance approval (timestamp set, then went to print).
+  if (shouldClosePosOnDelivery(order)) {
+    return { kind: "close_invoice_complete", financeUserId: "", posAlreadyPaid: true };
+  }
+
+  // Already marked invoice complete at finance approval or CC/WebXPay payment.
+  // Only a finance approver is stamped. The store user who marks delivery is not.
   if (order.invoiceCompleteAt) {
-    const reviewerId =
-      (await getApprovedOrderPaymentReviewerId(order.id)) ?? input.requestedById ?? "";
+    const reviewerId = (await getApprovedOrderPaymentReviewerId(order.id)) ?? "";
     return { kind: "close_invoice_complete", financeUserId: reviewerId };
   }
 
@@ -148,12 +173,13 @@ export async function resolvePostDeliveryInvoiceComplete(input: {
     return { kind: "close_invoice_complete", financeUserId: earlyFinanceUserId };
   }
 
-  // Prepaid already paid (e.g. approval path set paid + PE) but timestamp missing — still close.
+  // Prepaid already paid (CC Checkout, WebXPay, or finance-approved) but timestamp missing — still close.
+  // No finance reviewer: leave invoice-complete person blank. UI shows the payment gateway.
   if (
     shouldSkipDeliveryPaymentApproval(order) &&
     order.financialStatus?.toLowerCase() === "paid"
   ) {
-    return { kind: "close_invoice_complete", financeUserId: input.requestedById ?? "" };
+    return { kind: "close_invoice_complete", financeUserId: "" };
   }
 
   return { kind: "awaiting_manual_invoice_complete" };
@@ -162,6 +188,7 @@ export async function resolvePostDeliveryInvoiceComplete(input: {
 export type PostDeliveryApplyResult = {
   afterStage: FulfillmentStage;
   needsPaymentApproval: boolean;
+  posAlreadyPaid?: boolean;
 };
 
 /**
@@ -175,11 +202,12 @@ export async function applyPostDeliveryInvoiceAndPayment(input: {
 }): Promise<PostDeliveryApplyResult> {
   const postDelivery = await resolvePostDeliveryInvoiceComplete(input);
   if (postDelivery.kind === "close_invoice_complete") {
-    const actorId = postDelivery.financeUserId.trim() || input.requestedById?.trim() || "";
+    const actorId = postDelivery.financeUserId.trim();
     const outcome = await markOrderInvoiceComplete({
       companyId: input.companyId,
       orderId: input.orderId,
       userId: actorId,
+      posAlreadyPaid: postDelivery.posAlreadyPaid,
     });
     if (!outcome.success) {
       console.error(
@@ -187,7 +215,11 @@ export async function applyPostDeliveryInvoiceAndPayment(input: {
       );
       return { afterStage: "delivery_complete", needsPaymentApproval: false };
     }
-    return { afterStage: "invoice_complete", needsPaymentApproval: false };
+    return {
+      afterStage: "invoice_complete",
+      needsPaymentApproval: false,
+      posAlreadyPaid: postDelivery.posAlreadyPaid,
+    };
   }
 
   const deliveryApproval = await triggerDeliveryPaymentApprovalIfNeeded(input);

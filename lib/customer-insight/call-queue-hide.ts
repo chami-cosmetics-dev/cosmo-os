@@ -33,7 +33,6 @@ export function eligibleAtStartOfUtcDayAfter(from: Date, days: number): Date {
 export type CallQueueHideInput = {
   now: Date;
   currentCategory: string | null | undefined;
-  lastPurchaseAt: Date | null;
   lastNonAllocationAt: Date | null;
   lastNonAllocationCategory: string | null | undefined;
   hasPendingQueue: boolean;
@@ -44,13 +43,6 @@ export function callQueueHideReason(input: CallQueueHideInput): string | null {
   const category = (input.currentCategory ?? "").trim();
   if (PERMANENT_OMIT.has(category)) return category;
   if (input.hasPendingQueue) return "Already queued";
-
-  if (
-    input.lastPurchaseAt &&
-    input.now < addCalendarMonthsUtc(input.lastPurchaseAt, 2)
-  ) {
-    return "Purchased < 2 months";
-  }
 
   const lastAt = input.lastNonAllocationAt;
   const lastCat = (input.lastNonAllocationCategory ?? "").trim();

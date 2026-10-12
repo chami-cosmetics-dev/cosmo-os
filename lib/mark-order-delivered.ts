@@ -10,6 +10,7 @@ import {
   resolveOrderNumber,
   sendOrderSms,
 } from "@/lib/order-sms";
+import { isPosOrderSource } from "@/lib/fulfillment-queue-filters";
 import { prisma } from "@/lib/prisma";
 
 export type MarkOrderDeliveredResult =
@@ -46,12 +47,20 @@ export async function markOrderDelivered(input: {
       paymentGatewayPrimary: true,
       paymentGatewayNames: true,
       erpnextInvoiceId: true,
+      sourceName: true,
     },
   });
 
   const ref = order?.name ?? order?.orderNumber ?? input.orderId;
   if (!order) {
     return { success: false, ref, error: "Order not found" };
+  }
+  if (isPosOrderSource(order.sourceName)) {
+    return {
+      success: false,
+      ref,
+      error: "POS orders are completed in store. They are not delivered by riders.",
+    };
   }
   const financeBlock = await getFinancePaymentApprovalBlockReason({
     id: order.id,
@@ -95,7 +104,7 @@ export async function markOrderDelivered(input: {
     },
   });
 
-  const { afterStage, needsPaymentApproval } = await applyPostDeliveryInvoiceAndPayment({
+  const { afterStage, needsPaymentApproval, posAlreadyPaid } = await applyPostDeliveryInvoiceAndPayment({
     companyId: input.companyId,
     orderId: order.id,
     requestedById: input.userId,
@@ -118,7 +127,9 @@ export async function markOrderDelivered(input: {
     entityId: order.id,
     summary:
       afterStage === "invoice_complete"
-        ? `Marked order ${orderNum} as delivered — closed invoice complete (finance path)`
+        ? posAlreadyPaid
+          ? `Marked order ${orderNum} as delivered — closed invoice complete (POS)`
+          : `Marked order ${orderNum} as delivered — closed invoice complete (finance path)`
         : needsPaymentApproval
           ? `Marked order ${orderNum} as delivered — awaiting manual invoice complete`
           : `Marked order ${orderNum} as delivered`,

@@ -5,6 +5,7 @@ import type {
   StockPriceMissingErpSection,
   StockPriceMissingScanSummary,
 } from "@/lib/stock-price-missing/build-content";
+import type { StandardPriceMismatchRow } from "@/lib/stock-price-missing/standard-mismatch";
 
 function sheetFromSection(section: StockPriceMissingErpSection) {
   const header = [
@@ -30,6 +31,26 @@ function sheetFromSection(section: StockPriceMissingErpSection) {
   return XLSX.utils.aoa_to_sheet([header, ...data]);
 }
 
+function sheetFromMismatches(rows: StandardPriceMismatchRow[]) {
+  const header = [
+    "#",
+    "SKU",
+    "Item name",
+    "ERP1 Standard Selling",
+    "ERP2 Standard Selling",
+    "Diff (ERP1-ERP2)",
+  ];
+  const data = rows.map((row, index) => [
+    index + 1,
+    row.sku,
+    row.itemName,
+    row.erp1Rate,
+    row.erp2Rate,
+    row.diff,
+  ]);
+  return XLSX.utils.aoa_to_sheet([header, ...data]);
+}
+
 function sheetName(label: string, fallback: string): string {
   const raw = (label || fallback).slice(0, 28);
   return raw.replace(/[\\/?*[\]]/g, "_") || fallback;
@@ -49,6 +70,11 @@ export function buildStockPriceMissingWorkbook(
     workbook,
     sheetFromSection(scan.erp2),
     sheetName("ERP2", "ERP2"),
+  );
+  XLSX.utils.book_append_sheet(
+    workbook,
+    sheetFromMismatches(scan.standardMismatches ?? []),
+    "Std mismatch",
   );
   return Buffer.from(XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }));
 }

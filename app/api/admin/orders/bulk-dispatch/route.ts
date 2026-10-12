@@ -9,6 +9,7 @@ import { DISPATCHABLE_STAGES, printFieldsOnDispatchIfUnprinted } from "@/lib/ful
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
 import { citypakBulkShipmentOverrideSchema, citypakManualShipmentSchema, cuidSchema } from "@/lib/validation";
+import { isPosOrderSource } from "@/lib/fulfillment-queue-filters";
 import { orderStageUpdate } from "@/lib/order-stage-timing";
 import { getErpOutOfStockFulfillmentBlock } from "@/lib/erp-fulfillment-block";
 import { isExplicitlyPackageReady } from "@/lib/fulfillment-stage-display";
@@ -159,6 +160,16 @@ export async function POST(request: NextRequest) {
 
       if (!order) {
         results.push({ orderId, ref, success: false, error: "Order not found" });
+        continue;
+      }
+
+      if (isPosOrderSource(order.sourceName)) {
+        results.push({
+          orderId,
+          ref,
+          success: false,
+          error: "POS orders are completed in store. They are not dispatched to riders.",
+        });
         continue;
       }
 

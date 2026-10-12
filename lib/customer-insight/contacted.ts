@@ -1,7 +1,7 @@
 import {
   CALL_CENTER_CONTACTED_CATEGORY,
-  isCallCenterCategory,
-  type CallCenterCategory,
+  isCallCenterOutcome,
+  type CallCenterOutcome,
 } from "@/lib/contact-call-center-categories";
 import { writeAuditLog } from "@/lib/audit-log";
 import { canonicalizeMerchantDisplayName } from "@/lib/customer-insight/merchant-label-aliases";
@@ -73,12 +73,12 @@ export async function markContactInsightContacted(input: {
   contactId: string;
   actorUserId: string | null | undefined;
   merchantName: string | null;
-  category: CallCenterCategory;
+  category: CallCenterOutcome;
   note?: string | null;
   remark?: string | null;
   outcome?: ContactEventOutcome;
 }): Promise<{ lastContactedAt: string; category: string } | null> {
-  if (!isCallCenterCategory(input.category)) return null;
+  if (!isCallCenterOutcome(input.category)) return null;
 
   const contact = await prisma.contactMaster.findFirst({
     where: { id: input.contactId, companyId: input.companyId },

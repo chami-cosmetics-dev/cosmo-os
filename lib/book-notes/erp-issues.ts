@@ -151,6 +151,7 @@ function parseSplitLine(raw: unknown): BookNoteIssueSplitLine | null {
     amount_display: asString(r.amount_display),
     card_last_4: asString(r.card_last_4),
     koko_reference: asString(r.koko_reference),
+    mintpay_reference: asString(r.mintpay_reference),
     bank_reference: asString(r.bank_reference),
   };
 }
@@ -195,6 +196,7 @@ export function parseBookNoteIssueRow(raw: unknown): BookNoteIssueRow | null {
     card: asNumber(r.card) ?? 0,
     card_last_4: asString(r.card_last_4),
     koko: asNumber(r.koko) ?? 0,
+    mintpay: asNumber(r.mintpay) ?? 0,
     bank_transfer: asNumber(r.bank_transfer) ?? 0,
     row_total: asNumber(r.row_total) ?? 0,
     is_multi_method: asBool(r.is_multi_method),

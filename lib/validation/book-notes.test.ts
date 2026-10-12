@@ -144,6 +144,81 @@ describe("bookNotePutBodySchema", () => {
     expect(ok.success).toBe(true);
   });
 
+  it("requires a MintPay Order ID when the MintPay amount is above 0", () => {
+    const missing = bookNotePutBodySchema.safeParse({
+      companyLocationId: LOC,
+      postingDate: "2026-08-03",
+      rows: [
+        {
+          idxNo: "1",
+          salesInvoice: "500-000888",
+          mintpay: 8950,
+        },
+      ],
+    });
+    expect(missing.success).toBe(false);
+
+    const ok = bookNotePutBodySchema.safeParse({
+      companyLocationId: LOC,
+      postingDate: "2026-08-03",
+      rows: [
+        {
+          idxNo: "1",
+          salesInvoice: "500-000888",
+          mintpay: 8950,
+          mintpayReference: " #3174628 ",
+        },
+      ],
+    });
+    expect(ok.success).toBe(true);
+    if (ok.success) {
+      expect(ok.data.rows[0]!.mintpayReference).toBe("#3174628");
+    }
+  });
+
+  it("requires a MintPay Order ID on every MintPay split line and keeps a short ref", () => {
+    const missing = bookNotePutBodySchema.safeParse({
+      companyLocationId: LOC,
+      postingDate: "2026-08-03",
+      rows: [
+        {
+          idxNo: "2",
+          salesInvoice: "500-000889",
+          splitLines: [
+            { paymentMethod: "Cash", amount: 1000 },
+            { paymentMethod: "MintPay", amount: 7950 },
+          ],
+        },
+      ],
+    });
+    expect(missing.success).toBe(false);
+
+    const shortRef = bookNotePutBodySchema.safeParse({
+      companyLocationId: LOC,
+      postingDate: "2026-08-03",
+      rows: [
+        {
+          idxNo: "3",
+          salesInvoice: "500-000890",
+          splitLines: [
+            { paymentMethod: "Card", amount: 5000, cardLast4: "0301" },
+            {
+              paymentMethod: "MintPay",
+              amount: 4500,
+              mintpayReference: "12",
+            },
+          ],
+        },
+      ],
+    });
+    expect(shortRef.success).toBe(true);
+    if (shortRef.success) {
+      expect(shortRef.data.rows[0]!.splitLines?.[1]?.mintpayReference).toBe(
+        "12",
+      );
+    }
+  });
+
   it("accepts split payment rows without legacy card ref", () => {
     const r = bookNotePutBodySchema.safeParse({
       companyLocationId: LOC,

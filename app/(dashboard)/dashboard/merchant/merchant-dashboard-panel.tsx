@@ -54,7 +54,8 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { useConfirmationDialog } from "@/components/providers/confirmation-dialog-provider";
 import {
-  CALL_CENTER_CATEGORY_VALUES,
+  CALL_CENTER_OUTCOME_VALUES,
+  CALL_CENTER_UNCONTACTED_CATEGORY,
   callCenterCategoryColor,
 } from "@/lib/contact-call-center-categories";
 import { formatAppTime } from "@/lib/format-datetime";
@@ -476,7 +477,9 @@ export function MerchantDashboardPanel({ initialData }: Props) {
   const [wishCode, setWishCode] = useState("");
   const [wishMessage, setWishMessage] = useState("");
   const [callUpdateRow, setCallUpdateRow] = useState<CallQueueRowDto | null>(null);
-  const [callOutcome, setCallOutcome] = useState("N/A");
+  const [callOutcome, setCallOutcome] = useState<string>(
+    CALL_CENTER_UNCONTACTED_CATEGORY,
+  );
   const [callRemark, setCallRemark] = useState("");
   const [notInterestedRow, setNotInterestedRow] = useState<{
     contactId: string;
@@ -922,13 +925,16 @@ export function MerchantDashboardPanel({ initialData }: Props) {
 
   function openCallUpdate(row: CallQueueRowDto) {
     setCallUpdateRow(row);
-    setCallOutcome("N/A");
+    setCallOutcome(CALL_CENTER_UNCONTACTED_CATEGORY);
     setCallRemark("");
   }
 
   async function submitCallUpdate() {
     if (!callUpdateRow) return;
-    if (!callOutcome.trim()) {
+    if (
+      !callOutcome.trim() ||
+      callOutcome === CALL_CENTER_UNCONTACTED_CATEGORY
+    ) {
       notify.error("Select a call outcome.");
       return;
     }
@@ -3149,15 +3155,19 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                 Call outcome
               </label>
               <Select
-                value={callOutcome}
+                value={
+                  callOutcome === CALL_CENTER_UNCONTACTED_CATEGORY
+                    ? undefined
+                    : callOutcome
+                }
                 disabled={isBusy}
                 onValueChange={setCallOutcome}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Select outcome" />
+                  <SelectValue placeholder={CALL_CENTER_UNCONTACTED_CATEGORY} />
                 </SelectTrigger>
                 <SelectContent>
-                  {CALL_CENTER_CATEGORY_VALUES.map((opt) => (
+                  {CALL_CENTER_OUTCOME_VALUES.map((opt) => (
                     <SelectItem key={opt} value={opt}>
                       {opt}
                     </SelectItem>

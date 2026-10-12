@@ -34,6 +34,8 @@ import { notify } from "@/lib/notify";
 import {
   expireFromManufacture,
   formatDateTyping,
+  isManufactureDateAllowed,
+  MANUFACTURE_DATE_TOO_OLD_MESSAGE,
   parseDDMMYYYY,
 } from "@/lib/sticker-dates";
 import {
@@ -853,6 +855,10 @@ export function StickerBatchClient({
       notify.error("Select batch name");
       return { ok: false, count: 0 };
     }
+    if (rows.some((row) => !isManufactureDateAllowed(row.manufactureDate))) {
+      notify.error(MANUFACTURE_DATE_TOO_OLD_MESSAGE);
+      return { ok: false, count: 0 };
+    }
     const validRows = getValidRowsForSave();
     if (validRows.length === 0) {
       notify.error("Add at least one complete item row");
@@ -1100,6 +1106,10 @@ export function StickerBatchClient({
     if (!row) return;
     if (field === "manufactureDate") {
       const normalizedMfg = formatDateTyping(value);
+      if (!isManufactureDateAllowed(normalizedMfg)) {
+        notify.error(MANUFACTURE_DATE_TOO_OLD_MESSAGE);
+        return;
+      }
       const autoExp = expireFromManufacture(normalizedMfg);
       const nextExp = autoExp ?? row.expireDate;
       setRow(rowId, {
@@ -1234,6 +1244,10 @@ export function StickerBatchClient({
     );
     if (printableRows.length === 0) {
       notify.error("Add complete sticker rows before printing");
+      return;
+    }
+    if (rows.some((row) => !isManufactureDateAllowed(row.manufactureDate))) {
+      notify.error(MANUFACTURE_DATE_TOO_OLD_MESSAGE);
       return;
     }
 

@@ -46,6 +46,7 @@ export function Topbar({ title = "Dashboard", user }: TopbarProps) {
     { prefix: "/dashboard/settings/fulfillment", label: "Fulfillment Settings" },
     { prefix: "/dashboard/settings", label: "Settings" },
     { prefix: "/dashboard/profile", label: "Profile" },
+    { prefix: "/dashboard/products/vat-status", label: "VAT Status" },
     { prefix: "/dashboard/products/items", label: "Product Items" },
     { prefix: "/dashboard/products/vendors-categories", label: "Vendors & Categories" },
     { prefix: "/dashboard/sticker-batch", label: "Sticker Batch & Print" },

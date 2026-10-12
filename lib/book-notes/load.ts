@@ -276,7 +276,13 @@ export async function loadBookNoteHistory(input: {
       createdBy: { select: { name: true, email: true } },
       updatedBy: { select: { name: true, email: true } },
       rows: {
-        select: { cash: true, card: true, koko: true, bankTransfer: true },
+        select: {
+          cash: true,
+          card: true,
+          koko: true,
+          mintpay: true,
+          bankTransfer: true,
+        },
       },
     },
   });
@@ -291,6 +297,7 @@ export async function loadBookNoteHistory(input: {
         money(r.cash) +
         money(r.card) +
         money(r.koko) +
+        money(r.mintpay) +
         money(r.bankTransfer)
       );
     }, 0);

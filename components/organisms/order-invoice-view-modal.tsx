@@ -556,6 +556,8 @@ function buildTimeline(orderDetail: OrderDetail, formatDate: (v: string) => stri
       date: orderDetail.invoiceCompleteAt ?? null,
       who: formatInvoiceCompleteTimelineWho({
         invoiceCompleteBy: orderDetail.invoiceCompleteBy,
+        paymentGatewayPrimary: orderDetail.paymentGatewayPrimary,
+        paymentGatewayNames: orderDetail.paymentGatewayNames,
         deliveryPaymentApproval: orderDetail.deliveryPaymentApproval,
       }),
       done: !!orderDetail.invoiceCompleteAt,

@@ -209,15 +209,38 @@ export const FINANCE_PENDING_FULFILLMENT_EXCLUSION = {
   },
 } satisfies Prisma.OrderWhereInput;
 
-/** Opt-in Sample/Free Issue queue for ERP/Shopify KOKO/Bank orders that need a split request. */
+/**
+ * Sample / Free Issue "Split Payments" list.
+ * ERP and Shopify KOKO/Bank orders show here before finance approval, and stay
+ * while that approval is still pending so the split can be edited. Finance
+ * approval is created when the split is saved (or when KOKO link time is confirmed).
+ */
 export const FINANCE_PENDING_SPLIT_PAYMENT_QUEUE = {
   sourceName: { in: ["erpnext", "web"] },
-  approvalRequests: {
-    some: { type: ORDER_PAYMENT_APPROVAL, status: "pending" },
-  },
-  OR: [
-    { paymentGatewayPrimary: { contains: "koko", mode: "insensitive" as const } },
-    { paymentGatewayPrimary: { contains: "bank", mode: "insensitive" as const } },
+  AND: [
+    {
+      OR: [
+        { paymentGatewayPrimary: { contains: "koko", mode: "insensitive" as const } },
+        { paymentGatewayPrimary: { contains: "bank", mode: "insensitive" as const } },
+      ],
+    },
+    {
+      OR: [
+        {
+          approvalRequests: {
+            none: {
+              type: ORDER_PAYMENT_APPROVAL,
+              status: { in: ["pending", "approved"] },
+            },
+          },
+        },
+        {
+          approvalRequests: {
+            some: { type: ORDER_PAYMENT_APPROVAL, status: "pending" },
+          },
+        },
+      ],
+    },
   ],
 } satisfies Prisma.OrderWhereInput;
 

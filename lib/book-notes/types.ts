@@ -5,6 +5,7 @@ export type BookNotePaymentColumns = {
   cash: number;
   card: number;
   koko: number;
+  mintpay: number;
   bankTransfer: number;
 };
 
@@ -20,6 +21,9 @@ export type BookNoteRowDto = {
   koko: number;
   /** KOKO order id when the amount was typed in the KOKO column. */
   koko_reference: string | null;
+  mintpay: number;
+  /** MintPay Order ID when the amount was typed in the MintPay column. */
+  mintpay_reference: string | null;
   bank_transfer: number;
   row_total: number;
   is_multi_method: boolean;
@@ -72,6 +76,7 @@ export type BookNoteOrderSuggestion = {
   cash: number;
   card: number;
   koko: number;
+  mintpay: number;
   bankTransfer: number;
   paymentGatewayPrimary: string | null;
   sourceName: string;

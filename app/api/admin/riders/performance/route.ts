@@ -20,7 +20,11 @@ import { resolveOrderShippingDisplay } from "@/lib/order-shipping-display";
 import { incentiveMatchForOrder, loadRiderIncentiveContext } from "@/lib/rider-incentive-resolve";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
-import { aggregateRiderIncentives, isIncentiveEligibleOrder } from "@/lib/rider-incentive";
+import {
+  aggregateRiderIncentives,
+  isIncentiveEligibleOrder,
+  isRiderIncentiveUnlocked,
+} from "@/lib/rider-incentive";
 import { cuidSchema } from "@/lib/validation";
 
 const ymdSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
@@ -75,6 +79,7 @@ export async function GET(request: NextRequest) {
         riderId: true,
         completedAt: true,
         manualIncentiveLabelKey: true,
+        manualIncentiveAmount: true,
         manualIncentiveLabel: true,
         rider: { select: { name: true, knownName: true } },
         order: {
@@ -87,6 +92,8 @@ export async function GET(request: NextRequest) {
             sourceName: true,
             discountCodes: true,
             financialStatus: true,
+            fulfillmentStage: true,
+            invoiceCompleteAt: true,
             orderNumber: true,
             name: true,
             customerPhone: true,
@@ -138,10 +145,13 @@ export async function GET(request: NextRequest) {
       task.order,
       incentiveContext.chargeByLabelKey,
       incentiveContext.zoneMembersByZone,
-      task.manualIncentiveLabelKey
+      task.manualIncentiveLabelKey,
+      task.manualIncentiveAmount
     );
 
+    const invoiceClosed = isRiderIncentiveUnlocked(task.order);
     if (
+      invoiceClosed &&
       isIncentiveEligibleOrder(task.order.financialStatus) &&
       !match.matched &&
       !match.excludedFromIncentive &&
@@ -194,6 +204,7 @@ export async function GET(request: NextRequest) {
       incentiveAmount: match.amount,
       matched: match.matched,
       excludedFromIncentive: match.excludedFromIncentive,
+      invoiceClosed,
       financialStatus: task.order.financialStatus,
       completedAt: task.completedAt,
     };
@@ -205,7 +216,7 @@ export async function GET(request: NextRequest) {
   let unmatchedTotal = 0;
   let excludedFromIncentiveTotal = 0;
   for (const row of rowInputs) {
-    if (!isIncentiveEligibleOrder(row.financialStatus)) continue;
+    if (!isIncentiveEligibleOrder(row.financialStatus) || !row.invoiceClosed) continue;
     totalIncentive = totalIncentive.add(row.incentiveAmount);
     if (row.excludedFromIncentive) {
       excludedFromIncentiveTotal += 1;

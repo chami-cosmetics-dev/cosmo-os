@@ -181,6 +181,21 @@ describe("task-reminder-access", () => {
     ]);
   });
 
+  it("grants merchant dispatch-pending HUD from reminders.merchant_dispatch_pending", () => {
+    const context = {
+      roleNames: ["merchant-level-01"],
+      permissionKeys: [
+        "dashboard.merchant_view",
+        "reminders.merchant_dispatch_pending",
+      ],
+    };
+    expect(canSeeTaskReminderCategory(context, "merchant_dispatch_pending")).toBe(true);
+    expect(canSeeTaskReminderCategory(context, "ready_dispatch")).toBe(false);
+    expect(listVisibleTaskReminderCategories(context)).toEqual([
+      "merchant_dispatch_pending",
+    ]);
+  });
+
   it("does not scope samples for store users", () => {
     const context = {
       roleNames: ["store"],

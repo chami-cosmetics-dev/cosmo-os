@@ -12,7 +12,10 @@ import {
   validateApprovalSplitAmounts,
   type ApprovalSplitAmountLine,
 } from "@/lib/approval-payment-split";
-import { ORDER_PAYMENT_APPROVAL } from "@/lib/approval-workflow";
+import {
+  createOrGetOrderPaymentApproval,
+  ORDER_PAYMENT_APPROVAL,
+} from "@/lib/approval-workflow";
 import { isSplitPaymentEligibleSource } from "@/lib/koko-order";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
@@ -81,6 +84,10 @@ export async function PATCH(
     where: { id: idResult.data, companyId },
     select: {
       id: true,
+      name: true,
+      orderNumber: true,
+      shopifyOrderId: true,
+      companyLocationId: true,
       sourceName: true,
       totalPrice: true,
       currency: true,
@@ -131,12 +138,24 @@ export async function PATCH(
     );
   }
 
-  const approval = order.approvalRequests[0];
+  let approval = order.approvalRequests[0];
   if (!approval) {
-    return NextResponse.json(
-      { error: "No pending order payment approval found." },
-      { status: 409 },
-    );
+    const created = await createOrGetOrderPaymentApproval({
+      companyId,
+      orderId: order.id,
+      requestedById: userId,
+      invoiceLabel: order.name ?? order.orderNumber ?? order.shopifyOrderId ?? order.id,
+      paymentType: order.paymentGatewayPrimary ?? "split payment",
+      amount: order.totalPrice.toString(),
+      companyLocationId: order.companyLocationId,
+    });
+    if (created.status !== "pending") {
+      return NextResponse.json(
+        { error: "Finance already approved this order." },
+        { status: 409 },
+      );
+    }
+    approval = { id: created.id, paymentLines: [] };
   }
   if (approval.paymentLines.some((line) => line.erpPaymentEntryName)) {
     return NextResponse.json(

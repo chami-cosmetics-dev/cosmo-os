@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { Prisma } from "@prisma/client";
 
+import { loadAssignedMerchantAliasMap } from "@/lib/customer-insight/allocation-summary";
+import { firstPurchaseAtByContactIds } from "@/lib/customer-insight/first-purchase";
 import { prisma } from "@/lib/prisma";
 import { logReportDownload } from "@/lib/report-download-log";
 import {
@@ -147,7 +149,20 @@ export async function GET(request: NextRequest) {
     select: CONTACT_DUMP_SELECT,
   });
 
-  const csv = buildContactDumpCsv(contacts);
+  const [firstPurchaseById, aliasToRoster] = await Promise.all([
+    firstPurchaseAtByContactIds(
+      companyId,
+      contacts.map((contact) => contact.id)
+    ),
+    loadAssignedMerchantAliasMap(companyId),
+  ]);
+  const csv = buildContactDumpCsv(
+    contacts.map((contact) => ({
+      ...contact,
+      firstPurchaseAt: firstPurchaseById.get(contact.id) ?? null,
+    })),
+    aliasToRoster
+  );
 
   await logReportDownload({
     companyId,

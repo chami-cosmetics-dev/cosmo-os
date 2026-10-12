@@ -72,8 +72,18 @@
     {
       "path": "/api/cron/stock-price-missing-email",
       "schedule": "30 10 * * *"
+    },
+    {
+      "path": "/api/cron/wishlist-buddy-staff-restock",
+      "schedule": "*/30 * * * *"
     }
   ],
+  "functions": {
+    "app/api/admin/osf/generate/route.ts": {
+      "maxDuration": 800,
+      "memory": 3008
+    }
+  },
   "ignoreCommand": "node scripts/vercel-should-build.mjs",
   "git": {
     "deploymentEnabled": {

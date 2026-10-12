@@ -15,6 +15,8 @@ function row(over: Partial<BookNoteRowDto>): BookNoteRowDto {
     card_receipt_ref_last4: null,
     koko: 0,
     koko_reference: null,
+    mintpay: 0,
+    mintpay_reference: null,
     bank_transfer: 0,
     row_total: 0,
     is_multi_method: false,
@@ -106,20 +108,22 @@ describe("summarizeBookNoteRows", () => {
     expect(summary.grandTotal).toBe(2500);
   });
 
-  it("covers KOKO and bank transfer", () => {
+  it("covers KOKO, MintPay, and bank transfer", () => {
     const summary = summarizeBookNoteRows([
       row({ koko: 750 }),
+      row({ mintpay: 8950 }),
       row({ bank_transfer: 1250 }),
     ]);
 
     expect(totalFor(summary, "KOKO").total).toBe(750);
+    expect(totalFor(summary, "MintPay").total).toBe(8950);
     expect(totalFor(summary, "Bank Transfer").total).toBe(1250);
-    expect(summary.grandTotal).toBe(2000);
+    expect(summary.grandTotal).toBe(10950);
   });
 
-  it("returns four zeroed methods for an empty sheet", () => {
+  it("returns zeroed methods for an empty sheet", () => {
     const summary = summarizeBookNoteRows([]);
-    expect(summary.methods).toHaveLength(4);
+    expect(summary.methods).toHaveLength(5);
     expect(summary.entryCount).toBe(0);
     expect(summary.grandTotal).toBe(0);
   });
@@ -144,6 +148,6 @@ describe("mergeBookNoteSummaries", () => {
   it("handles an empty range", () => {
     const merged = mergeBookNoteSummaries([]);
     expect(merged.grandTotal).toBe(0);
-    expect(merged.methods).toHaveLength(4);
+    expect(merged.methods).toHaveLength(5);
   });
 });

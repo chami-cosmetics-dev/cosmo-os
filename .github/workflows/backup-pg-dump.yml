@@ -35,6 +35,9 @@ jobs:
       BACKUP_DIRECT_URL_VAULT: ${{ secrets.BACKUP_DIRECT_URL_VAULT }}
       BACKUP_DIRECT_URL_COSMO_DEV: ${{ secrets.BACKUP_DIRECT_URL_COSMO_DEV }}
       BACKUP_DIRECT_URL_COSMO_PROD: ${{ secrets.BACKUP_DIRECT_URL_COSMO_PROD }}
+      # R2 rejects the default CRC checksums newer AWS CLI v2 sends on upload
+      AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+      AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
     steps:
       - uses: actions/checkout@v4
 
@@ -46,10 +49,22 @@ jobs:
       - name: Install root dependencies
         run: npm ci
 
-      - name: Install pg_dump, age, awscli
+      # awscli is not in Ubuntu 24.04 apt; ubuntu-latest ships AWS CLI v2 already.
+      # pg_dump must be >= the Neon server major, so pull 17 from PGDG (stock noble is 16).
+      - name: Install pg_dump 17, age
         run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
           sudo apt-get update
-          sudo apt-get install -y postgresql-client age awscli
+          sudo apt-get install -y postgresql-client-17 age
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
+
+      - name: Check tools
+        run: |
+          pg_dump --version
+          age --version
+          aws --version
 
       - name: Dump vault
         id: vault

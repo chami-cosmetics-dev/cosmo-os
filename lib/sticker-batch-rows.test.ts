@@ -54,6 +54,15 @@ describe("isCompleteStickerBatchRow", () => {
     expect(isCompleteStickerBatchRow({ ...filled, unitPrice: "" })).toBe(false);
     expect(isCompleteStickerBatchRow({ ...filled, locationId: "" })).toBe(false);
   });
+
+  it("rejects manufacture dates before 2024", () => {
+    expect(
+      isCompleteStickerBatchRow({ ...filled, manufactureDate: "01/01/2023" })
+    ).toBe(false);
+    expect(
+      isCompleteStickerBatchRow({ ...filled, manufactureDate: "01/01/2024" })
+    ).toBe(true);
+  });
 });
 
 describe("stickerBatchRowsAllowSave", () => {

@@ -4,8 +4,52 @@ import {
   compareCallQueueCandidateOrder,
   compareOldestContactedFirst,
   compareOldestPurchaseFirst,
+  queueRowContactedAfterAssign,
   takeFirstEligibleContactIds,
+  unassignedMerchantWhere,
+  usesCallQueueHistoryMode,
 } from "@/lib/customer-insight/call-queue";
+
+describe("usesCallQueueHistoryMode", () => {
+  it("stays on the allocated list when only Not contacted is set", () => {
+    expect(usesCallQueueHistoryMode({})).toBe(false);
+    expect(
+      usesCallQueueHistoryMode({ assignedFrom: "2026-01-01" })
+    ).toBe(true);
+  });
+});
+
+describe("queueRowContactedAfterAssign", () => {
+  const assignedAt = new Date("2026-06-01T00:00:00.000Z");
+  const row = { contactId: "c1", assignedAt };
+
+  it("ignores calls before the assignment", () => {
+    expect(
+      queueRowContactedAfterAssign(
+        [{ contactId: "c1", createdAt: new Date("2026-05-01T00:00:00.000Z") }],
+        row
+      )
+    ).toBe(false);
+  });
+
+  it("counts a call after the assignment", () => {
+    expect(
+      queueRowContactedAfterAssign(
+        [{ contactId: "c1", createdAt: new Date("2026-06-02T00:00:00.000Z") }],
+        row
+      )
+    ).toBe(true);
+  });
+});
+
+describe("unassignedMerchantWhere", () => {
+  it("keeps contacts with no merchant", () => {
+    expect(unassignedMerchantWhere("co_1")).toEqual({
+      companyId: "co_1",
+      OR: [{ assignedMerchant: null }, { assignedMerchant: "" }],
+    });
+  });
+});
 
 describe("compareOldestContactedFirst", () => {
   it("puts never-contacted first", () => {
