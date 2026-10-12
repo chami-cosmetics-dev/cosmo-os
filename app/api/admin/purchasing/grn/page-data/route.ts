@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { resolveViewerFinanceLocationIds } from "@/lib/approval-workflow";
-import { autoMatchIntercompanyGrn, bestGrnMatchForStockReturn, calculateGrnMatchPercentage, tallyLinkedItems } from "@/lib/grn";
+import { autoMatchBackfillIntercompanyGrn, autoMatchIntercompanyGrn, bestGrnMatchForStockReturn, calculateGrnMatchPercentage, isWithinGrnMatchCreationWindow, tallyLinkedItems } from "@/lib/grn";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserContext, hasPermission, requirePermission } from "@/lib/rbac";
 
@@ -166,9 +166,16 @@ export async function GET(request: NextRequest) {
   const to = parseDateParam(request.nextUrl.searchParams.get("to"), true);
   const dateFilter = from || to ? { gte: from ?? undefined, lte: to ?? undefined } : undefined;
 
-  await autoMatchIntercompanyGrn();
+  await Promise.all([autoMatchIntercompanyGrn(), autoMatchBackfillIntercompanyGrn()]);
 
-  const [purchaseReceipts, stockReturns, supplierPrefixLocations] = await Promise.all([
+  const [
+    purchaseReceipts,
+    backfillPurchaseReceipts,
+    stockReturns,
+    backfillStockReturns,
+    backfillPurchaseInvoices,
+    supplierPrefixLocations,
+  ] = await Promise.all([
     prisma.grnPurchaseReceipt.findMany({
       where: {
         ...companyScope,
@@ -188,6 +195,7 @@ export async function GET(request: NextRequest) {
         items: true,
         handoverBy: { select: { id: true, name: true, email: true } },
         handoverRevertedBy: { select: { id: true, name: true, email: true } },
+        handoverReceivedBy: { select: { id: true, name: true, email: true } },
         notReceivedBy: { select: { id: true, name: true, email: true } },
         valuedBy: { select: { id: true, name: true, email: true } },
         valuedRevertedBy: { select: { id: true, name: true, email: true } },
@@ -199,6 +207,36 @@ export async function GET(request: NextRequest) {
           take: 5,
           include: { items: true },
         },
+        company: {
+          select: {
+            name: true,
+            locations: {
+              where: { erpnextCompany: { not: null } },
+              select: {
+                erpnextCompany: true,
+                erpnextInstance: { select: { baseUrl: true } },
+              },
+            },
+          },
+        },
+      },
+    }),
+    prisma.grnBackfillPurchaseReceipt.findMany({
+      where: {
+        ...companyScope,
+        ...locationScope,
+        ...(dateFilter
+          ? {
+              OR: [
+                { creation: dateFilter },
+                { creation: null, postingDate: dateFilter },
+              ],
+            }
+          : {}),
+      },
+      orderBy: [{ creation: "desc" }, { createdAt: "desc" }],
+      include: {
+        items: true,
         company: {
           select: {
             name: true,
@@ -242,6 +280,43 @@ export async function GET(request: NextRequest) {
         },
       },
     }),
+    prisma.grnBackfillSupplierStockReturn.findMany({
+      where: {
+        ...companyScope,
+        ...(dateFilter
+          ? {
+              OR: [
+                { returnDate: dateFilter },
+                { returnDate: null, creation: dateFilter },
+              ],
+            }
+          : {}),
+      },
+      orderBy: [{ creation: "desc" }, { createdAt: "desc" }],
+      include: {
+        items: true,
+        company: {
+          select: {
+            name: true,
+            locations: {
+              where: { erpnextCompany: { not: null } },
+              select: {
+                erpnextCompany: true,
+                erpnextInstance: { select: { baseUrl: true } },
+              },
+            },
+          },
+        },
+      },
+    }),
+    prisma.grnBackfillPurchaseInvoice.findMany({
+      where: {
+        ...companyScope,
+        ...(dateFilter ? { postingDate: dateFilter } : {}),
+      },
+      orderBy: [{ postingDate: "desc" }, { createdAt: "desc" }],
+      include: { items: true },
+    }),
     prisma.companyLocation.findMany({
       where: {
         supplierPrefix: { not: null },
@@ -276,9 +351,29 @@ export async function GET(request: NextRequest) {
     ].filter(Boolean);
     return supplierPrefixRules.find((rule) => values.some((value) => value.includes(rule.key))) ?? null;
   };
-  const stockReturnByName = new Map(stockReturns.map((row) => [row.name, row]));
-  const amendedPurchaseReceiptNames = new Set(purchaseReceipts.map((row) => row.amendedFrom).filter((name): name is string => Boolean(name)));
-  const isPurchaseReceiptCancelled = (row: (typeof purchaseReceipts)[number]) => {
+  const allStockReturnsForLookup = [...stockReturns, ...backfillStockReturns];
+  const backfillPurchaseReceiptsForMatching = backfillPurchaseReceipts.map((row) => ({
+    ...row,
+    supplierStockReturnName: null as string | null,
+  }));
+  const stockReturnByName = new Map(allStockReturnsForLookup.map((row) => [row.name, row]));
+  const usedPurchaseReceiptNames = new Set(
+    allStockReturnsForLookup
+      .filter((row) => row.docstatus === 1)
+      .map((row) => row.purchaseReceiptName)
+      .filter((name): name is string => Boolean(name)),
+  );
+  const amendedPurchaseReceiptNames = new Set(
+    [...purchaseReceipts, ...backfillPurchaseReceipts]
+      .map((row) => row.amendedFrom)
+      .filter((name): name is string => Boolean(name)),
+  );
+  const isPurchaseReceiptCancelled = (row: {
+    name: string;
+    docstatus: number | null;
+    status?: string | null;
+    rawPayload: unknown;
+  }) => {
     const status = row.status?.trim().toLowerCase();
     return (
       row.docstatus === 2 ||
@@ -288,18 +383,105 @@ export async function GET(request: NextRequest) {
       amendedPurchaseReceiptNames.has(row.name)
     );
   };
-  const activePurchaseReceiptsForMatching = purchaseReceipts.filter((row) => !isPurchaseReceiptCancelled(row));
+  const allPurchaseReceiptsForMatching = [...purchaseReceipts, ...backfillPurchaseReceiptsForMatching];
+  const activePurchaseReceiptsForMatching = allPurchaseReceiptsForMatching.filter((row) => !isPurchaseReceiptCancelled(row));
   const activePurchaseReceiptNames = new Set(activePurchaseReceiptsForMatching.map((row) => row.name));
   const activePurchaseReceiptByName = new Map(activePurchaseReceiptsForMatching.map((row) => [row.name, row]));
-  const activeIntercompanyPurchaseReceipts = purchaseReceipts.filter(
+  const activeIntercompanyPurchaseReceipts = allPurchaseReceiptsForMatching.filter(
     (row) =>
       supplierPrefixRules.some((rule) => rule.locationId === row.companyLocationId) &&
       !isPurchaseReceiptCancelled(row) &&
-      !row.supplierStockReturnName,
+      !row.supplierStockReturnName &&
+      !usedPurchaseReceiptNames.has(row.name),
   );
+  const serializeBackfillPurchaseInvoice = (invoice: (typeof backfillPurchaseInvoices)[number] | null) =>
+    invoice
+      ? {
+          name: invoice.name,
+          erpUrl: null,
+          postingDate: iso(invoice.postingDate),
+          docstatus: invoice.docstatus,
+          status: invoice.status,
+          items: invoice.items.map((item) => ({
+            name: item.name,
+            itemCode: item.itemCode,
+            itemName: item.itemName,
+            qty: Number(item.qty),
+            rate: Number(item.rate),
+            amount: Number(item.amount),
+            purchaseReceipt: item.purchaseReceipt,
+            purchaseReceiptItem: item.purchaseReceiptItem,
+            supplierStockReturn: item.supplierStockReturn,
+            supplierStockReturnItem: item.supplierStockReturnItem,
+            stockUom: item.stockUom,
+          })),
+        }
+      : null;
+  const candidateMatchesByStockReturn = new Map<string, Array<{ companyId: string; name: string; percentage: number }>>();
+  const claimCountByPurchaseReceipt = new Map<string, number>();
+  for (const stockReturn of allStockReturnsForLookup) {
+    if (stockReturn.docstatus !== 1 || stockReturn.purchaseReceiptName) continue;
+    const supplierPrefixRule = supplierPrefixRuleForSupplier(stockReturn.supplier, stockReturn.supplierName);
+    if (!supplierPrefixRule) continue;
+    const candidates = activeIntercompanyPurchaseReceipts
+      .filter(
+        (receipt) =>
+          receipt.companyLocationId === supplierPrefixRule.locationId &&
+          isWithinGrnMatchCreationWindow(receipt, stockReturn),
+      )
+      .map((receipt) => ({
+        companyId: receipt.companyId,
+        name: receipt.name,
+        percentage: calculateGrnMatchPercentage(receipt.items, stockReturn.items),
+      }))
+      .filter((candidate) => candidate.percentage >= 100)
+      .sort((a, b) => b.percentage - a.percentage || a.name.localeCompare(b.name));
+    if (candidates.length === 0) continue;
+    candidateMatchesByStockReturn.set(stockReturn.name, candidates);
+    for (const candidate of candidates) {
+      const key = `${candidate.companyId}:${candidate.name}`;
+      claimCountByPurchaseReceipt.set(key, (claimCountByPurchaseReceipt.get(key) ?? 0) + 1);
+    }
+  }
+  const recommendationForStockReturn = (
+    row: (typeof allStockReturnsForLookup)[number],
+    linkedPurchaseReceipt: (typeof activePurchaseReceiptsForMatching)[number] | null,
+  ) => {
+    if (linkedPurchaseReceipt) {
+      return {
+        recommendation: {
+          companyId: linkedPurchaseReceipt.companyId,
+          name: linkedPurchaseReceipt.name,
+          percentage: calculateGrnMatchPercentage(linkedPurchaseReceipt.items, row.items),
+        },
+        conflict: false,
+        conflictMatches: [],
+      };
+    }
+    const cleanCandidates = candidateMatchesByStockReturn.get(row.name) ?? [];
+    const recommendation =
+      cleanCandidates[0] ??
+      (() => {
+        const supplierPrefixRule = supplierPrefixRuleForSupplier(row.supplier, row.supplierName);
+        return row.docstatus !== 2 && supplierPrefixRule
+          ? bestGrnMatchForStockReturn(
+              row,
+              activeIntercompanyPurchaseReceipts.filter(
+                (receipt) => receipt.companyLocationId === supplierPrefixRule.locationId,
+              ),
+            )
+          : null;
+      })();
+    const conflict = cleanCandidates.some(
+      (candidate) =>
+        cleanCandidates.length > 1 ||
+        (claimCountByPurchaseReceipt.get(`${candidate.companyId}:${candidate.name}`) ?? 0) > 1,
+    );
+    return { recommendation, conflict, conflictMatches: conflict ? cleanCandidates : [] };
+  };
 
   return NextResponse.json({
-    purchaseReceipts: purchaseReceipts.map((row) => {
+    purchaseReceipts: [...purchaseReceipts.map((row) => {
       const linked = row.supplierStockReturnName
         ? stockReturnByName.get(row.supplierStockReturnName)
         : null;
@@ -366,6 +548,8 @@ export async function GET(request: NextRequest) {
         handoverBy: row.handoverBy,
         handoverRevertedAt: iso(row.handoverRevertedAt),
         handoverRevertedBy: row.handoverRevertedBy,
+        handoverReceivedAt: iso(row.handoverReceivedAt),
+        handoverReceivedBy: row.handoverReceivedBy,
         notReceivedAt: iso(row.notReceivedAt),
         notReceivedBy: row.notReceivedBy,
         valuedAt: iso(row.valuedAt),
@@ -380,6 +564,7 @@ export async function GET(request: NextRequest) {
         status: row.status,
         docstatus: row.docstatus,
         isCancelled: isPurchaseReceiptCancelled(row),
+        isBackfill: false,
         itemCount: row.items.length,
         items: row.items.map((item) => ({
           name: item.name,
@@ -397,26 +582,84 @@ export async function GET(request: NextRequest) {
         purchaseInvoice: serializePurchaseInvoice(purchaseInvoice),
         supplierStockReturnPurchaseInvoice: serializePurchaseInvoice(supplierStockReturnPurchaseInvoice),
       };
-    }),
-    supplierStockReturns: stockReturns.map((row) => {
+    }), ...backfillPurchaseReceipts.map((row) => {
+      const linked = allStockReturnsForLookup.find((stockReturn) => stockReturn.purchaseReceiptName === row.name) ?? null;
+      const activeLinked = !isPurchaseReceiptCancelled(row) && linked?.docstatus !== 2 ? linked : null;
+      const tally = activeLinked
+        ? tallyLinkedItems(row.items, activeLinked.items)
+        : { status: "not_linked" as const, issueItems: [] };
+      const tallyIssues = activeLinked ? buildTallyIssues(row.items, activeLinked.items) : [];
+      const purchaseInvoice =
+        backfillPurchaseInvoices.find((invoice) =>
+          invoice.items.some((item) => item.purchaseReceipt === row.name) &&
+          !invoice.items.some((item) => item.supplierStockReturn),
+        ) ?? null;
+      const supplierStockReturnPurchaseInvoice = linked
+        ? backfillPurchaseInvoices.find((invoice) =>
+            invoice.items.some((item) => item.supplierStockReturn === linked.name),
+          ) ?? null
+        : null;
+      return {
+        companyId: row.companyId,
+        companyLocationId: row.companyLocationId,
+        companyName: row.company.name,
+        name: row.name,
+        erpUrl: erpDocUrl(
+          erpBaseUrlForPayload(row.rawPayload, row.company.locations),
+          "purchase-receipt",
+          row.name,
+        ),
+        adjustmentNo: linked?.name ?? null,
+        adjustmentDocstatus: linked?.docstatus ?? null,
+        amendedFrom: row.amendedFrom,
+        grnDate: iso(row.creation ?? row.postingDate),
+        grnBy: row.owner,
+        supplier: row.supplier,
+        supplierName: row.supplierName,
+        handoverAt: null,
+        handoverBy: null,
+        handoverRevertedAt: null,
+        handoverRevertedBy: null,
+        handoverReceivedAt: null,
+        handoverReceivedBy: null,
+        notReceivedAt: null,
+        notReceivedBy: null,
+        valuedAt: null,
+        valuedBy: null,
+        valuedRevertedAt: null,
+        valuedRevertedBy: null,
+        receivedAt: null,
+        receivedBy: null,
+        receivedRevertedAt: null,
+        receivedRevertedBy: null,
+        canMarkReceived: false,
+        status: row.status,
+        docstatus: row.docstatus,
+        isCancelled: isPurchaseReceiptCancelled(row),
+        isBackfill: true,
+        itemCount: row.items.length,
+        items: row.items.map((item) => ({
+          name: item.name,
+          itemCode: item.itemCode,
+          itemName: item.itemName,
+          qty: Number(item.qty),
+          stockQty: item.stockQty == null ? null : Number(item.stockQty),
+          warehouse: item.warehouse,
+          stockUom: item.stockUom,
+        })),
+        tallyStatus: tally.status,
+        tallyPercentage: activeLinked ? calculateGrnMatchPercentage(row.items, activeLinked.items) : null,
+        tallyIssueItems: tally.issueItems,
+        tallyIssues,
+        purchaseInvoice: serializeBackfillPurchaseInvoice(purchaseInvoice),
+        supplierStockReturnPurchaseInvoice: serializeBackfillPurchaseInvoice(supplierStockReturnPurchaseInvoice),
+      };
+    })],
+    supplierStockReturns: [...stockReturns.map((row) => {
       const linkedPurchaseReceipt = row.purchaseReceiptName
         ? activePurchaseReceiptByName.get(row.purchaseReceiptName) ?? null
         : null;
-      const supplierPrefixRule = supplierPrefixRuleForSupplier(row.supplier, row.supplierName);
-      const recommendation = linkedPurchaseReceipt
-        ? {
-            companyId: linkedPurchaseReceipt.companyId,
-            name: linkedPurchaseReceipt.name,
-            percentage: calculateGrnMatchPercentage(linkedPurchaseReceipt.items, row.items),
-          }
-        : row.docstatus !== 2 && supplierPrefixRule
-          ? bestGrnMatchForStockReturn(
-              row,
-              activeIntercompanyPurchaseReceipts.filter(
-                (receipt) => receipt.companyLocationId === supplierPrefixRule.locationId,
-              ),
-            )
-          : null;
+      const { recommendation, conflict, conflictMatches } = recommendationForStockReturn(row, linkedPurchaseReceipt);
       return {
         companyId: row.companyId,
         companyName: row.company.name,
@@ -435,12 +678,16 @@ export async function GET(request: NextRequest) {
         amendedFrom: row.amendedFrom,
         purchaseReceiptName: row.purchaseReceiptName,
         canTally: row.docstatus !== 2 && (!row.purchaseReceiptName || activePurchaseReceiptNames.has(row.purchaseReceiptName)),
+        isBackfill: false,
         itemCount: row.items.length,
         matchRecommendation: recommendation,
+        conflictMatches,
         matchReviewStatus: linkedPurchaseReceipt
           ? "matched"
           : recommendation
-            ? recommendation.percentage > 90
+            ? conflict
+              ? "conflict"
+              : recommendation.percentage > 90
               ? "review"
               : "waiting"
             : null,
@@ -452,7 +699,51 @@ export async function GET(request: NextRequest) {
           stockUom: item.stockUom,
         })),
       };
-    }),
+    }), ...backfillStockReturns.map((row) => {
+      const linkedPurchaseReceipt = row.purchaseReceiptName
+        ? activePurchaseReceiptByName.get(row.purchaseReceiptName) ?? null
+        : null;
+      const { recommendation, conflict, conflictMatches } = recommendationForStockReturn(row, linkedPurchaseReceipt);
+      return {
+        companyId: row.companyId,
+        companyName: row.company.name,
+        name: row.name,
+        erpUrl: erpDocUrl(
+          erpBaseUrlForPayload(row.rawPayload, row.company.locations),
+          "supplier-stock-return",
+          row.name,
+        ),
+        supplier: row.supplier,
+        supplierName: row.supplierName,
+        returnDate: iso(row.returnDate),
+        docstatus: row.docstatus,
+        owner: row.owner,
+        creation: iso(row.creation),
+        amendedFrom: row.amendedFrom,
+        purchaseReceiptName: row.purchaseReceiptName,
+        canTally: row.docstatus !== 2 && (!row.purchaseReceiptName || activePurchaseReceiptNames.has(row.purchaseReceiptName)),
+        isBackfill: true,
+        itemCount: row.items.length,
+        matchRecommendation: recommendation,
+        conflictMatches,
+        matchReviewStatus: linkedPurchaseReceipt
+          ? "matched"
+          : recommendation
+            ? conflict
+              ? "conflict"
+              : recommendation.percentage > 90
+              ? "review"
+              : "waiting"
+            : null,
+        items: row.items.map((item) => ({
+          name: item.name,
+          itemCode: item.itemCode,
+          itemName: item.itemName,
+          qty: Number(item.qty),
+          stockUom: item.stockUom,
+        })),
+      };
+    })],
     intercompanySuppliers: supplierPrefixRules.map((row) => ({
       id: row.locationId,
       supplier: row.supplier,
