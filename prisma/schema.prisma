@@ -577,6 +577,7 @@ model User {
   ordersCancelledBy                      Order[]                        @relation("OrderCancelledBy")
   grnHandovers                           GrnPurchaseReceipt[]           @relation("GrnPurchaseReceiptHandoverBy")
   grnHandoverReverts                     GrnPurchaseReceipt[]           @relation("GrnPurchaseReceiptHandoverRevertedBy")
+  grnHandoverReceipts                    GrnPurchaseReceipt[]           @relation("GrnPurchaseReceiptHandoverReceivedBy")
   grnNotReceived                         GrnPurchaseReceipt[]           @relation("GrnPurchaseReceiptNotReceivedBy")
   grnValuations                          GrnPurchaseReceipt[]           @relation("GrnPurchaseReceiptValuedBy")
   grnValuationReverts                    GrnPurchaseReceipt[]           @relation("GrnPurchaseReceiptValuedRevertedBy")
@@ -2599,6 +2600,8 @@ model GrnPurchaseReceipt {
   handoverById            String?
   handoverRevertedAt      DateTime?
   handoverRevertedById    String?
+  handoverReceivedAt      DateTime?
+  handoverReceivedById    String?
   notReceivedAt           DateTime?
   notReceivedById         String?
   valuedAt                DateTime?
@@ -2617,6 +2620,7 @@ model GrnPurchaseReceipt {
   companyLocation         CompanyLocation?         @relation(fields: [companyLocationId], references: [id], onDelete: SetNull)
   handoverBy              User?                    @relation("GrnPurchaseReceiptHandoverBy", fields: [handoverById], references: [id], onDelete: SetNull)
   handoverRevertedBy      User?                    @relation("GrnPurchaseReceiptHandoverRevertedBy", fields: [handoverRevertedById], references: [id], onDelete: SetNull)
+  handoverReceivedBy      User?                    @relation("GrnPurchaseReceiptHandoverReceivedBy", fields: [handoverReceivedById], references: [id], onDelete: SetNull)
   notReceivedBy           User?                    @relation("GrnPurchaseReceiptNotReceivedBy", fields: [notReceivedById], references: [id], onDelete: SetNull)
   items                   GrnPurchaseReceiptItem[]
   purchaseInvoices        GrnPurchaseInvoice[]
@@ -2633,6 +2637,7 @@ model GrnPurchaseReceipt {
   @@index([companyLocationId])
   @@index([handoverById])
   @@index([handoverRevertedById])
+  @@index([handoverReceivedById])
   @@index([notReceivedById])
   @@index([valuedById])
   @@index([valuedRevertedById])
