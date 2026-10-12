@@ -6,7 +6,7 @@ import {
   parseContentDispositionFilename,
   parseDumpTotalHeader,
 } from "@/lib/reports/dump-download";
-import { joinDumpCouponCodes } from "@/lib/reports/order-dump";
+import { createOrderInvoiceRow, joinDumpCouponCodes, resolveDumpCompletedAt } from "@/lib/reports/order-dump";
 import { getOrderDiscountCouponCode } from "@/lib/order-discount-coupon";
 import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
 
@@ -59,6 +59,89 @@ describe("joinDumpCouponCodes", () => {
         }),
       ),
     ).toBe("June15");
+  });
+});
+
+describe("resolveDumpCompletedAt", () => {
+  const invoiceAt = new Date("2026-10-04T06:46:44.000Z");
+  const deliveryAt = new Date("2026-10-11T08:15:00.000Z");
+
+  it("uses delivery complete when invoice complete was earlier", () => {
+    expect(
+      resolveDumpCompletedAt({
+        deliveryCompleteAt: deliveryAt,
+        invoiceCompleteAt: invoiceAt,
+      }),
+    ).toBe(deliveryAt);
+  });
+
+  it("keeps invoice complete when it is after delivery", () => {
+    expect(
+      resolveDumpCompletedAt({
+        deliveryCompleteAt: invoiceAt,
+        invoiceCompleteAt: deliveryAt,
+      }),
+    ).toBe(deliveryAt);
+  });
+
+  it("keeps the early invoice stamp until delivery exists", () => {
+    expect(
+      resolveDumpCompletedAt({
+        deliveryCompleteAt: null,
+        invoiceCompleteAt: invoiceAt,
+      }),
+    ).toBe(invoiceAt);
+  });
+});
+
+describe("createOrderInvoiceRow completed columns", () => {
+  it("writes delivery date and time into completed columns when invoice was early", () => {
+    const row = createOrderInvoiceRow({
+      invoiceNo: "6001",
+      erpInvoiceId: null,
+      sourceName: "web",
+      merchantCouponCode: null,
+      merchantName: "",
+      fulfillmentStage: "invoice_complete",
+      financialStatus: "paid",
+      shippingService: "",
+      createdAt: new Date("2026-10-01T04:00:00.000Z"),
+      companyName: "Cosmo",
+      posProfile: null,
+      posWarehouse: null,
+      customerName: "Ada",
+      customerEmail: null,
+      customerPhone: null,
+      shippingPhone: null,
+      billingAddress: "",
+      shippingAddress: "",
+      fulfillmentStatus: "fulfilled",
+      paymentGateway: "koko",
+      subtotalPrice: "100",
+      discounts: "0",
+      shippingTotal: "0",
+      grandTotal: "100",
+      itemCount: 1,
+      printCount: 1,
+      packageReadyAt: null,
+      dispatchedAt: null,
+      dispatchedBy: "",
+      lastPrintedAt: null,
+      lastPrintedBy: "",
+      revertedFromInvoiceCompleteAt: null,
+      deliveryCompleteAt: new Date("2026-10-11T08:15:00.000Z"),
+      deliveryCompleteBy: "Rider",
+      invoiceCompleteAt: new Date("2026-10-04T06:46:44.000Z"),
+      invoiceCompleteBy: "Finance",
+      shippingRule: null,
+      createdBy: "",
+    });
+
+    expect(row.status).toBe("Completed");
+    expect(row.completed_date).toBe("2026-10-11");
+    expect(row.completed_time).toBe("13:45:00");
+    expect(row.delivery_completed_date).toBe("2026-10-11");
+    expect(row.completed_by).toBe("Finance");
   });
 });
 
