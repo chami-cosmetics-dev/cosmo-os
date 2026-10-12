@@ -256,7 +256,7 @@ function StockRequestsList({
   const soldFromOptions: Array<{ key: string; label: string }> = editing
     ? editing.stockSources.map((s) => ({
         key: soldFromKey(s.instanceId, s.warehouse),
-        label: `${s.warehouse} (${s.erpCompany}) · ${formatQty(s.availableQty)} available`,
+        label: `${s.warehouse} · ${formatQty(s.availableQty)} available`,
       }))
     : [];
   if (editing?.soldFromWarehouse && !soldFromOptions.some((o) => o.key === formSoldFrom)) {
@@ -588,7 +588,7 @@ function StockRequestsList({
       </Card>
 
       <Dialog open={editing !== null} onOpenChange={(open) => !open && setEditing(null)}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="sm:max-w-lg [&>*]:min-w-0">
           <DialogHeader>
             <DialogTitle>Update stock request</DialogTitle>
             <DialogDescription>
@@ -805,7 +805,7 @@ function NewStockRequestDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-lg [&>*]:min-w-0">
         <DialogHeader>
           <DialogTitle>New stock request</DialogTitle>
           <DialogDescription>
