@@ -163,9 +163,6 @@ export async function GET(request: NextRequest) {
     })),
     aliasToRoster
   );
-  const today = formatAppIsoDate(new Date());
-  const suffix = part === "all" ? "all" : part.replace("_", "-");
-  const fileName = `contact-dump-${suffix}-${today}.csv`;
 
   await logReportDownload({
     companyId,
