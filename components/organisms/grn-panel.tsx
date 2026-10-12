@@ -95,6 +95,8 @@ type PurchaseReceiptRow = {
   handoverBy: UserRef | null;
   handoverRevertedAt: string | null;
   handoverRevertedBy: UserRef | null;
+  handoverReceivedAt: string | null;
+  handoverReceivedBy: UserRef | null;
   notReceivedAt: string | null;
   notReceivedBy: UserRef | null;
   valuedAt: string | null;
@@ -459,12 +461,14 @@ function GrnStageTimeline({
   permissions,
   busyKey,
   onRevert,
+  onHandoverReceived,
   onNotReceived,
 }: {
   row: PurchaseReceiptRow;
   permissions: GrnPanelPermissions;
   busyKey: string | null;
   onRevert: (row: PurchaseReceiptRow, field: "handoverAt" | "valuedAt" | "receivedAt") => void;
+  onHandoverReceived: (row: PurchaseReceiptRow) => void;
   onNotReceived: (row: PurchaseReceiptRow) => void;
 }) {
   const stages = [
@@ -476,6 +480,8 @@ function GrnStageTimeline({
       fallbackBy: null,
       revertedAt: row.handoverRevertedAt,
       revertedBy: row.handoverRevertedBy,
+      handoverReceivedAt: row.handoverReceivedAt,
+      handoverReceivedBy: row.handoverReceivedBy,
       notReceivedAt: row.notReceivedAt,
       notReceivedBy: row.notReceivedBy,
       canRevert: permissions.canMarkHandover,
@@ -489,6 +495,8 @@ function GrnStageTimeline({
       fallbackBy: "Cosmo API",
       revertedAt: row.valuedRevertedAt,
       revertedBy: row.valuedRevertedBy,
+      handoverReceivedAt: null,
+      handoverReceivedBy: null,
       notReceivedAt: null,
       notReceivedBy: null,
       canRevert: permissions.canMarkValued,
@@ -502,6 +510,8 @@ function GrnStageTimeline({
       fallbackBy: null,
       revertedAt: row.receivedRevertedAt,
       revertedBy: row.receivedRevertedBy,
+      handoverReceivedAt: null,
+      handoverReceivedBy: null,
       notReceivedAt: null,
       notReceivedBy: null,
       canRevert: permissions.canMarkReceived,
@@ -543,6 +553,11 @@ function GrnStageTimeline({
                     Reverted by {userLabel(stage.revertedBy) ?? "Unknown"} on {formatDate(stage.revertedAt)}
                   </div>
                 )}
+                {stage.handoverReceivedAt && (
+                  <div className="text-xs text-emerald-300">
+                    Purchasing received by {userLabel(stage.handoverReceivedBy) ?? "Unknown"} on {formatDate(stage.handoverReceivedAt)}
+                  </div>
+                )}
                 {stage.notReceivedAt && (
                   <div className="text-xs text-amber-300">
                     Marked not received by {userLabel(stage.notReceivedBy) ?? "Unknown"} on {formatDate(stage.notReceivedAt)}
@@ -553,7 +568,21 @@ function GrnStageTimeline({
                 <span>{formatDate(stage.at)}</span>
                 {complete && stage.canRevert && (
                   <div className="flex flex-wrap justify-end gap-2">
-                    {stage.canMarkNotReceived && !row.receivedAt && (
+                    {stage.canMarkNotReceived && !row.receivedAt && !row.handoverReceivedAt && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={row.isCancelled || busyKey === `${row.companyId}:${row.name}:${stage.field}:handover_received`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onHandoverReceived(row);
+                        }}
+                      >
+                        Received
+                      </Button>
+                    )}
+                    {stage.canMarkNotReceived && !row.receivedAt && row.handoverReceivedAt && (
                       <Button
                         type="button"
                         size="sm"
@@ -958,7 +987,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
   const rowBelongsToStage = useCallback((row: PurchaseReceiptRow, stage: GrnActionStage) => {
     if (row.isCancelled) return false;
     if (stage === "handover") return true;
-    if (stage === "valued") return Boolean(row.handoverAt);
+    if (stage === "valued") return Boolean(row.valuedAt || (row.handoverAt && row.handoverReceivedAt));
     return Boolean(row.valuedAt);
   }, []);
 
@@ -968,10 +997,12 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
     return Boolean(row.receivedAt);
   }, []);
 
-  const rowNeedsVerification = useCallback(
-    (row: PurchaseReceiptRow) => !row.isCancelled && Boolean(row.notReceivedAt) && !row.handoverAt,
-    [],
-  );
+  const rowNeedsVerification = useCallback((row: PurchaseReceiptRow, stage: GrnActionStage) => {
+    if (row.isCancelled) return false;
+    if (stage === "handover") return Boolean(row.notReceivedAt) && !row.handoverAt;
+    if (stage === "valued") return Boolean(row.handoverAt) && !row.handoverReceivedAt && !row.valuedAt;
+    return false;
+  }, []);
 
   const rowMissingIntercompanySsr = useCallback(
     (row: PurchaseReceiptRow) => {
@@ -997,10 +1028,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
           const rows = data.purchaseReceipts.filter((row) => rowBelongsToStage(row, key));
           const completed = rows.filter((row) => rowCompletedForStage(row, key)).length;
           const mismatch = rows.filter((row) => rowMismatchedForStage(row, key)).length;
-          const verify =
-            key === "received"
-              ? 0
-              : data.purchaseReceipts.filter((row) => rowNeedsVerification(row)).length;
+          const verify = data.purchaseReceipts.filter((row) => rowNeedsVerification(row, key)).length;
           return [
             key,
             {
@@ -1029,7 +1057,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
         allowedStageFilters.length === 0
           ? !row.isCancelled
           : stageFilter.status === "verify"
-            ? stageFilter.stage !== "received" && rowNeedsVerification(row)
+            ? rowNeedsVerification(row, stageFilter.stage)
             : rowBelongsToStage(row, stageFilter.stage) &&
         (stageFilter.status === "all" ||
           (stageFilter.status === "pending" && !rowCompletedForStage(row, stageFilter.stage)) ||
@@ -1045,18 +1073,24 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
     return "receivedAt";
   }, []);
 
+  const isPurchasingReceiveBulk = stageFilter.stage === "valued" && stageFilter.status === "verify";
+
   const canBulkMarkRow = useCallback(
     (row: PurchaseReceiptRow) => {
       if (row.isCancelled || rowCompletedForStage(row, stageFilter.stage)) return false;
+      if (isPurchasingReceiveBulk) {
+        return permissions.canMarkValued && Boolean(row.handoverAt) && !row.handoverReceivedAt && !row.valuedAt;
+      }
       if (stageFilter.stage === "handover") {
         return permissions.canMarkHandover && row.tallyStatus !== "issue" && !rowMissingIntercompanySsr(row);
       }
       if (stageFilter.stage === "valued") {
-        return permissions.canMarkValued && Boolean(row.handoverAt) && !hasPriceMismatch(row);
+        return permissions.canMarkValued && Boolean(row.handoverAt && row.handoverReceivedAt) && !hasPriceMismatch(row);
       }
       return permissions.canMarkReceived && Boolean(row.handoverAt) && Boolean(row.valuedAt);
     },
     [
+      isPurchasingReceiveBulk,
       permissions.canMarkHandover,
       permissions.canMarkReceived,
       permissions.canMarkValued,
@@ -1070,6 +1104,11 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
     () => filteredPrs.filter((row) => canBulkMarkRow(row)),
     [canBulkMarkRow, filteredPrs],
   );
+  const bulkActionLabel = isPurchasingReceiveBulk ? "Mark received" : "Mark all";
+  const bulkRowsLabel = isPurchasingReceiveBulk ? "handovered row" : "clean pending row";
+  const bulkBusyKey = isPurchasingReceiveBulk
+    ? "bulk:handoverAt:handover_received"
+    : `bulk:${fieldForStage(stageFilter.stage)}:mark`;
 
   const bulkMarkableKeys = useMemo(
     () => new Set(bulkMarkablePrs.map((row) => `${row.companyId}:${row.name}`)),
@@ -1162,7 +1201,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
   async function mark(
     row: PurchaseReceiptRow,
     field: "handoverAt" | "valuedAt" | "receivedAt",
-    action: "mark" | "revert" | "not_received" = "mark",
+    action: "mark" | "revert" | "not_received" | "handover_received" = "mark",
   ) {
     const key = `${row.companyId}:${row.name}:${field}:${action}`;
     setBusyKey(key);
@@ -1208,21 +1247,25 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
       notify.error("Select at least one clean pending row first");
       return;
     }
-    const field = fieldForStage(stageFilter.stage);
-    setBusyKey(`bulk:${field}`);
+    const field = isPurchasingReceiveBulk ? "handoverAt" : fieldForStage(stageFilter.stage);
+    const action = isPurchasingReceiveBulk ? "handover_received" : "mark";
+    const bulkKey = `bulk:${field}:${action}`;
+    setBusyKey(bulkKey);
     try {
       const results = await Promise.all(
         rows.map((row) =>
           fetch(`/api/admin/purchasing/grn/purchase-receipts/${encodeURIComponent(row.name)}/mark`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ field, companyId: row.companyId }),
+            body: JSON.stringify({ field, action, companyId: row.companyId }),
           }),
         ),
       );
       const failed = results.filter((res) => !res.ok).length;
       if (failed > 0) {
         notify.error(`${failed} row${failed === 1 ? "" : "s"} could not be marked`);
+      } else if (isPurchasingReceiveBulk) {
+        notify.success(`${rows.length} row${rows.length === 1 ? "" : "s"} marked received`);
       }
       setSelectedBulkPrKeys(new Set());
       await loadData();
@@ -1413,7 +1456,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
           {allowedStageFilters.length > 0 && (
             <div className="flex flex-col gap-2 rounded-lg border bg-background/45 p-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="text-sm text-muted-foreground">
-                {selectedBulkPrKeys.size} selected from {bulkMarkablePrs.length} clean pending row{bulkMarkablePrs.length === 1 ? "" : "s"}
+                {selectedBulkPrKeys.size} selected from {bulkMarkablePrs.length} {bulkRowsLabel}{bulkMarkablePrs.length === 1 ? "" : "s"}
               </div>
               <div className="flex flex-wrap gap-2">
                 <Button
@@ -1437,11 +1480,11 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                 <Button
                   type="button"
                   size="sm"
-                  disabled={selectedBulkPrKeys.size === 0 || busyKey === `bulk:${fieldForStage(stageFilter.stage)}`}
+                  disabled={selectedBulkPrKeys.size === 0 || busyKey === bulkBusyKey}
                   onClick={markSelectedRows}
                 >
-                  {busyKey === `bulk:${fieldForStage(stageFilter.stage)}` && <Loader2 className="size-4 animate-spin" />}
-                  Mark all
+                  {busyKey === bulkBusyKey && <Loader2 className="size-4 animate-spin" />}
+                  {bulkActionLabel}
                 </Button>
               </div>
             </div>
@@ -1453,7 +1496,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                 <TableHead className="w-10">
                   <input
                     type="checkbox"
-                    aria-label="Select all clean pending rows"
+                    aria-label={`Select all ${bulkRowsLabel}s`}
                     checked={bulkMarkablePrs.length > 0 && selectedBulkPrKeys.size === bulkMarkablePrs.length}
                     disabled={bulkMarkablePrs.length === 0}
                     onChange={(event) =>
@@ -1615,7 +1658,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                           <Button
                             size="sm"
                             variant="outline"
-                            disabled={row.isCancelled || !row.handoverAt || busyKey === `${row.companyId}:${row.name}:valuedAt:mark`}
+                            disabled={row.isCancelled || !row.handoverAt || !row.handoverReceivedAt || busyKey === `${row.companyId}:${row.name}:valuedAt:mark`}
                             onClick={(event) => {
                               event.stopPropagation();
                               mark(row, "valuedAt");
@@ -2041,6 +2084,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                 permissions={permissions}
                 busyKey={busyKey}
                 onRevert={(row, field) => mark(row, field, "revert")}
+                onHandoverReceived={(row) => mark(row, "handoverAt", "handover_received")}
                 onNotReceived={(row) => mark(row, "handoverAt", "not_received")}
               />
               {rowMissingIntercompanySsr(selectedPr) && (
