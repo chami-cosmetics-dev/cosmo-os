@@ -23,6 +23,19 @@ type ErpSlotSet = {
 };
 
 const SHOPIFY_ACTIVATION_ERP_METHOD = "item_creation.activate_shopify_product";
+const ITEM_CREATION_PRODUCT_PRIORITY_FIELDS = [
+  process.env.ITEM_CREATION_PRODUCT_PRIORITY_FIELD,
+  "custom_product_priority",
+  "product_priority",
+  "custom_priority",
+  "custom_item_priority",
+  "custom_product_priority_level",
+].filter((field): field is string => Boolean(field?.trim()));
+const ITEM_CREATION_PRODUCT_PRIORITY_VALUES = [
+  process.env.ITEM_CREATION_PRODUCT_PRIORITY_VALUE,
+  "Newly added",
+  "Newly Added",
+].filter((value): value is string => Boolean(value?.trim()));
 
 type ErpItemWebhookPayload = {
   name?: string;
@@ -202,6 +215,24 @@ async function ensureErpBrand(cfg: OsfErpCredentials, brand: string) {
   return value;
 }
 
+async function setErpItemProductPriority(cfg: OsfErpCredentials, itemCode: string) {
+  let lastError: unknown = null;
+  const fields = [...new Set(ITEM_CREATION_PRODUCT_PRIORITY_FIELDS.map((field) => field.trim()).filter(Boolean))];
+  const values = [...new Set(ITEM_CREATION_PRODUCT_PRIORITY_VALUES.map((value) => value.trim()).filter(Boolean))];
+  for (const field of fields) {
+    for (const value of values) {
+      try {
+        await updateErpDoc<Record<string, unknown>>(cfg, "Item", itemCode, { [field]: value });
+        return { field, value };
+      } catch (error) {
+        lastError = error;
+      }
+    }
+  }
+  const message = lastError instanceof Error ? lastError.message : "No Product Priority field candidates were accepted";
+  throw new Error(`Could not set Product Priority for ${itemCode}: ${message}`);
+}
+
 async function ensureErp2Item(input: {
   cfg: OsfErpCredentials;
   itemCode: string;
@@ -210,7 +241,10 @@ async function ensureErp2Item(input: {
   barcodes: string[];
 }) {
   const existing = await getErpDoc<Record<string, unknown>>(input.cfg, "Item", input.itemCode);
-  if (existing) return { itemCode: input.itemCode, created: false };
+  if (existing) {
+    await setErpItemProductPriority(input.cfg, input.itemCode);
+    return { itemCode: input.itemCode, created: false };
+  }
 
   await ensureErpBrand(input.cfg, input.brand);
   const itemName = input.itemName.trim() || input.itemCode;
@@ -223,6 +257,7 @@ async function ensureErp2Item(input: {
     description: `${itemName} in Sri Lanka`,
     barcodes: input.barcodes.map((barcode) => ({ barcode })),
   });
+  await setErpItemProductPriority(input.cfg, input.itemCode);
   return { itemCode: input.itemCode, created: true };
 }
 
@@ -247,6 +282,9 @@ export async function handleErp1ItemWebhook(companyIds: string[], payload: ErpIt
   let completed = 0;
   let failed = 0;
   let skippedErp2 = 0;
+  let advancedSeo = 0;
+  let priorityUpdated = 0;
+  let priorityFailed = 0;
   for (const request of requests) {
     await prisma.$transaction(async (tx) => {
       await tx.itemCreationRequest.update({
@@ -269,7 +307,54 @@ export async function handleErp1ItemWebhook(companyIds: string[], payload: ErpIt
       });
     });
 
+    try {
+      const { erp1 } = await resolveErps(request.companyId);
+      if (!erp1) throw new Error("ERP1 instance is not configured");
+      const priority = await setErpItemProductPriority(erp1.cfg, itemCode);
+      priorityUpdated += 1;
+      await prisma.itemCreationActivity.create({
+        data: {
+          itemRequestId: request.id,
+          type: "ERP1_PRODUCT_PRIORITY_UPDATED",
+          source: "SYSTEM",
+          metadata: { itemCode, ...priority },
+        },
+      });
+    } catch (error) {
+      priorityFailed += 1;
+      const message = error instanceof Error ? error.message : "Product Priority update failed";
+      await prisma.itemCreationActivity.create({
+        data: {
+          itemRequestId: request.id,
+          type: "ERP1_PRODUCT_PRIORITY_FAILED",
+          source: "SYSTEM",
+          metadata: { itemCode, error: message.slice(0, 700) },
+        },
+      });
+    }
+
     if (!requestNeedsErp2(request.creationSources)) {
+      const updated = await prisma.itemCreationRequest.updateMany({
+        where: { id: request.id, seoSetupStatus: "PENDING" },
+        data: {
+          seoSetupStatus: "ITEM_CREATED",
+          itemCreatedAt: now,
+          itemCreatedBy: null,
+        },
+      });
+      if (updated.count > 0) {
+        advancedSeo += 1;
+        await prisma.itemCreationActivity.create({
+          data: {
+            itemRequestId: request.id,
+            type: "SEO_ITEM_CREATED",
+            source: "SYSTEM",
+            oldValue: "PENDING",
+            newValue: "ITEM_CREATED",
+            metadata: { itemCode, reason: "ERP2 not selected" },
+          },
+        });
+      }
       skippedErp2 += 1;
       continue;
     }
@@ -320,7 +405,7 @@ export async function handleErp1ItemWebhook(companyIds: string[], payload: ErpIt
       });
     }
   }
-  return { matched: requests.length, completed, failed, skippedErp2 };
+  return { matched: requests.length, completed, failed, skippedErp2, advancedSeo, priorityUpdated, priorityFailed };
 }
 
 export async function retryErp2ItemCreation(context: UserContext, id: string) {
@@ -511,12 +596,21 @@ export async function updateItemCreationPrices(context: UserContext, id: string)
           priceUpdatedSource: "USER",
           pricesUpdatedAt: new Date(),
           pricesUpdatedBy: userId(context),
-          storeStockStatus: "READY_FOR_STOCK",
-          stockReadyAt: new Date(),
+          storeStockStatus: refreshed.storeStockStatus === "STOCK_ADDED" ? "STOCK_ADDED" : "READY_FOR_STOCK",
+          stockReadyAt: refreshed.stockReadyAt ?? new Date(),
         },
       });
       await activity(tx, id, "PRICE_UPDATED_MANUALLY", "USER", userId(context));
-      await activity(tx, id, "STORE_STOCK_READY", "SYSTEM", null);
+      if (refreshed.storeStockStatus !== "STOCK_ADDED") {
+        await activity(tx, id, "STORE_STOCK_READY", "SYSTEM", null);
+      }
+      if (refreshed.storeStockStatus === "STOCK_ADDED" && refreshed.seoActivationStatus === "LOCKED") {
+        await tx.itemCreationRequest.update({
+          where: { id },
+          data: { seoActivationStatus: "WAITING_ACTIVATION" },
+        });
+        await activity(tx, id, "SEO_ACTIVATION_UNLOCKED", "SYSTEM", null);
+      }
     });
   }
   return { ok: requiredUpdated, results };
@@ -647,8 +741,8 @@ export async function createWarehousePurchaseReceipts(
       if (normalizeSkuKey(request.sku) !== normalizeSkuKey(item.itemCode)) {
         throw new Error(`SKU mismatch for ${item.itemCode}`);
       }
-      if (erp === "ERP1" && request.storeStockStatus !== "READY_FOR_STOCK") {
-        throw new Error(`${item.itemCode} is not ready for stock`);
+      if (erp === "ERP1" && request.storeStockStatus === "STOCK_ADDED") {
+        throw new Error(`${item.itemCode} already has stock added`);
       }
     }
 
@@ -781,6 +875,13 @@ async function updateStockCompletion(company: string, erp: ItemCreationErp, item
             },
           });
           await activity(tx, id, "ERP1_STOCK_COMPLETED", "SYSTEM", actorId ?? null);
+          if (request.purchasingStatus === "PRICE_UPDATED" && request.seoActivationStatus === "LOCKED") {
+            await tx.itemCreationRequest.update({
+              where: { id },
+              data: { seoActivationStatus: "WAITING_ACTIVATION" },
+            });
+            await activity(tx, id, "SEO_ACTIVATION_UNLOCKED", "SYSTEM", null);
+          }
         }
       });
     } else {
@@ -916,6 +1017,7 @@ export async function activateItemCreationShopify(context: UserContext, id: stri
     where: { id, companyId: companyId(context) },
   });
   if (request.storeStockStatus !== "STOCK_ADDED") throw new Error("ERP1 stock must be completed first");
+  if (request.purchasingStatus !== "PRICE_UPDATED") throw new Error("Price must be updated before Shopify activation");
 
   await prisma.itemCreationRequest.update({
     where: { id },
