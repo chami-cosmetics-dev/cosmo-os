@@ -82,6 +82,51 @@ export const BRAND_WAREHOUSE_VIOLATION_HEADERS = [
   "Rule",
 ] as const;
 
+/** Fixed columns on the stock-compare sheet. Company qty columns follow these. */
+export const STOCK_COMPARE_EXPORT_FIXED_HEADERS = [
+  "SKU",
+  "Product Title",
+  "Main Warehouse Qty",
+  "90-day Sales",
+  "Critical",
+  "% of ROP",
+] as const;
+
+function uniqueSortedNames(names: string[]): string[] {
+  return [...new Set(names.filter(Boolean))].sort((a, b) => a.localeCompare(b));
+}
+
+/** One row per SKU. Online companies, then shops, each as its own qty column. */
+export function buildStockCompareExportMatrix(
+  rows: CosmeticsStockReportDetail[],
+): Array<Array<string | number>> {
+  const onlineNames = uniqueSortedNames(rows.flatMap((row) => row.online.map((item) => item.name)));
+  const shopNames = uniqueSortedNames(rows.flatMap((row) => row.shops.map((item) => item.name)));
+  const headers: Array<string | number> = [
+    ...STOCK_COMPARE_EXPORT_FIXED_HEADERS,
+    ...onlineNames.map((name) => `Online · ${name}`),
+    ...shopNames.map((name) => `Shop · ${name}`),
+  ];
+
+  return [
+    headers,
+    ...rows.map((row) => {
+      const onlineQty = new Map(row.online.map((item) => [item.name, item.qty]));
+      const shopQty = new Map(row.shops.map((item) => [item.name, item.qty]));
+      return [
+        row.SKU,
+        row["Product Title"],
+        row["Main Warehouse Qty"],
+        row.sales90d,
+        row.critical ? "CRITICAL" : "",
+        row.stockPctOfRop ?? "",
+        ...onlineNames.map((name) => onlineQty.get(name) ?? ""),
+        ...shopNames.map((name) => shopQty.get(name) ?? ""),
+      ];
+    }),
+  ];
+}
+
 const MAIN_COSMO_WAREHOUSE = "main warehouse - cosmo";
 
 const COSMETICS_ONLY_BRANDS = [

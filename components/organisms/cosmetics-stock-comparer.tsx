@@ -22,7 +22,7 @@ import { notify } from "@/lib/notify";
 import { ERP_PRODUCT_PRIORITY_OPTIONS } from "@/lib/product-items/erp-priority-options";
 import {
   BRAND_WAREHOUSE_VIOLATION_HEADERS,
-  COSMETICS_STOCK_REPORT_HEADERS,
+  buildStockCompareExportMatrix,
   matchesIdentityFilters,
   type BrandWarehouseViolation,
   type CatalogIdentityFields,
@@ -69,15 +69,6 @@ function focusIsOtherWarehouse(name: string | null | undefined): boolean {
   const trimmed = (name ?? "").trim().toLowerCase();
   return trimmed.length > 0 && trimmed !== COSMETICS_MAIN_WAREHOUSE;
 }
-
-const STOCK_EXPORT_HEADERS = [
-  ...COSMETICS_STOCK_REPORT_HEADERS.slice(0, 5),
-  "Online Warehouse",
-  "Online Qty",
-  "Shop Warehouse",
-  "Shop Qty",
-  "% of ROP",
-] as const;
 
 function appendBrandCheckSheet(workbook: XLSX.WorkBook, rows: BrandWarehouseViolation[]) {
   const sheetRows: Array<Array<string | number>> = [
@@ -158,58 +149,28 @@ function exportBrandReport(rows: BrandWarehouseViolation[]) {
 
 function exportStockReport(rows: CosmeticsStockReportDetail[], ropCutoff: number | null) {
   const workbook = XLSX.utils.book_new();
-  const sheetRows: Array<Array<string | number>> = [[...STOCK_EXPORT_HEADERS]];
-  const merges: XLSX.Range[] = [];
-
-  rows.forEach((row) => {
-    const maxLines = Math.max(row.online.length, row.shops.length, 1);
-    const startRow = sheetRows.length;
-    for (let i = 0; i < maxLines; i++) {
-      sheetRows.push([
-        i === 0 ? row.SKU : "",
-        i === 0 ? row["Product Title"] : "",
-        i === 0 ? row["Main Warehouse Qty"] : "",
-        i === 0 ? row.sales90d : "",
-        i === 0 ? (row.critical ? "CRITICAL" : "") : "",
-        row.online[i]?.name ?? "",
-        row.online[i]?.qty ?? "",
-        row.shops[i]?.name ?? "",
-        row.shops[i]?.qty ?? "",
-        i === 0 ? (row.stockPctOfRop ?? "") : "",
-      ]);
-    }
-
-    if (maxLines > 1) {
-      const endRow = startRow + maxLines - 1;
-      for (const col of [0, 1, 2, 3, 4, 9]) {
-        merges.push({ s: { r: startRow, c: col }, e: { r: endRow, c: col } });
-      }
-    }
-  });
+  const sheetRows = buildStockCompareExportMatrix(rows);
+  const headers = sheetRows[0] ?? [];
+  const criticalCol = headers.indexOf("Critical");
+  const ropCol = headers.indexOf("% of ROP");
 
   const worksheet = XLSX.utils.aoa_to_sheet(sheetRows);
-  worksheet["!merges"] = merges;
   worksheet["!autofilter"] = {
     ref: XLSX.utils.encode_range({
       s: { r: 0, c: 0 },
-      e: { r: Math.max(sheetRows.length - 1, 0), c: STOCK_EXPORT_HEADERS.length - 1 },
+      e: { r: Math.max(sheetRows.length - 1, 0), c: Math.max(headers.length - 1, 0) },
     }),
   };
-  worksheet["!cols"] = [
-    { wch: 18 },
-    { wch: 42 },
-    { wch: 16 },
-    { wch: 14 },
-    { wch: 12 },
-    { wch: 28 },
-    { wch: 12 },
-    { wch: 24 },
-    { wch: 12 },
-    { wch: 24 },
-  ];
+  worksheet["!cols"] = headers.map((header, index) => {
+    if (index === 0) return { wch: 18 };
+    if (index === 1) return { wch: 42 };
+    if (index === 2) return { wch: 18 };
+    if (index < 6) return { wch: 14 };
+    return { wch: Math.min(28, Math.max(14, String(header).length + 2)) };
+  });
   worksheet["!rows"] = sheetRows.map((_, index) => ({ hpt: index === 0 ? 20 : 17 }));
 
-  const range = XLSX.utils.decode_range(worksheet["!ref"] ?? "A1:J1");
+  const range = XLSX.utils.decode_range(worksheet["!ref"] ?? "A1:F1");
   const border = {
     top: { style: "thin", color: { rgb: "D9D9D9" } },
     bottom: { style: "thin", color: { rgb: "D9D9D9" } },
@@ -224,7 +185,7 @@ function exportStockReport(rows: CosmeticsStockReportDetail[], ropCutoff: number
       if (!cell) continue;
       cell.s = {
         alignment: {
-          horizontal: c === 1 || c === 5 || c === 7 ? "left" : "center",
+          horizontal: c === 1 ? "left" : "center",
           vertical: "center",
         },
         border,
@@ -246,29 +207,33 @@ function exportStockReport(rows: CosmeticsStockReportDetail[], ropCutoff: number
   }
 
   for (let r = 1; r <= range.e.r; r++) {
-    const pctRef = XLSX.utils.encode_cell({ r, c: 9 });
-    const pct = worksheet[pctRef];
-    if (pct && typeof pct.v === "number") {
-      const low = ropCutoff != null ? pct.v <= ropCutoff : pct.v <= 0;
-      pct.s = {
-        ...(pct.s ?? {}),
-        alignment: { horizontal: "center", vertical: "center" },
-        font: { bold: true, color: { rgb: low ? "9F1D1D" : "006100" } },
-        fill: { patternType: "solid", fgColor: { rgb: low ? "F8D0D0" : "C6E8C8" } },
-        border,
-        numFmt: '0.##"%"',
-      };
+    if (ropCol >= 0) {
+      const pctRef = XLSX.utils.encode_cell({ r, c: ropCol });
+      const pct = worksheet[pctRef];
+      if (pct && typeof pct.v === "number") {
+        const low = ropCutoff != null ? pct.v <= ropCutoff : pct.v <= 0;
+        pct.s = {
+          ...(pct.s ?? {}),
+          alignment: { horizontal: "center", vertical: "center" },
+          font: { bold: true, color: { rgb: low ? "9F1D1D" : "006100" } },
+          fill: { patternType: "solid", fgColor: { rgb: low ? "F8D0D0" : "C6E8C8" } },
+          border,
+          numFmt: '0.##"%"',
+        };
+      }
     }
-    const criticalRef = XLSX.utils.encode_cell({ r, c: 4 });
-    const critical = worksheet[criticalRef];
-    if (critical && String(critical.v ?? "").toUpperCase() === "CRITICAL") {
-      critical.s = {
-        ...(critical.s ?? {}),
-        alignment: { horizontal: "center", vertical: "center" },
-        font: { bold: true, color: { rgb: "9F1D1D" } },
-        fill: { patternType: "solid", fgColor: { rgb: "F8D0D0" } },
-        border,
-      };
+    if (criticalCol >= 0) {
+      const criticalRef = XLSX.utils.encode_cell({ r, c: criticalCol });
+      const critical = worksheet[criticalRef];
+      if (critical && String(critical.v ?? "").toUpperCase() === "CRITICAL") {
+        critical.s = {
+          ...(critical.s ?? {}),
+          alignment: { horizontal: "center", vertical: "center" },
+          font: { bold: true, color: { rgb: "9F1D1D" } },
+          fill: { patternType: "solid", fgColor: { rgb: "F8D0D0" } },
+          border,
+        };
+      }
     }
   }
 

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   attachSubjectRopPercent,
   buildBrandWarehouseViolations,
+  buildStockCompareExportMatrix,
   buildCosmeticsStockReport,
   buildCosmeticsStockReportDetails,
   buildFocusedStockReport,
@@ -17,6 +18,8 @@ import {
   matchesIdentityFilters,
   selectWatchedTargets,
   markCriticalTopSellers,
+  type CosmeticsStockReportDetail,
+  type LocationStock,
   type RopColumnRef,
   type RopWatchRow,
   type StockBalanceRow,
@@ -33,6 +36,69 @@ function row(input: Partial<StockBalanceRow>): StockBalanceRow {
     "__ERP Source": input["__ERP Source"] ?? "",
   };
 }
+
+function detail(
+  input: Partial<CosmeticsStockReportDetail> & Pick<CosmeticsStockReportDetail, "SKU">,
+): CosmeticsStockReportDetail {
+  return {
+    SKU: input.SKU,
+    "Product Title": input["Product Title"] ?? "Product",
+    "Main Warehouse Qty": input["Main Warehouse Qty"] ?? 0,
+    "90-day Sales": input["90-day Sales"] ?? input.sales90d ?? 0,
+    Critical: input.critical ? "Yes" : "",
+    "Online Warehouse(s)": "",
+    "Online Qty": "",
+    "Shop Warehouse(s)": "",
+    "Shop Qty": "",
+    "Stock Available Elsewhere": "No",
+    sales90d: input.sales90d ?? 0,
+    critical: input.critical ?? false,
+    online: input.online ?? [],
+    shops: input.shops ?? [],
+    stockPctOfRop: input.stockPctOfRop,
+  };
+}
+
+function loc(name: string, qty: number, kind: LocationStock["kind"]): LocationStock {
+  return { name, qty, kind, warehouse: name };
+}
+
+describe("buildStockCompareExportMatrix", () => {
+  it("puts each company in its own column and keeps one row per SKU", () => {
+    const matrix = buildStockCompareExportMatrix([
+      detail({
+        SKU: "B",
+        "Product Title": "Bee",
+        sales90d: 12,
+        critical: true,
+        stockPctOfRop: 8,
+        online: [loc("SPK", 4, "online"), loc("Pevi", 2, "online")],
+        shops: [loc("Pevi", 1, "shop")],
+      }),
+      detail({
+        SKU: "A",
+        "Product Title": "Aye",
+        shops: [loc("Cool Planet", 9, "shop")],
+      }),
+    ]);
+
+    expect(matrix[0]).toEqual([
+      "SKU",
+      "Product Title",
+      "Main Warehouse Qty",
+      "90-day Sales",
+      "Critical",
+      "% of ROP",
+      "Online · Pevi",
+      "Online · SPK",
+      "Shop · Cool Planet",
+      "Shop · Pevi",
+    ]);
+    expect(matrix).toHaveLength(3);
+    expect(matrix[1]).toEqual(["B", "Bee", 0, 12, "CRITICAL", 8, 2, 4, "", 1]);
+    expect(matrix[2]).toEqual(["A", "Aye", 0, 0, "", "", "", "", 9, ""]);
+  });
+});
 
 describe("classifyWarehouseKind", () => {
   it("classifies Cosmo main, shops, and other warehouses", () => {
