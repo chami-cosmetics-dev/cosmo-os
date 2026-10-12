@@ -9,107 +9,110 @@ datasource db {
 }
 
 model Company {
-  id                           String                             @id @default(cuid())
-  name                         String
-  employeeSize                 String?
-  address                      String?
-  createdById                  String                             @unique
-  createdAt                    DateTime                           @default(now())
-  updatedAt                    DateTime                           @updatedAt
-  logoUrl                      String?
-  faviconUrl                   String?
-  categories                   Category[]
-  createdBy                    User                               @relation("CompanyCreator", fields: [createdById], references: [id], onDelete: Cascade)
-  locations                    CompanyLocation[]
-  courierServices              CourierService[]
-  customers                    Customer[]
-  departments                  Department[]
-  designations                 Designation[]
-  suppliers                    Supplier[]
-  emailTemplates               EmailTemplate[]
-  employeeProfiles             EmployeeProfile[]
-  failedOrderWebhooks          FailedOrderWebhook[]
-  auditLogs                    AuditLog[]
-  invites                      Invite[]
-  orders                       Order[]
-  packageHoldReasons           PackageHoldReason[]
-  nmrApprovedItemCodes         NmrApprovedItemCode[]
-  productItems                 ProductItem[]
-  cosmoAcademyExplanations     CosmoAcademyExplanation[]
-  cosmoAcademyProgress         CosmoAcademyProgress[]
-  sampleFreeIssueItems         SampleFreeIssueItem[]
-  shopifyWebhookSecrets        ShopifyWebhookSecret[]
-  stickerBatches               StickerBatch[]
-  stickerBatchItems            StickerBatchItem[]
-  merchantOrderReviews         MerchantOrderReview[]
-  orderExchanges               OrderExchange[]
-  orderReturns                 OrderReturn[]
-  orderWaybillUploads          WaybillUpload[]
-  orderWaybills                OrderWaybill[]
-  approvalRequests             ApprovalRequest[]
-  approvalKokoReferences       ApprovalKokoReference[]
-  notifications                Notification[]
-  smsLogs                      SmsLog[]
-  smsNotificationConfigs       SmsNotificationConfig[]
-  smsPortalConfig              SmsPortalConfig?
-  users                        User[]                             @relation("CompanyMembers")
-  vendors                      Vendor[]
-  contacts                     ContactMaster[]
-  complaints                   Complaint[]
-  shippingChargeOptions        ShippingChargeOption[]
-  erpWarehouses                CompanyLocationWarehouse[]
-  kokoCompanies                KokoCompany[]
-  citypakAccounts              CitypakAccount[]
-  dashboardBrandConfigs        DashboardBrandConfig[]
-  contactAllocationOptions     ContactAllocationOption[]
-  productItemAssets            ProductItemAsset[]
-  printFormats                 PrintFormat[]
-  files                        File[]
+  id                              String                             @id @default(cuid())
+  name                            String
+  employeeSize                    String?
+  address                         String?
+  createdById                     String                             @unique
+  createdAt                       DateTime                           @default(now())
+  updatedAt                       DateTime                           @updatedAt
+  logoUrl                         String?
+  faviconUrl                      String?
+  categories                      Category[]
+  createdBy                       User                               @relation("CompanyCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  locations                       CompanyLocation[]
+  courierServices                 CourierService[]
+  customers                       Customer[]
+  departments                     Department[]
+  designations                    Designation[]
+  suppliers                       Supplier[]
+  emailTemplates                  EmailTemplate[]
+  employeeProfiles                EmployeeProfile[]
+  failedOrderWebhooks             FailedOrderWebhook[]
+  auditLogs                       AuditLog[]
+  invites                         Invite[]
+  orders                          Order[]
+  packageHoldReasons              PackageHoldReason[]
+  nmrApprovedItemCodes            NmrApprovedItemCode[]
+  productItems                    ProductItem[]
+  cosmoAcademyExplanations        CosmoAcademyExplanation[]
+  cosmoAcademyProgress            CosmoAcademyProgress[]
+  sampleFreeIssueItems            SampleFreeIssueItem[]
+  shopifyWebhookSecrets           ShopifyWebhookSecret[]
+  stickerBatches                  StickerBatch[]
+  stickerBatchItems               StickerBatchItem[]
+  merchantOrderReviews            MerchantOrderReview[]
+  orderExchanges                  OrderExchange[]
+  orderReturns                    OrderReturn[]
+  orderWaybillUploads             WaybillUpload[]
+  orderWaybills                   OrderWaybill[]
+  approvalRequests                ApprovalRequest[]
+  approvalKokoReferences          ApprovalKokoReference[]
+  notifications                   Notification[]
+  smsLogs                         SmsLog[]
+  smsNotificationConfigs          SmsNotificationConfig[]
+  smsPortalConfig                 SmsPortalConfig?
+  users                           User[]                             @relation("CompanyMembers")
+  vendors                         Vendor[]
+  contacts                        ContactMaster[]
+  complaints                      Complaint[]
+  shippingChargeOptions           ShippingChargeOption[]
+  erpWarehouses                   CompanyLocationWarehouse[]
+  kokoCompanies                   KokoCompany[]
+  citypakAccounts                 CitypakAccount[]
+  dashboardBrandConfigs           DashboardBrandConfig[]
+  contactAllocationOptions        ContactAllocationOption[]
+  productItemAssets               ProductItemAsset[]
+  printFormats                    PrintFormat[]
+  files                           File[]
   // Call center performance tracking: records each time a merchant clicks Update
   // in the allocation panel — drives the dashboard performance analysis chart
-  contactAllocationUpdates     ContactAllocationUpdate[]
-  erpnextInstances             ErpnextInstance[]
-  grnPurchaseReceipts          GrnPurchaseReceipt[]
-  grnSupplierStockReturns      GrnSupplierStockReturn[]
-  pickListGroups               PickListGroup[]
-  ogfEmailLogs                 OgfEmailLog[]
-  financeScopes                UserFinanceScope[]
-  dailySalesSmsConfig          DailySalesSmsConfig?
-  dailySalesSmsSendLogs        DailySalesSmsSendLog[]
-  erpSyncFailureEmailConfig    ErpSyncFailureEmailConfig?
-  erpSyncFailureEmailSendLogs  ErpSyncFailureEmailSendLog[]
-  grnPendingEmailConfig        GrnPendingEmailConfig?
-  grnPendingEmailSendLogs      GrnPendingEmailSendLog[]
-  productOsfProfiles           ProductOsfProfile[]
-  productOsfRops               ProductOsfRop[]
-  osfColumnConfigs             OsfColumnConfig[]
-  osfMonthlySalesHistories     OsfMonthlySalesHistory[]
-  osfPurchaseHistoryLines      OsfPurchaseHistoryLine[]
-  osfBuyers                    OsfBuyer[]
-  osfUserColumnAccess          OsfUserColumnAccess[]
-  storeStockCountReports       StoreStockCountReport[]
-  materialTransfers            MaterialTransfer[]
-  storeStockCountItems         StoreStockCountReportItem[]
-  storeStockCountLanes         StoreStockCountItemLane[]
-  storeStockCountUserSaves     StoreStockCountUserSave[]
-  shopifyAbandonedCheckouts    ShopifyAbandonedCheckout[]
-  abandonedCheckoutSyncs       CompanyAbandonedCheckoutSync[]
-  contactPurchaseSummarySync   CompanyContactPurchaseSummarySync?
-  adaptPurchaseHistories       AdaptPurchaseHistory[]
-  contactRemovedEmails         ContactRemovedEmail[]
-  contactInsightCallQueues     ContactInsightCallQueue[]
-  bookNoteDays                 BookNoteDay[]
-  merchantMonthlyTargets       MerchantMonthlyTarget[]
-  merchantMonthlyTargetHistory MerchantMonthlyTargetHistory[]
-  marketCompetitorLinks        MarketCompetitorLink[]
-  erpStockSnapshots            ErpStockSnapshot[]
-  osRegistrationQrs            OsRegistrationQr[]
-  osRegistrationCaptures       OsRegistrationCapture[]
-  osRegistrationSettings       OsRegistrationSettings?
-  itemCreationRequests         ItemCreationRequest[]
-  itemCreationStockReceipts    ItemCreationStockReceipt[]
-  stockRequests                StockRequest[]
-  riderFinanceCashReceipts     RiderFinanceCashReceipt[]
+  contactAllocationUpdates        ContactAllocationUpdate[]
+  erpnextInstances                ErpnextInstance[]
+  grnPurchaseReceipts             GrnPurchaseReceipt[]
+  grnBackfillPurchaseReceipts     GrnBackfillPurchaseReceipt[]
+  grnSupplierStockReturns         GrnSupplierStockReturn[]
+  grnBackfillSupplierStockReturns GrnBackfillSupplierStockReturn[]
+  grnBackfillPurchaseInvoices     GrnBackfillPurchaseInvoice[]
+  pickListGroups                  PickListGroup[]
+  ogfEmailLogs                    OgfEmailLog[]
+  financeScopes                   UserFinanceScope[]
+  dailySalesSmsConfig             DailySalesSmsConfig?
+  dailySalesSmsSendLogs           DailySalesSmsSendLog[]
+  erpSyncFailureEmailConfig       ErpSyncFailureEmailConfig?
+  erpSyncFailureEmailSendLogs     ErpSyncFailureEmailSendLog[]
+  grnPendingEmailConfig           GrnPendingEmailConfig?
+  grnPendingEmailSendLogs         GrnPendingEmailSendLog[]
+  productOsfProfiles              ProductOsfProfile[]
+  productOsfRops                  ProductOsfRop[]
+  osfColumnConfigs                OsfColumnConfig[]
+  osfMonthlySalesHistories        OsfMonthlySalesHistory[]
+  osfPurchaseHistoryLines         OsfPurchaseHistoryLine[]
+  osfBuyers                       OsfBuyer[]
+  osfUserColumnAccess             OsfUserColumnAccess[]
+  storeStockCountReports          StoreStockCountReport[]
+  storeStockCountItems            StoreStockCountReportItem[]
+  storeStockCountLanes            StoreStockCountItemLane[]
+  storeStockCountUserSaves        StoreStockCountUserSave[]
+  shopifyAbandonedCheckouts       ShopifyAbandonedCheckout[]
+  abandonedCheckoutSyncs          CompanyAbandonedCheckoutSync[]
+  contactPurchaseSummarySync      CompanyContactPurchaseSummarySync?
+  adaptPurchaseHistories          AdaptPurchaseHistory[]
+  contactRemovedEmails            ContactRemovedEmail[]
+  contactInsightCallQueues        ContactInsightCallQueue[]
+  bookNoteDays                    BookNoteDay[]
+  merchantMonthlyTargets          MerchantMonthlyTarget[]
+  merchantMonthlyTargetHistory    MerchantMonthlyTargetHistory[]
+  marketCompetitorLinks           MarketCompetitorLink[]
+  erpStockSnapshots               ErpStockSnapshot[]
+  osRegistrationQrs               OsRegistrationQr[]
+  osRegistrationCaptures          OsRegistrationCapture[]
+  osRegistrationSettings          OsRegistrationSettings?
+  itemCreationRequests            ItemCreationRequest[]
+  itemCreationStockReceipts       ItemCreationStockReceipt[]
+  stockRequests                   StockRequest[]
+  materialTransfers               MaterialTransfer[]
+  riderFinanceCashReceipts        RiderFinanceCashReceipt[]
 }
 
 model PrintFormat {
@@ -585,6 +588,7 @@ model User {
   ordersCancelledBy                      Order[]                        @relation("OrderCancelledBy")
   grnHandovers                           GrnPurchaseReceipt[]           @relation("GrnPurchaseReceiptHandoverBy")
   grnHandoverReverts                     GrnPurchaseReceipt[]           @relation("GrnPurchaseReceiptHandoverRevertedBy")
+  grnHandoverReceipts                    GrnPurchaseReceipt[]           @relation("GrnPurchaseReceiptHandoverReceivedBy")
   grnNotReceived                         GrnPurchaseReceipt[]           @relation("GrnPurchaseReceiptNotReceivedBy")
   grnValuations                          GrnPurchaseReceipt[]           @relation("GrnPurchaseReceiptValuedBy")
   grnValuationReverts                    GrnPurchaseReceipt[]           @relation("GrnPurchaseReceiptValuedRevertedBy")
@@ -859,57 +863,58 @@ model AuditLog {
 }
 
 model CompanyLocation {
-  id                        String                     @id @default(cuid())
-  companyId                 String
-  shadowParentLocationId    String?
-  name                      String
-  address                   String?
-  createdAt                 DateTime                   @default(now())
-  updatedAt                 DateTime                   @updatedAt
-  invoiceEmail              String?
-  invoiceFooter             String?
-  invoiceHeader             String?
-  invoicePhone              String?
-  invoiceSubHeader          String?
-  shopifyLocationId         String?
-  shopifyShopName           String?
-  shortName                 String?
-  locationReference         String?
-  defaultMerchantUserId     String?
-  defaultOrderPrintFormatId String?
-  logoUrl                   String?
-  shopifyAdminStoreHandle   String?
-  manualInvoicePrefix       String?
-  manualInvoiceNextSeq      Int                        @default(0)
-  manualInvoiceSeqPadding   Int                        @default(3)
-  supplierPrefix            String?
-  erpnextCompany            String?
-  erpnextWarehouse          String?
-  erpnextInstanceId         String?
-  fulfillmentBlocked        Boolean                    @default(false)
-  isMainCompany             Boolean                    @default(false)
-  company                   Company                    @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  erpnextInstance           ErpnextInstance?           @relation(fields: [erpnextInstanceId], references: [id], onDelete: SetNull)
-  defaultOrderPrintFormat   PrintFormat?               @relation("LocationDefaultOrderPrintFormat", fields: [defaultOrderPrintFormatId], references: [id], onDelete: SetNull)
-  defaultMerchant           User?                      @relation("LocationDefaultMerchant", fields: [defaultMerchantUserId], references: [id])
-  shadowParentLocation      CompanyLocation?           @relation("LocationShadowParent", fields: [shadowParentLocationId], references: [id], onDelete: SetNull)
-  shadowLocations           CompanyLocation[]          @relation("LocationShadowParent")
-  profiles                  EmployeeProfile[]
-  failedOrderWebhooks       FailedOrderWebhook[]
-  grnPurchaseReceipts       GrnPurchaseReceipt[]
-  invites                   Invite[]
-  orders                    Order[]
-  productItems              ProductItem[]
-  riderCashHandoverItems    RiderCashHandoverItem[]
-  stickerBatchItems         StickerBatchItem[]
-  smsNotificationConfigs    SmsNotificationConfig[]
-  shippingChargeOptions     ShippingChargeOption[]
-  erpWarehouses             CompanyLocationWarehouse[]
-  financeScopes             UserFinanceScope[]
-  osfColumnConfigs          OsfColumnConfig[]
-  shopifyAbandonedCheckouts ShopifyAbandonedCheckout[]
-  adaptPurchaseHistories    AdaptPurchaseHistory[]
-  bookNoteDays              BookNoteDay[]
+  id                          String                       @id @default(cuid())
+  companyId                   String
+  shadowParentLocationId      String?
+  name                        String
+  address                     String?
+  createdAt                   DateTime                     @default(now())
+  updatedAt                   DateTime                     @updatedAt
+  invoiceEmail                String?
+  invoiceFooter               String?
+  invoiceHeader               String?
+  invoicePhone                String?
+  invoiceSubHeader            String?
+  shopifyLocationId           String?
+  shopifyShopName             String?
+  shortName                   String?
+  locationReference           String?
+  defaultMerchantUserId       String?
+  defaultOrderPrintFormatId   String?
+  logoUrl                     String?
+  shopifyAdminStoreHandle     String?
+  manualInvoicePrefix         String?
+  manualInvoiceNextSeq        Int                          @default(0)
+  manualInvoiceSeqPadding     Int                          @default(3)
+  supplierPrefix              String?
+  erpnextCompany              String?
+  erpnextWarehouse            String?
+  erpnextInstanceId           String?
+  fulfillmentBlocked          Boolean                      @default(false)
+  isMainCompany               Boolean                      @default(false)
+  company                     Company                      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  erpnextInstance             ErpnextInstance?             @relation(fields: [erpnextInstanceId], references: [id], onDelete: SetNull)
+  defaultOrderPrintFormat     PrintFormat?                 @relation("LocationDefaultOrderPrintFormat", fields: [defaultOrderPrintFormatId], references: [id], onDelete: SetNull)
+  defaultMerchant             User?                        @relation("LocationDefaultMerchant", fields: [defaultMerchantUserId], references: [id])
+  shadowParentLocation        CompanyLocation?             @relation("LocationShadowParent", fields: [shadowParentLocationId], references: [id], onDelete: SetNull)
+  shadowLocations             CompanyLocation[]            @relation("LocationShadowParent")
+  profiles                    EmployeeProfile[]
+  failedOrderWebhooks         FailedOrderWebhook[]
+  grnPurchaseReceipts         GrnPurchaseReceipt[]
+  grnBackfillPurchaseReceipts GrnBackfillPurchaseReceipt[]
+  invites                     Invite[]
+  orders                      Order[]
+  productItems                ProductItem[]
+  riderCashHandoverItems      RiderCashHandoverItem[]
+  stickerBatchItems           StickerBatchItem[]
+  smsNotificationConfigs      SmsNotificationConfig[]
+  shippingChargeOptions       ShippingChargeOption[]
+  erpWarehouses               CompanyLocationWarehouse[]
+  financeScopes               UserFinanceScope[]
+  osfColumnConfigs            OsfColumnConfig[]
+  shopifyAbandonedCheckouts   ShopifyAbandonedCheckout[]
+  adaptPurchaseHistories      AdaptPurchaseHistory[]
+  bookNoteDays                BookNoteDay[]
 
   @@index([shopifyLocationId])
   @@index([companyId, shadowParentLocationId])
@@ -2633,6 +2638,8 @@ model GrnPurchaseReceipt {
   handoverById            String?
   handoverRevertedAt      DateTime?
   handoverRevertedById    String?
+  handoverReceivedAt      DateTime?
+  handoverReceivedById    String?
   notReceivedAt           DateTime?
   notReceivedById         String?
   valuedAt                DateTime?
@@ -2651,6 +2658,7 @@ model GrnPurchaseReceipt {
   companyLocation         CompanyLocation?         @relation(fields: [companyLocationId], references: [id], onDelete: SetNull)
   handoverBy              User?                    @relation("GrnPurchaseReceiptHandoverBy", fields: [handoverById], references: [id], onDelete: SetNull)
   handoverRevertedBy      User?                    @relation("GrnPurchaseReceiptHandoverRevertedBy", fields: [handoverRevertedById], references: [id], onDelete: SetNull)
+  handoverReceivedBy      User?                    @relation("GrnPurchaseReceiptHandoverReceivedBy", fields: [handoverReceivedById], references: [id], onDelete: SetNull)
   notReceivedBy           User?                    @relation("GrnPurchaseReceiptNotReceivedBy", fields: [notReceivedById], references: [id], onDelete: SetNull)
   items                   GrnPurchaseReceiptItem[]
   purchaseInvoices        GrnPurchaseInvoice[]
@@ -2667,6 +2675,7 @@ model GrnPurchaseReceipt {
   @@index([companyLocationId])
   @@index([handoverById])
   @@index([handoverRevertedById])
+  @@index([handoverReceivedById])
   @@index([notReceivedById])
   @@index([valuedById])
   @@index([valuedRevertedById])
@@ -2734,6 +2743,152 @@ model GrnSupplierStockReturnItem {
 
   @@unique([supplierStockReturnId, name])
   @@index([companyId, itemCode])
+}
+
+model GrnBackfillPurchaseReceipt {
+  id                String                           @id @default(cuid())
+  companyId         String
+  companyLocationId String?
+  name              String
+  supplier          String
+  supplierName      String?
+  postingDate       DateTime?
+  postingTime       String?
+  docstatus         Int?
+  status            String?
+  amendedFrom       String?
+  owner             String?
+  creation          DateTime?
+  rawPayload        Json
+  createdAt         DateTime                         @default(now())
+  updatedAt         DateTime                         @updatedAt
+  company           Company                          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyLocation   CompanyLocation?                 @relation(fields: [companyLocationId], references: [id], onDelete: SetNull)
+  items             GrnBackfillPurchaseReceiptItem[]
+
+  @@unique([companyId, name])
+  @@index([companyId, creation(sort: Desc)])
+  @@index([companyId, supplier])
+  @@index([companyId, amendedFrom])
+  @@index([companyLocationId])
+}
+
+model GrnBackfillPurchaseReceiptItem {
+  id                String                     @id @default(cuid())
+  companyId         String
+  purchaseReceiptId String
+  name              String
+  itemCode          String
+  itemName          String?
+  qty               Decimal                    @db.Decimal(18, 6)
+  stockQty          Decimal?                   @db.Decimal(18, 6)
+  warehouse         String?
+  stockUom          String?
+  createdAt         DateTime                   @default(now())
+  updatedAt         DateTime                   @updatedAt
+  purchaseReceipt   GrnBackfillPurchaseReceipt @relation(fields: [purchaseReceiptId], references: [id], onDelete: Cascade)
+
+  @@unique([purchaseReceiptId, name])
+  @@index([companyId, itemCode])
+}
+
+model GrnBackfillSupplierStockReturn {
+  id                  String                               @id @default(cuid())
+  companyId           String
+  name                String
+  supplier            String
+  supplierName        String?
+  returnDate          DateTime?
+  docstatus           Int?
+  amendedFrom         String?
+  owner               String?
+  creation            DateTime?
+  purchaseReceiptName String?
+  rawPayload          Json
+  createdAt           DateTime                             @default(now())
+  updatedAt           DateTime                             @updatedAt
+  company             Company                              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  items               GrnBackfillSupplierStockReturnItem[]
+
+  @@unique([companyId, name])
+  @@index([companyId, creation(sort: Desc)])
+  @@index([companyId, supplier])
+  @@index([companyId, supplierName])
+  @@index([companyId, amendedFrom])
+  @@index([companyId, purchaseReceiptName])
+}
+
+model GrnBackfillSupplierStockReturnItem {
+  id                    String                         @id @default(cuid())
+  companyId             String
+  supplierStockReturnId String
+  name                  String
+  itemCode              String
+  itemName              String?
+  qty                   Decimal                        @db.Decimal(18, 6)
+  stockUom              String?
+  createdAt             DateTime                       @default(now())
+  updatedAt             DateTime                       @updatedAt
+  supplierStockReturn   GrnBackfillSupplierStockReturn @relation(fields: [supplierStockReturnId], references: [id], onDelete: Cascade)
+
+  @@unique([supplierStockReturnId, name])
+  @@index([companyId, itemCode])
+}
+
+model GrnBackfillPurchaseInvoice {
+  id                      String                           @id @default(cuid())
+  companyId               String
+  name                    String
+  supplier                String
+  supplierName            String?
+  postingDate             DateTime?
+  docstatus               Int?
+  status                  String?
+  isReturn                Int?
+  returnAgainst           String?
+  billNo                  String?
+  amendedFrom             String?
+  owner                   String?
+  creation                DateTime?
+  purchaseReceiptName     String?
+  supplierStockReturnName String?
+  rawPayload              Json
+  createdAt               DateTime                         @default(now())
+  updatedAt               DateTime                         @updatedAt
+  company                 Company                          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  items                   GrnBackfillPurchaseInvoiceItem[]
+
+  @@unique([companyId, name])
+  @@index([companyId, purchaseReceiptName])
+  @@index([companyId, supplierStockReturnName])
+  @@index([companyId, returnAgainst])
+  @@index([companyId, billNo])
+  @@index([companyId, postingDate])
+}
+
+model GrnBackfillPurchaseInvoiceItem {
+  id                      String                     @id @default(cuid())
+  companyId               String
+  purchaseInvoiceId       String
+  name                    String
+  itemCode                String
+  itemName                String?
+  qty                     Decimal                    @db.Decimal(18, 6)
+  rate                    Decimal                    @db.Decimal(18, 6)
+  amount                  Decimal                    @db.Decimal(18, 6)
+  purchaseReceipt         String?
+  purchaseReceiptItem     String?
+  supplierStockReturn     String?
+  supplierStockReturnItem String?
+  stockUom                String?
+  createdAt               DateTime                   @default(now())
+  updatedAt               DateTime                   @updatedAt
+  purchaseInvoice         GrnBackfillPurchaseInvoice @relation(fields: [purchaseInvoiceId], references: [id], onDelete: Cascade)
+
+  @@unique([purchaseInvoiceId, name])
+  @@index([companyId, itemCode])
+  @@index([companyId, purchaseReceipt])
+  @@index([companyId, supplierStockReturn])
 }
 
 model GrnIntercompanySupplier {

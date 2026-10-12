@@ -859,6 +859,7 @@ type MatchPurchaseReceipt = {
   supplier: string;
   docstatus: number | null;
   creation: Date | null;
+  postingDate?: Date | null;
   supplierStockReturnName: string | null;
   items: Array<{ itemCode: string; stockQty: Prisma.Decimal | number | null; qty: Prisma.Decimal | number }>;
 };
@@ -869,6 +870,7 @@ type MatchSupplierStockReturn = {
   supplier: string;
   docstatus: number | null;
   creation: Date | null;
+  returnDate?: Date | null;
   purchaseReceiptName: string | null;
   items: Array<{ itemCode: string; qty: Prisma.Decimal | number }>;
 };
@@ -913,9 +915,12 @@ export function calculateGrnMatchPercentage(
 }
 
 export function isWithinGrnMatchCreationWindow(
-  purchaseReceipt: Pick<MatchPurchaseReceipt, "creation">,
-  stockReturn: Pick<MatchSupplierStockReturn, "creation">,
+  purchaseReceipt: Pick<MatchPurchaseReceipt, "creation" | "postingDate">,
+  stockReturn: Pick<MatchSupplierStockReturn, "creation" | "returnDate">,
 ) {
+  if (purchaseReceipt.postingDate && stockReturn.returnDate) {
+    return purchaseReceipt.postingDate.toISOString().slice(0, 10) === stockReturn.returnDate.toISOString().slice(0, 10);
+  }
   if (!purchaseReceipt.creation || !stockReturn.creation) return false;
   return Math.abs(purchaseReceipt.creation.getTime() - stockReturn.creation.getTime()) <= GRN_MATCH_CREATION_WINDOW_MS;
 }
@@ -1025,6 +1030,167 @@ export async function autoMatchIntercompanyGrn() {
       });
     });
     usedPurchaseReceipts.add(`${best.companyId}:${best.name}`);
+    matched += 1;
+  }
+
+  return { matched };
+}
+
+export async function autoMatchBackfillIntercompanyGrn() {
+  const supplierPrefixLocations = await prisma.companyLocation.findMany({
+    where: {
+      supplierPrefix: { not: null },
+    },
+    select: { id: true, supplierPrefix: true },
+  });
+  const supplierPrefixRules = supplierPrefixLocations
+    .map((row) => ({
+      locationId: row.id,
+      prefix: row.supplierPrefix?.trim() ?? "",
+      key: normalizeSupplierMatchValue(row.supplierPrefix),
+    }))
+    .filter((row) => row.key.length > 0);
+  if (supplierPrefixRules.length === 0) return { matched: 0 };
+
+  const ruleForSupplier = (supplier: string | null | undefined, supplierName?: string | null) => {
+    const values = [
+      normalizeSupplierMatchValue(supplier),
+      normalizeSupplierMatchValue(supplierName),
+    ].filter(Boolean);
+    return supplierPrefixRules.find((rule) => values.some((value) => value.includes(rule.key))) ?? null;
+  };
+
+  const [livePurchaseReceipts, backfillPurchaseReceipts, stockReturns] = await Promise.all([
+    prisma.grnPurchaseReceipt.findMany({
+      where: {
+        companyLocationId: { in: supplierPrefixRules.map((rule) => rule.locationId) },
+        docstatus: { not: 2 },
+        supplierStockReturnName: null,
+      },
+      include: { items: true },
+    }),
+    prisma.grnBackfillPurchaseReceipt.findMany({
+      where: {
+        companyLocationId: { in: supplierPrefixRules.map((rule) => rule.locationId) },
+        docstatus: { not: 2 },
+      },
+      include: { items: true },
+    }),
+    prisma.grnBackfillSupplierStockReturn.findMany({
+      where: {
+        OR: supplierPrefixRules.flatMap((rule) => [
+          { supplier: { contains: rule.prefix, mode: "insensitive" as const } },
+          { supplierName: { contains: rule.prefix, mode: "insensitive" as const } },
+        ]),
+        docstatus: { not: 2 },
+        purchaseReceiptName: null,
+      },
+      include: { items: true },
+      orderBy: [{ creation: "asc" }, { createdAt: "asc" }],
+    }),
+  ]);
+
+  const usedPurchaseReceiptNames = new Set(
+    [
+      ...(await prisma.grnSupplierStockReturn.findMany({
+        where: { docstatus: { not: 2 }, purchaseReceiptName: { not: null } },
+        select: { purchaseReceiptName: true },
+      })),
+      ...(await prisma.grnBackfillSupplierStockReturn.findMany({
+        where: { docstatus: { not: 2 }, purchaseReceiptName: { not: null } },
+        select: { purchaseReceiptName: true },
+      })),
+    ]
+      .map((row) => row.purchaseReceiptName)
+      .filter((name): name is string => Boolean(name)),
+  );
+
+  const candidateMatchesByStockReturn = new Map<
+    string,
+    Array<{ companyId: string; id: string | null; name: string; percentage: number; isBackfill: boolean }>
+  >();
+  const claimCountByPurchaseReceipt = new Map<string, number>();
+  const purchaseReceiptsForMatching = [
+    ...livePurchaseReceipts.map((receipt) => ({
+      ...receipt,
+      isBackfill: false,
+    })),
+    ...backfillPurchaseReceipts.map((receipt) => ({
+    ...receipt,
+    supplierStockReturnName: null as string | null,
+      isBackfill: true,
+    })),
+  ];
+
+  for (const stockReturn of stockReturns) {
+    const rule = ruleForSupplier(stockReturn.supplier, stockReturn.supplierName);
+    if (!rule) continue;
+    const candidates = purchaseReceiptsForMatching
+      .filter(
+        (receipt) =>
+          receipt.companyLocationId === rule.locationId &&
+          !usedPurchaseReceiptNames.has(receipt.name) &&
+          isWithinGrnMatchCreationWindow(receipt, stockReturn),
+      )
+      .map((receipt) => ({
+        companyId: receipt.companyId,
+        id: receipt.isBackfill ? null : receipt.id,
+        name: receipt.name,
+        percentage: calculateGrnMatchPercentage(receipt.items, stockReturn.items),
+        isBackfill: receipt.isBackfill,
+      }))
+      .filter((candidate) => candidate.percentage === 100)
+      .sort((a, b) => a.name.localeCompare(b.name));
+    candidateMatchesByStockReturn.set(stockReturn.name, candidates);
+    for (const candidate of candidates) {
+      const key = `${candidate.companyId}:${candidate.name}`;
+      claimCountByPurchaseReceipt.set(key, (claimCountByPurchaseReceipt.get(key) ?? 0) + 1);
+    }
+  }
+
+  let matched = 0;
+  for (const stockReturn of stockReturns) {
+    const candidates = candidateMatchesByStockReturn.get(stockReturn.name) ?? [];
+    if (candidates.length !== 1) continue;
+    const candidate = candidates[0];
+    if ((claimCountByPurchaseReceipt.get(`${candidate.companyId}:${candidate.name}`) ?? 0) !== 1) continue;
+
+    await prisma.$transaction(async (tx) => {
+      if (!candidate.isBackfill) {
+        await tx.grnPurchaseReceipt.update({
+          where: { companyId_name: { companyId: candidate.companyId, name: candidate.name } },
+          data: { supplierStockReturnName: stockReturn.name },
+        });
+      }
+      await tx.grnBackfillSupplierStockReturn.update({
+        where: { companyId_name: { companyId: stockReturn.companyId, name: stockReturn.name } },
+        data: { purchaseReceiptName: candidate.name },
+      });
+      if (candidate.id) {
+        await attachPendingSupplierStockReturnPurchaseInvoices(tx, {
+          companyId: stockReturn.companyId,
+          stockReturnName: stockReturn.name,
+          purchaseReceiptId: candidate.id,
+          purchaseReceiptName: candidate.name,
+        });
+      }
+      await tx.grnBackfillPurchaseInvoice.updateMany({
+        where: {
+          companyId: stockReturn.companyId,
+          docstatus: { not: 2 },
+          OR: [
+            { billNo: `SSR-${stockReturn.name}` },
+            { supplierStockReturnName: stockReturn.name },
+            { items: { some: { supplierStockReturn: stockReturn.name } } },
+          ],
+        },
+        data: {
+          purchaseReceiptName: candidate.name,
+          supplierStockReturnName: stockReturn.name,
+        },
+      });
+    });
+    usedPurchaseReceiptNames.add(candidate.name);
     matched += 1;
   }
 
