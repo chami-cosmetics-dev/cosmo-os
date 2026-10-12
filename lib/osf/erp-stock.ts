@@ -123,24 +123,32 @@ export async function fetchBinActualQty(input: {
 
 const WAREHOUSE_BIN_PAGE = 500;
 
-/** All Bin rows with actual_qty > 0 for warehouses (paginated, no SKU list). */
-export async function fetchPositiveBinsByWarehouses(input: {
+/**
+ * Bin actual_qty for warehouses, paged, no SKU list.
+ * `positiveOnly` keeps callers that ignore zero and negative stock.
+ * OSF generate uses every finite qty so a negative bin still raises order qty.
+ */
+export async function fetchWarehouseBins(input: {
   cfg: OsfErpCredentials;
   warehouses: string[];
+  positiveOnly?: boolean;
 }): Promise<Map<string, number>> {
   const map = new Map<string, number>();
   const warehouses = [...new Set(input.warehouses.map((w) => w.trim()).filter(Boolean))];
   if (warehouses.length === 0) return map;
 
-  const filters = JSON.stringify([
-    ["warehouse", "in", warehouses],
-    ["actual_qty", ">", 0],
-  ]);
+  const filters = input.positiveOnly
+    ? [
+        ["warehouse", "in", warehouses],
+        ["actual_qty", ">", 0],
+      ]
+    : [["warehouse", "in", warehouses]];
   const fields = JSON.stringify(["item_code", "warehouse", "actual_qty"]);
+  const filterJson = JSON.stringify(filters);
 
   for (let start = 0; ; start += WAREHOUSE_BIN_PAGE) {
     const path =
-      `/api/resource/Bin?filters=${encodeURIComponent(filters)}` +
+      `/api/resource/Bin?filters=${encodeURIComponent(filterJson)}` +
       `&fields=${encodeURIComponent(fields)}` +
       `&limit_start=${start}&limit_page_length=${WAREHOUSE_BIN_PAGE}`;
     const json = await erpGetJson<{
@@ -152,7 +160,8 @@ export async function fetchPositiveBinsByWarehouses(input: {
       const wh = row.warehouse?.trim();
       if (!item || !wh) continue;
       const qty = Number(row.actual_qty);
-      if (!Number.isFinite(qty) || qty <= 0) continue;
+      if (!Number.isFinite(qty)) continue;
+      if (input.positiveOnly && qty <= 0) continue;
       const key = `${wh}::${item}`;
       map.set(key, (map.get(key) ?? 0) + qty);
     }
@@ -160,6 +169,14 @@ export async function fetchPositiveBinsByWarehouses(input: {
   }
 
   return map;
+}
+
+/** All Bin rows with actual_qty > 0 for warehouses (paginated, no SKU list). */
+export async function fetchPositiveBinsByWarehouses(input: {
+  cfg: OsfErpCredentials;
+  warehouses: string[];
+}): Promise<Map<string, number>> {
+  return fetchWarehouseBins({ ...input, positiveOnly: true });
 }
 
 export function stockForColumn(

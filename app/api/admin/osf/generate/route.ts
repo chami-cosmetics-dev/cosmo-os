@@ -18,7 +18,7 @@ import {
   mergeBestPurchaseMaps,
   mergeMonthlyPurchaseMaps,
 } from "@/lib/osf/erp-purchases";
-import { fetchBinActualQty, getAllOsfErpInstances, stockForColumn } from "@/lib/osf/erp-stock";
+import { fetchWarehouseBins, getAllOsfErpInstances, stockForColumn } from "@/lib/osf/erp-stock";
 import {
   aggregateMonthlySalesBySku,
   osfBestPurchaseBounds,
@@ -53,6 +53,9 @@ import { osfGenerateBodySchema } from "@/lib/validation/osf";
 function todayColombo(): string {
   return formatAppIsoDate(new Date());
 }
+
+/** Full catalog + April-to-date grids. Default 300s runs out of time and memory. */
+export const maxDuration = 800;
 
 function osfDownloadFilename(variant: OsfVariant, asOfDate: string, belowThresholdOnly: boolean): string {
   if (belowThresholdOnly) {
@@ -141,8 +144,8 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Refresh OSF ogfPrice from Cosmo ERP OGF Price List before workbook build.
-  await syncOgfPricesFromErp(companyId);
+  // OGF price refresh writes profiles. Stock, sales, and catalog do not wait on it.
+  const ogfSync = syncOgfPricesFromErp(companyId);
 
   try {
     // Ensure Cosmetics shop warehouses from ERP1 exist as OSF columns before resolve.
@@ -161,7 +164,6 @@ export async function POST(request: NextRequest) {
     const [
       catalogRaw,
       columns,
-      profiles,
       ropRows,
       monthlySales,
       salesByMonthNested,
@@ -178,7 +180,6 @@ export async function POST(request: NextRequest) {
           skuPrefix,
         }),
         resolveOsfColumns(companyId),
-        prisma.productOsfProfile.findMany({ where: { companyId } }),
         prisma.productOsfRop.findMany({ where: { companyId } }),
         aggregateMonthlySalesBySku(companyId, salesMonth),
         aggregateSalesBySkuByMonthInRange(
@@ -193,6 +194,9 @@ export async function POST(request: NextRequest) {
         }),
         loadShopifyCatalogPricesForCompany(companyId),
       ]);
+    const profilesPromise = ogfSync.then(() =>
+      prisma.productOsfProfile.findMany({ where: { companyId } }),
+    );
     if (shopifyPrices.warning) {
       console.warn("[OSF] Shopify catalog prices:", shopifyPrices.warning);
     }
@@ -201,26 +205,6 @@ export async function POST(request: NextRequest) {
     const salesByMonth = new Map<string, Record<string, number>>();
     for (const [sku, months] of salesByMonthNested) {
       salesByMonth.set(sku, Object.fromEntries(months));
-    }
-
-    const profileMap = new Map<string, OsfProfileData>();
-    for (const p of profiles) {
-      profileMap.set(p.sku, {
-        shopAvailability: p.shopAvailability,
-        ogfPrice: p.ogfPrice != null ? Number(p.ogfPrice) : null,
-        reorderThresholdPercent: p.reorderThresholdPercent,
-        rops: {},
-      });
-    }
-    for (const r of ropRows) {
-      const entry = profileMap.get(r.sku) ?? {
-        shopAvailability: null,
-        ogfPrice: null,
-        reorderThresholdPercent: null,
-        rops: {},
-      };
-      entry.rops[r.columnKey] = r.ropQty;
-      profileMap.set(r.sku, entry);
     }
 
     const catalogSkus = catalogPriced.map((c) => c.sku);
@@ -262,7 +246,7 @@ export async function POST(request: NextRequest) {
         const whs = [...(warehousesByInstance.get(inst.id) ?? [])];
         const [bins, costs, purchases, monthlyPurchases] = await Promise.all([
           whs.length
-            ? fetchBinActualQty({ cfg: inst.cfg, warehouses: whs, itemCodes: skus })
+            ? fetchWarehouseBins({ cfg: inst.cfg, warehouses: whs })
             : Promise.resolve(new Map<string, number>()),
           fetchLatestCostAndSupplier({ cfg: inst.cfg, itemCodes: skus }),
           fetchLastPurchaseByItem({
@@ -287,6 +271,27 @@ export async function POST(request: NextRequest) {
     const binMap = new Map<string, number>();
     for (const { bins } of perInstanceResults) {
       for (const [key, qty] of bins) binMap.set(key, qty);
+    }
+
+    const profiles = await profilesPromise;
+    const profileMap = new Map<string, OsfProfileData>();
+    for (const p of profiles) {
+      profileMap.set(p.sku, {
+        shopAvailability: p.shopAvailability,
+        ogfPrice: p.ogfPrice != null ? Number(p.ogfPrice) : null,
+        reorderThresholdPercent: p.reorderThresholdPercent,
+        rops: {},
+      });
+    }
+    for (const r of ropRows) {
+      const entry = profileMap.get(r.sku) ?? {
+        shopAvailability: null,
+        ogfPrice: null,
+        reorderThresholdPercent: null,
+        rops: {},
+      };
+      entry.rops[r.columnKey] = r.ropQty;
+      profileMap.set(r.sku, entry);
     }
 
     if (belowThresholdOnly || maxStockPctOfRop != null) {
