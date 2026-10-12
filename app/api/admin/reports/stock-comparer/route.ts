@@ -7,6 +7,7 @@ import {
   attachSubjectRopPercent,
   decorateReportRows,
   filterReportByMainRopPercent,
+  isExcludedFromStockCompare,
   listWarehouseOptions,
   markCriticalTopSellers,
   selectWatchedTargets,
@@ -69,11 +70,12 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const [catalog, columns, erpInstances] = await Promise.all([
+  const [catalogAll, columns, erpInstances] = await Promise.all([
     buildCatalogRows(companyId),
     resolveOsfColumns(companyId),
     getAllOsfErpInstances(companyId),
   ]);
+  const catalog = catalogAll.filter((item) => !isExcludedFromStockCompare(item));
 
   if (erpInstances.length === 0) {
     return NextResponse.json(

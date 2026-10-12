@@ -1,5 +1,6 @@
 import "server-only";
 
+import { isBundleCatalogItem } from "@/lib/catalog-bundle";
 import { loadStandardAndOgfPrices, fetchItemBrandsBySku } from "@/lib/stock-price-missing/erp-selling-prices";
 import {
   fetchPositiveBinsByWarehouses,
@@ -283,6 +284,7 @@ export async function scanStockPriceMissing(
     fetchItemBrandsBySku(erp1.cfg, [...stock1.keys()]),
     fetchItemBrandsBySku(erp2.cfg, [...stock2.keys()]),
   ]);
+  const bundleSkus = collectBundleSkus(allSkus, catalog);
 
   const erp1Cols = stockCols.filter(
     (c) => (c.erpnextInstanceId ?? erp1.id) === erp1.id,
@@ -304,11 +306,16 @@ export async function scanStockPriceMissing(
     dropVat: true,
   });
 
+  for (const sku of bundleSkus) {
+    erp1Exclude.add(sku);
+    erp2Exclude.add(sku);
+  }
+
   const standardMismatches = buildStandardPriceMismatches({
     standard1: prices1.standard,
     standard2: prices2.standard,
     nameBySku: catalog.nameBySku,
-  });
+  }).filter((row) => !bundleSkus.has(row.sku));
 
   return {
     companyId,
@@ -381,11 +388,13 @@ async function loadItemCatalog(
 ): Promise<{
   nameBySku: Map<string, string>;
   brandBySku: Map<string, string | null>;
+  productTypeBySku: Map<string, string | null>;
 }> {
   const nameBySku = new Map<string, string>();
   const brandBySku = new Map<string, string | null>();
+  const productTypeBySku = new Map<string, string | null>();
   const unique = [...new Set(skus)];
-  if (unique.length === 0) return { nameBySku, brandBySku };
+  if (unique.length === 0) return { nameBySku, brandBySku, productTypeBySku };
 
   const chunkSize = 400;
   for (let i = 0; i < unique.length; i += chunkSize) {
@@ -396,6 +405,7 @@ async function loadItemCatalog(
         sku: true,
         productTitle: true,
         variantTitle: true,
+        productType: true,
         vendor: { select: { name: true } },
       },
     });
@@ -409,7 +419,33 @@ async function loadItemCatalog(
       if (!brandBySku.has(sku)) {
         brandBySku.set(sku, r.vendor?.name?.trim() || null);
       }
+      if (!productTypeBySku.has(sku)) {
+        productTypeBySku.set(sku, r.productType?.trim() || null);
+      }
     }
   }
-  return { nameBySku, brandBySku };
+  return { nameBySku, brandBySku, productTypeBySku };
+}
+
+/** Bundle SKUs never belong in the price-gap / standard-mismatch mail. */
+export function collectBundleSkus(
+  skus: Iterable<string>,
+  catalog: {
+    nameBySku: Map<string, string>;
+    productTypeBySku: Map<string, string | null>;
+  },
+): Set<string> {
+  const out = new Set<string>();
+  for (const sku of skus) {
+    if (
+      isBundleCatalogItem({
+        sku,
+        productTitle: catalog.nameBySku.get(sku) ?? null,
+        productType: catalog.productTypeBySku.get(sku) ?? null,
+      })
+    ) {
+      out.add(sku);
+    }
+  }
+  return out;
 }
