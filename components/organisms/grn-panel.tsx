@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CheckCircle2,
   ChevronsUpDown,
@@ -90,6 +90,7 @@ type PurchaseReceiptRow = {
   supplierName: string | null;
   docstatus: number | null;
   isCancelled: boolean;
+  isBackfill: boolean;
   amendedFrom: string | null;
   handoverAt: string | null;
   handoverBy: UserRef | null;
@@ -144,6 +145,7 @@ type SupplierStockReturnRow = {
   purchaseReceiptName: string | null;
   docstatus: number | null;
   isCancelled: boolean;
+  isBackfill: boolean;
   amendedFrom: string | null;
   canTally: boolean;
   itemCount: number;
@@ -152,7 +154,12 @@ type SupplierStockReturnRow = {
     name: string;
     percentage: number;
   } | null;
-  matchReviewStatus: "matched" | "review" | "waiting" | null;
+  conflictMatches: {
+    companyId: string;
+    name: string;
+    percentage: number;
+  }[];
+  matchReviewStatus: "matched" | "review" | "conflict" | "waiting" | null;
   items: {
     name: string;
     itemCode: string;
@@ -186,6 +193,7 @@ type GrnPanelPermissions = {
 
 type GrnActionStage = "handover" | "valued" | "received";
 type GrnStageStatusFilter = "all" | "pending" | "completed" | "mismatch" | "verify";
+type SsrStatusFilter = "all" | "waiting" | "partial" | "conflict";
 type GrnStageFilter = {
   stage: GrnActionStage;
   status: GrnStageStatusFilter;
@@ -195,6 +203,12 @@ type PrDialogFocus = "item-mismatch" | "price-mismatch" | "missing-ssr" | null;
 const PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
 type PageSize = (typeof PAGE_SIZE_OPTIONS)[number];
 const DEFAULT_PAGE_SIZE: PageSize = 20;
+const SSR_STATUS_FILTERS: { key: SsrStatusFilter; label: string }[] = [
+  { key: "all", label: "All" },
+  { key: "waiting", label: "Waiting" },
+  { key: "partial", label: "Partial match" },
+  { key: "conflict", label: "Conflict" },
+];
 
 function firstAllowedStage(permissions: GrnPanelPermissions): GrnActionStage {
   if (permissions.canViewHandover) return "handover";
@@ -229,6 +243,13 @@ function getCurrentMonthRange() {
 
 function userLabel(user: UserRef | null) {
   return user?.name?.trim() || user?.email?.trim() || null;
+}
+
+function ssrStatusForFilter(row: SupplierStockReturnRow): Exclude<SsrStatusFilter, "all"> {
+  if (row.matchReviewStatus === "conflict") return "conflict";
+  const percentage = row.matchRecommendation?.percentage ?? 0;
+  if (percentage <= 0) return "waiting";
+  return "partial";
 }
 
 function CancelledBadge() {
@@ -573,7 +594,7 @@ function GrnStageTimeline({
                         type="button"
                         size="sm"
                         variant="outline"
-                        disabled={row.isCancelled || busyKey === `${row.companyId}:${row.name}:${stage.field}:handover_received`}
+                        disabled={row.isBackfill || row.isCancelled || busyKey === `${row.companyId}:${row.name}:${stage.field}:handover_received`}
                         onClick={(event) => {
                           event.stopPropagation();
                           onHandoverReceived(row);
@@ -587,7 +608,7 @@ function GrnStageTimeline({
                         type="button"
                         size="sm"
                         variant="outline"
-                        disabled={row.isCancelled || busyKey === `${row.companyId}:${row.name}:${stage.field}:not_received`}
+                        disabled={row.isBackfill || row.isCancelled || busyKey === `${row.companyId}:${row.name}:${stage.field}:not_received`}
                         onClick={(event) => {
                           event.stopPropagation();
                           onNotReceived(row);
@@ -600,7 +621,7 @@ function GrnStageTimeline({
                       type="button"
                       size="sm"
                       variant="outline"
-                      disabled={row.isCancelled || busyKey === `${row.companyId}:${row.name}:${stage.field}:revert`}
+                      disabled={row.isBackfill || row.isCancelled || busyKey === `${row.companyId}:${row.name}:${stage.field}:revert`}
                       onClick={(event) => {
                         event.stopPropagation();
                         onRevert(row, stage.field);
@@ -807,6 +828,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [ssrSearch, setSsrSearch] = useState("");
+  const [ssrStatusFilter, setSsrStatusFilter] = useState<SsrStatusFilter>("all");
   const [stageFilter, setStageFilter] = useState<GrnStageFilter>(() => ({
     stage: firstAllowedStage(permissions),
     status: "pending",
@@ -822,19 +844,30 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
   const [selectedPrFocus, setSelectedPrFocus] = useState<PrDialogFocus>(null);
   const [selectedSsr, setSelectedSsr] = useState<SupplierStockReturnRow | null>(null);
   const [selectedBulkPrKeys, setSelectedBulkPrKeys] = useState<Set<string>>(() => new Set());
+  const loadDataRequestId = useRef(0);
+  const loadDataAbortController = useRef<AbortController | null>(null);
 
   const loadData = useCallback(async () => {
+    const requestId = loadDataRequestId.current + 1;
+    loadDataRequestId.current = requestId;
+    loadDataAbortController.current?.abort();
+    const controller = new AbortController();
+    loadDataAbortController.current = controller;
     setLoading(true);
     try {
       const params = new URLSearchParams();
       if (dateRange.from) params.set("from", dateRange.from);
       if (dateRange.to) params.set("to", dateRange.to);
-      const res = await fetch(`/api/admin/purchasing/grn/page-data?${params.toString()}`, { cache: "no-store" });
+      const res = await fetch(`/api/admin/purchasing/grn/page-data?${params.toString()}`, {
+        cache: "no-store",
+        signal: controller.signal,
+      });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error || "Failed to load GRN data");
       }
       const json = (await res.json()) as PageData;
+      if (requestId !== loadDataRequestId.current) return;
       const purchaseReceiptKeyByName = new Map(
         json.purchaseReceipts.map((row) => [row.name, `${row.companyId}:${row.name}`]),
       );
@@ -852,15 +885,25 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
         ),
       );
     } catch (error) {
+      if (controller.signal.aborted) return;
       notify.error(error instanceof Error ? error.message : "Failed to load GRN data");
     } finally {
-      setLoading(false);
+      if (requestId === loadDataRequestId.current) {
+        setLoading(false);
+      }
     }
   }, [dateRange.from, dateRange.to]);
 
   useEffect(() => {
     void loadData();
   }, [loadData]);
+
+  useEffect(
+    () => () => {
+      loadDataAbortController.current?.abort();
+    },
+    [],
+  );
 
   useEffect(() => {
     setStageFilter((current) => {
@@ -909,15 +952,28 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
       ),
     [activePurchaseReceipts, intercompanySupplierPrefixes],
   );
+
+  const purchaseReceiptByKey = useMemo(
+    () => new Map(data.purchaseReceipts.map((row) => [`${row.companyId}:${row.name}`, row])),
+    [data.purchaseReceipts],
+  );
+
   const purchaseReceiptOptionsForSsr = useCallback(
     (row: SupplierStockReturnRow) => {
       const rule = intercompanySupplierRuleForSupplier(row.supplier, row.supplierName);
       if (!rule) return [];
-      return activeIntercompanyPurchaseReceipts.filter(
+      const options = activeIntercompanyPurchaseReceipts.filter(
         (receipt) => receipt.companyLocationId === rule.locationId,
       );
+      if (row.matchReviewStatus !== "conflict" || row.conflictMatches.length === 0) return options;
+      const optionByKey = new Map(options.map((receipt) => [`${receipt.companyId}:${receipt.name}`, receipt]));
+      for (const match of row.conflictMatches) {
+        const receipt = purchaseReceiptByKey.get(`${match.companyId}:${match.name}`);
+        if (receipt) optionByKey.set(`${receipt.companyId}:${receipt.name}`, receipt);
+      }
+      return [...optionByKey.values()].sort((a, b) => a.name.localeCompare(b.name));
     },
-    [activeIntercompanyPurchaseReceipts, intercompanySupplierRuleForSupplier],
+    [activeIntercompanyPurchaseReceipts, intercompanySupplierRuleForSupplier, purchaseReceiptByKey],
   );
 
   const purchaseReceiptByName = useMemo(
@@ -931,11 +987,6 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
   );
 
 
-
-  const purchaseReceiptByKey = useMemo(
-    () => new Map(data.purchaseReceipts.map((row) => [`${row.companyId}:${row.name}`, row])),
-    [data.purchaseReceipts],
-  );
 
   const selectedPrStockReturn = selectedPr?.adjustmentNo
     ? supplierStockReturnByName.get(selectedPr.adjustmentNo) ?? null
@@ -1077,7 +1128,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
 
   const canBulkMarkRow = useCallback(
     (row: PurchaseReceiptRow) => {
-      if (row.isCancelled || rowCompletedForStage(row, stageFilter.stage)) return false;
+      if (row.isBackfill || row.isCancelled || rowCompletedForStage(row, stageFilter.stage)) return false;
       if (isPurchasingReceiveBulk) {
         return permissions.canMarkValued && Boolean(row.handoverAt) && !row.handoverReceivedAt && !row.valuedAt;
       }
@@ -1126,23 +1177,48 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
     [ssrSearch],
   );
 
-  const filteredSsrs = useMemo(
+  const ssrReviewBaseRows = useMemo(
     () =>
       data.supplierStockReturns.filter(
         (row) =>
-          row.docstatus !== 2 &&
+          row.docstatus === 1 &&
           (!row.purchaseReceiptName || (row.matchRecommendation?.percentage ?? 0) < 100) &&
-          (!permissions.canMatchSsr || Boolean(intercompanySupplierRuleForSupplier(row.supplier, row.supplierName))) &&
+          (!permissions.canMatchSsr || Boolean(intercompanySupplierRuleForSupplier(row.supplier, row.supplierName))),
+      ),
+    [data.supplierStockReturns, intercompanySupplierRuleForSupplier, permissions.canMatchSsr],
+  );
+
+  const ssrStatusCounts = useMemo(
+    () => {
+      const counts: Record<SsrStatusFilter, number> = {
+        all: ssrReviewBaseRows.length,
+        waiting: 0,
+        partial: 0,
+        conflict: 0,
+      };
+      for (const row of ssrReviewBaseRows) {
+        counts[ssrStatusForFilter(row)] += 1;
+      }
+      return counts;
+    },
+    [ssrReviewBaseRows],
+  );
+
+  const filteredSsrs = useMemo(
+    () =>
+      ssrReviewBaseRows.filter(
+        (row) =>
+          (ssrStatusFilter === "all" || ssrStatusForFilter(row) === ssrStatusFilter) &&
           ssrMatchesSearch(row),
       ),
-    [data.supplierStockReturns, intercompanySupplierRuleForSupplier, permissions.canMatchSsr, ssrMatchesSearch],
+    [ssrMatchesSearch, ssrReviewBaseRows, ssrStatusFilter],
   );
 
   const filteredMatchedSsrs = useMemo(
     () =>
       data.supplierStockReturns.filter(
         (row) =>
-          row.docstatus !== 2 &&
+          row.docstatus === 1 &&
           Boolean(row.purchaseReceiptName) &&
           (row.matchRecommendation?.percentage ?? 0) >= 100 &&
           (!permissions.canMatchSsr || Boolean(intercompanySupplierRuleForSupplier(row.supplier, row.supplierName))) &&
@@ -1168,7 +1244,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
 
   useEffect(() => {
     setSsrPage(1);
-  }, [ssrSearch, dateRange.from, dateRange.to, ssrPageSize]);
+  }, [ssrSearch, ssrStatusFilter, dateRange.from, dateRange.to, ssrPageSize]);
 
   useEffect(() => {
     if (prPage > prPageCount) setPrPage(prPageCount);
@@ -1203,6 +1279,10 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
     field: "handoverAt" | "valuedAt" | "receivedAt",
     action: "mark" | "revert" | "not_received" | "handover_received" = "mark",
   ) {
+    if (row.isBackfill) {
+      notify.error("Backfilled GRN rows are read-only");
+      return;
+    }
     const key = `${row.companyId}:${row.name}:${field}:${action}`;
     setBusyKey(key);
     try {
@@ -1637,7 +1717,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                           <Button
                             size="sm"
                             variant="outline"
-                            disabled={row.isCancelled || busyKey === `${row.companyId}:${row.name}:handoverAt:mark`}
+                            disabled={row.isBackfill || row.isCancelled || busyKey === `${row.companyId}:${row.name}:handoverAt:mark`}
                             onClick={(event) => {
                               event.stopPropagation();
                               mark(row, "handoverAt");
@@ -1658,7 +1738,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                           <Button
                             size="sm"
                             variant="outline"
-                            disabled={row.isCancelled || !row.handoverAt || !row.handoverReceivedAt || busyKey === `${row.companyId}:${row.name}:valuedAt:mark`}
+                            disabled={row.isBackfill || row.isCancelled || !row.handoverAt || !row.handoverReceivedAt || busyKey === `${row.companyId}:${row.name}:valuedAt:mark`}
                             onClick={(event) => {
                               event.stopPropagation();
                               mark(row, "valuedAt");
@@ -1682,7 +1762,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                           <Button
                             size="sm"
                             variant="outline"
-                            disabled={row.isCancelled || !row.handoverAt || !row.valuedAt || busyKey === `${row.companyId}:${row.name}:receivedAt:mark`}
+                            disabled={row.isBackfill || row.isCancelled || !row.handoverAt || !row.valuedAt || busyKey === `${row.companyId}:${row.name}:receivedAt:mark`}
                             onClick={(event) => {
                               event.stopPropagation();
                               mark(row, "receivedAt");
@@ -1725,6 +1805,28 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                 onChange={(event) => setSsrSearch(event.target.value)}
               />
             </div>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            {SSR_STATUS_FILTERS.map((option) => {
+              const active = ssrStatusFilter === option.key;
+              return (
+                <button
+                  key={option.key}
+                  type="button"
+                  className={`rounded-lg border px-4 py-3 text-left transition ${
+                    active
+                      ? "border-primary bg-primary/15 text-primary"
+                      : "border-border bg-background/45 text-muted-foreground hover:border-primary/60 hover:text-foreground"
+                  }`}
+                  onClick={() => setSsrStatusFilter(option.key)}
+                >
+                  <span className="block text-sm font-medium">{option.label}</span>
+                  <span className="mt-1 block text-2xl font-semibold text-foreground">
+                    {ssrStatusCounts[option.key]}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         <div className="overflow-hidden rounded-lg border bg-background/45">
           <Table>
@@ -1797,19 +1899,26 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                     </TableCell>
                     <TableCell>
                       {suggestedPr ? (
-                        <button
-                          type="button"
-                          className="text-left text-primary underline-offset-4 hover:underline"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            setSelectedPr(suggestedPr);
-                          }}
-                        >
-                          <span className="block font-medium">{suggestedPr.name}</span>
-                          <span className="block text-xs text-muted-foreground">
-                            {suggestedPr.supplierName ?? suggestedPr.supplier}
-                          </span>
-                        </button>
+                        <div className="space-y-1">
+                          <button
+                            type="button"
+                            className="text-left text-primary underline-offset-4 hover:underline"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setSelectedPr(suggestedPr);
+                            }}
+                          >
+                            <span className="block font-medium">{suggestedPr.name}</span>
+                            <span className="block text-xs text-muted-foreground">
+                              {suggestedPr.supplierName ?? suggestedPr.supplier}
+                            </span>
+                          </button>
+                          {row.matchReviewStatus === "conflict" && row.conflictMatches.length > 1 && (
+                            <div className="text-xs text-amber-300">
+                              Also matches {row.conflictMatches.filter((match) => match.name !== suggestedPr.name).map((match) => match.name).join(", ")}
+                            </div>
+                          )}
+                        </div>
                       ) : (
                         <span className="text-xs text-muted-foreground">Waiting</span>
                       )}
@@ -1821,8 +1930,12 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                           <div className="text-xs text-muted-foreground">
                             {row.matchReviewStatus === "matched"
                               ? "Matched"
+                              : row.matchReviewStatus === "conflict"
+                                ? "Conflict"
                               : row.matchReviewStatus === "review"
-                                ? "Review"
+                                ? row.matchRecommendation.percentage >= 100
+                                  ? "Ready to link"
+                                  : "Partial match"
                                 : row.matchRecommendation.percentage === 0
                                   ? "Waiting - no SKU/qty overlap"
                                   : "Waiting"}
@@ -1945,7 +2058,13 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                             <div>
                               <div className="font-medium">{row.matchRecommendation.percentage.toFixed(2)}%</div>
                               <div className="text-xs text-muted-foreground">
-                                {isCleanMatch ? "Matched" : matchedPercentage <= 0 ? "Issue - no SKU/qty overlap" : "Issue - needs review"}
+                                {row.matchReviewStatus === "conflict"
+                                  ? "Conflict"
+                                  : isCleanMatch
+                                    ? "Matched"
+                                    : matchedPercentage <= 0
+                                      ? "Issue - no SKU/qty overlap"
+                                      : "Issue - needs review"}
                               </div>
                             </div>
                           ) : (
