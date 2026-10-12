@@ -18,17 +18,13 @@ import {
 } from "@/lib/reports/csv";
 import { DUMP_TOTAL_HEADER } from "@/lib/reports/dump-download";
 import { loadAssignedMerchantAliasMap } from "@/lib/customer-insight/allocation-summary";
-import {
-  firstPurchaseAtForContact,
-  loadFirstPurchaseIndexes,
-} from "@/lib/customer-insight/first-purchase";
 import { formatStoredAllocatedMerchant } from "@/lib/reports/allocated-merchant-format";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-/** Streaming Contact Master CSV (~80k+). Purchase totals come from cache. First-purchase dates are one MIN() scan, not per batch. */
+/** Streaming Contact Master CSV (~80k+). Purchase columns and first-purchase date come from cache. */
 export const maxDuration = 800;
 
 type ContactStatusFilter = "active" | "inactive" | "never_purchased" | null;
@@ -47,16 +43,9 @@ const contactExportSelect = {
   purchaseOrderCount: true,
   purchaseTotalValue: true,
   purchaseLastOrderAt: true,
+  purchaseFirstOrderAt: true,
   createdAt: true,
   updatedAt: true,
-  phones: { select: { phoneNumber: true } },
-  emails: { select: { email: true } },
-  allocationUpdates: {
-    where: { category: { not: "allocation" } },
-    orderBy: { createdAt: "desc" as const },
-    take: 1,
-    select: { merchantName: true },
-  },
 } as const;
 
 type ContactExportRow = Prisma.ContactMasterGetPayload<{ select: typeof contactExportSelect }>;
@@ -114,6 +103,25 @@ async function fetchBrandOrderedChunk(
     if (row) ordered.push(row);
   }
   return ordered;
+}
+
+/** Latest call-update author per contact. One indexed scan, not a join on every export page. */
+async function loadLatestUpdaterByContactId(companyId: string): Promise<Map<string, string>> {
+  const rows = await prisma.$queryRaw<
+    Array<{ contactId: string; merchantName: string | null }>
+  >`
+    SELECT DISTINCT ON ("contactId") "contactId", "merchantName"
+    FROM "ContactAllocationUpdate"
+    WHERE "companyId" = ${companyId}
+      AND "category" <> 'allocation'
+    ORDER BY "contactId", "createdAt" DESC
+  `;
+  const map = new Map<string, string>();
+  for (const row of rows) {
+    const name = row.merchantName?.trim();
+    if (name) map.set(row.contactId, name);
+  }
+  return map;
 }
 
 /** Yield contact batches. Prefetch next DB page while caller encodes the current one. */
@@ -202,13 +210,12 @@ export async function GET(request: NextRequest) {
     { brandContactIds: brand ? brandRanks.map((r) => r.contactId) : undefined }
   );
 
-  const [expectedRows, allocatedByPhone, aliasToRoster, firstPurchaseIndexes] =
-    await Promise.all([
-      prisma.contactMaster.count({ where }),
-      loadAllocatedMerchantByPhone(companyId),
-      loadAssignedMerchantAliasMap(companyId),
-      loadFirstPurchaseIndexes(companyId),
-    ]);
+  const [expectedRows, allocatedByPhone, aliasToRoster, updatedByContactId] = await Promise.all([
+    prisma.contactMaster.count({ where }),
+    loadAllocatedMerchantByPhone(companyId),
+    loadAssignedMerchantAliasMap(companyId),
+    loadLatestUpdaterByContactId(companyId),
+  ]);
 
   const fileName =
     mode === "purchase_summary"
@@ -316,13 +323,11 @@ export async function GET(request: NextRequest) {
                   ? purchaseLast
                   : contact.lastPurchaseAt
               ),
-              first_purchased_date: formatIsoDate(
-                firstPurchaseAtForContact(firstPurchaseIndexes, contact)
-              ),
+              first_purchased_date: formatIsoDate(contact.purchaseFirstOrderAt),
               created_at: formatIsoDateTime(contact.createdAt),
               updated_at: formatIsoDateTime(contact.updatedAt),
               updated_by: formatStoredAllocatedMerchant(
-                contact.allocationUpdates[0]?.merchantName,
+                updatedByContactId.get(contact.id),
                 aliasToRoster
               ),
             };

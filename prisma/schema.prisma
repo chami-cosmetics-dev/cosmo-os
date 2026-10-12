@@ -2130,6 +2130,8 @@ model ContactMaster {
   purchaseOrderCount       Int                       @default(0)
   purchaseTotalValue       Decimal                   @default(0) @db.Decimal(14, 2)
   purchaseLastOrderAt      DateTime?
+  /// Cached earliest completed purchase. Filled by the same refresh as the totals.
+  purchaseFirstOrderAt     DateTime?
   /// True only when Register new users created this row (admin filter + dump hold).
   osRegistrationCreated    Boolean                   @default(false)
   osRegLocation            String?
@@ -2450,6 +2452,7 @@ model ContactAllocationUpdate {
   @@index([companyId, createdAt(sort: Desc)])
   @@index([companyId, merchantId, createdAt(sort: Desc)])
   @@index([companyId, category, createdAt(sort: Desc)])
+  @@index([contactId, createdAt(sort: Desc)])
 }
 
 // ── Outlet Reviews Feature ──────────────────────────────────────────────────
