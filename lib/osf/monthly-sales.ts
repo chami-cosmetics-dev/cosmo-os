@@ -1,8 +1,7 @@
 import "server-only";
 
 import { parseAppCalendarDayStart } from "@/lib/format-datetime";
-import { osfCompletedSalesOrderWhere } from "@/lib/osf/assist-sales";
-import { prisma } from "@/lib/prisma";
+import { aggregateSalesBySkuByMonthInRange } from "@/lib/osf/assist-sales";
 import { monthKeysInWindow, parseYearMonth } from "@/lib/vault-osf/months";
 
 /** Trailing calendar months including as-of month. Bump to 6 after purchase-history backfill. */
@@ -44,31 +43,12 @@ export async function aggregateMonthlySalesBySku(
   salesMonth: string,
 ): Promise<Map<string, number>> {
   const { start, end } = salesMonthBounds(salesMonth);
-
-  const lines = await prisma.orderLineItem.findMany({
-    where: {
-      order: osfCompletedSalesOrderWhere(companyId, start, end),
-    },
-    select: {
-      quantity: true,
-      productItem: { select: { sku: true } },
-      order: {
-        select: {
-          deliveryCompleteAt: true,
-          invoiceCompleteAt: true,
-        },
-      },
-    },
-  });
-
+  const byMonth = await aggregateSalesBySkuByMonthInRange(companyId, start, end);
   const map = new Map<string, number>();
-  for (const line of lines) {
-    const sku = line.productItem.sku?.trim();
-    if (!sku) continue;
-    const at = line.order.deliveryCompleteAt ?? line.order.invoiceCompleteAt;
-    if (!at) continue;
-    if (monthKeyInColombo(at) !== salesMonth) continue;
-    map.set(sku, (map.get(sku) ?? 0) + line.quantity);
+  for (const [sku, months] of byMonth) {
+    const qty = months.get(salesMonth);
+    if (qty == null) continue;
+    map.set(sku, qty);
   }
   return map;
 }

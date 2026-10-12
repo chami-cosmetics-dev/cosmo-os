@@ -78,6 +78,12 @@
       "schedule": "*/30 * * * *"
     }
   ],
+  "functions": {
+    "app/api/admin/osf/generate/route.ts": {
+      "maxDuration": 800,
+      "memory": 3008
+    }
+  },
   "ignoreCommand": "node scripts/vercel-should-build.mjs",
   "git": {
     "deploymentEnabled": {
