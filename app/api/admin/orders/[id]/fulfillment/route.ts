@@ -49,6 +49,7 @@ import { getErpOutOfStockFulfillmentBlock } from "@/lib/erp-fulfillment-block";
 import { isExplicitlyPackageReady } from "@/lib/fulfillment-stage-display";
 import { releaseKokoReferencesForOrder } from "@/lib/koko-approval-references";
 import { needsKokoLinkTimeConfirm } from "@/lib/koko-order";
+import { isMintpayGateway } from "@/lib/payment-gateway-match";
 import { formatAppIsoCalendarDate } from "@/lib/format-datetime";
 import { citypakOverrideOrderPatch, ensureCitypakShipmentForDispatch } from "@/lib/citypak-dispatch";
 import { isCitypakCourier } from "@/lib/courier";
@@ -1440,7 +1441,7 @@ export async function PATCH(
       const gateway = (order.paymentGatewayPrimary ?? "").toLowerCase().trim();
       const isPaidCancelableGateway =
         gateway.includes("koko") ||
-        gateway.includes("mintpay") ||
+        isMintpayGateway(gateway) ||
         gateway.includes("bank") ||
         gateway === "cc" ||
         gateway === "cc checkout" ||

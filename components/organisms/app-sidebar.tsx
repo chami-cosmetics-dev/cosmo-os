@@ -102,6 +102,7 @@ export function AppSidebar({
   const canViewEmailCleanup =
     hasSidebarPermission("contacts.master.manage") ||
     hasSidebarPermission("contacts.manage");
+  const canViewSupplementImport = hasSidebarPermission("contacts.master.manage");
   const canViewReturns = hasSidebarPermission("returns.read");
   const canViewExchanges = hasSidebarPermission("exchanges.read");
   const canViewProducts = hasSidebarPermission("products.read");
@@ -446,6 +447,14 @@ export function AppSidebar({
                   icon={ContactRound}
                   label="Email cleanup"
                   isActive={pathname === "/dashboard/contacts/email-cleanup"}
+                />
+              )}
+              {canViewSupplementImport && (
+                <NavItem
+                  href="/dashboard/contacts/supplement-import"
+                  icon={FileSpreadsheet}
+                  label="Supplement contact import"
+                  isActive={pathname === "/dashboard/contacts/supplement-import"}
                 />
               )}
               {canViewContactAllocation && (

@@ -68,6 +68,7 @@ type ContactPurchaseOrder = {
   fulfillmentStatus: string | null;
   createdAt: string;
   source?: "cosmo" | "adapt";
+  origin?: "adapt" | "vault_supplement_import";
   locationLabel?: string | null;
   paymentMethod?: string | null;
   merchantName?: string | null;
@@ -76,6 +77,7 @@ type ContactPurchaseOrder = {
 type AdaptPurchaseRow = {
   id: string;
   source: "adapt";
+  origin?: "adapt" | "vault_supplement_import" | null;
   salesInvoiceNo: string;
   invoiceDate: string;
   ttlAmount: string;
@@ -307,6 +309,7 @@ export function ContactUpdatesPanel({
               fulfillmentStatus: null,
               createdAt: row.invoiceDate,
               source: "adapt",
+              origin: row.origin === "vault_supplement_import" ? "vault_supplement_import" : "adapt",
               locationLabel: row.companyLocationName ?? row.locationName,
               paymentMethod: row.paymentMethod,
               merchantName: row.merchantKnownName,
@@ -739,7 +742,11 @@ export function ContactUpdatesPanel({
                       {orders.map((order) => (
                         <tr key={order.id} className="border-b last:border-0">
                           <td className="px-4 py-3">
-                            {order.source === "adapt" ? "Adapt" : "Online"}
+                            {order.source === "adapt"
+                              ? order.origin === "vault_supplement_import"
+                                ? "Supplement import"
+                                : "Adapt"
+                              : "Online"}
                           </td>
                           <td className="px-4 py-3">
                             {order.orderNumber ?? order.shopifyOrderId}

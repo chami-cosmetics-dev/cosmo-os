@@ -66,6 +66,7 @@ type ContactPurchaseOrder = {
   fulfillmentStatus: string | null;
   createdAt: string;
   source?: "cosmo" | "adapt";
+  origin?: "adapt" | "vault_supplement_import";
   merchantName?: string | null;
   lineItems: Array<{
     id: string;
@@ -80,6 +81,7 @@ type ContactPurchaseOrder = {
 type AdaptPurchaseRow = {
   id: string;
   source: "adapt";
+  origin?: "adapt" | "vault_supplement_import" | null;
   salesInvoiceNo: string;
   invoiceDate: string;
   ttlAmount: string;
@@ -674,10 +676,17 @@ export function ContactsPanel({
         name: row.salesInvoiceNo,
         totalPrice: row.ttlAmount,
         currency: row.currency,
-        financialStatus: row.paymentMethod ?? "Adapt",
-        fulfillmentStatus: row.companyLocationName ?? row.locationName ?? "Adapt",
+        financialStatus:
+          row.origin === "vault_supplement_import"
+            ? row.paymentMethod?.trim() || "Imported"
+            : row.paymentMethod ?? "Adapt",
+        fulfillmentStatus:
+          row.origin === "vault_supplement_import"
+            ? row.companyLocationName ?? row.locationName ?? "—"
+            : row.companyLocationName ?? row.locationName ?? "Adapt",
         createdAt: row.invoiceDate,
         source: "adapt",
+        origin: row.origin === "vault_supplement_import" ? "vault_supplement_import" : "adapt",
         merchantName: row.merchantKnownName,
         lineItems: row.lineItems ?? [],
       }));
@@ -1485,7 +1494,11 @@ export function ContactsPanel({
                         <td className="px-4 py-2">
                           <p className="font-medium">{order.name ?? order.orderNumber ?? order.shopifyOrderId}</p>
                           <p className="text-muted-foreground text-xs">
-                            {order.source === "adapt" ? "Adapt" : order.orderNumber ?? "N/A"}
+                            {order.source === "adapt"
+                              ? order.origin === "vault_supplement_import"
+                                ? "Supplement import"
+                                : "Adapt"
+                              : order.orderNumber ?? "N/A"}
                           </p>
                           {order.merchantName ? (
                             <p className="text-muted-foreground text-xs">
@@ -1513,7 +1526,11 @@ export function ContactsPanel({
                             </div>
                           ) : (
                             <span className="text-muted-foreground text-xs">
-                              {order.source === "adapt" ? "Adapt history (no line items)" : "No items"}
+                              {order.source === "adapt"
+                                ? order.origin === "vault_supplement_import"
+                                  ? "Supplement import (no line items)"
+                                  : "Adapt history (no line items)"
+                                : "No items"}
                             </span>
                           )}
                         </td>
@@ -1526,7 +1543,11 @@ export function ContactsPanel({
                         </td>
                         <td className="px-4 py-2">
                           {order.source === "adapt" ? (
-                            <span className="text-muted-foreground text-xs">Adapt (view only)</span>
+                            <span className="text-muted-foreground text-xs">
+                              {order.origin === "vault_supplement_import"
+                                ? "Supplement import (view only)"
+                                : "Adapt (view only)"}
+                            </span>
                           ) : (
                             <a
                               href={`/api/admin/orders/${order.id}/invoice`}

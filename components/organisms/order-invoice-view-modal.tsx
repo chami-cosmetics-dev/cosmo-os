@@ -47,6 +47,7 @@ import {
   formatOrderPaymentBreakdown,
 } from "@/lib/order-payment-entries";
 import { getPaymentMethodInfo } from "@/lib/payment-method-label";
+import { isMintpayGateway } from "@/lib/payment-gateway-match";
 import { resolveOrderCancelledByLabel } from "@/lib/order-cancelled-by-label";
 import { notify } from "@/lib/notify";
 import {
@@ -1428,7 +1429,9 @@ export function OrderInvoiceViewModal({
                       if (kokoRows.length === 0) return null;
                       return (
                         <div>
-                          <span className="text-muted-foreground text-xs">KOKO Reference</span>
+                          <span className="text-muted-foreground text-xs">
+                            {isMintpayGateway(orderDetail.paymentGatewayPrimary) ? "MintPay Order ID" : "KOKO Reference"}
+                          </span>
                           <div className="space-y-1">
                             {kokoRows.map((row, index) => (
                               <p key={`${row.reference}-${index}`} className="font-mono text-sm">
@@ -1769,7 +1772,11 @@ export function OrderInvoiceViewModal({
         <AlertDialogHeader>
           <AlertDialogTitle>Cancel Order {orderDetail?.name ?? orderDetail?.orderNumber ?? orderDetail?.shopifyOrderId ?? ""}</AlertDialogTitle>
           <AlertDialogDescription>
-            {orderDetail && ["koko", "mintpay", "bank_transfer", "cc_checkout"].some((g) => orderDetail.paymentGatewayPrimary?.toLowerCase().includes(g))
+            {orderDetail &&
+            (isMintpayGateway(orderDetail.paymentGatewayPrimary) ||
+              ["koko", "bank_transfer", "cc_checkout"].some((g) =>
+                orderDetail.paymentGatewayPrimary?.toLowerCase().includes(g),
+              ))
               ? "This is a paid order — a finance approval request will be created. The order will be blocked from dispatch until finance processes the cancellation."
               : "This will immediately cancel the order in Shopify and void the ERP Sales Invoice if one exists."}
           </AlertDialogDescription>

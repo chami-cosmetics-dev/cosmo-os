@@ -164,6 +164,12 @@ describe("isOrderPaymentRequiresApproval", () => {
     ).toBe(true);
     expect(
       isOrderPaymentRequiresApproval({
+        paymentGatewayPrimary: "Mint Pay",
+        paymentGatewayNames: [],
+      }),
+    ).toBe(true);
+    expect(
+      isOrderPaymentRequiresApproval({
         paymentGatewayPrimary: "bank_transfer",
         paymentGatewayNames: [],
       }),

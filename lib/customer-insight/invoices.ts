@@ -28,6 +28,9 @@ export type AdaptInvoiceInput = {
   currency?: string | null;
   locationName?: string | null;
   merchantName?: string | null;
+  paymentMethod?: string | null;
+  /** `adapt` or `vault_supplement_import`. Missing means Adapt. */
+  origin?: string | null;
   lineItems?: InvoiceLineDto[];
 };
 
@@ -74,15 +77,19 @@ export function mapOrderToInvoiceRow(order: OrderInvoiceInput): UnifiedInvoiceRo
 }
 
 export function mapAdaptToInvoiceRow(row: AdaptInvoiceInput): UnifiedInvoiceRowDto {
+  const supplement = row.origin === "vault_supplement_import";
+  const payment = row.paymentMethod?.trim() || "";
+  const statusText = supplement ? payment || "Imported" : "Adapt";
   return {
     id: `adapt:${row.id}`,
     source: "adapt",
     date: row.invoiceDate.toISOString(),
     reference: row.salesInvoiceNo || row.id,
-    secondaryLabel: "Adapt",
-    status: "Adapt / —",
-    financialStatus: "Adapt",
+    secondaryLabel: supplement ? "Supplement import" : "Adapt",
+    status: supplement ? statusText : "Adapt / —",
+    financialStatus: statusText,
     fulfillmentStatus: null,
+    origin: supplement ? "vault_supplement_import" : "adapt",
     amount: toAmount(row.ttlAmount),
     currency: row.currency?.trim() || "LKR",
     includedInLoyaltyTotal: true,

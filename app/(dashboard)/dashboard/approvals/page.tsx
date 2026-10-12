@@ -32,7 +32,7 @@ import {
   loadKokoDuplicateCandidatesForCompany,
 } from "@/lib/koko-duplicate-cancel";
 import { buildErpAdminInvoiceUrl } from "@/lib/erp-admin-url";
-import { requiresKokoApprovalReference } from "@/lib/koko-approval-reference";
+import { financePaymentReferenceKind } from "@/lib/koko-approval-reference";
 import { prisma } from "@/lib/prisma";
 import { hasPermission, requireAnyPermission } from "@/lib/rbac";
 import { FINANCE_CANCEL_KOKO_DUPLICATE_PERMISSION } from "@/lib/koko-order";
@@ -167,6 +167,12 @@ async function fetchInitialApprovals(
         ? parseReturnCancelApprovalNote(row.requestNote)
         : null;
     const isOrderCancel = row.type === ORDER_CANCEL_APPROVAL;
+    const paymentReferenceKind = financePaymentReferenceKind({
+      type: row.type,
+      requestNote: row.requestNote,
+      paymentGatewayPrimary: row.paymentGatewayPrimary,
+      paymentGatewayNames: row.paymentGatewayNames,
+    });
     const enriched = enrichApprovalDisplay({
       ...row,
       totalPrice: row.totalPrice?.toString() ?? null,
@@ -208,12 +214,8 @@ async function fetchInitialApprovals(
         riderId: row.riderId,
         riderName: row.riderName,
         riderMobile: row.riderMobile,
-        requiresKokoReference: requiresKokoApprovalReference({
-          type: row.type,
-          requestNote: row.requestNote,
-          paymentGatewayPrimary: row.paymentGatewayPrimary,
-          paymentGatewayNames: row.paymentGatewayNames,
-        }),
+        paymentReferenceKind,
+        requiresKokoReference: paymentReferenceKind != null,
       },
       kokoByApproval,
     );

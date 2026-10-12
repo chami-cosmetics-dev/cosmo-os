@@ -3,6 +3,7 @@ import "server-only";
 import { Prisma, type DeliveryPaymentMethod, type ErpnextInstance, type FulfillmentStage } from "@prisma/client";
 
 import { getFinancePaymentApprovalBlockReason } from "@/lib/approval-workflow";
+import { isMintpayGateway } from "@/lib/payment-gateway-match";
 import {
   isAllowedCompanyErpPaymentMode,
   listErpPaymentModesFromInstance,
@@ -45,7 +46,14 @@ export function isCashHandoverGateway(
     .map((value) => value?.trim().toLowerCase() ?? "")
     .filter(Boolean);
   if (values.length === 0) return false;
-  if (values.some((value) => PREPAID_GATEWAY.some((token) => value.includes(token)))) return false;
+  if (
+    values.some(
+      (value) =>
+        PREPAID_GATEWAY.some((token) => value.includes(token)) || isMintpayGateway(value),
+    )
+  ) {
+    return false;
+  }
   return values.some(
     (value) =>
       value === "cash" ||

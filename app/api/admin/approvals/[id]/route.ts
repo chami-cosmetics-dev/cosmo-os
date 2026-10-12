@@ -59,9 +59,7 @@ import {
   releaseKokoReferencesForOrderInTx,
   type ParsedKokoApprovalPayload,
 } from "@/lib/koko-approval-references";
-import {
-  requiresKokoApprovalReference,
-} from "@/lib/koko-approval-reference";
+import { financePaymentReferenceKind } from "@/lib/koko-approval-reference";
 import { syncKokoOrdersForApproval } from "@/lib/koko-orders/erp-sync";
 import { mergeErpReturnSalesInvoiceIds } from "@/lib/erp-return-si";
 import {
@@ -360,19 +358,22 @@ export async function PATCH(
       );
     }
   }
-  const requiresKokoReference = requiresKokoApprovalReference({
+  const paymentReferenceKind = financePaymentReferenceKind({
     type: approval.type,
     requestNote: approval.requestNote,
     paymentGatewayPrimary: approval.paymentGatewayPrimary,
     paymentGatewayNames: approval.paymentGatewayNames,
   });
+  const requiresPaymentReference = paymentReferenceKind != null;
+  const referenceLabel =
+    paymentReferenceKind === "mintpay" ? "MintPay Order ID" : "KOKO reference";
 
   let kokoApprovalPayload: ParsedKokoApprovalPayload | null = null;
-  if (parsed.data.action === "approve" && requiresKokoReference) {
+  if (parsed.data.action === "approve" && requiresPaymentReference) {
     if (!approval.orderId) {
       return NextResponse.json(
         {
-          error: "KOKO reference cannot be recorded without a linked order.",
+          error: `${referenceLabel} cannot be recorded without a linked order.`,
           code: "ORDER_MISSING",
         },
         { status: 400 },
@@ -397,8 +398,14 @@ export async function PATCH(
       targetAmount,
     });
     if (!parsedKoko.ok) {
+      const error =
+        paymentReferenceKind === "mintpay"
+          ? parsedKoko.error
+              .replaceAll("KOKO reference", "MintPay Order ID")
+              .replaceAll("KOKO payment", "MintPay payment")
+          : parsedKoko.error;
       return NextResponse.json(
-        { error: parsedKoko.error, code: parsedKoko.code },
+        { error, code: parsedKoko.code },
         { status: 400 },
       );
     }
@@ -411,7 +418,7 @@ export async function PATCH(
     if (taken.length > 0) {
       return NextResponse.json(
         {
-          error: `KOKO reference already used: ${taken.join(", ")}`,
+          error: `${referenceLabel} already used: ${taken.join(", ")}`,
           code: "KOKO_REFERENCE_TAKEN",
         },
         { status: 409 },
@@ -1553,7 +1560,11 @@ export async function PATCH(
   ) {
     try {
       await runPostApprovalErpSync(approval.orderId, now);
-      if (kokoApprovalPayload && kokoApprovalPayload.entries.length > 0) {
+      if (
+        paymentReferenceKind === "koko" &&
+        kokoApprovalPayload &&
+        kokoApprovalPayload.entries.length > 0
+      ) {
         const kokoSync = await trySyncKokoOrdersAfterApproval({
           orderId: approval.orderId,
           entries: kokoApprovalPayload.entries.map((entry) => ({
@@ -1655,7 +1666,11 @@ export async function PATCH(
         ),
       });
       await clearOrderErpPeSyncFailure(order.id);
-      if (kokoApprovalPayload && kokoApprovalPayload.entries.length > 0) {
+      if (
+        paymentReferenceKind === "koko" &&
+        kokoApprovalPayload &&
+        kokoApprovalPayload.entries.length > 0
+      ) {
         const kokoSync = await trySyncKokoOrdersAfterApproval({
           orderId: order.id,
           entries: kokoApprovalPayload.entries.map((entry) => ({

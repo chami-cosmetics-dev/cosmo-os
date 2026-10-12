@@ -2274,6 +2274,8 @@ model AdaptPurchaseHistory {
   rawPaymentContext     Json?
   lineItems             Json?
   importBatchId         String?
+  /// adapt = Adapt CSV import. vault_supplement_import = Supplement contact file.
+  origin                String           @default("adapt")
   createdAt             DateTime         @default(now())
   updatedAt             DateTime         @updatedAt
   company               Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)

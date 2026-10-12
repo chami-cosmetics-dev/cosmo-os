@@ -138,6 +138,8 @@ export async function loadCustomerInsight(input: {
       lineItems: true,
       locationName: true,
       merchantKnownName: true,
+      paymentMethod: true,
+      origin: true,
       companyLocation: { select: { name: true } },
     },
   });
@@ -361,6 +363,8 @@ export async function loadCustomerInsight(input: {
         currency: r.currency,
         locationName: r.companyLocation?.name?.trim() || r.locationName || null,
         merchantName: r.merchantKnownName,
+        paymentMethod: r.paymentMethod,
+        origin: r.origin,
         lineItems,
       };
     }),

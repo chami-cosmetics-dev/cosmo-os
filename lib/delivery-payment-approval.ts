@@ -10,6 +10,7 @@ import {
 import { isPosOrderSource } from "@/lib/fulfillment-queue-filters";
 import { markOrderInvoiceComplete } from "@/lib/mark-order-invoice-complete";
 import { orderHasCardOnDeliveryGateway } from "@/lib/payment-method-label";
+import { isMintpayGateway } from "@/lib/payment-gateway-match";
 
 export type PostDeliveryInvoiceResult =
   | { kind: "awaiting_manual_invoice_complete" }
@@ -89,7 +90,7 @@ export function isPrePaidGateway(gateway: string): boolean {
   const g = normalizePaymentGatewayKey(gateway);
   return (
     g.includes("koko") ||
-    g.includes("mintpay") ||
+    isMintpayGateway(gateway) ||
     g.includes("bank") ||
     g.includes("webxpay") ||
     isCcCheckoutGateway(gateway)

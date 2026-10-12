@@ -111,6 +111,7 @@ export async function GET(_request: NextRequest, { params }: Params) {
       companyLocationId: true,
       paymentMethod: true,
       merchantKnownName: true,
+      origin: true,
       lineItems: true,
       companyLocation: { select: { name: true } },
     },
@@ -188,6 +189,7 @@ export async function GET(_request: NextRequest, { params }: Params) {
       companyLocationName: row.companyLocation?.name ?? null,
       paymentMethod: row.paymentMethod,
       merchantKnownName: row.merchantKnownName,
+      origin: row.origin === "vault_supplement_import" ? "vault_supplement_import" : "adapt",
       lineItems: adaptLineItemsForPurchaseUi(row.lineItems),
     })),
   });

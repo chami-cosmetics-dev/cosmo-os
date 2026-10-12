@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
 import { orderHasCardOnDeliveryGateway, isCardOnDeliveryGateway } from "@/lib/payment-method-label";
+import { isMintpayGateway } from "@/lib/payment-gateway-match";
 import { needsKokoLinkTimeConfirm } from "@/lib/koko-order";
 import { APPROVAL_SPLIT_KOKO } from "@/lib/approval-payment-split";
 
@@ -169,12 +170,12 @@ export function isOrderPaymentRequiresApproval(
   // Card on Delivery is door collection only — no intake ORDER_PAYMENT (Vault).
   if (order.paymentGatewayPrimary) {
     const g = order.paymentGatewayPrimary.toLowerCase().trim();
-    if (g.includes("koko") || g.includes("mintpay") || g.includes("bank")) return true;
+    if (g.includes("koko") || isMintpayGateway(g) || g.includes("bank")) return true;
   } else {
     const gateways = order.paymentGatewayNames
       .map((g) => g.toLowerCase().trim())
       .filter(Boolean);
-    if (gateways.some((g) => g.includes("koko") || g.includes("mintpay") || g.includes("bank"))) {
+    if (gateways.some((g) => g.includes("koko") || isMintpayGateway(g) || g.includes("bank"))) {
       return true;
     }
   }
@@ -316,13 +317,13 @@ export async function reconcilePendingDeliveryApprovalsForPrepaidOrders(companyI
       if (orderHasCardOnDeliveryGateway(row.order)) return false;
       if (isOrderPaymentRequiresApproval(row.order)) return true;
       const primary = row.order.paymentGatewayPrimary?.toLowerCase().trim() ?? "";
-      if (primary.includes("koko") || primary.includes("mintpay") || primary.includes("bank") || primary.includes("webxpay")) {
+      if (primary.includes("koko") || isMintpayGateway(primary) || primary.includes("bank") || primary.includes("webxpay")) {
         return true;
       }
       if (!primary) {
         return row.order.paymentGatewayNames.some((g) => {
           const n = g.toLowerCase().trim();
-          return n.includes("koko") || n.includes("mintpay") || n.includes("bank") || n.includes("webxpay");
+          return n.includes("koko") || isMintpayGateway(n) || n.includes("bank") || n.includes("webxpay");
         });
       }
       // Finance already confirmed / queued order payment — drop duplicate door collection.
