@@ -64,6 +64,22 @@ type CreateRow = {
   country: string;
   creationSources: string[];
 };
+
+type StockErp = "erp1" | "erp2";
+type StockOption = {
+  name: string;
+  label: string;
+  company?: string | null;
+};
+type StockOptions = {
+  suppliers: StockOption[];
+  warehouses: StockOption[];
+};
+type StockWarehouseRow = {
+  key: number;
+  warehouse: string;
+  qty: string;
+};
 type TeamSection = {
   title: string;
   subtitle: string;
@@ -214,7 +230,7 @@ export function ItemCreationPanel({
             country: row.country.trim(),
             creationSources: row.creationSources,
           }))
-          .filter((row) => row.sku || row.description || row.standardPrice || row.country);
+          .filter((row) => row.sku || row.description || row.standardPrice || row.ogfPrice || row.gccPrice);
         await post("/api/item-creation", { items });
         setCreateRows([emptyCreateRow(Date.now())]);
         setSelectedCreateRows(new Set());
@@ -462,9 +478,7 @@ export function ItemCreationPanel({
       visible: canAct("stores"),
       items: items.filter((item) => item.storeStockStatus !== "STOCK_ADDED"),
       action: (item: ItemCreationItem) => (
-        <ActionButton onClick={() => runAction(`/api/item-creation/${item.id}/stores/stock-added`)}>
-          Mark Stock Added
-        </ActionButton>
+        <StockReceiptAction item={item} onAction={runAction} />
       ),
     },
   ];
@@ -658,7 +672,6 @@ export function ItemCreationPanel({
                     <input
                       value={row.country}
                       onChange={(event) => updateCreateRow(row.key, "country", event.target.value)}
-                      required
                       placeholder="Country"
                       className={inputClass}
                     />
@@ -791,6 +804,7 @@ export function ItemCreationPanel({
           sections={visibleSections}
           isPending={isPending}
           onRefresh={refreshRequests}
+          onAction={runAction}
         />
       )}
     </div>
@@ -813,11 +827,13 @@ function TeamWorkflowView({
   sections,
   isPending,
   onRefresh,
+  onAction,
 }: {
   teamLabel: string;
   sections: TeamSection[];
   isPending: boolean;
   onRefresh: () => void;
+  onAction: (url: string, body?: unknown) => void;
 }) {
   const total = sections.reduce((sum, section) => sum + section.items.length, 0);
   const activeSections = sections.filter((section) => section.items.length > 0);
@@ -900,15 +916,22 @@ function TeamWorkflowView({
                     </span>
                   </div>
                 </div>
-                <div className="grid gap-3 xl:grid-cols-2">
-                  {section.items.map((item) => (
-                    <RequestCard
-                      key={`${section.title}-${item.id}`}
-                      item={item}
-                      action={section.action(item)}
-                    />
-                  ))}
-                </div>
+                {section.team === "stores" && section.title === "Stock" ? (
+                  <div className="space-y-4">
+                    <StockRequestTable title="ERP1 Stock" erp="erp1" items={section.items} onAction={onAction} />
+                    <StockRequestTable title="ERP2 Stock" erp="erp2" items={section.items} onAction={onAction} />
+                  </div>
+                ) : (
+                  <div className="grid gap-3 xl:grid-cols-2">
+                    {section.items.map((item) => (
+                      <RequestCard
+                        key={`${section.title}-${item.id}`}
+                        item={item}
+                        action={section.action(item)}
+                      />
+                    ))}
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -929,6 +952,439 @@ function ActionButton({
     <button type="button" onClick={onClick} className={primaryButtonClass}>
       {children}
     </button>
+  );
+}
+
+function StockRequestTable({
+  title,
+  erp,
+  items,
+  onAction,
+}: {
+  title: string;
+  erp: StockErp;
+  items: ItemCreationItem[];
+  onAction: (url: string, body?: unknown) => void;
+}) {
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [supplier, setSupplier] = useState("");
+  const [rows, setRows] = useState<Record<string, StockWarehouseRow[]>>({});
+  const [optionsByErp, setOptionsByErp] = useState<Partial<Record<StockErp, StockOptions>>>({});
+  const [optionsError, setOptionsError] = useState("");
+  const [isLoadingOptions, setIsLoadingOptions] = useState(false);
+
+  const options = optionsByErp[erp] ?? { suppliers: [], warehouses: [] };
+  const allSelected = items.length > 0 && items.every((item) => selectedIds.has(item.id));
+
+  async function loadOptions(nextErp: StockErp) {
+    if (optionsByErp[nextErp]) return;
+    setIsLoadingOptions(true);
+    setOptionsError("");
+    try {
+      const res = await fetch(`/api/item-creation/stock/options?erp=${nextErp.toUpperCase()}`, { cache: "no-store" });
+      const json = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(json?.error ?? "Failed to load ERP stock options");
+      setOptionsByErp((current) => ({ ...current, [nextErp]: json as StockOptions }));
+    } catch (error) {
+      setOptionsError(error instanceof Error ? error.message : "Failed to load ERP stock options");
+    } finally {
+      setIsLoadingOptions(false);
+    }
+  }
+
+  function rowFor(item: ItemCreationItem) {
+    return rows[item.id] ?? [{ key: 1, warehouse: "", qty: "1" }];
+  }
+
+  function updateRow(itemId: string, key: number, patch: Partial<StockWarehouseRow>) {
+    setRows((current) => ({
+      ...current,
+      [itemId]: (current[itemId] ?? [{ key: 1, warehouse: "", qty: "1" }]).map((row) =>
+        row.key === key ? { ...row, ...patch } : row
+      ),
+    }));
+  }
+
+  function addAllocation(itemId: string) {
+    setRows((current) => {
+      const currentRows = current[itemId] ?? [{ key: 1, warehouse: "", qty: "1" }];
+      return {
+        ...current,
+        [itemId]: [
+          ...currentRows,
+          { key: Math.max(0, ...currentRows.map((row) => row.key)) + 1, warehouse: "", qty: "1" },
+        ],
+      };
+    });
+  }
+
+  function removeAllocation(itemId: string, key: number) {
+    setRows((current) => {
+      const currentRows = current[itemId] ?? [{ key: 1, warehouse: "", qty: "1" }];
+      return {
+        ...current,
+        [itemId]: currentRows.length === 1 ? currentRows : currentRows.filter((row) => row.key !== key),
+      };
+    });
+  }
+
+  function toggleItem(item: ItemCreationItem) {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(item.id)) {
+        next.delete(item.id);
+      } else {
+        next.add(item.id);
+      }
+      return next;
+    });
+  }
+
+  function toggleAll() {
+    setSelectedIds((current) => {
+      if (items.every((item) => current.has(item.id))) return new Set();
+      return new Set(items.map((item) => item.id));
+    });
+  }
+
+  function createPr() {
+    const selectedItems = items.filter((item) => selectedIds.has(item.id));
+    const grouped = new Map<string, {
+      warehouse: string;
+      company?: string;
+      items: Array<{ itemRequestId: string; itemCode: string; qty: string; warehouse: string }>;
+    }>();
+
+    for (const item of selectedItems) {
+      for (const row of rowFor(item)) {
+        const warehouse = options.warehouses.find((option) => option.name === row.warehouse);
+        const companyKey = warehouse?.company || row.warehouse;
+        const existing = grouped.get(companyKey) ?? {
+          warehouse: row.warehouse,
+          company: warehouse?.company || undefined,
+          items: [],
+        };
+        existing.items.push({
+          itemRequestId: item.id,
+          itemCode: item.sku,
+          qty: row.qty,
+          warehouse: row.warehouse,
+        });
+        grouped.set(companyKey, existing);
+      }
+    }
+
+    onAction(`/api/item-creation/stock/${erp}`, {
+      supplier,
+      warehouses: Array.from(grouped.values()),
+    });
+  }
+
+  return (
+    <div className="overflow-hidden rounded-lg border bg-background">
+      <div className="grid gap-3 border-b p-3 lg:grid-cols-[140px_minmax(220px,1fr)_auto] lg:items-center">
+        <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm font-semibold">
+          {title}
+        </div>
+        <select
+          value={supplier}
+          onFocus={() => void loadOptions(erp)}
+          onChange={(event) => setSupplier(event.target.value)}
+          className={inputClass}
+        >
+          <option value="">Select supplier</option>
+          {options.suppliers.map((option) => (
+            <option key={option.name} value={option.name}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+        <ActionButton onClick={createPr}>Create PR for selected</ActionButton>
+      </div>
+      {(isLoadingOptions || optionsError) && (
+        <div className="border-b px-3 py-2 text-sm">
+          {isLoadingOptions && <span className="text-muted-foreground">Loading ERP options...</span>}
+          {optionsError && <span className="text-destructive">{optionsError}</span>}
+        </div>
+      )}
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[980px] text-sm">
+          <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
+            <tr>
+              <th className="w-12 px-3 py-2 text-left">
+                <input type="checkbox" checked={allSelected} onChange={toggleAll} />
+              </th>
+              <th className="px-3 py-2 text-left">SKU</th>
+              <th className="px-3 py-2 text-left">Description</th>
+              <th className="px-3 py-2 text-left">Warehouse</th>
+              <th className="w-32 px-3 py-2 text-left">Accepted Qty</th>
+              <th className="px-3 py-2 text-left">Company</th>
+              <th className="w-28 px-3 py-2 text-left">Manual</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((item) => {
+              const allocationRows = rowFor(item);
+              return (
+                <tr key={item.id} className="border-t align-middle">
+                  <td className="px-3 py-2">
+                    <input type="checkbox" checked={selectedIds.has(item.id)} onChange={() => toggleItem(item)} />
+                  </td>
+                  <td className="px-3 py-2 font-semibold">{item.sku}</td>
+                  <td className="px-3 py-2 text-muted-foreground">{item.description}</td>
+                  <td className="px-3 py-2" colSpan={3}>
+                    <div className="space-y-2">
+                      {allocationRows.map((row) => {
+                        const selectedWarehouse = options.warehouses.find((option) => option.name === row.warehouse);
+                        return (
+                          <div key={row.key} className="grid gap-2 lg:grid-cols-[minmax(260px,1fr)_120px_minmax(180px,1fr)_auto]">
+                            <select
+                              value={row.warehouse}
+                              onFocus={() => void loadOptions(erp)}
+                              onChange={(event) => updateRow(item.id, row.key, { warehouse: event.target.value })}
+                              className={inputClass}
+                            >
+                              <option value="">Select warehouse</option>
+                              {options.warehouses.map((option) => (
+                                <option key={option.name} value={option.name}>
+                                  {option.label}
+                                  {option.company ? ` - ${option.company}` : ""}
+                                </option>
+                              ))}
+                            </select>
+                            <input
+                              value={row.qty}
+                              onChange={(event) => updateRow(item.id, row.key, { qty: event.target.value })}
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              className={inputClass}
+                            />
+                            <div className="flex min-h-10 items-center rounded-md border bg-muted/20 px-3 text-muted-foreground">
+                              {selectedWarehouse?.company || "-"}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => removeAllocation(item.id, row.key)}
+                              disabled={allocationRows.length === 1}
+                              className={secondaryButtonClass}
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        );
+                      })}
+                      <button type="button" onClick={() => addAllocation(item.id)} className={secondaryButtonClass}>
+                        Add Warehouse
+                      </button>
+                    </div>
+                  </td>
+                  <td className="px-3 py-2">
+                    <button
+                      type="button"
+                      onClick={() => onAction(`/api/item-creation/${item.id}/stores/stock-added`)}
+                      className={secondaryButtonClass}
+                    >
+                      Manual
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function StockReceiptAction({
+  item,
+  onAction,
+}: {
+  item: ItemCreationItem;
+  onAction: (url: string, body?: unknown) => void;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [erp, setErp] = useState<StockErp>("erp1");
+  const [supplier, setSupplier] = useState("");
+  const [rows, setRows] = useState<StockWarehouseRow[]>([
+    { key: 1, warehouse: "", qty: "1" },
+  ]);
+  const [optionsByErp, setOptionsByErp] = useState<Partial<Record<StockErp, StockOptions>>>({});
+  const [optionsError, setOptionsError] = useState("");
+  const [isLoadingOptions, setIsLoadingOptions] = useState(false);
+
+  const options = optionsByErp[erp] ?? { suppliers: [], warehouses: [] };
+
+  async function loadOptions(nextErp: StockErp) {
+    if (optionsByErp[nextErp]) return;
+    setIsLoadingOptions(true);
+    setOptionsError("");
+    try {
+      const res = await fetch(`/api/item-creation/stock/options?erp=${nextErp.toUpperCase()}`, { cache: "no-store" });
+      const json = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(json?.error ?? "Failed to load ERP stock options");
+      setOptionsByErp((current) => ({ ...current, [nextErp]: json as StockOptions }));
+    } catch (error) {
+      setOptionsError(error instanceof Error ? error.message : "Failed to load ERP stock options");
+    } finally {
+      setIsLoadingOptions(false);
+    }
+  }
+
+  function updateRow(key: number, patch: Partial<StockWarehouseRow>) {
+    setRows((current) => current.map((row) => (row.key === key ? { ...row, ...patch } : row)));
+  }
+
+  function addWarehouseRow() {
+    setRows((current) => [
+      ...current,
+      { key: Math.max(0, ...current.map((row) => row.key)) + 1, warehouse: "", qty: "1" },
+    ]);
+  }
+
+  function removeWarehouseRow(key: number) {
+    setRows((current) => (current.length === 1 ? current : current.filter((row) => row.key !== key)));
+  }
+
+  function submit() {
+    const warehouses = rows.map((row) => {
+      const warehouse = options.warehouses.find((option) => option.name === row.warehouse);
+      return {
+        warehouse: row.warehouse,
+        company: warehouse?.company || undefined,
+        items: [
+          {
+            itemRequestId: item.id,
+            itemCode: item.sku,
+            qty: row.qty,
+          },
+        ],
+      };
+    });
+    onAction(`/api/item-creation/stock/${erp}`, {
+      supplier,
+      warehouses,
+    });
+    setIsOpen(false);
+  }
+
+  return (
+    <>
+      <ActionButton
+        onClick={() => {
+          setIsOpen(true);
+          void loadOptions(erp);
+        }}
+      >
+        Create PR
+      </ActionButton>
+      <button
+        type="button"
+        onClick={() => onAction(`/api/item-creation/${item.id}/stores/stock-added`)}
+        className={secondaryButtonClass}
+      >
+        Manual
+      </button>
+      {isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-lg border bg-background p-5 shadow-2xl">
+            <div className="flex flex-col gap-3 border-b pb-4 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h3 className="text-lg font-semibold">Create Purchase Receipt</h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {item.sku} - {item.description}
+                </p>
+              </div>
+              <button type="button" onClick={() => setIsOpen(false)} className={secondaryButtonClass}>
+                Close
+              </button>
+            </div>
+
+            <div className="mt-4 grid gap-3 md:grid-cols-[140px_1fr]">
+              <select
+                value={erp}
+                onChange={(event) => {
+                  const nextErp = event.target.value as StockErp;
+                  setErp(nextErp);
+                  setSupplier("");
+                  setRows([{ key: 1, warehouse: "", qty: "1" }]);
+                  void loadOptions(nextErp);
+                }}
+                className={inputClass}
+              >
+                <option value="erp1">ERP1</option>
+                <option value="erp2">ERP2</option>
+              </select>
+              <select value={supplier} onChange={(event) => setSupplier(event.target.value)} className={inputClass}>
+                <option value="">Select supplier</option>
+                {options.suppliers.map((option) => (
+                  <option key={option.name} value={option.name}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {isLoadingOptions && <p className="mt-3 text-sm text-muted-foreground">Loading ERP options...</p>}
+            {optionsError && <p className="mt-3 text-sm text-destructive">{optionsError}</p>}
+
+            <div className="mt-4 space-y-3">
+              {rows.map((row, index) => {
+                const selectedWarehouse = options.warehouses.find((option) => option.name === row.warehouse);
+                return (
+                  <div key={row.key} className="rounded-md border bg-muted/20 p-3">
+                    <div className="grid gap-3 lg:grid-cols-[minmax(260px,1fr)_140px_auto]">
+                      <select
+                        value={row.warehouse}
+                        onChange={(event) => updateRow(row.key, { warehouse: event.target.value })}
+                        className={inputClass}
+                      >
+                        <option value="">Select warehouse</option>
+                        {options.warehouses.map((option) => (
+                          <option key={option.name} value={option.name}>
+                            {option.label}
+                            {option.company ? ` - ${option.company}` : ""}
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        value={row.qty}
+                        onChange={(event) => updateRow(row.key, { qty: event.target.value })}
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        placeholder="Qty"
+                        className={inputClass}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeWarehouseRow(row.key)}
+                        disabled={rows.length === 1}
+                        className={secondaryButtonClass}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                    <div className="mt-2 text-xs text-muted-foreground">
+                      PR {index + 1} company: {selectedWarehouse?.company || "selected warehouse company"}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <button type="button" onClick={addWarehouseRow} className={secondaryButtonClass}>
+                Add Warehouse
+              </button>
+              <ActionButton onClick={submit}>Create Purchase Receipts</ActionButton>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
