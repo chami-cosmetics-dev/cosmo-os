@@ -268,7 +268,7 @@ export async function createItemRequest(
     ogfPrice?: unknown;
     gccPrice?: unknown;
     addErp1OgfPrice?: unknown;
-    country: string;
+    country?: string;
     creationSources?: unknown;
   }
 ) {
@@ -283,7 +283,7 @@ function validateCreateInput(input: {
   ogfPrice?: unknown;
   gccPrice?: unknown;
   addErp1OgfPrice?: unknown;
-  country: string;
+  country?: string;
   creationSources?: unknown;
 }) {
   const sku = trimSku(input.sku);
@@ -293,9 +293,8 @@ function validateCreateInput(input: {
   const requestedErp1OgfPrice = toBoolean(input.addErp1OgfPrice);
   if (!standardPrice) throw new Error("Standard Price is required");
   const description = input.description?.trim();
-  const country = input.country?.trim();
+  const country = input.country?.trim() ?? "";
   if (!description) throw new Error("Description is required");
-  if (!country) throw new Error("Country is required");
   const requestedSources = Array.isArray(input.creationSources)
     ? input.creationSources
     : ["SHOPIFY"];
@@ -319,7 +318,7 @@ function validateDetailsInput(input: {
   ogfPrice?: unknown;
   gccPrice?: unknown;
   addErp1OgfPrice?: unknown;
-  country: string;
+  country?: string;
 }) {
   return validateCreateInput(input);
 }
@@ -333,7 +332,7 @@ export async function createItemRequests(
     ogfPrice?: unknown;
     gccPrice?: unknown;
     addErp1OgfPrice?: unknown;
-    country: string;
+    country?: string;
     creationSources?: unknown;
   }>
 ) {

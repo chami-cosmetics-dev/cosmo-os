@@ -53,8 +53,7 @@ type StockWarehouseInput = {
     itemRequestId: string;
     itemCode: string;
     qty: unknown;
-    uom?: string;
-    rate?: unknown;
+    warehouse?: string;
   }>;
 };
 
@@ -68,6 +67,18 @@ type StockInput = {
   postingDate?: string;
   warehouses: StockWarehouseInput[];
 };
+
+type ErpStockOptionRow = {
+  name?: string;
+  supplier_name?: string | null;
+  warehouse_name?: string | null;
+  company?: string | null;
+};
+
+async function getWarehouseCompany(cfg: OsfErpCredentials, warehouse: string) {
+  const doc = await getErpDoc<{ company?: string | null }>(cfg, "Warehouse", warehouse);
+  return doc?.company?.trim() || undefined;
+}
 
 function requireItemCreationPermission(context: UserContext, permission: string) {
   if (!hasPermission(context, permission) && !hasPermission(context, ITEM_CREATION_PERMISSIONS.admin)) {
@@ -652,18 +663,18 @@ async function createPurchaseReceipt(input: {
   warehouse: string;
   company?: string;
   postingDate: string;
-  items: Array<{ itemCode: string; qty: Prisma.Decimal; uom?: string; rate?: Prisma.Decimal | null }>;
+  items: Array<{ itemCode: string; qty: Prisma.Decimal; warehouse?: string }>;
 }) {
   const body = {
     supplier: input.supplier,
     company: input.company || undefined,
-    posting_date: input.postingDate,
     items: input.items.map((item) => ({
       item_code: item.itemCode,
       qty: Number(item.qty),
-      warehouse: input.warehouse,
-      uom: item.uom || process.env.ITEM_CREATION_ERP_STOCK_UOM || "Nos",
-      rate: Number(item.rate ?? 0),
+      accepted_qty: Number(item.qty),
+      warehouse: item.warehouse ?? input.warehouse,
+      rate: 0,
+      amount: 0,
     })),
   };
   const created = await createErpDoc<Record<string, unknown>>(input.cfg, "Purchase Receipt", body);
@@ -697,16 +708,17 @@ function validateStockInput(input: StockInput) {
       const items = warehouseGroup.items.map((item) => {
         const itemCode = item.itemCode?.trim();
         const itemRequestId = item.itemRequestId?.trim();
+        const itemWarehouse = item.warehouse?.trim() || warehouse;
         if (!itemCode || !itemRequestId) throw new Error("Each stock row needs itemRequestId and itemCode");
         const key = normalizeSkuKey(itemCode);
-        if (seen.has(key)) throw new Error(`Duplicate item ${itemCode} in warehouse ${warehouse}`);
-        seen.add(key);
+        const stockKey = `${key}:${itemWarehouse}`;
+        if (seen.has(stockKey)) throw new Error(`Duplicate item ${itemCode} in warehouse ${itemWarehouse}`);
+        seen.add(stockKey);
         return {
           itemRequestId,
           itemCode,
+          warehouse: itemWarehouse,
           qty: asDecimal(item.qty, `Qty for ${itemCode}`),
-          uom: item.uom?.trim() || undefined,
-          rate: item.rate == null || item.rate === "" ? null : asDecimal(item.rate, `Rate for ${itemCode}`),
         };
       });
       return { warehouse, company: warehouseGroup.company?.trim() || undefined, items };
@@ -784,17 +796,31 @@ export async function createWarehousePurchaseReceipts(
     );
 
     try {
+      const itemWarehouses = [...new Set(warehouseGroup.items.map((item) => item.warehouse))];
+      const warehouseCompanies = await Promise.all(
+        itemWarehouses.map(async (warehouse) => ({
+          warehouse,
+          company: await getWarehouseCompany(cfg, warehouse),
+        })),
+      );
+      const warehouseCompany = warehouseCompanies[0]?.company;
+      if (!warehouseCompany) {
+        throw new Error(`Company is not configured on warehouse ${warehouseCompanies[0]?.warehouse ?? warehouseGroup.warehouse}`);
+      }
+      const mismatchedWarehouse = warehouseCompanies.find((entry) => entry.company !== warehouseCompany);
+      if (mismatchedWarehouse) {
+        throw new Error(`Warehouse ${mismatchedWarehouse.warehouse} belongs to a different company`);
+      }
       const prName = await createPurchaseReceipt({
         cfg,
         supplier: parsed.supplier,
         warehouse: warehouseGroup.warehouse,
-        company: warehouseGroup.company ?? parsed.company,
+        company: warehouseCompany,
         postingDate: parsed.postingDate,
         items: warehouseGroup.items.map((item) => ({
           itemCode: item.itemCode,
           qty: item.qty,
-          uom: item.uom,
-          rate: item.rate,
+          warehouse: item.warehouse,
         })),
       });
       await prisma.$transaction(async (tx) => {
@@ -845,6 +871,48 @@ export async function createWarehousePurchaseReceipts(
     include: { items: true },
     orderBy: { createdAt: "asc" },
   });
+}
+
+export async function getItemCreationStockOptions(context: UserContext, erp: ItemCreationErp) {
+  requireItemCreationPermission(context, ITEM_CREATION_PERMISSIONS.stores);
+  const { erp1, erp2 } = await resolveErps(companyId(context));
+  const cfg = erp === "ERP1" ? erp1?.cfg : erp2?.cfg;
+  if (!cfg) throw new Error(`${erp} instance is not configured`);
+
+  const supplierFields = encodeURIComponent(JSON.stringify(["name", "supplier_name"]));
+  const supplierFilters = encodeURIComponent(JSON.stringify([["disabled", "=", 0]]));
+  const warehouseFields = encodeURIComponent(JSON.stringify(["name", "warehouse_name", "company"]));
+  const warehouseFilters = encodeURIComponent(JSON.stringify([
+    ["disabled", "=", 0],
+    ["is_group", "=", 0],
+  ]));
+
+  const [suppliers, warehouses] = await Promise.all([
+    erpJson<ErpStockOptionRow[]>(
+      cfg,
+      `/api/resource/Supplier?fields=${supplierFields}&filters=${supplierFilters}&limit_page_length=500&order_by=supplier_name%20asc`,
+    ),
+    erpJson<ErpStockOptionRow[]>(
+      cfg,
+      `/api/resource/Warehouse?fields=${warehouseFields}&filters=${warehouseFilters}&limit_page_length=1000&order_by=name%20asc`,
+    ),
+  ]);
+
+  return {
+    suppliers: suppliers
+      .filter((supplier) => supplier.name)
+      .map((supplier) => ({
+        name: supplier.name!,
+        label: supplier.supplier_name || supplier.name!,
+      })),
+    warehouses: warehouses
+      .filter((warehouse) => warehouse.name)
+      .map((warehouse) => ({
+        name: warehouse.name!,
+        label: warehouse.warehouse_name || warehouse.name!,
+        company: warehouse.company ?? null,
+      })),
+  };
 }
 
 async function updateStockCompletion(company: string, erp: ItemCreationErp, itemRequestIds: string[], actorId?: string) {
@@ -913,10 +981,15 @@ export async function retryPurchaseReceipt(context: UserContext, receiptId: stri
     data: { status: "CREATING", error: null },
   });
   try {
+    const warehouseCompany = await getWarehouseCompany(cfg, receipt.warehouse);
+    if (!warehouseCompany) {
+      throw new Error(`Company is not configured on warehouse ${receipt.warehouse}`);
+    }
     const prName = await createPurchaseReceipt({
       cfg,
       supplier: receipt.supplier,
       warehouse: receipt.warehouse,
+      company: warehouseCompany,
       postingDate: new Date().toISOString().slice(0, 10),
       items: receipt.items.map((item) => ({
         itemCode: item.itemCode,
