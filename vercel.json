@@ -82,6 +82,18 @@
     "app/api/admin/osf/generate/route.ts": {
       "maxDuration": 800,
       "memory": 3008
+    },
+    "app/api/admin/contacts/export/route.ts": {
+      "maxDuration": 800
+    },
+    "app/api/admin/customer-insight/filter/export/route.ts": {
+      "maxDuration": 800
+    },
+    "app/api/admin/customer-insight/allocation-summary/export/route.ts": {
+      "maxDuration": 800
+    },
+    "app/api/admin/customer-insight/call-queue/report/export/route.ts": {
+      "maxDuration": 800
     }
   },
   "ignoreCommand": "node scripts/vercel-should-build.mjs",

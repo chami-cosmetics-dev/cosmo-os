@@ -9,7 +9,7 @@ import {
   uniqueContactPhones,
   type PurchaseCountFilter,
 } from "@/lib/customer-insight/allocation-summary";
-import { firstPurchaseAtByContactIds } from "@/lib/customer-insight/first-purchase";
+import { firstPurchaseAtForContact, loadFirstPurchaseIndexes } from "@/lib/customer-insight/first-purchase";
 import { resolveAssignedMerchantFilterLabels } from "@/lib/customer-insight/merchant-label-aliases";
 import { hasInsightAdminView } from "@/lib/customer-insight/ownership";
 import { prisma } from "@/lib/prisma";
@@ -25,7 +25,7 @@ import {
 } from "@/lib/reports/csv";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 300;
+export const maxDuration = 800;
 
 const CONTACT_EXPORT_HEADERS = [
   "merchant",
@@ -123,6 +123,7 @@ async function exportAllocatedContactsCsv(
     ? `insight-merchant-allocation-contacts-${safeSlug || "merchant"}.csv`
     : "insight-merchant-allocation-contacts-all.csv";
   const aliasToRoster = await loadAssignedMerchantAliasMap(companyId);
+  const firstPurchaseIndexes = await loadFirstPurchaseIndexes(companyId);
 
   await logReportDownload({
     companyId,
@@ -159,14 +160,11 @@ async function exportAllocatedContactsCsv(
               phoneNumber: true,
               assignedMerchant: true,
               phones: { select: { phoneNumber: true } },
+              emails: { select: { email: true } },
             },
           });
           if (batch.length === 0) break;
 
-          const firstPurchaseById = await firstPurchaseAtByContactIds(
-            companyId,
-            batch.map((contact) => contact.id)
-          );
           const lines: string[] = [];
           for (const contact of batch) {
             const raw = contact.assignedMerchant?.trim() ?? "";
@@ -181,7 +179,9 @@ async function exportAllocatedContactsCsv(
               name: contact.name,
               phone_number: phones[0] ?? "",
               extra_phones: phones.slice(1).join("; "),
-              first_purchased_date: formatIsoDate(firstPurchaseById.get(contact.id)),
+              first_purchased_date: formatIsoDate(
+                firstPurchaseAtForContact(firstPurchaseIndexes, contact)
+              ),
             };
             lines.push(formatCsvDataLine(CONTACT_EXPORT_HEADERS, row));
           }

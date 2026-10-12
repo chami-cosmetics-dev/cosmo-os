@@ -18,15 +18,18 @@ import {
 } from "@/lib/reports/csv";
 import { DUMP_TOTAL_HEADER } from "@/lib/reports/dump-download";
 import { loadAssignedMerchantAliasMap } from "@/lib/customer-insight/allocation-summary";
-import { firstPurchaseAtByContactIds } from "@/lib/customer-insight/first-purchase";
+import {
+  firstPurchaseAtForContact,
+  loadFirstPurchaseIndexes,
+} from "@/lib/customer-insight/first-purchase";
 import { formatStoredAllocatedMerchant } from "@/lib/reports/allocated-merchant-format";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-/** Streaming Contact Master CSV (~80k+). Purchase totals come from cache (no live GROUP BY). */
-export const maxDuration = 300;
+/** Streaming Contact Master CSV (~80k+). Purchase totals come from cache. First-purchase dates are one MIN() scan, not per batch. */
+export const maxDuration = 800;
 
 type ContactStatusFilter = "active" | "inactive" | "never_purchased" | null;
 type ContactExportMode = "contacts" | "purchase_summary";
@@ -46,6 +49,8 @@ const contactExportSelect = {
   purchaseLastOrderAt: true,
   createdAt: true,
   updatedAt: true,
+  phones: { select: { phoneNumber: true } },
+  emails: { select: { email: true } },
   allocationUpdates: {
     where: { category: { not: "allocation" } },
     orderBy: { createdAt: "desc" as const },
@@ -197,11 +202,13 @@ export async function GET(request: NextRequest) {
     { brandContactIds: brand ? brandRanks.map((r) => r.contactId) : undefined }
   );
 
-  const [expectedRows, allocatedByPhone, aliasToRoster] = await Promise.all([
-    prisma.contactMaster.count({ where }),
-    loadAllocatedMerchantByPhone(companyId),
-    loadAssignedMerchantAliasMap(companyId),
-  ]);
+  const [expectedRows, allocatedByPhone, aliasToRoster, firstPurchaseIndexes] =
+    await Promise.all([
+      prisma.contactMaster.count({ where }),
+      loadAllocatedMerchantByPhone(companyId),
+      loadAssignedMerchantAliasMap(companyId),
+      loadFirstPurchaseIndexes(companyId),
+    ]);
 
   const fileName =
     mode === "purchase_summary"
@@ -271,10 +278,6 @@ export async function GET(request: NextRequest) {
           if (request.signal.aborted) {
             throw new Error("Export aborted");
           }
-          const firstPurchaseById = await firstPurchaseAtByContactIds(
-            companyId,
-            batch.map((contact) => contact.id)
-          );
           const lines: string[] = [];
           for (const contact of batch) {
             contactNo += 1;
@@ -313,7 +316,9 @@ export async function GET(request: NextRequest) {
                   ? purchaseLast
                   : contact.lastPurchaseAt
               ),
-              first_purchased_date: formatIsoDate(firstPurchaseById.get(contact.id)),
+              first_purchased_date: formatIsoDate(
+                firstPurchaseAtForContact(firstPurchaseIndexes, contact)
+              ),
               created_at: formatIsoDateTime(contact.createdAt),
               updated_at: formatIsoDateTime(contact.updatedAt),
               updated_by: formatStoredAllocatedMerchant(

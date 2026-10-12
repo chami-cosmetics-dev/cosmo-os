@@ -14,6 +14,23 @@ import { formatAppIsoDate, parseAppCalendarDayStart } from "../lib/format-dateti
 import { buildPhoneLookupVariants, canonicalPhoneForErpCustomerId } from "../lib/phone-lookup";
 import { isVaultOsfForceIncludedSku, VAULT_OSF_FORCE_INCLUDED_SKUS } from "../lib/vault-osf/sku-policy";
 
+const ADAPT_HISTORY_SELECT = {
+  id: true,
+  adaptInvoiceKey: true,
+  salesInvoiceNo: true,
+  invoiceDate: true,
+  currency: true,
+  paymentMethod: true,
+  locationName: true,
+  merchantKnownName: true,
+  lineItems: true,
+  contact: {
+    select: { name: true, phoneNumber: true, email: true, address: true, city: true, district: true },
+  },
+} as const;
+
+type AdaptHistoryRow = Prisma.AdaptPurchaseHistoryGetPayload<{ select: typeof ADAPT_HISTORY_SELECT }>;
+
 const APPLY = process.argv.includes("--apply");
 const PAGE = 250;
 
@@ -439,29 +456,18 @@ async function main() {
   }
 
   let adaptRead = 0;
-  cursor = undefined;
+  let adaptCursor: string | undefined;
   for (;;) {
-    const batch = await cosmo.adaptPurchaseHistory.findMany({
+    const adaptBatch: AdaptHistoryRow[] = await cosmo.adaptPurchaseHistory.findMany({
       where: { companyId: cosmoCompany.id },
       take: PAGE,
-      ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
+      ...(adaptCursor ? { skip: 1, cursor: { id: adaptCursor } } : {}),
       orderBy: { id: "asc" },
-      select: {
-        id: true,
-        adaptInvoiceKey: true,
-        salesInvoiceNo: true,
-        invoiceDate: true,
-        currency: true,
-        paymentMethod: true,
-        locationName: true,
-        merchantKnownName: true,
-        lineItems: true,
-        contact: { select: { name: true, phoneNumber: true, email: true, address: true, city: true, district: true } },
-      },
+      select: ADAPT_HISTORY_SELECT,
     });
-    if (batch.length === 0) break;
-    adaptRead += batch.length;
-    for (const row of batch) {
+    if (adaptBatch.length === 0) break;
+    adaptRead += adaptBatch.length;
+    for (const row of adaptBatch) {
       if (!Array.isArray(row.lineItems)) continue;
       for (const entry of row.lineItems) {
         if (!entry || typeof entry !== "object") continue;
@@ -498,8 +504,8 @@ async function main() {
         if (result === "skip") skipped += 1;
       }
     }
-    cursor = batch[batch.length - 1]!.id;
-    if (batch.length < PAGE) break;
+    adaptCursor = adaptBatch[adaptBatch.length - 1]!.id;
+    if (adaptBatch.length < PAGE) break;
   }
 
   let invoices = 0;

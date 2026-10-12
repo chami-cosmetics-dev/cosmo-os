@@ -18,10 +18,10 @@ describe("pageHandoverDeliveries", () => {
     erpnextCompany: company,
     locationName: company,
     cashAmount: "100.00",
-    paymentMethod: "Cash",
+    paymentMethod: "cod" as const,
     paymentGatewayPrimary: "Cash",
     invoiceCompleteAt: null,
-    fulfillmentStage: "delivery_complete",
+    fulfillmentStage: "delivery_complete" as const,
   });
 
   it("returns 20 rows and searches the whole list", () => {

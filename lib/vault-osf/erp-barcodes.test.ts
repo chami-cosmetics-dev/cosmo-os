@@ -4,6 +4,7 @@ import {
   fillMissingItemBarcodes,
   firstBarcodeFromErpItem,
   lookupBarcode,
+  type VaultErpGetJson,
 } from "@/lib/vault-osf/erp-barcodes";
 
 describe("firstBarcodeFromErpItem", () => {
@@ -46,7 +47,10 @@ describe("fillMissingItemBarcodes", () => {
       throw new Error(`unexpected ${path}`);
     });
 
-    const map = await fillMissingItemBarcodes(getJson, ["NT025-1", "NW032-2"]);
+    const map = await fillMissingItemBarcodes(
+      getJson as unknown as VaultErpGetJson,
+      ["NT025-1", "NW032-2"],
+    );
     expect(lookupBarcode(map, "NT025-1")).toBe("9314807088286");
     expect(lookupBarcode(map, "nw032-2")).toBe("733739000927");
     expect(getJson).toHaveBeenCalledTimes(2);

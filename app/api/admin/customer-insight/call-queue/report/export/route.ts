@@ -9,6 +9,9 @@ import { hasInsightAdminView } from "@/lib/customer-insight/ownership";
 import { requirePermission } from "@/lib/rbac";
 import { customerInsightCallQueueReportQuerySchema } from "@/lib/validation/customer-insight";
 
+export const dynamic = "force-dynamic";
+export const maxDuration = 800;
+
 export async function GET(request: NextRequest) {
   const auth = await requirePermission("contacts.insight.read");
   if (!auth.ok) {

@@ -14,6 +14,9 @@ import { formatStoredAllocatedMerchant } from "@/lib/reports/allocated-merchant-
 import { buildCsv, formatIsoDate, type CsvPrimitive } from "@/lib/reports/csv";
 import { customerInsightFilterExportQuerySchema } from "@/lib/validation/customer-insight";
 
+export const dynamic = "force-dynamic";
+export const maxDuration = 800;
+
 function queryParam(value: string | null): string | undefined {
   const trimmed = (value ?? "").trim();
   return trimmed || undefined;

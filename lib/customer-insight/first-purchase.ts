@@ -1,5 +1,8 @@
+import { Prisma } from "@prisma/client";
+
 import { contactOrderLookupKeys } from "@/lib/contact-purchase-lookup";
 import {
+  CUSTOMER_LIFETIME_TOTAL_FULFILLMENT_STAGES,
   customerLifetimeTotalOrderWhere,
   orderPurchaseAt,
 } from "@/lib/customer-insight/lifetime-total";
@@ -7,6 +10,44 @@ import { chunkArray } from "@/lib/customer-insight/purchase-scan";
 import { prisma } from "@/lib/prisma";
 
 const ID_CHUNK = 400;
+/** Above this, one company-wide MIN() beats per-contact order scans. */
+const BULK_ID_THRESHOLD = 800;
+
+export type FirstPurchaseIndexes = {
+  byPhone: Map<string, Date>;
+  byEmail: Map<string, Date>;
+  byContactId: Map<string, Date>;
+};
+
+export type FirstPurchaseContact = {
+  id: string;
+  phoneNumber?: string | null;
+  email?: string | null;
+  phones?: Array<{ phoneNumber: string }>;
+  emails?: Array<{ email: string }>;
+  aliasPhones?: string[];
+  aliasEmails?: string[];
+};
+
+type FirstAtRow = { key: string; first_at: Date | string };
+
+function asDate(value: Date | string): Date {
+  return value instanceof Date ? value : new Date(value);
+}
+
+function rememberEarlier(map: Map<string, Date>, key: string, at: Date) {
+  const trimmed = key.trim();
+  if (!trimmed) return;
+  map.set(trimmed, earlierDate(map.get(trimmed), at)!);
+}
+
+const eligibleOrderSql = Prisma.sql`
+  "cancelledAt" IS NULL
+  AND "financialStatus" <> 'voided'
+  AND "fulfillmentStage"::text IN (${Prisma.join([
+    ...CUSTOMER_LIFETIME_TOTAL_FULFILLMENT_STAGES,
+  ])})
+`;
 
 export function earlierDate(
   a: Date | null | undefined,
@@ -15,6 +56,105 @@ export function earlierDate(
   if (a == null) return b ?? null;
   if (b == null) return a;
   return a.getTime() <= b.getTime() ? a : b;
+}
+
+/**
+ * One MIN() per phone, email, and Adapt contact.
+ * Same date rule as `orderPurchaseAt`: delivery, else invoice, else placed.
+ */
+export async function loadFirstPurchaseIndexes(
+  companyId: string
+): Promise<FirstPurchaseIndexes> {
+  const [phoneRows, erpRows, emailRows, adapt] = await Promise.all([
+    prisma.$queryRaw<FirstAtRow[]>`
+      SELECT btrim("customerPhone") AS key,
+             MIN(COALESCE("deliveryCompleteAt", "invoiceCompleteAt", "createdAt")) AS first_at
+      FROM "Order"
+      WHERE "companyId" = ${companyId}
+        AND ${eligibleOrderSql}
+        AND "customerPhone" IS NOT NULL
+        AND btrim("customerPhone") <> ''
+      GROUP BY btrim("customerPhone")
+    `,
+    prisma.$queryRaw<FirstAtRow[]>`
+      SELECT btrim("erpnextCustomerId") AS key,
+             MIN(COALESCE("deliveryCompleteAt", "invoiceCompleteAt", "createdAt")) AS first_at
+      FROM "Order"
+      WHERE "companyId" = ${companyId}
+        AND ${eligibleOrderSql}
+        AND "erpnextCustomerId" IS NOT NULL
+        AND btrim("erpnextCustomerId") <> ''
+      GROUP BY btrim("erpnextCustomerId")
+    `,
+    prisma.$queryRaw<FirstAtRow[]>`
+      SELECT lower(btrim("customerEmail")) AS key,
+             MIN(COALESCE("deliveryCompleteAt", "invoiceCompleteAt", "createdAt")) AS first_at
+      FROM "Order"
+      WHERE "companyId" = ${companyId}
+        AND ${eligibleOrderSql}
+        AND "customerEmail" IS NOT NULL
+        AND btrim("customerEmail") <> ''
+      GROUP BY lower(btrim("customerEmail"))
+    `,
+    prisma.adaptPurchaseHistory.groupBy({
+      by: ["contactId"],
+      where: { companyId },
+      _min: { invoiceDate: true },
+    }),
+  ]);
+
+  const byPhone = new Map<string, Date>();
+  for (const row of phoneRows) {
+    if (!row.key) continue;
+    rememberEarlier(byPhone, row.key, asDate(row.first_at));
+  }
+  for (const row of erpRows) {
+    if (!row.key) continue;
+    rememberEarlier(byPhone, row.key, asDate(row.first_at));
+  }
+
+  const byEmail = new Map<string, Date>();
+  for (const row of emailRows) {
+    if (!row.key) continue;
+    rememberEarlier(byEmail, row.key.toLowerCase(), asDate(row.first_at));
+  }
+
+  const byContactId = new Map<string, Date>();
+  for (const row of adapt) {
+    if (!row._min.invoiceDate) continue;
+    byContactId.set(row.contactId, row._min.invoiceDate);
+  }
+
+  return { byPhone, byEmail, byContactId };
+}
+
+/** Phone-keyed contacts match phone only; email-keyed contacts match email. */
+export function firstPurchaseAtForContact(
+  indexes: FirstPurchaseIndexes,
+  contact: FirstPurchaseContact
+): Date | null {
+  const keys = contactOrderLookupKeys({
+    primaryEmail: contact.email,
+    primaryPhone: contact.phoneNumber,
+    aliasEmails:
+      contact.aliasEmails ?? contact.emails?.map((row) => row.email) ?? [],
+    aliasPhones:
+      contact.aliasPhones ?? contact.phones?.map((row) => row.phoneNumber) ?? [],
+  });
+
+  let at: Date | null = indexes.byContactId.get(contact.id) ?? null;
+  if (keys.phones.length > 0) {
+    for (const phone of keys.phones) {
+      at = earlierDate(at, indexes.byPhone.get(phone));
+    }
+  } else {
+    for (const email of keys.emails) {
+      const key = email.trim().toLowerCase();
+      if (!key) continue;
+      at = earlierDate(at, indexes.byEmail.get(key));
+    }
+  }
+  return at;
 }
 
 /**
@@ -28,6 +168,27 @@ export async function firstPurchaseAtByContactIds(
   const ids = [...new Set(contactIds.map((id) => id.trim()).filter(Boolean))];
   const out = new Map<string, Date>();
   if (ids.length === 0) return out;
+
+  if (ids.length > BULK_ID_THRESHOLD) {
+    const indexes = await loadFirstPurchaseIndexes(companyId);
+    for (const slice of chunkArray(ids, 2_000)) {
+      const contacts = await prisma.contactMaster.findMany({
+        where: { companyId, id: { in: slice } },
+        select: {
+          id: true,
+          phoneNumber: true,
+          email: true,
+          phones: { select: { phoneNumber: true } },
+          emails: { select: { email: true } },
+        },
+      });
+      for (const contact of contacts) {
+        const at = firstPurchaseAtForContact(indexes, contact);
+        if (at) out.set(contact.id, at);
+      }
+    }
+    return out;
+  }
 
   const orderSelect = {
     customerPhone: true,
