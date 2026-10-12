@@ -28,7 +28,7 @@ async function getCompanyId(userId: string) {
 }
 
 export async function POST(request: NextRequest) {
-  const auth = await requirePermission("fulfillment.delivery_invoice.mark_complete");
+  const auth = await requirePermission("finance.approvals.manage");
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }

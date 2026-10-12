@@ -5,6 +5,20 @@ export type PaymentMethodInfo = {
   variant: PaymentMethodVariant;
 };
 
+/** CC Checkout / WebXPay: customer already paid online. Not a finance invoice-complete person. */
+export function isAlreadyPaidCardCheckoutGateway(gateway: string | null | undefined): boolean {
+  const normalized = gateway?.toLowerCase().replace(/[_\-\s]+/g, " ").trim() ?? "";
+  return normalized === "cc" || normalized === "cc checkout" || normalized.includes("webxpay");
+}
+
+export function orderAlreadyPaidByCardCheckout(input?: {
+  paymentGatewayPrimary?: string | null;
+  paymentGatewayNames?: string[] | null;
+}): boolean {
+  const gateways = [input?.paymentGatewayPrimary, ...(input?.paymentGatewayNames ?? [])];
+  return gateways.some((gateway) => isAlreadyPaidCardCheckoutGateway(gateway));
+}
+
 export function getPaymentMethodInfo(input?: {
   paymentGatewayPrimary?: string | null;
   paymentGatewayNames?: string[] | null;
@@ -41,8 +55,8 @@ export function getPaymentMethodInfo(input?: {
   if (normalized === "mintpay" || normalized.includes("mintpay")) {
     return { label: "Mintpay", variant: "paid" };
   }
-  if (normalized === "cc" || normalized === "cc checkout" || normalized === "cc_checkout" || normalized === "cc-checkout") {
-    return { label: "CC Checkout", variant: "card" };
+  if (isAlreadyPaidCardCheckoutGateway(primary)) {
+    return { label: normalized.includes("webxpay") ? "WebXPay" : "CC Checkout", variant: "card" };
   }
   if (
     normalized.includes("credit card") ||

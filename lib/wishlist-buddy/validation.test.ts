@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { notifyRequestBodySchema, shopifyNumericId, stockRequestPatchBodySchema } from "./validation";
+import {
+  notifyRequestBodySchema,
+  shopifyNumericId,
+  stockRequestListQuerySchema,
+  stockRequestPatchBodySchema,
+} from "./validation";
 
 describe("shopifyNumericId", () => {
   it("accepts numbers and GIDs", () => {
@@ -31,5 +36,41 @@ describe("stockRequestPatchBodySchema", () => {
     expect(stockRequestPatchBodySchema.safeParse({}).success).toBe(false);
     expect(stockRequestPatchBodySchema.safeParse({ status: "closed" }).success).toBe(false);
     expect(stockRequestPatchBodySchema.safeParse({ status: "order_placed" }).success).toBe(true);
+  });
+});
+
+describe("stockRequestListQuerySchema", () => {
+  it("accepts known stock filters and rejects others", () => {
+    expect(stockRequestListQuerySchema.parse({ stock: "found" }).stock).toBe("found");
+    expect(stockRequestListQuerySchema.parse({ stock: "restocked", status: "open" })).toMatchObject({
+      stock: "restocked",
+      status: "open",
+    });
+    expect(stockRequestListQuerySchema.safeParse({ stock: "pending" }).success).toBe(false);
+  });
+});
+
+describe("staffStockRequestCreateBodySchema", () => {
+  it("requires product, name and a valid phone; email is optional", async () => {
+    const { staffStockRequestCreateBodySchema } = await import("./validation");
+    const ok = staffStockRequestCreateBodySchema.parse({
+      sku: " TK02_1 ",
+      productTitle: "Conditioner",
+      customerName: "Nimal",
+      customerPhone: "+94 77 123 4567",
+      customerEmail: "",
+    });
+    expect(ok).toMatchObject({ sku: "TK02_1", customerPhone: "0771234567" });
+    expect(ok.customerEmail).toBeUndefined();
+
+    expect(
+      staffStockRequestCreateBodySchema.parse({ sku: "A", customerName: "N", customerPhone: "0771234567", customerEmail: "A@B.CO" })
+        .customerEmail,
+    ).toBe("a@b.co");
+    expect(staffStockRequestCreateBodySchema.safeParse({ sku: "", customerName: "N", customerPhone: "0771234567" }).success).toBe(false);
+    expect(staffStockRequestCreateBodySchema.safeParse({ sku: "A", customerName: "N", customerPhone: "123" }).success).toBe(false);
+    expect(
+      staffStockRequestCreateBodySchema.safeParse({ sku: "A", customerName: "N", customerPhone: "0771234567", customerEmail: "bad" }).success,
+    ).toBe(false);
   });
 });

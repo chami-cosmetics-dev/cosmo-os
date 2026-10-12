@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 
+import { resolveAssignedMerchantFilterLabels } from "@/lib/customer-insight/merchant-label-aliases";
 import {
   fetchContactAllocationIds,
   fetchContactAllocationPageData,
@@ -237,11 +238,19 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, count: contactIds.length });
   }
 
-  // transfer: move all contacts currently allocated to fromMerchant → toMerchant
+  // transfer: move all contacts currently allocated to fromMerchant → toMerchant.
+  // Roster pick (MER / bucket) covers every stored label for that merchant.
+  const fromLabels = await resolveAssignedMerchantFilterLabels(
+    companyId,
+    input.fromMerchant
+  );
+  const sourceLabels = fromLabels.length > 0 ? fromLabels : [input.fromMerchant];
   const contacts = await prisma.contactMaster.findMany({
     where: {
       companyId,
-      assignedMerchant: { equals: input.fromMerchant, mode: "insensitive" },
+      OR: sourceLabels.map((alias) => ({
+        assignedMerchant: { equals: alias, mode: "insensitive" as const },
+      })),
     },
     select: { id: true },
     take: 5000,

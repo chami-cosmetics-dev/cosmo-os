@@ -20,6 +20,7 @@ interface DashboardTemplateProps {
   roleNames?: string[];
   seoOnly?: boolean;
   hasOgf?: boolean;
+  hasOutlet?: boolean;
 }
 
 export function DashboardTemplate({
@@ -30,6 +31,7 @@ export function DashboardTemplate({
   roleNames = [],
   seoOnly = false,
   hasOgf = false,
+  hasOutlet = false,
 }: DashboardTemplateProps) {
   if (seoOnly) {
     return (
@@ -63,7 +65,13 @@ export function DashboardTemplate({
   return (
     <ConfirmationDialogProvider>
       <SidebarProvider>
-        <AppSidebar user={user} permissionKeys={permissionKeys} roleNames={roleNames} hasOgf={hasOgf} />
+        <AppSidebar
+          user={user}
+          permissionKeys={permissionKeys}
+          roleNames={roleNames}
+          hasOgf={hasOgf}
+          hasOutlet={hasOutlet}
+        />
         <SidebarInset className="min-w-0 bg-[radial-gradient(circle_at_top_right,var(--dashboard-surface-glow),transparent_28%),linear-gradient(180deg,var(--background),color-mix(in_srgb,var(--background)_88%,white))] dark:bg-[radial-gradient(circle_at_top_right,var(--dashboard-surface-glow),transparent_24%),linear-gradient(180deg,var(--background),color-mix(in_srgb,var(--background)_92%,black))]">
           <Topbar title={title} user={user} />
           <div className="min-w-0 flex-1 p-4">{children}</div>

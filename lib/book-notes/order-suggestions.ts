@@ -115,6 +115,7 @@ export async function searchBookNoteOrderSuggestions(input: {
           cash: amounts.cash,
           card: amounts.card,
           koko: amounts.koko,
+          mintpay: amounts.mintpay,
           bankTransfer: amounts.bankTransfer,
           paymentGatewayPrimary: order.paymentGatewayPrimary,
           sourceName: order.sourceName,
@@ -173,6 +174,7 @@ async function hydrateSuggestionsFromErp(
       cash: mappedPayments.columns.cash,
       card: mappedPayments.columns.card,
       koko: mappedPayments.columns.koko,
+      mintpay: mappedPayments.columns.mintpay,
       bankTransfer: mappedPayments.columns.bankTransfer,
       splitLines: mappedPayments.splitLines,
     };

@@ -338,7 +338,7 @@ export async function listInsightAssignedMerchantOptions(
   companyId: string,
   q?: string
 ): Promise<FilterOptionDto[]> {
-  // Clean roster: merchant-role users + DM-General / STAFF SALES buckets.
+  // Clean roster: merchant-role users + DM-General / STAFF SALES / Error number category.
   return listInsightMerchantRosterOptions(companyId, q);
 }
 

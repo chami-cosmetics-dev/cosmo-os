@@ -9,7 +9,9 @@ import {
 import {
   canonicalizeAssignedMerchantLabels,
   expandAssignedMerchantFilter,
+  listInsightMerchantRosterOptions,
 } from "@/lib/customer-insight/merchant-label-aliases";
+import { formatTransferMerchantOptions } from "@/lib/reports/allocated-merchant-format";
 import { isMerchantRoleName } from "@/lib/merchant-role";
 import {
   findContactIdsByPurchasedBrand,
@@ -133,6 +135,8 @@ export async function buildContactsListWhere(
 
 export type ContactsPageOptions = {
   assignedMerchants: string[];
+  /** Transfer list: one row per merchant, label `name(MER)`. Value is the roster key. */
+  transferMerchants: Array<{ value: string; label: string }>;
   brands: string[];
   assignees: Array<{ id: string; label: string }>;
 };
@@ -141,7 +145,7 @@ async function fetchContactsPageOptions(companyId: string): Promise<ContactsPage
   const roles = await prisma.role.findMany({ select: { id: true, name: true } });
   const merchantRoleIds = roles.filter((r) => isMerchantRoleName(r.name)).map((r) => r.id);
 
-  const [assignedRows, vendors, brandConfigs, assigneeRows] = await Promise.all([
+  const [assignedRows, vendors, brandConfigs, assigneeRows, roster] = await Promise.all([
     prisma.contactMaster.findMany({
       where: {
         companyId,
@@ -180,6 +184,7 @@ async function fetchContactsPageOptions(companyId: string): Promise<ContactsPage
           select: { id: true, name: true, knownName: true, email: true },
           take: 300,
         }),
+    listInsightMerchantRosterOptions(companyId),
   ]);
 
   // Collapse legacy duplicates so one merchant is one option.
@@ -203,6 +208,7 @@ async function fetchContactsPageOptions(companyId: string): Promise<ContactsPage
 
   return {
     assignedMerchants: withStaffSalesAssignedMerchant(assignedMerchants),
+    transferMerchants: formatTransferMerchantOptions(roster),
     brands,
     assignees: withStaffSalesAssignee(
       assigneeRows.map((user) => ({

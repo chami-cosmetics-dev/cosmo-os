@@ -101,6 +101,24 @@ export function parseDDMMYYYY(value: string): Date | null {
   return new Date(yyyy, mm - 1, dd);
 }
 
+/** Oldest manufacture year stickers may use. */
+export const MIN_MANUFACTURE_YEAR = 2024;
+
+export const MANUFACTURE_DATE_TOO_OLD_MESSAGE =
+  "Manufacture date must be 2024 or later";
+
+/**
+ * Blank and incomplete values stay allowed (other checks cover format).
+ * A complete date is allowed only when its year is 2024 or later.
+ */
+export function isManufactureDateAllowed(raw: string): boolean {
+  const trimmed = raw.trim();
+  if (!trimmed) return true;
+  const date = parseDDMMYYYY(trimmed);
+  if (!date) return true;
+  return date.getFullYear() >= MIN_MANUFACTURE_YEAR;
+}
+
 /** EPD = MFD + 3 calendar years, as DD/MM/YYYY. */
 export function expireFromManufacture(mfd: string): string | null {
   const date = parseDDMMYYYY(mfd);

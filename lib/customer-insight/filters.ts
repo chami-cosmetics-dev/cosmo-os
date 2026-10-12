@@ -1,3 +1,7 @@
+import {
+  callUpdateStatusMatch,
+  displayCallCenterCategory,
+} from "@/lib/contact-call-center-categories";
 import { effectiveLoyaltyTierKey } from "@/lib/customer-insight/erp-loyalty";
 import { findContactIdsByLastPurchaseLocation } from "@/lib/customer-insight/last-purchase-location";
 import { lifetimeTotalsByContactId } from "@/lib/customer-insight/lifetime-totals-batch";
@@ -12,6 +16,7 @@ import { findContactsByPurchasedBrandRanked } from "@/lib/page-data/contact-bran
 import { findContactsByPurchasedItemRanked } from "@/lib/customer-insight/item-filter";
 import { findContactsByPurchasedItemStatusRanked } from "@/lib/customer-insight/item-status-filter";
 import { resolveAssignedMerchantFilterLabels } from "@/lib/customer-insight/merchant-label-aliases";
+import { firstPurchaseAtByContactIds } from "@/lib/customer-insight/first-purchase";
 import { prisma } from "@/lib/prisma";
 
 export type MonthDay = { month: number; day: number };
@@ -126,6 +131,8 @@ export type FilterQueryInput = {
   purchasedFrom?: string;
   /** Last purchase on or before this Colombo calendar day (YYYY-MM-DD). */
   purchasedTo?: string;
+  /** ContactMaster.category — latest call update status. */
+  callUpdateStatus?: string;
   page: number;
   pageSize: number;
   /** When true, return all matches instead of one page. */
@@ -320,6 +327,7 @@ type ContactCandidate = {
   loyaltyAssignedAt: Date | null;
   loyaltyAssignedTier: string | null;
   loyaltyOutreachStatus: string | null;
+  category: string | null;
   osRegistrationCreated: boolean;
   phones: { phoneNumber: string }[];
   emails: { email: string }[];
@@ -377,6 +385,16 @@ async function buildAllocationWhere(input: FilterQueryInput): Promise<{
         ? [where.AND]
         : [];
     where.AND = [...existingAnd, { loyaltyOutreachStatus: "not_interested" }];
+  }
+
+  const callUpdateStatus = callUpdateStatusMatch(input.callUpdateStatus);
+  if (callUpdateStatus) {
+    const existingAnd = Array.isArray(where.AND)
+      ? (where.AND as unknown[])
+      : where.AND
+        ? [where.AND]
+        : [];
+    where.AND = [...existingAnd, callUpdateStatus];
   }
 
   const purchasedBounds = purchasedAtBounds(
@@ -653,6 +671,7 @@ export async function filterAllocatedContacts(
     loyaltyAssignedAt: true,
     loyaltyAssignedTier: true,
     loyaltyOutreachStatus: true,
+    category: true,
     osRegistrationCreated: true,
     phones: { select: { phoneNumber: true } },
     emails: { select: { email: true } },
@@ -755,6 +774,7 @@ export async function filterAllocatedContacts(
     assignedMerchant: string | null;
     lastPurchaseAt: Date | null;
     lastContactedAt: Date | null;
+    callUpdateStatus: string;
     key: LoyaltyTierKey;
     loyaltyOutreachStatus: string | null;
     osRegKind: "new" | "already_registered" | null;
@@ -792,6 +812,7 @@ export async function filterAllocatedContacts(
       assignedMerchant: contact.assignedMerchant,
       lastPurchaseAt: contact.lastPurchaseAt,
       lastContactedAt: contacted.get(contact.id) ?? null,
+      callUpdateStatus: displayCallCenterCategory(contact.category),
       key,
       loyaltyOutreachStatus: contact.loyaltyOutreachStatus,
       osRegKind: osRegScopeActive
@@ -822,6 +843,10 @@ export async function filterAllocatedContacts(
   const exportRows = input.forExport ? scored : null;
   const start = (input.page - 1) * input.pageSize;
   const pageItems = exportRows ?? scored.slice(start, start + input.pageSize);
+  const firstPurchaseById = await firstPurchaseAtByContactIds(
+    input.companyId,
+    pageItems.map((row) => row.contactId)
+  );
 
   return {
     items: pageItems.map((row) => {
@@ -839,7 +864,9 @@ export async function filterAllocatedContacts(
         },
         assignedMerchant: row.assignedMerchant,
         lastPurchaseAt: row.lastPurchaseAt?.toISOString() ?? null,
+        firstPurchaseAt: firstPurchaseById.get(row.contactId)?.toISOString() ?? null,
         lastContactedAt: row.lastContactedAt?.toISOString() ?? null,
+        callUpdateStatus: row.callUpdateStatus,
         loyaltyOutreachStatus: row.loyaltyOutreachStatus,
         loyaltyStage: loyaltyOutreachStageLabel(row.loyaltyOutreachStatus) || null,
         osRegKind: row.osRegKind,

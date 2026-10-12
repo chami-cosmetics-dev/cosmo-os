@@ -13,6 +13,9 @@ describe("reminder-permissions helpers", () => {
     expect(reminderPermissionForCategory("merchant_payment_approval")).toBe(
       "reminders.merchant_payment_approval",
     );
+    expect(reminderPermissionForCategory("merchant_dispatch_pending")).toBe(
+      "reminders.merchant_dispatch_pending",
+    );
     expect(reminderPermissionForCategory("print")).toBe("reminders.print");
   });
 
@@ -24,6 +27,11 @@ describe("reminder-permissions helpers", () => {
       buildReminderBubblePermissionDescription("merchant_payment_approval"),
     ).toBe(
       "Show My payment approvals reminder bubble (must be granted explicitly)",
+    );
+    expect(
+      buildReminderBubblePermissionDescription("merchant_dispatch_pending"),
+    ).toBe(
+      "Show My dispatch pending orders reminder bubble (must be granted explicitly)",
     );
   });
 });

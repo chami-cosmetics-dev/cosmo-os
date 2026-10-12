@@ -2,8 +2,10 @@ import "server-only";
 
 import { getAllOsfErpInstances, OsfErpError, type OsfErpCredentials } from "@/lib/osf/erp-stock";
 import { isExcludedErpCompany } from "@/lib/vault-osf/types";
+import { erpOrderHints } from "@/lib/wishlist-buddy/config";
 import {
   buildInstanceStockSources,
+  orderInstancesByLabel,
   sortStockSources,
   type ErpBinRow,
   type ErpWarehouseRow,
@@ -12,7 +14,7 @@ import {
 
 const ERP_TIMEOUT_MS = 15_000;
 
-async function erpGetJson<T>(cfg: OsfErpCredentials, path: string): Promise<T> {
+export async function erpGetJson<T>(cfg: OsfErpCredentials, path: string): Promise<T> {
   const res = await fetch(`${cfg.baseUrl}${path}`, {
     headers: {
       Authorization: `token ${cfg.apiKey}:${cfg.apiSecret}`,
@@ -72,8 +74,13 @@ export async function lookupStockAcrossErps(input: {
   companyId: string;
   itemCode: string;
   excludeWarehouses?: string[];
+  /** Listed first, in this order (e.g. Main Warehouse - Cosmo for staff requests). */
+  priorityWarehouses?: string[];
 }): Promise<StockLookupResult> {
-  const instances = await getAllOsfErpInstances(input.companyId);
+  const instances = orderInstancesByLabel(
+    await getAllOsfErpInstances(input.companyId),
+    erpOrderHints(process.env.WISHLIST_BUDDY_ERP_ORDER),
+  );
   const result: StockLookupResult = { sources: [], failedInstances: [] };
 
   await Promise.all(
@@ -114,6 +121,7 @@ export async function lookupStockAcrossErps(input: {
   result.sources = sortStockSources(
     result.sources,
     instances.map((i) => i.id),
+    input.priorityWarehouses ?? [],
   );
   return result;
 }

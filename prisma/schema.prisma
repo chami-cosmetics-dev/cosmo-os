@@ -111,6 +111,8 @@ model Company {
   itemCreationRequests            ItemCreationRequest[]
   itemCreationStockReceipts       ItemCreationStockReceipt[]
   stockRequests                   StockRequest[]
+  materialTransfers               MaterialTransfer[]
+  riderFinanceCashReceipts        RiderFinanceCashReceipt[]
 }
 
 model PrintFormat {
@@ -274,6 +276,10 @@ model ProductItem {
   erp1ProductPriority             String?
   /// Raw Product Priority from Cosmetics.lk ERP2 (Manufacturing tab)
   erp2ProductPriority             String?
+  /// Item Manufacturing Tax Status from ERP1 (`Vat` / `Non Vat` / `Vat / Non Vat`)
+  erp1TaxStatus                   String?
+  /// Item Manufacturing Tax Status from ERP2 (`Vat` / `Non Vat` / `Vat / Non Vat`)
+  erp2TaxStatus                   String?
   erpPrioritySyncedAt             DateTime?
   inventoryQuantity               Int                       @default(0)
   createdAt                       DateTime                  @default(now())
@@ -563,6 +569,8 @@ model User {
   createdCompany                         Company?                       @relation("CompanyCreator")
   defaultMerchantLocations               CompanyLocation[]              @relation("LocationDefaultMerchant")
   employeeProfile                        EmployeeProfile?
+  materialTransfersCreated               MaterialTransfer[]             @relation("MaterialTransferCreatedBy")
+  materialTransfersReceived              MaterialTransfer[]             @relation("MaterialTransferReceivedBy")
   invitesSent                            Invite[]                       @relation("InvitedBy")
   assignedOrders                         Order[]                        @relation("OrderAssignedMerchant")
   ordersDeliveryCompleteBy               Order[]                        @relation("OrderDeliveryCompleteBy")
@@ -605,6 +613,8 @@ model User {
   notifications                          Notification[]
   receivedCashHandovers                  RiderCashHandover[]            @relation("RiderCashHandoverReceivedBy")
   riderCashHandovers                     RiderCashHandover[]            @relation("RiderCashHandovers")
+  financeCashReceiptsAsRider             RiderFinanceCashReceipt[]      @relation("RiderFinanceCashReceiptRider")
+  financeCashReceiptsReceived            RiderFinanceCashReceipt[]      @relation("RiderFinanceCashReceiptReceivedBy")
   riderDeliveryTasks                     RiderDeliveryTask[]            @relation("RiderDeliveryTaskRider")
   riderDeliveryTasksManualIncentive      RiderDeliveryTask[]            @relation("RiderDeliveryTaskManualIncentiveBy")
   userRoles                              UserRole[]
@@ -625,6 +635,7 @@ model User {
   financeScopes                          UserFinanceScope[]
   abandonedCheckoutFollowUps             ShopifyAbandonedCheckout[]     @relation("ShopifyAbandonedCheckoutFollowUpBy")
   stockRequestActions                    StockRequest[]                 @relation("StockRequestLastActionBy")
+  stockRequestsCreated                   StockRequest[]                 @relation("StockRequestCreatedBy")
   bookNoteDaysCreated                    BookNoteDay[]                  @relation("BookNoteDayCreatedBy")
   bookNoteDaysUpdated                    BookNoteDay[]                  @relation("BookNoteDayUpdatedBy")
   merchantMonthlyTargets                 MerchantMonthlyTarget[]        @relation("MerchantMonthlyTargetUser")
@@ -1413,6 +1424,8 @@ model RiderDeliveryTask {
   /// Staff-picked district for rider pay when auto shipping-label match fails.
   manualIncentiveLabelKey   String?
   manualIncentiveLabel      String?
+  /// Staff-typed rider pay when no district on the charge sheet fits.
+  manualIncentiveAmount     Decimal?                @db.Decimal(12, 2)
   manualIncentiveSetAt      DateTime?
   manualIncentiveSetById    String?
   createdAt                 DateTime                @default(now())
@@ -1534,6 +1547,26 @@ model RiderCashHandoverItem {
 
   @@unique([handoverId, companyLocationId])
   @@index([handoverId])
+}
+
+/// Finance accepted a printed rider cash slip for one rider and date range.
+model RiderFinanceCashReceipt {
+  id            String   @id @default(cuid())
+  companyId     String
+  riderId       String
+  periodFrom    DateTime @db.Date
+  periodTo      DateTime @db.Date
+  receivedById  String
+  receivedAt    DateTime @default(now())
+  companyTotals Json
+  fullTotal     Decimal  @db.Decimal(12, 2)
+  createdAt     DateTime @default(now())
+  company       Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  rider         User     @relation("RiderFinanceCashReceiptRider", fields: [riderId], references: [id], onDelete: Restrict)
+  receivedBy    User     @relation("RiderFinanceCashReceiptReceivedBy", fields: [receivedById], references: [id], onDelete: Restrict)
+
+  @@index([companyId, riderId, periodFrom, periodTo])
+  @@index([receivedById])
 }
 
 model OrderLineItem {
@@ -2077,7 +2110,8 @@ model ContactMaster {
   town                     String?
   origin                   String?
   customerType             String?
-  category                 String?
+  /// Call outcome. N/A means never contacted.
+  category                 String?                   @default("N/A")
   loyaltyAssignedTier      String?
   loyaltyAssignedAt        DateTime?
   loyaltyAssignedByUserId  String?
@@ -2943,6 +2977,49 @@ model OsfUserColumnAccess {
   @@index([userId])
 }
 
+enum MaterialTransferStatus {
+  sent
+  received
+}
+
+model MaterialTransfer {
+  id               String                 @id @default(cuid())
+  companyId        String
+  slot             String
+  erpName          String
+  erpCompany       String
+  sourceWarehouse  String
+  targetWarehouse  String
+  status           MaterialTransferStatus @default(sent)
+  createdByUserId  String?
+  receivedByUserId String?
+  receivedAt       DateTime?
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+  company          Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdBy        User?                  @relation("MaterialTransferCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  receivedBy       User?                  @relation("MaterialTransferReceivedBy", fields: [receivedByUserId], references: [id], onDelete: SetNull)
+  lines            MaterialTransferLine[]
+
+  @@unique([companyId, slot, erpName])
+  @@index([companyId, createdAt(sort: Desc)])
+  @@index([companyId, targetWarehouse, status])
+}
+
+model MaterialTransferLine {
+  id           String           @id @default(cuid())
+  transferId   String
+  itemCode     String
+  itemName     String
+  barcode      String           @default("")
+  uom          String           @default("Nos")
+  sentQty      Int
+  receivedQty  Int              @default(0)
+  transfer     MaterialTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+
+  @@index([transferId])
+}
+
 model StoreStockCountReport {
   id                String                      @id @default(cuid())
   companyId         String
@@ -3117,6 +3194,9 @@ model BookNoteRow {
   /// KOKO order id when the amount is typed in the KOKO column (not split lines).
   kokoReference       String?
   koko                Decimal     @db.Decimal(12, 2)
+  /// MintPay Order ID when the amount is typed in the MintPay column (not split lines).
+  mintpayReference    String?
+  mintpay             Decimal     @default(0) @db.Decimal(12, 2)
   bankTransfer        Decimal     @db.Decimal(12, 2)
   /// Free-text bank-recon note for this invoice line (ERP special_note, max 1500).
   specialNote         String?
@@ -3212,10 +3292,11 @@ model StockRequest {
   id                      String    @id @default(cuid())
   companyId               String
   companyLocationId       String?
-  /// Shop subdomain only (e.g. `cosmetics-lk`).
-  shopifyStoreHandle      String
-  /// Numeric Shopify IDs (not GIDs).
-  shopifyVariantId        String
+  /// Shop subdomain only (e.g. `cosmetics-lk`). Null for staff-created requests.
+  shopifyStoreHandle      String?
+  /// Numeric Shopify IDs (not GIDs). Variant is null for imported requests whose SKU is not in the
+  /// Cosmo product list.
+  shopifyVariantId        String?
   shopifyProductId        String?
   shopifyInventoryItemId  String?
   shopifyCustomerId       String?
@@ -3226,9 +3307,21 @@ model StockRequest {
   productUrl              String?
   shopName                String?
   customerName            String
-  customerEmail           String
+  /// At least one of email / phone is set (imported requests may have only one).
+  customerEmail           String?
   /// ERP-safe local format (0XXXXXXXXX).
-  customerPhone           String
+  customerPhone           String?
+  /// shopify (storefront form) | import (e.g. Restock Rocket export) | staff (created in Cosmo OS)
+  source                  String    @default("shopify")
+  /// Staff requests: the Cosmo OS user who created it (sees it under "My requests").
+  createdById             String?
+  /// Staff requests: no stock anywhere at creation, so a restock in any ERP warehouse should remind
+  /// the creator and email the customer.
+  awaitingStock           Boolean   @default(false)
+  /// Staff requests: first warehouse with stock when the ERP restock was detected.
+  restockedWarehouse      String?
+  /// Idempotency key for imports (e.g. restockrocket:<contact>|<sku>).
+  externalRef             String?
   /// new | contacted | order_placed | not_interested
   status                  String    @default("new")
   remark                  String?
@@ -3242,6 +3335,8 @@ model StockRequest {
   availabilityEmailSentAt DateTime?
   restockEmailSentAt      DateTime?
   restockEmailError       String?
+  /// When Shopify inventory came back while the request was open (set even without an email).
+  restockedAt             DateTime?
   lastActionById          String?
   lastActionAt            DateTime?
   createdAt               DateTime  @default(now())
@@ -3249,8 +3344,13 @@ model StockRequest {
 
   company      Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
   lastActionBy User?   @relation("StockRequestLastActionBy", fields: [lastActionById], references: [id], onDelete: SetNull)
+  createdBy    User?   @relation("StockRequestCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
 
   @@index([companyId, status, createdAt(sort: Desc)])
   @@index([companyId, shopifyVariantId, customerPhone])
   @@index([shopifyInventoryItemId, restockEmailSentAt])
+  @@unique([companyId, externalRef])
+  @@index([shopifyStoreHandle, sku])
+  @@index([companyId, source, createdById, createdAt(sort: Desc)])
+  @@index([source, awaitingStock, restockedAt])
 }

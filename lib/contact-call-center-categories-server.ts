@@ -1,7 +1,8 @@
 import "server-only";
 
 import {
-  CALL_CENTER_CATEGORY_VALUES,
+  CALL_CENTER_OUTCOME_VALUES,
+  CALL_CENTER_UNCONTACTED_CATEGORY,
   sortCallCenterCategories,
 } from "@/lib/contact-call-center-categories";
 import { prisma } from "@/lib/prisma";
@@ -13,8 +14,16 @@ import { prisma } from "@/lib/prisma";
 export async function ensureDefaultCallCenterCategories(
   companyId: string,
 ): Promise<string[]> {
+  await prisma.contactAllocationOption.deleteMany({
+    where: {
+      companyId,
+      type: "category",
+      value: CALL_CENTER_UNCONTACTED_CATEGORY,
+    },
+  });
+
   await prisma.contactAllocationOption.createMany({
-    data: CALL_CENTER_CATEGORY_VALUES.map((value) => ({
+    data: CALL_CENTER_OUTCOME_VALUES.map((value) => ({
       companyId,
       type: "category",
       value,
@@ -27,5 +36,7 @@ export async function ensureDefaultCallCenterCategories(
     orderBy: { value: "asc" },
     select: { value: true },
   });
-  return sortCallCenterCategories(rows.map((r) => r.value));
+  return sortCallCenterCategories(rows.map((r) => r.value)).filter(
+    (value) => value !== CALL_CENTER_UNCONTACTED_CATEGORY,
+  );
 }

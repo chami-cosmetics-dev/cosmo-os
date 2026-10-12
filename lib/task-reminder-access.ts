@@ -126,6 +126,7 @@ const ALL_TASK_REMINDER_CATEGORIES = [
   "erp_sync_warning",
   "finance_approval",
   "merchant_payment_approval",
+  "merchant_dispatch_pending",
   "add_samples",
   "print",
   "ready_dispatch",
@@ -134,6 +135,7 @@ const ALL_TASK_REMINDER_CATEGORIES = [
   "invoice_complete",
   "return_action",
   "purchasing_rop_threshold",
+  "stock_request_restocked",
 ] as const satisfies readonly TaskReminderCategory[];
 
 export function listVisibleTaskReminderCategories(

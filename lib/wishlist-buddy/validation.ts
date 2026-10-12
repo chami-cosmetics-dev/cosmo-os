@@ -49,9 +49,43 @@ export type StockRequestPatchBody = z.infer<typeof stockRequestPatchBodySchema>;
 export const STOCK_REQUEST_LIST_FILTERS = ["open", ...STOCK_REQUEST_STATUSES] as const;
 export type StockRequestListFilter = (typeof STOCK_REQUEST_LIST_FILTERS)[number];
 
+/**
+ * Stock filter: found = stock in another warehouse (call now), restocked = Shopify restocked while
+ * open, none = no stock anywhere, error = stock check failed.
+ */
+export const STOCK_REQUEST_STOCK_FILTERS = ["found", "restocked", "none", "error"] as const;
+export type StockRequestStockFilter = (typeof STOCK_REQUEST_STOCK_FILTERS)[number];
+
 export const stockRequestListQuerySchema = z.object({
   status: z.enum(STOCK_REQUEST_LIST_FILTERS).optional(),
+  stock: z.enum(STOCK_REQUEST_STOCK_FILTERS).optional(),
   search: z.string().trim().max(100).optional(),
   page: z.coerce.number().int().min(1).optional(),
   limit: z.coerce.number().int().min(1).max(100).optional(),
 });
+
+/** Stock Requests tab: website requests, or the viewer's own Cosmo OS requests. */
+export const stockRequestScopeSchema = z.enum(["web", "mine"]).default("web");
+
+/** "New request" form on the My requests tab. Phone is required; email is optional. */
+export const staffStockRequestCreateBodySchema = z.object({
+  sku: z.string().trim().min(1, "Pick a product").max(100),
+  /** ERP item name, used when the SKU is not in the Cosmo product list. */
+  productTitle: z.string().trim().max(300).optional(),
+  customerName: z.string().trim().min(1, "Enter the customer's name").max(LIMITS.name.max),
+  customerPhone: z
+    .string()
+    .transform((v) => canonicalPhoneForErpCustomerId(v))
+    .refine((v): v is string => v !== null, "Enter a valid Sri Lankan phone number"),
+  customerEmail: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .max(LIMITS.email.max)
+    .optional()
+    .transform((v) => (v ? v : undefined))
+    .pipe(z.email("Enter a valid email address").optional()),
+  remark: z.string().trim().max(2000).optional(),
+});
+
+export type StaffStockRequestCreateBody = z.infer<typeof staffStockRequestCreateBodySchema>;

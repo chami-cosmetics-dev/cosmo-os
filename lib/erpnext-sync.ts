@@ -36,6 +36,11 @@ import {
 } from "@/lib/failed-erp-pe-sync";
 import { retryTransientErpOperation } from "@/lib/erpnext-transient-retry";
 import {
+  selectCanonicalSalesInvoice,
+  unpaidDuplicateSalesInvoices,
+  type SalesInvoicePoCandidate,
+} from "@/lib/erp-duplicate-sales-invoice";
+import {
   ERP_WHOLESALE_CUSTOMER_GROUP,
   isWholesaleTrackingCode,
 } from "@/lib/merchant-wholesale";
@@ -399,6 +404,10 @@ type CreateErpSalesInvoiceOpts = {
   skipMerchantRetry?: boolean;
   /** Internal guard: prevents the custom_payment_type fallback retry from firing recursively. */
   skipPaymentTypeRetry?: boolean;
+  /** Re-correct flow may post another SI after the previous one was cancelled. */
+  allowAnotherForPo?: boolean;
+  /** Submitted SI names already on this PO when this create attempt started. */
+  poInvoiceNames?: Set<string>;
 };
 
 function withCouponDiscountFallback(
@@ -495,26 +504,151 @@ async function erpnextSubmitSalesInvoice(cfg: ErpConfig, name: string): Promise<
   }
 }
 
+type SubmittedSalesInvoiceForPo = SalesInvoicePoCandidate & {
+  debit_to: string;
+  customer: string;
+};
+
+async function listSubmittedSalesInvoicesForPo(
+  cfg: ErpConfig,
+  poNo: string,
+  company: string,
+): Promise<SubmittedSalesInvoiceForPo[]> {
+  const filters = encodeURIComponent(
+    JSON.stringify([
+      ["po_no", "=", poNo],
+      ["company", "=", company],
+      ["docstatus", "=", 1],
+      ["is_return", "=", 0],
+    ]),
+  );
+  const fields = encodeURIComponent(
+    JSON.stringify(["name", "outstanding_amount", "grand_total", "debit_to", "customer", "creation"]),
+  );
+  const list = await erpnextGet<SubmittedSalesInvoiceForPo[]>(
+    cfg,
+    `/api/resource/Sales Invoice?filters=${filters}&fields=${fields}&limit_page_length=20&order_by=${encodeURIComponent("creation asc")}`,
+  );
+  return list ?? [];
+}
+
+function salesInvoiceCreateResult(
+  row: SubmittedSalesInvoiceForPo,
+): ErpSalesInvoiceCreateResult {
+  return {
+    name: row.name,
+    debit_to: row.debit_to,
+    grand_total: Number(row.grand_total) || 0,
+  };
+}
+
+async function cancelUnpaidDuplicateSalesInvoice(cfg: ErpConfig, invoiceName: string): Promise<void> {
+  const res = await fetch(`${cfg.baseUrl}/api/method/frappe.client.cancel`, {
+    method: "POST",
+    headers: authHeaders(cfg),
+    body: JSON.stringify({ doctype: "Sales Invoice", name: invoiceName }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`ERPNext cancel Sales Invoice ${invoiceName} [${res.status}]: ${text.slice(0, 500)}`);
+  }
+  console.log(`[ERPNext] Cancelled unpaid duplicate Sales Invoice ${invoiceName}`);
+}
+
+/** Keep the paid SI for this PO and cancel fully unpaid copies with the same total. */
+async function adoptSubmittedSalesInvoiceForPo(
+  cfg: ErpConfig,
+  poNo: string,
+  company: string,
+): Promise<SubmittedSalesInvoiceForPo | null> {
+  const rows = await listSubmittedSalesInvoicesForPo(cfg, poNo, company);
+  const canonical = selectCanonicalSalesInvoice(rows);
+  if (!canonical) return null;
+
+  for (const extra of unpaidDuplicateSalesInvoices(rows)) {
+    try {
+      await cancelUnpaidDuplicateSalesInvoice(cfg, extra.name);
+    } catch (err) {
+      console.error(
+        `[ERPNext] Failed to cancel duplicate Sales Invoice ${extra.name} for po_no=${poNo}`,
+        err,
+      );
+    }
+  }
+
+  return rows.find((row) => row.name === canonical.name) ?? null;
+}
+
+async function attachPoInvoiceSnapshot(
+  cfg: ErpConfig,
+  body: Record<string, unknown>,
+  opts?: CreateErpSalesInvoiceOpts,
+): Promise<CreateErpSalesInvoiceOpts> {
+  if (opts?.poInvoiceNames) return opts;
+  const poNo = typeof body.po_no === "string" ? body.po_no.trim() : "";
+  const company = typeof body.company === "string" ? body.company.trim() : "";
+  const names = new Set<string>();
+  if (poNo && company && Number(body.is_return) !== 1) {
+    const rows = await listSubmittedSalesInvoicesForPo(cfg, poNo, company);
+    for (const row of rows) names.add(row.name);
+  }
+  return { ...opts, poInvoiceNames: names };
+}
+
+async function insertSalesInvoiceOrReuse(
+  cfg: ErpConfig,
+  body: Record<string, unknown>,
+  opts: CreateErpSalesInvoiceOpts | undefined,
+): Promise<ErpSalesInvoiceCreateResult> {
+  const poNo = typeof body.po_no === "string" ? body.po_no.trim() : "";
+  const company = typeof body.company === "string" ? body.company.trim() : "";
+  const submitting = Number(body.docstatus) === 1 && Number(body.is_return) !== 1;
+  if (submitting && poNo && company) {
+    const rows = await listSubmittedSalesInvoicesForPo(cfg, poNo, company);
+    const known = opts?.poInvoiceNames ?? new Set<string>();
+    const fresh = rows.filter((row) => !known.has(row.name));
+    if (fresh.length > 0) {
+      const picked = selectCanonicalSalesInvoice(fresh);
+      if (picked) {
+        console.warn(
+          `[ERPNext] Sales Invoice ${picked.name} already submitted for po_no=${poNo} during this attempt — not creating another`,
+        );
+        const row = fresh.find((item) => item.name === picked.name);
+        if (row) return salesInvoiceCreateResult(row);
+      }
+    }
+    if (!opts?.allowAnotherForPo && rows.length > 0) {
+      const adopted = await adoptSubmittedSalesInvoiceForPo(cfg, poNo, company);
+      if (adopted) {
+        console.warn(
+          `[ERPNext] Sales Invoice ${adopted.name} already submitted for po_no=${poNo} — not creating another`,
+        );
+        return salesInvoiceCreateResult(adopted);
+      }
+    }
+  }
+
+  return erpnextPost<ErpSalesInvoiceCreateResult>(cfg, "/api/resource/Sales Invoice", body);
+}
+
 async function postErpSalesInvoiceCreate(
   cfg: ErpConfig,
   siBody: Record<string, unknown>,
   opts?: CreateErpSalesInvoiceOpts,
 ): Promise<ErpSalesInvoiceCreateResult> {
+  opts = await attachPoInvoiceSnapshot(cfg, siBody, opts);
   // Keep cents on SI total/outstanding so PE matches grand_total (not rounded whole LKR).
   const body: Record<string, unknown> = {
     ...siBody,
     disable_rounded_total: siBody.disable_rounded_total ?? 1,
   };
   try {
-    return await erpnextPost<ErpSalesInvoiceCreateResult>(cfg, "/api/resource/Sales Invoice", body);
+    return await insertSalesInvoiceOrReuse(cfg, body, opts);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes("417") && msg.includes("shipping_rule") && cfg.shippingRule) {
       console.warn("[ERPNext] SI creation failed — mandatory shipping_rule, retrying with rule:", msg.slice(0, 200));
-      return erpnextPost<ErpSalesInvoiceCreateResult>(cfg, "/api/resource/Sales Invoice", {
-        ...body,
-        shipping_rule: cfg.shippingRule,
-      });
+      return insertSalesInvoiceOrReuse(cfg, { ...body, shipping_rule: cfg.shippingRule }, opts);
     }
     if (!opts?.skipPaymentTypeRetry && msg.includes("417") && msg.includes("custom_payment_type") && !body.custom_payment_type) {
       console.warn(`[ERPNext] SI creation failed — custom_payment_type mandatory but unresolved, retrying with codMop fallback: ${msg.slice(0, 200)}`);
@@ -583,7 +717,7 @@ async function postErpSalesInvoiceCreate(
     if (cfg.taxesAndCharges && msg.includes("417")) {
       console.warn("[ERPNext] SI creation failed — retrying without taxes_and_charges:", msg.slice(0, 200));
       const { taxes_and_charges: _t, ...siBodyClean } = body;
-      return erpnextPost<ErpSalesInvoiceCreateResult>(cfg, "/api/resource/Sales Invoice", siBodyClean);
+      return insertSalesInvoiceOrReuse(cfg, siBodyClean, opts);
     }
     if (msg.includes("payment_terms") && !("payment_terms_template" in body)) {
       console.warn("[ERPNext] SI creation failed — payment_terms error (customer has broken template), retrying with cleared payment_terms_template:", msg.slice(0, 200));
@@ -1062,8 +1196,45 @@ export function isUsableErpSalesInvoiceId(value: string | null | undefined): boo
   return isUsableErpInvoiceId(value);
 }
 
+async function findExistingReceivePaymentEntry(
+  cfg: ErpConfig,
+  invoiceName: string,
+  orderId?: string,
+): Promise<string | null> {
+  if (orderId) {
+    const stored = await prisma.orderPaymentEntry.findFirst({
+      where: { orderId, paymentType: "Receive" },
+      select: { paymentEntryId: true },
+    });
+    const storedName = stored?.paymentEntryId?.trim();
+    if (storedName) return storedName;
+  }
+
+  try {
+    const filters = encodeURIComponent(
+      JSON.stringify([
+        ["docstatus", "=", 1],
+        ["payment_type", "=", "Receive"],
+        ["Payment Entry Reference", "reference_doctype", "=", "Sales Invoice"],
+        ["Payment Entry Reference", "reference_name", "=", invoiceName],
+      ]),
+    );
+    const fields = encodeURIComponent(JSON.stringify(["name"]));
+    const rows = await erpnextGet<Array<{ name: string }>>(
+      cfg,
+      `/api/resource/Payment Entry?filters=${filters}&fields=${fields}&limit=1`,
+    );
+    const name = rows?.[0]?.name?.trim();
+    return name || null;
+  } catch (err) {
+    console.error("[ERPNext] existing Payment Entry lookup failed:", err);
+    return null;
+  }
+}
+
 export async function createDeliveryPaymentEntry(
   order: {
+    id?: string;
     name: string | null;
     shopifyOrderId: string;
     sourceName: string | null;
@@ -1083,6 +1254,7 @@ export async function createDeliveryPaymentEntry(
 
 async function createDeliveryPaymentEntryOnce(
   order: {
+    id?: string;
     name: string | null;
     shopifyOrderId: string;
     sourceName: string | null;
@@ -1176,6 +1348,16 @@ async function createDeliveryPaymentEntryOnce(
     }
     console.warn(`[ERPNext] No submitted Sales Invoice for "${label}" — skipping delivery PE`);
     return { outcome: "skipped" };
+  }
+
+  if (options?.paidAmount == null) {
+    const existingPe = await findExistingReceivePaymentEntry(cfg, invoice.name, order.id);
+    if (existingPe) {
+      console.log(
+        `[ERPNext] Sales Invoice ${invoice.name} already has Payment Entry ${existingPe} — skipping a second PE`,
+      );
+      return { outcome: "already_paid", paymentEntryName: existingPe };
+    }
   }
 
   if (invoice.outstanding_amount <= 0) {
@@ -2213,22 +2395,15 @@ export async function syncOrderToERPNext(
 
   const orderPoNo = (order.name ?? order.shopifyOrderId).slice(0, 140);
 
-  const existingFilter = encodeURIComponent(
-    JSON.stringify([
-      ["po_no", "=", orderPoNo],
-      ["company", "=", location.erpnextCompany],
-      ["docstatus", "=", 1],
-    ]),
-  );
-  const existingFields = encodeURIComponent(JSON.stringify(["name"]));
   if (!options?.forceNewInvoice) {
-    const existingSI = await erpnextGet<Array<{ name: string }>>(
+    const existingSI = await adoptSubmittedSalesInvoiceForPo(
       cfg,
-      `/api/resource/Sales Invoice?filters=${existingFilter}&fields=${existingFields}&limit=1`,
+      orderPoNo,
+      location.erpnextCompany,
     );
-    if (existingSI && existingSI.length > 0) {
-      console.log(`[ERPNext] Sales Invoice already exists for po_no="${orderPoNo}" — skipping creation`);
-      await prisma.order.update({ where: { id: order.id }, data: { erpnextInvoiceId: existingSI[0].name, ...ERP_SYNC_SUCCESS_CLEAR } });
+    if (existingSI) {
+      console.log(`[ERPNext] Sales Invoice ${existingSI.name} already exists for po_no="${orderPoNo}" — skipping creation`);
+      await prisma.order.update({ where: { id: order.id }, data: { erpnextInvoiceId: existingSI.name, ...ERP_SYNC_SUCCESS_CLEAR } });
       if (order.financialStatus === "paid") {
         await syncPaidGatewayPeAndMaybeCcInvoiceComplete({
           order: {
@@ -2238,7 +2413,7 @@ export async function syncOrderToERPNext(
             paymentGatewayPrimary: order.paymentGatewayPrimary,
             paymentGatewayNames: order.paymentGatewayNames,
             financialStatus: order.financialStatus,
-            erpnextInvoiceId: existingSI[0].name,
+            erpnextInvoiceId: existingSI.name,
           },
           location,
           paidAt: order.createdAt,
@@ -2427,6 +2602,7 @@ export async function syncOrderToERPNext(
     discountFallback: discountAmt > 0 ? discountAmt : undefined,
     couponLabel: erpCouponResolved.discountCodeLabel,
     netRateItems: useCouponPricing ? netRateItems : undefined,
+    allowAnotherForPo: Boolean(options?.forceNewInvoice),
   });
 
   const couponLabel = erpCouponFields.coupon_code ?? erpCouponResolved.discountCodeLabel;
@@ -2463,6 +2639,16 @@ export async function syncOrderToERPNext(
         dateStr,
       },
     });
+  }
+
+  if (!options?.forceNewInvoice) {
+    const adopted = await adoptSubmittedSalesInvoiceForPo(cfg, orderPoNo, location.erpnextCompany);
+    if (adopted && adopted.name !== si.name) {
+      await prisma.order.update({
+        where: { id: order.id },
+        data: { erpnextInvoiceId: adopted.name, ...ERP_SYNC_SUCCESS_CLEAR },
+      });
+    }
   }
 }
 
@@ -2512,23 +2698,16 @@ export async function syncOrderToERPNextFromOrder(order: OrderWithVaultData): Pr
 
   const orderPoNo = (order.name ?? order.shopifyOrderId).slice(0, 140);
 
-  const existingFilter = encodeURIComponent(
-    JSON.stringify([
-      ["po_no", "=", orderPoNo],
-      ["company", "=", erpnextCompany],
-      ["docstatus", "=", 1],
-    ]),
-  );
-  const existingFields = encodeURIComponent(JSON.stringify(["name"]));
-  const existingSI = await erpnextGet<Array<{ name: string }>>(
-    cfg,
-    `/api/resource/Sales Invoice?filters=${existingFilter}&fields=${existingFields}&limit=1`,
-  );
-  if (existingSI && existingSI.length > 0) {
-    console.log(`[ERPNext] Sales Invoice already exists for po_no="${orderPoNo}" — skipping creation`);
-    await prisma.order.update({ where: { id: order.id }, data: { erpnextInvoiceId: existingSI[0].name, ...ERP_SYNC_SUCCESS_CLEAR } });
+  const existingSI = await adoptSubmittedSalesInvoiceForPo(cfg, orderPoNo, erpnextCompany);
+  if (existingSI) {
+    console.log(`[ERPNext] Sales Invoice ${existingSI.name} already exists for po_no="${orderPoNo}" — skipping creation`);
+    await prisma.order.update({ where: { id: order.id }, data: { erpnextInvoiceId: existingSI.name, ...ERP_SYNC_SUCCESS_CLEAR } });
     if (order.financialStatus === "paid") {
-      await syncFinanceApprovedPrepaidPaymentToERPNext(order, location, order.createdAt);
+      await syncFinanceApprovedPrepaidPaymentToERPNext(
+        { ...order, erpnextInvoiceId: existingSI.name },
+        location,
+        order.createdAt,
+      );
     }
     return;
   }
@@ -2708,6 +2887,14 @@ export async function syncOrderToERPNextFromOrder(order: OrderWithVaultData): Pr
         amount: si.grand_total,
         dateStr,
       },
+    });
+  }
+
+  const adopted = await adoptSubmittedSalesInvoiceForPo(cfg, orderPoNo, erpnextCompany);
+  if (adopted && adopted.name !== si.name) {
+    await prisma.order.update({
+      where: { id: order.id },
+      data: { erpnextInvoiceId: adopted.name, ...ERP_SYNC_SUCCESS_CLEAR },
     });
   }
 }

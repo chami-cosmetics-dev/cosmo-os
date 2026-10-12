@@ -78,7 +78,11 @@ import {
   CONTACT_GENDER_OPTIONS,
   CONTACT_LANGUAGE_OPTIONS,
 } from "@/lib/customer-insight/contact-profile-options";
-import { CALL_CENTER_CATEGORY_VALUES } from "@/lib/contact-call-center-categories";
+import {
+  CALL_CENTER_CATEGORY_VALUES,
+  CALL_CENTER_OUTCOME_VALUES,
+  CALL_CENTER_UNCONTACTED_CATEGORY,
+} from "@/lib/contact-call-center-categories";
 import { formatAppDate, formatAppDateTime } from "@/lib/format-datetime";
 import { loyaltyProfileIncompleteMessage, getLoyaltyProfileMissingFields } from "@/lib/customer-insight/loyalty-profile-complete";
 import { notify } from "@/lib/notify";
@@ -302,7 +306,9 @@ type CallQueueRow = {
   assignedMerchant: string | null;
   lifetimeTotal: number;
   lastPurchaseAt: string | null;
+  firstPurchaseAt?: string | null;
   lastContactedAt: string | null;
+  callUpdateStatus?: string;
   queued: boolean;
   hidden?: boolean;
   hideReason?: string | null;
@@ -634,6 +640,7 @@ export function CustomerInsightPanel({
   const [filterPurchaseLocationId, setFilterPurchaseLocationId] = useState("");
   const [locationOptions, setLocationOptions] = useState<InsightSelectOption[]>([]);
   const [filterOsRegLocation, setFilterOsRegLocation] = useState("");
+  const [osRegAssignedMerchant, setOsRegAssignedMerchant] = useState("");
   const [osRegLocationOptions, setOsRegLocationOptions] = useState<InsightSelectOption[]>([]);
   const [osRegResults, setOsRegResults] = useState<AllocatedFilterItemDto[] | null>(
     null
@@ -655,6 +662,7 @@ export function CustomerInsightPanel({
   const [filterNoPurchaseTo, setFilterNoPurchaseTo] = useState("");
   const [filterPurchasedFrom, setFilterPurchasedFrom] = useState("");
   const [filterPurchasedTo, setFilterPurchasedTo] = useState("");
+  const [filterCallUpdateStatus, setFilterCallUpdateStatus] = useState("");
   const [filterMin, setFilterMin] = useState("");
   const [filterMax, setFilterMax] = useState("");
   const [filterResults, setFilterResults] = useState<AllocatedFilterItemDto[] | null>(
@@ -673,7 +681,9 @@ export function CustomerInsightPanel({
       outcome: string | null;
     }>
   >([]);
-  const [callOutcome, setCallOutcome] = useState<string>("N/A");
+  const [callOutcome, setCallOutcome] = useState<string>(
+    CALL_CENTER_UNCONTACTED_CATEGORY,
+  );
   const [contactRemark, setContactRemark] = useState("");
   const [notInterestedOpen, setNotInterestedOpen] = useState(false);
   const [notInterestedReason, setNotInterestedReason] = useState("");
@@ -714,6 +724,8 @@ export function CustomerInsightPanel({
   const [queueNotContacted, setQueueNotContacted] = useState(false);
   const [queueNotInterestedInLoyalty, setQueueNotInterestedInLoyalty] =
     useState(false);
+  const [queueNotAllocated, setQueueNotAllocated] = useState(false);
+  const [queueCallUpdateStatus, setQueueCallUpdateStatus] = useState("");
   const [queueHideFilter, setQueueHideFilter] = useState<"all" | "eligible" | "hidden">(
     "all"
   );
@@ -722,17 +734,22 @@ export function CustomerInsightPanel({
   const [queueEligibleTotal, setQueueEligibleTotal] = useState(0);
   const [queueAllocatedTotal, setQueueAllocatedTotal] = useState(0);
   const [queueReport, setQueueReport] = useState<{
+    mode?: "sales" | "unallocated";
+    total?: number;
     rows: Array<{
-      queueId: string;
+      queueId?: string;
+      contactId?: string;
       name: string;
       phoneNumber: string | null;
-      merchantLabel: string;
-      assignedAt: string;
-      status: string;
-      category: string | null;
-      lifetimeTotalAtAssign: number;
-      salesAfterAssignment: number;
-      salesAfterContact: number;
+      lastContactedAt?: string | null;
+      firstPurchaseAt?: string | null;
+      merchantLabel?: string;
+      assignedAt?: string;
+      status?: string;
+      category?: string | null;
+      lifetimeTotalAtAssign?: number;
+      salesAfterAssignment?: number;
+      salesAfterContact?: number;
       loyaltyStage?: string | null;
     }>;
     byMerchant: Array<{
@@ -743,6 +760,7 @@ export function CustomerInsightPanel({
       salesAfterContact: number;
     }>;
   } | null>(null);
+  const [loyaltyAssignedMerchant, setLoyaltyAssignedMerchant] = useState("");
   const [loyaltyEligibleSummary, setLoyaltyEligibleSummary] = useState<{
     company: { pending: number; mtdUpdated: number };
     merchants: Array<{
@@ -791,6 +809,7 @@ export function CustomerInsightPanel({
     | "over-365"
     | "custom";
 
+  const [purchaseAssignedMerchant, setPurchaseAssignedMerchant] = useState("");
   const [purchasePreset, setPurchasePreset] = useState<PurchaseCountPreset>("today");
   const [purchaseCustomFrom, setPurchaseCustomFrom] = useState("");
   const [purchaseCustomTo, setPurchaseCustomTo] = useState("");
@@ -1208,6 +1227,10 @@ export function CustomerInsightPanel({
     }
     if (queueNotContacted) params.set("notContacted", "true");
     if (queueNotInterestedInLoyalty) params.set("notInterestedInLoyalty", "true");
+    if (queueNotAllocated) params.set("notAllocated", "true");
+    if (queueCallUpdateStatus.trim()) {
+      params.set("callUpdateStatus", queueCallUpdateStatus.trim());
+    }
     params.set("hideFilter", queueHideFilter);
   }
 
@@ -1238,7 +1261,9 @@ export function CustomerInsightPanel({
       Boolean(queueAssignedFrom.trim()) ||
       Boolean(queueAssignedTo.trim()) ||
       queueNotContacted ||
-      queueNotInterestedInLoyalty;
+      queueNotInterestedInLoyalty ||
+      queueNotAllocated ||
+      Boolean(queueCallUpdateStatus.trim());
     if (!queueMerchant.trim() && !hasQueueFilter) {
       notify.error(
         "Select a merchant, or add a brand / other filter to load all allocated contacts."
@@ -1248,7 +1273,7 @@ export function CustomerInsightPanel({
     setBusyKey("queue-candidates");
     try {
       const params = new URLSearchParams();
-      if (queueMerchant.trim()) {
+      if (queueMerchant.trim() && !queueNotAllocated) {
         params.set("assignedMerchant", queueMerchant.trim());
       }
       params.set("page", String(page));
@@ -1331,14 +1356,16 @@ export function CustomerInsightPanel({
   }
 
   async function selectQueueEligibleCount(limit?: number) {
-    if (!queueMerchant.trim()) {
+    if (!queueMerchant.trim() && !queueNotAllocated) {
       notify.error("Select a merchant.");
       return;
     }
     setBusyKey("queue-eligible");
     try {
       const params = new URLSearchParams();
-      params.set("assignedMerchant", queueMerchant.trim());
+      if (queueMerchant.trim() && !queueNotAllocated) {
+        params.set("assignedMerchant", queueMerchant.trim());
+      }
       appendQueueFilterParams(params);
       if (limit != null) params.set("limit", String(limit));
       const res = await fetch(
@@ -1366,7 +1393,9 @@ export function CustomerInsightPanel({
     setBusyKey("queue-export");
     try {
       const params = new URLSearchParams();
-      if (queueMerchant.trim()) params.set("assignedMerchant", queueMerchant.trim());
+      if (queueMerchant.trim() && !queueNotAllocated) {
+        params.set("assignedMerchant", queueMerchant.trim());
+      }
       appendQueueFilterParams(params);
       params.set("kind", "filtered");
       const res = await fetch(
@@ -1481,8 +1510,12 @@ export function CustomerInsightPanel({
     if (!canExportFilteredCsv) return;
     setBusyKey("loyalty-eligible-summary");
     try {
+      const params = new URLSearchParams();
+      if (loyaltyAssignedMerchant.trim()) {
+        params.set("assignedMerchant", loyaltyAssignedMerchant.trim());
+      }
       const res = await fetch(
-        "/api/admin/customer-insight/loyalty-eligible/summary"
+        `/api/admin/customer-insight/loyalty-eligible/summary?${params.toString()}`
       );
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -1745,7 +1778,10 @@ export function CustomerInsightPanel({
 
   async function markContacted() {
     if (!selectedContactId) return;
-    if (!callOutcome.trim()) {
+    if (
+      !callOutcome.trim() ||
+      callOutcome === CALL_CENTER_UNCONTACTED_CATEGORY
+    ) {
       notify.error("Select a call outcome.");
       return;
     }
@@ -1923,6 +1959,9 @@ export function CustomerInsightPanel({
     if (filterPurchasedTo.trim()) {
       params.set("purchasedTo", filterPurchasedTo.trim());
     }
+    if (filterCallUpdateStatus.trim()) {
+      params.set("callUpdateStatus", filterCallUpdateStatus.trim());
+    }
     if (filterMin.trim()) params.set("minTotal", filterMin.trim());
     if (filterMax.trim()) params.set("maxTotal", filterMax.trim());
     params.set("page", String(page));
@@ -1968,6 +2007,9 @@ export function CustomerInsightPanel({
     const params = new URLSearchParams();
     if (filterOsRegLocation.trim()) {
       params.set("osRegLocation", filterOsRegLocation.trim());
+    }
+    if (osRegAssignedMerchant.trim()) {
+      params.set("assignedMerchant", osRegAssignedMerchant.trim());
     }
     if (forExport) {
       params.set("osRegCreated", "true");
@@ -2073,6 +2115,7 @@ export function CustomerInsightPanel({
         filterNoPurchaseTo.trim() ||
         filterPurchasedFrom.trim() ||
         filterPurchasedTo.trim() ||
+        filterCallUpdateStatus.trim() ||
         filterMin.trim() ||
         filterMax.trim() ||
         filterResults
@@ -2100,6 +2143,7 @@ export function CustomerInsightPanel({
     setFilterNoPurchaseTo("");
     setFilterPurchasedFrom("");
     setFilterPurchasedTo("");
+    setFilterCallUpdateStatus("");
     setFilterMin("");
     setFilterMax("");
     setFilterResults(null);
@@ -2308,6 +2352,22 @@ export function CustomerInsightPanel({
                 disabled={isBusy}
                 onChange={setFilterCity}
               />
+            </label>
+            <label className="space-y-1 text-sm">
+              <span className="text-muted-foreground">Call update status</span>
+              <select
+                className="border-input bg-background h-9 w-full rounded-md border px-2 text-sm"
+                value={filterCallUpdateStatus}
+                disabled={isBusy}
+                onChange={(e) => setFilterCallUpdateStatus(e.target.value)}
+              >
+                <option value="">Any</option>
+                {CALL_CENTER_CATEGORY_VALUES.map((status) => (
+                  <option key={status} value={status}>
+                    {status}
+                  </option>
+                ))}
+              </select>
             </label>
             {canExportFilteredCsv ? (
               <label className="space-y-1 text-sm">
@@ -2676,6 +2736,20 @@ export function CustomerInsightPanel({
                             {row.lastPurchaseAt
                               ? formatAppDate(row.lastPurchaseAt, "—")
                               : "never"}
+                          </span>
+                        </span>
+                        <span className="rounded-md bg-muted/60 px-2 py-1 text-[11px] text-muted-foreground">
+                          First purchased{" "}
+                          <span className="font-medium text-foreground">
+                            {row.firstPurchaseAt
+                              ? formatAppDate(row.firstPurchaseAt, "—")
+                              : "never"}
+                          </span>
+                        </span>
+                        <span className="rounded-md bg-muted/60 px-2 py-1 text-[11px] text-muted-foreground">
+                          Call status{" "}
+                          <span className="font-medium text-foreground">
+                            {row.callUpdateStatus}
                           </span>
                         </span>
                         <span className="rounded-md bg-muted/60 px-2 py-1 text-[11px] text-muted-foreground">
@@ -3879,7 +3953,12 @@ export function CustomerInsightPanel({
                         disabled={isBusy}
                         onChange={(e) => setCallOutcome(e.target.value)}
                       >
-                        {CALL_CENTER_CATEGORY_VALUES.map((opt) => (
+                        {callOutcome === CALL_CENTER_UNCONTACTED_CATEGORY ? (
+                          <option value={CALL_CENTER_UNCONTACTED_CATEGORY} hidden>
+                            {CALL_CENTER_UNCONTACTED_CATEGORY}
+                          </option>
+                        ) : null}
+                        {CALL_CENTER_OUTCOME_VALUES.map((opt) => (
                           <option key={opt} value={opt}>
                             {opt}
                           </option>
@@ -4100,7 +4179,8 @@ export function CustomerInsightPanel({
                         {row.phoneNumber ?? "No phone"} · tot {formatMoney(row.lifetimeTotal)}
                       </p>
                       <p className="text-muted-foreground text-xs">
-                        Last contacted {formatQueueDate(row.lastContactedAt)} · last purchased{" "}
+                        Last contacted {formatQueueDate(row.lastContactedAt)} · first purchased{" "}
+                        {formatQueueDate(row.firstPurchaseAt ?? null)} · last purchased{" "}
                         {formatQueueDate(row.lastPurchaseAt)}
                       </p>
                     </div>
@@ -4136,6 +4216,18 @@ export function CustomerInsightPanel({
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              <label className="min-w-0 space-y-1 text-sm">
+                <span className="text-muted-foreground">Allocated merchant</span>
+                <InsightSearchableSelect
+                  value={osRegAssignedMerchant}
+                  options={merchantOptions}
+                  placeholder="Any merchant"
+                  allLabel="Any merchant"
+                  searchPlaceholder="Search merchants…"
+                  disabled={isBusy}
+                  onChange={setOsRegAssignedMerchant}
+                />
+              </label>
               <label className="min-w-0 space-y-1 text-sm">
                 <span className="text-muted-foreground">New register location</span>
                 <InsightSearchableSelect
@@ -4478,7 +4570,13 @@ export function CustomerInsightPanel({
                     </tr>
                   </thead>
                   <tbody className="divide-y">
-                    {allocationSummary.rows.map((row) => (
+                    {allocationSummary.rows
+                      .filter((row) => {
+                        const pick = allocationContactsMerchant.trim();
+                        if (!pick) return true;
+                        return row.merchantValue === pick;
+                      })
+                      .map((row) => (
                       <tr
                         key={row.merchantValue}
                         className="cursor-pointer hover:bg-muted/40"
@@ -4580,6 +4678,18 @@ export function CustomerInsightPanel({
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="flex flex-wrap items-end gap-2">
+              <label className="min-w-[12rem] space-y-1 text-sm">
+                <span className="text-muted-foreground">Allocated merchant</span>
+                <InsightSearchableSelect
+                  value={purchaseAssignedMerchant}
+                  options={merchantOptions}
+                  placeholder="All merchants"
+                  allLabel="All merchants"
+                  searchPlaceholder="Search merchants…"
+                  disabled={isBusy}
+                  onChange={setPurchaseAssignedMerchant}
+                />
+              </label>
               <label className="space-y-1 text-sm">
                 <span className="text-muted-foreground">Range</span>
                 <select
@@ -4701,7 +4811,13 @@ export function CustomerInsightPanel({
                     </tr>
                   </thead>
                   <tbody className="divide-y">
-                    {purchaseCountSummary.rows.map((row) => (
+                    {purchaseCountSummary.rows
+                      .filter((row) => {
+                        const pick = purchaseAssignedMerchant.trim();
+                        if (!pick) return true;
+                        return row.merchantValue === pick;
+                      })
+                      .map((row) => (
                       <tr
                         key={row.merchantValue}
                         className="cursor-pointer hover:bg-muted/40"
@@ -4756,7 +4872,19 @@ export function CustomerInsightPanel({
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-end gap-2">
+              <label className="min-w-[12rem] space-y-1 text-sm">
+                <span className="text-muted-foreground">Allocated merchant</span>
+                <InsightSearchableSelect
+                  value={loyaltyAssignedMerchant}
+                  options={merchantOptions}
+                  placeholder="All merchants"
+                  allLabel="All merchants"
+                  searchPlaceholder="Search merchants…"
+                  disabled={isBusy}
+                  onChange={setLoyaltyAssignedMerchant}
+                />
+              </label>
               <Button
                 type="button"
                 size="sm"
@@ -4774,7 +4902,7 @@ export function CustomerInsightPanel({
               </Button>
               {loyaltyEligibleSummary ? (
                 <p className="text-sm">
-                  Company pending:{" "}
+                  {loyaltyAssignedMerchant.trim() ? "Pending" : "Company pending"}:{" "}
                   <span className="font-semibold tabular-nums">
                     {loyaltyEligibleSummary.company.pending.toLocaleString()}
                   </span>
@@ -4834,10 +4962,13 @@ export function CustomerInsightPanel({
             <CardDescription>
               Pick a merchant (or leave Any), then use any filter alone or together. Combined
               filters AND (Push to Gold + Push to Platinum = either band). Merchant Any =
-              all allocated contacts. Push labels do not show amounts. Hidden logic: purchased or contacted
+              all allocated contacts. Push labels do not show amounts. Hidden logic: contacted
               within 2 months, 7-day Not Responding, Black List / Wrong Number,
-              already queued (no allocation cooling). Export Excel downloads the filtered
-              allocated list (same filters as Load). Import Excel reallocates
+              already queued (no allocation cooling). Not allocated = no merchant, with a
+              phone. Export Excel downloads that filtered list (same filters as Load).
+              Export report is the sales report only.
+              Not contacted = no real call yet (allocation does not count). Assigned
+              from/to limits to queue rows in that range. Import Excel reallocates
               Contact Master to the merchant, queues them, and shows Newly
               allocated (hidden if contacted within 2 months). Call update
               clears the row and updates last contacted. Assign / Import still need a merchant.
@@ -4874,6 +5005,22 @@ export function CustomerInsightPanel({
                   <option value="standard">Standard</option>
                   <option value="gold">Gold</option>
                   <option value="platinum">Platinum</option>
+                </select>
+              </label>
+              <label className="min-w-0 space-y-1 text-sm">
+                <span className="text-muted-foreground">Call update status</span>
+                <select
+                  className="border-input bg-background h-9 w-full rounded-md border px-2 text-sm"
+                  value={queueCallUpdateStatus}
+                  disabled={isBusy}
+                  onChange={(e) => setQueueCallUpdateStatus(e.target.value)}
+                >
+                  <option value="">Any</option>
+                  {CALL_CENTER_CATEGORY_VALUES.map((status) => (
+                    <option key={status} value={status}>
+                      {status}
+                    </option>
+                  ))}
                 </select>
               </label>
               <label className="min-w-0 space-y-1 text-sm">
@@ -4998,6 +5145,15 @@ export function CustomerInsightPanel({
                   />
                   Not interested in loyalty
                 </label>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={queueNotAllocated}
+                    disabled={isBusy}
+                    onChange={(e) => setQueueNotAllocated(e.target.checked)}
+                  />
+                  Not allocated
+                </label>
               </div>
             </div>
             <div className="flex flex-wrap items-end gap-2">
@@ -5110,7 +5266,7 @@ export function CustomerInsightPanel({
                     queueAllocatedTotal > queueEligibleTotal ? (
                       <>
                         {" "}
-                        · rest hidden (purchased/contacted within 2 months, Not Responding
+                        · rest hidden (contacted within 2 months, Not Responding
                         7 days, already queued, Black List / Wrong Number)
                       </>
                     ) : null}
@@ -5239,7 +5395,9 @@ export function CustomerInsightPanel({
                               {formatMoney(row.lifetimeTotal)}
                             </span>
                             <span className="text-muted-foreground block text-xs">
-                              Last contacted {formatQueueDate(row.lastContactedAt)} · last
+                              Call status {row.callUpdateStatus ?? "N/A"} · Last contacted{" "}
+                              {formatQueueDate(row.lastContactedAt)} · first
+                              purchased {formatQueueDate(row.firstPurchaseAt ?? null)} · last
                               purchased {formatQueueDate(row.lastPurchaseAt)}
                               {row.loyaltyStage
                                 ? ` · ${row.loyaltyStage}`
@@ -5347,6 +5505,7 @@ export function CustomerInsightPanel({
                           <th className="px-2 py-1">Merchant</th>
                           <th className="px-2 py-1">Name</th>
                           <th className="px-2 py-1">Status</th>
+                          <th className="px-2 py-1">Call status</th>
                           <th className="px-2 py-1">Loyalty stage</th>
                           <th className="px-2 py-1 text-right">After assign</th>
                           <th className="px-2 py-1 text-right">After contact</th>
@@ -5354,21 +5513,22 @@ export function CustomerInsightPanel({
                       </thead>
                       <tbody>
                         {queueReport.rows.map((row) => (
-                          <tr key={row.queueId} className="border-t">
+                          <tr key={row.queueId ?? row.contactId ?? row.name} className="border-t">
                             <td className="px-2 py-1 whitespace-nowrap">
-                              {formatQueueDate(row.assignedAt)}
+                              {formatQueueDate(row.assignedAt ?? null)}
                             </td>
                             <td className="px-2 py-1">{row.merchantLabel}</td>
                             <td className="px-2 py-1">{row.name}</td>
                             <td className="px-2 py-1">{row.status}</td>
+                            <td className="px-2 py-1">{row.category?.trim() || "N/A"}</td>
                             <td className="px-2 py-1">
                               {row.loyaltyStage ?? "—"}
                             </td>
                             <td className="px-2 py-1 text-right">
-                              {formatMoney(row.salesAfterAssignment)}
+                              {formatMoney(row.salesAfterAssignment ?? 0)}
                             </td>
                             <td className="px-2 py-1 text-right">
-                              {formatMoney(row.salesAfterContact)}
+                              {formatMoney(row.salesAfterContact ?? 0)}
                             </td>
                           </tr>
                         ))}

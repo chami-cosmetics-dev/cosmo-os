@@ -55,6 +55,24 @@ function summarizePaymentGateway(value: string) {
   return trimmed;
 }
 
+/**
+ * Dump 2 completed_date / completed_time.
+ * Prepaid orders stamp invoice complete before delivery. Once delivery is done,
+ * those columns follow the delivery stamp. Invoice complete after delivery keeps
+ * the later invoice stamp.
+ */
+export function resolveDumpCompletedAt(input: {
+  deliveryCompleteAt: Date | null;
+  invoiceCompleteAt: Date | null;
+}): Date | null {
+  const deliveryAt = input.deliveryCompleteAt;
+  const invoiceAt = input.invoiceCompleteAt;
+  if (deliveryAt && invoiceAt && invoiceAt.getTime() < deliveryAt.getTime()) {
+    return deliveryAt;
+  }
+  return invoiceAt;
+}
+
 function resolveCompletionStatus(input: {
   sourceName: string;
   financialStatus: string | null;
@@ -366,6 +384,7 @@ export function createOrderInvoiceRow(input: {
   kokoRefNumber?: string | null;
 }): OrderInvoiceCsvRow {
   const sourceName = formatSourceName(input.sourceName);
+  const completedAt = resolveDumpCompletedAt(input);
   const month = input.createdAt.toLocaleString("en-US", {
     month: "long",
     timeZone: "Asia/Colombo",
@@ -406,8 +425,8 @@ export function createOrderInvoiceRow(input: {
     printed_by: input.lastPrintedBy,
     delivery_completed_date: formatIsoDate(input.deliveryCompleteAt),
     delivery_completed_by: input.deliveryCompleteBy,
-    completed_date: formatIsoDate(input.invoiceCompleteAt),
-    completed_time: formatIsoTime(input.invoiceCompleteAt),
+    completed_date: formatIsoDate(completedAt),
+    completed_time: formatIsoTime(completedAt),
     completed_by: input.invoiceCompleteBy,
     pos_sale: isPosSaleSource(input.sourceName) ? "1" : "0",
     shipping_rule: input.shippingRule ?? "",

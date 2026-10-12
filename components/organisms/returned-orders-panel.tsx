@@ -143,7 +143,13 @@ function ReturnInvoiceRefs({ item }: { item: ReturnTrackingItem }) {
   );
 }
 
-export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrackingData }) {
+export function ReturnedOrdersPanel({
+  initialData,
+  canTakeMerchantActions,
+}: {
+  initialData: ReturnsTrackingData;
+  canTakeMerchantActions: boolean;
+}) {
   const searchParams = useSearchParams();
   const appliedDeepLinkRef = useRef<string | null>(null);
   const [items, setItems] = useState(initialData.returns);
@@ -889,7 +895,7 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
                             </p>
                           )}
                         </div>
-                        {selected.actionStatus === "pending" && !selected.actionType && (
+                        {canTakeMerchantActions && selected.actionStatus === "pending" && !selected.actionType && (
                           <Button className="w-full" disabled={saving} onClick={() => void saveAction("rearrange")}>
                             {saving ? (
                               <>
@@ -900,6 +906,9 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
                               "Rearrange"
                             )}
                           </Button>
+                        )}
+                        {!canTakeMerchantActions && selected.actionStatus === "pending" && !selected.actionType && (
+                          <p className="text-muted-foreground text-sm">Only a merchant can rearrange this order.</p>
                         )}
                       </div>
                     )}
@@ -933,7 +942,8 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
                               )}
                             </Button>
                           )}
-                        {selected.remarkTemplate === INVOICE_REVERT_CREDIT_NOTE_TEMPLATE &&
+                        {canTakeMerchantActions &&
+                          selected.remarkTemplate === INVOICE_REVERT_CREDIT_NOTE_TEMPLATE &&
                           selected.orderFulfillmentStage === "returned_to_store" && (
                             <Button
                               variant="outline"
@@ -958,7 +968,7 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
                         This returned courier order is waiting for bank transfer. Request finance approval before dispatch.
                       </div>
                     )}
-                    {canTakeAction(selected) ? (
+                    {canTakeAction(selected) && canTakeMerchantActions ? (
                       <>
                         <Textarea
                           value={remark}
@@ -1012,6 +1022,12 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
                           )}
                         </div>
                       </>
+                    ) : canTakeAction(selected) ? (
+                      <p className="text-muted-foreground text-sm">
+                        {isBankTransferRearrangePending(selected)
+                          ? "Rearrange is awaiting finance approval."
+                          : "Only a merchant can rearrange, request cancel, or change payment."}
+                      </p>
                     ) : selected.remarkTemplate === INVOICE_REVERT_STAGE_ONLY_TEMPLATE ? null : (
                       <p className="text-muted-foreground text-sm">
                         {selected.remarkTemplate === INVOICE_REVERT_CREDIT_NOTE_TEMPLATE

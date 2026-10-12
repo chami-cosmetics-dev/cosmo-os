@@ -81,7 +81,8 @@ async function main() {
   const scan = await scanStockPriceMissing(company.id);
   console.log(
     `ERP1[${scan.erp1.label}]=${scan.erp1.rows.length} (std=${scan.erp1.missingStandardCount} ogf=${scan.erp1.missingOgfCount} both=${scan.erp1.missingBothCount}) ` +
-      `ERP2[${scan.erp2.label}]=${scan.erp2.rows.length} (std=${scan.erp2.missingStandardCount} ogf=${scan.erp2.missingOgfCount} both=${scan.erp2.missingBothCount})`,
+      `ERP2[${scan.erp2.label}]=${scan.erp2.rows.length} (std=${scan.erp2.missingStandardCount} ogf=${scan.erp2.missingOgfCount} both=${scan.erp2.missingBothCount}) ` +
+      `stdMismatch=${scan.standardMismatches.length}`,
   );
 
   const stored = await prisma.emailTemplate.findUnique({

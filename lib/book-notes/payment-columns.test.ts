@@ -9,6 +9,8 @@ import {
 describe("mopToBookNoteBucket", () => {
   it("maps koko/cash/card/bank", () => {
     expect(mopToBookNoteBucket("Koko")).toBe("koko");
+    expect(mopToBookNoteBucket("MintPay")).toBe("mintpay");
+    expect(mopToBookNoteBucket("Mint Pay")).toBe("mintpay");
     expect(mopToBookNoteBucket("Cash")).toBe("cash");
     expect(mopToBookNoteBucket("Credit Card")).toBe("card");
     expect(mopToBookNoteBucket("Wire Transfer")).toBe("bankTransfer");
@@ -26,7 +28,13 @@ describe("mapOrderPaymentsToBookNoteColumns", () => {
         ],
       },
     });
-    expect(cols).toEqual({ cash: 500, card: 0, koko: 0, bankTransfer: 300 });
+    expect(cols).toEqual({
+      cash: 500,
+      card: 0,
+      koko: 0,
+      mintpay: 0,
+      bankTransfer: 300,
+    });
   });
 
   it("puts total into primary gateway column when no payments array", () => {
@@ -35,7 +43,13 @@ describe("mapOrderPaymentsToBookNoteColumns", () => {
       paymentGatewayPrimary: "Koko",
       paymentGatewayNames: ["Koko"],
     });
-    expect(cols).toEqual({ cash: 0, card: 0, koko: 1200, bankTransfer: 0 });
+    expect(cols).toEqual({
+      cash: 0,
+      card: 0,
+      koko: 1200,
+      mintpay: 0,
+      bankTransfer: 0,
+    });
   });
 
   it("falls back unmapped primary to Cash", () => {
@@ -65,6 +79,7 @@ describe("mapOrderPaymentsToBookNoteSuggestion", () => {
       cash: 28000,
       card: 2890,
       koko: 0,
+      mintpay: 0,
       bankTransfer: 0,
     });
     expect(mapped.splitLines).toBeNull();
@@ -99,6 +114,7 @@ describe("mapOrderPaymentsToBookNoteSuggestion", () => {
       cash: 0,
       card: 0,
       koko: 5900,
+      mintpay: 0,
       bankTransfer: 0,
     });
     expect(mapped.splitLines).toBeNull();
@@ -119,6 +135,7 @@ describe("mapOrderPaymentsToBookNoteSuggestion", () => {
       cash: 500,
       card: 0,
       koko: 0,
+      mintpay: 0,
       bankTransfer: 300,
     });
     expect(mapped.splitLines).toBeNull();

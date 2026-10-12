@@ -38,6 +38,10 @@ import {
   resolveOrderDiscountCouponForOrder,
 } from "@/lib/order-discount-coupon";
 import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
+import {
+  getPaymentMethodInfo,
+  orderAlreadyPaidByCardCheckout,
+} from "@/lib/payment-method-label";
 import { resolveOrderLineItemsPricing } from "@/lib/order-line-item-pricing";
 import { resolveOrderShippingDisplayForOrder } from "@/lib/order-shipping-display";
 import { resolveCustomerPhone, resolveShippingPhone } from "@/lib/order-sms-resolvers";
@@ -811,7 +815,12 @@ export async function GET(request: NextRequest) {
       deliveryCompleteAt: order.deliveryCompleteAt,
       deliveryCompleteBy: getUserDisplayName(order.deliveryCompleteBy),
       invoiceCompleteAt: order.invoiceCompleteAt,
-      invoiceCompleteBy: getUserDisplayName(order.invoiceCompleteBy),
+      invoiceCompleteBy: orderAlreadyPaidByCardCheckout(order)
+        ? getPaymentMethodInfo({
+            paymentGatewayPrimary: order.paymentGatewayPrimary,
+            paymentGatewayNames: order.paymentGatewayNames,
+          }).label
+        : getUserDisplayName(order.invoiceCompleteBy),
       shippingRule,
       createdBy,
       kokoRefNumber: orderIdToKokoRefNumber.get(order.id) ?? "",

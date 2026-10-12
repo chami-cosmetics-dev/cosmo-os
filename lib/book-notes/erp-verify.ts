@@ -23,6 +23,9 @@ export type BookNoteErpVerifyRowInput = {
   koko: number;
   /** Column-mode KOKO order id. Folded into a KOKO split line on send. */
   koko_reference?: string | null;
+  mintpay: number;
+  /** Column-mode MintPay Order ID. Folded into a MintPay split line on send. */
+  mintpay_reference?: string | null;
   bank_transfer: number;
   /** When set, ERP receives split_lines instead of legacy columns. */
   split_lines?: BookNoteSplitLine[] | null;

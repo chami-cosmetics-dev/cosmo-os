@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
     after(async () => {
       try {
         const result = await sendRestockEmailsForInventoryItem({ shopDomain, inventoryItemId, available });
-        if (result.sent || result.failed) {
+        if (result.restocked || result.sent || result.failed) {
           console.info("[Wishlist Buddy] restock emails", { inventoryItemId, ...result });
         }
       } catch (error) {

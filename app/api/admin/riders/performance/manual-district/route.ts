@@ -65,6 +65,7 @@ export async function POST(request: NextRequest) {
     data: {
       manualIncentiveLabelKey: rule.labelKey,
       manualIncentiveLabel: rule.label,
+      manualIncentiveAmount: null,
       manualIncentiveSetAt: new Date(),
       manualIncentiveSetById: userId,
     },

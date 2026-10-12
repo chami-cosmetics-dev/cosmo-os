@@ -34,4 +34,14 @@ describe("fulfillment timeline labels", () => {
       }),
     ).toBe("Finance User");
   });
+
+  it("shows the payment gateway for CC Checkout instead of the store user", () => {
+    expect(
+      formatInvoiceCompleteTimelineWho({
+        invoiceCompleteBy: { name: "Shenuka Nilushan", email: null },
+        paymentGatewayPrimary: "CC Checkout",
+        deliveryPaymentApproval: null,
+      }),
+    ).toBe("CC Checkout");
+  });
 });
