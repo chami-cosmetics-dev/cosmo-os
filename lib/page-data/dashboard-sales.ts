@@ -1,12 +1,16 @@
 import type { Prisma } from "@prisma/client";
 
 import {
+  buildWholesaleOwnerMap,
+  dashboardMerchantRowKey,
+  dashboardMerchantUserSelect,
+  dashboardMerchantUserWhere,
+  resolveDashboardOrderMerchant,
+} from "@/lib/dashboard-order-merchant";
+import {
   buildCouponToMerchantMap,
   getMerchantGroupUserMap,
-  matchMerchantFromCouponMap,
-  resolveAssignedMerchantDashboardFallback,
 } from "@/lib/merchant-groups";
-import { normalizeDashboardMerchantLabel } from "@/lib/merchant-dm-sales";
 import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
 import { getOrderPaymentGatewayColumnState } from "@/lib/order-payment-gateway-compat";
 import {
@@ -472,8 +476,8 @@ export async function fetchDashboardSalesByLocationMerchant(
       },
     }),
     prisma.user.findMany({
-      where: { companyId, couponCodes: { isEmpty: false } },
-      select: { id: true, knownName: true, name: true, email: true, couponCodes: true },
+      where: dashboardMerchantUserWhere(companyId),
+      select: dashboardMerchantUserSelect,
     }),
     prisma.order.findMany({
       where,
@@ -491,7 +495,7 @@ export async function fetchDashboardSalesByLocationMerchant(
         discountCodes: true,
         rawPayload: true,
         assignedMerchant: {
-          select: { id: true, knownName: true, name: true, email: true, couponCodes: true },
+          select: dashboardMerchantUserSelect,
         },
       },
     }),
@@ -499,6 +503,7 @@ export async function fetchDashboardSalesByLocationMerchant(
 
   const userToGroup = await getMerchantGroupUserMap(companyId);
   const couponToUser = buildCouponToMerchantMap(usersWithCoupons, userToGroup);
+  const wholesaleOwners = buildWholesaleOwnerMap(usersWithCoupons);
 
   const byLocationMerchant = new Map<string, Map<string, DashboardLocationMerchantRow>>();
   const sourceByLocation = new Map<string, DashboardLocationSales["sources"]>();
@@ -513,9 +518,6 @@ export async function fetchDashboardSalesByLocationMerchant(
     const merchantMap = byLocationMerchant.get(order.companyLocationId);
     if (!merchantMap) continue;
 
-    let merchantId: string | null = null;
-    let merchantName: string | null = null;
-
     const merchantCouponCode = getMerchantCouponCode({
       sourceName: order.sourceName,
       discountCodes: order.discountCodes,
@@ -528,23 +530,15 @@ export async function fetchDashboardSalesByLocationMerchant(
       .map((coupon) => coupon.trim().toLowerCase())
       .filter(Boolean);
 
-    const matched = matchMerchantFromCouponMap(merchantCoupons, couponToUser);
-    if (matched) {
-      merchantId = matched.id;
-      merchantName = matched.name;
-    } else {
-      const fallback = resolveAssignedMerchantDashboardFallback({
-        assignedMerchantId: order.assignedMerchantId,
-        assignedMerchant: order.assignedMerchant,
-        orderCoupons: merchantCoupons,
-        userToGroup,
-      });
-      merchantId = fallback.id;
-      merchantName = fallback.name;
-    }
-    merchantName = normalizeDashboardMerchantLabel(merchantName);
-
-    const merchantKey = merchantId ?? `__${merchantName.toLowerCase()}`;
+    const resolved = resolveDashboardOrderMerchant({
+      orderCoupons: merchantCoupons,
+      couponToUser,
+      wholesaleOwners,
+      assignedMerchantId: order.assignedMerchantId,
+      assignedMerchant: order.assignedMerchant,
+      userToGroup,
+    });
+    const merchantKey = dashboardMerchantRowKey(resolved);
     const existing = merchantMap.get(merchantKey);
     const total = Number(order.totalPrice ?? 0);
     if (existing) {
@@ -552,8 +546,8 @@ export async function fetchDashboardSalesByLocationMerchant(
       existing.orderCount += 1;
     } else {
       merchantMap.set(merchantKey, {
-        merchantId,
-        merchantName,
+        merchantId: resolved.id,
+        merchantName: resolved.name,
         total,
         orderCount: 1,
       });

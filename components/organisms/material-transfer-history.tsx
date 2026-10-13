@@ -253,7 +253,14 @@ export function MaterialTransferHistory({
                               {detail.lines.map((line) => {
                                 const differs = finished(detail.status) && line.receivedQty !== line.sentQty;
                                 return (
-                                <tr key={line.id} className={differs ? "bg-amber-100" : undefined}>
+                                <tr
+                                  key={line.id}
+                                  className={
+                                    differs
+                                      ? "bg-amber-100 text-amber-950 dark:bg-amber-950/40 dark:text-amber-100"
+                                      : undefined
+                                  }
+                                >
                                   <td className="py-1 pr-3">{line.itemCode}</td>
                                   <td className="py-1 pr-3">{line.itemName}</td>
                                   <td className="py-1 pr-3">{line.barcode || "—"}</td>

@@ -12,6 +12,8 @@ export type TodaySalesDto = PeriodSales & {
   merOrderCount?: number;
   dmTotal?: number;
   dmOrderCount?: number;
+  wholesaleTotal?: number;
+  wholesaleOrderCount?: number;
 };
 
 export type MerchantPeerBand =

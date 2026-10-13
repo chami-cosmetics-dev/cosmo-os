@@ -3,6 +3,7 @@ import type { Prisma } from "@prisma/client";
 import { z } from "zod";
 
 import { writeAuditLog } from "@/lib/audit-log";
+import { splitStaffMerCodes } from "@/lib/merchant-wholesale";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { cuidSchema, LIMITS } from "@/lib/validation";
@@ -284,6 +285,16 @@ export async function PATCH(
     );
   }
 
+  const merCodesTouched =
+    data.couponCodes !== undefined || data.wholesaleCouponCodes !== undefined;
+  const merCodes = merCodesTouched
+    ? splitStaffMerCodes({
+        couponCodes: data.couponCodes ?? targetUser.couponCodes,
+        wholesaleCouponCodes:
+          data.wholesaleCouponCodes ?? targetUser.wholesaleCouponCodes,
+      })
+    : null;
+
   const beforeData = {
     name: targetUser.name,
     knownName: targetUser.knownName,
@@ -308,10 +319,12 @@ export async function PATCH(
         ...(data.dateOfBirth !== undefined && { dateOfBirth: validDob ?? null }),
         ...(data.mobile !== undefined && { mobile: data.mobile?.trim() || null }),
         ...(data.shopifyUserIds !== undefined && { shopifyUserIds: data.shopifyUserIds }),
-        ...(data.couponCodes !== undefined && { couponCodes: data.couponCodes }),
-        ...(data.wholesaleCouponCodes !== undefined && {
-          wholesaleCouponCodes: data.wholesaleCouponCodes,
-        }),
+        ...(merCodes
+          ? {
+              couponCodes: merCodes.couponCodes,
+              wholesaleCouponCodes: merCodes.wholesaleCouponCodes,
+            }
+          : {}),
       },
     });
 

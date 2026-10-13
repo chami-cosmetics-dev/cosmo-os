@@ -20,6 +20,8 @@ import {
 } from "@/lib/merchant-dm-sales";
 import {
   buildWholesaleCouponSet,
+  collectMerchantWholesaleCodes,
+  isWholesaleTrackingCode,
   orderIsWholesale,
   wholesaleMerchantMatchesOrder,
 } from "@/lib/merchant-wholesale";
@@ -116,8 +118,13 @@ export async function fetchMerchantUserSales(
     return emptySales();
   }
 
-  const sets = splitMerchantCouponSets(merchant.couponCodes);
-  const wholesaleCodes = buildWholesaleCouponSet(merchant.wholesaleCouponCodes);
+  const personalCoupons = (merchant.couponCodes ?? []).filter(
+    (code) => !isWholesaleTrackingCode(code),
+  );
+  const sets = splitMerchantCouponSets(personalCoupons);
+  const wholesaleCodes = buildWholesaleCouponSet(
+    collectMerchantWholesaleCodes(merchant),
+  );
   const hasWholesale = wholesaleCodes.size > 0;
 
   const dateFilter = buildDashboardSalesDateFilter({
@@ -180,11 +187,6 @@ export async function fetchMerchantUserSales(
       if (wholesaleMerchantMatchesOrder(orderCoupons, wholesaleCodes)) {
         wholesaleTotal += amount;
         wholesaleOrderCount += 1;
-        const locRow = byLocation.get(order.companyLocationId);
-        if (locRow) {
-          locRow.total += amount;
-          locRow.orderCount += 1;
-        }
       }
       continue;
     }
@@ -491,6 +493,7 @@ export async function fetchMerchantTopCustomersBySales(
 
   const couponSet = new Set(
     (merchant?.couponCodes ?? [])
+      .filter((c) => !isWholesaleTrackingCode(c))
       .map((c) => c.trim().toLowerCase())
       .filter(Boolean),
   );
@@ -547,6 +550,7 @@ export async function fetchMerchantTopCustomersBySales(
       .split(",")
       .map((c) => c.trim().toLowerCase())
       .filter(Boolean);
+    if (orderIsWholesale(orderCoupons)) return false;
     for (const code of orderCoupons) {
       if (couponSet.has(code)) return true;
     }
@@ -640,7 +644,10 @@ export async function fetchMerchantDailyInvoices(
   }
 
   const couponSet = new Set(
-    merchant.couponCodes.map((c) => c.trim().toLowerCase()).filter(Boolean),
+    merchant.couponCodes
+      .filter((c) => !isWholesaleTrackingCode(c))
+      .map((c) => c.trim().toLowerCase())
+      .filter(Boolean),
   );
 
   const dateFilter = buildDashboardSalesDateFilter({
@@ -703,6 +710,7 @@ export async function fetchMerchantDailyInvoices(
       .split(",")
       .map((c) => c.trim().toLowerCase())
       .filter(Boolean);
+    if (orderIsWholesale(orderCoupons)) return false;
 
     for (const code of orderCoupons) {
       if (couponSet.has(code)) return true;

@@ -443,10 +443,11 @@ export function MaterialTransferPanel() {
                   key={line.itemCode}
                   className={cn(
                     "border-t",
-                    highlightedItemCode === line.itemCode && "bg-amber-100",
+                    highlightedItemCode === line.itemCode &&
+                      "bg-amber-100 text-amber-950 dark:bg-amber-950/40 dark:text-amber-100",
                     line.availableQty != null &&
                       line.qty === line.availableQty &&
-                      "outline outline-2 -outline-offset-2 outline-green-600",
+                      "ring-2 ring-inset ring-green-500",
                   )}
                 >
                   <td className="px-3 py-2 font-medium">{line.itemCode}</td>
@@ -521,12 +522,15 @@ export function MaterialTransferPanel() {
               return (
                 <li
                   key={line.itemCode}
-                  className={cn("flex justify-between gap-3 rounded-md px-2 py-1", low && "bg-amber-100")}
+                  className={cn(
+                    "flex justify-between gap-3 rounded-md px-2 py-1",
+                    low && "bg-amber-100 text-amber-950 dark:bg-amber-950/40 dark:text-amber-100",
+                  )}
                 >
                   <span>
                     {line.itemCode}
                     {line.barcode ? <span className="text-muted-foreground"> · {line.barcode}</span> : null}
-                    {low ? <span className="ml-2 font-medium text-amber-800">Below available</span> : null}
+                    {low ? <span className="ml-2 font-medium text-amber-800 dark:text-amber-200">Below available</span> : null}
                   </span>
                   <span>
                     {line.qty}
@@ -750,7 +754,14 @@ function ShopReturnQueue() {
             </thead>
             <tbody>
               {open.lines.map((line) => (
-                <tr key={line.id} className={cn("border-t", highlightId === line.id && "bg-amber-100")}>
+                <tr
+                  key={line.id}
+                  className={cn(
+                    "border-t",
+                    highlightId === line.id &&
+                      "bg-amber-100 text-amber-950 dark:bg-amber-950/40 dark:text-amber-100",
+                  )}
+                >
                   <td className="py-1 pr-3">{line.itemCode}</td>
                   <td className="py-1 pr-3">{line.barcode || "—"}</td>
                   <td className="py-1 pr-3">{line.sentQty}</td>

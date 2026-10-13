@@ -1,12 +1,16 @@
 import type { Prisma } from "@prisma/client";
 
 import {
+  buildWholesaleOwnerMap,
+  dashboardMerchantRowKey,
+  dashboardMerchantUserSelect,
+  dashboardMerchantUserWhere,
+  resolveDashboardOrderMerchant,
+} from "@/lib/dashboard-order-merchant";
+import {
   buildCouponToMerchantMap,
   getMerchantGroupUserMap,
-  matchMerchantFromCouponMap,
-  resolveAssignedMerchantDashboardFallback,
 } from "@/lib/merchant-groups";
-import { normalizeDashboardMerchantLabel } from "@/lib/merchant-dm-sales";
 import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
 import {
   buildDashboardSalesDateFilter,
@@ -99,8 +103,8 @@ export async function fetchDashboardBrandSales(
 
     // Fetch all users in the company that have coupon codes
     prisma.user.findMany({
-      where: { companyId, couponCodes: { isEmpty: false } },
-      select: { id: true, knownName: true, name: true, email: true, couponCodes: true },
+      where: dashboardMerchantUserWhere(companyId),
+      select: dashboardMerchantUserSelect,
     }),
 
     // Fetch orders with their discount codes and line items
@@ -119,7 +123,7 @@ export async function fetchDashboardBrandSales(
         rawPayload: true,
         assignedMerchantId: true,
         assignedMerchant: {
-          select: { id: true, knownName: true, name: true, email: true, couponCodes: true },
+          select: dashboardMerchantUserSelect,
         },
         lineItems: {
           select: {
@@ -138,6 +142,7 @@ export async function fetchDashboardBrandSales(
   // A single coupon code is unique to one staff member
   const userToGroup = await getMerchantGroupUserMap(companyId);
   const couponToUser = buildCouponToMerchantMap(usersWithCoupons, userToGroup);
+  const wholesaleOwners = buildWholesaleOwnerMap(usersWithCoupons);
 
   // brandName (lower) → merchantKey → total accumulator
   const brandMap = new Map<string, Map<string, { merchantId: string | null; merchantName: string; total: number }>>();
@@ -164,18 +169,15 @@ export async function fetchDashboardBrandSales(
       .map((coupon) => coupon.trim().toLowerCase())
       .filter(Boolean);
 
-    merchant =
-      matchMerchantFromCouponMap(merchantCoupons, couponToUser) ??
-      resolveAssignedMerchantDashboardFallback({
-        assignedMerchantId: order.assignedMerchantId,
-        assignedMerchant: order.assignedMerchant,
-        orderCoupons: merchantCoupons,
-        userToGroup,
-      });
-    merchant = {
-      id: merchant.id,
-      name: normalizeDashboardMerchantLabel(merchant.name),
-    };
+    const resolved = resolveDashboardOrderMerchant({
+      orderCoupons: merchantCoupons,
+      couponToUser,
+      wholesaleOwners,
+      assignedMerchantId: order.assignedMerchantId,
+      assignedMerchant: order.assignedMerchant,
+      userToGroup,
+    });
+    merchant = { id: resolved.id, name: resolved.name };
 
     // Process each line item
     for (const item of order.lineItems) {
@@ -191,7 +193,7 @@ export async function fetchDashboardBrandSales(
         }
       }
 
-      const merchantKey = merchant.id ?? `__${merchant.name}`;
+      const merchantKey = dashboardMerchantRowKey(resolved);
 
       if (matchedBrand) {
         if (!brandMap.has(matchedBrand)) {

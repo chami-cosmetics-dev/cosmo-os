@@ -12,6 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { splitStaffMerCodes } from "@/lib/merchant-wholesale";
 import { notify } from "@/lib/notify";
 import { formatAppIsoCalendarDate } from "@/lib/format-datetime";
 
@@ -208,12 +209,13 @@ export function StaffEditForm({
       setShopifyUserIds(
         (initialData as StaffMember).shopifyUserIds?.join(", ") ?? ""
       );
-      setCouponCodes(
-        (initialData as StaffMember).couponCodes?.join(", ") ?? ""
-      );
-      setWholesaleCouponCodes(
-        (initialData as StaffMember).wholesaleCouponCodes?.join(", ") ?? ""
-      );
+      const merCodes = splitStaffMerCodes({
+        couponCodes: (initialData as StaffMember).couponCodes ?? [],
+        wholesaleCouponCodes:
+          (initialData as StaffMember).wholesaleCouponCodes ?? [],
+      });
+      setCouponCodes(merCodes.couponCodes.join(", "));
+      setWholesaleCouponCodes(merCodes.wholesaleCouponCodes.join(", "));
       setIsRider(initialData.employeeProfile?.isRider ?? false);
       setIsShopMerchant(initialData.employeeProfile?.isShopMerchant ?? false);
       setFinanceLocationIds(initialData.financeLocationIds ?? []);
@@ -557,10 +559,10 @@ export function StaffEditForm({
           value={couponCodes}
           onChange={(e) => setCouponCodes(e.target.value)}
           disabled={!canEdit || isBusy}
-          placeholder="e.g. MERCHANT10, SAVE20"
+          placeholder="e.g. MER102, MER102-Maheshi"
         />
         <p className="text-muted-foreground text-xs">
-          Comma-separated. Web orders with these Shopify discount or MER codes will be assigned to this user.
+          Comma-separated. Orders with these MER codes count toward this user&apos;s personal sales and personal target.
         </p>
       </div>
       <div className="space-y-2">
@@ -572,11 +574,10 @@ export function StaffEditForm({
           value={wholesaleCouponCodes}
           onChange={(e) => setWholesaleCouponCodes(e.target.value)}
           disabled={!canEdit || isBusy}
-          placeholder="e.g. WH56, WH99"
+          placeholder="e.g. WH-1, WH56"
         />
         <p className="text-muted-foreground text-xs">
-          Comma-separated WH codes (e.g. WH56). Wholesale orders use these for merchant assignment,
-          ERP Wholesale customer group, and a separate wholesale sales target on the merchant dashboard.
+          WH codes (WH-1, WH56). Wholesale orders count here only — separate from personal sales, with their own wholesale target. A WH code typed in Coupon codes is moved here on save.
         </p>
       </div>
 

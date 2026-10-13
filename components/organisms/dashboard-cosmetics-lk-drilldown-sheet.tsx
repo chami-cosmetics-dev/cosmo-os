@@ -162,7 +162,7 @@ function MerchantList({
       </p>
       {merchants.map((merchant) => (
         <div
-          key={merchant.merchantId ?? merchant.merchantName}
+          key={`${merchant.merchantId ?? "none"}-${merchant.merchantName}`}
           className="border-border/70 space-y-3 rounded-lg border p-3"
         >
           <div className="flex items-baseline justify-between gap-3">

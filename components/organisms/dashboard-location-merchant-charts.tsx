@@ -110,6 +110,11 @@ export function DashboardLocationMerchantCharts({
             <span className="block">
               {countedByCopy}
             </span>
+            {isGateway ? null : (
+              <span className="block">
+                Wholesale WH sales show as their own row. They are not included in that merchant&apos;s personal total.
+              </span>
+            )}
           </CardDescription>
         </CardHeader>
         <CardContent className="text-muted-foreground py-8 text-center text-sm">

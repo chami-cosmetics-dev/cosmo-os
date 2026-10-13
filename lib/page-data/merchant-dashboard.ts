@@ -789,6 +789,8 @@ export async function getMerchantDashboardPageData(input: {
     merOrderCount: todaySalesSplit.merOrderCount,
     dmTotal: todaySalesSplit.dmTotal,
     dmOrderCount: todaySalesSplit.dmOrderCount,
+    wholesaleTotal: todaySalesSplit.wholesaleTotal,
+    wholesaleOrderCount: todaySalesSplit.wholesaleOrderCount,
   };
 
   // DM-General merged into DM holders on peer boards and GM scorecard.

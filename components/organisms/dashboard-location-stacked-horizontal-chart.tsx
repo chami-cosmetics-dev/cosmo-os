@@ -226,7 +226,11 @@ export function DashboardLocationStackedHorizontalChart({
         </CardTitle>
         <CardDescription>
           Each bar is location total; colored segments are {isGateway ? "primary payment gateway" : "merchant"}{" "}
-          share. Every {segmentNoun} is shown separately. Click a name below to show or hide that segment in the chart. · {dateHint}
+          share. Every {segmentNoun} is shown separately. Click a name below to show or hide that segment in the chart.
+          {isGateway
+            ? ""
+            : " Wholesale (WH) sales appear as their own segment and are not added to that merchant's personal total."}{" "}
+          · {dateHint}
         </CardDescription>
       </CardHeader>
       <CardContent className="pt-6">

@@ -40,6 +40,19 @@ describe("buildCouponToMerchantMap DM split", () => {
     expect(map.get("mer115")?.id).toBeNull();
     expect(map.get("mer115-dmg")?.name).toBe("DM-General");
   });
+
+  it("does not map WH codes onto the personal merchant", () => {
+    const map = buildCouponToMerchantMap([
+      {
+        id: "maheshi",
+        knownName: "Maheshi",
+        couponCodes: ["MER102", "WH-1"],
+      },
+    ]);
+    expect(map.get("mer102")?.id).toBe("maheshi");
+    expect(map.get("wh-1")).toBeUndefined();
+    expect(map.get("wh1")).toBeUndefined();
+  });
 });
 
 describe("matchMerchantFromCouponMap", () => {

@@ -217,10 +217,11 @@ export function MaterialTransferReturnPanel() {
                       key={line.itemCode}
                       className={cn(
                         "border-t",
-                        highlightedItemCode === line.itemCode && "bg-amber-100",
+                        highlightedItemCode === line.itemCode &&
+                          "bg-amber-100 text-amber-950 dark:bg-amber-950/40 dark:text-amber-100",
                         line.availableQty != null &&
                           line.qty === line.availableQty &&
-                          "outline outline-2 -outline-offset-2 outline-green-600",
+                          "ring-2 ring-inset ring-green-500",
                       )}
                     >
                       <td className="px-3 py-2 font-medium">{line.itemCode}</td>
