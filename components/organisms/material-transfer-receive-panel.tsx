@@ -59,10 +59,13 @@ export function MaterialTransferReceivePanel() {
   const [scan, setScan] = useState("");
   const [busyKey, setBusyKey] = useState<"load" | "scan" | "qty" | "mark" | null>("load");
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [qtyDraft, setQtyDraft] = useState<Record<string, string>>({});
   const [historyKey, setHistoryKey] = useState(0);
   const scanRef = useRef<HTMLInputElement>(null);
   const scanValueRef = useRef("");
+  const qtyDraftRef = useRef(qtyDraft);
   const countPromise = useRef<Promise<void>>(Promise.resolve());
+  qtyDraftRef.current = qtyDraft;
   const isBusy = busyKey !== null;
 
   const loadIncoming = useCallback(async () => {
@@ -96,6 +99,7 @@ export function MaterialTransferReceivePanel() {
       const json = (await res.json()) as { transfer?: Receipt; error?: string };
       if (!res.ok || !json.transfer) throw new Error(json.error || "Could not open the transfer");
       setReceipt(json.transfer);
+      setQtyDraft({});
       setScan("");
     } catch (error) {
       notify.error(error instanceof Error ? error.message : "Could not open the transfer");
@@ -104,10 +108,26 @@ export function MaterialTransferReceivePanel() {
     }
   }
 
-  function postCount(body: { code?: string; itemCode?: string; qty?: number }, key: "scan" | "qty") {
+  function shownQty(line: ReceiptLine) {
+    return qtyDraft[line.id] ?? String(line.receivedQty);
+  }
+
+  function countedLines(current: Receipt) {
+    return current.lines.map((line) => {
+      const raw = qtyDraft[line.id];
+      const receivedQty = raw != null && raw !== "" ? Number(raw) : line.receivedQty;
+      return { sentQty: line.sentQty, receivedQty };
+    });
+  }
+
+  function postCount(
+    body: { code?: string; itemCode?: string; qty?: number },
+    key: "scan" | "qty" | "mark",
+    options?: { keepBusy?: boolean },
+  ) {
     const run = (async () => {
-      if (!receipt) return;
-      setBusyKey(key);
+      if (!receipt) return false;
+      if (!options?.keepBusy) setBusyKey(key);
       try {
         const res = await fetch(`/api/admin/store/material-transfer/${receipt.id}/count`, {
           method: "POST",
@@ -117,18 +137,47 @@ export function MaterialTransferReceivePanel() {
         const json = (await res.json()) as { transfer?: Receipt; error?: string };
         if (!res.ok || !json.transfer) throw new Error(json.error || "Could not update the count");
         setReceipt(json.transfer);
+        if (body.itemCode) {
+          const saved = json.transfer.lines.find((line) => line.itemCode === body.itemCode);
+          setQtyDraft((current) => {
+            if (!saved || current[saved.id] == null) return current;
+            if (current[saved.id] !== String(body.qty)) return current;
+            const next = { ...current };
+            delete next[saved.id];
+            return next;
+          });
+        }
         if (key === "scan") setScan("");
+        return true;
       } catch (error) {
         if (key === "scan") playScanErrorSound();
         notify.error(error instanceof Error ? error.message : "Could not update the count");
         if (key === "scan") setScan("");
+        return false;
       } finally {
-        setBusyKey(null);
-        if (key === "scan") scanRef.current?.focus();
+        if (!options?.keepBusy) {
+          setBusyKey(null);
+          if (key === "scan") scanRef.current?.focus();
+        }
       }
     })();
-    countPromise.current = run;
+    countPromise.current = run.then(() => undefined);
     return run;
+  }
+
+  function commitQty(line: ReceiptLine) {
+    const raw = qtyDraftRef.current[line.id];
+    if (raw == null) return;
+    if (raw === "" || Number(raw) === line.receivedQty) {
+      setQtyDraft((current) => {
+        if (current[line.id] == null) return current;
+        const next = { ...current };
+        delete next[line.id];
+        return next;
+      });
+      return;
+    }
+    void postCount({ itemCode: line.itemCode, qty: Number(raw) }, "qty");
   }
 
   async function markReceived() {
@@ -136,6 +185,21 @@ export function MaterialTransferReceivePanel() {
     await countPromise.current;
     setBusyKey("mark");
     try {
+      const pending = receipt.lines.filter((line) => {
+        const raw = qtyDraft[line.id];
+        return raw != null && raw !== "" && Number(raw) !== line.receivedQty;
+      });
+      for (const line of pending) {
+        const saved = await postCount(
+          { itemCode: line.itemCode, qty: Number(qtyDraft[line.id]) },
+          "mark",
+          { keepBusy: true },
+        );
+        if (!saved) {
+          setBusyKey(null);
+          return;
+        }
+      }
       const res = await fetch(`/api/admin/store/material-transfer/${receipt.id}/receive`, {
         method: "POST",
       });
@@ -143,6 +207,7 @@ export function MaterialTransferReceivePanel() {
       if (!res.ok || !json.transfer) throw new Error(json.error || "Could not mark received");
       notify.success(`${json.transfer.erpName} marked received`);
       setReceipt(null);
+      setQtyDraft({});
       setConfirmOpen(false);
       setHistoryKey((value) => value + 1);
       await loadIncoming();
@@ -178,7 +243,15 @@ export function MaterialTransferReceivePanel() {
                 {receipt.createdByName ? ` · sent by ${receipt.createdByName}` : ""}
               </p>
             </div>
-            <Button type="button" variant="outline" disabled={isBusy} onClick={() => setReceipt(null)}>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={isBusy}
+              onClick={() => {
+                setReceipt(null);
+                setQtyDraft({});
+              }}
+            >
               Back to list
             </Button>
           </div>
@@ -238,28 +311,19 @@ export function MaterialTransferReceivePanel() {
                       <Input
                         className="w-24"
                         inputMode="numeric"
-                        value={String(line.receivedQty)}
+                        value={shownQty(line)}
                         disabled={isBusy}
                         aria-label={`Received qty for ${line.itemCode}`}
+                        onFocus={(event) => event.currentTarget.select()}
                         onChange={(event) => {
                           const digits = event.target.value.replace(/\D/g, "");
-                          if (!digits) return;
-                          const qty = Number(digits);
-                          setReceipt((current) =>
-                            current
-                              ? {
-                                  ...current,
-                                  lines: current.lines.map((item) =>
-                                    item.id === line.id ? { ...item, receivedQty: qty } : item,
-                                  ),
-                                }
-                              : current,
-                          );
+                          setQtyDraft((current) => ({ ...current, [line.id]: digits }));
                         }}
-                        onBlur={(event) => {
-                          const digits = event.target.value.replace(/\D/g, "");
-                          if (!digits) return;
-                          void postCount({ itemCode: line.itemCode, qty: Number(digits) }, "qty");
+                        onBlur={() => commitQty(line)}
+                        onKeyDown={(event) => {
+                          if (event.key !== "Enter") return;
+                          event.preventDefault();
+                          event.currentTarget.blur();
                         }}
                       />
                     </td>
@@ -280,11 +344,39 @@ export function MaterialTransferReceivePanel() {
               <DialogHeader>
                 <DialogTitle>Mark all items received?</DialogTitle>
                 <DialogDescription>
-                  {receiptVariance(receipt.lines).mismatchCount === 0
-                    ? "Received qty matches the sent qty on every line. Stores will see this transfer as received."
-                    : `Received qty differs on ${receiptVariance(receipt.lines).mismatchCount} lines. Stores will see the counted qty.`}
+                  {receiptVariance(countedLines(receipt)).mismatchCount === 0
+                    ? "Received qty matches the sent qty on every line. Change a qty below if the count is wrong. Stores will see this transfer as received."
+                    : `Received qty differs on ${receiptVariance(countedLines(receipt)).mismatchCount} lines. Change a qty below if the count is wrong. Stores will see the counted qty.`}
                 </DialogDescription>
               </DialogHeader>
+              <div className="flex max-h-64 flex-col gap-2 overflow-y-auto">
+                {receipt.lines.map((line) => (
+                  <label key={line.id} className="flex items-center justify-between gap-3 text-sm">
+                    <span>
+                      <span className="font-medium">{line.itemCode}</span>
+                      <span className="text-muted-foreground"> · sent {line.sentQty}</span>
+                    </span>
+                    <Input
+                      className="w-24"
+                      inputMode="numeric"
+                      value={shownQty(line)}
+                      disabled={isBusy}
+                      aria-label={`Received qty for ${line.itemCode}`}
+                      onFocus={(event) => event.currentTarget.select()}
+                      onChange={(event) => {
+                        const digits = event.target.value.replace(/\D/g, "");
+                        setQtyDraft((current) => ({ ...current, [line.id]: digits }));
+                      }}
+                      onBlur={() => commitQty(line)}
+                      onKeyDown={(event) => {
+                        if (event.key !== "Enter") return;
+                        event.preventDefault();
+                        event.currentTarget.blur();
+                      }}
+                    />
+                  </label>
+                ))}
+              </div>
               <DialogFooter>
                 <Button type="button" variant="outline" disabled={isBusy} onClick={() => setConfirmOpen(false)}>
                   Cancel
