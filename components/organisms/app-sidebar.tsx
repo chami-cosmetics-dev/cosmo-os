@@ -89,7 +89,9 @@ export function AppSidebar({
   const canViewOrders = hasSidebarPermission("orders.read");
   const canViewAbandonedOrders = hasSidebarPermission("abandoned_orders.read");
   const canViewStockRequests =
-    hasSidebarPermission("stock_requests.read") || hasSidebarPermission("stock_requests.create");
+    hasSidebarPermission("stock_requests.read") ||
+    hasSidebarPermission("stock_requests.create") ||
+    hasSidebarPermission("stock_requests.read_all");
   const canViewContactMaster =
     hasSidebarPermission("contacts.master.read") ||
     hasSidebarPermission("contacts.read");

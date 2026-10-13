@@ -5,13 +5,15 @@
  *   Updating them needs `stock_requests.manage`.
  * - My requests tab (`stock_requests.create`): requests the user created in Cosmo OS; the creator
  *   can update their own.
- * - Admins see and change everything (both tabs; "My requests" shows every staff request).
+ * - All staff requests tab (`stock_requests.read_all`): every staff request, grouped by creator.
+ *   View only. Does not include website requests and does not allow editing someone else's request.
+ * - Admins see and change everything (both original tabs; "My requests" shows every staff request).
  */
 
 export const WEB_REQUEST_SOURCES = ["shopify", "import"] as const;
 export const STAFF_REQUEST_SOURCE = "staff";
 
-export type StockRequestScope = "web" | "mine";
+export type StockRequestScope = "web" | "mine" | "staff";
 
 export type StockRequestViewer = {
   userId: string;
@@ -19,6 +21,8 @@ export type StockRequestViewer = {
   canViewWeb: boolean;
   canManageWeb: boolean;
   canCreate: boolean;
+  /** `stock_requests.read_all`, and not an admin (admins already see every staff request on My requests). */
+  canViewAllStaff: boolean;
 };
 
 export function viewerFromPermissions(input: {
@@ -34,18 +38,23 @@ export function viewerFromPermissions(input: {
     canViewWeb: has("stock_requests.read"),
     canManageWeb: has("stock_requests.manage"),
     canCreate: has("stock_requests.create"),
+    canViewAllStaff: !isAdmin && input.permissionKeys.includes("stock_requests.read_all"),
   };
 }
 
 export function canViewScope(viewer: StockRequestViewer, scope: StockRequestScope): boolean {
-  return scope === "web" ? viewer.canViewWeb : viewer.canCreate;
+  if (scope === "web") return viewer.canViewWeb;
+  if (scope === "staff") return viewer.canViewAllStaff;
+  return viewer.canCreate;
 }
 
 type RequestOwnership = { source: string; createdById: string | null };
 
 export function canViewRequest(viewer: StockRequestViewer, row: RequestOwnership): boolean {
   if (viewer.isAdmin) return true;
-  if (row.source === STAFF_REQUEST_SOURCE) return viewer.canCreate && row.createdById === viewer.userId;
+  if (row.source === STAFF_REQUEST_SOURCE) {
+    return viewer.canViewAllStaff || (viewer.canCreate && row.createdById === viewer.userId);
+  }
   return viewer.canViewWeb;
 }
 
@@ -61,5 +70,6 @@ export function scopeFilter(
   scope: StockRequestScope,
 ): { source: { in: string[] } } | { source: string; createdById?: string } {
   if (scope === "web") return { source: { in: [...WEB_REQUEST_SOURCES] } };
+  if (scope === "staff") return { source: STAFF_REQUEST_SOURCE };
   return viewer.isAdmin ? { source: STAFF_REQUEST_SOURCE } : { source: STAFF_REQUEST_SOURCE, createdById: viewer.userId };
 }

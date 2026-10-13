@@ -9,7 +9,11 @@ export const maxDuration = 60;
 
 /** Re-check ERP stock for one request (no customer email). */
 export async function POST(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireStockRequestViewer(["stock_requests.read", "stock_requests.create"]);
+  const auth = await requireStockRequestViewer([
+    "stock_requests.read",
+    "stock_requests.create",
+    "stock_requests.read_all",
+  ]);
   if (!auth.ok) return auth.response;
 
   const idResult = cuidSchema.safeParse((await params).id);

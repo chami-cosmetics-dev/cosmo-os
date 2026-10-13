@@ -16,6 +16,16 @@ const both = viewerFromPermissions({
   permissionKeys: ["stock_requests.read", "stock_requests.create"],
 });
 const admin = viewerFromPermissions({ userId: "u9", roleNames: ["admin"], permissionKeys: [] });
+const supervisor = viewerFromPermissions({
+  userId: "u5",
+  roleNames: ["supervisor"],
+  permissionKeys: ["stock_requests.read_all"],
+});
+const lead = viewerFromPermissions({
+  userId: "u1",
+  roleNames: ["lead"],
+  permissionKeys: ["stock_requests.create", "stock_requests.read_all"],
+});
 
 const web = { source: "shopify", createdById: null };
 const imported = { source: "import", createdById: null };
@@ -34,6 +44,17 @@ describe("tabs", () => {
     expect(scopeFilter(merchant, "mine")).toEqual({ source: "staff", createdById: "u1" });
     expect(scopeFilter(admin, "mine")).toEqual({ source: "staff" });
     expect(scopeFilter(callCentre, "web")).toEqual({ source: { in: ["shopify", "import"] } });
+  });
+
+  it("gives read_all its own tab of every staff request, and keeps admins on My requests", () => {
+    expect(canViewScope(supervisor, "staff")).toBe(true);
+    expect(canViewScope(supervisor, "mine")).toBe(false);
+    expect(canViewScope(supervisor, "web")).toBe(false);
+    expect(canViewScope(merchant, "staff")).toBe(false);
+    expect(canViewScope(admin, "staff")).toBe(false);
+    expect(canViewScope(lead, "staff")).toBe(true);
+    expect(scopeFilter(supervisor, "staff")).toEqual({ source: "staff" });
+    expect(scopeFilter(lead, "mine")).toEqual({ source: "staff", createdById: "u1" });
   });
 });
 
@@ -57,6 +78,16 @@ describe("viewing and editing single requests", () => {
       permissionKeys: ["stock_requests.read", "stock_requests.manage"],
     });
     expect(canEditRequest(manager, web)).toBe(true);
+  });
+
+  it("lets read_all see every staff request without editing them", () => {
+    expect(canViewRequest(supervisor, mine)).toBe(true);
+    expect(canViewRequest(supervisor, someoneElses)).toBe(true);
+    expect(canViewRequest(supervisor, web)).toBe(false);
+    expect(canEditRequest(supervisor, mine)).toBe(false);
+    expect(canEditRequest(supervisor, someoneElses)).toBe(false);
+    expect(canEditRequest(lead, mine)).toBe(true);
+    expect(canEditRequest(lead, someoneElses)).toBe(false);
   });
 
   it("lets admins do everything", () => {
