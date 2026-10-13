@@ -85,6 +85,17 @@ export function findReceiptLine<T extends ReceiptLineRef>(lines: T[], code: stri
   return lines.find((line) => line.itemCode === hit.itemCode);
 }
 
+/** Latest scanned line first. Other lines keep their order. */
+export function promoteLine<T extends { id: string }>(lines: T[], id: string | null | undefined): T[] {
+  if (!id) return lines;
+  const index = lines.findIndex((line) => line.id === id);
+  if (index <= 0) return lines;
+  const next = lines.slice();
+  const [hit] = next.splice(index, 1);
+  next.unshift(hit!);
+  return next;
+}
+
 export function receiptVariance(lines: Array<{ sentQty: number; receivedQty: number }>) {
   let shortUnits = 0;
   let overUnits = 0;
