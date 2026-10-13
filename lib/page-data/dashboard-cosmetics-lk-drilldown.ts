@@ -6,12 +6,16 @@ import {
 } from "@/lib/cosmetics-lk-channel";
 import { isCosmeticsLkLocationName } from "@/lib/cosmetics-lk-location";
 import {
+  buildWholesaleOwnerMap,
+  dashboardMerchantRowKey,
+  dashboardMerchantUserSelect,
+  dashboardMerchantUserWhere,
+  resolveDashboardOrderMerchant,
+} from "@/lib/dashboard-order-merchant";
+import {
   buildCouponToMerchantMap,
   getMerchantGroupUserMap,
-  matchMerchantFromCouponMap,
-  resolveAssignedMerchantDashboardFallback,
 } from "@/lib/merchant-groups";
-import { normalizeDashboardMerchantLabel } from "@/lib/merchant-dm-sales";
 import { getOrderDiscountCouponCode } from "@/lib/order-discount-coupon";
 import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
 import type { DashboardSalesDateType } from "@/lib/page-data/dashboard-overview-shared";
@@ -170,8 +174,8 @@ export async function fetchCosmeticsLkDrilldown(
 
   const [usersWithCoupons, orders, userToGroup] = await Promise.all([
     prisma.user.findMany({
-      where: { companyId, couponCodes: { isEmpty: false } },
-      select: { id: true, knownName: true, name: true, email: true, couponCodes: true },
+      where: dashboardMerchantUserWhere(companyId),
+      select: dashboardMerchantUserSelect,
     }),
     prisma.order.findMany({
       where: {
@@ -194,7 +198,7 @@ export async function fetchCosmeticsLkDrilldown(
         rawPayload: true,
         paymentGatewayPrimary: true,
         assignedMerchant: {
-          select: { id: true, knownName: true, name: true, email: true, couponCodes: true },
+          select: dashboardMerchantUserSelect,
         },
         lineItems: {
           select: {
@@ -209,6 +213,7 @@ export async function fetchCosmeticsLkDrilldown(
   ]);
 
   const couponToUser = buildCouponToMerchantMap(usersWithCoupons, userToGroup);
+  const wholesaleOwners = buildWholesaleOwnerMap(usersWithCoupons);
 
   let total = 0;
   let orderCount = 0;
@@ -234,18 +239,17 @@ export async function fetchCosmeticsLkDrilldown(
       .map((coupon) => coupon.trim().toLowerCase())
       .filter(Boolean);
 
-    const matched = matchMerchantFromCouponMap(merchantCoupons, couponToUser);
-    const resolved =
-      matched ??
-      resolveAssignedMerchantDashboardFallback({
-        assignedMerchantId: order.assignedMerchantId,
-        assignedMerchant: order.assignedMerchant,
-        orderCoupons: merchantCoupons,
-        userToGroup,
-      });
+    const resolved = resolveDashboardOrderMerchant({
+      orderCoupons: merchantCoupons,
+      couponToUser,
+      wholesaleOwners,
+      assignedMerchantId: order.assignedMerchantId,
+      assignedMerchant: order.assignedMerchant,
+      userToGroup,
+    });
     const merchantId = resolved.id;
-    const merchantName = normalizeDashboardMerchantLabel(resolved.name);
-    const merchantKey = merchantId ?? `__${merchantName.toLowerCase()}`;
+    const merchantName = resolved.name;
+    const merchantKey = dashboardMerchantRowKey(resolved);
 
     let merchant = merchantMap.get(merchantKey);
     if (!merchant) {
