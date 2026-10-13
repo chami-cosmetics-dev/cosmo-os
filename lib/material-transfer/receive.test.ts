@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   findReceiptLine,
+  promoteLine,
   receiptVariance,
   shopScopeIsEmpty,
   transferVisibleToShop,
@@ -40,6 +41,20 @@ describe("shop scope", () => {
       }),
     ).toBe(false);
     expect(shopScopeIsEmpty({ explicitWarehouses: [], outletName: "  " })).toBe(true);
+  });
+});
+
+describe("scanned line order", () => {
+  const lines = [
+    { id: "a", itemCode: "A" },
+    { id: "b", itemCode: "B" },
+    { id: "c", itemCode: "C" },
+  ];
+
+  it("moves the scanned line to the top and leaves the rest in place", () => {
+    expect(promoteLine(lines, "c").map((line) => line.id)).toEqual(["c", "a", "b"]);
+    expect(promoteLine(lines, "a")).toBe(lines);
+    expect(promoteLine(lines, null)).toBe(lines);
   });
 });
 
