@@ -373,6 +373,11 @@ const DEFAULT_PERMISSIONS = [
       "Create stock requests (wishlist) for customers in Cosmo OS and manage your own under My requests",
   },
   {
+    key: "stock_requests.read_all",
+    description:
+      "View all staff-created stock requests, grouped by the user who created them. Does not allow editing other people's requests",
+  },
+  {
     key: "finance.approvals.read",
     description: "View finance approval requests",
   },
