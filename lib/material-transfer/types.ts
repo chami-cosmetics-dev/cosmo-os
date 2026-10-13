@@ -1,5 +1,9 @@
 export type TransferSlot = "erp1" | "erp2";
 
+export type TransferDirection = "store_to_shop" | "shop_to_main";
+
+export type TransferStatus = "sent" | "received" | "requested" | "confirming" | "confirmed";
+
 export type TransferWarehouse = {
   name: string;
   company: string;

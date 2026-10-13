@@ -571,6 +571,7 @@ model User {
   employeeProfile                        EmployeeProfile?
   materialTransfersCreated               MaterialTransfer[]             @relation("MaterialTransferCreatedBy")
   materialTransfersReceived              MaterialTransfer[]             @relation("MaterialTransferReceivedBy")
+  materialTransferLinesCounted           MaterialTransferLine[]         @relation("MaterialTransferLineCountedBy")
   invitesSent                            Invite[]                       @relation("InvitedBy")
   assignedOrders                         Order[]                        @relation("OrderAssignedMerchant")
   ordersDeliveryCompleteBy               Order[]                        @relation("OrderDeliveryCompleteBy")
@@ -2982,45 +2983,58 @@ model OsfUserColumnAccess {
   @@index([userId])
 }
 
+enum MaterialTransferDirection {
+  store_to_shop
+  shop_to_main
+}
+
 enum MaterialTransferStatus {
   sent
   received
+  requested
+  confirming
+  confirmed
 }
 
 model MaterialTransfer {
-  id               String                 @id @default(cuid())
+  id               String                    @id @default(cuid())
   companyId        String
   slot             String
-  erpName          String
+  direction        MaterialTransferDirection @default(store_to_shop)
+  erpName          String?
   erpCompany       String
   sourceWarehouse  String
   targetWarehouse  String
-  status           MaterialTransferStatus @default(sent)
+  status           MaterialTransferStatus    @default(sent)
   createdByUserId  String?
   receivedByUserId String?
   receivedAt       DateTime?
-  createdAt        DateTime               @default(now())
-  updatedAt        DateTime               @updatedAt
-  company          Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  createdBy        User?                  @relation("MaterialTransferCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  receivedBy       User?                  @relation("MaterialTransferReceivedBy", fields: [receivedByUserId], references: [id], onDelete: SetNull)
+  createdAt        DateTime                  @default(now())
+  updatedAt        DateTime                  @updatedAt
+  company          Company                   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdBy        User?                     @relation("MaterialTransferCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  receivedBy       User?                     @relation("MaterialTransferReceivedBy", fields: [receivedByUserId], references: [id], onDelete: SetNull)
   lines            MaterialTransferLine[]
 
   @@unique([companyId, slot, erpName])
   @@index([companyId, createdAt(sort: Desc)])
   @@index([companyId, targetWarehouse, status])
+  @@index([companyId, direction, status])
 }
 
 model MaterialTransferLine {
-  id           String           @id @default(cuid())
-  transferId   String
-  itemCode     String
-  itemName     String
-  barcode      String           @default("")
-  uom          String           @default("Nos")
-  sentQty      Int
-  receivedQty  Int              @default(0)
-  transfer     MaterialTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+  id                         String           @id @default(cuid())
+  transferId                 String
+  itemCode                   String
+  itemName                   String
+  barcode                    String           @default("")
+  uom                        String           @default("Nos")
+  sentQty                    Int
+  receivedQty                Int              @default(0)
+  receivedQtyUpdatedByUserId String?
+  receivedQtyUpdatedAt       DateTime?
+  transfer                   MaterialTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+  receivedQtyUpdatedBy       User?            @relation("MaterialTransferLineCountedBy", fields: [receivedQtyUpdatedByUserId], references: [id], onDelete: SetNull)
 
   @@index([transferId])
 }

@@ -23,10 +23,12 @@ import {
 import {
   clearAvailableQty,
   findTransferLine,
+  promoteTransferLine,
   removeTransferLine,
   setTransferLineQty,
   upsertTransferLine,
 } from "@/lib/material-transfer/lines";
+import { linesBelowMainAvailable } from "@/lib/material-transfer/submit-review";
 import type {
   TransferLine,
   TransferLookupItem,
@@ -42,6 +44,7 @@ import {
 import { MaterialTransferHistory } from "@/components/organisms/material-transfer-history";
 import { notify } from "@/lib/notify";
 import { playScanErrorSound, unlockScanSound } from "@/lib/store-stock-count/scan-sound";
+import { cn } from "@/lib/utils";
 
 type SlotPayload = {
   configured: boolean;
@@ -70,6 +73,7 @@ export function MaterialTransferPanel() {
   const [scan, setScan] = useState("");
   const [busyKey, setBusyKey] = useState<"page" | "lookup" | "submit" | null>("page");
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [highlightedItemCode, setHighlightedItemCode] = useState<string | null>(null);
   const scanRef = useRef<HTMLInputElement>(null);
   const scanValueRef = useRef("");
   const linesRef = useRef<TransferLine[]>([]);
@@ -144,9 +148,16 @@ export function MaterialTransferPanel() {
   }
 
   const applyLookup = useCallback((item: TransferLookupItem) => {
-    const next = upsertTransferLine(linesRef.current, item);
+    const result = upsertTransferLine(linesRef.current, item);
+    if (result.rejected) {
+      playScanErrorSound();
+      notify.error("Cannot send more than available");
+      return;
+    }
+    const next = promoteTransferLine(result.lines, item.itemCode);
     linesRef.current = next;
     setLines(next);
+    setHighlightedItemCode(item.itemCode);
   }, []);
 
   const drainQueue = useCallback(async () => {
@@ -261,7 +272,7 @@ export function MaterialTransferPanel() {
     (slot === "erp1" || Boolean(company));
 
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-4">
+    <div className="mx-auto flex max-w-5xl flex-col gap-4" onPointerDown={unlockScanSound}>
       <div>
         <h1 className="text-xl font-semibold">Material transfer</h1>
         <p className="text-muted-foreground text-sm">
@@ -428,7 +439,16 @@ export function MaterialTransferPanel() {
               </tr>
             ) : (
               lines.map((line) => (
-                <tr key={line.itemCode} className="border-t">
+                <tr
+                  key={line.itemCode}
+                  className={cn(
+                    "border-t",
+                    highlightedItemCode === line.itemCode && "bg-amber-100",
+                    line.availableQty != null &&
+                      line.qty === line.availableQty &&
+                      "outline outline-2 -outline-offset-2 outline-green-600",
+                  )}
+                >
                   <td className="px-3 py-2 font-medium">{line.itemCode}</td>
                   <td className="px-3 py-2">{line.itemName}</td>
                   <td className="px-3 py-2">{line.barcode || "—"}</td>
@@ -444,7 +464,15 @@ export function MaterialTransferPanel() {
                         const digits = event.target.value.replace(/\D/g, "");
                         if (!digits) return;
                         const qty = Number(digits);
-                        setLines((prev) => setTransferLineQty(prev, line.itemCode, qty));
+                        setLines((prev) => {
+                          const result = setTransferLineQty(prev, line.itemCode, qty);
+                          if (result.rejected) {
+                            playScanErrorSound();
+                            notify.error("Cannot send more than available");
+                            return prev;
+                          }
+                          return result.lines;
+                        });
                       }}
                     />
                   </td>
@@ -485,6 +513,29 @@ export function MaterialTransferPanel() {
               submits the Stock Entry.
             </DialogDescription>
           </DialogHeader>
+          <ul className="flex max-h-64 flex-col gap-1 overflow-y-auto text-sm">
+            {lines.map((line) => {
+              const low = linesBelowMainAvailable(source, lines).some(
+                (marked) => marked.itemCode === line.itemCode,
+              );
+              return (
+                <li
+                  key={line.itemCode}
+                  className={cn("flex justify-between gap-3 rounded-md px-2 py-1", low && "bg-amber-100")}
+                >
+                  <span>
+                    {line.itemCode}
+                    {line.barcode ? <span className="text-muted-foreground"> · {line.barcode}</span> : null}
+                    {low ? <span className="ml-2 font-medium text-amber-800">Below available</span> : null}
+                  </span>
+                  <span>
+                    {line.qty}
+                    {line.availableQty != null ? ` / ${line.availableQty}` : ""}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
           <DialogFooter>
             <Button
               type="button"
@@ -508,7 +559,251 @@ export function MaterialTransferPanel() {
         </DialogContent>
       </Dialog>
 
+      <ShopReturnQueue />
+
       <MaterialTransferHistory scope="all" title="History" />
     </div>
+  );
+}
+
+type QueueRow = {
+  id: string;
+  sourceWarehouse: string;
+  targetWarehouse: string;
+  createdAt: string;
+  sentQty: number;
+  direction: string;
+};
+
+type QueueLine = {
+  id: string;
+  itemCode: string;
+  itemName: string;
+  barcode: string;
+  sentQty: number;
+  receivedQty: number;
+};
+
+type QueueTransfer = QueueRow & { lines: QueueLine[] };
+
+function ShopReturnQueue() {
+  const [rows, setRows] = useState<QueueRow[]>([]);
+  const [open, setOpen] = useState<QueueTransfer | null>(null);
+  const [highlightId, setHighlightId] = useState<string | null>(null);
+  const [busyKey, setBusyKey] = useState<"load" | "count" | "confirm" | null>(null);
+  const [scan, setScan] = useState("");
+  const scanRef = useRef<HTMLInputElement>(null);
+
+  const load = useCallback(async () => {
+    setBusyKey("load");
+    try {
+      const res = await fetch("/api/admin/store/material-transfer/history?scope=all&status=requested");
+      const json = (await res.json()) as { transfers?: QueueRow[]; error?: string };
+      if (!res.ok) throw new Error(json.error || "Could not load shop returns");
+      setRows((json.transfers ?? []).filter((row) => row.direction === "shop_to_main"));
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : "Could not load shop returns");
+    } finally {
+      setBusyKey(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  async function openRow(id: string) {
+    setBusyKey("load");
+    try {
+      const res = await fetch(`/api/admin/store/material-transfer/${id}`);
+      const json = (await res.json()) as { transfer?: QueueTransfer; error?: string };
+      if (!res.ok || !json.transfer) throw new Error(json.error || "Could not open the request");
+      setOpen(json.transfer);
+      setHighlightId(null);
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : "Could not open the request");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function count(body: { code?: string; itemCode?: string; qty?: number }, highlight?: string) {
+    if (!open) return;
+    setBusyKey("count");
+    try {
+      const res = await fetch(`/api/admin/store/material-transfer/${open.id}/count`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const json = (await res.json()) as { transfer?: QueueTransfer; error?: string };
+      if (!res.ok || !json.transfer) throw new Error(json.error || "Could not update the count");
+      const lines = highlight
+        ? [
+            ...json.transfer.lines.filter((line) => line.id === highlight),
+            ...json.transfer.lines.filter((line) => line.id !== highlight),
+          ]
+        : json.transfer.lines;
+      setOpen({ ...json.transfer, lines });
+      if (highlight) setHighlightId(highlight);
+    } catch (error) {
+      playScanErrorSound();
+      notify.error(error instanceof Error ? error.message : "Could not update the count");
+    } finally {
+      setBusyKey(null);
+      scanRef.current?.focus();
+    }
+  }
+
+  async function confirm() {
+    if (!open) return;
+    setBusyKey("confirm");
+    try {
+      const res = await fetch(`/api/admin/store/material-transfer/${open.id}/confirm`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          lines: open.lines.map((line) => ({ itemCode: line.itemCode, qty: line.receivedQty })),
+        }),
+      });
+      const json = (await res.json()) as { transfer?: { erpName?: string | null }; error?: string };
+      if (!res.ok) throw new Error(json.error || "Could not confirm the shop return");
+      notify.success(json.transfer?.erpName ? `Submitted ${json.transfer.erpName}` : "Shop return confirmed");
+      setOpen(null);
+      window.dispatchEvent(new Event("material-transfer-saved"));
+      await load();
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : "Could not confirm the shop return");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  return (
+    <section className="flex flex-col gap-3">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold">Shop returns</h2>
+        <Button type="button" variant="outline" disabled={busyKey !== null} onClick={() => void load()}>
+          {busyKey === "load" ? (
+            <>
+              <Loader2 className="animate-spin" aria-hidden />
+              Loading...
+            </>
+          ) : (
+            "Refresh"
+          )}
+        </Button>
+      </div>
+      {rows.length === 0 ? (
+        <p className="text-muted-foreground text-sm">No shop returns waiting.</p>
+      ) : (
+        <ul className="flex flex-col gap-1 text-sm">
+          {rows.map((row) => (
+            <li key={row.id}>
+              <button type="button" className="underline" onClick={() => void openRow(row.id)}>
+                {row.sourceWarehouse} → {row.targetWarehouse} · {row.sentQty} sent
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {open ? (
+        <div className="flex flex-col gap-3 rounded-md border p-3">
+          <p className="text-sm">
+            Count what arrived from {open.sourceWarehouse}. This posts one material transfer to{" "}
+            {open.targetWarehouse} for the quantities you confirm.
+          </p>
+          <form
+            className="flex gap-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const code = (scanRef.current?.value || scan).trim();
+              if (!code) return;
+              const hit = open.lines.find(
+                (line) => line.itemCode.toLowerCase() === code.toLowerCase() || line.barcode === code,
+              );
+              setScan("");
+              if (scanRef.current) scanRef.current.value = "";
+              void count({ code }, hit?.id);
+            }}
+          >
+            <Input
+              ref={scanRef}
+              value={scan}
+              onChange={(event) => setScan(event.target.value)}
+              placeholder="Scan barcode or type SKU"
+              autoComplete="off"
+              onFocus={unlockScanSound}
+            />
+            <Button type="submit" disabled={busyKey !== null || !scan.trim()}>
+              Add
+            </Button>
+          </form>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left">
+                <th className="py-1 pr-3">SKU</th>
+                <th className="py-1 pr-3">Barcode</th>
+                <th className="py-1 pr-3">Sent</th>
+                <th className="py-1">Received</th>
+              </tr>
+            </thead>
+            <tbody>
+              {open.lines.map((line) => (
+                <tr key={line.id} className={cn("border-t", highlightId === line.id && "bg-amber-100")}>
+                  <td className="py-1 pr-3">{line.itemCode}</td>
+                  <td className="py-1 pr-3">{line.barcode || "—"}</td>
+                  <td className="py-1 pr-3">{line.sentQty}</td>
+                  <td className="py-1">
+                    <Input
+                      className="w-24"
+                      inputMode="numeric"
+                      value={String(line.receivedQty)}
+                      aria-label={`Received qty for ${line.itemCode}`}
+                      disabled={busyKey !== null}
+                      onChange={(event) => {
+                        const digits = event.target.value.replace(/\D/g, "");
+                        if (!digits) return;
+                        const qty = Number(digits);
+                        setOpen((current) =>
+                          current
+                            ? {
+                                ...current,
+                                lines: current.lines.map((item) =>
+                                  item.id === line.id ? { ...item, receivedQty: qty } : item,
+                                ),
+                              }
+                            : current,
+                        );
+                      }}
+                      onBlur={(event) => {
+                        const qty = Number(event.target.value.replace(/\D/g, ""));
+                        if (!Number.isInteger(qty)) return;
+                        void count({ itemCode: line.itemCode, qty });
+                      }}
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => setOpen(null)}>
+              Close
+            </Button>
+            <Button type="button" disabled={busyKey !== null} onClick={() => void confirm()}>
+              {busyKey === "confirm" ? (
+                <>
+                  <Loader2 className="animate-spin" aria-hidden />
+                  Confirming...
+                </>
+              ) : (
+                "Confirm for ERP"
+              )}
+            </Button>
+          </div>
+        </div>
+      ) : null}
+    </section>
   );
 }

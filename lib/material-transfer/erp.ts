@@ -179,6 +179,36 @@ async function findItemByBarcode(cfg: OsfErpCredentials, code: string): Promise<
   }
 }
 
+export async function liveSourceQty(
+  cfg: OsfErpCredentials,
+  itemCode: string,
+  warehouse: string,
+): Promise<number> {
+  const qty = await sourceQty(cfg, itemCode, warehouse);
+  return qty == null ? 0 : qty;
+}
+
+export async function assertSourceCovers(
+  cfg: OsfErpCredentials,
+  warehouse: string,
+  lines: Array<{ itemCode: string; qty: number }>,
+) {
+  for (const line of lines) {
+    if (line.qty <= 0) continue;
+    const available = await liveSourceQty(cfg, line.itemCode, warehouse);
+    if (line.qty > available) {
+      throw new MaterialTransferError(
+        `${line.itemCode} has ${available} available in ${warehouse}.`,
+        409,
+      );
+    }
+  }
+}
+
+export async function assertSlotVatLines(cfg: OsfErpCredentials, itemCodes: string[]) {
+  await assertVatLines(cfg, itemCodes);
+}
+
 async function sourceQty(
   cfg: OsfErpCredentials,
   itemCode: string,
@@ -302,6 +332,7 @@ export async function submitMaterialTransfer(input: {
       input.lines.map((line) => line.itemCode),
     );
   }
+  await assertSourceCovers(input.cfg, input.sourceWarehouse, input.lines);
 
   const body = buildMaterialTransferBody({
     company,
