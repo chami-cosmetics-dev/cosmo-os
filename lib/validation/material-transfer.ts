@@ -29,8 +29,36 @@ export const materialTransferSubmitSchema = z.object({
 });
 
 export const materialTransferHistoryQuerySchema = z.object({
-  status: z.enum(["sent", "received"]).optional(),
+  status: z.enum(["sent", "received", "requested", "confirming", "confirmed"]).optional(),
   scope: z.enum(["all", "shop"]),
+  mismatch: z.literal("1").optional(),
+});
+
+export const materialTransferShopReturnSchema = z.object({
+  lines: z
+    .array(
+      z.object({
+        itemCode: trimmedString(1, LIMITS.sku.max),
+        itemName: trimmedString(0, LIMITS.itemName.max).optional(),
+        barcode: trimmedString(0, 80).optional(),
+        qty: z.number().int().min(1).max(100_000),
+        uom: trimmedString(0, 40).optional(),
+      }),
+    )
+    .min(1)
+    .max(200),
+});
+
+export const materialTransferConfirmSchema = z.object({
+  lines: z
+    .array(
+      z.object({
+        itemCode: trimmedString(1, LIMITS.sku.max),
+        qty: z.number().int().min(0).max(100_000),
+      }),
+    )
+    .min(1)
+    .max(200),
 });
 
 export const materialTransferCountSchema = z

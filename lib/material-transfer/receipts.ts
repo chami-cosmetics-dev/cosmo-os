@@ -1,7 +1,17 @@
 import "server-only";
 
 import { prisma } from "@/lib/prisma";
-import { MaterialTransferError } from "@/lib/material-transfer/erp";
+import { decideShopReturnConfirm } from "@/lib/material-transfer/confirm";
+import {
+  assertSlotVatLines,
+  assertSourceCovers,
+  liveSourceQty,
+  loadTransferSlotWarehouses,
+  MaterialTransferError,
+  resolveTransferSlots,
+  submitMaterialTransfer,
+} from "@/lib/material-transfer/erp";
+import { isMismatchTransfer } from "@/lib/material-transfer/mismatch";
 import {
   findReceiptLine,
   receiptVariance,
@@ -9,6 +19,7 @@ import {
   transferVisibleToShop,
   type ShopScope,
 } from "@/lib/material-transfer/receive";
+import type { TransferDirection, TransferSlot, TransferStatus } from "@/lib/material-transfer/types";
 
 const MAX_RECEIVED_QTY = 100_000;
 
@@ -26,6 +37,21 @@ function summarizeLines(lines: Array<{ sentQty: number; receivedQty: number }>) 
   };
 }
 
+function stockEntryUrl(baseUrl: string | null | undefined, erpName: string | null | undefined) {
+  const name = erpName?.trim();
+  const root = baseUrl?.trim().replace(/\/$/, "");
+  if (!name || !root) return null;
+  return `${root}/app/stock-entry/${encodeURIComponent(name)}`;
+}
+
+function visibleToShop(
+  row: { direction: string; sourceWarehouse: string; targetWarehouse: string },
+  scope: ShopScope,
+) {
+  const warehouse = row.direction === "shop_to_main" ? row.sourceWarehouse : row.targetWarehouse;
+  return transferVisibleToShop(warehouse, scope);
+}
+
 export async function recordSentTransfer(input: {
   companyId: string;
   slot: string;
@@ -40,11 +66,47 @@ export async function recordSentTransfer(input: {
     data: {
       companyId: input.companyId,
       slot: input.slot,
+      direction: "store_to_shop",
       erpName: input.erpName,
       erpCompany: input.erpCompany,
       sourceWarehouse: input.sourceWarehouse,
       targetWarehouse: input.targetWarehouse,
       status: "sent",
+      createdByUserId: input.createdByUserId,
+      lines: {
+        create: input.lines.map((line) => ({
+          itemCode: line.itemCode.trim(),
+          itemName: line.itemName?.trim() || line.itemCode.trim(),
+          barcode: line.barcode?.trim() || "",
+          uom: line.uom?.trim() || "Nos",
+          sentQty: line.qty,
+          receivedQty: 0,
+        })),
+      },
+    },
+    select: { id: true },
+  });
+}
+
+export async function recordShopReturn(input: {
+  companyId: string;
+  slot: string;
+  erpCompany: string;
+  sourceWarehouse: string;
+  targetWarehouse: string;
+  createdByUserId: string | null;
+  lines: Array<{ itemCode: string; itemName?: string | null; barcode?: string | null; uom?: string | null; qty: number }>;
+}) {
+  return prisma.materialTransfer.create({
+    data: {
+      companyId: input.companyId,
+      slot: input.slot,
+      direction: "shop_to_main",
+      erpName: null,
+      erpCompany: input.erpCompany,
+      sourceWarehouse: input.sourceWarehouse,
+      targetWarehouse: input.targetWarehouse,
+      status: "requested",
       createdByUserId: input.createdByUserId,
       lines: {
         create: input.lines.map((line) => ({
@@ -67,28 +129,38 @@ const listInclude = {
   lines: { select: { sentQty: true, receivedQty: true } },
 } as const;
 
-export async function listMaterialTransfers(input: {
-  companyId: string;
-  seeAll: boolean;
-  scope: ShopScope;
-  status?: "sent" | "received";
-}) {
-  if (!input.seeAll && shopScopeIsEmpty(input.scope)) return [];
-  const rows = await prisma.materialTransfer.findMany({
-    where: {
-      companyId: input.companyId,
-      ...(input.status ? { status: input.status } : {}),
-    },
-    orderBy: { createdAt: "desc" },
-    take: 300,
-    include: listInclude,
-  });
-  const visible = input.seeAll
-    ? rows
-    : rows.filter((row) => transferVisibleToShop(row.targetWarehouse, input.scope));
-  return visible.map((row) => ({
+async function slotBaseUrls(companyId: string) {
+  const slots = await resolveTransferSlots(companyId);
+  return {
+    erp1: slots.erp1?.cfg.baseUrl ?? null,
+    erp2: slots.erp2?.cfg.baseUrl ?? null,
+  };
+}
+
+function presentListRow(
+  row: {
+    id: string;
+    direction: TransferDirection;
+    erpName: string | null;
+    slot: string;
+    erpCompany: string;
+    sourceWarehouse: string;
+    targetWarehouse: string;
+    status: TransferStatus;
+    createdAt: Date;
+    receivedAt: Date | null;
+    createdBy: { name: string | null; knownName: string | null } | null;
+    receivedBy: { name: string | null; knownName: string | null } | null;
+    lines: Array<{ sentQty: number; receivedQty: number }>;
+  },
+  urls: { erp1: string | null; erp2: string | null },
+) {
+  const base = row.slot === "erp1" ? urls.erp1 : row.slot === "erp2" ? urls.erp2 : null;
+  return {
     id: row.id,
+    direction: row.direction,
     erpName: row.erpName,
+    erpUrl: stockEntryUrl(base, row.erpName),
     slot: row.slot,
     erpCompany: row.erpCompany,
     sourceWarehouse: row.sourceWarehouse,
@@ -98,8 +170,44 @@ export async function listMaterialTransfers(input: {
     receivedAt: row.receivedAt?.toISOString() ?? null,
     createdByName: personName(row.createdBy),
     receivedByName: personName(row.receivedBy),
+    mismatch: isMismatchTransfer(row),
     ...summarizeLines(row.lines),
-  }));
+  };
+}
+
+export async function listMaterialTransfers(input: {
+  companyId: string;
+  seeAll: boolean;
+  scope: ShopScope;
+  status?: TransferStatus;
+  mismatch?: boolean;
+}) {
+  if (!input.seeAll && shopScopeIsEmpty(input.scope)) return [];
+  if (
+    input.mismatch &&
+    input.status &&
+    input.status !== "received" &&
+    input.status !== "confirmed"
+  ) {
+    return [];
+  }
+  const rows = await prisma.materialTransfer.findMany({
+    where: {
+      companyId: input.companyId,
+      ...(input.mismatch
+        ? { status: { in: input.status ? [input.status] : ["received", "confirmed"] } }
+        : input.status
+          ? { status: input.status }
+          : {}),
+    },
+    orderBy: { createdAt: "desc" },
+    take: 300,
+    include: listInclude,
+  });
+  const urls = await slotBaseUrls(input.companyId);
+  const visible = input.seeAll ? rows : rows.filter((row) => visibleToShop(row, input.scope));
+  const matched = input.mismatch ? visible.filter((row) => isMismatchTransfer(row)) : visible;
+  return matched.map((row) => presentListRow(row, urls));
 }
 
 async function loadTransfer(companyId: string, id: string) {
@@ -108,7 +216,10 @@ async function loadTransfer(companyId: string, id: string) {
     include: {
       createdBy: { select: { name: true, knownName: true } },
       receivedBy: { select: { name: true, knownName: true } },
-      lines: { orderBy: { itemCode: "asc" } },
+      lines: {
+        orderBy: { itemCode: "asc" },
+        include: { receivedQtyUpdatedBy: { select: { name: true, knownName: true } } },
+      },
     },
   });
   if (!row) throw new MaterialTransferError("Transfer not found", 404);
@@ -117,20 +228,12 @@ async function loadTransfer(companyId: string, id: string) {
 
 function presentTransfer(
   row: Awaited<ReturnType<typeof loadTransfer>>,
+  urls: { erp1: string | null; erp2: string | null },
 ) {
+  const base = row.slot === "erp1" ? urls.erp1 : row.slot === "erp2" ? urls.erp2 : null;
   return {
-    id: row.id,
-    erpName: row.erpName,
-    slot: row.slot,
-    erpCompany: row.erpCompany,
-    sourceWarehouse: row.sourceWarehouse,
-    targetWarehouse: row.targetWarehouse,
-    status: row.status,
-    createdAt: row.createdAt.toISOString(),
-    receivedAt: row.receivedAt?.toISOString() ?? null,
-    createdByName: personName(row.createdBy),
-    receivedByName: personName(row.receivedBy),
-    ...summarizeLines(row.lines),
+    ...presentListRow(row, urls),
+    erpUrl: stockEntryUrl(base, row.erpName),
     lines: row.lines.map((line) => ({
       id: line.id,
       itemCode: line.itemCode,
@@ -139,6 +242,7 @@ function presentTransfer(
       uom: line.uom,
       sentQty: line.sentQty,
       receivedQty: line.receivedQty,
+      receivedQtyUpdatedByName: personName(line.receivedQtyUpdatedBy),
     })),
   };
 }
@@ -162,10 +266,23 @@ export async function getMaterialTransfer(input: {
   scope: ShopScope;
 }) {
   const row = await loadTransfer(input.companyId, input.id);
-  const visible =
-    input.seeAll || transferVisibleToShop(row.targetWarehouse, input.scope);
+  const visible = input.seeAll || visibleToShop(row, input.scope);
   if (!visible) throw new MaterialTransferError("This transfer is for another shop", 403);
-  return presentTransfer(row);
+  const urls = await slotBaseUrls(input.companyId);
+  return presentTransfer(row, urls);
+}
+
+function countAllowed(row: { direction: string; status: string }, canWrite: boolean) {
+  if (row.direction === "shop_to_main") {
+    if (!canWrite) throw new MaterialTransferError("Forbidden", 403);
+    if (row.status !== "requested") {
+      throw new MaterialTransferError("This request is not open for counting", 409);
+    }
+    return;
+  }
+  if (row.status !== "sent") {
+    throw new MaterialTransferError("This transfer is already marked received", 409);
+  }
 }
 
 export async function countReceivedItem(input: {
@@ -173,35 +290,48 @@ export async function countReceivedItem(input: {
   id: string;
   scope: ShopScope;
   canReceive: boolean;
+  canWrite: boolean;
+  userId: string;
   code?: string;
   itemCode?: string;
   qty?: number;
 }) {
   const row = await loadTransfer(input.companyId, input.id);
-  assertShopCanReceive(row.targetWarehouse, input.scope, input.canReceive);
-  if (row.status !== "sent") {
-    throw new MaterialTransferError("This transfer is already marked received");
+  if (row.direction === "shop_to_main") {
+    countAllowed(row, input.canWrite);
+  } else {
+    assertShopCanReceive(row.targetWarehouse, input.scope, input.canReceive);
+    countAllowed(row, input.canWrite);
   }
 
+  const countedAt = new Date();
   if (input.code?.trim()) {
     const line = findReceiptLine(row.lines, input.code.trim());
-    if (!line) throw new MaterialTransferError(`${input.code.trim()} is not on this transfer`);
+    if (!line) throw new MaterialTransferError(`${input.code.trim()} is not on this transfer`, 404);
     if (line.receivedQty >= MAX_RECEIVED_QTY) {
       throw new MaterialTransferError("Received qty is too large");
     }
     await prisma.materialTransferLine.update({
       where: { id: line.id },
-      data: { receivedQty: { increment: 1 } },
+      data: {
+        receivedQty: { increment: 1 },
+        receivedQtyUpdatedByUserId: input.userId,
+        receivedQtyUpdatedAt: countedAt,
+      },
     });
   } else if (input.itemCode && input.qty != null) {
     const line = row.lines.find((item) => item.itemCode === input.itemCode);
-    if (!line) throw new MaterialTransferError("Item is not on this transfer");
+    if (!line) throw new MaterialTransferError("Item is not on this transfer", 404);
     if (!Number.isInteger(input.qty) || input.qty < 0 || input.qty > MAX_RECEIVED_QTY) {
       throw new MaterialTransferError("Received qty must be a whole number");
     }
     await prisma.materialTransferLine.update({
       where: { id: line.id },
-      data: { receivedQty: input.qty },
+      data: {
+        receivedQty: input.qty,
+        receivedQtyUpdatedByUserId: input.userId,
+        receivedQtyUpdatedAt: countedAt,
+      },
     });
   } else {
     throw new MaterialTransferError("Scan a barcode or enter a qty");
@@ -210,8 +340,8 @@ export async function countReceivedItem(input: {
   return getMaterialTransfer({
     companyId: input.companyId,
     id: input.id,
-    seeAll: false,
-    canReceive: true,
+    seeAll: input.canWrite,
+    canReceive: input.canReceive,
     scope: input.scope,
   });
 }
@@ -224,9 +354,12 @@ export async function markTransferReceived(input: {
   canReceive: boolean;
 }) {
   const row = await loadTransfer(input.companyId, input.id);
+  if (row.direction !== "store_to_shop") {
+    throw new MaterialTransferError("Shop returns are confirmed by stores", 409);
+  }
   assertShopCanReceive(row.targetWarehouse, input.scope, input.canReceive);
   if (row.status !== "sent") {
-    throw new MaterialTransferError("This transfer is already marked received");
+    throw new MaterialTransferError("This transfer is already marked received", 409);
   }
   await prisma.materialTransfer.update({
     where: { id: row.id },
@@ -242,5 +375,160 @@ export async function markTransferReceived(input: {
     seeAll: true,
     canReceive: true,
     scope: input.scope,
+  });
+}
+
+async function revertConfirmClaim(id: string) {
+  await prisma.materialTransfer.updateMany({
+    where: { id, status: "confirming" },
+    data: { status: "requested" },
+  });
+}
+
+export async function confirmShopReturn(input: {
+  companyId: string;
+  id: string;
+  userId: string;
+  lines: Array<{ itemCode: string; qty: number }>;
+}) {
+  const row = await loadTransfer(input.companyId, input.id);
+  if (row.direction !== "shop_to_main") {
+    throw new MaterialTransferError("This is not a shop return", 409);
+  }
+  const preview = decideShopReturnConfirm({
+    status: row.status,
+    lines: row.lines.map((line) => {
+      const next = input.lines.find((item) => item.itemCode === line.itemCode);
+      return {
+        itemCode: line.itemCode,
+        qty: next?.qty ?? line.receivedQty,
+        availableQty: Number.MAX_SAFE_INTEGER,
+      };
+    }),
+  });
+  if (!preview.ok) {
+    if (preview.reason === "all_zero") {
+      throw new MaterialTransferError("Enter a received quantity or leave the request open");
+    }
+    throw new MaterialTransferError("This request is already confirmed", 409);
+  }
+
+  const claimed = await prisma.materialTransfer.updateMany({
+    where: { id: row.id, companyId: input.companyId, status: "requested", direction: "shop_to_main" },
+    data: { status: "confirming" },
+  });
+  if (claimed.count === 0) {
+    throw new MaterialTransferError("This request is already confirmed", 409);
+  }
+
+  const countedAt = new Date();
+  let postedName: string | null = null;
+  try {
+    for (const line of row.lines) {
+      const next = input.lines.find((item) => item.itemCode === line.itemCode);
+      if (!next) continue;
+      await prisma.materialTransferLine.update({
+        where: { id: line.id },
+        data: {
+          receivedQty: next.qty,
+          receivedQtyUpdatedByUserId: input.userId,
+          receivedQtyUpdatedAt: countedAt,
+        },
+      });
+    }
+
+    const slot = row.slot === "erp2" ? "erp2" : "erp1";
+    const { instance, warehouses } = await loadTransferSlotWarehouses(input.companyId, slot);
+    const counted = row.lines.map((line) => {
+      const next = input.lines.find((item) => item.itemCode === line.itemCode);
+      return {
+        itemCode: line.itemCode,
+        qty: next?.qty ?? line.receivedQty,
+        uom: line.uom,
+      };
+    });
+    const withBins = await Promise.all(
+      counted.map(async (line) => ({
+        itemCode: line.itemCode,
+        qty: line.qty,
+        availableQty: await liveSourceQty(instance.cfg, line.itemCode, row.sourceWarehouse),
+      })),
+    );
+    const decision = decideShopReturnConfirm({ status: "requested", lines: withBins });
+    if (!decision.ok) {
+      await revertConfirmClaim(row.id);
+      if (decision.reason === "all_zero") {
+        throw new MaterialTransferError("Enter a received quantity or leave the request open");
+      }
+      if (decision.reason === "short_stock") {
+        const available = withBins.find((line) => line.itemCode === decision.itemCode)?.availableQty ?? 0;
+        throw new MaterialTransferError(
+          `${decision.itemCode} has ${available} available in ${row.sourceWarehouse}.`,
+          409,
+        );
+      }
+      throw new MaterialTransferError("This request is already confirmed", 409);
+    }
+
+    const postLines = decision.postLines.map((line) => ({
+      ...line,
+      uom: counted.find((item) => item.itemCode === line.itemCode)?.uom,
+    }));
+    if (slot === "erp1") {
+      await assertSlotVatLines(
+        instance.cfg,
+        postLines.map((line) => line.itemCode),
+      );
+    }
+    await assertSourceCovers(instance.cfg, row.sourceWarehouse, postLines);
+    const posted = await submitMaterialTransfer({
+      cfg: instance.cfg,
+      slot: slot as TransferSlot,
+      company: row.erpCompany,
+      sourceWarehouse: row.sourceWarehouse,
+      targetWarehouse: row.targetWarehouse,
+      lines: postLines,
+      warehouses,
+    });
+    postedName = posted.name;
+    await prisma.materialTransfer.update({
+      where: { id: row.id },
+      data: {
+        status: "confirmed",
+        erpName: postedName,
+        receivedByUserId: input.userId,
+        receivedAt: new Date(),
+      },
+    });
+  } catch (error) {
+    if (!postedName) await revertConfirmClaim(row.id);
+    else {
+      await prisma.materialTransfer
+        .update({
+          where: { id: row.id },
+          data: {
+            status: "confirmed",
+            erpName: postedName,
+            receivedByUserId: input.userId,
+            receivedAt: new Date(),
+          },
+        })
+        .catch(() => undefined);
+    }
+    if (error instanceof MaterialTransferError) {
+      if (!postedName && error.status === 422) {
+        throw new MaterialTransferError(error.message, 502);
+      }
+      throw error;
+    }
+    throw new MaterialTransferError("ERP rejected the transfer", 502);
+  }
+
+  return getMaterialTransfer({
+    companyId: input.companyId,
+    id: input.id,
+    seeAll: true,
+    canReceive: true,
+    scope: { explicitWarehouses: [], outletName: null },
   });
 }

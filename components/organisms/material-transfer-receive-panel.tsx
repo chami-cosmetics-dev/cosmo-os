@@ -50,6 +50,7 @@ type ReceiptLine = {
   barcode: string;
   sentQty: number;
   receivedQty: number;
+  receivedQtyUpdatedByName: string | null;
 };
 
 type Receipt = {
@@ -59,6 +60,7 @@ type Receipt = {
   targetWarehouse: string;
   status: "sent" | "received";
   createdByName: string | null;
+  receivedByName: string | null;
   mismatchCount: number;
   shortUnits: number;
   overUnits: number;
@@ -375,7 +377,7 @@ export function MaterialTransferReceivePanel() {
 
       {unassigned ? (
         <p className="text-sm text-red-600">
-          Assign an outlet on the staff profile to see this shop's transfers.
+          Assign an outlet on the staff profile to see this shop&apos;s transfers.
         </p>
       ) : null}
 
@@ -387,6 +389,7 @@ export function MaterialTransferReceivePanel() {
               <p className="text-muted-foreground text-sm">
                 {receipt.sourceWarehouse} → {receipt.targetWarehouse}
                 {receipt.createdByName ? ` · sent by ${receipt.createdByName}` : ""}
+                {receipt.receivedByName ? ` · marked by ${receipt.receivedByName}` : ""}
               </p>
             </div>
             <Button
@@ -446,8 +449,10 @@ export function MaterialTransferReceivePanel() {
                 <tr>
                   <th className="px-3 py-2 font-medium">SKU</th>
                   <th className="px-3 py-2 font-medium">Description</th>
+                  <th className="px-3 py-2 font-medium">Barcode</th>
                   <th className="px-3 py-2 font-medium">Sent</th>
                   <th className="px-3 py-2 font-medium">Received</th>
+                  <th className="px-3 py-2 font-medium">Counted by</th>
                 </tr>
               </thead>
               <tbody>
@@ -466,13 +471,14 @@ export function MaterialTransferReceivePanel() {
                   >
                     <td className="px-3 py-2 font-medium">{line.itemCode}</td>
                     <td className="px-3 py-2">{line.itemName}</td>
+                    <td className="px-3 py-2">{line.barcode || "—"}</td>
                     <td className="px-3 py-2">{line.sentQty}</td>
                     <td className="px-3 py-2">
                       <Input
                         className="w-24"
                         inputMode="numeric"
                         value={received}
-                        disabled={isBusy}
+                        disabled={isBusy || receipt.status !== "sent"}
                         aria-label={`Received qty for ${line.itemCode}`}
                         onFocus={(event) => event.currentTarget.select()}
                         onChange={(event) => {
@@ -487,6 +493,7 @@ export function MaterialTransferReceivePanel() {
                         }}
                       />
                     </td>
+                    <td className="px-3 py-2">{line.receivedQtyUpdatedByName || "—"}</td>
                   </tr>
                   );
                 })}
@@ -495,7 +502,11 @@ export function MaterialTransferReceivePanel() {
           </div>
 
           <div className="flex justify-end">
-            <Button type="button" disabled={isBusy} onClick={() => setConfirmOpen(true)}>
+            <Button
+              type="button"
+              disabled={isBusy || receipt.status !== "sent"}
+              onClick={() => setConfirmOpen(true)}
+            >
               Mark all items received
             </Button>
           </div>

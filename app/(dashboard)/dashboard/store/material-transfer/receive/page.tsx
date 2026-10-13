@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 
 import { PermissionDeniedCard } from "@/components/molecules/permission-denied-card";
 import { MaterialTransferReceivePanel } from "@/components/organisms/material-transfer-receive-panel";
+import { MaterialTransferReturnPanel } from "@/components/organisms/material-transfer-return-panel";
 import { loadShopScope } from "@/lib/material-transfer/scope";
 import { getCurrentUserContext } from "@/lib/rbac";
 
@@ -26,7 +27,8 @@ export default async function MaterialTransferReceivePage() {
   }
 
   return (
-    <div className="p-4 md:p-6">
+    <div className="flex flex-col gap-8 p-4 md:p-6">
+      <MaterialTransferReturnPanel />
       <MaterialTransferReceivePanel />
     </div>
   );

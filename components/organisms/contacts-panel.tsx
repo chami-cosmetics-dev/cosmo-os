@@ -30,6 +30,8 @@ import { parseTpNumbers } from "@/lib/contacts/parse-tp-numbers";
 import { formatAllocationAssigneeLabel } from "@/lib/contacts/staff-sales-allocation";
 import { notify } from "@/lib/notify";
 import { formatAppDateTime } from "@/lib/format-datetime";
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
+import { saleBusinessLabel } from "@/lib/customer-insight/invoices";
 import {
   DUMP_TOTAL_HEADER,
   createCsvRowCounter,
@@ -1481,6 +1483,9 @@ export function ContactsPanel({
                   <thead>
                     <tr className="border-b bg-[linear-gradient(180deg,color-mix(in_srgb,var(--secondary)_14%,transparent),transparent)]">
                       <th className="px-4 py-2 text-left font-medium">Order</th>
+                      {isVaultOsDeployment() ? (
+                        <th className="px-4 py-2 text-left font-medium">Business</th>
+                      ) : null}
                       <th className="px-4 py-2 text-left font-medium">Items</th>
                       <th className="px-4 py-2 text-left font-medium">Date</th>
                       <th className="px-4 py-2 text-right font-medium">Total</th>
@@ -1506,6 +1511,9 @@ export function ContactsPanel({
                             </p>
                           ) : null}
                         </td>
+                        {isVaultOsDeployment() ? (
+                          <td className="px-4 py-2 align-top">{saleBusinessLabel(order.origin)}</td>
+                        ) : null}
                         <td className="px-4 py-2">
                           {order.lineItems.length > 0 ? (
                             <div className="space-y-2">

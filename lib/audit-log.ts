@@ -68,6 +68,7 @@ export const AUDIT_LOG_ACTIONS = [
   "discontinue_continued",
   "material_transfer_submitted",
   "material_transfer_received",
+  "material_transfer_confirmed",
   "contact_merged",
   "insight_contacted",
   "loyalty_responded",
@@ -172,7 +173,7 @@ export const AUDIT_LOG_ACTION_GROUPS = [
   {
     key: "material-transfer",
     label: "Material transfer",
-    actions: ["material_transfer_submitted", "material_transfer_received"],
+    actions: ["material_transfer_submitted", "material_transfer_received", "material_transfer_confirmed"],
   },
   {
     key: "customer-insight",

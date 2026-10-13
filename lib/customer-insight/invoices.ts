@@ -34,6 +34,11 @@ export type AdaptInvoiceInput = {
   lineItems?: InvoiceLineDto[];
 };
 
+/** Vault contact history. Cosmetics = sale was placed on Cosmetics.lk. Supplement = placed on Supplement Vault. */
+export function saleBusinessLabel(origin: string | null | undefined): "Cosmetics" | "Supplement" {
+  return origin === "vault_supplement_import" ? "Cosmetics" : "Supplement";
+}
+
 function toAmount(value: number | string): number {
   if (typeof value === "number") return Number.isFinite(value) ? value : 0;
   const n = Number(String(value).replace(/,/g, ""));

@@ -21,6 +21,8 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { CALL_CENTER_UNCONTACTED_CATEGORY } from "@/lib/contact-call-center-categories";
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
+import { saleBusinessLabel } from "@/lib/customer-insight/invoices";
 import { notify } from "@/lib/notify";
 import { formatAppDate, formatAppIsoDate } from "@/lib/format-datetime";
 import { buildPhoneLookupVariants } from "@/lib/phone-lookup";
@@ -721,6 +723,11 @@ export function ContactUpdatesPanel({
                         <th className="px-4 py-3 text-left font-semibold">
                           Store
                         </th>
+                        {isVaultOsDeployment() ? (
+                          <th className="px-4 py-3 text-left font-semibold">
+                            Business
+                          </th>
+                        ) : null}
                         <th className="px-4 py-3 text-left font-semibold">
                           Code
                         </th>
@@ -748,6 +755,9 @@ export function ContactUpdatesPanel({
                                 : "Adapt"
                               : "Online"}
                           </td>
+                          {isVaultOsDeployment() ? (
+                            <td className="px-4 py-3">{saleBusinessLabel(order.origin)}</td>
+                          ) : null}
                           <td className="px-4 py-3">
                             {order.orderNumber ?? order.shopifyOrderId}
                           </td>

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { mapAdaptToInvoiceRow } from "@/lib/customer-insight/invoices";
+import { mapAdaptToInvoiceRow, saleBusinessLabel } from "@/lib/customer-insight/invoices";
 
 describe("mapAdaptToInvoiceRow origin", () => {
   const base = {
@@ -41,5 +41,11 @@ describe("mapAdaptToInvoiceRow origin", () => {
     expect(row.status).toBe("Adapt / —");
     expect(row.financialStatus).toBe("Adapt");
     expect(row.origin).toBe("adapt");
+    expect(saleBusinessLabel(row.origin)).toBe("Supplement");
+  });
+
+  it("marks an imported sale as placed on Cosmetics", () => {
+    expect(saleBusinessLabel("vault_supplement_import")).toBe("Cosmetics");
+    expect(saleBusinessLabel(undefined)).toBe("Supplement");
   });
 });
