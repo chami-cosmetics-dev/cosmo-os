@@ -12,6 +12,39 @@ export type ShopScope = {
 
 const OUTLET_WORDS = new Set(["shop", "warehouse", "main", "stores", "store"]);
 
+/**
+ * ERP2 company code on the warehouse → Cosmetics outlet that receives it.
+ * MNK Trading is Cool Planet. Other companies stay unmapped until decided.
+ */
+const ERP2_CODE_OUTLETS: Record<string, string> = {
+  mnk: "cool planet",
+};
+
+function outletKey(outletName: string): string {
+  return outletName
+    .trim()
+    .toLowerCase()
+    .replace(/[–—-]/g, " ")
+    .replace(/\s+/g, " ");
+}
+
+function outletMatchesAlias(outletName: string, alias: string): boolean {
+  const outlet = outletKey(outletName);
+  const compact = outlet.replace(/ /g, "");
+  const aliasCompact = alias.replace(/ /g, "");
+  return outlet === alias || compact === aliasCompact || outlet.startsWith(`${alias} `);
+}
+
+function warehouseCompanyCode(warehouse: string): string | null {
+  const tokens = warehouse
+    .trim()
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((token) => token.length >= 2 && !OUTLET_WORDS.has(token));
+  const code = tokens.at(-1);
+  return code && ERP2_CODE_OUTLETS[code] ? code : null;
+}
+
 export function warehouseMatchesOutlet(warehouse: string, outletName: string | null | undefined): boolean {
   const outlet = (outletName ?? "").trim().toLowerCase();
   if (outlet.length < 2 || OUTLET_WORDS.has(outlet)) return false;
@@ -19,7 +52,10 @@ export function warehouseMatchesOutlet(warehouse: string, outletName: string | n
   if (!name) return false;
   if (name.includes(outlet)) return true;
   const tokens = name.split(/[^a-z0-9]+/).filter(Boolean);
-  return tokens.includes(outlet);
+  if (tokens.includes(outlet)) return true;
+  const code = warehouseCompanyCode(warehouse);
+  const alias = code ? ERP2_CODE_OUTLETS[code] : undefined;
+  return Boolean(alias && outletMatchesAlias(outlet, alias));
 }
 
 export function transferVisibleToShop(targetWarehouse: string, scope: ShopScope): boolean {
