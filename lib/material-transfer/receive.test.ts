@@ -16,9 +16,18 @@ describe("shop scope", () => {
     expect(warehouseMatchesOutlet("Shop Warehouse - Chami", "Chami")).toBe(true);
     expect(warehouseMatchesOutlet("Main Warehouse - Chami", "shop")).toBe(false);
     expect(warehouseMatchesOutlet("Shop Warehouse - MNK", "Cool Planet")).toBe(true);
-    expect(warehouseMatchesOutlet("Main Warehouse - MNK", "Cool Planet - Nugegoda")).toBe(true);
+    expect(warehouseMatchesOutlet("Main Warehouse - MNK", "Cool Planet Nugegoda")).toBe(true);
     expect(warehouseMatchesOutlet("Shop Warehouse - MNK", "GCC")).toBe(false);
     expect(warehouseMatchesOutlet("Shop Warehouse - Chami", "Cool Planet")).toBe(false);
+    expect(warehouseMatchesOutlet("Shop Warehouse - LMJ", "Pepiliyana")).toBe(true);
+    expect(warehouseMatchesOutlet("Shop Warehouse - AJS", "Kiribathgoda")).toBe(true);
+    expect(warehouseMatchesOutlet("Shop Warehouse - Chami", "GCC")).toBe(true);
+    expect(warehouseMatchesOutlet("Shop Warehouse - DTD", "Thilakma Negombo")).toBe(true);
+    expect(warehouseMatchesOutlet("Shop Warehouse - DTD", "Thilakma Negmbo")).toBe(true);
+    expect(warehouseMatchesOutlet("Shop Warehouse - SPK", "Nittabuwa")).toBe(true);
+    expect(warehouseMatchesOutlet("Shop Warehouse - SPK", "Nittambuwa")).toBe(true);
+    expect(warehouseMatchesOutlet("Shop Warehouse - LWK", "OGF")).toBe(true);
+    expect(warehouseMatchesOutlet("Shop Warehouse - LMJ", "Kiribathgoda")).toBe(false);
   });
 
   it("shows a transfer for the outlet or an explicit warehouse", () => {

@@ -13,11 +13,18 @@ export type ShopScope = {
 const OUTLET_WORDS = new Set(["shop", "warehouse", "main", "stores", "store"]);
 
 /**
- * ERP2 company code on the warehouse → Cosmetics outlet that receives it.
- * MNK Trading is Cool Planet. Other companies stay unmapped until decided.
+ * ERP2 company code on the warehouse → outlet that receives those transfers.
+ * LMJ Pepiliyana, MNK Cool Planet Nugegoda, AJS Kiribathgoda, Chami GCC,
+ * DTD Thilakma Negombo, SPK Nittambuwa, LWK OGF.
  */
-const ERP2_CODE_OUTLETS: Record<string, string> = {
-  mnk: "cool planet",
+const ERP2_CODE_OUTLETS: Record<string, readonly string[]> = {
+  lmj: ["pepiliyana"],
+  mnk: ["cool planet nugegoda", "cool planet"],
+  ajs: ["kiribathgoda"],
+  chami: ["gcc"],
+  dtd: ["thilakma negombo", "thilakma negmbo"],
+  spk: ["nittambuwa", "nittabuwa"],
+  lwk: ["ogf"],
 };
 
 function outletKey(outletName: string): string {
@@ -28,11 +35,19 @@ function outletKey(outletName: string): string {
     .replace(/\s+/g, " ");
 }
 
-function outletMatchesAlias(outletName: string, alias: string): boolean {
+function outletMatchesAlias(outletName: string, aliases: readonly string[]): boolean {
   const outlet = outletKey(outletName);
+  if (!outlet) return false;
   const compact = outlet.replace(/ /g, "");
-  const aliasCompact = alias.replace(/ /g, "");
-  return outlet === alias || compact === aliasCompact || outlet.startsWith(`${alias} `);
+  return aliases.some((alias) => {
+    const aliasCompact = alias.replace(/ /g, "");
+    return (
+      outlet === alias ||
+      compact === aliasCompact ||
+      outlet.startsWith(`${alias} `) ||
+      alias.startsWith(`${outlet} `)
+    );
+  });
 }
 
 function warehouseCompanyCode(warehouse: string): string | null {
@@ -45,17 +60,25 @@ function warehouseCompanyCode(warehouse: string): string | null {
   return code && ERP2_CODE_OUTLETS[code] ? code : null;
 }
 
-export function warehouseMatchesOutlet(warehouse: string, outletName: string | null | undefined): boolean {
+/** Outlet text appears in the warehouse name. Company-code aliases are separate. */
+export function warehouseNameContainsOutlet(
+  warehouse: string,
+  outletName: string | null | undefined,
+): boolean {
   const outlet = (outletName ?? "").trim().toLowerCase();
   if (outlet.length < 2 || OUTLET_WORDS.has(outlet)) return false;
   const name = warehouse.trim().toLowerCase();
   if (!name) return false;
   if (name.includes(outlet)) return true;
   const tokens = name.split(/[^a-z0-9]+/).filter(Boolean);
-  if (tokens.includes(outlet)) return true;
+  return tokens.includes(outlet);
+}
+
+export function warehouseMatchesOutlet(warehouse: string, outletName: string | null | undefined): boolean {
+  if (warehouseNameContainsOutlet(warehouse, outletName)) return true;
   const code = warehouseCompanyCode(warehouse);
-  const alias = code ? ERP2_CODE_OUTLETS[code] : undefined;
-  return Boolean(alias && outletMatchesAlias(outlet, alias));
+  const aliases = code ? ERP2_CODE_OUTLETS[code] : undefined;
+  return Boolean(aliases && outletMatchesAlias(outletName ?? "", aliases));
 }
 
 export function transferVisibleToShop(targetWarehouse: string, scope: ShopScope): boolean {
