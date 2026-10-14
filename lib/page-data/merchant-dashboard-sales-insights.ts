@@ -14,28 +14,26 @@ import {
 } from "@/lib/merchant-wholesale";
 import { prisma } from "@/lib/prisma";
 
-/** Current month + this many months back for the compare picker. */
-export const SALES_INSIGHTS_MONTHS_BACK = 3;
+/** Current month + this many past months (3 months total) are selectable for compare. */
+export const SALES_INSIGHTS_MONTHS_BACK = 2;
 
 export type SalesTotals = { total: number; orderCount: number };
 
-export type SalesInsightsMonth = {
-  yearMonth: string;
-  /** Whole month (current month = through today). */
+export type SalesInsightsDay = {
+  ymd: string;
+  /** Invoiced (created) that day. */
   invoice: SalesTotals;
+  /** Delivery completed that day. */
   delivered: SalesTotals;
-  /** Day 1 through today's day-of-month — fair compare against a part month. */
-  invoiceToDate: SalesTotals;
-  deliveredToDate: SalesTotals;
 };
 
 export type MerchantSalesInsights = {
   todayYmd: string;
-  dayOfMonth: number;
-  today: { invoice: SalesTotals; delivered: SalesTotals };
+  /** First selectable day (1st of the month SALES_INSIGHTS_MONTHS_BACK ago). */
+  windowFromYmd: string;
   cancelled: { today: SalesTotals; mtd: SalesTotals };
-  /** Newest first: current month, then up to 3 back. */
-  months: SalesInsightsMonth[];
+  /** Every Colombo day windowFromYmd..todayYmd, oldest first — client sums any range. */
+  days: SalesInsightsDay[];
 };
 
 export type InsightsSourceOrder = {
@@ -58,8 +56,21 @@ function add(target: SalesTotals, amount: number) {
   target.orderCount += 1;
 }
 
-function dayOf(ymd: string): number {
-  return Number(ymd.slice(8, 10));
+export function salesInsightsWindowFrom(todayYmd: string): string {
+  const months = listLastYearMonths(todayYmd.slice(0, 7), SALES_INSIGHTS_MONTHS_BACK + 1);
+  return monthBounds(months[0]).fromYmd;
+}
+
+function listDays(fromYmd: string, toYmd: string): string[] {
+  const days: string[] = [];
+  const [y, m, d] = fromYmd.split("-").map(Number);
+  for (let i = 0; ; i += 1) {
+    const date = new Date(Date.UTC(y, m - 1, d + i));
+    const ymd = date.toISOString().slice(0, 10);
+    if (ymd > toYmd) break;
+    days.push(ymd);
+  }
+  return days;
 }
 
 /**
@@ -72,54 +83,27 @@ export function buildMerchantSalesInsights(input: {
   orders: InsightsSourceOrder[];
 }): MerchantSalesInsights {
   const { todayYmd } = input;
+  const windowFromYmd = salesInsightsWindowFrom(todayYmd);
   const currentYearMonth = todayYmd.slice(0, 7);
-  const dayOfMonth = dayOf(todayYmd);
-  const yearMonths = listLastYearMonths(
-    currentYearMonth,
-    SALES_INSIGHTS_MONTHS_BACK + 1,
-  ).reverse();
 
-  const byMonth = new Map<string, SalesInsightsMonth>(
-    yearMonths.map((ym) => [
-      ym,
-      {
-        yearMonth: ym,
-        invoice: emptyTotals(),
-        delivered: emptyTotals(),
-        invoiceToDate: emptyTotals(),
-        deliveredToDate: emptyTotals(),
-      },
+  const byDay = new Map<string, SalesInsightsDay>(
+    listDays(windowFromYmd, todayYmd).map((ymd) => [
+      ymd,
+      { ymd, invoice: emptyTotals(), delivered: emptyTotals() },
     ]),
   );
-  const today = { invoice: emptyTotals(), delivered: emptyTotals() };
   const cancelled = { today: emptyTotals(), mtd: emptyTotals() };
 
-  const inWindow = (ymd: string) => ymd <= todayYmd;
-
   for (const order of input.orders) {
-    if (order.eligible && inWindow(order.createdYmd)) {
-      const month = byMonth.get(order.createdYmd.slice(0, 7));
-      if (month) {
-        add(month.invoice, order.amount);
-        if (dayOf(order.createdYmd) <= dayOfMonth) {
-          add(month.invoiceToDate, order.amount);
-        }
-      }
-      if (order.createdYmd === todayYmd) add(today.invoice, order.amount);
+    if (order.eligible) {
+      const day = byDay.get(order.createdYmd);
+      if (day) add(day.invoice, order.amount);
     }
-
-    if (order.deliveredYmd && inWindow(order.deliveredYmd)) {
-      const month = byMonth.get(order.deliveredYmd.slice(0, 7));
-      if (month) {
-        add(month.delivered, order.amount);
-        if (dayOf(order.deliveredYmd) <= dayOfMonth) {
-          add(month.deliveredToDate, order.amount);
-        }
-      }
-      if (order.deliveredYmd === todayYmd) add(today.delivered, order.amount);
+    if (order.deliveredYmd) {
+      const day = byDay.get(order.deliveredYmd);
+      if (day) add(day.delivered, order.amount);
     }
-
-    if (order.cancelledYmd && inWindow(order.cancelledYmd)) {
+    if (order.cancelledYmd && order.cancelledYmd <= todayYmd) {
       if (order.cancelledYmd.startsWith(currentYearMonth)) {
         add(cancelled.mtd, order.amount);
       }
@@ -129,10 +113,9 @@ export function buildMerchantSalesInsights(input: {
 
   return {
     todayYmd,
-    dayOfMonth,
-    today,
+    windowFromYmd,
     cancelled,
-    months: yearMonths.map((ym) => byMonth.get(ym)!),
+    days: [...byDay.values()],
   };
 }
 
@@ -163,8 +146,7 @@ export async function fetchMerchantSalesInsights(
     merchant.couponCodes.filter((code) => !isWholesaleTrackingCode(code)),
   );
 
-  const oldestYearMonth = empty.months[empty.months.length - 1].yearMonth;
-  const fromDate = new Date(`${monthBounds(oldestYearMonth).fromYmd}T00:00:00.000+05:30`);
+  const fromDate = new Date(`${empty.windowFromYmd}T00:00:00.000+05:30`);
   const toDate = new Date(`${todayYmd}T23:59:59.999+05:30`);
   const inRange = { gte: fromDate, lte: toDate };
 
