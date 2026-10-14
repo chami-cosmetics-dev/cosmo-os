@@ -39,6 +39,7 @@ import {
   isOrderPaymentRequiresApproval,
 } from "@/lib/approval-workflow";
 import { isPosOrderSource } from "@/lib/fulfillment-queue-filters";
+import { merchantCanRequestOrderCancel, viewerCreatedPosOrder } from "@/lib/order-cancel-finance";
 import { orderStageUpdate, orderStageUpdateIfChanged } from "@/lib/order-stage-timing";
 import {
   INVOICE_REVERT_CREDIT_NOTE_TEMPLATE,
@@ -304,7 +305,10 @@ export async function PATCH(
     );
   }
 
-  const requiredPermissions = getRequiredPermissionsForAction(parsed.data.action);
+  const requiredPermissions =
+    parsed.data.action === "cancel_order"
+      ? ["orders.read", "orders.cancel"]
+      : getRequiredPermissionsForAction(parsed.data.action);
   const auth = await requireAnyPermission(requiredPermissions);
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
@@ -1411,19 +1415,40 @@ export async function PATCH(
     }
 
     if (data.action === "cancel_order") {
-      const cancelableStages = ["order_received", "sample_free_issue", "print", "ready_to_dispatch"] as const;
-      if (!(cancelableStages as readonly string[]).includes(order.fulfillmentStage)) {
+      const isPosCancel = isPosOrderSource(order.sourceName);
+      if (isPosCancel) {
+        if (!viewerCreatedPosOrder(auth.context!.user!.id, order.assignedMerchantId)) {
+          return NextResponse.json(
+            { error: "Only the user who created this POS order can request cancel" },
+            { status: 403 },
+          );
+        }
+      } else if (!hasPermission(auth.context, "orders.cancel")) {
         return NextResponse.json(
-          { error: "Orders can only be cancelled before dispatch" },
-          { status: 400 }
+          { error: "You do not have permission to cancel this order" },
+          { status: 403 },
         );
       }
       if (order.financialStatus?.toLowerCase() === "voided") {
         return NextResponse.json({ error: "Order is already cancelled" }, { status: 400 });
       }
+      if (
+        !merchantCanRequestOrderCancel({
+          isPos: isPosCancel,
+          fulfillmentStage: order.fulfillmentStage,
+          financialStatus: order.financialStatus,
+          hasPendingCancelApproval: false,
+        })
+      ) {
+        return NextResponse.json(
+          { error: "Orders can only be cancelled before dispatch" },
+          { status: 400 }
+        );
+      }
 
       // Vault OS has no Shopify Admin API — real Shopify orders must be cancelled in Shopify.
-      if (shouldBlockShopifyCancelInOs(order.shopifyOrderId)) {
+      // POS invoices are ERP documents, so merchants can still request finance cancel.
+      if (!isPosCancel && shouldBlockShopifyCancelInOs(order.shopifyOrderId)) {
         return NextResponse.json(
           { error: VAULT_SHOPIFY_CANCEL_BLOCKED_MESSAGE },
           { status: 400 }
@@ -1447,7 +1472,8 @@ export async function PATCH(
         gateway === "cc checkout" ||
         gateway.includes("webxpay");
       const requiresFinanceApproval =
-        order.financialStatus?.toLowerCase() === "paid" && isPaidCancelableGateway;
+        isPosCancel ||
+        (order.financialStatus?.toLowerCase() === "paid" && isPaidCancelableGateway);
 
       const cancelKind = data.cancelKind;
 
@@ -1470,6 +1496,8 @@ export async function PATCH(
           invoiceLabel,
           amount: order.totalPrice?.toString() ?? "0",
           companyLocationId: order.companyLocationId,
+          isPos: isPosCancel,
+          orderRefs: [order.name, order.orderNumber, order.erpnextInvoiceId],
         });
 
         await writeAuditLog({

@@ -27,8 +27,25 @@ type MailerooAttachment = {
   contentId?: string;
 };
 
+function normalizeMailAddresses(emails: string[]) {
+  return [
+    ...new Set(
+      emails.map((email) => email.trim().toLowerCase()).filter((email) => email.includes("@")),
+    ),
+  ];
+}
+
+function escapeMailHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
 async function sendMailerooEmail(input: {
   toEmails: string[];
+  ccEmails?: string[];
   subject: string;
   html: string;
   plain: string;
@@ -45,12 +62,13 @@ async function sendMailerooEmail(input: {
     return { success: false, message: "Email service not configured" };
   }
 
-  const validEmails = input.toEmails
-    .map((e) => e.trim().toLowerCase())
-    .filter((e) => e && e.includes("@"));
+  const validEmails = normalizeMailAddresses(input.toEmails);
   if (validEmails.length === 0) {
     return { success: false, message: "No valid recipients" };
   }
+  const ccEmails = normalizeMailAddresses(input.ccEmails ?? []).filter(
+    (email) => !validEmails.includes(email),
+  );
 
   try {
     const response = await fetch(`${MAILEROO_BASE_URL}/emails`, {
@@ -65,6 +83,7 @@ async function sendMailerooEmail(input: {
           display_name: input.fromName?.trim() || APP_NAME,
         },
         to: validEmails.map((address) => ({ address })),
+        ...(ccEmails.length > 0 ? { cc: ccEmails.map((address) => ({ address })) } : {}),
         subject: input.subject,
         html: input.html,
         plain: input.plain,
@@ -292,6 +311,47 @@ export async function sendFinanceApprovalEmail(
     console.error("Failed to send finance approval email:", error);
     return { success: false, message: error instanceof Error ? error.message : "Failed to send email" };
   }
+}
+
+export async function sendOrderCancelRequestEmail(input: {
+  toEmails: string[];
+  ccEmails: string[];
+  invoiceLabel: string;
+  amount: string;
+  cancelReason: string;
+  isPos: boolean;
+}): Promise<{ success: boolean; message?: string }> {
+  const invoiceLabel = escapeMailHtml(input.invoiceLabel);
+  const amount = escapeMailHtml(input.amount);
+  const cancelReason = escapeMailHtml(input.cancelReason);
+  const kind = input.isPos ? "POS order" : "Order";
+  const subject = `${kind} cancel approval — ${input.invoiceLabel}`;
+
+  const html = `
+<!DOCTYPE html>
+<html>
+<body style="font-family: system-ui, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; color: #333;">
+  <h2 style="color: #1a1a1a;">${kind} cancel approval</h2>
+  <p>A merchant requested cancellation. Review it in <strong>Finance Approvals</strong>.</p>
+  <table style="border-collapse: collapse; width: 100%; margin: 16px 0;">
+    <tr><td style="padding: 8px; border: 1px solid #ddd; font-weight: bold; background: #f9f9f9;">Invoice</td><td style="padding: 8px; border: 1px solid #ddd;">${invoiceLabel}</td></tr>
+    <tr><td style="padding: 8px; border: 1px solid #ddd; font-weight: bold; background: #f9f9f9;">Amount</td><td style="padding: 8px; border: 1px solid #ddd;">${amount}</td></tr>
+    <tr><td style="padding: 8px; border: 1px solid #ddd; font-weight: bold; background: #f9f9f9;">Reason</td><td style="padding: 8px; border: 1px solid #ddd;">${cancelReason}</td></tr>
+  </table>
+  <p>Please log in to ${APP_NAME} and approve or reject this cancel request.</p>
+</body>
+</html>`.trim();
+
+  const plain = `${kind} cancel approval\n\nInvoice: ${input.invoiceLabel}\nAmount: ${input.amount}\nReason: ${input.cancelReason}\n\nPlease log in to ${APP_NAME} and review Finance Approvals.`;
+
+  return sendMailerooEmail({
+    toEmails: input.toEmails,
+    ccEmails: input.ccEmails,
+    subject,
+    html,
+    plain,
+    errorLabel: "order cancel request",
+  });
 }
 
 export async function sendFinanceApprovalReminderEmail(

@@ -37,6 +37,7 @@ export async function GET() {
       shippingAddress: true,
       billingAddress: true,
       createdAt: true,
+      assignedMerchantId: true,
       companyLocation: {
         select: {
           id: true,
@@ -46,6 +47,11 @@ export async function GET() {
         },
       },
       customer: { select: { firstName: true, lastName: true } },
+      approvalRequests: {
+        where: { type: "order_cancel_approval", status: "pending" },
+        select: { id: true },
+        take: 1,
+      },
     },
   });
 
@@ -65,6 +71,8 @@ export async function GET() {
     customerName: string | null;
     customerPhone: string | null;
     createdAt: string;
+    hasPendingCancelApproval: boolean;
+    assignedMerchantId: string | null;
   };
 
   const flat: PosOrder[] = orders.map((o) => {
@@ -104,6 +112,8 @@ export async function GET() {
       customerName,
       customerPhone: o.customerPhone ?? null,
       createdAt: o.createdAt.toISOString(),
+      hasPendingCancelApproval: o.approvalRequests.length > 0,
+      assignedMerchantId: o.assignedMerchantId,
     };
   });
 

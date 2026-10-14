@@ -202,7 +202,12 @@ const DEFAULT_PERMISSIONS = [
   {
     key: "store.material_transfer.write",
     description:
-      "Create ERP material transfers and see every shop's receipt status",
+      "Stores only. Send main-to-shop, see every shop's receipt status, and confirm shop returns",
+  },
+  {
+    key: "store.material_transfer.shop_return",
+    description:
+      "Merchant only. Send shop-to-main from the staff outlet. Does not post an ERP transfer and cannot send main-to-shop",
   },
   {
     key: "academy.learn",
@@ -291,7 +296,7 @@ const DEFAULT_PERMISSIONS = [
   },
   {
     key: "orders.cancel",
-    description: "Cancel orders at order received or sample/free issue stage",
+    description: "Cancel non-POS orders before dispatch. POS cancel is requested by the user who created that order.",
   },
   {
     key: "orders.update_payment_method",

@@ -13,5 +13,5 @@ export default async function PosOrdersPage() {
     return <PermissionDeniedCard />;
   }
 
-  return <PosOrdersPanel />;
+  return <PosOrdersPanel currentUserId={auth.context?.user?.id ?? null} />;
 }

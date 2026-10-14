@@ -53,6 +53,9 @@ export async function POST(request: NextRequest) {
 
   try {
     if (!auth.canWrite) {
+      if (!auth.canShopReturn || !auth.canReceive) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
       const resolved = resolveShopToMain(auth.scope.outletName, await shopWarehouses(auth.companyId));
       if (!resolved.ok) {
         return NextResponse.json({ error: resolved.error }, { status: 409 });
