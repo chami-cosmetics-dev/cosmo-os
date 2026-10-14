@@ -99,6 +99,32 @@ describe("runReturnCancelExternalCompletion", () => {
     });
   });
 
+  it("unpaid cancel cancels the Sales Invoice and does not create a credit note", async () => {
+    const ensureErpnextCreditNote = vi.fn();
+    const cancelErpnextSalesInvoice = vi.fn().mockResolvedValue({
+      outcome: "cancelled",
+      invoiceName: "1101001",
+    });
+
+    const result = await runReturnCancelExternalCompletion({
+      order: baseOrder({ financialStatus: "pending" }),
+      location: baseLocation(),
+      deps: {
+        ensureErpnextCreditNote,
+        cancelErpnextSalesInvoice,
+        cancelShopifyOrder: vi.fn(),
+        shouldBlockShopifyCancelInOs: () => false,
+        isRealShopifyOrderId: () => false,
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.completionMode).toBe("cancel_si");
+    expect(result.invoiceName).toBe("1101001");
+    expect(cancelErpnextSalesInvoice).toHaveBeenCalledOnce();
+    expect(ensureErpnextCreditNote).not.toHaveBeenCalled();
+  });
+
   it("replacement skips Shopify customer cancel email", async () => {
     const cancelShopifyOrder = vi.fn().mockResolvedValue(undefined);
 

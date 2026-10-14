@@ -39,7 +39,7 @@ import {
   isOrderPaymentRequiresApproval,
 } from "@/lib/approval-workflow";
 import { isPosOrderSource } from "@/lib/fulfillment-queue-filters";
-import { merchantCanRequestOrderCancel, viewerCreatedPosOrder } from "@/lib/order-cancel-finance";
+import { canRequestPosOrderCancel, merchantCanRequestOrderCancel } from "@/lib/order-cancel-finance";
 import { orderStageUpdate, orderStageUpdateIfChanged } from "@/lib/order-stage-timing";
 import {
   INVOICE_REVERT_CREDIT_NOTE_TEMPLATE,
@@ -1417,7 +1417,13 @@ export async function PATCH(
     if (data.action === "cancel_order") {
       const isPosCancel = isPosOrderSource(order.sourceName);
       if (isPosCancel) {
-        if (!viewerCreatedPosOrder(auth.context!.user!.id, order.assignedMerchantId)) {
+        if (
+          !canRequestPosOrderCancel({
+            viewerUserId: auth.context!.user!.id,
+            assignedMerchantId: order.assignedMerchantId,
+            roleNames: auth.context?.roleNames,
+          })
+        ) {
           return NextResponse.json(
             { error: "Only the user who created this POS order can request cancel" },
             { status: 403 },

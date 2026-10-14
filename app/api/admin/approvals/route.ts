@@ -206,7 +206,7 @@ export async function GET() {
         shopifyOrderId: cancelNote?.shopifyOrderId ?? row.shopifyOrderId,
         erpnextInvoiceId: cancelNote?.erpnextInvoiceId ?? row.erpnextInvoiceId,
         completionMode:
-          row.type === RETURN_CANCEL_APPROVAL
+          row.type === RETURN_CANCEL_APPROVAL || row.type === ORDER_CANCEL_APPROVAL
             ? resolveReturnCancelCompletionMode(row.financialStatus)
             : undefined,
         erpAdminInvoiceUrl: buildErpAdminInvoiceUrl({
