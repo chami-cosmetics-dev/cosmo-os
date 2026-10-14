@@ -17,15 +17,12 @@ function row(
 }
 
 describe("buildMerchantSalesInsights", () => {
-  it("lists current month plus three back, newest first", () => {
+  it("covers the current month plus two past months, one row per day", () => {
     const insights = buildMerchantSalesInsights({ todayYmd: "2026-01-14", orders: [] });
-    expect(insights.months.map((m) => m.yearMonth)).toEqual([
-      "2026-01",
-      "2025-12",
-      "2025-11",
-      "2025-10",
-    ]);
-    expect(insights.dayOfMonth).toBe(14);
+    expect(insights.windowFromYmd).toBe("2025-11-01");
+    expect(insights.days[0].ymd).toBe("2025-11-01");
+    expect(insights.days[insights.days.length - 1].ymd).toBe("2026-01-14");
+    expect(insights.days).toHaveLength(30 + 31 + 14);
   });
 
   it("splits invoice vs delivered basis by their own dates", () => {
@@ -36,18 +33,17 @@ describe("buildMerchantSalesInsights", () => {
         row({ amount: 1000, createdYmd: "2026-09-28", deliveredYmd: "2026-10-02" }),
         // Invoiced today, not delivered yet.
         row({ amount: 500, createdYmd: "2026-10-14" }),
-        // Late Sept sale outside the same-period window.
-        row({ amount: 300, createdYmd: "2026-09-20", deliveredYmd: "2026-09-20" }),
+        // Before the window: ignored.
+        row({ amount: 300, createdYmd: "2026-07-20", deliveredYmd: "2026-07-20" }),
       ],
     });
-    const [oct, sep] = insights.months;
-    expect(oct.invoice).toEqual({ total: 500, orderCount: 1 });
-    expect(oct.delivered).toEqual({ total: 1000, orderCount: 1 });
-    expect(sep.invoice).toEqual({ total: 1300, orderCount: 2 });
-    expect(sep.invoiceToDate).toEqual({ total: 0, orderCount: 0 });
-    expect(sep.delivered).toEqual({ total: 300, orderCount: 1 });
-    expect(insights.today.invoice).toEqual({ total: 500, orderCount: 1 });
-    expect(insights.today.delivered).toEqual({ total: 0, orderCount: 0 });
+    const day = (ymd: string) => insights.days.find((d) => d.ymd === ymd)!;
+    expect(day("2026-09-28").invoice).toEqual({ total: 1000, orderCount: 1 });
+    expect(day("2026-09-28").delivered).toEqual({ total: 0, orderCount: 0 });
+    expect(day("2026-10-02").delivered).toEqual({ total: 1000, orderCount: 1 });
+    expect(day("2026-10-14").invoice).toEqual({ total: 500, orderCount: 1 });
+    const allInvoice = insights.days.reduce((sum, d) => sum + d.invoice.total, 0);
+    expect(allInvoice).toBe(1500);
   });
 
   it("counts cancellations by cancel day for today and MTD", () => {
@@ -61,6 +57,6 @@ describe("buildMerchantSalesInsights", () => {
     });
     expect(insights.cancelled.today).toEqual({ total: 400, orderCount: 1 });
     expect(insights.cancelled.mtd).toEqual({ total: 600, orderCount: 2 });
-    expect(insights.months[0].invoice).toEqual({ total: 0, orderCount: 0 });
+    expect(insights.days.every((d) => d.invoice.orderCount === 0)).toBe(true);
   });
 });
