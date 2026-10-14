@@ -819,6 +819,25 @@ export async function getPendingDeliveryPaymentApproval(orderId: string) {
   });
 }
 
+export const DELIVERY_UNDONE_APPROVAL_CANCEL_NOTE =
+  "Delivery was undone. Confirm door cash only after the order is delivered again.";
+
+/** Drop a pending door-cash approval when delivery did not stick (revert or rearrange). */
+export async function cancelPendingDeliveryPaymentApprovalsForOrder(
+  orderId: string,
+  reviewNote = DELIVERY_UNDONE_APPROVAL_CANCEL_NOTE,
+  db: Prisma.TransactionClient | typeof prisma = prisma,
+) {
+  return db.approvalRequest.updateMany({
+    where: { orderId, type: DELIVERY_PAYMENT_APPROVAL, status: "pending" },
+    data: {
+      status: "cancelled",
+      reviewNote,
+      updatedAt: new Date(),
+    },
+  });
+}
+
 export async function createOrGetDeliveryPaymentApproval(input: {
   companyId: string;
   orderId: string;

@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveShopToMain, type ShopReturnWarehouse } from "@/lib/material-transfer/shop-return";
+import {
+  resolveShopToMain,
+  shopReturnDestination,
+  shopReturnHeader,
+  type ShopReturnWarehouse,
+} from "@/lib/material-transfer/shop-return";
 
 function warehouse(
   name: string,
@@ -9,6 +14,41 @@ function warehouse(
 ): ShopReturnWarehouse {
   return { name, company, slot };
 }
+
+describe("shop return split", () => {
+  it("sends VAT items to ERP1 and other items to ERP2", () => {
+    expect(shopReturnDestination("Vat")).toBe("erp1");
+    expect(shopReturnDestination("Vat / Non Vat")).toBe("erp1");
+    expect(shopReturnDestination("Non Vat")).toBe("erp2");
+    expect(shopReturnDestination("")).toBe("erp2");
+  });
+
+  it("builds one header when both ERPs have lines", () => {
+    const header = shopReturnHeader(
+      [
+        {
+          slot: "erp1",
+          erpCompany: "Cosmetics.lk",
+          sourceWarehouse: "Maharagama Shop Warehouse - Cosmo",
+          targetWarehouse: "Main Warehouse - Cosmo",
+        },
+        {
+          slot: "erp2",
+          erpCompany: "MNK Trading",
+          sourceWarehouse: "Maharagama Shop Warehouse - MNK",
+          targetWarehouse: "Main Warehouse - MNK",
+        },
+      ],
+      ["erp1", "erp2"],
+    );
+    expect(header.ok).toBe(true);
+    if (header.ok) {
+      expect(header.slot).toBe("mixed");
+      expect(header.sourceWarehouse).toBe("Maharagama Shop Warehouse - Cosmo");
+      expect(header.sourceWarehouse2).toBe("Maharagama Shop Warehouse - MNK");
+    }
+  });
+});
 
 describe("resolveShopToMain", () => {
   it("returns the outlet shop and that company's main warehouse", () => {
@@ -19,10 +59,81 @@ describe("resolveShopToMain", () => {
     ]);
     expect(result).toEqual({
       ok: true,
-      slot: "erp1",
-      erpCompany: "Cosmetics.lk",
-      sourceWarehouse: "Maharagama Shop Warehouse - Cosmo",
-      targetWarehouse: "Main Warehouse - Cosmo",
+      legs: [
+        {
+          slot: "erp1",
+          erpCompany: "Cosmetics.lk",
+          sourceWarehouse: "Maharagama Shop Warehouse - Cosmo",
+          targetWarehouse: "Main Warehouse - Cosmo",
+        },
+      ],
+    });
+  });
+
+  it("keeps ERP1 and ERP2 as two legs on one outlet", () => {
+    const result = resolveShopToMain("Maharagama", [
+      warehouse("Maharagama Shop Warehouse - Cosmo", "Cosmetics.lk", "erp1"),
+      warehouse("Main Warehouse - Cosmo", "Cosmetics.lk", "erp1"),
+      warehouse("Maharagama Shop Warehouse - MNK", "MNK Trading", "erp2"),
+      warehouse("Main Warehouse - MNK", "MNK Trading", "erp2"),
+    ]);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.legs.map((leg) => leg.slot)).toEqual(["erp1", "erp2"]);
+    }
+  });
+
+  it("sends Cool Planet VAT stock to the Cosmetics main and other items to the MNK main", () => {
+    const result = resolveShopToMain("Cool Planet", [
+      warehouse("Cool Planet Nugegoda Shop Warehouse - Cosmo", "Cosmetics.lk", "erp1"),
+      warehouse("Main Warehouse - Cosmo", "Cosmetics.lk", "erp1"),
+      warehouse("Main Warehouse 2 - Cosmo", "Cosmetics.lk", "erp1"),
+      warehouse("Shop Warehouse - MNK", "MNK Trading", "erp2"),
+      warehouse("Main Warehouse - MNK", "MNK Trading", "erp2"),
+    ]);
+    expect(result).toEqual({
+      ok: true,
+      legs: [
+        {
+          slot: "erp1",
+          erpCompany: "Cosmetics.lk",
+          sourceWarehouse: "Cool Planet Nugegoda Shop Warehouse - Cosmo",
+          targetWarehouse: "Main Warehouse - Cosmo",
+        },
+        {
+          slot: "erp2",
+          erpCompany: "MNK Trading",
+          sourceWarehouse: "Shop Warehouse - MNK",
+          targetWarehouse: "Main Warehouse - MNK",
+        },
+      ],
+    });
+  });
+
+  it("treats Galle as the GCC outlet and Chami as its ERP2 company", () => {
+    const result = resolveShopToMain("Galle", [
+      warehouse("GCC Shop Warehouse - Cosmo", "Cosmetics.lk", "erp1"),
+      warehouse("Main Warehouse - Cosmo", "Cosmetics.lk", "erp1"),
+      warehouse("Pepiliyana Shop Warehouse - Cosmo", "Cosmetics.lk", "erp1"),
+      warehouse("Shop Warehouse - Chami", "Chami", "erp2"),
+      warehouse("Main Warehouse - Chami", "Chami", "erp2"),
+    ]);
+    expect(result).toEqual({
+      ok: true,
+      legs: [
+        {
+          slot: "erp1",
+          erpCompany: "Cosmetics.lk",
+          sourceWarehouse: "GCC Shop Warehouse - Cosmo",
+          targetWarehouse: "Main Warehouse - Cosmo",
+        },
+        {
+          slot: "erp2",
+          erpCompany: "Chami",
+          sourceWarehouse: "Shop Warehouse - Chami",
+          targetWarehouse: "Main Warehouse - Chami",
+        },
+      ],
     });
   });
 
@@ -33,8 +144,8 @@ describe("resolveShopToMain", () => {
     ]);
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.sourceWarehouse).toBe("Shop Warehouse - MNK");
-      expect(result.targetWarehouse).toBe("Main Warehouse - MNK");
+      expect(result.legs[0]?.sourceWarehouse).toBe("Shop Warehouse - MNK");
+      expect(result.legs[0]?.targetWarehouse).toBe("Main Warehouse - MNK");
     }
   });
 
@@ -51,6 +162,15 @@ describe("resolveShopToMain", () => {
       warehouse("Main Warehouse - Cosmo", "Cosmetics.lk", "erp1"),
       warehouse("Main Warehouse 2 - Cosmo", "Cosmetics.lk", "erp1"),
     ]);
-    expect(twoMains.ok).toBe(false);
+    expect(twoMains.ok).toBe(true);
+    if (twoMains.ok) {
+      expect(twoMains.legs[0]?.targetWarehouse).toBe("Main Warehouse - Cosmo");
+    }
+    const twoErp2Mains = resolveShopToMain("Cool Planet", [
+      warehouse("Shop Warehouse - MNK", "MNK Trading", "erp2"),
+      warehouse("Main Warehouse - MNK", "MNK Trading", "erp2"),
+      warehouse("Main Warehouse 2 - MNK", "MNK Trading", "erp2"),
+    ]);
+    expect(twoErp2Mains.ok).toBe(false);
   });
 });

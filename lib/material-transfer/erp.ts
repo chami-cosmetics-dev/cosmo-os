@@ -249,6 +249,7 @@ export async function lookupTransferItem(input: {
   sourceWarehouse: string;
   warehouses: TransferWarehouse[];
   company?: string | null;
+  skipVatCheck?: boolean;
 }): Promise<TransferLookupItem> {
   const code = input.code.trim();
   const options = warehouseOptions(input.slot, input.warehouses, input.company ?? null);
@@ -267,7 +268,7 @@ export async function lookupTransferItem(input: {
   if (!itemCode) throw new MaterialTransferError(`No item found for ${code}`);
 
   const taxStatus = row[ERP_TAX_STATUS_FIELD]?.trim() || null;
-  if (input.slot === "erp1" && !isVatTaxStatus(taxStatus)) {
+  if (input.slot === "erp1" && !input.skipVatCheck && !isVatTaxStatus(taxStatus)) {
     throw new MaterialTransferError(
       `${itemCode} is ${taxStatus || "not VAT"}. ERP1 transfers VAT items only.`,
     );

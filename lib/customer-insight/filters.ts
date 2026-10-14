@@ -4,7 +4,16 @@ import {
 } from "@/lib/contact-call-center-categories";
 import { effectiveLoyaltyTierKey } from "@/lib/customer-insight/erp-loyalty";
 import { findContactIdsByLastPurchaseLocation } from "@/lib/customer-insight/last-purchase-location";
-import { lifetimeTotalsByContactId } from "@/lib/customer-insight/lifetime-totals-batch";
+import {
+  foldAbsorbedAdaptTotals,
+  lifetimeTotalsByContactId,
+} from "@/lib/customer-insight/lifetime-totals-batch";
+import {
+  collapsePhoneSubsetContacts,
+  findPhoneSharePeers,
+  releasePreviousNumberAllocations,
+  transferAbsorbedNumbers,
+} from "@/lib/customer-insight/phone-contact-collapse";
 import { loyaltyOutreachStageLabel } from "@/lib/customer-insight/loyalty-outreach";
 import {
   loyaltyCode,
@@ -331,7 +340,38 @@ type ContactCandidate = {
   osRegistrationCreated: boolean;
   phones: { phoneNumber: string }[];
   emails: { email: string }[];
+  updatedAt: Date;
 };
+
+function insightFilterNeedsPhonePeers(input: FilterQueryInput): boolean {
+  if (!(input.scopeAllContacts ?? input.isAdmin)) return true;
+  return Boolean(
+    input.assignedMerchant?.trim() ||
+      input.city?.trim() ||
+      input.purchaseLocationId?.trim() ||
+      (input.brands && input.brands.length > 0) ||
+      (input.items && input.items.length > 0) ||
+      (input.itemStatusCategories && input.itemStatusCategories.length > 0) ||
+      input.birthdayFrom ||
+      input.birthdayTo ||
+      input.lastContactedFrom ||
+      input.lastContactedTo ||
+      input.allocatedFrom ||
+      input.allocatedTo ||
+      input.loyaltyRegisteredFrom ||
+      input.loyaltyRegisteredTo ||
+      input.notInterestedInLoyalty ||
+      input.noPurchaseFrom ||
+      input.noPurchaseTo ||
+      input.noPurchaseMonths ||
+      input.purchasedFrom ||
+      input.purchasedTo ||
+      input.callUpdateStatus?.trim() ||
+      input.osRegLocation?.trim() ||
+      input.osRegCreated ||
+      input.osRegAlready
+  );
+}
 
 async function buildAllocationWhere(input: FilterQueryInput): Promise<{
   empty: boolean;
@@ -675,6 +715,7 @@ export async function filterAllocatedContacts(
     osRegistrationCreated: true,
     phones: { select: { phoneNumber: true } },
     emails: { select: { email: true } },
+    updatedAt: true,
   } as const;
 
   if (hasBrands) {
@@ -754,9 +795,49 @@ export async function filterAllocatedContacts(
     eligible.push(contact);
   }
 
+  const peers = insightFilterNeedsPhonePeers(input)
+    ? await findPhoneSharePeers(input.companyId, eligible)
+    : [];
+  const collapsed = collapsePhoneSubsetContacts([...eligible, ...peers]);
+  await releasePreviousNumberAllocations(
+    input.companyId,
+    [...eligible, ...peers],
+    collapsed.absorbedIdsByKeeperId
+  );
+  const absorbedIds = new Set(
+    [...collapsed.absorbedIdsByKeeperId.values()].flat()
+  );
+  const presentIds = new Set(eligible.map((contact) => contact.id));
+  const missingKeeperIds = [...collapsed.absorbedIdsByKeeperId.keys()].filter(
+    (id) => !presentIds.has(id)
+  );
+  const fetchedKeepers =
+    missingKeeperIds.length > 0
+      ? await findContactsByIds(missingKeeperIds, where, select)
+      : [];
+  const linkedEligible = [
+    ...(absorbedIds.size > 0
+      ? eligible.filter((contact) => !absorbedIds.has(contact.id))
+      : eligible),
+    ...fetchedKeepers,
+  ];
+  const keptIds = new Set(linkedEligible.map((contact) => contact.id));
+  const absorbedIdsByKeeperId = new Map<string, string[]>();
+  for (const [keeperId, ids] of collapsed.absorbedIdsByKeeperId) {
+    if (!keptIds.has(keeperId)) continue;
+    absorbedIdsByKeeperId.set(keeperId, ids);
+  }
+  transferAbsorbedNumbers(brandSpendById, absorbedIdsByKeeperId);
+  transferAbsorbedNumbers(itemSpendById, absorbedIdsByKeeperId);
+
   const lifetimeById = await lifetimeTotalsByContactId(
     input.companyId,
-    eligible
+    linkedEligible
+  );
+  await foldAbsorbedAdaptTotals(
+    input.companyId,
+    lifetimeById,
+    absorbedIdsByKeeperId
   );
 
   const osRegScopeActive = applyOsRegExportGuard(
@@ -780,7 +861,7 @@ export async function filterAllocatedContacts(
     osRegKind: "new" | "already_registered" | null;
   }> = [];
 
-  for (const contact of eligible) {
+  for (const contact of linkedEligible) {
     const lifetimeTotal = lifetimeById.get(contact.id) ?? 0;
 
     // Badge = registered only; spend stays on lifetimeTotal / filters.

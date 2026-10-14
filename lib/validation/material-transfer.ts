@@ -2,6 +2,10 @@ import { z } from "zod";
 
 import { LIMITS, trimmedString } from "@/lib/validation";
 
+export const materialTransferShopLookupSchema = z.object({
+  code: trimmedString(1, 80),
+});
+
 export const materialTransferLookupSchema = z.object({
   slot: z.enum(["erp1", "erp2"]),
   code: trimmedString(1, 80),

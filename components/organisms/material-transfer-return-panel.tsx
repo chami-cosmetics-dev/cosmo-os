@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2, Trash2 } from "lucide-react";
 
+import { MaterialTransferQtyInput } from "@/components/organisms/material-transfer-qty-input";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -12,17 +13,21 @@ import {
   setTransferLineQty,
   upsertTransferLine,
 } from "@/lib/material-transfer/lines";
-import type { TransferLine, TransferLookupItem, TransferSlot } from "@/lib/material-transfer/types";
+import type { ShopReturnLeg } from "@/lib/material-transfer/shop-return";
+import type { TransferLine, TransferLookupItem } from "@/lib/material-transfer/types";
 import { notify } from "@/lib/notify";
 import { playScanErrorSound, unlockScanSound } from "@/lib/store-stock-count/scan-sound";
 import { cn } from "@/lib/utils";
 
 type Setup = {
-  slot: TransferSlot;
-  erpCompany: string;
-  sourceWarehouse: string;
-  targetWarehouse: string;
+  legs: ShopReturnLeg[];
 };
+
+function slotLabel(slot: string | null | undefined) {
+  if (slot === "erp1") return "ERP1 VAT";
+  if (slot === "erp2") return "ERP2";
+  return "—";
+}
 
 export function MaterialTransferReturnPanel() {
   const [setup, setSetup] = useState<Setup | null>(null);
@@ -42,9 +47,9 @@ export function MaterialTransferReturnPanel() {
     void (async () => {
       try {
         const res = await fetch("/api/admin/store/material-transfer/shop-return");
-        const json = (await res.json()) as Setup & { error?: string };
-        if (!res.ok) throw new Error(json.error || "No shop warehouse is allocated");
-        if (!cancelled) setSetup(json);
+        const json = (await res.json()) as { legs?: ShopReturnLeg[]; error?: string };
+        if (!res.ok || !json.legs?.length) throw new Error(json.error || "No shop warehouse is allocated");
+        if (!cancelled) setSetup({ legs: json.legs });
       } catch (error) {
         if (!cancelled) setSetupError(error instanceof Error ? error.message : "No shop warehouse is allocated");
       } finally {
@@ -85,18 +90,14 @@ export function MaterialTransferReturnPanel() {
           uom: existing.uom,
           taxStatus: null,
           availableQty: existing.availableQty,
+          slot: existing.slot,
         });
         return;
       }
       const res = await fetch("/api/admin/store/material-transfer/lookup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          slot: setup.slot,
-          code,
-          sourceWarehouse: setup.sourceWarehouse,
-          company: setup.slot === "erp2" ? setup.erpCompany : undefined,
-        }),
+        body: JSON.stringify({ code }),
       });
       const json = (await res.json()) as { item?: TransferLookupItem; error?: string };
       if (!res.ok || !json.item) throw new Error(json.error || "Item not found");
@@ -145,7 +146,7 @@ export function MaterialTransferReturnPanel() {
       <div>
         <h2 className="text-lg font-semibold">Send to main</h2>
         <p className="text-muted-foreground text-sm">
-          This asks stores to count the goods. It does not create a material transfer until stores confirm.
+          Add every item on this list. Stores confirm it once. VAT items post to ERP1 and other items post to ERP2.
         </p>
       </div>
       {busyKey === "page" ? (
@@ -155,11 +156,13 @@ export function MaterialTransferReturnPanel() {
         </p>
       ) : null}
       {setupError ? <p className="text-sm text-red-600">{setupError}</p> : null}
-      {setup ? (
-        <p className="text-sm">
-          {setup.sourceWarehouse} → {setup.targetWarehouse}
-        </p>
-      ) : null}
+      {setup
+        ? setup.legs.map((leg) => (
+            <p key={leg.slot} className="text-sm">
+              {slotLabel(leg.slot)}: {leg.sourceWarehouse} → {leg.targetWarehouse}
+            </p>
+          ))
+        : null}
       {setup && !setupError ? (
         <>
           <form
@@ -200,6 +203,7 @@ export function MaterialTransferReturnPanel() {
                   <th className="px-3 py-2 font-medium">Item</th>
                   <th className="px-3 py-2 font-medium">Barcode</th>
                   <th className="px-3 py-2 font-medium">Available</th>
+                  <th className="px-3 py-2 font-medium">ERP</th>
                   <th className="px-3 py-2 font-medium">Qty</th>
                   <th className="px-3 py-2" />
                 </tr>
@@ -207,7 +211,7 @@ export function MaterialTransferReturnPanel() {
               <tbody>
                 {lines.length === 0 ? (
                   <tr>
-                    <td className="text-muted-foreground px-3 py-6" colSpan={6}>
+                    <td className="text-muted-foreground px-3 py-6" colSpan={7}>
                       No items yet.
                     </td>
                   </tr>
@@ -228,27 +232,16 @@ export function MaterialTransferReturnPanel() {
                       <td className="px-3 py-2">{line.itemName}</td>
                       <td className="px-3 py-2">{line.barcode || "—"}</td>
                       <td className="px-3 py-2">{line.availableQty ?? "—"}</td>
+                      <td className="px-3 py-2">{slotLabel(line.slot)}</td>
                       <td className="px-3 py-2">
-                        <Input
-                          className="w-24"
-                          inputMode="numeric"
-                          value={String(line.qty)}
+                        <MaterialTransferQtyInput
+                          itemCode={line.itemCode}
+                          qty={line.qty}
+                          availableQty={line.availableQty}
                           disabled={busyKey !== null}
-                          aria-label={`Qty for ${line.itemCode}`}
-                          onChange={(event) => {
-                            const digits = event.target.value.replace(/\D/g, "");
-                            if (!digits) return;
-                            const qty = Number(digits);
-                            setLines((prev) => {
-                              const result = setTransferLineQty(prev, line.itemCode, qty);
-                              if (result.rejected) {
-                                playScanErrorSound();
-                                notify.error("Cannot send more than available");
-                                return prev;
-                              }
-                              return result.lines;
-                            });
-                          }}
+                          onQty={(qty) =>
+                            setLines((prev) => setTransferLineQty(prev, line.itemCode, qty).lines)
+                          }
                         />
                       </td>
                       <td className="px-3 py-2 text-right">

@@ -14,10 +14,16 @@ const OUTLET_WORDS = new Set(["shop", "warehouse", "main", "stores", "store"]);
 
 /**
  * ERP2 company code on the warehouse → Cosmetics outlet that receives it.
- * MNK Trading is Cool Planet. Other companies stay unmapped until decided.
+ * MNK Trading is Cool Planet. Chami is GCC.
  */
 const ERP2_CODE_OUTLETS: Record<string, string> = {
   mnk: "cool planet",
+  chami: "gcc",
+};
+
+/** Staff outlet name → the warehouse word for that same shop. Galle is the GCC outlet. */
+const OUTLET_WAREHOUSE_ALIASES: Record<string, string[]> = {
+  galle: ["gcc"],
 };
 
 function outletKey(outletName: string): string {
@@ -45,17 +51,28 @@ function warehouseCompanyCode(warehouse: string): string | null {
   return code && ERP2_CODE_OUTLETS[code] ? code : null;
 }
 
+function warehouseNamesOutlet(name: string, outlet: string): boolean {
+  if (outlet.length < 2 || OUTLET_WORDS.has(outlet)) return false;
+  if (name.includes(outlet)) return true;
+  const tokens = name.split(/[^a-z0-9]+/).filter(Boolean);
+  return tokens.includes(outlet);
+}
+
 export function warehouseMatchesOutlet(warehouse: string, outletName: string | null | undefined): boolean {
   const outlet = (outletName ?? "").trim().toLowerCase();
   if (outlet.length < 2 || OUTLET_WORDS.has(outlet)) return false;
   const name = warehouse.trim().toLowerCase();
   if (!name) return false;
-  if (name.includes(outlet)) return true;
-  const tokens = name.split(/[^a-z0-9]+/).filter(Boolean);
-  if (tokens.includes(outlet)) return true;
+  if (warehouseNamesOutlet(name, outlet)) return true;
+  const key = outletKey(outlet);
+  for (const alias of OUTLET_WAREHOUSE_ALIASES[key] ?? []) {
+    if (warehouseNamesOutlet(name, alias)) return true;
+  }
   const code = warehouseCompanyCode(warehouse);
-  const alias = code ? ERP2_CODE_OUTLETS[code] : undefined;
-  return Boolean(alias && outletMatchesAlias(outlet, alias));
+  const mapped = code ? ERP2_CODE_OUTLETS[code] : undefined;
+  if (!mapped) return false;
+  if (outletMatchesAlias(outlet, mapped)) return true;
+  return (OUTLET_WAREHOUSE_ALIASES[key] ?? []).some((alias) => outletMatchesAlias(alias, mapped));
 }
 
 export function transferVisibleToShop(targetWarehouse: string, scope: ShopScope): boolean {

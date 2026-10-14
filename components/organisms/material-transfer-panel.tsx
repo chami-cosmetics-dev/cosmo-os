@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, Trash2 } from "lucide-react";
 
+import { MaterialTransferQtyInput } from "@/components/organisms/material-transfer-qty-input";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -455,26 +456,14 @@ export function MaterialTransferPanel() {
                   <td className="px-3 py-2">{line.barcode || "—"}</td>
                   <td className="px-3 py-2">{line.availableQty ?? "—"}</td>
                   <td className="px-3 py-2">
-                    <Input
-                      className="w-24"
-                      inputMode="numeric"
-                      value={String(line.qty)}
+                    <MaterialTransferQtyInput
+                      itemCode={line.itemCode}
+                      qty={line.qty}
+                      availableQty={line.availableQty}
                       disabled={isBusy}
-                      aria-label={`Qty for ${line.itemCode}`}
-                      onChange={(event) => {
-                        const digits = event.target.value.replace(/\D/g, "");
-                        if (!digits) return;
-                        const qty = Number(digits);
-                        setLines((prev) => {
-                          const result = setTransferLineQty(prev, line.itemCode, qty);
-                          if (result.rejected) {
-                            playScanErrorSound();
-                            notify.error("Cannot send more than available");
-                            return prev;
-                          }
-                          return result.lines;
-                        });
-                      }}
+                      onQty={(qty) =>
+                        setLines((prev) => setTransferLineQty(prev, line.itemCode, qty).lines)
+                      }
                     />
                   </td>
                   <td className="px-3 py-2 text-right">
@@ -574,6 +563,9 @@ type QueueRow = {
   id: string;
   sourceWarehouse: string;
   targetWarehouse: string;
+  sourceWarehouse2?: string | null;
+  targetWarehouse2?: string | null;
+  status?: string;
   createdAt: string;
   sentQty: number;
   direction: string;
@@ -584,6 +576,7 @@ type QueueLine = {
   itemCode: string;
   itemName: string;
   barcode: string;
+  postSlot?: string;
   sentQty: number;
   receivedQty: number;
 };
@@ -670,9 +663,13 @@ function ShopReturnQueue() {
           lines: open.lines.map((line) => ({ itemCode: line.itemCode, qty: line.receivedQty })),
         }),
       });
-      const json = (await res.json()) as { transfer?: { erpName?: string | null }; error?: string };
+      const json = (await res.json()) as {
+        transfer?: { erpName?: string | null; erp2Name?: string | null };
+        error?: string;
+      };
       if (!res.ok) throw new Error(json.error || "Could not confirm the shop return");
-      notify.success(json.transfer?.erpName ? `Submitted ${json.transfer.erpName}` : "Shop return confirmed");
+      const names = [json.transfer?.erpName, json.transfer?.erp2Name].filter(Boolean);
+      notify.success(names.length > 0 ? `Submitted ${names.join(" and ")}` : "Shop return confirmed");
       setOpen(null);
       window.dispatchEvent(new Event("material-transfer-saved"));
       await load();
@@ -705,7 +702,9 @@ function ShopReturnQueue() {
           {rows.map((row) => (
             <li key={row.id}>
               <button type="button" className="underline" onClick={() => void openRow(row.id)}>
-                {row.sourceWarehouse} → {row.targetWarehouse} · {row.sentQty} sent
+                {row.sourceWarehouse}
+                {row.sourceWarehouse2 ? ` · ${row.sourceWarehouse2}` : ""} → {row.targetWarehouse}
+                {row.targetWarehouse2 ? ` · ${row.targetWarehouse2}` : ""} · {row.sentQty} sent
               </button>
             </li>
           ))}
@@ -714,8 +713,9 @@ function ShopReturnQueue() {
       {open ? (
         <div className="flex flex-col gap-3 rounded-md border p-3">
           <p className="text-sm">
-            Count what arrived from {open.sourceWarehouse}. This posts one material transfer to{" "}
-            {open.targetWarehouse} for the quantities you confirm.
+            Count what arrived. One list. Confirm posts VAT items to ERP1
+            {open.targetWarehouse ? ` (${open.targetWarehouse})` : ""} and other items to ERP2
+            {open.targetWarehouse2 ? ` (${open.targetWarehouse2})` : ""}.
           </p>
           <form
             className="flex gap-2"
@@ -747,6 +747,7 @@ function ShopReturnQueue() {
             <thead>
               <tr className="text-left">
                 <th className="py-1 pr-3">SKU</th>
+                <th className="py-1 pr-3">ERP</th>
                 <th className="py-1 pr-3">Barcode</th>
                 <th className="py-1 pr-3">Sent</th>
                 <th className="py-1">Received</th>
@@ -763,6 +764,9 @@ function ShopReturnQueue() {
                   )}
                 >
                   <td className="py-1 pr-3">{line.itemCode}</td>
+                  <td className="py-1 pr-3">
+                    {line.postSlot === "erp1" ? "ERP1 VAT" : line.postSlot === "erp2" ? "ERP2" : "—"}
+                  </td>
                   <td className="py-1 pr-3">{line.barcode || "—"}</td>
                   <td className="py-1 pr-3">{line.sentQty}</td>
                   <td className="py-1">

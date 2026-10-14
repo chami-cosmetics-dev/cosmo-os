@@ -11,6 +11,8 @@ type HistoryRow = {
   direction: "store_to_shop" | "shop_to_main";
   erpName: string | null;
   erpUrl: string | null;
+  erp2Name?: string | null;
+  erp2Url?: string | null;
   erpCompany: string;
   sourceWarehouse: string;
   targetWarehouse: string;
@@ -33,6 +35,7 @@ type DetailLine = {
   itemCode: string;
   itemName: string;
   barcode: string;
+  postSlot?: string;
   sentQty: number;
   receivedQty: number;
   receivedQtyUpdatedByName: string | null;
@@ -202,14 +205,24 @@ export function MaterialTransferHistory({
                           href={row.erpUrl}
                           target="_blank"
                           rel="noreferrer"
-                          className="font-medium underline"
+                          className="block font-medium underline"
                           onClick={(event) => event.stopPropagation()}
                         >
                           {row.erpName}
                         </a>
-                      ) : (
-                        <span>{row.sourceWarehouse}</span>
-                      )}
+                      ) : null}
+                      {row.erp2Url && row.erp2Name ? (
+                        <a
+                          href={row.erp2Url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="block font-medium underline"
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          {row.erp2Name}
+                        </a>
+                      ) : null}
+                      {!row.erpName && !row.erp2Name ? <span>{row.sourceWarehouse}</span> : null}
                     </td>
                     <td className="px-3 py-2">{row.targetWarehouse}</td>
                     <td className="px-3 py-2">{row.sentQty}</td>
@@ -242,6 +255,9 @@ export function MaterialTransferHistory({
                             <thead>
                               <tr className="text-left">
                                 <th className="py-1 pr-3 font-medium">SKU</th>
+                                {detail.direction === "shop_to_main" ? (
+                                  <th className="py-1 pr-3 font-medium">ERP</th>
+                                ) : null}
                                 <th className="py-1 pr-3 font-medium">Description</th>
                                 <th className="py-1 pr-3 font-medium">Barcode</th>
                                 <th className="py-1 pr-3 font-medium">Sent</th>
@@ -262,6 +278,11 @@ export function MaterialTransferHistory({
                                   }
                                 >
                                   <td className="py-1 pr-3">{line.itemCode}</td>
+                                  {detail.direction === "shop_to_main" ? (
+                                    <td className="py-1 pr-3">
+                                      {line.postSlot === "erp1" ? "ERP1 VAT" : line.postSlot === "erp2" ? "ERP2" : "—"}
+                                    </td>
+                                  ) : null}
                                   <td className="py-1 pr-3">{line.itemName}</td>
                                   <td className="py-1 pr-3">{line.barcode || "—"}</td>
                                   <td className="py-1 pr-3">{line.sentQty}</td>
