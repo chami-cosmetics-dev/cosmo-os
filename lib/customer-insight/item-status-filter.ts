@@ -1,4 +1,7 @@
-import { customerLifetimeTotalOrderWhere } from "@/lib/customer-insight/lifetime-total";
+import {
+  customerLifetimeTotalOrderWhere,
+  isAdaptAmountExcludedFromSaleTotal,
+} from "@/lib/customer-insight/lifetime-total";
 import {
   brandFromAdaptLineItem,
   brandsMatch,
@@ -113,7 +116,7 @@ export async function findContactsByPurchasedItemStatusRanked(
       ({ take, cursor }) =>
         prisma.adaptPurchaseHistory.findMany({
           where: { companyId },
-          select: { id: true, contactId: true, lineItems: true },
+          select: { id: true, contactId: true, lineItems: true, financialStatus: true },
           orderBy: { id: "asc" },
           take,
           ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
@@ -121,6 +124,7 @@ export async function findContactsByPurchasedItemStatusRanked(
       (adaptRows) => {
         for (const row of adaptRows) {
           if (!row.contactId) continue;
+          if (isAdaptAmountExcludedFromSaleTotal(row.financialStatus)) continue;
           const lines = Array.isArray(row.lineItems) ? row.lineItems : [];
           let spend = 0;
           for (const raw of lines) {

@@ -3,6 +3,7 @@ import {
   brandsMatch,
   lineMatchesBrand,
 } from "@/lib/customer-insight/brand";
+import { isAdaptAmountExcludedFromSaleTotal } from "@/lib/customer-insight/lifetime-total";
 import {
   forEachIdPage,
   findAllContactsForPurchaseLookup,
@@ -82,7 +83,7 @@ export async function findContactsByPurchasedBrandRanked(
     ({ take, cursor }) =>
       prisma.adaptPurchaseHistory.findMany({
         where: { companyId },
-        select: { id: true, contactId: true, lineItems: true },
+        select: { id: true, contactId: true, lineItems: true, financialStatus: true },
         orderBy: { id: "asc" },
         take,
         ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
@@ -90,6 +91,7 @@ export async function findContactsByPurchasedBrandRanked(
     (adaptRows) => {
       for (const row of adaptRows) {
         if (!row.contactId) continue;
+        if (isAdaptAmountExcludedFromSaleTotal(row.financialStatus)) continue;
         const items = Array.isArray(row.lineItems) ? row.lineItems : [];
         let spend = 0;
         let matched = false;

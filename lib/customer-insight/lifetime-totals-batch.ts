@@ -5,6 +5,7 @@ import {
   attributeOrderTotalsByContact,
   combineLifetimeTotals,
   CUSTOMER_LIFETIME_TOTAL_FULFILLMENT_STAGES,
+  adaptSaleTotalWhere,
   customerLifetimeTotalOrderWhere,
   type ContactOrderLookup,
 } from "@/lib/customer-insight/lifetime-total";
@@ -46,7 +47,7 @@ async function adaptTotalsByContactId(
     chunks.map((slice) =>
       prisma.adaptPurchaseHistory.groupBy({
         by: ["contactId"],
-        where: { companyId, contactId: { in: slice } },
+        where: { companyId, contactId: { in: slice }, ...adaptSaleTotalWhere() },
         _sum: { ttlAmount: true },
       })
     )

@@ -18,7 +18,28 @@ export type OrderAmountInput = {
 
 export type AdaptAmountInput = {
   ttlAmount: number | string;
+  /** Blank means an older Adapt row and still counts. */
+  financialStatus?: string | null;
 };
+
+/** Statuses that stay on history but must not be added to a sale total. */
+const ADAPT_EXCLUDED_SALE_STATUSES = ["voided", "void", "refunded", "refund"] as const;
+
+export function isAdaptAmountExcludedFromSaleTotal(
+  status: string | null | undefined,
+): boolean {
+  return (ADAPT_EXCLUDED_SALE_STATUSES as readonly string[]).includes(normalizeStatus(status));
+}
+
+/** Prisma filter: keep paid, pending, and older rows with no status. */
+export function adaptSaleTotalWhere() {
+  return {
+    OR: [
+      { financialStatus: null },
+      { financialStatus: { notIn: [...ADAPT_EXCLUDED_SALE_STATUSES] } },
+    ],
+  };
+}
 
 function normalizeStatus(value: string | null | undefined): string {
   return (value ?? "").trim().toLowerCase();
@@ -81,10 +102,11 @@ export function sumEligibleOrderTotals(orders: OrderAmountInput[]): number {
   return sum;
 }
 
-/** Sum Adapt historical invoice totals (all linked rows). */
+/** Sum Adapt invoice totals. Voided and refunded rows stay out of the sale total. */
 export function sumAdaptTotals(rows: AdaptAmountInput[]): number {
   let sum = 0;
   for (const row of rows) {
+    if (isAdaptAmountExcludedFromSaleTotal(row.financialStatus)) continue;
     sum += toNumber(row.ttlAmount);
   }
   return sum;

@@ -2284,6 +2284,8 @@ model AdaptPurchaseHistory {
   importBatchId         String?
   /// adapt = Adapt CSV import. vault_supplement_import = Supplement contact file.
   origin                String           @default("adapt")
+  /// paid, pending, voided, refunded. Null on older Adapt rows, which still count as sales.
+  financialStatus       String?
   createdAt             DateTime         @default(now())
   updatedAt             DateTime         @updatedAt
   company               Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)

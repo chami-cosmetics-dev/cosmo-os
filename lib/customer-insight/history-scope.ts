@@ -1,4 +1,5 @@
 import { brandFromAdaptLineItem, brandFromVendorName } from "@/lib/customer-insight/brand";
+import { isAdaptAmountExcludedFromSaleTotal } from "@/lib/customer-insight/lifetime-total";
 import type { HistoryScopeDto } from "@/lib/customer-insight/types";
 import { lineMatchesBrand } from "@/lib/page-data/contact-brand-ids";
 
@@ -112,6 +113,7 @@ type CosmoOrder = {
 type AdaptRow = {
   ttlAmount: { toString(): string };
   lineItems: unknown;
+  financialStatus?: string | null;
 };
 
 export function scopeCosmoOrdersForHistory<T extends CosmoOrder>(
@@ -194,7 +196,7 @@ export function scopeAdaptRowsForHistory<T extends AdaptRow>(
       );
     }
     if (kept.length === 0) continue;
-    scopedSpend += amount;
+    if (!isAdaptAmountExcludedFromSaleTotal(row.financialStatus)) scopedSpend += amount;
     scoped.push({
       ...row,
       lineItems: kept,

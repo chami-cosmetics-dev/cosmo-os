@@ -74,6 +74,15 @@ describe("parse purchases sheet", () => {
       currency: "LKR",
     });
     expect(parsed.lines[0]?.invoiceDate.toISOString()).toBe("2024-03-14T18:30:00.000Z");
+    expect(parsed.lines[0]?.financialStatus).toBeNull();
+  });
+
+  it("stores a Status column in lowercase", async () => {
+    const buffer = await workbookBuffer([...PURCHASE_HEADERS, "Status"], [[...example, "Voided"]]);
+    const parsed = await parsePurchasesWorkbook(buffer);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.lines[0]?.financialStatus).toBe("voided");
   });
 
   it("rejects quantity that is not greater than zero", async () => {

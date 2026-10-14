@@ -9,6 +9,7 @@ import {
   loadPurchaseSummaryIndexes,
   purchaseSummaryForContact,
 } from "@/lib/contacts/purchase-summary-export";
+import { isAdaptAmountExcludedFromSaleTotal } from "@/lib/customer-insight/lifetime-total";
 import { buildPhoneLookupVariants } from "@/lib/phone-lookup";
 import { prisma } from "@/lib/prisma";
 import { OsfErpError } from "@/lib/osf/erp-stock";
@@ -64,6 +65,12 @@ function latestInvoiceDate(lines: ParsedPurchaseLine[]): Date {
     (latest, line) => (line.invoiceDate > latest ? line.invoiceDate : latest),
     lines[0]!.invoiceDate,
   );
+}
+
+function latestSaleInvoiceDate(lines: ParsedPurchaseLine[]): Date | null {
+  const saleLines = lines.filter((line) => !isAdaptAmountExcludedFromSaleTotal(line.financialStatus));
+  if (saleLines.length === 0) return null;
+  return latestInvoiceDate(saleLines);
 }
 
 function toSupplementLine(adaptInvoiceKey: string, line: ParsedPurchaseLine): SupplementLine {
@@ -182,6 +189,7 @@ async function upsertInvoices(input: {
         locationName: last.location,
         paymentMethod: last.paymentMethod,
         merchantKnownName: last.merchant,
+        financialStatus: last.financialStatus,
         lineItems: merged.lines,
         importBatchId: input.importBatchId,
         origin: "vault_supplement_import",
@@ -221,7 +229,7 @@ async function persistCustomer(input: {
     city: input.group.city,
     district: input.group.district,
   };
-  const latest = latestInvoiceDate(input.group.lines);
+  const latest = latestSaleInvoiceDate(input.group.lines);
 
   if (!input.contactId) {
     const contact = await prisma.contactMaster.create({
@@ -268,7 +276,7 @@ async function persistCustomer(input: {
   }
 
   const patch = fillEmptyContactFields(existing, incoming);
-  const moveLastPurchase = !existing.lastPurchaseAt || latest > existing.lastPurchaseAt;
+  const moveLastPurchase = latest != null && (!existing.lastPurchaseAt || latest > existing.lastPurchaseAt);
   const data: Prisma.ContactMasterUpdateInput = {};
   if (patch.name) data.name = patch.name;
   if (patch.phoneNumber) data.phoneNumber = patch.phoneNumber;

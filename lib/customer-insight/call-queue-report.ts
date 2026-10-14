@@ -6,6 +6,7 @@ import {
   loyaltyOutreachStageLabel,
 } from "@/lib/customer-insight/loyalty-outreach";
 import {
+  adaptSaleTotalWhere,
   customerLifetimeTotalOrderWhere,
   type ContactOrderLookup,
 } from "@/lib/customer-insight/lifetime-total";
@@ -154,7 +155,11 @@ export async function listCallQueueSalesReport(input: {
     contactIds.length === 0
       ? Promise.resolve([])
       : prisma.adaptPurchaseHistory.findMany({
-          where: { companyId: input.companyId, contactId: { in: contactIds } },
+          where: {
+            companyId: input.companyId,
+            contactId: { in: contactIds },
+            ...adaptSaleTotalWhere(),
+          },
           select: { contactId: true, invoiceDate: true, ttlAmount: true },
         }),
     hasOrderKeys
