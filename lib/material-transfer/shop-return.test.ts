@@ -26,6 +26,22 @@ describe("resolveShopToMain", () => {
     });
   });
 
+  it("keeps the cosmetics shop when an ERP2 company code also matches the outlet", () => {
+    const result = resolveShopToMain("Pepiliyana", [
+      warehouse("Pepiliyana Shop Warehouse - Cosmo", "Cosmetics.lk", "erp1"),
+      warehouse("Main Warehouse - Cosmo", "Cosmetics.lk", "erp1"),
+      warehouse("Shop Warehouse - LMJ", "LMJ International", "erp2"),
+      warehouse("Main Warehouse - LMJ", "LMJ International", "erp2"),
+    ]);
+    expect(result).toEqual({
+      ok: true,
+      slot: "erp1",
+      erpCompany: "Cosmetics.lk",
+      sourceWarehouse: "Pepiliyana Shop Warehouse - Cosmo",
+      targetWarehouse: "Main Warehouse - Cosmo",
+    });
+  });
+
   it("uses the MNK alias for Cool Planet", () => {
     const result = resolveShopToMain("Cool Planet", [
       warehouse("Shop Warehouse - MNK", "MNK Trading", "erp2"),

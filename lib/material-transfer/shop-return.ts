@@ -1,5 +1,5 @@
 import { isShopWarehouseName } from "@/lib/item-trends/shop-warehouse-name";
-import { warehouseMatchesOutlet } from "@/lib/material-transfer/receive";
+import { warehouseMatchesOutlet, warehouseNameContainsOutlet } from "@/lib/material-transfer/receive";
 import type { TransferSlot, TransferWarehouse } from "@/lib/material-transfer/types";
 import { isMainWarehouseName } from "@/lib/material-transfer/warehouses";
 
@@ -23,9 +23,11 @@ export function resolveShopToMain(
   if (!outlet) {
     return { ok: false, error: "No shop warehouse is allocated for this outlet." };
   }
-  const shops = warehouses.filter(
+  const matched = warehouses.filter(
     (row) => isShopWarehouseName(row.name) && warehouseMatchesOutlet(row.name, outlet),
   );
+  const named = matched.filter((row) => warehouseNameContainsOutlet(row.name, outlet));
+  const shops = named.length > 0 ? named : matched;
   if (shops.length === 0) {
     return { ok: false, error: "No shop warehouse is allocated for this outlet." };
   }
