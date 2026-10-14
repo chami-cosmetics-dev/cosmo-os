@@ -13,7 +13,8 @@ export type ShopScope = {
 const OUTLET_WORDS = new Set(["shop", "warehouse", "main", "stores", "store"]);
 
 /**
- * ERP2 company code on the warehouse → outlet that receives those transfers.
+ * ERP2 company code → outlet, for who can see a material transfer only.
+ * Not used for shop-to-main or any other feature.
  * LMJ Pepiliyana, MNK Cool Planet Nugegoda, AJS Kiribathgoda, Chami GCC,
  * DTD Thilakma Negombo, SPK Nittambuwa, LWK OGF.
  */
@@ -60,11 +61,7 @@ function warehouseCompanyCode(warehouse: string): string | null {
   return code && ERP2_CODE_OUTLETS[code] ? code : null;
 }
 
-/** Outlet text appears in the warehouse name. Company-code aliases are separate. */
-export function warehouseNameContainsOutlet(
-  warehouse: string,
-  outletName: string | null | undefined,
-): boolean {
+function warehouseNameContainsOutlet(warehouse: string, outletName: string | null | undefined): boolean {
   const outlet = (outletName ?? "").trim().toLowerCase();
   if (outlet.length < 2 || OUTLET_WORDS.has(outlet)) return false;
   const name = warehouse.trim().toLowerCase();
@@ -74,9 +71,13 @@ export function warehouseNameContainsOutlet(
   return tokens.includes(outlet);
 }
 
+/** Warehouse name contains the outlet. Company codes are not part of this. */
 export function warehouseMatchesOutlet(warehouse: string, outletName: string | null | undefined): boolean {
-  if (warehouseNameContainsOutlet(warehouse, outletName)) return true;
-  const code = warehouseCompanyCode(warehouse);
+  return warehouseNameContainsOutlet(warehouse, outletName);
+}
+
+function transferMatchesCompanyOutlet(targetWarehouse: string, outletName: string | null): boolean {
+  const code = warehouseCompanyCode(targetWarehouse);
   const aliases = code ? ERP2_CODE_OUTLETS[code] : undefined;
   return Boolean(aliases && outletMatchesAlias(outletName ?? "", aliases));
 }
@@ -85,7 +86,8 @@ export function transferVisibleToShop(targetWarehouse: string, scope: ShopScope)
   const target = targetWarehouse.trim();
   if (!target) return false;
   if (scope.explicitWarehouses.some((name) => name.trim() === target)) return true;
-  return warehouseMatchesOutlet(target, scope.outletName);
+  if (warehouseMatchesOutlet(target, scope.outletName)) return true;
+  return transferMatchesCompanyOutlet(target, scope.outletName);
 }
 
 export function shopScopeIsEmpty(scope: ShopScope): boolean {

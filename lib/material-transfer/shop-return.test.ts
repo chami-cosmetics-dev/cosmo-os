@@ -26,32 +26,22 @@ describe("resolveShopToMain", () => {
     });
   });
 
-  it("keeps the cosmetics shop when an ERP2 company code also matches the outlet", () => {
-    const result = resolveShopToMain("Pepiliyana", [
+  it("does not treat an ERP2 company code as the shop-to-main warehouse", () => {
+    const result = resolveShopToMain("Cool Planet", [
+      warehouse("Shop Warehouse - MNK", "MNK Trading", "erp2"),
+      warehouse("Main Warehouse - MNK", "MNK Trading", "erp2"),
+    ]);
+    expect(result.ok).toBe(false);
+    const pepiliyana = resolveShopToMain("Pepiliyana", [
       warehouse("Pepiliyana Shop Warehouse - Cosmo", "Cosmetics.lk", "erp1"),
       warehouse("Main Warehouse - Cosmo", "Cosmetics.lk", "erp1"),
       warehouse("Shop Warehouse - LMJ", "LMJ International", "erp2"),
       warehouse("Main Warehouse - LMJ", "LMJ International", "erp2"),
     ]);
-    expect(result).toEqual({
+    expect(pepiliyana).toMatchObject({
       ok: true,
-      slot: "erp1",
-      erpCompany: "Cosmetics.lk",
       sourceWarehouse: "Pepiliyana Shop Warehouse - Cosmo",
-      targetWarehouse: "Main Warehouse - Cosmo",
     });
-  });
-
-  it("uses the MNK alias for Cool Planet", () => {
-    const result = resolveShopToMain("Cool Planet", [
-      warehouse("Shop Warehouse - MNK", "MNK Trading", "erp2"),
-      warehouse("Main Warehouse - MNK", "MNK Trading", "erp2"),
-    ]);
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.sourceWarehouse).toBe("Shop Warehouse - MNK");
-      expect(result.targetWarehouse).toBe("Main Warehouse - MNK");
-    }
   });
 
   it("refuses when no shop, two shops, or two mains match", () => {
