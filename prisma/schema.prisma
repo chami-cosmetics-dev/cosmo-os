@@ -3004,9 +3004,15 @@ model MaterialTransfer {
   slot             String
   direction        MaterialTransferDirection @default(store_to_shop)
   erpName          String?
+  /// Second stock entry when a shop return posts VAT lines to ERP1 and other lines to ERP2.
+  erp2Name         String?
   erpCompany       String
+  /// ERP2 company when erp2Name is set. Empty on a single-ERP transfer.
+  erpCompany2      String?
   sourceWarehouse  String
   targetWarehouse  String
+  sourceWarehouse2 String?
+  targetWarehouse2 String?
   status           MaterialTransferStatus    @default(sent)
   createdByUserId  String?
   receivedByUserId String?
@@ -3019,6 +3025,7 @@ model MaterialTransfer {
   lines            MaterialTransferLine[]
 
   @@unique([companyId, slot, erpName])
+  @@unique([companyId, erp2Name])
   @@index([companyId, createdAt(sort: Desc)])
   @@index([companyId, targetWarehouse, status])
   @@index([companyId, direction, status])
@@ -3031,6 +3038,8 @@ model MaterialTransferLine {
   itemName                   String
   barcode                    String           @default("")
   uom                        String           @default("Nos")
+  /// erp1 or erp2 for a shop return line. Empty on store-to-shop.
+  postSlot                   String           @default("")
   sentQty                    Int
   receivedQty                Int              @default(0)
   receivedQtyUpdatedByUserId String?

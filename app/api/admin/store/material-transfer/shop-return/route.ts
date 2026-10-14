@@ -8,7 +8,8 @@ import {
   MaterialTransferError,
 } from "@/lib/material-transfer/erp";
 import { recordShopReturn } from "@/lib/material-transfer/receipts";
-import { resolveShopToMain, type ShopReturnWarehouse } from "@/lib/material-transfer/shop-return";
+import { lookupShopReturnItem } from "@/lib/material-transfer/shop-return-lookup";
+import { resolveShopToMain, shopReturnHeader, type ShopReturnWarehouse } from "@/lib/material-transfer/shop-return";
 import type { TransferSlot } from "@/lib/material-transfer/types";
 import { materialTransferShopReturnSchema } from "@/lib/validation/material-transfer";
 
@@ -40,12 +41,7 @@ export async function GET() {
   try {
     const resolved = resolveShopToMain(auth.scope.outletName, await warehousesForOutlet(auth.companyId));
     if (!resolved.ok) return NextResponse.json({ error: resolved.error }, { status: 409 });
-    return NextResponse.json({
-      slot: resolved.slot,
-      erpCompany: resolved.erpCompany,
-      sourceWarehouse: resolved.sourceWarehouse,
-      targetWarehouse: resolved.targetWarehouse,
-    });
+    return NextResponse.json({ legs: resolved.legs });
   } catch (error) {
     if (error instanceof MaterialTransferError) {
       return NextResponse.json({ error: error.message }, { status: error.status });
@@ -79,22 +75,42 @@ export async function POST(request: NextRequest) {
   try {
     const resolved = resolveShopToMain(auth.scope.outletName, await warehousesForOutlet(auth.companyId));
     if (!resolved.ok) return NextResponse.json({ error: resolved.error }, { status: 409 });
-    const { instance } = await loadTransferSlotWarehouses(auth.companyId, resolved.slot);
-    if (resolved.slot === "erp1") {
-      await assertSlotVatLines(
-        instance.cfg,
-        parsed.data.lines.map((line) => line.itemCode),
-      );
+    const classified = [];
+    for (const line of parsed.data.lines) {
+      const item = await lookupShopReturnItem(auth.companyId, resolved.legs, line.itemCode);
+      if (!item.slot) throw new MaterialTransferError(`${line.itemCode} has no ERP destination`);
+      classified.push({ ...line, itemCode: item.itemCode, postSlot: item.slot });
     }
-    await assertSourceCovers(instance.cfg, resolved.sourceWarehouse, parsed.data.lines);
+    const header = shopReturnHeader(
+      resolved.legs,
+      classified.map((line) => line.postSlot),
+    );
+    if (!header.ok) return NextResponse.json({ error: header.error }, { status: 409 });
+    for (const slot of ["erp1", "erp2"] as const) {
+      const group = classified.filter((line) => line.postSlot === slot);
+      if (group.length === 0) continue;
+      const leg = resolved.legs.find((item) => item.slot === slot);
+      if (!leg) continue;
+      const { instance } = await loadTransferSlotWarehouses(auth.companyId, slot);
+      if (slot === "erp1") {
+        await assertSlotVatLines(
+          instance.cfg,
+          group.map((line) => line.itemCode),
+        );
+      }
+      await assertSourceCovers(instance.cfg, leg.sourceWarehouse, group);
+    }
     const created = await recordShopReturn({
       companyId: auth.companyId,
-      slot: resolved.slot,
-      erpCompany: resolved.erpCompany,
-      sourceWarehouse: resolved.sourceWarehouse,
-      targetWarehouse: resolved.targetWarehouse,
+      slot: header.slot,
+      erpCompany: header.erpCompany,
+      sourceWarehouse: header.sourceWarehouse,
+      targetWarehouse: header.targetWarehouse,
+      erpCompany2: header.erpCompany2,
+      sourceWarehouse2: header.sourceWarehouse2,
+      targetWarehouse2: header.targetWarehouse2,
       createdByUserId: auth.context.user?.id ?? null,
-      lines: parsed.data.lines,
+      lines: classified,
     });
     return NextResponse.json({ id: created.id, erpName: null }, { status: 201 });
   } catch (error) {

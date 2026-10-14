@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 import {
+  cancelPendingDeliveryPaymentApprovalsForOrder,
   createInvoiceRevertVoidApproval,
   createOrGetReturnCancelApproval,
   createOrGetReturnRearrangeApproval,
@@ -292,11 +293,12 @@ export async function PUT(
           packageReadyById: null,
           packageOnHoldAt: null,
           packageHoldReasonId: null,
-          deliveryOutcome: "pending",
+          deliveryOutcome: null,
           deliveryFailedReason: null,
           ...stageOnlyRevertClear,
         },
       });
+      await cancelPendingDeliveryPaymentApprovalsForOrder(existing.orderId, undefined, tx);
       await tx.riderDeliveryTask.updateMany({
         where: { orderId: existing.orderId },
         data: {
@@ -323,15 +325,18 @@ export async function PUT(
             : {}),
           ...orderStageUpdate("ready_to_dispatch", actionDate),
           fulfillmentStatus: "unfulfilled",
-          packageReadyAt: actionDate,
-          packageReadyById: viewerUserId,
+          // Merchant rearrange sends the order back to store. Package ready stays unset
+          // until a store user marks it (fulfillment.ready_dispatch.package_ready).
+          packageReadyAt: null,
+          packageReadyById: null,
           packageOnHoldAt: null,
           packageHoldReasonId: null,
-          deliveryOutcome: "pending",
+          deliveryOutcome: null,
           deliveryFailedReason: null,
           ...stageOnlyRevertClear,
         },
       });
+      await cancelPendingDeliveryPaymentApprovalsForOrder(existing.orderId, undefined, tx);
       await tx.riderDeliveryTask.updateMany({
         where: { orderId: existing.orderId },
         data: {

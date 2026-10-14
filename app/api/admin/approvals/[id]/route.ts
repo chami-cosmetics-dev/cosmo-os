@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { z } from "zod";
 
 import {
+  cancelPendingDeliveryPaymentApprovalsForOrder,
   DELIVERY_PAYMENT_APPROVAL,
   INVOICE_REVERT_VOID_APPROVAL,
   ORDER_CANCEL_APPROVAL,
@@ -1358,14 +1359,16 @@ export async function PATCH(
             paymentGatewayPrimary: "bank_transfer",
             ...orderStageUpdate("ready_to_dispatch", now),
             fulfillmentStatus: "unfulfilled",
-            packageReadyAt: now,
-            packageReadyById: reviewerId,
+            // Finance approval only releases the return. Store still marks package ready.
+            packageReadyAt: null,
+            packageReadyById: null,
             packageOnHoldAt: null,
             packageHoldReasonId: null,
-            deliveryOutcome: "pending",
+            deliveryOutcome: null,
             deliveryFailedReason: null,
           },
         });
+        await cancelPendingDeliveryPaymentApprovalsForOrder(approval.orderId!, undefined, tx);
         await tx.orderReturn.update({
           where: { id: approval.orderReturnId! },
           data: {

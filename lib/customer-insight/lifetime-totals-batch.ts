@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 
 import { contactOrderLookupKeys } from "@/lib/contact-purchase-lookup";
+import { addAbsorbedAmounts } from "@/lib/customer-insight/phone-contact-collapse";
 import {
   attributeOrderTotalsByContact,
   combineLifetimeTotals,
@@ -243,4 +244,17 @@ async function lifetimeTotalsForContactBatch(
   });
 
   return combineLifetimeTotals(contactIds, orderTotals, adaptTotals);
+}
+
+/** Adapt invoices sit on the old contact id. Add them to the linked profile's total. */
+export async function foldAbsorbedAdaptTotals(
+  companyId: string,
+  totals: Map<string, number>,
+  absorbedIdsByKeeperId: Map<string, string[]>
+) {
+  const absorbedIds = [...absorbedIdsByKeeperId.values()].flat();
+  if (absorbedIds.length === 0) return totals;
+  const adapt = await adaptTotalsByContactId(companyId, absorbedIds);
+  addAbsorbedAmounts(totals, absorbedIdsByKeeperId, adapt);
+  return totals;
 }

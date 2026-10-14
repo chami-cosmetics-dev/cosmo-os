@@ -49,6 +49,7 @@ export function upsertTransferLine(lines: TransferLine[], item: TransferLookupIt
           uom: item.uom.trim() || "Nos",
           qty: 1,
           availableQty: item.availableQty,
+          slot: item.slot ?? null,
         },
       ],
       rejected: null,
@@ -68,10 +69,45 @@ export function upsertTransferLine(lines: TransferLine[], item: TransferLookupIt
         uom: line.uom.trim() || item.uom.trim() || "Nos",
         qty: nextQty,
         availableQty,
+        slot: item.slot ?? line.slot ?? null,
       };
     }),
     rejected: null,
   };
+}
+
+/**
+ * First keystroke should replace the current qty. A click often leaves the 1 in place,
+ * so "1" plus "5" arrives as "15". Keep only the new digit in that case.
+ */
+export function replaceSendQtyKey(previous: string, raw: string, replace: boolean): string {
+  if (!replace) return raw;
+  if (!previous || raw === previous) return raw;
+  if (raw.length !== previous.length + 1) return raw;
+  if (raw.startsWith(previous)) return raw.slice(previous.length);
+  if (raw.endsWith(previous)) return raw.slice(0, -previous.length);
+  return raw;
+}
+
+/** Whole-number send qty from the text field. Empty stays uncommitted so the user can replace 1. */
+export function commitSendQtyInput(
+  raw: string,
+  availableQty: number | null,
+): { digits: string; qty: number | null; rejected: "over_available" | null } {
+  const digits = raw.replace(/\D/g, "");
+  if (!digits) return { digits: "", qty: null, rejected: null };
+  const qty = Number(digits);
+  if (!Number.isInteger(qty) || qty < 1) return { digits, qty: null, rejected: null };
+  const available = availableQty == null ? null : Number(availableQty);
+  const cap = available == null ? MAX_QTY : Math.floor(available);
+  if (!Number.isFinite(cap) || qty > (available == null ? MAX_QTY : available)) {
+    return {
+      digits: cap >= 1 ? String(cap) : digits,
+      qty: cap >= 1 ? cap : null,
+      rejected: "over_available",
+    };
+  }
+  return { digits, qty, rejected: null };
 }
 
 export function setTransferLineQty(

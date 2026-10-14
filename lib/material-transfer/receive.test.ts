@@ -17,6 +17,8 @@ describe("shop scope", () => {
     expect(warehouseMatchesOutlet("Main Warehouse - Chami", "shop")).toBe(false);
     expect(warehouseMatchesOutlet("Shop Warehouse - MNK", "Cool Planet")).toBe(false);
     expect(warehouseMatchesOutlet("Shop Warehouse - Chami", "GCC")).toBe(false);
+    expect(warehouseMatchesOutlet("GCC Shop Warehouse - Cosmo", "Galle")).toBe(true);
+    expect(warehouseMatchesOutlet("Pepiliyana Shop Warehouse - Cosmo", "Galle")).toBe(false);
   });
 
   it("shows an ERP2 company transfer only to the mapped outlet", () => {
@@ -28,6 +30,7 @@ describe("shop scope", () => {
     expect(see("Shop Warehouse - LMJ", "Pepiliyana")).toBe(true);
     expect(see("Shop Warehouse - AJS", "Kiribathgoda")).toBe(true);
     expect(see("Shop Warehouse - Chami", "GCC")).toBe(true);
+    expect(see("Shop Warehouse - Chami", "Galle")).toBe(true);
     expect(see("Shop Warehouse - DTD", "Thilakma Negombo")).toBe(true);
     expect(see("Shop Warehouse - DTD", "Thilakma Negmbo")).toBe(true);
     expect(see("Shop Warehouse - SPK", "Nittabuwa")).toBe(true);

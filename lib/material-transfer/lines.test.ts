@@ -4,6 +4,8 @@ import {
   findTransferLine,
   promoteTransferLine,
   removeTransferLine,
+  commitSendQtyInput,
+  replaceSendQtyKey,
   setTransferLineQty,
   upsertTransferLine,
 } from "@/lib/material-transfer/lines";
@@ -87,6 +89,18 @@ describe("transfer lines", () => {
     const result = setTransferLineQty(added.lines, "NEH09_1", 50);
     expect(result.rejected).toBeNull();
     expect(result.lines[0]?.qty).toBe(50);
+  });
+
+  it("lets a send qty replace 1 without treating the old digit as part of the new number", () => {
+    expect(commitSendQtyInput("", 14)).toEqual({ digits: "", qty: null, rejected: null });
+    expect(commitSendQtyInput("5", 14)).toEqual({ digits: "5", qty: 5, rejected: null });
+    expect(commitSendQtyInput("14", 14)).toEqual({ digits: "14", qty: 14, rejected: null });
+    expect(commitSendQtyInput("15", 14)).toEqual({ digits: "14", qty: 14, rejected: "over_available" });
+    expect(replaceSendQtyKey("1", "13", true)).toBe("3");
+    expect(replaceSendQtyKey("1", "15", true)).toBe("5");
+    expect(replaceSendQtyKey("1", "3", true)).toBe("3");
+    expect(commitSendQtyInput(replaceSendQtyKey("1", "13", true), 14).qty).toBe(3);
+    expect(commitSendQtyInput(replaceSendQtyKey("1", "15", true), 14).qty).toBe(5);
   });
 
   it("moves the scanned item to the front", () => {

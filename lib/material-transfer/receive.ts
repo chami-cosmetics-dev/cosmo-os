@@ -17,15 +17,21 @@ const OUTLET_WORDS = new Set(["shop", "warehouse", "main", "stores", "store"]);
  * and shop-to-main from that company's shop warehouse to its main warehouse.
  * LMJ Pepiliyana, MNK Cool Planet Nugegoda, AJS Kiribathgoda, Chami GCC,
  * DTD Thilakma Negombo, SPK Nittambuwa, LWK OGF.
+ * Galle is the GCC outlet, so it shares Chami.
  */
 const ERP2_CODE_OUTLETS: Record<string, readonly string[]> = {
   lmj: ["pepiliyana"],
   mnk: ["cool planet nugegoda", "cool planet"],
   ajs: ["kiribathgoda"],
-  chami: ["gcc"],
+  chami: ["gcc", "galle"],
   dtd: ["thilakma negombo", "thilakma negmbo"],
   spk: ["nittambuwa", "nittabuwa"],
   lwk: ["ogf"],
+};
+
+/** Staff outlet name → a word in the ERP1 warehouse name. Galle's shop is named GCC. */
+const OUTLET_WAREHOUSE_ALIASES: Record<string, readonly string[]> = {
+  galle: ["gcc"],
 };
 
 function outletKey(outletName: string): string {
@@ -73,7 +79,9 @@ function warehouseNameContainsOutlet(warehouse: string, outletName: string | nul
 
 /** Warehouse name contains the outlet. Company codes are not part of this. */
 export function warehouseMatchesOutlet(warehouse: string, outletName: string | null | undefined): boolean {
-  return warehouseNameContainsOutlet(warehouse, outletName);
+  if (warehouseNameContainsOutlet(warehouse, outletName)) return true;
+  const key = outletKey(outletName ?? "");
+  return (OUTLET_WAREHOUSE_ALIASES[key] ?? []).some((alias) => warehouseNameContainsOutlet(warehouse, alias));
 }
 
 export function outletErp2CompanyCode(outletName: string | null | undefined): string | null {

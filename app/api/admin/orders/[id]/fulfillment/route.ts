@@ -33,6 +33,7 @@ import {
   listCompanyErpPaymentModes,
 } from "@/lib/erp-payment-modes";
 import {
+  cancelPendingDeliveryPaymentApprovalsForOrder,
   createOrGetOrderCancelApproval,
   createOrGetOrderPaymentApproval,
   getFinancePaymentApprovalBlockReason,
@@ -1248,6 +1249,9 @@ export async function PATCH(
         where: { id: order.id },
         data: updateData,
       });
+      if (updateData.deliveryCompleteAt === null) {
+        await cancelPendingDeliveryPaymentApprovalsForOrder(order.id);
+      }
       if (shouldRecordReturn) {
         const shipping = getShippingServiceForReturn(order);
         const existingPendingReturn = await prisma.orderReturn.findFirst({

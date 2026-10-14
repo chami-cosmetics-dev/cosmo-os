@@ -5,7 +5,11 @@ import {
   isCompletePhoneSearch,
   phoneDigitsOnly,
 } from "@/lib/phone-lookup";
-import { lifetimeTotalsByContactId } from "@/lib/customer-insight/lifetime-totals-batch";
+import { foldAbsorbedAdaptTotals, lifetimeTotalsByContactId } from "@/lib/customer-insight/lifetime-totals-batch";
+import {
+  collapsePhoneSubsetContacts,
+  releasePreviousNumberAllocations,
+} from "@/lib/customer-insight/phone-contact-collapse";
 import { pendingLoyaltySuggestion } from "@/lib/customer-insight/loyalty-outreach";
 import { prisma } from "@/lib/prisma";
 import {
@@ -111,6 +115,7 @@ export async function searchContactsByPhone(
       osRegBadgeEnd: true,
       phones: { select: { phoneNumber: true } },
       emails: { select: { email: true } },
+      updatedAt: true,
     },
   });
 
@@ -121,8 +126,19 @@ export async function searchContactsByPhone(
       })
     : rows;
 
-  const capped = capSearchMatches(filtered, CUSTOMER_INSIGHT_SEARCH_CAP);
+  const collapsed = collapsePhoneSubsetContacts(filtered);
+  await releasePreviousNumberAllocations(
+    companyId,
+    filtered,
+    collapsed.absorbedIdsByKeeperId
+  );
+  const capped = capSearchMatches(collapsed.contacts, CUSTOMER_INSIGHT_SEARCH_CAP);
   const lifetimeById = await lifetimeTotalsByContactId(companyId, capped.matches);
+  await foldAbsorbedAdaptTotals(
+    companyId,
+    lifetimeById,
+    collapsed.absorbedIdsByKeeperId
+  );
 
   return {
     matches: capped.matches.map((row): SearchMatchDto => {

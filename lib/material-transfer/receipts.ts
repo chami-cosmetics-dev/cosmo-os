@@ -94,8 +94,18 @@ export async function recordShopReturn(input: {
   erpCompany: string;
   sourceWarehouse: string;
   targetWarehouse: string;
+  erpCompany2?: string | null;
+  sourceWarehouse2?: string | null;
+  targetWarehouse2?: string | null;
   createdByUserId: string | null;
-  lines: Array<{ itemCode: string; itemName?: string | null; barcode?: string | null; uom?: string | null; qty: number }>;
+  lines: Array<{
+    itemCode: string;
+    itemName?: string | null;
+    barcode?: string | null;
+    uom?: string | null;
+    qty: number;
+    postSlot: string;
+  }>;
 }) {
   return prisma.materialTransfer.create({
     data: {
@@ -106,6 +116,9 @@ export async function recordShopReturn(input: {
       erpCompany: input.erpCompany,
       sourceWarehouse: input.sourceWarehouse,
       targetWarehouse: input.targetWarehouse,
+      erpCompany2: input.erpCompany2 ?? null,
+      sourceWarehouse2: input.sourceWarehouse2 ?? null,
+      targetWarehouse2: input.targetWarehouse2 ?? null,
       status: "requested",
       createdByUserId: input.createdByUserId,
       lines: {
@@ -114,6 +127,7 @@ export async function recordShopReturn(input: {
           itemName: line.itemName?.trim() || line.itemCode.trim(),
           barcode: line.barcode?.trim() || "",
           uom: line.uom?.trim() || "Nos",
+          postSlot: line.postSlot,
           sentQty: line.qty,
           receivedQty: 0,
         })),
@@ -142,10 +156,13 @@ function presentListRow(
     id: string;
     direction: TransferDirection;
     erpName: string | null;
+    erp2Name: string | null;
     slot: string;
     erpCompany: string;
     sourceWarehouse: string;
     targetWarehouse: string;
+    sourceWarehouse2: string | null;
+    targetWarehouse2: string | null;
     status: TransferStatus;
     createdAt: Date;
     receivedAt: Date | null;
@@ -155,16 +172,22 @@ function presentListRow(
   },
   urls: { erp1: string | null; erp2: string | null },
 ) {
-  const base = row.slot === "erp1" ? urls.erp1 : row.slot === "erp2" ? urls.erp2 : null;
+  const singleBase = row.slot === "erp1" ? urls.erp1 : row.slot === "erp2" ? urls.erp2 : null;
+  const erpUrl =
+    row.slot === "mixed" ? stockEntryUrl(urls.erp1, row.erpName) : stockEntryUrl(singleBase, row.erpName);
   return {
     id: row.id,
     direction: row.direction,
     erpName: row.erpName,
-    erpUrl: stockEntryUrl(base, row.erpName),
+    erpUrl,
+    erp2Name: row.erp2Name,
+    erp2Url: stockEntryUrl(urls.erp2, row.erp2Name),
     slot: row.slot,
     erpCompany: row.erpCompany,
     sourceWarehouse: row.sourceWarehouse,
     targetWarehouse: row.targetWarehouse,
+    sourceWarehouse2: row.sourceWarehouse2,
+    targetWarehouse2: row.targetWarehouse2,
     status: row.status,
     createdAt: row.createdAt.toISOString(),
     receivedAt: row.receivedAt?.toISOString() ?? null,
@@ -230,16 +253,15 @@ function presentTransfer(
   row: Awaited<ReturnType<typeof loadTransfer>>,
   urls: { erp1: string | null; erp2: string | null },
 ) {
-  const base = row.slot === "erp1" ? urls.erp1 : row.slot === "erp2" ? urls.erp2 : null;
   return {
     ...presentListRow(row, urls),
-    erpUrl: stockEntryUrl(base, row.erpName),
     lines: row.lines.map((line) => ({
       id: line.id,
       itemCode: line.itemCode,
       itemName: line.itemName,
       barcode: line.barcode,
       uom: line.uom,
+      postSlot: line.postSlot,
       sentQty: line.sentQty,
       receivedQty: line.receivedQty,
       receivedQtyUpdatedByName: personName(line.receivedQtyUpdatedBy),
@@ -385,6 +407,37 @@ async function revertConfirmClaim(id: string) {
   });
 }
 
+function linePostSlot(rowSlot: string, postSlot: string): TransferSlot {
+  if (postSlot === "erp1" || postSlot === "erp2") return postSlot;
+  return rowSlot === "erp2" ? "erp2" : "erp1";
+}
+
+function returnLeg(
+  row: {
+    slot: string;
+    sourceWarehouse: string;
+    targetWarehouse: string;
+    erpCompany: string;
+    sourceWarehouse2: string | null;
+    targetWarehouse2: string | null;
+    erpCompany2: string | null;
+  },
+  slot: TransferSlot,
+) {
+  if (slot === "erp2" && row.sourceWarehouse2 && row.targetWarehouse2) {
+    return {
+      sourceWarehouse: row.sourceWarehouse2,
+      targetWarehouse: row.targetWarehouse2,
+      erpCompany: row.erpCompany2,
+    };
+  }
+  return {
+    sourceWarehouse: row.sourceWarehouse,
+    targetWarehouse: row.targetWarehouse,
+    erpCompany: row.erpCompany,
+  };
+}
+
 export async function confirmShopReturn(input: {
   companyId: string;
   id: string;
@@ -396,7 +449,7 @@ export async function confirmShopReturn(input: {
     throw new MaterialTransferError("This is not a shop return", 409);
   }
   const preview = decideShopReturnConfirm({
-    status: row.status,
+    status: row.status === "confirming" ? "requested" : row.status,
     lines: row.lines.map((line) => {
       const next = input.lines.find((item) => item.itemCode === line.itemCode);
       return {
@@ -413,20 +466,27 @@ export async function confirmShopReturn(input: {
     throw new MaterialTransferError("This request is already confirmed", 409);
   }
 
-  const claimed = await prisma.materialTransfer.updateMany({
-    where: { id: row.id, companyId: input.companyId, status: "requested", direction: "shop_to_main" },
-    data: { status: "confirming" },
-  });
-  if (claimed.count === 0) {
+  if (row.status === "requested") {
+    const claimed = await prisma.materialTransfer.updateMany({
+      where: { id: row.id, companyId: input.companyId, status: "requested", direction: "shop_to_main" },
+      data: { status: "confirming" },
+    });
+    if (claimed.count === 0) {
+      throw new MaterialTransferError("This request is already confirmed", 409);
+    }
+  } else if (row.status !== "confirming") {
     throw new MaterialTransferError("This request is already confirmed", 409);
   }
 
   const countedAt = new Date();
-  let postedName: string | null = null;
+  let erpName = row.erpName;
+  let erp2Name = row.erp2Name;
+  const postedFor = (slot: TransferSlot) => (row.slot === "mixed" ? (slot === "erp1" ? erpName : erp2Name) : row.slot === slot ? erpName : null);
+  const anyPosted = () => Boolean(erpName || erp2Name);
   try {
     for (const line of row.lines) {
       const next = input.lines.find((item) => item.itemCode === line.itemCode);
-      if (!next) continue;
+      if (!next || postedFor(linePostSlot(row.slot, line.postSlot))) continue;
       await prisma.materialTransferLine.update({
         where: { id: line.id },
         data: {
@@ -437,86 +497,89 @@ export async function confirmShopReturn(input: {
       });
     }
 
-    const slot = row.slot === "erp2" ? "erp2" : "erp1";
-    const { instance, warehouses } = await loadTransferSlotWarehouses(input.companyId, slot);
     const counted = row.lines.map((line) => {
       const next = input.lines.find((item) => item.itemCode === line.itemCode);
       return {
         itemCode: line.itemCode,
         qty: next?.qty ?? line.receivedQty,
         uom: line.uom,
+        postSlot: linePostSlot(row.slot, line.postSlot),
       };
     });
-    const withBins = await Promise.all(
-      counted.map(async (line) => ({
-        itemCode: line.itemCode,
-        qty: line.qty,
-        availableQty: await liveSourceQty(instance.cfg, line.itemCode, row.sourceWarehouse),
-      })),
-    );
-    const decision = decideShopReturnConfirm({ status: "requested", lines: withBins });
-    if (!decision.ok) {
-      await revertConfirmClaim(row.id);
-      if (decision.reason === "all_zero") {
+    for (const slot of ["erp1", "erp2"] as const) {
+      const group = counted.filter((line) => line.postSlot === slot && line.qty > 0);
+      if (group.length === 0 || postedFor(slot)) continue;
+      const leg = returnLeg(row, slot);
+      const { instance, warehouses } = await loadTransferSlotWarehouses(input.companyId, slot);
+      const withBins = await Promise.all(
+        group.map(async (line) => ({
+          itemCode: line.itemCode,
+          qty: line.qty,
+          availableQty: await liveSourceQty(instance.cfg, line.itemCode, leg.sourceWarehouse),
+        })),
+      );
+      const decision = decideShopReturnConfirm({ status: "requested", lines: withBins });
+      if (!decision.ok) {
+        if (!anyPosted()) await revertConfirmClaim(row.id);
+        if (decision.reason === "short_stock") {
+          const available = withBins.find((line) => line.itemCode === decision.itemCode)?.availableQty ?? 0;
+          throw new MaterialTransferError(
+            `${decision.itemCode} has ${available} available in ${leg.sourceWarehouse}.`,
+            409,
+          );
+        }
         throw new MaterialTransferError("Enter a received quantity or leave the request open");
       }
-      if (decision.reason === "short_stock") {
-        const available = withBins.find((line) => line.itemCode === decision.itemCode)?.availableQty ?? 0;
-        throw new MaterialTransferError(
-          `${decision.itemCode} has ${available} available in ${row.sourceWarehouse}.`,
-          409,
+      const postLines = decision.postLines.map((line) => ({
+        ...line,
+        uom: group.find((item) => item.itemCode === line.itemCode)?.uom,
+      }));
+      if (slot === "erp1") {
+        await assertSlotVatLines(
+          instance.cfg,
+          postLines.map((line) => line.itemCode),
         );
       }
-      throw new MaterialTransferError("This request is already confirmed", 409);
+      await assertSourceCovers(instance.cfg, leg.sourceWarehouse, postLines);
+      const posted = await submitMaterialTransfer({
+        cfg: instance.cfg,
+        slot,
+        company: leg.erpCompany,
+        sourceWarehouse: leg.sourceWarehouse,
+        targetWarehouse: leg.targetWarehouse,
+        lines: postLines,
+        warehouses,
+      });
+      if (row.slot === "mixed" && slot === "erp2") erp2Name = posted.name;
+      else erpName = posted.name;
+      await prisma.materialTransfer.update({
+        where: { id: row.id },
+        data: { erpName, erp2Name },
+      });
     }
 
-    const postLines = decision.postLines.map((line) => ({
-      ...line,
-      uom: counted.find((item) => item.itemCode === line.itemCode)?.uom,
-    }));
-    if (slot === "erp1") {
-      await assertSlotVatLines(
-        instance.cfg,
-        postLines.map((line) => line.itemCode),
-      );
-    }
-    await assertSourceCovers(instance.cfg, row.sourceWarehouse, postLines);
-    const posted = await submitMaterialTransfer({
-      cfg: instance.cfg,
-      slot: slot as TransferSlot,
-      company: row.erpCompany,
-      sourceWarehouse: row.sourceWarehouse,
-      targetWarehouse: row.targetWarehouse,
-      lines: postLines,
-      warehouses,
-    });
-    postedName = posted.name;
     await prisma.materialTransfer.update({
       where: { id: row.id },
       data: {
         status: "confirmed",
-        erpName: postedName,
+        erpName,
+        erp2Name,
         receivedByUserId: input.userId,
         receivedAt: new Date(),
       },
     });
   } catch (error) {
-    if (!postedName) await revertConfirmClaim(row.id);
+    if (!anyPosted()) await revertConfirmClaim(row.id);
     else {
       await prisma.materialTransfer
         .update({
           where: { id: row.id },
-          data: {
-            status: "confirmed",
-            erpName: postedName,
-            receivedByUserId: input.userId,
-            receivedAt: new Date(),
-          },
+          data: { status: "confirming", erpName, erp2Name },
         })
         .catch(() => undefined);
     }
     if (error instanceof MaterialTransferError) {
-      if (!postedName && error.status === 422) {
+      if (!anyPosted() && error.status === 422) {
         throw new MaterialTransferError(error.message, 502);
       }
       throw error;
