@@ -107,7 +107,13 @@ function formatDate(val: string): string {
   return formatAppDateTime(val);
 }
 
-export function PosOrdersPanel({ currentUserId = null }: { currentUserId?: string | null }) {
+export function PosOrdersPanel({
+  currentUserId = null,
+  canCancelAnyPosOrder = false,
+}: {
+  currentUserId?: string | null;
+  canCancelAnyPosOrder?: boolean;
+}) {
   const [data, setData] = useState<PosOrdersData | null>(null);
   const [loading, setLoading] = useState(true);
   const [companyFilter, setCompanyFilter] = useState("");
@@ -476,7 +482,7 @@ export function PosOrdersPanel({ currentUserId = null }: { currentUserId?: strin
                           <span className="text-xs text-muted-foreground">Cancelled</span>
                         ) : o.hasPendingCancelApproval ? (
                           <span className="text-xs font-medium text-amber-700 dark:text-amber-300">Pending finance</span>
-                        ) : viewerCreatedPosOrder(currentUserId, o.assignedMerchantId) ? (
+                        ) : canCancelAnyPosOrder || viewerCreatedPosOrder(currentUserId, o.assignedMerchantId) ? (
                           <Button
                             type="button"
                             variant="outline"

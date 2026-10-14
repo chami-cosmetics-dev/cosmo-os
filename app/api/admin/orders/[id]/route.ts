@@ -29,7 +29,7 @@ import { resolveOrderShippingDisplayForOrder } from "@/lib/order-shipping-displa
 import { formatBusinessOrderNumber } from "@/lib/order-display-label";
 import { prisma } from "@/lib/prisma";
 import { isPosOrderSource } from "@/lib/fulfillment-queue-filters";
-import { viewerCreatedPosOrder } from "@/lib/order-cancel-finance";
+import { canRequestPosOrderCancel } from "@/lib/order-cancel-finance";
 import { requireAnyPermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
 
@@ -784,7 +784,11 @@ export async function GET(
     ),
     canRequestPosCancel:
       isPosOrderSource(details.sourceName) &&
-      viewerCreatedPosOrder(userId, details.assignedMerchant?.id),
+      canRequestPosOrderCancel({
+        viewerUserId: userId,
+        assignedMerchantId: details.assignedMerchant?.id,
+        roleNames: auth.context?.roleNames,
+      }),
     replacedByOrder: details.replacedByOrder
       ? {
           id: details.replacedByOrder.id,

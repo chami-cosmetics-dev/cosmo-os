@@ -1308,9 +1308,7 @@ export async function createOrGetOrderCancelApproval(input: {
         userId: u.id,
         type: "approval_requested",
         title: "Order cancel approval requested",
-        body: input.isPos
-          ? `POS cancel requested for ${input.invoiceLabel} (LKR ${input.amount}) — reason: ${input.cancelReason}. Create a credit note in ERPNext, then approve.`
-          : `Cancel requested for ${input.invoiceLabel} (LKR ${input.amount}) — reason: ${input.cancelReason}. Cancel in Shopify, create a credit note in ERPNext, then approve.`,
+        body: `Cancel requested for ${input.invoiceLabel} (LKR ${input.amount}) — reason: ${input.cancelReason}. Paid orders get an ERP credit note. Unpaid orders are cancelled normally.`,
         entityType: "ApprovalRequest",
         entityId: id,
       })

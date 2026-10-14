@@ -71,6 +71,8 @@ import { resolveEffectiveTotalTarget } from "@/lib/merchant-dashboard/channel-sa
 import type { MerchantDailyInvoiceRow } from "@/lib/page-data/merchant-dashboard-sales";
 import type { MerchantSalesMovement } from "@/lib/page-data/merchant-dashboard-sales-movement";
 
+import { MerchantSalesInsightsCard } from "./merchant-sales-insights-card";
+
 function parsePositiveTargetInput(value: string): number | null {
   if (!value.trim()) return null;
   const amount = Number(value);
@@ -2269,6 +2271,8 @@ export function MerchantDashboardPanel({ initialData }: Props) {
           </ul>
         </CardContent>
       </Card>
+
+      <MerchantSalesInsightsCard merchantId={merchantId} />
 
       <Card>
         <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">

@@ -32,6 +32,7 @@ import {
   loadKokoDuplicateCandidatesForCompany,
 } from "@/lib/koko-duplicate-cancel";
 import { buildErpAdminInvoiceUrl } from "@/lib/erp-admin-url";
+import { resolveReturnCancelCompletionMode } from "@/lib/return-cancel-completion";
 import { financePaymentReferenceKind } from "@/lib/koko-approval-reference";
 import { prisma } from "@/lib/prisma";
 import { hasPermission, requireAnyPermission } from "@/lib/rbac";
@@ -87,6 +88,7 @@ async function fetchInitialApprovals(
       riderMobile: string | null;
       paymentGatewayPrimary: string | null;
       paymentGatewayNames: string[];
+      financialStatus: string | null;
     }>
   >(
     Prisma.sql`
@@ -125,7 +127,8 @@ async function fetchInitialApprovals(
         COALESCE(rider."knownName", rider."name") AS "riderName",
         rider."mobile" AS "riderMobile",
         o."paymentGatewayPrimary",
-        COALESCE(o."paymentGatewayNames", ARRAY[]::TEXT[]) AS "paymentGatewayNames"
+        COALESCE(o."paymentGatewayNames", ARRAY[]::TEXT[]) AS "paymentGatewayNames",
+        COALESCE(o."financialStatus", ort_order."financialStatus") AS "financialStatus"
       FROM "ApprovalRequest" ar
       LEFT JOIN "Order" o ON o."id" = ar."orderId"
       LEFT JOIN "CompanyLocation" cl ON cl."id" = o."companyLocationId"
@@ -192,6 +195,10 @@ async function fetchInitialApprovals(
           erpnextInvoiceId:
             cancelNote?.erpnextInvoiceId ?? row.erpnextInvoiceId,
         }),
+        completionMode:
+          row.type === RETURN_CANCEL_APPROVAL || isOrderCancel
+            ? resolveReturnCancelCompletionMode(row.financialStatus)
+            : undefined,
         returnedByName: row.returnedByName,
         returnedByEmail: row.returnedByEmail,
         cancelRequestedByName: isOrderCancel

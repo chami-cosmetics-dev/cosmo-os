@@ -95,6 +95,21 @@ export function viewerCreatedPosOrder(
   return viewerUserId === assignedMerchantId;
 }
 
+export function isAdminRole(roleNames: readonly string[] | null | undefined): boolean {
+  if (!roleNames) return false;
+  return roleNames.includes("admin") || roleNames.includes("super_admin");
+}
+
+/** Creator of that POS order, or an admin, can request cancel. */
+export function canRequestPosOrderCancel(input: {
+  viewerUserId: string | null | undefined;
+  assignedMerchantId: string | null | undefined;
+  roleNames: readonly string[] | null | undefined;
+}): boolean {
+  if (isAdminRole(input.roleNames)) return true;
+  return viewerCreatedPosOrder(input.viewerUserId, input.assignedMerchantId);
+}
+
 export function merchantCanRequestOrderCancel(input: {
   isPos: boolean;
   fulfillmentStage: string;

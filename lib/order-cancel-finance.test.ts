@@ -4,6 +4,7 @@ import {
   merchantCanRequestOrderCancel,
   orderCancelFinanceCc,
   resolveCancelFinanceLocationId,
+  canRequestPosOrderCancel,
   viewerCreatedPosOrder,
   type CancelFinanceLocation,
 } from "@/lib/order-cancel-finance";
@@ -77,6 +78,35 @@ describe("viewerCreatedPosOrder", () => {
     expect(viewerCreatedPosOrder("user-a", "user-a")).toBe(true);
     expect(viewerCreatedPosOrder("user-b", "user-a")).toBe(false);
     expect(viewerCreatedPosOrder("user-a", null)).toBe(false);
+  });
+});
+
+describe("canRequestPosOrderCancel", () => {
+  it("lets an admin request cancel on a POS order they did not create", () => {
+    expect(
+      canRequestPosOrderCancel({
+        viewerUserId: "admin",
+        assignedMerchantId: "cashier",
+        roleNames: ["admin"],
+      }),
+    ).toBe(true);
+  });
+
+  it("still lets the creator request cancel without an admin role", () => {
+    expect(
+      canRequestPosOrderCancel({
+        viewerUserId: "cashier",
+        assignedMerchantId: "cashier",
+        roleNames: ["merchant"],
+      }),
+    ).toBe(true);
+    expect(
+      canRequestPosOrderCancel({
+        viewerUserId: "other",
+        assignedMerchantId: "cashier",
+        roleNames: ["merchant"],
+      }),
+    ).toBe(false);
   });
 });
 
