@@ -13,7 +13,8 @@ export type ShopScope = {
 const OUTLET_WORDS = new Set(["shop", "warehouse", "main", "stores", "store"]);
 
 /**
- * ERP2 company code on the warehouse → outlet that receives those transfers.
+ * ERP2 company code → outlet. Material transfer only: who sees a transfer,
+ * and shop-to-main from that company's shop warehouse to its main warehouse.
  * LMJ Pepiliyana, MNK Cool Planet Nugegoda, AJS Kiribathgoda, Chami GCC,
  * DTD Thilakma Negombo, SPK Nittambuwa, LWK OGF.
  */
@@ -60,11 +61,7 @@ function warehouseCompanyCode(warehouse: string): string | null {
   return code && ERP2_CODE_OUTLETS[code] ? code : null;
 }
 
-/** Outlet text appears in the warehouse name. Company-code aliases are separate. */
-export function warehouseNameContainsOutlet(
-  warehouse: string,
-  outletName: string | null | undefined,
-): boolean {
+function warehouseNameContainsOutlet(warehouse: string, outletName: string | null | undefined): boolean {
   const outlet = (outletName ?? "").trim().toLowerCase();
   if (outlet.length < 2 || OUTLET_WORDS.has(outlet)) return false;
   const name = warehouse.trim().toLowerCase();
@@ -74,18 +71,35 @@ export function warehouseNameContainsOutlet(
   return tokens.includes(outlet);
 }
 
+/** Warehouse name contains the outlet. Company codes are not part of this. */
 export function warehouseMatchesOutlet(warehouse: string, outletName: string | null | undefined): boolean {
-  if (warehouseNameContainsOutlet(warehouse, outletName)) return true;
-  const code = warehouseCompanyCode(warehouse);
-  const aliases = code ? ERP2_CODE_OUTLETS[code] : undefined;
-  return Boolean(aliases && outletMatchesAlias(outletName ?? "", aliases));
+  return warehouseNameContainsOutlet(warehouse, outletName);
+}
+
+export function outletErp2CompanyCode(outletName: string | null | undefined): string | null {
+  const outlet = (outletName ?? "").trim();
+  if (!outlet) return null;
+  for (const [code, aliases] of Object.entries(ERP2_CODE_OUTLETS)) {
+    if (outletMatchesAlias(outlet, aliases)) return code;
+  }
+  return null;
+}
+
+export function warehouseHasErp2CompanyCode(warehouse: string, code: string): boolean {
+  return warehouseCompanyCode(warehouse) === code;
+}
+
+function transferMatchesCompanyOutlet(targetWarehouse: string, outletName: string | null): boolean {
+  const code = outletErp2CompanyCode(outletName);
+  return Boolean(code && warehouseHasErp2CompanyCode(targetWarehouse, code));
 }
 
 export function transferVisibleToShop(targetWarehouse: string, scope: ShopScope): boolean {
   const target = targetWarehouse.trim();
   if (!target) return false;
   if (scope.explicitWarehouses.some((name) => name.trim() === target)) return true;
-  return warehouseMatchesOutlet(target, scope.outletName);
+  if (warehouseMatchesOutlet(target, scope.outletName)) return true;
+  return transferMatchesCompanyOutlet(target, scope.outletName);
 }
 
 export function shopScopeIsEmpty(scope: ShopScope): boolean {

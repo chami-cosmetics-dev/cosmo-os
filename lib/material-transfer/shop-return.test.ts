@@ -26,32 +26,33 @@ describe("resolveShopToMain", () => {
     });
   });
 
-  it("keeps the cosmetics shop when an ERP2 company code also matches the outlet", () => {
-    const result = resolveShopToMain("Pepiliyana", [
+  it("sends a mapped outlet from that company's shop warehouse to its main warehouse", () => {
+    const coolPlanet = resolveShopToMain("Cool Planet Nugegoda", [
+      warehouse("Shop Warehouse - MNK", "MNK Trading", "erp2"),
+      warehouse("Main Warehouse - MNK", "MNK Trading", "erp2"),
+      warehouse("Cool Planet Nugegoda Shop Warehouse - Cosmo", "Cosmetics.lk", "erp1"),
+      warehouse("Main Warehouse - Cosmo", "Cosmetics.lk", "erp1"),
+    ]);
+    expect(coolPlanet).toEqual({
+      ok: true,
+      slot: "erp2",
+      erpCompany: "MNK Trading",
+      sourceWarehouse: "Shop Warehouse - MNK",
+      targetWarehouse: "Main Warehouse - MNK",
+    });
+    const pepiliyana = resolveShopToMain("Pepiliyana", [
       warehouse("Pepiliyana Shop Warehouse - Cosmo", "Cosmetics.lk", "erp1"),
       warehouse("Main Warehouse - Cosmo", "Cosmetics.lk", "erp1"),
       warehouse("Shop Warehouse - LMJ", "LMJ International", "erp2"),
       warehouse("Main Warehouse - LMJ", "LMJ International", "erp2"),
     ]);
-    expect(result).toEqual({
+    expect(pepiliyana).toEqual({
       ok: true,
-      slot: "erp1",
-      erpCompany: "Cosmetics.lk",
-      sourceWarehouse: "Pepiliyana Shop Warehouse - Cosmo",
-      targetWarehouse: "Main Warehouse - Cosmo",
+      slot: "erp2",
+      erpCompany: "LMJ International",
+      sourceWarehouse: "Shop Warehouse - LMJ",
+      targetWarehouse: "Main Warehouse - LMJ",
     });
-  });
-
-  it("uses the MNK alias for Cool Planet", () => {
-    const result = resolveShopToMain("Cool Planet", [
-      warehouse("Shop Warehouse - MNK", "MNK Trading", "erp2"),
-      warehouse("Main Warehouse - MNK", "MNK Trading", "erp2"),
-    ]);
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.sourceWarehouse).toBe("Shop Warehouse - MNK");
-      expect(result.targetWarehouse).toBe("Main Warehouse - MNK");
-    }
   });
 
   it("refuses when no shop, two shops, or two mains match", () => {

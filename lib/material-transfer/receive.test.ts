@@ -15,19 +15,25 @@ describe("shop scope", () => {
     expect(warehouseMatchesOutlet("Pepiliyana Shop Warehouse - Cosmo", "GCC")).toBe(false);
     expect(warehouseMatchesOutlet("Shop Warehouse - Chami", "Chami")).toBe(true);
     expect(warehouseMatchesOutlet("Main Warehouse - Chami", "shop")).toBe(false);
-    expect(warehouseMatchesOutlet("Shop Warehouse - MNK", "Cool Planet")).toBe(true);
-    expect(warehouseMatchesOutlet("Main Warehouse - MNK", "Cool Planet Nugegoda")).toBe(true);
-    expect(warehouseMatchesOutlet("Shop Warehouse - MNK", "GCC")).toBe(false);
-    expect(warehouseMatchesOutlet("Shop Warehouse - Chami", "Cool Planet")).toBe(false);
-    expect(warehouseMatchesOutlet("Shop Warehouse - LMJ", "Pepiliyana")).toBe(true);
-    expect(warehouseMatchesOutlet("Shop Warehouse - AJS", "Kiribathgoda")).toBe(true);
-    expect(warehouseMatchesOutlet("Shop Warehouse - Chami", "GCC")).toBe(true);
-    expect(warehouseMatchesOutlet("Shop Warehouse - DTD", "Thilakma Negombo")).toBe(true);
-    expect(warehouseMatchesOutlet("Shop Warehouse - DTD", "Thilakma Negmbo")).toBe(true);
-    expect(warehouseMatchesOutlet("Shop Warehouse - SPK", "Nittabuwa")).toBe(true);
-    expect(warehouseMatchesOutlet("Shop Warehouse - SPK", "Nittambuwa")).toBe(true);
-    expect(warehouseMatchesOutlet("Shop Warehouse - LWK", "OGF")).toBe(true);
-    expect(warehouseMatchesOutlet("Shop Warehouse - LMJ", "Kiribathgoda")).toBe(false);
+    expect(warehouseMatchesOutlet("Shop Warehouse - MNK", "Cool Planet")).toBe(false);
+    expect(warehouseMatchesOutlet("Shop Warehouse - Chami", "GCC")).toBe(false);
+  });
+
+  it("shows an ERP2 company transfer only to the mapped outlet", () => {
+    const see = (warehouse: string, outletName: string) =>
+      transferVisibleToShop(warehouse, { explicitWarehouses: [], outletName });
+    expect(see("Shop Warehouse - MNK", "Cool Planet")).toBe(true);
+    expect(see("Main Warehouse - MNK", "Cool Planet Nugegoda")).toBe(true);
+    expect(see("Shop Warehouse - MNK", "GCC")).toBe(false);
+    expect(see("Shop Warehouse - LMJ", "Pepiliyana")).toBe(true);
+    expect(see("Shop Warehouse - AJS", "Kiribathgoda")).toBe(true);
+    expect(see("Shop Warehouse - Chami", "GCC")).toBe(true);
+    expect(see("Shop Warehouse - DTD", "Thilakma Negombo")).toBe(true);
+    expect(see("Shop Warehouse - DTD", "Thilakma Negmbo")).toBe(true);
+    expect(see("Shop Warehouse - SPK", "Nittabuwa")).toBe(true);
+    expect(see("Shop Warehouse - SPK", "Nittambuwa")).toBe(true);
+    expect(see("Shop Warehouse - LWK", "OGF")).toBe(true);
+    expect(see("Shop Warehouse - LMJ", "Kiribathgoda")).toBe(false);
   });
 
   it("shows a transfer for the outlet or an explicit warehouse", () => {

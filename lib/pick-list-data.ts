@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { getPickListTodayBounds } from "@/lib/pick-list-date";
+import { pickListMoneyAmount } from "@/lib/pick-list-money";
 import { resolvePickListBarcode } from "@/lib/product-item-barcode";
 import { loadBarcodeLookupBySku } from "@/lib/product-item-barcode.server";
 import { getLegacyAccSinvFulfillmentWhere } from "@/lib/legacy-acc-sinv";
@@ -9,6 +10,8 @@ export type PickListItem = {
   variantTitle: string | null;
   sku: string | null;
   barcode: string | null;
+  /** ProductItem.price — ERP Standard Selling when synced. Two decimals, or null. */
+  standardSellingPrice: string | null;
   quantity: number;
 };
 
@@ -30,6 +33,7 @@ const orderPickListSelect = {
           variantTitle: true,
           sku: true,
           barcode: true,
+          price: true,
         },
       },
     },
@@ -57,6 +61,7 @@ function aggregateOrdersToItems(
         variantTitle: string | null;
         sku: string | null;
         barcode: string | null;
+        price: { toString(): string } | null;
       };
     }>;
   }>,
@@ -68,15 +73,18 @@ function aggregateOrdersToItems(
     for (const li of order.lineItems) {
       const p = li.productItem;
       const itemKey = pickListItemKey(p);
+      const standardSellingPrice = pickListMoneyAmount(p.price);
       const existing = itemMap.get(itemKey);
       if (existing) {
         existing.quantity += li.quantity;
+        if (!existing.standardSellingPrice) existing.standardSellingPrice = standardSellingPrice;
       } else {
         itemMap.set(itemKey, {
           productTitle: p.productTitle,
           variantTitle: p.variantTitle,
           sku: p.sku,
           barcode: resolvePickListBarcode(p.barcode, p.sku, barcodeBySku),
+          standardSellingPrice,
           quantity: li.quantity,
         });
       }
