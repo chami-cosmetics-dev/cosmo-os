@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { notify } from "@/lib/notify";
 import { formatAppDateTime, formatAppIsoDate } from "@/lib/format-datetime";
+import { formatPickListMoney } from "@/lib/pick-list-money";
 import { formatPickListBarcode } from "@/lib/product-item-barcode";
 
 type PickListItem = {
@@ -14,6 +15,7 @@ type PickListItem = {
   variantTitle: string | null;
   sku: string | null;
   barcode: string | null;
+  standardSellingPrice: string | null;
   quantity: number;
 };
 
@@ -71,6 +73,7 @@ function ItemsTable({ items }: { items: PickListItem[] }) {
             <th className="px-4 py-2 font-medium">Item</th>
             <th className="px-4 py-2 font-medium whitespace-nowrap">SKU</th>
             <th className="px-4 py-2 font-medium whitespace-nowrap">Barcode</th>
+            <th className="px-4 py-2 text-right font-medium whitespace-nowrap">Standard Selling</th>
             <th className="px-4 py-2 text-right font-medium">Qty</th>
           </tr>
         </thead>
@@ -90,6 +93,9 @@ function ItemsTable({ items }: { items: PickListItem[] }) {
               <td className="px-4 py-2 font-mono text-xs whitespace-nowrap">{item.sku ?? "—"}</td>
               <td className="px-4 py-2 font-mono font-semibold whitespace-nowrap">
                 {formatPickListBarcode(item.barcode)}
+              </td>
+              <td className="px-4 py-2 text-right tabular-nums whitespace-nowrap">
+                {formatPickListMoney(item.standardSellingPrice)}
               </td>
               <td className="px-4 py-2 text-right text-lg font-bold">{item.quantity}</td>
             </tr>
