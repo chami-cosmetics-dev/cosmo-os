@@ -26,21 +26,32 @@ describe("resolveShopToMain", () => {
     });
   });
 
-  it("does not treat an ERP2 company code as the shop-to-main warehouse", () => {
-    const result = resolveShopToMain("Cool Planet", [
+  it("sends a mapped outlet from that company's shop warehouse to its main warehouse", () => {
+    const coolPlanet = resolveShopToMain("Cool Planet Nugegoda", [
       warehouse("Shop Warehouse - MNK", "MNK Trading", "erp2"),
       warehouse("Main Warehouse - MNK", "MNK Trading", "erp2"),
+      warehouse("Cool Planet Nugegoda Shop Warehouse - Cosmo", "Cosmetics.lk", "erp1"),
+      warehouse("Main Warehouse - Cosmo", "Cosmetics.lk", "erp1"),
     ]);
-    expect(result.ok).toBe(false);
+    expect(coolPlanet).toEqual({
+      ok: true,
+      slot: "erp2",
+      erpCompany: "MNK Trading",
+      sourceWarehouse: "Shop Warehouse - MNK",
+      targetWarehouse: "Main Warehouse - MNK",
+    });
     const pepiliyana = resolveShopToMain("Pepiliyana", [
       warehouse("Pepiliyana Shop Warehouse - Cosmo", "Cosmetics.lk", "erp1"),
       warehouse("Main Warehouse - Cosmo", "Cosmetics.lk", "erp1"),
       warehouse("Shop Warehouse - LMJ", "LMJ International", "erp2"),
       warehouse("Main Warehouse - LMJ", "LMJ International", "erp2"),
     ]);
-    expect(pepiliyana).toMatchObject({
+    expect(pepiliyana).toEqual({
       ok: true,
-      sourceWarehouse: "Pepiliyana Shop Warehouse - Cosmo",
+      slot: "erp2",
+      erpCompany: "LMJ International",
+      sourceWarehouse: "Shop Warehouse - LMJ",
+      targetWarehouse: "Main Warehouse - LMJ",
     });
   });
 

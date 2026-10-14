@@ -13,8 +13,8 @@ export type ShopScope = {
 const OUTLET_WORDS = new Set(["shop", "warehouse", "main", "stores", "store"]);
 
 /**
- * ERP2 company code → outlet, for who can see a material transfer only.
- * Not used for shop-to-main or any other feature.
+ * ERP2 company code → outlet. Material transfer only: who sees a transfer,
+ * and shop-to-main from that company's shop warehouse to its main warehouse.
  * LMJ Pepiliyana, MNK Cool Planet Nugegoda, AJS Kiribathgoda, Chami GCC,
  * DTD Thilakma Negombo, SPK Nittambuwa, LWK OGF.
  */
@@ -76,10 +76,22 @@ export function warehouseMatchesOutlet(warehouse: string, outletName: string | n
   return warehouseNameContainsOutlet(warehouse, outletName);
 }
 
+export function outletErp2CompanyCode(outletName: string | null | undefined): string | null {
+  const outlet = (outletName ?? "").trim();
+  if (!outlet) return null;
+  for (const [code, aliases] of Object.entries(ERP2_CODE_OUTLETS)) {
+    if (outletMatchesAlias(outlet, aliases)) return code;
+  }
+  return null;
+}
+
+export function warehouseHasErp2CompanyCode(warehouse: string, code: string): boolean {
+  return warehouseCompanyCode(warehouse) === code;
+}
+
 function transferMatchesCompanyOutlet(targetWarehouse: string, outletName: string | null): boolean {
-  const code = warehouseCompanyCode(targetWarehouse);
-  const aliases = code ? ERP2_CODE_OUTLETS[code] : undefined;
-  return Boolean(aliases && outletMatchesAlias(outletName ?? "", aliases));
+  const code = outletErp2CompanyCode(outletName);
+  return Boolean(code && warehouseHasErp2CompanyCode(targetWarehouse, code));
 }
 
 export function transferVisibleToShop(targetWarehouse: string, scope: ShopScope): boolean {
