@@ -92,6 +92,7 @@ type AdaptPurchaseRow = {
   companyLocationName: string | null;
   paymentMethod: string | null;
   merchantKnownName: string | null;
+  financialStatus?: string | null;
   lineItems: ContactPurchaseOrder["lineItems"];
 };
 
@@ -679,9 +680,10 @@ export function ContactsPanel({
         totalPrice: row.ttlAmount,
         currency: row.currency,
         financialStatus:
-          row.origin === "vault_supplement_import"
+          row.financialStatus?.trim() ||
+          (row.origin === "vault_supplement_import"
             ? row.paymentMethod?.trim() || "Imported"
-            : row.paymentMethod ?? "Adapt",
+            : row.paymentMethod ?? "Adapt"),
         fulfillmentStatus:
           row.origin === "vault_supplement_import"
             ? row.companyLocationName ?? row.locationName ?? "—"

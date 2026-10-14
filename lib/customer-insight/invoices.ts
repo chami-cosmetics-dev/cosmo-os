@@ -1,4 +1,7 @@
-import { isOrderIncludedInCustomerLifetimeTotal } from "@/lib/customer-insight/lifetime-total";
+import {
+  isAdaptAmountExcludedFromSaleTotal,
+  isOrderIncludedInCustomerLifetimeTotal,
+} from "@/lib/customer-insight/lifetime-total";
 import type { InvoiceLineDto, UnifiedInvoiceRowDto } from "@/lib/customer-insight/types";
 
 export type OrderInvoiceInput = {
@@ -31,6 +34,8 @@ export type AdaptInvoiceInput = {
   paymentMethod?: string | null;
   /** `adapt` or `vault_supplement_import`. Missing means Adapt. */
   origin?: string | null;
+  /** File status such as paid, voided, refunded. */
+  financialStatus?: string | null;
   lineItems?: InvoiceLineDto[];
 };
 
@@ -83,8 +88,9 @@ export function mapOrderToInvoiceRow(order: OrderInvoiceInput): UnifiedInvoiceRo
 
 export function mapAdaptToInvoiceRow(row: AdaptInvoiceInput): UnifiedInvoiceRowDto {
   const supplement = row.origin === "vault_supplement_import";
+  const fileStatus = row.financialStatus?.trim() || "";
   const payment = row.paymentMethod?.trim() || "";
-  const statusText = supplement ? payment || "Imported" : "Adapt";
+  const statusText = supplement ? fileStatus || payment || "Imported" : fileStatus || "Adapt";
   return {
     id: `adapt:${row.id}`,
     source: "adapt",
@@ -97,7 +103,7 @@ export function mapAdaptToInvoiceRow(row: AdaptInvoiceInput): UnifiedInvoiceRowD
     origin: supplement ? "vault_supplement_import" : "adapt",
     amount: toAmount(row.ttlAmount),
     currency: row.currency?.trim() || "LKR",
-    includedInLoyaltyTotal: true,
+    includedInLoyaltyTotal: !isAdaptAmountExcludedFromSaleTotal(row.financialStatus),
     orderId: null,
     locationName: row.locationName?.trim() || null,
     discountCouponCode: null,

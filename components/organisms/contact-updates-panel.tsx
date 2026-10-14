@@ -88,6 +88,7 @@ type AdaptPurchaseRow = {
   companyLocationName: string | null;
   paymentMethod: string | null;
   merchantKnownName: string | null;
+  financialStatus?: string | null;
 };
 
 type ContactUpdatesPanelInitialData = {
@@ -307,7 +308,7 @@ export function ContactUpdatesPanel({
               name: row.salesInvoiceNo,
               totalPrice: row.ttlAmount,
               currency: row.currency,
-              financialStatus: null,
+              financialStatus: row.financialStatus?.trim() || null,
               fulfillmentStatus: null,
               createdAt: row.invoiceDate,
               source: "adapt",
@@ -772,6 +773,7 @@ export function ContactUpdatesPanel({
                             {order.source === "adapt"
                               ? [
                                   order.merchantName ? `Merchant: ${order.merchantName}` : null,
+                                  order.financialStatus,
                                   order.paymentMethod,
                                   order.locationLabel,
                                 ]

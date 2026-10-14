@@ -25,6 +25,19 @@ describe("mapAdaptToInvoiceRow origin", () => {
     expect(row.includedInLoyaltyTotal).toBe(true);
   });
 
+  it("shows voided and keeps that amount out of the loyalty total", () => {
+    const row = mapAdaptToInvoiceRow({
+      ...base,
+      origin: "vault_supplement_import",
+      paymentMethod: "Bank Deposit",
+      financialStatus: "voided",
+    });
+    expect(row.status).toBe("voided");
+    expect(row.financialStatus).toBe("voided");
+    expect(row.includedInLoyaltyTotal).toBe(false);
+    expect(row.amount).toBe(30000);
+  });
+
   it("uses Imported when a supplement payment method is blank", () => {
     const row = mapAdaptToInvoiceRow({
       ...base,

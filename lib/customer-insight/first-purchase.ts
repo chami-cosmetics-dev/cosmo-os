@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { contactOrderLookupKeys } from "@/lib/contact-purchase-lookup";
 import {
   CUSTOMER_LIFETIME_TOTAL_FULFILLMENT_STAGES,
+  adaptSaleTotalWhere,
   customerLifetimeTotalOrderWhere,
   orderPurchaseAt,
 } from "@/lib/customer-insight/lifetime-total";
@@ -98,7 +99,7 @@ export async function loadFirstPurchaseIndexes(
     `,
     prisma.adaptPurchaseHistory.groupBy({
       by: ["contactId"],
-      where: { companyId },
+      where: { companyId, ...adaptSaleTotalWhere() },
       _min: { invoiceDate: true },
     }),
   ]);
@@ -215,7 +216,7 @@ export async function firstPurchaseAtByContactIds(
       }),
       prisma.adaptPurchaseHistory.groupBy({
         by: ["contactId"],
-        where: { companyId, contactId: { in: slice } },
+        where: { companyId, contactId: { in: slice }, ...adaptSaleTotalWhere() },
         _min: { invoiceDate: true },
       }),
     ]);

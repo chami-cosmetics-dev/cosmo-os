@@ -1,20 +1,38 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { requireMaterialTransferAccess } from "@/lib/material-transfer/auth";
+import { requireMaterialTransferView } from "@/lib/material-transfer/auth";
 import { erpErrorMessage } from "@/lib/material-transfer/erp-error";
 import {
   listTransferWarehouses,
+  loadTransferSlotWarehouses,
   lookupTransferItem,
   MaterialTransferError,
   resolveTransferSlots,
 } from "@/lib/material-transfer/erp";
+import { resolveShopToMain, type ShopReturnWarehouse } from "@/lib/material-transfer/shop-return";
+import type { TransferSlot } from "@/lib/material-transfer/types";
 import { materialTransferLookupSchema } from "@/lib/validation/material-transfer";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
+async function shopWarehouses(companyId: string) {
+  const tagged: ShopReturnWarehouse[] = [];
+  const slots: TransferSlot[] = ["erp1", "erp2"];
+  for (const slot of slots) {
+    try {
+      const loaded = await loadTransferSlotWarehouses(companyId, slot);
+      for (const row of loaded.warehouses) tagged.push({ ...row, slot });
+    } catch (error) {
+      if (error instanceof MaterialTransferError && error.message.includes("not configured")) continue;
+      throw error;
+    }
+  }
+  return tagged;
+}
+
 export async function POST(request: NextRequest) {
-  const auth = await requireMaterialTransferAccess();
+  const auth = await requireMaterialTransferView();
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
@@ -34,6 +52,21 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    if (!auth.canWrite) {
+      const resolved = resolveShopToMain(auth.scope.outletName, await shopWarehouses(auth.companyId));
+      if (!resolved.ok) {
+        return NextResponse.json({ error: resolved.error }, { status: 409 });
+      }
+      const company = (parsed.data.company ?? "").trim();
+      const sameShop =
+        parsed.data.slot === resolved.slot &&
+        parsed.data.sourceWarehouse === resolved.sourceWarehouse &&
+        (resolved.slot === "erp1" || company === resolved.erpCompany);
+      if (!sameShop) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+    }
+
     const slots = await resolveTransferSlots(auth.companyId);
     const instance = parsed.data.slot === "erp1" ? slots.erp1 : slots.erp2;
     if (!instance) {

@@ -33,6 +33,8 @@ export type ParsedPurchaseLine = {
   location: string | null;
   merchant: string | null;
   sourceRef: string;
+  /** Lowercase file status. Null when the column is absent or blank. */
+  financialStatus: string | null;
 };
 
 export type RejectedPurchaseRow = {
@@ -91,6 +93,7 @@ function lineKey(sourceRef: string, invoiceNo: string, itemCode: string): string
 function classifyRow(
   rowNumber: number,
   values: Map<PurchaseHeader, string>,
+  financialStatus: string | null,
 ): { ok: true; line: ParsedPurchaseLine } | { ok: false; reason: string } {
   const customerName = values.get("customer_name")?.trim() ?? "";
   if (!customerName) return { ok: false, reason: REJECT_REASON.customerName };
@@ -161,6 +164,7 @@ function classifyRow(
       location: blankToNull(values.get("location") ?? ""),
       merchant: blankToNull(values.get("merchant") ?? ""),
       sourceRef,
+      financialStatus,
     },
   };
 }
@@ -236,6 +240,7 @@ export async function parsePurchasesWorkbook(buffer: Buffer): Promise<ParsePurch
 
   const matched = matchPurchaseHeaders(headerCells);
   if (!matched.ok) return { ok: false, error: matched.error };
+  const statusColumn = headerCells.findIndex((cell) => cell.trim().toLowerCase() === "status");
 
   const rejected: RejectedPurchaseRow[] = [];
   const byLine = new Map<string, ParsedPurchaseLine>();
@@ -256,7 +261,9 @@ export async function parsePurchasesWorkbook(buffer: Buffer): Promise<ParsePurch
     if (!any) continue;
     rowsRead += 1;
 
-    const classified = classifyRow(rowNumber, values);
+    const statusText =
+      statusColumn >= 0 ? cellText(row.getCell(statusColumn + 1).value).trim().toLowerCase() : "";
+    const classified = classifyRow(rowNumber, values, statusText || null);
     if (!classified.ok) {
       rejected.push({ rowNumber, reason: classified.reason });
       continue;

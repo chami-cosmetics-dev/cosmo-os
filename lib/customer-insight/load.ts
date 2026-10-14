@@ -14,6 +14,7 @@ import { buildFrequencyMetrics } from "@/lib/customer-insight/frequency";
 import { mergeAndPaginateInvoices } from "@/lib/customer-insight/invoices";
 import {
   computeLifetimeTotal,
+  isAdaptAmountExcludedFromSaleTotal,
   isOrderIncludedInCustomerLifetimeTotal,
   isOrderReversed,
 } from "@/lib/customer-insight/lifetime-total";
@@ -140,6 +141,7 @@ export async function loadCustomerInsight(input: {
       merchantKnownName: true,
       paymentMethod: true,
       origin: true,
+      financialStatus: true,
       companyLocation: { select: { name: true } },
     },
   });
@@ -242,6 +244,7 @@ export async function loadCustomerInsight(input: {
   }));
   const adaptAmounts = adaptRows.map((r) => ({
     ttlAmount: r.ttlAmount.toString(),
+    financialStatus: r.financialStatus,
   }));
   const lifetimeTotal = computeLifetimeTotal({
     orders: orderAmounts,
@@ -253,6 +256,7 @@ export async function loadCustomerInsight(input: {
     if (isOrderIncludedInCustomerLifetimeTotal(o)) loyaltyEligibleDates.push(o.createdAt);
   }
   for (const r of adaptRows) {
+    if (isAdaptAmountExcludedFromSaleTotal(r.financialStatus)) continue;
     loyaltyEligibleDates.push(r.invoiceDate);
   }
 
@@ -264,6 +268,7 @@ export async function loadCustomerInsight(input: {
     if (!isOrderReversed(o)) purchaseDates.push(o.createdAt.getTime());
   }
   for (const r of adaptRows) {
+    if (isAdaptAmountExcludedFromSaleTotal(r.financialStatus)) continue;
     purchaseDates.push(r.invoiceDate.getTime());
   }
   const lastPurchaseAt =
@@ -278,7 +283,7 @@ export async function loadCustomerInsight(input: {
     ...historyAdaptRows.map((r) => ({
       date: r.invoiceDate,
       amount: Number(r.ttlAmount.toString()),
-      includedInLoyaltyTotal: true,
+      includedInLoyaltyTotal: !isAdaptAmountExcludedFromSaleTotal(r.financialStatus),
     })),
   ];
 
@@ -296,7 +301,10 @@ export async function loadCustomerInsight(input: {
         variantTitle: li.productItem.variantTitle,
       })),
     })),
-    adaptRows: historyAdaptRows.map((r) => ({ lineItems: r.lineItems })),
+    adaptRows: historyAdaptRows.map((r) => ({
+      lineItems: r.lineItems,
+      financialStatus: r.financialStatus,
+    })),
   });
 
   const paged = mergeAndPaginateInvoices({
@@ -365,6 +373,7 @@ export async function loadCustomerInsight(input: {
         merchantName: r.merchantKnownName,
         paymentMethod: r.paymentMethod,
         origin: r.origin,
+        financialStatus: r.financialStatus,
         lineItems,
       };
     }),

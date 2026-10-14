@@ -4,7 +4,10 @@ import {
   type TopItemDto,
 } from "@/lib/customer-insight/types";
 
-import { isOrderIncludedInCustomerLifetimeTotal } from "@/lib/customer-insight/lifetime-total";
+import {
+  isAdaptAmountExcludedFromSaleTotal,
+  isOrderIncludedInCustomerLifetimeTotal,
+} from "@/lib/customer-insight/lifetime-total";
 
 export type OrderLineForTopItems = {
   cancelledAt: Date | null;
@@ -20,6 +23,7 @@ export type OrderLineForTopItems = {
 
 export type AdaptRowForTopItems = {
   lineItems: unknown;
+  financialStatus?: string | null;
 };
 
 function toNumber(value: number | string): number {
@@ -59,6 +63,7 @@ export function aggregateTopItems(input: {
   }
 
   for (const row of input.adaptRows) {
+    if (isAdaptAmountExcludedFromSaleTotal(row.financialStatus)) continue;
     for (const line of adaptLineItemsForPurchaseUi(row.lineItems)) {
       const name = itemLabel(line.productTitle, line.variantTitle);
       const qty = line.quantity;
