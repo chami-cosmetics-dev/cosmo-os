@@ -1,5 +1,9 @@
 import { isShopWarehouseName } from "@/lib/item-trends/shop-warehouse-name";
-import { warehouseMatchesOutlet } from "@/lib/material-transfer/receive";
+import {
+  outletErp2CompanyCode,
+  warehouseHasErp2CompanyCode,
+  warehouseMatchesOutlet,
+} from "@/lib/material-transfer/receive";
 import type { TransferSlot, TransferWarehouse } from "@/lib/material-transfer/types";
 import { isMainWarehouseName } from "@/lib/material-transfer/warehouses";
 import { isVatTaxStatus } from "@/lib/osf/vat-membership";
@@ -52,44 +56,70 @@ export function resolveShopToMain(
     return { ok: false, error: "No shop warehouse is allocated for this outlet." };
   }
   const legs: ShopReturnLeg[] = [];
-  const slots: TransferSlot[] = ["erp1", "erp2"];
-  for (const slot of slots) {
-    const shops = warehouses.filter(
-      (row) => row.slot === slot && isShopWarehouseName(row.name) && warehouseMatchesOutlet(row.name, outlet),
-    );
-    if (shops.length === 0) continue;
-    if (shops.length > 1) {
-      return { ok: false, error: "More than one shop warehouse matches this outlet." };
-    }
-    const shop = shops[0]!;
+  const erp1Shops = warehouses.filter(
+    (row) => row.slot === "erp1" && isShopWarehouseName(row.name) && warehouseMatchesOutlet(row.name, outlet),
+  );
+  if (erp1Shops.length > 1) {
+    return { ok: false, error: "More than one shop warehouse matches this outlet." };
+  }
+  if (erp1Shops.length === 1) {
+    const shop = erp1Shops[0]!;
     const mains = warehouses.filter(
       (row) =>
-        row.slot === slot &&
+        row.slot === "erp1" &&
         row.company === shop.company &&
         row.name !== shop.name &&
-        (slot === "erp1" ? isCosmeticsMainWarehouse(row) : isMainWarehouseName(row.name)),
+        isCosmeticsMainWarehouse(row),
     );
     const exactCosmetics = mains.filter((row) => row.name.trim().toLowerCase() === "main warehouse - cosmo");
-    const target = slot === "erp1" && exactCosmetics.length === 1 ? exactCosmetics : mains;
+    const target = exactCosmetics.length === 1 ? exactCosmetics : mains;
     if (target.length === 0) {
-      return {
-        ok: false,
-        error:
-          slot === "erp1"
-            ? "No Cosmetics main warehouse is allocated for VAT items."
-            : "No main warehouse is allocated for this shop.",
-      };
+      return { ok: false, error: "No Cosmetics main warehouse is allocated for VAT items." };
     }
     if (target.length > 1) {
       return { ok: false, error: "More than one main warehouse matches this shop." };
     }
     legs.push({
-      slot,
+      slot: "erp1",
       erpCompany: shop.company,
       sourceWarehouse: shop.name,
       targetWarehouse: target[0]!.name,
     });
   }
+
+  const companyCode = outletErp2CompanyCode(outlet);
+  if (companyCode) {
+    const erp2Shops = warehouses.filter(
+      (row) =>
+        row.slot === "erp2" && isShopWarehouseName(row.name) && warehouseHasErp2CompanyCode(row.name, companyCode),
+    );
+    if (erp2Shops.length > 1) {
+      return { ok: false, error: "More than one shop warehouse matches this outlet." };
+    }
+    if (erp2Shops.length === 1) {
+      const shop = erp2Shops[0]!;
+      const mains = warehouses.filter(
+        (row) =>
+          row.slot === "erp2" &&
+          row.company === shop.company &&
+          row.name !== shop.name &&
+          isMainWarehouseName(row.name),
+      );
+      if (mains.length === 0) {
+        return { ok: false, error: "No main warehouse is allocated for this shop." };
+      }
+      if (mains.length > 1) {
+        return { ok: false, error: "More than one main warehouse matches this shop." };
+      }
+      legs.push({
+        slot: "erp2",
+        erpCompany: shop.company,
+        sourceWarehouse: shop.name,
+        targetWarehouse: mains[0]!.name,
+      });
+    }
+  }
+
   if (legs.length === 0) {
     return { ok: false, error: "No shop warehouse is allocated for this outlet." };
   }

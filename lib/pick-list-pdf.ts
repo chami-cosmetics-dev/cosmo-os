@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
+import { formatPickListMoney } from "@/lib/pick-list-money";
 import { formatPickListBarcode } from "@/lib/product-item-barcode";
 
 const pdfMake = require("pdfmake") as {
@@ -30,6 +31,7 @@ export type PickListPdfItem = {
   variantTitle: string | null;
   sku: string | null;
   barcode: string | null;
+  standardSellingPrice: string | null;
   quantity: number;
 };
 
@@ -58,7 +60,7 @@ function compactLayout(itemCount: number) {
       padding: 3,
     };
   }
-  if (itemCount <= 55) {
+  if (itemCount <= 40) {
     return {
       landscape: false,
       margins: [16, 18, 16, 18] as [number, number, number, number],
@@ -119,6 +121,7 @@ export async function generatePickListPdf(
       { text: "Item", style: "th" },
       { text: "SKU", style: "th" },
       { text: "Barcode", style: "th" },
+      { text: "Standard Selling", style: "th", alignment: "right" },
       { text: "Qty", style: "th", alignment: "right" },
     ],
     ...items.map((item, idx) => [
@@ -126,14 +129,16 @@ export async function generatePickListPdf(
       { text: itemLabel(item), style: "td" },
       { text: item.sku ?? "—", style: "tdMono" },
       { text: formatPickListBarcode(item.barcode), style: "barcode" },
+      { text: formatPickListMoney(item.standardSellingPrice), style: "td", alignment: "right" },
       { text: String(item.quantity), style: "qty", alignment: "right" },
     ]),
     [
       {
         text: `${orderNote}${items.length} item type${items.length !== 1 ? "s" : ""}`,
-        colSpan: 4,
+        colSpan: 5,
         style: "total",
       },
+      { text: "" },
       { text: "" },
       { text: "" },
       { text: "" },
@@ -162,7 +167,7 @@ export async function generatePickListPdf(
         table: {
           headerRows: 1,
           dontBreakRows: true,
-          widths: ["auto", "*", "auto", "auto", "auto"],
+          widths: ["auto", "*", "auto", "auto", "auto", "auto"],
           body: tableBody,
         },
         layout: {

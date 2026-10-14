@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { prisma } from "@/lib/prisma";
 import { formatAppDateTime } from "@/lib/format-datetime";
+import { formatPickListMoney, pickListMoneyAmount } from "@/lib/pick-list-money";
 import { requireAnyPermission } from "@/lib/rbac";
 
 export const runtime = "nodejs";
@@ -127,6 +128,7 @@ function locationDocumentHtml(input: {
             <tr>
               <th>Item</th>
               <th>SKU</th>
+              <th class="money">Standard Selling</th>
               <th class="qty">Qty</th>
               <th>Barcode</th>
             </tr>
@@ -169,6 +171,7 @@ function pickListStyles() {
     .item-title { font-weight: 700; }
     .item-sub, .item-orders { color: #64748b; font-size: 12px; margin-top: 3px; }
     .qty { width: 70px; text-align: right; font-weight: 800; font-size: 18px; }
+    .money { width: 110px; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
     .barcode-cell { width: 180px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 800; font-size: 16px; letter-spacing: .04em; }
     @media print {
       body { background: #fff; }
@@ -224,6 +227,7 @@ export async function GET(request: NextRequest) {
               variantTitle: true,
               sku: true,
               barcode: true,
+              price: true,
             },
           },
         },
@@ -243,6 +247,7 @@ export async function GET(request: NextRequest) {
           variant: string | null;
           sku: string | null;
           barcode: string | null;
+          standardSellingPrice: string | null;
           quantity: number;
           orders: string[];
         }
@@ -264,9 +269,13 @@ export async function GET(request: NextRequest) {
         variant: product.variantTitle,
         sku: product.sku,
         barcode: product.barcode,
+        standardSellingPrice: pickListMoneyAmount(product.price),
         quantity: 0,
         orders: [],
       };
+      if (!current.standardSellingPrice) {
+        current.standardSellingPrice = pickListMoneyAmount(product.price);
+      }
       current.quantity += lineItem.quantity;
       if (!current.orders.includes(label)) {
         current.orders.push(label);
@@ -291,6 +300,7 @@ export async function GET(request: NextRequest) {
               <div class="item-orders">${escapeHtml(item.orders.join(", "))}</div>
             </td>
             <td>${escapeHtml(item.sku ?? "-")}</td>
+            <td class="money">${escapeHtml(formatPickListMoney(item.standardSellingPrice))}</td>
             <td class="qty">${item.quantity}</td>
             <td class="barcode-cell">${escapeHtml(barcodeNumber(item.barcode))}</td>
           </tr>`
