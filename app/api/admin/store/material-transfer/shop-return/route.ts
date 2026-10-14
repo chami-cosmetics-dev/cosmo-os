@@ -33,7 +33,9 @@ async function warehousesForOutlet(companyId: string) {
 export async function GET() {
   const auth = await requireMaterialTransferView();
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
-  if (!auth.canReceive) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (!auth.canShopReturn || !auth.canReceive) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   try {
     const resolved = resolveShopToMain(auth.scope.outletName, await warehousesForOutlet(auth.companyId));
@@ -56,7 +58,9 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   const auth = await requireMaterialTransferView();
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
-  if (!auth.canReceive) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (!auth.canShopReturn || !auth.canReceive) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   let body: unknown;
   try {

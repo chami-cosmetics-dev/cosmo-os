@@ -21,6 +21,7 @@ import { OrderShippingLine } from "@/components/molecules/order-shipping-line";
 import { OrderLineItemPrice } from "@/components/molecules/order-line-item-price";
 import { OrderLineItemsTotals } from "@/components/molecules/order-line-items-totals";
 import { OrderCancelKindSelect, type OrderCancelKindChoice } from "@/components/molecules/order-cancel-kind-select";
+import { merchantCanRequestOrderCancel } from "@/lib/order-cancel-finance";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -207,6 +208,7 @@ type OrderDetail = {
   cancelReason?: string | null;
   cancelKind?: "customer_cancel" | "replacement" | null;
   hasPendingCancelApproval?: boolean;
+  canRequestPosCancel?: boolean;
   replacedByOrder?: {
     id: string;
     orderLabel: string;
@@ -731,7 +733,11 @@ export function OrderInvoiceViewModal({
 
   async function handleCancelOrder() {
     if (!orderId || cancelReason.trim().length < 5 || !cancelKind) return;
-    if (shouldBlockShopifyCancelInOs(orderDetail?.shopifyOrderId)) {
+    if (
+      orderDetail &&
+      !isPosOrder(orderDetail.sourceName) &&
+      shouldBlockShopifyCancelInOs(orderDetail.shopifyOrderId)
+    ) {
       notify.error(VAULT_SHOPIFY_CANCEL_BLOCKED_MESSAGE);
       return;
     }
@@ -1655,6 +1661,7 @@ export function OrderInvoiceViewModal({
               </div>
             ) : shouldBlockShopifyCancelInOs(orderDetail.shopifyOrderId) &&
               canCancelOrder &&
+              !isPosOrder(orderDetail.sourceName) &&
               ["order_received", "sample_free_issue", "print", "ready_to_dispatch"].includes(stage) ? (
               <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm dark:border-amber-700/40 dark:bg-amber-900/20">
                 <div className="flex items-center gap-2 font-medium text-amber-800 dark:text-amber-300">
@@ -1665,11 +1672,21 @@ export function OrderInvoiceViewModal({
                   {VAULT_SHOPIFY_CANCEL_BLOCKED_MESSAGE}
                 </p>
               </div>
-            ) : canCancelOrder && ["order_received", "sample_free_issue", "print", "ready_to_dispatch"].includes(stage) ? (
+            ) : (isPosOrder(orderDetail.sourceName)
+              ? Boolean(orderDetail.canRequestPosCancel)
+              : canCancelOrder) &&
+              merchantCanRequestOrderCancel({
+                isPos: isPosOrder(orderDetail.sourceName),
+                fulfillmentStage: stage,
+                financialStatus: orderDetail.financialStatus,
+                hasPendingCancelApproval: false,
+              }) ? (
               <div className="rounded-lg border border-dashed p-4">
                 <h4 className="mb-1 text-sm font-medium">Cancel Order</h4>
                 <p className="mb-3 text-xs text-muted-foreground">
-                  Paid orders (KOKO, Bank Transfer, CC Checkout) will require finance approval before cancellation is processed.
+                  {isPosOrder(orderDetail.sourceName)
+                    ? "POS cancel goes to finance for approval. The company finance user is emailed."
+                    : "Paid orders (KOKO, Bank Transfer, CC Checkout) will require finance approval before cancellation is processed."}
                 </p>
                 <Button
                   variant="outline"
@@ -1772,13 +1789,15 @@ export function OrderInvoiceViewModal({
         <AlertDialogHeader>
           <AlertDialogTitle>Cancel Order {orderDetail?.name ?? orderDetail?.orderNumber ?? orderDetail?.shopifyOrderId ?? ""}</AlertDialogTitle>
           <AlertDialogDescription>
-            {orderDetail &&
-            (isMintpayGateway(orderDetail.paymentGatewayPrimary) ||
-              ["koko", "bank_transfer", "cc_checkout"].some((g) =>
-                orderDetail.paymentGatewayPrimary?.toLowerCase().includes(g),
-              ))
-              ? "This is a paid order — a finance approval request will be created. The order will be blocked from dispatch until finance processes the cancellation."
-              : "This will immediately cancel the order in Shopify and void the ERP Sales Invoice if one exists."}
+            {orderDetail && isPosOrder(orderDetail.sourceName)
+              ? "This POS cancel goes to finance. The company finance user is emailed."
+              : orderDetail &&
+                  (isMintpayGateway(orderDetail.paymentGatewayPrimary) ||
+                    ["koko", "bank_transfer", "cc_checkout"].some((g) =>
+                      orderDetail.paymentGatewayPrimary?.toLowerCase().includes(g),
+                    ))
+                ? "This is a paid order — a finance approval request will be created. The order will be blocked from dispatch until finance processes the cancellation."
+                : "This will immediately cancel the order in Shopify and void the ERP Sales Invoice if one exists."}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <div className="space-y-3 py-1">
@@ -1807,7 +1826,7 @@ export function OrderInvoiceViewModal({
             onClick={() => void handleCancelOrder()}
           >
             {cancelBusy ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <XCircle className="size-4" aria-hidden />}
-            Confirm Cancel
+            {orderDetail && isPosOrder(orderDetail.sourceName) ? "Send to Finance" : "Confirm Cancel"}
           </Button>
         </AlertDialogFooter>
       </AlertDialogContent>

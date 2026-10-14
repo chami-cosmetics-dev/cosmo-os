@@ -1,6 +1,10 @@
 import { randomUUID } from "crypto";
 import { Prisma } from "@prisma/client";
 
+import {
+  emailOrderCancelFinanceRequest,
+  resolveOrderCancelFinanceLocationId,
+} from "@/lib/order-cancel-notify";
 import { prisma } from "@/lib/prisma";
 import { orderHasCardOnDeliveryGateway, isCardOnDeliveryGateway } from "@/lib/payment-method-label";
 import { isMintpayGateway } from "@/lib/payment-gateway-match";
@@ -1242,6 +1246,8 @@ export async function createOrGetOrderCancelApproval(input: {
   invoiceLabel: string;
   amount: string;
   companyLocationId?: string | null;
+  isPos?: boolean;
+  orderRefs?: Array<string | null | undefined>;
 }) {
   const existing = await prisma.$queryRaw<Array<{ id: string; status: ApprovalStatus }>>(
     Prisma.sql`
@@ -1288,7 +1294,12 @@ export async function createOrGetOrderCancelApproval(input: {
     return concurrent[0]!;
   }
 
-  const financeUsers = await getFinanceApprovalUsers(input.companyId, input.companyLocationId);
+  const financeLocationId = await resolveOrderCancelFinanceLocationId({
+    companyId: input.companyId,
+    companyLocationId: input.companyLocationId,
+    orderRefs: input.orderRefs ?? [input.invoiceLabel],
+  });
+  const financeUsers = await getFinanceApprovalUsers(input.companyId, financeLocationId);
 
   await Promise.all(
     financeUsers.map((u) =>
@@ -1297,12 +1308,23 @@ export async function createOrGetOrderCancelApproval(input: {
         userId: u.id,
         type: "approval_requested",
         title: "Order cancel approval requested",
-        body: `Cancel requested for ${input.invoiceLabel} (LKR ${input.amount}) — reason: ${input.cancelReason}. Cancel in Shopify, create a credit note in ERPNext, then approve.`,
+        body: input.isPos
+          ? `POS cancel requested for ${input.invoiceLabel} (LKR ${input.amount}) — reason: ${input.cancelReason}. Create a credit note in ERPNext, then approve.`
+          : `Cancel requested for ${input.invoiceLabel} (LKR ${input.amount}) — reason: ${input.cancelReason}. Cancel in Shopify, create a credit note in ERPNext, then approve.`,
         entityType: "ApprovalRequest",
         entityId: id,
       })
     )
   );
+
+  await emailOrderCancelFinanceRequest({
+    companyId: input.companyId,
+    locationId: financeLocationId,
+    invoiceLabel: input.invoiceLabel,
+    amount: input.amount,
+    cancelReason: input.cancelReason,
+    isPos: Boolean(input.isPos),
+  });
 
   return { id, status: "pending" as ApprovalStatus };
 }
