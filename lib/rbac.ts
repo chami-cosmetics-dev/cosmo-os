@@ -92,6 +92,16 @@ const DEFAULT_PERMISSIONS = [
     description: "Search a SKU and view live VAT tax status from ERP1 and ERP2",
   },
   {
+    key: "products.gift_vouchers.read",
+    description:
+      "View the full gift voucher code table (including order no, used date, phone no) and check codes",
+  },
+  {
+    key: "products.gift_vouchers.manage",
+    description:
+      "Create gift voucher groups (includes everything in products.gift_vouchers.read)",
+  },
+  {
     key: "item_creation.admin.manage",
     description: "Create item requests and manage the complete Item Creation workflow",
   },

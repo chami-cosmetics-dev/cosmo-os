@@ -105,7 +105,10 @@ export function AppSidebar({
   const canViewReturns = hasSidebarPermission("returns.read");
   const canViewExchanges = hasSidebarPermission("exchanges.read");
   const canViewProducts = hasSidebarPermission("products.read");
-  const canViewVatStatus = hasSidebarPermission("products.vat_status.read");
+  const canViewVatStatus =
+    hasSidebarPermission("products.vat_status.read") ||
+    hasSidebarPermission("products.gift_vouchers.read") ||
+    hasSidebarPermission("products.gift_vouchers.manage");
   const canViewItemCreation =
     hasSidebarPermission("item_creation.admin.manage") ||
     hasSidebarPermission("item_creation.seo.manage") ||

@@ -113,6 +113,9 @@ model Company {
   stockRequests                   StockRequest[]
   materialTransfers               MaterialTransfer[]
   riderFinanceCashReceipts        RiderFinanceCashReceipt[]
+  giftVoucherGroups               GiftVoucherGroup[]
+  giftVoucherCodes                GiftVoucherCode[]
+  giftVoucherCounter              GiftVoucherCounter?
 }
 
 model PrintFormat {
@@ -1093,6 +1096,7 @@ model Order {
   waybills                        OrderWaybill[]
   pickListGroupOrders             PickListGroupOrder[]
   bookNoteRows                    BookNoteRow[]
+  giftVoucherCode                 GiftVoucherCode?
 
   erpnextInvoiceId               String?
   erpnextCustomerId              String?
@@ -3353,4 +3357,64 @@ model StockRequest {
   @@index([shopifyStoreHandle, sku])
   @@index([companyId, source, createdById, createdAt(sort: Desc)])
   @@index([source, awaitingStock, restockedAt])
+}
+
+/// A batch of gift voucher codes sharing a prefix and validity window. Used only to identify
+/// codes and block reuse; the discount itself is applied elsewhere.
+model GiftVoucherGroup {
+  id               String            @id @default(cuid())
+  companyId        String
+  /// Permanent number from GiftVoucherCounter (141, 142, …); never reused. Part of generated codes.
+  groupNumber      Int
+  name             String
+  codePrefix       String
+  quantity         Int
+  startDate        DateTime          @db.Date
+  endDate          DateTime          @db.Date
+  createdById      String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  company          Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  codes            GiftVoucherCode[]
+
+  @@unique([companyId, name])
+  @@unique([companyId, groupNumber])
+  @@index([companyId, codePrefix])
+  @@index([companyId, startDate])
+}
+
+/// One redeemable code. PENDING / ACTIVE / EXPIRED are derived from the group dates; only USED is stored.
+model GiftVoucherCode {
+  id        String           @id @default(cuid())
+  companyId String
+  groupId   String
+  code      String
+  /// Random number part of generated codes (used for sorting); null for typed or pasted codes.
+  sequence  Int?
+  used      Boolean          @default(false)
+  /// Order the code was applied to. Unique, so an order can hold only one batch code.
+  orderId   String?          @unique
+  orderNo   String?
+  usedAt    DateTime?
+  phoneNo   String?
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+  company   Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  // Restrict: codes are permanent, so a group that still has codes cannot be deleted.
+  group     GiftVoucherGroup @relation(fields: [groupId], references: [id], onDelete: Restrict)
+  order     Order?           @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  @@unique([companyId, code])
+  @@index([groupId, sequence])
+  @@index([companyId, used])
+  @@index([companyId, usedAt])
+}
+
+/// Ever-increasing gift voucher group number per company. Only moves forward, so a group
+/// number (and therefore its code range) is never handed out twice.
+model GiftVoucherCounter {
+  companyId       String   @id
+  lastGroupNumber Int
+  updatedAt       DateTime @updatedAt
+  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
 }

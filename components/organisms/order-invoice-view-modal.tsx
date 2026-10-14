@@ -17,6 +17,7 @@ import {
   XCircle,
 } from "lucide-react";
 
+import { OrderGiftVoucherField } from "@/components/molecules/order-gift-voucher-field";
 import { OrderShippingLine } from "@/components/molecules/order-shipping-line";
 import { OrderLineItemPrice } from "@/components/molecules/order-line-item-price";
 import { OrderLineItemsTotals } from "@/components/molecules/order-line-items-totals";
@@ -1463,6 +1464,7 @@ export function OrderInvoiceViewModal({
                         <p>{orderDetail.discountCouponCode}</p>
                       </div>
                     )}
+                    {orderId && <OrderGiftVoucherField orderId={orderId} />}
                     {orderDetail.erpSpecialRemarks && (
                       <div className="sm:col-span-2">
                         <span className="text-muted-foreground text-xs">Special Remarks</span>
