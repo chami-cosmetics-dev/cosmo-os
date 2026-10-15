@@ -6,8 +6,8 @@ import { REJECT_REASON } from "@/lib/vault-supplement-import/headers";
 export type ContactMatchRef = { id: string };
 
 export type ContactResolveResult =
-  | { ok: true; action: "create" }
-  | { ok: true; action: "match"; contactId: string }
+  | { ok: true; action: "create"; skipEmail?: boolean }
+  | { ok: true; action: "match"; contactId: string; skipEmail?: boolean }
   | { ok: false; reason: string };
 
 const PROFILE_FIELDS = ["name", "phoneNumber", "email", "address", "city", "district"] as const;
@@ -44,12 +44,15 @@ function uniqueIds(matches: ContactMatchRef[]): string[] {
 }
 
 /**
- * Phone first, then email. Reject when the two sides point at different contacts
- * or either side hits more than one contact.
+ * Phone wins. One phone match receives the purchase history even when the
+ * email points at a different contact or at several contacts. A row that has
+ * a phone and no phone contact is created from that phone. The shared email
+ * is not copied onto the phone contact.
  */
 export function resolveContactMatch(input: {
   phoneMatches: ContactMatchRef[];
   emailMatches: ContactMatchRef[];
+  hasPhone?: boolean;
 }): ContactResolveResult {
   const phoneIds = uniqueIds(input.phoneMatches);
   const emailIds = uniqueIds(input.emailMatches);
@@ -57,14 +60,19 @@ export function resolveContactMatch(input: {
   if (phoneIds.length > 1) {
     return { ok: false, reason: REJECT_REASON.phoneMany };
   }
-  if (emailIds.length > 1) {
-    return { ok: false, reason: REJECT_REASON.emailMany };
-  }
-  if (phoneIds.length === 1 && emailIds.length === 1 && phoneIds[0] !== emailIds[0]) {
-    return { ok: false, reason: REJECT_REASON.phoneEmailDiffer };
-  }
   if (phoneIds.length === 1) {
-    return { ok: true, action: "match", contactId: phoneIds[0]! };
+    const emailConflicts =
+      emailIds.length > 1 || (emailIds.length === 1 && emailIds[0] !== phoneIds[0]);
+    return {
+      ok: true,
+      action: "match",
+      contactId: phoneIds[0]!,
+      ...(emailConflicts ? { skipEmail: true as const } : {}),
+    };
+  }
+  if (emailIds.length > 1) {
+    if (input.hasPhone) return { ok: true, action: "create", skipEmail: true };
+    return { ok: false, reason: REJECT_REASON.emailMany };
   }
   if (emailIds.length === 1) {
     return { ok: true, action: "match", contactId: emailIds[0]! };

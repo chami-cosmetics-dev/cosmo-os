@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { mapAdaptToInvoiceRow, saleBusinessLabel } from "@/lib/customer-insight/invoices";
+import { mapAdaptToInvoiceRow, normalizePurchaseOrigin, saleBusinessLabel } from "@/lib/customer-insight/invoices";
 
 describe("mapAdaptToInvoiceRow origin", () => {
   const base = {
@@ -57,8 +57,25 @@ describe("mapAdaptToInvoiceRow origin", () => {
     expect(saleBusinessLabel(row.origin)).toBe("Supplement");
   });
 
-  it("marks an imported sale as placed on Cosmetics", () => {
+  it("marks a Cosmo OS transfer as Cosmetics and a finance file as File import", () => {
     expect(saleBusinessLabel("vault_supplement_import")).toBe("Cosmetics");
+    expect(saleBusinessLabel("vault_supplement_import", "vsupp-direct-1")).toBe("Cosmetics");
+    expect(saleBusinessLabel("vault_supplement_import", "vsupp-171000")).toBe("File import");
+    expect(saleBusinessLabel("vault_file_import")).toBe("File import");
     expect(saleBusinessLabel(undefined)).toBe("Supplement");
+    expect(normalizePurchaseOrigin("vault_supplement_import", "vsupp-171000")).toBe("vault_file_import");
+  });
+
+  it("labels a finance-file batch as File import", () => {
+    const row = mapAdaptToInvoiceRow({
+      ...base,
+      origin: "vault_supplement_import",
+      importBatchId: "vsupp-171000",
+      financialStatus: "paid",
+    });
+    expect(row.origin).toBe("vault_file_import");
+    expect(row.secondaryLabel).toBe("File import");
+    expect(saleBusinessLabel(row.origin)).toBe("File import");
+    expect(row.status).toBe("paid");
   });
 });

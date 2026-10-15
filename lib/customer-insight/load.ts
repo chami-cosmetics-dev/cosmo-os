@@ -171,6 +171,7 @@ export async function loadCustomerInsight(input: {
       merchantKnownName: true,
       paymentMethod: true,
       origin: true,
+      importBatchId: true,
       financialStatus: true,
       companyLocation: { select: { name: true } },
     },
@@ -403,6 +404,7 @@ export async function loadCustomerInsight(input: {
         merchantName: r.merchantKnownName,
         paymentMethod: r.paymentMethod,
         origin: r.origin,
+        importBatchId: r.importBatchId,
         financialStatus: r.financialStatus,
         lineItems,
       };

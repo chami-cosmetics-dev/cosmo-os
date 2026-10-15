@@ -12,15 +12,12 @@ import {
 import { isAdaptAmountExcludedFromSaleTotal } from "@/lib/customer-insight/lifetime-total";
 import { buildPhoneLookupVariants } from "@/lib/phone-lookup";
 import { prisma } from "@/lib/prisma";
-import { OsfErpError } from "@/lib/osf/erp-stock";
 
 import {
   fillEmptyContactFields,
   resolveContactMatch,
   type ContactProfileFields,
 } from "@/lib/vault-supplement-import/contact-resolve";
-import { REJECT_REASON } from "@/lib/vault-supplement-import/headers";
-import { listVaultErpItemCodes } from "@/lib/vault-supplement-import/item-codes";
 import {
   mergeSupplementLines,
   roundMoney,
@@ -192,7 +189,7 @@ async function upsertInvoices(input: {
         financialStatus: last.financialStatus,
         lineItems: merged.lines,
         importBatchId: input.importBatchId,
-        origin: "vault_supplement_import",
+        origin: "vault_file_import",
       };
       if (existing) {
         await prisma.adaptPurchaseHistory.update({
@@ -309,25 +306,8 @@ export async function importSupplementPurchases(input: {
     throw new SupplementImportError(parsed.error, 409);
   }
 
-  let itemCodes: Set<string>;
-  try {
-    itemCodes = await listVaultErpItemCodes(input.companyId);
-  } catch (error) {
-    const message = error instanceof OsfErpError || error instanceof Error
-      ? error.message
-      : "Supplement Vault ERP item list could not be loaded";
-    throw new SupplementImportError(message, 502);
-  }
-
   const rejected = [...parsed.rejected];
-  const acceptedLines: ParsedPurchaseLine[] = [];
-  for (const line of parsed.lines) {
-    if (!itemCodes.has(line.itemCode)) {
-      rejected.push({ rowNumber: line.rowNumber, reason: REJECT_REASON.unknownItem });
-    } else {
-      acceptedLines.push(line);
-    }
-  }
+  const acceptedLines = parsed.lines;
 
   const customers = groupPurchaseCustomers(acceptedLines);
   const importBatchId = `vsupp-${Date.now()}`;
@@ -345,6 +325,7 @@ export async function importSupplementPurchases(input: {
     const resolved = resolveContactMatch({
       phoneMatches: matches.phoneMatches,
       emailMatches: matches.emailMatches,
+      hasPhone: Boolean(phone),
     });
     if (!resolved.ok) {
       for (const line of group.lines) {
@@ -353,10 +334,12 @@ export async function importSupplementPurchases(input: {
       continue;
     }
 
+    const groupForSave = resolved.skipEmail ? { ...group, email: null } : group;
+
     const saved = await persistCustomer({
       companyId: input.companyId,
       importBatchId,
-      group,
+      group: groupForSave,
       contactId: resolved.action === "match" ? resolved.contactId : null,
     });
     if (saved.created) contactsCreated += 1;
