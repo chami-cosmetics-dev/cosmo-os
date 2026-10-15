@@ -5,6 +5,8 @@ import {
   companyForWarehouses,
   defaultSourceWarehouse,
   defaultTargetWarehouse,
+  erp1RequiresVatItems,
+  isOgfWarehouseName,
   warehouseOptions,
 } from "@/lib/material-transfer/warehouses";
 import type { TransferWarehouse } from "@/lib/material-transfer/types";
@@ -20,6 +22,18 @@ const warehouses: TransferWarehouse[] = [
   { name: "GCC Shop Warehouse - Cosmo", company: "Cosmetics.lk" },
   { name: "Pepiliyana Shop Warehouse - Cosmo", company: "Cosmetics.lk" },
 ];
+
+describe("erp1 VAT rule", () => {
+  it("keeps VAT-only transfers except when OGF is source or target", () => {
+    expect(isOgfWarehouseName("OGF Shop Warehouse - Cosmo")).toBe(true);
+    expect(isOgfWarehouseName("Main Warehouse - Cosmo")).toBe(false);
+    expect(erp1RequiresVatItems("Main Warehouse - Cosmo", "Maharagama Shop Warehouse - Cosmo")).toBe(
+      true,
+    );
+    expect(erp1RequiresVatItems("Main Warehouse - Cosmo", "OGF Shop Warehouse - Cosmo")).toBe(false);
+    expect(erp1RequiresVatItems("OGF Shop Warehouse - Cosmo", "Main Warehouse - Cosmo")).toBe(false);
+  });
+});
 
 describe("warehouseOptions", () => {
   it("shows every ERP1 warehouse", () => {

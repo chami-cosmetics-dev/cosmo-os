@@ -2,6 +2,22 @@ import { isShopWarehouseName } from "@/lib/item-trends/shop-warehouse-name";
 
 import type { TransferSlot, TransferWarehouse } from "@/lib/material-transfer/types";
 
+/** OGF shop on ERP1 stocks VAT and non-VAT items. */
+export function isOgfWarehouseName(name: string | null | undefined): boolean {
+  return /\bogf\b/i.test((name ?? "").trim());
+}
+
+/**
+ * ERP1 transfers are VAT-only, except when OGF is the source or the target.
+ * That shop warehouse holds both.
+ */
+export function erp1RequiresVatItems(
+  sourceWarehouse: string | null | undefined,
+  targetWarehouse: string | null | undefined,
+): boolean {
+  return !isOgfWarehouseName(sourceWarehouse) && !isOgfWarehouseName(targetWarehouse);
+}
+
 export function isMainWarehouseName(name: string | null | undefined): boolean {
   const n = (name ?? "").trim().toLowerCase();
   if (!n) return false;

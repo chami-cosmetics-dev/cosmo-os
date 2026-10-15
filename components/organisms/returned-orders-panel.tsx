@@ -146,9 +146,11 @@ function ReturnInvoiceRefs({ item }: { item: ReturnTrackingItem }) {
 export function ReturnedOrdersPanel({
   initialData,
   canTakeMerchantActions,
+  canRearrange,
 }: {
   initialData: ReturnsTrackingData;
   canTakeMerchantActions: boolean;
+  canRearrange: boolean;
 }) {
   const searchParams = useSearchParams();
   const appliedDeepLinkRef = useRef<string | null>(null);
@@ -895,7 +897,7 @@ export function ReturnedOrdersPanel({
                             </p>
                           )}
                         </div>
-                        {canTakeMerchantActions && selected.actionStatus === "pending" && !selected.actionType && (
+                        {canRearrange && selected.actionStatus === "pending" && !selected.actionType && (
                           <Button className="w-full" disabled={saving} onClick={() => void saveAction("rearrange")}>
                             {saving ? (
                               <>
@@ -907,8 +909,8 @@ export function ReturnedOrdersPanel({
                             )}
                           </Button>
                         )}
-                        {!canTakeMerchantActions && selected.actionStatus === "pending" && !selected.actionType && (
-                          <p className="text-muted-foreground text-sm">Only a merchant can rearrange this order.</p>
+                        {!canRearrange && selected.actionStatus === "pending" && !selected.actionType && (
+                          <p className="text-muted-foreground text-sm">Only a merchant or store user can rearrange this order.</p>
                         )}
                       </div>
                     )}
@@ -965,7 +967,9 @@ export function ReturnedOrdersPanel({
                     )}
                     {isBankTransferRearrangePending(selected) && (
                       <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-300">
-                        This returned courier order is waiting for bank transfer. Request finance approval before dispatch.
+                        {canTakeMerchantActions
+                          ? "This returned courier order is waiting for bank transfer. Request finance approval before dispatch."
+                          : "This returned courier order is waiting for bank transfer and finance approval before dispatch."}
                       </div>
                     )}
                     {canTakeAction(selected) && canTakeMerchantActions ? (
@@ -1022,11 +1026,44 @@ export function ReturnedOrdersPanel({
                           )}
                         </div>
                       </>
+                    ) : canTakeAction(selected) && canRearrange && !selected.actionType ? (
+                      <>
+                        <Textarea
+                          value={remark}
+                          onChange={(event) => setRemark(event.target.value)}
+                          placeholder="Update return remark if needed..."
+                          className="min-h-24"
+                          disabled={saving}
+                        />
+                        <div className="grid gap-2">
+                          {needsBankTransferChoice(selected) ? (
+                            <>
+                              <Button onClick={() => void saveAction("rearrange", { requestBankTransfer: true })} disabled={saving} className="w-full">
+                                {saving ? <><Loader2 className="size-4 animate-spin" aria-hidden />Processing...</> : "Rearrange — Bank Transfer"}
+                              </Button>
+                              <Button onClick={() => void saveAction("rearrange", { requestBankTransfer: false })} disabled={saving} variant="outline" className="w-full">
+                                {saving ? <><Loader2 className="size-4 animate-spin" aria-hidden />Processing...</> : "Rearrange — Keep Original"}
+                              </Button>
+                            </>
+                          ) : (
+                            <Button onClick={() => void saveAction("rearrange")} disabled={saving} className="w-full">
+                              {saving ? (
+                                <>
+                                  <Loader2 className="size-4 animate-spin" aria-hidden />
+                                  Processing...
+                                </>
+                              ) : (
+                                "Rearrange"
+                              )}
+                            </Button>
+                          )}
+                        </div>
+                      </>
                     ) : canTakeAction(selected) ? (
                       <p className="text-muted-foreground text-sm">
                         {isBankTransferRearrangePending(selected)
                           ? "Rearrange is awaiting finance approval."
-                          : "Only a merchant can rearrange, request cancel, or change payment."}
+                          : "Only a merchant can request cancel or change payment."}
                       </p>
                     ) : selected.remarkTemplate === INVOICE_REVERT_STAGE_ONLY_TEMPLATE ? null : (
                       <p className="text-muted-foreground text-sm">

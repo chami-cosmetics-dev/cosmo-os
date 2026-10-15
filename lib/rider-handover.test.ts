@@ -1,13 +1,19 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  filterHandoverDeliveries,
   groupCashByErpCompany,
+  groupDeliveriesByCompany,
   handoverCashAmount,
+  handoverExportCsv,
   handoverOrderNumber,
   handoverReceiptOverlaps,
   handoverSummaryCashAmount,
   isInvoiceClosed,
+  latestReceiptForCompany,
+  matchReceiptForDelivery,
   pageHandoverDeliveries,
+  receiptCoversCompany,
   receiptDuplicateDecision,
   shouldCommitInvoiceComplete,
 } from "@/lib/rider-handover";
@@ -231,5 +237,71 @@ describe("shouldCommitInvoiceComplete", () => {
     expect(shouldCommitInvoiceComplete("already_paid")).toBe(true);
     expect(shouldCommitInvoiceComplete("skipped")).toBe(false);
     expect(shouldCommitInvoiceComplete("error")).toBe(false);
+  });
+});
+
+describe("finance company scope", () => {
+  it("keeps only the finance user's locations and groups those companies", () => {
+    const deliveries = [
+      { locationId: "loc-pevi", erpnextCompany: "Pevi Trading Lanka (Pvt) Ltd", locationName: "Pevi" },
+      { locationId: "loc-kad", erpnextCompany: "KAD Trading (Pvt) Ltd", locationName: "KAD" },
+      { locationId: "loc-pevi", erpnextCompany: null, locationName: "Pevi Shop" },
+    ];
+    const visible = filterHandoverDeliveries(deliveries, ["loc-pevi"]);
+    expect(visible).toHaveLength(2);
+    expect(groupDeliveriesByCompany(visible).map((group) => group.companyName)).toEqual([
+      "Pevi Shop",
+      "Pevi Trading Lanka (Pvt) Ltd",
+    ]);
+    expect(filterHandoverDeliveries(deliveries, null)).toHaveLength(3);
+  });
+
+  it("matches a company receipt and leaves another company open", () => {
+    const pevi = {
+      receivedAt: "2026-10-15T04:00:00.000Z",
+      handoverCompany: "Pevi Trading Lanka (Pvt) Ltd",
+      companies: [{ companyName: "Pevi Trading Lanka (Pvt) Ltd", cashAmount: "100.00" }],
+      periodFrom: "2026-10-15",
+      periodTo: "2026-10-15",
+    };
+    const legacy = {
+      receivedAt: "2026-10-14T04:00:00.000Z",
+      handoverCompany: null,
+      companies: [{ companyName: "KAD Trading (Pvt) Ltd", cashAmount: "50.00" }],
+      periodFrom: "2026-10-14",
+      periodTo: "2026-10-14",
+    };
+    expect(receiptCoversCompany(pevi, "Pevi Trading Lanka (Pvt) Ltd")).toBe(true);
+    expect(receiptCoversCompany(pevi, "KAD Trading (Pvt) Ltd")).toBe(false);
+    expect(receiptCoversCompany(legacy, "KAD Trading (Pvt) Ltd")).toBe(true);
+    expect(latestReceiptForCompany([legacy, pevi], "Pevi Trading Lanka (Pvt) Ltd")?.receivedAt).toBe(pevi.receivedAt);
+    expect(
+      matchReceiptForDelivery([pevi], "Pevi Trading Lanka (Pvt) Ltd", new Date("2026-10-15T05:00:00.000Z"))
+        ?.receivedAt,
+    ).toBe(pevi.receivedAt);
+    expect(
+      matchReceiptForDelivery([pevi], "KAD Trading (Pvt) Ltd", new Date("2026-10-15T05:00:00.000Z")),
+    ).toBeNull();
+  });
+
+  it("writes delivery and invoice times into the admin export", () => {
+    const csv = handoverExportCsv([
+      {
+        riderName: "Amal",
+        companyName: "Pevi Trading Lanka (Pvt) Ltd",
+        orderNumber: "900-001421",
+        cashAmount: "2500.00",
+        deliveredAt: new Date("2026-10-15T05:30:00.000Z"),
+        invoiceCompleteAt: new Date("2026-10-15T06:10:00.000Z"),
+        receivedByName: "Nimal",
+        receivedAt: new Date("2026-10-15T07:00:00.000Z"),
+      },
+    ]);
+    expect(csv).toContain("Delivery complete");
+    expect(csv).toContain("Invoice complete");
+    expect(csv).toContain("Money received by");
+    expect(csv).toContain("Pevi Trading Lanka (Pvt) Ltd");
+    expect(csv).toContain("Nimal");
+    expect(csv).toContain("900-001421");
   });
 });

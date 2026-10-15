@@ -67,12 +67,14 @@ export function RiderPerformancePanel({
   canExportIncentive = false,
   canHandoverSummary = false,
   canHandoverReceive = false,
+  canExportHandover = false,
   riders = [],
 }: {
   canManagePerformance?: boolean;
   canExportIncentive?: boolean;
   canHandoverSummary?: boolean;
   canHandoverReceive?: boolean;
+  canExportHandover?: boolean;
   riders?: Array<{ id: string; name: string | null; knownName: string | null }>;
 }) {
   const [from, setFrom] = useState(todayInputValue);
@@ -242,6 +244,7 @@ export function RiderPerformancePanel({
           riders={riders}
           canHandoverSummary={canHandoverSummary}
           canHandoverReceive={canHandoverReceive}
+          canExportHandover={canExportHandover}
           disabled={isBusy || loading}
         />
       ) : null}
