@@ -16,8 +16,11 @@ import type {
 } from "@/lib/book-notes/types";
 import { prisma } from "@/lib/prisma";
 
-/** Hard ceiling so a wide date range cannot pull the whole table. */
+/** Hard ceiling so a wide date range cannot pull the whole table into the page. */
 const MAX_DAYS = 200;
+
+/** Export can cover a full range; still capped so one download cannot load unbounded rows. */
+export const BOOK_NOTE_EXPORT_MAX_DAYS = 10_000;
 
 function postingDateYmd(value: Date): string {
   const y = value.getUTCFullYear();
@@ -40,7 +43,7 @@ function actor(
 export type BookNoteFinanceReview = {
   days: BookNoteFinanceDay[];
   summary: BookNoteFinanceSummary;
-  /** True when the range hit `MAX_DAYS` and more sheets exist. */
+  /** True when the range hit the day cap and more sheets exist. */
   truncated: boolean;
 };
 
@@ -58,7 +61,11 @@ export async function loadBookNoteFinanceReview(input: {
   companyLocationId?: string;
   fromYmd: string;
   toYmd: string;
+  /** Defaults to the on-screen page cap. Export passes a higher ceiling. */
+  maxDays?: number;
 }): Promise<BookNoteFinanceReview> {
+  const maxDays =
+    input.maxDays && input.maxDays > 0 ? input.maxDays : MAX_DAYS;
   const days = await prisma.bookNoteDay.findMany({
     where: {
       companyId: input.companyId,
@@ -71,7 +78,7 @@ export async function loadBookNoteFinanceReview(input: {
       },
     },
     orderBy: [{ postingDate: "desc" }, { updatedAt: "desc" }],
-    take: MAX_DAYS + 1,
+    take: maxDays + 1,
     include: {
       companyLocation: {
         select: { name: true, shortName: true, erpnextCompany: true },
@@ -83,8 +90,8 @@ export async function loadBookNoteFinanceReview(input: {
     },
   });
 
-  const truncated = days.length > MAX_DAYS;
-  const page = truncated ? days.slice(0, MAX_DAYS) : days;
+  const truncated = days.length > maxDays;
+  const page = truncated ? days.slice(0, maxDays) : days;
 
   const daySummaries: BookNoteRowsSummary[] = [];
   let receiptCount = 0;
