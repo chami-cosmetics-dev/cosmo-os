@@ -53,6 +53,11 @@ export function StoreLocationAllocationPanel() {
   const [focusSku, setFocusSku] = useState<string | null>(null);
   const [continuingSku, setContinuingSku] = useState<string | null>(null);
   const [walkOpen, setWalkOpen] = useState(false);
+  const [allocationConfirmed, setAllocationConfirmed] = useState(false);
+  const [prSupplier, setPrSupplier] = useState("");
+  const [prSuppliers, setPrSuppliers] = useState<Array<{ name: string; label: string }>>([]);
+  const [prWarehouses, setPrWarehouses] = useState<Record<string, string>>({});
+  const [creatingPr, setCreatingPr] = useState(false);
   const [walkIndex, setWalkIndex] = useState(0);
   const [exporting, setExporting] = useState(false);
   const lastScanAt = useRef(0);
@@ -66,6 +71,23 @@ export function StoreLocationAllocationPanel() {
   const exportable = items.filter((i) => i.takeQty != null && i.takeQty > 0);
   const allExportValid =
     exportable.length > 0 && exportable.every((i) => itemSumOk(i) && i.planStatus === "ready");
+
+  useEffect(() => {
+    void Promise.all((['ERP1', 'ERP2'] as const).map(async (erp) => {
+      const response = await fetch(`/api/item-creation/stock/options?erp=${erp}`, { cache: "no-store" });
+      if (!response.ok) return [] as Array<{ name: string; label: string }>;
+      const data = (await response.json()) as { suppliers?: Array<{ name?: string; label?: string }> };
+      return (data.suppliers ?? []).flatMap((supplier) =>
+        supplier.name || supplier.label
+          ? [{ name: supplier.name || supplier.label!, label: supplier.label || supplier.name! }]
+          : [],
+      );
+    })).then((supplierLists) => {
+      const unique = new Map<string, { name: string; label: string }>();
+      for (const supplier of supplierLists.flat()) unique.set(supplier.name, supplier);
+      setPrSuppliers([...unique.values()].sort((a, b) => a.label.localeCompare(b.label)));
+    }).catch(() => setPrSuppliers([]));
+  }, []);
 
   useEffect(() => {
     if (!focusSku) return;
@@ -237,10 +259,14 @@ export function StoreLocationAllocationPanel() {
     setFocusSku(null);
     setMatches([]);
     setWalkOpen(false);
+    setAllocationConfirmed(false);
+    setPrSupplier("");
+    setPrWarehouses({});
     setWalkIndex(0);
   }
 
   function setTakeQty(sku: string, raw: string) {
+    setAllocationConfirmed(false);
     const trimmed = raw.trim();
     const takeQty =
       trimmed === ""
@@ -317,6 +343,7 @@ export function StoreLocationAllocationPanel() {
   }
 
   function setItemLocationQty(sku: string, columnKey: string, raw: string) {
+    setAllocationConfirmed(false);
     const n = Number(raw);
     const qty = Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
     setItems((prev) =>
@@ -340,6 +367,62 @@ export function StoreLocationAllocationPanel() {
     }
     setWalkIndex(0);
     setWalkOpen(true);
+  }
+
+  function confirmAllocation() {
+    if (!allExportValid) {
+      notify.error("Each item's location quantities must sum to its take qty");
+      return;
+    }
+    const defaults: Record<string, string> = {};
+    for (const item of exportable) {
+      for (const location of item.locations) {
+        if (location.qty > 0 && location.warehouses[0]) defaults[location.columnKey] ??= location.warehouses[0];
+      }
+    }
+    setPrWarehouses(defaults);
+    setAllocationConfirmed(true);
+    setWalkOpen(false);
+    notify.success("Allocation confirmed. Review Purchase Receipts below.");
+  }
+
+  async function createAllocationPurchaseReceipts() {
+    if (!allocationConfirmed || !prSupplier.trim()) {
+      notify.error("Enter a supplier and confirm the allocation first");
+      return;
+    }
+    const supplierId = prSuppliers.find((supplier) => supplier.label === prSupplier || supplier.name === prSupplier)?.name ?? prSupplier;
+    const payload = exportable.flatMap((item) =>
+      item.locations
+        .filter((location) => location.qty > 0)
+        .map((location) => ({
+          sku: item.sku,
+          qty: location.qty,
+          warehouse: prWarehouses[location.columnKey] ?? location.warehouses[0],
+          erpInstanceId: location.erpnextInstanceId,
+          company: location.erpCompany,
+        })),
+    );
+    if (payload.some((row) => !row.warehouse || !row.erpInstanceId)) {
+      notify.error("Every allocated location needs a warehouse and ERP instance");
+      return;
+    }
+    setCreatingPr(true);
+    try {
+      const res = await fetch("/api/admin/store-allocation/purchase-receipts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ supplier: supplierId, items: payload }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "Purchase Receipt creation failed");
+      notify.success(`${data.receipts?.length ?? 0} Purchase Receipt(s) created`);
+      setAllocationConfirmed(false);
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : "Purchase Receipt creation failed");
+    } finally {
+      setCreatingPr(false);
+    }
   }
 
   async function exportXlsx() {
@@ -472,6 +555,15 @@ export function StoreLocationAllocationPanel() {
             <Button
               type="button"
               size="sm"
+              variant="secondary"
+              disabled={!allExportValid}
+              onClick={confirmAllocation}
+            >
+              Confirm allocation
+            </Button>
+            <Button
+              type="button"
+              size="sm"
               disabled={!allExportValid || exporting}
               onClick={() => void exportXlsx()}
             >
@@ -497,6 +589,62 @@ export function StoreLocationAllocationPanel() {
               Clear all
             </Button>
           </div>
+
+          {allocationConfirmed && (
+            <section className="rounded-xl border bg-card p-4 print:hidden">
+              <div className="flex flex-wrap items-end justify-between gap-3">
+                <div>
+                  <h2 className="text-lg font-semibold">Create Purchase Receipts</h2>
+                  <p className="text-sm text-muted-foreground">
+                    Review the confirmed quantities. Receipts are grouped by ERP company.
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-end gap-2">
+                  <label className="space-y-1 text-sm">
+                    <span className="text-muted-foreground">Supplier</span>
+                    <Input
+                      list="store-allocation-suppliers"
+                      value={prSupplier}
+                      onChange={(e) => setPrSupplier(e.target.value)}
+                      placeholder="Search supplier"
+                    />
+                    <datalist id="store-allocation-suppliers">
+                      {prSuppliers.map((supplier) => <option key={supplier.name} value={supplier.label} label={supplier.name} />)}
+                    </datalist>
+                  </label>
+                  <Button type="button" disabled={creatingPr || !prSupplier.trim()} onClick={() => void createAllocationPurchaseReceipts()}>
+                    {creatingPr ? <Loader2 className="size-4 animate-spin" /> : null}
+                    Create Purchase Receipts
+                  </Button>
+                </div>
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full min-w-[720px] text-sm">
+                  <thead className="border-b text-left text-xs uppercase text-muted-foreground">
+                    <tr><th className="px-2 py-2">SKU</th><th className="px-2 py-2">Location</th><th className="px-2 py-2">Warehouse</th><th className="px-2 py-2">Qty</th></tr>
+                  </thead>
+                  <tbody>
+                    {exportable.flatMap((item) => item.locations.filter((location) => location.qty > 0).map((location) => (
+                      <tr key={`${item.sku}-${location.columnKey}`} className="border-b last:border-0">
+                        <td className="px-2 py-2 font-medium">{item.sku}</td>
+                        <td className="px-2 py-2">{location.label}</td>
+                        <td className="px-2 py-2">
+                          <select
+                            value={prWarehouses[location.columnKey] ?? location.warehouses[0] ?? ""}
+                            onChange={(e) => setPrWarehouses((current) => ({ ...current, [location.columnKey]: e.target.value }))}
+                            className="h-9 min-w-64 rounded-md border bg-background px-2"
+                          >
+                            {location.warehouses.map((warehouse) => <option key={warehouse} value={warehouse}>{warehouse}</option>)}
+                          </select>
+                        </td>
+                        <td className="px-2 py-2 tabular-nums">{location.qty}</td>
+                      </tr>
+                    )))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
 
           <div className="space-y-3">
             {items.map((item) => {
@@ -722,6 +870,11 @@ export function StoreLocationAllocationPanel() {
             ) : (
               <p className="text-sm text-muted-foreground">No locations with qty to walk.</p>
             )}
+          </div>
+          <div className="mt-6 flex justify-end gap-2 border-t pt-4">
+            <Button type="button" variant="secondary" onClick={confirmAllocation} disabled={!allExportValid}>
+              Confirm allocation and review PRs
+            </Button>
           </div>
         </SheetContent>
       </Sheet>

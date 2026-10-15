@@ -75,7 +75,11 @@ const DEFAULT_PERMISSIONS = [
   },
   {
     key: "item_creation.admin.manage",
-    description: "Create item requests and manage the complete Item Creation workflow",
+    description: "Create Item Creation requests and read all Item Creation statuses",
+  },
+  {
+    key: "item_creation.admin.manage_all",
+    description: "Manage all Item Creation teams and actions",
   },
   {
     key: "item_creation.seo.manage",

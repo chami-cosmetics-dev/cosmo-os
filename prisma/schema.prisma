@@ -2492,6 +2492,7 @@ model OsfColumnConfig {
   directWarehouses  String[]         @default([])
   includeInStock    Boolean          @default(true)
   includeInRop      Boolean          @default(true)
+  allocationPriority Int             @default(2)
   sortOrder         Int              @default(0)
   active            Boolean          @default(true)
   createdAt         DateTime         @default(now())

@@ -3,15 +3,21 @@ import { NextResponse } from "next/server";
 import {
   deleteItemRequest,
   getItemRequest,
+  ITEM_CREATION_PERMISSIONS,
   updateItemRequestDetails,
 } from "@/lib/item-creation/workflow";
-import { requirePermission } from "@/lib/rbac";
+import { requireAnyPermission } from "@/lib/rbac";
+
+const ADMIN_ITEM_CREATION_PERMISSIONS = [
+  ITEM_CREATION_PERMISSIONS.admin,
+  ITEM_CREATION_PERMISSIONS.manageAll,
+];
 
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = await requirePermission("item_creation.admin.manage");
+  const auth = await requireAnyPermission(ADMIN_ITEM_CREATION_PERMISSIONS);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   try {
@@ -28,7 +34,7 @@ export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = await requirePermission("item_creation.admin.manage");
+  const auth = await requireAnyPermission(ADMIN_ITEM_CREATION_PERMISSIONS);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   try {
@@ -48,7 +54,7 @@ export async function DELETE(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = await requirePermission("item_creation.admin.manage");
+  const auth = await requireAnyPermission(ADMIN_ITEM_CREATION_PERMISSIONS);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   try {

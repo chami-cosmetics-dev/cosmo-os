@@ -18,6 +18,7 @@ import { getPriceStatus } from "@/lib/item-creation/helpers";
 
 export const ITEM_CREATION_PERMISSIONS = {
   admin: "item_creation.admin.manage",
+  manageAll: "item_creation.admin.manage_all",
   seo: "item_creation.seo.manage",
   digitalMarketing: "item_creation.digital_marketing.manage",
   purchasing: "item_creation.purchasing.manage",
@@ -35,12 +36,12 @@ const ITEM_CREATION_SOURCE_VALUES = new Set(["SHOPIFY", "ERP2"]);
 type Tx = Prisma.TransactionClient;
 type UserContext = NonNullable<Awaited<ReturnType<typeof getCurrentUserContext>>>;
 
-function isAdmin(context: UserContext) {
-  return hasPermission(context, ITEM_CREATION_PERMISSIONS.admin);
+export function canManageAllItemCreation(context: UserContext) {
+  return hasPermission(context, ITEM_CREATION_PERMISSIONS.manageAll);
 }
 
 export function canUseItemCreation(context: UserContext, permission: string) {
-  return isAdmin(context) || hasPermission(context, permission);
+  return canManageAllItemCreation(context) || hasPermission(context, permission);
 }
 
 function requireWorkflowPermission(context: UserContext, permission: string) {

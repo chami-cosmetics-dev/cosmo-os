@@ -21,6 +21,7 @@ export const osfColumnUpsertSchema = z.object({
         directWarehouses: z.array(trimmedString(1, 200)).max(50).optional(),
         includeInStock: z.boolean().optional().default(true),
         includeInRop: z.boolean().optional().default(true),
+        allocationPriority: z.number().int().min(1).max(3).optional().default(2),
         sortOrder: z.number().int().min(0).max(10_000).optional().default(0),
         active: z.boolean().optional().default(true),
       }),

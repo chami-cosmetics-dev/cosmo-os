@@ -7,12 +7,19 @@ export type AllocateLocationInput = {
   key: string;
   need: number;
   sales: number;
+  priority?: number;
 };
 
 export type AllocateLocationResult = {
   key: string;
   qty: number;
 };
+
+function priorityFactor(priority: number): number {
+  if (priority <= 1) return 3;
+  if (priority === 2) return 1.5;
+  return 1;
+}
 
 function largestRemainder(
   takeQty: number,
@@ -36,7 +43,7 @@ function largestRemainder(
       out.set(key, q);
     }
     // Fix sum if caps reduced total
-    let sum = [...out.values()].reduce((a, b) => a + b, 0);
+    const sum = [...out.values()].reduce((a, b) => a + b, 0);
     if (sum < takeQty) {
       const order = [...weights].sort((a, b) => b.weight - a.weight || a.key.localeCompare(b.key));
       let left = takeQty - sum;
@@ -89,22 +96,48 @@ function largestRemainder(
 
 /**
  * Allocate takeQty across locations.
- * When any location has need > 0: weight = need * (1 + sales), cap at need.
+ * When any location has need > 0: weight = need * (1 + sales) * priority factor, cap at need.
  * When all needs are 0: sales-only weights (or equal if all sales 0), no caps.
  */
 export function allocateTakeQty(
   takeQty: number,
   locations: AllocateLocationInput[],
+  applyPriorityMinimum = true,
 ): AllocateLocationResult[] {
   const safeTake = Number.isFinite(takeQty) ? Math.max(0, Math.floor(takeQty)) : 0;
   const normalized = locations.map((loc) => ({
     key: loc.key,
     need: Number.isFinite(loc.need) ? Math.max(0, loc.need) : 0,
     sales: Number.isFinite(loc.sales) ? Math.max(0, loc.sales) : 0,
+    priority:
+      Number.isFinite(loc.priority) && loc.priority != null
+        ? Math.min(3, Math.max(1, Math.floor(loc.priority)))
+        : 2,
   }));
 
   if (safeTake === 0 || normalized.length === 0) {
     return normalized.map((l) => ({ key: l.key, qty: 0 }));
+  }
+
+  // Reserve up to three units for every selected Priority 1 location first.
+  // The remaining quantity still follows the normal need/sales formula.
+  if (applyPriorityMinimum) {
+    const priorityOne = normalized.filter((location) => location.priority === 1);
+    if (priorityOne.length > 0) {
+      let remaining = safeTake;
+      const reserved = new Map<string, number>();
+      for (const location of priorityOne) {
+        const qty = Math.min(3, remaining);
+        reserved.set(location.key, qty);
+        remaining -= qty;
+        if (remaining === 0) break;
+      }
+      const remainder = allocateTakeQty(remaining, locations, false);
+      return normalized.map((location) => ({
+        key: location.key,
+        qty: (reserved.get(location.key) ?? 0) + (remainder.find((row) => row.key === location.key)?.qty ?? 0),
+      }));
+    }
   }
 
   const anyNeed = normalized.some((l) => l.need > 0);
@@ -121,7 +154,7 @@ export function allocateTakeQty(
         // Excess above all needs: sales-only among all locations
         const excessWeights = normalized.map((l) => ({
           key: l.key,
-          weight: l.sales > 0 ? l.sales : 1,
+          weight: (l.sales > 0 ? l.sales : 1) * priorityFactor(l.priority),
           cap: null as number | null,
         }));
         const extra = largestRemainder(left, excessWeights);
@@ -134,7 +167,7 @@ export function allocateTakeQty(
 
       const weightsFixed = active.map((l) => ({
         key: l.key,
-        weight: Math.max(0, l.need) * (1 + l.sales),
+        weight: Math.max(0, l.need) * (1 + l.sales) * priorityFactor(l.priority),
         cap: remainingNeed.get(l.key) ?? 0,
       }));
 
@@ -156,14 +189,18 @@ export function allocateTakeQty(
   // All needs zero
   const salesWeights = normalized.map((l) => ({
     key: l.key,
-    weight: l.sales > 0 ? l.sales : 0,
+    weight: (l.sales > 0 ? l.sales : 0) * priorityFactor(l.priority),
     cap: null as number | null,
   }));
   const totalSales = salesWeights.reduce((s, w) => s + w.weight, 0);
   const weights =
     totalSales > 0
       ? salesWeights
-      : normalized.map((l) => ({ key: l.key, weight: 1, cap: null as number | null }));
+      : normalized.map((l) => ({
+          key: l.key,
+          weight: priorityFactor(l.priority),
+          cap: null as number | null,
+        }));
   const result = largestRemainder(safeTake, weights);
   return normalized.map((l) => ({ key: l.key, qty: result.get(l.key) ?? 0 }));
 }

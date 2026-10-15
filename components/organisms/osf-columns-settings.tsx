@@ -18,6 +18,7 @@ type ColumnRow = {
   warehouses?: string[];
   includeInStock: boolean;
   includeInRop: boolean;
+  allocationPriority: number;
   sortOrder: number;
   active: boolean;
 };
@@ -75,6 +76,7 @@ export function OsfColumnsSettings({ canManage, initialLocations }: Props) {
               warehouses: c.warehouses ?? [],
               includeInStock: c.includeInStock,
               includeInRop: c.includeInRop,
+              allocationPriority: c.allocationPriority ?? 2,
               sortOrder: c.sortOrder,
               active: c.active,
             })),
@@ -149,6 +151,7 @@ export function OsfColumnsSettings({ canManage, initialLocations }: Props) {
         directWarehouses: [],
         includeInStock: true,
         includeInRop: true,
+        allocationPriority: 2,
         sortOrder: n * 10,
         active: true,
       },
@@ -250,6 +253,12 @@ export function OsfColumnsSettings({ canManage, initialLocations }: Props) {
                   <th className="p-2 text-center" title="Allow ROP targets for this location">
                     Set ROP
                   </th>
+                  <th
+                    className="p-2"
+                    title="Allocation priority. 1 gets the strongest allocation boost."
+                  >
+                    Priority
+                  </th>
                   <th className="p-2 text-center" title="Include this column when generating OSF">
                     In OSF
                   </th>
@@ -340,6 +349,20 @@ export function OsfColumnsSettings({ canManage, initialLocations }: Props) {
                         onChange={(e) => updateRow(idx, { includeInRop: e.target.checked })}
                       />
                     </td>
+                    <td className="p-2">
+                      <select
+                        className="h-8 w-full rounded-md border bg-background px-2 text-xs"
+                        disabled={!canManage}
+                        value={col.allocationPriority ?? 2}
+                        onChange={(e) =>
+                          updateRow(idx, { allocationPriority: Number(e.target.value) || 2 })
+                        }
+                      >
+                        <option value={1}>1 - Website/main online</option>
+                        <option value={2}>2 - Outlets</option>
+                        <option value={3}>3 - Other online</option>
+                      </select>
+                    </td>
                     <td className="p-2 text-center">
                       <input
                         type="checkbox"
@@ -393,7 +416,7 @@ export function OsfColumnsSettings({ canManage, initialLocations }: Props) {
                 {columns.length === 0 && (
                   <tr>
                     <td
-                      colSpan={showAdvanced ? 8 : 6}
+                      colSpan={showAdvanced ? 9 : 7}
                       className="p-4 text-center text-muted-foreground"
                     >
                       No locations yet. Add warehouses (stock + ROP) and shops (stock only).

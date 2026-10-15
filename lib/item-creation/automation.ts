@@ -10,6 +10,7 @@ import {
 
 import { ITEM_CREATION_PERMISSIONS, ITEM_CREATION_PRICE_LISTS } from "@/lib/item-creation/workflow";
 import { getAllOsfErpInstances, type OsfErpCredentials, type OsfErpInstance } from "@/lib/osf/erp-stock";
+import { resolveOsfColumns } from "@/lib/osf/column-config";
 import { normalizeSkuKey } from "@/lib/product-items/erp-priority-sync";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserContext, hasPermission } from "@/lib/rbac";
@@ -61,6 +62,24 @@ function requestNeedsErp2(creationSources: Prisma.JsonValue | null | undefined) 
   return Array.isArray(creationSources) && creationSources.includes("ERP2");
 }
 
+async function advanceSeoToItemCreated(
+  tx: Tx,
+  request: { id: string; seoSetupStatus?: string; creationSources?: Prisma.JsonValue | null },
+  metadata: Prisma.InputJsonValue,
+) {
+  if (request.seoSetupStatus && request.seoSetupStatus !== "PENDING") return false;
+  await tx.itemCreationRequest.update({
+    where: { id: request.id },
+    data: {
+      seoSetupStatus: "ITEM_CREATED",
+      itemCreatedAt: new Date(),
+      itemCreatedBy: null,
+    },
+  });
+  await activity(tx, request.id, "SEO_ITEM_CREATED", "SYSTEM", null, metadata);
+  return true;
+}
+
 type StockInput = {
   supplier: string;
   company?: string;
@@ -81,7 +100,7 @@ async function getWarehouseCompany(cfg: OsfErpCredentials, warehouse: string) {
 }
 
 function requireItemCreationPermission(context: UserContext, permission: string) {
-  if (!hasPermission(context, permission) && !hasPermission(context, ITEM_CREATION_PERMISSIONS.admin)) {
+  if (!hasPermission(context, permission) && !hasPermission(context, ITEM_CREATION_PERMISSIONS.manageAll)) {
     throw new Error("Permission denied");
   }
 }
@@ -286,7 +305,7 @@ export async function handleErp1ItemWebhook(companyIds: string[], payload: ErpIt
       sku: { equals: itemCode, mode: "insensitive" },
       overallStatus: "IN_PROGRESS",
     },
-    select: { id: true, companyId: true, creationSources: true },
+    select: { id: true, companyId: true, creationSources: true, seoSetupStatus: true },
   });
   if (requests.length === 0) return { matched: 0, skipped: "no_active_request" };
 
@@ -345,27 +364,14 @@ export async function handleErp1ItemWebhook(companyIds: string[], payload: ErpIt
     }
 
     if (!requestNeedsErp2(request.creationSources)) {
-      const updated = await prisma.itemCreationRequest.updateMany({
-        where: { id: request.id, seoSetupStatus: "PENDING" },
-        data: {
-          seoSetupStatus: "ITEM_CREATED",
-          itemCreatedAt: now,
-          itemCreatedBy: null,
-        },
-      });
-      if (updated.count > 0) {
-        advancedSeo += 1;
-        await prisma.itemCreationActivity.create({
-          data: {
-            itemRequestId: request.id,
-            type: "SEO_ITEM_CREATED",
-            source: "SYSTEM",
-            oldValue: "PENDING",
-            newValue: "ITEM_CREATED",
-            metadata: { itemCode, reason: "ERP2 not selected" },
-          },
-        });
-      }
+      const advanced = await prisma.$transaction((tx) =>
+        advanceSeoToItemCreated(tx, request, {
+          itemCode,
+          reason: "selected creation sources completed",
+          creationSources: request.creationSources ?? Prisma.JsonNull,
+        }),
+      );
+      if (advanced) advancedSeo += 1;
       skippedErp2 += 1;
       continue;
     }
@@ -399,6 +405,14 @@ export async function handleErp1ItemWebhook(companyIds: string[], payload: ErpIt
           barcodes,
           reconciledExisting: !result.created,
         });
+        const advanced = await advanceSeoToItemCreated(tx, request, {
+          itemCode,
+          erp2ItemCode: result.itemCode,
+          reason: "selected creation sources completed",
+          reconciledExisting: !result.created,
+          creationSources: request.creationSources ?? Prisma.JsonNull,
+        });
+        if (advanced) advancedSeo += 1;
       });
       completed += 1;
     } catch (error) {
@@ -420,7 +434,7 @@ export async function handleErp1ItemWebhook(companyIds: string[], payload: ErpIt
 }
 
 export async function retryErp2ItemCreation(context: UserContext, id: string) {
-  requireItemCreationPermission(context, ITEM_CREATION_PERMISSIONS.admin);
+  requireItemCreationPermission(context, ITEM_CREATION_PERMISSIONS.manageAll);
   const request = await prisma.itemCreationRequest.findFirstOrThrow({
     where: { id, companyId: companyId(context) },
   });
@@ -688,6 +702,62 @@ async function createPurchaseReceipt(input: {
   return String(submitted.name ?? name);
 }
 
+export async function createStoreAllocationPurchaseReceipts(
+  context: UserContext,
+  input: {
+    supplier: string;
+    items: Array<{
+      sku: string;
+      qty: number;
+      warehouse: string;
+      erpInstanceId: string;
+      company?: string | null;
+    }>;
+  },
+) {
+  requireItemCreationPermission(context, ITEM_CREATION_PERMISSIONS.stores);
+  const supplier = input.supplier?.trim();
+  if (!supplier) throw new Error("Supplier is required");
+  if (!Array.isArray(input.items) || input.items.length === 0) throw new Error("At least one allocation is required");
+
+  const instances = await getAllOsfErpInstances(companyId(context));
+  const instanceById = new Map(instances.map((instance) => [instance.id, instance]));
+  const groups = new Map<string, { cfg: OsfErpCredentials; company: string; items: typeof input.items }>();
+
+  for (const item of input.items) {
+    const sku = item.sku?.trim();
+    const warehouse = item.warehouse?.trim();
+    const instance = instanceById.get(item.erpInstanceId);
+    if (!sku || !warehouse || !instance) throw new Error("Each allocation needs a valid SKU, warehouse, and ERP instance");
+    if (!Number.isFinite(item.qty) || item.qty <= 0) throw new Error(`Quantity for ${sku} must be greater than zero`);
+    const company = item.company?.trim() || await getWarehouseCompany(instance.cfg, warehouse);
+    if (!company) throw new Error(`Company is not configured on warehouse ${warehouse}`);
+    const key = `${instance.id}:${company}`;
+    const group = groups.get(key) ?? { cfg: instance.cfg, company, items: [] };
+    group.items.push(item);
+    groups.set(key, group);
+  }
+
+  const receipts: string[] = [];
+  for (const group of groups.values()) {
+    const firstWarehouse = group.items[0]?.warehouse;
+    if (!firstWarehouse) continue;
+    receipts.push(await createPurchaseReceipt({
+      cfg: group.cfg,
+      supplier,
+      warehouse: firstWarehouse,
+      company: group.company,
+      postingDate: new Date().toISOString().slice(0, 10),
+      items: group.items.map((item) => ({
+        itemCode: item.sku,
+        qty: new Prisma.Decimal(item.qty),
+        warehouse: item.warehouse,
+      })),
+    }));
+  }
+  return receipts;
+}
+
 function validateStockInput(input: StockInput) {
   const supplier = input.supplier?.trim();
   if (!supplier) throw new Error("Supplier is required");
@@ -741,7 +811,7 @@ export async function createWarehousePurchaseReceipts(
   const ids = parsed.warehouses.flatMap((w) => w.items.map((item) => item.itemRequestId));
   const requests = await prisma.itemCreationRequest.findMany({
     where: { id: { in: ids }, companyId: company, overallStatus: "IN_PROGRESS" },
-    select: { id: true, sku: true, storeStockStatus: true },
+    select: { id: true, sku: true, seoSetupStatus: true, storeStockStatus: true },
   });
   const requestById = new Map(requests.map((request) => [request.id, request]));
 
@@ -752,6 +822,9 @@ export async function createWarehousePurchaseReceipts(
       if (!request) throw new Error(`Item request not found for ${item.itemCode}`);
       if (normalizeSkuKey(request.sku) !== normalizeSkuKey(item.itemCode)) {
         throw new Error(`SKU mismatch for ${item.itemCode}`);
+      }
+      if (request.seoSetupStatus === "PENDING") {
+        throw new Error(`${item.itemCode} cannot receive stock until the item is created`);
       }
       if (erp === "ERP1" && request.storeStockStatus === "STOCK_ADDED") {
         throw new Error(`${item.itemCode} already has stock added`);
@@ -878,6 +951,18 @@ export async function getItemCreationStockOptions(context: UserContext, erp: Ite
   const { erp1, erp2 } = await resolveErps(companyId(context));
   const cfg = erp === "ERP1" ? erp1?.cfg : erp2?.cfg;
   if (!cfg) throw new Error(`${erp} instance is not configured`);
+  const erpInstance = erp === "ERP1" ? erp1 : erp2;
+  const osfColumns = await resolveOsfColumns(companyId(context));
+  const warehousePriorities = new Map<string, number>();
+  for (const column of osfColumns) {
+    if (!column.active || (column.erpnextInstanceId && column.erpnextInstanceId !== erpInstance?.id)) continue;
+    for (const warehouse of column.warehouses) {
+      const current = warehousePriorities.get(warehouse);
+      if (current == null || column.allocationPriority < current) {
+        warehousePriorities.set(warehouse, column.allocationPriority);
+      }
+    }
+  }
 
   const supplierFields = encodeURIComponent(JSON.stringify(["name", "supplier_name"]));
   const supplierFilters = encodeURIComponent(JSON.stringify([["disabled", "=", 0]]));
@@ -911,6 +996,7 @@ export async function getItemCreationStockOptions(context: UserContext, erp: Ite
         name: warehouse.name!,
         label: warehouse.warehouse_name || warehouse.name!,
         company: warehouse.company ?? null,
+        priority: warehousePriorities.get(warehouse.name!) ?? 2,
       })),
   };
 }
