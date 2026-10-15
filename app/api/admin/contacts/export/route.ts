@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { Prisma } from "@prisma/client";
 
-import { contactOrderLookupKeys } from "@/lib/contact-purchase-lookup";
 import {
   loadAllocatedMerchantByPhone,
   resolveExportAssignedMerchant,
@@ -10,7 +9,6 @@ import {
   buildInvoiceHistoryRows,
   INVOICE_HISTORY_HEADERS,
 } from "@/lib/contacts/invoice-history-export";
-import { phoneMatchKeys } from "@/lib/contacts/purchase-summary-export";
 import { getPurchaseSummarySyncStatus } from "@/lib/contacts/purchase-summary-cache";
 import { logReportDownload } from "@/lib/report-download-log";
 import { findContactsByPurchasedBrandRanked } from "@/lib/page-data/contact-brand-ids";
@@ -386,8 +384,6 @@ type InvoiceExportContact = {
   name: string;
   email: string | null;
   phoneNumber: string | null;
-  phones: { phoneNumber: string }[];
-  emails: { email: string }[];
 };
 
 async function streamInvoiceHistoryExport(input: {
@@ -442,8 +438,6 @@ async function* iterateInvoiceContacts(
     name: true,
     email: true,
     phoneNumber: true,
-    phones: { select: { phoneNumber: true } },
-    emails: { select: { email: true } },
   } as const;
 
   if (brandOrderedIds) {
@@ -481,78 +475,19 @@ async function* iterateInvoiceContacts(
 
 async function invoiceLinesForContacts(companyId: string, contacts: InvoiceExportContact[]) {
   const ids = contacts.map((contact) => contact.id);
-  const byPhone = new Map<string, InvoiceExportContact>();
-  const byEmail = new Map<string, InvoiceExportContact>();
-  const phoneList: string[] = [];
-  const emailList: string[] = [];
-
-  for (const contact of contacts) {
-    const keys = contactOrderLookupKeys({
-      primaryPhone: contact.phoneNumber,
-      primaryEmail: contact.email,
-      aliasPhones: contact.phones.map((phone) => phone.phoneNumber),
-      aliasEmails: contact.emails.map((email) => email.email),
-    });
-    for (const phone of keys.phones) {
-      phoneList.push(phone);
-      for (const key of phoneMatchKeys(phone)) {
-        if (!byPhone.has(key)) byPhone.set(key, contact);
-      }
-    }
-    for (const email of keys.emails) {
-      const normalized = email.trim().toLowerCase();
-      if (!normalized || byEmail.has(normalized)) continue;
-      byEmail.set(normalized, contact);
-      emailList.push(normalized);
-    }
-  }
-
-  const orderOr: Prisma.OrderWhereInput[] = [];
-  if (phoneList.length > 0) {
-    orderOr.push({ customerPhone: { in: phoneList } }, { erpnextCustomerId: { in: phoneList } });
-  }
-  if (emailList.length > 0) {
-    orderOr.push({ customerEmail: { in: emailList, mode: "insensitive" } });
-  }
-
-  const [adaptRows, orders] = await Promise.all([
-    prisma.adaptPurchaseHistory.findMany({
-      where: { companyId, contactId: { in: ids } },
-      select: {
-        contactId: true,
-        salesInvoiceNo: true,
-        invoiceDate: true,
-        financialStatus: true,
-        paymentMethod: true,
-        origin: true,
-        importBatchId: true,
-        lineItems: true,
-      },
-    }),
-    orderOr.length > 0
-      ? prisma.order.findMany({
-          where: { companyId, OR: orderOr },
-          select: {
-            id: true,
-            orderNumber: true,
-            name: true,
-            erpnextInvoiceId: true,
-            createdAt: true,
-            financialStatus: true,
-            customerPhone: true,
-            customerEmail: true,
-            erpnextCustomerId: true,
-            lineItems: {
-              select: {
-                quantity: true,
-                price: true,
-                productItem: { select: { sku: true, productTitle: true } },
-              },
-            },
-          },
-        })
-      : Promise.resolve([]),
-  ]);
+  const adaptRows = await prisma.adaptPurchaseHistory.findMany({
+    where: { companyId, contactId: { in: ids } },
+    select: {
+      contactId: true,
+      salesInvoiceNo: true,
+      invoiceDate: true,
+      financialStatus: true,
+      paymentMethod: true,
+      origin: true,
+      importBatchId: true,
+      lineItems: true,
+    },
+  });
 
   const adaptByContact = new Map<string, typeof adaptRows>();
   for (const row of adaptRows) {
@@ -561,45 +496,11 @@ async function invoiceLinesForContacts(companyId: string, contacts: InvoiceExpor
     adaptByContact.set(row.contactId, list);
   }
 
-  const ordersByContact = new Map<string, typeof orders>();
-  for (const order of orders) {
-    const contact =
-      [order.customerPhone, order.erpnextCustomerId].reduce<InvoiceExportContact | null>((found, raw) => {
-        if (found) return found;
-        for (const key of phoneMatchKeys(raw)) {
-          const hit = byPhone.get(key);
-          if (hit) return hit;
-        }
-        return null;
-      }, null) ??
-      (order.customerEmail?.trim()
-        ? byEmail.get(order.customerEmail.trim().toLowerCase()) ?? null
-        : null);
-    if (!contact) continue;
-    const list = ordersByContact.get(contact.id) ?? [];
-    list.push(order);
-    ordersByContact.set(contact.id, list);
-  }
-
   const lines: string[] = [];
   for (const contact of contacts) {
     const rows = buildInvoiceHistoryRows({
       contact,
       adaptInvoices: adaptByContact.get(contact.id) ?? [],
-      orders: (ordersByContact.get(contact.id) ?? []).map((order) => ({
-        id: order.id,
-        orderNumber: order.orderNumber,
-        name: order.name,
-        erpnextInvoiceId: order.erpnextInvoiceId,
-        createdAt: order.createdAt,
-        financialStatus: order.financialStatus,
-        lineItems: order.lineItems.map((line) => ({
-          quantity: line.quantity,
-          price: line.price.toString(),
-          sku: line.productItem.sku,
-          productTitle: line.productItem.productTitle,
-        })),
-      })),
     });
     for (const row of rows) lines.push(csvLine(INVOICE_HISTORY_HEADERS, row));
   }

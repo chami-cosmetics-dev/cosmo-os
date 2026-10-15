@@ -41,21 +41,6 @@ export type InvoiceHistoryAdaptInput = {
   lineItems: unknown;
 };
 
-export type InvoiceHistoryOrderInput = {
-  id: string;
-  orderNumber: string | null;
-  name: string | null;
-  erpnextInvoiceId: string | null;
-  createdAt: Date;
-  financialStatus: string | null;
-  lineItems: Array<{
-    quantity: number;
-    price: { toString(): string } | string | number;
-    sku: string | null;
-    productTitle: string | null;
-  }>;
-};
-
 function contactCells(contact: HistoryContact) {
   return {
     name: contact.name,
@@ -100,21 +85,15 @@ function lineRow(
   };
 }
 
-function orderInvoiceNo(order: InvoiceHistoryOrderInput): string {
-  const erp = order.erpnextInvoiceId?.trim();
-  if (erp && erp !== "pending" && erp !== "pending_approval") return erp;
-  return order.orderNumber?.trim() || order.name?.trim() || order.id;
-}
-
 export function buildInvoiceHistoryRows(input: {
   contact: HistoryContact;
   adaptInvoices: InvoiceHistoryAdaptInput[];
-  orders: InvoiceHistoryOrderInput[];
 }): InvoiceHistoryCsvRow[] {
   const rows: InvoiceHistoryCsvRow[] = [];
 
   for (const invoice of input.adaptInvoices) {
     const business = saleBusinessLabel(invoice.origin, invoice.importBatchId);
+    if (business !== "Cosmetics" && business !== "File import") continue;
     const status = historyStatus({
       financialStatus: invoice.financialStatus,
       paymentMethod: invoice.paymentMethod,
@@ -145,40 +124,6 @@ export function buildInvoiceHistoryRows(input: {
           business,
           invoiceNo,
           invoiceDate: invoice.invoiceDate,
-          status,
-          line,
-        }),
-      );
-    }
-  }
-
-  for (const order of input.orders) {
-    const status = order.financialStatus?.trim() || "";
-    const invoiceNo = orderInvoiceNo(order);
-    const lines = order.lineItems.map((line) => ({
-      itemCode: line.sku?.trim() || "",
-      itemName: line.productTitle?.trim() || "",
-      quantity: line.quantity,
-      unitPrice: typeof line.price === "string" ? line.price : String(line.price ?? ""),
-    }));
-    if (lines.length === 0) {
-      rows.push(
-        lineRow(input.contact, {
-          business: "Supplement",
-          invoiceNo,
-          invoiceDate: order.createdAt,
-          status,
-          line: null,
-        }),
-      );
-      continue;
-    }
-    for (const line of lines) {
-      rows.push(
-        lineRow(input.contact, {
-          business: "Supplement",
-          invoiceNo,
-          invoiceDate: order.createdAt,
           status,
           line,
         }),
