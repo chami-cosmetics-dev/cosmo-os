@@ -7,7 +7,11 @@ import { erpErrorMessage } from "@/lib/material-transfer/erp-error";
 import { itemCodeFromScanBarcode } from "@/lib/material-transfer/scan-barcode";
 import { buildMaterialTransferBody } from "@/lib/material-transfer/payload";
 import type { TransferLookupItem, TransferSlot, TransferWarehouse } from "@/lib/material-transfer/types";
-import { companyForWarehouses, warehouseOptions } from "@/lib/material-transfer/warehouses";
+import {
+  companyForWarehouses,
+  erp1RequiresVatItems,
+  warehouseOptions,
+} from "@/lib/material-transfer/warehouses";
 
 export class MaterialTransferError extends Error {
   status: number;
@@ -247,6 +251,7 @@ export async function lookupTransferItem(input: {
   slot: TransferSlot;
   code: string;
   sourceWarehouse: string;
+  targetWarehouse?: string | null;
   warehouses: TransferWarehouse[];
   company?: string | null;
   skipVatCheck?: boolean;
@@ -268,7 +273,11 @@ export async function lookupTransferItem(input: {
   if (!itemCode) throw new MaterialTransferError(`No item found for ${code}`);
 
   const taxStatus = row[ERP_TAX_STATUS_FIELD]?.trim() || null;
-  if (input.slot === "erp1" && !input.skipVatCheck && !isVatTaxStatus(taxStatus)) {
+  const vatOnly =
+    input.slot === "erp1" &&
+    !input.skipVatCheck &&
+    erp1RequiresVatItems(input.sourceWarehouse, input.targetWarehouse);
+  if (vatOnly && !isVatTaxStatus(taxStatus)) {
     throw new MaterialTransferError(
       `${itemCode} is ${taxStatus || "not VAT"}. ERP1 transfers VAT items only.`,
     );
@@ -327,7 +336,7 @@ export async function submitMaterialTransfer(input: {
     }
   }
   if (input.lines.length === 0) throw new MaterialTransferError("Add at least one item");
-  if (input.slot === "erp1") {
+  if (input.slot === "erp1" && erp1RequiresVatItems(input.sourceWarehouse, input.targetWarehouse)) {
     await assertVatLines(
       input.cfg,
       input.lines.map((line) => line.itemCode),

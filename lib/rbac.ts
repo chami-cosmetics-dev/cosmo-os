@@ -53,7 +53,11 @@ const DEFAULT_PERMISSIONS = [
   {
     key: "riders.handover.receive",
     description:
-      "Mark rider cash received, load delivery orders, set the ERP payment type, and mark invoices completed",
+      "Mark rider cash received for an assigned company, load that company's delivery orders, set the ERP payment type, and mark those invoices completed",
+  },
+  {
+    key: "riders.handover.export",
+    description: "Export rider cash handover status for admins",
   },
   {
     key: "roles.read",
@@ -1012,6 +1016,10 @@ const PINNED_CUSTOM_ROLE_PERMISSIONS: {
   { roleName: "stores-level-02", permissionKey: "store.material_transfer.write" },
   { roleName: "stores-level-01", permissionKey: "purchasing.item_trends.read" },
   { roleName: "stores-level-02", permissionKey: "purchasing.item_trends.read" },
+  { roleName: "stores-level-01", permissionKey: "returns.read" },
+  { roleName: "stores-level-02", permissionKey: "returns.read" },
+  { roleName: "stores-level-01", permissionKey: "returns.manage" },
+  { roleName: "stores-level-02", permissionKey: "returns.manage" },
 ];
 
 let lastCustomRolePinAt = 0;

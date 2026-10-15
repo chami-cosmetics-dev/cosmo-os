@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { isAllowedCompanyErpPaymentMode } from "@/lib/erp-payment-modes";
 import { markOrderInvoiceComplete } from "@/lib/mark-order-invoice-complete";
-import { buildHandoverOrders, loadRiderHandoverDeliveries } from "@/lib/rider-handover";
+import { buildHandoverOrders, loadScopedRiderHandoverDeliveries } from "@/lib/rider-handover";
 import { requirePermission } from "@/lib/rbac";
 import { cuidSchema, trimmedString } from "@/lib/validation";
 
@@ -16,6 +16,7 @@ const bodySchema = z.object({
   riderId: cuidSchema,
   from: z.string(),
   to: z.string(),
+  companyName: z.string().trim().min(1).max(200),
   modes: z
     .array(
       z.object({
@@ -44,8 +45,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid date range" }, { status: 400 });
   }
 
-  const loaded = await loadRiderHandoverDeliveries({
+  const loaded = await loadScopedRiderHandoverDeliveries({
     companyId,
+    userId,
+    roleNames: auth.context!.roleNames,
     riderId: parsed.data.riderId,
     fromYmd: parsed.data.from,
     toYmd: parsed.data.to,
@@ -57,7 +60,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid date range" }, { status: 400 });
   }
 
-  const orders = await buildHandoverOrders(loaded.deliveries);
+  const orders = (await buildHandoverOrders(loaded.deliveries)).filter(
+    (order) => order.companyName === parsed.data.companyName,
+  );
+  if (orders.length === 0) {
+    return NextResponse.json({ error: "That company is outside your assignment for this rider" }, { status: 403 });
+  }
   const overrideByOrder = new Map(
     (parsed.data.modes ?? []).map((mode) => [mode.orderId, mode.modeOfPayment.trim()]),
   );

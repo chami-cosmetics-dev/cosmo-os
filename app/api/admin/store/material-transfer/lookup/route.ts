@@ -94,6 +94,7 @@ export async function POST(request: NextRequest) {
       slot: parsed.data.slot,
       code: parsed.data.code,
       sourceWarehouse: parsed.data.sourceWarehouse,
+      targetWarehouse: parsed.data.targetWarehouse,
       company: parsed.data.company,
       warehouses,
     });

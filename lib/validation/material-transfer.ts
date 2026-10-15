@@ -10,6 +10,7 @@ export const materialTransferLookupSchema = z.object({
   slot: z.enum(["erp1", "erp2"]),
   code: trimmedString(1, 80),
   sourceWarehouse: trimmedString(1, 200),
+  targetWarehouse: trimmedString(0, 200).optional(),
   company: trimmedString(0, 200).optional(),
 });
 

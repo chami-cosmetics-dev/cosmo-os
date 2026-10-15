@@ -3,11 +3,13 @@ import { z } from "zod";
 
 import {
   groupCashByErpCompany,
+  handoverCompanyName,
   handoverReceiptsCovering,
   handoverSummaryCashAmount,
   latestHandoverReceipt,
+  latestReceiptForCompany,
   listHandoverClosedInvoices,
-  loadRiderHandoverDeliveries,
+  loadScopedRiderHandoverDeliveries,
 } from "@/lib/rider-handover";
 import { requirePermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
@@ -26,7 +28,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
   const companyId = auth.context!.user?.companyId;
-  if (!companyId) {
+  const userId = auth.context!.user?.id;
+  if (!companyId || !userId) {
     return NextResponse.json({ error: "No company associated with your account" }, { status: 404 });
   }
 
@@ -39,8 +42,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Invalid date range" }, { status: 400 });
   }
 
-  const loaded = await loadRiderHandoverDeliveries({
+  const loaded = await loadScopedRiderHandoverDeliveries({
     companyId,
+    userId,
+    roleNames: auth.context!.roleNames,
     riderId: parsed.data.riderId,
     fromYmd: parsed.data.from,
     toYmd: parsed.data.to,
@@ -60,6 +65,9 @@ export async function GET(request: NextRequest) {
       payment: delivery.payment,
     })),
   );
+  const visibleCompanies = new Set(
+    loaded.deliveries.map((delivery) => handoverCompanyName(delivery.erpnextCompany, delivery.locationName)),
+  );
   const [latestReceipt, coveringReceipts] = await Promise.all([
     latestHandoverReceipt({
       companyId,
@@ -74,16 +82,41 @@ export async function GET(request: NextRequest) {
       toYmd: parsed.data.to,
     }),
   ]);
+  const visibleReceipts = coveringReceipts.flatMap((receipt) => {
+    if (receipt.handoverCompany) {
+      return visibleCompanies.has(receipt.handoverCompany) ? [receipt] : [];
+    }
+    const companies = receipt.companies.filter((line) => visibleCompanies.has(line.companyName));
+    if (companies.length === 0) return [];
+    const fullTotal = companies
+      .reduce((sum, line) => sum + Number(line.cashAmount), 0)
+      .toFixed(2);
+    return [{ ...receipt, companies, fullTotal }];
+  });
+  const exactVisible =
+    latestReceipt &&
+    (latestReceipt.handoverCompany
+      ? visibleCompanies.has(latestReceipt.handoverCompany)
+      : latestReceipt.companies.some((line) => visibleCompanies.has(line.companyName)))
+      ? latestReceipt
+      : null;
 
   return NextResponse.json({
     riderId: loaded.riderId,
     riderName: loaded.riderName,
     from: parsed.data.from,
     to: parsed.data.to,
-    companies: grouped.companies,
+    companies: grouped.companies.map((line) => {
+      const received = latestReceiptForCompany(visibleReceipts, line.companyName);
+      return {
+        ...line,
+        receivedAt: received?.receivedAt ?? null,
+        receivedByName: received?.receivedByName ?? null,
+      };
+    }),
     fullTotal: grouped.fullTotal,
     closedInvoices: listHandoverClosedInvoices(loaded.deliveries),
-    latestReceipt,
-    coveringReceipts,
+    latestReceipt: exactVisible,
+    coveringReceipts: visibleReceipts,
   });
 }

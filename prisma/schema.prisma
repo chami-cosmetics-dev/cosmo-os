@@ -1557,16 +1557,19 @@ model RiderFinanceCashReceipt {
   riderId       String
   periodFrom    DateTime @db.Date
   periodTo      DateTime @db.Date
-  receivedById  String
-  receivedAt    DateTime @default(now())
-  companyTotals Json
-  fullTotal     Decimal  @db.Decimal(12, 2)
-  createdAt     DateTime @default(now())
+  receivedById    String
+  receivedAt      DateTime @default(now())
+  /// ERP company this receipt confirms. Null on older receipts that covered every company on the slip.
+  handoverCompany String?
+  companyTotals   Json
+  fullTotal       Decimal  @db.Decimal(12, 2)
+  createdAt       DateTime @default(now())
   company       Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
   rider         User     @relation("RiderFinanceCashReceiptRider", fields: [riderId], references: [id], onDelete: Restrict)
   receivedBy    User     @relation("RiderFinanceCashReceiptReceivedBy", fields: [receivedById], references: [id], onDelete: Restrict)
 
   @@index([companyId, riderId, periodFrom, periodTo])
+  @@index([companyId, riderId, handoverCompany])
   @@index([receivedById])
 }
 

@@ -40,6 +40,7 @@ import {
   companiesForErp2,
   defaultSourceWarehouse,
   defaultTargetWarehouse,
+  erp1RequiresVatItems,
   warehouseOptions,
 } from "@/lib/material-transfer/warehouses";
 import { MaterialTransferHistory } from "@/components/organisms/material-transfer-history";
@@ -79,7 +80,7 @@ export function MaterialTransferPanel() {
   const scanValueRef = useRef("");
   const linesRef = useRef<TransferLine[]>([]);
   const queueRef = useRef<
-    Array<{ code: string; slot: TransferSlot; source: string; company: string }>
+    Array<{ code: string; slot: TransferSlot; source: string; target: string; company: string }>
   >([]);
   const drainingRef = useRef(false);
   linesRef.current = lines;
@@ -189,6 +190,7 @@ export function MaterialTransferPanel() {
               slot: job.slot,
               code: job.code,
               sourceWarehouse: job.source,
+              targetWarehouse: job.target || undefined,
               company: job.slot === "erp2" ? job.company : undefined,
             }),
           });
@@ -222,7 +224,7 @@ export function MaterialTransferPanel() {
     }
     scanValueRef.current = "";
     setScan("");
-    queueRef.current.push({ code, slot, source, company });
+    queueRef.current.push({ code, slot, source, target, company });
     void drainQueue();
     focusScan();
   }
@@ -353,7 +355,9 @@ export function MaterialTransferPanel() {
           </Select>
           <span className="text-muted-foreground text-xs">
             {slot === "erp1"
-              ? "Every ERP1 warehouse."
+              ? erp1RequiresVatItems(source, target)
+                ? "Every ERP1 warehouse. VAT items only."
+                : "OGF moves every item. VAT and non-VAT."
               : "Defaults to the main warehouse. Main and shop warehouses are listed."}
           </span>
         </label>

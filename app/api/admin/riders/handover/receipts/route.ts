@@ -5,10 +5,11 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import {
   groupCashByErpCompany,
+  handoverCompanyName,
   handoverPeriodDates,
   handoverSummaryCashAmount,
-  latestHandoverReceipt,
-  loadRiderHandoverDeliveries,
+  latestCompanyHandoverReceipt,
+  loadScopedRiderHandoverDeliveries,
   receiptDuplicateDecision,
   toStoredReceiptView,
 } from "@/lib/rider-handover";
@@ -21,6 +22,7 @@ const bodySchema = z.object({
   riderId: cuidSchema,
   from: z.string(),
   to: z.string(),
+  companyName: z.string().trim().min(1).max(200),
   confirmDuplicate: z.boolean().optional(),
 });
 
@@ -41,8 +43,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid date range" }, { status: 400 });
   }
 
-  const loaded = await loadRiderHandoverDeliveries({
+  const loaded = await loadScopedRiderHandoverDeliveries({
     companyId,
+    userId,
+    roleNames: auth.context!.roleNames,
     riderId: parsed.data.riderId,
     fromYmd: parsed.data.from,
     toYmd: parsed.data.to,
@@ -54,11 +58,20 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid date range" }, { status: 400 });
   }
 
-  const existing = await latestHandoverReceipt({
+  const companyName = parsed.data.companyName;
+  const companyDeliveries = loaded.deliveries.filter(
+    (delivery) => handoverCompanyName(delivery.erpnextCompany, delivery.locationName) === companyName,
+  );
+  if (companyDeliveries.length === 0) {
+    return NextResponse.json({ error: "That company is outside your assignment for this rider" }, { status: 403 });
+  }
+
+  const existing = await latestCompanyHandoverReceipt({
     companyId,
     riderId: loaded.riderId,
     fromYmd: parsed.data.from,
     toYmd: parsed.data.to,
+    companyName,
   });
   const decision = receiptDuplicateDecision({
     existing,
@@ -67,7 +80,7 @@ export async function POST(request: NextRequest) {
   if (decision.action === "reject") {
     return NextResponse.json(
       {
-        error: "Cash was already marked received for this rider and period",
+        error: `Cash was already marked received for ${companyName}`,
         latestReceipt: decision.existing,
       },
       { status: 409 },
@@ -75,7 +88,7 @@ export async function POST(request: NextRequest) {
   }
 
   const grouped = groupCashByErpCompany(
-    loaded.deliveries.map((delivery) => ({
+    companyDeliveries.map((delivery) => ({
       erpnextCompany: delivery.erpnextCompany,
       locationName: delivery.locationName,
       cashAmount: handoverSummaryCashAmount(delivery),
@@ -90,6 +103,7 @@ export async function POST(request: NextRequest) {
       periodFrom: dates.periodFrom,
       periodTo: dates.periodTo,
       receivedById: userId,
+      handoverCompany: companyName,
       companyTotals: grouped.companies as Prisma.InputJsonValue,
       fullTotal: grouped.fullTotal,
     },

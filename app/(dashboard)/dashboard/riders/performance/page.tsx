@@ -23,6 +23,7 @@ export default async function RiderPerformancePage() {
   const canViewRiders = hasPermission(auth.context, "riders.read");
   const canHandoverSummary = hasPermission(auth.context, "riders.handover.summary");
   const canHandoverReceive = hasPermission(auth.context, "riders.handover.receive");
+  const canExportHandover = hasPermission(auth.context, "riders.handover.export");
   const riders =
     canHandoverSummary || canHandoverReceive
       ? (await fetchRiderRoster(auth.context.user?.companyId ?? null)).map((rider) => ({
@@ -47,6 +48,7 @@ export default async function RiderPerformancePage() {
         canExportIncentive={canExportIncentive}
         canHandoverSummary={canHandoverSummary}
         canHandoverReceive={canHandoverReceive}
+        canExportHandover={canExportHandover}
         riders={riders}
       />
     </div>

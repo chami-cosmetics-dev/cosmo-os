@@ -2,7 +2,10 @@ import "server-only";
 
 import { Prisma, type DeliveryPaymentMethod, type ErpnextInstance, type FulfillmentStage } from "@prisma/client";
 
-import { getFinancePaymentApprovalBlockReason } from "@/lib/approval-workflow";
+import {
+  getFinancePaymentApprovalBlockReason,
+  resolveViewerFinanceLocationIds,
+} from "@/lib/approval-workflow";
 import { isMintpayGateway } from "@/lib/payment-gateway-match";
 import {
   isAllowedCompanyErpPaymentMode,
@@ -11,7 +14,13 @@ import {
 } from "@/lib/erp-payment-modes";
 import { getErpConfig, resolveOrderPaymentMop } from "@/lib/erpnext-sync";
 import { formatInvoiceOrderReference } from "@/lib/fulfillment-order-reference";
-import { formatAppIsoCalendarDate, parseAppCalendarDayEnd, parseAppCalendarDayStart } from "@/lib/format-datetime";
+import {
+  formatAppIsoCalendarDate,
+  formatAppIsoDate,
+  formatAppIsoDateTime,
+  parseAppCalendarDayEnd,
+  parseAppCalendarDayStart,
+} from "@/lib/format-datetime";
 import { cashAmountFromDeliveryPayment } from "@/lib/mobile/payment-lines";
 import { resolveOrderDisplayTotal } from "@/lib/order-shipping-display";
 import { prisma } from "@/lib/prisma";
@@ -91,6 +100,49 @@ export function handoverCashAmount(input: {
   });
   const total = new Prisma.Decimal(amount);
   return total.gt(0) ? total : new Prisma.Decimal(0);
+}
+
+/** `null` location ids means the viewer may see every company. */
+export function filterHandoverDeliveries<T extends { locationId: string }>(
+  deliveries: T[],
+  locationIds: string[] | null,
+): T[] {
+  if (locationIds == null) return deliveries;
+  const allowed = new Set(locationIds);
+  return deliveries.filter((delivery) => allowed.has(delivery.locationId));
+}
+
+export function groupDeliveriesByCompany<T extends { erpnextCompany: string | null; locationName: string }>(
+  deliveries: T[],
+): Array<{ companyName: string; deliveries: T[] }> {
+  const grouped = new Map<string, T[]>();
+  for (const delivery of deliveries) {
+    const companyName = handoverCompanyName(delivery.erpnextCompany, delivery.locationName);
+    const rows = grouped.get(companyName) ?? [];
+    rows.push(delivery);
+    grouped.set(companyName, rows);
+  }
+  return Array.from(grouped.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([companyName, rows]) => ({ companyName, deliveries: rows }));
+}
+
+export function receiptCoversCompany(
+  receipt: { handoverCompany?: string | null; companies: Array<{ companyName: string }> },
+  companyName: string,
+): boolean {
+  const named = receipt.handoverCompany?.trim();
+  if (named) return named === companyName;
+  return receipt.companies.some((line) => line.companyName === companyName);
+}
+
+export function latestReceiptForCompany<T extends { receivedAt: string; handoverCompany?: string | null; companies: Array<{ companyName: string }> }>(
+  receipts: T[],
+  companyName: string,
+): T | null {
+  const matches = receipts.filter((receipt) => receiptCoversCompany(receipt, companyName));
+  matches.sort((a, b) => (a.receivedAt < b.receivedAt ? 1 : a.receivedAt > b.receivedAt ? -1 : 0));
+  return matches[0] ?? null;
 }
 
 export function handoverCompanyName(
@@ -248,6 +300,8 @@ export type HandoverDelivery = {
   erpnextInvoiceId: string | null;
   fulfillmentStage: FulfillmentStage;
   invoiceCompleteAt: Date | null;
+  deliveredAt: Date | null;
+  locationId: string;
   erpnextCompany: string | null;
   locationName: string;
   erpInstance: ErpnextInstance | null;
@@ -300,6 +354,7 @@ export async function loadRiderHandoverDeliveries(input: {
     },
     orderBy: { completedAt: "asc" },
     select: {
+      completedAt: true,
       order: {
         select: {
           id: true,
@@ -317,6 +372,7 @@ export async function loadRiderHandoverDeliveries(input: {
           invoiceCompleteAt: true,
           companyLocation: {
             select: {
+              id: true,
               name: true,
               erpnextCompany: true,
               erpnextInstance: true,
@@ -362,6 +418,8 @@ export async function loadRiderHandoverDeliveries(input: {
       erpnextInvoiceId: order.erpnextInvoiceId,
       fulfillmentStage: order.fulfillmentStage,
       invoiceCompleteAt: order.invoiceCompleteAt,
+      deliveredAt: task.completedAt,
+      locationId: order.companyLocation.id,
       erpnextCompany: order.companyLocation.erpnextCompany,
       locationName: order.companyLocation.name,
       erpInstance: order.companyLocation.erpnextInstance,
@@ -386,6 +444,8 @@ export type HandoverOrderView = {
   orderNumber: string;
   ref: string;
   companyName: string;
+  locationId: string;
+  deliveredAt: string | null;
   cashAmount: string;
   collectedAmount: string;
   paymentMethod: string | null;
@@ -493,6 +553,8 @@ export async function buildHandoverOrders(deliveries: HandoverDelivery[]): Promi
       orderNumber: delivery.orderNumber,
       ref: delivery.ref,
       companyName: handoverCompanyName(delivery.erpnextCompany, delivery.locationName),
+      locationId: delivery.locationId,
+      deliveredAt: delivery.deliveredAt?.toISOString() ?? null,
       cashAmount: delivery.cashAmount,
       collectedAmount: delivery.collectedAmount,
       paymentMethod: delivery.paymentMethod,
@@ -516,6 +578,7 @@ export type StoredReceiptView = {
   periodTo: string;
   receivedAt: string;
   receivedByName: string;
+  handoverCompany: string | null;
   companies: CompanyCashLine[];
   fullTotal: string;
 };
@@ -525,6 +588,7 @@ export function toStoredReceiptView(receipt: {
   periodFrom: Date;
   periodTo: Date;
   receivedAt: Date;
+  handoverCompany?: string | null;
   fullTotal: Prisma.Decimal | number | string;
   companyTotals: Prisma.JsonValue;
   receivedBy: { name: string | null; knownName: string | null };
@@ -543,6 +607,7 @@ export function toStoredReceiptView(receipt: {
     periodTo: formatAppIsoCalendarDate(receipt.periodTo),
     receivedAt: receipt.receivedAt.toISOString(),
     receivedByName: receipt.receivedBy.knownName?.trim() || receipt.receivedBy.name?.trim() || "Staff",
+    handoverCompany: receipt.handoverCompany?.trim() || null,
     companies,
     fullTotal: new Prisma.Decimal(receipt.fullTotal.toString()).toFixed(2),
   };
@@ -568,6 +633,27 @@ export async function latestHandoverReceipt(input: {
   return receipt ? toStoredReceiptView(receipt) : null;
 }
 
+export async function latestCompanyHandoverReceipt(input: {
+  companyId: string;
+  riderId: string;
+  fromYmd: string;
+  toYmd: string;
+  companyName: string;
+}): Promise<StoredReceiptView | null> {
+  const dates = handoverPeriodDates(input.fromYmd, input.toYmd);
+  const receipts = await prisma.riderFinanceCashReceipt.findMany({
+    where: {
+      companyId: input.companyId,
+      riderId: input.riderId,
+      periodFrom: dates.periodFrom,
+      periodTo: dates.periodTo,
+    },
+    orderBy: { receivedAt: "desc" },
+    include: { receivedBy: { select: { name: true, knownName: true } } },
+  });
+  return latestReceiptForCompany(receipts.map(toStoredReceiptView), input.companyName);
+}
+
 /** Receipts whose period overlaps this summary, newest first. */
 export async function handoverReceiptsCovering(input: {
   companyId: string;
@@ -587,4 +673,189 @@ export async function handoverReceiptsCovering(input: {
     include: { receivedBy: { select: { name: true, knownName: true } } },
   });
   return receipts.map(toStoredReceiptView);
+}
+
+export async function loadScopedRiderHandoverDeliveries(input: {
+  companyId: string;
+  userId: string;
+  roleNames: string[];
+  riderId: string;
+  fromYmd: string;
+  toYmd: string;
+}): Promise<HandoverLoadResult> {
+  const loaded = await loadRiderHandoverDeliveries(input);
+  if (!loaded.ok) return loaded;
+  const locationIds = await resolveViewerFinanceLocationIds(input.userId, input.companyId, input.roleNames);
+  return {
+    ...loaded,
+    deliveries: filterHandoverDeliveries(loaded.deliveries, locationIds),
+  };
+}
+
+export function handoverExportCsv(
+  rows: Array<{
+    riderName: string;
+    companyName: string;
+    orderNumber: string;
+    cashAmount: string;
+    deliveredAt: Date | string | null;
+    invoiceCompleteAt: Date | string | null;
+    receivedByName: string | null;
+    receivedAt: Date | string | null;
+  }>,
+): string {
+  const header = [
+    "Rider",
+    "Company",
+    "Order",
+    "Cash",
+    "Delivery complete",
+    "Invoice complete",
+    "Money received by",
+    "Money received at",
+  ];
+  const lines = rows.map((row) =>
+    [
+      row.riderName,
+      row.companyName,
+      row.orderNumber,
+      row.cashAmount,
+      formatAppIsoDateTime(row.deliveredAt),
+      formatAppIsoDateTime(row.invoiceCompleteAt),
+      row.receivedByName ?? "",
+      formatAppIsoDateTime(row.receivedAt),
+    ]
+      .map(csvCell)
+      .join(","),
+  );
+  return [header.join(","), ...lines].join("\r\n");
+}
+
+function csvCell(value: string): string {
+  const text = value.replaceAll('"', '""');
+  if (/[",\r\n]/.test(text) || /^[=+\-@]/.test(text)) return `"${text}"`;
+  return text;
+}
+
+export function matchReceiptForDelivery<
+  T extends {
+    receivedAt: string;
+    periodFrom: string;
+    periodTo: string;
+    handoverCompany?: string | null;
+    companies: Array<{ companyName: string }>;
+  },
+>(receipts: T[], companyName: string, deliveredAt: Date | null): T | null {
+  if (!deliveredAt) return null;
+  const day = formatAppIsoDate(deliveredAt);
+  if (!day) return null;
+  const matches = receipts.filter(
+    (receipt) =>
+      receiptCoversCompany(receipt, companyName) &&
+      handoverReceiptOverlaps({
+        receiptFrom: receipt.periodFrom,
+        receiptTo: receipt.periodTo,
+        from: day,
+        to: day,
+      }),
+  );
+  matches.sort((a, b) => (a.receivedAt < b.receivedAt ? 1 : a.receivedAt > b.receivedAt ? -1 : 0));
+  return matches[0] ?? null;
+}
+
+export type HandoverStatusExportRow = {
+  riderName: string;
+  companyName: string;
+  orderNumber: string;
+  cashAmount: string;
+  deliveredAt: Date | null;
+  invoiceCompleteAt: Date | null;
+  receivedByName: string | null;
+  receivedAt: Date | null;
+};
+
+export async function loadHandoverStatusExport(input: {
+  companyId: string;
+  fromYmd: string;
+  toYmd: string;
+  riderId?: string | null;
+  locationIds: string[] | null;
+}): Promise<{ ok: true; csv: string } | { ok: false; error: "invalid_range" }> {
+  const range = parseHandoverRange(input.fromYmd, input.toYmd);
+  if (!range) return { ok: false, error: "invalid_range" };
+  const dates = handoverPeriodDates(input.fromYmd, input.toYmd);
+  const tasks = await prisma.riderDeliveryTask.findMany({
+    where: {
+      status: "completed",
+      completedAt: { gte: range.from, lte: range.to },
+      ...(input.riderId ? { riderId: input.riderId } : {}),
+      order: {
+        companyId: input.companyId,
+        ...(input.locationIds ? { companyLocationId: { in: input.locationIds } } : {}),
+      },
+    },
+    orderBy: [{ completedAt: "asc" }],
+    select: {
+      completedAt: true,
+      rider: { select: { id: true, name: true, knownName: true } },
+      order: {
+        select: {
+          orderNumber: true,
+          name: true,
+          sourceName: true,
+          shopifyOrderId: true,
+          erpnextInvoiceId: true,
+          totalPrice: true,
+          subtotalPrice: true,
+          totalShipping: true,
+          paymentGatewayPrimary: true,
+          paymentGatewayNames: true,
+          invoiceCompleteAt: true,
+          fulfillmentStage: true,
+          companyLocation: { select: { id: true, name: true, erpnextCompany: true } },
+        },
+      },
+    },
+  });
+  const receipts = await prisma.riderFinanceCashReceipt.findMany({
+    where: {
+      companyId: input.companyId,
+      ...(input.riderId ? { riderId: input.riderId } : {}),
+      periodFrom: { lte: dates.periodTo },
+      periodTo: { gte: dates.periodFrom },
+    },
+    orderBy: { receivedAt: "desc" },
+    include: { receivedBy: { select: { name: true, knownName: true } } },
+  });
+  const receiptsByRider = new Map<string, StoredReceiptView[]>();
+  for (const receipt of receipts) {
+    const view = toStoredReceiptView(receipt);
+    const list = receiptsByRider.get(receipt.riderId) ?? [];
+    list.push(view);
+    receiptsByRider.set(receipt.riderId, list);
+  }
+  const rows: HandoverStatusExportRow[] = tasks.map((task) => {
+    const order = task.order;
+    const companyName = handoverCompanyName(order.companyLocation.erpnextCompany, order.companyLocation.name);
+    const riderName = task.rider.knownName?.trim() || task.rider.name?.trim() || "Rider";
+    const matched = matchReceiptForDelivery(receiptsByRider.get(task.rider.id) ?? [], companyName, task.completedAt);
+    return {
+      riderName,
+      companyName,
+      orderNumber: handoverOrderNumber(order),
+      cashAmount: handoverCashAmount({
+        totalPrice: order.totalPrice,
+        subtotalPrice: order.subtotalPrice,
+        totalShipping: order.totalShipping,
+        paymentGatewayPrimary: order.paymentGatewayPrimary,
+        paymentGatewayNames: order.paymentGatewayNames,
+      }).toFixed(2),
+      deliveredAt: task.completedAt,
+      invoiceCompleteAt: order.invoiceCompleteAt,
+      receivedByName: matched?.receivedByName ?? null,
+      receivedAt: matched ? new Date(matched.receivedAt) : null,
+    };
+  });
+  rows.sort((a, b) => a.companyName.localeCompare(b.companyName) || a.riderName.localeCompare(b.riderName));
+  return { ok: true, csv: handoverExportCsv(rows) };
 }
