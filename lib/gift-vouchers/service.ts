@@ -213,6 +213,86 @@ export async function createGiftVoucherGroup(
   }
 }
 
+const groupOptionSelect = {
+  id: true,
+  groupNumber: true,
+  name: true,
+  codePrefix: true,
+  quantity: true,
+  startDate: true,
+  endDate: true,
+} satisfies Prisma.GiftVoucherGroupSelect;
+
+/**
+ * Edit a group's name, Coupon Code Prefix and active dates. The codes, quantity and group
+ * number never change. New dates apply to every code in the group, including when it is
+ * checked or applied to an order; codes already used stay used.
+ */
+export async function updateGiftVoucherGroup(input: {
+  companyId: string;
+  actorUserId: string | null;
+  groupId: string;
+  name: string;
+  codePrefix: string;
+  startDate: string;
+  endDate: string;
+}): Promise<Result<GiftVoucherGroupOption>> {
+  const { companyId, groupId } = input;
+
+  const before = await prisma.giftVoucherGroup.findFirst({
+    where: { id: groupId, companyId },
+    select: groupOptionSelect,
+  });
+  if (!before) return { ok: false, status: 404, error: "Group not found." };
+
+  const nameTaken = await prisma.giftVoucherGroup.findFirst({
+    where: { companyId, id: { not: groupId }, name: { equals: input.name, mode: "insensitive" } },
+    select: { id: true },
+  });
+  if (nameTaken) return { ok: false, status: 409, error: `A group named "${input.name}" already exists.` };
+
+  let after: GiftVoucherGroupOption;
+  try {
+    after = toGroupOption(
+      await prisma.giftVoucherGroup.update({
+        where: { id: groupId },
+        data: {
+          name: input.name,
+          codePrefix: input.codePrefix,
+          startDate: dateOnly(input.startDate),
+          endDate: dateOnly(input.endDate),
+        },
+        select: groupOptionSelect,
+      }),
+    );
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      return { ok: false, status: 409, error: `A group named "${input.name}" already exists.` };
+    }
+    throw error;
+  }
+
+  const previous = toGroupOption(before);
+  const changed = (["name", "codePrefix", "startDate", "endDate"] as const).filter(
+    (key) => previous[key] !== after[key],
+  );
+  if (changed.length > 0) {
+    await writeAuditLog({
+      companyId,
+      actorUserId: input.actorUserId,
+      module: "products",
+      action: "gift_voucher_group_updated",
+      entityType: "gift_voucher_group",
+      entityId: groupId,
+      summary: `Updated gift voucher group #${after.groupNumber} "${after.name}" (${changed.join(", ")})`,
+      beforeData: previous,
+      afterData: after,
+    });
+  }
+
+  return { ok: true, data: after };
+}
+
 class GroupConflictError extends Error {}
 
 type Tx = Prisma.TransactionClient;
@@ -325,7 +405,7 @@ export async function listGiftVoucherCodes(input: {
         orderNo: true,
         usedAt: true,
         phoneNo: true,
-        group: { select: { groupNumber: true, name: true, startDate: true, endDate: true } },
+        group: { select: { id: true, codePrefix: true, name: true, startDate: true, endDate: true } },
       },
     }),
   ]);
@@ -337,7 +417,8 @@ export async function listGiftVoucherCodes(input: {
       id: c.id,
       code: c.code,
       status: deriveGiftVoucherStatus({ used: c.used, startDate, endDate, today }),
-      groupNumber: c.group.groupNumber,
+      groupId: c.group.id,
+      codePrefix: c.group.codePrefix,
       groupName: c.group.name,
       startDate,
       endDate,

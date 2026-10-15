@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, Plus, Search, Ticket } from "lucide-react";
+import { Loader2, Pencil, Plus, RefreshCw, Search, Ticket } from "lucide-react";
 
 import { TableSkeleton } from "@/components/skeletons/table-skeleton";
 import { Button } from "@/components/ui/button";
@@ -76,6 +76,23 @@ const EMPTY_FORM: GroupForm = {
   mode: "manual",
   codesText: "",
   quantity: "",
+  startDate: "",
+  endDate: "",
+};
+
+type EditGroupForm = {
+  /** Name when the editor was opened, for the sheet description. */
+  groupName: string;
+  name: string;
+  codePrefix: string;
+  startDate: string;
+  endDate: string;
+};
+
+const EMPTY_EDIT_FORM: EditGroupForm = {
+  groupName: "",
+  name: "",
+  codePrefix: "",
   startDate: "",
   endDate: "",
 };
@@ -172,6 +189,10 @@ export function GiftVouchersPanel({ canManage }: { canManage: boolean }) {
   const [form, setForm] = useState<GroupForm>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const parsedCodes = useMemo(() => parseVoucherCodeList(form.codesText), [form.codesText]);
+
+  const [editGroupId, setEditGroupId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState<EditGroupForm>(EMPTY_EDIT_FORM);
+  const [editSaving, setEditSaving] = useState(false);
 
   // Debounce the batch code filter so typing doesn't fire a request per key.
   useEffect(() => {
@@ -271,6 +292,54 @@ export function GiftVouchersPanel({ canManage }: { canManage: boolean }) {
     }
   }
 
+  function openEditGroup(row: GiftVoucherCodeRow) {
+    setEditGroupId(row.groupId);
+    setEditForm({
+      groupName: row.groupName,
+      name: row.groupName,
+      codePrefix: row.codePrefix,
+      startDate: row.startDate,
+      endDate: row.endDate,
+    });
+  }
+
+  async function saveEditGroup() {
+    if (!editGroupId) return;
+    setEditSaving(true);
+    try {
+      const res = await fetch(`/api/admin/products/gift-vouchers/groups/${editGroupId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: editForm.name,
+          codePrefix: editForm.codePrefix,
+          startDate: editForm.startDate,
+          endDate: editForm.endDate,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        notify.error(data.error ?? "Could not update the group");
+        return;
+      }
+      notify.success(`Updated group "${data.group.name}"`);
+      setEditGroupId(null);
+      await loadGroups();
+      setRefreshKey((key) => key + 1);
+    } catch {
+      notify.error("Could not update the group");
+    } finally {
+      setEditSaving(false);
+    }
+  }
+
+  const editFormValid =
+    editForm.name.trim() &&
+    /^[A-Z0-9-]{1,20}$/.test(editForm.codePrefix.trim()) &&
+    editForm.startDate &&
+    editForm.endDate &&
+    editForm.endDate >= editForm.startDate;
+
   const prefixPreview = form.codePrefix.trim().toUpperCase();
   const codesValid =
     form.mode === "generate"
@@ -312,9 +381,23 @@ export function GiftVouchersPanel({ canManage }: { canManage: boolean }) {
       <CheckCodeCard />
 
       <Card>
-        <CardHeader>
-          <CardTitle>Gift Vouchers</CardTitle>
-          <CardDescription>{total.toLocaleString("en-LK")} codes match the current filters.</CardDescription>
+        <CardHeader className="flex flex-row items-start justify-between gap-4">
+          <div className="space-y-1.5">
+            <CardTitle>Gift Vouchers</CardTitle>
+            <CardDescription>{total.toLocaleString("en-LK")} codes match the current filters.</CardDescription>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              void loadGroups();
+              setRefreshKey((key) => key + 1);
+            }}
+            disabled={loading}
+          >
+            <RefreshCw className={cn("size-4", loading && "animate-spin")} aria-hidden />
+            Refresh
+          </Button>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -406,8 +489,25 @@ export function GiftVouchersPanel({ canManage }: { canManage: boolean }) {
                   {rows.map((row) => (
                     <tr key={row.id} className="border-b border-border/50 last:border-0 hover:bg-secondary/10">
                       <td className="px-4 py-2.5">
-                        <p className="font-medium">{row.groupName}</p>
-                        <p className="text-muted-foreground text-xs">#{row.groupNumber}</p>
+                        <div className="flex items-start gap-1">
+                          <div>
+                            <p className="font-medium">{row.groupName}</p>
+                            <p className="text-muted-foreground font-mono text-xs">{row.codePrefix}</p>
+                          </div>
+                          {canManage ? (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="size-7 shrink-0"
+                              onClick={() => openEditGroup(row)}
+                              aria-label={`Edit group ${row.groupName}`}
+                              title="Edit group"
+                            >
+                              <Pencil className="size-3.5" aria-hidden />
+                            </Button>
+                          ) : null}
+                        </div>
                       </td>
                       <td className="px-4 py-2.5 font-mono">{row.code}</td>
                       <td className="px-4 py-2.5"><StatusBadge status={row.status} /></td>
@@ -517,6 +617,49 @@ export function GiftVouchersPanel({ canManage }: { canManage: boolean }) {
               <Button variant="outline" onClick={() => setSheetOpen(false)} disabled={saving}>Cancel</Button>
               <Button onClick={saveGroup} disabled={saving || !formValid}>
                 {saving ? <><Loader2 className="size-4 animate-spin" aria-hidden />Creating...</> : "Create group"}
+              </Button>
+            </SheetFooter>
+          </SheetContent>
+        </Sheet>
+      ) : null}
+
+      {canManage ? (
+        <Sheet open={editGroupId !== null} onOpenChange={(open) => { if (!open && !editSaving) setEditGroupId(null); }}>
+          <SheetContent className="overflow-y-auto">
+            <SheetHeader>
+              <SheetTitle>Edit group</SheetTitle>
+              <SheetDescription>
+                Changes apply to every code in &ldquo;{editForm.groupName}&rdquo;. The batch codes themselves can&apos;t be changed, and codes already used stay used.
+              </SheetDescription>
+            </SheetHeader>
+            <div className="space-y-4 px-4">
+              <div className="space-y-1">
+                <label htmlFor="gv-edit-name" className="text-sm font-medium">Group name</label>
+                <Input id="gv-edit-name" value={editForm.name} onChange={(event) => setEditForm({ ...editForm, name: event.target.value })} disabled={editSaving} />
+              </div>
+              <div className="space-y-1">
+                <label htmlFor="gv-edit-prefix" className="text-sm font-medium">Coupon Code Prefix</label>
+                <Input id="gv-edit-prefix" value={editForm.codePrefix} onChange={(event) => setEditForm({ ...editForm, codePrefix: event.target.value.toUpperCase() })} maxLength={20} disabled={editSaving} />
+                <p className="text-muted-foreground text-xs">Orders whose coupon starts with this word can apply this group&apos;s batch codes.</p>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label htmlFor="gv-edit-start" className="text-sm font-medium">Start date</label>
+                  <Input id="gv-edit-start" type="date" value={editForm.startDate} onChange={(event) => setEditForm({ ...editForm, startDate: event.target.value })} disabled={editSaving} />
+                </div>
+                <div className="space-y-1">
+                  <label htmlFor="gv-edit-end" className="text-sm font-medium">End date</label>
+                  <Input id="gv-edit-end" type="date" value={editForm.endDate} min={editForm.startDate || undefined} onChange={(event) => setEditForm({ ...editForm, endDate: event.target.value })} disabled={editSaving} />
+                </div>
+              </div>
+              {editForm.startDate && editForm.endDate && editForm.endDate < editForm.startDate ? (
+                <p className="text-destructive text-xs">End date must be on or after the start date.</p>
+              ) : null}
+            </div>
+            <SheetFooter>
+              <Button variant="outline" onClick={() => setEditGroupId(null)} disabled={editSaving}>Cancel</Button>
+              <Button onClick={saveEditGroup} disabled={editSaving || !editFormValid}>
+                {editSaving ? <><Loader2 className="size-4 animate-spin" aria-hidden />Saving...</> : "Save changes"}
               </Button>
             </SheetFooter>
           </SheetContent>

@@ -76,6 +76,7 @@ export const AUDIT_LOG_ACTIONS = [
   "merchant_loyalty_contacted",
   "call_queue_assign",
   "gift_voucher_group_created",
+  "gift_voucher_group_updated",
   "gift_voucher_code_used",
 ] as const;
 
@@ -173,6 +174,7 @@ export const AUDIT_LOG_ACTION_GROUPS = [
       "storage_file_uploaded",
       "storage_file_deleted",
       "gift_voucher_group_created",
+      "gift_voucher_group_updated",
       "gift_voucher_code_used",
     ],
   },

@@ -30,8 +30,9 @@ const orderSelect = {
   customerPhone: true,
   shippingAddress: true,
   billingAddress: true,
-  giftVoucherCode: {
+  giftVoucherCodes: {
     select: { code: true, usedAt: true, group: { select: { name: true } } },
+    orderBy: [{ usedAt: "asc" }, { code: "asc" }],
   },
 } satisfies Prisma.OrderSelect;
 
@@ -51,14 +52,12 @@ function orderCoupons(order: OrderForVoucher): string[] {
   return [...new Set(coupons)];
 }
 
-function toApplied(order: OrderForVoucher): OrderGiftVoucherApplied | null {
-  const applied = order.giftVoucherCode;
-  if (!applied) return null;
-  return {
+function toApplied(order: OrderForVoucher): OrderGiftVoucherApplied[] {
+  return order.giftVoucherCodes.map((applied) => ({
     code: applied.code,
     groupName: applied.group.name,
     usedAt: applied.usedAt?.toISOString() ?? null,
-  };
+  }));
 }
 
 /** Coupons whose first word matches a voucher group prefix, and the prefixes they matched. */
@@ -105,31 +104,25 @@ class ApplyError extends Error {
 }
 
 /**
- * Apply a batch code to an order. Validation and the USED update run in one transaction,
- * and the update only succeeds while the code is still unused, so two orders can never
- * redeem the same code. The unique orderId keeps it to one batch code per order.
+ * Apply one or more batch codes to an order. Every code is validated and flipped to USED in a
+ * single transaction, so either all of them are applied or none are. Each update only succeeds
+ * while that code is still unused, so two orders can never redeem the same code.
  */
-export async function applyGiftVoucherToOrder(input: {
+export async function applyGiftVouchersToOrder(input: {
   companyId: string;
   orderId: string;
   actorUserId: string | null;
-  code: string;
-}): Promise<Result<OrderGiftVoucherApplied>> {
+  codes: string[];
+}): Promise<Result<OrderGiftVoucherApplied[]>> {
   const { companyId } = input;
-  const code = normalizeVoucherCode(input.code);
+  const codes = [...new Set(input.codes.map(normalizeVoucherCode).filter(Boolean))];
+  if (codes.length === 0) return { ok: false, status: 400, error: "Enter at least one batch code." };
 
   const order = await prisma.order.findFirst({
     where: { id: input.orderId, companyId },
     select: orderSelect,
   });
   if (!order) return { ok: false, status: 404, error: "Order not found." };
-  if (order.giftVoucherCode) {
-    return {
-      ok: false,
-      status: 409,
-      error: `This order already has batch code ${order.giftVoucherCode.code}.`,
-    };
-  }
 
   const { matchedPrefixes } = await matchVoucherCoupons(companyId, orderCoupons(order));
   if (matchedPrefixes.length === 0) {
@@ -139,76 +132,131 @@ export async function applyGiftVoucherToOrder(input: {
   const orderNo = resolveOrderNumber(order) || order.id;
   const phoneNo = resolveCustomerPhone(order) ?? null;
   const usedAt = new Date();
+  const today = formatAppIsoDate(usedAt);
 
-  let applied: { code: string; groupName: string };
+  let applied: { code: string; groupName: string }[];
   try {
     applied = await prisma.$transaction(async (tx) => {
-      const found = await tx.giftVoucherCode.findUnique({
-        where: { companyId_code: { companyId, code } },
+      const found = await tx.giftVoucherCode.findMany({
+        where: { companyId, code: { in: codes } },
         select: {
           id: true,
+          code: true,
           used: true,
+          orderId: true,
           orderNo: true,
           group: { select: { name: true, codePrefix: true, startDate: true, endDate: true } },
         },
       });
-      if (!found) throw new ApplyError(`Batch code ${code} was not found.`, 404);
+      const byCode = new Map(found.map((row) => [row.code, row]));
 
-      if (!matchedPrefixes.includes(found.group.codePrefix)) {
-        throw new ApplyError(
-          `Batch code ${code} belongs to a different group ("${found.group.name}") that does not match this order's coupon.`,
-          400,
-        );
+      for (const code of codes) {
+        const row = byCode.get(code);
+        if (!row) throw new ApplyError(`Batch code ${code} was not found.`, 404);
+
+        if (!matchedPrefixes.includes(row.group.codePrefix)) {
+          throw new ApplyError(
+            `Batch code ${code} belongs to a different group ("${row.group.name}") that does not match this order's coupon.`,
+            400,
+          );
+        }
+
+        const startDate = dateOnlyString(row.group.startDate);
+        const endDate = dateOnlyString(row.group.endDate);
+        const status = deriveGiftVoucherStatus({ used: row.used, startDate, endDate, today });
+        if (status === "USED") {
+          const where = row.orderId === order.id ? "on this order" : row.orderNo ? `on order ${row.orderNo}` : "";
+          throw new ApplyError(`Batch code ${code} is already used${where ? ` ${where}` : ""}.`, 409);
+        }
+        if (status === "EXPIRED") throw new ApplyError(`Batch code ${code} expired on ${endDate}.`, 400);
+        if (status === "PENDING") {
+          throw new ApplyError(`Batch code ${code} is not active until ${startDate}.`, 400);
+        }
       }
 
-      const startDate = dateOnlyString(found.group.startDate);
-      const endDate = dateOnlyString(found.group.endDate);
-      const status = deriveGiftVoucherStatus({
-        used: found.used,
-        startDate,
-        endDate,
-        today: formatAppIsoDate(usedAt),
-      });
-      if (status === "USED") {
-        throw new ApplyError(
-          `Batch code ${code} is already used${found.orderNo ? ` on order ${found.orderNo}` : ""}.`,
-          409,
-        );
-      }
-      if (status === "EXPIRED") throw new ApplyError(`Batch code ${code} expired on ${endDate}.`, 400);
-      if (status === "PENDING") {
-        throw new ApplyError(`Batch code ${code} is not active until ${startDate}.`, 400);
+      // Conditional updates: only one concurrent request can flip an unused code to USED,
+      // and any failure here rolls back the codes already updated in this transaction.
+      for (const code of codes) {
+        const row = byCode.get(code)!;
+        const updated = await tx.giftVoucherCode.updateMany({
+          where: { id: row.id, used: false },
+          data: { used: true, orderId: order.id, orderNo, phoneNo, usedAt },
+        });
+        if (updated.count === 0) {
+          throw new ApplyError(`Batch code ${code} was just used on another order.`, 409);
+        }
       }
 
-      // Conditional update: only one concurrent request can flip an unused code to USED.
-      const updated = await tx.giftVoucherCode.updateMany({
-        where: { id: found.id, used: false },
-        data: { used: true, orderId: order.id, orderNo, phoneNo, usedAt },
-      });
-      if (updated.count === 0) {
-        throw new ApplyError(`Batch code ${code} was just used on another order.`, 409);
-      }
-
-      return { code, groupName: found.group.name };
+      return codes.map((code) => ({ code, groupName: byCode.get(code)!.group.name }));
     });
   } catch (error) {
     if (error instanceof ApplyError) return { ok: false, status: error.status, error: error.message };
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-      return { ok: false, status: 409, error: "This order already has a batch code." };
-    }
     throw error;
   }
 
-  await writeAuditLog({
-    companyId,
-    actorUserId: input.actorUserId,
-    module: "products",
-    action: "gift_voucher_code_used",
-    entityType: "gift_voucher_code",
-    entityId: applied.code,
-    summary: `Gift voucher ${applied.code} (${applied.groupName}) applied to order ${orderNo}`,
-    afterData: { code: applied.code, group: applied.groupName, orderId: order.id, orderNo, phoneNo, usedAt },
-  });
+  for (const row of applied) {
+    await writeAuditLog({
+      companyId,
+      actorUserId: input.actorUserId,
+      module: "products",
+      action: "gift_voucher_code_used",
+      entityType: "gift_voucher_code",
+      entityId: row.code,
+      summary: `Gift voucher ${row.code} (${row.groupName}) applied to order ${orderNo}`,
+      afterData: { code: row.code, group: row.groupName, orderId: order.id, orderNo, phoneNo, usedAt },
+    });
+  }
 
-  return { ok: true, data: { ...applied, usedAt: usedAt.toISOString() } };
+  return {
+    ok: true,
+    data: applied.map((row) => ({ ...row, usedAt: usedAt.toISOString() })),
+  };
+}
+
+const SUGGESTION_LIMIT = 10;
+
+/**
+ * Batch codes that could be applied to this order right now and contain the typed text:
+ * unused, active today, and in a group whose prefix matches one of the order's coupons.
+ */
+export async function suggestGiftVoucherCodes(input: {
+  companyId: string;
+  orderId: string;
+  query: string;
+}): Promise<{ code: string; groupName: string }[]> {
+  const { companyId } = input;
+  const query = normalizeVoucherCode(input.query);
+  if (!query) return [];
+  // Generated codes have no dashes, so "COS-143" should still find COS143xxxxx codes.
+  const undashed = query.replace(/-/g, "");
+
+  const order = await prisma.order.findFirst({
+    where: { id: input.orderId, companyId },
+    select: orderSelect,
+  });
+  if (!order) return [];
+
+  const { matchedPrefixes } = await matchVoucherCoupons(companyId, orderCoupons(order));
+  if (matchedPrefixes.length === 0) return [];
+
+  const today = new Date(`${formatAppIsoDate(new Date())}T00:00:00.000Z`);
+  const rows = await prisma.giftVoucherCode.findMany({
+    where: {
+      companyId,
+      used: false,
+      OR: [
+        { code: { contains: query } },
+        ...(undashed && undashed !== query ? [{ code: { contains: undashed } }] : []),
+      ],
+      group: {
+        codePrefix: { in: matchedPrefixes },
+        startDate: { lte: today },
+        endDate: { gte: today },
+      },
+    },
+    orderBy: { code: "asc" },
+    take: SUGGESTION_LIMIT,
+    select: { code: true, group: { select: { name: true } } },
+  });
+  return rows.map((row) => ({ code: row.code, groupName: row.group.name }));
 }

@@ -75,3 +75,19 @@ export const giftVoucherCodeListQuerySchema = z.object({
 export const giftVoucherCheckQuerySchema = z.object({
   code: trimmedString(1, 60),
 });
+
+/** Editable group fields. Codes, quantity and the group number are permanent. */
+export const giftVoucherGroupUpdateSchema = z
+  .object({
+    name: trimmedString(1, 120),
+    codePrefix: z
+      .string()
+      .transform((s) => s.trim().toUpperCase())
+      .refine((s) => /^[A-Z0-9-]{1,20}$/.test(s), "Use 1-20 letters, digits or dashes"),
+    startDate: isoDate,
+    endDate: isoDate,
+  })
+  .refine((v) => v.endDate >= v.startDate, {
+    message: "End date must be on or after the start date",
+    path: ["endDate"],
+  });

@@ -1,15 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
-import { applyGiftVoucherToOrder, getOrderGiftVoucherState } from "@/lib/gift-vouchers/order";
-import { GIFT_VOUCHER_MANAGE_PERMISSION } from "@/lib/gift-vouchers/types";
-import { hasPermission, requirePermission } from "@/lib/rbac";
+import { applyGiftVouchersToOrder, getOrderGiftVoucherState } from "@/lib/gift-vouchers/order";
+import { requirePermission } from "@/lib/rbac";
 import { cuidSchema, trimmedString } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
 
 const bodySchema = z.object({
-  code: trimmedString(1, 60),
+  codes: z.array(trimmedString(1, 60)).min(1).max(100),
 });
 
 export async function GET(
@@ -35,7 +34,8 @@ export async function GET(
   const state = await getOrderGiftVoucherState({
     companyId,
     orderId: idParsed.data,
-    canApply: hasPermission(auth.context, GIFT_VOUCHER_MANAGE_PERMISSION),
+    // Applying is open to everyone who can view orders; usage is still audit-logged per user.
+    canApply: true,
   });
   if (!state) {
     return NextResponse.json({ error: "Order not found" }, { status: 404 });
@@ -47,12 +47,9 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const auth = await requirePermission(GIFT_VOUCHER_MANAGE_PERMISSION);
+  const auth = await requirePermission("orders.read");
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
-  }
-  if (!hasPermission(auth.context, "orders.read")) {
-    return NextResponse.json({ error: "Permission denied" }, { status: 403 });
   }
 
   const companyId = auth.context.user?.companyId;
@@ -69,14 +66,14 @@ export async function POST(
   const body = await request.json().catch(() => null);
   const parsed = bodySchema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json({ error: "Enter a batch code" }, { status: 400 });
+    return NextResponse.json({ error: "Enter between 1 and 100 batch codes" }, { status: 400 });
   }
 
-  const result = await applyGiftVoucherToOrder({
+  const result = await applyGiftVouchersToOrder({
     companyId,
     orderId: idParsed.data,
     actorUserId: auth.context.user?.id ?? null,
-    code: parsed.data.code,
+    codes: parsed.data.codes,
   });
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: result.status });

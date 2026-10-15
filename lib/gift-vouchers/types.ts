@@ -57,8 +57,10 @@ export type GiftVoucherCodeRow = {
   id: string;
   code: string;
   status: GiftVoucherStatus;
-  groupNumber: number;
+  groupId: string;
   groupName: string;
+  /** The group's Coupon Code Prefix. */
+  codePrefix: string;
   startDate: string;
   endDate: string;
   orderNo: string | null;
@@ -178,6 +180,7 @@ export type OrderGiftVoucherApplied = {
 export type OrderGiftVoucherState = {
   /** Coupons on the order whose first word matches a voucher group prefix. */
   matchedCoupons: string[];
-  applied: OrderGiftVoucherApplied | null;
+  /** Batch codes already applied to the order, oldest first. */
+  applied: OrderGiftVoucherApplied[];
   canApply: boolean;
 };

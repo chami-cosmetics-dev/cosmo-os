@@ -71,6 +71,7 @@ const actionLabels: Record<string, string> = {
   complaint_created: "Complaint Created",
   complaint_updated: "Complaint Updated",
   gift_voucher_group_created: "Gift Voucher Group Created",
+  gift_voucher_group_updated: "Gift Voucher Group Updated",
   gift_voucher_code_used: "Gift Voucher Code Used",
 };
 

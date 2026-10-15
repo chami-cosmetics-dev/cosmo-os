@@ -1096,7 +1096,7 @@ model Order {
   waybills                        OrderWaybill[]
   pickListGroupOrders             PickListGroupOrder[]
   bookNoteRows                    BookNoteRow[]
-  giftVoucherCode                 GiftVoucherCode?
+  giftVoucherCodes                GiftVoucherCode[]
 
   erpnextInvoiceId               String?
   erpnextCustomerId              String?
@@ -3392,8 +3392,8 @@ model GiftVoucherCode {
   /// Random number part of generated codes (used for sorting); null for typed or pasted codes.
   sequence  Int?
   used      Boolean          @default(false)
-  /// Order the code was applied to. Unique, so an order can hold only one batch code.
-  orderId   String?          @unique
+  /// Order the code was applied to. An order can hold several batch codes.
+  orderId   String?
   orderNo   String?
   usedAt    DateTime?
   phoneNo   String?
@@ -3408,6 +3408,7 @@ model GiftVoucherCode {
   @@index([groupId, sequence])
   @@index([companyId, used])
   @@index([companyId, usedAt])
+  @@index([orderId])
 }
 
 /// Ever-increasing gift voucher group number per company. Only moves forward, so a group
