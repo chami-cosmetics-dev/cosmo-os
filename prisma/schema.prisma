@@ -2282,7 +2282,7 @@ model AdaptPurchaseHistory {
   rawPaymentContext     Json?
   lineItems             Json?
   importBatchId         String?
-  /// adapt = Adapt CSV import. vault_supplement_import = Supplement contact file.
+  /// adapt = older Adapt rows. vault_supplement_import = Cosmo OS transfer. vault_file_import = finance file.
   origin                String           @default("adapt")
   /// paid, pending, voided, refunded. Null on older Adapt rows, which still count as sales.
   financialStatus       String?

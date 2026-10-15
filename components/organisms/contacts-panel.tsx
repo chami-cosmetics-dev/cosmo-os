@@ -31,7 +31,7 @@ import { formatAllocationAssigneeLabel } from "@/lib/contacts/staff-sales-alloca
 import { notify } from "@/lib/notify";
 import { formatAppDateTime } from "@/lib/format-datetime";
 import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
-import { saleBusinessLabel } from "@/lib/customer-insight/invoices";
+import { isImportedPurchaseOrigin, saleBusinessLabel } from "@/lib/customer-insight/invoices";
 import {
   DUMP_TOTAL_HEADER,
   createCsvRowCounter,
@@ -68,7 +68,7 @@ type ContactPurchaseOrder = {
   fulfillmentStatus: string | null;
   createdAt: string;
   source?: "cosmo" | "adapt";
-  origin?: "adapt" | "vault_supplement_import";
+  origin?: "adapt" | "vault_supplement_import" | "vault_file_import";
   merchantName?: string | null;
   lineItems: Array<{
     id: string;
@@ -83,7 +83,7 @@ type ContactPurchaseOrder = {
 type AdaptPurchaseRow = {
   id: string;
   source: "adapt";
-  origin?: "adapt" | "vault_supplement_import" | null;
+  origin?: "adapt" | "vault_supplement_import" | "vault_file_import" | null;
   salesInvoiceNo: string;
   invoiceDate: string;
   ttlAmount: string;
@@ -227,7 +227,7 @@ export function ContactsPanel({
   const [backfillPreviewLoading, setBackfillPreviewLoading] = useState(false);
   const [backfillRunning, setBackfillRunning] = useState(false);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
-  const [exportBusyKey, setExportBusyKey] = useState<"contacts" | "purchase_summary" | null>(
+  const [exportBusyKey, setExportBusyKey] = useState<"contacts" | "purchase_summary" | "invoices" | null>(
     null
   );
   const [purchaseSummarySync, setPurchaseSummarySync] = useState(
@@ -350,13 +350,15 @@ export function ContactsPanel({
     }
   }
 
-  async function downloadContactExport(mode: "contacts" | "purchase_summary" = "contacts") {
+  async function downloadContactExport(mode: "contacts" | "purchase_summary" | "invoices" = "contacts") {
     setExportBusyKey(mode);
     const toastId = `contact-export-${mode}`;
     notify.loading(
       mode === "purchase_summary"
         ? "Building purchase summary…"
-        : "Preparing contact export…",
+        : mode === "invoices"
+          ? "Building invoice history…"
+          : "Preparing contact export…",
       toastId
     );
     try {
@@ -379,7 +381,9 @@ export function ContactsPanel({
         parseContentDispositionFilename(res.headers.get("Content-Disposition")) ??
         (mode === "purchase_summary"
           ? "contact-master-with-purchases.csv"
-          : "contact-master-export.csv");
+          : mode === "invoices"
+            ? "contact-master-with-invoices.csv"
+            : "contact-master-export.csv");
       const reader = res.body?.getReader();
       if (!reader) {
         notify.error("Export stream unavailable", toastId);
@@ -681,16 +685,16 @@ export function ContactsPanel({
         currency: row.currency,
         financialStatus:
           row.financialStatus?.trim() ||
-          (row.origin === "vault_supplement_import"
+          (isImportedPurchaseOrigin(row.origin)
             ? row.paymentMethod?.trim() || "Imported"
             : row.paymentMethod ?? "Adapt"),
         fulfillmentStatus:
-          row.origin === "vault_supplement_import"
+          isImportedPurchaseOrigin(row.origin)
             ? row.companyLocationName ?? row.locationName ?? "—"
             : row.companyLocationName ?? row.locationName ?? "Adapt",
         createdAt: row.invoiceDate,
         source: "adapt",
-        origin: row.origin === "vault_supplement_import" ? "vault_supplement_import" : "adapt",
+        origin: isImportedPurchaseOrigin(row.origin) ? row.origin : "adapt",
         merchantName: row.merchantKnownName,
         lineItems: row.lineItems ?? [],
       }));
@@ -1242,6 +1246,23 @@ export function ContactsPanel({
                           after big Adapt/order imports if numbers look stale.
                         </p>
                       </button>
+                      <button
+                        type="button"
+                        disabled={exportBusyKey !== null || purchaseSummaryRefreshing}
+                        className="rounded-xl border border-border/70 bg-background/70 p-4 text-left transition hover:bg-secondary/10 disabled:pointer-events-none disabled:opacity-60"
+                        onClick={() => void downloadContactExport("invoices")}
+                      >
+                        <p className="font-medium inline-flex items-center gap-2">
+                          {exportBusyKey === "invoices" ? (
+                            <Loader2 className="size-4 animate-spin" aria-hidden />
+                          ) : null}
+                          {exportBusyKey === "invoices" ? "Exporting..." : "With Invoices"}
+                        </p>
+                        <p className="text-muted-foreground mt-1 text-sm">
+                          One row per item: customer, invoice, item, quantity, price, status, and
+                          business (Cosmetics, File import, or Supplement).
+                        </p>
+                      </button>
                     </div>
                   </DialogContent>
                 </Dialog>
@@ -1502,9 +1523,11 @@ export function ContactsPanel({
                           <p className="font-medium">{order.name ?? order.orderNumber ?? order.shopifyOrderId}</p>
                           <p className="text-muted-foreground text-xs">
                             {order.source === "adapt"
-                              ? order.origin === "vault_supplement_import"
-                                ? "Supplement import"
-                                : "Adapt"
+                              ? order.origin === "vault_file_import"
+                                ? "File import"
+                                : order.origin === "vault_supplement_import"
+                                  ? "Supplement import"
+                                  : "Adapt"
                               : order.orderNumber ?? "N/A"}
                           </p>
                           {order.merchantName ? (
@@ -1537,9 +1560,11 @@ export function ContactsPanel({
                           ) : (
                             <span className="text-muted-foreground text-xs">
                               {order.source === "adapt"
-                                ? order.origin === "vault_supplement_import"
-                                  ? "Supplement import (no line items)"
-                                  : "Adapt history (no line items)"
+                                ? order.origin === "vault_file_import"
+                                  ? "File import (no line items)"
+                                  : order.origin === "vault_supplement_import"
+                                    ? "Supplement import (no line items)"
+                                    : "Adapt history (no line items)"
                                 : "No items"}
                             </span>
                           )}
@@ -1554,9 +1579,11 @@ export function ContactsPanel({
                         <td className="px-4 py-2">
                           {order.source === "adapt" ? (
                             <span className="text-muted-foreground text-xs">
-                              {order.origin === "vault_supplement_import"
-                                ? "Supplement import (view only)"
-                                : "Adapt (view only)"}
+                              {order.origin === "vault_file_import"
+                                ? "File import (view only)"
+                                : order.origin === "vault_supplement_import"
+                                  ? "Supplement import (view only)"
+                                  : "Adapt (view only)"}
                             </span>
                           ) : (
                             <a

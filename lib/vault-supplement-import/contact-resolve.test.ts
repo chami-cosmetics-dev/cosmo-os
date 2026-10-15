@@ -16,13 +16,33 @@ describe("contact resolve", () => {
     );
   });
 
-  it("rejects a phone and email that hit different contacts", () => {
+  it("writes history on the phone contact when email hits a different contact", () => {
     expect(
       resolveContactMatch({
         phoneMatches: [{ id: "phone-contact" }],
         emailMatches: [{ id: "email-contact" }],
       }),
-    ).toEqual({ ok: false, reason: REJECT_REASON.phoneEmailDiffer });
+    ).toEqual({ ok: true, action: "match", contactId: "phone-contact", skipEmail: true });
+  });
+
+  it("uses the phone contact when the email matches several contacts", () => {
+    expect(
+      resolveContactMatch({
+        phoneMatches: [{ id: "phone-contact" }],
+        emailMatches: [{ id: "a" }, { id: "b" }],
+        hasPhone: true,
+      }),
+    ).toEqual({ ok: true, action: "match", contactId: "phone-contact", skipEmail: true });
+  });
+
+  it("creates from the phone when the email matches several contacts and the phone is new", () => {
+    expect(
+      resolveContactMatch({
+        phoneMatches: [],
+        emailMatches: [{ id: "a" }, { id: "b" }],
+        hasPhone: true,
+      }),
+    ).toEqual({ ok: true, action: "create", skipEmail: true });
   });
 
   it("rejects more than one phone match", () => {
