@@ -1,4 +1,8 @@
 //Merchant Allocation - Data Collection
+import { collectContactPhonesSync } from "@/lib/contact-identifiers";
+import { isOrderReversed } from "@/lib/customer-insight/lifetime-total";
+import { merchantMatchKeysForUser } from "@/lib/customer-insight/ownership";
+import { getPrimaryMerCode, normalizeMerCodeKey } from "@/lib/merchant-allocation";
 import {
   listInsightMerchantRosterOptions,
   resolveAssignedMerchantFilterLabels,
@@ -355,12 +359,25 @@ export type MerchantTierStats = {
   total: number;
 };
 
+/**
+ * Splits purchaseCount.total by where the purchase was made: through the
+ * allocated merchant, or any other means (another merchant, web, store, or a
+ * purchase whose source order could not be found). Percentages add to 100.
+ */
+export type MerchantPurchaseChannelSplit = {
+  byMerchant: number;
+  byOther: number;
+  byMerchantPercent: number;
+  byOtherPercent: number;
+};
+
 export type MerchantPurchaseCountRow = {
   /** Filter value (MER / bucket) or raw label. */
   merchantValue: string;
   merchantLabel: string;
   allocation: MerchantTierStats;
   purchaseCount: MerchantTierStats;
+  purchaseChannel: MerchantPurchaseChannelSplit;
 };
 
 export type MerchantPurchaseCountSummary = {
@@ -370,6 +387,23 @@ export type MerchantPurchaseCountSummary = {
 
 function emptyTierStats(): MerchantTierStats {
   return { platinum: 0, gold: 0, other: 0, total: 0 };
+}
+
+export function buildPurchaseChannelSplit(
+  byMerchant: number,
+  byOther: number
+): MerchantPurchaseChannelSplit {
+  const total = byMerchant + byOther;
+  if (total <= 0) {
+    return { byMerchant, byOther, byMerchantPercent: 0, byOtherPercent: 0 };
+  }
+  const byMerchantPercent = Math.round((byMerchant / total) * 100);
+  return {
+    byMerchant,
+    byOther,
+    byMerchantPercent,
+    byOtherPercent: 100 - byMerchantPercent,
+  };
 }
 
 function addToTier(stats: MerchantTierStats, tier: string, n: number): void {
@@ -480,6 +514,7 @@ export async function listMerchantPurchaseCountSummary(
         merchantLabel,
         allocation: emptyTierStats(),
         purchaseCount: emptyTierStats(),
+        purchaseChannel: buildPurchaseChannelSplit(0, 0),
       };
       rowsByKey.set(key, entry);
     }
@@ -517,10 +552,25 @@ export async function listMerchantPurchaseCountSummary(
         merchantLabel,
         allocation: emptyTierStats(),
         purchaseCount: emptyTierStats(),
+        purchaseChannel: buildPurchaseChannelSplit(0, 0),
       };
       rowsByKey.set(key, entry);
     }
     addToTier(entry.purchaseCount, row.loyaltyAssignedTier ?? "", n);
+  }
+
+  const channelByKey = await countPurchasesByChannel(
+    companyId,
+    { from, to },
+    aliasToRoster
+  );
+  for (const [key, counts] of channelByKey) {
+    const entry = rowsByKey.get(key);
+    if (!entry) continue;
+    entry.purchaseChannel = buildPurchaseChannelSplit(
+      counts.byMerchant,
+      counts.byOther
+    );
   }
 
   const rows = [...rowsByKey.values()].sort((a, b) => {
@@ -533,6 +583,293 @@ export async function listMerchantPurchaseCountSummary(
   });
 
   return { rows, filter };
+}
+
+/** Orders/invoices are dated slightly differently from lastPurchaseAt (timezone, posting date). */
+const PURCHASE_MATCH_SLACK_MS = 24 * 60 * 60 * 1000;
+const CHANNEL_CONTACT_BATCH = 150;
+const CHANNEL_BATCH_CONCURRENCY = 4;
+
+export type PurchaseSourceCandidate = {
+  at: Date;
+  /** Normalized roster key of the merchant who made the sale, or null when none. */
+  merchantKey: string | null;
+};
+
+/**
+ * Roster key for a sale's merchant, from any label that can identify them
+ * (MER code, known name, name, email). Falls back to the first label so
+ * off-roster merchants still compare against identical contact labels.
+ */
+export function resolveMerchantKeyFromLabels(
+  labels: Array<string | null | undefined>,
+  aliasToRoster: Map<string, AssignedMerchantRosterMatch>
+): string | null {
+  const cleaned = labels.map((l) => l?.trim() ?? "").filter(Boolean);
+  for (const label of cleaned) {
+    const matched = aliasToRoster.get(norm(label));
+    if (matched) return norm(matched.value);
+  }
+  return cleaned.length > 0 ? norm(cleaned[0]) : null;
+}
+
+/** First MER merchant code in an order's stored discountCodes (strings or { code } rows). */
+export function merCodeFromDiscountCodes(discountCodes: unknown): string | null {
+  if (!Array.isArray(discountCodes)) return null;
+  for (const row of discountCodes) {
+    const code =
+      typeof row === "string"
+        ? row
+        : row && typeof row === "object"
+          ? (row as { code?: unknown }).code
+          : null;
+    if (typeof code !== "string") continue;
+    const mer = normalizeMerCodeKey(code);
+    if (mer) return mer;
+  }
+  return null;
+}
+
+/**
+ * Roster key of the merchant who made an order's sale. The MER coupon code on
+ * the order wins: on POS invoices assignedMerchant is the cashier (ERP owner)
+ * or the location default, and only the merchant coupon names the seller.
+ */
+export function resolveOrderMerchantKey(
+  order: {
+    discountCodes: unknown;
+    assignedMerchant: {
+      knownName: string | null;
+      name: string | null;
+      email: string | null;
+      couponCodes: string[];
+    } | null;
+  },
+  aliasToRoster: Map<string, AssignedMerchantRosterMatch>
+): string | null {
+  const mer = merCodeFromDiscountCodes(order.discountCodes);
+  if (mer) return resolveMerchantKeyFromLabels([mer], aliasToRoster);
+  const user = order.assignedMerchant;
+  if (!user) return null;
+  return resolveMerchantKeyFromLabels(
+    [getPrimaryMerCode(user.couponCodes), ...merchantMatchKeysForUser(user)],
+    aliasToRoster
+  );
+}
+
+/** The sale closest in time to the contact's lastPurchaseAt, i.e. the one that set it. */
+export function pickLastPurchaseSource(
+  candidates: PurchaseSourceCandidate[],
+  lastPurchaseAt: Date
+): PurchaseSourceCandidate | null {
+  let best: PurchaseSourceCandidate | null = null;
+  let bestDiff = Infinity;
+  const target = lastPurchaseAt.getTime();
+  for (const candidate of candidates) {
+    const diff = Math.abs(candidate.at.getTime() - target);
+    if (diff < bestDiff) {
+      best = candidate;
+      bestDiff = diff;
+    }
+  }
+  return best;
+}
+
+type ChannelContact = {
+  id: string;
+  allocatedKey: string;
+  lastPurchaseAt: Date;
+  /** Phone lookup variants — allocation is phone-keyed, so orders match by phone only. */
+  phones: string[];
+};
+
+/**
+ * For every allocated contact whose lastPurchaseAt falls in the window, find
+ * the sale behind that date (Cosmo order by phone, or Adapt history) and
+ * check whether it was made by the contact's allocated merchant. A purchase
+ * whose source can't be found counts as "other" — "by merchant" needs proof.
+ */
+async function countPurchasesByChannel(
+  companyId: string,
+  range: { from: Date | null; to: Date },
+  aliasToRoster: Map<string, AssignedMerchantRosterMatch>
+): Promise<Map<string, { byMerchant: number; byOther: number }>> {
+  const contactsRaw = await prisma.contactMaster.findMany({
+    where: {
+      companyId,
+      assignedMerchant: { not: null },
+      lastPurchaseAt: {
+        ...(range.from ? { gte: range.from } : {}),
+        lte: range.to,
+      },
+    },
+    select: {
+      id: true,
+      assignedMerchant: true,
+      lastPurchaseAt: true,
+      phoneNumber: true,
+      phones: { select: { phoneNumber: true } },
+    },
+  });
+
+  const contacts: ChannelContact[] = [];
+  for (const c of contactsRaw) {
+    const raw = c.assignedMerchant?.trim() ?? "";
+    if (!raw || !c.lastPurchaseAt) continue;
+    contacts.push({
+      id: c.id,
+      allocatedKey: norm(resolveAllocatedMerchant(raw, aliasToRoster).value),
+      lastPurchaseAt: c.lastPurchaseAt,
+      phones: collectContactPhonesSync(
+        c.phoneNumber,
+        c.phones.map((p) => p.phoneNumber)
+      ),
+    });
+  }
+
+  const searchFrom = range.from
+    ? new Date(range.from.getTime() - PURCHASE_MATCH_SLACK_MS)
+    : null;
+  const searchTo = new Date(range.to.getTime() + PURCHASE_MATCH_SLACK_MS);
+
+  const batches: ChannelContact[][] = [];
+  for (let i = 0; i < contacts.length; i += CHANNEL_CONTACT_BATCH) {
+    batches.push(contacts.slice(i, i + CHANNEL_CONTACT_BATCH));
+  }
+
+  const out = new Map<string, { byMerchant: number; byOther: number }>();
+  for (let i = 0; i < batches.length; i += CHANNEL_BATCH_CONCURRENCY) {
+    const results = await Promise.all(
+      batches
+        .slice(i, i + CHANNEL_BATCH_CONCURRENCY)
+        .map((batch) =>
+          lastPurchaseSourcesForBatch(
+            companyId,
+            batch,
+            searchFrom,
+            searchTo,
+            aliasToRoster
+          )
+        )
+    );
+    for (const sources of results) {
+      for (const { contact, source } of sources) {
+        const counts = out.get(contact.allocatedKey) ?? {
+          byMerchant: 0,
+          byOther: 0,
+        };
+        if (source?.merchantKey && source.merchantKey === contact.allocatedKey) {
+          counts.byMerchant += 1;
+        } else {
+          counts.byOther += 1;
+        }
+        out.set(contact.allocatedKey, counts);
+      }
+    }
+  }
+  return out;
+}
+
+async function lastPurchaseSourcesForBatch(
+  companyId: string,
+  batch: ChannelContact[],
+  searchFrom: Date | null,
+  searchTo: Date,
+  aliasToRoster: Map<string, AssignedMerchantRosterMatch>
+): Promise<
+  Array<{ contact: ChannelContact; source: PurchaseSourceCandidate | null }>
+> {
+  const phoneIndex = new Map<string, string[]>();
+  for (const contact of batch) {
+    for (const phone of contact.phones) {
+      const list = phoneIndex.get(phone) ?? [];
+      list.push(contact.id);
+      phoneIndex.set(phone, list);
+    }
+  }
+
+  const phones = [...phoneIndex.keys()];
+  const createdAt = { ...(searchFrom ? { gte: searchFrom } : {}), lte: searchTo };
+
+  const [orders, adaptRows] = await Promise.all([
+    phones.length > 0
+      ? prisma.order.findMany({
+          where: {
+            companyId,
+            createdAt,
+            OR: [
+              { customerPhone: { in: phones } },
+              { erpnextCustomerId: { in: phones } },
+            ],
+          },
+          select: {
+            createdAt: true,
+            customerPhone: true,
+            erpnextCustomerId: true,
+            cancelledAt: true,
+            financialStatus: true,
+            fulfillmentStage: true,
+            discountCodes: true,
+            assignedMerchant: {
+              select: {
+                knownName: true,
+                name: true,
+                email: true,
+                couponCodes: true,
+              },
+            },
+          },
+        })
+      : Promise.resolve([]),
+    prisma.adaptPurchaseHistory.findMany({
+      where: {
+        companyId,
+        contactId: { in: batch.map((c) => c.id) },
+        invoiceDate: createdAt,
+      },
+      select: { contactId: true, invoiceDate: true, merchantKnownName: true },
+    }),
+  ]);
+
+  const candidatesByContact = new Map<string, PurchaseSourceCandidate[]>();
+  const push = (contactId: string, candidate: PurchaseSourceCandidate) => {
+    const list = candidatesByContact.get(contactId) ?? [];
+    list.push(candidate);
+    candidatesByContact.set(contactId, list);
+  };
+
+  for (const order of orders) {
+    if (isOrderReversed(order)) continue;
+    const candidate: PurchaseSourceCandidate = {
+      at: order.createdAt,
+      merchantKey: resolveOrderMerchantKey(order, aliasToRoster),
+    };
+    const matched = new Set<string>();
+    for (const key of [order.customerPhone, order.erpnextCustomerId]) {
+      const k = key?.trim();
+      if (!k) continue;
+      for (const id of phoneIndex.get(k) ?? []) matched.add(id);
+    }
+    for (const id of matched) push(id, candidate);
+  }
+
+  for (const row of adaptRows) {
+    push(row.contactId, {
+      at: row.invoiceDate,
+      merchantKey: resolveMerchantKeyFromLabels(
+        [row.merchantKnownName],
+        aliasToRoster
+      ),
+    });
+  }
+
+  return batch.map((contact) => ({
+    contact,
+    source: pickLastPurchaseSource(
+      candidatesByContact.get(contact.id) ?? [],
+      contact.lastPurchaseAt
+    ),
+  }));
 }
 //Merchant Allocation - Purchase Performance -------- End
 

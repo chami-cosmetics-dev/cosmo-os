@@ -9,6 +9,7 @@ import { LocationComparePanel } from "@/components/organisms/item-trends/locatio
 import { MovementTable } from "@/components/organisms/item-trends/movement-table";
 import { RopPanel } from "@/components/organisms/item-trends/rop-panel";
 import { ItemTrendsSectionFilters } from "@/components/organisms/item-trends/section-filters";
+import { StockTrendsPanel } from "@/components/organisms/item-trends/stock-trends-panel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -36,13 +37,16 @@ function defaultFromTo() {
   return { from: today, to: today };
 }
 
-const PRIORITY_OPTIONS = ["all", "Top Priority", "Newly Added", "Non Priority", "Vat"];
+// Matches the live ERPNext custom_product_priority values (as of 2026-09) — this list has
+// changed before, so if the priority filter stops matching anything, check the real values.
+const PRIORITY_OPTIONS = ["all", "Top", "Low", "Newly added", "Discontinue"];
 
 export function ItemTrendsPanel({ canManageRop }: Props) {
   const defaults = defaultFromTo();
   const [from, setFrom] = useState(defaults.from);
   const [to, setTo] = useState(defaults.to);
   const [priority, setPriority] = useState("all");
+  const [screenView, setScreenView] = useState<"all" | "new-arrivals">("all");
   const [tab, setTab] = useState("location");
   const [loading, setLoading] = useState(false);
   const [companyWide, setCompanyWide] = useState(true);
@@ -309,6 +313,15 @@ export function ItemTrendsPanel({ canManageRop }: Props) {
         </div>
       </div>
 
+      <Tabs value={screenView} onValueChange={(value) => setScreenView(value as "all" | "new-arrivals")}>
+        <TabsList className="h-auto w-full justify-start gap-1 sm:w-fit">
+          <TabsTrigger value="all">All items</TabsTrigger>
+          <TabsTrigger value="new-arrivals">Stock Trends</TabsTrigger>
+        </TabsList>
+      </Tabs>
+
+      {screenView === "all" ? (
+      <>
       <Card>
         <CardContent className="flex flex-wrap items-end gap-3 pt-6">
           <div>
@@ -567,6 +580,10 @@ export function ItemTrendsPanel({ canManageRop }: Props) {
           </Card>
         </TabsContent>
       </Tabs>
+      </>
+      ) : (
+        <StockTrendsPanel />
+      )}
     </div>
   );
 }

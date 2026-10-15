@@ -750,6 +750,12 @@ export function CustomerInsightPanel({
       merchantLabel: string;
       allocation: { platinum: number; gold: number; other: number; total: number };
       purchaseCount: { platinum: number; gold: number; other: number; total: number };
+      purchaseChannel?: {
+        byMerchant: number;
+        byOther: number;
+        byMerchantPercent: number;
+        byOtherPercent: number;
+      };
     }>;
   } | null>(null);
   const invoicesRef = useRef<HTMLDivElement>(null);
@@ -3915,7 +3921,9 @@ export function CustomerInsightPanel({
             <CardTitle className="text-base">Merchant Allocation - Purchase Performance</CardTitle>
             <CardDescription>
               Allocation split by loyalty tier, next to how many of those contacts
-              purchased in the selected window. Export downloads the same table as CSV.
+              purchased in the selected window. Purchased Via shows what share of those
+              purchases went through the allocated merchant vs. any other means. Export
+              downloads the same table as CSV.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -4028,6 +4036,9 @@ export function CustomerInsightPanel({
                       <th className="border-l px-3 py-2 text-center font-medium" colSpan={4}>
                         Purchase Count
                       </th>
+                      <th className="border-l px-3 py-2 text-center font-medium" colSpan={2}>
+                        Purchased Channel %
+                      </th>
                     </tr>
                     <tr className="border-b text-left text-muted-foreground">
                       <th className="border-l px-3 py-2 text-right font-medium">Platinum</th>
@@ -4038,6 +4049,8 @@ export function CustomerInsightPanel({
                       <th className="px-3 py-2 text-right font-medium">Gold</th>
                       <th className="px-3 py-2 text-right font-medium">Other</th>
                       <th className="px-3 py-2 text-right font-medium">Total</th>
+                      <th className="border-l px-3 py-2 text-right font-medium">By Merchant</th>
+                      <th className="px-3 py-2 text-right font-medium">Other Channels</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y">
@@ -4075,6 +4088,22 @@ export function CustomerInsightPanel({
                         </td>
                         <td className="px-3 py-2 text-right tabular-nums font-medium">
                           {row.purchaseCount.total.toLocaleString()}
+                        </td>
+                        <td
+                          className="border-l px-3 py-2 text-right tabular-nums"
+                          title={`${(row.purchaseChannel?.byMerchant ?? 0).toLocaleString()} purchased via merchant`}
+                        >
+                          {row.purchaseCount.total > 0
+                            ? `${row.purchaseChannel?.byMerchantPercent ?? 0}%`
+                            : "—"}
+                        </td>
+                        <td
+                          className="px-3 py-2 text-right tabular-nums"
+                          title={`${(row.purchaseChannel?.byOther ?? 0).toLocaleString()} purchased via other means`}
+                        >
+                          {row.purchaseCount.total > 0
+                            ? `${row.purchaseChannel?.byOtherPercent ?? 0}%`
+                            : "—"}
                         </td>
                       </tr>
                     ))}

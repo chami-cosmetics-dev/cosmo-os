@@ -46,7 +46,8 @@ export function resolveErpSlots(instances: Array<{ id: string; label: string | n
   };
 }
 
-async function resolveProductPriorityFieldName(cfg: OsfErpCredentials): Promise<string | null> {
+/** Exported so other ERP catalog syncs (e.g. new-Item sync) reuse the same field discovery. */
+export async function resolveProductPriorityFieldName(cfg: OsfErpCredentials): Promise<string | null> {
   try {
     const filters = JSON.stringify([
       ["dt", "=", "Item"],

@@ -90,6 +90,66 @@ export function buildRopSuggestionCsv(rows: RopSuggestionRow[]): string {
   return lines.join("\n");
 }
 
+export function buildStockTrendsCsv(
+  rows: Array<{
+    sku: string;
+    productTitle: string | null;
+    priorityStatus: string | null;
+    createdDate: string | null;
+    currentStock: number;
+    latestStockoutDate: string | null;
+    unitsPurchased: number;
+    unitsSold: number;
+    wasRestocked: boolean;
+    ageDays: number | null;
+    sellThroughPct: number | null;
+    movementStatus: string;
+  }>,
+  meta: { priorityStatus: string; brand: string; createdDateFrom: string; createdDateTo: string; movement: string },
+): string {
+  const metaLines = [
+    `Priority status,${csvEscape(meta.priorityStatus)}`,
+    `Movement,${csvEscape(meta.movement)}`,
+    `Brand,${csvEscape(meta.brand)}`,
+    `Date range,${csvEscape(`${meta.createdDateFrom} to ${meta.createdDateTo}`)}`,
+    "",
+  ];
+  const header = [
+    "sku",
+    "product_title",
+    "priority",
+    "created_date",
+    "age_days",
+    "current_stock",
+    "latest_stockout_date",
+    "units_purchased",
+    "units_sold",
+    "sell_through_pct",
+    "movement",
+    "was_restocked",
+  ];
+  const lines = [...metaLines, header.join(",")];
+  for (const row of rows) {
+    lines.push(
+      [
+        csvEscape(row.sku),
+        csvEscape(row.productTitle ?? ""),
+        csvEscape(row.priorityStatus ?? ""),
+        csvEscape(row.createdDate ?? ""),
+        row.ageDays === null ? "" : String(row.ageDays),
+        String(row.currentStock),
+        csvEscape(row.latestStockoutDate ?? ""),
+        String(row.unitsPurchased),
+        String(row.unitsSold),
+        row.sellThroughPct === null ? "" : String(Math.round(row.sellThroughPct)),
+        row.movementStatus,
+        row.wasRestocked ? "yes" : "no",
+      ].join(","),
+    );
+  }
+  return lines.join("\n");
+}
+
 export function buildCoverCsv(rows: Array<{
   sku: string;
   title: string | null;

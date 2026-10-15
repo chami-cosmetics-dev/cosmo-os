@@ -73,6 +73,17 @@
   --chart-3: #7de3ec;
   --chart-4: #b59cf0;
   --chart-5: #6fd4df;
+  /* Validated 8-hue categorical palette (dataviz skill) for charts with more series
+     than --chart-1..5 can cover, e.g. multi-variant stock trends. Fixed order — never
+     cycled or reassigned by rank — so a given series always gets the same color. */
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-4: #eda100;
+  --series-5: #e87ba4;
+  --series-6: #008300;
+  --series-7: #4a3aa7;
+  --series-8: #e34948;
   --sidebar: #f8fbff;
   --sidebar-foreground: #122033;
   --sidebar-primary: #8f6ae3;
@@ -107,6 +118,14 @@
   --chart-3: #7ce7ef;
   --chart-4: #c6acff;
   --chart-5: #86dce4;
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-4: #c98500;
+  --series-5: #d55181;
+  --series-6: #008300;
+  --series-7: #9085e9;
+  --series-8: #e66767;
   --sidebar: #0c1830;
   --sidebar-foreground: #e9f2fb;
   --sidebar-primary: #b28cff;

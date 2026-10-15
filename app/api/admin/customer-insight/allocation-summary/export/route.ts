@@ -221,6 +221,10 @@ export async function GET(request: NextRequest) {
       "purchase_gold",
       "purchase_other",
       "purchase_total",
+      "purchased_via_merchant",
+      "purchased_via_merchant_pct",
+      "purchased_via_other",
+      "purchased_via_other_pct",
     ];
     rows = purchaseCountSummary.rows.map((r) => ({
       merchant: r.merchantLabel,
@@ -233,6 +237,10 @@ export async function GET(request: NextRequest) {
       purchase_gold: r.purchaseCount.gold,
       purchase_other: r.purchaseCount.other,
       purchase_total: r.purchaseCount.total,
+      purchased_via_merchant: r.purchaseChannel.byMerchant,
+      purchased_via_merchant_pct: r.purchaseChannel.byMerchantPercent,
+      purchased_via_other: r.purchaseChannel.byOther,
+      purchased_via_other_pct: r.purchaseChannel.byOtherPercent,
     }));
   } else {
     const dateRange = parseDateRange(searchParams);
