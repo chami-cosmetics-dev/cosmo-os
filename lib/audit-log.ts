@@ -76,6 +76,9 @@ export const AUDIT_LOG_ACTIONS = [
   "loyalty_push_retry",
   "merchant_loyalty_contacted",
   "call_queue_assign",
+  "gift_voucher_group_created",
+  "gift_voucher_group_updated",
+  "gift_voucher_code_used",
 ] as const;
 
 export type AuditLogModule = (typeof AUDIT_LOG_MODULES)[number];
@@ -168,7 +171,13 @@ export const AUDIT_LOG_ACTION_GROUPS = [
   {
     key: "products",
     label: "Products",
-    actions: ["storage_file_uploaded", "storage_file_deleted"],
+    actions: [
+      "storage_file_uploaded",
+      "storage_file_deleted",
+      "gift_voucher_group_created",
+      "gift_voucher_group_updated",
+      "gift_voucher_code_used",
+    ],
   },
   {
     key: "material-transfer",
