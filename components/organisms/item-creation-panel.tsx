@@ -83,6 +83,7 @@ type StockWarehouseRow = {
   warehouse: string;
   qty: string;
   priority?: number;
+  erp?: StockErp;
 };
 type TeamSection = {
   title: string;
@@ -1107,11 +1108,13 @@ function CombinedStockRequestTable({
     for (const item of eligible.filter((candidate) => selected.has(candidate.id) && confirmed.has(candidate.id))) {
       for (const row of itemRows(item).filter((allocation) => Number(allocation.qty) > 0)) {
         const option = options.find((candidate) => candidate.name === row.warehouse && candidate.erp === row.erp);
-        const payload = grouped.get(row.erp) ?? { supplier: supplierId, warehouses: [] };
+        const erp = row.erp ?? option?.erp;
+        if (!erp) continue;
+        const payload = grouped.get(erp) ?? { supplier: supplierId, warehouses: [] };
         let warehouse = payload.warehouses.find((entry) => entry.warehouse === row.warehouse);
         if (!warehouse) { warehouse = { warehouse: row.warehouse, company: option?.company ?? undefined, items: [] }; payload.warehouses.push(warehouse); }
         warehouse.items.push({ itemRequestId: item.id, itemCode: item.sku, qty: row.qty, warehouse: row.warehouse });
-        grouped.set(row.erp, payload);
+        grouped.set(erp, payload);
       }
     }
     for (const [erp, payload] of grouped) onAction(`/api/item-creation/stock/${erp}`, payload);

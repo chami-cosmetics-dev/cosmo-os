@@ -368,7 +368,7 @@ export async function handleErp1ItemWebhook(companyIds: string[], payload: ErpIt
         advanceSeoToItemCreated(tx, request, {
           itemCode,
           reason: "selected creation sources completed",
-          creationSources: request.creationSources ?? Prisma.JsonNull,
+          creationSources: request.creationSources ?? null,
         }),
       );
       if (advanced) advancedSeo += 1;
@@ -410,7 +410,7 @@ export async function handleErp1ItemWebhook(companyIds: string[], payload: ErpIt
           erp2ItemCode: result.itemCode,
           reason: "selected creation sources completed",
           reconciledExisting: !result.created,
-          creationSources: request.creationSources ?? Prisma.JsonNull,
+          creationSources: request.creationSources ?? null,
         });
         if (advanced) advancedSeo += 1;
       });
