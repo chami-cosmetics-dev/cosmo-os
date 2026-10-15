@@ -1203,7 +1203,7 @@ export function ContactsPanel({
                           {exportBusyKey === "contacts" ? "Exporting..." : "Contact Info Only"}
                         </p>
                         <p className="text-muted-foreground mt-1 text-sm">
-                          Name, email, phone number, merchant, and contact dates only.
+                          Name, email, phone, address, allocated merchant, order value, and contact dates.
                         </p>
                       </button>
                       <button

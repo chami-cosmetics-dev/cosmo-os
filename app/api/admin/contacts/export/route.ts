@@ -38,6 +38,7 @@ const contactExportSelect = {
   name: true,
   email: true,
   phoneNumber: true,
+  address: true,
   recentMerchant: true,
   assignedMerchant: true,
   lastPurchaseAt: true,
@@ -228,8 +229,10 @@ export async function GET(request: NextRequest) {
     "name",
     "email",
     "phone_number",
+    "address",
     "recent_merchant",
     "assigned_merchant",
+    "order_value",
     ...(brand ? (["brand_spend"] as const) : []),
     "last_purchased_date",
     "first_purchased_date",
@@ -243,8 +246,10 @@ export async function GET(request: NextRequest) {
     "name",
     "email",
     "phone_number",
+    "address",
     "recent_merchant",
     "assigned_merchant",
+    "order_value",
     ...(brand ? (["brand_spend"] as const) : []),
     "total_orders",
     "total_purchase_value",
@@ -285,6 +290,7 @@ export async function GET(request: NextRequest) {
               name: contact.name,
               email: contact.email ?? "",
               phone_number: contact.phoneNumber ?? "",
+              address: contact.address ?? "",
               recent_merchant: formatStoredAllocatedMerchant(
                 contact.recentMerchant,
                 aliasToRoster
@@ -297,6 +303,7 @@ export async function GET(request: NextRequest) {
                 ),
                 aliasToRoster
               ),
+              order_value: purchaseTotal.toFixed(2),
               ...(brand
                 ? { brand_spend: (brandSpendById.get(contact.id) ?? 0).toFixed(2) }
                 : {}),
