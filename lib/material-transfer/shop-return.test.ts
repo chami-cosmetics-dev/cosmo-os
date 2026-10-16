@@ -186,6 +186,34 @@ describe("resolveShopToMain", () => {
     });
   });
 
+  it("sends Maharagama from the DRO shop warehouse to the DRO main warehouse", () => {
+    const result = resolveShopToMain("Maharagama", [
+      warehouse("Maharagama Shop Warehouse - Cosmo", "Cosmetics.lk", "erp1"),
+      warehouse("Main Warehouse - Cosmo", "Cosmetics.lk", "erp1"),
+      warehouse("Shop Warehouse - DRO", "DRO", "erp2"),
+      warehouse("Main Warehouse - DRO", "DRO", "erp2"),
+      warehouse("Shop Warehouse - MNK", "MNK Trading", "erp2"),
+      warehouse("Main Warehouse - MNK", "MNK Trading", "erp2"),
+    ]);
+    expect(result).toEqual({
+      ok: true,
+      legs: [
+        {
+          slot: "erp1",
+          erpCompany: "Cosmetics.lk",
+          sourceWarehouse: "Maharagama Shop Warehouse - Cosmo",
+          targetWarehouse: "Main Warehouse - Cosmo",
+        },
+        {
+          slot: "erp2",
+          erpCompany: "DRO",
+          sourceWarehouse: "Shop Warehouse - DRO",
+          targetWarehouse: "Main Warehouse - DRO",
+        },
+      ],
+    });
+  });
+
   it("refuses when no shop, two shops, or two mains match", () => {
     expect(resolveShopToMain("Unknown Outlet", []).ok).toBe(false);
     const twoShops = resolveShopToMain("Maharagama", [

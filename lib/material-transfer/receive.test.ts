@@ -36,6 +36,10 @@ describe("shop scope", () => {
     expect(see("Shop Warehouse - SPK", "Nittabuwa")).toBe(true);
     expect(see("Shop Warehouse - SPK", "Nittambuwa")).toBe(true);
     expect(see("Shop Warehouse - LWK", "OGF")).toBe(true);
+    expect(see("Shop Warehouse - DRO", "Maharagama")).toBe(true);
+    expect(see("Main Warehouse - DRO", "Maharagama")).toBe(true);
+    expect(see("Shop Warehouse - DRO", "GCC")).toBe(false);
+    expect(see("Shop Warehouse - MNK", "Maharagama")).toBe(false);
     expect(see("Shop Warehouse - LMJ", "Kiribathgoda")).toBe(false);
   });
 
