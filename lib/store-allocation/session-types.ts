@@ -6,6 +6,9 @@ export type StoreAllocationPlanStatus = "idle" | "loading" | "ready" | "error";
 export type SessionLocationQty = {
   columnKey: string;
   label: string;
+  erpnextInstanceId: string | null;
+  erpCompany?: string | null;
+  warehouses: string[];
   locationRop: number;
   stock: number;
   need: number;

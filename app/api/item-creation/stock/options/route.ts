@@ -8,7 +8,7 @@ import { requireAnyPermission } from "@/lib/rbac";
 export async function GET(request: NextRequest) {
   const auth = await requireAnyPermission([
     ITEM_CREATION_PERMISSIONS.stores,
-    ITEM_CREATION_PERMISSIONS.admin,
+    ITEM_CREATION_PERMISSIONS.manageAll,
   ]);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 

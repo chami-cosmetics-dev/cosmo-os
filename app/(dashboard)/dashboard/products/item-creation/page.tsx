@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { PermissionDeniedCard } from "@/components/molecules/permission-denied-card";
 import { ItemCreationPanel } from "@/components/organisms/item-creation-panel";
 import {
+  canManageAllItemCreation,
   canUseItemCreation,
   ITEM_CREATION_PERMISSIONS,
   listItemRequests,
@@ -40,6 +41,7 @@ export default async function ItemCreationPage() {
   const context = auth.context!;
   const permissions = {
     admin: canUseItemCreation(context, ITEM_CREATION_PERMISSIONS.admin),
+    manageAll: canManageAllItemCreation(context),
     seo: canUseItemCreation(context, ITEM_CREATION_PERMISSIONS.seo),
     digitalMarketing: canUseItemCreation(
       context,

@@ -102,16 +102,25 @@ export async function GET(request: NextRequest) {
     return {
       columnKey: col.key,
       label: col.label,
+      erpnextInstanceId: col.erpnextInstanceId,
+      erpCompany: col.erpCompany,
+      warehouses: col.warehouses,
       locationRop: rop,
       stock,
       need,
       sales90d,
+      allocationPriority: col.allocationPriority,
     };
   });
 
   const suggestions = allocateTakeQty(
     takeQty,
-    allocateInputs.map((r) => ({ key: r.columnKey, need: r.need, sales: r.sales90d })),
+    allocateInputs.map((r) => ({
+      key: r.columnKey,
+      need: r.need,
+      sales: r.sales90d,
+      priority: r.allocationPriority,
+    })),
   );
   const suggestedByKey = new Map(suggestions.map((s) => [s.key, s.qty]));
 
