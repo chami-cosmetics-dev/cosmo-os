@@ -4,6 +4,7 @@ import {
   addUtcDays,
   matchesPriorityFilter,
   resolveAssistWindow,
+  resolveProductPriority,
   roundHalfUp,
   suggestedRopFromSales,
 } from "@/lib/osf/assist-window";
@@ -73,5 +74,22 @@ describe("matchesPriorityFilter", () => {
   it("all / empty passes", () => {
     expect(matchesPriorityFilter("x", "y", "all")).toBe(true);
     expect(matchesPriorityFilter("x", "y", "")).toBe(true);
+  });
+});
+
+describe("resolveProductPriority", () => {
+  it("prefers erp1 when set", () => {
+    expect(resolveProductPriority("Top", "Low")).toBe("Top");
+  });
+
+  it("falls back to erp2 when erp1 is empty/null", () => {
+    expect(resolveProductPriority(null, "Low")).toBe("Low");
+    expect(resolveProductPriority("", "Low")).toBe("Low");
+    expect(resolveProductPriority("   ", "Low")).toBe("Low");
+  });
+
+  it("returns null when neither is set — no invented fallback string", () => {
+    expect(resolveProductPriority(null, null)).toBeNull();
+    expect(resolveProductPriority("", "")).toBeNull();
   });
 });
