@@ -41,6 +41,49 @@ describe("allocateTakeQty", () => {
     expect(hot).toBeGreaterThan(cold);
   });
 
+  it("boosts priority without starving lower priority locations", () => {
+    const out = allocateTakeQty(10, [
+      { key: "website", need: 10, sales: 2, priority: 1 },
+      { key: "outlet", need: 10, sales: 2, priority: 2 },
+      { key: "marketplace", need: 10, sales: 2, priority: 3 },
+    ]);
+    const website = out.find((r) => r.key === "website")!.qty;
+    const outlet = out.find((r) => r.key === "outlet")!.qty;
+    const marketplace = out.find((r) => r.key === "marketplace")!.qty;
+
+    expect(out.reduce((s, r) => s + r.qty, 0)).toBe(10);
+    expect(website).toBeGreaterThan(outlet);
+    expect(outlet).toBeGreaterThan(marketplace);
+    expect(marketplace).toBeGreaterThan(0);
+  });
+
+  it("gives every Priority 1 location up to three units first", () => {
+    const out = allocateTakeQty(10, [
+      { key: "priority-1-a", need: 0, sales: 0, priority: 1 },
+      { key: "priority-1-b", need: 0, sales: 0, priority: 1 },
+      { key: "priority-2", need: 0, sales: 0, priority: 2 },
+    ]);
+
+    expect(out).toEqual([
+      { key: "priority-1-a", qty: 5 },
+      { key: "priority-1-b", qty: 4 },
+      { key: "priority-2", qty: 1 },
+    ]);
+    expect(out[0].qty).toBeGreaterThanOrEqual(3);
+    expect(out[1].qty).toBeGreaterThanOrEqual(3);
+  });
+
+  it("reserves up to three units for every priority one location", () => {
+    const out = allocateTakeQty(20, [
+      { key: "website", need: 0, sales: 0, priority: 1 },
+      { key: "main-online", need: 0, sales: 0, priority: 1 },
+      { key: "outlet", need: 100, sales: 10, priority: 2 },
+    ]);
+    expect(out.find((row) => row.key === "website")?.qty).toBeGreaterThanOrEqual(3);
+    expect(out.find((row) => row.key === "main-online")?.qty).toBeGreaterThanOrEqual(3);
+    expect(out.reduce((sum, row) => sum + row.qty, 0)).toBe(20);
+  });
+
   it("does not exceed need while other needs remain", () => {
     const out = allocateTakeQty(15, [
       { key: "small", need: 5, sales: 100 },

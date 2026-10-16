@@ -16,6 +16,7 @@ export type OsfResolvedColumn = {
   erpCompany?: string | null;
   includeInStock: boolean;
   includeInRop: boolean;
+  allocationPriority: number;
   sortOrder: number;
   active: boolean;
   /** ERP warehouse names to query for this stock column */
@@ -70,6 +71,7 @@ export async function resolveOsfColumns(companyId: string): Promise<OsfResolvedC
       erpCompany: col.erpCompany?.trim() || null,
       includeInStock: col.includeInStock,
       includeInRop: col.includeInRop,
+      allocationPriority: col.allocationPriority,
       sortOrder: col.sortOrder,
       active: col.active,
       warehouses: [...warehouses],
@@ -91,6 +93,7 @@ export async function listOsfColumnsForApi(companyId: string) {
     warehouses: c.warehouses,
     includeInStock: c.includeInStock,
     includeInRop: c.includeInRop,
+    allocationPriority: c.allocationPriority,
     sortOrder: c.sortOrder,
     active: c.active,
   }));

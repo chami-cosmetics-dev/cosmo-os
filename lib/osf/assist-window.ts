@@ -89,3 +89,19 @@ export function matchesPriorityFilter(
   if (!f || f.toLowerCase() === "all") return true;
   return (erp1 ?? "").trim() === f || (erp2 ?? "").trim() === f;
 }
+
+/**
+ * Single effective priority for display/filtering: erp1 wins if set, else
+ * erp2, else null (no invented fallback string — the live ERP priority
+ * options have changed before, so a fake placeholder like "Non Priority"
+ * would just be another stale assumption).
+ */
+export function resolveProductPriority(
+  erp1: string | null | undefined,
+  erp2: string | null | undefined,
+): string | null {
+  const p1 = (erp1 ?? "").trim();
+  if (p1) return p1;
+  const p2 = (erp2 ?? "").trim();
+  return p2 || null;
+}

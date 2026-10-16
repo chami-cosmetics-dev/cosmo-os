@@ -132,7 +132,7 @@ export async function GET(request: NextRequest) {
     hasPermission(context, "purchasing.grn.mark_received");
   const roleNames = context?.roleNames ?? [];
   const shouldScopeToUserCompany =
-    canViewReceived &&
+    !canViewReceived &&
     !canViewHandover &&
     !canViewValued &&
     !hasPermission(context, "purchasing.grn.match_ssr");
@@ -219,6 +219,7 @@ export async function GET(request: NextRequest) {
             },
           },
         },
+        companyLocation: { select: { name: true, erpnextCompany: true } },
       },
     }),
     prisma.grnBackfillPurchaseReceipt.findMany({
@@ -249,6 +250,7 @@ export async function GET(request: NextRequest) {
             },
           },
         },
+        companyLocation: { select: { name: true, erpnextCompany: true } },
       },
     }),
     prisma.grnSupplierStockReturn.findMany({
@@ -530,7 +532,11 @@ export async function GET(request: NextRequest) {
       return {
         companyId: row.companyId,
         companyLocationId: row.companyLocationId,
-        companyName: row.company.name,
+        companyName:
+          erpCompanyFromPayload(row.rawPayload) ??
+          row.companyLocation?.erpnextCompany ??
+          row.companyLocation?.name ??
+          row.company.name,
         name: row.name,
         erpUrl: erpDocUrl(
           erpBaseUrlForPayload(row.rawPayload, row.company.locations),

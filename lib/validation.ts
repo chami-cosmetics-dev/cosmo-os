@@ -534,6 +534,42 @@ export const itemTrendsQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(20000).optional(),
 });
 
+export const stockTrendsQuerySchema = z.object({
+  // Priority is no longer filtered server-side (the live ERPNext priority
+  // values have changed more than once, so priority filtering now happens
+  // client-side against StockTrendItemRow.priorityStatus instead of baking
+  // an enum here that can silently go stale). See getStockTrendItems.
+  //
+  // No page/pageSize either — the server already computes every matching row
+  // before any slicing would happen (priority filtering used to be the only
+  // thing bounding the set, and that moved client-side), so paginating here
+  // would just discard already-computed rows for no savings. The client
+  // fetches the full matching set and paginates the filtered result itself.
+  brand: z.string().max(120).optional().default("all"),
+  createdDateFrom: itemTrendsYmdSchema.optional(),
+  createdDateTo: itemTrendsYmdSchema.optional(),
+  skuSearch: z.string().max(120).optional(),
+  titleSearch: z.string().max(200).optional(),
+  /** Online (Main Warehouse) vs Shop (Shop Warehouse) vs "all" (every warehouse — the default). */
+  channel: z.enum(["online", "shop", "all"]).optional().default("all"),
+  /** Sort by createdDate. "asc" (oldest first) is the default. */
+  sortOrder: z.enum(["asc", "desc"]).optional().default("asc"),
+  /** Post-filter on computed movementStatus ("na" items only show under "all"). */
+  movement: z.enum(["all", "fast", "slow", "early"]).optional().default("all"),
+  /** "1" skips the server's short-lived result cache — sent by the panel's Refresh / Try again buttons. */
+  refresh: z
+    .enum(["1", "0"])
+    .optional()
+    .transform((v) => v === "1"),
+});
+
+export const stockTrendsSeriesQuerySchema = z.object({
+  sku: z.string().min(1).max(120),
+  channel: z.enum(["online", "shop", "all"]).optional().default("all"),
+  /** "sku" (default) looks up one exact SKU; "base" treats `sku` as a base SKU and returns every variant. */
+  mode: z.enum(["sku", "base"]).optional().default("sku"),
+});
+
 export const itemTrendsDistrictsQuerySchema = z.object({
   from: itemTrendsYmdSchema,
   to: itemTrendsYmdSchema,

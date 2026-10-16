@@ -6,7 +6,7 @@ import {
   ITEM_CREATION_PERMISSIONS,
   listItemRequests,
 } from "@/lib/item-creation/workflow";
-import { requireAnyPermission, requirePermission } from "@/lib/rbac";
+import { requireAnyPermission } from "@/lib/rbac";
 
 const ANY_ITEM_CREATION_PERMISSION = Object.values(ITEM_CREATION_PERMISSIONS);
 
@@ -32,7 +32,10 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const auth = await requirePermission(ITEM_CREATION_PERMISSIONS.admin);
+  const auth = await requireAnyPermission([
+    ITEM_CREATION_PERMISSIONS.admin,
+    ITEM_CREATION_PERMISSIONS.manageAll,
+  ]);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   try {

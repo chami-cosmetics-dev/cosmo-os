@@ -114,6 +114,7 @@ export function AppSidebar({
     hasSidebarPermission("products.gift_vouchers.manage");
   const canViewItemCreation =
     hasSidebarPermission("item_creation.admin.manage") ||
+    hasSidebarPermission("item_creation.admin.manage_all") ||
     hasSidebarPermission("item_creation.seo.manage") ||
     hasSidebarPermission("item_creation.digital_marketing.manage") ||
     hasSidebarPermission("item_creation.purchasing.manage") ||
