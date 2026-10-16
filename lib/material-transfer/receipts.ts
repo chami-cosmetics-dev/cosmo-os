@@ -8,6 +8,7 @@ import {
   liveSourceQty,
   loadTransferSlotWarehouses,
   MaterialTransferError,
+  requireErpOwner,
   resolveTransferSlots,
   submitMaterialTransfer,
 } from "@/lib/material-transfer/erp";
@@ -444,6 +445,11 @@ export async function confirmShopReturn(input: {
   userId: string;
   lines: Array<{ itemCode: string; qty: number }>;
 }) {
+  const actor = await prisma.user.findUnique({
+    where: { id: input.userId },
+    select: { erpnextUsername: true, email: true },
+  });
+  const owner = requireErpOwner(actor ?? {});
   const row = await loadTransfer(input.companyId, input.id);
   if (row.direction !== "shop_to_main") {
     throw new MaterialTransferError("This is not a shop return", 409);
@@ -549,6 +555,7 @@ export async function confirmShopReturn(input: {
         targetWarehouse: leg.targetWarehouse,
         lines: postLines,
         warehouses,
+        owner,
       });
       if (row.slot === "mixed" && slot === "erp2") erp2Name = posted.name;
       else erpName = posted.name;
