@@ -14,25 +14,40 @@ export function unlockScanSound() {
   if (ctx.state === "suspended") void ctx.resume();
 }
 
-/** Short two-tone buzzer for unmatched / rejected scans. */
+function errorPulse(ctx: AudioContext, freq: number, start: number) {
+  const duration = 0.2;
+  const tone = ctx.createOscillator();
+  const body = ctx.createOscillator();
+  const toneGain = ctx.createGain();
+  const bodyGain = ctx.createGain();
+  tone.type = "square";
+  body.type = "sawtooth";
+  tone.frequency.setValueAtTime(freq, start);
+  body.frequency.setValueAtTime(freq / 2, start);
+  toneGain.gain.setValueAtTime(0.0001, start);
+  bodyGain.gain.setValueAtTime(0.0001, start);
+  toneGain.gain.exponentialRampToValueAtTime(0.62, start + 0.012);
+  bodyGain.gain.exponentialRampToValueAtTime(0.38, start + 0.012);
+  toneGain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+  bodyGain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+  tone.connect(toneGain);
+  body.connect(bodyGain);
+  toneGain.connect(ctx.destination);
+  bodyGain.connect(ctx.destination);
+  tone.start(start);
+  body.start(start);
+  tone.stop(start + duration + 0.02);
+  body.stop(start + duration + 0.02);
+}
+
+/** Loud three-pulse alarm for a bad barcode or a qty over available. */
 export function playScanErrorSound() {
   const ctx = getScanAudioContext();
   if (!ctx) return;
   if (ctx.state === "suspended") void ctx.resume();
 
   const now = ctx.currentTime;
-  for (const [i, freq] of [880, 420].entries()) {
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    const start = now + i * 0.13;
-    osc.type = "square";
-    osc.frequency.setValueAtTime(freq, start);
-    gain.gain.setValueAtTime(0.0001, start);
-    gain.gain.exponentialRampToValueAtTime(0.14, start + 0.01);
-    gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.12);
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start(start);
-    osc.stop(start + 0.13);
-  }
+  [660, 440, 294].forEach((freq, i) => {
+    errorPulse(ctx, freq, now + i * 0.24);
+  });
 }
