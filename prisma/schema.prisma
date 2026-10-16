@@ -112,6 +112,7 @@ model Company {
   itemCreationStockReceipts       ItemCreationStockReceipt[]
   stockRequests                   StockRequest[]
   materialTransfers               MaterialTransfer[]
+  shopItemRequests                ShopItemRequest[]
   riderFinanceCashReceipts        RiderFinanceCashReceipt[]
 }
 
@@ -570,6 +571,8 @@ model User {
   defaultMerchantLocations               CompanyLocation[]              @relation("LocationDefaultMerchant")
   employeeProfile                        EmployeeProfile?
   materialTransfersCreated               MaterialTransfer[]             @relation("MaterialTransferCreatedBy")
+  shopItemRequestsCreated                ShopItemRequest[]              @relation("ShopItemRequestCreatedBy")
+  shopItemRequestsDone                   ShopItemRequest[]              @relation("ShopItemRequestDoneBy")
   materialTransfersReceived              MaterialTransfer[]             @relation("MaterialTransferReceivedBy")
   materialTransferLinesCounted           MaterialTransferLine[]         @relation("MaterialTransferLineCountedBy")
   invitesSent                            Invite[]                       @relation("InvitedBy")
@@ -3051,6 +3054,43 @@ model MaterialTransferLine {
   receivedQtyUpdatedBy       User?            @relation("MaterialTransferLineCountedBy", fields: [receivedQtyUpdatedByUserId], references: [id], onDelete: SetNull)
 
   @@index([transferId])
+}
+
+enum ShopItemRequestStatus {
+  pending
+  done
+}
+
+model ShopItemRequest {
+  id              String                @id @default(cuid())
+  companyId       String
+  outletName      String
+  status          ShopItemRequestStatus @default(pending)
+  createdByUserId String?
+  doneByUserId    String?
+  doneAt          DateTime?
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+  company         Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdBy       User?                 @relation("ShopItemRequestCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  doneBy          User?                 @relation("ShopItemRequestDoneBy", fields: [doneByUserId], references: [id], onDelete: SetNull)
+  lines           ShopItemRequestLine[]
+
+  @@index([companyId, status, createdAt(sort: Desc)])
+  @@index([companyId, outletName, status, createdAt(sort: Desc)])
+}
+
+model ShopItemRequestLine {
+  id               String          @id @default(cuid())
+  requestId        String
+  itemCode         String
+  itemName         String
+  barcode          String          @default("")
+  neededQty        Int
+  shopAvailability String?
+  request          ShopItemRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@index([requestId])
 }
 
 model StoreStockCountReport {

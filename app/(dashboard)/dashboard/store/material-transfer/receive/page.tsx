@@ -1,8 +1,7 @@
 import { redirect } from "next/navigation";
 
 import { PermissionDeniedCard } from "@/components/molecules/permission-denied-card";
-import { MaterialTransferReceivePanel } from "@/components/organisms/material-transfer-receive-panel";
-import { MaterialTransferReturnPanel } from "@/components/organisms/material-transfer-return-panel";
+import { MaterialTransferReceiveTabs } from "@/components/organisms/material-transfer-receive-tabs";
 import { MATERIAL_TRANSFER_SHOP_RETURN_PERMISSION } from "@/lib/material-transfer/auth";
 import { loadShopScope } from "@/lib/material-transfer/scope";
 import { getCurrentUserContext, hasPermission } from "@/lib/rbac";
@@ -29,10 +28,7 @@ export default async function MaterialTransferReceivePage() {
 
   return (
     <div className="flex flex-col gap-8 p-4 md:p-6">
-      {hasPermission(context, MATERIAL_TRANSFER_SHOP_RETURN_PERMISSION) ? (
-        <MaterialTransferReturnPanel />
-      ) : null}
-      <MaterialTransferReceivePanel />
+      <MaterialTransferReceiveTabs canReturn={hasPermission(context, MATERIAL_TRANSFER_SHOP_RETURN_PERMISSION)} />
     </div>
   );
 }

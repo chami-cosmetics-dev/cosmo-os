@@ -61,9 +61,20 @@ describe("buildInvoiceHistoryRows", () => {
           ],
         },
       ],
+      orders: [
+        {
+          id: "order-1",
+          orderNumber: "10421",
+          name: "#10421",
+          erpnextInvoiceId: null,
+          createdAt: new Date("2026-08-01T00:00:00.000Z"),
+          financialStatus: "paid",
+          lineItems: [{ quantity: 1, price: "9000", sku: "SHOP", productTitle: "Shop item" }],
+        },
+      ],
     });
 
-    expect(rows.map((row) => row.business)).toEqual(["File import", "Cosmetics"]);
+    expect(rows.map((row) => row.business)).toEqual(["File import", "Cosmetics", "Supplement"]);
     expect(rows[0]).toMatchObject({
       name: "Amesha De Silva",
       invoice_no: "SV1007913",
@@ -73,5 +84,6 @@ describe("buildInvoiceHistoryRows", () => {
       unit_price: "4500",
     });
     expect(rows[1]?.status).toBe("Card");
+    expect(rows[2]).toMatchObject({ invoice_no: "10421", item_code: "SHOP", status: "paid" });
   });
 });

@@ -1260,7 +1260,7 @@ export function ContactsPanel({
                         </p>
                         <p className="text-muted-foreground mt-1 text-sm">
                           One row per item: customer, invoice, item, quantity, price, status, and
-                          business (Cosmetics or File import).
+                          business (Cosmetics, File import, or Supplement).
                         </p>
                       </button>
                     </div>
