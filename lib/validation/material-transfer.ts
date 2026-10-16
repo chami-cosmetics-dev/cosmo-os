@@ -66,6 +66,31 @@ export const materialTransferConfirmSchema = z.object({
     .max(200),
 });
 
+export const shopItemRequestSuggestQuerySchema = z.object({
+  q: z.string().optional(),
+});
+
+export const shopItemRequestLookupSchema = z.object({
+  code: trimmedString(1, 80),
+});
+
+export const shopItemRequestCreateSchema = z.object({
+  lines: z
+    .array(
+      z.object({
+        itemCode: trimmedString(1, LIMITS.sku.max),
+        neededQty: z.number().int().min(1).max(100_000),
+      }),
+    )
+    .min(1)
+    .max(100),
+});
+
+export const shopItemRequestListQuerySchema = z.object({
+  status: z.enum(["pending", "done"]).optional(),
+  scope: z.enum(["shop", "all"]).optional(),
+});
+
 export const materialTransferCountSchema = z
   .object({
     code: trimmedString(0, 80).optional(),

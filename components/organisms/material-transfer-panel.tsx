@@ -44,6 +44,8 @@ import {
   warehouseOptions,
 } from "@/lib/material-transfer/warehouses";
 import { MaterialTransferHistory } from "@/components/organisms/material-transfer-history";
+import { MaterialTransferRequestQueue } from "@/components/organisms/material-transfer-request-queue";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { notify } from "@/lib/notify";
 import { playScanErrorSound, unlockScanSound } from "@/lib/store-stock-count/scan-sound";
 import { cn } from "@/lib/utils";
@@ -284,6 +286,12 @@ export function MaterialTransferPanel() {
         </p>
       </div>
 
+      <Tabs defaultValue="send">
+        <TabsList className="h-auto w-full justify-start gap-1 sm:w-fit">
+          <TabsTrigger value="send">Send</TabsTrigger>
+          <TabsTrigger value="requests">Shop requests</TabsTrigger>
+        </TabsList>
+        <TabsContent value="send" className="flex flex-col gap-4">
       {busyKey === "page" ? (
         <p className="text-muted-foreground flex items-center gap-2 text-sm">
           <Loader2 className="animate-spin" aria-hidden />
@@ -559,6 +567,11 @@ export function MaterialTransferPanel() {
       <ShopReturnQueue />
 
       <MaterialTransferHistory scope="all" title="History" />
+        </TabsContent>
+        <TabsContent value="requests">
+          <MaterialTransferRequestQueue />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

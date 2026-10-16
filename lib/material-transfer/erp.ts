@@ -169,6 +169,59 @@ async function findItemByCode(cfg: OsfErpCredentials, code: string): Promise<Erp
   return rows[0] ?? null;
 }
 
+export async function searchTransferItemsByCode(
+  cfg: OsfErpCredentials,
+  query: string,
+  limit = 15,
+): Promise<Array<{ itemCode: string; itemName: string }>> {
+  const q = query.trim().replace(/[%_\\]/g, "");
+  if (q.length < 2) return [];
+  const rows = await listResource<ErpItemRow>(
+    cfg,
+    "Item",
+    [
+      ["item_code", "like", `%${q}%`],
+      ["disabled", "=", 0],
+    ],
+    ["item_code", "item_name", "disabled"],
+    limit,
+  );
+  const out: Array<{ itemCode: string; itemName: string }> = [];
+  for (const row of rows) {
+    if (isDisabled(row.disabled)) continue;
+    const itemCode = String(row.item_code ?? row.name ?? "").trim();
+    if (!itemCode) continue;
+    out.push({
+      itemCode,
+      itemName: String(row.item_name ?? itemCode).trim() || itemCode,
+    });
+  }
+  return out;
+}
+
+export async function resolveTransferItemIdentity(
+  cfg: OsfErpCredentials,
+  code: string,
+  options?: { exactOnly?: boolean },
+): Promise<{ itemCode: string; itemName: string; barcode: string } | null> {
+  const trimmed = code.trim();
+  if (!trimmed) return null;
+  const byCode = await findItemByCode(cfg, trimmed);
+  const listed = byCode ?? (options?.exactOnly ? null : await findItemByBarcode(cfg, trimmed));
+  if (!listed || isDisabled(listed.disabled)) return null;
+  const fullName = String(listed.name ?? listed.item_code ?? "").trim();
+  const row = (fullName ? await getItem(cfg, fullName) : null) ?? listed;
+  if (!row || isDisabled(row.disabled)) return null;
+  const itemCode = String(row.item_code ?? row.name ?? "").trim();
+  if (!itemCode) return null;
+  const scannedBarcode = byCode ? "" : trimmed;
+  return {
+    itemCode,
+    itemName: String(row.item_name ?? itemCode).trim() || itemCode,
+    barcode: scannedBarcode || firstBarcode(row),
+  };
+}
+
 async function findItemByBarcode(cfg: OsfErpCredentials, code: string): Promise<ErpItemRow | null> {
   try {
     const json = await erpJson<unknown>(cfg, "/api/method/erpnext.stock.utils.scan_barcode", {
