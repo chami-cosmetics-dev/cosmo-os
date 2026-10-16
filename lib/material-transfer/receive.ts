@@ -16,7 +16,7 @@ const OUTLET_WORDS = new Set(["shop", "warehouse", "main", "stores", "store"]);
  * ERP2 company code → outlet. Material transfer only: who sees a transfer,
  * and shop-to-main from that company's shop warehouse to its main warehouse.
  * LMJ Pepiliyana, MNK Cool Planet Nugegoda, AJS Kiribathgoda, Chami GCC,
- * DTD Thilakma Negombo, SPK Nittambuwa, LWK OGF.
+ * DTD Thilakma Negombo, SPK Nittambuwa, LWK OGF, DRO Maharagama.
  * Galle is the GCC outlet, so it shares Chami.
  */
 const ERP2_CODE_OUTLETS: Record<string, readonly string[]> = {
@@ -27,6 +27,7 @@ const ERP2_CODE_OUTLETS: Record<string, readonly string[]> = {
   dtd: ["thilakma negombo", "thilakma negmbo"],
   spk: ["nittambuwa", "nittabuwa"],
   lwk: ["ogf"],
+  dro: ["maharagama"],
 };
 
 /** Staff outlet name → a word in the ERP1 warehouse name. Galle's shop is named GCC. */
