@@ -309,6 +309,12 @@ function hasPriceMismatch(row: PurchaseReceiptRow) {
   return buildPriceTallyRows(null, row).some((priceRow) => priceRow.issue);
 }
 
+function purchaseInvoiceTotal(row: PurchaseReceiptRow) {
+  return row.purchaseInvoice?.items
+    .filter((item) => item.purchaseReceipt === row.name)
+    .reduce((total, item) => total + item.amount, 0) ?? 0;
+}
+
 function itemIssueCount(row: PurchaseReceiptRow) {
   return row.tallyIssues.length || row.tallyIssueItems.length;
 }
@@ -827,6 +833,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
   const [loading, setLoading] = useState(true);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [companyFilter, setCompanyFilter] = useState("all");
   const [ssrSearch, setSsrSearch] = useState("");
   const [ssrStatusFilter, setSsrStatusFilter] = useState<SsrStatusFilter>("all");
   const [stageFilter, setStageFilter] = useState<GrnStageFilter>(() => ({
@@ -1034,6 +1041,12 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
     (permissions.canViewValued ? 1 : 0) +
     (permissions.canViewReceived ? 1 : 0);
   const prTableColumnCount = 8 + visibleStageColumnCount;
+  const isFinanceStage = stageFilter.stage === "received";
+  const companyOptions = useMemo(
+    () => [...new Map(data.purchaseReceipts.map((row) => [row.companyName, row.companyName])).entries()]
+      .sort((a, b) => a[1].localeCompare(b[1])),
+    [data.purchaseReceipts],
+  );
 
   const rowBelongsToStage = useCallback((row: PurchaseReceiptRow, stage: GrnActionStage) => {
     if (row.isCancelled) return false;
@@ -1076,10 +1089,14 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
     () =>
       Object.fromEntries(
         allowedStageFilters.map(({ key }) => {
-          const rows = data.purchaseReceipts.filter((row) => rowBelongsToStage(row, key));
+          const rows = data.purchaseReceipts.filter(
+            (row) => (companyFilter === "all" || row.companyName === companyFilter) && rowBelongsToStage(row, key),
+          );
           const completed = rows.filter((row) => rowCompletedForStage(row, key)).length;
           const mismatch = rows.filter((row) => rowMismatchedForStage(row, key)).length;
-          const verify = data.purchaseReceipts.filter((row) => rowNeedsVerification(row, key)).length;
+          const verify = data.purchaseReceipts.filter(
+            (row) => (companyFilter === "all" || row.companyName === companyFilter) && rowNeedsVerification(row, key),
+          ).length;
           return [
             key,
             {
@@ -1092,12 +1109,13 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
           ];
         }),
       ) as Record<GrnActionStage, Record<GrnStageStatusFilter, number>>,
-    [allowedStageFilters, data.purchaseReceipts, rowBelongsToStage, rowCompletedForStage, rowMismatchedForStage, rowNeedsVerification],
+    [allowedStageFilters, companyFilter, data.purchaseReceipts, rowBelongsToStage, rowCompletedForStage, rowMismatchedForStage, rowNeedsVerification],
   );
 
   const filteredPrs = useMemo(() => {
     const term = search.trim().toLowerCase();
     return data.purchaseReceipts.filter((row) => {
+      if (companyFilter !== "all" && row.companyName !== companyFilter) return false;
       if (term) {
         const matchesSearch = [row.name, row.adjustmentNo, row.supplier, row.supplierName, row.grnBy, row.companyName]
           .filter(Boolean)
@@ -1116,7 +1134,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
           (stageFilter.status === "mismatch" && rowMismatchedForStage(row, stageFilter.stage)));
       return matchesStage;
     });
-  }, [allowedStageFilters.length, data.purchaseReceipts, rowBelongsToStage, rowCompletedForStage, rowMismatchedForStage, rowNeedsVerification, search, stageFilter.stage, stageFilter.status]);
+  }, [allowedStageFilters.length, companyFilter, data.purchaseReceipts, rowBelongsToStage, rowCompletedForStage, rowMismatchedForStage, rowNeedsVerification, search, stageFilter.stage, stageFilter.status]);
 
   const fieldForStage = useCallback((stage: GrnActionStage): "handoverAt" | "valuedAt" | "receivedAt" => {
     if (stage === "handover") return "handoverAt";
@@ -1240,7 +1258,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
 
   useEffect(() => {
     setPrPage(1);
-  }, [search, stageFilter.stage, stageFilter.status, dateRange.from, dateRange.to, prPageSize]);
+  }, [companyFilter, search, stageFilter.stage, stageFilter.status, dateRange.from, dateRange.to, prPageSize]);
 
   useEffect(() => {
     setSsrPage(1);
@@ -1517,6 +1535,19 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <h2 className="text-lg font-semibold">Purchase receipts</h2>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <select
+                className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                value={companyFilter}
+                onChange={(event) => setCompanyFilter(event.target.value)}
+                aria-label="Filter by company"
+              >
+                <option value="all">All companies</option>
+                {companyOptions.map(([companyName]) => (
+                  <option key={companyName} value={companyName}>
+                    {companyName}
+                  </option>
+                ))}
+              </select>
               <Input
                 className="sm:w-72"
                 placeholder="Search PR, adjustment, supplier"
@@ -1601,7 +1632,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                 {permissions.canViewReceived && (
                   <TableHead className="w-24 whitespace-normal leading-tight">GRN<br />Received</TableHead>
                 )}
-                <TableHead>Tally</TableHead>
+                <TableHead>{isFinanceStage ? "Total" : "Tally"}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -1776,7 +1807,18 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                       </TableCell>
                     )}
                     <TableCell>
-                      <TallyBadge row={row} missingSsrLink={rowMissingIntercompanySsr(row)} />
+                      {isFinanceStage ? (
+                        row.purchaseInvoice ? (
+                          purchaseInvoiceTotal(row).toLocaleString("en-LK", {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          })
+                        ) : (
+                          <span className="text-muted-foreground">-</span>
+                        )
+                      ) : (
+                        <TallyBadge row={row} missingSsrLink={rowMissingIntercompanySsr(row)} />
+                      )}
                     </TableCell>
                   </TableRow>
                 ))
