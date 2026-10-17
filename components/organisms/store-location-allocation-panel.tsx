@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Download, Loader2, MapPinned, Printer, Search, Trash2 } from "lucide-react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Download, Loader2, MapPinned, Plus, Printer, Search, Trash2, X } from "lucide-react";
 
 import { StoreAllocationLocationStep } from "@/components/molecules/store-allocation-location-step";
 import { Button } from "@/components/ui/button";
@@ -22,6 +22,7 @@ import {
   buildNonEmptyLocationSteps,
   clampWalkthroughIndex,
 } from "@/lib/store-allocation/walkthrough";
+import { allocateTakeQty } from "@/lib/store-allocation/allocate";
 
 type LookupItem = {
   sku: string;
@@ -32,6 +33,14 @@ type LookupItem = {
   companyReorderQty?: number;
   itemStatusCategory?: string | null;
   itemStatusLabel?: string | null;
+};
+
+type PrWarehouseRow = {
+  id: string;
+  sku: string;
+  columnKey: string;
+  warehouse: string;
+  qty: number;
 };
 
 function priorityLabel(item: SessionItem) {
@@ -45,6 +54,10 @@ function itemSumOk(item: SessionItem): boolean {
   return sum === item.takeQty;
 }
 
+function allocationCompany(location: SessionLocationQty) {
+  return location.erpCompany?.trim() || location.label.trim() || "Unassigned";
+}
+
 export function StoreLocationAllocationPanel() {
   const [q, setQ] = useState("");
   const [lookupLoading, setLookupLoading] = useState(false);
@@ -56,7 +69,8 @@ export function StoreLocationAllocationPanel() {
   const [allocationConfirmed, setAllocationConfirmed] = useState(false);
   const [prSupplier, setPrSupplier] = useState("");
   const [prSuppliers, setPrSuppliers] = useState<Array<{ name: string; label: string }>>([]);
-  const [prWarehouses, setPrWarehouses] = useState<Record<string, string>>({});
+  const [prRows, setPrRows] = useState<PrWarehouseRow[]>([]);
+  const [createdReceipts, setCreatedReceipts] = useState<string[]>([]);
   const [creatingPr, setCreatingPr] = useState(false);
   const [walkIndex, setWalkIndex] = useState(0);
   const [exporting, setExporting] = useState(false);
@@ -261,7 +275,8 @@ export function StoreLocationAllocationPanel() {
     setWalkOpen(false);
     setAllocationConfirmed(false);
     setPrSupplier("");
-    setPrWarehouses({});
+    setPrRows([]);
+    setCreatedReceipts([]);
     setWalkIndex(0);
   }
 
@@ -343,7 +358,6 @@ export function StoreLocationAllocationPanel() {
   }
 
   function setItemLocationQty(sku: string, columnKey: string, raw: string) {
-    setAllocationConfirmed(false);
     const n = Number(raw);
     const qty = Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
     setItems((prev) =>
@@ -357,6 +371,32 @@ export function StoreLocationAllocationPanel() {
         };
       }),
     );
+  }
+
+  function removeCompany(company: string) {
+    setItems((prev) => prev.map((item) => {
+      const remaining = item.locations.filter((location) => allocationCompany(location) !== company);
+      const suggestions = item.takeQty && remaining.length > 0
+        ? new Map(allocateTakeQty(item.takeQty, remaining.map((location) => ({
+            key: location.columnKey,
+            need: location.need,
+            sales: location.sales90d,
+            priority: location.allocationPriority ?? 2,
+          }))).map((allocation) => [allocation.key, allocation.qty]))
+        : new Map<string, number>();
+      return {
+        ...item,
+        locations: remaining.map((location) => ({
+          ...location,
+          qty: suggestions.get(location.columnKey) ?? 0,
+          suggestedQty: suggestions.get(location.columnKey) ?? 0,
+        })),
+      };
+    }));
+    setPrRows((current) => current.filter((row) => {
+      const location = items.flatMap((item) => item.locations).find((candidate) => candidate.columnKey === row.columnKey);
+      return !location || allocationCompany(location) !== company;
+    }));
   }
 
   function openWalkthrough() {
@@ -374,13 +414,15 @@ export function StoreLocationAllocationPanel() {
       notify.error("Each item's location quantities must sum to its take qty");
       return;
     }
-    const defaults: Record<string, string> = {};
+    const rows: PrWarehouseRow[] = [];
     for (const item of exportable) {
       for (const location of item.locations) {
-        if (location.qty > 0 && location.warehouses[0]) defaults[location.columnKey] ??= location.warehouses[0];
+        const warehouse = location.warehouses[0] ?? "";
+        rows.push({ id: `${item.sku}:${location.columnKey}:0`, sku: item.sku, columnKey: location.columnKey, warehouse, qty: location.qty });
       }
     }
-    setPrWarehouses(defaults);
+    setPrRows(rows);
+    setCreatedReceipts([]);
     setAllocationConfirmed(true);
     setWalkOpen(false);
     notify.success("Allocation confirmed. Review Purchase Receipts below.");
@@ -392,17 +434,15 @@ export function StoreLocationAllocationPanel() {
       return;
     }
     const supplierId = prSuppliers.find((supplier) => supplier.label === prSupplier || supplier.name === prSupplier)?.name ?? prSupplier;
-    const payload = exportable.flatMap((item) =>
-      item.locations
-        .filter((location) => location.qty > 0)
-        .map((location) => ({
-          sku: item.sku,
-          qty: location.qty,
-          warehouse: prWarehouses[location.columnKey] ?? location.warehouses[0],
-          erpInstanceId: location.erpnextInstanceId,
-          company: location.erpCompany,
-        })),
-    );
+    const payload = prRows.filter((row) => row.qty > 0).flatMap((row) => {
+      const item = exportable.find((candidate) => candidate.sku === row.sku);
+      const location = item?.locations.find((candidate) => candidate.columnKey === row.columnKey);
+      return item && location && row.warehouse ? [{ sku: item.sku, qty: row.qty, warehouse: row.warehouse, erpInstanceId: location.erpnextInstanceId, company: allocationCompany(location) }] : [];
+    });
+    if (payload.length === 0) {
+      notify.error("Add a quantity to at least one warehouse");
+      return;
+    }
     if (payload.some((row) => !row.warehouse || !row.erpInstanceId)) {
       notify.error("Every allocated location needs a warehouse and ERP instance");
       return;
@@ -416,13 +456,71 @@ export function StoreLocationAllocationPanel() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? "Purchase Receipt creation failed");
-      notify.success(`${data.receipts?.length ?? 0} Purchase Receipt(s) created`);
-      setAllocationConfirmed(false);
+      const receipts = Array.isArray(data.receipts) ? data.receipts.map(String) : [];
+      setCreatedReceipts(receipts);
+      notify.success(`${receipts.length} Purchase Receipt(s) created`);
     } catch (error) {
       notify.error(error instanceof Error ? error.message : "Purchase Receipt creation failed");
     } finally {
       setCreatingPr(false);
     }
+  }
+
+  function updatePrRow(id: string, patch: Partial<PrWarehouseRow>) {
+    setPrRows((current) => current.map((row) => row.id === id ? { ...row, ...patch } : row));
+  }
+
+  function recalculatePrAllocations(nextRows: PrWarehouseRow[]) {
+    const allocationsByItem = new Map<string, Map<string, number>>();
+    const nextItems = items.map((item) => {
+      const activeKeys = new Set(nextRows.filter((row) => row.sku === item.sku).map((row) => row.columnKey));
+      const allocations = allocateTakeQty(item.takeQty ?? 0, item.locations.filter((location) => activeKeys.has(location.columnKey)).map((location) => ({
+        key: location.columnKey,
+        need: location.need,
+        sales: location.sales90d,
+        priority: location.allocationPriority ?? 2,
+      })));
+      const next = new Map(allocations.map((allocation) => [allocation.key, allocation.qty]));
+      allocationsByItem.set(item.sku, next);
+      return { ...item, locations: item.locations.map((location) => ({ ...location, qty: next.get(location.columnKey) ?? 0, suggestedQty: next.get(location.columnKey) ?? 0 })) };
+    });
+    const assigned = new Set<string>();
+    const nextPrRows = nextRows.map((row) => {
+      const allocation = allocationsByItem.get(row.sku)?.get(row.columnKey);
+      if (allocation == null) return row;
+      const key = `${row.sku}:${row.columnKey}`;
+      if (assigned.has(key)) return { ...row, qty: 0 };
+      assigned.add(key);
+      return { ...row, qty: allocation };
+    });
+    setItems(nextItems);
+    setPrRows(nextPrRows);
+  }
+
+  function addItemsToWarehouse(warehouse: string, company?: string) {
+    const additions: PrWarehouseRow[] = [];
+    for (const item of exportable) {
+      for (const location of item.locations) {
+        if (!location.warehouses.includes(warehouse)) continue;
+        if (company && allocationCompany(location) !== company) continue;
+        if (prRows.some((row) => row.sku === item.sku && row.warehouse === warehouse)) continue;
+        additions.push({ id: `${item.sku}:${warehouse}:${Date.now()}:${additions.length}`, sku: item.sku, columnKey: location.columnKey, warehouse, qty: 0 });
+      }
+    }
+    if (additions.length === 0) {
+      notify.info("All session items are already available in this warehouse");
+      return;
+    }
+    recalculatePrAllocations([...prRows, ...additions]);
+  }
+
+  function addWarehouse(warehouse: string) {
+    addItemsToWarehouse(warehouse);
+  }
+
+  function removePrRow(row: PrWarehouseRow) {
+    const nextRows = prRows.filter((candidate) => candidate.id !== row.id);
+    recalculatePrAllocations(nextRows);
   }
 
   async function exportXlsx() {
@@ -603,6 +701,20 @@ export function StoreLocationAllocationPanel() {
                 </div>
                 <div className="flex flex-wrap items-end gap-2">
                   <label className="space-y-1 text-sm">
+                    <span className="text-muted-foreground">Add warehouse</span>
+                    <select
+                      className="h-9 min-w-56 rounded-md border bg-background px-2"
+                      defaultValue=""
+                      onChange={(e) => {
+                        if (e.target.value) addWarehouse(e.target.value);
+                        e.target.value = "";
+                      }}
+                    >
+                      <option value="">Add warehouse...</option>
+                      {[...new Set(exportable.flatMap((item) => item.locations.flatMap((location) => location.warehouses)))].filter((warehouse) => !prRows.some((row) => row.warehouse === warehouse)).sort().map((warehouse) => <option key={warehouse} value={warehouse}>{warehouse}</option>)}
+                    </select>
+                  </label>
+                  <label className="space-y-1 text-sm">
                     <span className="text-muted-foreground">Supplier</span>
                     <Input
                       list="store-allocation-suppliers"
@@ -621,27 +733,70 @@ export function StoreLocationAllocationPanel() {
                 </div>
               </div>
               <div className="mt-4 overflow-x-auto">
+                {createdReceipts.length > 0 && (
+                  <div className="mb-3 rounded-md border border-emerald-500/40 bg-emerald-500/10 p-3 text-sm">
+                    <p className="font-medium">Purchase receipts created</p>
+                    <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
+                      {createdReceipts.map((receipt) => <span key={receipt} className="text-emerald-700 dark:text-emerald-300">{receipt}</span>)}
+                    </div>
+                  </div>
+                )}
                 <table className="w-full min-w-[720px] text-sm">
                   <thead className="border-b text-left text-xs uppercase text-muted-foreground">
-                    <tr><th className="px-2 py-2">SKU</th><th className="px-2 py-2">Location</th><th className="px-2 py-2">Warehouse</th><th className="px-2 py-2">Qty</th></tr>
+                    <tr><th className="px-2 py-2">Company</th><th className="px-2 py-2">SKU / item</th><th className="px-2 py-2">Reference</th><th className="px-2 py-2">Warehouse</th><th className="px-2 py-2">Qty</th></tr>
                   </thead>
                   <tbody>
-                    {exportable.flatMap((item) => item.locations.filter((location) => location.qty > 0).map((location) => (
-                      <tr key={`${item.sku}-${location.columnKey}`} className="border-b last:border-0">
-                        <td className="px-2 py-2 font-medium">{item.sku}</td>
-                        <td className="px-2 py-2">{location.label}</td>
-                        <td className="px-2 py-2">
-                          <select
-                            value={prWarehouses[location.columnKey] ?? location.warehouses[0] ?? ""}
-                            onChange={(e) => setPrWarehouses((current) => ({ ...current, [location.columnKey]: e.target.value }))}
-                            className="h-9 min-w-64 rounded-md border bg-background px-2"
-                          >
-                            {location.warehouses.map((warehouse) => <option key={warehouse} value={warehouse}>{warehouse}</option>)}
-                          </select>
-                        </td>
-                        <td className="px-2 py-2 tabular-nums">{location.qty}</td>
-                      </tr>
-                    )))}
+                    {[...new Set(exportable.flatMap((item) => item.locations.map(allocationCompany)))].map((company) => {
+                      const companyRows = exportable.flatMap((item) => item.locations.filter((location) => allocationCompany(location) === company).map((location) => ({ item, location })));
+                      return (
+                        <Fragment key={company}>
+                          <tr className="border-b bg-muted/30">
+                            <td className="px-2 py-2 font-semibold" colSpan={4}>{company}</td>
+                            <td className="px-2 py-2 text-right">
+                              <div className="flex items-center justify-end gap-2 whitespace-nowrap">
+                                {(() => {
+                                  const selectedWarehouses = [...new Set(prRows.filter((row) => companyRows.some(({ item, location }) => row.sku === item.sku && row.columnKey === location.columnKey)).map((row) => row.warehouse))];
+                                  const hasMissingItems = selectedWarehouses.some((warehouse) => companyRows.some(({ item, location }) => location.warehouses.includes(warehouse) && !prRows.some((row) => row.sku === item.sku && row.warehouse === warehouse)));
+                                  return (
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant="outline"
+                                      disabled={!hasMissingItems}
+                                      onClick={() => selectedWarehouses.forEach((warehouse) => addItemsToWarehouse(warehouse, company))}
+                                    >
+                                      <Plus className="size-4" /> Add items
+                                    </Button>
+                                  );
+                                })()}
+                                <Button type="button" size="sm" variant="outline" onClick={() => removeCompany(company)}>Remove company</Button>
+                              </div>
+                            </td>
+                          </tr>
+                          {companyRows.map(({ item, location }) => prRows.filter((row) => row.sku === item.sku && row.columnKey === location.columnKey).map((row) => {
+                            return (
+                            <tr key={row.id} className="border-b last:border-0">
+                              <td className="px-2 py-2 text-muted-foreground">{company}</td>
+                              <td className="px-2 py-2 font-medium">{item.sku}<div className="text-xs text-muted-foreground">{item.description}</div></td>
+                              <td className="px-2 py-2 text-xs text-muted-foreground">Barcode: {item.barcode || "-"}<br />ROP: {location.locationRop}<br />Stock: {location.stock}</td>
+                              <td className="px-2 py-2">
+                                <div className="flex items-center gap-2">
+                                  <select
+                                    value={row.warehouse}
+                                    onChange={(e) => updatePrRow(row.id, { warehouse: e.target.value })}
+                                    className="h-9 min-w-64 rounded-md border bg-background px-2"
+                                  >
+                                    {location.warehouses.map((warehouse) => <option key={warehouse} value={warehouse}>{warehouse}</option>)}
+                                  </select>
+                                </div>
+                              </td>
+                              <td className="px-2 py-2"><div className="flex items-center gap-1"><Input type="number" min="0" value={row.qty} onChange={(e) => updatePrRow(row.id, { qty: Number(e.target.value) || 0 })} className="w-24" /><Button type="button" size="icon" variant="ghost" title="Remove item from warehouse" onClick={() => removePrRow(row)}><X className="size-4" /></Button></div></td>
+                            </tr>
+                            );
+                          }))}
+                        </Fragment>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

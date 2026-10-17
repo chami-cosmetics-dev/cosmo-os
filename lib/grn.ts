@@ -636,7 +636,9 @@ export async function ingestPurchaseInvoiceFromWebhook(
     return { ok: true as const, ignored: true as const };
   }
 
-  const supplierStockReturnName = purchaseReceipt.supplierStockReturnName ?? linkedStockReturn?.name ?? null;
+  // A normal PR invoice must not inherit the PR's SSR link. Only link an SSR
+  // when this PI payload identifies one itself (or is an ERP return invoice).
+  const supplierStockReturnName = linkedStockReturn?.name ?? (data.is_return === 1 ? ssrNameFromBillNo : null);
 
   await prisma.$transaction(async (tx) => {
     const invoice = await tx.grnPurchaseInvoice.upsert({

@@ -13,6 +13,7 @@ export type SessionLocationQty = {
   stock: number;
   need: number;
   sales90d: number;
+  allocationPriority?: number;
   suggestedQty: number;
   qty: number;
 };
