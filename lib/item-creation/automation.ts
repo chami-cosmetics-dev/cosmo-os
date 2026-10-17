@@ -722,7 +722,7 @@ export async function createStoreAllocationPurchaseReceipts(
 
   const instances = await getAllOsfErpInstances(companyId(context));
   const instanceById = new Map(instances.map((instance) => [instance.id, instance]));
-  const groups = new Map<string, { cfg: OsfErpCredentials; company: string; items: typeof input.items }>();
+  const groups = new Map<string, { cfg: OsfErpCredentials; company: string; warehouse: string; items: typeof input.items }>();
 
   for (const item of input.items) {
     const sku = item.sku?.trim();
@@ -732,20 +732,18 @@ export async function createStoreAllocationPurchaseReceipts(
     if (!Number.isFinite(item.qty) || item.qty <= 0) throw new Error(`Quantity for ${sku} must be greater than zero`);
     const company = item.company?.trim() || await getWarehouseCompany(instance.cfg, warehouse);
     if (!company) throw new Error(`Company is not configured on warehouse ${warehouse}`);
-    const key = `${instance.id}:${company}`;
-    const group = groups.get(key) ?? { cfg: instance.cfg, company, items: [] };
+    const key = `${instance.id}:${company}:${warehouse}`;
+    const group = groups.get(key) ?? { cfg: instance.cfg, company, warehouse, items: [] };
     group.items.push(item);
     groups.set(key, group);
   }
 
   const receipts: string[] = [];
   for (const group of groups.values()) {
-    const firstWarehouse = group.items[0]?.warehouse;
-    if (!firstWarehouse) continue;
     receipts.push(await createPurchaseReceipt({
       cfg: group.cfg,
       supplier,
-      warehouse: firstWarehouse,
+      warehouse: group.warehouse,
       company: group.company,
       postingDate: new Date().toISOString().slice(0, 10),
       items: group.items.map((item) => ({
