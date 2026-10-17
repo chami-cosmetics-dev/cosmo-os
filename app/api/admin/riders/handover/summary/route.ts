@@ -9,7 +9,7 @@ import {
   latestHandoverReceipt,
   latestReceiptForCompany,
   listHandoverClosedInvoices,
-  loadScopedRiderHandoverDeliveries,
+  loadRiderHandoverDeliveries,
 } from "@/lib/rider-handover";
 import { requirePermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
@@ -28,8 +28,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
   const companyId = auth.context!.user?.companyId;
-  const userId = auth.context!.user?.id;
-  if (!companyId || !userId) {
+  if (!companyId) {
     return NextResponse.json({ error: "No company associated with your account" }, { status: 404 });
   }
 
@@ -42,10 +41,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Invalid date range" }, { status: 400 });
   }
 
-  const loaded = await loadScopedRiderHandoverDeliveries({
+  const loaded = await loadRiderHandoverDeliveries({
     companyId,
-    userId,
-    roleNames: auth.context!.roleNames,
     riderId: parsed.data.riderId,
     fromYmd: parsed.data.from,
     toYmd: parsed.data.to,
