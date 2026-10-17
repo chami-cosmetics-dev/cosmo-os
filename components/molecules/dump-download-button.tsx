@@ -71,8 +71,11 @@ export function DumpDownloadButton({
 
       const total = parseDumpTotalHeader(res.headers.get(DUMP_TOTAL_HEADER));
       const contentLength = Number(res.headers.get("Content-Length"));
+      const contentType = res.headers.get("Content-Type") ?? "text/csv;charset=utf-8";
       const fileName =
-        parseContentDispositionFilename(res.headers.get("Content-Disposition")) ?? "dump.csv";
+        parseContentDispositionFilename(res.headers.get("Content-Disposition")) ??
+        (contentType.includes("spreadsheet") ? "dump.xlsx" : "dump.csv");
+      const isWorkbook = contentType.includes("spreadsheet") || fileName.endsWith(".xlsx");
       const reader = res.body?.getReader();
       if (!reader) throw new Error("Download stream unavailable");
 
@@ -89,7 +92,7 @@ export function DumpDownloadButton({
         chunks.push(value);
         received += value.byteLength;
         let nextPercent = 0;
-        if (total > 0) {
+        if (!isWorkbook && total > 0) {
           counter.consume(decoder.decode(value, { stream: true }));
           nextPercent = dumpProgressPercent(counter.dataRows(), total);
         } else if (Number.isFinite(contentLength) && contentLength > 0) {
@@ -103,7 +106,7 @@ export function DumpDownloadButton({
       }
 
       setPercent(100);
-      triggerBlobDownload(new Blob(chunks, { type: "text/csv;charset=utf-8" }), fileName);
+      triggerBlobDownload(new Blob(chunks, { type: contentType }), fileName);
       notify.success(`${label} downloaded.`, toastId);
     } catch (error) {
       notify.error(error instanceof Error ? error.message : "Download failed.", toastId);

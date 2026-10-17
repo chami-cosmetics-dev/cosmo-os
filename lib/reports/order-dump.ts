@@ -26,7 +26,7 @@ function formatIsoTime(value: Date | null | undefined) {
   return formatAppIsoTime(value, "");
 }
 
-function summarizePaymentGateway(value: string) {
+export function summarizePaymentGateway(value: string) {
   const trimmed = value.trim();
   if (!trimmed) return "";
 
@@ -100,7 +100,7 @@ function resolveExportFulfillmentStatus(input: {
   return input.fulfillmentStatus ?? "";
 }
 
-function resolveInvoiceStatus(input: {
+export function resolveInvoiceStatus(input: {
   sourceName: string;
   financialStatus: string | null;
   fulfillmentStage: string | null;

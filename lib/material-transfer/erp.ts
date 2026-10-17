@@ -5,7 +5,11 @@ import { getAllOsfErpInstances, type OsfErpCredentials, type OsfErpInstance } fr
 import { ERP_TAX_STATUS_FIELD } from "@/lib/osf/erp-tax-status";
 import { erpErrorMessage } from "@/lib/material-transfer/erp-error";
 import { itemCodeFromScanBarcode } from "@/lib/material-transfer/scan-barcode";
-import { buildMaterialTransferBody } from "@/lib/material-transfer/payload";
+import {
+  buildCosmoSaveDocCall,
+  buildMaterialTransferBody,
+  stockEntryNameFromSaveDoc,
+} from "@/lib/material-transfer/payload";
 import type { TransferLookupItem, TransferSlot, TransferWarehouse } from "@/lib/material-transfer/types";
 import {
   companyForWarehouses,
@@ -365,6 +369,19 @@ async function assertVatLines(cfg: OsfErpCredentials, itemCodes: string[]) {
   }
 }
 
+export function requireErpOwner(user: {
+  erpnextUsername?: string | null;
+  email?: string | null;
+}): string {
+  const owner = user.erpnextUsername?.trim() || user.email?.trim() || "";
+  if (!owner) {
+    throw new MaterialTransferError(
+      "Your ERP username is not set. An admin must link it before stock can move.",
+    );
+  }
+  return owner;
+}
+
 export async function submitMaterialTransfer(input: {
   cfg: OsfErpCredentials;
   slot: TransferSlot;
@@ -373,6 +390,7 @@ export async function submitMaterialTransfer(input: {
   targetWarehouse: string;
   lines: Array<{ itemCode: string; qty: number; uom?: string | null }>;
   warehouses: TransferWarehouse[];
+  owner: string;
 }): Promise<{ name: string; company: string }> {
   const options = warehouseOptions(input.slot, input.warehouses, input.company ?? null);
   let company: string;
@@ -397,34 +415,27 @@ export async function submitMaterialTransfer(input: {
   }
   await assertSourceCovers(input.cfg, input.sourceWarehouse, input.lines);
 
-  const body = buildMaterialTransferBody({
-    company,
-    sourceWarehouse: input.sourceWarehouse,
-    targetWarehouse: input.targetWarehouse,
-    lines: input.lines,
+  const owner = requireErpOwner({ erpnextUsername: input.owner });
+  const body = buildCosmoSaveDocCall({
+    owner,
+    doc: buildMaterialTransferBody({
+      company,
+      sourceWarehouse: input.sourceWarehouse,
+      targetWarehouse: input.targetWarehouse,
+      lines: input.lines,
+    }),
   });
-  const created = await erpJson<{ name?: string }>(input.cfg, "/api/resource/Stock%20Entry", {
-    method: "POST",
-    body: JSON.stringify(body),
-  });
-  const name = String(created.name ?? "").trim();
-  if (!name) throw new MaterialTransferError("ERP did not return a Stock Entry number", 502);
-
+  let saved: unknown;
   try {
-    const full = await erpJson<Record<string, unknown>>(
-      input.cfg,
-      `/api/resource/Stock%20Entry/${encodeURIComponent(name)}`,
-    );
-    await erpJson(input.cfg, "/api/method/frappe.client.submit", {
+    saved = await erpJson<unknown>(input.cfg, "/api/method/cosmo_save_doc", {
       method: "POST",
-      body: JSON.stringify({ doc: { ...full, doctype: "Stock Entry" } }),
+      body: JSON.stringify(body),
     });
   } catch (error) {
-    await erpJson(input.cfg, `/api/resource/Stock%20Entry/${encodeURIComponent(name)}`, {
-      method: "DELETE",
-    }).catch(() => undefined);
     throw new MaterialTransferError(erpErrorMessage(error), 422);
   }
+  const name = stockEntryNameFromSaveDoc(saved);
+  if (!name) throw new MaterialTransferError("ERP did not return a Stock Entry number", 502);
 
   return { name, company };
 }

@@ -278,23 +278,34 @@ export function RiderHandoverPanel({
     }
   }
 
-  async function markInvoices(companyName: string) {
+  const openOrders = (companies ?? []).flatMap((group) => group.orders.filter((row) => !row.invoiceClosed));
+
+  async function markInvoices(onlyOrderId?: string) {
     if (!riderId) {
       notify.error("Select a rider");
       return;
     }
-    const company = companies?.find((group) => group.companyName === companyName);
-    const orderIds = new Set(company?.orders.map((row) => row.orderId) ?? []);
-    setBusyKey(`close:${companyName}`);
+    const targets = onlyOrderId
+      ? openOrders.filter((row) => row.orderId === onlyOrderId)
+      : openOrders;
+    if (targets.length === 0) return;
+    setBusyKey(onlyOrderId ? `close:${onlyOrderId}` : "close");
     try {
+      const targetIds = new Set(targets.map((row) => row.orderId));
       const modes = Object.entries(modeByOrder)
-        .filter(([orderId]) => orderIds.has(orderId))
+        .filter(([orderId]) => targetIds.has(orderId))
         .map(([orderId, modeOfPayment]) => ({ orderId, modeOfPayment: modeOfPayment.trim() }))
         .filter((row) => row.modeOfPayment);
       const res = await fetch("/api/admin/riders/handover/invoice-complete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ riderId, from, to, companyName, modes }),
+        body: JSON.stringify({
+          riderId,
+          from,
+          to,
+          orderIds: targets.map((row) => row.orderId),
+          modes,
+        }),
       });
       const data = await readError(res);
       if (!res.ok) {
@@ -610,9 +621,28 @@ export function RiderHandoverPanel({
                               {row.deliveredAt ? formatWhen(row.deliveredAt) : "—"}
                             </td>
                             <td className="px-2 py-2">
-                              {row.invoiceClosed
-                                ? `Complete${row.invoiceCompleteAt ? ` ${formatWhen(row.invoiceCompleteAt)}` : ""}`
-                                : row.blockReason || "Open"}
+                              {row.invoiceClosed ? (
+                                `Complete${row.invoiceCompleteAt ? ` ${formatWhen(row.invoiceCompleteAt)}` : ""}`
+                              ) : (
+                                <div className="space-y-1">
+                                  <div>{row.blockReason || "Open"}</div>
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    disabled={isBusy}
+                                    onClick={() => void markInvoices(row.orderId)}
+                                  >
+                                    {busyKey === `close:${row.orderId}` ? (
+                                      <>
+                                        <Loader2 className="animate-spin" aria-hidden />
+                                        Marking...
+                                      </>
+                                    ) : (
+                                      "Mark invoice completed"
+                                    )}
+                                  </Button>
+                                </div>
+                              )}
                             </td>
                             <td className="px-2 py-2">
                               {row.canEditPaymentType ? (
@@ -643,19 +673,23 @@ export function RiderHandoverPanel({
                       </tbody>
                     </table>
                   </div>
-                  <Button type="button" disabled={isBusy} onClick={() => void markInvoices(group.companyName)}>
-                    {busyKey === `close:${group.companyName}` ? (
-                      <>
-                        <Loader2 className="animate-spin" aria-hidden />
-                        Marking...
-                      </>
-                    ) : (
-                      "Mark invoices completed"
-                    )}
-                  </Button>
                 </section>
               ))
             )}
+            {orderTotal > 0 ? (
+              <Button type="button" disabled={isBusy || openOrders.length === 0} onClick={() => void markInvoices()}>
+                {busyKey === "close" ? (
+                  <>
+                    <Loader2 className="animate-spin" aria-hidden />
+                    Marking...
+                  </>
+                ) : openOrders.length === 0 ? (
+                  "Mark invoices completed"
+                ) : (
+                  `Mark invoices completed (${openOrders.length})`
+                )}
+              </Button>
+            ) : null}
           </div>
         ) : null}
       </CardContent>
