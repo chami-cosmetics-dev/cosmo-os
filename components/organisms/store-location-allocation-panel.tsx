@@ -70,6 +70,7 @@ export function StoreLocationAllocationPanel() {
   const [prSupplier, setPrSupplier] = useState("");
   const [prSuppliers, setPrSuppliers] = useState<Array<{ name: string; label: string }>>([]);
   const [prRows, setPrRows] = useState<PrWarehouseRow[]>([]);
+  const [manualAllocationSkus, setManualAllocationSkus] = useState<Set<string>>(() => new Set());
   const [createdReceipts, setCreatedReceipts] = useState<string[]>([]);
   const [creatingPr, setCreatingPr] = useState(false);
   const [walkIndex, setWalkIndex] = useState(0);
@@ -85,6 +86,17 @@ export function StoreLocationAllocationPanel() {
   const exportable = items.filter((i) => i.takeQty != null && i.takeQty > 0);
   const allExportValid =
     exportable.length > 0 && exportable.every((i) => itemSumOk(i) && i.planStatus === "ready");
+  const manualAllocationIssues = allocationConfirmed
+    ? exportable.flatMap((item) => {
+        if (!manualAllocationSkus.has(item.sku)) return [];
+        const allocated = prRows
+          .filter((row) => row.sku === item.sku)
+          .reduce((total, row) => total + row.qty, 0);
+        const requested = item.takeQty ?? 0;
+        return allocated === requested ? [] : [{ sku: item.sku, allocated, requested }];
+      })
+    : [];
+  const manualAllocationsValid = manualAllocationIssues.length === 0;
 
   useEffect(() => {
     void Promise.all((['ERP1', 'ERP2'] as const).map(async (erp) => {
@@ -261,6 +273,11 @@ export function StoreLocationAllocationPanel() {
 
   function removeItem(sku: string) {
     setItems((prev) => prev.filter((i) => i.sku !== sku));
+    setManualAllocationSkus((previous) => {
+      const next = new Set(previous);
+      next.delete(sku);
+      return next;
+    });
     const t = planTimers.current.get(sku);
     if (t) clearTimeout(t);
     planTimers.current.delete(sku);
@@ -270,6 +287,7 @@ export function StoreLocationAllocationPanel() {
     for (const t of planTimers.current.values()) clearTimeout(t);
     planTimers.current.clear();
     setItems([]);
+    setManualAllocationSkus(new Set());
     setFocusSku(null);
     setMatches([]);
     setWalkOpen(false);
@@ -282,6 +300,11 @@ export function StoreLocationAllocationPanel() {
 
   function setTakeQty(sku: string, raw: string) {
     setAllocationConfirmed(false);
+    setManualAllocationSkus((previous) => {
+      const next = new Set(previous);
+      next.delete(sku);
+      return next;
+    });
     const trimmed = raw.trim();
     const takeQty =
       trimmed === ""
@@ -335,6 +358,7 @@ export function StoreLocationAllocationPanel() {
       setItems((prev) =>
         prev.map((i) => {
           if (i.sku !== sku) return i;
+          if (manualAllocationSkus.has(sku)) return i;
           if (i.takeQty !== qty) return i;
           return {
             ...i,
@@ -360,6 +384,11 @@ export function StoreLocationAllocationPanel() {
   function setItemLocationQty(sku: string, columnKey: string, raw: string) {
     const n = Number(raw);
     const qty = Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+    setManualAllocationSkus((previous) => {
+      const next = new Set(previous);
+      next.add(sku);
+      return next;
+    });
     setItems((prev) =>
       prev.map((item) => {
         if (item.sku !== sku) return item;
@@ -374,29 +403,11 @@ export function StoreLocationAllocationPanel() {
   }
 
   function removeCompany(company: string) {
-    setItems((prev) => prev.map((item) => {
-      const remaining = item.locations.filter((location) => allocationCompany(location) !== company);
-      const suggestions = item.takeQty && remaining.length > 0
-        ? new Map(allocateTakeQty(item.takeQty, remaining.map((location) => ({
-            key: location.columnKey,
-            need: location.need,
-            sales: location.sales90d,
-            priority: location.allocationPriority ?? 2,
-          }))).map((allocation) => [allocation.key, allocation.qty]))
-        : new Map<string, number>();
-      return {
-        ...item,
-        locations: remaining.map((location) => ({
-          ...location,
-          qty: suggestions.get(location.columnKey) ?? 0,
-          suggestedQty: suggestions.get(location.columnKey) ?? 0,
-        })),
-      };
-    }));
-    setPrRows((current) => current.filter((row) => {
+    const nextRows = prRows.filter((row) => {
       const location = items.flatMap((item) => item.locations).find((candidate) => candidate.columnKey === row.columnKey);
       return !location || allocationCompany(location) !== company;
-    }));
+    });
+    recalculatePrAllocations(nextRows);
   }
 
   function openWalkthrough() {
@@ -433,6 +444,10 @@ export function StoreLocationAllocationPanel() {
       notify.error("Enter a supplier and confirm the allocation first");
       return;
     }
+    if (!manualAllocationsValid) {
+      notify.error("Manual allocation quantities must match the original take qty");
+      return;
+    }
     const supplierId = prSuppliers.find((supplier) => supplier.label === prSupplier || supplier.name === prSupplier)?.name ?? prSupplier;
     const payload = prRows.filter((row) => row.qty > 0).flatMap((row) => {
       const item = exportable.find((candidate) => candidate.sku === row.sku);
@@ -467,12 +482,56 @@ export function StoreLocationAllocationPanel() {
   }
 
   function updatePrRow(id: string, patch: Partial<PrWarehouseRow>) {
-    setPrRows((current) => current.map((row) => row.id === id ? { ...row, ...patch } : row));
+    const currentRow = prRows.find((row) => row.id === id);
+    const nextRows = prRows.map((row) => row.id === id ? { ...row, ...patch } : row);
+    if (currentRow && patch.qty != null) {
+      setManualAllocationSkus((previous) => {
+        const next = new Set(previous);
+        next.add(currentRow.sku);
+        return next;
+      });
+      setItems((current) => current.map((item) => {
+        if (item.sku !== currentRow.sku) return item;
+        const quantitiesByLocation = new Map<string, number>();
+        for (const row of nextRows) {
+          if (row.sku !== item.sku) continue;
+          quantitiesByLocation.set(
+            row.columnKey,
+            (quantitiesByLocation.get(row.columnKey) ?? 0) + row.qty,
+          );
+        }
+        return {
+          ...item,
+          locations: item.locations.map((location) => ({
+            ...location,
+            qty: quantitiesByLocation.get(location.columnKey) ?? 0,
+          })),
+        };
+      }));
+    }
+    setPrRows(nextRows);
   }
 
   function recalculatePrAllocations(nextRows: PrWarehouseRow[]) {
     const allocationsByItem = new Map<string, Map<string, number>>();
     const nextItems = items.map((item) => {
+      if (manualAllocationSkus.has(item.sku)) {
+        const quantitiesByLocation = new Map<string, number>();
+        for (const row of nextRows) {
+          if (row.sku !== item.sku) continue;
+          quantitiesByLocation.set(
+            row.columnKey,
+            (quantitiesByLocation.get(row.columnKey) ?? 0) + row.qty,
+          );
+        }
+        return {
+          ...item,
+          locations: item.locations.map((location) => ({
+            ...location,
+            qty: quantitiesByLocation.get(location.columnKey) ?? 0,
+          })),
+        };
+      }
       const activeKeys = new Set(nextRows.filter((row) => row.sku === item.sku).map((row) => row.columnKey));
       const allocations = allocateTakeQty(item.takeQty ?? 0, item.locations.filter((location) => activeKeys.has(location.columnKey)).map((location) => ({
         key: location.columnKey,
@@ -486,6 +545,7 @@ export function StoreLocationAllocationPanel() {
     });
     const assigned = new Set<string>();
     const nextPrRows = nextRows.map((row) => {
+      if (manualAllocationSkus.has(row.sku)) return row;
       const allocation = allocationsByItem.get(row.sku)?.get(row.columnKey);
       if (allocation == null) return row;
       const key = `${row.sku}:${row.columnKey}`;
@@ -726,12 +786,31 @@ export function StoreLocationAllocationPanel() {
                       {prSuppliers.map((supplier) => <option key={supplier.name} value={supplier.label} label={supplier.name} />)}
                     </datalist>
                   </label>
-                  <Button type="button" disabled={creatingPr || !prSupplier.trim()} onClick={() => void createAllocationPurchaseReceipts()}>
+                  <Button
+                    type="button"
+                    disabled={creatingPr || !prSupplier.trim() || !manualAllocationsValid}
+                    onClick={() => void createAllocationPurchaseReceipts()}
+                  >
                     {creatingPr ? <Loader2 className="size-4 animate-spin" /> : null}
                     Create Purchase Receipts
                   </Button>
                 </div>
               </div>
+              {manualAllocationIssues.length > 0 && (
+                <div className="mt-3 rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-sm text-amber-800 dark:text-amber-200">
+                  <p className="font-medium">Manual allocation quantities do not match the original take qty.</p>
+                  <ul className="mt-1 space-y-1">
+                    {manualAllocationIssues.map((issue) => {
+                      const difference = issue.allocated - issue.requested;
+                      return (
+                        <li key={issue.sku}>
+                          {issue.sku}: allocated {issue.allocated} / total {issue.requested} ({Math.abs(difference)} {difference > 0 ? "over" : "under"} total qty)
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              )}
               <div className="mt-4 overflow-x-auto">
                 {createdReceipts.length > 0 && (
                   <div className="mb-3 rounded-md border border-emerald-500/40 bg-emerald-500/10 p-3 text-sm">
@@ -968,6 +1047,7 @@ export function StoreLocationAllocationPanel() {
                           className={`text-sm ${sumOk ? "text-muted-foreground" : "text-destructive"}`}
                         >
                           Allocated {allocatedSum} / take {takeSafe}
+                          {!sumOk && ` (${Math.abs(allocatedSum - takeSafe)} ${allocatedSum > takeSafe ? "over" : "under"} total qty)`}
                         </p>
                       )}
                     </div>
