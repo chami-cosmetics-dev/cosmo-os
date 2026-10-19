@@ -1,43 +1,62 @@
 /**
- * One-time move of every legacy Vercel Blob file to Cloudinary (authenticated
- * delivery), rewriting the URLs stored in:
+ * One-time move of app files from Vercel Blob and Cloudinary into this
+ * deployment's R2 bucket (FILES_R2_*), rewriting the URLs stored in:
  *   CosmoAcademyMedia.url, ProductItemAsset.blobUrl, File.blobUrl,
  *   BookNoteReceipt.blobUrl, OrderWaybill.rawPayload (cached CityPak PDFs)
  *
- * Usage (after the 20261019120000_cloudinary_file_storage migration is deployed):
- *   npx tsx scripts/migrate-blob-to-cloudinary.ts --dry-run
- *   npx tsx scripts/migrate-blob-to-cloudinary.ts
- *   npx tsx scripts/migrate-blob-to-cloudinary.ts --delete-blob   # also remove the Blob originals
+ * Only these tables are touched: logos and profile photos stay on Cloudinary.
+ * Item Storage MP4/MOV videos without a recorded length get one from the file
+ * header, so the SEO dashboard can split them into short / long.
  *
- * Item Storage videos also get durationSeconds from Cloudinary, so the SEO
- * dashboard can split them into short / long.
+ * Run once per system (cosmo-prod, vault), each with its own env:
+ *   npx tsx --env-file=.env.cosmo-prod scripts/migrate-files-to-r2.ts --dry-run
+ *   npx tsx --env-file=.env.cosmo-prod scripts/migrate-files-to-r2.ts
+ *   npx tsx --env-file=.env.cosmo-prod scripts/migrate-files-to-r2.ts --delete-source
+ *     (--delete-source also removes the Blob / Cloudinary originals once copied)
  *
- * Needs both CLOUDINARY_URL and BLOB_READ_WRITE_TOKEN. Uses the active .env
- * (npm run env:use <target>). Ask before prod. Safe to re-run: rows already on
- * Cloudinary are skipped, and the same Blob URL is copied only once.
+ * Needs FILES_R2_*, plus BLOB_READ_WRITE_TOKEN and CLOUDINARY_URL to read the
+ * old files. Ask before prod. Safe to re-run: rows already on R2 are skipped,
+ * and a URL shared by several rows is copied once.
  */
 
 import { Prisma } from "@prisma/client";
-import { del } from "@vercel/blob";
 
 import {
+  deleteStoredFile,
   fetchStoredFileBytes,
   isLegacyBlobUrl,
+  parseCloudinaryUrl,
   storageFolder,
   uploadStoredFile,
-  type StoredFile,
 } from "../lib/file-storage";
+import { readMp4DurationSeconds } from "../lib/media-duration";
 import { prisma } from "../lib/prisma";
 
 const dryRun = process.argv.includes("--dry-run");
-const deleteBlob = process.argv.includes("--delete-blob");
+const deleteSource = process.argv.includes("--delete-source");
 
-const BLOB_HOST_LIKE = "%.blob.vercel-storage.com/%";
 const WAYBILL_PDF_KEYS = ["waybillPdfUrl", "waybillPdfUrlA4", "waybillPdfUrl4x6"];
 
-/** old Blob URL → new Cloudinary file, shared across tables (Academy voices are also storage rows). */
-const moved = new Map<string, StoredFile | null>();
+type Moved = { url: string; sizeBytes: number; durationSeconds: number | null };
+
+/** old URL → new R2 file, shared across tables (Academy voices are also storage rows). */
+const moved = new Map<string, Moved | null>();
 const failures: string[] = [];
+let bytesMoved = 0;
+
+function isLegacyUrl(url: string) {
+  return isLegacyBlobUrl(url) || parseCloudinaryUrl(url) !== null;
+}
+
+/** Rows whose `field` still points at Blob or Cloudinary. */
+function legacyUrlWhere<F extends string>(field: F) {
+  return {
+    OR: [
+      { [field]: { contains: ".blob.vercel-storage.com/" } },
+      { [field]: { startsWith: "https://res.cloudinary.com/" } },
+    ] as Array<Record<F, { contains: string } | { startsWith: string }>>,
+  };
+}
 
 function fileNameFromUrl(url: string) {
   return decodeURIComponent(new URL(url).pathname.split("/").pop() || "file");
@@ -46,7 +65,7 @@ function fileNameFromUrl(url: string) {
 async function moveFile(
   oldUrl: string,
   opts: { folder: string; fileName?: string | null; mimeType: string | null },
-): Promise<StoredFile | null> {
+): Promise<Moved | null> {
   if (moved.has(oldUrl)) return moved.get(oldUrl)!;
   if (dryRun) {
     moved.set(oldUrl, null);
@@ -60,8 +79,11 @@ async function moveFile(
       mimeType: opts.mimeType,
       bytes,
     });
-    moved.set(oldUrl, stored);
-    return stored;
+    const durationSeconds = opts.mimeType?.startsWith("video/") ? readMp4DurationSeconds(bytes) : null;
+    const result = { url: stored.url, sizeBytes: stored.sizeBytes, durationSeconds };
+    moved.set(oldUrl, result);
+    bytesMoved += stored.sizeBytes;
+    return result;
   } catch (err) {
     failures.push(`${oldUrl}: ${err instanceof Error ? err.message : String(err)}`);
     return null;
@@ -70,19 +92,19 @@ async function moveFile(
 
 async function migrateAcademyMedia() {
   const rows = await prisma.cosmoAcademyMedia.findMany({
-    where: { url: { contains: ".blob.vercel-storage.com/" } },
+    where: legacyUrlWhere("url"),
     select: { id: true, url: true, fileName: true, mimeType: true, explanation: { select: { companyId: true } } },
   });
   for (const row of rows) {
-    const stored = await moveFile(row.url, {
+    const result = await moveFile(row.url, {
       folder: storageFolder(row.explanation.companyId, "academy"),
       fileName: row.fileName,
       mimeType: row.mimeType,
     });
-    if (stored) {
+    if (result) {
       await prisma.cosmoAcademyMedia.update({
         where: { id: row.id },
-        data: { url: stored.url, provider: "cloudinary", publicId: null },
+        data: { url: result.url, provider: "r2", publicId: null },
       });
     }
   }
@@ -90,26 +112,29 @@ async function migrateAcademyMedia() {
 }
 
 async function migrateProductItemAssets() {
-  // One Blob URL is shared by every SKU row in the family; move it once.
+  // One URL is shared by every SKU row in the family; move it once.
   const groups = await prisma.productItemAsset.groupBy({
     by: ["companyId", "blobUrl"],
-    where: { blobUrl: { contains: ".blob.vercel-storage.com/" } },
-    _count: { _all: true },
+    where: legacyUrlWhere("blobUrl"),
   });
   for (const group of groups) {
     const sample = await prisma.productItemAsset.findFirst({
       where: { companyId: group.companyId, blobUrl: group.blobUrl },
-      select: { fileName: true, mimeType: true },
+      select: { fileName: true, mimeType: true, durationSeconds: true },
     });
-    const stored = await moveFile(group.blobUrl, {
+    const result = await moveFile(group.blobUrl, {
       folder: storageFolder(group.companyId, "product-items"),
       fileName: sample?.fileName,
       mimeType: sample?.mimeType ?? null,
     });
-    if (stored) {
+    if (result) {
       await prisma.productItemAsset.updateMany({
         where: { companyId: group.companyId, blobUrl: group.blobUrl },
-        data: { blobUrl: stored.url, provider: "cloudinary", durationSeconds: stored.durationSeconds },
+        data: {
+          blobUrl: result.url,
+          provider: "r2",
+          durationSeconds: sample?.durationSeconds ?? result.durationSeconds,
+        },
       });
     }
   }
@@ -118,17 +143,17 @@ async function migrateProductItemAssets() {
 
 async function migrateFiles() {
   const rows = await prisma.file.findMany({
-    where: { blobUrl: { contains: ".blob.vercel-storage.com/" } },
+    where: legacyUrlWhere("blobUrl"),
     select: { id: true, companyId: true, blobUrl: true, fileName: true, mimeType: true },
   });
   for (const row of rows) {
-    const stored = await moveFile(row.blobUrl, {
+    const result = await moveFile(row.blobUrl, {
       folder: storageFolder(row.companyId, "files"),
       fileName: row.fileName,
       mimeType: row.mimeType,
     });
-    if (stored) {
-      await prisma.file.update({ where: { id: row.id }, data: { blobUrl: stored.url, provider: "cloudinary" } });
+    if (result) {
+      await prisma.file.update({ where: { id: row.id }, data: { blobUrl: result.url, provider: "r2" } });
     }
   }
   return rows.length;
@@ -136,17 +161,17 @@ async function migrateFiles() {
 
 async function migrateBookNoteReceipts() {
   const rows = await prisma.bookNoteReceipt.findMany({
-    where: { blobUrl: { contains: ".blob.vercel-storage.com/" } },
+    where: legacyUrlWhere("blobUrl"),
     select: { id: true, bookNoteDayId: true, blobUrl: true, fileName: true, mimeType: true },
   });
   for (const row of rows) {
-    const stored = await moveFile(row.blobUrl, {
+    const result = await moveFile(row.blobUrl, {
       folder: storageFolder("book-notes", row.bookNoteDayId),
       fileName: row.fileName,
       mimeType: row.mimeType,
     });
-    if (stored) {
-      await prisma.bookNoteReceipt.update({ where: { id: row.id }, data: { blobUrl: stored.url } });
+    if (result) {
+      await prisma.bookNoteReceipt.update({ where: { id: row.id }, data: { blobUrl: result.url } });
     }
   }
   return rows.length;
@@ -155,7 +180,8 @@ async function migrateBookNoteReceipts() {
 async function migrateWaybillPdfs() {
   const rows = await prisma.$queryRaw<Array<{ id: string; companyId: string; rawPayload: Prisma.JsonValue }>>`
     SELECT "id", "companyId", "rawPayload" FROM "OrderWaybill"
-    WHERE "rawPayload"::text LIKE ${BLOB_HOST_LIKE}
+    WHERE "rawPayload"::text LIKE '%.blob.vercel-storage.com/%'
+       OR "rawPayload"::text LIKE '%res.cloudinary.com/%'
   `;
   let count = 0;
   for (const row of rows) {
@@ -163,14 +189,15 @@ async function migrateWaybillPdfs() {
     let changed = false;
     for (const key of WAYBILL_PDF_KEYS) {
       const value = payload[key];
-      if (typeof value !== "string" || !isLegacyBlobUrl(value)) continue;
+      if (typeof value !== "string" || !isLegacyUrl(value)) continue;
       count += 1;
-      const stored = await moveFile(value, {
+      const result = await moveFile(value, {
         folder: storageFolder(row.companyId, "citypak-waybills", row.id),
+        fileName: `${row.id}.pdf`,
         mimeType: "application/pdf",
       });
-      if (stored) {
-        payload[key] = stored.url;
+      if (result) {
+        payload[key] = result.url;
         changed = true;
       }
     }
@@ -185,10 +212,10 @@ async function migrateWaybillPdfs() {
 }
 
 async function main() {
-  if (!process.env.CLOUDINARY_URL || !process.env.BLOB_READ_WRITE_TOKEN) {
-    throw new Error("CLOUDINARY_URL and BLOB_READ_WRITE_TOKEN must both be set");
-  }
-  console.log(dryRun ? "DRY RUN — nothing will be written" : "Migrating Blob → Cloudinary");
+  if (!process.env.FILES_R2_BUCKET) throw new Error("FILES_R2_* must be set");
+  console.log(
+    dryRun ? "DRY RUN — nothing will be written" : `Migrating files → R2 bucket ${process.env.FILES_R2_BUCKET}`,
+  );
 
   // Academy first: its URLs are shared with ProductItemAsset rows, which then reuse the copy.
   const counts = {
@@ -199,26 +226,31 @@ async function main() {
     waybillPdfs: await migrateWaybillPdfs(),
   };
   console.table(counts);
-  const movedCount = [...moved.values()].filter(Boolean).length;
-  console.log(dryRun ? `Distinct Blob files to move: ${moved.size}` : `Distinct Blob files moved: ${movedCount}`);
+
+  if (dryRun) {
+    console.log(`Distinct files to move: ${moved.size}`);
+  } else {
+    const done = [...moved.values()].filter(Boolean).length;
+    console.log(`Distinct files moved: ${done} (${(bytesMoved / 1024 / 1024).toFixed(1)} MB)`);
+  }
 
   if (failures.length > 0) {
-    console.error(`\n${failures.length} file(s) failed — their rows still point at Blob:`);
+    console.error(`\n${failures.length} file(s) failed — their rows still point at the old provider:`);
     for (const failure of failures) console.error(`  ${failure}`);
   }
 
-  if (deleteBlob && !dryRun) {
+  if (deleteSource && !dryRun) {
     let deleted = 0;
-    for (const [oldUrl, stored] of moved) {
-      if (!stored) continue;
+    for (const [oldUrl, result] of moved) {
+      if (!result) continue;
       try {
-        await del(oldUrl);
+        await deleteStoredFile(oldUrl);
         deleted += 1;
       } catch (err) {
         console.error(`  could not delete ${oldUrl}:`, err);
       }
     }
-    console.log(`Deleted ${deleted} Blob original(s).`);
+    console.log(`Deleted ${deleted} original(s) from Blob / Cloudinary.`);
   }
 }
 
