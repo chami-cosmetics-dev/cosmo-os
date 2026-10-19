@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 
-import { PROTECTED_SYSTEMS, statusObjectKey, type ProtectedSystem } from "../../lib/backup/object-key";
+import { SCHEDULED_SYSTEMS, statusObjectKey, type ProtectedSystem } from "../../lib/backup/object-key";
 import { hoursSinceSuccess, isOverdue, parseBackupStatus, type BackupStatus } from "../../lib/backup/status";
 
 function r2Required(): { bucket: string; endpoint: string } {
@@ -55,7 +55,7 @@ function line(system: ProtectedSystem, status: BackupStatus | null): string {
 
 const now = new Date();
 let anyOverdue = false;
-for (const system of PROTECTED_SYSTEMS) {
+for (const system of SCHEDULED_SYSTEMS) {
   const status = fetchStatus(system);
   if (!status || isOverdue(status, now)) anyOverdue = true;
   console.log(line(system, status));

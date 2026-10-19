@@ -15,7 +15,8 @@ Do **not** restore onto live Cosmo production or Vault unless you have an in-the
 |----|---------|--------------|-----------|
 | `vault` | Vault OS | Daily | 7 daily + 4 weekly + 12 monthly |
 | `cosmo-prod` | Cosmo OS production | Daily (never skip) | 7 daily + 4 weekly + 12 monthly |
-| `cosmo-dev` | Cosmo OS development | Daily | 7 daily only |
+
+Cosmo OS development (`cosmo-dev`) is **not** backed up on a schedule. It can be rebuilt from migrations and test data. A one-off manual dump is still possible (`npm run backup:dump -- --system cosmo-dev` with `DIRECT_URL` set).
 
 Vault copy **must not** land on Cosmo live, and reverse.
 
@@ -27,8 +28,8 @@ At least **two** people (roles) must be able to say yes. Fill names in 1Password
 
 | Role | Name | May confirm live `cosmo-prod` / `vault` restore? |
 |------|------|--------------------------------------------------|
-| Technical owner | *(fill)* | Yes |
-| Second operator / company admin | *(fill)* | Yes |
+| Technical owner | Sasida Dilhan | Yes |
+| Second operator / company admin | Chami | Yes |
 
 Prior approval of a *similar* restore does **not** count. Ask again, in the moment.
 
@@ -60,7 +61,6 @@ Create GitHub Actions secrets (not Vercel env) for the dump workflow:
 | Name | Purpose |
 |------|---------|
 | `BACKUP_DIRECT_URL_VAULT` | Neon **DIRECT_URL** (no `-pooler`) |
-| `BACKUP_DIRECT_URL_COSMO_DEV` | Neon **DIRECT_URL** |
 | `BACKUP_DIRECT_URL_COSMO_PROD` | Neon **DIRECT_URL** |
 | `BACKUP_AGE_RECIPIENT` | age **public** key (`age1…`) |
 | `R2_ACCOUNT_ID` | Cloudflare account id |
@@ -109,15 +109,15 @@ Workflow: `.github/workflows/backup-pg-dump.yml`
 Local (Git Bash / WSL), never defaults to prod:
 
 ```bash
-npm run backup:dump -- --system cosmo-dev
+npm run backup:dump -- --system vault
 npm run backup:status
 ```
 
-`backup:status` exit 2 if any system is overdue (>24h since `lastSuccessAt`) or missing.
+`backup:status` checks `vault` and `cosmo-prod` only; exit 2 if either is overdue (>24h since `lastSuccessAt`) or missing.
 
 ### Failure notice (same calendar day)
 
-Watch the GitHub repo (or enable Actions email). A red **Backup pg_dump** run is the notice. Status JSON keeps the previous `lastSuccessAt` when today’s dump fails — do not treat a failed run as “delete the last good pointer”.
+Any failed run emails `chami@cosmetics.lk` and `sasindadilhan98@gmail.com` via Maileroo (last workflow step; needs GitHub secrets `MAILEROO_API_KEY` and `MAILEROO_FROM_EMAIL`). Change the list in `BACKUP_ALERT_EMAILS` in the workflow. GitHub's own failure email only reaches whoever last edited the cron line. A red **Backup pg_dump** run is the notice. Status JSON keeps the previous `lastSuccessAt` when today’s dump fails — do not treat a failed run as “delete the last good pointer”.
 
 ---
 
@@ -153,7 +153,7 @@ export BACKUP_LIVE_HOST_COSMO_PROD=…               # hostname only
 
 # Drill — NEW Neon project/branch DIRECT_URL
 ./scripts/backup/restore.sh \
-  --system cosmo-dev \
+  --system vault \
   --from-latest-daily \
   --target-direct-url "$THROWAY_DIRECT_URL"
 
@@ -199,7 +199,7 @@ Names only here. Production values never go in git.
 
 | Name | Used for |
 |------|----------|
-| `DATABASE_URL` / `DIRECT_URL` × vault, cosmo-dev, cosmo-prod | App + migrate + dump |
+| `DATABASE_URL` / `DIRECT_URL` × vault, cosmo-dev, cosmo-prod | App + migrate (vault + cosmo-prod also dumped) |
 | `AUTH0_DOMAIN`, `AUTH0_CLIENT_ID`, `AUTH0_CLIENT_SECRET`, `AUTH0_SECRET`, M2M ids | Login |
 | `BLOB_READ_WRITE_TOKEN` | Vercel Blob |
 | `CLOUDINARY_URL`, `NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME` | Media |
