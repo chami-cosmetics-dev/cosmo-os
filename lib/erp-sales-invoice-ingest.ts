@@ -7,6 +7,7 @@ import {
   isOrderPaymentRequiresApproval,
   createOrGetOrderPaymentApproval,
   cancelPendingApprovalsForOrder,
+  orderHasPendingFinanceCancelApproval,
   ORDER_PAYMENT_APPROVAL,
 } from "@/lib/approval-workflow";
 import { needsKokoLinkTimeConfirm } from "@/lib/koko-order";
@@ -360,6 +361,13 @@ export async function ingestParsedErpSalesInvoice(input: {
           `[ERPNext webhook] Cancelled duplicate invoice ${data.name} — order ${linkedVaultOrder.name ?? linkedVaultOrder.orderNumber ?? linkedVaultOrder.id} stays on ${linkedVaultOrder.erpnextInvoiceId}`,
         );
         return { ok: true, skipped: true, reason: "duplicate_invoice_cancel" };
+      }
+
+      if (await orderHasPendingFinanceCancelApproval(linkedVaultOrder.id)) {
+        console.log(
+          `[ERPNext webhook] Cancelled invoice ${data.name} — order ${linkedVaultOrder.name ?? linkedVaultOrder.orderNumber ?? linkedVaultOrder.id} stays until finance approves the cancel`,
+        );
+        return { ok: true, skipped: true, reason: "finance_cancel_pending" };
       }
 
       await prisma.order.update({
