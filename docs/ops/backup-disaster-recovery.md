@@ -186,11 +186,10 @@ Windows: Git Bash or WSL (same script).
 
 | Store | What | v1 recovery |
 |-------|------|-------------|
-| Cloudflare R2 — app files bucket per system (`cosmo-files-prod`, `vault-files-prod`; dev: `cosmo-files-dev`) | Item storage (photos, videos, audio, PSD/documents), academy voices, book-note receipts, admin files, CityPak waybill PDF cache. Private; signed URLs only. Deletes move to `trash/` (lifecycle purges after 30 days) | Restore a deleted file from `trash/<original key>` within 30 days. Separate from the backup bucket and token. Independent copy job **not built yet**. |
-| Cloudinary | Logos and profile photos only | Cloudinary plan backup. |
-| Vercel Blob / Cloudinary (legacy, read-only) | Files uploaded before the R2 move, until `scripts/migrate-files-to-r2.ts` has run for that system | Vendor recovery. No new writes. |
+| Cloudinary | All app files: item storage (photos, videos, audio, documents), book-note receipts, admin files, CityPak waybill PDF cache, academy media, logos. Private files are `authenticated` under `cosmo-os/storage/` | Cloudinary plan backup (check the plan includes it). Independent copy job **not built yet**. |
+| Vercel Blob (legacy, read-only) | Files uploaded before the Cloudinary move, until `scripts/migrate-blob-to-cloudinary.ts` has run | Vendor recovery / Vercel support. No new writes. |
 
-**Mismatch after a DB restore:** rows may point at files that are newer, older, or missing. Prefer the restored DB as source of truth for *which* files should exist; missing files stay missing until re-uploaded or restored from the vendor. Do not bulk-delete R2, Cloudinary or Blob files to “match” an older DB without an explicit yes.
+**Mismatch after a DB restore:** rows may point at files that are newer, older, or missing. Prefer the restored DB as source of truth for *which* files should exist; missing files stay missing until re-uploaded or restored from the vendor. Do not bulk-delete Cloudinary or Blob files to “match” an older DB without an explicit yes.
 
 ---
 
@@ -202,9 +201,8 @@ Names only here. Production values never go in git.
 |------|----------|
 | `DATABASE_URL` / `DIRECT_URL` × vault, cosmo-dev, cosmo-prod | App + migrate (vault + cosmo-prod also dumped) |
 | `AUTH0_DOMAIN`, `AUTH0_CLIENT_ID`, `AUTH0_CLIENT_SECRET`, `AUTH0_SECRET`, M2M ids | Login |
-| `FILES_R2_ACCOUNT_ID`, `FILES_R2_ACCESS_KEY_ID`, `FILES_R2_SECRET_ACCESS_KEY`, `FILES_R2_BUCKET` × cosmo-prod, vault, dev | App file storage (one bucket + Object Read & Write token per system; never the backup token) |
-| `BLOB_READ_WRITE_TOKEN` | Legacy Vercel Blob reads + `scripts/migrate-files-to-r2.ts` |
-| `CLOUDINARY_URL`, `NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME` | Logos, profile photos; legacy reads during migration |
+| `BLOB_READ_WRITE_TOKEN` | Legacy Vercel Blob reads + the one-time migration script |
+| `CLOUDINARY_URL`, `NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME` | Media |
 | `BACKUP_AGE_RECIPIENT` / age **private** identity | Dump encrypt / restore decrypt |
 | R2 token + bucket + endpoint | Independent copies |
 | `BACKUP_LIVE_HOST_*` | Restore gates |
