@@ -105,6 +105,8 @@ model Company {
   merchantMonthlyTargetHistory    MerchantMonthlyTargetHistory[]
   marketCompetitorLinks           MarketCompetitorLink[]
   erpStockSnapshots               ErpStockSnapshot[]
+  supplierPayableSnapshots        SupplierPayableSnapshot[]
+  receivableOutstandingSnapshots  ReceivableOutstandingSnapshot[]
   osRegistrationQrs               OsRegistrationQr[]
   osRegistrationCaptures          OsRegistrationCapture[]
   osRegistrationSettings          OsRegistrationSettings?
@@ -174,8 +176,55 @@ model ErpnextInstance {
   updatedAt             DateTime          @updatedAt
   company               Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
   locations             CompanyLocation[]
+  supplierPayableSnapshots SupplierPayableSnapshot[]
+  receivableOutstandingSnapshots ReceivableOutstandingSnapshot[]
 
   @@index([companyId])
+}
+
+model SupplierPayableSnapshot {
+  id                String          @id @default(cuid())
+  companyId         String
+  erpnextInstanceId String
+  erpSlot           String?
+  erpLabel          String?
+  erpCompany        String
+  reportDate        String
+  suppliers         Json            @default("[]")
+  rows              Json            @default("[]")
+  error             String?
+  lastSuccessAt     DateTime?
+  lastAttemptAt     DateTime        @default(now())
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  company           Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  erpnextInstance   ErpnextInstance @relation(fields: [erpnextInstanceId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, erpnextInstanceId, erpCompany, reportDate])
+  @@index([companyId, reportDate])
+  @@index([companyId, updatedAt(sort: Desc)])
+}
+
+model ReceivableOutstandingSnapshot {
+  id                String          @id @default(cuid())
+  companyId         String
+  erpnextInstanceId String
+  erpSlot           String?
+  erpLabel          String?
+  erpCompany        String
+  reportDate        String
+  rows              Json            @default("[]")
+  error             String?
+  lastSuccessAt     DateTime?
+  lastAttemptAt     DateTime        @default(now())
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  company           Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  erpnextInstance   ErpnextInstance @relation(fields: [erpnextInstanceId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, erpnextInstanceId, erpCompany, reportDate])
+  @@index([companyId, reportDate])
+  @@index([companyId, updatedAt(sort: Desc)])
 }
 
 model FailedOrderWebhook {
