@@ -69,6 +69,8 @@ export function StoreLocationAllocationPanel() {
   const [allocationConfirmed, setAllocationConfirmed] = useState(false);
   const [prSupplier, setPrSupplier] = useState("");
   const [prSuppliers, setPrSuppliers] = useState<Array<{ name: string; label: string }>>([]);
+  const [prSuppliersLoading, setPrSuppliersLoading] = useState(true);
+  const [prSuppliersError, setPrSuppliersError] = useState<string | null>(null);
   const [prRows, setPrRows] = useState<PrWarehouseRow[]>([]);
   const [manualAllocationSkus, setManualAllocationSkus] = useState<Set<string>>(() => new Set());
   const [createdReceipts, setCreatedReceipts] = useState<string[]>([]);
@@ -99,20 +101,33 @@ export function StoreLocationAllocationPanel() {
   const manualAllocationsValid = manualAllocationIssues.length === 0;
 
   useEffect(() => {
-    void Promise.all((['ERP1', 'ERP2'] as const).map(async (erp) => {
+    setPrSuppliersLoading(true);
+    setPrSuppliersError(null);
+    void Promise.allSettled((['ERP1', 'ERP2'] as const).map(async (erp) => {
       const response = await fetch(`/api/item-creation/stock/options?erp=${erp}`, { cache: "no-store" });
-      if (!response.ok) return [] as Array<{ name: string; label: string }>;
-      const data = (await response.json()) as { suppliers?: Array<{ name?: string; label?: string }> };
+      const data = (await response.json().catch(() => ({}))) as {
+        suppliers?: Array<{ name?: string; label?: string }>;
+        error?: string;
+      };
+      if (!response.ok) throw new Error(data.error || `${erp} supplier list could not be loaded`);
       return (data.suppliers ?? []).flatMap((supplier) =>
         supplier.name || supplier.label
           ? [{ name: supplier.name || supplier.label!, label: supplier.label || supplier.name! }]
           : [],
       );
-    })).then((supplierLists) => {
+    })).then((results) => {
       const unique = new Map<string, { name: string; label: string }>();
-      for (const supplier of supplierLists.flat()) unique.set(supplier.name, supplier);
+      const errors: string[] = [];
+      for (const result of results) {
+        if (result.status === "fulfilled") {
+          for (const supplier of result.value) unique.set(supplier.name, supplier);
+        } else {
+          errors.push(result.reason instanceof Error ? result.reason.message : "Supplier list could not be loaded");
+        }
+      }
       setPrSuppliers([...unique.values()].sort((a, b) => a.label.localeCompare(b.label)));
-    }).catch(() => setPrSuppliers([]));
+      if (unique.size === 0 && errors.length > 0) setPrSuppliersError(errors.join("; "));
+    }).catch(() => setPrSuppliersError("Supplier list could not be loaded")).finally(() => setPrSuppliersLoading(false));
   }, []);
 
   useEffect(() => {
@@ -782,6 +797,12 @@ export function StoreLocationAllocationPanel() {
                       onChange={(e) => setPrSupplier(e.target.value)}
                       placeholder="Search supplier"
                     />
+                    {prSuppliersLoading && (
+                      <span className="block text-xs text-muted-foreground">Loading suppliers...</span>
+                    )}
+                    {prSuppliersError && (
+                      <span className="block max-w-72 text-xs text-destructive">{prSuppliersError}</span>
+                    )}
                     <datalist id="store-allocation-suppliers">
                       {prSuppliers.map((supplier) => <option key={supplier.name} value={supplier.label} label={supplier.name} />)}
                     </datalist>
