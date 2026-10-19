@@ -15,6 +15,8 @@ import {
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserContext, hasPermission } from "@/lib/rbac";
 import { getPriceStatus } from "@/lib/item-creation/helpers";
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
+import { getAllOsfErpInstances } from "@/lib/osf/erp-stock";
 
 export const ITEM_CREATION_PERMISSIONS = {
   admin: "item_creation.admin.manage",
@@ -64,6 +66,63 @@ function trimSku(sku: string) {
   const value = sku.trim();
   if (!value) throw new Error("SKU is required");
   return value;
+}
+
+function normalizeSkuForComparison(sku: string) {
+  return sku.trim().toUpperCase();
+}
+
+async function assertSkusDoNotExistInErp(company: string, skus: string[]) {
+  const instances = await getAllOsfErpInstances(company);
+  if (instances.length === 0) {
+    throw new Error("No configured ERP instance is available to validate the SKU");
+  }
+
+  const uniqueSkus = [...new Map(skus.map((sku) => [normalizeSkuForComparison(sku), sku])).values()];
+  const fields = encodeURIComponent(JSON.stringify(["name", "item_code"]));
+  const batchSize = 100;
+
+  for (const instance of instances) {
+    for (let start = 0; start < uniqueSkus.length; start += batchSize) {
+      const batch = uniqueSkus.slice(start, start + batchSize);
+      const filters = encodeURIComponent(JSON.stringify([["item_code", "in", batch]]));
+      const path =
+        `/api/resource/Item?filters=${filters}` +
+        `&fields=${fields}&limit_page_length=${batch.length}`;
+      let response: Response;
+      try {
+        response = await fetch(`${instance.cfg.baseUrl}${path}`, {
+          headers: {
+            Authorization: `token ${instance.cfg.apiKey}:${instance.cfg.apiSecret}`,
+            Accept: "application/json",
+          },
+          cache: "no-store",
+        });
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        throw new Error(`Could not validate SKUs in ${instance.label ?? "ERP"}: ${detail}`);
+      }
+
+      if (!response.ok) {
+        const detail = (await response.text().catch(() => "")).slice(0, 300);
+        throw new Error(
+          `Could not validate SKUs in ${instance.label ?? "ERP"} (${response.status})${detail ? `: ${detail}` : ""}`,
+        );
+      }
+
+      const json = (await response.json()) as {
+        data?: Array<{ name?: string | null; item_code?: string | null }>;
+      };
+      const existing = (json.data ?? []).find((row) => {
+        const code = row.item_code ?? row.name ?? "";
+        return batch.some((sku) => normalizeSkuForComparison(sku) === normalizeSkuForComparison(code));
+      });
+      if (existing) {
+        const code = existing.item_code ?? existing.name ?? "the requested SKU";
+        throw new Error(`SKU ${code} already exists in ${instance.label ?? "ERP"}`);
+      }
+    }
+  }
 }
 
 function samePriceList(left: string, right: string) {
@@ -289,9 +348,10 @@ function validateCreateInput(input: {
 }) {
   const sku = trimSku(input.sku);
   const standardPrice = toDecimal(input.standardPrice, "Standard Price");
-  const ogfPrice = toDecimal(input.ogfPrice, "OGF Price");
-  const gccPrice = toDecimal(input.gccPrice, "GCC Price");
-  const requestedErp1OgfPrice = toBoolean(input.addErp1OgfPrice);
+  const vaultOs = isVaultOsDeployment();
+  const ogfPrice = vaultOs ? null : toDecimal(input.ogfPrice, "OGF Price");
+  const gccPrice = vaultOs ? null : toDecimal(input.gccPrice, "GCC Price");
+  const requestedErp1OgfPrice = vaultOs ? false : toBoolean(input.addErp1OgfPrice);
   if (!standardPrice) throw new Error("Standard Price is required");
   const description = input.description?.trim();
   const country = input.country?.trim() ?? "";
@@ -343,10 +403,14 @@ export async function createItemRequests(
   if (validated.length === 0) throw new Error("At least one item is required");
   const duplicateSkus = validated
     .map((item) => item.sku)
-    .filter((sku, index, skus) => skus.indexOf(sku) !== index);
+    .filter(
+      (sku, index, skus) =>
+        skus.findIndex((candidate) => normalizeSkuForComparison(candidate) === normalizeSkuForComparison(sku)) !== index,
+    );
   if (duplicateSkus.length > 0) {
     throw new Error(`Duplicate SKU in request: ${Array.from(new Set(duplicateSkus)).join(", ")}`);
   }
+  await assertSkusDoNotExistInErp(company, validated.map((item) => item.sku));
 
   return prisma.$transaction(async (tx) => {
     const active = await tx.itemCreationRequest.findMany({
@@ -676,13 +740,13 @@ export async function recordErpItemPrice(input: {
           data: { erpStandardPrice: price, standardPriceSeenAt: new Date() },
         });
         await activity(tx, request.id, "ERP_STANDARD_PRICE_DETECTED", "ERP_WEBHOOK", null, String(request.erpStandardPrice ?? ""), String(price), { sku, priceList, erpPrice: Number(price) });
-      } else if (samePriceList(priceList, ITEM_CREATION_PRICE_LISTS.OGF)) {
+      } else if (!isVaultOsDeployment() && samePriceList(priceList, ITEM_CREATION_PRICE_LISTS.OGF)) {
         await tx.itemCreationRequest.update({
           where: { id: request.id },
           data: { erpOgfPrice: price, ogfPriceSeenAt: new Date() },
         });
         await activity(tx, request.id, "ERP_OGF_PRICE_DETECTED", "ERP_WEBHOOK", null, String(request.erpOgfPrice ?? ""), String(price), { sku, priceList, erpPrice: Number(price) });
-      } else if (samePriceList(priceList, ITEM_CREATION_PRICE_LISTS.GCC)) {
+      } else if (!isVaultOsDeployment() && samePriceList(priceList, ITEM_CREATION_PRICE_LISTS.GCC)) {
         await tx.itemCreationRequest.update({
           where: { id: request.id },
           data: { erp2GccPrice: price, gccPriceSeenAt: new Date() },

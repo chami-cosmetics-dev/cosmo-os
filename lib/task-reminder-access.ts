@@ -116,6 +116,10 @@ export function canSeeTaskReminderCategory(
   context: TaskReminderAccessContext,
   category: TaskReminderCategory,
 ): boolean {
+  if (category === "item_creation") {
+    return context.permissionKeys.some((key) => key.startsWith("item_creation.")) ||
+      context.roleNames.some((role) => role === "admin" || role === "super_admin" || role === "manager");
+  }
   if (category === "shop_to_main") {
     return (
       context.roleNames.includes("admin") ||
@@ -143,6 +147,7 @@ const ALL_TASK_REMINDER_CATEGORIES = [
   "return_action",
   "purchasing_rop_threshold",
   "stock_request_restocked",
+  "item_creation",
   "shop_to_main",
 ] as const satisfies readonly TaskReminderCategory[];
 

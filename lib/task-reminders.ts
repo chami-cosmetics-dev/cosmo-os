@@ -43,6 +43,7 @@ export type TaskReminderCategory =
   | "invoice_complete"
   | "purchasing_rop_threshold"
   | "stock_request_restocked"
+  | "item_creation"
   | "shop_to_main";
 
 export type TaskReminder = {
@@ -852,6 +853,61 @@ async function fetchStockRequestRestockedReminders(
   }
 }
 
+async function fetchItemCreationReminders(companyId: string, context: PermissionContext, now: Date): Promise<CappedReminders> {
+  const isItemAdmin = context.permissionKeys.includes("item_creation.admin.manage_all") || context.roleNames.some((role) => role === "admin" || role === "super_admin" || role === "manager");
+  const canSeo = isItemAdmin || context.permissionKeys.includes("item_creation.seo.manage");
+  const canDigital = isItemAdmin || context.permissionKeys.includes("item_creation.digital_marketing.manage");
+  const canPurchasing = isItemAdmin || context.permissionKeys.includes("item_creation.purchasing.manage");
+  const canStores = isItemAdmin || context.permissionKeys.includes("item_creation.stores.manage");
+  if (!canSeo && !canDigital && !canPurchasing && !canStores) return { reminders: [], totalCount: 0 };
+
+  const requests = await prisma.itemCreationRequest.findMany({
+    where: { companyId, overallStatus: "IN_PROGRESS" },
+    orderBy: { createdAt: "asc" },
+    take: REMINDER_LIMIT_PER_CATEGORY,
+    select: {
+      id: true, sku: true, createdAt: true, itemCreatedAt: true,
+      seoSetupStatus: true, digitalMarketingStatus: true, purchasingStatus: true,
+      storeTransferStatus: true, storeStockStatus: true,
+    },
+  });
+  const reminders: TaskReminder[] = [];
+  for (const request of requests) {
+    let stage: string | null = null;
+    let since = request.createdAt;
+    let relevant = isItemAdmin;
+    if (request.seoSetupStatus === "PENDING") {
+      stage = "SEO item creation";
+      relevant ||= canSeo;
+    } else if (request.seoSetupStatus === "ITEM_CREATED" && request.digitalMarketingStatus === "PENDING") {
+      stage = "Digital Marketing image";
+      since = request.itemCreatedAt ?? request.createdAt;
+      relevant ||= canDigital;
+    } else if (request.purchasingStatus === "WAITING_FOR_PRICES") {
+      stage = "Purchasing prices";
+      relevant ||= canPurchasing;
+    } else if (request.storeTransferStatus === "PENDING") {
+      stage = "Stores transfer";
+      relevant ||= canStores;
+    } else if (request.storeStockStatus !== "STOCK_ADDED") {
+      stage = "Stores stock";
+      relevant ||= canStores;
+    }
+    if (!stage || !relevant) continue;
+    const waitingHours = waitingHoursSince(since, now);
+    reminders.push({
+      id: `item_creation:${request.id}:${stage}`,
+      category: "item_creation",
+      title: `${request.sku} needs ${stage}`,
+      body: waitingHours >= 10 ? `${stage} has been waiting for ${waitingHours}h.` : `${request.sku} is ready for ${stage}.`,
+      href: "/dashboard/products/item-creation",
+      waitingHours,
+      invoiceLabel: request.sku,
+    });
+  }
+  return { reminders, totalCount: reminders.length };
+}
+
 async function fetchShopToMainReminders(companyId: string, now: Date): Promise<CappedReminders> {
   const where = {
     companyId,
@@ -976,6 +1032,11 @@ export async function fetchTaskReminders(
     reminders.push(...restocked.reminders);
     categoryCounts.stock_request_restocked = restocked.totalCount;
   }
+  if (canSeeTaskReminderCategory(context, "item_creation")) {
+    const itemCreation = await fetchItemCreationReminders(companyId, context, now);
+    reminders.push(...itemCreation.reminders);
+    categoryCounts.item_creation = itemCreation.totalCount;
+  }
 
   reminders.sort((a, b) => b.waitingHours - a.waitingHours);
 
@@ -991,6 +1052,7 @@ export async function fetchTaskReminders(
     "invoice_complete",
     "stock_request_restocked",
     "shop_to_main",
+    "item_creation",
   ]);
 
   for (const reminder of reminders) {

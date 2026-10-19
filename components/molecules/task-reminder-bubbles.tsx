@@ -47,6 +47,7 @@ const CATEGORY_ORDER = [
   "return_action",
   "purchasing_rop_threshold",
   "stock_request_restocked",
+  "item_creation",
   "shop_to_main",
 ] as const;
 
@@ -64,6 +65,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   invoice_complete: "Invoice complete",
   purchasing_rop_threshold: "Purchasing ROP threshold",
   stock_request_restocked: "Wishlist items back in stock",
+  item_creation: "Item creation workflow",
   shop_to_main: "Shop returns",
 };
 
@@ -81,6 +83,7 @@ const CATEGORY_NODE_LABELS: Record<string, string> = {
   invoice_complete: "Invoice complete",
   purchasing_rop_threshold: "Purchasing ROP",
   stock_request_restocked: "Back in stock",
+  item_creation: "Item creation",
   shop_to_main: "Shop returns",
 };
 
