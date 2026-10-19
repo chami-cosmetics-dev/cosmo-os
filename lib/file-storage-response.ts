@@ -1,15 +1,14 @@
 import { NextResponse } from "next/server";
 
-import { fetchStoredFile, storedFileDeliveryUrl } from "@/lib/file-storage";
+import { cloudinaryDeliveryUrl, fetchStoredFile } from "@/lib/file-storage";
 
 /**
  * Serve a stored file from an API route.
  *
- * `redirect: true` hands the browser a short-lived signed URL (needed for
- * large video, audio and PSD files: native range requests, no function
- * bandwidth or size limits). Leave it off for sensitive small files
- * (receipts, company files) so no URL leaves the server; those are streamed
- * through with Range passed along.
+ * `redirect: true` hands the browser a signed Cloudinary URL (best for video
+ * and audio: native range requests, no function bandwidth). Leave it off for
+ * sensitive files (receipts, company files) so the signed URL never leaves
+ * the server; those are streamed through with Range passed along.
  */
 export async function storedFileResponse(input: {
   url: string;
@@ -20,10 +19,7 @@ export async function storedFileResponse(input: {
   redirect?: boolean;
 }) {
   if (input.redirect) {
-    const delivery = await storedFileDeliveryUrl(input.url, {
-      fileName: input.fileName,
-      mimeType: input.mimeType,
-    });
+    const delivery = cloudinaryDeliveryUrl(input.url);
     if (delivery) return NextResponse.redirect(delivery, 302);
   }
 

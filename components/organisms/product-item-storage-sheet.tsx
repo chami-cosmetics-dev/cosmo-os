@@ -18,7 +18,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { readMediaDurationSeconds, uploadFileDirect } from "@/lib/direct-upload";
+import { uploadToCloudinary, type SignedUpload } from "@/lib/cloudinary-direct-upload";
 import { notify } from "@/lib/notify";
 import { SHORT_VIDEO_MAX_SECONDS } from "@/lib/seo-content/types";
 
@@ -131,13 +131,15 @@ export function ProductItemStorageSheet({
     setUploading(true);
     setUploadProgress(null);
     try {
-      const durationSeconds = await readMediaDurationSeconds(file);
-      if (type === "video" && durationSeconds == null) {
-        notify.info(
-          `${file.name}: this browser can't read the video (often iPhone HEVC). It may not play for everyone — export as MP4 (H.264) if possible.`,
-        );
-      }
-      const uploaded = await uploadFileDirect("/api/admin/product-items/assets/upload", file, setUploadProgress);
+      const signRes = await fetch("/api/admin/product-items/assets/upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fileName: file.name, mimeType: file.type || null, fileSize: file.size }),
+      });
+      const signed = (await signRes.json()) as SignedUpload & { error?: string };
+      if (!signRes.ok) throw new Error(signed.error ?? "Could not start upload");
+
+      const uploaded = await uploadToCloudinary(signed, file, setUploadProgress);
 
       const res = await fetch("/api/admin/product-items/assets", {
         method: "POST",
@@ -147,10 +149,10 @@ export function ProductItemStorageSheet({
           productTitle: productTitle ?? "",
           type,
           fileName: file.name,
-          blobUrl: uploaded.url,
-          fileSize: uploaded.sizeBytes,
+          blobUrl: uploaded.secureUrl,
+          fileSize: uploaded.bytes,
           mimeType: file.type || null,
-          durationSeconds,
+          durationSeconds: uploaded.duration,
         }),
       });
       const data = (await res.json()) as { ok?: boolean; error?: string };
@@ -236,11 +238,6 @@ export function ProductItemStorageSheet({
             <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border/70 py-16 text-center">
               <AssetIcon type={activeTab} />
               <p className="text-sm text-muted-foreground">No {currentTab.label.toLowerCase()} yet</p>
-              {activeTab === "document" ? (
-                <p className="max-w-xs text-xs text-muted-foreground">
-                  PSD files can&apos;t be previewed in the browser — add a JPG export to Photos so the team can see it.
-                </p>
-              ) : null}
               <Button
                 type="button"
                 size="sm"
