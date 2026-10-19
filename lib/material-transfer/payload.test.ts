@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { erpErrorMessage } from "@/lib/material-transfer/erp-error";
+import { erpErrorMessage, isTransientErpFetchError } from "@/lib/material-transfer/erp-error";
 import { itemCodeFromScanBarcode } from "@/lib/material-transfer/scan-barcode";
 import {
   buildCosmoSaveDocCall,
@@ -86,5 +86,20 @@ describe("erpErrorMessage", () => {
     };
     const error = new Error(`ERPNext POST /api/resource/Stock Entry [417]: ${JSON.stringify(payload)}`);
     expect(erpErrorMessage(error)).toBe("Row #1: Qty cannot be greater than available qty");
+  });
+
+  it("names a dropped ERP socket", () => {
+    const error = new TypeError("fetch failed");
+    (error as { cause?: unknown }).cause = Object.assign(new Error("other side closed"), {
+      code: "UND_ERR_SOCKET",
+    });
+    expect(isTransientErpFetchError(error)).toBe(true);
+    expect(erpErrorMessage(error)).toBe("ERP connection closed before a response. Try again.");
+    expect(isTransientErpFetchError(new Error("ERPNext GET /api/resource/Bin [502]: bad gateway"))).toBe(
+      true,
+    );
+    expect(isTransientErpFetchError(new Error("ERPNext POST /api/method/cosmo_save_doc [417]: no"))).toBe(
+      false,
+    );
   });
 });
