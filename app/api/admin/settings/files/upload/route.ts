@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { writeAuditLog } from "@/lib/audit-log";
-import { storageFolder, storageSizeError, uploadStoredFile } from "@/lib/file-storage";
+import { storageFolder, uploadStoredFile } from "@/lib/file-storage";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 
@@ -44,9 +44,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "File type is not allowed" }, { status: 400 });
   }
 
-  const sizeError = storageSizeError(file.type || null, file.size);
-  if (sizeError) {
-    return NextResponse.json({ error: sizeError }, { status: 400 });
+  if (file.size > 25 * 1024 * 1024) {
+    return NextResponse.json({ error: "File too large. Maximum size is 25MB" }, { status: 400 });
   }
 
   let stored: Awaited<ReturnType<typeof uploadStoredFile>>;
@@ -68,7 +67,7 @@ export async function POST(request: NextRequest) {
       fileName: file.name,
       blobUrl: stored.url,
       fileSize: file.size,
-      provider: "cloudinary",
+      provider: "r2",
       mimeType: file.type || null,
       uploadedById: userId,
     },

@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { CosmoAcademyMediaType } from "@prisma/client";
-import { v2 as cloudinary } from "cloudinary";
 
 import { writeAuditLog } from "@/lib/audit-log";
+import { storageFolder, uploadStoredFile } from "@/lib/file-storage";
 import { prisma } from "@/lib/prisma";
 import { getProductFamilyName } from "@/lib/product-item-family";
 import { requirePermission } from "@/lib/rbac";
@@ -142,7 +142,6 @@ export async function POST(request: NextRequest) {
   const targetFamilyName = getProductFamilyName(productItem.productTitle);
 
   let fileName: string;
-  let blobPath: string;
 
   if (isRecorded) {
     // Auto-name recorded voices: "Family Name Part 01.webm"
@@ -164,30 +163,22 @@ export async function POST(request: NextRequest) {
 
     const partNumber = String(existingVoiceCount + 1).padStart(2, "0");
     fileName = `${academyProductTitle} Part ${partNumber}.webm`;
-    blobPath = `academy/${safeFilePart(companyId)}/${safeFilePart(academyProductTitle)}-part-${partNumber}-${Date.now()}.webm`;
   } else {
     // Uploaded file — keep original filename
-    fileName = file.name || `${safeFilePart(productKey)}-${Date.now()}`;
-    const ext = fileName.split(".").pop() ?? "webm";
-    blobPath = `academy/${safeFilePart(companyId)}/${safeFilePart(productKey)}-${Date.now()}.${ext}`;
+    fileName = file.name || `${safeFilePart(productKey)}-${Date.now()}.webm`;
   }
 
   let blobUrl: string;
-  let cloudinaryPublicId: string;
   try {
-    const buffer = Buffer.from(await file.arrayBuffer());
-    const dataUri = `data:${baseMimeType};base64,${buffer.toString("base64")}`;
-    // Cloudinary public_id must not include a file extension; strip it from blobPath
-    const publicId = blobPath.replace(/\.[^.]+$/, "");
-    const result = await cloudinary.uploader.upload(dataUri, {
-      public_id: publicId,
-      resource_type: "video",
-      overwrite: false,
+    const stored = await uploadStoredFile({
+      folder: storageFolder(companyId, "academy"),
+      fileName,
+      mimeType: baseMimeType,
+      bytes: Buffer.from(await file.arrayBuffer()),
     });
-    blobUrl = result.secure_url;
-    cloudinaryPublicId = result.public_id;
+    blobUrl = stored.url;
   } catch (err) {
-    console.error("[academy] Cloudinary upload failed:", err);
+    console.error("[academy] voice upload failed:", err);
     return NextResponse.json({ error: "Failed to upload voice file" }, { status: 500 });
   }
 
@@ -207,8 +198,7 @@ export async function POST(request: NextRequest) {
           create: {
             mediaType: CosmoAcademyMediaType.voice,
             url: blobUrl,
-            provider: "cloudinary",
-            publicId: cloudinaryPublicId,
+            provider: "r2",
             fileName,
             mimeType: file.type,
             sizeBytes: file.size,
@@ -267,7 +257,7 @@ export async function POST(request: NextRequest) {
           blobUrl,
           fileSize: file.size,
           mimeType: file.type,
-          provider: "cloudinary",
+          provider: "r2",
           uploadedById: user.id,
         })),
         skipDuplicates: true,
