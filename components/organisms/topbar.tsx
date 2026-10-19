@@ -31,6 +31,7 @@ export function Topbar({ title = "Dashboard", user }: TopbarProps) {
     { prefix: "/dashboard/complaints", label: "Complaints" },
     { prefix: "/dashboard/contacts/contact-updates", label: "Contact Updates" },
     { prefix: "/dashboard/contacts/email-cleanup", label: "Email cleanup" },
+    { prefix: "/dashboard/contacts/supplement-import", label: "Supplement contact import" },
     { prefix: "/dashboard/contacts/allocation", label: "Contact Allocation" },
     { prefix: "/dashboard/contacts", label: "Contacts" },
     { prefix: "/dashboard/reports/supplier-payables", label: "Supplier Payables" },

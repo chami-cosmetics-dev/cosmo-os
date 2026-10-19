@@ -2,11 +2,14 @@ import { describe, expect, it } from "vitest";
 
 import {
   findTransferLine,
+  promoteTransferLine,
   removeTransferLine,
+  commitSendQtyInput,
+  replaceSendQtyKey,
   setTransferLineQty,
   upsertTransferLine,
 } from "@/lib/material-transfer/lines";
-import type { TransferLookupItem } from "@/lib/material-transfer/types";
+import type { TransferLine, TransferLookupItem } from "@/lib/material-transfer/types";
 
 function item(overrides: Partial<TransferLookupItem> = {}): TransferLookupItem {
   return {
@@ -20,22 +23,89 @@ function item(overrides: Partial<TransferLookupItem> = {}): TransferLookupItem {
   };
 }
 
+function line(itemCode: string, qty: number): TransferLine {
+  return {
+    itemCode,
+    itemName: itemCode,
+    barcode: "",
+    uom: "Nos",
+    qty,
+    availableQty: 5,
+  };
+}
+
 describe("transfer lines", () => {
   it("adds a new scan at qty 1 and increments the same barcode", () => {
     const first = upsertTransferLine([], item());
-    expect(first).toHaveLength(1);
-    expect(first[0]?.qty).toBe(1);
-    const again = upsertTransferLine(first, item());
-    expect(again).toHaveLength(1);
-    expect(again[0]?.qty).toBe(2);
-    expect(findTransferLine(again, "062600656827")?.itemCode).toBe("NEH09_1");
-    expect(findTransferLine(again, "neh09_1")?.qty).toBe(2);
+    expect(first.rejected).toBeNull();
+    expect(first.lines).toHaveLength(1);
+    expect(first.lines[0]?.qty).toBe(1);
+    const again = upsertTransferLine(first.lines, item());
+    expect(again.lines).toHaveLength(1);
+    expect(again.lines[0]?.qty).toBe(2);
+    expect(findTransferLine(again.lines, "062600656827")?.itemCode).toBe("NEH09_1");
+    expect(findTransferLine(again.lines, "neh09_1")?.qty).toBe(2);
   });
 
   it("keeps a manual qty and can remove the line", () => {
-    const lines = setTransferLineQty(upsertTransferLine([], item()), "NEH09_1", 5);
-    expect(lines[0]?.qty).toBe(5);
-    expect(setTransferLineQty(lines, "NEH09_1", 0)[0]?.qty).toBe(5);
-    expect(removeTransferLine(lines, "NEH09_1")).toEqual([]);
+    const added = upsertTransferLine([], item({ availableQty: 5 }));
+    const lines = setTransferLineQty(added.lines, "NEH09_1", 5);
+    expect(lines.rejected).toBeNull();
+    expect(lines.lines[0]?.qty).toBe(5);
+    const zero = setTransferLineQty(lines.lines, "NEH09_1", 0);
+    expect(zero.rejected).toBeNull();
+    expect(zero.lines[0]?.qty).toBe(5);
+    expect(removeTransferLine(lines.lines, "NEH09_1")).toEqual([]);
+  });
+
+  it("refuses a scan or typed qty above available", () => {
+    let lines = upsertTransferLine([], item()).lines;
+    lines = upsertTransferLine(lines, item()).lines;
+    lines = upsertTransferLine(lines, item()).lines;
+    expect(lines[0]?.qty).toBe(3);
+    const scanned = upsertTransferLine(lines, item());
+    expect(scanned.rejected).toBe("over_available");
+    expect(scanned.lines[0]?.qty).toBe(3);
+    const typed = setTransferLineQty(lines, "NEH09_1", 4);
+    expect(typed.rejected).toBe("over_available");
+    expect(typed.lines[0]?.qty).toBe(3);
+  });
+
+  it("does not add a line when available is 0", () => {
+    const result = upsertTransferLine([], item({ availableQty: 0 }));
+    expect(result.rejected).toBe("over_available");
+    expect(result.lines).toEqual([]);
+  });
+
+  it("ignores a non-integer qty without reporting over available", () => {
+    const added = upsertTransferLine([], item());
+    const result = setTransferLineQty(added.lines, "NEH09_1", 1.5);
+    expect(result.rejected).toBeNull();
+    expect(result.lines[0]?.qty).toBe(1);
+  });
+
+  it("allows a high qty when available is unknown", () => {
+    const added = upsertTransferLine([], item({ availableQty: null }));
+    const result = setTransferLineQty(added.lines, "NEH09_1", 50);
+    expect(result.rejected).toBeNull();
+    expect(result.lines[0]?.qty).toBe(50);
+  });
+
+  it("lets a send qty replace 1 without treating the old digit as part of the new number", () => {
+    expect(commitSendQtyInput("", 14)).toEqual({ digits: "", qty: null, rejected: null });
+    expect(commitSendQtyInput("5", 14)).toEqual({ digits: "5", qty: 5, rejected: null });
+    expect(commitSendQtyInput("14", 14)).toEqual({ digits: "14", qty: 14, rejected: null });
+    expect(commitSendQtyInput("15", 14)).toEqual({ digits: "14", qty: 14, rejected: "over_available" });
+    expect(replaceSendQtyKey("1", "13", true)).toBe("3");
+    expect(replaceSendQtyKey("1", "15", true)).toBe("5");
+    expect(replaceSendQtyKey("1", "3", true)).toBe("3");
+    expect(commitSendQtyInput(replaceSendQtyKey("1", "13", true), 14).qty).toBe(3);
+    expect(commitSendQtyInput(replaceSendQtyKey("1", "15", true), 14).qty).toBe(5);
+  });
+
+  it("moves the scanned item to the front", () => {
+    const lines = [line("A", 1), line("B", 2)];
+    expect(promoteTransferLine(lines, "B").map((row) => row.itemCode)).toEqual(["B", "A"]);
+    expect(promoteTransferLine(lines, "A")).toBe(lines);
   });
 });

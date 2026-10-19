@@ -2,6 +2,7 @@ import type { ShopifyOrderWebhookPayload } from "@/lib/validation/shopify-order"
 import type { CompanyLocation } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { eligibleMerchantUserWhere } from "@/lib/merchant-eligibility";
+import { trackingCodesMatch } from "@/lib/merchant-wholesale";
 
 function normalizeDiscountCodes(order: ShopifyOrderWebhookPayload) {
   return (order.discount_codes ?? [])
@@ -10,7 +11,9 @@ function normalizeDiscountCodes(order: ShopifyOrderWebhookPayload) {
 }
 
 function hasMatchingCode(savedCodes: string[], orderCodes: string[]) {
-  return savedCodes.some((code) => orderCodes.includes(code.toLowerCase().trim()));
+  return savedCodes.some((saved) =>
+    orderCodes.some((orderCode) => trackingCodesMatch(saved, orderCode)),
+  );
 }
 
 export async function resolveAssignedMerchant(

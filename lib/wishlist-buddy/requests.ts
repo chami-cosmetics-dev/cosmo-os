@@ -36,7 +36,11 @@ import {
   resolveStoreHandleForLocation,
 } from "@/lib/wishlist-buddy/config";
 import { classifyStockLookup, type StockLookupResult, type StockSource } from "@/lib/wishlist-buddy/stock-sources";
-import type { StockRequestItem, StockRequestListResponse } from "@/lib/wishlist-buddy/types";
+import type {
+  StockRequestCreatorOption,
+  StockRequestItem,
+  StockRequestListResponse,
+} from "@/lib/wishlist-buddy/types";
 import type {
   NotifyRequestBody,
   StaffStockRequestCreateBody,
@@ -564,6 +568,37 @@ export function serializeStockRequest(row: StockRequestListRow): StockRequestIte
   };
 }
 
+async function listStaffCreators(companyId: string): Promise<StockRequestCreatorOption[]> {
+  const grouped = await prisma.stockRequest.groupBy({
+    by: ["createdById"],
+    where: { companyId, source: STAFF_REQUEST_SOURCE, createdById: { not: null } },
+    _count: { _all: true },
+  });
+  const ids = grouped.flatMap((row) => (row.createdById ? [row.createdById] : []));
+  if (ids.length === 0) return [];
+  const users = await prisma.user.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, name: true, email: true },
+  });
+  const byId = new Map(users.map((user) => [user.id, user]));
+  return grouped
+    .flatMap((row) => {
+      if (!row.createdById) return [];
+      const user = byId.get(row.createdById);
+      return [
+        {
+          id: row.createdById,
+          name: user?.name ?? null,
+          email: user?.email ?? null,
+          count: row._count._all,
+        },
+      ];
+    })
+    .sort((a, b) =>
+      (a.name || a.email || "").localeCompare(b.name || b.email || "", undefined, { sensitivity: "base" }),
+    );
+}
+
 export async function listStockRequests(input: {
   companyId: string;
   viewer: StockRequestViewer;
@@ -571,6 +606,7 @@ export async function listStockRequests(input: {
   status?: StockRequestListFilter;
   stock?: StockRequestStockFilter;
   search?: string;
+  createdById?: string;
   page?: number;
   limit?: number;
 }): Promise<StockRequestListResponse> {
@@ -590,9 +626,11 @@ export async function listStockRequests(input: {
       : input.stock
         ? { stockLookupStatus: input.stock }
         : {};
+  const creatorId = input.scope === "staff" ? input.createdById : undefined;
   const where: Prisma.StockRequestWhereInput = {
     companyId: input.companyId,
     ...scopeFilter(input.viewer, input.scope),
+    ...(creatorId ? { createdById: creatorId } : {}),
     ...statusWhere,
     ...stockWhere,
     ...(search
@@ -603,21 +641,37 @@ export async function listStockRequests(input: {
             { customerPhone: { contains: search.replace(/\D/g, "") || search } },
             { sku: { contains: search, mode: "insensitive" } },
             { productTitle: { contains: search, mode: "insensitive" } },
+            ...(input.scope === "staff"
+              ? [
+                  { createdBy: { name: { contains: search, mode: "insensitive" as const } } },
+                  { createdBy: { email: { contains: search, mode: "insensitive" as const } } },
+                ]
+              : []),
           ],
         }
       : {}),
   };
-  const [items, total] = await Promise.all([
+  const groupByCreator = input.scope === "staff" && !creatorId;
+  const [items, total, creators] = await Promise.all([
     prisma.stockRequest.findMany({
       where,
       select: listSelect,
-      orderBy: { createdAt: "desc" },
+      orderBy: groupByCreator
+        ? [{ createdBy: { name: "asc" } }, { createdById: "asc" }, { createdAt: "desc" }]
+        : { createdAt: "desc" },
       skip: (page - 1) * limit,
       take: limit,
     }),
     prisma.stockRequest.count({ where }),
+    input.scope === "staff" ? listStaffCreators(input.companyId) : Promise.resolve(undefined),
   ]);
-  return { items: items.map(serializeStockRequest), total, page, limit };
+  return {
+    items: items.map(serializeStockRequest),
+    total,
+    page,
+    limit,
+    ...(creators ? { creators } : {}),
+  };
 }
 
 async function findRequestForViewer(input: {

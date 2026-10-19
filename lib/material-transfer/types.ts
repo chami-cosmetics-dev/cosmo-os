@@ -1,5 +1,9 @@
 export type TransferSlot = "erp1" | "erp2";
 
+export type TransferDirection = "store_to_shop" | "shop_to_main";
+
+export type TransferStatus = "sent" | "received" | "requested" | "confirming" | "confirmed";
+
 export type TransferWarehouse = {
   name: string;
   company: string;
@@ -13,6 +17,8 @@ export type TransferLine = {
   qty: number;
   /** Qty in the source warehouse when the line was added. Null after the source changes. */
   availableQty: number | null;
+  /** Shop return destination. VAT is erp1, other items are erp2. */
+  slot?: TransferSlot | null;
 };
 
 export type TransferLookupItem = {
@@ -22,4 +28,5 @@ export type TransferLookupItem = {
   uom: string;
   taxStatus: string | null;
   availableQty: number | null;
+  slot?: TransferSlot | null;
 };

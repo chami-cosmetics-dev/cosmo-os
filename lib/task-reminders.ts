@@ -43,7 +43,8 @@ export type TaskReminderCategory =
   | "invoice_complete"
   | "purchasing_rop_threshold"
   | "stock_request_restocked"
-  | "item_creation";
+  | "item_creation"
+  | "shop_to_main";
 
 export type TaskReminder = {
   id: string;
@@ -907,6 +908,34 @@ async function fetchItemCreationReminders(companyId: string, context: Permission
   return { reminders, totalCount: reminders.length };
 }
 
+async function fetchShopToMainReminders(companyId: string, now: Date): Promise<CappedReminders> {
+  const where = {
+    companyId,
+    direction: "shop_to_main" as const,
+    status: "requested" as const,
+  };
+  const totalCount = await prisma.materialTransfer.count({ where });
+  const rows = await prisma.materialTransfer.findMany({
+    where,
+    orderBy: { createdAt: "asc" },
+    take: REMINDER_LIMIT_PER_CATEGORY,
+    include: { lines: { select: { sentQty: true } } },
+  });
+  const reminders = rows.map((row) => {
+    const units = row.lines.reduce((sum, line) => sum + line.sentQty, 0);
+    return {
+      id: `shop_to_main:${row.id}`,
+      category: "shop_to_main" as const,
+      title: `Shop return from ${row.sourceWarehouse}`,
+      body: `${units} units waiting for a stores count.`,
+      href: "/dashboard/store/material-transfer",
+      waitingHours: waitingHoursSince(row.createdAt, now),
+      invoiceLabel: row.sourceWarehouse,
+    };
+  });
+  return { reminders, totalCount };
+}
+
 export async function fetchTaskReminders(
   companyId: string,
   context: PermissionContext,
@@ -993,6 +1022,11 @@ export async function fetchTaskReminders(
     reminders.push(...purchasing.reminders);
     categoryCounts.purchasing_rop_threshold = purchasing.totalCount;
   }
+  if (canSeeTaskReminderCategory(context, "shop_to_main")) {
+    const shopReturns = await fetchShopToMainReminders(companyId, now);
+    reminders.push(...shopReturns.reminders);
+    categoryCounts.shop_to_main = shopReturns.totalCount;
+  }
   if (canSeeTaskReminderCategory(context, "stock_request_restocked") && context.userId) {
     const restocked = await fetchStockRequestRestockedReminders(companyId, context.userId, now);
     reminders.push(...restocked.reminders);
@@ -1017,6 +1051,7 @@ export async function fetchTaskReminders(
     "delivery_pending",
     "invoice_complete",
     "stock_request_restocked",
+    "shop_to_main",
   ]);
 
   for (const reminder of reminders) {

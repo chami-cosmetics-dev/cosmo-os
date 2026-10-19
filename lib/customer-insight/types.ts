@@ -123,8 +123,10 @@ export type UnifiedInvoiceRowDto = {
   source: UnifiedInvoiceSource;
   date: string;
   reference: string;
-  /** Secondary label under Order (order number / Adapt). */
+  /** Secondary label under Order (order number / Adapt / Supplement import). */
   secondaryLabel: string | null;
+  /** Present on purchase-history invoices. Orders omit it. */
+  origin?: "adapt" | "vault_supplement_import" | "vault_file_import";
   status: string;
   financialStatus: string | null;
   fulfillmentStatus: string | null;

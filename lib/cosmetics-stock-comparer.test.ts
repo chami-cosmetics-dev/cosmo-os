@@ -15,6 +15,7 @@ import {
   classifyWarehouseKind,
   computeCriticalCutoff,
   isAtOrBelowRopPercent,
+  isExcludedFromStockCompare,
   matchesIdentityFilters,
   selectWatchedTargets,
   markCriticalTopSellers,
@@ -62,6 +63,70 @@ function detail(
 function loc(name: string, qty: number, kind: LocationStock["kind"]): LocationStock {
   return { name, qty, kind, warehouse: name };
 }
+
+describe("isExcludedFromStockCompare", () => {
+  it("drops website drafts", () => {
+    expect(
+      isExcludedFromStockCompare({
+        sku: "ACN001_1",
+        productTitle: "Ancient Nutrition Multi Collagen",
+        siteStatus: "draft",
+      }),
+    ).toBe(true);
+    expect(
+      isExcludedFromStockCompare({
+        sku: "ACN001_1",
+        productTitle: "Ancient Nutrition Multi Collagen",
+        siteStatus: "Draft",
+      }),
+    ).toBe(true);
+  });
+
+  it("drops bundles even when the website product is active", () => {
+    expect(
+      isExcludedFromStockCompare({
+        sku: "BU006_1",
+        productTitle: "COSRX Skin Glow Pack",
+        siteStatus: "active",
+        productType: "",
+      }),
+    ).toBe(true);
+    expect(
+      isExcludedFromStockCompare({
+        sku: "SV_BU001_1",
+        productTitle: "Neocell Super Collagen Bundle",
+        siteStatus: "active",
+        productType: "",
+      }),
+    ).toBe(true);
+    expect(
+      isExcludedFromStockCompare({
+        sku: "CAN07_1",
+        productTitle: "Cantu Shea Butter",
+        siteStatus: "active",
+        productType: "Bundle",
+      }),
+    ).toBe(true);
+    expect(
+      isExcludedFromStockCompare({
+        sku: "CAN07_1",
+        productTitle: "Vitamin C + Collagen Bundle",
+        siteStatus: "active",
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps active non-bundle catalog items", () => {
+    expect(
+      isExcludedFromStockCompare({
+        sku: "CAN07_1",
+        productTitle: "Cantu Shea Butter Leave-In",
+        siteStatus: "active",
+        productType: "Cream",
+      }),
+    ).toBe(false);
+  });
+});
 
 describe("buildStockCompareExportMatrix", () => {
   it("puts each company in its own column and keeps one row per SKU", () => {

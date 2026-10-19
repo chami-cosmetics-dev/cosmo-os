@@ -50,7 +50,8 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { invoiceLineDisplayName, formatInvoiceCouponLabel } from "@/lib/customer-insight/invoices";
+import { invoiceLineDisplayName, formatInvoiceCouponLabel, saleBusinessLabel } from "@/lib/customer-insight/invoices";
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 import { appendInsightFilterList } from "@/lib/customer-insight/filter-query-params";
 import { isNonProductInsightItem } from "@/lib/customer-insight/item-junk";
 import { formatRemovedEmailLabel } from "@/lib/contacts/removed-email-label";
@@ -3653,6 +3654,9 @@ export function CustomerInsightPanel({
                     <thead className="sticky top-0 z-10 bg-card">
                       <tr className="border-b bg-[linear-gradient(180deg,color-mix(in_srgb,var(--secondary)_14%,transparent),transparent)]">
                         <th className="px-4 py-2 text-left font-medium">Order</th>
+                        {isVaultOsDeployment() ? (
+                          <th className="px-4 py-2 text-left font-medium">Business</th>
+                        ) : null}
                         {showPurchaseLines ? (
                           <th className="px-4 py-2 text-left font-medium">Items</th>
                         ) : null}
@@ -3692,6 +3696,9 @@ export function CustomerInsightPanel({
                               </p>
                             ) : null}
                           </td>
+                          {isVaultOsDeployment() ? (
+                            <td className="px-4 py-2 align-top">{saleBusinessLabel(order.origin)}</td>
+                          ) : null}
                           {showPurchaseLines ? (
                             <td className="px-4 py-2 align-top">
                               {order.lineItems.length > 0 ? (

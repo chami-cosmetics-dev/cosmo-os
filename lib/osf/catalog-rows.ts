@@ -11,6 +11,7 @@ export type OsfCatalogRow = {
   barcode: string | null;
   imageUrl: string | null;
   siteStatus: string | null;
+  productType?: string | null;
   /** @deprecated Prefer erp1/erp2 — kept for workbook compatibility */
   itemStatusLabel: string | null;
   itemStatusCategory: string;
@@ -81,6 +82,7 @@ export async function buildCatalogRows(
       barcode: true,
       imageUrl: true,
       status: true,
+      productType: true,
       itemStatusCategory: true,
       itemStatusLabel: true,
       erp1ProductPriority: true,
@@ -113,6 +115,7 @@ export async function buildCatalogRows(
       barcode: item.barcode?.trim() || null,
       imageUrl: item.imageUrl?.trim() || null,
       siteStatus: item.status?.trim() || null,
+      productType: item.productType?.trim() || null,
       itemStatusLabel: combined,
       itemStatusCategory: item.itemStatusCategory,
       erp1ProductPriority: erp1,

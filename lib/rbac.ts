@@ -53,7 +53,11 @@ const DEFAULT_PERMISSIONS = [
   {
     key: "riders.handover.receive",
     description:
-      "Mark rider cash received, load delivery orders, set the ERP payment type, and mark invoices completed",
+      "Mark rider cash received for an assigned company, load that company's delivery orders, set the ERP payment type, and mark those invoices completed",
+  },
+  {
+    key: "riders.handover.export",
+    description: "Export rider cash handover status for admins",
   },
   {
     key: "roles.read",
@@ -90,6 +94,16 @@ const DEFAULT_PERMISSIONS = [
   {
     key: "products.vat_status.read",
     description: "Search a SKU and view live VAT tax status from ERP1 and ERP2",
+  },
+  {
+    key: "products.gift_vouchers.read",
+    description:
+      "View the full gift voucher code table (including order no, used date, phone no) and check codes",
+  },
+  {
+    key: "products.gift_vouchers.manage",
+    description:
+      "Create gift voucher groups (includes everything in products.gift_vouchers.read)",
   },
   {
     key: "item_creation.admin.manage",
@@ -206,7 +220,12 @@ const DEFAULT_PERMISSIONS = [
   {
     key: "store.material_transfer.write",
     description:
-      "Create ERP material transfers and see every shop's receipt status",
+      "Stores only. Send main-to-shop, see every shop's receipt status, and confirm shop returns",
+  },
+  {
+    key: "store.material_transfer.shop_return",
+    description:
+      "Merchant only. Send shop-to-main from the staff outlet. Does not post an ERP transfer and cannot send main-to-shop",
   },
   {
     key: "academy.learn",
@@ -295,7 +314,7 @@ const DEFAULT_PERMISSIONS = [
   },
   {
     key: "orders.cancel",
-    description: "Cancel orders at order received or sample/free issue stage",
+    description: "Cancel non-POS orders before dispatch. POS cancel is requested by the user who created that order.",
   },
   {
     key: "orders.update_payment_method",
@@ -375,6 +394,11 @@ const DEFAULT_PERMISSIONS = [
     key: "stock_requests.create",
     description:
       "Create stock requests (wishlist) for customers in Cosmo OS and manage your own under My requests",
+  },
+  {
+    key: "stock_requests.read_all",
+    description:
+      "View all staff-created stock requests, grouped by the user who created them. Does not allow editing other people's requests",
   },
   {
     key: "finance.approvals.read",
@@ -466,6 +490,10 @@ const DEFAULT_PERMISSIONS = [
   {
     key: REPORT_DUMP_PERMISSIONS.historicalInvoiceItem,
     description: "Download historical invoice item details by year",
+  },
+  {
+    key: REPORT_DUMP_PERMISSIONS.master,
+    description: "Download the finance master dump (live order line detail)",
   },
   {
     key: "settings.fulfillment",
@@ -1016,6 +1044,10 @@ const PINNED_CUSTOM_ROLE_PERMISSIONS: {
   { roleName: "stores-level-02", permissionKey: "store.material_transfer.write" },
   { roleName: "stores-level-01", permissionKey: "purchasing.item_trends.read" },
   { roleName: "stores-level-02", permissionKey: "purchasing.item_trends.read" },
+  { roleName: "stores-level-01", permissionKey: "returns.read" },
+  { roleName: "stores-level-02", permissionKey: "returns.read" },
+  { roleName: "stores-level-01", permissionKey: "returns.manage" },
+  { roleName: "stores-level-02", permissionKey: "returns.manage" },
 ];
 
 let lastCustomRolePinAt = 0;

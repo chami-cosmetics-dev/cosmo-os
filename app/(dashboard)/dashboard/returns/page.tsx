@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 
 import { ReturnedOrdersPanel } from "@/components/organisms/returned-orders-panel";
 import { fetchReturnsTrackingData } from "@/lib/page-data/order-returns";
-import { canTakeMerchantReturnActions } from "@/lib/return-action-access";
+import { canRearrangeReturn, canTakeMerchantReturnActions } from "@/lib/return-action-access";
 import { requirePermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
@@ -23,6 +23,7 @@ export default async function ReturnedOrdersPage() {
     <ReturnedOrdersPanel
       initialData={initialData}
       canTakeMerchantActions={canTakeMerchantReturnActions(auth.context!.roleNames)}
+      canRearrange={canRearrangeReturn(auth.context!.roleNames)}
     />
   );
 }

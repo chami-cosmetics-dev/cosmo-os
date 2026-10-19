@@ -89,7 +89,9 @@ export function AppSidebar({
   const canViewOrders = hasSidebarPermission("orders.read");
   const canViewAbandonedOrders = hasSidebarPermission("abandoned_orders.read");
   const canViewStockRequests =
-    hasSidebarPermission("stock_requests.read") || hasSidebarPermission("stock_requests.create");
+    hasSidebarPermission("stock_requests.read") ||
+    hasSidebarPermission("stock_requests.create") ||
+    hasSidebarPermission("stock_requests.read_all");
   const canViewContactMaster =
     hasSidebarPermission("contacts.master.read") ||
     hasSidebarPermission("contacts.read");
@@ -102,10 +104,14 @@ export function AppSidebar({
   const canViewEmailCleanup =
     hasSidebarPermission("contacts.master.manage") ||
     hasSidebarPermission("contacts.manage");
+  const canViewSupplementImport = hasSidebarPermission("contacts.master.manage");
   const canViewReturns = hasSidebarPermission("returns.read");
   const canViewExchanges = hasSidebarPermission("exchanges.read");
   const canViewProducts = hasSidebarPermission("products.read");
-  const canViewVatStatus = hasSidebarPermission("products.vat_status.read");
+  const canViewVatStatus =
+    hasSidebarPermission("products.vat_status.read") ||
+    hasSidebarPermission("products.gift_vouchers.read") ||
+    hasSidebarPermission("products.gift_vouchers.manage");
   const canViewItemCreation =
     hasSidebarPermission("item_creation.admin.manage") ||
     hasSidebarPermission("item_creation.admin.manage_all") ||
@@ -451,6 +457,14 @@ export function AppSidebar({
                   icon={ContactRound}
                   label="Email cleanup"
                   isActive={pathname === "/dashboard/contacts/email-cleanup"}
+                />
+              )}
+              {canViewSupplementImport && (
+                <NavItem
+                  href="/dashboard/contacts/supplement-import"
+                  icon={FileSpreadsheet}
+                  label="Supplement contact import"
+                  isActive={pathname === "/dashboard/contacts/supplement-import"}
                 />
               )}
               {canViewContactAllocation && (

@@ -13,7 +13,11 @@ export default async function StockRequestsPage({
 }: {
   searchParams: Promise<{ tab?: string }>;
 }) {
-  const auth = await requireAnyPermission(["stock_requests.read", "stock_requests.create"]);
+  const auth = await requireAnyPermission([
+    "stock_requests.read",
+    "stock_requests.create",
+    "stock_requests.read_all",
+  ]);
   if (!auth.ok) {
     if (auth.status === 401) redirect("/login");
     return <PermissionDeniedCard />;
@@ -28,13 +32,12 @@ export default async function StockRequestsPage({
     permissionKeys: auth.context.permissionKeys as string[],
   });
 
-  // ?tab=mine comes from the "back in stock" reminder bubble.
-  const requested = (await searchParams).tab === "mine" ? "mine" : "web";
+  const tabParam = (await searchParams).tab;
+  const requested: StockRequestScope =
+    tabParam === "mine" ? "mine" : tabParam === "staff" ? "staff" : "web";
   const initialTab: StockRequestScope = canViewScope(viewer, requested)
     ? requested
-    : canViewScope(viewer, "web")
-      ? "web"
-      : "mine";
+    : ((["web", "mine", "staff"] as const).find((scope) => canViewScope(viewer, scope)) ?? "web");
 
   const initialData = await listStockRequests({
     companyId: user.companyId,
@@ -53,6 +56,7 @@ export default async function StockRequestsPage({
         canViewWeb: viewer.canViewWeb,
         canManageWeb: viewer.canManageWeb,
         canCreate: viewer.canCreate,
+        canViewAllStaff: viewer.canViewAllStaff,
       }}
       initialTab={initialTab}
       initialData={initialData}

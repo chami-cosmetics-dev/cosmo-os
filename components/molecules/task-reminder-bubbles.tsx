@@ -48,6 +48,7 @@ const CATEGORY_ORDER = [
   "purchasing_rop_threshold",
   "stock_request_restocked",
   "item_creation",
+  "shop_to_main",
 ] as const;
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -65,6 +66,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   purchasing_rop_threshold: "Purchasing ROP threshold",
   stock_request_restocked: "Wishlist items back in stock",
   item_creation: "Item creation workflow",
+  shop_to_main: "Shop returns",
 };
 
 const CATEGORY_NODE_LABELS: Record<string, string> = {
@@ -82,6 +84,7 @@ const CATEGORY_NODE_LABELS: Record<string, string> = {
   purchasing_rop_threshold: "Purchasing ROP",
   stock_request_restocked: "Back in stock",
   item_creation: "Item creation",
+  shop_to_main: "Shop returns",
 };
 
 function groupReminders(reminders: TaskReminder[]) {
@@ -488,14 +491,15 @@ function NodeConnectors({
   }, [anchorRef, containerRef, nodeCount]);
 
   useEffect(() => {
-    updatePaths();
+    const frame = requestAnimationFrame(() => updatePaths());
     const container = containerRef.current;
-    if (!container) return undefined;
+    if (!container) return () => cancelAnimationFrame(frame);
 
     const observer = new ResizeObserver(() => updatePaths());
     observer.observe(container);
     window.addEventListener("resize", updatePaths);
     return () => {
+      cancelAnimationFrame(frame);
       observer.disconnect();
       window.removeEventListener("resize", updatePaths);
     };
@@ -553,7 +557,13 @@ export function TaskReminderBubbles() {
   const hudVisible = !loading && authenticated;
   const overdueTotal = totalCount > 0 ? totalCount : reminders.length;
   const hasOverdue = overdueTotal > 0;
-  const panelsOpen = nodesOpen || showAllPanel || activeCategory !== null;
+  const userCategories = useMemo(
+    () => CATEGORY_ORDER.filter((category) => visibleCategories.includes(category)),
+    [visibleCategories],
+  );
+  const shownCategory =
+    activeCategory && userCategories.includes(activeCategory) ? activeCategory : null;
+  const panelsOpen = nodesOpen || showAllPanel || shownCategory !== null;
   const {
     containerRef: dragContainerRef,
     bottomPx,
@@ -607,16 +617,6 @@ export function TaskReminderBubbles() {
   }, [loadReminders]);
 
   const grouped = useMemo(() => groupReminders(reminders), [reminders]);
-  const userCategories = useMemo(
-    () => CATEGORY_ORDER.filter((category) => visibleCategories.includes(category)),
-    [visibleCategories],
-  );
-
-  useEffect(() => {
-    if (activeCategory && !userCategories.includes(activeCategory)) {
-      setActiveCategory(null);
-    }
-  }, [activeCategory, userCategories]);
 
   const closePanels = useCallback(() => {
     setActiveCategory(null);
@@ -636,12 +636,12 @@ export function TaskReminderBubbles() {
     return null;
   }
 
-  const activeItems = activeCategory ? (grouped.get(activeCategory) ?? []) : [];
-  const activeTotalCount = activeCategory
-    ? (categoryCounts[activeCategory] ?? activeItems.length)
+  const activeItems = shownCategory ? (grouped.get(shownCategory) ?? []) : [];
+  const activeTotalCount = shownCategory
+    ? (categoryCounts[shownCategory] ?? activeItems.length)
     : overdueTotal;
-  const panelTitle = activeCategory
-    ? (CATEGORY_LABELS[activeCategory] ?? activeCategory)
+  const panelTitle = shownCategory
+    ? (CATEGORY_LABELS[shownCategory] ?? shownCategory)
     : "All overdue tasks";
 
   return (
@@ -666,14 +666,14 @@ export function TaskReminderBubbles() {
           </div>
         )}
 
-        {activeCategory && !showAllPanel && (
+        {shownCategory && !showAllPanel && (
           <div className="mr-3">
-            {activeCategory === "purchasing_rop_threshold" ? (
+            {shownCategory === "purchasing_rop_threshold" ? (
               <PurchasingRopDownloadPanel
                 overdueCount={activeTotalCount}
                 onClose={() => setActiveCategory(null)}
               />
-            ) : activeCategory === "merchant_dispatch_pending" ? (
+            ) : shownCategory === "merchant_dispatch_pending" ? (
               <MerchantDispatchPendingPanel
                 items={activeItems}
                 totalCount={activeTotalCount}
@@ -686,7 +686,7 @@ export function TaskReminderBubbles() {
                 totalCount={activeTotalCount}
                 onClose={() => setActiveCategory(null)}
                 onDismissAll={
-                  activeCategory === "erp_sync_warning"
+                  shownCategory === "erp_sync_warning"
                     ? async () => {
                         await fetch("/api/admin/notifications", {
                           method: "PATCH",
@@ -716,7 +716,7 @@ export function TaskReminderBubbles() {
                   key={category}
                   label={CATEGORY_NODE_LABELS[category] ?? CATEGORY_LABELS[category] ?? category}
                   count={categoryCounts[category] ?? grouped.get(category)?.length ?? 0}
-                  active={activeCategory === category}
+                  active={shownCategory === category}
                   onClick={() => toggleCategory(category)}
                   variant={category === "erp_sync_warning" ? "warning" : "default"}
                 />

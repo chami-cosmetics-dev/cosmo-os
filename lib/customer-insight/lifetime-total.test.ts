@@ -79,8 +79,19 @@ describe("sumEligibleOrderTotals", () => {
 });
 
 describe("sumAdaptTotals", () => {
-  it("includes all adapt amounts", () => {
+  it("includes rows with no status", () => {
     expect(sumAdaptTotals([{ ttlAmount: 100 }, { ttlAmount: "200" }])).toBe(300);
+  });
+
+  it("leaves voided and refunded amounts out of the sale total", () => {
+    expect(
+      sumAdaptTotals([
+        { ttlAmount: 100, financialStatus: "paid" },
+        { ttlAmount: 40, financialStatus: "voided" },
+        { ttlAmount: 15, financialStatus: "Refunded" },
+        { ttlAmount: 5, financialStatus: "pending" },
+      ]),
+    ).toBe(105);
   });
 });
 

@@ -22,6 +22,8 @@ import {
 } from "@/lib/merchant-dm-sales";
 import {
   buildWholesaleCouponSet,
+  collectMerchantWholesaleCodes,
+  isWholesaleTrackingCode,
   orderIsWholesale,
   wholesaleMerchantMatchesOrder,
 } from "@/lib/merchant-wholesale";
@@ -120,7 +122,10 @@ export async function fetchMerchantCohortSales(
   const dmHolderIds = resolveDmHolderIds(merchants);
   const wholesaleByMerchant = new Map<string, { total: number; orderCount: number }>();
   const wholesaleSetsByMerchant = new Map(
-    merchants.map((m) => [m.id, buildWholesaleCouponSet(m.wholesaleCouponCodes)]),
+    merchants.map((m) => [
+      m.id,
+      buildWholesaleCouponSet(collectMerchantWholesaleCodes(m)),
+    ]),
   );
 
   if (fromDate > toDate || merchants.length === 0) {
@@ -142,6 +147,7 @@ export async function fetchMerchantCohortSales(
     const sets = splitMerchantCouponSets(m.couponCodes);
     if (sets.hasDm) hasDmHolder = true;
     for (const code of m.couponCodes) {
+      if (isWholesaleTrackingCode(code)) continue;
       const key = code.trim().toLowerCase();
       if (!key || couponToMerchantId.has(key)) continue;
       // DM codes → synthetic bucket (location share totals / personal DM split; not peer race).

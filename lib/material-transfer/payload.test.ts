@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import { erpErrorMessage } from "@/lib/material-transfer/erp-error";
 import { itemCodeFromScanBarcode } from "@/lib/material-transfer/scan-barcode";
-import { buildMaterialTransferBody } from "@/lib/material-transfer/payload";
+import {
+  buildCosmoSaveDocCall,
+  buildMaterialTransferBody,
+  stockEntryNameFromSaveDoc,
+} from "@/lib/material-transfer/payload";
 
 describe("buildMaterialTransferBody", () => {
   it("builds a direct Material Transfer stock entry", () => {
@@ -32,6 +36,32 @@ describe("buildMaterialTransferBody", () => {
         },
       ],
     });
+  });
+});
+
+describe("buildCosmoSaveDocCall", () => {
+  it("sends the Cosmo user's ERP email as owner", () => {
+    const doc = buildMaterialTransferBody({
+      company: "Chami Trading Lanka (Pvt) Ltd",
+      sourceWarehouse: "Main Warehouse - Chami",
+      targetWarehouse: "Shop Warehouse - Chami",
+      lines: [{ itemCode: "NEH09_1", qty: 1, uom: "Nos" }],
+    });
+    expect(buildCosmoSaveDocCall({ owner: " stores@example.com ", doc })).toMatchObject({
+      owner: "stores@example.com",
+      action: "insert",
+      doc: { doctype: "Stock Entry", stock_entry_type: "Material Transfer" },
+    });
+  });
+});
+
+describe("stockEntryNameFromSaveDoc", () => {
+  it("reads the name from the server script message", () => {
+    expect(stockEntryNameFromSaveDoc({ message: { name: "MAT-STE-2026-00271" } })).toBe(
+      "MAT-STE-2026-00271",
+    );
+    expect(stockEntryNameFromSaveDoc({ name: "MAT-STE-2026-00271" })).toBe("MAT-STE-2026-00271");
+    expect(stockEntryNameFromSaveDoc(null)).toBe("");
   });
 });
 

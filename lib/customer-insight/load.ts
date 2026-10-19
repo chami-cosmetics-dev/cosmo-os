@@ -3,6 +3,8 @@ import { listContactEmails, listContactPhones } from "@/lib/contact-identifiers"
 import { buildContactOrderLookupOr } from "@/lib/contact-purchase-lookup";
 import { brandFromAdaptLineItem, brandFromVendorName } from "@/lib/customer-insight/brand";
 import { getLastContactedAt } from "@/lib/customer-insight/contacted";
+import { resolveInsightPhoneCluster } from "@/lib/customer-insight/phone-contact-collapse";
+import { canonicalPhoneForErpCustomerId } from "@/lib/phone-lookup";
 import {
   buildHistoryScopeDto,
   scopeAdaptRowsForHistory,
@@ -14,6 +16,7 @@ import { buildFrequencyMetrics } from "@/lib/customer-insight/frequency";
 import { mergeAndPaginateInvoices } from "@/lib/customer-insight/invoices";
 import {
   computeLifetimeTotal,
+  isAdaptAmountExcludedFromSaleTotal,
   isOrderIncludedInCustomerLifetimeTotal,
   isOrderReversed,
 } from "@/lib/customer-insight/lifetime-total";
@@ -62,8 +65,10 @@ function uniqueDisplayPhones(values: Array<string | null>) {
   const seen = new Set<string>();
   for (const value of values) {
     const phone = value?.trim();
-    if (!phone || seen.has(phone)) continue;
-    seen.add(phone);
+    if (!phone) continue;
+    const key = canonicalPhoneForErpCustomerId(phone) ?? phone;
+    if (seen.has(key)) continue;
+    seen.add(key);
     phones.push(phone);
   }
   return phones;
@@ -79,6 +84,10 @@ export async function loadCustomerInsight(input: {
   historyItems?: string[];
   /** Admin-only: evaluate visibility as this merchant. */
   viewAsMerchant?: string | null;
+  /** False on the follow-up load after jumping to the linked profile. */
+  followPhoneCluster?: boolean;
+  /** Old contact ids whose Adapt history belongs on this profile. */
+  extraAdaptContactIds?: string[];
 }): Promise<CustomerInsightDto | null> {
   const contact = await prisma.contactMaster.findFirst({
     where: { id: input.contactId, companyId: input.companyId },
@@ -107,9 +116,31 @@ export async function loadCustomerInsight(input: {
       loyaltyAssignedBy: { select: { id: true, name: true, knownName: true } },
       emails: { orderBy: { createdAt: "asc" }, select: { email: true } },
       phones: { orderBy: { createdAt: "asc" }, select: { phoneNumber: true } },
+      updatedAt: true,
     },
   });
   if (!contact) return null;
+
+  let adaptContactIds = [contact.id, ...(input.extraAdaptContactIds ?? [])];
+  if (input.followPhoneCluster !== false) {
+    const cluster = await resolveInsightPhoneCluster(input.companyId, {
+      id: contact.id,
+      phoneNumber: contact.phoneNumber,
+      phones: contact.phones,
+      updatedAt: contact.updatedAt,
+      assignedMerchant: contact.assignedMerchant,
+    });
+    if (cluster.keeperId !== contact.id) {
+      return loadCustomerInsight({
+        ...input,
+        contactId: cluster.keeperId,
+        followPhoneCluster: false,
+        extraAdaptContactIds: cluster.absorbedIds,
+      });
+    }
+    adaptContactIds = [contact.id, ...cluster.absorbedIds];
+  }
+  adaptContactIds = [...new Set(adaptContactIds.filter(Boolean))];
 
   const viewer = await resolveInsightLoadViewer({
     companyId: input.companyId,
@@ -127,7 +158,7 @@ export async function loadCustomerInsight(input: {
   ]);
 
   const adaptPromise = prisma.adaptPurchaseHistory.findMany({
-    where: { contactId: contact.id, companyId: input.companyId },
+    where: { contactId: { in: adaptContactIds }, companyId: input.companyId },
     orderBy: { invoiceDate: "desc" },
     select: {
       id: true,
@@ -138,6 +169,10 @@ export async function loadCustomerInsight(input: {
       lineItems: true,
       locationName: true,
       merchantKnownName: true,
+      paymentMethod: true,
+      origin: true,
+      importBatchId: true,
+      financialStatus: true,
       companyLocation: { select: { name: true } },
     },
   });
@@ -240,6 +275,7 @@ export async function loadCustomerInsight(input: {
   }));
   const adaptAmounts = adaptRows.map((r) => ({
     ttlAmount: r.ttlAmount.toString(),
+    financialStatus: r.financialStatus,
   }));
   const lifetimeTotal = computeLifetimeTotal({
     orders: orderAmounts,
@@ -251,6 +287,7 @@ export async function loadCustomerInsight(input: {
     if (isOrderIncludedInCustomerLifetimeTotal(o)) loyaltyEligibleDates.push(o.createdAt);
   }
   for (const r of adaptRows) {
+    if (isAdaptAmountExcludedFromSaleTotal(r.financialStatus)) continue;
     loyaltyEligibleDates.push(r.invoiceDate);
   }
 
@@ -262,6 +299,7 @@ export async function loadCustomerInsight(input: {
     if (!isOrderReversed(o)) purchaseDates.push(o.createdAt.getTime());
   }
   for (const r of adaptRows) {
+    if (isAdaptAmountExcludedFromSaleTotal(r.financialStatus)) continue;
     purchaseDates.push(r.invoiceDate.getTime());
   }
   const lastPurchaseAt =
@@ -276,7 +314,7 @@ export async function loadCustomerInsight(input: {
     ...historyAdaptRows.map((r) => ({
       date: r.invoiceDate,
       amount: Number(r.ttlAmount.toString()),
-      includedInLoyaltyTotal: true,
+      includedInLoyaltyTotal: !isAdaptAmountExcludedFromSaleTotal(r.financialStatus),
     })),
   ];
 
@@ -294,7 +332,10 @@ export async function loadCustomerInsight(input: {
         variantTitle: li.productItem.variantTitle,
       })),
     })),
-    adaptRows: historyAdaptRows.map((r) => ({ lineItems: r.lineItems })),
+    adaptRows: historyAdaptRows.map((r) => ({
+      lineItems: r.lineItems,
+      financialStatus: r.financialStatus,
+    })),
   });
 
   const paged = mergeAndPaginateInvoices({
@@ -361,6 +402,10 @@ export async function loadCustomerInsight(input: {
         currency: r.currency,
         locationName: r.companyLocation?.name?.trim() || r.locationName || null,
         merchantName: r.merchantKnownName,
+        paymentMethod: r.paymentMethod,
+        origin: r.origin,
+        importBatchId: r.importBatchId,
+        financialStatus: r.financialStatus,
         lineItems,
       };
     }),

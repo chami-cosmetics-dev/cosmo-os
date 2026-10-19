@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { canonicalPhoneForErpCustomerId } from "@/lib/phone-lookup";
-import { LIMITS } from "@/lib/validation";
+import { cuidSchema, LIMITS } from "@/lib/validation";
 import { STOCK_REQUEST_STATUSES } from "@/lib/wishlist-buddy/constants";
 
 /** Numeric Shopify ID from either `123` or `gid://shopify/ProductVariant/123`. */
@@ -62,10 +62,12 @@ export const stockRequestListQuerySchema = z.object({
   search: z.string().trim().max(100).optional(),
   page: z.coerce.number().int().min(1).optional(),
   limit: z.coerce.number().int().min(1).max(100).optional(),
+  /** All staff requests tab: limit the list to one creator. Ignored on other tabs. */
+  createdBy: cuidSchema.optional(),
 });
 
-/** Stock Requests tab: website requests, or the viewer's own Cosmo OS requests. */
-export const stockRequestScopeSchema = z.enum(["web", "mine"]).default("web");
+/** Stock Requests tab: website, the viewer's own, or every staff request. */
+export const stockRequestScopeSchema = z.enum(["web", "mine", "staff"]).default("web");
 
 /** "New request" form on the My requests tab. Phone is required; email is optional. */
 export const staffStockRequestCreateBodySchema = z.object({

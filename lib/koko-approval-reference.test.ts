@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  financePaymentReferenceKind,
   normalizeKokoReference,
   requiresKokoApprovalReference,
 } from "@/lib/koko-approval-reference";
@@ -90,6 +91,27 @@ describe("requiresKokoApprovalReference", () => {
         requestNote: "koko — amount: 1000",
       }),
     ).toBe(true);
+  });
+
+  it("maps Mint Pay like a finance reference without treating it as KOKO", () => {
+    expect(
+      financePaymentReferenceKind({
+        type: "order_payment_approval",
+        paymentGatewayPrimary: "Mint Pay",
+      }),
+    ).toBe("mintpay");
+    expect(
+      requiresKokoApprovalReference({
+        type: "order_payment_approval",
+        paymentGatewayPrimary: "Mint Pay",
+      }),
+    ).toBe(false);
+    expect(
+      financePaymentReferenceKind({
+        type: "payment_method_change_approval",
+        requestNote: "Mintpay — payment method change request — amount: 1000",
+      }),
+    ).toBe("mintpay");
   });
 
   it("does not require a reference for non-KOKO approvals", () => {

@@ -5,9 +5,17 @@ import { getAllOsfErpInstances, type OsfErpCredentials, type OsfErpInstance } fr
 import { ERP_TAX_STATUS_FIELD } from "@/lib/osf/erp-tax-status";
 import { erpErrorMessage } from "@/lib/material-transfer/erp-error";
 import { itemCodeFromScanBarcode } from "@/lib/material-transfer/scan-barcode";
-import { buildMaterialTransferBody } from "@/lib/material-transfer/payload";
+import {
+  buildCosmoSaveDocCall,
+  buildMaterialTransferBody,
+  stockEntryNameFromSaveDoc,
+} from "@/lib/material-transfer/payload";
 import type { TransferLookupItem, TransferSlot, TransferWarehouse } from "@/lib/material-transfer/types";
-import { companyForWarehouses, warehouseOptions } from "@/lib/material-transfer/warehouses";
+import {
+  companyForWarehouses,
+  erp1RequiresVatItems,
+  warehouseOptions,
+} from "@/lib/material-transfer/warehouses";
 
 export class MaterialTransferError extends Error {
   status: number;
@@ -165,6 +173,59 @@ async function findItemByCode(cfg: OsfErpCredentials, code: string): Promise<Erp
   return rows[0] ?? null;
 }
 
+export async function searchTransferItemsByCode(
+  cfg: OsfErpCredentials,
+  query: string,
+  limit = 15,
+): Promise<Array<{ itemCode: string; itemName: string }>> {
+  const q = query.trim().replace(/[%_\\]/g, "");
+  if (q.length < 2) return [];
+  const rows = await listResource<ErpItemRow>(
+    cfg,
+    "Item",
+    [
+      ["item_code", "like", `%${q}%`],
+      ["disabled", "=", 0],
+    ],
+    ["item_code", "item_name", "disabled"],
+    limit,
+  );
+  const out: Array<{ itemCode: string; itemName: string }> = [];
+  for (const row of rows) {
+    if (isDisabled(row.disabled)) continue;
+    const itemCode = String(row.item_code ?? row.name ?? "").trim();
+    if (!itemCode) continue;
+    out.push({
+      itemCode,
+      itemName: String(row.item_name ?? itemCode).trim() || itemCode,
+    });
+  }
+  return out;
+}
+
+export async function resolveTransferItemIdentity(
+  cfg: OsfErpCredentials,
+  code: string,
+  options?: { exactOnly?: boolean },
+): Promise<{ itemCode: string; itemName: string; barcode: string } | null> {
+  const trimmed = code.trim();
+  if (!trimmed) return null;
+  const byCode = await findItemByCode(cfg, trimmed);
+  const listed = byCode ?? (options?.exactOnly ? null : await findItemByBarcode(cfg, trimmed));
+  if (!listed || isDisabled(listed.disabled)) return null;
+  const fullName = String(listed.name ?? listed.item_code ?? "").trim();
+  const row = (fullName ? await getItem(cfg, fullName) : null) ?? listed;
+  if (!row || isDisabled(row.disabled)) return null;
+  const itemCode = String(row.item_code ?? row.name ?? "").trim();
+  if (!itemCode) return null;
+  const scannedBarcode = byCode ? "" : trimmed;
+  return {
+    itemCode,
+    itemName: String(row.item_name ?? itemCode).trim() || itemCode,
+    barcode: scannedBarcode || firstBarcode(row),
+  };
+}
+
 async function findItemByBarcode(cfg: OsfErpCredentials, code: string): Promise<ErpItemRow | null> {
   try {
     const json = await erpJson<unknown>(cfg, "/api/method/erpnext.stock.utils.scan_barcode", {
@@ -177,6 +238,36 @@ async function findItemByBarcode(cfg: OsfErpCredentials, code: string): Promise<
   } catch {
     return null;
   }
+}
+
+export async function liveSourceQty(
+  cfg: OsfErpCredentials,
+  itemCode: string,
+  warehouse: string,
+): Promise<number> {
+  const qty = await sourceQty(cfg, itemCode, warehouse);
+  return qty == null ? 0 : qty;
+}
+
+export async function assertSourceCovers(
+  cfg: OsfErpCredentials,
+  warehouse: string,
+  lines: Array<{ itemCode: string; qty: number }>,
+) {
+  for (const line of lines) {
+    if (line.qty <= 0) continue;
+    const available = await liveSourceQty(cfg, line.itemCode, warehouse);
+    if (line.qty > available) {
+      throw new MaterialTransferError(
+        `${line.itemCode} has ${available} available in ${warehouse}.`,
+        409,
+      );
+    }
+  }
+}
+
+export async function assertSlotVatLines(cfg: OsfErpCredentials, itemCodes: string[]) {
+  await assertVatLines(cfg, itemCodes);
 }
 
 async function sourceQty(
@@ -217,8 +308,10 @@ export async function lookupTransferItem(input: {
   slot: TransferSlot;
   code: string;
   sourceWarehouse: string;
+  targetWarehouse?: string | null;
   warehouses: TransferWarehouse[];
   company?: string | null;
+  skipVatCheck?: boolean;
 }): Promise<TransferLookupItem> {
   const code = input.code.trim();
   const options = warehouseOptions(input.slot, input.warehouses, input.company ?? null);
@@ -237,7 +330,11 @@ export async function lookupTransferItem(input: {
   if (!itemCode) throw new MaterialTransferError(`No item found for ${code}`);
 
   const taxStatus = row[ERP_TAX_STATUS_FIELD]?.trim() || null;
-  if (input.slot === "erp1" && !isVatTaxStatus(taxStatus)) {
+  const vatOnly =
+    input.slot === "erp1" &&
+    !input.skipVatCheck &&
+    erp1RequiresVatItems(input.sourceWarehouse, input.targetWarehouse);
+  if (vatOnly && !isVatTaxStatus(taxStatus)) {
     throw new MaterialTransferError(
       `${itemCode} is ${taxStatus || "not VAT"}. ERP1 transfers VAT items only.`,
     );
@@ -272,6 +369,19 @@ async function assertVatLines(cfg: OsfErpCredentials, itemCodes: string[]) {
   }
 }
 
+export function requireErpOwner(user: {
+  erpnextUsername?: string | null;
+  email?: string | null;
+}): string {
+  const owner = user.erpnextUsername?.trim() || user.email?.trim() || "";
+  if (!owner) {
+    throw new MaterialTransferError(
+      "Your ERP username is not set. An admin must link it before stock can move.",
+    );
+  }
+  return owner;
+}
+
 export async function submitMaterialTransfer(input: {
   cfg: OsfErpCredentials;
   slot: TransferSlot;
@@ -280,6 +390,7 @@ export async function submitMaterialTransfer(input: {
   targetWarehouse: string;
   lines: Array<{ itemCode: string; qty: number; uom?: string | null }>;
   warehouses: TransferWarehouse[];
+  owner: string;
 }): Promise<{ name: string; company: string }> {
   const options = warehouseOptions(input.slot, input.warehouses, input.company ?? null);
   let company: string;
@@ -296,41 +407,35 @@ export async function submitMaterialTransfer(input: {
     }
   }
   if (input.lines.length === 0) throw new MaterialTransferError("Add at least one item");
-  if (input.slot === "erp1") {
+  if (input.slot === "erp1" && erp1RequiresVatItems(input.sourceWarehouse, input.targetWarehouse)) {
     await assertVatLines(
       input.cfg,
       input.lines.map((line) => line.itemCode),
     );
   }
+  await assertSourceCovers(input.cfg, input.sourceWarehouse, input.lines);
 
-  const body = buildMaterialTransferBody({
-    company,
-    sourceWarehouse: input.sourceWarehouse,
-    targetWarehouse: input.targetWarehouse,
-    lines: input.lines,
+  const owner = requireErpOwner({ erpnextUsername: input.owner });
+  const body = buildCosmoSaveDocCall({
+    owner,
+    doc: buildMaterialTransferBody({
+      company,
+      sourceWarehouse: input.sourceWarehouse,
+      targetWarehouse: input.targetWarehouse,
+      lines: input.lines,
+    }),
   });
-  const created = await erpJson<{ name?: string }>(input.cfg, "/api/resource/Stock%20Entry", {
-    method: "POST",
-    body: JSON.stringify(body),
-  });
-  const name = String(created.name ?? "").trim();
-  if (!name) throw new MaterialTransferError("ERP did not return a Stock Entry number", 502);
-
+  let saved: unknown;
   try {
-    const full = await erpJson<Record<string, unknown>>(
-      input.cfg,
-      `/api/resource/Stock%20Entry/${encodeURIComponent(name)}`,
-    );
-    await erpJson(input.cfg, "/api/method/frappe.client.submit", {
+    saved = await erpJson<unknown>(input.cfg, "/api/method/cosmo_save_doc", {
       method: "POST",
-      body: JSON.stringify({ doc: { ...full, doctype: "Stock Entry" } }),
+      body: JSON.stringify(body),
     });
   } catch (error) {
-    await erpJson(input.cfg, `/api/resource/Stock%20Entry/${encodeURIComponent(name)}`, {
-      method: "DELETE",
-    }).catch(() => undefined);
     throw new MaterialTransferError(erpErrorMessage(error), 422);
   }
+  const name = stockEntryNameFromSaveDoc(saved);
+  if (!name) throw new MaterialTransferError("ERP did not return a Stock Entry number", 502);
 
   return { name, company };
 }

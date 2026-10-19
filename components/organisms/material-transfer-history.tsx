@@ -8,15 +8,20 @@ import { notify } from "@/lib/notify";
 
 type HistoryRow = {
   id: string;
-  erpName: string;
+  direction: "store_to_shop" | "shop_to_main";
+  erpName: string | null;
+  erpUrl: string | null;
+  erp2Name?: string | null;
+  erp2Url?: string | null;
   erpCompany: string;
   sourceWarehouse: string;
   targetWarehouse: string;
-  status: "sent" | "received";
+  status: "sent" | "received" | "requested" | "confirming" | "confirmed";
   createdAt: string;
   receivedAt: string | null;
   createdByName: string | null;
   receivedByName: string | null;
+  mismatch: boolean;
   lineCount: number;
   sentQty: number;
   receivedQty: number;
@@ -30,8 +35,10 @@ type DetailLine = {
   itemCode: string;
   itemName: string;
   barcode: string;
+  postSlot?: string;
   sentQty: number;
   receivedQty: number;
+  receivedQtyUpdatedByName: string | null;
 };
 
 type Detail = HistoryRow & { lines: DetailLine[] };
@@ -43,8 +50,20 @@ function when(value: string | null) {
   return date.toLocaleString();
 }
 
+function statusLabel(status: HistoryRow["status"]) {
+  if (status === "received") return "Received";
+  if (status === "requested") return "Waiting for stores";
+  if (status === "confirming") return "Confirming";
+  if (status === "confirmed") return "Confirmed";
+  return "Sent";
+}
+
+function finished(status: HistoryRow["status"]) {
+  return status === "received" || status === "confirmed";
+}
+
 function varianceText(row: Pick<HistoryRow, "status" | "shortUnits" | "overUnits" | "mismatchCount">) {
-  if (row.status !== "received" || row.mismatchCount === 0) return null;
+  if (!finished(row.status) || row.mismatchCount === 0) return null;
   const parts = [];
   if (row.shortUnits) parts.push(`short ${row.shortUnits}`);
   if (row.overUnits) parts.push(`over ${row.overUnits}`);
@@ -64,11 +83,13 @@ export function MaterialTransferHistory({
   const [openId, setOpenId] = useState<string | null>(null);
   const [detail, setDetail] = useState<Detail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [mismatchOnly, setMismatchOnly] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/admin/store/material-transfer/history?scope=${scope}`);
+      const mismatch = mismatchOnly ? "&mismatch=1" : "";
+      const res = await fetch(`/api/admin/store/material-transfer/history?scope=${scope}${mismatch}`);
       const json = (await res.json()) as {
         transfers?: HistoryRow[];
         shopUnassigned?: boolean;
@@ -82,7 +103,7 @@ export function MaterialTransferHistory({
     } finally {
       setLoading(false);
     }
-  }, [scope]);
+  }, [scope, mismatchOnly]);
 
   useEffect(() => {
     void load();
@@ -122,7 +143,16 @@ export function MaterialTransferHistory({
     <section className="flex flex-col gap-3">
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-lg font-semibold">{title}</h2>
-        <Button type="button" variant="outline" disabled={loading} onClick={() => void load()}>
+        <div className="flex gap-2">
+          <Button
+            type="button"
+            variant={mismatchOnly ? "default" : "outline"}
+            disabled={loading}
+            onClick={() => setMismatchOnly((current) => !current)}
+          >
+            {mismatchOnly ? "Showing mismatches" : "Mismatches"}
+          </Button>
+          <Button type="button" variant="outline" disabled={loading} onClick={() => void load()}>
           {loading ? (
             <>
               <Loader2 className="animate-spin" aria-hidden />
@@ -131,7 +161,8 @@ export function MaterialTransferHistory({
           ) : (
             "Refresh"
           )}
-        </Button>
+          </Button>
+        </div>
       </div>
       <p className="text-muted-foreground text-sm">
         {scope === "all"
@@ -140,7 +171,7 @@ export function MaterialTransferHistory({
       </p>
       {unassigned ? (
         <p className="text-sm text-red-600">
-          Assign an outlet on the staff profile to see this shop's transfers.
+          Assign an outlet on the staff profile to see this shop&apos;s transfers.
         </p>
       ) : null}
       <div className="overflow-x-auto rounded-md border">
@@ -166,18 +197,38 @@ export function MaterialTransferHistory({
             ) : (
               rows.map((row) => (
                 <Fragment key={row.id}>
-                  <tr className="border-t">
+                  <tr className="cursor-pointer border-t" onClick={() => void toggle(row.id)}>
                     <td className="px-3 py-2">{when(row.createdAt)}</td>
                     <td className="px-3 py-2">
-                      <button type="button" className="font-medium underline" onClick={() => void toggle(row.id)}>
-                        {row.erpName}
-                      </button>
+                      {row.erpUrl && row.erpName ? (
+                        <a
+                          href={row.erpUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="block font-medium underline"
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          {row.erpName}
+                        </a>
+                      ) : null}
+                      {row.erp2Url && row.erp2Name ? (
+                        <a
+                          href={row.erp2Url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="block font-medium underline"
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          {row.erp2Name}
+                        </a>
+                      ) : null}
+                      {!row.erpName && !row.erp2Name ? <span>{row.sourceWarehouse}</span> : null}
                     </td>
                     <td className="px-3 py-2">{row.targetWarehouse}</td>
                     <td className="px-3 py-2">{row.sentQty}</td>
                     <td className="px-3 py-2">{row.receivedQty}</td>
                     <td className="px-3 py-2">
-                      {row.status === "received" ? "Received" : "Sent"}
+                      {statusLabel(row.status)}
                       {varianceText(row) ? (
                         <span className="text-muted-foreground block text-xs">{varianceText(row)}</span>
                       ) : null}
@@ -204,20 +255,42 @@ export function MaterialTransferHistory({
                             <thead>
                               <tr className="text-left">
                                 <th className="py-1 pr-3 font-medium">SKU</th>
+                                {detail.direction === "shop_to_main" ? (
+                                  <th className="py-1 pr-3 font-medium">ERP</th>
+                                ) : null}
                                 <th className="py-1 pr-3 font-medium">Description</th>
+                                <th className="py-1 pr-3 font-medium">Barcode</th>
                                 <th className="py-1 pr-3 font-medium">Sent</th>
-                                <th className="py-1 font-medium">Received</th>
+                                <th className="py-1 pr-3 font-medium">Received</th>
+                                <th className="py-1 font-medium">Counted by</th>
                               </tr>
                             </thead>
                             <tbody>
-                              {detail.lines.map((line) => (
-                                <tr key={line.id}>
+                              {detail.lines.map((line) => {
+                                const differs = finished(detail.status) && line.receivedQty !== line.sentQty;
+                                return (
+                                <tr
+                                  key={line.id}
+                                  className={
+                                    differs
+                                      ? "bg-amber-100 text-amber-950 dark:bg-amber-950/40 dark:text-amber-100"
+                                      : undefined
+                                  }
+                                >
                                   <td className="py-1 pr-3">{line.itemCode}</td>
+                                  {detail.direction === "shop_to_main" ? (
+                                    <td className="py-1 pr-3">
+                                      {line.postSlot === "erp1" ? "ERP1 VAT" : line.postSlot === "erp2" ? "ERP2" : "—"}
+                                    </td>
+                                  ) : null}
                                   <td className="py-1 pr-3">{line.itemName}</td>
+                                  <td className="py-1 pr-3">{line.barcode || "—"}</td>
                                   <td className="py-1 pr-3">{line.sentQty}</td>
-                                  <td className="py-1">{line.receivedQty}</td>
+                                  <td className="py-1 pr-3">{line.receivedQty}</td>
+                                  <td className="py-1">{line.receivedQtyUpdatedByName || "—"}</td>
                                 </tr>
-                              ))}
+                                );
+                              })}
                             </tbody>
                           </table>
                         )}

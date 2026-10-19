@@ -33,12 +33,14 @@ import {
   listCompanyErpPaymentModes,
 } from "@/lib/erp-payment-modes";
 import {
+  cancelPendingDeliveryPaymentApprovalsForOrder,
   createOrGetOrderCancelApproval,
   createOrGetOrderPaymentApproval,
   getFinancePaymentApprovalBlockReason,
   isOrderPaymentRequiresApproval,
 } from "@/lib/approval-workflow";
 import { isPosOrderSource } from "@/lib/fulfillment-queue-filters";
+import { canRequestPosOrderCancel, merchantCanRequestOrderCancel } from "@/lib/order-cancel-finance";
 import { orderStageUpdate, orderStageUpdateIfChanged } from "@/lib/order-stage-timing";
 import {
   INVOICE_REVERT_CREDIT_NOTE_TEMPLATE,
@@ -49,6 +51,7 @@ import { getErpOutOfStockFulfillmentBlock } from "@/lib/erp-fulfillment-block";
 import { isExplicitlyPackageReady } from "@/lib/fulfillment-stage-display";
 import { releaseKokoReferencesForOrder } from "@/lib/koko-approval-references";
 import { needsKokoLinkTimeConfirm } from "@/lib/koko-order";
+import { isMintpayGateway } from "@/lib/payment-gateway-match";
 import { formatAppIsoCalendarDate } from "@/lib/format-datetime";
 import { citypakOverrideOrderPatch, ensureCitypakShipmentForDispatch } from "@/lib/citypak-dispatch";
 import { isCitypakCourier } from "@/lib/courier";
@@ -303,7 +306,10 @@ export async function PATCH(
     );
   }
 
-  const requiredPermissions = getRequiredPermissionsForAction(parsed.data.action);
+  const requiredPermissions =
+    parsed.data.action === "cancel_order"
+      ? ["orders.read", "orders.cancel"]
+      : getRequiredPermissionsForAction(parsed.data.action);
   const auth = await requireAnyPermission(requiredPermissions);
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
@@ -1243,6 +1249,9 @@ export async function PATCH(
         where: { id: order.id },
         data: updateData,
       });
+      if (updateData.deliveryCompleteAt === null) {
+        await cancelPendingDeliveryPaymentApprovalsForOrder(order.id);
+      }
       if (shouldRecordReturn) {
         const shipping = getShippingServiceForReturn(order);
         const existingPendingReturn = await prisma.orderReturn.findFirst({
@@ -1410,19 +1419,46 @@ export async function PATCH(
     }
 
     if (data.action === "cancel_order") {
-      const cancelableStages = ["order_received", "sample_free_issue", "print", "ready_to_dispatch"] as const;
-      if (!(cancelableStages as readonly string[]).includes(order.fulfillmentStage)) {
+      const isPosCancel = isPosOrderSource(order.sourceName);
+      if (isPosCancel) {
+        if (
+          !canRequestPosOrderCancel({
+            viewerUserId: auth.context!.user!.id,
+            assignedMerchantId: order.assignedMerchantId,
+            roleNames: auth.context?.roleNames,
+          })
+        ) {
+          return NextResponse.json(
+            { error: "Only the user who created this POS order can request cancel" },
+            { status: 403 },
+          );
+        }
+      } else if (!hasPermission(auth.context, "orders.cancel")) {
         return NextResponse.json(
-          { error: "Orders can only be cancelled before dispatch" },
-          { status: 400 }
+          { error: "You do not have permission to cancel this order" },
+          { status: 403 },
         );
       }
       if (order.financialStatus?.toLowerCase() === "voided") {
         return NextResponse.json({ error: "Order is already cancelled" }, { status: 400 });
       }
+      if (
+        !merchantCanRequestOrderCancel({
+          isPos: isPosCancel,
+          fulfillmentStage: order.fulfillmentStage,
+          financialStatus: order.financialStatus,
+          hasPendingCancelApproval: false,
+        })
+      ) {
+        return NextResponse.json(
+          { error: "Orders can only be cancelled before dispatch" },
+          { status: 400 }
+        );
+      }
 
       // Vault OS has no Shopify Admin API — real Shopify orders must be cancelled in Shopify.
-      if (shouldBlockShopifyCancelInOs(order.shopifyOrderId)) {
+      // POS invoices are ERP documents, so merchants can still request finance cancel.
+      if (!isPosCancel && shouldBlockShopifyCancelInOs(order.shopifyOrderId)) {
         return NextResponse.json(
           { error: VAULT_SHOPIFY_CANCEL_BLOCKED_MESSAGE },
           { status: 400 }
@@ -1440,13 +1476,14 @@ export async function PATCH(
       const gateway = (order.paymentGatewayPrimary ?? "").toLowerCase().trim();
       const isPaidCancelableGateway =
         gateway.includes("koko") ||
-        gateway.includes("mintpay") ||
+        isMintpayGateway(gateway) ||
         gateway.includes("bank") ||
         gateway === "cc" ||
         gateway === "cc checkout" ||
         gateway.includes("webxpay");
       const requiresFinanceApproval =
-        order.financialStatus?.toLowerCase() === "paid" && isPaidCancelableGateway;
+        isPosCancel ||
+        (order.financialStatus?.toLowerCase() === "paid" && isPaidCancelableGateway);
 
       const cancelKind = data.cancelKind;
 
@@ -1469,6 +1506,8 @@ export async function PATCH(
           invoiceLabel,
           amount: order.totalPrice?.toString() ?? "0",
           companyLocationId: order.companyLocationId,
+          isPos: isPosCancel,
+          orderRefs: [order.name, order.orderNumber, order.erpnextInvoiceId],
         });
 
         await writeAuditLog({

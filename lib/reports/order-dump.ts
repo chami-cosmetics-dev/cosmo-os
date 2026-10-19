@@ -1,4 +1,5 @@
 import { getOrderListFulfillmentStageBadges } from "@/lib/fulfillment-stage-display";
+import { isMintpayGateway } from "@/lib/payment-gateway-match";
 import { formatAppIsoTime } from "@/lib/format-datetime";
 import { buildCsv, escapeCsvCell, formatCsvHeader, formatIsoDate } from "@/lib/reports/csv";
 
@@ -25,14 +26,14 @@ function formatIsoTime(value: Date | null | undefined) {
   return formatAppIsoTime(value, "");
 }
 
-function summarizePaymentGateway(value: string) {
+export function summarizePaymentGateway(value: string) {
   const trimmed = value.trim();
   if (!trimmed) return "";
 
   const normalized = trimmed.toLowerCase().replace(/[_\-\s]+/g, " ").trim();
 
   if (normalized.includes("koko")) return "KOKO Payment";
-  if (normalized.includes("mintpay")) return "Mintpay Payment";
+  if (isMintpayGateway(trimmed)) return "Mintpay Payment";
   if (normalized.includes("webxpay") || normalized.includes("web x pay")) return "WEBXPAY";
   if (normalized.includes("bank")) return "Bank Transfer";
   if (
@@ -99,7 +100,7 @@ function resolveExportFulfillmentStatus(input: {
   return input.fulfillmentStatus ?? "";
 }
 
-function resolveInvoiceStatus(input: {
+export function resolveInvoiceStatus(input: {
   sourceName: string;
   financialStatus: string | null;
   fulfillmentStage: string | null;

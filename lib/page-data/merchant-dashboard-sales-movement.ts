@@ -8,6 +8,10 @@ import {
   parseOrderCouponList,
   splitMerchantCouponSets,
 } from "@/lib/merchant-dm-sales";
+import {
+  isWholesaleTrackingCode,
+  orderIsWholesale,
+} from "@/lib/merchant-wholesale";
 import { prisma } from "@/lib/prisma";
 
 export type MerchantSalesMovementLine = {
@@ -282,7 +286,9 @@ export async function fetchMerchantSalesMovement(
   });
   if (!merchant || fromDate > toDate) return empty;
 
-  const sets = splitMerchantCouponSets(merchant.couponCodes);
+  const sets = splitMerchantCouponSets(
+    merchant.couponCodes.filter((code) => !isWholesaleTrackingCode(code)),
+  );
 
   const orders = await prisma.order.findMany({
     where: {
@@ -312,6 +318,7 @@ export async function fetchMerchantSalesMovement(
   const attributed: MovementSourceOrder[] = [];
   for (const order of orders) {
     const orderCoupons = orderTrackingCoupons(order);
+    if (orderIsWholesale(orderCoupons)) continue;
     const bucket = classifyMerchantSalesBucket({
       orderCoupons,
       personal: sets.personal,

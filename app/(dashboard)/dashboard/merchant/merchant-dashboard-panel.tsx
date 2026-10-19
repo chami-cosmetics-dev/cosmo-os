@@ -71,6 +71,8 @@ import { resolveEffectiveTotalTarget } from "@/lib/merchant-dashboard/channel-sa
 import type { MerchantDailyInvoiceRow } from "@/lib/page-data/merchant-dashboard-sales";
 import type { MerchantSalesMovement } from "@/lib/page-data/merchant-dashboard-sales-movement";
 
+import { MerchantSalesInsightsCard } from "./merchant-sales-insights-card";
+
 function parsePositiveTargetInput(value: string): number | null {
   if (!value.trim()) return null;
   const amount = Number(value);
@@ -1212,8 +1214,18 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                 {data.profile.displayName}
               </h1>
             <p className="text-sm text-foreground/80">
-              Today {formatMoney(data.today.total)} · This month (MTD){" "}
-              {formatMoney(data.sales.total)} · {data.sales.orderCount} orders
+              Today {formatMoney(data.today.total)}
+              {data.sales.hasWholesale
+                ? ` · Wholesale today ${formatMoney(data.today.wholesaleTotal ?? 0)}`
+                : ""}
+              {" · "}
+              {data.sales.hasWholesale ? "Personal MTD " : "This month (MTD) "}
+              {formatMoney(data.sales.total)}
+              {data.sales.hasWholesale
+                ? ` · Wholesale ${formatMoney(data.sales.wholesaleTotal)}`
+                : ""}
+              {" · "}
+              {data.sales.orderCount} orders
               {data.returns.returnRatePct != null
                 ? ` · ${data.returns.returnRatePct}% returns`
                 : ""}
@@ -1323,7 +1335,11 @@ export function MerchantDashboardPanel({ initialData }: Props) {
               {formatMoney(data.today.total)}
             </p>
             <p className="text-muted-foreground text-xs">
-              {data.today.orderCount} orders · {data.today.ymd}
+              {data.today.orderCount}
+              {data.sales.hasWholesale ? " personal" : ""} orders · {data.today.ymd}
+              {data.sales.hasWholesale
+                ? ` · WH ${formatMoney(data.today.wholesaleTotal ?? 0)}`
+                : ""}
               {data.today.hasDmSplit
                 ? ` · MER ${formatMoney(data.today.merTotal ?? 0)} · DM ${formatMoney(data.today.dmTotal ?? 0)}`
                 : ""}
@@ -1333,7 +1349,11 @@ export function MerchantDashboardPanel({ initialData }: Props) {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
-              {data.sales.hasDmSplit ? "Full total (MTD)" : "This month (MTD)"}
+              {data.sales.hasWholesale
+                ? "Personal (MTD)"
+                : data.sales.hasDmSplit
+                  ? "Full total (MTD)"
+                  : "This month (MTD)"}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -2251,6 +2271,8 @@ export function MerchantDashboardPanel({ initialData }: Props) {
           </ul>
         </CardContent>
       </Card>
+
+      <MerchantSalesInsightsCard merchantId={merchantId} />
 
       <Card>
         <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">

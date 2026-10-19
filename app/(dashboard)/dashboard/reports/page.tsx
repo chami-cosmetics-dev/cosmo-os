@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { PermissionDeniedCard } from "@/components/molecules/permission-denied-card";
 import { DumpReportsPanel } from "@/components/organisms/dump-reports-panel";
 import { fetchRecentReportDownloadLogs } from "@/lib/report-download-log";
-import { ALL_REPORT_DUMP_PERMISSIONS } from "@/lib/report-permissions";
+import { ALL_REPORT_DUMP_PERMISSIONS, REPORT_DUMP_PERMISSIONS } from "@/lib/report-permissions";
 import { requireAnyPermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
@@ -32,11 +32,16 @@ export default async function ReportsPage() {
   }
 
   const recentLogs = await fetchRecentReportDownloadLogs(companyId, 12);
+  const roleNames = auth.context.roleNames ?? [];
+  const isAdmin = roleNames.includes("admin") || roleNames.includes("super_admin");
+  const permissionKeys = isAdmin
+    ? Array.from(new Set([...auth.context.permissionKeys, REPORT_DUMP_PERMISSIONS.master]))
+    : auth.context.permissionKeys;
 
   return (
     <DumpReportsPanel
       historicalYears={getHistoricalYears()}
-      permissionKeys={auth.context.permissionKeys}
+      permissionKeys={permissionKeys}
       recentLogs={recentLogs}
     />
   );

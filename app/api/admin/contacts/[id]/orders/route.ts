@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { listContactEmails, listContactPhones } from "@/lib/contact-identifiers";
 import { buildContactOrderLookupOr } from "@/lib/contact-purchase-lookup";
 import { adaptLineItemsForPurchaseUi } from "@/lib/adapt-import/line-items";
+import { normalizePurchaseOrigin } from "@/lib/customer-insight/invoices";
 import { buildPhoneLookupVariants } from "@/lib/phone-lookup";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
@@ -111,6 +112,9 @@ export async function GET(_request: NextRequest, { params }: Params) {
       companyLocationId: true,
       paymentMethod: true,
       merchantKnownName: true,
+      origin: true,
+      importBatchId: true,
+      financialStatus: true,
       lineItems: true,
       companyLocation: { select: { name: true } },
     },
@@ -188,6 +192,8 @@ export async function GET(_request: NextRequest, { params }: Params) {
       companyLocationName: row.companyLocation?.name ?? null,
       paymentMethod: row.paymentMethod,
       merchantKnownName: row.merchantKnownName,
+      financialStatus: row.financialStatus,
+      origin: normalizePurchaseOrigin(row.origin, row.importBatchId),
       lineItems: adaptLineItemsForPurchaseUi(row.lineItems),
     })),
   });

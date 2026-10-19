@@ -48,7 +48,7 @@ import {
   canRequestPaymentMethodChange,
   getPaymentMethodInfo,
 } from "@/lib/payment-method-label";
-import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
+import { isMintpayGateway } from "@/lib/payment-gateway-match";
 import { KOKO_MAX_PAYMENTS, LIMITS } from "@/lib/validation";
 import type { FulfillmentOrder } from "./fulfillment-order-selector";
 
@@ -486,7 +486,7 @@ export function FulfillmentSampleFreeIssuePanel({
       gateways.paymentGatewayPrimary,
       ...gateways.paymentGatewayNames,
     ].map((g) => g?.toLowerCase().trim() ?? "").filter(Boolean);
-    return names.some((g) => g.includes("koko") || g.includes("mintpay") || g.includes("bank"));
+    return names.some((g) => g.includes("koko") || isMintpayGateway(g) || g.includes("bank"));
   }, [detail, order]);
   const financeApprovalPending = detail?.paymentApproval?.status === "pending";
   const splitPaymentLines = detail?.paymentApproval?.paymentLines ?? [];
@@ -505,8 +505,6 @@ export function FulfillmentSampleFreeIssuePanel({
         createdAt: detail.createdAt,
       })
     : false;
-  const showMintpayPaymentChange = isVaultOsDeployment();
-
   async function confirmKokoLinkTime() {
     if (!orderId || !kokoLinkParsed) {
       notify.error("Paste the KOKO portal link generated date and time, e.g. 2026-09-18 11:30.");
@@ -797,17 +795,15 @@ export function FulfillmentSampleFreeIssuePanel({
                       >
                         KOKO
                       </Button>
-                      {showMintpayPaymentChange ? (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setShowMintpayDialog(true)}
-                          className="h-6 px-2 text-xs border-violet-500 text-violet-600 hover:bg-violet-50 hover:text-violet-700 dark:border-violet-400 dark:text-violet-400 dark:hover:bg-violet-950"
-                        >
-                          Mintpay
-                        </Button>
-                      ) : null}
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setShowMintpayDialog(true)}
+                        className="h-6 px-2 text-xs border-violet-500 text-violet-600 hover:bg-violet-50 hover:text-violet-700 dark:border-violet-400 dark:text-violet-400 dark:hover:bg-violet-950"
+                      >
+                        Mintpay
+                      </Button>
                     </>
                   )}
                   {canConfigureSplitPayment && orderId ? (
@@ -1444,7 +1440,7 @@ export function FulfillmentSampleFreeIssuePanel({
     </AlertDialog>
 
     <AlertDialog
-      open={showMintpayPaymentChange && showMintpayDialog}
+      open={showMintpayDialog}
       onOpenChange={(open) => { if (!open) setShowMintpayDialog(false); }}
     >
       <AlertDialogContent>

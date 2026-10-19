@@ -1,7 +1,12 @@
+import { Prisma } from "@prisma/client";
+
 import { contactOrderLookupKeys } from "@/lib/contact-purchase-lookup";
+import { addAbsorbedAmounts } from "@/lib/customer-insight/phone-contact-collapse";
 import {
   attributeOrderTotalsByContact,
   combineLifetimeTotals,
+  CUSTOMER_LIFETIME_TOTAL_FULFILLMENT_STAGES,
+  adaptSaleTotalWhere,
   customerLifetimeTotalOrderWhere,
   type ContactOrderLookup,
 } from "@/lib/customer-insight/lifetime-total";
@@ -10,6 +15,8 @@ import { prisma } from "@/lib/prisma";
 const ORDER_LOOKUP_IN_CAP = 800;
 const ADAPT_ID_CHUNK = 4_000;
 const CONTACT_BATCH = 400;
+/** Above this, one company-wide SUM beats repeating order scans per batch. */
+const LARGE_SET_THRESHOLD = 1_500;
 
 export type LifetimeTotalContactInput = {
   id: string;
@@ -41,7 +48,7 @@ async function adaptTotalsByContactId(
     chunks.map((slice) =>
       prisma.adaptPurchaseHistory.groupBy({
         by: ["contactId"],
-        where: { companyId, contactId: { in: slice } },
+        where: { companyId, contactId: { in: slice }, ...adaptSaleTotalWhere() },
         _sum: { ttlAmount: true },
       })
     )
@@ -70,15 +77,82 @@ export async function lifetimeTotalsByContactId(
     return lifetimeTotalsForContactBatch(companyId, contacts);
   }
 
-  const out = new Map<string, number>();
-  for (let i = 0; i < contacts.length; i += CONTACT_BATCH) {
-    const part = await lifetimeTotalsForContactBatch(
-      companyId,
-      contacts.slice(i, i + CONTACT_BATCH)
-    );
-    for (const [id, total] of part) out.set(id, total);
+  if (contacts.length <= LARGE_SET_THRESHOLD) {
+    const out = new Map<string, number>();
+    for (let i = 0; i < contacts.length; i += CONTACT_BATCH) {
+      const part = await lifetimeTotalsForContactBatch(
+        companyId,
+        contacts.slice(i, i + CONTACT_BATCH)
+      );
+      for (const [id, total] of part) out.set(id, total);
+    }
+    return out;
   }
-  return out;
+
+  // One grouped scan. Repeating the per-batch loader re-reads every completed
+  // order once per 400 contacts and times out insight exports.
+  return lifetimeTotalsForLargeSet(companyId, contacts);
+}
+
+type LifetimeGroupRow = {
+  phone: string | null;
+  erp: string | null;
+  email: string | null;
+  total: string;
+};
+
+async function lifetimeTotalsForLargeSet(
+  companyId: string,
+  contacts: LifetimeTotalContactInput[]
+): Promise<Map<string, number>> {
+  const lookupByContactId = new Map<string, ContactOrderLookup>();
+  for (const contact of contacts) {
+    lookupByContactId.set(
+      contact.id,
+      contactOrderLookupKeys({
+        primaryEmail: contact.email,
+        primaryPhone: contact.phoneNumber,
+        aliasEmails: (contact.emails ?? []).map((row) => row.email),
+        aliasPhones: (contact.phones ?? []).map((row) => row.phoneNumber),
+      })
+    );
+  }
+
+  const contactIds = contacts.map((c) => c.id);
+  const [groups, adaptTotals] = await Promise.all([
+    prisma.$queryRaw<LifetimeGroupRow[]>`
+      SELECT NULLIF(btrim("customerPhone"), '') AS phone,
+             NULLIF(btrim("erpnextCustomerId"), '') AS erp,
+             NULLIF(lower(btrim("customerEmail")), '') AS email,
+             SUM("totalPrice")::text AS total
+      FROM "Order"
+      WHERE "companyId" = ${companyId}
+        AND "cancelledAt" IS NULL
+        AND "financialStatus" <> 'voided'
+        AND "fulfillmentStage"::text IN (${Prisma.join([
+          ...CUSTOMER_LIFETIME_TOTAL_FULFILLMENT_STAGES,
+        ])})
+        AND (
+          ("customerPhone" IS NOT NULL AND btrim("customerPhone") <> '')
+          OR ("erpnextCustomerId" IS NOT NULL AND btrim("erpnextCustomerId") <> '')
+          OR ("customerEmail" IS NOT NULL AND btrim("customerEmail") <> '')
+        )
+      GROUP BY 1, 2, 3
+    `,
+    adaptTotalsByContactId(companyId, contactIds),
+  ]);
+
+  const orderTotals = attributeOrderTotalsByContact({
+    lookupByContactId,
+    orders: groups.map((row) => ({
+      customerPhone: row.phone,
+      customerEmail: row.email,
+      erpnextCustomerId: row.erp,
+      totalPrice: row.total,
+    })),
+  });
+
+  return combineLifetimeTotals(contactIds, orderTotals, adaptTotals);
 }
 
 async function lifetimeTotalsForContactBatch(
@@ -170,4 +244,17 @@ async function lifetimeTotalsForContactBatch(
   });
 
   return combineLifetimeTotals(contactIds, orderTotals, adaptTotals);
+}
+
+/** Adapt invoices sit on the old contact id. Add them to the linked profile's total. */
+export async function foldAbsorbedAdaptTotals(
+  companyId: string,
+  totals: Map<string, number>,
+  absorbedIdsByKeeperId: Map<string, string[]>
+) {
+  const absorbedIds = [...absorbedIdsByKeeperId.values()].flat();
+  if (absorbedIds.length === 0) return totals;
+  const adapt = await adaptTotalsByContactId(companyId, absorbedIds);
+  addAbsorbedAmounts(totals, absorbedIdsByKeeperId, adapt);
+  return totals;
 }

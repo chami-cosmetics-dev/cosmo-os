@@ -1,8 +1,13 @@
 import { randomUUID } from "crypto";
 import { Prisma } from "@prisma/client";
 
+import {
+  emailOrderCancelFinanceRequest,
+  resolveOrderCancelFinanceLocationId,
+} from "@/lib/order-cancel-notify";
 import { prisma } from "@/lib/prisma";
 import { orderHasCardOnDeliveryGateway, isCardOnDeliveryGateway } from "@/lib/payment-method-label";
+import { isMintpayGateway } from "@/lib/payment-gateway-match";
 import { needsKokoLinkTimeConfirm } from "@/lib/koko-order";
 import { APPROVAL_SPLIT_KOKO } from "@/lib/approval-payment-split";
 
@@ -169,12 +174,12 @@ export function isOrderPaymentRequiresApproval(
   // Card on Delivery is door collection only — no intake ORDER_PAYMENT (Vault).
   if (order.paymentGatewayPrimary) {
     const g = order.paymentGatewayPrimary.toLowerCase().trim();
-    if (g.includes("koko") || g.includes("mintpay") || g.includes("bank")) return true;
+    if (g.includes("koko") || isMintpayGateway(g) || g.includes("bank")) return true;
   } else {
     const gateways = order.paymentGatewayNames
       .map((g) => g.toLowerCase().trim())
       .filter(Boolean);
-    if (gateways.some((g) => g.includes("koko") || g.includes("mintpay") || g.includes("bank"))) {
+    if (gateways.some((g) => g.includes("koko") || isMintpayGateway(g) || g.includes("bank"))) {
       return true;
     }
   }
@@ -316,13 +321,13 @@ export async function reconcilePendingDeliveryApprovalsForPrepaidOrders(companyI
       if (orderHasCardOnDeliveryGateway(row.order)) return false;
       if (isOrderPaymentRequiresApproval(row.order)) return true;
       const primary = row.order.paymentGatewayPrimary?.toLowerCase().trim() ?? "";
-      if (primary.includes("koko") || primary.includes("mintpay") || primary.includes("bank") || primary.includes("webxpay")) {
+      if (primary.includes("koko") || isMintpayGateway(primary) || primary.includes("bank") || primary.includes("webxpay")) {
         return true;
       }
       if (!primary) {
         return row.order.paymentGatewayNames.some((g) => {
           const n = g.toLowerCase().trim();
-          return n.includes("koko") || n.includes("mintpay") || n.includes("bank") || n.includes("webxpay");
+          return n.includes("koko") || isMintpayGateway(n) || n.includes("bank") || n.includes("webxpay");
         });
       }
       // Finance already confirmed / queued order payment — drop duplicate door collection.
@@ -814,6 +819,25 @@ export async function getPendingDeliveryPaymentApproval(orderId: string) {
   });
 }
 
+export const DELIVERY_UNDONE_APPROVAL_CANCEL_NOTE =
+  "Delivery was undone. Confirm door cash only after the order is delivered again.";
+
+/** Drop a pending door-cash approval when delivery did not stick (revert or rearrange). */
+export async function cancelPendingDeliveryPaymentApprovalsForOrder(
+  orderId: string,
+  reviewNote = DELIVERY_UNDONE_APPROVAL_CANCEL_NOTE,
+  db: Prisma.TransactionClient | typeof prisma = prisma,
+) {
+  return db.approvalRequest.updateMany({
+    where: { orderId, type: DELIVERY_PAYMENT_APPROVAL, status: "pending" },
+    data: {
+      status: "cancelled",
+      reviewNote,
+      updatedAt: new Date(),
+    },
+  });
+}
+
 export async function createOrGetDeliveryPaymentApproval(input: {
   companyId: string;
   orderId: string;
@@ -1241,6 +1265,8 @@ export async function createOrGetOrderCancelApproval(input: {
   invoiceLabel: string;
   amount: string;
   companyLocationId?: string | null;
+  isPos?: boolean;
+  orderRefs?: Array<string | null | undefined>;
 }) {
   const existing = await prisma.$queryRaw<Array<{ id: string; status: ApprovalStatus }>>(
     Prisma.sql`
@@ -1287,7 +1313,12 @@ export async function createOrGetOrderCancelApproval(input: {
     return concurrent[0]!;
   }
 
-  const financeUsers = await getFinanceApprovalUsers(input.companyId, input.companyLocationId);
+  const financeLocationId = await resolveOrderCancelFinanceLocationId({
+    companyId: input.companyId,
+    companyLocationId: input.companyLocationId,
+    orderRefs: input.orderRefs ?? [input.invoiceLabel],
+  });
+  const financeUsers = await getFinanceApprovalUsers(input.companyId, financeLocationId);
 
   await Promise.all(
     financeUsers.map((u) =>
@@ -1296,12 +1327,21 @@ export async function createOrGetOrderCancelApproval(input: {
         userId: u.id,
         type: "approval_requested",
         title: "Order cancel approval requested",
-        body: `Cancel requested for ${input.invoiceLabel} (LKR ${input.amount}) — reason: ${input.cancelReason}. Cancel in Shopify, create a credit note in ERPNext, then approve.`,
+        body: `Cancel requested for ${input.invoiceLabel} (LKR ${input.amount}) — reason: ${input.cancelReason}. Paid orders get an ERP credit note. Unpaid orders are cancelled normally.`,
         entityType: "ApprovalRequest",
         entityId: id,
       })
     )
   );
+
+  await emailOrderCancelFinanceRequest({
+    companyId: input.companyId,
+    locationId: financeLocationId,
+    invoiceLabel: input.invoiceLabel,
+    amount: input.amount,
+    cancelReason: input.cancelReason,
+    isPos: Boolean(input.isPos),
+  });
 
   return { id, status: "pending" as ApprovalStatus };
 }

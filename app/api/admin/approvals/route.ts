@@ -25,7 +25,7 @@ import {
   mergeKokoFieldsIntoApproval,
 } from "@/lib/approval-koko-list";
 import { buildErpAdminInvoiceUrl } from "@/lib/erp-admin-url";
-import { requiresKokoApprovalReference } from "@/lib/koko-approval-reference";
+import { financePaymentReferenceKind } from "@/lib/koko-approval-reference";
 import {
   enrichApprovalsWithKokoDuplicateGroups,
   loadKokoDuplicateCandidatesForCompany,
@@ -194,13 +194,19 @@ export async function GET() {
       });
 
       const isOrderCancel = row.type === ORDER_CANCEL_APPROVAL;
+      const paymentReferenceKind = financePaymentReferenceKind({
+        type: row.type,
+        requestNote: row.requestNote,
+        paymentGatewayPrimary: row.paymentGatewayPrimary,
+        paymentGatewayNames: row.paymentGatewayNames,
+      });
       return mergeKokoFieldsIntoApproval(
         {
           ...enriched,
         shopifyOrderId: cancelNote?.shopifyOrderId ?? row.shopifyOrderId,
         erpnextInvoiceId: cancelNote?.erpnextInvoiceId ?? row.erpnextInvoiceId,
         completionMode:
-          row.type === RETURN_CANCEL_APPROVAL
+          row.type === RETURN_CANCEL_APPROVAL || row.type === ORDER_CANCEL_APPROVAL
             ? resolveReturnCancelCompletionMode(row.financialStatus)
             : undefined,
         erpAdminInvoiceUrl: buildErpAdminInvoiceUrl({
@@ -220,12 +226,8 @@ export async function GET() {
         riderId: row.riderId,
         riderName: row.riderName,
         riderMobile: row.riderMobile,
-        requiresKokoReference: requiresKokoApprovalReference({
-          type: row.type,
-          requestNote: row.requestNote,
-          paymentGatewayPrimary: row.paymentGatewayPrimary,
-          paymentGatewayNames: row.paymentGatewayNames,
-        }),
+        paymentReferenceKind,
+        requiresKokoReference: paymentReferenceKind != null,
         },
         kokoByApproval,
       );

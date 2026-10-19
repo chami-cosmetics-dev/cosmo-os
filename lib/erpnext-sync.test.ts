@@ -7,6 +7,7 @@ import {
   resolveOrderPaymentMop,
 } from "@/lib/erpnext-sync";
 import { isCcCheckoutGateway } from "@/lib/delivery-payment-approval";
+import { isMintpayGateway } from "@/lib/payment-gateway-match";
 
 describe("isUsableErpSalesInvoiceId", () => {
   it("accepts real SI names", () => {
@@ -40,7 +41,7 @@ function resolvePrepaidMopForTest(
 ): string | null {
   const lower = gateways.map((g) => g.toLowerCase().trim());
   if (lower.some((g) => g.includes("koko"))) return cfg.kokoMop;
-  if (lower.some((g) => g.includes("mintpay"))) return cfg.mintpayMop;
+  if (gateways.some((g) => isMintpayGateway(g))) return cfg.mintpayMop;
   if (lower.some((g) => g.includes("webxpay") || isCcCheckoutGateway(g))) {
     return cfg.webxpayMop || null;
   }
@@ -67,6 +68,7 @@ describe("CC Checkout → WebXPay MOP mapping", () => {
     expect(resolvePrepaidMopForTest(cfg, ["KOKO"])).toBe("KOKO");
     expect(resolvePrepaidMopForTest(cfg, ["Mintpay"])).toBe("Mintpay");
     expect(resolvePrepaidMopForTest(cfg, ["mintpay"])).toBe("Mintpay");
+    expect(resolvePrepaidMopForTest(cfg, ["Mint Pay"])).toBe("Mintpay");
     expect(resolvePrepaidMopForTest(cfg, ["bank_transfer"])).toBe("Bank Transfer");
   });
 

@@ -15,7 +15,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
-  if (!auth.canReceive) {
+  if (!auth.canReceive && !auth.canWrite) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
   const { id } = await context.params;
@@ -44,6 +44,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
       id: idParsed.data,
       scope: auth.scope,
       canReceive: auth.canReceive,
+      canWrite: auth.canWrite,
+      userId: auth.context.user?.id ?? "",
       code: parsed.data.code,
       itemCode: parsed.data.itemCode,
       qty: parsed.data.qty,

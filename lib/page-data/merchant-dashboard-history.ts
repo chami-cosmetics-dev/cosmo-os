@@ -19,6 +19,10 @@ import {
   parseOrderCouponList,
   splitMerchantCouponSets,
 } from "@/lib/merchant-dm-sales";
+import {
+  isWholesaleTrackingCode,
+  orderIsWholesale,
+} from "@/lib/merchant-wholesale";
 
 function parseDayStartUtc(ymd: string): Date {
   return new Date(`${ymd}T00:00:00.000+05:30`);
@@ -174,7 +178,9 @@ export async function fetchMerchantSalesHistory(
     };
   }
 
-  const sets = splitMerchantCouponSets(merchant.couponCodes);
+  const sets = splitMerchantCouponSets(
+    merchant.couponCodes.filter((code) => !isWholesaleTrackingCode(code)),
+  );
 
   const fromDate = parseDayStartUtc(historyFrom);
   const toDate = parseDayEndUtc(historyTo);
@@ -239,6 +245,7 @@ export async function fetchMerchantSalesHistory(
       joinAllDiscountCodes: true,
     });
     const orderCoupons = parseOrderCouponList(merchantCouponCode);
+    if (orderIsWholesale(orderCoupons)) continue;
     const bucket = classifyMerchantSalesBucket({
       orderCoupons,
       personal: sets.personal,
