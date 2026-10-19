@@ -7,6 +7,12 @@ import {
 } from "@/lib/email-templates/render";
 import { sendErpSyncFailureAlertEmail } from "@/lib/maileroo";
 import { prisma } from "@/lib/prisma";
+import { getCurrentColomboReportDate } from "@/lib/grn-pending-email";
+import { buildReceivableEmailPreview } from "@/lib/receivable-outstanding-email";
+import { loadCachedReceivables, refreshReceivables } from "@/lib/receivable-outstanding";
+import { SUPPLIER_PAYABLE_OUTSTANDING_DAILY_KEY } from "@/lib/email-templates/catalog";
+import { buildSupplierPayablesEmailPreview, buildSupplierPayablesEmailWorkbook } from "@/lib/supplier-payables-email";
+import { loadCachedSupplierPayables, refreshSupplierPayables } from "@/lib/supplier-payables";
 import { requirePermission } from "@/lib/rbac";
 import { LIMITS, trimmedString } from "@/lib/validation";
 
@@ -100,8 +106,24 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Add at least one To recipient before sending a test." }, { status: 400 });
   }
 
-  const subject = `[TEST] ${renderEmailTemplatePlaceholders(parsed.data.subject, SAMPLE_PLACEHOLDERS)}`;
-  const html = `<p style="color:#666;font-size:12px;">Test email for template <strong>${parsed.data.name}</strong> (${parsed.data.key}).</p>${renderEmailTemplatePlaceholders(parsed.data.bodyHtml, SAMPLE_PLACEHOLDERS)}`;
+  let placeholders = SAMPLE_PLACEHOLDERS;
+  let attachments: Array<{ fileName: string; contentType: string; contentBase64: string }> | undefined;
+  if (parsed.data.key.startsWith("receivable_")) {
+    const reportDate = getCurrentColomboReportDate();
+    await refreshReceivables(user.companyId, reportDate);
+    const actual = buildReceivableEmailPreview((await loadCachedReceivables(user.companyId, reportDate)).rows, parsed.data.key);
+    placeholders = { ...SAMPLE_PLACEHOLDERS, reportDate, summaryTableHtml: actual.summaryTableHtml, rowCount: actual.rowCount, totalValue: actual.totalValue };
+    attachments = [{ fileName: `${parsed.data.key}-${reportDate}.xlsx`, contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", contentBase64: actual.attachment.toString("base64") }];
+  } else if (parsed.data.key === SUPPLIER_PAYABLE_OUTSTANDING_DAILY_KEY) {
+    const reportDate = getCurrentColomboReportDate();
+    await refreshSupplierPayables(user.companyId, reportDate);
+    const actual = await loadCachedSupplierPayables(user.companyId, reportDate);
+    const lineCount = actual.groups.reduce((sum, group) => sum + group.lines.length, 0);
+    placeholders = { ...SAMPLE_PLACEHOLDERS, reportDate, summaryTableHtml: buildSupplierPayablesEmailPreview(actual.groups), supplierCount: actual.groups.length, lineCount };
+    attachments = [{ fileName: `supplier-payable-outstanding-${reportDate}.xlsx`, contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", contentBase64: buildSupplierPayablesEmailWorkbook(actual.groups).toString("base64") }];
+  }
+  const subject = `[TEST] ${renderEmailTemplatePlaceholders(parsed.data.subject, placeholders)}`;
+  const html = `<p style="color:#666;font-size:12px;">Test email for template <strong>${parsed.data.name}</strong> (${parsed.data.key}).</p>${renderEmailTemplatePlaceholders(parsed.data.bodyHtml, placeholders)}`;
   const plain = htmlToPlain(html) || subject;
 
   const result = await sendErpSyncFailureAlertEmail({
@@ -110,6 +132,7 @@ export async function POST(request: NextRequest) {
     subject,
     html,
     plain,
+    attachments,
   });
 
   if (!result.success) {

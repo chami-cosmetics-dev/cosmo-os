@@ -1,0 +1,74 @@
+"use client";
+
+import { useCallback, useMemo, useState } from "react";
+import { Download, Loader2, RefreshCw } from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { formatAppIsoDate } from "@/lib/format-datetime";
+import { notify } from "@/lib/notify";
+
+type Row = {
+  invoiceNo: string; customer: string; company: string; erpSlot: "ERP1" | "ERP2" | null;
+  currency: string | null; invoiceDate: string | null; invoiceAmount: number; outstanding: number;
+  orderId: string | null; dispatchDate: string | null; shippingService: string | null;
+  cosmoOrderStatus: string | null; reason: string | null; age: number | null; ageingBucket: string;
+  ageing1To2: number; ageing3To4: number; ageing5To7: number; ageing8To30: number; ageing31Plus: number;
+};
+type Result = { reportDate: string; refreshedAt: string | null; lastAttemptAt: string | null; rows: Row[]; errors: string[] };
+
+function money(value: number | null | undefined) {
+  return Number(value ?? 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+}
+function dateTime(value: string | null) { return value ? new Date(value).toLocaleString() : "Never"; }
+
+export function ReceivableOutstandingPanel() {
+  const [reportDate, setReportDate] = useState(formatAppIsoDate(new Date()));
+  const [query, setQuery] = useState("");
+  const [company, setCompany] = useState("");
+  const [data, setData] = useState<Result | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const refresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const res = await fetch("/api/admin/finance/receivable-outstanding/refresh", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reportDate }) });
+      const json = await res.json();
+      if (!res.ok) { notify.error(json.error ?? "Failed to refresh receivables"); return; }
+      setData(json);
+      if (json.errors?.length) {
+        notify.error(json.rows?.length ? "Report generated with ERP errors; last good balances were kept" : `Report was not generated: ${json.errors[0]}`);
+      } else if (json.rows?.length) {
+        notify.success("Receivable report generated");
+      } else {
+        notify.error("Report generated no rows for this date. Check the report date and ERP data.");
+      }
+    } catch { notify.error("Failed to refresh receivables"); } finally { setRefreshing(false); }
+  }, [reportDate]);
+  const exportRows = useCallback(async () => {
+    const res = await fetch(`/api/admin/finance/receivable-outstanding/export?reportDate=${encodeURIComponent(reportDate)}`, { cache: "no-store" });
+    if (!res.ok) { notify.error("Failed to export receivables"); return; }
+    const link = document.createElement("a"); link.href = URL.createObjectURL(await res.blob()); link.download = `receivable-outstanding-${reportDate}.xlsx`; link.click();
+  }, [reportDate]);
+  const rows = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return (data?.rows ?? []).filter((row) => (!company || row.company === company) && (!q || [row.invoiceNo, row.customer, row.shippingService].some((value) => (value ?? "").toLowerCase().includes(q))));
+  }, [data?.rows, query, company]);
+  const companies = [...new Set((data?.rows ?? []).map((row) => row.company))].sort();
+  const busy = refreshing;
+  const total = rows.reduce((sum, row) => sum + row.outstanding, 0);
+
+  return <div className="space-y-4 p-6">
+    <div><h1 className="text-xl font-semibold">Receivable Outstanding</h1><p className="text-sm text-muted-foreground">Invoice-wise Accounts Receivable from ERP1 and ERP2 with Cosmo dispatch ageing.</p></div>
+    <div className="flex flex-wrap items-end gap-3">
+      <label className="space-y-1 text-sm"><span className="text-muted-foreground">Report date</span><Input type="date" value={reportDate} disabled={busy} onChange={(event) => setReportDate(event.target.value)} className="w-[160px]" /></label>
+      <label className="space-y-1 text-sm"><span className="text-muted-foreground">Company</span><select className="border-input bg-background h-9 rounded-md border px-2 text-sm" value={company} disabled={busy} onChange={(event) => setCompany(event.target.value)}><option value="">All companies</option>{companies.map((item) => <option key={item}>{item}</option>)}</select></label>
+      <label className="space-y-1 text-sm"><span className="text-muted-foreground">Invoice / customer</span><Input value={query} disabled={busy} onChange={(event) => setQuery(event.target.value)} placeholder="Search..." className="w-[240px]" /></label>
+      <Button variant="outline" disabled={busy} onClick={() => void refresh()}>{refreshing ? <Loader2 className="animate-spin" aria-hidden /> : <RefreshCw aria-hidden />} Generate Report</Button>
+      <Button variant="outline" disabled={busy || !data?.rows.length} onClick={() => void exportRows()}><Download aria-hidden /> Export</Button>
+    </div>
+    <div className="flex flex-wrap gap-4 text-sm text-muted-foreground"><span>Invoices: <strong className="text-foreground">{rows.length}</strong></span><span>Total outstanding: <strong className="text-foreground">{money(total)}</strong></span><span>Last refresh: <strong className="text-foreground">{dateTime(data?.refreshedAt ?? null)}</strong></span></div>
+    {data?.errors?.length ? <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">{data.errors.map((error, index) => <div key={`${error}-${index}`}>{error}</div>)}</div> : null}
+    <div className="max-h-[calc(100vh-180px)] overflow-auto rounded-md border"><table className="w-full min-w-[1400px] text-sm"><thead className="bg-muted/50 text-left"><tr>{["Customer", "Company", "ERP", "Invoice No", "Invoice Date", "Invoice Amount", "Outstanding", "Dispatch Date", "Shipping Service", "Cosmo Order Status", "Reason", "Age", "1 to 2 Days", "3 to 4 Days", "5 to 7 Days", "08 to 30 Days", "Above 01 Month"].map((header) => <th key={header} className="p-2 font-medium">{header}</th>)}</tr></thead><tbody>{rows.map((row) => <tr key={`${row.erpSlot}-${row.company}-${row.invoiceNo}`} className="border-t"><td className="p-2">{row.customer}</td><td className="p-2">{row.company}</td><td className="p-2">{row.erpSlot ?? "-"}</td><td className="p-2">{row.invoiceNo}</td><td className="p-2 whitespace-nowrap">{row.invoiceDate ?? "-"}</td><td className="p-2 text-right">{money(row.invoiceAmount)}</td><td className="p-2 text-right font-medium">{money(row.outstanding)}</td><td className="p-2 whitespace-nowrap">{row.dispatchDate ?? "-"}</td><td className="p-2">{row.shippingService ?? "-"}</td><td className="p-2">{row.cosmoOrderStatus ?? "-"}</td><td className="p-2">{row.reason ?? "-"}</td><td className="p-2 text-right">{row.age ?? "-"}</td><td className="p-2 text-right">{money(row.ageing1To2)}</td><td className="p-2 text-right">{money(row.ageing3To4)}</td><td className="p-2 text-right">{money(row.ageing5To7)}</td><td className="p-2 text-right">{money(row.ageing8To30)}</td><td className="p-2 text-right">{money(row.ageing31Plus)}</td></tr>)}{!rows.length && !busy ? <tr><td colSpan={17} className="p-4 text-muted-foreground">No receivable invoices for this date.</td></tr> : null}{busy ? <tr><td colSpan={17} className="p-4 text-muted-foreground">Loading receivables...</td></tr> : null}</tbody></table></div>
+  </div>;
+}
