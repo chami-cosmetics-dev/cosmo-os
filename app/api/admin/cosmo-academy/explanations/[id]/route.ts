@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { v2 as cloudinary } from "cloudinary";
 
 import { writeAuditLog } from "@/lib/audit-log";
+import { deleteStoredFileQuietly } from "@/lib/file-storage";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 
@@ -28,7 +28,7 @@ export async function DELETE(
     select: {
       id: true,
       productTitle: true,
-      media: { select: { id: true, url: true, provider: true, publicId: true } },
+      media: { select: { id: true, url: true } },
     },
   });
 
@@ -36,23 +36,10 @@ export async function DELETE(
     return NextResponse.json({ error: "Explanation not found" }, { status: 404 });
   }
 
-  const cloudinaryMedia = explanation.media.filter(
-    (m) => m.provider === "cloudinary" && m.publicId,
-  );
   const allUrls = explanation.media.filter((m) => m.url).map((m) => m.url);
 
-  // Delete files from Cloudinary (best-effort)
-  if (cloudinaryMedia.length > 0) {
-    try {
-      await Promise.all(
-        cloudinaryMedia.map((m) =>
-          cloudinary.uploader.destroy(m.publicId!, { resource_type: "video" }),
-        ),
-      );
-    } catch (err) {
-      console.error("[academy] Cloudinary delete failed:", err);
-    }
-  }
+  // Delete the files themselves (best-effort; works for Cloudinary and legacy Blob)
+  await Promise.all(allUrls.map((url) => deleteStoredFileQuietly(url, "academy explanation")));
 
   // Clean up ProductItemAsset rows that point to the same URLs
   if (allUrls.length > 0) {

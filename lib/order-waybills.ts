@@ -11,6 +11,7 @@ import type {
   WaybillUploadHistoryRow,
 } from "@/lib/page-data/waybill-lookup-types";
 import { CITYPAK_API_BATCH_FILE_TYPE, CITYPAK_WAYBILL_SOURCE } from "@/lib/citypak-api";
+import { deleteStoredFileQuietly, isLegacyBlobUrl, parseCloudinaryUrl } from "@/lib/file-storage";
 import { prisma } from "@/lib/prisma";
 
 /** Default batch size for interactive rematch (button / optional rematch=1). */
@@ -735,9 +736,11 @@ export async function clearCitypakWaybillPdfCache(input: {
     const payload = parseRawPayload(row.rawPayload);
     if (!payload) continue;
     const next = { ...payload };
+    const cachedUrls: string[] = [];
     let changed = false;
     for (const key of CITYPAK_PDF_CACHE_KEYS) {
       if (key in next) {
+        if (typeof next[key] === "string" && next[key]) cachedUrls.push(next[key] as string);
         delete next[key];
         changed = true;
       }
@@ -747,6 +750,12 @@ export async function clearCitypakWaybillPdfCache(input: {
       where: { id: row.id },
       data: { rawPayload: next as Prisma.InputJsonValue },
     });
+    // Remove our cached copies; CityPak's own URLs are left alone.
+    for (const url of cachedUrls) {
+      if (parseCloudinaryUrl(url) || isLegacyBlobUrl(url)) {
+        await deleteStoredFileQuietly(url, "citypak waybill cache");
+      }
+    }
     cleared += 1;
   }
 

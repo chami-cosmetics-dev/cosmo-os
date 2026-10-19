@@ -245,6 +245,11 @@ const DEFAULT_PERMISSIONS = [
     key: "products.storage.manage",
     description: "Upload and delete files in product item storage",
   },
+  {
+    key: "products.seo.read",
+    description:
+      "View the SEO content dashboard (photo, video and voice coverage per product, team upload activity)",
+  },
   // Contacts
   {
     key: "contacts.read",

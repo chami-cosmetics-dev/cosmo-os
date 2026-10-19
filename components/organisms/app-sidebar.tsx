@@ -39,6 +39,7 @@ import {
   ClipboardCheck,
   BellRing,
   ArrowLeftRight,
+  SearchCheck,
 } from "lucide-react";
 import { usePathname } from "next/navigation";
 import {
@@ -245,7 +246,8 @@ export function AppSidebar({
     canManageBookNotes ||
     Boolean(fulfillmentHref);
   const canViewStickers = canStickerBatch || canStickerPrint;
-  const canViewProductManagement = canViewProducts || canViewVatStatus;
+  const canViewSeoContent = hasSidebarPermission("products.seo.read");
+  const canViewProductManagement = canViewProducts || canViewVatStatus || canViewSeoContent;
   const pathname = usePathname();
 
   return (
@@ -654,6 +656,9 @@ export function AppSidebar({
               )}
               {canViewItemCreation && (
                 <NavItem href="/dashboard/products/item-creation" icon={ClipboardCheck} label="Item Creation" isActive={pathname.startsWith("/dashboard/products/item-creation")} />
+              )}
+              {canViewSeoContent && (
+                <NavItem href="/dashboard/products/seo" icon={SearchCheck} label="SEO Content" isActive={pathname === "/dashboard/products/seo"} />
               )}
               {canViewProducts && (
                 <NavItem href="/dashboard/products/vendors-categories" icon={Tags} label="Vendors & Categories" isActive={pathname === "/dashboard/products/vendors-categories"} />
