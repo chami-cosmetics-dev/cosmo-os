@@ -14,6 +14,7 @@ export const REPORT_DUMP_PERMISSIONS = {
   warehouseInvoiceItem: "reports.dumps.invoice_item.warehouse_360",
   historicalInvoice: "reports.dumps.invoice.historical",
   historicalInvoiceItem: "reports.dumps.invoice_item.historical",
+  master: "reports.dumps.master",
 } as const;
 
 export const UTILITY_REPORT_DUMP_PERMISSIONS = [

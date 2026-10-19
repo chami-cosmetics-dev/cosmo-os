@@ -93,7 +93,7 @@ export function DumpReportsPanel({ historicalYears, permissionKeys, recentLogs =
           <Card className="border-white/40 bg-white/70 shadow-sm backdrop-blur dark:border-white/10 dark:bg-white/5">
             <CardContent className="p-4">
               <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Real-time Reports</p>
-              <p className="mt-2 text-2xl font-semibold">6+</p>
+              <p className="mt-2 text-2xl font-semibold">7+</p>
             </CardContent>
           </Card>
           <Card className="border-white/40 bg-white/70 shadow-sm backdrop-blur dark:border-white/10 dark:bg-white/5">
@@ -126,6 +126,14 @@ export function DumpReportsPanel({ historicalYears, permissionKeys, recentLogs =
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4 p-5">
+            <ReportRow
+              title="Master Reports"
+              subtitle="Live orders. Order report is one row per order, with contact and each fulfillment step. Item report is one row per line, joined on order id."
+              actions={allowedActions([
+                { href: "/api/admin/reports/master-dump?report=order", label: "Order Report", permission: REPORT_DUMP_PERMISSIONS.master, tone: "amber" },
+                { href: "/api/admin/reports/master-dump?report=item", label: "Item Report", permission: REPORT_DUMP_PERMISSIONS.master, tone: "amber" },
+              ])}
+            />
             <ReportRow
               title="Contact Number List with details"
               subtitle="Live Contact Master export: CRM profile, allocation, extra emails/phones, and loyalty fields."

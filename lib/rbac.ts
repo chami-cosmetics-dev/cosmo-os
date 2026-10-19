@@ -484,6 +484,10 @@ const DEFAULT_PERMISSIONS = [
     description: "Download historical invoice item details by year",
   },
   {
+    key: REPORT_DUMP_PERMISSIONS.master,
+    description: "Download the finance master dump (live order line detail)",
+  },
+  {
     key: "settings.fulfillment",
     description:
       "Manage samples, free issues, hold reasons, and courier services",
