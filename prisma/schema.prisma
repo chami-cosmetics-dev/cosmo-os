@@ -143,7 +143,7 @@ model File {
   blobUrl      String
   fileSize     Int?
   mimeType     String?
-  provider     String   @default("vercel_blob")
+  provider     String   @default("cloudinary")
   uploadedById String
   createdAt    DateTime @default(now())
   company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -2479,10 +2479,12 @@ model ProductItemAsset {
   fileName     String
   blobUrl      String
   fileSize     Int?
-  mimeType     String?
-  provider     String   @default("vercel_blob")
-  uploadedById String
-  createdAt    DateTime @default(now())
+  mimeType        String?
+  provider        String   @default("cloudinary")
+  /// Video/audio length from Cloudinary; videos up to 60s count as short-form.
+  durationSeconds Int?
+  uploadedById    String
+  createdAt       DateTime @default(now())
 
   company    Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
   uploadedBy User    @relation(fields: [uploadedById], references: [id])

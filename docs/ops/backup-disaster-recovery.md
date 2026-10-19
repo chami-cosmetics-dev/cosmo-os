@@ -186,10 +186,10 @@ Windows: Git Bash or WSL (same script).
 
 | Store | What | v1 recovery |
 |-------|------|-------------|
-| Vercel Blob | Book-note receipts, admin files, academy media | Vendor recovery / Vercel support. Independent copy job **not built yet**. |
-| Cloudinary | Logos / academy uploads | Cloudinary plan backup. |
+| Cloudinary | All app files: item storage (photos, videos, audio, documents), book-note receipts, admin files, CityPak waybill PDF cache, academy media, logos. Private files are `authenticated` under `cosmo-os/storage/` | Cloudinary plan backup (check the plan includes it). Independent copy job **not built yet**. |
+| Vercel Blob (legacy, read-only) | Files uploaded before the Cloudinary move, until `scripts/migrate-blob-to-cloudinary.ts` has run | Vendor recovery / Vercel support. No new writes. |
 
-**Mismatch after a DB restore:** rows may point at blobs that are newer, older, or missing. Prefer the restored DB as source of truth for *which* files should exist; missing files stay missing until re-uploaded or restored from the vendor. Do not bulk-delete Blob objects to “match” an older DB without an explicit yes.
+**Mismatch after a DB restore:** rows may point at files that are newer, older, or missing. Prefer the restored DB as source of truth for *which* files should exist; missing files stay missing until re-uploaded or restored from the vendor. Do not bulk-delete Cloudinary or Blob files to “match” an older DB without an explicit yes.
 
 ---
 
@@ -201,7 +201,7 @@ Names only here. Production values never go in git.
 |------|----------|
 | `DATABASE_URL` / `DIRECT_URL` × vault, cosmo-dev, cosmo-prod | App + migrate + dump |
 | `AUTH0_DOMAIN`, `AUTH0_CLIENT_ID`, `AUTH0_CLIENT_SECRET`, `AUTH0_SECRET`, M2M ids | Login |
-| `BLOB_READ_WRITE_TOKEN` | Vercel Blob |
+| `BLOB_READ_WRITE_TOKEN` | Legacy Vercel Blob reads + the one-time migration script |
 | `CLOUDINARY_URL`, `NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME` | Media |
 | `BACKUP_AGE_RECIPIENT` / age **private** identity | Dump encrypt / restore decrypt |
 | R2 token + bucket + endpoint | Independent copies |
