@@ -24,7 +24,10 @@ export default async function MaterialTransferPage() {
 
   return (
     <div className="p-4 md:p-6">
-      <MaterialTransferPanel />
+      <MaterialTransferPanel
+        companyId={context.user.companyId ?? ""}
+        userId={context.user.id}
+      />
     </div>
   );
 }

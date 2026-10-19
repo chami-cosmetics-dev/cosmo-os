@@ -3,7 +3,7 @@ import "server-only";
 import { isVatTaxStatus } from "@/lib/osf/vat-membership";
 import { getAllOsfErpInstances, type OsfErpCredentials, type OsfErpInstance } from "@/lib/osf/erp-stock";
 import { ERP_TAX_STATUS_FIELD } from "@/lib/osf/erp-tax-status";
-import { erpErrorMessage } from "@/lib/material-transfer/erp-error";
+import { erpErrorMessage, isTransientErpFetchError } from "@/lib/material-transfer/erp-error";
 import { itemCodeFromScanBarcode } from "@/lib/material-transfer/scan-barcode";
 import {
   buildCosmoSaveDocCall,
@@ -47,7 +47,13 @@ function unwrapData<T>(json: unknown): T {
   return json as T;
 }
 
-async function erpJson<T>(cfg: OsfErpCredentials, path: string, init?: RequestInit): Promise<T> {
+const ERP_GET_RETRY_DELAYS_MS = [250, 800] as const;
+
+function sleep(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms));
+}
+
+async function erpJsonOnce<T>(cfg: OsfErpCredentials, path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${cfg.baseUrl}${path}`, {
     ...init,
     headers: { ...authHeaders(cfg), ...(init?.headers ?? {}) },
@@ -64,6 +70,28 @@ async function erpJson<T>(cfg: OsfErpCredentials, path: string, init?: RequestIn
     throw new Error(`ERPNext ${init?.method ?? "GET"} ${path} [${res.status}]: ${text.slice(0, 700)}`);
   }
   return unwrapData<T>(json);
+}
+
+async function erpJson<T>(cfg: OsfErpCredentials, path: string, init?: RequestInit): Promise<T> {
+  const method = (init?.method ?? "GET").toUpperCase();
+  // Stock Entry insert is not idempotent. A dropped POST may already be saved.
+  const retryable = method === "GET" || method === "HEAD";
+  const attempts = retryable ? ERP_GET_RETRY_DELAYS_MS.length + 1 : 1;
+  let last: unknown;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await erpJsonOnce<T>(cfg, path, init);
+    } catch (error) {
+      last = error;
+      const delay = ERP_GET_RETRY_DELAYS_MS[attempt - 1];
+      if (!retryable || delay == null || !isTransientErpFetchError(error)) throw error;
+      console.warn(
+        `[material-transfer] ERP ${method} ${path} closed — retry ${attempt}/${attempts}`,
+      );
+      await sleep(delay);
+    }
+  }
+  throw last;
 }
 
 async function listResource<T>(
@@ -249,14 +277,51 @@ export async function liveSourceQty(
   return qty == null ? 0 : qty;
 }
 
+const BIN_QTY_BATCH = 80;
+
+async function sourceQtyByItem(
+  cfg: OsfErpCredentials,
+  warehouse: string,
+  itemCodes: string[],
+): Promise<Map<string, number>> {
+  const unique = [...new Set(itemCodes.map((code) => code.trim()).filter(Boolean))];
+  const qtyByItem = new Map<string, number>();
+  for (let i = 0; i < unique.length; i += BIN_QTY_BATCH) {
+    const batch = unique.slice(i, i + BIN_QTY_BATCH);
+    const rows = await listResource<{ item_code?: string; actual_qty?: number | string }>(
+      cfg,
+      "Bin",
+      [
+        ["warehouse", "=", warehouse],
+        ["item_code", "in", batch],
+      ],
+      ["item_code", "actual_qty"],
+      batch.length,
+    );
+    for (const row of rows) {
+      const itemCode = String(row.item_code ?? "").trim();
+      const qty = Number(row.actual_qty);
+      if (!itemCode) continue;
+      qtyByItem.set(itemCode, Number.isFinite(qty) ? qty : 0);
+    }
+  }
+  return qtyByItem;
+}
+
 export async function assertSourceCovers(
   cfg: OsfErpCredentials,
   warehouse: string,
   lines: Array<{ itemCode: string; qty: number }>,
 ) {
-  for (const line of lines) {
-    if (line.qty <= 0) continue;
-    const available = await liveSourceQty(cfg, line.itemCode, warehouse);
+  const needed = lines.filter((line) => line.qty > 0);
+  if (needed.length === 0) return;
+  const qtyByItem = await sourceQtyByItem(
+    cfg,
+    warehouse,
+    needed.map((line) => line.itemCode),
+  );
+  for (const line of needed) {
+    const available = qtyByItem.get(line.itemCode.trim()) ?? 0;
     if (line.qty > available) {
       throw new MaterialTransferError(
         `${line.itemCode} has ${available} available in ${warehouse}.`,
@@ -432,6 +497,12 @@ export async function submitMaterialTransfer(input: {
       body: JSON.stringify(body),
     });
   } catch (error) {
+    if (isTransientErpFetchError(error)) {
+      throw new MaterialTransferError(
+        "ERP connection closed. Check ERP for a new Stock Entry before trying again.",
+        502,
+      );
+    }
     throw new MaterialTransferError(erpErrorMessage(error), 422);
   }
   const name = stockEntryNameFromSaveDoc(saved);
