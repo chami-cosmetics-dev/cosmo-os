@@ -9,6 +9,7 @@ import {
   listItemRequests,
 } from "@/lib/item-creation/workflow";
 import { requireAnyPermission } from "@/lib/rbac";
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 
 export const dynamic = "force-dynamic";
 
@@ -59,6 +60,7 @@ export default async function ItemCreationPage() {
       initialItems={JSON.parse(JSON.stringify(initialItems))}
       initialFilters={initialFilters}
       permissions={permissions}
+      vaultOs={isVaultOsDeployment()}
     />
   );
 }

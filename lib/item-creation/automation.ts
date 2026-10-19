@@ -14,6 +14,7 @@ import { resolveOsfColumns } from "@/lib/osf/column-config";
 import { normalizeSkuKey } from "@/lib/product-items/erp-priority-sync";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserContext, hasPermission } from "@/lib/rbac";
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 
 type UserContext = NonNullable<Awaited<ReturnType<typeof getCurrentUserContext>>>;
 type Tx = Prisma.TransactionClient;
@@ -502,7 +503,8 @@ export async function updateItemCreationPrices(context: UserContext, id: string)
   }
   const { erp1, erp2 } = await resolveErps(request.companyId);
   const needsErp2 = requestNeedsErp2(request.creationSources);
-  const needsErp1Ogf = request.addErp1OgfPrice || Boolean(request.ogfPrice && !needsErp2);
+  const vaultOs = isVaultOsDeployment();
+  const needsErp1Ogf = !vaultOs && (request.addErp1OgfPrice || Boolean(request.ogfPrice && !needsErp2));
   const operations = [
     { key: "erp1Standard" as const, erp: ItemCreationErp.ERP1, cfg: erp1?.cfg ?? null, priceList: ITEM_CREATION_PRICE_LISTS.STANDARD, rate: request.standardPrice },
     ...(needsErp1Ogf
@@ -511,8 +513,12 @@ export async function updateItemCreationPrices(context: UserContext, id: string)
     ...(needsErp2
       ? [
           { key: "erp2Standard" as const, erp: ItemCreationErp.ERP2, cfg: erp2?.cfg ?? null, priceList: ITEM_CREATION_PRICE_LISTS.STANDARD, rate: request.standardPrice },
-          { key: "erp2Ogf" as const, erp: ItemCreationErp.ERP2, cfg: erp2?.cfg ?? null, priceList: ITEM_CREATION_PRICE_LISTS.OGF, rate: request.ogfPrice },
-          { key: "erp2Gcc" as const, erp: ItemCreationErp.ERP2, cfg: erp2?.cfg ?? null, priceList: ITEM_CREATION_PRICE_LISTS.GCC, rate: request.gccPrice },
+          ...(!vaultOs
+            ? [
+                { key: "erp2Ogf" as const, erp: ItemCreationErp.ERP2, cfg: erp2?.cfg ?? null, priceList: ITEM_CREATION_PRICE_LISTS.OGF, rate: request.ogfPrice },
+                { key: "erp2Gcc" as const, erp: ItemCreationErp.ERP2, cfg: erp2?.cfg ?? null, priceList: ITEM_CREATION_PRICE_LISTS.GCC, rate: request.gccPrice },
+              ]
+            : []),
         ]
       : []),
   ];
@@ -523,8 +529,8 @@ export async function updateItemCreationPrices(context: UserContext, id: string)
       erp1StandardPriceStatus: "UPDATING",
       erp1OgfPriceStatus: needsErp1Ogf && request.ogfPrice ? "UPDATING" : "NOT_REQUIRED",
       erp2StandardPriceStatus: needsErp2 ? "UPDATING" : "NOT_REQUIRED",
-      erp2OgfPriceStatus: needsErp2 && request.ogfPrice ? "UPDATING" : "NOT_REQUIRED",
-      erp2GccPriceStatus: needsErp2 && request.gccPrice ? "UPDATING" : "NOT_REQUIRED",
+      erp2OgfPriceStatus: !vaultOs && needsErp2 && request.ogfPrice ? "UPDATING" : "NOT_REQUIRED",
+      erp2GccPriceStatus: !vaultOs && needsErp2 && request.gccPrice ? "UPDATING" : "NOT_REQUIRED",
       erp1StandardPriceError: null,
       erp1OgfPriceError: null,
       erp2StandardPriceError: null,
@@ -604,12 +610,12 @@ export async function updateItemCreationPrices(context: UserContext, id: string)
   const refreshed = await prisma.itemCreationRequest.findUniqueOrThrow({ where: { id } });
   const requiredUpdated =
     refreshed.erp1StandardPriceStatus === "UPDATED" &&
-    (!(refreshed.addErp1OgfPrice || (refreshed.ogfPrice && !requestNeedsErp2(refreshed.creationSources))) ||
+    (vaultOs || !(refreshed.addErp1OgfPrice || (refreshed.ogfPrice && !requestNeedsErp2(refreshed.creationSources))) ||
       refreshed.erp1OgfPriceStatus === "UPDATED") &&
     (!requestNeedsErp2(refreshed.creationSources) ||
       (refreshed.erp2StandardPriceStatus === "UPDATED" &&
-        (!refreshed.ogfPrice || refreshed.erp2OgfPriceStatus === "UPDATED") &&
-        (!refreshed.gccPrice || refreshed.erp2GccPriceStatus === "UPDATED")));
+        (vaultOs || !refreshed.ogfPrice || refreshed.erp2OgfPriceStatus === "UPDATED") &&
+        (vaultOs || !refreshed.gccPrice || refreshed.erp2GccPriceStatus === "UPDATED")));
   if (requiredUpdated) {
     await prisma.$transaction(async (tx) => {
       await tx.itemCreationRequest.update({

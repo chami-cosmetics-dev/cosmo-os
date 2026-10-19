@@ -38,6 +38,13 @@ type ItemCreationItem = {
   erp2ItemCreationError: string | null;
   erp2ItemCode: string | null;
   createdAt: string;
+  itemCreatedAt?: string | null;
+  imageUpdatedAt?: string | null;
+  priceUpdatedAt?: string | null;
+  stockReadyAt?: string | null;
+  stockAddedAt?: string | null;
+  sentAt?: string | null;
+  receivedAt?: string | null;
 };
 
 type Props = {
@@ -51,6 +58,7 @@ type Props = {
     purchasing: boolean;
     stores: boolean;
   };
+  vaultOs: boolean;
 };
 
 type TeamView = "admin" | "seo" | "digitalMarketing" | "purchasing" | "stores";
@@ -107,6 +115,24 @@ const dateFormatter = new Intl.DateTimeFormat("en-GB", {
   day: "2-digit",
 });
 const formatDate = (value: string) => dateFormatter.format(new Date(value));
+function currentStageSince(item: ItemCreationItem) {
+  if (item.seoSetupStatus === "PENDING") return item.createdAt;
+  if (item.seoSetupStatus === "ITEM_CREATED") return item.itemCreatedAt ?? item.createdAt;
+  if (item.digitalMarketingStatus === "PENDING") return item.itemCreatedAt ?? item.createdAt;
+  if (item.purchasingStatus === "WAITING_FOR_PRICES") return item.imageUpdatedAt ?? item.createdAt;
+  if (item.storeStockStatus !== "STOCK_ADDED") return item.stockReadyAt ?? item.priceUpdatedAt ?? item.createdAt;
+  if (item.storeTransferStatus === "PENDING") return item.stockAddedAt ?? item.createdAt;
+  if (item.storeTransferStatus === "SENT") return item.sentAt ?? item.createdAt;
+  return item.receivedAt ?? item.createdAt;
+}
+function elapsedLabel(since: string, now: number | null) {
+  if (now == null) return "-";
+  const minutes = Math.max(0, Math.floor((now - new Date(since).getTime()) / 60000));
+  const days = Math.floor(minutes / 1440);
+  const hours = Math.floor((minutes % 1440) / 60);
+  if (days > 0) return `${days}d ${hours}h`;
+  return `${hours}h ${minutes % 60}m`;
+}
 
 const inputClass =
   "h-10 w-full min-w-0 rounded-md border bg-background px-3 text-sm outline-none transition focus:border-primary";
@@ -172,6 +198,7 @@ export function ItemCreationPanel({
   initialItems,
   initialFilters,
   permissions,
+  vaultOs,
 }: Props) {
   const [items, setItems] = useState(initialItems);
   const [message, setMessage] = useState("");
@@ -248,13 +275,13 @@ export function ItemCreationPanel({
             sku: row.sku.trim(),
             description: row.description.trim(),
             standardPrice: row.standardPrice,
-            ogfPrice: row.ogfPrice,
-            gccPrice: row.gccPrice,
-            addErp1OgfPrice: row.addErp1OgfPrice,
+            ogfPrice: vaultOs ? undefined : row.ogfPrice,
+            gccPrice: vaultOs ? undefined : row.gccPrice,
+            addErp1OgfPrice: vaultOs ? false : row.addErp1OgfPrice,
             country: row.country.trim(),
             creationSources: row.creationSources,
           }))
-          .filter((row) => row.sku || row.description || row.standardPrice || row.ogfPrice || row.gccPrice);
+          .filter((row) => row.sku || row.description || row.standardPrice || (!vaultOs && (row.ogfPrice || row.gccPrice)));
         await post("/api/item-creation", { items });
         setCreateRows([emptyCreateRow(Date.now())]);
         setSelectedCreateRows(new Set());
@@ -411,7 +438,7 @@ export function ItemCreationPanel({
       items: items.filter((item) => item.seoSetupStatus === "ITEM_CREATED"),
       action: (item: ItemCreationItem) => (
         <ActionButton onClick={() => runAction(`/api/item-creation/${item.id}/seo/image-updated`)}>
-          Mark Image Updated
+          Mark SEO Done
         </ActionButton>
       ),
     },
@@ -441,7 +468,7 @@ export function ItemCreationPanel({
       team: "digitalMarketing",
       visible: canAct("digitalMarketing"),
       items: items.filter(
-        (item) => item.digitalMarketingStatus === "PENDING" && item.seoSetupStatus !== "PENDING"
+        (item) => item.digitalMarketingStatus === "PENDING" && item.seoSetupStatus === "ITEM_CREATED"
       ),
       action: (item: ItemCreationItem) => (
         <DigitalAction item={item} onAction={runAction} />
@@ -629,7 +656,7 @@ export function ItemCreationPanel({
                     />
                     ERP 02
                   </label>
-                  <label className="flex h-8 items-center gap-2 rounded-md border bg-background px-3 text-sm font-medium text-muted-foreground">
+                  {!vaultOs && <label className="flex h-8 items-center gap-2 rounded-md border bg-background px-3 text-sm font-medium text-muted-foreground">
                     <input
                       type="checkbox"
                       disabled={selectedCreateRowCount === 0}
@@ -638,7 +665,7 @@ export function ItemCreationPanel({
                       className="size-4"
                     />
                     ERP1 OGF
-                  </label>
+                  </label>}
                 </div>
               </div>
               <div className="grid gap-2">
@@ -679,22 +706,22 @@ export function ItemCreationPanel({
                       placeholder="Standard"
                       className={inputClass}
                     />
-                    <input
+                    {!vaultOs && <input
                       value={row.ogfPrice}
                       onChange={(event) => updateCreateRow(row.key, "ogfPrice", event.target.value)}
                       type="number"
                       step="0.01"
                       placeholder="OGF"
                       className={inputClass}
-                    />
-                    <input
+                    />}
+                    {!vaultOs && <input
                       value={row.gccPrice}
                       onChange={(event) => updateCreateRow(row.key, "gccPrice", event.target.value)}
                       type="number"
                       step="0.01"
                       placeholder="GCC"
                       className={inputClass}
-                    />
+                    />}
                     <input
                       value={row.country}
                       onChange={(event) => updateCreateRow(row.key, "country", event.target.value)}
@@ -821,6 +848,7 @@ export function ItemCreationPanel({
           onUpdate={updateRequest}
           onAction={runAction}
           onRefresh={refreshRequests}
+          vaultOs={vaultOs}
         />
       )}
 
@@ -831,6 +859,7 @@ export function ItemCreationPanel({
           isPending={isPending}
           onRefresh={refreshRequests}
           onAction={runAction}
+          vaultOs={vaultOs}
         />
       )}
     </div>
@@ -854,12 +883,14 @@ function TeamWorkflowView({
   isPending,
   onRefresh,
   onAction,
+  vaultOs,
 }: {
   teamLabel: string;
   sections: TeamSection[];
   isPending: boolean;
   onRefresh: () => void;
   onAction: (url: string, body?: unknown) => void;
+  vaultOs: boolean;
 }) {
   const isSkuSearchEnabled =
     sections.length > 0 &&
@@ -870,6 +901,8 @@ function TeamWorkflowView({
         section.team === "purchasing"
     );
   const [skuSearch, setSkuSearch] = useState("");
+  const [selectedBulkIds, setSelectedBulkIds] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
   const normalizedSkuSearch = skuSearch.trim().toLowerCase();
   const visibleSections =
     isSkuSearchEnabled && normalizedSkuSearch
@@ -880,6 +913,36 @@ function TeamWorkflowView({
       : sections;
   const total = visibleSections.reduce((sum, section) => sum + section.items.length, 0);
   const activeSections = visibleSections.filter((section) => section.items.length > 0);
+  const bulkTeam = sections[0]?.team;
+  const bulkItems = visibleSections
+    .filter((section) => bulkTeam === "purchasing" || (bulkTeam === "stores" && section.title === "Transfer"))
+    .flatMap((section) => section.items);
+  const allBulkSelected = bulkItems.length > 0 && bulkItems.every((item) => selectedBulkIds.has(item.id));
+
+  async function runBulkAction() {
+    if (selectedBulkIds.size === 0) return;
+    setBulkBusy(true);
+    try {
+      for (const item of bulkItems.filter((candidate) => selectedBulkIds.has(candidate.id))) {
+        const url = bulkTeam === "purchasing"
+          ? `/api/item-creation/${item.id}/pricing/update`
+          : item.storeTransferStatus === "PENDING"
+            ? `/api/item-creation/${item.id}/stores/sent`
+            : `/api/item-creation/${item.id}/stores/received`;
+        const response = await fetch(url, { method: "POST" });
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}));
+          throw new Error(data.error ?? "Bulk update failed");
+        }
+      }
+      setSelectedBulkIds(new Set());
+      onRefresh();
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setBulkBusy(false);
+    }
+  }
 
   return (
     <section className="rounded-lg border bg-card">
@@ -914,6 +977,28 @@ function TeamWorkflowView({
           </span>
         </div>
       </div>
+
+      {bulkItems.length > 0 && (
+        <div className="flex flex-wrap items-center gap-3 border-b p-4">
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={allBulkSelected}
+              onChange={() => setSelectedBulkIds(allBulkSelected ? new Set() : new Set(bulkItems.map((item) => item.id)))}
+            />
+            Select all
+          </label>
+          <span className="text-sm text-muted-foreground">{selectedBulkIds.size} selected</span>
+          <button
+            type="button"
+            disabled={bulkBusy || selectedBulkIds.size === 0}
+            onClick={() => void runBulkAction()}
+            className={primaryButtonClass}
+          >
+            {bulkBusy ? "Updating..." : bulkTeam === "purchasing" ? "Update selected prices" : "Mark selected"}
+          </button>
+        </div>
+      )}
 
       <div className="grid gap-3 border-b p-4 md:grid-cols-2 xl:grid-cols-4">
         {visibleSections.map((section) => (
@@ -979,6 +1064,17 @@ function TeamWorkflowView({
                         item={item}
                         action={section.action(item)}
                         team={section.team}
+                        selected={selectedBulkIds.has(item.id)}
+                        onSelect={
+                          (bulkTeam === "purchasing" || (bulkTeam === "stores" && section.title === "Transfer"))
+                            ? (checked) => setSelectedBulkIds((current) => {
+                                const next = new Set(current);
+                                checked ? next.add(item.id) : next.delete(item.id);
+                                return next;
+                              })
+                            : undefined
+                        }
+                        vaultOs={vaultOs}
                       />
                     ))}
                   </div>
@@ -1019,6 +1115,7 @@ function CombinedStockRequestTable({
   const [options, setOptions] = useState<Array<StockOption & { erp: StockErp }>>([]);
   const [rows, setRows] = useState<Record<string, StockWarehouseRow[]>>({});
   const [totals, setTotals] = useState<Record<string, string>>({});
+  const [warehouseToAdd, setWarehouseToAdd] = useState<Record<string, string>>({});
   const [confirmed, setConfirmed] = useState<Set<string>>(new Set());
   const eligible = items.filter((item) => item.seoSetupStatus !== "PENDING");
   const allSelected = eligible.length > 0 && eligible.every((item) => selected.has(item.id));
@@ -1069,6 +1166,15 @@ function CombinedStockRequestTable({
   }, []);
 
   function itemRows(item: ItemCreationItem) { return rows[item.id] ?? []; }
+  function configuredWarehouses() {
+    return options.filter((option) => {
+      const name = option.name.toLowerCase();
+      return name.includes("main") && !name.includes("shop");
+    });
+  }
+  function warehouseOptionKey(option: StockOption & { erp: StockErp }) {
+    return `${option.erp}:${option.name}`;
+  }
   function toggle(id: string) {
     setSelected((current) => {
       const next = new Set(current);
@@ -1095,6 +1201,44 @@ function CombinedStockRequestTable({
     for (const allocation of extra) values.set(allocation.key, (values.get(allocation.key) ?? 0) + allocation.qty);
     setRows((allRows) => ({ ...allRows, [item.id]: current.map((row) => ({ ...row, qty: String(values.get(row.key.toString()) ?? 0) })) }));
     setConfirmed((currentConfirmed) => { const next = new Set(currentConfirmed); next.delete(item.id); return next; });
+  }
+  function addWarehouse(item: ItemCreationItem) {
+    const configured = configuredWarehouses();
+    const current = itemRows(item);
+    const selectedKey = warehouseToAdd[item.id];
+    const warehouse = configured.find((option) => warehouseOptionKey(option) === selectedKey);
+    if (!warehouse) return;
+    if (current.some((row) => row.erp === warehouse.erp && row.warehouse === warehouse.name)) return;
+    setRows((allRows) => ({
+      ...allRows,
+      [item.id]: [
+        ...(allRows[item.id] ?? []),
+        {
+          key: Math.max(0, ...current.map((row) => row.key)) + 1,
+          warehouse: warehouse.name,
+          qty: "0",
+          priority: warehouse.priority ?? 2,
+          erp: warehouse.erp,
+        },
+      ],
+    }));
+    setConfirmed((currentConfirmed) => {
+      const next = new Set(currentConfirmed);
+      next.delete(item.id);
+      return next;
+    });
+    setWarehouseToAdd((current) => ({ ...current, [item.id]: "" }));
+  }
+  function removeWarehouse(itemId: string, rowKey: number) {
+    setRows((current) => ({
+      ...current,
+      [itemId]: (current[itemId] ?? []).filter((entry) => entry.key !== rowKey),
+    }));
+    setConfirmed((current) => {
+      const next = new Set(current);
+      next.delete(itemId);
+      return next;
+    });
   }
   function confirm(item: ItemCreationItem) {
     const total = Math.floor(Number(totals[item.id]));
@@ -1133,10 +1277,13 @@ function CombinedStockRequestTable({
         <tbody>{items.map((item) => {
           const locked = item.seoSetupStatus === "PENDING";
           const allocationRows = itemRows(item);
+          const availableWarehouses = configuredWarehouses().filter(
+            (option) => !allocationRows.some((row) => row.erp === option.erp && row.warehouse === option.name),
+          );
           return <tr key={item.id} className="border-t align-top">
             <td className="px-3 py-3"><input type="checkbox" disabled={locked} checked={selected.has(item.id)} onChange={() => toggle(item.id)} /></td>
             <td className="px-3 py-3 font-semibold">{item.sku}</td><td className="px-3 py-3 text-muted-foreground">{item.description}</td>
-            <td className="px-3 py-3" colSpan={3}>{locked ? "Waiting for item created" : <div className="space-y-2"><div className="flex flex-wrap items-center gap-2"><input type="number" min="0" value={totals[item.id] ?? ""} onChange={(event) => setTotals((current) => ({ ...current, [item.id]: event.target.value }))} placeholder="Total qty" className={`${inputClass} w-32`} /><button type="button" onClick={() => calculate(item)} className={secondaryButtonClass}>Calculate allocation</button><button type="button" onClick={() => confirm(item)} className={secondaryButtonClass}>{confirmed.has(item.id) ? "Confirmed" : "Confirm allocation"}</button></div>{allocationRows.map((row) => <div key={row.key} className="grid grid-cols-[minmax(300px,1fr)_120px_minmax(180px,1fr)_auto] gap-2"><select value={row.warehouse} onChange={(event) => setRows((current) => ({ ...current, [item.id]: allocationRows.map((entry) => entry.key === row.key ? { ...entry, warehouse: event.target.value } : entry) }))} className={inputClass}>{options.map((option) => <option key={`${option.erp}-${option.name}`} value={option.name}>{option.label} ({option.erp.toUpperCase()})</option>)}</select><input type="number" min="0" value={row.qty} onChange={(event) => setRows((current) => ({ ...current, [item.id]: allocationRows.map((entry) => entry.key === row.key ? { ...entry, qty: event.target.value } : entry) }))} className={inputClass} /><div className="flex items-center rounded-md border px-3 text-muted-foreground">{options.find((option) => option.name === row.warehouse && option.erp === row.erp)?.company ?? "-"}</div><button type="button" onClick={() => setRows((current) => ({ ...current, [item.id]: allocationRows.filter((entry) => entry.key !== row.key) }))} className={secondaryButtonClass}>Remove</button></div>)}</div>}</td>
+            <td className="px-3 py-3" colSpan={3}>{locked ? "Waiting for item created" : <div className="space-y-2"><div className="flex flex-wrap items-center gap-2"><input type="number" min="0" value={totals[item.id] ?? ""} onChange={(event) => setTotals((current) => ({ ...current, [item.id]: event.target.value }))} placeholder="Total qty" className={`${inputClass} w-32`} /><button type="button" onClick={() => calculate(item)} className={secondaryButtonClass}>Calculate allocation</button><button type="button" onClick={() => confirm(item)} className={secondaryButtonClass}>{confirmed.has(item.id) ? "Confirmed" : "Confirm allocation"}</button><select value={warehouseToAdd[item.id] ?? ""} onChange={(event) => setWarehouseToAdd((current) => ({ ...current, [item.id]: event.target.value }))} disabled={availableWarehouses.length === 0} className={inputClass}><option value="">Select warehouse to add</option>{availableWarehouses.map((option) => <option key={warehouseOptionKey(option)} value={warehouseOptionKey(option)}>{option.label} ({option.erp.toUpperCase()})</option>)}</select><button type="button" onClick={() => addWarehouse(item)} disabled={!warehouseToAdd[item.id]} className={secondaryButtonClass}>Add Warehouse</button></div>{allocationRows.map((row) => <div key={row.key} className="grid grid-cols-[minmax(300px,1fr)_120px_minmax(180px,1fr)_auto] gap-2"><select value={row.warehouse} onChange={(event) => { const option = options.find((candidate) => candidate.name === event.target.value && candidate.erp === row.erp); setRows((current) => ({ ...current, [item.id]: allocationRows.map((entry) => entry.key === row.key ? { ...entry, warehouse: event.target.value, priority: option?.priority ?? entry.priority } : entry) })); setConfirmed((currentConfirmed) => { const next = new Set(currentConfirmed); next.delete(item.id); return next; }); }} className={inputClass}>{options.map((option) => <option key={`${option.erp}-${option.name}`} value={option.name}>{option.label} ({option.erp.toUpperCase()})</option>)}</select><input type="number" min="0" value={row.qty} onChange={(event) => setRows((current) => ({ ...current, [item.id]: allocationRows.map((entry) => entry.key === row.key ? { ...entry, qty: event.target.value } : entry) }))} className={inputClass} /><div className="flex items-center rounded-md border bg-muted/20 px-3 text-muted-foreground">{options.find((option) => option.name === row.warehouse && option.erp === row.erp)?.company ?? "-"}</div><button type="button" onClick={() => removeWarehouse(item.id, row.key)} className={secondaryButtonClass}>Remove</button></div>)}</div>}</td>
             <td className="px-3 py-3"><button type="button" onClick={() => onAction(`/api/item-creation/${item.id}/stores/stock-added`)} className={secondaryButtonClass}>Manual</button></td>
           </tr>;
         })}</tbody>
@@ -1722,10 +1869,16 @@ function RequestCard({
   item,
   action,
   team,
+  selected,
+  onSelect,
+  vaultOs,
 }: {
   item: ItemCreationItem;
   action: ReactNode;
   team: WorkTeamView;
+  selected?: boolean;
+  onSelect?: (checked: boolean) => void;
+  vaultOs: boolean;
 }) {
   const priceStatus = getPriceStatus(item);
   const showPrices = team === "purchasing";
@@ -1748,6 +1901,14 @@ function RequestCard({
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
+            {onSelect && (
+              <input
+                type="checkbox"
+                checked={Boolean(selected)}
+                onChange={(event) => onSelect(event.target.checked)}
+                aria-label={`Select ${item.sku}`}
+              />
+            )}
             <span className="font-semibold">{item.sku}</span>
             <StatusPill value={item.overallStatus} />
           </div>
@@ -1769,19 +1930,19 @@ function RequestCard({
 
       {showPrices && (
         <div className="mt-3 grid gap-3 md:grid-cols-3">
-          <InfoBlock
+          {!vaultOs && <InfoBlock
             label="Standard Price"
             value={`${money(item.standardPrice)} / ERP ${money(item.erpStandardPrice)} (${getStandardPriceTally(item)})`}
-          />
-          <InfoBlock
+          />}
+          {!vaultOs && <InfoBlock
             label="OGF Price"
             value={`${money(item.ogfPrice)} / ${ogfTarget} (${ogfTally})`}
-          />
+          />}
           <InfoBlock
             label="ERP1 OGF"
             value={needsErp1Ogf ? money(item.erp1OgfPrice) : "Not required"}
           />
-          {needsErp2 && (
+          {!vaultOs && needsErp2 && (
             <InfoBlock
               label="GCC Price"
               value={`${money(item.gccPrice)} / ERP2 ${money(item.erp2GccPrice)} (${getGccPriceTally(item)})`}
@@ -1840,6 +2001,7 @@ function AdminTable({
   onUpdate,
   onAction,
   onRefresh,
+  vaultOs,
 }: {
   items: ItemCreationItem[];
   isPending: boolean;
@@ -1847,8 +2009,10 @@ function AdminTable({
   onUpdate: (id: string, body: unknown) => void;
   onAction: (url: string, body?: unknown) => void;
   onRefresh: () => void;
+  vaultOs: boolean;
 }) {
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [now, setNow] = useState<number | null>(null);
   const [editRow, setEditRow] = useState<Omit<CreateRow, "key" | "creationSources">>({
     sku: "",
     description: "",
@@ -1858,6 +2022,15 @@ function AdminTable({
     addErp1OgfPrice: false,
     country: "",
   });
+
+  useEffect(() => {
+    const initialTimer = window.setTimeout(() => setNow(Date.now()), 0);
+    const timer = window.setInterval(() => setNow(Date.now()), 60_000);
+    return () => {
+      window.clearTimeout(initialTimer);
+      window.clearInterval(timer);
+    };
+  }, []);
 
   function startEdit(item: ItemCreationItem) {
     setEditingId(item.id);
@@ -1926,6 +2099,7 @@ function AdminTable({
                 "Store Stock",
                 "SEO Activation",
                 "Overall Status",
+                "Current Stage Age",
                 "Created At",
                 "Actions",
               ].map((heading) => (
@@ -1982,23 +2156,23 @@ function AdminTable({
                           placeholder="Standard Price"
                           className="h-9 w-32 rounded-md border bg-background px-2 text-sm"
                         />
-                        <input
+                        {!vaultOs && <input
                           value={editRow.ogfPrice}
                           onChange={(event) => setEditRow((row) => ({ ...row, ogfPrice: event.target.value }))}
                           type="number"
                           step="0.01"
                           placeholder="OGF Price"
                           className="h-9 w-32 rounded-md border bg-background px-2 text-sm"
-                        />
-                        <input
+                        />}
+                        {!vaultOs && <input
                           value={editRow.gccPrice}
                           onChange={(event) => setEditRow((row) => ({ ...row, gccPrice: event.target.value }))}
                           type="number"
                           step="0.01"
                           placeholder="GCC Price"
                           className="h-9 w-32 rounded-md border bg-background px-2 text-sm"
-                        />
-                        <label className="flex w-fit items-center gap-2 rounded-md border bg-background px-2 py-2 text-xs font-medium text-muted-foreground">
+                        />}
+                        {!vaultOs && <label className="flex w-fit items-center gap-2 rounded-md border bg-background px-2 py-2 text-xs font-medium text-muted-foreground">
                           <input
                             type="checkbox"
                             checked={editRow.addErp1OgfPrice}
@@ -2008,7 +2182,7 @@ function AdminTable({
                             className="size-4"
                           />
                           Add OGF to ERP1
-                        </label>
+                        </label>}
                       </div>
                     )}
                   </td>
@@ -2048,6 +2222,7 @@ function AdminTable({
                   <td className="px-3 py-3"><StatusPill value={item.storeStockStatus} /></td>
                   <td className="px-3 py-3"><StatusPill value={item.seoActivationStatus} /></td>
                   <td className="px-3 py-3"><StatusPill value={item.overallStatus} /></td>
+                  <td className="px-3 py-3 text-muted-foreground">{elapsedLabel(currentStageSince(item), now)}</td>
                   <td className="px-3 py-3">
                     {formatDate(item.createdAt)}
                   </td>
