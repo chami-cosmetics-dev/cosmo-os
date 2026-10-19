@@ -4,8 +4,13 @@ import {
   riderTaskMatchesFr003Filter,
   summarizeRiderTaskStatuses,
 } from "@/lib/rider-ops-filter";
-import { resolveRiderOpsPaymentDisplay } from "@/lib/rider-ops-payment-display";
-import { loadSplitCashCollectByOrderIds } from "@/lib/order-split-payment";
+import { approvalSplitCashCollectAmount } from "@/lib/approval-payment-split";
+import { loadSplitPaymentLinesByOrderIds } from "@/lib/order-split-payment";
+import {
+  accumulateRiderLocationPayment,
+  resolveRiderOpsPaymentDisplay,
+  type RiderLocationPaymentTotals,
+} from "@/lib/rider-ops-payment-display";
 
 type RiderRosterItem = {
   id: string;
@@ -43,6 +48,7 @@ type RiderLocationSummary = {
   locationName: string;
   orderCount: number;
   cashTotal: string;
+  kokoTotal: string;
   bankTransferTotal: string;
   cardTotal: string;
   alreadyPaidTotal: string;
@@ -209,14 +215,16 @@ export async function fetchRiderOrdersData(
     orderBy: [{ assignedAt: "desc" }],
   });
 
-  const cashByOrder = await loadSplitCashCollectByOrderIds(tasks.map((task) => task.order.id));
+  const splitByOrder = await loadSplitPaymentLinesByOrderIds(tasks.map((task) => task.order.id));
 
   const rows: RiderOrderRow[] = tasks.map((task) => {
+    const splitLines = splitByOrder.get(task.order.id) ?? [];
     const paymentDisplay = resolveRiderOpsPaymentDisplay({
       deliveryPayment: task.order.deliveryPayment,
       order: {
         ...task.order,
-        collectCashAmount: cashByOrder.get(task.order.id) ?? null,
+        collectCashAmount: approvalSplitCashCollectAmount(splitLines),
+        splitLines,
       },
     });
 
@@ -259,42 +267,29 @@ export async function fetchRiderOrdersData(
       locationName: key,
       orderCount: 0,
       cashTotal: "0.00",
+      kokoTotal: "0.00",
       bankTransferTotal: "0.00",
       cardTotal: "0.00",
       alreadyPaidTotal: "0.00",
       collectedTotal: "0.00",
     };
 
-    const collected = Number.parseFloat(row.collectedAmount ?? row.expectedAmount ?? "0");
+    const totals: RiderLocationPaymentTotals = {
+      cashTotal: Number.parseFloat(current.cashTotal),
+      kokoTotal: Number.parseFloat(current.kokoTotal),
+      bankTransferTotal: Number.parseFloat(current.bankTransferTotal),
+      cardTotal: Number.parseFloat(current.cardTotal),
+      alreadyPaidTotal: Number.parseFloat(current.alreadyPaidTotal),
+      collectedTotal: Number.parseFloat(current.collectedTotal),
+    };
     current.orderCount += 1;
-    current.collectedTotal = (Number.parseFloat(current.collectedTotal) + collected).toFixed(2);
-
-    if (row.paymentLines && row.paymentLines.length > 0) {
-      for (const line of row.paymentLines) {
-        const amount = Number.parseFloat(line.amount);
-        if (line.paymentMethod === "cod") {
-          current.cashTotal = (Number.parseFloat(current.cashTotal) + amount).toFixed(2);
-        } else if (line.paymentMethod === "bank_transfer") {
-          current.bankTransferTotal = (Number.parseFloat(current.bankTransferTotal) + amount).toFixed(2);
-        } else if (line.paymentMethod === "card") {
-          current.cardTotal = (Number.parseFloat(current.cardTotal) + amount).toFixed(2);
-        } else if (line.paymentMethod === "already_paid") {
-          current.alreadyPaidTotal = (Number.parseFloat(current.alreadyPaidTotal) + amount).toFixed(2);
-        }
-      }
-    } else if (row.paymentMethod === "cod") {
-      current.cashTotal = (Number.parseFloat(current.cashTotal) + collected).toFixed(2);
-    } else if (row.paymentMethod === "bank_transfer") {
-      current.bankTransferTotal = (
-        Number.parseFloat(current.bankTransferTotal) + collected
-      ).toFixed(2);
-    } else if (row.paymentMethod === "card") {
-      current.cardTotal = (Number.parseFloat(current.cardTotal) + collected).toFixed(2);
-    } else if (row.paymentMethod === "already_paid") {
-      current.alreadyPaidTotal = (
-        Number.parseFloat(current.alreadyPaidTotal) + collected
-      ).toFixed(2);
-    }
+    accumulateRiderLocationPayment(totals, row);
+    current.cashTotal = totals.cashTotal.toFixed(2);
+    current.kokoTotal = totals.kokoTotal.toFixed(2);
+    current.bankTransferTotal = totals.bankTransferTotal.toFixed(2);
+    current.cardTotal = totals.cardTotal.toFixed(2);
+    current.alreadyPaidTotal = totals.alreadyPaidTotal.toFixed(2);
+    current.collectedTotal = totals.collectedTotal.toFixed(2);
     locationMap.set(key, current);
   }
 

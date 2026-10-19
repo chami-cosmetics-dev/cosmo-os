@@ -10,6 +10,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { notify } from "@/lib/notify";
 import { formatAppDateTime } from "@/lib/format-datetime";
+import { approvalSplitLineCaption } from "@/lib/approval-payment-split";
+import {
+  accumulateRiderLocationPayment,
+  riderOpsRowAmount,
+  type RiderLocationPaymentTotals,
+} from "@/lib/rider-ops-payment-display";
 import {
   riderTaskMatchesFr003Filter,
   summarizeRiderTaskStatuses,
@@ -59,6 +65,7 @@ type RiderOrdersData = {
     locationName: string;
     orderCount: number;
     cashTotal: string;
+    kokoTotal: string;
     bankTransferTotal: string;
     cardTotal: string;
     alreadyPaidTotal: string;
@@ -114,6 +121,19 @@ function formatMoney(value: string | null | undefined) {
   return `Rs. ${formatted}`;
 }
 
+function paymentBreakdown(row: {
+  paymentMethod: string | null;
+  paymentLines?: Array<{ paymentMethod: string; amount: string }>;
+}) {
+  const lines = row.paymentLines ?? [];
+  if (lines.length > 1) {
+    return lines.map(
+      (line) => `${approvalSplitLineCaption(line.paymentMethod)} ${formatMoney(line.amount)}`,
+    );
+  }
+  return [row.paymentMethod ?? "--"];
+}
+
 function formatDate(value: string | null | undefined) {
   if (!value) return "--";
   const date = new Date(value);
@@ -159,11 +179,6 @@ function formatDate(value: string | null | undefined) {
   return `${shortDate}, ${timeLabel}`;
 }
 
-
-function toAmount(value: string | null | undefined) {
-  const parsed = Number.parseFloat(value ?? "0");
-  return Number.isFinite(parsed) ? parsed : 0;
-}
 
 function riderLabel(rider: RiderRosterItem) {
   return rider.knownName?.trim() || rider.name?.trim() || rider.email || rider.mobile || "Rider";
@@ -264,22 +279,17 @@ export function RiderOperationsPanel({
       {
         locationName: string;
         orderCount: number;
-        cashTotal: number;
-        bankTransferTotal: number;
-        cardTotal: number;
-        alreadyPaidTotal: number;
-        collectedTotal: number;
-      }
+      } & RiderLocationPaymentTotals
     >();
 
     // Payment totals: completed tasks in the FR-003 date scope only.
     for (const row of filteredRows.filter((item) => item.status.toLowerCase() === "completed")) {
       const locationName = row.locationName ?? "Unknown location";
-      const amount = toAmount(row.collectedAmount ?? row.expectedAmount);
       const current = totals.get(locationName) ?? {
         locationName,
         orderCount: 0,
         cashTotal: 0,
+        kokoTotal: 0,
         bankTransferTotal: 0,
         cardTotal: 0,
         alreadyPaidTotal: 0,
@@ -287,25 +297,7 @@ export function RiderOperationsPanel({
       };
 
       current.orderCount += 1;
-      current.collectedTotal += amount;
-
-      if (row.paymentLines && row.paymentLines.length > 0) {
-        for (const line of row.paymentLines) {
-          const lineAmount = toAmount(line.amount);
-          const method = line.paymentMethod.toLowerCase();
-          if (method === "cod") current.cashTotal += lineAmount;
-          if (method === "bank_transfer") current.bankTransferTotal += lineAmount;
-          if (method === "card") current.cardTotal += lineAmount;
-          if (method === "already_paid") current.alreadyPaidTotal += lineAmount;
-        }
-      } else {
-        const paymentMethod = (row.paymentMethod ?? "").toLowerCase();
-        if (paymentMethod === "cod") current.cashTotal += amount;
-        if (paymentMethod === "bank_transfer") current.bankTransferTotal += amount;
-        if (paymentMethod === "card") current.cardTotal += amount;
-        if (paymentMethod === "already_paid") current.alreadyPaidTotal += amount;
-      }
-
+      accumulateRiderLocationPayment(current, row);
       totals.set(locationName, current);
     }
 
@@ -391,6 +383,7 @@ export function RiderOperationsPanel({
             <td>${escapeHtml(item.locationName)}</td>
             <td>${item.orderCount}</td>
             <td>${escapeHtml(formatMoney(String(item.cashTotal)))}</td>
+            <td>${escapeHtml(formatMoney(String(item.kokoTotal)))}</td>
             <td>${escapeHtml(formatMoney(String(item.bankTransferTotal)))}</td>
             <td>${escapeHtml(formatMoney(String(item.cardTotal)))}</td>
             <td>${escapeHtml(formatMoney(String(item.alreadyPaidTotal)))}</td>
@@ -407,8 +400,8 @@ export function RiderOperationsPanel({
             <td>${escapeHtml(row.orderLabel)}</td>
             <td>${escapeHtml(row.locationName ?? "--")}</td>
             <td>${escapeHtml(row.status)}</td>
-            <td>${escapeHtml(formatMoney(row.collectedAmount ?? row.expectedAmount))}</td>
-            <td>${escapeHtml(row.paymentMethod ?? "--")}</td>
+            <td>${escapeHtml(formatMoney(riderOpsRowAmount(row)))}</td>
+            <td>${paymentBreakdown(row).map((line) => escapeHtml(line)).join("<br>")}</td>
           </tr>
         `
       )
@@ -448,13 +441,14 @@ export function RiderOperationsPanel({
                 <th>Location</th>
                 <th>Orders</th>
                 <th>Cash</th>
+                <th>KOKO paid</th>
                 <th>Bank Transfer</th>
                 <th>Card</th>
                 <th>Already Paid</th>
                 <th>Total</th>
               </tr>
             </thead>
-            <tbody>${locationRows || '<tr><td colspan="7">No completed orders yet.</td></tr>'}</tbody>
+            <tbody>${locationRows || '<tr><td colspan="8">No completed orders yet.</td></tr>'}</tbody>
           </table>
 
           <h2>Orders</h2>
@@ -689,7 +683,7 @@ export function RiderOperationsPanel({
               </CardHeader>
               <CardContent className="overflow-x-auto p-0">
                 {loadingOrders ? (
-                  <TableSkeleton columns={7} rows={4} />
+                  <TableSkeleton columns={8} rows={4} />
                 ) : (
                   <table className="w-full text-sm">
                     <thead>
@@ -697,6 +691,7 @@ export function RiderOperationsPanel({
                         <th className="p-3 text-left font-medium">Location</th>
                         <th className="p-3 text-left font-medium">Orders</th>
                         <th className="p-3 text-left font-medium">Cash</th>
+                        <th className="p-3 text-left font-medium">KOKO paid</th>
                         <th className="p-3 text-left font-medium">Bank</th>
                         <th className="p-3 text-left font-medium">Card</th>
                         <th className="p-3 text-left font-medium">Already Paid</th>
@@ -709,6 +704,7 @@ export function RiderOperationsPanel({
                           <td className="p-3">{item.locationName}</td>
                           <td className="p-3">{item.orderCount}</td>
                           <td className="p-3">{formatMoney(String(item.cashTotal))}</td>
+                          <td className="p-3">{formatMoney(String(item.kokoTotal))}</td>
                           <td className="p-3">{formatMoney(String(item.bankTransferTotal))}</td>
                           <td className="p-3">{formatMoney(String(item.cardTotal))}</td>
                           <td className="p-3">{formatMoney(String(item.alreadyPaidTotal))}</td>
@@ -717,7 +713,7 @@ export function RiderOperationsPanel({
                       ))}
                       {filteredLocationSummary.length === 0 ? (
                         <tr>
-                          <td className="text-muted-foreground p-6 text-center" colSpan={7}>
+                          <td className="text-muted-foreground p-6 text-center" colSpan={8}>
                             No location totals for the selected filters.
                           </td>
                         </tr>
@@ -768,9 +764,11 @@ export function RiderOperationsPanel({
                           </td>
                           <td className="p-3">{formatDate(row.assignedAt)}</td>
                           <td className="p-3">{formatDate(row.completedAt ?? row.failedAt)}</td>
-                          <td className="p-3">{formatMoney(row.collectedAmount ?? row.expectedAmount)}</td>
+                          <td className="p-3">{formatMoney(riderOpsRowAmount(row))}</td>
                           <td className="p-3">
-                            <div>{row.paymentMethod ?? "--"}</div>
+                            {paymentBreakdown(row).map((line) => (
+                              <div key={line}>{line}</div>
+                            ))}
                             <div className="text-muted-foreground text-xs">{row.collectionStatus ?? "--"}</div>
                           </td>
                         </tr>

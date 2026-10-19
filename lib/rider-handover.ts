@@ -21,7 +21,12 @@ import {
   parseAppCalendarDayEnd,
   parseAppCalendarDayStart,
 } from "@/lib/format-datetime";
+import {
+  approvalSplitCashCollectAmount,
+  formatApprovalSplitAmountBreakdown,
+} from "@/lib/approval-payment-split";
 import { cashAmountFromDeliveryPayment } from "@/lib/mobile/payment-lines";
+import { loadSplitPaymentLinesByOrderIds } from "@/lib/order-split-payment";
 import { resolveOrderDisplayTotal } from "@/lib/order-shipping-display";
 import { prisma } from "@/lib/prisma";
 
@@ -100,6 +105,20 @@ export function handoverCashAmount(input: {
   });
   const total = new Prisma.Decimal(amount);
   return total.gt(0) ? total : new Prisma.Decimal(0);
+}
+
+/** Cash the rider collects. A KOKO/Bank + Cash split uses the cash leg, not zero. */
+export function resolveHandoverCollectCash(input: {
+  totalPrice: Prisma.Decimal | number | string | null;
+  subtotalPrice?: Prisma.Decimal | number | string | null;
+  totalShipping?: Prisma.Decimal | number | string | null;
+  paymentGatewayPrimary: string | null;
+  paymentGatewayNames?: string[] | null;
+  splitLines?: Array<{ paymentMethod: string; amount: number | string }>;
+}): Prisma.Decimal {
+  const splitCash = input.splitLines ? approvalSplitCashCollectAmount(input.splitLines) : null;
+  if (splitCash != null) return new Prisma.Decimal(splitCash);
+  return handoverCashAmount(input);
 }
 
 /** `null` location ids means the viewer may see every company. */
@@ -307,6 +326,7 @@ export type HandoverDelivery = {
   erpInstance: ErpnextInstance | null;
   courierServiceName: string | null;
   paymentMethod: DeliveryPaymentMethod | null;
+  paymentLabel: string | null;
   collectedAmount: string;
   cashAmount: string;
   payment: CashGroupInput["payment"];
@@ -391,8 +411,11 @@ export async function loadRiderHandoverDeliveries(input: {
     },
   });
 
+  const splitByOrder = await loadSplitPaymentLinesByOrderIds(tasks.map((task) => task.order.id));
+
   const deliveries: HandoverDelivery[] = tasks.map((task) => {
     const order = task.order;
+    const splitLines = splitByOrder.get(order.id) ?? [];
     const payment = order.deliveryPayment
       ? {
           paymentMethod: order.deliveryPayment.paymentMethod,
@@ -401,12 +424,13 @@ export async function loadRiderHandoverDeliveries(input: {
         }
       : null;
     const orderNumber = handoverOrderNumber(order);
-    const cashAmount = handoverCashAmount({
+    const cashAmount = resolveHandoverCollectCash({
       totalPrice: order.totalPrice,
       subtotalPrice: order.subtotalPrice,
       totalShipping: order.totalShipping,
       paymentGatewayPrimary: order.paymentGatewayPrimary,
       paymentGatewayNames: order.paymentGatewayNames,
+      splitLines,
     });
     return {
       orderId: order.id,
@@ -425,6 +449,7 @@ export async function loadRiderHandoverDeliveries(input: {
       erpInstance: order.companyLocation.erpnextInstance,
       courierServiceName: order.dispatchedByCourierService?.name ?? null,
       paymentMethod: order.deliveryPayment?.paymentMethod ?? null,
+      paymentLabel: formatApprovalSplitAmountBreakdown(splitLines),
       collectedAmount: collectedAmountLabel(payment),
       cashAmount: cashAmount.toFixed(2),
       payment,
@@ -470,6 +495,7 @@ export function handoverDeliveryMatchesQuery(
     | "locationName"
     | "cashAmount"
     | "paymentMethod"
+    | "paymentLabel"
     | "paymentGatewayPrimary"
     | "invoiceCompleteAt"
     | "fulfillmentStage"
@@ -483,6 +509,7 @@ export function handoverDeliveryMatchesQuery(
     handoverCompanyName(delivery.erpnextCompany, delivery.locationName),
     delivery.cashAmount,
     delivery.paymentMethod,
+    delivery.paymentLabel,
     delivery.paymentGatewayPrimary,
     isInvoiceClosed(delivery) ? "complete" : "open",
   ]
@@ -557,7 +584,7 @@ export async function buildHandoverOrders(deliveries: HandoverDelivery[]): Promi
       deliveredAt: delivery.deliveredAt?.toISOString() ?? null,
       cashAmount: delivery.cashAmount,
       collectedAmount: delivery.collectedAmount,
-      paymentMethod: delivery.paymentMethod,
+      paymentMethod: delivery.paymentLabel ?? delivery.paymentMethod,
       paymentGatewayPrimary: delivery.paymentGatewayPrimary,
       invoiceClosed,
       fulfillmentStage: delivery.fulfillmentStage,
@@ -800,6 +827,7 @@ export async function loadHandoverStatusExport(input: {
       rider: { select: { id: true, name: true, knownName: true } },
       order: {
         select: {
+          id: true,
           orderNumber: true,
           name: true,
           sourceName: true,
@@ -834,6 +862,7 @@ export async function loadHandoverStatusExport(input: {
     list.push(view);
     receiptsByRider.set(receipt.riderId, list);
   }
+  const splitByOrder = await loadSplitPaymentLinesByOrderIds(tasks.map((task) => task.order.id));
   const rows: HandoverStatusExportRow[] = tasks.map((task) => {
     const order = task.order;
     const companyName = handoverCompanyName(order.companyLocation.erpnextCompany, order.companyLocation.name);
@@ -843,12 +872,13 @@ export async function loadHandoverStatusExport(input: {
       riderName,
       companyName,
       orderNumber: handoverOrderNumber(order),
-      cashAmount: handoverCashAmount({
+      cashAmount: resolveHandoverCollectCash({
         totalPrice: order.totalPrice,
         subtotalPrice: order.subtotalPrice,
         totalShipping: order.totalShipping,
         paymentGatewayPrimary: order.paymentGatewayPrimary,
         paymentGatewayNames: order.paymentGatewayNames,
+        splitLines: splitByOrder.get(order.id) ?? [],
       }).toFixed(2),
       deliveredAt: task.completedAt,
       invoiceCompleteAt: order.invoiceCompleteAt,
