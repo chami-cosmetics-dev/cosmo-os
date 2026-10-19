@@ -15,6 +15,7 @@ import {
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserContext, hasPermission } from "@/lib/rbac";
 import { getPriceStatus } from "@/lib/item-creation/helpers";
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 
 export const ITEM_CREATION_PERMISSIONS = {
   admin: "item_creation.admin.manage",
@@ -289,9 +290,10 @@ function validateCreateInput(input: {
 }) {
   const sku = trimSku(input.sku);
   const standardPrice = toDecimal(input.standardPrice, "Standard Price");
-  const ogfPrice = toDecimal(input.ogfPrice, "OGF Price");
-  const gccPrice = toDecimal(input.gccPrice, "GCC Price");
-  const requestedErp1OgfPrice = toBoolean(input.addErp1OgfPrice);
+  const vaultOs = isVaultOsDeployment();
+  const ogfPrice = vaultOs ? null : toDecimal(input.ogfPrice, "OGF Price");
+  const gccPrice = vaultOs ? null : toDecimal(input.gccPrice, "GCC Price");
+  const requestedErp1OgfPrice = vaultOs ? false : toBoolean(input.addErp1OgfPrice);
   if (!standardPrice) throw new Error("Standard Price is required");
   const description = input.description?.trim();
   const country = input.country?.trim() ?? "";
@@ -676,13 +678,13 @@ export async function recordErpItemPrice(input: {
           data: { erpStandardPrice: price, standardPriceSeenAt: new Date() },
         });
         await activity(tx, request.id, "ERP_STANDARD_PRICE_DETECTED", "ERP_WEBHOOK", null, String(request.erpStandardPrice ?? ""), String(price), { sku, priceList, erpPrice: Number(price) });
-      } else if (samePriceList(priceList, ITEM_CREATION_PRICE_LISTS.OGF)) {
+      } else if (!isVaultOsDeployment() && samePriceList(priceList, ITEM_CREATION_PRICE_LISTS.OGF)) {
         await tx.itemCreationRequest.update({
           where: { id: request.id },
           data: { erpOgfPrice: price, ogfPriceSeenAt: new Date() },
         });
         await activity(tx, request.id, "ERP_OGF_PRICE_DETECTED", "ERP_WEBHOOK", null, String(request.erpOgfPrice ?? ""), String(price), { sku, priceList, erpPrice: Number(price) });
-      } else if (samePriceList(priceList, ITEM_CREATION_PRICE_LISTS.GCC)) {
+      } else if (!isVaultOsDeployment() && samePriceList(priceList, ITEM_CREATION_PRICE_LISTS.GCC)) {
         await tx.itemCreationRequest.update({
           where: { id: request.id },
           data: { erp2GccPrice: price, gccPriceSeenAt: new Date() },
