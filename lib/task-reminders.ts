@@ -1052,6 +1052,7 @@ export async function fetchTaskReminders(
     "invoice_complete",
     "stock_request_restocked",
     "shop_to_main",
+    "item_creation",
   ]);
 
   for (const reminder of reminders) {
