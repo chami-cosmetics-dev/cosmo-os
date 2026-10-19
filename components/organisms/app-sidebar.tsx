@@ -175,6 +175,10 @@ export function AppSidebar({
   const canViewApprovals =
     hasSidebarPermission("finance.approvals.read") ||
     hasSidebarPermission("finance.approvals.manage");
+  const canViewSupplierPayables =
+    hasSidebarPermission("finance.supplier_payables.read") ||
+    canViewPurchaseHistory;
+  const canViewReceivableOutstanding = hasSidebarPermission("finance.receivable_outstanding.read");
   const canViewAcademy =
     hasSidebarPermission("academy.learn") ||
     hasSidebarPermission("academy.manage");
@@ -515,7 +519,7 @@ export function AppSidebar({
                   href="/dashboard/reports"
                   icon={FileText}
                   label="Dump Reports"
-                  isActive={pathname === "/dashboard/reports" || pathname.startsWith("/dashboard/reports/")}
+                  isActive={pathname === "/dashboard/reports"}
                 />
               )}
               {canViewUtilityDumps && (
@@ -532,6 +536,22 @@ export function AppSidebar({
                   icon={FileSpreadsheet}
                   label="Stock Comparer"
                   isActive={pathname === "/dashboard/purchasing/stock-comparer"}
+                />
+              )}
+              {canViewSupplierPayables && (
+                <NavItem
+                  href="/dashboard/reports/supplier-payables"
+                  icon={FileText}
+                  label="Supplier Payables"
+                  isActive={pathname === "/dashboard/reports/supplier-payables"}
+                />
+              )}
+              {canViewReceivableOutstanding && (
+                <NavItem
+                  href="/dashboard/reports/receivable-outstanding"
+                  icon={FileText}
+                  label="Receivable Outstanding"
+                  isActive={pathname === "/dashboard/reports/receivable-outstanding"}
                 />
               )}
               {canViewReports && (

@@ -417,6 +417,14 @@ const DEFAULT_PERMISSIONS = [
     key: "finance.hod.revert_paid_to_unpaid",
     description: "Revert a paid order to unpaid (requires HOD password)",
   },
+  {
+    key: "finance.supplier_payables.read",
+    description: "View Supplier Payable Outstanding report",
+  },
+  {
+    key: "finance.receivable_outstanding.read",
+    description: "View Receivable Outstanding report",
+  },
   // Reminder bubbles — auto-granted to admin/super_admin; other roles tick in Roles UI
   ...REMINDER_BUBBLE_PERMISSIONS.map((p) => ({
     key: p.key,
@@ -780,6 +788,8 @@ const DEFAULT_ROLES = [
       "finance.approvals.manage",
       "finance.approvals.cancel_koko_duplicate",
       "finance.hod.revert_paid_to_unpaid",
+      "finance.supplier_payables.read",
+      "finance.receivable_outstanding.read",
       "dashboard.view",
       "dashboard.merchant_view",
       "dashboard.merchant_admin_view",

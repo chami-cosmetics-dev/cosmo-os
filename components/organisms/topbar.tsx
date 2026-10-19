@@ -34,6 +34,8 @@ export function Topbar({ title = "Dashboard", user }: TopbarProps) {
     { prefix: "/dashboard/contacts/supplement-import", label: "Supplement contact import" },
     { prefix: "/dashboard/contacts/allocation", label: "Contact Allocation" },
     { prefix: "/dashboard/contacts", label: "Contacts" },
+    { prefix: "/dashboard/reports/supplier-payables", label: "Supplier Payables" },
+    { prefix: "/dashboard/reports/receivable-outstanding", label: "Receivable Outstanding" },
     { prefix: "/dashboard/reports", label: "Dump Reports" },
     { prefix: "/dashboard/utility-dumps", label: "Utility Dumps" },
     { prefix: "/dashboard/koko-tally", label: "Koko Tally" },
