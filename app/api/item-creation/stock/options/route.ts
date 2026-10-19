@@ -4,11 +4,13 @@ import { ItemCreationErp } from "@prisma/client";
 import { getItemCreationStockOptions } from "@/lib/item-creation/automation";
 import { ITEM_CREATION_PERMISSIONS } from "@/lib/item-creation/workflow";
 import { requireAnyPermission } from "@/lib/rbac";
+import { STORE_ALLOCATION_PERMISSION } from "@/lib/store-allocation/auth";
 
 export async function GET(request: NextRequest) {
   const auth = await requireAnyPermission([
     ITEM_CREATION_PERMISSIONS.stores,
     ITEM_CREATION_PERMISSIONS.manageAll,
+    STORE_ALLOCATION_PERMISSION,
   ]);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
@@ -19,7 +21,7 @@ export async function GET(request: NextRequest) {
   if (!erp) return NextResponse.json({ error: "ERP must be ERP1 or ERP2" }, { status: 400 });
 
   try {
-    const options = await getItemCreationStockOptions(auth.context!, erp);
+    const options = await getItemCreationStockOptions(auth.context!, erp, { allowStoreAllocation: true });
     return NextResponse.json(options);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to load stock options";

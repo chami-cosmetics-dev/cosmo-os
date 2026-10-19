@@ -944,8 +944,14 @@ export async function createWarehousePurchaseReceipts(
   });
 }
 
-export async function getItemCreationStockOptions(context: UserContext, erp: ItemCreationErp) {
-  requireItemCreationPermission(context, ITEM_CREATION_PERMISSIONS.stores);
+export async function getItemCreationStockOptions(
+  context: UserContext,
+  erp: ItemCreationErp,
+  options?: { allowStoreAllocation?: boolean },
+) {
+  if (!options?.allowStoreAllocation) {
+    requireItemCreationPermission(context, ITEM_CREATION_PERMISSIONS.stores);
+  }
   const { erp1, erp2 } = await resolveErps(companyId(context));
   const cfg = erp === "ERP1" ? erp1?.cfg : erp2?.cfg;
   if (!cfg) throw new Error(`${erp} instance is not configured`);
