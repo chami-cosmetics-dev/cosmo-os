@@ -981,7 +981,7 @@ export async function autoMatchIntercompanyGrn() {
         docstatus: { not: 2 },
         supplierStockReturnName: null,
       },
-      include: { items: true },
+      include: { items: true, supplierStockReturnLinks: { select: { supplierStockReturnId: true } } },
     }),
     prisma.grnSupplierStockReturn.findMany({
       where: {
@@ -992,7 +992,7 @@ export async function autoMatchIntercompanyGrn() {
         docstatus: { not: 2 },
         purchaseReceiptName: null,
       },
-      include: { items: true },
+      include: { items: true, purchaseReceiptLinks: { select: { purchaseReceiptId: true } } },
       orderBy: [{ creation: "asc" }, { createdAt: "asc" }],
     }),
   ]);
@@ -1000,12 +1000,14 @@ export async function autoMatchIntercompanyGrn() {
   let matched = 0;
   const usedPurchaseReceipts = new Set<string>();
   for (const stockReturn of stockReturns) {
+    if (stockReturn.purchaseReceiptLinks.length > 0) continue;
     const rule = ruleForSupplier(stockReturn.supplier, stockReturn.supplierName);
     if (!rule) continue;
     const candidates = purchaseReceipts.filter(
       (receipt) =>
         receipt.companyLocationId === rule.locationId &&
-        !usedPurchaseReceipts.has(`${receipt.companyId}:${receipt.name}`),
+        !usedPurchaseReceipts.has(`${receipt.companyId}:${receipt.name}`) &&
+        receipt.supplierStockReturnLinks.length === 0,
     );
     const best = bestGrnMatchForStockReturn(stockReturn, candidates);
     if (!best || best.percentage !== 100) continue;
@@ -1069,14 +1071,14 @@ export async function autoMatchBackfillIntercompanyGrn() {
         docstatus: { not: 2 },
         supplierStockReturnName: null,
       },
-      include: { items: true },
+      include: { items: true, supplierStockReturnLinks: { select: { supplierStockReturnId: true } } },
     }),
     prisma.grnBackfillPurchaseReceipt.findMany({
       where: {
         companyLocationId: { in: supplierPrefixRules.map((rule) => rule.locationId) },
         docstatus: { not: 2 },
       },
-      include: { items: true },
+      include: { items: true, supplierStockReturnLinks: { select: { supplierStockReturnId: true } } },
     }),
     prisma.grnBackfillSupplierStockReturn.findMany({
       where: {
@@ -1087,7 +1089,7 @@ export async function autoMatchBackfillIntercompanyGrn() {
         docstatus: { not: 2 },
         purchaseReceiptName: null,
       },
-      include: { items: true },
+      include: { items: true, purchaseReceiptLinks: { select: { purchaseReceiptId: true } } },
       orderBy: [{ creation: "asc" }, { createdAt: "asc" }],
     }),
   ]);
@@ -1096,14 +1098,14 @@ export async function autoMatchBackfillIntercompanyGrn() {
     [
       ...(await prisma.grnSupplierStockReturn.findMany({
         where: { docstatus: { not: 2 }, purchaseReceiptName: { not: null } },
-        select: { purchaseReceiptName: true },
+        select: { purchaseReceiptName: true, purchaseReceiptLinks: { select: { purchaseReceipt: { select: { name: true } } } } },
       })),
       ...(await prisma.grnBackfillSupplierStockReturn.findMany({
         where: { docstatus: { not: 2 }, purchaseReceiptName: { not: null } },
-        select: { purchaseReceiptName: true },
+        select: { purchaseReceiptName: true, purchaseReceiptLinks: { select: { purchaseReceipt: { select: { name: true } } } } },
       })),
     ]
-      .map((row) => row.purchaseReceiptName)
+      .flatMap((row) => [row.purchaseReceiptName, ...row.purchaseReceiptLinks.map((link) => link.purchaseReceipt.name)])
       .filter((name): name is string => Boolean(name)),
   );
 
@@ -1118,19 +1120,21 @@ export async function autoMatchBackfillIntercompanyGrn() {
       isBackfill: false,
     })),
     ...backfillPurchaseReceipts.map((receipt) => ({
-    ...receipt,
+      ...receipt,
     supplierStockReturnName: null as string | null,
       isBackfill: true,
     })),
   ];
 
   for (const stockReturn of stockReturns) {
+    if (stockReturn.purchaseReceiptLinks.length > 0) continue;
     const rule = ruleForSupplier(stockReturn.supplier, stockReturn.supplierName);
     if (!rule) continue;
     const candidates = purchaseReceiptsForMatching
       .filter(
         (receipt) =>
           receipt.companyLocationId === rule.locationId &&
+          receipt.supplierStockReturnLinks.length === 0 &&
           !usedPurchaseReceiptNames.has(receipt.name) &&
           isWithinGrnMatchCreationWindow(receipt, stockReturn),
       )

@@ -9,6 +9,7 @@ export const dynamic = "force-dynamic";
 
 const schema = z.object({
   purchaseReceiptName: z.string().min(1).nullable(),
+  mode: z.enum(["replace", "append", "remove"]).optional().default("replace"),
   companyId: z.string().min(1).optional(),
   purchaseReceiptCompanyId: z.string().min(1).optional(),
 });
@@ -37,18 +38,19 @@ export async function POST(
   const { name } = await params;
   const stockReturnName = decodeURIComponent(name);
   const purchaseReceiptName = parsed.data.purchaseReceiptName;
+  const mode = parsed.data.mode;
   const targetCompanyId = parsed.data.companyId ?? companyId;
   const purchaseReceiptCompanyId = parsed.data.purchaseReceiptCompanyId ?? targetCompanyId;
 
   const stockReturn = await prisma.grnSupplierStockReturn.findUnique({
     where: { companyId_name: { companyId: targetCompanyId, name: stockReturnName } },
-    select: { docstatus: true },
+    select: { id: true, docstatus: true, purchaseReceiptName: true },
   });
   const backfillStockReturn = stockReturn
     ? null
     : await prisma.grnBackfillSupplierStockReturn.findUnique({
         where: { companyId_name: { companyId: targetCompanyId, name: stockReturnName } },
-        select: { docstatus: true },
+        select: { id: true, docstatus: true, purchaseReceiptName: true },
       });
   if (!stockReturn && !backfillStockReturn) {
     return NextResponse.json({ error: "Supplier stock return not found" }, { status: 404 });
@@ -81,6 +83,140 @@ export async function POST(
     purchaseReceiptIsBackfill = !pr && Boolean(backfillPr);
   }
 
+  if (mode === "append" || mode === "remove") {
+    if (!purchaseReceiptName || !purchaseReceiptId) {
+      return NextResponse.json({ error: "A purchase receipt is required" }, { status: 400 });
+    }
+    if (stockReturnIsBackfill !== purchaseReceiptIsBackfill) {
+      return NextResponse.json({ error: "Live and backfill records cannot share a multi-PR link" }, { status: 400 });
+    }
+
+    const linkedNames = purchaseReceiptIsBackfill
+      ? (await prisma.grnBackfillSupplierStockReturnPurchaseReceipt.findMany({
+          where: { purchaseReceiptId },
+          select: { supplierStockReturn: { select: { name: true } } },
+        })).map((link) => link.supplierStockReturn.name)
+      : (await prisma.grnSupplierStockReturnPurchaseReceipt.findMany({
+          where: { purchaseReceiptId },
+          select: { supplierStockReturn: { select: { name: true } } },
+        })).map((link) => link.supplierStockReturn.name);
+    if (!purchaseReceiptIsBackfill) {
+      const livePr = await prisma.grnPurchaseReceipt.findUnique({
+        where: { id: purchaseReceiptId },
+        select: { supplierStockReturnName: true },
+      });
+      if (livePr?.supplierStockReturnName) linkedNames.push(livePr.supplierStockReturnName);
+    }
+    if (mode === "append" && linkedNames.some((linkedName) => linkedName !== stockReturnName)) {
+      return NextResponse.json({ error: "This purchase receipt is already linked to another SSR" }, { status: 409 });
+    }
+
+    await prisma.$transaction(async (tx) => {
+      if (purchaseReceiptIsBackfill) {
+        if (mode === "append") {
+          await tx.grnBackfillSupplierStockReturnPurchaseReceipt.upsert({
+            where: {
+              supplierStockReturnId_purchaseReceiptId: {
+                supplierStockReturnId: backfillStockReturn!.id,
+                purchaseReceiptId,
+              },
+            },
+            create: {
+              companyId: targetCompanyId,
+              supplierStockReturnId: backfillStockReturn!.id,
+              purchaseReceiptId,
+            },
+            update: {},
+          });
+          await tx.grnBackfillSupplierStockReturn.update({
+            where: { companyId_name: { companyId: targetCompanyId, name: stockReturnName } },
+            data: { purchaseReceiptName: stockReturn?.purchaseReceiptName ?? purchaseReceiptName },
+          });
+        } else {
+          await tx.grnBackfillSupplierStockReturnPurchaseReceipt.deleteMany({
+            where: { supplierStockReturnId: backfillStockReturn!.id, purchaseReceiptId },
+          });
+          const remaining = await tx.grnBackfillSupplierStockReturnPurchaseReceipt.findFirst({
+            where: { supplierStockReturnId: backfillStockReturn!.id },
+            orderBy: { createdAt: "asc" },
+            select: { purchaseReceipt: { select: { name: true } } },
+          });
+          await tx.grnBackfillSupplierStockReturn.update({
+            where: { companyId_name: { companyId: targetCompanyId, name: stockReturnName } },
+            data: { purchaseReceiptName: remaining?.purchaseReceipt.name ?? null },
+          });
+        }
+      } else {
+        if (mode === "append") {
+          await tx.grnSupplierStockReturnPurchaseReceipt.upsert({
+            where: {
+              supplierStockReturnId_purchaseReceiptId: {
+                supplierStockReturnId: stockReturn!.id,
+                purchaseReceiptId,
+              },
+            },
+            create: {
+              companyId: targetCompanyId,
+              supplierStockReturnId: stockReturn!.id,
+              purchaseReceiptId,
+            },
+            update: {},
+          });
+          await tx.grnSupplierStockReturn.update({
+            where: { companyId_name: { companyId: targetCompanyId, name: stockReturnName } },
+            data: { purchaseReceiptName: stockReturn?.purchaseReceiptName ?? purchaseReceiptName },
+          });
+          await tx.grnPurchaseReceipt.update({
+            where: { id: purchaseReceiptId },
+            data: { supplierStockReturnName: stockReturnName },
+          });
+        } else {
+          await tx.grnSupplierStockReturnPurchaseReceipt.deleteMany({
+            where: { supplierStockReturnId: stockReturn!.id, purchaseReceiptId },
+          });
+          await tx.grnPurchaseReceipt.updateMany({
+            where: { id: purchaseReceiptId, supplierStockReturnName: stockReturnName },
+            data: { supplierStockReturnName: null },
+          });
+          const remaining = await tx.grnSupplierStockReturnPurchaseReceipt.findFirst({
+            where: { supplierStockReturnId: stockReturn!.id },
+            orderBy: { createdAt: "asc" },
+            select: { purchaseReceipt: { select: { name: true } } },
+          });
+          await tx.grnSupplierStockReturn.update({
+            where: { companyId_name: { companyId: targetCompanyId, name: stockReturnName } },
+            data: { purchaseReceiptName: remaining?.purchaseReceipt.name ?? null },
+          });
+        }
+      }
+
+      if (mode === "append") {
+        if (purchaseReceiptId) {
+          await attachPendingSupplierStockReturnPurchaseInvoices(tx, {
+            companyId: targetCompanyId,
+            stockReturnName,
+            purchaseReceiptId,
+            purchaseReceiptName,
+          });
+        }
+        await tx.grnBackfillPurchaseInvoice.updateMany({
+          where: {
+            companyId: targetCompanyId,
+            docstatus: { not: 2 },
+            OR: [
+              { billNo: `SSR-${stockReturnName}` },
+              { supplierStockReturnName: stockReturnName },
+              { items: { some: { supplierStockReturn: stockReturnName } } },
+            ],
+          },
+          data: { purchaseReceiptName, supplierStockReturnName: stockReturnName },
+        });
+      }
+    });
+
+    return NextResponse.json({ ok: true });
+  }
+
   await prisma.$transaction(async (tx) => {
     const displacedStockReturns = purchaseReceiptName
       ? await tx.grnSupplierStockReturn.findMany({
@@ -89,7 +225,7 @@ export async function POST(
             name: { not: stockReturnName },
             docstatus: { not: 2 },
           },
-          select: { name: true },
+        select: { id: true, name: true },
         })
       : [];
     const displacedBackfillStockReturns = purchaseReceiptName
@@ -99,7 +235,7 @@ export async function POST(
             name: { not: stockReturnName },
             docstatus: { not: 2 },
           },
-          select: { name: true },
+        select: { id: true, name: true },
         })
       : [];
 
@@ -138,6 +274,7 @@ export async function POST(
             purchaseReceiptName: null,
           },
         });
+        await tx.grnSupplierStockReturnPurchaseReceipt.deleteMany({ where: { supplierStockReturnId: displaced.id, purchaseReceiptId: purchaseReceiptId ?? "__none__" } });
       }
       for (const displaced of displacedBackfillStockReturns) {
         await tx.grnBackfillPurchaseInvoice.updateMany({
@@ -154,6 +291,7 @@ export async function POST(
             supplierStockReturnName: null,
           },
         });
+        await tx.grnBackfillSupplierStockReturnPurchaseReceipt.deleteMany({ where: { supplierStockReturnId: displaced.id, purchaseReceiptId: purchaseReceiptId ?? "__none__" } });
       }
     }
     if (!purchaseReceiptIsBackfill) {
@@ -172,6 +310,38 @@ export async function POST(
         where: { companyId_name: { companyId: targetCompanyId, name: stockReturnName } },
         data: { purchaseReceiptName },
       });
+    }
+    if (purchaseReceiptName) {
+      if (stockReturnIsBackfill) {
+        await tx.grnBackfillSupplierStockReturnPurchaseReceipt.deleteMany({
+          where: { supplierStockReturnId: backfillStockReturn!.id },
+        });
+      } else {
+        await tx.grnSupplierStockReturnPurchaseReceipt.deleteMany({
+          where: { supplierStockReturnId: stockReturn!.id },
+        });
+      }
+    }
+    if (purchaseReceiptName && purchaseReceiptId && stockReturnIsBackfill === purchaseReceiptIsBackfill) {
+      if (purchaseReceiptIsBackfill) {
+        await tx.grnBackfillSupplierStockReturnPurchaseReceipt.upsert({
+          where: { supplierStockReturnId_purchaseReceiptId: { supplierStockReturnId: backfillStockReturn!.id, purchaseReceiptId } },
+          create: { companyId: targetCompanyId, supplierStockReturnId: backfillStockReturn!.id, purchaseReceiptId },
+          update: {},
+        });
+      } else {
+        await tx.grnSupplierStockReturnPurchaseReceipt.upsert({
+          where: { supplierStockReturnId_purchaseReceiptId: { supplierStockReturnId: stockReturn!.id, purchaseReceiptId } },
+          create: { companyId: targetCompanyId, supplierStockReturnId: stockReturn!.id, purchaseReceiptId },
+          update: {},
+        });
+      }
+    } else if (!purchaseReceiptName) {
+      if (stockReturnIsBackfill) {
+        await tx.grnBackfillSupplierStockReturnPurchaseReceipt.deleteMany({ where: { supplierStockReturnId: backfillStockReturn!.id } });
+      } else {
+        await tx.grnSupplierStockReturnPurchaseReceipt.deleteMany({ where: { supplierStockReturnId: stockReturn!.id } });
+      }
     }
     if (purchaseReceiptName && purchaseReceiptId) {
       await attachPendingSupplierStockReturnPurchaseInvoices(tx, {

@@ -174,6 +174,7 @@ export async function GET(request: NextRequest) {
     stockReturns,
     backfillStockReturns,
     backfillPurchaseInvoices,
+    livePurchaseInvoices,
     supplierPrefixLocations,
   ] = await Promise.all([
     prisma.grnPurchaseReceipt.findMany({
@@ -193,6 +194,7 @@ export async function GET(request: NextRequest) {
       orderBy: [{ creation: "desc" }, { createdAt: "desc" }],
       include: {
         items: true,
+        supplierStockReturnLinks: { include: { supplierStockReturn: { select: { name: true } } } },
         handoverBy: { select: { id: true, name: true, email: true } },
         handoverRevertedBy: { select: { id: true, name: true, email: true } },
         handoverReceivedBy: { select: { id: true, name: true, email: true } },
@@ -238,6 +240,7 @@ export async function GET(request: NextRequest) {
       orderBy: [{ creation: "desc" }, { createdAt: "desc" }],
       include: {
         items: true,
+        supplierStockReturnLinks: { include: { supplierStockReturn: { select: { name: true } } } },
         company: {
           select: {
             name: true,
@@ -268,6 +271,7 @@ export async function GET(request: NextRequest) {
       orderBy: [{ creation: "desc" }, { createdAt: "desc" }],
       include: {
         items: true,
+        purchaseReceiptLinks: { include: { purchaseReceipt: { select: { name: true } } } },
         company: {
           select: {
             name: true,
@@ -297,6 +301,7 @@ export async function GET(request: NextRequest) {
       orderBy: [{ creation: "desc" }, { createdAt: "desc" }],
       include: {
         items: true,
+        purchaseReceiptLinks: { include: { purchaseReceipt: { select: { name: true } } } },
         company: {
           select: {
             name: true,
@@ -315,6 +320,18 @@ export async function GET(request: NextRequest) {
       where: {
         ...companyScope,
         ...(dateFilter ? { postingDate: dateFilter } : {}),
+      },
+      orderBy: [{ postingDate: "desc" }, { createdAt: "desc" }],
+      include: { items: true },
+    }),
+    prisma.grnPurchaseInvoice.findMany({
+      where: {
+        ...companyScope,
+        docstatus: { not: 2 },
+        OR: [
+          { supplierStockReturnName: { not: null } },
+          { items: { some: { supplierStockReturn: { not: null } } } },
+        ],
       },
       orderBy: [{ postingDate: "desc" }, { createdAt: "desc" }],
       include: { items: true },
@@ -362,7 +379,10 @@ export async function GET(request: NextRequest) {
   const usedPurchaseReceiptNames = new Set(
     allStockReturnsForLookup
       .filter((row) => row.docstatus === 1)
-      .map((row) => row.purchaseReceiptName)
+      .flatMap((row) => [
+        row.purchaseReceiptName,
+        ...row.purchaseReceiptLinks.map((link) => link.purchaseReceipt.name),
+      ])
       .filter((name): name is string => Boolean(name)),
   );
   const amendedPurchaseReceiptNames = new Set(
@@ -389,6 +409,19 @@ export async function GET(request: NextRequest) {
   const activePurchaseReceiptsForMatching = allPurchaseReceiptsForMatching.filter((row) => !isPurchaseReceiptCancelled(row));
   const activePurchaseReceiptNames = new Set(activePurchaseReceiptsForMatching.map((row) => row.name));
   const activePurchaseReceiptByName = new Map(activePurchaseReceiptsForMatching.map((row) => [row.name, row]));
+  const activePurchaseReceiptByCompanyName = new Map(
+    activePurchaseReceiptsForMatching.map((row) => [`${row.companyId}:${row.name}`, row]),
+  );
+  const linkedPurchaseReceiptsForStockReturn = (row: (typeof allStockReturnsForLookup)[number]) => {
+    const names = [...new Set([
+      row.purchaseReceiptName,
+      ...row.purchaseReceiptLinks.map((link) => link.purchaseReceipt.name),
+    ].filter((name): name is string => Boolean(name)))];
+    return names.flatMap((name) => {
+      const receipt = activePurchaseReceiptByCompanyName.get(`${row.companyId}:${name}`) ?? activePurchaseReceiptByName.get(name);
+      return receipt ? [receipt] : [];
+    });
+  };
   const activeIntercompanyPurchaseReceipts = allPurchaseReceiptsForMatching.filter(
     (row) =>
       supplierPrefixRules.some((rule) => rule.locationId === row.companyLocationId) &&
@@ -422,7 +455,7 @@ export async function GET(request: NextRequest) {
   const candidateMatchesByStockReturn = new Map<string, Array<{ companyId: string; name: string; percentage: number }>>();
   const claimCountByPurchaseReceipt = new Map<string, number>();
   for (const stockReturn of allStockReturnsForLookup) {
-    if (stockReturn.docstatus !== 1 || stockReturn.purchaseReceiptName) continue;
+    if (stockReturn.docstatus !== 1 || stockReturn.purchaseReceiptName || stockReturn.purchaseReceiptLinks.length > 0) continue;
     const supplierPrefixRule = supplierPrefixRuleForSupplier(stockReturn.supplier, stockReturn.supplierName);
     if (!supplierPrefixRule) continue;
     const candidates = activeIntercompanyPurchaseReceipts
@@ -447,14 +480,15 @@ export async function GET(request: NextRequest) {
   }
   const recommendationForStockReturn = (
     row: (typeof allStockReturnsForLookup)[number],
-    linkedPurchaseReceipt: (typeof activePurchaseReceiptsForMatching)[number] | null,
+    linkedPurchaseReceipts: Array<(typeof activePurchaseReceiptsForMatching)[number]>,
   ) => {
-    if (linkedPurchaseReceipt) {
+    if (linkedPurchaseReceipts.length > 0) {
+      const linkedPurchaseReceipt = linkedPurchaseReceipts[0];
       return {
         recommendation: {
           companyId: linkedPurchaseReceipt.companyId,
           name: linkedPurchaseReceipt.name,
-          percentage: calculateGrnMatchPercentage(linkedPurchaseReceipt.items, row.items),
+          percentage: calculateGrnMatchPercentage(linkedPurchaseReceipts.flatMap((receipt) => receipt.items), row.items),
         },
         conflict: false,
         conflictMatches: [],
@@ -484,22 +518,33 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({
     purchaseReceipts: [...purchaseReceipts.map((row) => {
-      const linked = row.supplierStockReturnName
-        ? stockReturnByName.get(row.supplierStockReturnName)
-        : null;
+      const linkedStockReturnNames = [...new Set([
+        row.supplierStockReturnName,
+        ...row.supplierStockReturnLinks.map((link) => link.supplierStockReturn.name),
+      ].filter((name): name is string => Boolean(name)))];
+      const linked = linkedStockReturnNames
+        .map((name) => stockReturnByName.get(name))
+        .find((stockReturn): stockReturn is (typeof allStockReturnsForLookup)[number] => Boolean(stockReturn)) ?? null;
       const activeLinked = !isPurchaseReceiptCancelled(row) && linked?.docstatus !== 2 ? linked : null;
+      const linkedPurchaseReceiptsForTally = activeLinked
+        ? linkedPurchaseReceiptsForStockReturn(activeLinked)
+        : [];
+      const combinedPurchaseReceiptItems = linkedPurchaseReceiptsForTally.flatMap((receipt) => receipt.items);
       const tally = activeLinked
-        ? tallyLinkedItems(row.items, activeLinked.items)
+        ? tallyLinkedItems(combinedPurchaseReceiptItems, activeLinked.items)
         : { status: "not_linked" as const, issueItems: [] };
-      const tallyIssues = activeLinked ? buildTallyIssues(row.items, activeLinked.items) : [];
+      const tallyIssues = activeLinked ? buildTallyIssues(combinedPurchaseReceiptItems, activeLinked.items) : [];
       const purchaseInvoice =
         row.purchaseInvoices.find((invoice) =>
           invoice.items.some((item) => item.purchaseReceipt === row.name) &&
           !invoice.items.some((item) => item.supplierStockReturn),
         ) ?? null;
-      const supplierStockReturnPurchaseInvoice = row.supplierStockReturnName
+      const supplierStockReturnPurchaseInvoice = linked
         ? row.purchaseInvoices.find((invoice) =>
-            invoice.items.some((item) => item.supplierStockReturn === row.supplierStockReturnName),
+            invoice.items.some((item) => item.supplierStockReturn === linked.name),
+          ) ?? livePurchaseInvoices.find((invoice) =>
+            invoice.supplierStockReturnName === linked.name ||
+            invoice.items.some((item) => item.supplierStockReturn === linked.name),
           ) ?? null
         : null;
       const serializePurchaseInvoice = (invoice: (typeof row.purchaseInvoices)[number] | null) =>
@@ -543,7 +588,8 @@ export async function GET(request: NextRequest) {
           "purchase-receipt",
           row.name,
         ),
-        adjustmentNo: row.supplierStockReturnName,
+        adjustmentNo: linkedStockReturnNames[0] ?? null,
+        adjustmentNos: linkedStockReturnNames,
         adjustmentDocstatus: linked?.docstatus ?? null,
         amendedFrom: row.amendedFrom,
         grnDate: iso(row.creation ?? row.postingDate),
@@ -582,40 +628,50 @@ export async function GET(request: NextRequest) {
           stockUom: item.stockUom,
         })),
         tallyStatus: tally.status,
-        tallyPercentage: activeLinked ? calculateGrnMatchPercentage(row.items, activeLinked.items) : null,
+        tallyPercentage: activeLinked ? calculateGrnMatchPercentage(combinedPurchaseReceiptItems, activeLinked.items) : null,
         tallyIssueItems: tally.issueItems,
         tallyIssues,
         purchaseInvoice: serializePurchaseInvoice(purchaseInvoice),
         supplierStockReturnPurchaseInvoice: serializePurchaseInvoice(supplierStockReturnPurchaseInvoice),
       };
     }), ...backfillPurchaseReceipts.map((row) => {
-      const linked = allStockReturnsForLookup.find((stockReturn) => stockReturn.purchaseReceiptName === row.name) ?? null;
+      const linkedStockReturnNames = [...new Set(
+        row.supplierStockReturnLinks.map((link) => link.supplierStockReturn.name),
+      )];
+      const linked = linkedStockReturnNames
+        .map((name) => stockReturnByName.get(name))
+        .find((stockReturn): stockReturn is (typeof allStockReturnsForLookup)[number] => Boolean(stockReturn)) ?? null;
       const activeLinked = !isPurchaseReceiptCancelled(row) && linked?.docstatus !== 2 ? linked : null;
+      const linkedPurchaseReceiptsForTally = activeLinked
+        ? linkedPurchaseReceiptsForStockReturn(activeLinked)
+        : [];
+      const combinedPurchaseReceiptItems = linkedPurchaseReceiptsForTally.flatMap((receipt) => receipt.items);
       const tally = activeLinked
-        ? tallyLinkedItems(row.items, activeLinked.items)
+        ? tallyLinkedItems(combinedPurchaseReceiptItems, activeLinked.items)
         : { status: "not_linked" as const, issueItems: [] };
-      const tallyIssues = activeLinked ? buildTallyIssues(row.items, activeLinked.items) : [];
+      const tallyIssues = activeLinked ? buildTallyIssues(combinedPurchaseReceiptItems, activeLinked.items) : [];
       const purchaseInvoice =
         backfillPurchaseInvoices.find((invoice) =>
           invoice.items.some((item) => item.purchaseReceipt === row.name) &&
           !invoice.items.some((item) => item.supplierStockReturn),
         ) ?? null;
-      const supplierStockReturnPurchaseInvoice = linked
+      const supplierStockReturnPurchaseInvoice = activeLinked
         ? backfillPurchaseInvoices.find((invoice) =>
-            invoice.items.some((item) => item.supplierStockReturn === linked.name),
+            invoice.items.some((item) => item.supplierStockReturn === activeLinked.name),
           ) ?? null
         : null;
       return {
         companyId: row.companyId,
         companyLocationId: row.companyLocationId,
-        companyName: row.company.name,
+        companyName: row.company?.name ?? erpCompanyFromPayload(row.rawPayload) ?? "Unknown company",
         name: row.name,
         erpUrl: erpDocUrl(
-          erpBaseUrlForPayload(row.rawPayload, row.company.locations),
+          erpBaseUrlForPayload(row.rawPayload, row.company?.locations ?? []),
           "purchase-receipt",
           row.name,
         ),
-        adjustmentNo: linked?.name ?? null,
+        adjustmentNo: linkedStockReturnNames[0] ?? null,
+        adjustmentNos: linkedStockReturnNames,
         adjustmentDocstatus: linked?.docstatus ?? null,
         amendedFrom: row.amendedFrom,
         grnDate: iso(row.creation ?? row.postingDate),
@@ -654,7 +710,7 @@ export async function GET(request: NextRequest) {
           stockUom: item.stockUom,
         })),
         tallyStatus: tally.status,
-        tallyPercentage: activeLinked ? calculateGrnMatchPercentage(row.items, activeLinked.items) : null,
+        tallyPercentage: activeLinked ? calculateGrnMatchPercentage(combinedPurchaseReceiptItems, activeLinked.items) : null,
         tallyIssueItems: tally.issueItems,
         tallyIssues,
         purchaseInvoice: serializeBackfillPurchaseInvoice(purchaseInvoice),
@@ -662,16 +718,15 @@ export async function GET(request: NextRequest) {
       };
     })],
     supplierStockReturns: [...stockReturns.map((row) => {
-      const linkedPurchaseReceipt = row.purchaseReceiptName
-        ? activePurchaseReceiptByName.get(row.purchaseReceiptName) ?? null
-        : null;
-      const { recommendation, conflict, conflictMatches } = recommendationForStockReturn(row, linkedPurchaseReceipt);
+      const linkedPurchaseReceipts = linkedPurchaseReceiptsForStockReturn(row);
+      const linkedPurchaseReceipt = linkedPurchaseReceipts[0] ?? null;
+      const { recommendation, conflict, conflictMatches } = recommendationForStockReturn(row, linkedPurchaseReceipts);
       return {
         companyId: row.companyId,
-        companyName: row.company.name,
+        companyName: row.company?.name ?? erpCompanyFromPayload(row.rawPayload) ?? "Unknown company",
         name: row.name,
         erpUrl: erpDocUrl(
-          erpBaseUrlForPayload(row.rawPayload, row.company.locations),
+          erpBaseUrlForPayload(row.rawPayload, row.company?.locations ?? []),
           "supplier-stock-return",
           row.name,
         ),
@@ -683,13 +738,21 @@ export async function GET(request: NextRequest) {
         creation: iso(row.creation),
         amendedFrom: row.amendedFrom,
         purchaseReceiptName: row.purchaseReceiptName,
-        canTally: row.docstatus !== 2 && (!row.purchaseReceiptName || activePurchaseReceiptNames.has(row.purchaseReceiptName)),
+        purchaseReceiptNames: [...new Set([
+          row.purchaseReceiptName,
+          ...row.purchaseReceiptLinks.map((link) => link.purchaseReceipt.name),
+        ].filter((name): name is string => Boolean(name)))],
+        canTally: row.docstatus !== 2 && (linkedPurchaseReceipts.length > 0 || !row.purchaseReceiptName || activePurchaseReceiptNames.has(row.purchaseReceiptName)),
         isBackfill: false,
         itemCount: row.items.length,
         matchRecommendation: recommendation,
         conflictMatches,
-        matchReviewStatus: linkedPurchaseReceipt
+        matchReviewStatus: linkedPurchaseReceipt && recommendation && recommendation.percentage >= 100
           ? "matched"
+          : linkedPurchaseReceipt
+            ? recommendation && recommendation.percentage > 0
+              ? "review"
+              : "waiting"
           : recommendation
             ? conflict
               ? "conflict"
@@ -706,16 +769,15 @@ export async function GET(request: NextRequest) {
         })),
       };
     }), ...backfillStockReturns.map((row) => {
-      const linkedPurchaseReceipt = row.purchaseReceiptName
-        ? activePurchaseReceiptByName.get(row.purchaseReceiptName) ?? null
-        : null;
-      const { recommendation, conflict, conflictMatches } = recommendationForStockReturn(row, linkedPurchaseReceipt);
+      const linkedPurchaseReceipts = linkedPurchaseReceiptsForStockReturn(row);
+      const linkedPurchaseReceipt = linkedPurchaseReceipts[0] ?? null;
+      const { recommendation, conflict, conflictMatches } = recommendationForStockReturn(row, linkedPurchaseReceipts);
       return {
         companyId: row.companyId,
-        companyName: row.company.name,
+        companyName: row.company?.name ?? erpCompanyFromPayload(row.rawPayload) ?? "Unknown company",
         name: row.name,
         erpUrl: erpDocUrl(
-          erpBaseUrlForPayload(row.rawPayload, row.company.locations),
+          erpBaseUrlForPayload(row.rawPayload, row.company?.locations ?? []),
           "supplier-stock-return",
           row.name,
         ),
@@ -727,13 +789,21 @@ export async function GET(request: NextRequest) {
         creation: iso(row.creation),
         amendedFrom: row.amendedFrom,
         purchaseReceiptName: row.purchaseReceiptName,
-        canTally: row.docstatus !== 2 && (!row.purchaseReceiptName || activePurchaseReceiptNames.has(row.purchaseReceiptName)),
+        purchaseReceiptNames: [...new Set([
+          row.purchaseReceiptName,
+          ...row.purchaseReceiptLinks.map((link) => link.purchaseReceipt.name),
+        ].filter((name): name is string => Boolean(name)))],
+        canTally: row.docstatus !== 2 && (linkedPurchaseReceipts.length > 0 || !row.purchaseReceiptName || activePurchaseReceiptNames.has(row.purchaseReceiptName)),
         isBackfill: true,
         itemCount: row.items.length,
         matchRecommendation: recommendation,
         conflictMatches,
-        matchReviewStatus: linkedPurchaseReceipt
+        matchReviewStatus: linkedPurchaseReceipt && recommendation && recommendation.percentage >= 100
           ? "matched"
+          : linkedPurchaseReceipt
+            ? recommendation && recommendation.percentage > 0
+              ? "review"
+              : "waiting"
           : recommendation
             ? conflict
               ? "conflict"
