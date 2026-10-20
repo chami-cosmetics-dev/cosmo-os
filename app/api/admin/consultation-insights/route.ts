@@ -2,7 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireConsultationAccess } from "@/lib/consultation-insights/auth";
-import { createConsultationEntry, listConsultations } from "@/lib/consultation-insights/server";
+import {
+  createConsultationEntry,
+  findCancelledInvoices,
+  listConsultations,
+} from "@/lib/consultation-insights/server";
 import {
   CONSULTATION_MONTH_PATTERN,
   CONSULTATION_PHONE_PATTERN,
@@ -63,6 +67,14 @@ export async function POST(request: NextRequest) {
   const invoiceNumbers = splitInvoiceNumbers(body.invoiceNumbers.join(" "));
   if (invoiceNumbers.length === 0) {
     return NextResponse.json({ error: "Add at least one invoice number" }, { status: 400 });
+  }
+
+  const cancelled = await findCancelledInvoices(access.companyId, invoiceNumbers);
+  if (cancelled.length > 0) {
+    return NextResponse.json(
+      { error: `Cancelled invoice${cancelled.length === 1 ? "" : "s"} can't be added: ${cancelled.join(", ")}` },
+      { status: 400 },
+    );
   }
 
   const merchant = findConsultationMerchant(body.merchant);
