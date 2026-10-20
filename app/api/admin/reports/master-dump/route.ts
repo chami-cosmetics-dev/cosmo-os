@@ -5,6 +5,7 @@ import ExcelJS from "exceljs";
 import { NextRequest, NextResponse } from "next/server";
 
 import { loadKokoRefNumbersForOrders } from "@/lib/approval-koko-list";
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 import { normalizeContactEmail } from "@/lib/contact-identifiers";
 import {
   applyMerchantGroup,
@@ -864,8 +865,11 @@ export async function GET(request: NextRequest) {
     writtenRows += 1;
   };
 
+  const vaultOs = isVaultOsDeployment();
+
   void (async () => {
     try {
+        if (!vaultOs) {
         let cursorId: string | undefined;
         for (;;) {
           if (request.signal.aborted) break;
@@ -1075,7 +1079,9 @@ export async function GET(request: NextRequest) {
           cursorId = orders[orders.length - 1]!.id;
           if (orders.length < PAGE_SIZE) break;
         }
+        }
 
+        if (vaultOs) {
         let historyCursorId: string | undefined;
         for (;;) {
           if (request.signal.aborted) break;
@@ -1125,6 +1131,7 @@ export async function GET(request: NextRequest) {
           }
           historyCursorId = historyRows[historyRows.length - 1]!.id;
           if (historyRows.length < HISTORY_PAGE_SIZE) break;
+        }
         }
 
         if (!request.signal.aborted) {

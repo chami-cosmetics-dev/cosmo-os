@@ -128,7 +128,7 @@ export function DumpReportsPanel({ historicalYears, permissionKeys, recentLogs =
           <CardContent className="space-y-4 p-5">
             <ReportRow
               title="Master Reports"
-              subtitle="Live Cosmo orders plus every imported history row. Filter BUSINESS for Cosmetics or File import. Item report joins on order id."
+              subtitle="Cosmo: live orders. Vault: imported history only. Filter BUSINESS for Cosmetics or File import. Item report joins on order id."
               actions={allowedActions([
                 { href: "/api/admin/reports/master-dump?report=order", label: "Order Report", permission: REPORT_DUMP_PERMISSIONS.master, tone: "amber" },
                 { href: "/api/admin/reports/master-dump?report=item", label: "Item Report", permission: REPORT_DUMP_PERMISSIONS.master, tone: "amber" },
