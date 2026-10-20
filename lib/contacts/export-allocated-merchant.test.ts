@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  allocationLookupPhones,
   indexAllocatedMerchantByPhones,
   resolveExportAssignedMerchant,
 } from "@/lib/contacts/export-allocated-merchant";
@@ -59,6 +60,12 @@ describe("resolveExportAssignedMerchant", () => {
     expect(resolveExportAssignedMerchant(null, ["0779999999"], map)).toBe(
       "Dinuli"
     );
+  });
+
+  it("expands a local number into stored +94 forms for the page lookup", () => {
+    const phones = allocationLookupPhones(["0771234567"]);
+    expect(phones).toContain("0771234567");
+    expect(phones.some((value) => value.includes("94771234567"))).toBe(true);
   });
 
   it("stays blank when no phone-matched allocation exists", () => {

@@ -1,4 +1,22 @@
 export const DUMP_TOTAL_HEADER = "X-Dump-Total";
+export const DUMP_HAS_MORE_HEADER = "X-Dump-Has-More";
+export const DUMP_NEXT_CURSOR_HEADER = "X-Dump-Next-Cursor";
+export const DUMP_PAGE_CONTACTS_HEADER = "X-Dump-Page-Contacts";
+
+export function dumpExposeHeaders(extra: string[] = []) {
+  return [DUMP_TOTAL_HEADER, DUMP_HAS_MORE_HEADER, DUMP_NEXT_CURSOR_HEADER, DUMP_PAGE_CONTACTS_HEADER, ...extra]
+    .filter((name, index, all) => all.indexOf(name) === index)
+    .join(", ");
+}
+
+export function parseDumpFlagHeader(value: string | null) {
+  return value === "1" || value?.toLowerCase() === "true";
+}
+
+export function parseDumpCountHeader(value: string | null) {
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0;
+}
 
 export function parseDumpTotalHeader(value: string | null) {
   const total = Number(value);

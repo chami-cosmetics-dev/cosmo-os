@@ -92,7 +92,7 @@
       "memory": 3008
     },
     "app/api/admin/contacts/export/route.ts": {
-      "maxDuration": 800
+      "maxDuration": 300
     },
     "app/api/admin/customer-insight/filter/export/route.ts": {
       "maxDuration": 800
