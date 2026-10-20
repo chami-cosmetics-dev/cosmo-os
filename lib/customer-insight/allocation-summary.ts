@@ -4,8 +4,8 @@ import { isOrderReversed } from "@/lib/customer-insight/lifetime-total";
 import { merchantMatchKeysForUser } from "@/lib/customer-insight/ownership";
 import { getPrimaryMerCode, normalizeMerCodeKey } from "@/lib/merchant-allocation";
 import {
+  fetchAssignedMerchantAliasMap,
   listInsightMerchantRosterOptions,
-  resolveAssignedMerchantFilterLabels,
 } from "@/lib/customer-insight/merchant-label-aliases";
 import { prisma } from "@/lib/prisma";
 
@@ -91,29 +91,41 @@ export function resolveAllocatedMerchant(
   };
 }
 
+const ALIAS_MAP_TTL_MS = 120_000;
+
+type AliasMapCacheEntry = {
+  expiresAt: number;
+  map: Map<string, AssignedMerchantRosterMatch>;
+};
+
+const aliasMapCache = new Map<string, AliasMapCacheEntry>();
+const aliasMapInflight = new Map<
+  string,
+  Promise<Map<string, AssignedMerchantRosterMatch>>
+>();
+
 export async function loadAssignedMerchantAliasMap(
   companyId: string
 ): Promise<Map<string, AssignedMerchantRosterMatch>> {
-  const roster = await listInsightMerchantRosterOptions(companyId);
-  const aliasToRoster = new Map<string, AssignedMerchantRosterMatch>();
-  await Promise.all(
-    roster.map(async (opt) => {
-      const aliases = await resolveAssignedMerchantFilterLabels(
-        companyId,
-        opt.value
-      );
-      for (const alias of aliases) {
-        const key = norm(alias);
-        if (!key || aliasToRoster.has(key)) continue;
-        aliasToRoster.set(key, { value: opt.value, label: opt.label });
-      }
-      const valueKey = norm(opt.value);
-      if (valueKey && !aliasToRoster.has(valueKey)) {
-        aliasToRoster.set(valueKey, { value: opt.value, label: opt.label });
-      }
-    })
-  );
-  return aliasToRoster;
+  const now = Date.now();
+  const hit = aliasMapCache.get(companyId);
+  if (hit && hit.expiresAt > now) return hit.map;
+
+  const pending = aliasMapInflight.get(companyId);
+  if (pending) return pending;
+
+  const load = fetchAssignedMerchantAliasMap(companyId);
+  aliasMapInflight.set(companyId, load);
+  try {
+    const map = await load;
+    aliasMapCache.set(companyId, {
+      expiresAt: Date.now() + ALIAS_MAP_TTL_MS,
+      map,
+    });
+    return map;
+  } finally {
+    aliasMapInflight.delete(companyId);
+  }
 }
 
 /**

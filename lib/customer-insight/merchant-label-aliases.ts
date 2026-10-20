@@ -193,7 +193,7 @@ export function insightMerchantOptionLabel(user: {
   return mer ? `${display} (${mer})` : display;
 }
 
-type MerchantFilterUser = {
+export type MerchantFilterUser = {
   id: string;
   knownName: string | null;
   name: string | null;
@@ -268,18 +268,12 @@ function labelsForMerchantUser(user: MerchantFilterUser): string[] {
   ]);
 }
 
-/**
- * Resolve all ContactMaster.assignedMerchant strings that should match a
- * dropdown selection (MER code, display name, or fixed bucket).
- */
-export async function resolveAssignedMerchantFilterLabels(
-  companyId: string,
+function assignedMerchantFilterLabelsFromUsers(
+  users: MerchantFilterUser[],
   selected: string | null | undefined
-): Promise<string[]> {
+): string[] {
   const trimmed = (selected ?? "").trim();
   if (!trimmed) return [];
-
-  const users = await listCompanyMerchantFilterUsers(companyId);
 
   const group = findAssignedMerchantAliasGroup(trimmed);
   if (group) {
@@ -304,6 +298,82 @@ export async function resolveAssignedMerchantFilterLabels(
   }
 
   return [trimmed];
+}
+
+function insightMerchantRosterOptionsFromUsers(
+  users: MerchantFilterUser[],
+  q?: string
+): Array<{ value: string; label: string }> {
+  const needle = q?.trim().toLowerCase();
+  const out: Array<{ value: string; label: string }> = [];
+  const seen = new Set<string>();
+
+  const push = (value: string, label: string) => {
+    const key = norm(value);
+    if (!key || seen.has(key)) return;
+    if (needle) {
+      const hay = `${value} ${label}`.toLowerCase();
+      if (!hay.includes(needle)) return;
+    }
+    seen.add(key);
+    out.push({ value, label });
+  };
+
+  for (const group of ASSIGNED_MERCHANT_ALIAS_GROUPS) {
+    push(group.value, group.label);
+  }
+
+  for (const user of users) {
+    // Already listed as an alias group (same person, legacy duplicate labels).
+    if (aliasGroupForMerchantUser(user)) continue;
+    const value = insightMerchantOptionValue(user);
+    const label = insightMerchantOptionLabel(user);
+    if (!value || !label) continue;
+    push(value, label);
+  }
+
+  out.sort((a, b) => a.label.localeCompare(b.label));
+  return out;
+}
+
+/**
+ * One in-memory pass: roster option → every stored assignedMerchant label.
+ * Callers must not hit the DB once per merchant.
+ */
+export function buildAssignedMerchantAliasMapFromUsers(
+  users: MerchantFilterUser[]
+): Map<string, { value: string; label: string }> {
+  const roster = insightMerchantRosterOptionsFromUsers(users);
+  const aliasToRoster = new Map<string, { value: string; label: string }>();
+  for (const opt of roster) {
+    for (const alias of assignedMerchantFilterLabelsFromUsers(users, opt.value)) {
+      const key = norm(alias);
+      if (!key || aliasToRoster.has(key)) continue;
+      aliasToRoster.set(key, { value: opt.value, label: opt.label });
+    }
+    const valueKey = norm(opt.value);
+    if (valueKey && !aliasToRoster.has(valueKey)) {
+      aliasToRoster.set(valueKey, { value: opt.value, label: opt.label });
+    }
+  }
+  return aliasToRoster;
+}
+
+export async function fetchAssignedMerchantAliasMap(companyId: string) {
+  const users = await listCompanyMerchantFilterUsers(companyId);
+  return buildAssignedMerchantAliasMapFromUsers(users);
+}
+
+/**
+ * Resolve all ContactMaster.assignedMerchant strings that should match a
+ * dropdown selection (MER code, display name, or fixed bucket).
+ */
+export async function resolveAssignedMerchantFilterLabels(
+  companyId: string,
+  selected: string | null | undefined
+): Promise<string[]> {
+  const users = await listCompanyMerchantFilterUsers(companyId);
+  return assignedMerchantFilterLabelsFromUsers(users, selected);
 }
 
 export async function findMerchantUserForFilterValue(
@@ -390,36 +460,6 @@ export async function listInsightMerchantRosterOptions(
   companyId: string,
   q?: string
 ): Promise<Array<{ value: string; label: string }>> {
-  const needle = q?.trim().toLowerCase();
   const users = await listCompanyMerchantFilterUsers(companyId);
-
-  const out: Array<{ value: string; label: string }> = [];
-  const seen = new Set<string>();
-
-  const push = (value: string, label: string) => {
-    const key = norm(value);
-    if (!key || seen.has(key)) return;
-    if (needle) {
-      const hay = `${value} ${label}`.toLowerCase();
-      if (!hay.includes(needle)) return;
-    }
-    seen.add(key);
-    out.push({ value, label });
-  };
-
-  for (const group of ASSIGNED_MERCHANT_ALIAS_GROUPS) {
-    push(group.value, group.label);
-  }
-
-  for (const user of users) {
-    // Already listed as an alias group (same person, legacy duplicate labels).
-    if (aliasGroupForMerchantUser(user)) continue;
-    const value = insightMerchantOptionValue(user);
-    const label = insightMerchantOptionLabel(user);
-    if (!value || !label) continue;
-    push(value, label);
-  }
-
-  out.sort((a, b) => a.label.localeCompare(b.label));
-  return out;
+  return insightMerchantRosterOptionsFromUsers(users, q);
 }

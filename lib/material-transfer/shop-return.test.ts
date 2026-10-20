@@ -186,6 +186,34 @@ describe("resolveShopToMain", () => {
     });
   });
 
+  it("sends Negombo from the DTD shop warehouse to the DTD main warehouse", () => {
+    const result = resolveShopToMain("Negombo", [
+      warehouse("Negombo Shop Warehouse - Cosmo", "Cosmetics.lk", "erp1"),
+      warehouse("Main Warehouse - Cosmo", "Cosmetics.lk", "erp1"),
+      warehouse("Shop Warehouse - DTD", "DTD Trading", "erp2"),
+      warehouse("Main Warehouse - DTD", "DTD Trading", "erp2"),
+      warehouse("Shop Warehouse - LMJ", "LMJ International", "erp2"),
+      warehouse("Main Warehouse - LMJ", "LMJ International", "erp2"),
+    ]);
+    expect(result).toEqual({
+      ok: true,
+      legs: [
+        {
+          slot: "erp1",
+          erpCompany: "Cosmetics.lk",
+          sourceWarehouse: "Negombo Shop Warehouse - Cosmo",
+          targetWarehouse: "Main Warehouse - Cosmo",
+        },
+        {
+          slot: "erp2",
+          erpCompany: "DTD Trading",
+          sourceWarehouse: "Shop Warehouse - DTD",
+          targetWarehouse: "Main Warehouse - DTD",
+        },
+      ],
+    });
+  });
+
   it("sends Maharagama from the DRO shop warehouse to the DRO main warehouse", () => {
     const result = resolveShopToMain("Maharagama", [
       warehouse("Maharagama Shop Warehouse - Cosmo", "Cosmetics.lk", "erp1"),
