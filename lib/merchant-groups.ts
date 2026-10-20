@@ -6,6 +6,7 @@ import {
   normalizeDashboardMerchantLabel,
   splitMerchantCouponSets,
 } from "@/lib/merchant-dm-sales";
+import { isWholesaleTrackingCode } from "@/lib/merchant-wholesale";
 
 export type MerchantUser = {
   id: string;
@@ -71,6 +72,7 @@ export function buildCouponToMerchantMap(
     );
     merchant.name = normalizeDashboardMerchantLabel(merchant.name);
     for (const coupon of user.couponCodes) {
+      if (isWholesaleTrackingCode(coupon)) continue;
       const normalized = coupon.trim().toLowerCase();
       if (!normalized) continue;
       if (isDmCouponCode(coupon)) {

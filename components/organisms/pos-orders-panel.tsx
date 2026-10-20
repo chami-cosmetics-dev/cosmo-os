@@ -1,11 +1,24 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ShoppingBag, Store, Package, Search } from "lucide-react";
+import { ShoppingBag, Store, Package, Search, Loader2, XCircle } from "lucide-react";
 
+import { OrderCancelKindSelect, type OrderCancelKindChoice } from "@/components/molecules/order-cancel-kind-select";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { viewerCreatedPosOrder } from "@/lib/order-cancel-finance";
 import { notify } from "@/lib/notify";
 import { formatAppDateTime } from "@/lib/format-datetime";
 
@@ -25,6 +38,8 @@ type PosOrder = {
   customerName: string | null;
   customerPhone: string | null;
   createdAt: string;
+  hasPendingCancelApproval: boolean;
+  assignedMerchantId: string | null;
 };
 
 type Group = {
@@ -92,13 +107,23 @@ function formatDate(val: string): string {
   return formatAppDateTime(val);
 }
 
-export function PosOrdersPanel() {
+export function PosOrdersPanel({
+  currentUserId = null,
+  canCancelAnyPosOrder = false,
+}: {
+  currentUserId?: string | null;
+  canCancelAnyPosOrder?: boolean;
+}) {
   const [data, setData] = useState<PosOrdersData | null>(null);
   const [loading, setLoading] = useState(true);
   const [companyFilter, setCompanyFilter] = useState("");
   const [warehouseFilter, setWarehouseFilter] = useState("");
   const [posProfileFilter, setPosProfileFilter] = useState("");
   const [search, setSearch] = useState("");
+  const [cancelTarget, setCancelTarget] = useState<PosOrder | null>(null);
+  const [cancelReason, setCancelReason] = useState("");
+  const [cancelKind, setCancelKind] = useState<OrderCancelKindChoice | "">("");
+  const [cancelBusy, setCancelBusy] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -120,6 +145,40 @@ export function PosOrdersPanel() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  async function requestCancel() {
+    if (!cancelTarget || cancelReason.trim().length < 5 || !cancelKind) return;
+    setCancelBusy(true);
+    try {
+      const res = await fetch(`/api/admin/orders/${cancelTarget.id}/fulfillment`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "cancel_order",
+          reason: cancelReason.trim(),
+          cancelKind,
+        }),
+      });
+      const body = (await res.json()) as { error?: string; requiresApproval?: boolean };
+      if (!res.ok) {
+        notify.error(body.error ?? "Failed to request cancel");
+        return;
+      }
+      notify.success(
+        body.requiresApproval
+          ? "Cancel request sent to that company's finance user."
+          : "Order cancelled.",
+      );
+      setCancelTarget(null);
+      setCancelReason("");
+      setCancelKind("");
+      await load();
+    } catch {
+      notify.error("Failed to request cancel");
+    } finally {
+      setCancelBusy(false);
+    }
+  }
 
   const companies = useMemo(() => {
     if (!data) return [];
@@ -367,7 +426,8 @@ export function PosOrdersPanel() {
                     <th className="pb-2 pr-3 font-medium">Stage</th>
                     <th className="pb-2 pr-3 font-medium">Status</th>
                     <th className="pb-2 pr-3 font-medium text-right">Amount</th>
-                    <th className="pb-2 font-medium">Date</th>
+                    <th className="pb-2 pr-3 font-medium">Date</th>
+                    <th className="pb-2 font-medium">Cancel</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/30">
@@ -414,8 +474,33 @@ export function PosOrdersPanel() {
                       <td className="py-2 pr-3 text-right text-xs font-medium whitespace-nowrap">
                         {formatPrice(o.totalPrice, o.currency)}
                       </td>
-                      <td className="py-2 text-xs text-muted-foreground whitespace-nowrap">
+                      <td className="py-2 pr-3 text-xs text-muted-foreground whitespace-nowrap">
                         {formatDate(o.createdAt)}
+                      </td>
+                      <td className="py-2 whitespace-nowrap">
+                        {o.financialStatus?.toLowerCase() === "voided" ? (
+                          <span className="text-xs text-muted-foreground">Cancelled</span>
+                        ) : o.hasPendingCancelApproval ? (
+                          <span className="text-xs font-medium text-amber-700 dark:text-amber-300">Pending finance</span>
+                        ) : canCancelAnyPosOrder || viewerCreatedPosOrder(currentUserId, o.assignedMerchantId) ? (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-8 gap-1 border-destructive/50 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                            disabled={cancelBusy}
+                            onClick={() => {
+                              setCancelReason("");
+                              setCancelKind("");
+                              setCancelTarget(o);
+                            }}
+                          >
+                            <XCircle className="size-3.5" aria-hidden />
+                            Cancel
+                          </Button>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -425,6 +510,62 @@ export function PosOrdersPanel() {
           )}
         </CardContent>
       </Card>
+
+      <AlertDialog
+        open={cancelTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && !cancelBusy) {
+            setCancelTarget(null);
+            setCancelReason("");
+            setCancelKind("");
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancel POS order {cancelTarget?.invoiceNo ?? ""}</AlertDialogTitle>
+            <AlertDialogDescription>
+              This sends a finance approval. The company finance user is emailed.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-3 py-1">
+            <OrderCancelKindSelect value={cancelKind} onChange={setCancelKind} disabled={cancelBusy} />
+            <div>
+              <label className="mb-1.5 block text-sm font-medium" htmlFor="pos-cancel-reason">
+                Cancellation reason <span className="text-destructive">*</span>
+              </label>
+              <Textarea
+                id="pos-cancel-reason"
+                value={cancelReason}
+                onChange={(e) => setCancelReason(e.target.value)}
+                placeholder="e.g. Customer asked to cancel this counter sale"
+                maxLength={500}
+                rows={3}
+                disabled={cancelBusy}
+              />
+              <p className="mt-1 text-xs text-muted-foreground">{cancelReason.trim().length}/500 — minimum 5 characters</p>
+            </div>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={cancelBusy}>Back</AlertDialogCancel>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={cancelBusy || cancelReason.trim().length < 5 || !cancelKind}
+              onClick={() => void requestCancel()}
+            >
+              {cancelBusy ? (
+                <>
+                  <Loader2 className="size-4 animate-spin" aria-hidden />
+                  Sending...
+                </>
+              ) : (
+                "Send to Finance"
+              )}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

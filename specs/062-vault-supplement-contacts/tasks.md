@@ -24,8 +24,8 @@ Cosmo OS / Vault OS Next.js app at repo root (`app/`, `lib/`, `prisma/`, `compon
 
 **Purpose**: Confirm the design set before schema or routes
 
-- [ ] T001 Confirm these files exist: `specs/062-vault-supplement-contacts/plan.md`, `specs/062-vault-supplement-contacts/spec.md`, `specs/062-vault-supplement-contacts/research.md`, `specs/062-vault-supplement-contacts/data-model.md`, `specs/062-vault-supplement-contacts/contracts/vault-supplement-contact-import.md`, `specs/062-vault-supplement-contacts/quickstart.md`
-- [ ] T002 [P] Follow the migration rule already written in `specs/062-vault-supplement-contacts/plan.md`: schema changes only through `npm run db:migrate:create`; never `prisma db push` / `npm run db:push` on vault, cosmo-dev, or cosmo-prod; do not run `npm run db:deploy:all` unless the user asks in that turn
+- [X] T001 Confirm these files exist: `specs/062-vault-supplement-contacts/plan.md`, `specs/062-vault-supplement-contacts/spec.md`, `specs/062-vault-supplement-contacts/research.md`, `specs/062-vault-supplement-contacts/data-model.md`, `specs/062-vault-supplement-contacts/contracts/vault-supplement-contact-import.md`, `specs/062-vault-supplement-contacts/quickstart.md`
+- [X] T002 [P] Follow the migration rule already written in `specs/062-vault-supplement-contacts/plan.md`: schema changes only through `npm run db:migrate:create`; never `prisma db push` / `npm run db:push` on vault, cosmo-dev, or cosmo-prod; do not run `npm run db:deploy:all` unless the user asks in that turn
 
 ---
 
@@ -35,16 +35,16 @@ Cosmo OS / Vault OS Next.js app at repo root (`app/`, `lib/`, `prisma/`, `compon
 
 **CRITICAL**: No user story work until this phase completes
 
-- [ ] T003 Add `origin String @default("adapt")` on `AdaptPurchaseHistory` in `prisma/schema.prisma` per `specs/062-vault-supplement-contacts/data-model.md` (`adapt` | `vault_supplement_import`)
-- [ ] T004 Create the migration for T003 with `npm run db:migrate:create` and run `npm run db:generate` (no `db push`; no deploy unless the user asks)
-- [ ] T005 [P] Define the 18 `Purchases` headers, required-header set, and header-name matching (order-independent; extra columns ignored; `Guide` sheet ignored) in `lib/vault-supplement-import/headers.ts`
-- [ ] T006 [P] Export the Supplement Vault ERP stock-item filter used by `syncVaultErpCatalogToProductItems` (stock items, skip disabled except force-included SKUs, skip `DELIVERY-CHARGES` and `TEST`, ERP1 and ERP2) from `lib/product-items/vault-erp-catalog-sync.ts` without writing `ProductItem` from a read
-- [ ] T007 [P] Implement invoice identity `vsupp:{source_ref}|{invoice_no}`, line replace by `itemCode`, keep lines omitted from the file, and `ttlAmount` = sum of line amounts in `lib/vault-supplement-import/invoice-merge.ts`
-- [ ] T008 [P] Implement phone-first contact resolution in `lib/vault-supplement-import/contact-resolve.ts` using `normalizeContactPhone`, `normalizeContactEmail`, and `buildPhoneLookupVariants` from `lib/contact-identifiers.ts` and `lib/phone-lookup.ts`: one match by phone else email; reject with the contract phrases when phone and email hit different contacts or either side hits more than one
-- [ ] T009 Classify `Purchases` rows in `lib/vault-supplement-import/parse-sheet.ts` (depends on T005): missing required header fails the whole file before row results; per-row reasons match `specs/062-vault-supplement-contacts/contracts/vault-supplement-contact-import.md`; `invoice_date` only via `parseAppCalendarDayStart` in `lib/format-datetime.ts`; blank `line_amount` = quantity × unit price; blank currency = `LKR`; later row wins for the same `source_ref` + `invoice_no` + `item_code`; group customers by normalized phone else email
-- [ ] T010 Load the in-memory ERP item-code set in `lib/vault-supplement-import/item-codes.ts` (depends on T006) and read an uploaded workbook whose header is `item_code`
-- [ ] T011 [P] Add Vitest in `lib/vault-supplement-import/headers.test.ts` and `lib/vault-supplement-import/parse-sheet.test.ts` for header rejection with no data rows, `YYYY-MM-DD`, quantity > 0, blank line amount, last-row-wins, and stable reject phrases
-- [ ] T012 [P] Add Vitest in `lib/vault-supplement-import/invoice-merge.test.ts` and `lib/vault-supplement-import/contact-resolve.test.ts` for supplement-only invoice totals, second apply updates the same line and keeps an omitted line, `077…` / `+94…` as one customer, and phone/email hitting different contacts
+- [X] T003 Add `origin String @default("adapt")` on `AdaptPurchaseHistory` in `prisma/schema.prisma` per `specs/062-vault-supplement-contacts/data-model.md` (`adapt` | `vault_supplement_import`)
+- [X] T004 Create the migration for T003 with `npm run db:migrate:create` and run `npm run db:generate` (no `db push`; no deploy unless the user asks)
+- [X] T005 [P] Define the 18 `Purchases` headers, required-header set, and header-name matching (order-independent; extra columns ignored; `Guide` sheet ignored) in `lib/vault-supplement-import/headers.ts`
+- [X] T006 [P] Export the Supplement Vault ERP stock-item filter used by `syncVaultErpCatalogToProductItems` (stock items, skip disabled except force-included SKUs, skip `DELIVERY-CHARGES` and `TEST`, ERP1 and ERP2) from `lib/product-items/vault-erp-catalog-sync.ts` without writing `ProductItem` from a read
+- [X] T007 [P] Implement invoice identity `vsupp:{source_ref}|{invoice_no}`, line replace by `itemCode`, keep lines omitted from the file, and `ttlAmount` = sum of line amounts in `lib/vault-supplement-import/invoice-merge.ts`
+- [X] T008 [P] Implement phone-first contact resolution in `lib/vault-supplement-import/contact-resolve.ts` using `normalizeContactPhone`, `normalizeContactEmail`, and `buildPhoneLookupVariants` from `lib/contact-identifiers.ts` and `lib/phone-lookup.ts`: one match by phone else email; reject with the contract phrases when phone and email hit different contacts or either side hits more than one
+- [X] T009 Classify `Purchases` rows in `lib/vault-supplement-import/parse-sheet.ts` (depends on T005): missing required header fails the whole file before row results; per-row reasons match `specs/062-vault-supplement-contacts/contracts/vault-supplement-contact-import.md`; `invoice_date` only via `parseAppCalendarDayStart` in `lib/format-datetime.ts`; blank `line_amount` = quantity × unit price; blank currency = `LKR`; later row wins for the same `source_ref` + `invoice_no` + `item_code`; group customers by normalized phone else email
+- [X] T010 Load the in-memory ERP item-code set in `lib/vault-supplement-import/item-codes.ts` (depends on T006) and read an uploaded workbook whose header is `item_code`
+- [X] T011 [P] Add Vitest in `lib/vault-supplement-import/headers.test.ts` and `lib/vault-supplement-import/parse-sheet.test.ts` for header rejection with no data rows, `YYYY-MM-DD`, quantity > 0, blank line amount, last-row-wins, and stable reject phrases
+- [X] T012 [P] Add Vitest in `lib/vault-supplement-import/invoice-merge.test.ts` and `lib/vault-supplement-import/contact-resolve.test.ts` for supplement-only invoice totals, second apply updates the same line and keeps an omitted line, `077…` / `+94…` as one customer, and phone/email hitting different contacts
 
 **Checkpoint**: Migration created; parse, match, and merge covered by Vitest — story work can start
 
@@ -58,12 +58,12 @@ Cosmo OS / Vault OS Next.js app at repo root (`app/`, `lib/`, `prisma/`, `compon
 
 ### Implementation for User Story 1
 
-- [ ] T013 [US1] Implement `lib/vault-supplement-import/import-run.ts`: load ERP codes once via T010 (ERP failure writes nothing); reject unknown `item_code` with `Item code is not on the Supplement Vault ERP item list`; create `ContactMaster` with `source` `vault-supplement-import` and `osRegistrationCreated` false, or fill only empty `name` / `phoneNumber` / `email` / `address` / `city` / `district`; ensure primary `ContactPhone` / `ContactEmail` when those values are written; do not set `assignedMerchant`, loyalty fields, reminders, or call queue; upsert `AdaptPurchaseHistory` with `origin` `vault_supplement_import` and `importBatchId`; move `lastPurchaseAt` forward only; recompute `purchaseOrderCount`, `purchaseTotalValue`, and `purchaseLastOrderAt` for touched contacts through `purchaseSummaryForContact` in `lib/contacts/purchase-summary-export.ts`
-- [ ] T014 [US1] Add `POST /api/admin/contacts/supplement-import` in `app/api/admin/contacts/supplement-import/route.ts`: `requirePermission("contacts.master.manage")`, Vault OS only (`APP_NAME` from `lib/branding.ts`), multipart field `file`, JSON body from the contract, `409` on a bad header or on Cosmo OS, `502` when the ERP list fails, `400` when the file is missing
-- [ ] T015 [US1] Add the permission-gated page `app/(dashboard)/dashboard/contacts/supplement-import/page.tsx` (deny without `contacts.master.manage`)
-- [ ] T016 [US1] Build the Vault OS upload control and on-page reject table in `components/organisms/supplement-contact-import-panel.tsx` (busy spinner on the upload button, disable peers while the request runs, toast via `notify` for success or hard failure; keep the row-reason table on the page)
-- [ ] T017 [P] [US1] Add sidebar link **Supplement contact import** → `/dashboard/contacts/supplement-import` gated by `contacts.master.manage` in `components/organisms/app-sidebar.tsx`
-- [ ] T018 [P] [US1] Add the `/dashboard/contacts/supplement-import` title prefix in `components/organisms/topbar.tsx`
+- [X] T013 [US1] Implement `lib/vault-supplement-import/import-run.ts`: load ERP codes once via T010 (ERP failure writes nothing); reject unknown `item_code` with `Item code is not on the Supplement Vault ERP item list`; create `ContactMaster` with `source` `vault-supplement-import` and `osRegistrationCreated` false, or fill only empty `name` / `phoneNumber` / `email` / `address` / `city` / `district`; ensure primary `ContactPhone` / `ContactEmail` when those values are written; do not set `assignedMerchant`, loyalty fields, reminders, or call queue; upsert `AdaptPurchaseHistory` with `origin` `vault_supplement_import` and `importBatchId`; move `lastPurchaseAt` forward only; recompute `purchaseOrderCount`, `purchaseTotalValue`, and `purchaseLastOrderAt` for touched contacts through `purchaseSummaryForContact` in `lib/contacts/purchase-summary-export.ts`
+- [X] T014 [US1] Add `POST /api/admin/contacts/supplement-import` in `app/api/admin/contacts/supplement-import/route.ts`: `requirePermission("contacts.master.manage")`, Vault OS only (`APP_NAME` from `lib/branding.ts`), multipart field `file`, JSON body from the contract, `409` on a bad header or on Cosmo OS, `502` when the ERP list fails, `400` when the file is missing
+- [X] T015 [US1] Add the permission-gated page `app/(dashboard)/dashboard/contacts/supplement-import/page.tsx` (deny without `contacts.master.manage`)
+- [X] T016 [US1] Build the Vault OS upload control and on-page reject table in `components/organisms/supplement-contact-import-panel.tsx` (busy spinner on the upload button, disable peers while the request runs, toast via `notify` for success or hard failure; keep the row-reason table on the page)
+- [X] T017 [P] [US1] Add sidebar link **Supplement contact import** → `/dashboard/contacts/supplement-import` gated by `contacts.master.manage` in `components/organisms/app-sidebar.tsx`
+- [X] T018 [P] [US1] Add the `/dashboard/contacts/supplement-import` title prefix in `components/organisms/topbar.tsx`
 
 **Checkpoint**: Vault OS upload is testable with a hand-built xlsx even before the blank-template button exists
 
@@ -77,10 +77,10 @@ Cosmo OS / Vault OS Next.js app at repo root (`app/`, `lib/`, `prisma/`, `compon
 
 ### Implementation for User Story 2
 
-- [ ] T019 [US2] Build the xlsx in `lib/vault-supplement-import/template-workbook.ts`: sheet `Purchases` row 1 = T005 headers in spec order, row 2 = the Nimal Perera example from `specs/062-vault-supplement-contacts/spec.md` with `line_amount` formula `=K2*L2`, orange fill, phone and item code stored as text; sheet `Guide` tells staff to delete the example row
-- [ ] T020 [P] [US2] Assert header order, example phone `0771234567`, and the `K2*L2` formula in `lib/vault-supplement-import/template-workbook.test.ts`
-- [ ] T021 [US2] Add `GET /api/admin/contacts/supplement-import/template` in `app/api/admin/contacts/supplement-import/template/route.ts`: `contacts.master.manage`, Vault OS only, file name `vault-supplement-contacts-template.xlsx`, `409` on Cosmo OS
-- [ ] T022 [US2] Add the blank-template download button to `components/organisms/supplement-contact-import-panel.tsx` (Vault OS only)
+- [X] T019 [US2] Build the xlsx in `lib/vault-supplement-import/template-workbook.ts`: sheet `Purchases` row 1 = T005 headers in spec order, row 2 = the Nimal Perera example from `specs/062-vault-supplement-contacts/spec.md` with `line_amount` formula `=K2*L2`, orange fill, phone and item code stored as text; sheet `Guide` tells staff to delete the example row
+- [X] T020 [P] [US2] Assert header order, example phone `0771234567`, and the `K2*L2` formula in `lib/vault-supplement-import/template-workbook.test.ts`
+- [X] T021 [US2] Add `GET /api/admin/contacts/supplement-import/template` in `app/api/admin/contacts/supplement-import/template/route.ts`: `contacts.master.manage`, Vault OS only, file name `vault-supplement-contacts-template.xlsx`, `409` on Cosmo OS
+- [X] T022 [US2] Add the blank-template download button to `components/organisms/supplement-contact-import-panel.tsx` (Vault OS only)
 
 **Checkpoint**: Template download works on Vault OS; Cosmo OS receives 409
 
@@ -94,11 +94,11 @@ Cosmo OS / Vault OS Next.js app at repo root (`app/`, `lib/`, `prisma/`, `compon
 
 ### Implementation for User Story 4
 
-- [ ] T023 [US4] Return `origin` on each adapt purchase from `app/api/admin/contacts/[id]/orders/route.ts` (`vault_supplement_import` or `adapt`)
-- [ ] T024 [P] [US4] Teach `mapAdaptToInvoiceRow` in `lib/customer-insight/invoices.ts` to label `vault_supplement_import` as **Supplement import** and to use the stored payment method (or `Imported` when payment is blank); keep `source: "adapt"` so lifetime spend still includes the row; add `lib/customer-insight/invoices.test.ts` for that label and for an `adapt` origin still saying Adapt
-- [ ] T025 [US4] Pass `origin` from `lib/customer-insight/load.ts` into the invoice mapper (depends on T024)
-- [ ] T026 [P] [US4] Show **Supplement import** instead of Adapt when `origin` is `vault_supplement_import` in `components/organisms/contacts-panel.tsx`
-- [ ] T027 [P] [US4] Show the same label in `components/organisms/contact-updates-panel.tsx`
+- [X] T023 [US4] Return `origin` on each adapt purchase from `app/api/admin/contacts/[id]/orders/route.ts` (`vault_supplement_import` or `adapt`)
+- [X] T024 [P] [US4] Teach `mapAdaptToInvoiceRow` in `lib/customer-insight/invoices.ts` to label `vault_supplement_import` as **Supplement import** and to use the stored payment method (or `Imported` when payment is blank); keep `source: "adapt"` so lifetime spend still includes the row; add `lib/customer-insight/invoices.test.ts` for that label and for an `adapt` origin still saying Adapt
+- [X] T025 [US4] Pass `origin` from `lib/customer-insight/load.ts` into the invoice mapper (depends on T024)
+- [X] T026 [P] [US4] Show **Supplement import** instead of Adapt when `origin` is `vault_supplement_import` in `components/organisms/contacts-panel.tsx`
+- [X] T027 [P] [US4] Show the same label in `components/organisms/contact-updates-panel.tsx`
 
 **Checkpoint**: Insight phone search and both contact history panels show supplement lines with the right label and spend
 
@@ -112,11 +112,11 @@ Cosmo OS / Vault OS Next.js app at repo root (`app/`, `lib/`, `prisma/`, `compon
 
 ### Implementation for User Story 3
 
-- [ ] T028 [US3] Build draft rows in `lib/vault-supplement-import/draft.ts`: non-cancelled, non-voided `Order` lines whose `ProductItem.sku` is in the uploaded code set; `AdaptPurchaseHistory` lines whose item code is in the set; skip rows with neither phone nor email; prefer Contact Master name, phone, email, address, city, and district when the order phone or email matches one contact; `source_ref` is the order id or existing `adaptInvoiceKey`; `invoice_no` is the order number, else order name, else id, or `salesInvoiceNo`; `invoice_date` is the Colombo calendar day
-- [ ] T029 [US3] Add Vitest in `lib/vault-supplement-import/draft.test.ts` for mixed-invoice filtering, cancelled and voided orders dropped, unknown codes dropped, and missing phone+email dropped
-- [ ] T030 [US3] Add `GET /api/admin/contacts/supplement-import/item-codes` in `app/api/admin/contacts/supplement-import/item-codes/route.ts`: `contacts.master.manage`, Vault OS only, sheet `ItemCodes` header `item_code`, `502` when ERP cannot be listed, `409` on Cosmo OS
-- [ ] T031 [US3] Add `POST /api/admin/contacts/supplement-import/draft` in `app/api/admin/contacts/supplement-import/draft/route.ts`: `contacts.master.manage`, Cosmo OS only, multipart `file`, `400` when `item_code` is missing or the code set is empty, response file `vault-supplement-contacts-draft.xlsx` with sheet `Purchases` only, no writes to Cosmo contacts, orders, or ERP, `409` on Vault OS
-- [ ] T032 [US3] On Vault OS, add item-code download; on Cosmo OS, add item-code upload and draft download; hide purchase upload on Cosmo OS — in `components/organisms/supplement-contact-import-panel.tsx`
+- [X] T028 [US3] Build draft rows in `lib/vault-supplement-import/draft.ts`: non-cancelled, non-voided `Order` lines whose `ProductItem.sku` is in the uploaded code set; `AdaptPurchaseHistory` lines whose item code is in the set; skip rows with neither phone nor email; prefer Contact Master name, phone, email, address, city, and district when the order phone or email matches one contact; `source_ref` is the order id or existing `adaptInvoiceKey`; `invoice_no` is the order number, else order name, else id, or `salesInvoiceNo`; `invoice_date` is the Colombo calendar day
+- [X] T029 [US3] Add Vitest in `lib/vault-supplement-import/draft.test.ts` for mixed-invoice filtering, cancelled and voided orders dropped, unknown codes dropped, and missing phone+email dropped
+- [X] T030 [US3] Add `GET /api/admin/contacts/supplement-import/item-codes` in `app/api/admin/contacts/supplement-import/item-codes/route.ts`: `contacts.master.manage`, Vault OS only, sheet `ItemCodes` header `item_code`, `502` when ERP cannot be listed, `409` on Cosmo OS
+- [X] T031 [US3] Add `POST /api/admin/contacts/supplement-import/draft` in `app/api/admin/contacts/supplement-import/draft/route.ts`: `contacts.master.manage`, Cosmo OS only, multipart `file`, `400` when `item_code` is missing or the code set is empty, response file `vault-supplement-contacts-draft.xlsx` with sheet `Purchases` only, no writes to Cosmo contacts, orders, or ERP, `409` on Vault OS
+- [X] T032 [US3] On Vault OS, add item-code download; on Cosmo OS, add item-code upload and draft download; hide purchase upload on Cosmo OS — in `components/organisms/supplement-contact-import-panel.tsx`
 
 **Checkpoint**: Item-code file from Vault OS produces a Cosmo draft that US1 can upload
 
@@ -127,7 +127,7 @@ Cosmo OS / Vault OS Next.js app at repo root (`app/`, `lib/`, `prisma/`, `compon
 **Purpose**: Quickstart proof across both apps
 
 - [ ] T033 Walk `specs/062-vault-supplement-contacts/quickstart.md` on Vault OS and Cosmo OS (template, item codes, draft, upload, Insight search, second upload, wrong-app 409)
-- [ ] T034 [P] Run `npm test -- lib/vault-supplement-import` and lint the touched files under `lib/vault-supplement-import/`, `app/api/admin/contacts/supplement-import/`, `app/(dashboard)/dashboard/contacts/supplement-import/`, `components/organisms/supplement-contact-import-panel.tsx`, `components/organisms/contacts-panel.tsx`, `components/organisms/contact-updates-panel.tsx`, `lib/customer-insight/invoices.ts`, and `lib/customer-insight/load.ts`
+- [X] T034 [P] Run `npm test -- lib/vault-supplement-import` and lint the touched files under `lib/vault-supplement-import/`, `app/api/admin/contacts/supplement-import/`, `app/(dashboard)/dashboard/contacts/supplement-import/`, `components/organisms/supplement-contact-import-panel.tsx`, `components/organisms/contacts-panel.tsx`, `components/organisms/contact-updates-panel.tsx`, `lib/customer-insight/invoices.ts`, and `lib/customer-insight/load.ts`
 
 ---
 

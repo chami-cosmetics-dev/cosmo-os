@@ -3,7 +3,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { writeAuditLog } from "@/lib/audit-log";
 import { listContactEmails, listContactPhones } from "@/lib/contact-identifiers";
 import { buildContactOrderLookupOr } from "@/lib/contact-purchase-lookup";
-import { computeLifetimeTotal, customerLifetimeTotalOrderWhere } from "@/lib/customer-insight/lifetime-total";
+import {
+  adaptSaleTotalWhere,
+  computeLifetimeTotal,
+  customerLifetimeTotalOrderWhere,
+} from "@/lib/customer-insight/lifetime-total";
 import {
   getLoyaltyProfileMissingFields,
   loyaltyProfileIncompleteMessage,
@@ -141,7 +145,7 @@ export async function POST(request: NextRequest, { params }: Params) {
         })
       : Promise.resolve([]),
     prisma.adaptPurchaseHistory.findMany({
-      where: { contactId: contact.id, companyId },
+      where: { contactId: contact.id, companyId, ...adaptSaleTotalWhere() },
       select: { ttlAmount: true },
     }),
   ]);

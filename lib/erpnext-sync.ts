@@ -27,6 +27,7 @@ import {
   isCcCheckoutGateway,
   orderHasEarlyFinancialInvoiceCompleteGateway,
 } from "@/lib/delivery-payment-approval";
+import { isMintpayGateway, resolveMintpayMopName } from "@/lib/payment-gateway-match";
 import { markOrderFinanciallyInvoiceComplete } from "@/lib/financial-invoice-complete";
 import { formatAppIsoDate } from "@/lib/format-datetime";
 import {
@@ -114,7 +115,7 @@ export function getErpConfig(instance: ErpnextInstance | null): ErpConfig {
     bankTransferMop: instance?.bankTransferMop ?? process.env.ERPNEXT_BANK_TRANSFER_MOP ?? "Wire Transfer",
     kokoMop: instance?.kokoMop ?? process.env.ERPNEXT_KOKO_MOP ?? "Koko",
     webxpayMop: instance?.webxpayMop ?? process.env.ERPNEXT_WEBXPAY_MOP ?? "",
-    mintpayMop: instance?.mintpayMop ?? process.env.ERPNEXT_MINTPAY_MOP ?? "Mintpay",
+    mintpayMop: resolveMintpayMopName(instance?.mintpayMop),
     citypakMop: instance?.citypakMop ?? process.env.ERPNEXT_CITYPAK_MOP ?? "",
     taxesAndCharges: instance?.taxesAndCharges ?? process.env.ERPNEXT_TAXES_AND_CHARGES ?? "",
     shippingRule: instance?.shippingRule ?? process.env.ERPNEXT_SHIPPING_RULE ?? "",
@@ -187,7 +188,7 @@ function resolveErpPaymentType(cfg: ErpConfig, gateways: string[]): string | nul
   for (const g of gateways) {
     const lower = g.toLowerCase().trim();
     if (lower.includes("koko")) return cfg.kokoMop;
-    if (lower.includes("mintpay")) return cfg.mintpayMop;
+    if (isMintpayGateway(g)) return cfg.mintpayMop;
     if (lower.includes("webxpay") || isCcCheckoutGateway(g)) return cfg.webxpayMop || null;
     if (lower.includes("credit card") || lower.includes("card delivery") || lower.includes("card payment")) return cfg.cardDeliveryMop;
     if (lower.includes("bank transfer") || lower.includes("bank draft") || lower.includes("wire")) return cfg.bankTransferMop;
@@ -206,7 +207,7 @@ function resolveErpPaymentType(cfg: ErpConfig, gateways: string[]): string | nul
 function resolvePrepaidMop(cfg: ErpConfig, gateways: string[]): string | null {
   const lower = gateways.map((g) => g.toLowerCase().trim());
   if (lower.some((g) => g.includes("koko"))) return cfg.kokoMop;
-  if (lower.some((g) => g.includes("mintpay"))) return cfg.mintpayMop;
+  if (gateways.some((g) => isMintpayGateway(g))) return cfg.mintpayMop;
   if (lower.some((g) => g.includes("webxpay") || isCcCheckoutGateway(g))) return cfg.webxpayMop || null;
   if (lower.some((g) => g.includes("bank"))) return cfg.bankTransferMop;
   return null;

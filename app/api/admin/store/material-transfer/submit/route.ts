@@ -7,6 +7,7 @@ import { erpErrorMessage } from "@/lib/material-transfer/erp-error";
 import {
   listTransferWarehouses,
   MaterialTransferError,
+  requireErpOwner,
   resolveTransferSlots,
   submitMaterialTransfer,
 } from "@/lib/material-transfer/erp";
@@ -52,6 +53,7 @@ export async function POST(request: NextRequest) {
       targetWarehouse: parsed.data.targetWarehouse,
       lines: parsed.data.lines,
       warehouses,
+      owner: requireErpOwner(auth.context.user ?? {}),
     });
 
     let receiptId: string | null = null;

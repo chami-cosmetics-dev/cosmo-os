@@ -1,7 +1,19 @@
+import { isBundleCatalogItem } from "@/lib/catalog-bundle";
 import { isShopWarehouseName } from "@/lib/item-trends/shop-warehouse-name";
 import { baseSku } from "@/lib/osf/base-sku";
 import { percentOfRop } from "@/lib/osf/formulas";
 import { isShopOsfColumn } from "@/lib/store-allocation/osf-columns";
+
+/** Website drafts and bundle products are not stock-compare subjects. */
+export function isExcludedFromStockCompare(item: {
+  sku?: string | null;
+  productTitle?: string | null;
+  siteStatus?: string | null;
+  productType?: string | null;
+}): boolean {
+  if ((item.siteStatus ?? "").trim().toLowerCase() === "draft") return true;
+  return isBundleCatalogItem(item);
+}
 
 export type StockBalanceRow = {
   Item: unknown;

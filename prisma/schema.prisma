@@ -115,7 +115,11 @@ model Company {
   itemCreationStockReceipts       ItemCreationStockReceipt[]
   stockRequests                   StockRequest[]
   materialTransfers               MaterialTransfer[]
+  shopItemRequests                ShopItemRequest[]
   riderFinanceCashReceipts        RiderFinanceCashReceipt[]
+  giftVoucherGroups               GiftVoucherGroup[]
+  giftVoucherCodes                GiftVoucherCode[]
+  giftVoucherCounter              GiftVoucherCounter?
 }
 
 model PrintFormat {
@@ -639,7 +643,10 @@ model User {
   defaultMerchantLocations               CompanyLocation[]              @relation("LocationDefaultMerchant")
   employeeProfile                        EmployeeProfile?
   materialTransfersCreated               MaterialTransfer[]             @relation("MaterialTransferCreatedBy")
+  shopItemRequestsCreated                ShopItemRequest[]              @relation("ShopItemRequestCreatedBy")
+  shopItemRequestsDone                   ShopItemRequest[]              @relation("ShopItemRequestDoneBy")
   materialTransfersReceived              MaterialTransfer[]             @relation("MaterialTransferReceivedBy")
+  materialTransferLinesCounted           MaterialTransferLine[]         @relation("MaterialTransferLineCountedBy")
   invitesSent                            Invite[]                       @relation("InvitedBy")
   assignedOrders                         Order[]                        @relation("OrderAssignedMerchant")
   ordersDeliveryCompleteBy               Order[]                        @relation("OrderDeliveryCompleteBy")
@@ -1164,6 +1171,7 @@ model Order {
   waybills                        OrderWaybill[]
   pickListGroupOrders             PickListGroupOrder[]
   bookNoteRows                    BookNoteRow[]
+  giftVoucherCodes                GiftVoucherCode[]
 
   erpnextInvoiceId               String?
   erpnextCustomerId              String?
@@ -1627,16 +1635,19 @@ model RiderFinanceCashReceipt {
   riderId       String
   periodFrom    DateTime @db.Date
   periodTo      DateTime @db.Date
-  receivedById  String
-  receivedAt    DateTime @default(now())
-  companyTotals Json
-  fullTotal     Decimal  @db.Decimal(12, 2)
-  createdAt     DateTime @default(now())
+  receivedById    String
+  receivedAt      DateTime @default(now())
+  /// ERP company this receipt confirms. Null on older receipts that covered every company on the slip.
+  handoverCompany String?
+  companyTotals   Json
+  fullTotal       Decimal  @db.Decimal(12, 2)
+  createdAt       DateTime @default(now())
   company       Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
   rider         User     @relation("RiderFinanceCashReceiptRider", fields: [riderId], references: [id], onDelete: Restrict)
   receivedBy    User     @relation("RiderFinanceCashReceiptReceivedBy", fields: [receivedById], references: [id], onDelete: Restrict)
 
   @@index([companyId, riderId, periodFrom, periodTo])
+  @@index([companyId, riderId, handoverCompany])
   @@index([receivedById])
 }
 
@@ -2201,6 +2212,8 @@ model ContactMaster {
   purchaseOrderCount       Int                       @default(0)
   purchaseTotalValue       Decimal                   @default(0) @db.Decimal(14, 2)
   purchaseLastOrderAt      DateTime?
+  /// Cached earliest completed purchase. Filled by the same refresh as the totals.
+  purchaseFirstOrderAt     DateTime?
   /// True only when Register new users created this row (admin filter + dump hold).
   osRegistrationCreated    Boolean                   @default(false)
   osRegLocation            String?
@@ -2350,6 +2363,10 @@ model AdaptPurchaseHistory {
   rawPaymentContext     Json?
   lineItems             Json?
   importBatchId         String?
+  /// adapt = older Adapt rows. vault_supplement_import = Cosmo OS transfer. vault_file_import = finance file.
+  origin                String           @default("adapt")
+  /// paid, pending, voided, refunded. Null on older Adapt rows, which still count as sales.
+  financialStatus       String?
   createdAt             DateTime         @default(now())
   updatedAt             DateTime         @updatedAt
   company               Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -2519,6 +2536,7 @@ model ContactAllocationUpdate {
   @@index([companyId, createdAt(sort: Desc)])
   @@index([companyId, merchantId, createdAt(sort: Desc)])
   @@index([companyId, category, createdAt(sort: Desc)])
+  @@index([contactId, createdAt(sort: Desc)])
 }
 
 // ── Outlet Reviews Feature ──────────────────────────────────────────────────
@@ -3083,47 +3101,106 @@ model OsfUserColumnAccess {
   @@index([userId])
 }
 
+enum MaterialTransferDirection {
+  store_to_shop
+  shop_to_main
+}
+
 enum MaterialTransferStatus {
   sent
   received
+  requested
+  confirming
+  confirmed
 }
 
 model MaterialTransfer {
-  id               String                 @id @default(cuid())
+  id               String                    @id @default(cuid())
   companyId        String
   slot             String
-  erpName          String
+  direction        MaterialTransferDirection @default(store_to_shop)
+  erpName          String?
+  /// Second stock entry when a shop return posts VAT lines to ERP1 and other lines to ERP2.
+  erp2Name         String?
   erpCompany       String
+  /// ERP2 company when erp2Name is set. Empty on a single-ERP transfer.
+  erpCompany2      String?
   sourceWarehouse  String
   targetWarehouse  String
-  status           MaterialTransferStatus @default(sent)
+  sourceWarehouse2 String?
+  targetWarehouse2 String?
+  status           MaterialTransferStatus    @default(sent)
   createdByUserId  String?
   receivedByUserId String?
   receivedAt       DateTime?
-  createdAt        DateTime               @default(now())
-  updatedAt        DateTime               @updatedAt
-  company          Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  createdBy        User?                  @relation("MaterialTransferCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  receivedBy       User?                  @relation("MaterialTransferReceivedBy", fields: [receivedByUserId], references: [id], onDelete: SetNull)
+  createdAt        DateTime                  @default(now())
+  updatedAt        DateTime                  @updatedAt
+  company          Company                   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdBy        User?                     @relation("MaterialTransferCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  receivedBy       User?                     @relation("MaterialTransferReceivedBy", fields: [receivedByUserId], references: [id], onDelete: SetNull)
   lines            MaterialTransferLine[]
 
   @@unique([companyId, slot, erpName])
+  @@unique([companyId, erp2Name])
   @@index([companyId, createdAt(sort: Desc)])
   @@index([companyId, targetWarehouse, status])
+  @@index([companyId, direction, status])
 }
 
 model MaterialTransferLine {
-  id           String           @id @default(cuid())
-  transferId   String
-  itemCode     String
-  itemName     String
-  barcode      String           @default("")
-  uom          String           @default("Nos")
-  sentQty      Int
-  receivedQty  Int              @default(0)
-  transfer     MaterialTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+  id                         String           @id @default(cuid())
+  transferId                 String
+  itemCode                   String
+  itemName                   String
+  barcode                    String           @default("")
+  uom                        String           @default("Nos")
+  /// erp1 or erp2 for a shop return line. Empty on store-to-shop.
+  postSlot                   String           @default("")
+  sentQty                    Int
+  receivedQty                Int              @default(0)
+  receivedQtyUpdatedByUserId String?
+  receivedQtyUpdatedAt       DateTime?
+  transfer                   MaterialTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+  receivedQtyUpdatedBy       User?            @relation("MaterialTransferLineCountedBy", fields: [receivedQtyUpdatedByUserId], references: [id], onDelete: SetNull)
 
   @@index([transferId])
+}
+
+enum ShopItemRequestStatus {
+  pending
+  done
+}
+
+model ShopItemRequest {
+  id              String                @id @default(cuid())
+  companyId       String
+  outletName      String
+  status          ShopItemRequestStatus @default(pending)
+  createdByUserId String?
+  doneByUserId    String?
+  doneAt          DateTime?
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+  company         Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdBy       User?                 @relation("ShopItemRequestCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  doneBy          User?                 @relation("ShopItemRequestDoneBy", fields: [doneByUserId], references: [id], onDelete: SetNull)
+  lines           ShopItemRequestLine[]
+
+  @@index([companyId, status, createdAt(sort: Desc)])
+  @@index([companyId, outletName, status, createdAt(sort: Desc)])
+}
+
+model ShopItemRequestLine {
+  id               String          @id @default(cuid())
+  requestId        String
+  itemCode         String
+  itemName         String
+  barcode          String          @default("")
+  neededQty        Int
+  shopAvailability String?
+  request          ShopItemRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@index([requestId])
 }
 
 model StoreStockCountReport {
@@ -3459,4 +3536,65 @@ model StockRequest {
   @@index([shopifyStoreHandle, sku])
   @@index([companyId, source, createdById, createdAt(sort: Desc)])
   @@index([source, awaitingStock, restockedAt])
+}
+
+/// A batch of gift voucher codes sharing a prefix and validity window. Used only to identify
+/// codes and block reuse; the discount itself is applied elsewhere.
+model GiftVoucherGroup {
+  id               String            @id @default(cuid())
+  companyId        String
+  /// Permanent number from GiftVoucherCounter (141, 142, …); never reused. Part of generated codes.
+  groupNumber      Int
+  name             String
+  codePrefix       String
+  quantity         Int
+  startDate        DateTime          @db.Date
+  endDate          DateTime          @db.Date
+  createdById      String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  company          Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  codes            GiftVoucherCode[]
+
+  @@unique([companyId, name])
+  @@unique([companyId, groupNumber])
+  @@index([companyId, codePrefix])
+  @@index([companyId, startDate])
+}
+
+/// One redeemable code. PENDING / ACTIVE / EXPIRED are derived from the group dates; only USED is stored.
+model GiftVoucherCode {
+  id        String           @id @default(cuid())
+  companyId String
+  groupId   String
+  code      String
+  /// Random number part of generated codes (used for sorting); null for typed or pasted codes.
+  sequence  Int?
+  used      Boolean          @default(false)
+  /// Order the code was applied to. An order can hold several batch codes.
+  orderId   String?
+  orderNo   String?
+  usedAt    DateTime?
+  phoneNo   String?
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+  company   Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  // Restrict: codes are permanent, so a group that still has codes cannot be deleted.
+  group     GiftVoucherGroup @relation(fields: [groupId], references: [id], onDelete: Restrict)
+  order     Order?           @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  @@unique([companyId, code])
+  @@index([groupId, sequence])
+  @@index([companyId, used])
+  @@index([companyId, usedAt])
+  @@index([orderId])
+}
+
+/// Ever-increasing gift voucher group number per company. Only moves forward, so a group
+/// number (and therefore its code range) is never handed out twice.
+model GiftVoucherCounter {
+  companyId       String   @id
+  lastGroupNumber Int
+  updatedAt       DateTime @updatedAt
+  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
 }

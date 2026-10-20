@@ -11,9 +11,13 @@ import {
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-/** List a tab: `scope=web` (stock_requests.read) or `scope=mine` (stock_requests.create). */
+/** List a tab: `scope=web` (stock_requests.read), `scope=mine` (stock_requests.create), or `scope=staff` (stock_requests.read_all). */
 export async function GET(request: NextRequest) {
-  const auth = await requireStockRequestViewer(["stock_requests.read", "stock_requests.create"]);
+  const auth = await requireStockRequestViewer([
+    "stock_requests.read",
+    "stock_requests.create",
+    "stock_requests.read_all",
+  ]);
   if (!auth.ok) return auth.response;
 
   const sp = request.nextUrl.searchParams;
@@ -25,6 +29,7 @@ export async function GET(request: NextRequest) {
     status: sp.get("status") || undefined,
     stock: sp.get("stock") || undefined,
     search: sp.get("search") || undefined,
+    createdBy: sp.get("createdBy") || undefined,
     page: sp.get("page") || undefined,
     limit: sp.get("limit") || undefined,
   });
@@ -33,11 +38,13 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    const { createdBy, ...filters } = parsed.data;
     const data = await listStockRequests({
       companyId: auth.companyId,
       viewer: auth.viewer,
       scope: scope.data,
-      ...parsed.data,
+      createdById: scope.data === "staff" ? createdBy : undefined,
+      ...filters,
     });
     return NextResponse.json(data);
   } catch (error) {

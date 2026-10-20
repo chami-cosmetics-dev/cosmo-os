@@ -49,10 +49,10 @@ export function getPaymentMethodInfo(input?: {
   if (normalized === "cash") {
     return { label: "Cash", variant: "cash" };
   }
-  if (normalized === "koko") {
+  if (normalized === "koko" || normalized.includes("koko")) {
     return { label: "KOKO", variant: "paid" };
   }
-  if (normalized === "mintpay" || normalized.includes("mintpay")) {
+  if (normalized.replace(/[^a-z0-9]+/g, "").includes("mintpay")) {
     return { label: "Mintpay", variant: "paid" };
   }
   if (isAlreadyPaidCardCheckoutGateway(primary)) {

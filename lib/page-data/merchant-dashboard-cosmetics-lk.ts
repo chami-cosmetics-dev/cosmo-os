@@ -9,6 +9,10 @@ import {
   parseOrderCouponList,
   splitMerchantCouponSets,
 } from "@/lib/merchant-dm-sales";
+import {
+  isWholesaleTrackingCode,
+  orderIsWholesale,
+} from "@/lib/merchant-wholesale";
 import { isCosmeticsLkLocationName } from "@/lib/cosmetics-lk-location";
 import { getPaymentMethodInfo } from "@/lib/payment-method-label";
 import { prisma } from "@/lib/prisma";
@@ -126,7 +130,9 @@ export async function fetchMerchantCosmeticsLkBreakdown(
   });
   if (!merchant) return null;
 
-  const sets = splitMerchantCouponSets(merchant.couponCodes);
+  const sets = splitMerchantCouponSets(
+    merchant.couponCodes.filter((code) => !isWholesaleTrackingCode(code)),
+  );
   const dateFilter = buildDashboardSalesDateFilter({
     fromDate,
     toDate,
@@ -173,8 +179,10 @@ export async function fetchMerchantCosmeticsLkBreakdown(
   for (const order of orders) {
     if (!isDashboardSalesOrderEligible(order, dateType)) continue;
 
+    const orderCoupons = orderTrackingCoupons(order);
+    if (orderIsWholesale(orderCoupons)) continue;
     const bucket = classifyMerchantSalesBucket({
-      orderCoupons: orderTrackingCoupons(order),
+      orderCoupons,
       personal: sets.personal,
       dm: sets.dm,
       hasDm: sets.hasDm,

@@ -10,6 +10,7 @@ const vfsFonts = require("pdfmake/build/vfs_fonts") as Record<string, string>;
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 import { isCitypakCourier } from "@/lib/courier";
+import { isMintpayGateway } from "@/lib/payment-gateway-match";
 import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 import { formatAppIsoDate } from "@/lib/format-datetime";
 
@@ -74,7 +75,7 @@ function formatPayment(raw: string | null) {
     return "CARD ON DEL";
   }
   if (normalized.includes("koko")) return "KOKO";
-  if (normalized.includes("mintpay")) return "MINTPAY";
+  if (isMintpayGateway(raw)) return "MINTPAY";
   if (normalized.includes("bank")) return "BANK TRANSFER";
   return raw.replace(/[_-]+/g, " ").toUpperCase();
 }

@@ -4,6 +4,10 @@ import {
   loadPurchaseSummaryIndexes,
   purchaseSummaryForContact,
 } from "@/lib/contacts/purchase-summary-export";
+import {
+  firstPurchaseAtForContact,
+  loadFirstPurchaseIndexes,
+} from "@/lib/customer-insight/first-purchase";
 import { prisma } from "@/lib/prisma";
 
 const CONTACT_READ_BATCH = 2_000;
@@ -36,6 +40,7 @@ async function writePurchaseSummaryChunk(
     orderCount: number;
     totalSpent: number;
     lastOrderAt: Date | null;
+    firstOrderAt: Date | null;
   }>
 ) {
   if (rows.length === 0) return;
@@ -45,7 +50,8 @@ async function writePurchaseSummaryChunk(
       ${row.id},
       ${row.orderCount}::int,
       ${row.totalSpent}::numeric,
-      ${row.lastOrderAt}::timestamptz
+      ${row.lastOrderAt}::timestamptz,
+      ${row.firstOrderAt}::timestamptz
     )`
   );
 
@@ -54,8 +60,9 @@ async function writePurchaseSummaryChunk(
     SET
       "purchaseOrderCount" = v.order_count,
       "purchaseTotalValue" = v.total_spent,
-      "purchaseLastOrderAt" = v.last_order_at
-    FROM (VALUES ${Prisma.join(values)}) AS v(id, order_count, total_spent, last_order_at)
+      "purchaseLastOrderAt" = v.last_order_at,
+      "purchaseFirstOrderAt" = v.first_order_at
+    FROM (VALUES ${Prisma.join(values)}) AS v(id, order_count, total_spent, last_order_at, first_order_at)
     WHERE c.id = v.id
       AND c."companyId" = ${companyId}
   `;
@@ -88,7 +95,10 @@ export async function refreshCompanyPurchaseSummaries(
 ): Promise<RefreshPurchaseSummaryResult> {
   const syncedAt = new Date();
   try {
-    const indexes = await loadPurchaseSummaryIndexes(companyId);
+    const [indexes, firstPurchaseIndexes] = await Promise.all([
+      loadPurchaseSummaryIndexes(companyId),
+      loadFirstPurchaseIndexes(companyId),
+    ]);
 
     let contactCount = 0;
     let cursor: string | undefined;
@@ -122,6 +132,13 @@ export async function refreshCompanyPurchaseSummaries(
           orderCount: summary?.orderCount ?? 0,
           totalSpent: summary?.totalSpent ?? 0,
           lastOrderAt: summary?.lastOrderAt ?? null,
+          firstOrderAt: firstPurchaseAtForContact(firstPurchaseIndexes, {
+            id: contact.id,
+            phoneNumber: contact.phoneNumber,
+            email: contact.email,
+            aliasPhones: contact.phones.map((p) => p.phoneNumber),
+            aliasEmails: contact.emails.map((e) => e.email),
+          }),
         };
       });
 

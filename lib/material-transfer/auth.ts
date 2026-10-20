@@ -5,6 +5,7 @@ import { loadShopScope } from "@/lib/material-transfer/scope";
 import type { ShopScope } from "@/lib/material-transfer/receive";
 
 export const MATERIAL_TRANSFER_PERMISSION = "store.material_transfer.write";
+export const MATERIAL_TRANSFER_SHOP_RETURN_PERMISSION = "store.material_transfer.shop_return";
 
 const EMPTY_SCOPE: ShopScope = { explicitWarehouses: [], outletName: null };
 
@@ -33,6 +34,7 @@ export async function requireMaterialTransferView() {
     return { ok: false as const, status: 401 as const, error: "Unauthorized" };
   }
   const canWrite = hasPermission(context, MATERIAL_TRANSFER_PERMISSION);
+  const canShopReturn = hasPermission(context, MATERIAL_TRANSFER_SHOP_RETURN_PERMISSION);
   const companyId = context.user.companyId;
   if (!companyId) {
     return {
@@ -48,5 +50,5 @@ export async function requireMaterialTransferView() {
   if (!canWrite && !canReceive) {
     return { ok: false as const, status: 403 as const, error: "Forbidden" };
   }
-  return { ok: true as const, context, companyId, canWrite, canReceive, scope };
+  return { ok: true as const, context, companyId, canWrite, canShopReturn, canReceive, scope };
 }

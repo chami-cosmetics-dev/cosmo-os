@@ -30,6 +30,8 @@ import { parseTpNumbers } from "@/lib/contacts/parse-tp-numbers";
 import { formatAllocationAssigneeLabel } from "@/lib/contacts/staff-sales-allocation";
 import { notify } from "@/lib/notify";
 import { formatAppDateTime } from "@/lib/format-datetime";
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
+import { isImportedPurchaseOrigin, saleBusinessLabel } from "@/lib/customer-insight/invoices";
 import {
   DUMP_TOTAL_HEADER,
   createCsvRowCounter,
@@ -66,6 +68,7 @@ type ContactPurchaseOrder = {
   fulfillmentStatus: string | null;
   createdAt: string;
   source?: "cosmo" | "adapt";
+  origin?: "adapt" | "vault_supplement_import" | "vault_file_import";
   merchantName?: string | null;
   lineItems: Array<{
     id: string;
@@ -80,6 +83,7 @@ type ContactPurchaseOrder = {
 type AdaptPurchaseRow = {
   id: string;
   source: "adapt";
+  origin?: "adapt" | "vault_supplement_import" | "vault_file_import" | null;
   salesInvoiceNo: string;
   invoiceDate: string;
   ttlAmount: string;
@@ -88,6 +92,7 @@ type AdaptPurchaseRow = {
   companyLocationName: string | null;
   paymentMethod: string | null;
   merchantKnownName: string | null;
+  financialStatus?: string | null;
   lineItems: ContactPurchaseOrder["lineItems"];
 };
 
@@ -222,7 +227,7 @@ export function ContactsPanel({
   const [backfillPreviewLoading, setBackfillPreviewLoading] = useState(false);
   const [backfillRunning, setBackfillRunning] = useState(false);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
-  const [exportBusyKey, setExportBusyKey] = useState<"contacts" | "purchase_summary" | null>(
+  const [exportBusyKey, setExportBusyKey] = useState<"contacts" | "purchase_summary" | "invoices" | null>(
     null
   );
   const [purchaseSummarySync, setPurchaseSummarySync] = useState(
@@ -345,13 +350,15 @@ export function ContactsPanel({
     }
   }
 
-  async function downloadContactExport(mode: "contacts" | "purchase_summary" = "contacts") {
+  async function downloadContactExport(mode: "contacts" | "purchase_summary" | "invoices" = "contacts") {
     setExportBusyKey(mode);
     const toastId = `contact-export-${mode}`;
     notify.loading(
       mode === "purchase_summary"
         ? "Building purchase summary…"
-        : "Preparing contact export…",
+        : mode === "invoices"
+          ? "Building invoice history…"
+          : "Preparing contact export…",
       toastId
     );
     try {
@@ -374,7 +381,9 @@ export function ContactsPanel({
         parseContentDispositionFilename(res.headers.get("Content-Disposition")) ??
         (mode === "purchase_summary"
           ? "contact-master-with-purchases.csv"
-          : "contact-master-export.csv");
+          : mode === "invoices"
+            ? "contact-master-with-invoices.csv"
+            : "contact-master-export.csv");
       const reader = res.body?.getReader();
       if (!reader) {
         notify.error("Export stream unavailable", toastId);
@@ -674,10 +683,18 @@ export function ContactsPanel({
         name: row.salesInvoiceNo,
         totalPrice: row.ttlAmount,
         currency: row.currency,
-        financialStatus: row.paymentMethod ?? "Adapt",
-        fulfillmentStatus: row.companyLocationName ?? row.locationName ?? "Adapt",
+        financialStatus:
+          row.financialStatus?.trim() ||
+          (isImportedPurchaseOrigin(row.origin)
+            ? row.paymentMethod?.trim() || "Imported"
+            : row.paymentMethod ?? "Adapt"),
+        fulfillmentStatus:
+          isImportedPurchaseOrigin(row.origin)
+            ? row.companyLocationName ?? row.locationName ?? "—"
+            : row.companyLocationName ?? row.locationName ?? "Adapt",
         createdAt: row.invoiceDate,
         source: "adapt",
+        origin: isImportedPurchaseOrigin(row.origin) ? row.origin : "adapt",
         merchantName: row.merchantKnownName,
         lineItems: row.lineItems ?? [],
       }));
@@ -1203,7 +1220,7 @@ export function ContactsPanel({
                           {exportBusyKey === "contacts" ? "Exporting..." : "Contact Info Only"}
                         </p>
                         <p className="text-muted-foreground mt-1 text-sm">
-                          Name, email, phone number, merchant, and contact dates only.
+                          Name, email, phone, address, allocated merchant, order value, and contact dates.
                         </p>
                       </button>
                       <button
@@ -1227,6 +1244,23 @@ export function ContactsPanel({
                         <p className="text-muted-foreground mt-1 text-sm">
                           Fast export from cached totals (orders, value, last order). Refresh cache
                           after big Adapt/order imports if numbers look stale.
+                        </p>
+                      </button>
+                      <button
+                        type="button"
+                        disabled={exportBusyKey !== null || purchaseSummaryRefreshing}
+                        className="rounded-xl border border-border/70 bg-background/70 p-4 text-left transition hover:bg-secondary/10 disabled:pointer-events-none disabled:opacity-60"
+                        onClick={() => void downloadContactExport("invoices")}
+                      >
+                        <p className="font-medium inline-flex items-center gap-2">
+                          {exportBusyKey === "invoices" ? (
+                            <Loader2 className="size-4 animate-spin" aria-hidden />
+                          ) : null}
+                          {exportBusyKey === "invoices" ? "Exporting..." : "With Invoices"}
+                        </p>
+                        <p className="text-muted-foreground mt-1 text-sm">
+                          One row per item: customer, invoice, item, quantity, price, status, and
+                          business (Cosmetics, File import, or Supplement).
                         </p>
                       </button>
                     </div>
@@ -1472,6 +1506,9 @@ export function ContactsPanel({
                   <thead>
                     <tr className="border-b bg-[linear-gradient(180deg,color-mix(in_srgb,var(--secondary)_14%,transparent),transparent)]">
                       <th className="px-4 py-2 text-left font-medium">Order</th>
+                      {isVaultOsDeployment() ? (
+                        <th className="px-4 py-2 text-left font-medium">Business</th>
+                      ) : null}
                       <th className="px-4 py-2 text-left font-medium">Items</th>
                       <th className="px-4 py-2 text-left font-medium">Date</th>
                       <th className="px-4 py-2 text-right font-medium">Total</th>
@@ -1485,7 +1522,13 @@ export function ContactsPanel({
                         <td className="px-4 py-2">
                           <p className="font-medium">{order.name ?? order.orderNumber ?? order.shopifyOrderId}</p>
                           <p className="text-muted-foreground text-xs">
-                            {order.source === "adapt" ? "Adapt" : order.orderNumber ?? "N/A"}
+                            {order.source === "adapt"
+                              ? order.origin === "vault_file_import"
+                                ? "File import"
+                                : order.origin === "vault_supplement_import"
+                                  ? "Supplement import"
+                                  : "Adapt"
+                              : order.orderNumber ?? "N/A"}
                           </p>
                           {order.merchantName ? (
                             <p className="text-muted-foreground text-xs">
@@ -1493,6 +1536,9 @@ export function ContactsPanel({
                             </p>
                           ) : null}
                         </td>
+                        {isVaultOsDeployment() ? (
+                          <td className="px-4 py-2 align-top">{saleBusinessLabel(order.origin)}</td>
+                        ) : null}
                         <td className="px-4 py-2">
                           {order.lineItems.length > 0 ? (
                             <div className="space-y-2">
@@ -1513,7 +1559,13 @@ export function ContactsPanel({
                             </div>
                           ) : (
                             <span className="text-muted-foreground text-xs">
-                              {order.source === "adapt" ? "Adapt history (no line items)" : "No items"}
+                              {order.source === "adapt"
+                                ? order.origin === "vault_file_import"
+                                  ? "File import (no line items)"
+                                  : order.origin === "vault_supplement_import"
+                                    ? "Supplement import (no line items)"
+                                    : "Adapt history (no line items)"
+                                : "No items"}
                             </span>
                           )}
                         </td>
@@ -1526,7 +1578,13 @@ export function ContactsPanel({
                         </td>
                         <td className="px-4 py-2">
                           {order.source === "adapt" ? (
-                            <span className="text-muted-foreground text-xs">Adapt (view only)</span>
+                            <span className="text-muted-foreground text-xs">
+                              {order.origin === "vault_file_import"
+                                ? "File import (view only)"
+                                : order.origin === "vault_supplement_import"
+                                  ? "Supplement import (view only)"
+                                  : "Adapt (view only)"}
+                            </span>
                           ) : (
                             <a
                               href={`/api/admin/orders/${order.id}/invoice`}

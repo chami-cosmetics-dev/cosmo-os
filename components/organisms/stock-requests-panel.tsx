@@ -100,9 +100,10 @@ export type StockRequestsViewerProps = {
   canViewWeb: boolean;
   canManageWeb: boolean;
   canCreate: boolean;
+  canViewAllStaff: boolean;
 };
 
-type Scope = "web" | "mine";
+type Scope = "web" | "mine" | "staff";
 
 const SCOPE_COPY: Record<Scope, { title: string; description: string; restockedLabel: string }> = {
   web: {
@@ -117,7 +118,36 @@ const SCOPE_COPY: Record<Scope, { title: string; description: string; restockedL
       "Wishlist requests you created for customers. When an item with no stock anywhere comes back in any warehouse, you get a reminder and the customer gets an email (if they gave one).",
     restockedLabel: "Back in stock",
   },
+  staff: {
+    title: "All staff requests",
+    description:
+      "Wishlist requests created in Cosmo OS, grouped by the staff member who created them. You can update only the requests you created.",
+    restockedLabel: "Back in stock",
+  },
 };
+
+const TAB_LABEL: Record<Scope, string> = {
+  web: "Website requests",
+  mine: "My requests",
+  staff: "All staff requests",
+};
+
+function creatorLabel(item: StockRequestItem): string {
+  return item.createdBy?.name || item.createdBy?.email || "Unknown";
+}
+
+function groupItemsByCreator(
+  items: StockRequestItem[],
+): Array<{ key: string; label: string; items: StockRequestItem[] }> {
+  const groups: Array<{ key: string; label: string; items: StockRequestItem[] }> = [];
+  for (const item of items) {
+    const key = item.createdBy?.id ?? "unknown";
+    const last = groups[groups.length - 1];
+    if (last?.key === key) last.items.push(item);
+    else groups.push({ key, label: creatorLabel(item), items: [item] });
+  }
+  return groups;
+}
 
 function StockRequestsList({
   scope,
@@ -130,8 +160,11 @@ function StockRequestsList({
   viewer: StockRequestsViewerProps;
 }) {
   const copy = SCOPE_COPY[scope];
-  const canEdit = (item: StockRequestItem) =>
-    scope === "web" ? viewer.canManageWeb : viewer.isAdmin || item.createdBy?.id === viewer.userId;
+  const canEdit = (item: StockRequestItem) => {
+    if (viewer.isAdmin) return true;
+    if (scope === "web") return viewer.canManageWeb;
+    return viewer.canCreate && item.createdBy?.id === viewer.userId;
+  };
   const [creating, setCreating] = useState(false);
   const [data, setData] = useState<StockRequestListResponse>(
     initialData ?? { items: [], total: 0, page: 1, limit: 25 },
@@ -140,6 +173,7 @@ function StockRequestsList({
   const [stock, setStock] = useState<string>("all");
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
+  const [creator, setCreator] = useState("all");
   const [page, setPage] = useState(initialData?.page ?? 1);
   const [limit, setLimit] = useState(initialData?.limit ?? 25);
   const [loading, setLoading] = useState(initialData === null);
@@ -176,6 +210,7 @@ function StockRequestsList({
         if (status !== "all") params.set("status", status);
         if (stock !== "all") params.set("stock", stock);
         if (search) params.set("search", search);
+        if (scope === "staff" && creator !== "all") params.set("createdBy", creator);
         params.set("page", String(page));
         params.set("limit", String(limit));
         const res = await fetch(`/api/admin/stock-requests?${params.toString()}`);
@@ -195,7 +230,7 @@ function StockRequestsList({
     return () => {
       cancelled = true;
     };
-  }, [scope, status, stock, search, page, limit]);
+  }, [scope, status, stock, search, creator, page, limit]);
 
   function replaceItem(item: StockRequestItem) {
     setData((d) => ({ ...d, items: d.items.map((i) => (i.id === item.id ? item : i)) }));
@@ -253,6 +288,11 @@ function StockRequestsList({
     }
   }
 
+  const groupedByCreator = scope === "staff" && creator === "all";
+  const itemGroups: Array<{ key: string; label: string | null; items: StockRequestItem[] }> = groupedByCreator
+    ? groupItemsByCreator(data.items)
+    : [{ key: "all", label: null, items: data.items }];
+
   const soldFromOptions: Array<{ key: string; label: string }> = editing
     ? editing.stockSources.map((s) => ({
         key: soldFromKey(s.instanceId, s.warehouse),
@@ -282,7 +322,12 @@ function StockRequestsList({
           )}
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[220px_220px_minmax(0,1fr)]">
+          <div
+            className={cn(
+              "grid gap-3 sm:grid-cols-2",
+              scope === "staff" ? "lg:grid-cols-4" : "lg:grid-cols-[220px_220px_minmax(0,1fr)]",
+            )}
+          >
             <div className="space-y-1">
               <label className="text-sm font-medium" htmlFor={`stock-requests-status-${scope}`}>
                 Status
@@ -331,13 +376,39 @@ function StockRequestsList({
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-1 sm:col-span-2 lg:col-span-1">
+            {scope === "staff" && (
+              <div className="space-y-1">
+                <label className="text-sm font-medium" htmlFor={`stock-requests-creator-${scope}`}>
+                  Created by
+                </label>
+                <Select
+                  value={creator}
+                  onValueChange={(v) => {
+                    setPage(1);
+                    setCreator(v);
+                  }}
+                >
+                  <SelectTrigger id={`stock-requests-creator-${scope}`} className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All users</SelectItem>
+                    {(data.creators ?? []).map((person) => (
+                      <SelectItem key={person.id} value={person.id}>
+                        {person.name || person.email || "Unknown"} ({person.count})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            <div className={cn("space-y-1", scope === "staff" ? "" : "sm:col-span-2 lg:col-span-1")}>
               <label className="text-sm font-medium" htmlFor={`stock-requests-search-${scope}`}>
                 Search
               </label>
               <Input
                 id={`stock-requests-search-${scope}`}
-                placeholder="Name, phone, email, SKU or product"
+                placeholder={scope === "staff" ? "Name, phone, email, SKU, product or staff" : "Name, phone, email, SKU or product"}
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
               />
@@ -351,8 +422,13 @@ function StockRequestsList({
               No stock requests found for the selected filters.
             </div>
           ) : (
-            <div className="space-y-2">
-              {data.items.map((item) => (
+            <div className="space-y-4">
+              {itemGroups.map((group) => (
+                <div key={group.key} className="space-y-2">
+                  {group.label && (
+                    <h3 className="border-b border-border/60 pb-1 text-sm font-semibold">{group.label}</h3>
+                  )}
+                  {group.items.map((item) => (
                 <div
                   key={item.id}
                   className={cn("rounded-md border-2 p-3", statusBorderClass(item.status))}
@@ -381,7 +457,7 @@ function StockRequestsList({
                             Back in stock
                           </span>
                         )}
-                        {scope === "mine" && item.awaitingStock && !item.restockedAt && (
+                        {scope !== "web" && item.awaitingStock && !item.restockedAt && (
                           <span
                             className="inline-flex items-center rounded border border-sky-500/40 bg-sky-500/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-sky-800 dark:text-sky-200"
                             title="No stock anywhere yet. You'll get a reminder when it comes back."
@@ -390,7 +466,8 @@ function StockRequestsList({
                           </span>
                         )}
                       </div>
-                      {scope === "mine" && viewer.isAdmin && item.createdBy && (
+                      {item.createdBy &&
+                        ((scope === "mine" && viewer.isAdmin) || (scope === "staff" && !groupedByCreator)) && (
                         <div className="text-xs leading-snug text-muted-foreground">
                           Created by {item.createdBy.name ?? item.createdBy.email ?? "staff"}
                         </div>
@@ -562,6 +639,8 @@ function StockRequestsList({
                     )}
                   </div>
                 </div>
+                  ))}
+                </div>
               ))}
             </div>
           )}
@@ -582,6 +661,13 @@ function StockRequestsList({
           {scope === "web" && !viewer.canManageWeb && (
             <div className="text-xs text-muted-foreground">
               View-only: updating website requests is not available for your role.
+            </div>
+          )}
+          {scope === "staff" && !viewer.isAdmin && (
+            <div className="text-xs text-muted-foreground">
+              {viewer.canCreate
+                ? "View only for other people's requests. You can update requests you created."
+                : "View only."}
             </div>
           )}
         </CardContent>
@@ -957,8 +1043,8 @@ function ProductThumb({ hit }: { hit: ProductHit }) {
 }
 
 /**
- * Stock Requests: "Website requests" (stock_requests.read) and "My requests"
- * (stock_requests.create). Users with both, and admins, see both tabs.
+ * Stock Requests: "Website requests" (stock_requests.read), "My requests"
+ * (stock_requests.create), and "All staff requests" (stock_requests.read_all).
  */
 export function StockRequestsPanel({
   viewer,
@@ -972,6 +1058,7 @@ export function StockRequestsPanel({
   const tabs: Scope[] = [
     ...(viewer.canViewWeb ? (["web"] as const) : []),
     ...(viewer.canCreate ? (["mine"] as const) : []),
+    ...(viewer.canViewAllStaff ? (["staff"] as const) : []),
   ];
   const [tab, setTab] = useState<Scope>(initialTab);
 
@@ -992,8 +1079,11 @@ export function StockRequestsPanel({
       className="space-y-4"
     >
       <TabsList>
-        <TabsTrigger value="web">Website requests</TabsTrigger>
-        <TabsTrigger value="mine">My requests</TabsTrigger>
+        {tabs.map((scope) => (
+          <TabsTrigger key={scope} value={scope}>
+            {TAB_LABEL[scope]}
+          </TabsTrigger>
+        ))}
       </TabsList>
       {tabs.map((scope) => (
         <TabsContent key={scope} value={scope}>

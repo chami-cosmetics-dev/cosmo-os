@@ -1,10 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { Prisma } from "@prisma/client";
 
+import { contactOrderLookupKeys } from "@/lib/contact-purchase-lookup";
 import {
   loadAllocatedMerchantByPhone,
   resolveExportAssignedMerchant,
 } from "@/lib/contacts/export-allocated-merchant";
+import { phoneMatchKeys } from "@/lib/contacts/purchase-summary-export";
+import {
+  buildInvoiceHistoryRows,
+  INVOICE_HISTORY_HEADERS,
+} from "@/lib/contacts/invoice-history-export";
 import { getPurchaseSummarySyncStatus } from "@/lib/contacts/purchase-summary-cache";
 import { logReportDownload } from "@/lib/report-download-log";
 import { findContactsByPurchasedBrandRanked } from "@/lib/page-data/contact-brand-ids";
@@ -18,18 +24,17 @@ import {
 } from "@/lib/reports/csv";
 import { DUMP_TOTAL_HEADER } from "@/lib/reports/dump-download";
 import { loadAssignedMerchantAliasMap } from "@/lib/customer-insight/allocation-summary";
-import { firstPurchaseAtByContactIds } from "@/lib/customer-insight/first-purchase";
 import { formatStoredAllocatedMerchant } from "@/lib/reports/allocated-merchant-format";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-/** Streaming Contact Master CSV (~80k+). Purchase totals come from cache (no live GROUP BY). */
-export const maxDuration = 300;
+/** Streaming Contact Master CSV (~80k+). Purchase columns and first-purchase date come from cache. */
+export const maxDuration = 800;
 
 type ContactStatusFilter = "active" | "inactive" | "never_purchased" | null;
-type ContactExportMode = "contacts" | "purchase_summary";
+type ContactExportMode = "contacts" | "purchase_summary" | "invoices";
 
 const CONTACT_BATCH_SIZE = 5000;
 
@@ -38,20 +43,16 @@ const contactExportSelect = {
   name: true,
   email: true,
   phoneNumber: true,
+  address: true,
   recentMerchant: true,
   assignedMerchant: true,
   lastPurchaseAt: true,
   purchaseOrderCount: true,
   purchaseTotalValue: true,
   purchaseLastOrderAt: true,
+  purchaseFirstOrderAt: true,
   createdAt: true,
   updatedAt: true,
-  allocationUpdates: {
-    where: { category: { not: "allocation" } },
-    orderBy: { createdAt: "desc" as const },
-    take: 1,
-    select: { merchantName: true },
-  },
 } as const;
 
 type ContactExportRow = Prisma.ContactMasterGetPayload<{ select: typeof contactExportSelect }>;
@@ -65,6 +66,7 @@ function parseStatus(value: string | null): ContactStatusFilter {
 
 function parseMode(value: string | null): ContactExportMode {
   if (value === "purchase_summary") return "purchase_summary";
+  if (value === "invoices") return "invoices";
   return "contacts";
 }
 
@@ -109,6 +111,25 @@ async function fetchBrandOrderedChunk(
     if (row) ordered.push(row);
   }
   return ordered;
+}
+
+/** Latest call-update author per contact. One indexed scan, not a join on every export page. */
+async function loadLatestUpdaterByContactId(companyId: string): Promise<Map<string, string>> {
+  const rows = await prisma.$queryRaw<
+    Array<{ contactId: string; merchantName: string | null }>
+  >`
+    SELECT DISTINCT ON ("contactId") "contactId", "merchantName"
+    FROM "ContactAllocationUpdate"
+    WHERE "companyId" = ${companyId}
+      AND "category" <> 'allocation'
+    ORDER BY "contactId", "createdAt" DESC
+  `;
+  const map = new Map<string, string>();
+  for (const row of rows) {
+    const name = row.merchantName?.trim();
+    if (name) map.set(row.contactId, name);
+  }
+  return map;
 }
 
 /** Yield contact batches. Prefetch next DB page while caller encodes the current one. */
@@ -186,6 +207,20 @@ export async function GET(request: NextRequest) {
   );
   const brandOrderedIds = brand ? brandRanks.map((r) => r.contactId) : null;
 
+  if (mode === "invoices") {
+    return streamInvoiceHistoryExport({
+      companyId,
+      userId: auth.context?.user?.id,
+      where: await buildContactsListWhere(
+        companyId,
+        { status, search, allocatedTo, brand },
+        { brandContactIds: brand ? brandRanks.map((r) => r.contactId) : undefined },
+      ),
+      brandOrderedIds,
+      filters: `mode=${mode}&status=${status ?? "all"}&search=${search ?? ""}&allocatedTo=${allocatedTo ?? ""}&brand=${brand ?? ""}`,
+    });
+  }
+
   const where = await buildContactsListWhere(
     companyId,
     {
@@ -197,10 +232,11 @@ export async function GET(request: NextRequest) {
     { brandContactIds: brand ? brandRanks.map((r) => r.contactId) : undefined }
   );
 
-  const [expectedRows, allocatedByPhone, aliasToRoster] = await Promise.all([
+  const [expectedRows, allocatedByPhone, aliasToRoster, updatedByContactId] = await Promise.all([
     prisma.contactMaster.count({ where }),
     loadAllocatedMerchantByPhone(companyId),
     loadAssignedMerchantAliasMap(companyId),
+    loadLatestUpdaterByContactId(companyId),
   ]);
 
   const fileName =
@@ -228,8 +264,10 @@ export async function GET(request: NextRequest) {
     "name",
     "email",
     "phone_number",
+    "address",
     "recent_merchant",
     "assigned_merchant",
+    "order_value",
     ...(brand ? (["brand_spend"] as const) : []),
     "last_purchased_date",
     "first_purchased_date",
@@ -243,8 +281,10 @@ export async function GET(request: NextRequest) {
     "name",
     "email",
     "phone_number",
+    "address",
     "recent_merchant",
     "assigned_merchant",
+    "order_value",
     ...(brand ? (["brand_spend"] as const) : []),
     "total_orders",
     "total_purchase_value",
@@ -271,10 +311,6 @@ export async function GET(request: NextRequest) {
           if (request.signal.aborted) {
             throw new Error("Export aborted");
           }
-          const firstPurchaseById = await firstPurchaseAtByContactIds(
-            companyId,
-            batch.map((contact) => contact.id)
-          );
           const lines: string[] = [];
           for (const contact of batch) {
             contactNo += 1;
@@ -285,6 +321,7 @@ export async function GET(request: NextRequest) {
               name: contact.name,
               email: contact.email ?? "",
               phone_number: contact.phoneNumber ?? "",
+              address: contact.address ?? "",
               recent_merchant: formatStoredAllocatedMerchant(
                 contact.recentMerchant,
                 aliasToRoster
@@ -297,6 +334,7 @@ export async function GET(request: NextRequest) {
                 ),
                 aliasToRoster
               ),
+              order_value: purchaseTotal.toFixed(2),
               ...(brand
                 ? { brand_spend: (brandSpendById.get(contact.id) ?? 0).toFixed(2) }
                 : {}),
@@ -313,11 +351,11 @@ export async function GET(request: NextRequest) {
                   ? purchaseLast
                   : contact.lastPurchaseAt
               ),
-              first_purchased_date: formatIsoDate(firstPurchaseById.get(contact.id)),
+              first_purchased_date: formatIsoDate(contact.purchaseFirstOrderAt),
               created_at: formatIsoDateTime(contact.createdAt),
               updated_at: formatIsoDateTime(contact.updatedAt),
               updated_by: formatStoredAllocatedMerchant(
-                contact.allocationUpdates[0]?.merchantName,
+                updatedByContactId.get(contact.id),
                 aliasToRoster
               ),
             };
@@ -346,4 +384,233 @@ export async function GET(request: NextRequest) {
       "Access-Control-Expose-Headers": DUMP_TOTAL_HEADER,
     },
   });
+}
+
+const INVOICE_CONTACT_BATCH = 100;
+
+type InvoiceExportContact = {
+  id: string;
+  name: string;
+  email: string | null;
+  phoneNumber: string | null;
+  phones: { phoneNumber: string }[];
+  emails: { email: string }[];
+};
+
+async function streamInvoiceHistoryExport(input: {
+  companyId: string;
+  userId: string | undefined;
+  where: Awaited<ReturnType<typeof buildContactsListWhere>>;
+  brandOrderedIds: string[] | null;
+  filters: string;
+}) {
+  await logReportDownload({
+    companyId: input.companyId,
+    userId: input.userId,
+    reportKey: "contacts:master_export_with_invoices",
+    reportLabel: "Contact Master Export With Invoices",
+    filters: input.filters,
+    fileName: "contact-master-with-invoices.csv",
+  });
+
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      try {
+        controller.enqueue(
+          encoder.encode(`\uFEFF${INVOICE_HISTORY_HEADERS.map(formatCsvHeader).join(",")}\r\n`),
+        );
+        for await (const batch of iterateInvoiceContacts(input.where, input.brandOrderedIds)) {
+          const lines = await invoiceLinesForContacts(input.companyId, batch);
+          if (lines.length > 0) controller.enqueue(encoder.encode(`${lines.join("\r\n")}\r\n`));
+        }
+        controller.close();
+      } catch (error) {
+        controller.error(error);
+      }
+    },
+  });
+
+  return new NextResponse(stream, {
+    headers: {
+      "Content-Type": "text/csv; charset=utf-8",
+      "Content-Disposition": 'attachment; filename="contact-master-with-invoices.csv"',
+      "Cache-Control": "no-store",
+    },
+  });
+}
+
+async function* iterateInvoiceContacts(
+  where: Awaited<ReturnType<typeof buildContactsListWhere>>,
+  brandOrderedIds: string[] | null,
+): AsyncGenerator<InvoiceExportContact[]> {
+  const select = {
+    id: true,
+    name: true,
+    email: true,
+    phoneNumber: true,
+    phones: { select: { phoneNumber: true } },
+    emails: { select: { email: true } },
+  } as const;
+
+  if (brandOrderedIds) {
+    for (let start = 0; start < brandOrderedIds.length; start += INVOICE_CONTACT_BATCH) {
+      const idChunk = brandOrderedIds.slice(start, start + INVOICE_CONTACT_BATCH);
+      const batch = await prisma.contactMaster.findMany({
+        where: { ...where, id: { in: idChunk } },
+        select,
+      });
+      const byId = new Map(batch.map((row) => [row.id, row] as const));
+      const ordered = idChunk.flatMap((id) => {
+        const row = byId.get(id);
+        return row ? [row] : [];
+      });
+      if (ordered.length > 0) yield ordered;
+    }
+    return;
+  }
+
+  let cursor: string | undefined;
+  for (;;) {
+    const batch = await prisma.contactMaster.findMany({
+      where,
+      take: INVOICE_CONTACT_BATCH,
+      ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
+      orderBy: { id: "asc" },
+      select,
+    });
+    if (batch.length === 0) break;
+    cursor = batch[batch.length - 1]!.id;
+    yield batch;
+    if (batch.length < INVOICE_CONTACT_BATCH) break;
+  }
+}
+
+async function invoiceLinesForContacts(companyId: string, contacts: InvoiceExportContact[]) {
+  const ids = contacts.map((contact) => contact.id);
+  const byPhone = new Map<string, InvoiceExportContact>();
+  const byEmail = new Map<string, InvoiceExportContact>();
+  const phoneList: string[] = [];
+  const emailList: string[] = [];
+
+  for (const contact of contacts) {
+    const keys = contactOrderLookupKeys({
+      primaryPhone: contact.phoneNumber,
+      primaryEmail: contact.email,
+      aliasPhones: contact.phones.map((phone) => phone.phoneNumber),
+      aliasEmails: contact.emails.map((email) => email.email),
+    });
+    for (const phone of keys.phones) {
+      phoneList.push(phone);
+      for (const key of phoneMatchKeys(phone)) {
+        if (!byPhone.has(key)) byPhone.set(key, contact);
+      }
+    }
+    for (const email of keys.emails) {
+      const normalized = email.trim().toLowerCase();
+      if (!normalized || byEmail.has(normalized)) continue;
+      byEmail.set(normalized, contact);
+      emailList.push(normalized);
+    }
+  }
+
+  const orderOr: Prisma.OrderWhereInput[] = [];
+  if (phoneList.length > 0) {
+    orderOr.push({ customerPhone: { in: phoneList } }, { erpnextCustomerId: { in: phoneList } });
+  }
+  if (emailList.length > 0) {
+    orderOr.push({ customerEmail: { in: emailList, mode: "insensitive" } });
+  }
+
+  const [adaptRows, orders] = await Promise.all([
+    prisma.adaptPurchaseHistory.findMany({
+      where: { companyId, contactId: { in: ids } },
+      select: {
+        contactId: true,
+        salesInvoiceNo: true,
+        invoiceDate: true,
+        financialStatus: true,
+        paymentMethod: true,
+        origin: true,
+        importBatchId: true,
+        lineItems: true,
+      },
+    }),
+    orderOr.length > 0
+      ? prisma.order.findMany({
+          where: { companyId, OR: orderOr },
+          select: {
+            id: true,
+            orderNumber: true,
+            name: true,
+            erpnextInvoiceId: true,
+            createdAt: true,
+            financialStatus: true,
+            customerPhone: true,
+            customerEmail: true,
+            erpnextCustomerId: true,
+            lineItems: {
+              select: {
+                quantity: true,
+                price: true,
+                productItem: { select: { sku: true, productTitle: true } },
+              },
+            },
+          },
+        })
+      : Promise.resolve([]),
+  ]);
+
+  const adaptByContact = new Map<string, typeof adaptRows>();
+  for (const row of adaptRows) {
+    const list = adaptByContact.get(row.contactId) ?? [];
+    list.push(row);
+    adaptByContact.set(row.contactId, list);
+  }
+
+  const ordersByContact = new Map<string, typeof orders>();
+  for (const order of orders) {
+    let contact: InvoiceExportContact | null = null;
+    for (const raw of [order.customerPhone, order.erpnextCustomerId]) {
+      if (contact) break;
+      for (const key of phoneMatchKeys(raw)) {
+        const hit = byPhone.get(key);
+        if (hit) {
+          contact = hit;
+          break;
+        }
+      }
+    }
+    if (!contact && order.customerEmail?.trim()) {
+      contact = byEmail.get(order.customerEmail.trim().toLowerCase()) ?? null;
+    }
+    if (!contact) continue;
+    const list = ordersByContact.get(contact.id) ?? [];
+    list.push(order);
+    ordersByContact.set(contact.id, list);
+  }
+
+  const lines: string[] = [];
+  for (const contact of contacts) {
+    const rows = buildInvoiceHistoryRows({
+      contact,
+      adaptInvoices: adaptByContact.get(contact.id) ?? [],
+      orders: (ordersByContact.get(contact.id) ?? []).map((order) => ({
+        id: order.id,
+        orderNumber: order.orderNumber,
+        name: order.name,
+        erpnextInvoiceId: order.erpnextInvoiceId,
+        createdAt: order.createdAt,
+        financialStatus: order.financialStatus,
+        lineItems: order.lineItems.map((line) => ({
+          quantity: line.quantity,
+          price: line.price.toString(),
+          sku: line.productItem.sku,
+          productTitle: line.productItem.productTitle,
+        })),
+      })),
+    });
+    for (const row of rows) lines.push(csvLine(INVOICE_HISTORY_HEADERS, row));
+  }
+  return lines;
 }

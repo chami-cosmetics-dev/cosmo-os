@@ -17,6 +17,7 @@ export async function GET(request: NextRequest) {
   const parsed = materialTransferHistoryQuerySchema.safeParse({
     scope: searchParams.get("scope") ?? "",
     status: searchParams.get("status") || undefined,
+    mismatch: searchParams.get("mismatch") || undefined,
   });
   if (!parsed.success) {
     return NextResponse.json(
@@ -38,6 +39,7 @@ export async function GET(request: NextRequest) {
     seeAll: parsed.data.scope === "all",
     scope,
     status: parsed.data.status,
+    mismatch: parsed.data.mismatch === "1",
   });
 
   return NextResponse.json({

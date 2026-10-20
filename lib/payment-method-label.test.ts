@@ -39,6 +39,10 @@ describe("canRequestPaymentMethodChange", () => {
       label: "Mintpay",
       variant: "paid",
     });
+    expect(getPaymentMethodInfo({ paymentGatewayPrimary: "Mint Pay" })).toEqual({
+      label: "Mintpay",
+      variant: "paid",
+    });
   });
 
   it("allows pending with no gateway", () => {

@@ -59,7 +59,7 @@ async function erpGetJson<T>(cfg: OsfErpCredentials, path: string): Promise<T> {
   return (await res.json()) as T;
 }
 
-function isSyncableStockItem(row: ErpItemRow): boolean {
+export function isVaultErpSyncableStockItem(row: ErpItemRow): boolean {
   const code = (row.item_code ?? row.name ?? "").trim();
   if (!code) return false;
   if (code.toUpperCase() === "DELIVERY-CHARGES" || code.toUpperCase() === "TEST") return false;
@@ -112,7 +112,7 @@ async function fetchErpCatalogItems(cfg: OsfErpCredentials): Promise<Map<string,
     const json = await erpGetJson<{ data?: ErpItemRow[] }>(cfg, path);
     const rows = json.data ?? [];
     for (const row of rows) {
-      if (!isSyncableStockItem(row)) continue;
+      if (!isVaultErpSyncableStockItem(row)) continue;
       const sku = (row.item_code ?? row.name ?? "").trim();
       const key = normalizeSkuKey(sku);
       const rate = Number(row.standard_rate);
@@ -142,7 +142,7 @@ async function fetchErpCatalogItems(cfg: OsfErpCredentials): Promise<Map<string,
         `/api/resource/Item/${encodeURIComponent(sku)}`,
       );
       const row = json.data;
-      if (!row || !isSyncableStockItem(row)) continue;
+      if (!row || !isVaultErpSyncableStockItem(row)) continue;
       const rate = Number(row.standard_rate);
       out.set(key, {
         sku,
@@ -349,4 +349,33 @@ export async function syncVaultErpCatalogToProductItems(
     erp2Count: erp2Map.size,
     error: null,
   };
+}
+
+/**
+ * Read-only item-code set for supplement contact import.
+ * Same stock-item filter as the catalog sync. Does not write ProductItem.
+ */
+export async function listVaultErpStockItemCodes(companyId: string): Promise<Set<string>> {
+  const instances = await getAllOsfErpInstances(companyId);
+  const slots = resolveErpSlots(instances);
+  const erp1 = slots.erp1 ? instances.find((i) => i.id === slots.erp1!.id) : null;
+  const erp2 = slots.erp2 ? instances.find((i) => i.id === slots.erp2!.id) : null;
+  if (!erp1 && !erp2) {
+    throw new OsfErpError("No Supplement Vault ERP instance is configured");
+  }
+
+  const [erp1Map, erp2Map] = await Promise.all([
+    erp1 ? fetchErpCatalogItems(erp1.cfg) : Promise.resolve(new Map<string, VaultErpCatalogItem>()),
+    erp2 ? fetchErpCatalogItems(erp2.cfg) : Promise.resolve(new Map<string, VaultErpCatalogItem>()),
+  ]);
+  if (erp1Map.size === 0 && erp2Map.size === 0) {
+    throw new OsfErpError("No ERP items returned from ERP1/ERP2");
+  }
+
+  const codes = new Set<string>();
+  for (const item of mergeCatalogs(erp1Map, erp2Map).values()) {
+    const sku = item.sku.trim();
+    if (sku) codes.add(sku);
+  }
+  return codes;
 }

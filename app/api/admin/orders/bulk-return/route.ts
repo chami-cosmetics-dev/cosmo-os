@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 import { writeAuditLog } from "@/lib/audit-log";
-import { createInvoiceRevertVoidApproval } from "@/lib/approval-workflow";
+import { cancelPendingDeliveryPaymentApprovalsForOrder, createInvoiceRevertVoidApproval } from "@/lib/approval-workflow";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import {
@@ -526,6 +526,7 @@ export async function POST(request: NextRequest) {
           });
 
           await tx.riderDeliveryTask.deleteMany({ where: { orderId: order.id } });
+          await cancelPendingDeliveryPaymentApprovalsForOrder(order.id, undefined, tx);
           return createdReturn;
         });
 

@@ -30,6 +30,8 @@ export type FinanceApprovalItem = {
   kokoReferences?: Array<{ reference: string; amount: string }>;
   kokoPaymentAmount?: string | null;
   requiresKokoReference: boolean;
+  /** koko keeps link-generated time. mintpay uses the same reference reports without that time. */
+  paymentReferenceKind?: "koko" | "mintpay" | null;
   kokoLinkGeneratedAt?: string | null;
   merchantMultipleKokoPayments?: boolean;
   merchantKokoPaymentCount?: number | null;
@@ -155,6 +157,17 @@ function KokoLinkTimeLine({ approval }: { approval: FinanceApprovalItem }) {
       {count > 1 ? ` · ${count} payments` : ""}
     </span>
   );
+}
+
+function isMintpayReferenceApproval(approval: FinanceApprovalItem): boolean {
+  return approval.paymentReferenceKind === "mintpay";
+}
+
+function referenceNoun(approval: FinanceApprovalItem, plural = false): string {
+  if (isMintpayReferenceApproval(approval)) {
+    return plural ? "MintPay Order IDs" : "MintPay Order ID";
+  }
+  return plural ? "KOKO references" : "KOKO reference";
 }
 
 function formatMoney(value: number): string {
@@ -874,7 +887,9 @@ export function FinanceApprovalsPanel({
                       <span className="text-muted-foreground"> (merchant confirmed)</span>
                     </p>
                   )}
-                  {selected.requiresKokoReference && !selected.kokoLinkGeneratedAt && (
+                  {selected.requiresKokoReference &&
+                    selected.paymentReferenceKind !== "mintpay" &&
+                    !selected.kokoLinkGeneratedAt && (
                     <p className="text-muted-foreground">
                       <span className="font-medium text-foreground">KOKO link generated:</span> not
                       recorded — merchant confirmed this order before link time capture started.
@@ -959,7 +974,9 @@ export function FinanceApprovalsPanel({
                   {selected.type === "order_cancel_approval" && (
                     <div className="space-y-2 border-t border-border/60 pt-3">
                       <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900 dark:border-red-700/40 dark:bg-red-900/20 dark:text-red-200">
-                        Order cancel approval — approve creates an ERP credit note (paid) or cancels the Sales Invoice (unpaid), voids the order, and cancels Shopify when configured.
+                        {selected.completionMode === "credit_note"
+                          ? "Paid order — approve creates an ERP credit note, voids the order, and cancels Shopify when configured."
+                          : "Unpaid order — approve cancels the ERP Sales Invoice and voids the order."}
                       </div>
                       {selected.cancelRemark && (
                         <p className="text-sm"><span className="font-medium">Cancel reason:</span> {selected.cancelRemark}</p>
@@ -997,19 +1014,23 @@ export function FinanceApprovalsPanel({
                             }}
                             disabled={busy !== null}
                           />
-                          Customer paid with multiple KOKO payments
+                          Customer paid with multiple {isMintpayReferenceApproval(selected) ? "MintPay" : "KOKO"} payments
                         </label>
 
                         {!multipleKokoPayments ? (
                           <div>
                             <label className="mb-1.5 block text-sm font-medium" htmlFor="finance-koko-reference">
-                              KOKO reference number <span className="text-destructive">*</span>
+                              {referenceNoun(selected)} <span className="text-destructive">*</span>
                             </label>
                             <Input
                               id="finance-koko-reference"
                               value={kokoReference}
                               onChange={(event) => setKokoReference(event.target.value)}
-                              placeholder="Enter the KOKO payment reference"
+                              placeholder={
+                                isMintpayReferenceApproval(selected)
+                                  ? "Enter the MintPay Order ID"
+                                  : "Enter the KOKO payment reference"
+                              }
                               maxLength={120}
                               disabled={busy !== null}
                               autoComplete="off"
@@ -1022,7 +1043,8 @@ export function FinanceApprovalsPanel({
                           <div className="space-y-3">
                             <div className="flex items-center justify-between gap-2">
                               <p className="text-sm font-medium">
-                                KOKO payments <span className="text-destructive">*</span>
+                                {isMintpayReferenceApproval(selected) ? "MintPay" : "KOKO"} payments{" "}
+                                <span className="text-destructive">*</span>
                               </p>
                               <p className="text-xs text-muted-foreground">
                                 Must total Rs {formatMoney(kokoTarget)}
@@ -1040,7 +1062,7 @@ export function FinanceApprovalsPanel({
                                       ),
                                     );
                                   }}
-                                  placeholder={`KOKO reference ${index + 1}`}
+                                  placeholder={`${isMintpayReferenceApproval(selected) ? "MintPay Order ID" : "KOKO reference"} ${index + 1}`}
                                   maxLength={120}
                                   disabled={busy !== null}
                                   autoComplete="off"
@@ -1092,7 +1114,7 @@ export function FinanceApprovalsPanel({
                                 }}
                               >
                                 <Plus className="size-4" />
-                                Add KOKO payment
+                                Add {isMintpayReferenceApproval(selected) ? "MintPay" : "KOKO"} payment
                               </Button>
                               <p
                                 className={`text-xs ${
@@ -1105,7 +1127,7 @@ export function FinanceApprovalsPanel({
                               </p>
                             </div>
                             <p className="text-xs text-muted-foreground">
-                              Add one reference per KOKO transaction. Amounts must match the order
+                              Add one reference per {isMintpayReferenceApproval(selected) ? "MintPay" : "KOKO"} transaction. Amounts must match the order
                               {selected.kokoPaymentAmount ? " KOKO portion" : ""} total.
                             </p>
                           </div>
@@ -1152,7 +1174,9 @@ export function FinanceApprovalsPanel({
                               ? "Approve — create credit note"
                               : "Approve — cancel unpaid SI"
                             : selected.type === "order_cancel_approval"
-                              ? "Approve — create credit note / cancel SI"
+                              ? selected.completionMode === "credit_note"
+                                ? "Approve — create credit note"
+                                : "Approve — cancel unpaid SI"
                               : `Approve — ${typeLabel(selected.type)}`}
                         </Button>
                       )}
@@ -1173,7 +1197,7 @@ export function FinanceApprovalsPanel({
                       Reviewed by {selected.reviewedByName ?? selected.reviewedByEmail ?? "-"} on {formatDate(selected.reviewedAt)}.
                       {selected.kokoReferences && selected.kokoReferences.length > 1 ? (
                         <div className="mt-2 text-sm">
-                          <span className="font-medium text-foreground">KOKO references:</span>
+                          <span className="font-medium text-foreground">{referenceNoun(selected, true)}:</span>
                           <ul className="mt-1 space-y-1 text-muted-foreground">
                             {selected.kokoReferences.map((row, index) => (
                               <li key={`${row.reference}-${index}`}>
@@ -1186,7 +1210,7 @@ export function FinanceApprovalsPanel({
                       ) : (
                         selected.kokoReference && (
                           <p className="mt-2">
-                            <span className="font-medium text-foreground">KOKO reference:</span>{" "}
+                            <span className="font-medium text-foreground">{referenceNoun(selected)}:</span>{" "}
                             {selected.kokoReference}
                           </p>
                         )

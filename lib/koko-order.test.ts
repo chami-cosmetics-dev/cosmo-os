@@ -73,6 +73,30 @@ describe("needsKokoLinkTimeConfirm / canEditKokoLinkTime", () => {
     ).toBe(true);
   });
 
+  it("does not require link generated time for Mint Pay", () => {
+    expect(
+      needsKokoLinkTimeConfirm(
+        {
+          sourceName: "web",
+          paymentGatewayPrimary: "Mint Pay",
+          kokoLinkTimeConfirmedAt: null,
+          createdAt: afterCutoff,
+        },
+        cosmo,
+      ),
+    ).toBe(false);
+    expect(
+      isKokoLinkTimeCandidate(
+        {
+          sourceName: "web",
+          paymentGatewayPrimary: "MintPay",
+          createdAt: afterCutoff,
+        },
+        cosmo,
+      ),
+    ).toBe(false);
+  });
+
   it("needs confirm when Shopify KOKO and unconfirmed (post-cutoff, Cosmo)", () => {
     expect(
       needsKokoLinkTimeConfirm(

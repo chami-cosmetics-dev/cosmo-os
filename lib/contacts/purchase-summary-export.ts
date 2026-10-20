@@ -9,6 +9,7 @@ import {
   buildPhoneLookupVariants,
   canonicalPhoneForErpCustomerId,
 } from "@/lib/phone-lookup";
+import { adaptSaleTotalWhere } from "@/lib/customer-insight/lifetime-total";
 import { prisma } from "@/lib/prisma";
 
 export type PurchaseSummary = {
@@ -296,7 +297,7 @@ async function loadAdaptPurchaseAggregates(
 ): Promise<Map<string, PurchaseSummary>> {
   const grouped = await prisma.adaptPurchaseHistory.groupBy({
     by: ["contactId"],
-    where: { companyId },
+    where: { companyId, ...adaptSaleTotalWhere() },
     _count: { _all: true },
     _sum: { ttlAmount: true },
     _max: { invoiceDate: true },

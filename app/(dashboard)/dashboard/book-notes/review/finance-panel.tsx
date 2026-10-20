@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   ChevronDown,
   ChevronRight,
+  FileDown,
   ImageIcon,
   Loader2,
   NotebookPen,
@@ -114,6 +115,8 @@ export function BookNoteFinancePanel({
     to: initialTo,
   });
   const [loading, setLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const busy = loading || exporting;
   const [view, setView] = useState<
     "issues" | "notes" | "special" | "photos"
   >("issues");
@@ -227,6 +230,42 @@ export function BookNoteFinancePanel({
     }
   }
 
+  async function exportByCompany() {
+    if (from > to) {
+      notify.error("From date must be on or before To date");
+      return;
+    }
+    setExporting(true);
+    try {
+      const params = new URLSearchParams({ from, to });
+      if (companyLocationId !== ALL_SHOPS) {
+        params.set("companyLocationId", companyLocationId);
+      }
+      const res = await fetch(`/api/admin/book-notes/review/export?${params}`);
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        notify.error(data.error ?? "Failed to export book notes");
+        return;
+      }
+      const blob = await res.blob();
+      const match = res.headers
+        .get("Content-Disposition")
+        ?.match(/filename="([^"]+)"/);
+      const filename = match?.[1] ?? `book-notes-${from}-to-${to}.xlsx`;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      link.click();
+      URL.revokeObjectURL(url);
+      notify.success("Book notes exported by company.");
+    } catch {
+      notify.error("Failed to export book notes");
+    } finally {
+      setExporting(false);
+    }
+  }
+
   return (
     <div className="space-y-6 p-4 md:p-6">
       <div>
@@ -314,7 +353,7 @@ export function BookNoteFinancePanel({
               </label>
               <Select
                 value={companyLocationId}
-                disabled={loading}
+                disabled={busy}
                 onValueChange={setCompanyLocationId}
               >
                 <SelectTrigger>
@@ -340,7 +379,7 @@ export function BookNoteFinancePanel({
                 type="date"
                 value={from}
                 max={today}
-                disabled={loading}
+                disabled={busy}
                 className="font-medium tabular-nums"
                 onChange={(e) => setFrom(e.target.value)}
               />
@@ -353,16 +392,16 @@ export function BookNoteFinancePanel({
                 type="date"
                 value={to}
                 max={today}
-                disabled={loading}
+                disabled={busy}
                 className="font-medium tabular-nums"
                 onChange={(e) => setTo(e.target.value)}
               />
             </div>
-            <div className="flex items-end">
+            <div className="flex items-end gap-2">
               <Button
                 type="button"
-                className="w-full"
-                disabled={loading}
+                className="flex-1"
+                disabled={busy}
                 onClick={() => void applyFilters()}
               >
                 {loading ? (
@@ -372,6 +411,25 @@ export function BookNoteFinancePanel({
                   </>
                 ) : (
                   "Show book notes"
+                )}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="flex-1"
+                disabled={busy}
+                onClick={() => void exportByCompany()}
+              >
+                {exporting ? (
+                  <>
+                    <Loader2 className="animate-spin" aria-hidden />
+                    Exporting...
+                  </>
+                ) : (
+                  <>
+                    <FileDown className="h-4 w-4" aria-hidden />
+                    Export
+                  </>
                 )}
               </Button>
             </div>

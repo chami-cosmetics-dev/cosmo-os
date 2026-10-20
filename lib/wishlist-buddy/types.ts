@@ -38,9 +38,19 @@ export type StockRequestItem = {
   lastActionBy: { id: string; name: string | null; email: string | null } | null;
 };
 
+/** Creator choices for the All staff requests tab. */
+export type StockRequestCreatorOption = {
+  id: string;
+  name: string | null;
+  email: string | null;
+  count: number;
+};
+
 export type StockRequestListResponse = {
   items: StockRequestItem[];
   total: number;
   page: number;
   limit: number;
+  /** Present on the All staff requests tab so the list can be filtered by creator. */
+  creators?: StockRequestCreatorOption[];
 };

@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 import { createPaymentMethodChangeApproval } from "@/lib/approval-workflow";
-import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 import { getOrderPaymentGatewayColumnState } from "@/lib/order-payment-gateway-compat";
 import {
   canRequestPaymentMethodChange,
@@ -85,12 +84,6 @@ export async function PATCH(
   }
 
   const { targetPaymentMethod } = parsed.data;
-  if (targetPaymentMethod === "mintpay" && !isVaultOsDeployment()) {
-    return NextResponse.json(
-      { error: "Mintpay payment changes are only available on Vault OS." },
-      { status: 400 },
-    );
-  }
   const targetPaymentMethodLabel = paymentMethodChangeTargetLabel(targetPaymentMethod);
   const invoiceLabel = order.name ?? order.orderNumber ?? order.shopifyOrderId ?? "order";
   const amount = order.totalPrice != null ? `${order.currency ?? ""} ${order.totalPrice}`.trim() : "unknown";

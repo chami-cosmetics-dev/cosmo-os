@@ -3,9 +3,11 @@ import { z } from "zod";
 
 import {
   groupCashByErpCompany,
+  handoverCompanyName,
   handoverReceiptsCovering,
   handoverSummaryCashAmount,
   latestHandoverReceipt,
+  latestReceiptForCompany,
   listHandoverClosedInvoices,
   loadRiderHandoverDeliveries,
 } from "@/lib/rider-handover";
@@ -60,6 +62,9 @@ export async function GET(request: NextRequest) {
       payment: delivery.payment,
     })),
   );
+  const visibleCompanies = new Set(
+    loaded.deliveries.map((delivery) => handoverCompanyName(delivery.erpnextCompany, delivery.locationName)),
+  );
   const [latestReceipt, coveringReceipts] = await Promise.all([
     latestHandoverReceipt({
       companyId,
@@ -74,16 +79,41 @@ export async function GET(request: NextRequest) {
       toYmd: parsed.data.to,
     }),
   ]);
+  const visibleReceipts = coveringReceipts.flatMap((receipt) => {
+    if (receipt.handoverCompany) {
+      return visibleCompanies.has(receipt.handoverCompany) ? [receipt] : [];
+    }
+    const companies = receipt.companies.filter((line) => visibleCompanies.has(line.companyName));
+    if (companies.length === 0) return [];
+    const fullTotal = companies
+      .reduce((sum, line) => sum + Number(line.cashAmount), 0)
+      .toFixed(2);
+    return [{ ...receipt, companies, fullTotal }];
+  });
+  const exactVisible =
+    latestReceipt &&
+    (latestReceipt.handoverCompany
+      ? visibleCompanies.has(latestReceipt.handoverCompany)
+      : latestReceipt.companies.some((line) => visibleCompanies.has(line.companyName)))
+      ? latestReceipt
+      : null;
 
   return NextResponse.json({
     riderId: loaded.riderId,
     riderName: loaded.riderName,
     from: parsed.data.from,
     to: parsed.data.to,
-    companies: grouped.companies,
+    companies: grouped.companies.map((line) => {
+      const received = latestReceiptForCompany(visibleReceipts, line.companyName);
+      return {
+        ...line,
+        receivedAt: received?.receivedAt ?? null,
+        receivedByName: received?.receivedByName ?? null,
+      };
+    }),
     fullTotal: grouped.fullTotal,
     closedInvoices: listHandoverClosedInvoices(loaded.deliveries),
-    latestReceipt,
-    coveringReceipts,
+    latestReceipt: exactVisible,
+    coveringReceipts: visibleReceipts,
   });
 }
