@@ -2,8 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   createCsvRowCounter,
+  dumpExposeHeaders,
   dumpProgressPercent,
   parseContentDispositionFilename,
+  parseDumpCountHeader,
+  parseDumpFlagHeader,
   parseDumpTotalHeader,
 } from "@/lib/reports/dump-download";
 import { createOrderInvoiceRow, joinDumpCouponCodes, resolveDumpCompletedAt } from "@/lib/reports/order-dump";
@@ -160,5 +163,17 @@ describe("dump download progress", () => {
     expect(parseContentDispositionFilename('attachment; filename="utility-order-invoice-last-90.csv"')).toBe(
       "utility-order-invoice-last-90.csv",
     );
+  });
+});
+
+describe("dump page headers", () => {
+  it("reads has-more and page contact counts", () => {
+    expect(parseDumpFlagHeader("1")).toBe(true);
+    expect(parseDumpFlagHeader("0")).toBe(false);
+    expect(parseDumpFlagHeader(null)).toBe(false);
+    expect(parseDumpCountHeader("4000")).toBe(4000);
+    expect(parseDumpCountHeader("-1")).toBe(0);
+    expect(dumpExposeHeaders()).toContain("X-Dump-Has-More");
+    expect(dumpExposeHeaders()).toContain("X-Dump-Page-Contacts");
   });
 });

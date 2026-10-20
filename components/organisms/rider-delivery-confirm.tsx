@@ -20,8 +20,21 @@ interface RiderDeliveryConfirmProps {
 
 type View = "confirm" | "cancel_reason";
 
+type PaymentChangeOption = {
+  key: string;
+  label: string;
+};
+
+type PaymentChange = {
+  enabled: boolean;
+  current: PaymentChangeOption;
+  options: PaymentChangeOption[];
+};
+
 export function RiderDeliveryConfirm({ token }: RiderDeliveryConfirmProps) {
   const [orderName, setOrderName] = useState<string | null>(null);
+  const [paymentChange, setPaymentChange] = useState<PaymentChange | null>(null);
+  const [paymentMethod, setPaymentMethod] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -33,11 +46,12 @@ export function RiderDeliveryConfirm({ token }: RiderDeliveryConfirmProps) {
   useEffect(() => {
     fetch(`/api/public/rider-delivery/${token}`)
       .then((r) => r.json())
-      .then((data: { orderName?: string; error?: string }) => {
+      .then((data: { orderName?: string; error?: string; paymentChange?: PaymentChange | null }) => {
         if (data.error) {
           setError(data.error);
         } else {
           setOrderName(data.orderName ?? null);
+          setPaymentChange(data.paymentChange ?? null);
         }
       })
       .catch(() => setError("Failed to load"))
@@ -50,7 +64,10 @@ export function RiderDeliveryConfirm({ token }: RiderDeliveryConfirmProps) {
       const res = await fetch(`/api/public/rider-delivery/${token}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ confirmed: true }),
+        body: JSON.stringify({
+          confirmed: true,
+          ...(paymentMethod ? { paymentMethod } : {}),
+        }),
       });
       const data = (await res.json()) as { success?: boolean; error?: string };
       if (!res.ok) {
@@ -237,30 +254,50 @@ export function RiderDeliveryConfirm({ token }: RiderDeliveryConfirmProps) {
             Did you deliver order {orderName ?? ""} successfully?
           </p>
         </CardHeader>
-        <CardContent className="flex gap-4">
-          <Button
-            className="flex-1"
-            onClick={handleConfirm}
-            disabled={submitting}
-          >
-            {submitting ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <>
-                <Check className="size-4" />
-                Yes, Delivered
-              </>
-            )}
-          </Button>
-          <Button
-            variant="outline"
-            className="flex-1"
-            onClick={() => setView("cancel_reason")}
-            disabled={submitting}
-          >
-            <X className="size-4" />
-            Cancel
-          </Button>
+        <CardContent className="flex flex-col gap-4">
+          {paymentChange ? (
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="font-medium">Change payment method to</span>
+              <select
+                className="border-input bg-background h-10 rounded-md border px-3"
+                value={paymentMethod}
+                disabled={submitting}
+                onChange={(event) => setPaymentMethod(event.target.value)}
+              >
+                <option value="">Keep {paymentChange.current.label}</option>
+                {paymentChange.options.map((option) => (
+                  <option key={option.key} value={option.key}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+          <div className="flex gap-4">
+            <Button
+              className="flex-1"
+              onClick={handleConfirm}
+              disabled={submitting}
+            >
+              {submitting ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <>
+                  <Check className="size-4" />
+                  Yes, Delivered
+                </>
+              )}
+            </Button>
+            <Button
+              variant="outline"
+              className="flex-1"
+              onClick={() => setView("cancel_reason")}
+              disabled={submitting}
+            >
+              <X className="size-4" />
+              Cancel
+            </Button>
+          </div>
         </CardContent>
       </Card>
     </div>
