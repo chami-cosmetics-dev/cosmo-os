@@ -643,6 +643,11 @@ const DEFAULT_PERMISSIONS = [
     description: "View and edit outlet reviews for assigned outlets only",
   },
   {
+    key: "consultation_insights.access",
+    description:
+      "Consultation Insights — open the physical consultation log (add, edit review, delete, export)",
+  },
+  {
     key: "book_notes.manage",
     description:
       "Book Notes — merchant entry. Save daily sheets (TEMP: also past dates). Does not open Book Notes (Finance).",
