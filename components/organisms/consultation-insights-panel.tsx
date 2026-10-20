@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, Download, Loader2, Plus, Trash2 } from "lucide-react";
+import { Check, Download, Eraser, Loader2, Plus, RefreshCw, Trash2, X } from "lucide-react";
 
 import {
   AlertDialog,
@@ -206,7 +206,10 @@ export function ConsultationInsightsPanel({
   const cleanedPhone = cleanConsultationPhone(phone);
   const phoneValid = CONSULTATION_PHONE_PATTERN.test(cleanedPhone);
   const foundInvoices = lookup.status === "done" ? lookup.invoices : [];
-  const selectedFoundInvoices = foundInvoices.filter((invoice) => selectedFound.has(invoice.invoiceNumber));
+  const cancelledFound = foundInvoices.filter((invoice) => invoice.cancelled);
+  const selectedFoundInvoices = foundInvoices.filter(
+    (invoice) => !invoice.cancelled && selectedFound.has(invoice.invoiceNumber),
+  );
   const invoiceNumbers = splitInvoiceNumbers(
     [...selectedFoundInvoices.map((invoice) => invoice.invoiceNumber), manualInvoices].join(" "),
   );
@@ -268,7 +271,9 @@ export function ConsultationInsightsPanel({
           return;
         }
         setLookup({ status: "done", invoices: data.invoices });
-        setSelectedFound(new Set(data.invoices.map((invoice) => invoice.invoiceNumber)));
+        setSelectedFound(
+          new Set(data.invoices.filter((invoice) => !invoice.cancelled).map((invoice) => invoice.invoiceNumber)),
+        );
         setNameTouched(false);
         setMerchantTouched(false);
       } catch {
@@ -350,19 +355,30 @@ export function ConsultationInsightsPanel({
           (date.slice(0, 7) === month ? "" : ` to ${formatConsultationMonth(date.slice(0, 7))}`),
       );
       // Keep the date: staff usually log several customers from the same day.
-      setPhone("");
-      setManualInvoices("");
-      setCustomerName("");
-      setNameTouched(false);
-      setMerchant("");
-      setMerchantTouched(false);
-      setReview("");
-      setErrors({});
+      resetForm();
     } catch {
       notify.error("Failed to add customer");
     } finally {
       setSubmitting(false);
     }
+  }
+
+  /** Empties every field except the date (the invoice lookup resets with the phone). */
+  function resetForm() {
+    setPhone("");
+    setManualInvoices("");
+    setCustomerName("");
+    setNameTouched(false);
+    setMerchant("");
+    setMerchantTouched(false);
+    setReview("");
+    setErrors({});
+  }
+
+  /** Clear button: start over, date back to today. */
+  function clearForm() {
+    resetForm();
+    setDate(todayConsultationDate());
   }
 
   async function handleExport() {
@@ -449,8 +465,12 @@ export function ConsultationInsightsPanel({
       </Card>
 
       <Card className="border-border/70 shadow-xs">
-        <CardHeader className="pb-2">
+        <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
           <CardTitle className="text-base">Add a customer</CardTitle>
+          <Button variant="outline" size="sm" onClick={clearForm} disabled={submitting}>
+            <Eraser className="mr-2 size-4" />
+            Clear
+          </Button>
         </CardHeader>
         <CardContent>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-[150px_150px_minmax(200px,1.4fr)_minmax(160px,1fr)_minmax(180px,1fr)_minmax(160px,1fr)_auto]">
@@ -492,7 +512,7 @@ export function ConsultationInsightsPanel({
               )}
               {lookup.status === "done" && foundInvoices.length === 0 && (
                 <p className="mt-1 text-xs text-muted-foreground">
-                  No invoices found for this number on this date — type them in.
+                  No invoices found for this number on the selected date. Please enter them here or try changing the date.
                 </p>
               )}
               {lookup.status === "error" && (
@@ -506,8 +526,11 @@ export function ConsultationInsightsPanel({
                       <button
                         key={invoice.invoiceNumber}
                         type="button"
+                        // Cancelled invoices are shown for information only and can't be picked.
+                        disabled={invoice.cancelled}
                         onClick={() => toggleFound(invoice.invoiceNumber)}
                         title={[
+                          invoice.cancelled ? "Cancelled — cannot be added" : null,
                           invoice.isOrderNumber ? "Order number — no ERP invoice yet" : null,
                           invoice.customerName,
                           invoice.locationName,
@@ -516,14 +539,17 @@ export function ConsultationInsightsPanel({
                           .join(" · ")}
                         className={cn(
                           "inline-flex items-center gap-1 rounded-md border px-2 py-0.5 font-mono text-xs transition-colors",
-                          selected
-                            ? "border-primary/60 bg-primary/15 text-foreground"
-                            : "border-border text-muted-foreground line-through",
+                          invoice.cancelled
+                            ? "cursor-not-allowed border-destructive/60 bg-destructive/15 text-destructive"
+                            : selected
+                              ? "border-primary/60 bg-primary/15 text-foreground"
+                              : "border-border text-muted-foreground line-through",
                         )}
                       >
-                        {selected && <Check className="size-3" />}
+                        {invoice.cancelled ? <X className="size-3" /> : selected && <Check className="size-3" />}
                         {invoice.invoiceNumber}
-                        {invoice.isOrderNumber && (
+                        {invoice.cancelled && <span className="font-sans text-[10px]">cancelled</span>}
+                        {!invoice.cancelled && invoice.isOrderNumber && (
                           <span className="font-sans text-[10px] text-amber-600 dark:text-amber-400">
                             order · ERP pending
                           </span>
@@ -532,6 +558,13 @@ export function ConsultationInsightsPanel({
                     );
                   })}
                 </div>
+              )}
+              {cancelledFound.length > 0 && (
+                <p className="mt-1 text-xs text-destructive">
+                  {cancelledFound.length === 1
+                    ? `Invoice ${cancelledFound[0].invoiceNumber} was cancelled and can't be added.`
+                    : `Invoices ${cancelledFound.map((invoice) => invoice.invoiceNumber).join(", ")} were cancelled and can't be added.`}
+                </p>
               )}
               <FieldError message={errors.invoices} />
             </div>
@@ -600,13 +633,22 @@ export function ConsultationInsightsPanel({
       </Card>
 
       <Card className="border-border/70 shadow-xs">
-        <CardHeader className="border-b border-border/50 pb-3">
+        <CardHeader className="flex flex-row items-center justify-between gap-2 border-b border-border/50 pb-3">
           <CardTitle className="flex items-center gap-2 text-sm font-medium">
             <span className="size-2 rounded-full bg-emerald-500" aria-hidden />
             Live · {formatConsultationMonth(month)}
             <span className="font-normal text-muted-foreground">· refreshes every 10 seconds</span>
-            {loadingRows && <Loader2 className="size-3.5 animate-spin text-muted-foreground" />}
           </CardTitle>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void loadMonth(month)}
+            disabled={loadingRows}
+            title="Reload this month's customers"
+          >
+            <RefreshCw className={cn("mr-2 size-4", loadingRows && "animate-spin")} />
+            Refresh
+          </Button>
         </CardHeader>
         <CardContent className="p-0">
           {/* Scroll box so the header row stays visible; inner table container must not clip it. */}

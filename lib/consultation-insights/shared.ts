@@ -88,6 +88,8 @@ export type ConsultationInvoiceMatch = {
   invoiceNumber: string;
   /** No ERP invoice yet (still "pending" in ERP) — `invoiceNumber` is the order number. */
   isOrderNumber: boolean;
+  /** Order was cancelled / voided — shown in red and cannot be added. */
+  cancelled: boolean;
   /** Merchant dropdown label worked out from the order's coupon code / location, if any. */
   suggestedMerchant: string | null;
   customerName: string | null;
