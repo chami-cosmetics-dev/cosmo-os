@@ -1,7 +1,10 @@
 import type { Prisma } from "@prisma/client";
 
 import { erpInvoiceReferenceLookupValues } from "@/lib/erp-invoice-reference";
-import { cancelPendingApprovalsForOrder } from "@/lib/approval-workflow";
+import {
+  cancelPendingApprovalsForOrder,
+  orderHasPendingFinanceCancelApproval,
+} from "@/lib/approval-workflow";
 import {
   mergeErpReturnSalesInvoiceIds,
   normalizeErpReturnSalesInvoiceIds,
@@ -92,6 +95,15 @@ export async function applyErpCancelToOriginalOrder(invoiceRef: string) {
     },
   });
   if (!original) return null;
+
+  // Finance approve in OS cancels the ERP invoice. A cancel webhook must not void
+  // the order or drop that approval first (ERP1 Shopify invoices webhook immediately).
+  if (await orderHasPendingFinanceCancelApproval(original.id)) {
+    console.log(
+      `[ERP cancel] Order ${original.name ?? original.id} has a pending finance cancel — OS approval will cancel the invoice`,
+    );
+    return original;
+  }
 
   await prisma.order.update({
     where: { id: original.id },

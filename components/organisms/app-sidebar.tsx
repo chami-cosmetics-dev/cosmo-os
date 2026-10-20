@@ -39,6 +39,8 @@ import {
   ClipboardCheck,
   BellRing,
   ArrowLeftRight,
+  SearchCheck,
+  Stethoscope,
 } from "lucide-react";
 import { usePathname } from "next/navigation";
 import {
@@ -117,6 +119,7 @@ export function AppSidebar({
     hasSidebarPermission("item_creation.admin.manage_all") ||
     hasSidebarPermission("item_creation.seo.manage") ||
     hasSidebarPermission("item_creation.digital_marketing.manage") ||
+    hasSidebarPermission("item_creation.digital_marketing.admin") ||
     hasSidebarPermission("item_creation.purchasing.manage") ||
     hasSidebarPermission("item_creation.stores.manage");
   const canViewOsf =
@@ -176,6 +179,10 @@ export function AppSidebar({
   const canViewApprovals =
     hasSidebarPermission("finance.approvals.read") ||
     hasSidebarPermission("finance.approvals.manage");
+  const canViewSupplierPayables =
+    hasSidebarPermission("finance.supplier_payables.read") ||
+    canViewPurchaseHistory;
+  const canViewReceivableOutstanding = hasSidebarPermission("finance.receivable_outstanding.read");
   const canViewAcademy =
     hasSidebarPermission("academy.learn") ||
     hasSidebarPermission("academy.manage");
@@ -183,6 +190,7 @@ export function AppSidebar({
     hasSidebarPermission("outlets.read.all") ||
     hasSidebarPermission("outlets.read.assigned");
   const canViewMerchantReviews = hasSidebarPermission("merchant_reviews.read");
+  const canViewConsultationInsights = hasSidebarPermission("consultation_insights.access");
   const canManageBookNotes = hasSidebarPermission("book_notes.manage");
   const canReadBookNotes = hasSidebarPermission("book_notes.read");
   const canViewCustomerInsight = hasSidebarPermission("contacts.insight.read");
@@ -224,6 +232,7 @@ export function AppSidebar({
     canViewEmailCleanup ||
     canViewMerchantReviews ||
     canViewOutletReviews ||
+    canViewConsultationInsights ||
     canViewCustomerInsight ||
     canRegisterUsers;
   const canViewSettings =
@@ -243,7 +252,8 @@ export function AppSidebar({
     canManageBookNotes ||
     Boolean(fulfillmentHref);
   const canViewStickers = canStickerBatch || canStickerPrint;
-  const canViewProductManagement = canViewProducts || canViewVatStatus;
+  const canViewSeoContent = hasSidebarPermission("products.seo.read");
+  const canViewProductManagement = canViewProducts || canViewVatStatus || canViewSeoContent;
   const pathname = usePathname();
 
   return (
@@ -489,6 +499,15 @@ export function AppSidebar({
                   isActive={pathname === "/dashboard/contacts/outlet-reviews"}
                 />
               )}
+              {/* Route is /dashboard/consultation-insights, so this block can move to Reports as-is. */}
+              {canViewConsultationInsights && (
+                <NavItem
+                  href="/dashboard/consultation-insights"
+                  icon={Stethoscope}
+                  label="Consultation Insights"
+                  isActive={pathname === "/dashboard/consultation-insights"}
+                />
+              )}
             </SidebarGroupContent>
           </SidebarGroup>
         )}
@@ -517,7 +536,7 @@ export function AppSidebar({
                   href="/dashboard/reports"
                   icon={FileText}
                   label="Dump Reports"
-                  isActive={pathname === "/dashboard/reports" || pathname.startsWith("/dashboard/reports/")}
+                  isActive={pathname === "/dashboard/reports"}
                 />
               )}
               {canViewUtilityDumps && (
@@ -534,6 +553,22 @@ export function AppSidebar({
                   icon={FileSpreadsheet}
                   label="Stock Comparer"
                   isActive={pathname === "/dashboard/purchasing/stock-comparer"}
+                />
+              )}
+              {canViewSupplierPayables && (
+                <NavItem
+                  href="/dashboard/reports/supplier-payables"
+                  icon={FileText}
+                  label="Supplier Payables"
+                  isActive={pathname === "/dashboard/reports/supplier-payables"}
+                />
+              )}
+              {canViewReceivableOutstanding && (
+                <NavItem
+                  href="/dashboard/reports/receivable-outstanding"
+                  icon={FileText}
+                  label="Receivable Outstanding"
+                  isActive={pathname === "/dashboard/reports/receivable-outstanding"}
                 />
               )}
               {canViewReports && (
@@ -636,6 +671,9 @@ export function AppSidebar({
               )}
               {canViewItemCreation && (
                 <NavItem href="/dashboard/products/item-creation" icon={ClipboardCheck} label="Item Creation" isActive={pathname.startsWith("/dashboard/products/item-creation")} />
+              )}
+              {canViewSeoContent && (
+                <NavItem href="/dashboard/products/seo" icon={SearchCheck} label="SEO Content" isActive={pathname === "/dashboard/products/seo"} />
               )}
               {canViewProducts && (
                 <NavItem href="/dashboard/products/vendors-categories" icon={Tags} label="Vendors & Categories" isActive={pathname === "/dashboard/products/vendors-categories"} />

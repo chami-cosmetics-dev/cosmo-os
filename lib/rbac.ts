@@ -126,6 +126,10 @@ const DEFAULT_PERMISSIONS = [
     description: "Manage Item Creation image and Google Drive steps",
   },
   {
+    key: "item_creation.digital_marketing.admin",
+    description: "Manage Digital Marketing brand allocations and request assignments",
+  },
+  {
     key: "item_creation.purchasing.manage",
     description: "Manage Item Creation purchasing price checks",
   },
@@ -248,6 +252,11 @@ const DEFAULT_PERMISSIONS = [
   {
     key: "products.storage.manage",
     description: "Upload and delete files in product item storage",
+  },
+  {
+    key: "products.seo.read",
+    description:
+      "View the SEO content dashboard (photo, video and voice coverage per product, team upload activity)",
   },
   // Contacts
   {
@@ -420,6 +429,14 @@ const DEFAULT_PERMISSIONS = [
   {
     key: "finance.hod.revert_paid_to_unpaid",
     description: "Revert a paid order to unpaid (requires HOD password)",
+  },
+  {
+    key: "finance.supplier_payables.read",
+    description: "View Supplier Payable Outstanding report",
+  },
+  {
+    key: "finance.receivable_outstanding.read",
+    description: "View Receivable Outstanding report",
   },
   // Reminder bubbles — auto-granted to admin/super_admin; other roles tick in Roles UI
   ...REMINDER_BUBBLE_PERMISSIONS.map((p) => ({
@@ -675,6 +692,11 @@ const DEFAULT_PERMISSIONS = [
     description: "View and edit outlet reviews for assigned outlets only",
   },
   {
+    key: "consultation_insights.access",
+    description:
+      "Consultation Insights — open the physical consultation log (add, edit review, delete, export)",
+  },
+  {
     key: "book_notes.manage",
     description:
       "Book Notes — merchant entry. Save daily sheets (TEMP: also past dates). Does not open Book Notes (Finance).",
@@ -785,6 +807,8 @@ const DEFAULT_ROLES = [
       "finance.approvals.manage",
       "finance.approvals.cancel_koko_duplicate",
       "finance.hod.revert_paid_to_unpaid",
+      "finance.supplier_payables.read",
+      "finance.receivable_outstanding.read",
       "dashboard.view",
       "dashboard.merchant_view",
       "dashboard.merchant_admin_view",

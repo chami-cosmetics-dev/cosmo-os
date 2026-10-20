@@ -105,10 +105,13 @@ model Company {
   merchantMonthlyTargetHistory    MerchantMonthlyTargetHistory[]
   marketCompetitorLinks           MarketCompetitorLink[]
   erpStockSnapshots               ErpStockSnapshot[]
+  supplierPayableSnapshots        SupplierPayableSnapshot[]
+  receivableOutstandingSnapshots  ReceivableOutstandingSnapshot[]
   osRegistrationQrs               OsRegistrationQr[]
   osRegistrationCaptures          OsRegistrationCapture[]
   osRegistrationSettings          OsRegistrationSettings?
   itemCreationRequests            ItemCreationRequest[]
+  itemCreationBrandAllocations    ItemCreationBrandAllocation[]
   itemCreationStockReceipts       ItemCreationStockReceipt[]
   stockRequests                   StockRequest[]
   materialTransfers               MaterialTransfer[]
@@ -141,7 +144,7 @@ model File {
   blobUrl      String
   fileSize     Int?
   mimeType     String?
-  provider     String   @default("vercel_blob")
+  provider     String   @default("cloudinary")
   uploadedById String
   createdAt    DateTime @default(now())
   company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -178,8 +181,55 @@ model ErpnextInstance {
   updatedAt             DateTime          @updatedAt
   company               Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
   locations             CompanyLocation[]
+  supplierPayableSnapshots SupplierPayableSnapshot[]
+  receivableOutstandingSnapshots ReceivableOutstandingSnapshot[]
 
   @@index([companyId])
+}
+
+model SupplierPayableSnapshot {
+  id                String          @id @default(cuid())
+  companyId         String
+  erpnextInstanceId String
+  erpSlot           String?
+  erpLabel          String?
+  erpCompany        String
+  reportDate        String
+  suppliers         Json            @default("[]")
+  rows              Json            @default("[]")
+  error             String?
+  lastSuccessAt     DateTime?
+  lastAttemptAt     DateTime        @default(now())
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  company           Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  erpnextInstance   ErpnextInstance @relation(fields: [erpnextInstanceId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, erpnextInstanceId, erpCompany, reportDate])
+  @@index([companyId, reportDate])
+  @@index([companyId, updatedAt(sort: Desc)])
+}
+
+model ReceivableOutstandingSnapshot {
+  id                String          @id @default(cuid())
+  companyId         String
+  erpnextInstanceId String
+  erpSlot           String?
+  erpLabel          String?
+  erpCompany        String
+  reportDate        String
+  rows              Json            @default("[]")
+  error             String?
+  lastSuccessAt     DateTime?
+  lastAttemptAt     DateTime        @default(now())
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  company           Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  erpnextInstance   ErpnextInstance @relation(fields: [erpnextInstanceId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, erpnextInstanceId, erpCompany, reportDate])
+  @@index([companyId, reportDate])
+  @@index([companyId, updatedAt(sort: Desc)])
 }
 
 model FailedOrderWebhook {
@@ -321,6 +371,8 @@ model ItemCreationRequest {
   seoSetupStatus          ItemCreationSeoSetupStatus          @default(PENDING)
   seoActivationStatus     ItemCreationSeoActivationStatus     @default(LOCKED)
   digitalMarketingStatus  ItemCreationDigitalStatus           @default(PENDING)
+  digitalMarketingBrand   String?
+  digitalMarketingAssigneeId String?
   purchasingStatus        ItemCreationPurchasingStatus        @default(LOCKED)
   storeTransferStatus     ItemCreationStoreTransferStatus     @default(PENDING)
   storeStockStatus        ItemCreationStoreStockStatus        @default(WAITING_FOR_PRICE)
@@ -385,11 +437,14 @@ model ItemCreationRequest {
   createdAt               DateTime                            @default(now())
   updatedAt               DateTime                            @updatedAt
   company                 Company                             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  digitalMarketingAssignee User?                              @relation("ItemCreationDigitalMarketingAssignee", fields: [digitalMarketingAssigneeId], references: [id], onDelete: SetNull)
   activities              ItemCreationActivity[]
   stockReceiptItems       ItemCreationStockReceiptItem[]
 
   @@index([companyId, sku])
   @@index([companyId, overallStatus])
+  @@index([companyId, digitalMarketingBrand])
+  @@index([companyId, digitalMarketingAssigneeId])
   @@index([sku])
   @@index([overallStatus])
 }
@@ -408,6 +463,20 @@ model ItemCreationActivity {
 
   @@index([itemRequestId])
   @@index([createdAt])
+}
+
+model ItemCreationBrandAllocation {
+  id        String   @id @default(cuid())
+  companyId String
+  brand     String
+  userId    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user      User     @relation("ItemCreationBrandAllocationUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, brand])
+  @@index([companyId, userId])
 }
 
 model ItemCreationStockReceipt {
@@ -625,6 +694,8 @@ model User {
   riderDeliveryTasks                     RiderDeliveryTask[]            @relation("RiderDeliveryTaskRider")
   riderDeliveryTasksManualIncentive      RiderDeliveryTask[]            @relation("RiderDeliveryTaskManualIncentiveBy")
   userRoles                              UserRole[]
+  itemCreationBrandAllocations           ItemCreationBrandAllocation[] @relation("ItemCreationBrandAllocationUser")
+  itemCreationDigitalMarketingRequests   ItemCreationRequest[]          @relation("ItemCreationDigitalMarketingAssignee")
   osfUserColumnAccess                    OsfUserColumnAccess[]
   storeStockCountReportsCreated          StoreStockCountReport[]        @relation("StoreStockCountReportCreatedBy")
   storeStockCountReportsUpdated          StoreStockCountReport[]        @relation("StoreStockCountReportUpdatedBy")
@@ -2434,10 +2505,12 @@ model ProductItemAsset {
   fileName     String
   blobUrl      String
   fileSize     Int?
-  mimeType     String?
-  provider     String   @default("vercel_blob")
-  uploadedById String
-  createdAt    DateTime @default(now())
+  mimeType        String?
+  provider        String   @default("cloudinary")
+  /// Video/audio length from Cloudinary; videos up to 60s count as short-form.
+  durationSeconds Int?
+  uploadedById    String
+  createdAt       DateTime @default(now())
 
   company    Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
   uploadedBy User    @relation(fields: [uploadedById], references: [id])
@@ -2500,6 +2573,36 @@ model OutletReview {
 
   @@index([outletId])
   @@index([orderId])
+}
+
+// ── Consultation Insights (physical consultation log) ───────────────────────
+
+/// One row per invoice. A customer added with several invoices shares one `entryId`.
+model PhysicalConsultation {
+  id                String   @id @default(cuid())
+  companyId         String
+  /// Groups the rows created by a single "Add" (one customer visit).
+  entryId           String
+  /// Calendar date stored as UTC midnight (YYYY-MM-DD).
+  consultationDate  DateTime @db.Date
+  contactNumber     String
+  invoiceNumber     String
+  customerName      String
+  /// "merchant" (online merchant user) or "showroom" (company location).
+  merchantKind      String
+  merchantUserId    String?
+  companyLocationId String?
+  /// Denormalized so the log survives renames / deleted users.
+  merchantName      String
+  physicalReview    String?
+  createdByUserId   String?
+  updatedByUserId   String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([companyId, consultationDate])
+  @@index([companyId, invoiceNumber])
+  @@index([entryId])
 }
 
 // ── Order Support File (OSF) ────────────────────────────────────────────────
@@ -2685,6 +2788,7 @@ model GrnPurchaseReceipt {
   notReceivedBy           User?                    @relation("GrnPurchaseReceiptNotReceivedBy", fields: [notReceivedById], references: [id], onDelete: SetNull)
   items                   GrnPurchaseReceiptItem[]
   purchaseInvoices        GrnPurchaseInvoice[]
+  supplierStockReturnLinks GrnSupplierStockReturnPurchaseReceipt[]
   receivedBy              User?                    @relation("GrnPurchaseReceiptReceivedBy", fields: [receivedById], references: [id], onDelete: SetNull)
   receivedRevertedBy      User?                    @relation("GrnPurchaseReceiptReceivedRevertedBy", fields: [receivedRevertedById], references: [id], onDelete: SetNull)
   valuedBy                User?                    @relation("GrnPurchaseReceiptValuedBy", fields: [valuedById], references: [id], onDelete: SetNull)
@@ -2742,6 +2846,7 @@ model GrnSupplierStockReturn {
   updatedAt           DateTime                     @updatedAt
   company             Company                      @relation(fields: [companyId], references: [id], onDelete: Cascade)
   items               GrnSupplierStockReturnItem[]
+  purchaseReceiptLinks GrnSupplierStockReturnPurchaseReceipt[]
 
   @@unique([companyId, name])
   @@index([companyId, creation(sort: Desc)])
@@ -2749,6 +2854,21 @@ model GrnSupplierStockReturn {
   @@index([companyId, supplierName])
   @@index([companyId, amendedFrom])
   @@index([companyId, purchaseReceiptName])
+}
+
+model GrnSupplierStockReturnPurchaseReceipt {
+  id                    String                 @id @default(cuid())
+  companyId             String
+  supplierStockReturnId String
+  purchaseReceiptId     String
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+  supplierStockReturn   GrnSupplierStockReturn @relation(fields: [supplierStockReturnId], references: [id], onDelete: Cascade)
+  purchaseReceipt       GrnPurchaseReceipt    @relation(fields: [purchaseReceiptId], references: [id], onDelete: Cascade)
+
+  @@unique([supplierStockReturnId, purchaseReceiptId])
+  @@index([companyId, supplierStockReturnId])
+  @@index([companyId, purchaseReceiptId])
 }
 
 model GrnSupplierStockReturnItem {
@@ -2788,6 +2908,7 @@ model GrnBackfillPurchaseReceipt {
   company           Company                          @relation(fields: [companyId], references: [id], onDelete: Cascade)
   companyLocation   CompanyLocation?                 @relation(fields: [companyLocationId], references: [id], onDelete: SetNull)
   items             GrnBackfillPurchaseReceiptItem[]
+  supplierStockReturnLinks GrnBackfillSupplierStockReturnPurchaseReceipt[]
 
   @@unique([companyId, name])
   @@index([companyId, creation(sort: Desc)])
@@ -2832,6 +2953,7 @@ model GrnBackfillSupplierStockReturn {
   updatedAt           DateTime                             @updatedAt
   company             Company                              @relation(fields: [companyId], references: [id], onDelete: Cascade)
   items               GrnBackfillSupplierStockReturnItem[]
+  purchaseReceiptLinks GrnBackfillSupplierStockReturnPurchaseReceipt[]
 
   @@unique([companyId, name])
   @@index([companyId, creation(sort: Desc)])
@@ -2839,6 +2961,21 @@ model GrnBackfillSupplierStockReturn {
   @@index([companyId, supplierName])
   @@index([companyId, amendedFrom])
   @@index([companyId, purchaseReceiptName])
+}
+
+model GrnBackfillSupplierStockReturnPurchaseReceipt {
+  id                    String                          @id @default(cuid())
+  companyId             String
+  supplierStockReturnId String
+  purchaseReceiptId     String
+  createdAt             DateTime                        @default(now())
+  updatedAt             DateTime                        @updatedAt
+  supplierStockReturn   GrnBackfillSupplierStockReturn  @relation(fields: [supplierStockReturnId], references: [id], onDelete: Cascade)
+  purchaseReceipt       GrnBackfillPurchaseReceipt      @relation(fields: [purchaseReceiptId], references: [id], onDelete: Cascade)
+
+  @@unique([supplierStockReturnId, purchaseReceiptId])
+  @@index([companyId, supplierStockReturnId])
+  @@index([companyId, purchaseReceiptId])
 }
 
 model GrnBackfillSupplierStockReturnItem {

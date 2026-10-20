@@ -15,12 +15,15 @@ import {
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserContext, hasPermission } from "@/lib/rbac";
 import { getPriceStatus } from "@/lib/item-creation/helpers";
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
+import { getAllOsfErpInstances } from "@/lib/osf/erp-stock";
 
 export const ITEM_CREATION_PERMISSIONS = {
   admin: "item_creation.admin.manage",
   manageAll: "item_creation.admin.manage_all",
   seo: "item_creation.seo.manage",
   digitalMarketing: "item_creation.digital_marketing.manage",
+  digitalMarketingAdmin: "item_creation.digital_marketing.admin",
   purchasing: "item_creation.purchasing.manage",
   stores: "item_creation.stores.manage",
 } as const;
@@ -60,10 +63,104 @@ function companyId(context: UserContext) {
   return id;
 }
 
+function requireDigitalMarketingAdmin(context: UserContext) {
+  requireWorkflowPermission(context, ITEM_CREATION_PERMISSIONS.digitalMarketingAdmin);
+}
+
+async function getDigitalMarketingUsers(company: string) {
+  return prisma.user.findMany({
+    where: {
+      companyId: company,
+      userRoles: {
+        some: {
+          role: {
+            rolePermissions: {
+              some: { permission: { key: ITEM_CREATION_PERMISSIONS.digitalMarketing } },
+            },
+          },
+        },
+      },
+    },
+    select: { id: true, knownName: true, name: true, email: true },
+    orderBy: [{ knownName: "asc" }, { name: "asc" }, { email: "asc" }],
+  });
+}
+
+function displayUserName(user: { knownName: string | null; name: string | null; email: string | null }) {
+  return user.knownName?.trim() || user.name?.trim() || user.email?.trim() || "User";
+}
+
+function findBrandAllocation(
+  description: string,
+  allocations: Array<{ brand: string; userId: string }>,
+) {
+  const normalizedDescription = description.toLocaleLowerCase();
+  return [...allocations]
+    .filter((allocation) => normalizedDescription.includes(allocation.brand.toLocaleLowerCase()))
+    .sort((a, b) => b.brand.length - a.brand.length)[0] ?? null;
+}
+
 function trimSku(sku: string) {
   const value = sku.trim();
   if (!value) throw new Error("SKU is required");
   return value;
+}
+
+function normalizeSkuForComparison(sku: string) {
+  return sku.trim().toUpperCase();
+}
+
+async function assertSkusDoNotExistInErp(company: string, skus: string[]) {
+  const instances = await getAllOsfErpInstances(company);
+  if (instances.length === 0) {
+    throw new Error("No configured ERP instance is available to validate the SKU");
+  }
+
+  const uniqueSkus = [...new Map(skus.map((sku) => [normalizeSkuForComparison(sku), sku])).values()];
+  const fields = encodeURIComponent(JSON.stringify(["name", "item_code"]));
+  const batchSize = 100;
+
+  for (const instance of instances) {
+    for (let start = 0; start < uniqueSkus.length; start += batchSize) {
+      const batch = uniqueSkus.slice(start, start + batchSize);
+      const filters = encodeURIComponent(JSON.stringify([["item_code", "in", batch]]));
+      const path =
+        `/api/resource/Item?filters=${filters}` +
+        `&fields=${fields}&limit_page_length=${batch.length}`;
+      let response: Response;
+      try {
+        response = await fetch(`${instance.cfg.baseUrl}${path}`, {
+          headers: {
+            Authorization: `token ${instance.cfg.apiKey}:${instance.cfg.apiSecret}`,
+            Accept: "application/json",
+          },
+          cache: "no-store",
+        });
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        throw new Error(`Could not validate SKUs in ${instance.label ?? "ERP"}: ${detail}`);
+      }
+
+      if (!response.ok) {
+        const detail = (await response.text().catch(() => "")).slice(0, 300);
+        throw new Error(
+          `Could not validate SKUs in ${instance.label ?? "ERP"} (${response.status})${detail ? `: ${detail}` : ""}`,
+        );
+      }
+
+      const json = (await response.json()) as {
+        data?: Array<{ name?: string | null; item_code?: string | null }>;
+      };
+      const existing = (json.data ?? []).find((row) => {
+        const code = row.item_code ?? row.name ?? "";
+        return batch.some((sku) => normalizeSkuForComparison(sku) === normalizeSkuForComparison(code));
+      });
+      if (existing) {
+        const code = existing.item_code ?? existing.name ?? "the requested SKU";
+        throw new Error(`SKU ${code} already exists in ${instance.label ?? "ERP"}`);
+      }
+    }
+  }
 }
 
 function samePriceList(left: string, right: string) {
@@ -289,9 +386,10 @@ function validateCreateInput(input: {
 }) {
   const sku = trimSku(input.sku);
   const standardPrice = toDecimal(input.standardPrice, "Standard Price");
-  const ogfPrice = toDecimal(input.ogfPrice, "OGF Price");
-  const gccPrice = toDecimal(input.gccPrice, "GCC Price");
-  const requestedErp1OgfPrice = toBoolean(input.addErp1OgfPrice);
+  const vaultOs = isVaultOsDeployment();
+  const ogfPrice = vaultOs ? null : toDecimal(input.ogfPrice, "OGF Price");
+  const gccPrice = vaultOs ? null : toDecimal(input.gccPrice, "GCC Price");
+  const requestedErp1OgfPrice = vaultOs ? false : toBoolean(input.addErp1OgfPrice);
   if (!standardPrice) throw new Error("Standard Price is required");
   const description = input.description?.trim();
   const country = input.country?.trim() ?? "";
@@ -343,12 +441,20 @@ export async function createItemRequests(
   if (validated.length === 0) throw new Error("At least one item is required");
   const duplicateSkus = validated
     .map((item) => item.sku)
-    .filter((sku, index, skus) => skus.indexOf(sku) !== index);
+    .filter(
+      (sku, index, skus) =>
+        skus.findIndex((candidate) => normalizeSkuForComparison(candidate) === normalizeSkuForComparison(sku)) !== index,
+    );
   if (duplicateSkus.length > 0) {
     throw new Error(`Duplicate SKU in request: ${Array.from(new Set(duplicateSkus)).join(", ")}`);
   }
+  await assertSkusDoNotExistInErp(company, validated.map((item) => item.sku));
 
   return prisma.$transaction(async (tx) => {
+    const brandAllocations = await tx.itemCreationBrandAllocation.findMany({
+      where: { companyId: company },
+      select: { brand: true, userId: true },
+    });
     const active = await tx.itemCreationRequest.findMany({
       where: {
         companyId: company,
@@ -365,6 +471,7 @@ export async function createItemRequests(
 
     const created = [];
     for (const item of validated) {
+      const allocation = findBrandAllocation(item.description, brandAllocations);
       const request = await tx.itemCreationRequest.create({
         data: {
           companyId: company,
@@ -376,6 +483,8 @@ export async function createItemRequests(
           addErp1OgfPrice: item.addErp1OgfPrice,
           country: item.country,
           creationSources: item.creationSources,
+          digitalMarketingBrand: allocation?.brand ?? null,
+          digitalMarketingAssigneeId: allocation?.userId ?? null,
           createdBy: userId(context),
         },
       });
@@ -391,6 +500,7 @@ export async function listItemRequests(context: UserContext, filters: Record<str
     !canUseItemCreation(context, ITEM_CREATION_PERMISSIONS.admin) &&
     !canUseItemCreation(context, ITEM_CREATION_PERMISSIONS.seo) &&
     !canUseItemCreation(context, ITEM_CREATION_PERMISSIONS.digitalMarketing) &&
+    !canUseItemCreation(context, ITEM_CREATION_PERMISSIONS.digitalMarketingAdmin) &&
     !canUseItemCreation(context, ITEM_CREATION_PERMISSIONS.purchasing) &&
     !canUseItemCreation(context, ITEM_CREATION_PERMISSIONS.stores)
   ) {
@@ -398,9 +508,35 @@ export async function listItemRequests(context: UserContext, filters: Record<str
   }
 
   const where: Prisma.ItemCreationRequestWhereInput = { companyId: companyId(context) };
+  const hasAdminView = canUseItemCreation(context, ITEM_CREATION_PERMISSIONS.admin);
+  const hasDigitalAdminView = canUseItemCreation(context, ITEM_CREATION_PERMISSIONS.digitalMarketingAdmin);
+  const hasDigitalView = canUseItemCreation(context, ITEM_CREATION_PERMISSIONS.digitalMarketing);
+  const hasOtherTeamView =
+    canUseItemCreation(context, ITEM_CREATION_PERMISSIONS.seo) ||
+    canUseItemCreation(context, ITEM_CREATION_PERMISSIONS.purchasing) ||
+    canUseItemCreation(context, ITEM_CREATION_PERMISSIONS.stores);
+  if (hasDigitalView && !hasDigitalAdminView && !hasAdminView && !hasOtherTeamView) {
+    where.digitalMarketingStatus = "PENDING";
+    where.AND = [
+      {
+        OR: [
+          { digitalMarketingAssigneeId: userId(context) },
+          { digitalMarketingAssigneeId: null },
+        ],
+      },
+    ];
+  }
   const sku = filters.sku?.trim();
+  const search = filters.search?.trim();
   const country = filters.country?.trim();
-  if (sku) where.sku = { contains: sku, mode: "insensitive" };
+  if (search) {
+    where.OR = [
+      { sku: { contains: search, mode: "insensitive" } },
+      { description: { contains: search, mode: "insensitive" } },
+    ];
+  } else if (sku) {
+    where.sku = { contains: sku, mode: "insensitive" };
+  }
   if (country) where.country = { contains: country, mode: "insensitive" };
   for (const [param, field] of [
     ["overallStatus", "overallStatus"],
@@ -416,7 +552,7 @@ export async function listItemRequests(context: UserContext, filters: Record<str
   }
   const createdFrom = filters.createdFrom?.trim();
   const createdTo = filters.createdTo?.trim();
-  if (createdFrom || createdTo) {
+  if (!search && (createdFrom || createdTo)) {
     where.createdAt = {
       ...(createdFrom ? { gte: new Date(`${createdFrom}T00:00:00.000`) } : {}),
       ...(createdTo ? { lte: new Date(`${createdTo}T23:59:59.999`) } : {}),
@@ -432,6 +568,98 @@ export async function listItemRequests(context: UserContext, filters: Record<str
     orderBy: { createdAt: "desc" },
     include: { activities: { orderBy: { createdAt: "desc" } } },
     take: 250,
+  });
+}
+
+export async function listItemCreationBrandAllocations(context: UserContext) {
+  requireDigitalMarketingAdmin(context);
+  const company = companyId(context);
+  const [allocations, users] = await Promise.all([
+    prisma.itemCreationBrandAllocation.findMany({
+      where: { companyId: company },
+      include: { user: { select: { id: true, knownName: true, name: true, email: true } } },
+      orderBy: { brand: "asc" },
+    }),
+    getDigitalMarketingUsers(company),
+  ]);
+  return {
+    allocations: allocations.map((allocation) => ({
+      id: allocation.id,
+      brand: allocation.brand,
+      userId: allocation.userId,
+      userName: displayUserName(allocation.user),
+    })),
+    users: users.map((user) => ({ id: user.id, name: displayUserName(user) })),
+  };
+}
+
+export async function saveItemCreationBrandAllocations(
+  context: UserContext,
+  input: unknown,
+) {
+  requireDigitalMarketingAdmin(context);
+  const company = companyId(context);
+  if (!Array.isArray(input)) throw new Error("Brand allocations must be an array");
+
+  const users = await getDigitalMarketingUsers(company);
+  const allowedUsers = new Set(users.map((user) => user.id));
+  const normalized = input.map((entry) => {
+    const value = entry as { brand?: unknown; userId?: unknown };
+    const brand = String(value.brand ?? "").trim();
+    const userIdValue = String(value.userId ?? "").trim();
+    if (!brand) throw new Error("Brand is required");
+    if (!allowedUsers.has(userIdValue)) throw new Error("Allocated user must have Digital Marketing permission");
+    return { brand, userId: userIdValue };
+  });
+  const seen = new Set<string>();
+  for (const allocation of normalized) {
+    const key = allocation.brand.toLocaleLowerCase();
+    if (seen.has(key)) throw new Error(`Duplicate brand allocation: ${allocation.brand}`);
+    seen.add(key);
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.itemCreationBrandAllocation.deleteMany({ where: { companyId: company } });
+    if (normalized.length > 0) {
+      await tx.itemCreationBrandAllocation.createMany({
+        data: normalized.map((allocation) => ({ ...allocation, companyId: company })),
+      });
+    }
+  });
+  return listItemCreationBrandAllocations(context);
+}
+
+export async function assignItemCreationDigitalMarketingUser(
+  context: UserContext,
+  id: string,
+  assigneeId: string | null,
+) {
+  requireDigitalMarketingAdmin(context);
+  const company = companyId(context);
+  const normalizedAssigneeId = assigneeId?.trim() || null;
+  if (normalizedAssigneeId) {
+    const users = await getDigitalMarketingUsers(company);
+    if (!users.some((user) => user.id === normalizedAssigneeId)) {
+      throw new Error("Allocated user must have Digital Marketing permission");
+    }
+  }
+
+  return prisma.$transaction(async (tx) => {
+    const request = await getScopedRequest(tx, id, company);
+    const updated = await tx.itemCreationRequest.update({
+      where: { id },
+      data: { digitalMarketingAssigneeId: normalizedAssigneeId },
+    });
+    await activity(
+      tx,
+      id,
+      "DIGITAL_MARKETING_ASSIGNEE_UPDATED",
+      ItemCreationUpdateSource.USER,
+      userId(context),
+      request.digitalMarketingAssigneeId,
+      normalizedAssigneeId,
+    );
+    return updated;
   });
 }
 
@@ -676,13 +904,13 @@ export async function recordErpItemPrice(input: {
           data: { erpStandardPrice: price, standardPriceSeenAt: new Date() },
         });
         await activity(tx, request.id, "ERP_STANDARD_PRICE_DETECTED", "ERP_WEBHOOK", null, String(request.erpStandardPrice ?? ""), String(price), { sku, priceList, erpPrice: Number(price) });
-      } else if (samePriceList(priceList, ITEM_CREATION_PRICE_LISTS.OGF)) {
+      } else if (!isVaultOsDeployment() && samePriceList(priceList, ITEM_CREATION_PRICE_LISTS.OGF)) {
         await tx.itemCreationRequest.update({
           where: { id: request.id },
           data: { erpOgfPrice: price, ogfPriceSeenAt: new Date() },
         });
         await activity(tx, request.id, "ERP_OGF_PRICE_DETECTED", "ERP_WEBHOOK", null, String(request.erpOgfPrice ?? ""), String(price), { sku, priceList, erpPrice: Number(price) });
-      } else if (samePriceList(priceList, ITEM_CREATION_PRICE_LISTS.GCC)) {
+      } else if (!isVaultOsDeployment() && samePriceList(priceList, ITEM_CREATION_PRICE_LISTS.GCC)) {
         await tx.itemCreationRequest.update({
           where: { id: request.id },
           data: { erp2GccPrice: price, gccPriceSeenAt: new Date() },

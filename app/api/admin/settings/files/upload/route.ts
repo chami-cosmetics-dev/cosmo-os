@@ -1,7 +1,7 @@
-import { put } from "@vercel/blob";
 import { NextRequest, NextResponse } from "next/server";
 
 import { writeAuditLog } from "@/lib/audit-log";
+import { storageFolder, storageSizeError, uploadStoredFile } from "@/lib/file-storage";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 
@@ -44,21 +44,31 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "File type is not allowed" }, { status: 400 });
   }
 
-  if (file.size > 25 * 1024 * 1024) {
-    return NextResponse.json({ error: "File too large. Maximum size is 25MB" }, { status: 400 });
+  const sizeError = storageSizeError(file.type || null, file.size);
+  if (sizeError) {
+    return NextResponse.json({ error: sizeError }, { status: 400 });
   }
 
-  const blob = await put(file.name, file, {
-    access: "private",
-    addRandomSuffix: true,
-  });
+  let stored: Awaited<ReturnType<typeof uploadStoredFile>>;
+  try {
+    stored = await uploadStoredFile({
+      folder: storageFolder(companyId, "files"),
+      fileName: file.name,
+      mimeType: file.type || null,
+      bytes: Buffer.from(await file.arrayBuffer()),
+    });
+  } catch (err) {
+    console.error("[settings/files] upload failed", err);
+    return NextResponse.json({ error: "Failed to store file" }, { status: 500 });
+  }
 
   const saved = await prisma.file.create({
     data: {
       companyId,
       fileName: file.name,
-      blobUrl: blob.url,
+      blobUrl: stored.url,
       fileSize: file.size,
+      provider: "cloudinary",
       mimeType: file.type || null,
       uploadedById: userId,
     },

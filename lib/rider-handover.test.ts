@@ -200,6 +200,19 @@ describe("handoverCashAmount", () => {
     ).toBe("8000.00");
   });
 
+  it("collects the cash leg when KOKO is only part of the payment", () => {
+    expect(
+      resolveHandoverCollectCash({
+        totalPrice: "8000.00",
+        paymentGatewayPrimary: "KOKO",
+        splitLines: [
+          { paymentMethod: "koko", amount: 5000 },
+          { paymentMethod: "cash", amount: 3000 },
+        ],
+      }).toFixed(2),
+    ).toBe("3000.00");
+  });
+
   it("leaves prepaid gateways at zero", () => {
     expect(
       handoverCashAmount({

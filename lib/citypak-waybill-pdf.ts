@@ -1,4 +1,3 @@
-import { put } from "@vercel/blob";
 import { Prisma } from "@prisma/client";
 import {
   PDFArray,
@@ -25,6 +24,7 @@ import {
   type CitypakPrintLayout,
   type CitypakShipmentOverride,
 } from "@/lib/citypak-api";
+import { fetchStoredFileBytes, storageFolder, uploadStoredFile } from "@/lib/file-storage";
 import { prisma } from "@/lib/prisma";
 import { resolveCitypakApiToken } from "@/lib/citypak-token";
 
@@ -40,16 +40,9 @@ function readString(record: Record<string, unknown>, key: string) {
   return typeof value === "string" && value.trim() ? value.trim() : "";
 }
 
-async function fetchBlobBytes(blobUrl: string): Promise<Buffer | null> {
+async function fetchCachedPdfBytes(url: string): Promise<Buffer | null> {
   try {
-    const blobRes = await fetch(
-      blobUrl,
-      process.env.BLOB_READ_WRITE_TOKEN
-        ? { headers: { Authorization: `Bearer ${process.env.BLOB_READ_WRITE_TOKEN}` } }
-        : undefined,
-    );
-    if (!blobRes.ok) return null;
-    return Buffer.from(await blobRes.arrayBuffer());
+    return await fetchStoredFileBytes(url);
   } catch {
     return null;
   }
@@ -62,18 +55,15 @@ export async function cacheCitypakWaybillPdf(input: {
   bytes: Buffer;
 }): Promise<string | null> {
   try {
-    const blob = await put(
-      `citypak-waybills/${input.companyId}/${input.folderKey}/${input.trackingNumber}.pdf`,
-      input.bytes,
-      {
-        access: "private",
-        addRandomSuffix: true,
-        contentType: "application/pdf",
-      },
-    );
-    return blob.url;
+    const stored = await uploadStoredFile({
+      folder: storageFolder(input.companyId, "citypak-waybills", input.folderKey),
+      fileName: `${input.trackingNumber}.pdf`,
+      mimeType: "application/pdf",
+      bytes: input.bytes,
+    });
+    return stored.url;
   } catch (err) {
-    console.error("[citypak-waybill-pdf] blob put failed", err);
+    console.error("[citypak-waybill-pdf] cache upload failed", err);
     return null;
   }
 }
@@ -133,7 +123,7 @@ export async function loadCitypakWaybillPdf(input: {
     readString(payload, "waybillPdfUrlA4") ||
     readString(payload, "waybillPdfUrl4x6");
   if (storedUrl) {
-    const cached = await fetchBlobBytes(storedUrl);
+    const cached = await fetchCachedPdfBytes(storedUrl);
     if (cached) {
       return { ok: true, bytes: cached, trackingNumber, filename, printOverride };
     }
@@ -162,17 +152,17 @@ export async function loadCitypakWaybillPdf(input: {
     return { ok: false, error: downloaded.error, status: downloaded.status ?? 502 };
   }
 
-  const blobUrl = await cacheCitypakWaybillPdf({
+  const cachedUrl = await cacheCitypakWaybillPdf({
     companyId: input.companyId,
     folderKey: waybill.orderId ?? waybill.id,
     trackingNumber,
     bytes: downloaded.bytes,
   });
-  if (blobUrl) {
+  if (cachedUrl) {
     await prisma.orderWaybill.update({
       where: { id: waybill.id },
       data: {
-        rawPayload: { ...payload, waybillPdfUrl: blobUrl } as Prisma.InputJsonValue,
+        rawPayload: { ...payload, waybillPdfUrl: cachedUrl } as Prisma.InputJsonValue,
       },
     });
   }

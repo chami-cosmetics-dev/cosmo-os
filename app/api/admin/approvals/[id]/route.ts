@@ -632,6 +632,10 @@ export async function PATCH(
       ok: true,
       status: "approved",
       completionMode: external.completionMode,
+      shopifyOutcome: external.shopifyOutcome,
+      ...(external.shopifyOutcome === "failed" && external.error
+        ? { shopifyWarning: external.error }
+        : {}),
       ...(external.completionMode === "credit_note"
         ? { creditNoteName: external.creditNoteName }
         : { invoiceName: external.invoiceName }),
@@ -797,6 +801,10 @@ export async function PATCH(
       ok: true,
       status: "approved",
       completionMode: external.completionMode,
+      shopifyOutcome: external.shopifyOutcome,
+      ...(external.shopifyOutcome === "failed" && external.error
+        ? { shopifyWarning: external.error }
+        : {}),
       ...(external.completionMode === "credit_note"
         ? { creditNoteName: external.creditNoteName }
         : { invoiceName: external.invoiceName }),

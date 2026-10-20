@@ -4,6 +4,33 @@ export type StockEntryLineInput = {
   uom?: string | null;
 };
 
+/** Body for the ERP `cosmo_save_doc` API script. Owner is the Cosmo user's ERP email. */
+export function buildCosmoSaveDocCall(input: {
+  owner: string;
+  doc: ReturnType<typeof buildMaterialTransferBody>;
+}) {
+  return {
+    owner: input.owner.trim(),
+    action: "insert" as const,
+    doc: {
+      doctype: "Stock Entry" as const,
+      ...input.doc,
+    },
+  };
+}
+
+/** `cosmo_save_doc` returns `{ message: { name } }`. */
+export function stockEntryNameFromSaveDoc(payload: unknown): string {
+  if (!payload || typeof payload !== "object") return "";
+  const body = payload as { name?: unknown; message?: unknown };
+  const message = body.message;
+  if (message && typeof message === "object" && "name" in message) {
+    return String((message as { name?: unknown }).name ?? "").trim();
+  }
+  if (typeof message === "string") return message.trim();
+  return String(body.name ?? "").trim();
+}
+
 /** ERPNext Stock Entry body for a direct Material Transfer (not in transit). */
 export function buildMaterialTransferBody(input: {
   company: string;

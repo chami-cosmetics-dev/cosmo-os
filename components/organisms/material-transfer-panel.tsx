@@ -29,6 +29,7 @@ import {
   setTransferLineQty,
   upsertTransferLine,
 } from "@/lib/material-transfer/lines";
+import { loadSendDraft, saveSendDraft } from "@/lib/material-transfer/send-draft";
 import { linesBelowMainAvailable } from "@/lib/material-transfer/submit-review";
 import type {
   TransferLine,
@@ -66,7 +67,13 @@ function slotLabel(slot: TransferSlot) {
   return slot === "erp1" ? "ERP1" : "ERP2";
 }
 
-export function MaterialTransferPanel() {
+export function MaterialTransferPanel({
+  companyId,
+  userId,
+}: {
+  companyId: string;
+  userId: string;
+}) {
   const [page, setPage] = useState<PageData | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
   const [slot, setSlot] = useState<TransferSlot>("erp1");
@@ -74,6 +81,7 @@ export function MaterialTransferPanel() {
   const [source, setSource] = useState("");
   const [target, setTarget] = useState("");
   const [lines, setLines] = useState<TransferLine[]>([]);
+  const [draftReady, setDraftReady] = useState(false);
   const [scan, setScan] = useState("");
   const [busyKey, setBusyKey] = useState<"page" | "lookup" | "submit" | null>("page");
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -101,6 +109,15 @@ export function MaterialTransferPanel() {
 
   useEffect(() => {
     let cancelled = false;
+    const saved = loadSendDraft(companyId, userId);
+    if (saved) {
+      setSlot(saved.slot);
+      setCompany(saved.company);
+      setSource(saved.source);
+      setTarget(saved.target);
+      setLines(saved.lines);
+      notify.success(`Restored ${saved.lines.length} unsaved items`);
+    }
     void (async () => {
       try {
         const res = await fetch("/api/admin/store/material-transfer/page-data");
@@ -108,7 +125,7 @@ export function MaterialTransferPanel() {
         if (!res.ok) throw new Error(json.error || "Could not load warehouses");
         if (cancelled) return;
         setPage(json);
-        setSlot(json.erp1.configured ? "erp1" : "erp2");
+        if (!saved) setSlot(json.erp1.configured ? "erp1" : "erp2");
       } catch (error) {
         if (!cancelled) {
           const message = error instanceof Error ? error.message : "Could not load warehouses";
@@ -116,13 +133,31 @@ export function MaterialTransferPanel() {
           notify.error(message);
         }
       } finally {
-        if (!cancelled) setBusyKey(null);
+        if (!cancelled) {
+          setBusyKey(null);
+          setDraftReady(true);
+        }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [companyId, userId]);
+
+  useEffect(() => {
+    if (!draftReady) return;
+    saveSendDraft({
+      version: 1,
+      companyId,
+      userId,
+      updatedAt: new Date().toISOString(),
+      slot,
+      company,
+      source,
+      target,
+      lines,
+    });
+  }, [draftReady, companyId, userId, slot, company, source, target, lines]);
 
   const focusScan = useCallback(() => {
     scanRef.current?.focus();
@@ -130,6 +165,12 @@ export function MaterialTransferPanel() {
 
   function switchSlot(next: TransferSlot) {
     if (next === slot || isBusy) return;
+    if (
+      lines.length > 0 &&
+      !window.confirm("Switch ERP and drop the unsaved items? This list is only kept for the current ERP.")
+    ) {
+      return;
+    }
     setSlot(next);
     setCompany("");
     setSource("");
@@ -500,6 +541,7 @@ export function MaterialTransferPanel() {
       <div className="flex items-center justify-between gap-3">
         <p className="text-muted-foreground text-sm">
           {lines.length} items, {totalQty} units
+          {lines.length > 0 ? ". Kept in this browser until ERP accepts the transfer." : ""}
         </p>
         <Button type="button" disabled={!canSend} onClick={() => setConfirmOpen(true)}>
           Send to ERP

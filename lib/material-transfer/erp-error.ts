@@ -22,8 +22,38 @@ function messageFromServerMessages(raw: unknown): string | null {
   return null;
 }
 
+const TRANSIENT_SOCKET_CODES = new Set([
+  "UND_ERR_SOCKET",
+  "UND_ERR_CONNECT_TIMEOUT",
+  "ECONNRESET",
+  "EPIPE",
+  "ETIMEDOUT",
+]);
+
+function errorCause(error: unknown): { code: string; message: string } {
+  const cause = error instanceof Error ? error.cause : undefined;
+  if (!cause || typeof cause !== "object") return { code: "", message: "" };
+  const code = "code" in cause ? String((cause as { code?: unknown }).code ?? "") : "";
+  const message = cause instanceof Error ? cause.message : "";
+  return { code, message };
+}
+
+/** Dead keep-alive socket, gateway timeout, or rate limit. Safe to retry on GET only. */
+export function isTransientErpFetchError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  const cause = errorCause(error);
+  if (/fetch failed/i.test(message) || /other side closed/i.test(cause.message)) return true;
+  if (TRANSIENT_SOCKET_CODES.has(cause.code)) return true;
+  return /\[50[234]\]|\[429\]/.test(message);
+}
+
 /** Short ERPNext validation text from a thrown client error. */
 export function erpErrorMessage(error: unknown): string {
+  if (isTransientErpFetchError(error) && /fetch failed|other side closed/i.test(
+    `${error instanceof Error ? error.message : String(error)} ${errorCause(error).message}`,
+  )) {
+    return "ERP connection closed before a response. Try again.";
+  }
   const raw = error instanceof Error ? error.message : String(error);
   const jsonStart = raw.indexOf("{");
   if (jsonStart >= 0) {

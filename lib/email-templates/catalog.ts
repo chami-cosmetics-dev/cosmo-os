@@ -22,6 +22,11 @@ export type EmailTemplateDefinition = {
 export const STOCK_PRICE_MISSING_DAILY_KEY = "stock_price_missing_daily";
 export const RESIGNATION_NOTICE_KEY = "resignation_notice";
 export const GRN_PENDING_DAILY_KEY = "grn_pending_daily";
+export const RECEIVABLE_DELIVERY_PAYMENT_PENDING_DAILY_KEY = "receivable_delivery_payment_pending_daily";
+export const RECEIVABLE_NOT_DISPATCHED_DAILY_KEY = "receivable_not_dispatched_daily";
+export const RECEIVABLE_DELIVERY_INCOMPLETE_DAILY_KEY = "receivable_delivery_incomplete_daily";
+export const RECEIVABLE_OPERATIONS_SUMMARY_DAILY_KEY = "receivable_operations_summary_daily";
+export const SUPPLIER_PAYABLE_OUTSTANDING_DAILY_KEY = "supplier_payable_outstanding_daily";
 
 export const BUILTIN_EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
   {
@@ -148,7 +153,35 @@ export const BUILTIN_EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
     ],
     builtin: true,
     automated: true,
-  },];
+  },
+  ...[
+    [RECEIVABLE_DELIVERY_PAYMENT_PENDING_DAILY_KEY, "Receivable — delivery complete, payment pending", "Delivery complete, payment pending — {{reportDate}}", "Delivery complete, payment pending"],
+    [RECEIVABLE_NOT_DISPATCHED_DAILY_KEY, "Receivable — invoice created, not dispatched", "Invoice created, not dispatched — {{reportDate}}", "Invoice created, not dispatched"],
+    [RECEIVABLE_DELIVERY_INCOMPLETE_DAILY_KEY, "Receivable — dispatched, delivery incomplete", "Dispatched, delivery incomplete — {{reportDate}}", "Dispatched, delivery incomplete"],
+    [RECEIVABLE_OPERATIONS_SUMMARY_DAILY_KEY, "Receivable operations summary", "Receivable operations summary — {{reportDate}}", "Receivable operations summary"],
+  ].map(([key, name, subject, label]) => ({
+    key,
+    name,
+    subject,
+    bodyHtml: `<p><strong>${label}</strong> report for <strong>{{reportDate}}</strong>.</p>{{summaryTableHtml}}<p>The Excel report is attached.</p>`,
+    recipients: "",
+    ccRecipients: "",
+    placeholders: ["companyName", "reportDate", "generatedAt", "summaryTableHtml", "rowCount", "totalValue"],
+    builtin: true,
+    automated: true,
+  })),
+  {
+    key: SUPPLIER_PAYABLE_OUTSTANDING_DAILY_KEY,
+    name: "Supplier payable outstanding",
+    subject: "Supplier payable outstanding — {{reportDate}}",
+    bodyHtml: `<p>Supplier payable outstanding report for <strong>{{reportDate}}</strong>.</p>{{summaryTableHtml}}`,
+    recipients: "",
+    ccRecipients: "",
+    placeholders: ["companyName", "reportDate", "generatedAt", "summaryTableHtml", "supplierCount", "lineCount"],
+    builtin: true,
+    automated: true,
+  },
+];
 
 export function builtinTemplateByKey(key: string): EmailTemplateDefinition | undefined {
   return BUILTIN_EMAIL_TEMPLATES.find((t) => t.key === key);

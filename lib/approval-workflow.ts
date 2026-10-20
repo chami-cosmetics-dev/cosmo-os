@@ -254,23 +254,51 @@ const voidedOrderFinancialStatusFilter = {
   mode: "insensitive" as const,
 };
 
-/** Cancel open finance approvals when an order is voided (KOKO, bank transfer, etc.). */
-export async function cancelPendingApprovalsForOrder(orderId: string) {
+/** Return-cancel and order-cancel stay pending until finance approves in OS. */
+export const FINANCE_OWNED_CANCEL_APPROVAL_TYPES = [
+  RETURN_CANCEL_APPROVAL,
+  ORDER_CANCEL_APPROVAL,
+] as const;
+
+/** True when finance still has to approve a return cancel or order cancel for this order. */
+export async function orderHasPendingFinanceCancelApproval(orderId: string): Promise<boolean> {
+  const pending = await prisma.approvalRequest.findFirst({
+    where: {
+      status: "pending",
+      type: { in: [...FINANCE_OWNED_CANCEL_APPROVAL_TYPES] },
+      OR: [{ orderId }, { orderReturn: { orderId } }],
+    },
+    select: { id: true },
+  });
+  return Boolean(pending);
+}
+
+/** Cancel open finance approvals when an order is voided (KOKO, bank transfer, etc.).
+ * Pending return-cancel and order-cancel stay open so finance approve can cancel the ERP invoice.
+ * Pass includeFinanceCancelApprovals when the void itself retires that request (KOKO duplicate). */
+export async function cancelPendingApprovalsForOrder(
+  orderId: string,
+  options?: { includeFinanceCancelApprovals?: boolean },
+) {
   const now = new Date();
   const data = {
     status: "cancelled" as const,
     reviewNote: ORDER_VOIDED_APPROVAL_CANCEL_NOTE,
     updatedAt: now,
   };
+  const typeFilter = options?.includeFinanceCancelApprovals
+    ? {}
+    : { type: { notIn: [...FINANCE_OWNED_CANCEL_APPROVAL_TYPES] } };
 
   const [direct, viaReturn] = await Promise.all([
     prisma.approvalRequest.updateMany({
-      where: { status: "pending", orderId },
+      where: { status: "pending", orderId, ...typeFilter },
       data,
     }),
     prisma.approvalRequest.updateMany({
       where: {
         status: "pending",
+        ...typeFilter,
         orderReturn: { orderId },
       },
       data,

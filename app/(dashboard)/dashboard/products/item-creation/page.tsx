@@ -9,6 +9,7 @@ import {
   listItemRequests,
 } from "@/lib/item-creation/workflow";
 import { requireAnyPermission } from "@/lib/rbac";
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 
 export const dynamic = "force-dynamic";
 
@@ -46,6 +47,10 @@ export default async function ItemCreationPage() {
     digitalMarketing: canUseItemCreation(
       context,
       ITEM_CREATION_PERMISSIONS.digitalMarketing
+    ) || canUseItemCreation(context, ITEM_CREATION_PERMISSIONS.digitalMarketingAdmin),
+    digitalMarketingAdmin: canUseItemCreation(
+      context,
+      ITEM_CREATION_PERMISSIONS.digitalMarketingAdmin,
     ),
     purchasing: canUseItemCreation(context, ITEM_CREATION_PERMISSIONS.purchasing),
     stores: canUseItemCreation(context, ITEM_CREATION_PERMISSIONS.stores),
@@ -59,6 +64,7 @@ export default async function ItemCreationPage() {
       initialItems={JSON.parse(JSON.stringify(initialItems))}
       initialFilters={initialFilters}
       permissions={permissions}
+      vaultOs={isVaultOsDeployment()}
     />
   );
 }

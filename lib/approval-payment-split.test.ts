@@ -7,6 +7,7 @@ import {
   approvalSplitPrepaidSummary,
   buildApprovalSplitRequestNote,
   buildDefaultOrderPaymentRequestNote,
+  formatApprovalSplitAmountBreakdown,
   formatApprovalSplitInvoicePaymentLabel,
   isApprovalSplitRequestNote,
   parseApprovalSplitRequestNote,
@@ -173,6 +174,12 @@ describe("approval split payment plan", () => {
         { paymentMethod: "cash", amount: 15050 },
       ]),
     ).toEqual({ amount: 5000, label: "KOKO" });
+    expect(
+      formatApprovalSplitAmountBreakdown([
+        { paymentMethod: "cash", amount: 3000 },
+        { paymentMethod: "koko", amount: 5000 },
+      ]),
+    ).toBe("KOKO paid 5000.00 + Cash to collect 3000.00");
     expect(
       formatApprovalSplitInvoicePaymentLabel([
         { paymentMethod: "koko", amount: 5750 },

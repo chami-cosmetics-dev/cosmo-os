@@ -525,6 +525,8 @@ export function FinanceApprovalsPanel({
         completionMode?: "credit_note" | "cancel_si";
         creditNoteName?: string;
         invoiceName?: string;
+        shopifyOutcome?: string;
+        shopifyWarning?: string;
       };
       if (!response.ok) {
         notify.error(approvalErrorMessage(data));
@@ -571,6 +573,9 @@ export function FinanceApprovalsPanel({
               : "Return cancel approved — unpaid Sales Invoice cancelled and order voided.",
           );
         }
+        if (data.shopifyOutcome === "failed") {
+          notify.error(data.shopifyWarning ?? "Shopify order was not cancelled.");
+        }
       } else if (action === "approve" && selected.type === "order_cancel_approval") {
         const mode = data.completionMode;
         if (mode === "credit_note") {
@@ -587,6 +592,9 @@ export function FinanceApprovalsPanel({
           );
         } else {
           notify.success("Order cancel approved — order voided.");
+        }
+        if (data.shopifyOutcome === "failed") {
+          notify.error(data.shopifyWarning ?? "Shopify order was not cancelled.");
         }
       } else {
         notify.success(action === "approve" ? "Approval granted." : "Approval rejected.");

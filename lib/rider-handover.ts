@@ -23,10 +23,15 @@ import {
 } from "@/lib/format-datetime";
 import { loadPendingPaymentMethodChangeByOrderIds } from "@/lib/apply-collection-payment-method";
 import {
+  approvalSplitCashCollectAmount,
+  formatApprovalSplitAmountBreakdown,
+} from "@/lib/approval-payment-split";
+import {
   FINANCE_PAYMENT_METHOD_CHANGE_PENDING,
   pendingPaymentMethodChangeZerosCash,
 } from "@/lib/collection-payment-method";
 import { cashAmountFromDeliveryPayment } from "@/lib/mobile/payment-lines";
+import { loadSplitPaymentLinesByOrderIds } from "@/lib/order-split-payment";
 import { resolveOrderDisplayTotal } from "@/lib/order-shipping-display";
 import {
   paymentMethodChangeTargetLabel,
@@ -111,18 +116,21 @@ export function handoverCashAmount(input: {
   return total.gt(0) ? total : new Prisma.Decimal(0);
 }
 
-/** Cash the rider hands over after a pending bank/KOKO method change is excluded. */
+/** Cash the rider collects. Split cash leg counts; pending bank/KOKO change is excluded. */
 export function resolveHandoverCollectCash(input: {
   totalPrice: Prisma.Decimal | number | string | null;
   subtotalPrice?: Prisma.Decimal | number | string | null;
   totalShipping?: Prisma.Decimal | number | string | null;
   paymentGatewayPrimary: string | null;
   paymentGatewayNames?: string[] | null;
+  splitLines?: Array<{ paymentMethod: string; amount: number | string }>;
   pendingPaymentMethodChange?: PaymentMethodChangeTarget | null;
 }): Prisma.Decimal {
   if (pendingPaymentMethodChangeZerosCash(input.pendingPaymentMethodChange)) {
     return new Prisma.Decimal(0);
   }
+  const splitCash = input.splitLines ? approvalSplitCashCollectAmount(input.splitLines) : null;
+  if (splitCash != null) return new Prisma.Decimal(splitCash);
   return handoverCashAmount(input);
 }
 
@@ -331,6 +339,7 @@ export type HandoverDelivery = {
   erpInstance: ErpnextInstance | null;
   courierServiceName: string | null;
   paymentMethod: DeliveryPaymentMethod | null;
+  paymentLabel: string | null;
   collectedAmount: string;
   cashAmount: string;
   financeApprovalPending: boolean;
@@ -417,12 +426,15 @@ export async function loadRiderHandoverDeliveries(input: {
     },
   });
 
-  const pendingByOrder = await loadPendingPaymentMethodChangeByOrderIds(
-    tasks.map((task) => task.order.id),
-  );
+  const orderIds = tasks.map((task) => task.order.id);
+  const [pendingByOrder, splitByOrder] = await Promise.all([
+    loadPendingPaymentMethodChangeByOrderIds(orderIds),
+    loadSplitPaymentLinesByOrderIds(orderIds),
+  ]);
 
   const deliveries: HandoverDelivery[] = tasks.map((task) => {
     const order = task.order;
+    const splitLines = splitByOrder.get(order.id) ?? [];
     const payment = order.deliveryPayment
       ? {
           paymentMethod: order.deliveryPayment.paymentMethod,
@@ -438,6 +450,7 @@ export async function loadRiderHandoverDeliveries(input: {
       totalShipping: order.totalShipping,
       paymentGatewayPrimary: order.paymentGatewayPrimary,
       paymentGatewayNames: order.paymentGatewayNames,
+      splitLines,
       pendingPaymentMethodChange,
     });
     return {
@@ -457,6 +470,7 @@ export async function loadRiderHandoverDeliveries(input: {
       erpInstance: order.companyLocation.erpnextInstance,
       courierServiceName: order.dispatchedByCourierService?.name ?? null,
       paymentMethod: order.deliveryPayment?.paymentMethod ?? null,
+      paymentLabel: formatApprovalSplitAmountBreakdown(splitLines),
       collectedAmount: collectedAmountLabel(payment),
       cashAmount: cashAmount.toFixed(2),
       financeApprovalPending: pendingPaymentMethodChange != null,
@@ -505,6 +519,7 @@ export function handoverDeliveryMatchesQuery(
     | "locationName"
     | "cashAmount"
     | "paymentMethod"
+    | "paymentLabel"
     | "paymentGatewayPrimary"
     | "invoiceCompleteAt"
     | "fulfillmentStage"
@@ -518,6 +533,7 @@ export function handoverDeliveryMatchesQuery(
     handoverCompanyName(delivery.erpnextCompany, delivery.locationName),
     delivery.cashAmount,
     delivery.paymentMethod,
+    delivery.paymentLabel,
     delivery.paymentGatewayPrimary,
     isInvoiceClosed(delivery) ? "complete" : "open",
   ]
@@ -597,7 +613,7 @@ export async function buildHandoverOrders(deliveries: HandoverDelivery[]): Promi
       collectedAmount: delivery.collectedAmount,
       paymentMethod: delivery.pendingPaymentMethodChange
         ? `${paymentMethodChangeTargetLabel(delivery.pendingPaymentMethodChange)} (pending approval)`
-        : delivery.paymentMethod,
+        : delivery.paymentLabel ?? delivery.paymentMethod,
       paymentGatewayPrimary: delivery.paymentGatewayPrimary,
       financeApprovalPending: delivery.financeApprovalPending,
       invoiceClosed,
@@ -876,9 +892,11 @@ export async function loadHandoverStatusExport(input: {
     list.push(view);
     receiptsByRider.set(receipt.riderId, list);
   }
-  const pendingByOrder = await loadPendingPaymentMethodChangeByOrderIds(
-    tasks.map((task) => task.order.id),
-  );
+  const exportOrderIds = tasks.map((task) => task.order.id);
+  const [pendingByOrder, splitByOrder] = await Promise.all([
+    loadPendingPaymentMethodChangeByOrderIds(exportOrderIds),
+    loadSplitPaymentLinesByOrderIds(exportOrderIds),
+  ]);
   const rows: HandoverStatusExportRow[] = tasks.map((task) => {
     const order = task.order;
     const companyName = handoverCompanyName(order.companyLocation.erpnextCompany, order.companyLocation.name);
@@ -894,6 +912,7 @@ export async function loadHandoverStatusExport(input: {
         totalShipping: order.totalShipping,
         paymentGatewayPrimary: order.paymentGatewayPrimary,
         paymentGatewayNames: order.paymentGatewayNames,
+        splitLines: splitByOrder.get(order.id) ?? [],
         pendingPaymentMethodChange: pendingByOrder.get(order.id) ?? null,
       }).toFixed(2),
       deliveredAt: task.completedAt,

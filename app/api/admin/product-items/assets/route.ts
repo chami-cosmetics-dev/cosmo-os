@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { writeAuditLog } from "@/lib/audit-log";
+import { isStoredFileInFolder } from "@/lib/file-storage";
 import { prisma } from "@/lib/prisma";
 import { getProductFamilyName } from "@/lib/product-item-family";
+import { productItemStorageFolder } from "@/lib/product-item-storage";
 import { requirePermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
@@ -16,6 +18,7 @@ type RawStorageAsset = {
   fileSize: number | null;
   mimeType: string | null;
   provider: string;
+  durationSeconds: number | null;
   createdAt: Date;
   uploadedBy: { id: string; name: string | null } | null;
 };
@@ -78,6 +81,7 @@ export async function GET(request: NextRequest) {
             fileSize: true,
             mimeType: true,
             provider: true,
+            durationSeconds: true,
             createdAt: true,
             uploadedBy: { select: { id: true, name: true } },
           },
@@ -135,7 +139,8 @@ export async function GET(request: NextRequest) {
         blobUrl: m.url,
         fileSize: m.sizeBytes,
         mimeType: m.mimeType,
-        provider: m.provider ?? "vercel_blob",
+        provider: m.provider ?? "cloudinary",
+        durationSeconds: null,
         createdAt: (m.createdAt ?? exp.createdAt).toISOString(),
         uploadedBy: exp.createdBy ? { id: "", name: exp.createdBy.name } : null,
         proxyUrl: `/api/admin/cosmo-academy/media/${m.id}`,
@@ -169,6 +174,7 @@ export async function POST(request: NextRequest) {
     blobUrl?: string;
     fileSize?: number;
     mimeType?: string;
+    durationSeconds?: number;
   } | null;
 
   if (!body?.sku || !body.type || !body.fileName || !body.blobUrl) {
@@ -179,6 +185,19 @@ export async function POST(request: NextRequest) {
   if (!validTypes.includes(body.type)) {
     return NextResponse.json({ error: "Invalid type" }, { status: 400 });
   }
+
+  // Only files the upload route signed for this company's folder can be saved.
+  if (!isStoredFileInFolder(body.blobUrl, productItemStorageFolder(companyId))) {
+    return NextResponse.json({ error: "Invalid file URL" }, { status: 400 });
+  }
+
+  const durationSeconds =
+    (body.type === "video" || body.type === "audio") &&
+    typeof body.durationSeconds === "number" &&
+    Number.isFinite(body.durationSeconds) &&
+    body.durationSeconds >= 0
+      ? Math.round(body.durationSeconds)
+      : null;
 
   // Compute family name and all SKUs to save under
   const familyName = body.productTitle ? getProductFamilyName(body.productTitle) : null;
@@ -209,7 +228,8 @@ export async function POST(request: NextRequest) {
       blobUrl: body.blobUrl!,
       fileSize: body.fileSize ?? null,
       mimeType: body.mimeType ?? null,
-      provider: "vercel_blob",
+      provider: "cloudinary",
+      durationSeconds,
       uploadedById: userId,
     })),
     skipDuplicates: true,
@@ -222,7 +242,7 @@ export async function POST(request: NextRequest) {
     action: "storage_file_uploaded",
     entityType: "ProductItemAsset",
     summary: `Uploaded ${savedFileName} (${body.type}) for ${familyName ?? body.sku}`,
-    metadata: { fileName: savedFileName, type: body.type, sku: body.sku, familyName, skuCount: uniqueSkus.length },
+    metadata: { fileName: savedFileName, type: body.type, sku: body.sku, familyName, skuCount: uniqueSkus.length, durationSeconds },
   });
 
   return NextResponse.json({ ok: true });

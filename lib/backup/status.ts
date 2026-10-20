@@ -85,7 +85,7 @@ export function hoursSinceSuccess(
   return (now.getTime() - then) / (60 * 60 * 1000);
 }
 
-/** Prod and vault are overdue after 24h without success. cosmo-dev uses the same clock. */
+/** Prod and vault are overdue after 24h without success. */
 export function isOverdue(
   status: BackupStatus,
   now: Date = new Date(),
