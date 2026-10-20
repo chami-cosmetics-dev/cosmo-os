@@ -122,6 +122,10 @@ const DEFAULT_PERMISSIONS = [
     description: "Manage Item Creation image and Google Drive steps",
   },
   {
+    key: "item_creation.digital_marketing.admin",
+    description: "Manage Digital Marketing brand allocations and request assignments",
+  },
+  {
     key: "item_creation.purchasing.manage",
     description: "Manage Item Creation purchasing price checks",
   },
@@ -682,6 +686,11 @@ const DEFAULT_PERMISSIONS = [
   {
     key: "outlets.read.assigned",
     description: "View and edit outlet reviews for assigned outlets only",
+  },
+  {
+    key: "consultation_insights.access",
+    description:
+      "Consultation Insights — open the physical consultation log (add, edit review, delete, export)",
   },
   {
     key: "book_notes.manage",

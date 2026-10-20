@@ -47,6 +47,10 @@ export default async function ItemCreationPage() {
     digitalMarketing: canUseItemCreation(
       context,
       ITEM_CREATION_PERMISSIONS.digitalMarketing
+    ) || canUseItemCreation(context, ITEM_CREATION_PERMISSIONS.digitalMarketingAdmin),
+    digitalMarketingAdmin: canUseItemCreation(
+      context,
+      ITEM_CREATION_PERMISSIONS.digitalMarketingAdmin,
     ),
     purchasing: canUseItemCreation(context, ITEM_CREATION_PERMISSIONS.purchasing),
     stores: canUseItemCreation(context, ITEM_CREATION_PERMISSIONS.stores),

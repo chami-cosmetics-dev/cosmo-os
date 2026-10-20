@@ -855,8 +855,11 @@ async function fetchStockRequestRestockedReminders(
 
 async function fetchItemCreationReminders(companyId: string, context: PermissionContext, now: Date): Promise<CappedReminders> {
   const isItemAdmin = context.permissionKeys.includes("item_creation.admin.manage_all") || context.roleNames.some((role) => role === "admin" || role === "super_admin" || role === "manager");
+  const canDigitalAdmin = isItemAdmin || context.permissionKeys.includes("item_creation.digital_marketing.admin");
   const canSeo = isItemAdmin || context.permissionKeys.includes("item_creation.seo.manage");
-  const canDigital = isItemAdmin || context.permissionKeys.includes("item_creation.digital_marketing.manage");
+  const canDigital = canDigitalAdmin ||
+    context.permissionKeys.includes("item_creation.digital_marketing.manage") ||
+    context.permissionKeys.includes("item_creation.digital_marketing.admin");
   const canPurchasing = isItemAdmin || context.permissionKeys.includes("item_creation.purchasing.manage");
   const canStores = isItemAdmin || context.permissionKeys.includes("item_creation.stores.manage");
   if (!canSeo && !canDigital && !canPurchasing && !canStores) return { reminders: [], totalCount: 0 };
@@ -867,6 +870,7 @@ async function fetchItemCreationReminders(companyId: string, context: Permission
     take: REMINDER_LIMIT_PER_CATEGORY,
     select: {
       id: true, sku: true, createdAt: true, itemCreatedAt: true,
+      digitalMarketingAssigneeId: true,
       seoSetupStatus: true, digitalMarketingStatus: true, purchasingStatus: true,
       storeTransferStatus: true, storeStockStatus: true,
     },
@@ -882,7 +886,7 @@ async function fetchItemCreationReminders(companyId: string, context: Permission
     } else if (request.seoSetupStatus === "ITEM_CREATED" && request.digitalMarketingStatus === "PENDING") {
       stage = "Digital Marketing image";
       since = request.itemCreatedAt ?? request.createdAt;
-      relevant ||= canDigital;
+      relevant ||= canDigital && (canDigitalAdmin || !request.digitalMarketingAssigneeId || request.digitalMarketingAssigneeId === context.userId);
     } else if (request.purchasingStatus === "WAITING_FOR_PRICES") {
       stage = "Purchasing prices";
       relevant ||= canPurchasing;
@@ -1060,7 +1064,13 @@ export async function fetchTaskReminders(
     categoryCounts[reminder.category] = (categoryCounts[reminder.category] ?? 0) + 1;
   }
 
-  const visibleCategories = listVisibleTaskReminderCategories(context);
+  const hideEmptyAdminCategories = context.roleNames.some(
+    (role) => role === "admin" || role === "super_admin",
+  );
+  const visibleCategories = listVisibleTaskReminderCategories(context).filter(
+    (category) =>
+      !hideEmptyAdminCategories || (categoryCounts[category] ?? 0) > 0,
+  );
   const totalCount = Object.values(categoryCounts).reduce((sum, n) => sum + (n ?? 0), 0);
 
   return {
