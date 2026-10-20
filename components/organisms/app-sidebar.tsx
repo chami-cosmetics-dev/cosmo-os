@@ -147,6 +147,7 @@ export function AppSidebar({
   const canViewStore =
     canViewStoreAllocation || canViewStoreStockCount || canViewMaterialTransfer || hasOutlet;
   const canViewCompanySettings = hasSidebarPermission("settings.company");
+  const canViewSuppliersSettings = hasSidebarPermission("settings.suppliers");
   const canViewEmailTemplates = hasSidebarPermission("settings.email_templates");
   const canViewSmsSettings = hasSidebarPermission("settings.sms_portal");
   const canViewFulfillmentSettings = hasSidebarPermission("settings.fulfillment");
@@ -227,6 +228,7 @@ export function AppSidebar({
     canRegisterUsers;
   const canViewSettings =
     canViewCompanySettings ||
+    canViewSuppliersSettings ||
     canViewEmailTemplates ||
     canViewSmsSettings ||
     canViewFulfillmentSettings ||
@@ -576,7 +578,7 @@ export function AppSidebar({
           <SidebarGroup>
             <SidebarGroupLabel>General Settings</SidebarGroupLabel>
             <SidebarGroupContent>
-              {canViewCompanySettings && (
+              {(canViewCompanySettings || canViewSuppliersSettings) && (
                 <NavItem href="/dashboard/settings" icon={Settings} label="Settings" isActive={pathname === "/dashboard/settings"} />
               )}
               {canViewEmailTemplates && (

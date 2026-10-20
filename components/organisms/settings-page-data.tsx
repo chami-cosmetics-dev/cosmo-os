@@ -6,7 +6,6 @@ import { CardSkeleton } from "@/components/skeletons/card-skeleton";
 import { CompanySettingsForm } from "@/components/molecules/company-settings-form";
 import { DepartmentsSettingsForm } from "@/components/molecules/departments-settings-form";
 import { DesignationsSettingsForm } from "@/components/molecules/designations-settings-form";
-import { SuppliersSettingsForm } from "@/components/molecules/suppliers-settings-form";
 import { LocationsSettingsForm } from "@/components/molecules/locations-settings-form";
 import { RiderPaydaySettingsForm } from "@/components/molecules/rider-payday-settings-form";
 import { RiderDeliveryChargesForm } from "@/components/molecules/rider-delivery-charges-form";
@@ -124,7 +123,6 @@ export function SettingsPageData({
       <ShopifyWebhookSecretsForm canEdit={canEdit} />
       <DepartmentsSettingsForm canEdit={canEdit} />
       <DesignationsSettingsForm canEdit={canEdit} />
-      <SuppliersSettingsForm canEdit={canEdit} />
     </div>
   );
 }

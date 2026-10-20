@@ -62,6 +62,7 @@ export const BUILTIN_EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
   Every item needs <strong>Standard Selling</strong>.
   ERP1 OGF only for <strong>Cerave</strong>.
   ERP2 OGF for all brands except Acnes, Hada Labo, Jovees, Keune, lipIce, Melano CC, Olay, Palmers, Savol, wella, ZGTS, Sebamed, Cerave.
+  OGF skipped when OSF has no OGF/LWK ROP (item not allowed at OGF).
   VAT - Selling is optional and not used.
 </p>
 
@@ -95,6 +96,7 @@ export const BUILTIN_EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
   Cosmo OS automated report.
   Standard Selling required for all.
   ERP1: OGF only Cerave. ERP2: OGF skip list Acnes, Hada Labo, Jovees, Keune, lipIce, Melano CC, Olay, Palmers, Savol, wella, ZGTS, Sebamed, Cerave.
+  OGF only when OSF has OGF/LWK ROP.
   ERP1/ERP2 exclude Discontinue; ERP2 also excludes Vat. Excel attached (ERP1, ERP2, standard-price mismatch).
 </p>`,
     recipients: "asitha@cosmetics.lk",
