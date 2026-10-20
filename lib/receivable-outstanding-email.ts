@@ -67,6 +67,13 @@ function ageingTotals(rows: ReceivableRow[]) {
   const buckets = ["1-2 Days", "3-4 Days", "5-7 Days", "08-30 Days", "31+ Days", "No Dispatch"] as const;
   return Object.fromEntries(buckets.flatMap((bucket) => { const selected = rows.filter((row) => row.ageingBucket === bucket); return [[`${bucket} Count`, selected.length], [`${bucket} Value`, selected.reduce((sum, row) => sum + row.outstanding, 0)]]; }));
 }
+function ageingValueCountCells(rows: ReceivableRow[]) {
+  return AGEING_HEADERS.map((_, index) => {
+    const value = rows.reduce((sum, row) => sum + ageingValues(row)[index], 0);
+    const count = rows.filter((row) => ageingValues(row)[index] > 0).length;
+    return `<td style="text-align:right;">${money(value)} (${count})</td>`;
+  }).join("");
+}
 function summaryWorkbook(groups: { company: string; paymentPending: number; paymentValue: number; dispatchPending: number; dispatchValue: number; deliveryIncomplete: number; deliveryValue: number }[], allRows: ReceivableRow[], deliveryRows: ReceivableRow[]) {
   const book = XLSX.utils.book_new();
   const companyRows = groups.map((group) => ({ Company: group.company, "Payment Pending Count": group.paymentPending, "Payment Pending Value": group.paymentValue, "Dispatch Pending Count": group.dispatchPending, "Dispatch Pending Value": group.dispatchValue, "Delivery Incomplete Count": group.deliveryIncomplete, "Delivery Incomplete Value": group.deliveryValue, ...ageingTotals(allRows.filter((row) => row.company === group.company)) }));
@@ -110,7 +117,7 @@ function detailRows(rows: ReceivableRow[], key: string) {
 }
 function detailSummaryHtml(rows: ReceivableRow[], showValueCount = false) {
   const companies = [...new Set(rows.map((row) => row.company))].sort();
-  const body = companies.map((company) => { const selected = rows.filter((row) => row.company === company); const value = money(selected.reduce((sum, row) => sum + row.outstanding, 0)); return `<tr><td>${escapeHtml(company)}</td><td>${selected.length}</td><td>${value}${showValueCount ? ` (${selected.length})` : ""}</td>${AGEING_HEADERS.map((_, index) => `<td style="text-align:right;">${money(selected.reduce((sum, row) => sum + ageingValues(row)[index], 0))}</td>`).join("")}</tr>`; }).join("") + `<tr style="font-weight:bold;background:#e2f0d9;"><td>Total</td><td>${rows.length}</td><td>${money(rows.reduce((sum, row) => sum + row.outstanding, 0))}${showValueCount ? ` (${rows.length})` : ""}</td>${AGEING_HEADERS.map((_, index) => `<td style="text-align:right;">${money(rows.reduce((sum, row) => sum + ageingValues(row)[index], 0))}</td>`).join("")}</tr>`;
+  const body = companies.map((company) => { const selected = rows.filter((row) => row.company === company); const value = money(selected.reduce((sum, row) => sum + row.outstanding, 0)); return `<tr><td>${escapeHtml(company)}</td><td>${selected.length}</td><td>${value}${showValueCount ? ` (${selected.length})` : ""}</td>${ageingValueCountCells(selected)}</tr>`; }).join("") + `<tr style="font-weight:bold;background:#e2f0d9;"><td>Total</td><td>${rows.length}</td><td>${money(rows.reduce((sum, row) => sum + row.outstanding, 0))}${showValueCount ? ` (${rows.length})` : ""}</td>${ageingValueCountCells(rows)}</tr>`;
   return `<table style="border-collapse:collapse;width:100%;border:1px solid #b8c7d9;font-size:13px;"><thead><tr style="background:#17365d;color:#fff;"><th>Company</th><th>Count</th><th>Total Value</th>${AGEING_HEADERS.map((header) => `<th>${header}</th>`).join("")}</tr></thead><tbody>${body || "<tr><td colspan=8>No rows</td></tr>"}</tbody></table>`;
 }
 export function buildReceivableEmailPreview(rows: ReceivableRow[], key: string) {
