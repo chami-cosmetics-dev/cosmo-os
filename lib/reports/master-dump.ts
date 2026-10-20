@@ -1,6 +1,8 @@
+import { adaptLineItemsForPurchaseUi } from "@/lib/adapt-import/line-items";
 import { FULFILLMENT_STAGE_LABELS } from "@/lib/fulfillment-stage-display";
 import { getProductItemStatusMeta } from "@/lib/product-item-status";
 import { formatIsoDateTime } from "@/lib/reports/csv";
+import { readStoredSupplementLines } from "@/lib/vault-supplement-import/invoice-merge";
 
 export const MASTER_ORDER_HEADERS = [
   "ORDER ID",
@@ -508,6 +510,276 @@ export function createMasterOrderRow(input: MasterOrderReportInput): MasterOrder
     "OGF BATCH": input.ogfBatch,
     "OGF ERROR": input.ogfError,
   };
+}
+
+export const MASTER_DUMP_VAULT_SOURCE = "Vault OS";
+
+export type MasterDumpCatalogItem = {
+  sku: string | null;
+  barcode: string | null;
+  brand: string | null;
+  categoryName: string | null;
+  itemStatusCategory: string | null;
+  itemStatusLabel: string | null;
+  erp1ProductPriority: string | null;
+  erp2ProductPriority: string | null;
+  taxStatus: string | null;
+};
+
+export type MasterHistoryContact = {
+  name: string;
+  phoneNumber: string | null;
+  email: string | null;
+  extraPhones: string[];
+  extraEmails: string[];
+  customerType: string | null;
+  callCategory: string | null;
+  district: string | null;
+  zone: string | null;
+  area: string | null;
+  town: string | null;
+  city: string | null;
+  address: string | null;
+  country: string | null;
+  gender: string | null;
+  language: string | null;
+  occupation: string | null;
+  workPlace: string | null;
+  assignedMerchant: string | null;
+  recentMerchant: string | null;
+  source: string | null;
+  origin: string | null;
+  whatsappAllowed: boolean | null;
+  loyaltyTier: string | null;
+  loyaltyOutreach: string | null;
+  remarks: string | null;
+};
+
+export type MasterHistoryInvoice = {
+  salesInvoiceNo: string;
+  salesInvoiceMasterId: string | null;
+  invoiceDate: Date;
+  ttlAmount: string;
+  currency: string | null;
+  locationName: string | null;
+  companyName: string;
+  paymentMethod: string | null;
+  financialStatus: string | null;
+  merchantKnownName: string | null;
+  rawPaymentContext: unknown;
+  lineItems: unknown;
+  contact: MasterHistoryContact | null;
+};
+
+function moneyText(quantity: number, unitPrice: string, lineAmount?: string) {
+  const stored = clean(lineAmount);
+  if (stored) return stored;
+  const price = Number(unitPrice);
+  if (!Number.isFinite(price)) return "";
+  return (price * quantity).toFixed(2);
+}
+
+export function masterDumpHistoryLines(raw: unknown): MasterDumpLine[] {
+  const supplement = readStoredSupplementLines(raw);
+  if (supplement.length > 0) {
+    return supplement.map((line) => ({
+      sku: line.itemCode,
+      barcode: null,
+      productTitle: line.itemName,
+      quantity: line.quantity,
+      unitPrice: line.unitPrice,
+      discountPercent: "",
+      lineTotal: moneyText(line.quantity, line.unitPrice, line.lineAmount),
+      brand: null,
+      categoryName: null,
+      itemStatusCategory: null,
+      itemStatusLabel: null,
+      erp1ProductPriority: null,
+      erp2ProductPriority: null,
+      taxStatus: null,
+    }));
+  }
+  return adaptLineItemsForPurchaseUi(raw).map((line) => ({
+    sku: line.sku,
+    barcode: null,
+    productTitle: line.productTitle,
+    quantity: line.quantity,
+    unitPrice: line.price,
+    discountPercent: "",
+    lineTotal: moneyText(line.quantity, line.price),
+    brand: null,
+    categoryName: null,
+    itemStatusCategory: null,
+    itemStatusLabel: null,
+    erp1ProductPriority: null,
+    erp2ProductPriority: null,
+    taxStatus: null,
+  }));
+}
+
+export function enrichMasterDumpHistoryLine(
+  line: MasterDumpLine,
+  catalog: Map<string, MasterDumpCatalogItem>,
+): MasterDumpLine {
+  const sku = line.sku?.trim().toLowerCase();
+  if (!sku) return line;
+  const hit = catalog.get(sku);
+  if (!hit) return line;
+  return {
+    ...line,
+    barcode: clean(line.barcode) || hit.barcode,
+    brand: clean(line.brand) || hit.brand,
+    categoryName: clean(line.categoryName) || hit.categoryName,
+    itemStatusCategory: line.itemStatusCategory || hit.itemStatusCategory,
+    itemStatusLabel: line.itemStatusLabel || hit.itemStatusLabel,
+    erp1ProductPriority: line.erp1ProductPriority || hit.erp1ProductPriority,
+    erp2ProductPriority: line.erp2ProductPriority || hit.erp2ProductPriority,
+    taxStatus: clean(line.taxStatus) || hit.taxStatus,
+  };
+}
+
+function historyPaymentMethod(paymentMethod: string | null, rawPaymentContext: unknown) {
+  const stored = clean(paymentMethod);
+  if (stored) return stored;
+  if (!rawPaymentContext || typeof rawPaymentContext !== "object" || Array.isArray(rawPaymentContext)) {
+    return "";
+  }
+  const row = rawPaymentContext as Record<string, unknown>;
+  const parts: string[] = [];
+  if (row.cash) parts.push("Cash");
+  if (row.card) parts.push("Card");
+  return joinUnique(parts);
+}
+
+function yesNo(value: boolean | null | undefined) {
+  if (value === true) return "Yes";
+  if (value === false) return "No";
+  return "";
+}
+
+export function createMasterHistoryOrderRow(input: MasterHistoryInvoice): MasterOrderRow {
+  const contact = input.contact;
+  const phones = joinUnique([
+    contact?.phoneNumber ?? "",
+    ...(contact?.extraPhones ?? []),
+  ]);
+  const emails = joinUnique([
+    contact?.email ?? "",
+    ...(contact?.extraEmails ?? []),
+  ]);
+  const lines = masterDumpHistoryLines(input.lineItems);
+  return createMasterOrderRow({
+    orderId: clean(input.salesInvoiceNo),
+    erpInvoiceId: clean(input.salesInvoiceMasterId),
+    shopifyOrderId: "",
+    sourceName: MASTER_DUMP_VAULT_SOURCE,
+    salesLocation: clean(input.locationName),
+    company: input.companyName,
+    posProfile: "",
+    posWarehouse: "",
+    createdAt: input.invoiceDate,
+    createdBy: "",
+    customerName: clean(contact?.name),
+    customerPhone: clean(contact?.phoneNumber),
+    shippingPhone: "",
+    customerEmail: clean(contact?.email),
+    shippingAddress: clean(contact?.address),
+    billingAddress: "",
+    postCode: "",
+    district: clean(contact?.district),
+    contactName: clean(contact?.name),
+    contactPhones: phones,
+    contactEmails: emails,
+    customerType: clean(contact?.customerType),
+    callCategory: clean(contact?.callCategory),
+    contactDistrict: clean(contact?.district),
+    zone: clean(contact?.zone),
+    area: clean(contact?.area),
+    town: clean(contact?.town),
+    city: clean(contact?.city),
+    address: clean(contact?.address),
+    country: clean(contact?.country),
+    gender: clean(contact?.gender),
+    language: clean(contact?.language),
+    occupation: clean(contact?.occupation),
+    workPlace: clean(contact?.workPlace),
+    assignedMerchant: clean(contact?.assignedMerchant),
+    recentMerchant: clean(contact?.recentMerchant) || clean(input.merchantKnownName),
+    contactSource: clean(contact?.source),
+    origin: clean(contact?.origin),
+    whatsappAllowed: yesNo(contact?.whatsappAllowed),
+    loyaltyTier: clean(contact?.loyaltyTier),
+    loyaltyOutreach: clean(contact?.loyaltyOutreach),
+    contactRemarks: clean(contact?.remarks),
+    subtotal: "",
+    discounts: "",
+    tax: "",
+    shipping: "",
+    grandTotal: input.ttlAmount,
+    currency: clean(input.currency) || "LKR",
+    itemCount: String(lines.length),
+    coupon: "",
+    merchant: clean(input.merchantKnownName),
+    promoCodeOwner: "",
+    discountApplications: null,
+    paymentMethod: historyPaymentMethod(input.paymentMethod, input.rawPaymentContext),
+    paymentStatus: clean(input.financialStatus) || "Imported",
+    kokoRef: "",
+    kokoLinkAt: null,
+    kokoConfirmedBy: "",
+    kokoConfirmedAt: null,
+    fulfillmentStage: "",
+    stageEnteredAt: null,
+    websiteStatus: "",
+    deliveryResult: "",
+    sampleAddedBy: "",
+    sampleAddedAt: null,
+    sampleCompleteBy: "",
+    sampleCompleteAt: null,
+    sampleSendLaterAt: null,
+    printCount: "",
+    printedBy: "",
+    printedAt: null,
+    pickListAt: null,
+    holdReason: "",
+    onHoldAt: null,
+    processBy: "",
+    processAt: null,
+    dispatchBy: "",
+    dispatchAt: null,
+    shippingService: "",
+    shippingRule: "",
+    waybillNo: "",
+    riderStatus: "",
+    latestRiderUpdateAt: null,
+    deliveryCompleteBy: "",
+    deliveryCompleteAt: null,
+    collectedAmount: "",
+    collectionMethod: "",
+    invoiceCompleteBy: "",
+    invoiceCompleteAt: null,
+    revertedAt: null,
+    revertedBy: "",
+    cancelledAt: null,
+    cancelledBy: "",
+    cancelReason: "",
+    cancelKind: "",
+    replacedByOrder: "",
+    returnStatus: "",
+    returnDate: null,
+    returnRemark: "",
+    exchangeStatus: "",
+    exchangeReason: "",
+    remarks: [],
+    customerNote: "",
+    merchantReviewStatus: "",
+    merchantReviewNote: "",
+    erpSyncStatus: "",
+    erpSyncError: "",
+    ogfSyncedAt: null,
+    ogfBatch: "",
+    ogfError: "",
+  });
 }
 
 export function createMasterItemRows(input: {
