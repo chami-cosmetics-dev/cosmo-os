@@ -23,6 +23,7 @@ export const ITEM_CREATION_PERMISSIONS = {
   manageAll: "item_creation.admin.manage_all",
   seo: "item_creation.seo.manage",
   digitalMarketing: "item_creation.digital_marketing.manage",
+  digitalMarketingAdmin: "item_creation.digital_marketing.admin",
   purchasing: "item_creation.purchasing.manage",
   stores: "item_creation.stores.manage",
 } as const;
@@ -60,6 +61,43 @@ function companyId(context: UserContext) {
   const id = context.user?.companyId;
   if (!id) throw new Error("No company associated with your account");
   return id;
+}
+
+function requireDigitalMarketingAdmin(context: UserContext) {
+  requireWorkflowPermission(context, ITEM_CREATION_PERMISSIONS.digitalMarketingAdmin);
+}
+
+async function getDigitalMarketingUsers(company: string) {
+  return prisma.user.findMany({
+    where: {
+      companyId: company,
+      userRoles: {
+        some: {
+          role: {
+            rolePermissions: {
+              some: { permission: { key: ITEM_CREATION_PERMISSIONS.digitalMarketing } },
+            },
+          },
+        },
+      },
+    },
+    select: { id: true, knownName: true, name: true, email: true },
+    orderBy: [{ knownName: "asc" }, { name: "asc" }, { email: "asc" }],
+  });
+}
+
+function displayUserName(user: { knownName: string | null; name: string | null; email: string | null }) {
+  return user.knownName?.trim() || user.name?.trim() || user.email?.trim() || "User";
+}
+
+function findBrandAllocation(
+  description: string,
+  allocations: Array<{ brand: string; userId: string }>,
+) {
+  const normalizedDescription = description.toLocaleLowerCase();
+  return [...allocations]
+    .filter((allocation) => normalizedDescription.includes(allocation.brand.toLocaleLowerCase()))
+    .sort((a, b) => b.brand.length - a.brand.length)[0] ?? null;
 }
 
 function trimSku(sku: string) {
@@ -413,6 +451,10 @@ export async function createItemRequests(
   await assertSkusDoNotExistInErp(company, validated.map((item) => item.sku));
 
   return prisma.$transaction(async (tx) => {
+    const brandAllocations = await tx.itemCreationBrandAllocation.findMany({
+      where: { companyId: company },
+      select: { brand: true, userId: true },
+    });
     const active = await tx.itemCreationRequest.findMany({
       where: {
         companyId: company,
@@ -429,6 +471,7 @@ export async function createItemRequests(
 
     const created = [];
     for (const item of validated) {
+      const allocation = findBrandAllocation(item.description, brandAllocations);
       const request = await tx.itemCreationRequest.create({
         data: {
           companyId: company,
@@ -440,6 +483,8 @@ export async function createItemRequests(
           addErp1OgfPrice: item.addErp1OgfPrice,
           country: item.country,
           creationSources: item.creationSources,
+          digitalMarketingBrand: allocation?.brand ?? null,
+          digitalMarketingAssigneeId: allocation?.userId ?? null,
           createdBy: userId(context),
         },
       });
@@ -455,6 +500,7 @@ export async function listItemRequests(context: UserContext, filters: Record<str
     !canUseItemCreation(context, ITEM_CREATION_PERMISSIONS.admin) &&
     !canUseItemCreation(context, ITEM_CREATION_PERMISSIONS.seo) &&
     !canUseItemCreation(context, ITEM_CREATION_PERMISSIONS.digitalMarketing) &&
+    !canUseItemCreation(context, ITEM_CREATION_PERMISSIONS.digitalMarketingAdmin) &&
     !canUseItemCreation(context, ITEM_CREATION_PERMISSIONS.purchasing) &&
     !canUseItemCreation(context, ITEM_CREATION_PERMISSIONS.stores)
   ) {
@@ -462,9 +508,35 @@ export async function listItemRequests(context: UserContext, filters: Record<str
   }
 
   const where: Prisma.ItemCreationRequestWhereInput = { companyId: companyId(context) };
+  const hasAdminView = canUseItemCreation(context, ITEM_CREATION_PERMISSIONS.admin);
+  const hasDigitalAdminView = canUseItemCreation(context, ITEM_CREATION_PERMISSIONS.digitalMarketingAdmin);
+  const hasDigitalView = canUseItemCreation(context, ITEM_CREATION_PERMISSIONS.digitalMarketing);
+  const hasOtherTeamView =
+    canUseItemCreation(context, ITEM_CREATION_PERMISSIONS.seo) ||
+    canUseItemCreation(context, ITEM_CREATION_PERMISSIONS.purchasing) ||
+    canUseItemCreation(context, ITEM_CREATION_PERMISSIONS.stores);
+  if (hasDigitalView && !hasDigitalAdminView && !hasAdminView && !hasOtherTeamView) {
+    where.digitalMarketingStatus = "PENDING";
+    where.AND = [
+      {
+        OR: [
+          { digitalMarketingAssigneeId: userId(context) },
+          { digitalMarketingAssigneeId: null },
+        ],
+      },
+    ];
+  }
   const sku = filters.sku?.trim();
+  const search = filters.search?.trim();
   const country = filters.country?.trim();
-  if (sku) where.sku = { contains: sku, mode: "insensitive" };
+  if (search) {
+    where.OR = [
+      { sku: { contains: search, mode: "insensitive" } },
+      { description: { contains: search, mode: "insensitive" } },
+    ];
+  } else if (sku) {
+    where.sku = { contains: sku, mode: "insensitive" };
+  }
   if (country) where.country = { contains: country, mode: "insensitive" };
   for (const [param, field] of [
     ["overallStatus", "overallStatus"],
@@ -480,7 +552,7 @@ export async function listItemRequests(context: UserContext, filters: Record<str
   }
   const createdFrom = filters.createdFrom?.trim();
   const createdTo = filters.createdTo?.trim();
-  if (createdFrom || createdTo) {
+  if (!search && (createdFrom || createdTo)) {
     where.createdAt = {
       ...(createdFrom ? { gte: new Date(`${createdFrom}T00:00:00.000`) } : {}),
       ...(createdTo ? { lte: new Date(`${createdTo}T23:59:59.999`) } : {}),
@@ -496,6 +568,98 @@ export async function listItemRequests(context: UserContext, filters: Record<str
     orderBy: { createdAt: "desc" },
     include: { activities: { orderBy: { createdAt: "desc" } } },
     take: 250,
+  });
+}
+
+export async function listItemCreationBrandAllocations(context: UserContext) {
+  requireDigitalMarketingAdmin(context);
+  const company = companyId(context);
+  const [allocations, users] = await Promise.all([
+    prisma.itemCreationBrandAllocation.findMany({
+      where: { companyId: company },
+      include: { user: { select: { id: true, knownName: true, name: true, email: true } } },
+      orderBy: { brand: "asc" },
+    }),
+    getDigitalMarketingUsers(company),
+  ]);
+  return {
+    allocations: allocations.map((allocation) => ({
+      id: allocation.id,
+      brand: allocation.brand,
+      userId: allocation.userId,
+      userName: displayUserName(allocation.user),
+    })),
+    users: users.map((user) => ({ id: user.id, name: displayUserName(user) })),
+  };
+}
+
+export async function saveItemCreationBrandAllocations(
+  context: UserContext,
+  input: unknown,
+) {
+  requireDigitalMarketingAdmin(context);
+  const company = companyId(context);
+  if (!Array.isArray(input)) throw new Error("Brand allocations must be an array");
+
+  const users = await getDigitalMarketingUsers(company);
+  const allowedUsers = new Set(users.map((user) => user.id));
+  const normalized = input.map((entry) => {
+    const value = entry as { brand?: unknown; userId?: unknown };
+    const brand = String(value.brand ?? "").trim();
+    const userIdValue = String(value.userId ?? "").trim();
+    if (!brand) throw new Error("Brand is required");
+    if (!allowedUsers.has(userIdValue)) throw new Error("Allocated user must have Digital Marketing permission");
+    return { brand, userId: userIdValue };
+  });
+  const seen = new Set<string>();
+  for (const allocation of normalized) {
+    const key = allocation.brand.toLocaleLowerCase();
+    if (seen.has(key)) throw new Error(`Duplicate brand allocation: ${allocation.brand}`);
+    seen.add(key);
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.itemCreationBrandAllocation.deleteMany({ where: { companyId: company } });
+    if (normalized.length > 0) {
+      await tx.itemCreationBrandAllocation.createMany({
+        data: normalized.map((allocation) => ({ ...allocation, companyId: company })),
+      });
+    }
+  });
+  return listItemCreationBrandAllocations(context);
+}
+
+export async function assignItemCreationDigitalMarketingUser(
+  context: UserContext,
+  id: string,
+  assigneeId: string | null,
+) {
+  requireDigitalMarketingAdmin(context);
+  const company = companyId(context);
+  const normalizedAssigneeId = assigneeId?.trim() || null;
+  if (normalizedAssigneeId) {
+    const users = await getDigitalMarketingUsers(company);
+    if (!users.some((user) => user.id === normalizedAssigneeId)) {
+      throw new Error("Allocated user must have Digital Marketing permission");
+    }
+  }
+
+  return prisma.$transaction(async (tx) => {
+    const request = await getScopedRequest(tx, id, company);
+    const updated = await tx.itemCreationRequest.update({
+      where: { id },
+      data: { digitalMarketingAssigneeId: normalizedAssigneeId },
+    });
+    await activity(
+      tx,
+      id,
+      "DIGITAL_MARKETING_ASSIGNEE_UPDATED",
+      ItemCreationUpdateSource.USER,
+      userId(context),
+      request.digitalMarketingAssigneeId,
+      normalizedAssigneeId,
+    );
+    return updated;
   });
 }
 

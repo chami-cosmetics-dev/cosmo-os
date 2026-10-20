@@ -108,6 +108,10 @@ const DEFAULT_PERMISSIONS = [
     description: "Manage Item Creation image and Google Drive steps",
   },
   {
+    key: "item_creation.digital_marketing.admin",
+    description: "Manage Digital Marketing brand allocations and request assignments",
+  },
+  {
     key: "item_creation.purchasing.manage",
     description: "Manage Item Creation purchasing price checks",
   },
