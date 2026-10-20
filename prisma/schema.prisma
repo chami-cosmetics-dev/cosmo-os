@@ -2547,6 +2547,36 @@ model OutletReview {
   @@index([orderId])
 }
 
+// ── Consultation Insights (physical consultation log) ───────────────────────
+
+/// One row per invoice. A customer added with several invoices shares one `entryId`.
+model PhysicalConsultation {
+  id                String   @id @default(cuid())
+  companyId         String
+  /// Groups the rows created by a single "Add" (one customer visit).
+  entryId           String
+  /// Calendar date stored as UTC midnight (YYYY-MM-DD).
+  consultationDate  DateTime @db.Date
+  contactNumber     String
+  invoiceNumber     String
+  customerName      String
+  /// "merchant" (online merchant user) or "showroom" (company location).
+  merchantKind      String
+  merchantUserId    String?
+  companyLocationId String?
+  /// Denormalized so the log survives renames / deleted users.
+  merchantName      String
+  physicalReview    String?
+  createdByUserId   String?
+  updatedByUserId   String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([companyId, consultationDate])
+  @@index([companyId, invoiceNumber])
+  @@index([entryId])
+}
+
 // ── Order Support File (OSF) ────────────────────────────────────────────────
 
 model ProductOsfProfile {

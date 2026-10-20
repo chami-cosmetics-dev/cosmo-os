@@ -39,6 +39,7 @@ import {
   ClipboardCheck,
   BellRing,
   ArrowLeftRight,
+  Stethoscope,
 } from "lucide-react";
 import { usePathname } from "next/navigation";
 import {
@@ -186,6 +187,7 @@ export function AppSidebar({
     hasSidebarPermission("outlets.read.all") ||
     hasSidebarPermission("outlets.read.assigned");
   const canViewMerchantReviews = hasSidebarPermission("merchant_reviews.read");
+  const canViewConsultationInsights = hasSidebarPermission("consultation_insights.access");
   const canManageBookNotes = hasSidebarPermission("book_notes.manage");
   const canReadBookNotes = hasSidebarPermission("book_notes.read");
   const canViewCustomerInsight = hasSidebarPermission("contacts.insight.read");
@@ -227,6 +229,7 @@ export function AppSidebar({
     canViewEmailCleanup ||
     canViewMerchantReviews ||
     canViewOutletReviews ||
+    canViewConsultationInsights ||
     canViewCustomerInsight ||
     canRegisterUsers;
   const canViewSettings =
@@ -489,6 +492,15 @@ export function AppSidebar({
                   icon={Store}
                   label="Outlet Reviews"
                   isActive={pathname === "/dashboard/contacts/outlet-reviews"}
+                />
+              )}
+              {/* Route is /dashboard/consultation-insights, so this block can move to Reports as-is. */}
+              {canViewConsultationInsights && (
+                <NavItem
+                  href="/dashboard/consultation-insights"
+                  icon={Stethoscope}
+                  label="Consultation Insights"
+                  isActive={pathname === "/dashboard/consultation-insights"}
                 />
               )}
             </SidebarGroupContent>
