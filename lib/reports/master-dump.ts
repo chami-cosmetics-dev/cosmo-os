@@ -1,4 +1,5 @@
 import { adaptLineItemsForPurchaseUi } from "@/lib/adapt-import/line-items";
+import { saleBusinessLabel } from "@/lib/customer-insight/invoices";
 import { FULFILLMENT_STAGE_LABELS } from "@/lib/fulfillment-stage-display";
 import { getProductItemStatusMeta } from "@/lib/product-item-status";
 import { formatIsoDateTime } from "@/lib/reports/csv";
@@ -9,6 +10,7 @@ export const MASTER_ORDER_HEADERS = [
   "ERP INVOICE ID",
   "SHOPIFY ORDER ID",
   "SOURCE",
+  "BUSINESS",
   "SALES LOCATION",
   "COMPANY",
   "POS PROFILE",
@@ -120,6 +122,7 @@ export const MASTER_ORDER_HEADERS = [
 export const MASTER_ITEM_HEADERS = [
   "ORDER ID",
   "ERP INVOICE ID",
+  "BUSINESS",
   "ITEM CODE",
   "BARCODE",
   "ITEM NAME",
@@ -167,6 +170,7 @@ export type MasterOrderReportInput = {
   erpInvoiceId: string;
   shopifyOrderId: string;
   sourceName: string;
+  business: string;
   salesLocation: string;
   company: string;
   posProfile: string;
@@ -403,6 +407,7 @@ export function createMasterOrderRow(input: MasterOrderReportInput): MasterOrder
     "ERP INVOICE ID": input.erpInvoiceId,
     "SHOPIFY ORDER ID": input.shopifyOrderId,
     SOURCE: masterDumpSourceName(input.sourceName),
+    BUSINESS: input.business,
     "SALES LOCATION": input.salesLocation,
     COMPANY: input.company,
     "POS PROFILE": input.posProfile,
@@ -513,6 +518,14 @@ export function createMasterOrderRow(input: MasterOrderReportInput): MasterOrder
 }
 
 export const MASTER_DUMP_VAULT_SOURCE = "Vault OS";
+export const MASTER_DUMP_COSMETICS_BUSINESS = "Cosmetics";
+
+export function masterDumpBusinessLabel(
+  origin?: string | null,
+  importBatchId?: string | null,
+) {
+  return saleBusinessLabel(origin, importBatchId);
+}
 
 export type MasterDumpCatalogItem = {
   sku: string | null;
@@ -566,6 +579,8 @@ export type MasterHistoryInvoice = {
   paymentMethod: string | null;
   financialStatus: string | null;
   merchantKnownName: string | null;
+  origin: string | null;
+  importBatchId: string | null;
   rawPaymentContext: unknown;
   lineItems: unknown;
   contact: MasterHistoryContact | null;
@@ -673,6 +688,7 @@ export function createMasterHistoryOrderRow(input: MasterHistoryInvoice): Master
     erpInvoiceId: clean(input.salesInvoiceMasterId),
     shopifyOrderId: "",
     sourceName: MASTER_DUMP_VAULT_SOURCE,
+    business: masterDumpBusinessLabel(input.origin, input.importBatchId),
     salesLocation: clean(input.locationName),
     company: input.companyName,
     posProfile: "",
@@ -782,14 +798,44 @@ export function createMasterHistoryOrderRow(input: MasterHistoryInvoice): Master
   });
 }
 
+function blankHistoryLine(invoiceTotal: string): MasterDumpLine {
+  return {
+    sku: null,
+    barcode: null,
+    productTitle: "",
+    quantity: 0,
+    unitPrice: "",
+    discountPercent: "",
+    lineTotal: invoiceTotal,
+    brand: null,
+    categoryName: null,
+    itemStatusCategory: null,
+    itemStatusLabel: null,
+    erp1ProductPriority: null,
+    erp2ProductPriority: null,
+    taxStatus: null,
+  };
+}
+
+export function masterDumpHistoryItemLines(
+  raw: unknown,
+  catalog: Map<string, MasterDumpCatalogItem>,
+  invoiceTotal: string,
+): MasterDumpLine[] {
+  const lines = masterDumpHistoryLines(raw).map((line) => enrichMasterDumpHistoryLine(line, catalog));
+  return lines.length > 0 ? lines : [blankHistoryLine(invoiceTotal)];
+}
+
 export function createMasterItemRows(input: {
   orderId: string;
   erpInvoiceId: string;
+  business: string;
   lines: MasterDumpLine[];
 }): MasterItemRow[] {
   return input.lines.map((line) => ({
     "ORDER ID": input.orderId,
     "ERP INVOICE ID": input.erpInvoiceId,
+    BUSINESS: input.business,
     "ITEM CODE": clean(line.sku),
     BARCODE: clean(line.barcode),
     "ITEM NAME": line.productTitle,

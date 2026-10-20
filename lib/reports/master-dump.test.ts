@@ -21,6 +21,7 @@ function orderInput(overrides: Partial<MasterOrderReportInput> = {}): MasterOrde
     erpInvoiceId: "SI-100",
     shopifyOrderId: "9001",
     sourceName: "web",
+    business: "Cosmetics",
     salesLocation: "Colombo 03",
     company: "Cosmetics.lk",
     posProfile: "",
@@ -140,6 +141,8 @@ function orderInput(overrides: Partial<MasterOrderReportInput> = {}): MasterOrde
 
 describe("master reports", () => {
   it("keeps order and item headers apart", () => {
+    expect(MASTER_ORDER_HEADERS).toContain("BUSINESS");
+    expect(MASTER_ITEM_HEADERS).toContain("BUSINESS");
     expect(MASTER_ORDER_HEADERS).toContain("SHIPPING SERVICE");
     expect(MASTER_ORDER_HEADERS).not.toContain("DISPATCH RIDER");
     expect(MASTER_ORDER_HEADERS).not.toContain("ITEM CODE");
@@ -191,6 +194,7 @@ describe("master reports", () => {
     const row = createMasterOrderRow(orderInput());
     expect(row["ORDER ID"]).toBe("#1001");
     expect(row.SOURCE).toBe("Shopify");
+    expect(row.BUSINESS).toBe("Cosmetics");
     expect(row["SHIPPING SERVICE"]).toBe("Rider A");
     expect(row["CALL CENTER NOTE"]).toBe("Order Received: Called customer");
     expect(row["CUSTOMER NOTE"]).toBe("Leave at gate");
@@ -203,6 +207,7 @@ describe("master reports", () => {
     const [row] = createMasterItemRows({
       orderId: "#1001",
       erpInvoiceId: "SI-100",
+      business: "Cosmetics",
       lines: [{
         sku: "SKU-1",
         barcode: "123",
@@ -244,6 +249,8 @@ describe("master reports", () => {
       paymentMethod: null,
       financialStatus: "paid",
       merchantKnownName: "Kamal",
+      origin: "vault_file_import",
+      importBatchId: "vsupp-171000",
       rawPaymentContext: { cash: "30000" },
       lineItems: [
         {
@@ -286,6 +293,7 @@ describe("master reports", () => {
       },
     });
     expect(row.SOURCE).toBe(MASTER_DUMP_VAULT_SOURCE);
+    expect(row.BUSINESS).toBe("File import");
     expect(row["ORDER ID"]).toBe("VOS-88");
     expect(row["GRAND TOTAL"]).toBe("30000.00");
     expect(row["PAYMENT METHOD"]).toBe("Cash");
@@ -319,5 +327,41 @@ describe("master reports", () => {
     expect(enriched.brand).toBe("Brand X");
     expect(enriched.taxStatus).toBe("Vat");
     expect(enriched.lineTotal).toBe("30000");
+    expect(createMasterHistoryOrderRow({
+      ...{
+        salesInvoiceNo: "COS-1",
+        salesInvoiceMasterId: null,
+        invoiceDate: new Date("2024-03-15T00:00:00.000Z"),
+        ttlAmount: "1.00",
+        currency: "LKR",
+        locationName: null,
+        companyName: "Vault OS",
+        paymentMethod: null,
+        financialStatus: null,
+        merchantKnownName: null,
+        origin: "vault_supplement_import",
+        importBatchId: "vsupp-direct-1",
+        rawPaymentContext: null,
+        lineItems: [],
+        contact: null,
+      },
+    }).BUSINESS).toBe("Cosmetics");
+    expect(createMasterHistoryOrderRow({
+      salesInvoiceNo: "ADP-1",
+      salesInvoiceMasterId: null,
+      invoiceDate: new Date("2024-03-15T00:00:00.000Z"),
+      ttlAmount: "1.00",
+      currency: "LKR",
+      locationName: null,
+      companyName: "Vault OS",
+      paymentMethod: null,
+      financialStatus: null,
+      merchantKnownName: null,
+      origin: "adapt",
+      importBatchId: null,
+      rawPaymentContext: null,
+      lineItems: [],
+      contact: null,
+    }).BUSINESS).toBe("Supplement");
   });
 });

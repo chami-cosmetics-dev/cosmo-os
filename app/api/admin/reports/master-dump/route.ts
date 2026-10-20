@@ -32,8 +32,10 @@ import {
   createMasterHistoryOrderRow,
   createMasterItemRows,
   createMasterOrderRow,
-  enrichMasterDumpHistoryLine,
+  masterDumpBusinessLabel,
+  masterDumpHistoryItemLines,
   masterDumpHistoryLines,
+  MASTER_DUMP_COSMETICS_BUSINESS,
   MASTER_ITEM_HEADERS,
   MASTER_ORDER_HEADERS,
   masterDumpDeliveryResult,
@@ -85,6 +87,8 @@ const HISTORY_SELECT = {
   paymentMethod: true,
   financialStatus: true,
   merchantKnownName: true,
+  origin: true,
+  importBatchId: true,
   rawPaymentContext: true,
   lineItems: true,
   companyLocation: {
@@ -879,6 +883,7 @@ export async function GET(request: NextRequest) {
               const rows = createMasterItemRows({
                 orderId: orderLabel(order),
                 erpInvoiceId: erpInvoiceId(order.erpnextInvoiceId),
+                business: MASTER_DUMP_COSMETICS_BUSINESS,
                 lines: order.lineItems.map(toItemLine),
               });
               for (const row of rows) writeRow(MASTER_ITEM_HEADERS.map((header) => row[header] ?? ""));
@@ -926,6 +931,7 @@ export async function GET(request: NextRequest) {
               erpInvoiceId: erpInvoiceId(order.erpnextInvoiceId),
               shopifyOrderId: order.shopifyOrderId,
               sourceName: order.sourceName,
+              business: MASTER_DUMP_COSMETICS_BUSINESS,
               salesLocation: order.companyLocation.name,
               company: order.companyLocation.erpnextCompany?.trim() || order.companyLocation.company.name,
               posProfile: order.posProfile?.trim() ?? "",
@@ -1083,15 +1089,17 @@ export async function GET(request: NextRequest) {
           if (historyRows.length === 0) break;
           const catalog = await loadHistoryCatalog(companyId, historyRows);
           for (const history of historyRows) {
-            const lines = masterDumpHistoryLines(history.lineItems).map((line) =>
-              enrichMasterDumpHistoryLine(line, catalog),
-            );
+            const business = masterDumpBusinessLabel(history.origin, history.importBatchId);
             if (report === "item") {
-              if (lines.length === 0) continue;
               const rows = createMasterItemRows({
                 orderId: history.salesInvoiceNo.trim() || history.id,
                 erpInvoiceId: history.salesInvoiceMasterId?.trim() ?? "",
-                lines,
+                business,
+                lines: masterDumpHistoryItemLines(
+                  history.lineItems,
+                  catalog,
+                  money(history.ttlAmount),
+                ),
               });
               for (const row of rows) writeRow(MASTER_ITEM_HEADERS.map((header) => row[header] ?? ""));
               continue;
@@ -1107,6 +1115,8 @@ export async function GET(request: NextRequest) {
               paymentMethod: history.paymentMethod,
               financialStatus: history.financialStatus,
               merchantKnownName: history.merchantKnownName,
+              origin: history.origin,
+              importBatchId: history.importBatchId,
               rawPaymentContext: history.rawPaymentContext,
               lineItems: history.lineItems,
               contact: historyContact(history.contact),
