@@ -12,6 +12,7 @@ import {
 } from "@/lib/citypak-api";
 import { invoiceCandidates } from "@/lib/order-waybills";
 import { prisma } from "@/lib/prisma";
+import { resolveCitypakApiToken } from "@/lib/citypak-token";
 
 /** Gap between CityPak track calls in a sweep — the API has no bulk endpoint. */
 export const CITYPAK_STATUS_SWEEP_GAP_MS = 400;
@@ -47,25 +48,6 @@ function readString(record: Record<string, unknown>, ...keys: string[]): string 
   return "";
 }
 
-async function resolveCitypakToken(
-  companyId: string,
-  payload: Record<string, unknown>
-): Promise<string | null> {
-  const accountDbId = readString(payload, "citypakAccountDbId");
-  const accountId = readString(payload, "citypakAccountId");
-  const account = accountDbId
-    ? await prisma.citypakAccount.findFirst({
-        where: { id: accountDbId, companyId },
-        select: { apiToken: true },
-      })
-    : accountId
-      ? await prisma.citypakAccount.findFirst({
-          where: { companyId, accountId },
-          select: { apiToken: true },
-        })
-      : null;
-  return account?.apiToken ?? null;
-}
 
 function mergeStatusFields(
   payload: Record<string, unknown>,
@@ -98,14 +80,23 @@ export async function refreshCitypakWaybillStatus(input: {
       companyId: input.companyId,
       source: CITYPAK_WAYBILL_SOURCE,
     },
-    select: { id: true, waybillNo: true, rawPayload: true },
+    select: {
+      id: true,
+      waybillNo: true,
+      rawPayload: true,
+      order: { select: { companyLocationId: true } },
+    },
   });
   if (!waybill) {
     return { ok: false, error: "No CityPak waybill found for this id", status: 404 };
   }
 
   const payload = asRecord(waybill.rawPayload);
-  const token = await resolveCitypakToken(input.companyId, payload);
+  const token = await resolveCitypakApiToken({
+    companyId: input.companyId,
+    payload,
+    locationId: waybill.order?.companyLocationId,
+  });
   if (!token) {
     return { ok: false, error: "CityPak API token not found for this waybill", status: 404 };
   }

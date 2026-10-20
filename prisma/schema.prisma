@@ -899,6 +899,10 @@ model CompanyLocation {
   erpnextInstanceId           String?
   fulfillmentBlocked          Boolean                      @default(false)
   isMainCompany               Boolean                      @default(false)
+  /// CityPak Falcon account ID for this location. Used first on City Pack dispatch.
+  citypakAccountId            String?
+  /// CityPak Falcon API token for this location. Prefix-mapped CitypakAccount is the fallback.
+  citypakApiToken             String?
   company                     Company                      @relation(fields: [companyId], references: [id], onDelete: Cascade)
   erpnextInstance             ErpnextInstance?             @relation(fields: [erpnextInstanceId], references: [id], onDelete: SetNull)
   defaultOrderPrintFormat     PrintFormat?                 @relation("LocationDefaultOrderPrintFormat", fields: [defaultOrderPrintFormatId], references: [id], onDelete: SetNull)

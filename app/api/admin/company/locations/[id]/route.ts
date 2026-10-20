@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
+import {
+  locationCitypakFieldsSchema,
+  nextCitypakLocationCredentials,
+  publicCitypakLocationFields,
+} from "@/lib/citypak-account";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { assertEligibleMerchantUser } from "@/lib/merchant-eligibility";
@@ -41,7 +46,7 @@ const updateLocationSchema = z.object({
   erpnextInstanceId: cuidSchema.nullable().optional(),
   fulfillmentBlocked: z.boolean().optional(),
   isMainCompany: z.boolean().optional(),
-});
+}).merge(locationCitypakFieldsSchema);
 
 async function getCompanyId(userId: string): Promise<string | null> {
   const user = await prisma.user.findUnique({
@@ -130,6 +135,18 @@ export async function PATCH(
   }
   const toOpt = (v: string | undefined) =>
     v === undefined ? undefined : (v.trim() || null);
+  const citypakTouched = d.citypakAccountId !== undefined || d.citypakApiToken !== undefined;
+  const citypak = citypakTouched
+    ? nextCitypakLocationCredentials({
+        existingAccountId: location.citypakAccountId,
+        existingToken: location.citypakApiToken,
+        accountId: d.citypakAccountId,
+        apiToken: d.citypakApiToken,
+      })
+    : null;
+  if (citypak && !citypak.ok) {
+    return NextResponse.json({ error: citypak.error }, { status: 400 });
+  }
   const updated = await prisma.companyLocation.update({
     where: { id: idResult.data },
     data: {
@@ -166,6 +183,9 @@ export async function PATCH(
       ...(d.erpnextInstanceId !== undefined && { erpnextInstanceId: d.erpnextInstanceId }),
       ...(d.fulfillmentBlocked !== undefined && { fulfillmentBlocked: d.fulfillmentBlocked }),
       ...(d.isMainCompany !== undefined && { isMainCompany: d.isMainCompany }),
+      ...(citypak && citypak.ok
+        ? { citypakAccountId: citypak.accountId, citypakApiToken: citypak.apiToken }
+        : {}),
     },
     select: {
       id: true,
@@ -197,12 +217,21 @@ export async function PATCH(
       erpnextInstanceId: true,
       fulfillmentBlocked: true,
       isMainCompany: true,
+      citypakAccountId: true,
+      citypakApiToken: true,
       createdAt: true,
       updatedAt: true,
     },
   });
 
-  return NextResponse.json(updated);
+  const { citypakApiToken, ...rest } = updated;
+  return NextResponse.json({
+    ...rest,
+    ...publicCitypakLocationFields({
+      citypakAccountId: updated.citypakAccountId,
+      citypakApiToken,
+    }),
+  });
 }
 
 export async function DELETE(

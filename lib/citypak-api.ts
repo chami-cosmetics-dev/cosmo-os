@@ -82,8 +82,9 @@ export function isCitypakPrepaid(financialStatus: string | null | undefined) {
 }
 
 /**
- * CityPak COD must be 0 when customer already paid (bank transfer, Koko, Mintpay, online card)
- * or Shopify/ERP marks financialStatus paid. Collect total only for COD / cash / card-on-delivery.
+ * CityPak COD must be 0 when customer already paid (bank transfer, Koko, Mintpay, CC Checkout / WebXPay)
+ * or Shopify/ERP marks financialStatus paid. Collect total for COD / cash / card-on-delivery
+ * (Cosmo ERP "Credit Card" / "Card Payment" is door collection).
  */
 export function isCitypakZeroCodOrder(input: {
   financialStatus?: string | null;

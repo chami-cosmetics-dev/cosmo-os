@@ -19,6 +19,18 @@ export function orderAlreadyPaidByCardCheckout(input?: {
   return gateways.some((gateway) => isAlreadyPaidCardCheckoutGateway(gateway));
 }
 
+/**
+ * Door-collection card: Cosmo ERP "Credit Card", "Card Payment", "Card on Delivery".
+ * Online checkout (CC / WebXPay) is already paid — not this.
+ */
+export function isCardOnDeliveryGateway(gateway: string | null | undefined): boolean {
+  if (!gateway) return false;
+  if (isAlreadyPaidCardCheckoutGateway(gateway)) return false;
+  const normalized = gateway.toLowerCase().replace(/[_\-\s]+/g, " ").trim();
+  if (!normalized || normalized.includes("webxpay")) return false;
+  return normalized.includes("card");
+}
+
 export function getPaymentMethodInfo(input?: {
   paymentGatewayPrimary?: string | null;
   paymentGatewayNames?: string[] | null;
@@ -43,7 +55,7 @@ export function getPaymentMethodInfo(input?: {
   if (normalized === "cod" || normalized.includes("cash on delivery")) {
     return { label: "Cash", variant: "cash" };
   }
-  if (normalized.includes("card payment on delivery") || normalized.includes("card on delivery")) {
+  if (isCardOnDeliveryGateway(primary)) {
     return { label: "Card on Delivery", variant: "card" };
   }
   if (normalized === "cash") {
@@ -100,15 +112,6 @@ export function canRequestPaymentMethodChange(input?: {
     return true;
   }
   return false;
-}
-
-export function isCardOnDeliveryGateway(gateway: string | null | undefined): boolean {
-  const normalized = gateway?.toLowerCase().replace(/[_\-\s]+/g, " ").trim() ?? "";
-  return (
-    normalized.includes("card payment on delivery") ||
-    normalized.includes("card on delivery") ||
-    normalized.includes("card delivery")
-  );
 }
 
 export type PaymentMethodChangeTarget = "bank_transfer" | "koko" | "mintpay";
