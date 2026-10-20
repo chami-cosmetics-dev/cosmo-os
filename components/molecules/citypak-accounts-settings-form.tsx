@@ -202,8 +202,8 @@ export function CitypakAccountsSettingsForm({ canEdit }: CitypakAccountsSettings
           CityPak API
         </CardTitle>
         <p className="text-muted-foreground text-sm font-normal">
-          One token per brand. Invoice prefix is the order series (100, 110, 600, SV200). City Pack
-          dispatch creates the waybill with this token.
+          Fallback for companies already mapped by invoice prefix (100, 110, 600, SV200). New
+          companies can save CityPak account ID and API key on the location instead.
         </p>
       </CardHeader>
       <CardContent className="space-y-4 pt-4">

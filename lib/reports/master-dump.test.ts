@@ -1,12 +1,16 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  MASTER_DUMP_VAULT_SOURCE,
   MASTER_ITEM_HEADERS,
   MASTER_ORDER_HEADERS,
+  createMasterHistoryOrderRow,
   createMasterItemRows,
   createMasterOrderRow,
+  enrichMasterDumpHistoryLine,
   masterDumpDeliveryResult,
   masterDumpFocusStatus,
+  masterDumpHistoryLines,
   masterDumpShippingService,
   type MasterOrderReportInput,
 } from "@/lib/reports/master-dump";
@@ -17,6 +21,7 @@ function orderInput(overrides: Partial<MasterOrderReportInput> = {}): MasterOrde
     erpInvoiceId: "SI-100",
     shopifyOrderId: "9001",
     sourceName: "web",
+    business: "Cosmetics",
     salesLocation: "Colombo 03",
     company: "Cosmetics.lk",
     posProfile: "",
@@ -136,6 +141,8 @@ function orderInput(overrides: Partial<MasterOrderReportInput> = {}): MasterOrde
 
 describe("master reports", () => {
   it("keeps order and item headers apart", () => {
+    expect(MASTER_ORDER_HEADERS).toContain("BUSINESS");
+    expect(MASTER_ITEM_HEADERS).toContain("BUSINESS");
     expect(MASTER_ORDER_HEADERS).toContain("SHIPPING SERVICE");
     expect(MASTER_ORDER_HEADERS).not.toContain("DISPATCH RIDER");
     expect(MASTER_ORDER_HEADERS).not.toContain("ITEM CODE");
@@ -187,6 +194,7 @@ describe("master reports", () => {
     const row = createMasterOrderRow(orderInput());
     expect(row["ORDER ID"]).toBe("#1001");
     expect(row.SOURCE).toBe("Shopify");
+    expect(row.BUSINESS).toBe("Cosmetics");
     expect(row["SHIPPING SERVICE"]).toBe("Rider A");
     expect(row["CALL CENTER NOTE"]).toBe("Order Received: Called customer");
     expect(row["CUSTOMER NOTE"]).toBe("Leave at gate");
@@ -199,6 +207,7 @@ describe("master reports", () => {
     const [row] = createMasterItemRows({
       orderId: "#1001",
       erpInvoiceId: "SI-100",
+      business: "Cosmetics",
       lines: [{
         sku: "SKU-1",
         barcode: "123",
@@ -226,5 +235,133 @@ describe("master reports", () => {
       erp1ProductPriority: "Top Priority",
       erp2ProductPriority: null,
     })).toBe("Top Priority");
+  });
+
+  it("maps imported Vault OS history onto the order and item sheets", () => {
+    const row = createMasterHistoryOrderRow({
+      salesInvoiceNo: "VOS-88",
+      salesInvoiceMasterId: "M-88",
+      invoiceDate: new Date("2024-03-15T00:00:00.000Z"),
+      ttlAmount: "30000.00",
+      currency: "LKR",
+      locationName: "Vault Store",
+      companyName: "Vault OS",
+      paymentMethod: null,
+      financialStatus: "paid",
+      merchantKnownName: "Kamal",
+      origin: "vault_file_import",
+      importBatchId: "vsupp-171000",
+      rawPaymentContext: { cash: "30000" },
+      lineItems: [
+        {
+          id: "vsupp:1:SV-WHEY-1KG",
+          itemCode: "SV-WHEY-1KG",
+          itemName: "Whey Protein 1kg",
+          quantity: 2,
+          unitPrice: "15000",
+          lineAmount: "30000",
+          itemId: null,
+        },
+      ],
+      contact: {
+        name: "Nimal Perera",
+        phoneNumber: "0771234567",
+        email: "nimal@example.com",
+        extraPhones: [],
+        extraEmails: [],
+        customerType: "Retail",
+        callCategory: "N/A",
+        district: "Colombo",
+        zone: "Zone A",
+        area: "",
+        town: "",
+        city: "Colombo",
+        address: "12 Galle Rd",
+        country: "Sri Lanka",
+        gender: null,
+        language: null,
+        occupation: null,
+        workPlace: null,
+        assignedMerchant: null,
+        recentMerchant: null,
+        source: "vault-supplement-import",
+        origin: null,
+        whatsappAllowed: true,
+        loyaltyTier: null,
+        loyaltyOutreach: null,
+        remarks: null,
+      },
+    });
+    expect(row.SOURCE).toBe(MASTER_DUMP_VAULT_SOURCE);
+    expect(row.BUSINESS).toBe("File import");
+    expect(row["ORDER ID"]).toBe("VOS-88");
+    expect(row["GRAND TOTAL"]).toBe("30000.00");
+    expect(row["PAYMENT METHOD"]).toBe("Cash");
+    expect(row["ITEM COUNT"]).toBe("1");
+    expect(row["CUSTOMER NAME"]).toBe("Nimal Perera");
+
+    const [line] = masterDumpHistoryLines([
+      {
+        id: "vsupp:1:SV-WHEY-1KG",
+        itemCode: "SV-WHEY-1KG",
+        itemName: "Whey Protein 1kg",
+        quantity: 2,
+        unitPrice: "15000",
+        lineAmount: "30000",
+        itemId: null,
+      },
+    ]);
+    const enriched = enrichMasterDumpHistoryLine(line, new Map([
+      ["sv-whey-1kg", {
+        sku: "SV-WHEY-1KG",
+        barcode: "111",
+        brand: "Brand X",
+        categoryName: "Protein",
+        itemStatusCategory: "CONTINUE",
+        itemStatusLabel: null,
+        erp1ProductPriority: null,
+        erp2ProductPriority: null,
+        taxStatus: "Vat",
+      }],
+    ]));
+    expect(enriched.brand).toBe("Brand X");
+    expect(enriched.taxStatus).toBe("Vat");
+    expect(enriched.lineTotal).toBe("30000");
+    expect(createMasterHistoryOrderRow({
+      ...{
+        salesInvoiceNo: "COS-1",
+        salesInvoiceMasterId: null,
+        invoiceDate: new Date("2024-03-15T00:00:00.000Z"),
+        ttlAmount: "1.00",
+        currency: "LKR",
+        locationName: null,
+        companyName: "Vault OS",
+        paymentMethod: null,
+        financialStatus: null,
+        merchantKnownName: null,
+        origin: "vault_supplement_import",
+        importBatchId: "vsupp-direct-1",
+        rawPaymentContext: null,
+        lineItems: [],
+        contact: null,
+      },
+    }).BUSINESS).toBe("Cosmetics");
+    expect(createMasterHistoryOrderRow({
+      salesInvoiceNo: "ADP-1",
+      salesInvoiceMasterId: null,
+      invoiceDate: new Date("2024-03-15T00:00:00.000Z"),
+      ttlAmount: "1.00",
+      currency: "LKR",
+      locationName: null,
+      companyName: "Vault OS",
+      paymentMethod: null,
+      financialStatus: null,
+      merchantKnownName: null,
+      origin: "adapt",
+      importBatchId: null,
+      rawPaymentContext: null,
+      lineItems: [],
+      contact: null,
+    }).BUSINESS).toBe("Supplement");
   });
 });

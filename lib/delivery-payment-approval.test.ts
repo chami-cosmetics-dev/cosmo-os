@@ -167,5 +167,11 @@ describe("shouldSkipDeliveryPaymentApproval", () => {
         paymentGatewayNames: ["card on delivery"],
       }),
     ).toBe(false);
+    expect(
+      shouldSkipDeliveryPaymentApproval({
+        paymentGatewayPrimary: "Credit Card",
+        paymentGatewayNames: ["Credit Card"],
+      }),
+    ).toBe(false);
   });
 });

@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
+import {
+  locationCitypakFieldsSchema,
+  nextCitypakLocationCredentials,
+  publicCitypakLocationFields,
+} from "@/lib/citypak-account";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { getCompanyLocationInvoiceFields } from "@/lib/company-location-invoice-fields";
@@ -36,7 +41,7 @@ const createLocationSchema = z.object({
   erpnextInstanceId: cuidSchema.nullable().optional(),
   fulfillmentBlocked: z.boolean().optional(),
   isMainCompany: z.boolean().optional(),
-});
+}).merge(locationCitypakFieldsSchema);
 
 export async function GET(request: NextRequest) {
   const auth = await requirePermission("settings.company");
@@ -92,6 +97,8 @@ export async function GET(request: NextRequest) {
         erpnextInstanceId: true,
         fulfillmentBlocked: true,
         isMainCompany: true,
+        citypakAccountId: true,
+        citypakApiToken: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -108,14 +115,21 @@ export async function GET(request: NextRequest) {
   );
 
   return NextResponse.json({
-    locations: locations.map((location) => ({
-      ...location,
-      manualInvoicePrefix: invoiceFields.get(location.id)?.manualInvoicePrefix ?? null,
-      manualInvoiceNextSeq: invoiceFields.get(location.id)?.manualInvoiceNextSeq ?? 0,
-      manualInvoiceSeqPadding: invoiceFields.get(location.id)?.manualInvoiceSeqPadding ?? 3,
-      erpnextCompany: location.erpnextCompany,
-      erpnextWarehouse: location.erpnextWarehouse,
-    })),
+    locations: locations.map((location) => {
+      const { citypakApiToken, ...rest } = location;
+      return {
+        ...rest,
+        manualInvoicePrefix: invoiceFields.get(location.id)?.manualInvoicePrefix ?? null,
+        manualInvoiceNextSeq: invoiceFields.get(location.id)?.manualInvoiceNextSeq ?? 0,
+        manualInvoiceSeqPadding: invoiceFields.get(location.id)?.manualInvoiceSeqPadding ?? 3,
+        erpnextCompany: location.erpnextCompany,
+        erpnextWarehouse: location.erpnextWarehouse,
+        ...publicCitypakLocationFields({
+          citypakAccountId: location.citypakAccountId,
+          citypakApiToken,
+        }),
+      };
+    }),
     merchants,
     total,
     page,
@@ -177,6 +191,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Shadow parent location not found" }, { status: 400 });
     }
   }
+  const citypak = nextCitypakLocationCredentials({
+    existingAccountId: null,
+    existingToken: null,
+    accountId: d.citypakAccountId,
+    apiToken: d.citypakApiToken,
+  });
+  if (!citypak.ok) {
+    return NextResponse.json({ error: citypak.error }, { status: 400 });
+  }
   const location = await prisma.companyLocation.create({
     data: {
       companyId,
@@ -202,6 +225,8 @@ export async function POST(request: NextRequest) {
       erpnextInstanceId: d.erpnextInstanceId ?? null,
       fulfillmentBlocked: d.fulfillmentBlocked ?? false,
       isMainCompany: d.isMainCompany ?? false,
+      citypakAccountId: citypak.accountId,
+      citypakApiToken: citypak.apiToken,
     },
     select: {
       id: true,
@@ -233,10 +258,19 @@ export async function POST(request: NextRequest) {
       manualInvoiceSeqPadding: true,
       fulfillmentBlocked: true,
       isMainCompany: true,
+      citypakAccountId: true,
+      citypakApiToken: true,
       createdAt: true,
       updatedAt: true,
     },
   });
 
-  return NextResponse.json(location);
+  const { citypakApiToken, ...rest } = location;
+  return NextResponse.json({
+    ...rest,
+    ...publicCitypakLocationFields({
+      citypakAccountId: location.citypakAccountId,
+      citypakApiToken,
+    }),
+  });
 }

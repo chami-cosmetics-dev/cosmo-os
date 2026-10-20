@@ -79,6 +79,12 @@ describe("orderPaymentFinanceApproveMarksPaid", () => {
         { requestNote: "Card on Delivery — amount: 2500" },
       ),
     ).toBe(false);
+    expect(
+      orderPaymentFinanceApproveMarksPaid({
+        paymentGatewayPrimary: "Credit Card",
+        paymentGatewayNames: [],
+      }),
+    ).toBe(false);
   });
 
   it("still marks koko paid", () => {
@@ -120,7 +126,24 @@ describe("isCardOnDeliveryGateway", () => {
     expect(isCardOnDeliveryGateway("card_on_delivery")).toBe(true);
     expect(isCardOnDeliveryGateway("Card Payment on Delivery")).toBe(true);
     expect(isCardOnDeliveryGateway("card delivery")).toBe(true);
+    expect(isCardOnDeliveryGateway("Credit Card")).toBe(true);
+    expect(isCardOnDeliveryGateway("Card Payment")).toBe(true);
+    expect(isCardOnDeliveryGateway("card")).toBe(true);
     expect(isCardOnDeliveryGateway("cod")).toBe(false);
     expect(isCardOnDeliveryGateway("cc checkout")).toBe(false);
+    expect(isCardOnDeliveryGateway("WebXPay")).toBe(false);
+  });
+});
+
+describe("getPaymentMethodInfo card on delivery", () => {
+  it("labels Cosmo Credit Card as Card on Delivery", () => {
+    expect(getPaymentMethodInfo({ paymentGatewayPrimary: "Credit Card" })).toEqual({
+      label: "Card on Delivery",
+      variant: "card",
+    });
+    expect(getPaymentMethodInfo({ paymentGatewayPrimary: "Card Payment" })).toEqual({
+      label: "Card on Delivery",
+      variant: "card",
+    });
   });
 });

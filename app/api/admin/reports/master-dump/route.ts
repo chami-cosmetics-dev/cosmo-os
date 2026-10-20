@@ -5,6 +5,7 @@ import ExcelJS from "exceljs";
 import { NextRequest, NextResponse } from "next/server";
 
 import { loadKokoRefNumbersForOrders } from "@/lib/approval-koko-list";
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 import { normalizeContactEmail } from "@/lib/contact-identifiers";
 import {
   applyMerchantGroup,
@@ -29,13 +30,20 @@ import {
 } from "@/lib/reports/csv";
 import { dumpInvoiceShippingRuleFromStored } from "@/lib/reports/dump-invoice-shipping";
 import {
+  createMasterHistoryOrderRow,
   createMasterItemRows,
   createMasterOrderRow,
+  masterDumpBusinessLabel,
+  masterDumpHistoryItemLines,
+  masterDumpHistoryLines,
+  MASTER_DUMP_COSMETICS_BUSINESS,
   MASTER_ITEM_HEADERS,
   MASTER_ORDER_HEADERS,
   masterDumpDeliveryResult,
   masterDumpShippingService,
+  type MasterDumpCatalogItem,
   type MasterDumpLine,
+  type MasterHistoryContact,
 } from "@/lib/reports/master-dump";
 import { joinDumpCouponCodes, summarizePaymentGateway } from "@/lib/reports/order-dump";
 import { resolveCustomerPhone, resolveShippingPhone } from "@/lib/order-sms-resolvers";
@@ -62,6 +70,68 @@ const TEXT_COLUMNS = new Set([
 ]);
 
 const PAGE_SIZE = 40;
+const HISTORY_PAGE_SIZE = 80;
+
+const HISTORY_ORDER_BY = [
+  { invoiceDate: "desc" as const },
+  { id: "desc" as const },
+];
+
+const HISTORY_SELECT = {
+  id: true,
+  salesInvoiceNo: true,
+  salesInvoiceMasterId: true,
+  invoiceDate: true,
+  ttlAmount: true,
+  currency: true,
+  locationName: true,
+  paymentMethod: true,
+  financialStatus: true,
+  merchantKnownName: true,
+  origin: true,
+  importBatchId: true,
+  rawPaymentContext: true,
+  lineItems: true,
+  companyLocation: {
+    select: {
+      name: true,
+      erpnextCompany: true,
+      company: { select: { name: true } },
+    },
+  },
+  contact: {
+    select: {
+      name: true,
+      phoneNumber: true,
+      email: true,
+      customerType: true,
+      category: true,
+      district: true,
+      zone: true,
+      area: true,
+      town: true,
+      city: true,
+      address: true,
+      country: true,
+      gender: true,
+      language: true,
+      occupation: true,
+      workPlace: true,
+      assignedMerchant: true,
+      recentMerchant: true,
+      source: true,
+      origin: true,
+      whatsappAllowed: true,
+      loyaltyAssignedTier: true,
+      loyaltyOutreachStatus: true,
+      remarks: true,
+      phones: { select: { phoneNumber: true } },
+      emails: { select: { email: true } },
+    },
+  },
+} satisfies Prisma.AdaptPurchaseHistorySelect;
+
+type HistoryRow = Prisma.AdaptPurchaseHistoryGetPayload<{ select: typeof HISTORY_SELECT }>;
 const ORDER_BY = [
   { createdAt: "desc" as const },
   { updatedAt: "desc" as const },
@@ -416,6 +486,88 @@ function erpSyncStatus(order: MasterOrder) {
   return "";
 }
 
+function historyContact(contact: HistoryRow["contact"]): MasterHistoryContact | null {
+  if (!contact) return null;
+  return {
+    name: contact.name,
+    phoneNumber: contact.phoneNumber,
+    email: contact.email,
+    extraPhones: contact.phones.map((phone) => phone.phoneNumber),
+    extraEmails: contact.emails.map((email) => email.email),
+    customerType: contact.customerType,
+    callCategory: contact.category,
+    district: contact.district,
+    zone: contact.zone,
+    area: contact.area,
+    town: contact.town,
+    city: contact.city,
+    address: contact.address,
+    country: contact.country,
+    gender: contact.gender,
+    language: contact.language,
+    occupation: contact.occupation,
+    workPlace: contact.workPlace,
+    assignedMerchant: contact.assignedMerchant,
+    recentMerchant: contact.recentMerchant,
+    source: contact.source,
+    origin: contact.origin,
+    whatsappAllowed: contact.whatsappAllowed,
+    loyaltyTier: contact.loyaltyAssignedTier,
+    loyaltyOutreach: contact.loyaltyOutreachStatus,
+    remarks: contact.remarks,
+  };
+}
+
+function historyCompanyName(row: HistoryRow) {
+  return row.companyLocation?.erpnextCompany?.trim()
+    || row.companyLocation?.company.name
+    || row.companyLocation?.name
+    || "";
+}
+
+async function loadHistoryCatalog(companyId: string, rows: HistoryRow[]) {
+  const skus = new Set<string>();
+  for (const row of rows) {
+    for (const line of masterDumpHistoryLines(row.lineItems)) {
+      const sku = line.sku?.trim();
+      if (sku) skus.add(sku);
+    }
+  }
+  const catalog = new Map<string, MasterDumpCatalogItem>();
+  if (skus.size === 0) return catalog;
+  const items = await prisma.productItem.findMany({
+    where: { companyId, sku: { in: [...skus] } },
+    select: {
+      sku: true,
+      barcode: true,
+      itemStatusCategory: true,
+      itemStatusLabel: true,
+      erp1ProductPriority: true,
+      erp2ProductPriority: true,
+      erp1TaxStatus: true,
+      erp2TaxStatus: true,
+      vendor: { select: { name: true } },
+      category: { select: { name: true } },
+    },
+  });
+  for (const item of items) {
+    const key = item.sku?.trim().toLowerCase();
+    if (!key || catalog.has(key)) continue;
+    catalog.set(key, {
+      sku: item.sku,
+      barcode: item.barcode,
+      brand: item.vendor?.name ?? null,
+      categoryName: item.category?.name ?? null,
+      itemStatusCategory: item.itemStatusCategory,
+      itemStatusLabel: item.itemStatusLabel,
+      erp1ProductPriority: item.erp1ProductPriority,
+      erp2ProductPriority: item.erp2ProductPriority,
+      taxStatus: item.erp1TaxStatus?.trim() || item.erp2TaxStatus?.trim() || null,
+    });
+  }
+  return catalog;
+}
+
 function toItemLine(item: ItemOrder["lineItems"][number]): MasterDumpLine {
   return {
     sku: item.productItem.sku,
@@ -713,8 +865,11 @@ export async function GET(request: NextRequest) {
     writtenRows += 1;
   };
 
+  const vaultOs = isVaultOsDeployment();
+
   void (async () => {
     try {
+        if (!vaultOs) {
         let cursorId: string | undefined;
         for (;;) {
           if (request.signal.aborted) break;
@@ -732,6 +887,7 @@ export async function GET(request: NextRequest) {
               const rows = createMasterItemRows({
                 orderId: orderLabel(order),
                 erpInvoiceId: erpInvoiceId(order.erpnextInvoiceId),
+                business: MASTER_DUMP_COSMETICS_BUSINESS,
                 lines: order.lineItems.map(toItemLine),
               });
               for (const row of rows) writeRow(MASTER_ITEM_HEADERS.map((header) => row[header] ?? ""));
@@ -779,6 +935,7 @@ export async function GET(request: NextRequest) {
               erpInvoiceId: erpInvoiceId(order.erpnextInvoiceId),
               shopifyOrderId: order.shopifyOrderId,
               sourceName: order.sourceName,
+              business: MASTER_DUMP_COSMETICS_BUSINESS,
               salesLocation: order.companyLocation.name,
               company: order.companyLocation.erpnextCompany?.trim() || order.companyLocation.company.name,
               posProfile: order.posProfile?.trim() ?? "",
@@ -921,6 +1078,60 @@ export async function GET(request: NextRequest) {
           }
           cursorId = orders[orders.length - 1]!.id;
           if (orders.length < PAGE_SIZE) break;
+        }
+        }
+
+        if (vaultOs) {
+        let historyCursorId: string | undefined;
+        for (;;) {
+          if (request.signal.aborted) break;
+          const historyRows = await prisma.adaptPurchaseHistory.findMany({
+            where: { companyId },
+            orderBy: HISTORY_ORDER_BY,
+            take: HISTORY_PAGE_SIZE,
+            ...(historyCursorId ? { skip: 1, cursor: { id: historyCursorId } } : {}),
+            select: HISTORY_SELECT,
+          });
+          if (historyRows.length === 0) break;
+          const catalog = await loadHistoryCatalog(companyId, historyRows);
+          for (const history of historyRows) {
+            const business = masterDumpBusinessLabel(history.origin, history.importBatchId);
+            if (report === "item") {
+              const rows = createMasterItemRows({
+                orderId: history.salesInvoiceNo.trim() || history.id,
+                erpInvoiceId: history.salesInvoiceMasterId?.trim() ?? "",
+                business,
+                lines: masterDumpHistoryItemLines(
+                  history.lineItems,
+                  catalog,
+                  money(history.ttlAmount),
+                ),
+              });
+              for (const row of rows) writeRow(MASTER_ITEM_HEADERS.map((header) => row[header] ?? ""));
+              continue;
+            }
+            const row = createMasterHistoryOrderRow({
+              salesInvoiceNo: history.salesInvoiceNo,
+              salesInvoiceMasterId: history.salesInvoiceMasterId,
+              invoiceDate: history.invoiceDate,
+              ttlAmount: money(history.ttlAmount),
+              currency: history.currency,
+              locationName: history.locationName ?? history.companyLocation?.name ?? null,
+              companyName: historyCompanyName(history),
+              paymentMethod: history.paymentMethod,
+              financialStatus: history.financialStatus,
+              merchantKnownName: history.merchantKnownName,
+              origin: history.origin,
+              importBatchId: history.importBatchId,
+              rawPaymentContext: history.rawPaymentContext,
+              lineItems: history.lineItems,
+              contact: historyContact(history.contact),
+            });
+            writeRow(MASTER_ORDER_HEADERS.map((header) => row[header] ?? ""));
+          }
+          historyCursorId = historyRows[historyRows.length - 1]!.id;
+          if (historyRows.length < HISTORY_PAGE_SIZE) break;
+        }
         }
 
         if (!request.signal.aborted) {

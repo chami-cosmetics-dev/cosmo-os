@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import {
   Ban,
   FileText,
+  KeyRound,
   Loader2,
   MapPin,
   Pencil,
@@ -68,12 +69,16 @@ type Location = {
   erpnextInstanceId?: string | null;
   fulfillmentBlocked?: boolean;
   isMainCompany?: boolean;
+  citypakAccountId?: string | null;
+  hasCitypakApiToken?: boolean;
+  citypakApiTokenMasked?: string;
   createdAt?: string;
   updatedAt?: string;
 };
 
 type LocationForm = Partial<Location> & {
   isShadowLocation?: boolean;
+  citypakApiToken?: string;
 };
 
 type ShippingChargeRow = {
@@ -109,6 +114,8 @@ const emptyForm = (): LocationForm => ({
   erpnextInstanceId: null,
   fulfillmentBlocked: false,
   isMainCompany: false,
+  citypakAccountId: "",
+  citypakApiToken: "",
 });
 
 interface LocationsSettingsFormProps {
@@ -134,6 +141,8 @@ export function LocationsSettingsForm({
   const [total, setTotal] = useState(initialLocationsData?.total ?? 0);
   const [newName, setNewName] = useState("");
   const [newAddress, setNewAddress] = useState("");
+  const [newCitypakAccountId, setNewCitypakAccountId] = useState("");
+  const [newCitypakApiToken, setNewCitypakApiToken] = useState("");
   const [sheetOpen, setSheetOpen] = useState(false);
   const [sheetMode, setSheetMode] = useState<"add" | "edit">("add");
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -265,6 +274,8 @@ export function LocationsSettingsForm({
         body: JSON.stringify({
           name: newName.trim(),
           address: newAddress.trim() || undefined,
+          citypakAccountId: newCitypakAccountId.trim() || undefined,
+          citypakApiToken: newCitypakApiToken.trim() || undefined,
         }),
       });
 
@@ -278,6 +289,8 @@ export function LocationsSettingsForm({
       await fetchLocations();
       setNewName("");
       setNewAddress("");
+      setNewCitypakAccountId("");
+      setNewCitypakApiToken("");
       notify.success("Location added.");
     } catch {
       notify.error("Failed to add location");
@@ -322,6 +335,8 @@ export function LocationsSettingsForm({
       erpnextInstanceId: loc.erpnextInstanceId ?? null,
       fulfillmentBlocked: loc.fulfillmentBlocked ?? false,
       isMainCompany: loc.isMainCompany ?? false,
+      citypakAccountId: loc.citypakAccountId ?? "",
+      citypakApiToken: "",
     });
     setSheetOpen(true);
   }
@@ -439,7 +454,9 @@ export function LocationsSettingsForm({
           (form.erpnextWarehouse?.trim() ?? "") !== (editingLocation.erpnextWarehouse ?? "").trim() ||
           (form.erpnextInstanceId ?? null) !== (editingLocation.erpnextInstanceId ?? null) ||
           (form.fulfillmentBlocked ?? false) !== (editingLocation.fulfillmentBlocked ?? false) ||
-          (form.isMainCompany ?? false) !== (editingLocation.isMainCompany ?? false)
+          (form.isMainCompany ?? false) !== (editingLocation.isMainCompany ?? false) ||
+          (form.citypakAccountId?.trim() ?? "") !== (editingLocation.citypakAccountId ?? "").trim() ||
+          (form.citypakApiToken?.trim() ?? "") !== ""
         : false;
 
   async function handleLocationLogoChange(url: string | null) {
@@ -581,6 +598,10 @@ export function LocationsSettingsForm({
       erpnextInstanceId: form.erpnextInstanceId ?? null,
       fulfillmentBlocked: form.fulfillmentBlocked ?? false,
       isMainCompany: form.isMainCompany ?? false,
+      citypakAccountId: form.citypakAccountId?.trim() ?? "",
+      ...(form.citypakApiToken?.trim()
+        ? { citypakApiToken: form.citypakApiToken.trim() }
+        : {}),
     };
 
     if (sheetMode === "add") {
@@ -688,7 +709,7 @@ export function LocationsSettingsForm({
         <CardHeader className="border-b border-border/50 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_12%,transparent))]">
           <CardTitle>Company Locations</CardTitle>
           <CardDescription>
-            Manage office branches, Shopify links, and invoice details per
+            Manage office branches, Shopify links, invoice details, and CityPak API keys per
             location.
           </CardDescription>
         </CardHeader>
@@ -715,7 +736,7 @@ export function LocationsSettingsForm({
               </div>
               <form
                 onSubmit={handleAdd}
-                className="grid gap-3 md:grid-cols-[1fr_1fr_auto] md:items-end"
+                className="grid gap-3 md:grid-cols-2 md:items-end"
               >
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Location name</label>
@@ -737,7 +758,29 @@ export function LocationsSettingsForm({
                     maxLength={500}
                   />
                 </div>
-                <div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">CityPak account ID</label>
+                  <Input
+                    placeholder="e.g. 13717"
+                    value={newCitypakAccountId}
+                    onChange={(e) => setNewCitypakAccountId(e.target.value)}
+                    disabled={isBusy}
+                    maxLength={32}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">CityPak API key</label>
+                  <Input
+                    type="password"
+                    autoComplete="off"
+                    placeholder="Live API token"
+                    value={newCitypakApiToken}
+                    onChange={(e) => setNewCitypakApiToken(e.target.value)}
+                    disabled={isBusy}
+                    maxLength={200}
+                  />
+                </div>
+                <div className="md:col-span-2">
                   <Button type="submit" className="w-full md:w-auto" disabled={isBusy || !newName.trim()}>
                     {busyKey === "add" ? (
                       <>
@@ -791,6 +834,12 @@ export function LocationsSettingsForm({
                   {loc.address && (
                     <p className="text-muted-foreground text-sm">
                       {loc.address}
+                    </p>
+                  )}
+                  {loc.citypakAccountId && (
+                    <p className="text-muted-foreground text-xs">
+                      CityPak {loc.citypakAccountId}
+                      {loc.hasCitypakApiToken ? " · API key saved" : ""}
                     </p>
                   )}
                   {loc.shadowParentLocation && (
@@ -1318,6 +1367,54 @@ export function LocationsSettingsForm({
                 disabled={isBusy}
                 maxLength={100}
               />
+            </div>
+
+            <div className="space-y-3 rounded-2xl border border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))] p-4 shadow-xs">
+              <h4 className="flex items-center gap-2 text-sm font-medium">
+                <KeyRound className="size-4 text-muted-foreground" aria-hidden />
+                CityPak API
+              </h4>
+              <p className="text-muted-foreground text-xs">
+                Orders from this location dispatched to City Pack use this account. Existing prefix accounts still cover companies that already have them.
+              </p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <label htmlFor="location-citypakAccountId" className="text-xs font-medium text-muted-foreground">
+                    CityPak account ID
+                  </label>
+                  <Input
+                    id="location-citypakAccountId"
+                    placeholder="e.g. 13717"
+                    value={form.citypakAccountId ?? ""}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, citypakAccountId: e.target.value }))
+                    }
+                    disabled={isBusy}
+                    maxLength={32}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label htmlFor="location-citypakApiToken" className="text-xs font-medium text-muted-foreground">
+                    API key
+                  </label>
+                  <Input
+                    id="location-citypakApiToken"
+                    type="password"
+                    autoComplete="off"
+                    placeholder={
+                      editingLocation?.hasCitypakApiToken
+                        ? editingLocation.citypakApiTokenMasked || "Saved — type to replace"
+                        : "Live API token"
+                    }
+                    value={form.citypakApiToken ?? ""}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, citypakApiToken: e.target.value }))
+                    }
+                    disabled={isBusy}
+                    maxLength={200}
+                  />
+                </div>
+              </div>
             </div>
 
             <div className={`space-y-3 rounded-2xl border p-4 shadow-xs ${form.fulfillmentBlocked ? "border-destructive/40 bg-destructive/5" : "border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))]"}`}>
