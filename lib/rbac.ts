@@ -76,6 +76,10 @@ const DEFAULT_PERMISSIONS = [
     description: "View and edit company information",
   },
   {
+    key: "settings.suppliers",
+    description: "Add and manage suppliers on the settings page",
+  },
+  {
     key: "settings.email_templates",
     description: "View and edit email notification templates",
   },
@@ -741,6 +745,7 @@ const DEFAULT_ROLES = [
       "riders.performance.manage",
       "roles.read",
       "settings.company",
+      "settings.suppliers",
       "settings.email_templates",
       "settings.sms_portal",
       "settings.fulfillment",

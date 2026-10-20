@@ -18,6 +18,7 @@ import {
   classifyPriceGapForBrand,
 } from "@/lib/stock-price-missing/brand-ogf-rules";
 import { classifyPriceGap } from "@/lib/stock-price-missing/gap";
+import { applyOgfRopGate, ogfRopColumnKeys } from "@/lib/stock-price-missing/ogf-osf-rop";
 import {
   fetchErpProductPriorities,
   normalizeSkuKey,
@@ -174,6 +175,11 @@ function buildErpSection(input: {
   brandBySku: Map<string, string | null>;
   /** When set, skip these SKUs (e.g. VAT items on ERP2). */
   excludeSkus?: Set<string>;
+  /**
+   * SKUs with OSF OGF/LWK ROP > 0 (normalized).
+   * Null = no OGF ROP columns configured; skip this gate.
+   */
+  ogfRopSkus: Set<string> | null;
 }): StockPriceMissingErpSection {
   const rows: StockPriceMissingRow[] = [];
   let missingStandardCount = 0;
@@ -188,12 +194,17 @@ function buildErpSection(input: {
 
     const standardRate = input.prices.standard[sku] ?? null;
     const ogfRate = input.prices.ogf[sku] ?? null;
-    const gap = classifyPriceGapForBrand({
-      hasStandard: Boolean(standardRate),
-      hasOgf: Boolean(ogfRate),
-      brand: input.brandBySku.get(sku) ?? null,
-      erp: input.erp,
-    });
+    const gap = applyOgfRopGate(
+      classifyPriceGapForBrand({
+        hasStandard: Boolean(standardRate),
+        hasOgf: Boolean(ogfRate),
+        brand: input.brandBySku.get(sku) ?? null,
+        erp: input.erp,
+      }),
+      input.ogfRopSkus == null
+        ? null
+        : input.ogfRopSkus.has(normalizeSkuKey(sku)),
+    );
     if (!gap) continue;
 
     if (gap === "Standard") missingStandardCount += 1;
@@ -235,6 +246,7 @@ function buildErpSection(input: {
  * ERP1 + ERP2 sections.
  * Standard Selling required for all items.
  * OGF: ERP1 only Cerave; ERP2 all brands except skip-list (Acnes…Cerave).
+ * OGF also skipped when OSF has no OGF/LWK ROP (item not allowed at OGF).
  * Live ERP Product Priority: exclude Discontinue on that ERP; ERP2 also excludes Vat.
  * VAT - Selling price list ignored.
  * Also lists every SKU whose Standard Selling differs between ERP1 and ERP2. Stock ignored.
@@ -253,14 +265,17 @@ export async function scanStockPriceMissing(
 
   const { erp1, erp2 } = pickErp1Erp2Instances(instances);
 
-  const [stock1, stock2, prices1, prices2, priorities1, priorities2] = await Promise.all([
-    fetchPositiveStockTotalsByItem(erp1.cfg),
-    fetchPositiveStockTotalsByItem(erp2.cfg),
-    loadStandardAndOgfPrices(erp1.cfg),
-    loadStandardAndOgfPrices(erp2.cfg),
-    fetchErpProductPriorities(erp1.cfg),
-    fetchErpProductPriorities(erp2.cfg),
-  ]);
+  const ogfKeys = ogfRopColumnKeys(columns);
+  const [stock1, stock2, prices1, prices2, priorities1, priorities2, ogfRopSkus] =
+    await Promise.all([
+      fetchPositiveStockTotalsByItem(erp1.cfg),
+      fetchPositiveStockTotalsByItem(erp2.cfg),
+      loadStandardAndOgfPrices(erp1.cfg),
+      loadStandardAndOgfPrices(erp2.cfg),
+      fetchErpProductPriorities(erp1.cfg),
+      fetchErpProductPriorities(erp2.cfg),
+      loadSkusWithOgfRop(companyId, ogfKeys),
+    ]);
 
   const stockCols = columns.filter(
     (c) => c.active && c.includeInStock && c.warehouses.length > 0,
@@ -331,6 +346,7 @@ export async function scanStockPriceMissing(
       nameBySku: catalog.nameBySku,
       brandBySku: mergeBrandMaps(brands1, catalog.brandBySku),
       excludeSkus: erp1Exclude,
+      ogfRopSkus,
     }),
     erp2: buildErpSection({
       label: erp2.label?.trim() || "ERP2",
@@ -343,8 +359,21 @@ export async function scanStockPriceMissing(
       nameBySku: catalog.nameBySku,
       brandBySku: mergeBrandMaps(brands2, catalog.brandBySku),
       excludeSkus: erp2Exclude,
+      ogfRopSkus,
     }),
   };
+}
+
+async function loadSkusWithOgfRop(
+  companyId: string,
+  columnKeys: string[],
+): Promise<Set<string> | null> {
+  if (columnKeys.length === 0) return null;
+  const rows = await prisma.productOsfRop.findMany({
+    where: { companyId, columnKey: { in: columnKeys }, ropQty: { gt: 0 } },
+    select: { sku: true },
+  });
+  return new Set(rows.map((r) => normalizeSkuKey(r.sku)));
 }
 
 /** Prefer ERP Item.brand; fall back to Cosmo vendor name. */
