@@ -21,8 +21,17 @@ import {
   parseAppCalendarDayEnd,
   parseAppCalendarDayStart,
 } from "@/lib/format-datetime";
+import { loadPendingPaymentMethodChangeByOrderIds } from "@/lib/apply-collection-payment-method";
+import {
+  FINANCE_PAYMENT_METHOD_CHANGE_PENDING,
+  pendingPaymentMethodChangeZerosCash,
+} from "@/lib/collection-payment-method";
 import { cashAmountFromDeliveryPayment } from "@/lib/mobile/payment-lines";
 import { resolveOrderDisplayTotal } from "@/lib/order-shipping-display";
+import {
+  paymentMethodChangeTargetLabel,
+  type PaymentMethodChangeTarget,
+} from "@/lib/payment-method-label";
 import { prisma } from "@/lib/prisma";
 
 const YMD = /^\d{4}-\d{2}-\d{2}$/;
@@ -100,6 +109,21 @@ export function handoverCashAmount(input: {
   });
   const total = new Prisma.Decimal(amount);
   return total.gt(0) ? total : new Prisma.Decimal(0);
+}
+
+/** Cash the rider hands over after a pending bank/KOKO method change is excluded. */
+export function resolveHandoverCollectCash(input: {
+  totalPrice: Prisma.Decimal | number | string | null;
+  subtotalPrice?: Prisma.Decimal | number | string | null;
+  totalShipping?: Prisma.Decimal | number | string | null;
+  paymentGatewayPrimary: string | null;
+  paymentGatewayNames?: string[] | null;
+  pendingPaymentMethodChange?: PaymentMethodChangeTarget | null;
+}): Prisma.Decimal {
+  if (pendingPaymentMethodChangeZerosCash(input.pendingPaymentMethodChange)) {
+    return new Prisma.Decimal(0);
+  }
+  return handoverCashAmount(input);
 }
 
 /** `null` location ids means the viewer may see every company. */
@@ -309,6 +333,8 @@ export type HandoverDelivery = {
   paymentMethod: DeliveryPaymentMethod | null;
   collectedAmount: string;
   cashAmount: string;
+  financeApprovalPending: boolean;
+  pendingPaymentMethodChange: PaymentMethodChangeTarget | null;
   payment: CashGroupInput["payment"];
 };
 
@@ -391,6 +417,10 @@ export async function loadRiderHandoverDeliveries(input: {
     },
   });
 
+  const pendingByOrder = await loadPendingPaymentMethodChangeByOrderIds(
+    tasks.map((task) => task.order.id),
+  );
+
   const deliveries: HandoverDelivery[] = tasks.map((task) => {
     const order = task.order;
     const payment = order.deliveryPayment
@@ -401,12 +431,14 @@ export async function loadRiderHandoverDeliveries(input: {
         }
       : null;
     const orderNumber = handoverOrderNumber(order);
-    const cashAmount = handoverCashAmount({
+    const pendingPaymentMethodChange = pendingByOrder.get(order.id) ?? null;
+    const cashAmount = resolveHandoverCollectCash({
       totalPrice: order.totalPrice,
       subtotalPrice: order.subtotalPrice,
       totalShipping: order.totalShipping,
       paymentGatewayPrimary: order.paymentGatewayPrimary,
       paymentGatewayNames: order.paymentGatewayNames,
+      pendingPaymentMethodChange,
     });
     return {
       orderId: order.id,
@@ -427,6 +459,8 @@ export async function loadRiderHandoverDeliveries(input: {
       paymentMethod: order.deliveryPayment?.paymentMethod ?? null,
       collectedAmount: collectedAmountLabel(payment),
       cashAmount: cashAmount.toFixed(2),
+      financeApprovalPending: pendingPaymentMethodChange != null,
+      pendingPaymentMethodChange,
       payment,
     };
   });
@@ -450,6 +484,7 @@ export type HandoverOrderView = {
   collectedAmount: string;
   paymentMethod: string | null;
   paymentGatewayPrimary: string | null;
+  financeApprovalPending: boolean;
   invoiceClosed: boolean;
   fulfillmentStage: string;
   eligible: boolean;
@@ -535,6 +570,9 @@ export async function buildHandoverOrders(deliveries: HandoverDelivery[]): Promi
     } else if (modes.length === 0) {
       eligible = false;
       blockReason = "No payment types for this company";
+    } else if (delivery.financeApprovalPending) {
+      eligible = false;
+      blockReason = FINANCE_PAYMENT_METHOD_CHANGE_PENDING;
     } else {
       financeBlock = await getFinancePaymentApprovalBlockReason({
         id: delivery.orderId,
@@ -557,8 +595,11 @@ export async function buildHandoverOrders(deliveries: HandoverDelivery[]): Promi
       deliveredAt: delivery.deliveredAt?.toISOString() ?? null,
       cashAmount: delivery.cashAmount,
       collectedAmount: delivery.collectedAmount,
-      paymentMethod: delivery.paymentMethod,
+      paymentMethod: delivery.pendingPaymentMethodChange
+        ? `${paymentMethodChangeTargetLabel(delivery.pendingPaymentMethodChange)} (pending approval)`
+        : delivery.paymentMethod,
       paymentGatewayPrimary: delivery.paymentGatewayPrimary,
+      financeApprovalPending: delivery.financeApprovalPending,
       invoiceClosed,
       fulfillmentStage: delivery.fulfillmentStage,
       eligible,
@@ -800,6 +841,7 @@ export async function loadHandoverStatusExport(input: {
       rider: { select: { id: true, name: true, knownName: true } },
       order: {
         select: {
+          id: true,
           orderNumber: true,
           name: true,
           sourceName: true,
@@ -834,6 +876,9 @@ export async function loadHandoverStatusExport(input: {
     list.push(view);
     receiptsByRider.set(receipt.riderId, list);
   }
+  const pendingByOrder = await loadPendingPaymentMethodChangeByOrderIds(
+    tasks.map((task) => task.order.id),
+  );
   const rows: HandoverStatusExportRow[] = tasks.map((task) => {
     const order = task.order;
     const companyName = handoverCompanyName(order.companyLocation.erpnextCompany, order.companyLocation.name);
@@ -843,12 +888,13 @@ export async function loadHandoverStatusExport(input: {
       riderName,
       companyName,
       orderNumber: handoverOrderNumber(order),
-      cashAmount: handoverCashAmount({
+      cashAmount: resolveHandoverCollectCash({
         totalPrice: order.totalPrice,
         subtotalPrice: order.subtotalPrice,
         totalShipping: order.totalShipping,
         paymentGatewayPrimary: order.paymentGatewayPrimary,
         paymentGatewayNames: order.paymentGatewayNames,
+        pendingPaymentMethodChange: pendingByOrder.get(order.id) ?? null,
       }).toFixed(2),
       deliveredAt: task.completedAt,
       invoiceCompleteAt: order.invoiceCompleteAt,

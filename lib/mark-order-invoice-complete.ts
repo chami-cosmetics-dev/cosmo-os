@@ -2,7 +2,9 @@ import {
   DELIVERY_PAYMENT_APPROVAL,
   getFinancePaymentApprovalBlockReason,
   ORDER_PAYMENT_APPROVAL,
+  PAYMENT_METHOD_CHANGE_APPROVAL,
 } from "@/lib/approval-workflow";
+import { FINANCE_PAYMENT_METHOD_CHANGE_PENDING } from "@/lib/collection-payment-method";
 import { writeAuditLog } from "@/lib/audit-log";
 import {
   clearOrderErpPeSyncFailure,
@@ -79,6 +81,17 @@ export async function markOrderInvoiceComplete(input: {
     return { success: false, ref, error: "Order not found" };
   }
   if (!input.posAlreadyPaid) {
+    const pendingMethodChange = await prisma.approvalRequest.findFirst({
+      where: {
+        orderId: order.id,
+        type: PAYMENT_METHOD_CHANGE_APPROVAL,
+        status: "pending",
+      },
+      select: { id: true },
+    });
+    if (pendingMethodChange) {
+      return { success: false, ref, error: FINANCE_PAYMENT_METHOD_CHANGE_PENDING };
+    }
     const financeBlock = await getFinancePaymentApprovalBlockReason({
       id: order.id,
       paymentGatewayPrimary: order.paymentGatewayPrimary,

@@ -1,5 +1,5 @@
 import { Prisma } from "@prisma/client";
-import { randomBytes } from "crypto";
+import { createRiderDeliveryToken } from "@/lib/rider-delivery-token";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -226,7 +226,7 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
-      const riderDeliveryToken = riderId ? randomBytes(16).toString("hex") : null;
+      const riderDeliveryToken = riderId ? createRiderDeliveryToken() : null;
       const citypakShipment = citypakByOrderId.get(orderId);
       const citypakAddressPatch = citypakShipment
         ? citypakOverrideOrderPatch({

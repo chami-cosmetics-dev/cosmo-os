@@ -107,7 +107,7 @@ async function fetchInitialApprovals(
         o."customerPhone",
         o."customerEmail",
         (o."id" IS NOT NULL) AS "orderLinked",
-        reqUser."name" AS "requestedByName",
+        COALESCE(reqUser."knownName", reqUser."name") AS "requestedByName",
         reqUser."email" AS "requestedByEmail",
         rev."name" AS "reviewedByName",
         rev."email" AS "reviewedByEmail",

@@ -5,6 +5,7 @@ import {
   groupCashByErpCompany,
   groupDeliveriesByCompany,
   handoverCashAmount,
+  resolveHandoverCollectCash,
   handoverExportCsv,
   handoverOrderNumber,
   handoverReceiptOverlaps,
@@ -178,6 +179,25 @@ describe("handoverCashAmount", () => {
         paymentGatewayPrimary: "Cash",
       }).toFixed(2),
     ).toBe("11200.00");
+  });
+
+  it("zeros cash while a rider bank-transfer change is pending finance", () => {
+    expect(
+      resolveHandoverCollectCash({
+        totalPrice: "8000.00",
+        paymentGatewayPrimary: "Cash on Delivery (COD)",
+        pendingPaymentMethodChange: "bank_transfer",
+      }).toFixed(2),
+    ).toBe("0.00");
+  });
+
+  it("counts cash after finance or rider switches card-on-delivery to cash", () => {
+    expect(
+      resolveHandoverCollectCash({
+        totalPrice: "8000.00",
+        paymentGatewayPrimary: "Cash on Delivery (COD)",
+      }).toFixed(2),
+    ).toBe("8000.00");
   });
 
   it("leaves prepaid gateways at zero", () => {
