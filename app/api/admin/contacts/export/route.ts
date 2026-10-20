@@ -301,12 +301,15 @@ export async function GET(request: NextRequest) {
   const unallocatedPhones = page.rows
     .filter((contact) => !contact.assignedMerchant?.trim())
     .map((contact) => contact.phoneNumber);
+  const includeUpdatedBy = mode === "purchase_summary";
   const [allocatedByPhone, updatedByContactId] = await Promise.all([
     loadAllocatedMerchantByPhone(companyId, unallocatedPhones),
-    loadLatestUpdaterByContactIds(
-      companyId,
-      page.rows.map((contact) => contact.id)
-    ),
+    includeUpdatedBy
+      ? loadLatestUpdaterByContactIds(
+          companyId,
+          page.rows.map((contact) => contact.id)
+        )
+      : Promise.resolve(new Map<string, string>()),
   ]);
 
   if (isFirstPage) {
@@ -340,7 +343,7 @@ export async function GET(request: NextRequest) {
     "first_purchased_date",
     "created_at",
     "updated_at",
-    "updated_by",
+    ...(includeUpdatedBy ? (["updated_by"] as const) : []),
   ] as const;
 
   const purchaseHeaders = [
@@ -408,10 +411,14 @@ export async function GET(request: NextRequest) {
       first_purchased_date: formatIsoDate(contact.purchaseFirstOrderAt),
       created_at: formatIsoDateTime(contact.createdAt),
       updated_at: formatIsoDateTime(contact.updatedAt),
-      updated_by: formatStoredAllocatedMerchant(
-        updatedByContactId.get(contact.id),
-        aliasToRoster
-      ),
+      ...(includeUpdatedBy
+        ? {
+            updated_by: formatStoredAllocatedMerchant(
+              updatedByContactId.get(contact.id),
+              aliasToRoster
+            ),
+          }
+        : {}),
     };
     lines.push(csvLine(headers, row));
   }

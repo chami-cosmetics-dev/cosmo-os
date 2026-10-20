@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildAssignedMerchantAliasMapFromUsers,
   canonicalizeAssignedMerchantLabels,
   canonicalizeMerchantDisplayName,
   expandAssignedMerchantFilter,
@@ -152,6 +153,32 @@ describe("assigned merchant aliases", () => {
     expect(hasInsightAdminView(fromBucket)).toBe(false);
     expect(insightVisibility(fromBucket, "DM - General")).toBe("owner");
     expect(insightVisibility(fromBucket, "Other Merchant")).toBe("limited");
+  });
+
+  it("builds the export alias map from one user list (no per-merchant fetch)", () => {
+    const map = buildAssignedMerchantAliasMapFromUsers([
+      {
+        id: "u1",
+        knownName: "Sandali",
+        name: "Sandali Navodya",
+        email: "sandali@example.com",
+        couponCodes: ["MER91"],
+      },
+      {
+        id: "u2",
+        knownName: "Semini",
+        name: "Semini",
+        email: "semini@example.com",
+        couponCodes: ["MER103"],
+      },
+    ]);
+
+    expect(map.get("mer91")?.value).toBe("MER91");
+    expect(map.get("sandali")?.value).toBe("MER91");
+    expect(map.get("sadali navodya")?.value).toBe("MER91");
+    expect(map.get("mer103")?.value).toBe("Sanda/semini");
+    expect(map.get("semini")?.value).toBe("Sanda/semini");
+    expect(map.get("sanda/semini")?.value).toBe("Sanda/semini");
   });
 
   it("falls back to knownName when merchant has no MER", () => {
