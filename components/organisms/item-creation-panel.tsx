@@ -26,6 +26,8 @@ type ItemCreationItem = {
   seoSetupStatus: string;
   seoActivationStatus: string;
   digitalMarketingStatus: string;
+  digitalMarketingBrand?: string | null;
+  digitalMarketingAssigneeId?: string | null;
   purchasingStatus: string;
   storeTransferStatus: string;
   storeStockStatus: string;
@@ -39,12 +41,15 @@ type ItemCreationItem = {
   erp2ItemCode: string | null;
   createdAt: string;
   itemCreatedAt?: string | null;
+  imageCreatedAt?: string | null;
   imageUpdatedAt?: string | null;
   priceUpdatedAt?: string | null;
   stockReadyAt?: string | null;
   stockAddedAt?: string | null;
   sentAt?: string | null;
   receivedAt?: string | null;
+  activatedAt?: string | null;
+  completedAt?: string | null;
 };
 
 type Props = {
@@ -55,6 +60,7 @@ type Props = {
     manageAll: boolean;
     seo: boolean;
     digitalMarketing: boolean;
+    digitalMarketingAdmin: boolean;
     purchasing: boolean;
     stores: boolean;
   };
@@ -63,6 +69,7 @@ type Props = {
 
 type TeamView = "admin" | "seo" | "digitalMarketing" | "purchasing" | "stores";
 type WorkTeamView = Exclude<TeamView, "admin">;
+type DigitalMarketingAdminPage = "requests" | "allocations";
 type CreateRow = {
   key: number;
   sku: string;
@@ -132,6 +139,78 @@ function elapsedLabel(since: string, now: number | null) {
   const hours = Math.floor((minutes % 1440) / 60);
   if (days > 0) return `${days}d ${hours}h`;
   return `${hours}h ${minutes % 60}m`;
+}
+
+function elapsedBetween(since: string, until: string | null | undefined, now: number | null) {
+  if (now == null) return "-";
+  const end = until ? new Date(until).getTime() : now;
+  const minutes = Math.max(0, Math.floor((end - new Date(since).getTime()) / 60000));
+  const days = Math.floor(minutes / 1440);
+  const hours = Math.floor((minutes % 1440) / 60);
+  if (days > 0) return `${days}d ${hours}h`;
+  return `${hours}h ${minutes % 60}m`;
+}
+
+function stageAgeLabel(
+  item: ItemCreationItem,
+  stage: "seo" | "digital" | "purchasing" | "transfer" | "stock" | "activation",
+  value: string,
+  now: number | null,
+) {
+  if (
+    (stage === "digital" && item.seoSetupStatus === "PENDING") ||
+    (stage === "purchasing" && item.purchasingStatus === "LOCKED") ||
+    (stage === "stock" && item.storeStockStatus === "WAITING_FOR_PRICE") ||
+    (stage === "activation" && item.seoActivationStatus === "LOCKED")
+  ) {
+    return "-";
+  }
+  const start = stage === "seo"
+    ? item.createdAt
+    : stage === "digital"
+      ? item.itemCreatedAt ?? item.createdAt
+      : stage === "purchasing"
+        ? item.imageUpdatedAt ?? item.itemCreatedAt ?? item.createdAt
+        : stage === "transfer"
+            ? item.createdAt
+          : stage === "stock"
+            ? item.stockReadyAt ?? item.priceUpdatedAt ?? item.createdAt
+            : item.stockAddedAt ?? item.receivedAt ?? item.createdAt;
+  const end = stage === "seo" && value === "COMPLETED"
+    ? item.imageUpdatedAt ?? item.itemCreatedAt
+    : stage === "seo" && value === "ITEM_CREATED"
+      ? item.itemCreatedAt
+      : stage === "digital" && value === "IMAGE_CREATED"
+        ? item.imageCreatedAt ?? item.imageUpdatedAt
+        : stage === "purchasing" && value === "PRICE_UPDATED"
+          ? item.priceUpdatedAt
+          : stage === "transfer" && value === "RECEIVED"
+            ? item.receivedAt
+            : stage === "stock" && value === "STOCK_ADDED"
+              ? item.stockAddedAt
+              : stage === "activation" && value === "ACTIVATED"
+                ? item.activatedAt
+                : null;
+  return elapsedBetween(start, end, now);
+}
+
+function StageStatus({
+  item,
+  stage,
+  value,
+  now,
+}: {
+  item: ItemCreationItem;
+  stage: "seo" | "digital" | "purchasing" | "transfer" | "stock" | "activation";
+  value: string;
+  now: number | null;
+}) {
+  return (
+    <div className="grid gap-1">
+      <StatusPill value={value} />
+      <span className="text-xs text-muted-foreground">{stageAgeLabel(item, stage, value, now)}</span>
+    </div>
+  );
 }
 
 const inputClass =
@@ -204,6 +283,8 @@ export function ItemCreationPanel({
   const [message, setMessage] = useState("");
   const [filters, setFilters] = useState<Record<string, string>>(initialFilters);
   const [activeView, setActiveView] = useState<TeamView>(defaultView(permissions));
+  const [digitalMarketingAdminPage, setDigitalMarketingAdminPage] =
+    useState<DigitalMarketingAdminPage>("requests");
   const [createRows, setCreateRows] = useState<CreateRow[]>([emptyCreateRow(1)]);
   const [selectedCreateRows, setSelectedCreateRows] = useState<Set<number>>(new Set());
   const [isPending, startTransition] = useTransition();
@@ -220,7 +301,7 @@ export function ItemCreationPanel({
     selectedRowsForBulk.length > 0 && selectedRowsForBulk.every((row) => row.addErp1OgfPrice);
 
   const canAct = (area: keyof Props["permissions"]) =>
-    permissions.manageAll || permissions[area];
+    permissions.manageAll || permissions[area] || (area === "digitalMarketing" && permissions.digitalMarketingAdmin);
 
   async function refresh(nextFilters = filters) {
     const params = new URLSearchParams(
@@ -593,6 +674,39 @@ export function ItemCreationPanel({
         </div>
       )}
 
+      {permissions.digitalMarketingAdmin && activeView === "digitalMarketing" && (
+        <div className="inline-flex flex-wrap gap-1 rounded-md border bg-card p-1">
+          <button
+            type="button"
+            onClick={() => setDigitalMarketingAdminPage("requests")}
+            className={`rounded-md px-4 py-2 text-sm font-medium transition ${
+              digitalMarketingAdminPage === "requests"
+                ? "bg-primary text-primary-foreground"
+                : "hover:bg-muted"
+            }`}
+          >
+            Digital Marketing
+          </button>
+          <button
+            type="button"
+            onClick={() => setDigitalMarketingAdminPage("allocations")}
+            className={`rounded-md px-4 py-2 text-sm font-medium transition ${
+              digitalMarketingAdminPage === "allocations"
+                ? "bg-primary text-primary-foreground"
+                : "hover:bg-muted"
+            }`}
+          >
+            Brand Allocation
+          </button>
+        </div>
+      )}
+
+      {permissions.digitalMarketingAdmin &&
+        activeView === "digitalMarketing" &&
+        digitalMarketingAdminPage === "allocations" && (
+          <BrandAllocationPanel items={items} onRefresh={refreshRequests} />
+        )}
+
       {permissions.admin && activeView === "admin" && (
         <div className="space-y-4">
           <form action={submitCreate} className="rounded-lg border bg-card p-4">
@@ -737,33 +851,35 @@ export function ItemCreationPanel({
                       Remove
                     </button>
                     <div className="flex flex-wrap items-center gap-2 xl:col-start-4 xl:col-end-8">
-                      <label className="flex h-9 items-center gap-2 rounded-md border px-3 text-sm font-medium">
-                        <input
-                          type="checkbox"
-                          checked={row.creationSources.includes("SHOPIFY")}
-                          onChange={() => toggleCreateSource(row.key, "SHOPIFY")}
-                          className="size-4"
-                        />
-                        Shopify
-                      </label>
-                      <label className="flex h-9 items-center gap-2 rounded-md border px-3 text-sm font-medium">
-                        <input
-                          type="checkbox"
-                          checked={row.creationSources.includes("ERP2")}
-                          onChange={() => toggleCreateSource(row.key, "ERP2")}
-                          className="size-4"
-                        />
-                        ERP 02
-                      </label>
-                      <label className="flex h-9 items-center gap-2 rounded-md border px-3 text-sm font-medium">
-                        <input
-                          type="checkbox"
-                          checked={row.addErp1OgfPrice}
-                          onChange={(event) => updateCreateRow(row.key, "addErp1OgfPrice", event.target.checked)}
-                          className="size-4"
-                        />
-                        ERP1 OGF
-                      </label>
+                      {!vaultOs && <>
+                        <label className="flex h-9 items-center gap-2 rounded-md border px-3 text-sm font-medium">
+                          <input
+                            type="checkbox"
+                            checked={row.creationSources.includes("SHOPIFY")}
+                            onChange={() => toggleCreateSource(row.key, "SHOPIFY")}
+                            className="size-4"
+                          />
+                          Shopify
+                        </label>
+                        <label className="flex h-9 items-center gap-2 rounded-md border px-3 text-sm font-medium">
+                          <input
+                            type="checkbox"
+                            checked={row.creationSources.includes("ERP2")}
+                            onChange={() => toggleCreateSource(row.key, "ERP2")}
+                            className="size-4"
+                          />
+                          ERP 02
+                        </label>
+                        <label className="flex h-9 items-center gap-2 rounded-md border px-3 text-sm font-medium">
+                          <input
+                            type="checkbox"
+                            checked={row.addErp1OgfPrice}
+                            onChange={(event) => updateCreateRow(row.key, "addErp1OgfPrice", event.target.checked)}
+                            className="size-4"
+                          />
+                          ERP1 OGF
+                        </label>
+                      </>}
                     </div>
                   </div>
                 ))}
@@ -780,7 +896,16 @@ export function ItemCreationPanel({
             <div className="mb-4 flex items-center justify-between gap-3">
               <h2 className="text-lg font-semibold tracking-normal">Filters</h2>
             </div>
-            <div className="grid gap-3 xl:grid-cols-[1fr_1fr_1fr_1fr_1fr_auto]">
+            <div className="grid gap-3 xl:grid-cols-[1.4fr_1fr_1fr_1fr_1fr_1fr_auto]">
+              <label className="grid gap-1 text-xs font-medium text-muted-foreground">
+                Search SKU or product name
+                <input
+                  name="search"
+                  placeholder="SKU or product name"
+                  defaultValue={filters.search ?? ""}
+                  className={inputClass}
+                />
+              </label>
               <label className="grid gap-1 text-xs font-medium text-muted-foreground">
                 SKU
                 <input
@@ -852,7 +977,10 @@ export function ItemCreationPanel({
         />
       )}
 
-      {activeView !== "admin" && (
+      {activeView !== "admin" &&
+        !(activeView === "digitalMarketing" &&
+          permissions.digitalMarketingAdmin &&
+          digitalMarketingAdminPage === "allocations") && (
         <TeamWorkflowView
           teamLabel={teamViewLabel(activeView)}
           sections={visibleSections}
@@ -874,6 +1002,157 @@ function MetricCard({ label, value }: { label: string; value: number }) {
       </div>
       <div className="mt-1 text-2xl font-semibold">{value}</div>
     </div>
+  );
+}
+
+type BrandAllocation = { id: string; brand: string; userId: string; userName: string };
+type DigitalMarketingUser = { id: string; name: string };
+
+function BrandAllocationPanel({
+  items,
+  onRefresh,
+}: {
+  items: ItemCreationItem[];
+  onRefresh: () => void;
+}) {
+  const [allocations, setAllocations] = useState<BrandAllocation[]>([]);
+  const [users, setUsers] = useState<DigitalMarketingUser[]>([]);
+  const [brand, setBrand] = useState("");
+  const [userId, setUserId] = useState("");
+  const [isBusy, setIsBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function load() {
+    const response = await fetch("/api/item-creation/brand-allocations");
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error ?? "Failed to load brand allocations");
+    setAllocations(data.allocations ?? []);
+    setUsers(data.users ?? []);
+  }
+
+  useEffect(() => {
+    void load().catch((loadError) => setError(loadError instanceof Error ? loadError.message : "Failed to load allocations"));
+  }, []);
+
+  async function save(next: BrandAllocation[]) {
+    setIsBusy(true);
+    setError("");
+    try {
+      const response = await fetch("/api/item-creation/brand-allocations", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ allocations: next.map(({ brand: value, userId: assignedUserId }) => ({ brand: value, userId: assignedUserId })) }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "Failed to save allocations");
+      setAllocations(data.allocations ?? []);
+      setUsers(data.users ?? users);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Failed to save allocations");
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  function addAllocation() {
+    const trimmedBrand = brand.trim();
+    if (!trimmedBrand || !userId) {
+      setError("Enter a brand and select an allocated person");
+      return;
+    }
+    void save([...allocations, { id: `new-${Date.now()}`, brand: trimmedBrand, userId, userName: users.find((user) => user.id === userId)?.name ?? "User" }]);
+    setBrand("");
+    setUserId("");
+  }
+
+  function removeAllocation(id: string) {
+    void save(allocations.filter((allocation) => allocation.id !== id));
+  }
+
+  async function updateRequestAssignee(itemId: string, assigneeId: string) {
+    setIsBusy(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/item-creation/${itemId}/digital-marketing/assignment`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ assigneeId: assigneeId || null }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "Failed to update request assignment");
+      onRefresh();
+    } catch (assignmentError) {
+      setError(assignmentError instanceof Error ? assignmentError.message : "Failed to update request assignment");
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  return (
+    <section className="rounded-lg border bg-card p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold tracking-normal">Digital Marketing Brand Allocation</h2>
+          <p className="mt-1 text-sm text-muted-foreground">New requests are matched by brand name in the product description.</p>
+        </div>
+        <button type="button" onClick={() => void load()} disabled={isBusy} className={secondaryButtonClass}>Refresh</button>
+      </div>
+      <div className="mt-4 grid gap-2 md:grid-cols-[1fr_1fr_auto]">
+        <input value={brand} onChange={(event) => setBrand(event.target.value)} placeholder="Brand name" className={inputClass} />
+        <select value={userId} onChange={(event) => setUserId(event.target.value)} className={inputClass}>
+          <option value="">Select Digital Marketing user</option>
+          {users.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}
+        </select>
+        <button type="button" onClick={addAllocation} disabled={isBusy} className={primaryButtonClass}>Add Brand</button>
+      </div>
+      {error && <p className="mt-2 text-sm text-destructive">{error}</p>}
+      <div className="mt-4 overflow-x-auto rounded-md border">
+        <table className="w-full text-left text-sm">
+          <thead className="border-b bg-muted/50"><tr><th className="px-3 py-2">Brand</th><th className="px-3 py-2">Allocated person</th><th className="px-3 py-2">Action</th></tr></thead>
+          <tbody>
+            {allocations.map((allocation) => (
+              <tr key={allocation.id} className="border-b last:border-0">
+                <td className="px-3 py-2">{allocation.brand}</td>
+                <td className="px-3 py-2">
+                  <select
+                    value={allocation.userId}
+                    onChange={(event) => void save(allocations.map((candidate) => candidate.id === allocation.id ? { ...candidate, userId: event.target.value } : candidate))}
+                    disabled={isBusy}
+                    className={`${inputClass} min-w-52`}
+                  >
+                    {users.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}
+                  </select>
+                </td>
+                <td className="px-3 py-2"><button type="button" onClick={() => removeAllocation(allocation.id)} disabled={isBusy} className="text-sm text-destructive">Remove</button></td>
+              </tr>
+            ))}
+            {allocations.length === 0 && <tr><td colSpan={3} className="px-3 py-4 text-muted-foreground">No brand allocations configured.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+      <div className="mt-5 overflow-x-auto rounded-md border">
+        <div className="border-b bg-muted/50 px-3 py-2 text-sm font-medium">Request-level assignments</div>
+        <table className="w-full text-left text-sm">
+          <thead className="border-b"><tr><th className="px-3 py-2">SKU</th><th className="px-3 py-2">Product</th><th className="px-3 py-2">Brand</th><th className="px-3 py-2">Assigned person</th></tr></thead>
+          <tbody>
+            {items.filter((item) => item.digitalMarketingStatus === "PENDING").map((item) => (
+              <tr key={item.id} className="border-b last:border-0">
+                <td className="px-3 py-2 font-medium">{item.sku}</td>
+                <td className="max-w-sm px-3 py-2">{item.description}</td>
+                <td className="px-3 py-2">{item.digitalMarketingBrand ?? "Unmatched"}</td>
+                <td className="px-3 py-2">
+                  <select value={item.digitalMarketingAssigneeId ?? ""} onChange={(event) => void updateRequestAssignee(item.id, event.target.value)} disabled={isBusy} className={`${inputClass} min-w-52`}>
+                    <option value="">Unassigned</option>
+                    {users.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}
+                  </select>
+                </td>
+              </tr>
+            ))}
+            {items.filter((item) => item.digitalMarketingStatus === "PENDING").length === 0 && <tr><td colSpan={4} className="px-3 py-4 text-muted-foreground">No pending Digital Marketing requests.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 
@@ -2100,6 +2379,7 @@ function AdminTable({
                 "SEO Activation",
                 "Overall Status",
                 "Current Stage Age",
+                "Total Time",
                 "Created At",
                 "Actions",
               ].map((heading) => (
@@ -2215,14 +2495,15 @@ function AdminTable({
                       )}
                     </div>
                   </td>
-                  <td className="px-3 py-3"><StatusPill value={item.seoSetupStatus} /></td>
-                  <td className="px-3 py-3"><StatusPill value={item.digitalMarketingStatus} /></td>
-                  <td className="px-3 py-3"><StatusPill value={item.purchasingStatus} /></td>
-                  <td className="px-3 py-3"><StatusPill value={item.storeTransferStatus} /></td>
-                  <td className="px-3 py-3"><StatusPill value={item.storeStockStatus} /></td>
-                  <td className="px-3 py-3"><StatusPill value={item.seoActivationStatus} /></td>
+                  <td className="px-3 py-3"><StageStatus item={item} stage="seo" value={item.seoSetupStatus} now={now} /></td>
+                  <td className="px-3 py-3"><StageStatus item={item} stage="digital" value={item.digitalMarketingStatus} now={now} /></td>
+                  <td className="px-3 py-3"><StageStatus item={item} stage="purchasing" value={item.purchasingStatus} now={now} /></td>
+                  <td className="px-3 py-3"><StageStatus item={item} stage="transfer" value={item.storeTransferStatus} now={now} /></td>
+                  <td className="px-3 py-3"><StageStatus item={item} stage="stock" value={item.storeStockStatus} now={now} /></td>
+                  <td className="px-3 py-3"><StageStatus item={item} stage="activation" value={item.seoActivationStatus} now={now} /></td>
                   <td className="px-3 py-3"><StatusPill value={item.overallStatus} /></td>
                   <td className="px-3 py-3 text-muted-foreground">{elapsedLabel(currentStageSince(item), now)}</td>
+                  <td className="px-3 py-3 text-muted-foreground">{elapsedBetween(item.createdAt, item.completedAt, now)}</td>
                   <td className="px-3 py-3">
                     {formatDate(item.createdAt)}
                   </td>
