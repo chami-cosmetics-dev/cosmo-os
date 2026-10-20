@@ -58,6 +58,36 @@ export async function listConsultations(companyId: string, month: string): Promi
   return records.map(toRow);
 }
 
+/** Cancelled in Cosmo OS, or voided (cancelled / credit-noted) in ERP. */
+function isCancelledOrder(order: { cancelledAt: Date | null; financialStatus: string | null }) {
+  return order.cancelledAt !== null || order.financialStatus === "voided";
+}
+
+/**
+ * Invoice numbers that belong only to cancelled orders.
+ * Numbers that match no order at all are allowed (they may be typed in by hand).
+ */
+export async function findCancelledInvoices(companyId: string, invoiceNumbers: string[]): Promise<string[]> {
+  const numbers = [...new Set(invoiceNumbers.map((value) => value.trim().toUpperCase()).filter(Boolean))];
+  if (numbers.length === 0) return [];
+  const orders = await prisma.order.findMany({
+    where: {
+      companyId,
+      OR: [{ erpnextInvoiceId: { in: numbers } }, { name: { in: numbers } }, { orderNumber: { in: numbers } }],
+    },
+    select: { erpnextInvoiceId: true, name: true, orderNumber: true, cancelledAt: true, financialStatus: true },
+  });
+  const live = new Set<string>();
+  const cancelled = new Set<string>();
+  for (const order of orders) {
+    for (const ref of [order.erpnextInvoiceId, order.name, order.orderNumber]) {
+      const key = ref?.trim().toUpperCase();
+      if (key && numbers.includes(key)) (isCancelledOrder(order) ? cancelled : live).add(key);
+    }
+  }
+  return numbers.filter((number) => cancelled.has(number) && !live.has(number));
+}
+
 /** Order `discountCodes` JSON ([{ code }]) → upper-cased codes. */
 function extractDiscountCodes(discountCodes: unknown): string[] {
   if (!Array.isArray(discountCodes)) return [];
@@ -113,13 +143,14 @@ export async function lookupConsultationInvoices(input: {
     where: {
       companyId: input.companyId,
       createdAt: { gte: dayStart, lte: dayEnd },
-      cancelledAt: null,
-      financialStatus: { not: "voided" },
+      // Cancelled orders are returned too, flagged, so staff see why an invoice can't be used.
       OR: buildContactOrderLookupOr({ phones, emails: [] }),
     },
     orderBy: { createdAt: "asc" },
     select: {
       name: true,
+      cancelledAt: true,
+      financialStatus: true,
       orderNumber: true,
       erpnextInvoiceId: true,
       shippingAddress: true,
@@ -169,6 +200,7 @@ export async function lookupConsultationInvoices(input: {
     matches.push({
       invoiceNumber,
       isOrderNumber: !hasErpInvoice,
+      cancelled: isCancelledOrder(order),
       customerName: pickInvoiceCustomerName(order),
       locationName,
       suggestedMerchant: suggestConsultationMerchant({ merchantName, locationName }),
