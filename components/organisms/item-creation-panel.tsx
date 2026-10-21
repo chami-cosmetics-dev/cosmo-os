@@ -89,6 +89,29 @@ type StockOption = {
   company?: string | null;
   priority?: number;
 };
+
+type ExistingStockLookup = {
+  itemCode: string;
+  itemName: string;
+  barcode: string | null;
+  rop: number;
+  currentStock: number | null;
+  warehouseDetails: Array<{ warehouse: string; erp: "ERP1" | "ERP2"; barcode: string | null; rop: number; stock: number | null }>;
+  erps: Array<"ERP1" | "ERP2">;
+};
+
+type StockAllocationItem = Pick<
+  ItemCreationItem,
+  "id" | "sku" | "description" | "seoSetupStatus" | "digitalMarketingStatus"
+> & {
+  isExisting?: boolean;
+  erp?: StockErp;
+  erps?: StockErp[];
+  barcode?: string | null;
+  rop?: number;
+  currentStock?: number | null;
+  warehouseDetails?: Array<{ warehouse: string; erp: StockErp; barcode: string | null; rop: number; stock: number | null }>;
+};
 type StockOptions = {
   suppliers: StockOption[];
   warehouses: StockOption[];
@@ -593,7 +616,12 @@ export function ItemCreationPanel({
       subtitle: "Send and receive the physical transfer.",
       team: "stores",
       visible: canAct("stores"),
-      items: items.filter((item) => item.storeTransferStatus !== "RECEIVED"),
+      items: items.filter(
+        (item) =>
+          item.storeTransferStatus !== "RECEIVED" &&
+          item.seoSetupStatus !== "PENDING" &&
+          item.digitalMarketingStatus === "IMAGE_CREATED",
+      ),
       action: (item: ItemCreationItem) =>
         item.storeTransferStatus === "PENDING" ? (
           <ActionButton onClick={() => runAction(`/api/item-creation/${item.id}/stores/sent`)}>
@@ -1333,7 +1361,7 @@ function TeamWorkflowView({
                 </div>
                 {section.team === "stores" && section.title === "Stock" ? (
                   <div className="space-y-4">
-                    <CombinedStockRequestTable items={section.items} onAction={onAction} />
+                    <CombinedStockRequestTableWithExistingItems items={section.items} onAction={onAction} />
                   </div>
                 ) : (
                   <div className="grid gap-3 xl:grid-cols-2">
@@ -1396,7 +1424,9 @@ function CombinedStockRequestTable({
   const [totals, setTotals] = useState<Record<string, string>>({});
   const [warehouseToAdd, setWarehouseToAdd] = useState<Record<string, string>>({});
   const [confirmed, setConfirmed] = useState<Set<string>>(new Set());
-  const eligible = items.filter((item) => item.seoSetupStatus !== "PENDING");
+  const eligible = items.filter(
+    (item) => item.seoSetupStatus !== "PENDING" && item.digitalMarketingStatus === "IMAGE_CREATED",
+  );
   const allSelected = eligible.length > 0 && eligible.every((item) => selected.has(item.id));
 
   useEffect(() => {
@@ -1554,7 +1584,8 @@ function CombinedStockRequestTable({
       <table className="w-full min-w-[1100px] text-sm">
         <thead className="bg-muted/40 text-xs uppercase text-muted-foreground"><tr><th className="px-3 py-2">Select</th><th className="px-3 py-2 text-left">SKU</th><th className="px-3 py-2 text-left">Description</th><th className="px-3 py-2 text-left">Warehouse (ERP)</th><th className="px-3 py-2">Allocated Qty</th><th className="px-3 py-2 text-left">Company</th><th className="px-3 py-2">Action</th></tr></thead>
         <tbody>{items.map((item) => {
-          const locked = item.seoSetupStatus === "PENDING";
+          const locked =
+            item.seoSetupStatus === "PENDING" || item.digitalMarketingStatus !== "IMAGE_CREATED";
           const allocationRows = itemRows(item);
           const availableWarehouses = configuredWarehouses().filter(
             (option) => !allocationRows.some((row) => row.erp === option.erp && row.warehouse === option.name),
@@ -1562,11 +1593,411 @@ function CombinedStockRequestTable({
           return <tr key={item.id} className="border-t align-top">
             <td className="px-3 py-3"><input type="checkbox" disabled={locked} checked={selected.has(item.id)} onChange={() => toggle(item.id)} /></td>
             <td className="px-3 py-3 font-semibold">{item.sku}</td><td className="px-3 py-3 text-muted-foreground">{item.description}</td>
-            <td className="px-3 py-3" colSpan={3}>{locked ? "Waiting for item created" : <div className="space-y-2"><div className="flex flex-wrap items-center gap-2"><input type="number" min="0" value={totals[item.id] ?? ""} onChange={(event) => setTotals((current) => ({ ...current, [item.id]: event.target.value }))} placeholder="Total qty" className={`${inputClass} w-32`} /><button type="button" onClick={() => calculate(item)} className={secondaryButtonClass}>Calculate allocation</button><button type="button" onClick={() => confirm(item)} className={secondaryButtonClass}>{confirmed.has(item.id) ? "Confirmed" : "Confirm allocation"}</button><select value={warehouseToAdd[item.id] ?? ""} onChange={(event) => setWarehouseToAdd((current) => ({ ...current, [item.id]: event.target.value }))} disabled={availableWarehouses.length === 0} className={inputClass}><option value="">Select warehouse to add</option>{availableWarehouses.map((option) => <option key={warehouseOptionKey(option)} value={warehouseOptionKey(option)}>{option.label} ({option.erp.toUpperCase()})</option>)}</select><button type="button" onClick={() => addWarehouse(item)} disabled={!warehouseToAdd[item.id]} className={secondaryButtonClass}>Add Warehouse</button></div>{allocationRows.map((row) => <div key={row.key} className="grid grid-cols-[minmax(300px,1fr)_120px_minmax(180px,1fr)_auto] gap-2"><select value={row.warehouse} onChange={(event) => { const option = options.find((candidate) => candidate.name === event.target.value && candidate.erp === row.erp); setRows((current) => ({ ...current, [item.id]: allocationRows.map((entry) => entry.key === row.key ? { ...entry, warehouse: event.target.value, priority: option?.priority ?? entry.priority } : entry) })); setConfirmed((currentConfirmed) => { const next = new Set(currentConfirmed); next.delete(item.id); return next; }); }} className={inputClass}>{options.map((option) => <option key={`${option.erp}-${option.name}`} value={option.name}>{option.label} ({option.erp.toUpperCase()})</option>)}</select><input type="number" min="0" value={row.qty} onChange={(event) => setRows((current) => ({ ...current, [item.id]: allocationRows.map((entry) => entry.key === row.key ? { ...entry, qty: event.target.value } : entry) }))} className={inputClass} /><div className="flex items-center rounded-md border bg-muted/20 px-3 text-muted-foreground">{options.find((option) => option.name === row.warehouse && option.erp === row.erp)?.company ?? "-"}</div><button type="button" onClick={() => removeWarehouse(item.id, row.key)} className={secondaryButtonClass}>Remove</button></div>)}</div>}</td>
-            <td className="px-3 py-3"><button type="button" onClick={() => onAction(`/api/item-creation/${item.id}/stores/stock-added`)} className={secondaryButtonClass}>Manual</button></td>
+            <td className="px-3 py-3">{locked ? "Waiting for Digital Marketing image" : <button type="button" onClick={() => onAction(`/api/item-creation/${item.id}/stores/stock-added`)} className={secondaryButtonClass}>Manual</button>}</td>
           </tr>;
         })}</tbody>
       </table>
+    </div>
+  );
+}
+
+function CombinedStockRequestTableWithExistingItems({
+  items,
+  onAction,
+}: {
+  items: ItemCreationItem[];
+  onAction: (url: string, body?: unknown) => void;
+}) {
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [supplier, setSupplier] = useState("");
+  const [supplierOptions, setSupplierOptions] = useState<Array<{ name: string; label: string }>>([]);
+  const [options, setOptions] = useState<Array<StockOption & { erp: StockErp }>>([]);
+  const [optionsError, setOptionsError] = useState("");
+  const [existingItems, setExistingItems] = useState<StockAllocationItem[]>([]);
+  const [existingQuery, setExistingQuery] = useState("");
+  const [lookupMatches, setLookupMatches] = useState<ExistingStockLookup[]>([]);
+  const [lookupError, setLookupError] = useState("");
+  const [isLookingUp, setIsLookingUp] = useState(false);
+  const [rows, setRows] = useState<Record<string, StockWarehouseRow[]>>({});
+  const [totals, setTotals] = useState<Record<string, string>>({});
+  const [warehouseToAdd, setWarehouseToAdd] = useState<Record<string, string>>({});
+  const [confirmed, setConfirmed] = useState<Set<string>>(new Set());
+  const [allocationErrors, setAllocationErrors] = useState<Record<string, string>>({});
+
+  const workflowItems = items.filter(
+    (item) => item.seoSetupStatus !== "PENDING" && item.digitalMarketingStatus === "IMAGE_CREATED",
+  );
+  const allocationItems: StockAllocationItem[] = [...workflowItems, ...existingItems];
+  const isLocked = (item: StockAllocationItem) =>
+    !item.isExisting && (item.seoSetupStatus === "PENDING" || item.digitalMarketingStatus !== "IMAGE_CREATED");
+  const selectableItems = allocationItems.filter((item) => !isLocked(item));
+  const allSelected = selectableItems.length > 0 && selectableItems.every((item) => selected.has(item.id));
+
+  useEffect(() => {
+    void Promise.all((['erp1', 'erp2'] as StockErp[]).map(async (erp) => {
+      const response = await fetch(`/api/item-creation/stock/options?erp=${erp.toUpperCase()}`, { cache: "no-store" });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(data?.error ?? "Failed to load stock options");
+      return (data.warehouses ?? [])
+        .filter((option: StockOption) => {
+          const name = option.name.toLowerCase();
+          return name.includes("main") && !name.includes("shop");
+        })
+        .map((option: StockOption) => ({ ...option, label: option.name, erp }));
+    })).then((loaded) => {
+      setOptions(loaded.flat());
+      setOptionsError("");
+    }).catch((error) => {
+      setOptionsError(error instanceof Error ? error.message : "Failed to load stock options");
+    });
+  }, []);
+
+  useEffect(() => {
+    void Promise.all((['ERP1', 'ERP2'] as const).map(async (erp) => {
+      const response = await fetch(`/api/item-creation/stock/options?erp=${erp}`, { cache: "no-store" });
+      if (!response.ok) return [] as Array<{ name: string; label: string }>;
+      const data = (await response.json()) as { suppliers?: Array<{ name?: string; label?: string }> };
+      return (data.suppliers ?? []).flatMap((option) => option.name || option.label
+        ? [{ name: option.name || option.label!, label: option.label || option.name! }]
+        : []);
+    })).then((lists) => {
+      const unique = new Map<string, { name: string; label: string }>();
+      for (const option of lists.flat()) unique.set(option.name, option);
+      setSupplierOptions([...unique.values()].sort((a, b) => a.label.localeCompare(b.label)));
+    });
+  }, []);
+
+  function configuredWarehouses(item?: StockAllocationItem) {
+    return options.filter((option) => {
+      if (item?.isExisting && item.erps?.length && !item.erps.includes(option.erp)) return false;
+      if (item?.isExisting && !item.erps?.length && item.erp && option.erp !== item.erp) return false;
+      const name = option.name.toLowerCase();
+      return name.includes("main") && !name.includes("shop");
+    });
+  }
+
+  useEffect(() => {
+    if (options.length === 0) return;
+    setRows((current) => {
+      const next = { ...current };
+      for (const item of allocationItems) {
+        if (next[item.id]) continue;
+        next[item.id] = configuredWarehouses(item).map((option, index) => ({
+          key: index + 1,
+          warehouse: option.name,
+          qty: "0",
+          priority: option.priority ?? 2,
+          erp: option.erp,
+        }));
+      }
+      return next;
+    });
+    // Rows are initialized only for newly visible items; existing row edits are preserved.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, existingItems, options]);
+
+  function itemRows(item: StockAllocationItem) {
+    return rows[item.id] ?? [];
+  }
+
+  function warehouseOptionKey(option: StockOption & { erp: StockErp }) {
+    return `${option.erp}:${option.name}`;
+  }
+
+  function toggle(id: string) {
+    setSelected((current) => {
+      const next = new Set(current);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+
+  async function lookupExistingItem() {
+    const query = existingQuery.trim();
+    if (!query) return;
+    setIsLookingUp(true);
+    setLookupError("");
+    setLookupMatches([]);
+    try {
+      const response = await fetch(`/api/item-creation/stock/lookup?q=${encodeURIComponent(query)}`, { cache: "no-store" });
+      const data = await response.json().catch(() => null) as { items?: ExistingStockLookup[]; error?: string } | null;
+      if (!response.ok) throw new Error(data?.error ?? "Existing item lookup failed");
+      const matches = data?.items ?? [];
+      setLookupMatches(matches);
+      if (matches.length === 1) addExistingItem(matches[0]!);
+    } catch (error) {
+      setLookupError(error instanceof Error ? error.message : "Existing item lookup failed");
+    } finally {
+      setIsLookingUp(false);
+    }
+  }
+
+  function addExistingItem(match: ExistingStockLookup) {
+    const erps = match.erps.map((value) => value.toLowerCase() as StockErp);
+    const id = `existing:${match.itemCode}`;
+    setExistingItems((current) => current.some((item) => item.id === id)
+      ? current
+      : [...current, {
+          id,
+          sku: match.itemCode,
+          description: match.itemName,
+          seoSetupStatus: "ITEM_CREATED",
+          digitalMarketingStatus: "IMAGE_CREATED",
+          isExisting: true,
+          erp: erps.length === 1 ? erps[0] : undefined,
+          erps,
+          barcode: match.barcode,
+          rop: match.rop,
+          currentStock: match.currentStock,
+          warehouseDetails: match.warehouseDetails.map((detail) => ({ ...detail, erp: detail.erp.toLowerCase() as StockErp })),
+        }]);
+    setSelected((current) => new Set(current).add(id));
+    setLookupMatches((current) => current.filter((item) => item.itemCode !== match.itemCode));
+    setExistingQuery("");
+  }
+
+  function updateRow(itemId: string, key: number, patch: Partial<StockWarehouseRow>) {
+    setRows((current) => ({
+      ...current,
+      [itemId]: (current[itemId] ?? []).map((row) => row.key === key ? { ...row, ...patch } : row),
+    }));
+    setConfirmed((current) => {
+      const next = new Set(current);
+      next.delete(itemId);
+      return next;
+    });
+    setAllocationErrors((current) => ({ ...current, [itemId]: "" }));
+  }
+
+  function calculate(item: StockAllocationItem) {
+    const total = Math.max(0, Math.floor(Number(totals[item.id]) || 0));
+    const current = itemRows(item);
+    let remaining = total;
+    const values = new Map<string, number>();
+    const priorityFor = (row: StockWarehouseRow) => row.priority ?? 2;
+    for (const row of current.filter((entry) => priorityFor(entry) === 1)) {
+      const qty = Math.min(3, remaining);
+      values.set(String(row.key), qty);
+      remaining -= qty;
+      if (remaining === 0) break;
+    }
+    const extra = allocateTakeQty(remaining, current.map((row) => ({
+      key: String(row.key),
+      need: 0,
+      sales: 0,
+      priority: priorityFor(row),
+    })), false);
+    for (const allocation of extra) {
+      values.set(allocation.key, (values.get(allocation.key) ?? 0) + allocation.qty);
+    }
+    setRows((allRows) => ({
+      ...allRows,
+      [item.id]: current.map((row) => ({ ...row, qty: String(values.get(String(row.key)) ?? 0) })),
+    }));
+    setConfirmed((currentConfirmed) => {
+      const next = new Set(currentConfirmed);
+      next.delete(item.id);
+      return next;
+    });
+    setAllocationErrors((current) => ({ ...current, [item.id]: "" }));
+  }
+
+  function addWarehouse(item: StockAllocationItem) {
+    const selectedKey = warehouseToAdd[item.id];
+    const warehouse = configuredWarehouses(item).find((option) => warehouseOptionKey(option) === selectedKey);
+    if (!warehouse) return;
+    const current = itemRows(item);
+    if (current.some((row) => row.erp === warehouse.erp && row.warehouse === warehouse.name)) return;
+    setRows((allRows) => ({
+      ...allRows,
+      [item.id]: [...(allRows[item.id] ?? []), {
+        key: Math.max(0, ...current.map((row) => row.key)) + 1,
+        warehouse: warehouse.name,
+        qty: "0",
+        priority: warehouse.priority ?? 2,
+        erp: warehouse.erp,
+      }],
+    }));
+    setWarehouseToAdd((currentValues) => ({ ...currentValues, [item.id]: "" }));
+    setConfirmed((currentConfirmed) => {
+      const next = new Set(currentConfirmed);
+      next.delete(item.id);
+      return next;
+    });
+    setAllocationErrors((current) => ({ ...current, [item.id]: "" }));
+  }
+
+  function removeWarehouse(itemId: string, rowKey: number) {
+    setRows((current) => ({ ...current, [itemId]: (current[itemId] ?? []).filter((row) => row.key !== rowKey) }));
+    setConfirmed((current) => {
+      const next = new Set(current);
+      next.delete(itemId);
+      return next;
+    });
+    setAllocationErrors((current) => ({ ...current, [itemId]: "" }));
+  }
+
+  function confirm(item: StockAllocationItem) {
+    const total = Math.floor(Number(totals[item.id]));
+    const allocated = itemRows(item).reduce((sum, row) => sum + Math.max(0, Number(row.qty) || 0), 0);
+    if (!Number.isFinite(total) || total <= 0) {
+      setAllocationErrors((current) => ({ ...current, [item.id]: "Enter a total quantity greater than zero." }));
+      return;
+    }
+    if (allocated !== total) {
+      setAllocationErrors((current) => ({
+        ...current,
+        [item.id]: `Allocated quantity does not match the total (${allocated} of ${total}).`,
+      }));
+      return;
+    }
+    setAllocationErrors((current) => ({ ...current, [item.id]: "" }));
+    setConfirmed((current) => new Set(current).add(item.id));
+  }
+
+  function createReceipts() {
+    const supplierId = supplierOptions.find((option) => option.label === supplier || option.name === supplier)?.name ?? supplier.trim();
+    const grouped = new Map<StockErp, {
+      supplier: string;
+      warehouses: Array<{
+        warehouse: string;
+        company?: string;
+        items: Array<{ itemRequestId?: string; itemCode: string; qty: string; warehouse: string }>;
+      }>;
+    }>();
+    for (const item of selectableItems.filter((candidate) => selected.has(candidate.id) && confirmed.has(candidate.id))) {
+      for (const row of itemRows(item).filter((allocation) => allocation.warehouse.trim() && Number(allocation.qty) > 0)) {
+        const erp = row.erp ?? item.erp;
+        if (!erp) continue;
+        const option = options.find((candidate) => candidate.name === row.warehouse && candidate.erp === erp);
+        const payload = grouped.get(erp) ?? { supplier: supplierId, warehouses: [] };
+        let warehouse = payload.warehouses.find((entry) => entry.warehouse === row.warehouse);
+        if (!warehouse) {
+          warehouse = { warehouse: row.warehouse, company: option?.company ?? undefined, items: [] };
+          payload.warehouses.push(warehouse);
+        }
+        warehouse.items.push({
+          ...(item.isExisting ? {} : { itemRequestId: item.id }),
+          itemCode: item.sku,
+          qty: row.qty,
+          warehouse: row.warehouse,
+        });
+        grouped.set(erp, payload);
+      }
+    }
+    for (const [erp, payload] of grouped) onAction(`/api/item-creation/stock/${erp}`, payload);
+  }
+
+  return (
+    <div className="overflow-hidden rounded-lg border bg-background">
+      <div className="space-y-3 border-b p-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="flex items-center gap-2 text-sm">
+            <span>Supplier</span>
+            <input list="combined-item-stock-suppliers" value={supplier} onChange={(event) => setSupplier(event.target.value)} placeholder="Search supplier" className={`${inputClass} w-64`} />
+            <datalist id="combined-item-stock-suppliers">{supplierOptions.map((option) => <option key={option.name} value={option.label} label={option.name} />)}</datalist>
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <span>Existing item</span>
+            <input
+              value={existingQuery}
+              onChange={(event) => setExistingQuery(event.target.value)}
+              onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void lookupExistingItem(); } }}
+              placeholder="Search SKU or barcode"
+              className={`${inputClass} w-64`}
+            />
+          </label>
+          <button type="button" onClick={() => void lookupExistingItem()} disabled={isLookingUp || !existingQuery.trim()} className={secondaryButtonClass}>
+            {isLookingUp ? "Searching..." : "Add existing item"}
+          </button>
+          <button type="button" onClick={() => setSelected(allSelected ? new Set() : new Set(selectableItems.map((item) => item.id)))} className={secondaryButtonClass}>
+            Select all
+          </button>
+          <span className="text-sm text-muted-foreground">{selected.size} selected</span>
+          <button
+            type="button"
+            onClick={createReceipts}
+            disabled={!supplier.trim() || selectableItems.filter((item) => selected.has(item.id)).some((item) => !confirmed.has(item.id))}
+            className={primaryButtonClass}
+          >
+            Create Purchase Receipts
+          </button>
+        </div>
+        {(lookupError || optionsError) && <p className="text-sm text-destructive">{lookupError || optionsError}</p>}
+        {lookupMatches.length > 0 && (
+          <div className="flex flex-wrap gap-2 rounded-md border bg-muted/20 p-2 text-sm">
+            <span className="self-center text-muted-foreground">Select an ERP item:</span>
+            {lookupMatches.map((match) => (
+              <button key={match.itemCode} type="button" onClick={() => addExistingItem(match)} className={secondaryButtonClass}>
+                {match.itemCode} ({match.erps.join(" + ")})
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[1100px] text-sm">
+          <thead className="bg-muted/40 text-xs uppercase text-muted-foreground">
+            <tr><th className="px-3 py-2 text-left">Select</th><th className="px-3 py-2 text-left">SKU</th><th className="px-3 py-2 text-left">Description</th><th className="px-3 py-2 text-left">Warehouse (ERP)</th><th className="px-3 py-2">Allocated Qty</th><th className="px-3 py-2 text-left">Company</th><th className="px-3 py-2">Action</th></tr>
+          </thead>
+          <tbody>
+            {allocationItems.map((item) => {
+              const locked = isLocked(item);
+              const allocationRows = itemRows(item);
+              const availableWarehouses = configuredWarehouses(item).filter(
+                (option) => !allocationRows.some((row) => row.erp === option.erp && row.warehouse === option.name),
+              );
+              return (
+                <tr key={item.id} className="border-t align-top">
+                  <td className="px-3 py-3"><input type="checkbox" disabled={locked} checked={selected.has(item.id)} onChange={() => toggle(item.id)} /></td>
+                  <td className="px-3 py-3 font-semibold">{item.sku}{item.isExisting && <span className="mt-1 block text-xs font-normal text-muted-foreground">Existing {item.erps?.map((erp) => erp.toUpperCase()).join(" + ")}</span>}</td>
+                  <td className="px-3 py-3 text-muted-foreground">{item.description}</td>
+                  <td className="px-3 py-3" colSpan={3}>
+                    {locked ? <div className="rounded-md border border-dashed bg-muted/20 px-3 py-2 text-sm text-muted-foreground">Waiting for Digital Marketing image</div> : (
+                      <div className="space-y-2">
+                        <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/20 p-2">
+                          <label className="text-sm font-medium">Total qty</label>
+                          <input value={totals[item.id] ?? ""} onChange={(event) => { setTotals((current) => ({ ...current, [item.id]: event.target.value })); setConfirmed((current) => { const next = new Set(current); next.delete(item.id); return next; }); setAllocationErrors((current) => ({ ...current, [item.id]: "" })); }} type="number" min="1" step="1" className={`${inputClass} w-32`} />
+                          <button type="button" onClick={() => calculate(item)} className={secondaryButtonClass}>Calculate allocation</button>
+                          <button type="button" onClick={() => confirm(item)} disabled={confirmed.has(item.id)} className={secondaryButtonClass}>{confirmed.has(item.id) ? "Allocation confirmed" : "Confirm allocation"}</button>
+                        </div>
+                        {allocationErrors[item.id] && <p className="text-sm text-destructive">{allocationErrors[item.id]}</p>}
+                        {allocationRows.map((row) => {
+                          const warehouse = options.find((option) => option.name === row.warehouse && option.erp === row.erp);
+                          const warehouseDetail = item.warehouseDetails?.find((detail) => detail.warehouse === row.warehouse && detail.erp === row.erp);
+                          return (
+                            <div key={row.key} className="grid gap-2 lg:grid-cols-[minmax(260px,1fr)_120px_minmax(180px,1fr)_auto]">
+                              <select value={row.warehouse} onChange={(event) => updateRow(item.id, row.key, { warehouse: event.target.value })} className={inputClass}>
+                                <option value="">Select warehouse</option>
+                                {configuredWarehouses(item).map((option) => <option key={warehouseOptionKey(option)} value={option.name}>{option.name} ({option.erp.toUpperCase()})</option>)}
+                              </select>
+                              <input value={row.qty} onChange={(event) => updateRow(item.id, row.key, { qty: event.target.value })} type="number" min="0" step="1" className={inputClass} />
+                              <div className="min-h-10 rounded-md border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                                <div>{warehouse?.company || "-"}</div>
+                                {item.isExisting && <div>Barcode: {warehouseDetail?.barcode || item.barcode || "-"}</div>}
+                                {item.isExisting && <div>ROP: {warehouseDetail?.rop ?? 0} | Stock: {warehouseDetail?.stock ?? "Unavailable"}</div>}
+                              </div>
+                              <button type="button" onClick={() => removeWarehouse(item.id, row.key)} className={secondaryButtonClass}>Remove</button>
+                            </div>
+                          );
+                        })}
+                        <div className="flex flex-wrap items-center gap-2">
+                          <select value={warehouseToAdd[item.id] ?? ""} onChange={(event) => setWarehouseToAdd((current) => ({ ...current, [item.id]: event.target.value }))} className={`${inputClass} min-w-64`}>
+                            <option value="">Add warehouse</option>
+                            {availableWarehouses.map((option) => <option key={warehouseOptionKey(option)} value={warehouseOptionKey(option)}>{option.name} ({option.erp.toUpperCase()})</option>)}
+                          </select>
+                          <button type="button" onClick={() => addWarehouse(item)} className={secondaryButtonClass}>Add warehouse</button>
+                        </div>
+                      </div>
+                    )}
+                  </td>
+                  <td className="px-3 py-3">{item.isExisting ? <span className="text-xs text-muted-foreground">Existing item</span> : <button type="button" onClick={() => onAction(`/api/item-creation/${item.id}/stores/stock-added`)} className={secondaryButtonClass}>Manual</button>}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

@@ -9,8 +9,10 @@ import {
 } from "@prisma/client";
 
 import { ITEM_CREATION_PERMISSIONS, ITEM_CREATION_PRICE_LISTS } from "@/lib/item-creation/workflow";
-import { getAllOsfErpInstances, type OsfErpCredentials, type OsfErpInstance } from "@/lib/osf/erp-stock";
+import { fetchBinActualQty, getAllOsfErpInstances, stockForColumn, type OsfErpCredentials, type OsfErpInstance } from "@/lib/osf/erp-stock";
 import { resolveOsfColumns } from "@/lib/osf/column-config";
+import { resolveTransferItemIdentity } from "@/lib/material-transfer/erp";
+import { filterStoreAllocationColumns } from "@/lib/store-allocation/osf-columns";
 import { normalizeSkuKey } from "@/lib/product-items/erp-priority-sync";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserContext, hasPermission } from "@/lib/rbac";
@@ -52,7 +54,7 @@ type StockWarehouseInput = {
   warehouse: string;
   company?: string;
   items: Array<{
-    itemRequestId: string;
+    itemRequestId?: string;
     itemCode: string;
     qty: unknown;
     warehouse?: string;
@@ -165,6 +167,124 @@ async function resolveErps(company: string): Promise<ErpSlotSet> {
   };
 }
 
+export async function lookupItemCreationStockItems(context: UserContext, query: string) {
+  requireItemCreationPermission(context, ITEM_CREATION_PERMISSIONS.stores);
+  const code = query.trim();
+  if (!code) throw new Error("Enter a SKU or barcode");
+
+  const { erp1, erp2 } = await resolveErps(companyId(context));
+  const slots = [
+    { erp: ItemCreationErp.ERP1, instance: erp1 },
+    { erp: ItemCreationErp.ERP2, instance: erp2 },
+  ];
+  const results = await Promise.allSettled(
+    slots.filter((slot) => slot.instance).map(async (slot) => {
+      const item = await resolveTransferItemIdentity(slot.instance!.cfg, code);
+      if (!item) return null;
+      return {
+        erp: slot.erp,
+        instanceId: slot.instance!.id,
+        itemCode: item.itemCode,
+        itemName: item.itemName,
+        barcode: item.barcode || null,
+      };
+    }),
+  );
+  const found = results.flatMap((result) => result.status === "fulfilled" && result.value ? [result.value] : []);
+  if (found.length === 0) throw new Error(`No existing item found for ${code}`);
+  const uniqueCodes = [...new Set(found.map((item) => item.itemCode))];
+  const [columns, ropRows] = await Promise.all([
+    resolveOsfColumns(companyId(context)).then(filterStoreAllocationColumns),
+    prisma.productOsfRop.findMany({
+      where: { companyId: companyId(context), sku: { in: uniqueCodes } },
+      select: { sku: true, columnKey: true, ropQty: true },
+    }),
+  ]);
+  const binsByInstance = new Map<string, Map<string, number>>();
+  const failedInstances = new Set<string>();
+  await Promise.all(
+    [...new Set(found.map((item) => item.instanceId))].map(async (instanceId) => {
+      const warehouses = [...new Set(columns
+        .filter((column) => column.erpnextInstanceId === instanceId)
+        .flatMap((column) => column.warehouses))];
+      const instance = slots.find((slot) => slot.instance?.id === instanceId)?.instance;
+      if (!instance || warehouses.length === 0) return;
+      try {
+        binsByInstance.set(instanceId, await fetchBinActualQty({ cfg: instance.cfg, warehouses, itemCodes: uniqueCodes }));
+      } catch {
+        failedInstances.add(instanceId);
+      }
+    }),
+  );
+  const ropBySkuColumn = new Map(ropRows.map((row) => [`${row.sku}::${row.columnKey}`, row.ropQty]));
+  const enriched = found.map((item) => {
+    const itemColumns = columns.filter((column) => column.erpnextInstanceId === item.instanceId);
+    const rop = itemColumns.reduce((sum, column) => sum + (ropBySkuColumn.get(`${item.itemCode}::${column.key}`) ?? 0), 0);
+    const bins = binsByInstance.get(item.instanceId);
+    const currentStock = failedInstances.has(item.instanceId)
+      ? null
+      : itemColumns.reduce((sum, column) => sum + (stockForColumn(bins ?? new Map(), column.warehouses, item.itemCode) ?? 0), 0);
+    const warehouseDetails = new Map<string, { warehouse: string; erp: ItemCreationErp; barcode: string | null; rop: number; stock: number | null }>();
+    for (const column of itemColumns) {
+      const columnRop = ropBySkuColumn.get(`${item.itemCode}::${column.key}`) ?? 0;
+      for (const warehouse of column.warehouses) {
+        const key = warehouse;
+        const current = warehouseDetails.get(key);
+        const warehouseStock = failedInstances.has(item.instanceId)
+          ? null
+          : bins?.get(`${warehouse}::${item.itemCode}`) ?? 0;
+        warehouseDetails.set(key, {
+          warehouse,
+          erp: item.erp,
+          barcode: item.barcode,
+          rop: (current?.rop ?? 0) + columnRop,
+          stock: current ? (current.stock == null || warehouseStock == null ? null : current.stock) : warehouseStock,
+        });
+      }
+    }
+    return { ...item, rop, currentStock, warehouseDetails: [...warehouseDetails.values()] };
+  });
+  const grouped = new Map<string, {
+    itemCode: string;
+    itemName: string;
+    barcode: string | null;
+    rop: number;
+    currentStock: number | null;
+    warehouseDetails: Array<{ warehouse: string; erp: ItemCreationErp; barcode: string | null; rop: number; stock: number | null }>;
+    erps: ItemCreationErp[];
+  }>();
+  for (const item of enriched) {
+    const key = normalizeSkuKey(item.itemCode);
+    const current = grouped.get(key) ?? {
+      itemCode: item.itemCode,
+      itemName: item.itemName,
+      barcode: item.barcode,
+      rop: 0,
+      currentStock: 0,
+      warehouseDetails: [],
+      erps: [],
+    };
+    if (!current.erps.includes(item.erp)) current.erps.push(item.erp);
+    if (!current.barcode && item.barcode) current.barcode = item.barcode;
+    current.rop += item.rop;
+    current.currentStock = current.currentStock == null || item.currentStock == null
+      ? null
+      : current.currentStock + item.currentStock;
+    for (const detail of item.warehouseDetails) {
+      const existing = current.warehouseDetails.find((row) => row.erp === detail.erp && row.warehouse === detail.warehouse);
+      if (existing) {
+        if (!existing.barcode && detail.barcode) existing.barcode = detail.barcode;
+        existing.rop += detail.rop;
+        if (existing.stock == null || detail.stock == null) existing.stock = null;
+      } else {
+        current.warehouseDetails.push(detail);
+      }
+    }
+    grouped.set(key, current);
+  }
+  return [...grouped.values()];
+}
+
 async function activity(
   tx: Tx,
   itemRequestId: string,
@@ -273,8 +393,13 @@ async function ensureErp2Item(input: {
 }) {
   const existing = await getErpDoc<Record<string, unknown>>(input.cfg, "Item", input.itemCode);
   if (existing) {
+    if (input.barcodes.length > 0) {
+      await updateErpDoc<Record<string, unknown>>(input.cfg, "Item", input.itemCode, {
+        barcodes: input.barcodes.map((barcode) => ({ barcode })),
+      });
+    }
     await setErpItemProductPriority(input.cfg, input.itemCode);
-    return { itemCode: input.itemCode, created: false };
+    return { itemCode: input.itemCode, created: false, barcodeUpdated: input.barcodes.length > 0 };
   }
 
   await ensureErpBrand(input.cfg, input.brand);
@@ -289,7 +414,7 @@ async function ensureErp2Item(input: {
     barcodes: input.barcodes.map((barcode) => ({ barcode })),
   });
   await setErpItemProductPriority(input.cfg, input.itemCode);
-  return { itemCode: input.itemCode, created: true };
+  return { itemCode: input.itemCode, created: true, barcodeUpdated: input.barcodes.length > 0 };
 }
 
 export async function handleErp1ItemWebhook(companyIds: string[], payload: ErpItemWebhookPayload) {
@@ -404,6 +529,7 @@ export async function handleErp1ItemWebhook(companyIds: string[], payload: ErpIt
           itemCode,
           brand,
           barcodes,
+          barcodeUpdated: result.barcodeUpdated,
           reconciledExisting: !result.created,
         });
         const advanced = await advanceSeoToItemCreated(tx, request, {
@@ -781,9 +907,9 @@ function validateStockInput(input: StockInput) {
       const seen = new Set<string>();
       const items = warehouseGroup.items.map((item) => {
         const itemCode = item.itemCode?.trim();
-        const itemRequestId = item.itemRequestId?.trim();
+        const itemRequestId = item.itemRequestId?.trim() || undefined;
         const itemWarehouse = item.warehouse?.trim() || warehouse;
-        if (!itemCode || !itemRequestId) throw new Error("Each stock row needs itemRequestId and itemCode");
+        if (!itemCode) throw new Error("Each stock row needs itemCode");
         const key = normalizeSkuKey(itemCode);
         const stockKey = `${key}:${itemWarehouse}`;
         if (seen.has(stockKey)) throw new Error(`Duplicate item ${itemCode} in warehouse ${itemWarehouse}`);
@@ -812,39 +938,81 @@ export async function createWarehousePurchaseReceipts(
   const cfg = erp === "ERP1" ? erp1?.cfg : erp2?.cfg;
   if (!cfg) throw new Error(`${erp} instance is not configured`);
 
-  const ids = parsed.warehouses.flatMap((w) => w.items.map((item) => item.itemRequestId));
-  const requests = await prisma.itemCreationRequest.findMany({
+  const ids = parsed.warehouses
+    .flatMap((w) => w.items.map((item) => item.itemRequestId))
+    .filter((id): id is string => Boolean(id));
+  const requests = ids.length === 0 ? [] : await prisma.itemCreationRequest.findMany({
     where: { id: { in: ids }, companyId: company, overallStatus: "IN_PROGRESS" },
-    select: { id: true, sku: true, seoSetupStatus: true, storeStockStatus: true },
+    select: {
+      id: true,
+      sku: true,
+      seoSetupStatus: true,
+      digitalMarketingStatus: true,
+      storeStockStatus: true,
+    },
   });
   const requestById = new Map(requests.map((request) => [request.id, request]));
 
-  const receiptIds: string[] = [];
+  type ParsedStockItem = (typeof parsed.warehouses)[number]["items"][number];
+  const receiptGroups = new Map<string, { company: string; warehouse: string; items: ParsedStockItem[] }>();
   for (const warehouseGroup of parsed.warehouses) {
     for (const item of warehouseGroup.items) {
-      const request = requestById.get(item.itemRequestId);
-      if (!request) throw new Error(`Item request not found for ${item.itemCode}`);
-      if (normalizeSkuKey(request.sku) !== normalizeSkuKey(item.itemCode)) {
-        throw new Error(`SKU mismatch for ${item.itemCode}`);
-      }
-      if (request.seoSetupStatus === "PENDING") {
-        throw new Error(`${item.itemCode} cannot receive stock until the item is created`);
-      }
-      if (erp === "ERP1" && request.storeStockStatus === "STOCK_ADDED") {
-        throw new Error(`${item.itemCode} already has stock added`);
+      if (item.itemRequestId) {
+        const request = requestById.get(item.itemRequestId);
+        if (!request) throw new Error(`Item request not found for ${item.itemCode}`);
+        if (normalizeSkuKey(request.sku) !== normalizeSkuKey(item.itemCode)) {
+          throw new Error(`SKU mismatch for ${item.itemCode}`);
+        }
+        if (request.seoSetupStatus === "PENDING") {
+          throw new Error(`${item.itemCode} cannot receive stock until the item is created`);
+        }
+        if (request.digitalMarketingStatus !== "IMAGE_CREATED") {
+          throw new Error(`${item.itemCode} cannot receive stock until the Digital Marketing image is ready`);
+        }
+        if (erp === "ERP1" && request.storeStockStatus === "STOCK_ADDED") {
+          throw new Error(`${item.itemCode} already has stock added`);
+        }
+      } else {
+        const existing = await findErpDoc<{ name?: string }>(cfg, "Item", [["item_code", "=", item.itemCode]], ["name"]);
+        if (!existing) throw new Error(`Existing ERP item not found for ${item.itemCode}`);
       }
     }
+    const itemWarehouses = [...new Set(warehouseGroup.items.map((item) => item.warehouse))];
+    const warehouseCompanies = await Promise.all(
+      itemWarehouses.map(async (warehouse) => ({
+        warehouse,
+        company: await getWarehouseCompany(cfg, warehouse),
+      })),
+    );
+    const warehouseCompany = warehouseCompanies[0]?.company;
+    if (!warehouseCompany) {
+      throw new Error(`Company is not configured on warehouse ${warehouseCompanies[0]?.warehouse ?? warehouseGroup.warehouse}`);
+    }
+    const mismatchedWarehouse = warehouseCompanies.find((entry) => entry.company !== warehouseCompany);
+    if (mismatchedWarehouse) {
+      throw new Error(`Warehouse ${mismatchedWarehouse.warehouse} belongs to a different company`);
+    }
+    const receiptGroup = receiptGroups.get(warehouseCompany) ?? {
+      company: warehouseCompany,
+      warehouse: warehouseGroup.warehouse,
+      items: [],
+    };
+    receiptGroup.items.push(...warehouseGroup.items);
+    receiptGroups.set(warehouseCompany, receiptGroup);
+  }
 
+  const receiptIds: string[] = [];
+  for (const receiptGroup of receiptGroups.values()) {
     const receipt = await prisma.itemCreationStockReceipt.create({
       data: {
         companyId: company,
         erp,
         supplier: parsed.supplier,
-        warehouse: warehouseGroup.warehouse,
+        warehouse: receiptGroup.warehouse,
         status: "PENDING",
         createdBy: userId(context),
         items: {
-          create: warehouseGroup.items.map((item) => ({
+          create: receiptGroup.items.map((item) => ({
             itemRequestId: item.itemRequestId,
             itemCode: item.itemCode,
             qty: item.qty,
@@ -859,42 +1027,27 @@ export async function createWarehousePurchaseReceipts(
       data: { status: "CREATING" },
     });
     await Promise.all(
-      receipt.items.map((item) =>
+      receipt.items.filter((item) => item.itemRequestId).map((item) =>
         prisma.itemCreationActivity.create({
           data: {
-            itemRequestId: item.itemRequestId,
+            itemRequestId: item.itemRequestId!,
             type: "PR_CREATION_STARTED",
             source: "USER",
             userId: userId(context),
-            metadata: { erp, supplier: parsed.supplier, warehouse: warehouseGroup.warehouse },
+            metadata: { erp, supplier: parsed.supplier, warehouse: receiptGroup.warehouse },
           },
         }),
       ),
     );
 
     try {
-      const itemWarehouses = [...new Set(warehouseGroup.items.map((item) => item.warehouse))];
-      const warehouseCompanies = await Promise.all(
-        itemWarehouses.map(async (warehouse) => ({
-          warehouse,
-          company: await getWarehouseCompany(cfg, warehouse),
-        })),
-      );
-      const warehouseCompany = warehouseCompanies[0]?.company;
-      if (!warehouseCompany) {
-        throw new Error(`Company is not configured on warehouse ${warehouseCompanies[0]?.warehouse ?? warehouseGroup.warehouse}`);
-      }
-      const mismatchedWarehouse = warehouseCompanies.find((entry) => entry.company !== warehouseCompany);
-      if (mismatchedWarehouse) {
-        throw new Error(`Warehouse ${mismatchedWarehouse.warehouse} belongs to a different company`);
-      }
       const prName = await createPurchaseReceipt({
         cfg,
         supplier: parsed.supplier,
-        warehouse: warehouseGroup.warehouse,
-        company: warehouseCompany,
+        warehouse: receiptGroup.warehouse,
+        company: receiptGroup.company,
         postingDate: parsed.postingDate,
-        items: warehouseGroup.items.map((item) => ({
+        items: receiptGroup.items.map((item) => ({
           itemCode: item.itemCode,
           qty: item.qty,
           warehouse: item.warehouse,
@@ -910,12 +1063,12 @@ export async function createWarehousePurchaseReceipts(
             submittedAt: new Date(),
           },
         });
-        for (const item of receipt.items) {
-          await activity(tx, item.itemRequestId, "PR_SUBMITTED", "SYSTEM", userId(context), {
+        for (const item of receipt.items.filter((row) => row.itemRequestId)) {
+          await activity(tx, item.itemRequestId!, "PR_SUBMITTED", "SYSTEM", userId(context), {
             erp,
             purchaseReceipt: prName,
             supplier: parsed.supplier,
-            warehouse: warehouseGroup.warehouse,
+            warehouse: receiptGroup.warehouse,
             itemCode: item.itemCode,
             qty: Number(item.qty),
           });
@@ -928,11 +1081,11 @@ export async function createWarehousePurchaseReceipts(
           where: { id: receipt.id },
           data: { status: "FAILED", error: message.slice(0, 1000) },
         });
-        for (const item of receipt.items) {
-          await activity(tx, item.itemRequestId, "PR_FAILED", "SYSTEM", userId(context), {
+        for (const item of receipt.items.filter((row) => row.itemRequestId)) {
+          await activity(tx, item.itemRequestId!, "PR_FAILED", "SYSTEM", userId(context), {
             erp,
             supplier: parsed.supplier,
-            warehouse: warehouseGroup.warehouse,
+            warehouse: receiptGroup.warehouse,
             itemCode: item.itemCode,
             qty: Number(item.qty),
             error: message.slice(0, 700),
@@ -1096,7 +1249,12 @@ export async function retryPurchaseReceipt(context: UserContext, receiptId: stri
       where: { id: receipt.id },
       data: { status: "SUBMITTED", purchaseReceipt: prName, submittedAt: new Date(), error: null },
     });
-    await updateStockCompletion(receipt.companyId, receipt.erp, receipt.items.map((item) => item.itemRequestId), userId(context));
+    await updateStockCompletion(
+      receipt.companyId,
+      receipt.erp,
+      receipt.items.map((item) => item.itemRequestId).filter((id): id is string => Boolean(id)),
+      userId(context),
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : "Purchase Receipt retry failed";
     await prisma.itemCreationStockReceipt.update({

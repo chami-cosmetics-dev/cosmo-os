@@ -503,11 +503,11 @@ model ItemCreationStockReceipt {
 model ItemCreationStockReceiptItem {
   id             String                   @id @default(cuid())
   stockReceiptId String
-  itemRequestId  String
+  itemRequestId  String?
   itemCode       String
   qty            Decimal                  @db.Decimal(12, 3)
   stockReceipt   ItemCreationStockReceipt @relation(fields: [stockReceiptId], references: [id], onDelete: Cascade)
-  itemRequest    ItemCreationRequest      @relation(fields: [itemRequestId], references: [id], onDelete: Cascade)
+  itemRequest    ItemCreationRequest?     @relation(fields: [itemRequestId], references: [id], onDelete: Cascade)
 
   @@index([itemRequestId])
   @@index([stockReceiptId])
