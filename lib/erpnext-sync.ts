@@ -27,7 +27,11 @@ import {
   isCcCheckoutGateway,
   orderHasEarlyFinancialInvoiceCompleteGateway,
 } from "@/lib/delivery-payment-approval";
-import { isMintpayGateway, resolveMintpayMopName } from "@/lib/payment-gateway-match";
+import {
+  isMintpayGateway,
+  resolveBankTransferMopName,
+  resolveMintpayMopName,
+} from "@/lib/payment-gateway-match";
 import { markOrderFinanciallyInvoiceComplete } from "@/lib/financial-invoice-complete";
 import { formatAppIsoDate } from "@/lib/format-datetime";
 import {
@@ -36,6 +40,13 @@ import {
   markOrderErpPeSyncFailed,
 } from "@/lib/failed-erp-pe-sync";
 import { retryTransientErpOperation } from "@/lib/erpnext-transient-retry";
+import {
+  buildOwnedPaymentEntryCall,
+  buildResourcePaymentEntryBody,
+  paymentEntryNameFromSaveDoc,
+  shouldFallbackPaymentEntryOwner,
+  type DeliveryPaymentEntryFields,
+} from "@/lib/erp-payment-entry-owner";
 import {
   selectCanonicalSalesInvoice,
   unpaidDuplicateSalesInvoices,
@@ -112,7 +123,7 @@ export function getErpConfig(instance: ErpnextInstance | null): ErpConfig {
     cashMop: instance?.cashMop ?? process.env.ERPNEXT_CASH_MOP ?? "Cash",
     codMop: instance?.codMop ?? process.env.ERPNEXT_COD_MOP ?? "Cash On Delivery",
     cardDeliveryMop: instance?.cardDeliveryMop ?? process.env.ERPNEXT_CARD_DELIVERY_MOP ?? "Credit Card",
-    bankTransferMop: instance?.bankTransferMop ?? process.env.ERPNEXT_BANK_TRANSFER_MOP ?? "Wire Transfer",
+    bankTransferMop: resolveBankTransferMopName(instance?.bankTransferMop),
     kokoMop: instance?.kokoMop ?? process.env.ERPNEXT_KOKO_MOP ?? "Koko",
     webxpayMop: instance?.webxpayMop ?? process.env.ERPNEXT_WEBXPAY_MOP ?? "",
     mintpayMop: resolveMintpayMopName(instance?.mintpayMop),
@@ -373,6 +384,29 @@ async function erpnextPost<T>(cfg: ErpConfig, path: string, body: unknown): Prom
   }
   const json = (await res.json()) as { data: T };
   return json.data;
+}
+
+async function erpnextMethod(cfg: ErpConfig, path: string, body: unknown): Promise<unknown> {
+  let res: Response;
+  try {
+    res = await fetch(`${cfg.baseUrl}${path}`, {
+      method: "POST",
+      headers: authHeaders(cfg),
+      body: JSON.stringify(body),
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(`ERPNext POST ${path}: ${msg}`);
+  }
+  const text = await res.text().catch(() => "");
+  if (!res.ok) {
+    throw new Error(`ERPNext POST ${path} [${res.status}]: ${text.slice(0, 800)}`);
+  }
+  try {
+    return text ? (JSON.parse(text) as unknown) : null;
+  } catch {
+    throw new Error(`ERPNext POST ${path}: invalid JSON`);
+  }
 }
 
 async function erpnextGet<T>(cfg: ErpConfig, path: string): Promise<T | null> {
@@ -1042,6 +1076,7 @@ async function createPrepaidPaymentEntry(
   dateStr: string,
   mopName: string,
 ): Promise<void> {
+  const resolvedMopName = resolveBankTransferMopName(mopName, { envValue: null });
   await retryTransientErpOperation(`prepaid PE ${invoiceName}`, async () => {
     const invoice = await erpnextGet<{ outstanding_amount: number }>(
       cfg,
@@ -1055,11 +1090,11 @@ async function createPrepaidPaymentEntry(
     const mop = await erpnextGet<{
       name: string;
       accounts: Array<{ company: string; default_account: string }>;
-    }>(cfg, `/api/resource/Mode%20of%20Payment/${encodeURIComponent(mopName)}`);
+    }>(cfg, `/api/resource/Mode%20of%20Payment/${encodeURIComponent(resolvedMopName)}`);
 
     const paidTo = mop?.accounts?.find((a) => a.company === company)?.default_account;
     if (!paidTo) {
-      throw new Error(`No account mapped for "${mopName}" mode of payment under company "${company}"`);
+      throw new Error(`No account mapped for "${resolvedMopName}" mode of payment under company "${company}"`);
     }
 
     const amount = invoice?.outstanding_amount && invoice.outstanding_amount > 0
@@ -1092,7 +1127,7 @@ async function createPrepaidPaymentEntry(
       docstatus: 1,
     });
 
-    console.log(`[ERPNext] Payment Entry ${pe.name} created for Sales Invoice ${invoiceName} (${mopName})`);
+    console.log(`[ERPNext] Payment Entry ${pe.name} created for Sales Invoice ${invoiceName} (${resolvedMopName})`);
   });
 }
 
@@ -1155,6 +1190,8 @@ export type CreateDeliveryPaymentEntryOptions = {
   referenceNo?: string;
   /** Require the requested partial amount to match available SI outstanding exactly. */
   requireExactAmount?: boolean;
+  /** ERP User to stamp as Payment Entry owner (person who marked the invoice). */
+  owner?: string;
 };
 
 export type CreateDeliveryPaymentEntryResult = {
@@ -1306,6 +1343,7 @@ async function createDeliveryPaymentEntryOnce(
     console.log(`[ERPNext] No delivery MOP matched for order ${order.name} — skipping PE`);
     return { outcome: "skipped" };
   }
+  mopName = resolveBankTransferMopName(mopName, { envValue: null });
 
   const fields = encodeURIComponent(JSON.stringify(["name", "outstanding_amount", "debit_to", "customer"]));
   let invoice: { name: string; outstanding_amount: number; debit_to: string; customer: string } | null = null;
@@ -1397,8 +1435,7 @@ async function createDeliveryPaymentEntryOnce(
 
   const dateStr = toDateStr(completedAt);
   const referenceNo = options?.referenceNo?.trim() || invoice.name;
-  const pe = await erpnextPost<{ name: string }>(cfg, "/api/resource/Payment Entry", {
-    doctype: "Payment Entry",
+  const peFields: DeliveryPaymentEntryFields = {
     payment_type: "Receive",
     company: location.erpnextCompany,
     posting_date: dateStr,
@@ -1420,13 +1457,43 @@ async function createDeliveryPaymentEntryOnce(
         allocated_amount: amount,
       },
     ],
-    docstatus: 1,
-  });
+  };
+  const owner = options?.owner?.trim() || "";
+  let paymentEntryName = "";
+  let stampedOwner = false;
+  if (owner) {
+    try {
+      const saved = await erpnextMethod(
+        cfg,
+        "/api/method/cosmo_save_doc",
+        buildOwnedPaymentEntryCall({ owner, fields: peFields }),
+      );
+      paymentEntryName = paymentEntryNameFromSaveDoc(saved);
+      if (!paymentEntryName) {
+        throw new Error("ERP did not return a Payment Entry number");
+      }
+      stampedOwner = true;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (!shouldFallbackPaymentEntryOwner(message)) throw err;
+      console.warn(
+        `[ERPNext] Payment Entry owner ${owner} was not stamped (${message}). Creating under the API user.`,
+      );
+    }
+  }
+  if (!paymentEntryName) {
+    const pe = await erpnextPost<{ name: string }>(
+      cfg,
+      "/api/resource/Payment Entry",
+      buildResourcePaymentEntryBody(peFields),
+    );
+    paymentEntryName = pe.name;
+  }
 
   console.log(
-    `[ERPNext] Delivery PE ${pe.name} created for Sales Invoice ${invoice.name} (${mopName}, ${amount})`,
+    `[ERPNext] Delivery PE ${paymentEntryName} created for Sales Invoice ${invoice.name} (${mopName}, ${amount}${stampedOwner ? `, owner ${owner}` : ""})`,
   );
-  return { outcome: "created", paymentEntryName: pe.name };
+  return { outcome: "created", paymentEntryName };
 }
 
 /**
@@ -1453,6 +1520,8 @@ export async function syncOrderDeliveryPaymentEntriesToErp(
     mopNameOverride?: string;
     /** Remaining cash from a KOKO/Bank + Cash split. */
     paidAmount?: number;
+    /** ERP User to stamp as Payment Entry owner. */
+    owner?: string;
   },
 ): Promise<CreateDeliveryPaymentEntryResult> {
   const payment = await prisma.deliveryPayment.findUnique({
@@ -1468,6 +1537,7 @@ export async function syncOrderDeliveryPaymentEntriesToErp(
       mopNameOverride: options.mopNameOverride,
       requireMop: options?.requireMop,
       paidAmount: options?.paidAmount,
+      owner: options?.owner,
     });
   }
 
@@ -1476,6 +1546,7 @@ export async function syncOrderDeliveryPaymentEntriesToErp(
       requireMop: options?.requireMop,
       mopNameOverride: options?.mopNameOverride,
       paidAmount: options?.paidAmount,
+      owner: options?.owner,
     });
   }
 
@@ -1495,6 +1566,7 @@ export async function syncOrderDeliveryPaymentEntriesToErp(
       requireMop: options?.requireMop,
       paidAmount: Number(line.amount),
       referenceNo: `OS-DP-${line.id}`,
+      owner: options?.owner,
     });
     if (result.outcome === "created" && result.paymentEntryName) {
       await prisma.deliveryPaymentLine.update({
@@ -1537,6 +1609,7 @@ export async function syncOrderDeliveryPaymentEntriesToErp(
       requireMop: options?.requireMop,
       paidAmount: Number(line.amount),
       referenceNo: `OS-DP-${line.id}`,
+      owner: options?.owner,
     });
 
     if (result.outcome === "created") {

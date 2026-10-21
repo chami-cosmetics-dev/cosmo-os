@@ -97,6 +97,10 @@ export const LIMITS = {
   bookNoteReceiptsMax: 12,
   /** Max bytes per receipt image (8MB). */
   bookNoteReceiptMaxBytes: 8 * 1024 * 1024,
+  newItemRequestDescription: { min: 1, max: 1000 },
+  newItemRequestPriority: { min: 1, max: 100 },
+  newItemRequestImageMaxBytes: 5 * 1024 * 1024,
+  newItemRequestPriorityFileMaxBytes: 8 * 1024 * 1024,
 } as const;
 
 /** Parse and validate page number from query string */

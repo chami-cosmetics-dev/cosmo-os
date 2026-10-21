@@ -711,6 +711,15 @@ const DEFAULT_PERMISSIONS = [
     description:
       "Book Notes (Finance) — review every shop's sheets. Finance only; does not open merchant Book Notes.",
   },
+  {
+    key: "new_item_requests.manage",
+    description: "Create new item requests and read own requests",
+  },
+  {
+    key: "new_item_requests.admin",
+    description:
+      "See all new item requests, export, upload brand priority, and mark already have or closed",
+  },
 ] as const;
 
 const ALL_DEFAULT_PERMISSION_KEYS = DEFAULT_PERMISSIONS.map((p) => p.key);
@@ -769,6 +778,7 @@ const DEFAULT_ROLES = [
       "purchasing.grn.mark_handover",
       "purchasing.grn.mark_valued",
       "purchasing.grn.mark_received",
+      "new_item_requests.admin",
       "academy.learn",
       "academy.manage",
       "products.storage.read",

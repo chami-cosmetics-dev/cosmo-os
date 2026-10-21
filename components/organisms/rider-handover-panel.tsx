@@ -31,10 +31,11 @@ type ReceiptView = {
   fullTotal: string;
 };
 
-type ClosedInvoice = {
+type CollectableOrder = {
   orderNumber: string;
   companyName: string;
-  invoiceCompleteAt: string | null;
+  cashAmount: string;
+  deliveredAt: string | null;
 };
 
 type SummaryResponse = {
@@ -44,7 +45,7 @@ type SummaryResponse = {
   to: string;
   companies: CompanyLine[];
   fullTotal: string;
-  closedInvoices?: ClosedInvoice[];
+  collectableOrders?: CollectableOrder[];
   latestReceipt: ReceiptView | null;
   coveringReceipts?: ReceiptView[];
 };
@@ -147,6 +148,10 @@ export function RiderHandoverPanel({
       const next = data as SummaryResponse;
       setSummary(next);
       setReceipt(next.latestReceipt);
+      if (canHandoverReceive) {
+        setOrdersRequested(true);
+        setOrdersRefresh((value) => value + 1);
+      }
     } finally {
       setBusyKey(null);
     }
@@ -554,31 +559,35 @@ export function RiderHandoverPanel({
                 </tr>
               </tfoot>
             </table>
-            {(slip.closedInvoices ?? []).length > 0 ? (
+            {(slip.collectableOrders ?? []).length > 0 ? (
               <div>
-                <h3 className="text-sm font-semibold">Invoice complete</h3>
+                <h3 className="text-sm font-semibold">Collectable orders</h3>
                 <table className="mt-1 w-full text-sm">
                   <thead>
                     <tr className="border-b text-left">
                       <th className="py-1">Order</th>
                       <th className="py-1">Company</th>
-                      <th className="py-1">Marked</th>
+                      <th className="py-1 text-right">Cash</th>
+                      <th className="py-1">Delivered</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {(slip.closedInvoices ?? []).map((line) => (
-                      <tr key={`${line.orderNumber}-${line.invoiceCompleteAt ?? ""}`} className="border-b">
+                    {(slip.collectableOrders ?? []).map((line) => (
+                      <tr key={`${line.orderNumber}-${line.companyName}`} className="border-b">
                         <td className="py-1 whitespace-nowrap">{line.orderNumber}</td>
                         <td className="py-1">{line.companyName}</td>
+                        <td className="py-1 text-right tabular-nums">{line.cashAmount}</td>
                         <td className="py-1 whitespace-nowrap">
-                          {line.invoiceCompleteAt ? formatWhen(line.invoiceCompleteAt) : "Invoice complete"}
+                          {line.deliveredAt ? formatWhen(line.deliveredAt) : "—"}
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-            ) : null}
+            ) : (
+              <p className="text-muted-foreground text-sm print:hidden">No collectable orders in this range.</p>
+            )}
             <div className="grid gap-8 pt-10 sm:grid-cols-2">
               <div>
                 <p>Handover by</p>
@@ -609,7 +618,7 @@ export function RiderHandoverPanel({
               <p className="text-sm">Loading…</p>
             ) : orderTotal === 0 ? (
               <p className="text-sm">
-                {appliedQuery ? "No orders match this search." : "No delivery-complete orders in this range."}
+                {appliedQuery ? "No orders match this search." : "No collectable orders in this range."}
               </p>
             ) : (
               (companies ?? []).map((group) => (

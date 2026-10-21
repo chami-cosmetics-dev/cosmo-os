@@ -116,6 +116,8 @@ model Company {
   stockRequests                   StockRequest[]
   materialTransfers               MaterialTransfer[]
   shopItemRequests                ShopItemRequest[]
+  newItemRequests                 NewItemRequest[]
+  newItemRequestBrandPriorities   NewItemRequestBrandPriority[]
   riderFinanceCashReceipts        RiderFinanceCashReceipt[]
   giftVoucherGroups               GiftVoucherGroup[]
   giftVoucherCodes                GiftVoucherCode[]
@@ -645,6 +647,9 @@ model User {
   materialTransfersCreated               MaterialTransfer[]             @relation("MaterialTransferCreatedBy")
   shopItemRequestsCreated                ShopItemRequest[]              @relation("ShopItemRequestCreatedBy")
   shopItemRequestsDone                   ShopItemRequest[]              @relation("ShopItemRequestDoneBy")
+  newItemRequestsCreated                 NewItemRequest[]               @relation("NewItemRequestCreatedBy")
+  newItemRequestsStatusChanged           NewItemRequest[]               @relation("NewItemRequestStatusChangedBy")
+  newItemRequestBrandPrioritiesUploaded  NewItemRequestBrandPriority[]  @relation("NewItemRequestBrandPriorityUploadedBy")
   materialTransfersReceived              MaterialTransfer[]             @relation("MaterialTransferReceivedBy")
   materialTransferLinesCounted           MaterialTransferLine[]         @relation("MaterialTransferLineCountedBy")
   invitesSent                            Invite[]                       @relation("InvitedBy")
@@ -3237,6 +3242,53 @@ model ShopItemRequestLine {
   request          ShopItemRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
 
   @@index([requestId])
+}
+
+enum NewItemRequestStatus {
+  open
+  already_have
+  closed
+}
+
+model NewItemRequest {
+  id                   String                @id @default(cuid())
+  companyId            String
+  brandName            String
+  brandNameNormalized  String
+  brandIsExisting      Boolean
+  description          String
+  storeUrl             String?
+  imageUrl             String?
+  imagePublicId        String?
+  status               NewItemRequestStatus  @default(open)
+  createdByUserId      String?
+  statusChangedByUserId String?
+  statusChangedAt      DateTime?
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  company              Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdBy            User?                 @relation("NewItemRequestCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  statusChangedBy      User?                 @relation("NewItemRequestStatusChangedBy", fields: [statusChangedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, status, createdAt(sort: Desc)])
+  @@index([companyId, brandNameNormalized, status, createdAt(sort: Desc)])
+  @@index([companyId, createdByUserId, createdAt(sort: Desc)])
+}
+
+model NewItemRequestBrandPriority {
+  id                  String   @id @default(cuid())
+  companyId           String
+  brandName           String
+  brandNameNormalized String
+  priority            String
+  uploadedByUserId    String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  company             Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  uploadedBy          User?    @relation("NewItemRequestBrandPriorityUploadedBy", fields: [uploadedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([companyId, brandNameNormalized])
+  @@index([companyId, brandNameNormalized])
 }
 
 model StoreStockCountReport {

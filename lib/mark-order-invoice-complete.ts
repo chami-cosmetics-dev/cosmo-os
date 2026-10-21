@@ -22,6 +22,7 @@ import { approvalSplitCashCollectAmount } from "@/lib/approval-payment-split";
 import { loadLatestOrderSplitPaymentLines } from "@/lib/order-split-payment";
 import { prisma } from "@/lib/prisma";
 import { shouldCommitInvoiceComplete } from "@/lib/rider-handover";
+import { ERP_OWNER_MISSING_MESSAGE, erpDocumentOwner } from "@/lib/erp-payment-entry-owner";
 
 export { markOrderFinanciallyInvoiceComplete } from "@/lib/financial-invoice-complete";
 
@@ -139,6 +140,21 @@ export async function markOrderInvoiceComplete(input: {
   });
   const mopForFailure = resolvedMop ?? mopOverride ?? ERP_PE_SYNC_MOP_ORDER_AUTO;
 
+  let erpOwner = "";
+  if (input.commitOnlyWhenPaymentEntrySucceeds) {
+    const actorId = input.userId.trim();
+    const actor = actorId
+      ? await prisma.user.findUnique({
+          where: { id: actorId },
+          select: { erpnextUsername: true, email: true },
+        })
+      : null;
+    erpOwner = erpDocumentOwner(actor ?? {});
+    if (!erpOwner) {
+      return { success: false, ref, error: ERP_OWNER_MISSING_MESSAGE };
+    }
+  }
+
   const stampInvoice = async () => {
     await prisma.$transaction(async (tx) => {
       await tx.order.update({
@@ -198,6 +214,7 @@ export async function markOrderInvoiceComplete(input: {
           mopNameOverride: mopOverride ?? cashSplitMop ?? undefined,
           requireMop: true,
           ...(cashToCollect != null ? { paidAmount: cashToCollect } : {}),
+          ...(erpOwner ? { owner: erpOwner } : {}),
         },
       );
       if (peResult.outcome === "skipped") {
@@ -240,6 +257,7 @@ export async function markOrderInvoiceComplete(input: {
         paymentMopSource: mopOverride ? "override" : "order",
         posAlreadyPaid: input.posAlreadyPaid ?? false,
         commitOnlyWhenPaymentEntrySucceeds: input.commitOnlyWhenPaymentEntrySucceeds ?? false,
+        erpOwner: erpOwner || null,
       },
     });
   };

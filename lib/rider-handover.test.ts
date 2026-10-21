@@ -11,6 +11,7 @@ import {
   handoverReceiptOverlaps,
   handoverSummaryCashAmount,
   isInvoiceClosed,
+  listHandoverCollectableOrders,
   latestReceiptForCompany,
   matchReceiptForDelivery,
   pageHandoverDeliveries,
@@ -251,6 +252,40 @@ describe("receiptDuplicateDecision", () => {
     expect(receiptDuplicateDecision({ existing, confirmDuplicate: true })).toEqual({
       action: "create",
     });
+  });
+});
+
+describe("listHandoverCollectableOrders", () => {
+  it("keeps open deliveries and drops invoice-complete ones", () => {
+    expect(
+      listHandoverCollectableOrders([
+        {
+          orderNumber: "900-001548",
+          erpnextCompany: "Pevi Trading Lanka (Pvt) Ltd",
+          locationName: "Pevi",
+          cashAmount: "2500.00",
+          deliveredAt: new Date("2026-10-19T10:05:44.000Z"),
+          invoiceCompleteAt: new Date("2026-10-19T10:05:44.000Z"),
+          fulfillmentStage: "invoice_complete",
+        },
+        {
+          orderNumber: "900-001600",
+          erpnextCompany: "Pevi Trading Lanka (Pvt) Ltd",
+          locationName: "Pevi",
+          cashAmount: "1800.00",
+          deliveredAt: new Date("2026-10-19T08:00:00.000Z"),
+          invoiceCompleteAt: null,
+          fulfillmentStage: "delivery_complete",
+        },
+      ]),
+    ).toEqual([
+      {
+        orderNumber: "900-001600",
+        companyName: "Pevi Trading Lanka (Pvt) Ltd",
+        cashAmount: "1800.00",
+        deliveredAt: "2026-10-19T08:00:00.000Z",
+      },
+    ]);
   });
 });
 

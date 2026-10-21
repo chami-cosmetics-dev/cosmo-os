@@ -137,13 +137,17 @@ export function AppSidebar({
     hasSidebarPermission("purchasing.market_prices.read") ||
     hasSidebarPermission("purchasing.market_prices.manage");
   const canViewGrn = hasSidebarPermission("purchasing.grn.read");
+  const canAdminNewItemRequests = hasSidebarPermission("new_item_requests.admin");
+  const canManageNewItemRequestsOnly =
+    hasSidebarPermission("new_item_requests.manage") && !canAdminNewItemRequests;
   const canViewPurchasing =
     canViewOsf ||
     canViewPurchasingTools ||
     canViewPurchaseHistory ||
     canViewItemTrends ||
     canViewMarketPrices ||
-    canViewGrn;
+    canViewGrn ||
+    canAdminNewItemRequests;
   const canViewStoreAllocation = hasSidebarPermission("store.allocation.read");
   const canViewStoreStockCount = hasSidebarPermission("store.stock_count.read");
   const canViewMaterialTransfer = hasSidebarPermission("store.material_transfer.write");
@@ -250,6 +254,7 @@ export function AppSidebar({
     canViewReturns ||
     canViewExchanges ||
     canManageBookNotes ||
+    canManageNewItemRequestsOnly ||
     Boolean(fulfillmentHref);
   const canViewStickers = canStickerBatch || canStickerPrint;
   const canViewSeoContent = hasSidebarPermission("products.seo.read");
@@ -398,6 +403,14 @@ export function AppSidebar({
                   icon={NotebookPen}
                   label="Book Notes"
                   isActive={pathname === "/dashboard/book-notes"}
+                />
+              )}
+              {canManageNewItemRequestsOnly && (
+                <NavItem
+                  href="/dashboard/new-item-requests"
+                  icon={ClipboardList}
+                  label="New item requests"
+                  isActive={pathname === "/dashboard/new-item-requests"}
                 />
               )}
               {canReadBookNotes && (
@@ -721,6 +734,14 @@ export function AppSidebar({
                   icon={ReceiptText}
                   label="GRN"
                   isActive={pathname === "/dashboard/purchasing/grn"}
+                />
+              )}
+              {canAdminNewItemRequests && (
+                <NavItem
+                  href="/dashboard/new-item-requests"
+                  icon={ClipboardList}
+                  label="New item requests"
+                  isActive={pathname === "/dashboard/new-item-requests"}
                 />
               )}
             </SidebarGroupContent>

@@ -3,7 +3,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
 import { buildPhoneLookupVariants } from "@/lib/phone-lookup";
-import { isMintpayGateway, resolveMintpayMopName } from "@/lib/payment-gateway-match";
+import {
+  isMintpayGateway,
+  resolveBankTransferMopName,
+  resolveMintpayMopName,
+} from "@/lib/payment-gateway-match";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -72,7 +76,7 @@ function resolvePaymentType(
   const cashMop = instance?.cashMop ?? process.env.ERPNEXT_CASH_MOP ?? "Cash";
   const codMop = instance?.codMop ?? process.env.ERPNEXT_COD_MOP ?? "Cash On Delivery";
   const cardMop = instance?.cardDeliveryMop ?? process.env.ERPNEXT_CARD_DELIVERY_MOP ?? "Credit Card";
-  const bankMop = instance?.bankTransferMop ?? process.env.ERPNEXT_BANK_TRANSFER_MOP ?? "Wire Transfer";
+  const bankMop = resolveBankTransferMopName(instance?.bankTransferMop);
   const kokoMop = instance?.kokoMop ?? process.env.ERPNEXT_KOKO_MOP ?? "Koko";
   const mintpayMop = resolveMintpayMopName(instance?.mintpayMop);
   const webxMop = instance?.webxpayMop ?? process.env.ERPNEXT_WEBXPAY_MOP ?? "";
