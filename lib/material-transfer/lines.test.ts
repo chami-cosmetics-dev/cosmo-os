@@ -40,6 +40,7 @@ describe("transfer lines", () => {
     expect(first.rejected).toBeNull();
     expect(first.lines).toHaveLength(1);
     expect(first.lines[0]?.qty).toBe(1);
+    expect(first.lines[0]?.taxStatus).toBe("Vat");
     const again = upsertTransferLine(first.lines, item());
     expect(again.lines).toHaveLength(1);
     expect(again.lines[0]?.qty).toBe(2);

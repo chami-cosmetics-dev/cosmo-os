@@ -57,6 +57,7 @@ import { NavItem } from "@/components/molecules/nav-item";
 import { UserMenu } from "@/components/molecules/user-menu";
 import { ALL_REPORT_DUMP_PERMISSIONS, REPORT_DUMP_PERMISSIONS } from "@/lib/report-permissions";
 import { APP_INITIALS, APP_NAME } from "@/lib/branding";
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 
 interface AppSidebarProps {
   user: {
@@ -106,7 +107,8 @@ export function AppSidebar({
   const canViewEmailCleanup =
     hasSidebarPermission("contacts.master.manage") ||
     hasSidebarPermission("contacts.manage");
-  const canViewSupplementImport = hasSidebarPermission("contacts.master.manage");
+  const canViewSupplementImport =
+    isVaultOsDeployment() && hasSidebarPermission("contacts.master.manage");
   const canViewReturns = hasSidebarPermission("returns.read");
   const canViewExchanges = hasSidebarPermission("exchanges.read");
   const canViewProducts = hasSidebarPermission("products.read");

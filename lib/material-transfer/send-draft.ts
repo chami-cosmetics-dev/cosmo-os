@@ -39,6 +39,7 @@ function parseLine(value: unknown): TransferLine | null {
     uom: String(row.uom ?? "").trim() || "Nos",
     qty,
     availableQty,
+    taxStatus: String(row.taxStatus ?? "").trim() || null,
     slot: row.slot === "erp1" || row.slot === "erp2" ? row.slot : null,
   };
 }

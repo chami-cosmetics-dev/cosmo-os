@@ -280,7 +280,7 @@ export function MaterialTransferHistory({
                                   <td className="py-1 pr-3">{line.itemCode}</td>
                                   {detail.direction === "shop_to_main" ? (
                                     <td className="py-1 pr-3">
-                                      {line.postSlot === "erp1" ? "ERP1 VAT" : line.postSlot === "erp2" ? "ERP2" : "—"}
+                                      {line.postSlot === "erp1" ? "ERP1 Vat" : line.postSlot === "erp2" ? "ERP2" : "—"}
                                     </td>
                                   ) : null}
                                   <td className="py-1 pr-3">{line.itemName}</td>
