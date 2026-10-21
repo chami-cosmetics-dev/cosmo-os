@@ -522,18 +522,20 @@ export async function GET(request: NextRequest) {
         row.supplierStockReturnName,
         ...row.supplierStockReturnLinks.map((link) => link.supplierStockReturn.name),
       ].filter((name): name is string => Boolean(name)))];
-      const linked = linkedStockReturnNames
+      const linkedStockReturns = linkedStockReturnNames
         .map((name) => stockReturnByName.get(name))
-        .find((stockReturn): stockReturn is (typeof allStockReturnsForLookup)[number] => Boolean(stockReturn)) ?? null;
-      const activeLinked = !isPurchaseReceiptCancelled(row) && linked?.docstatus !== 2 ? linked : null;
-      const linkedPurchaseReceiptsForTally = activeLinked
-        ? linkedPurchaseReceiptsForStockReturn(activeLinked)
+        .filter((stockReturn): stockReturn is (typeof allStockReturnsForLookup)[number] => Boolean(stockReturn));
+      const linked = linkedStockReturns[0] ?? null;
+      const activeLinkedStockReturns = !isPurchaseReceiptCancelled(row)
+        ? linkedStockReturns.filter((stockReturn) => stockReturn.docstatus !== 2)
         : [];
-      const combinedPurchaseReceiptItems = linkedPurchaseReceiptsForTally.flatMap((receipt) => receipt.items);
-      const tally = activeLinked
-        ? tallyLinkedItems(combinedPurchaseReceiptItems, activeLinked.items)
+      const combinedStockReturnItems = activeLinkedStockReturns.flatMap((stockReturn) => stockReturn.items);
+      const tally = activeLinkedStockReturns.length > 0
+        ? tallyLinkedItems(row.items, combinedStockReturnItems)
         : { status: "not_linked" as const, issueItems: [] };
-      const tallyIssues = activeLinked ? buildTallyIssues(combinedPurchaseReceiptItems, activeLinked.items) : [];
+      const tallyIssues = activeLinkedStockReturns.length > 0
+        ? buildTallyIssues(row.items, combinedStockReturnItems)
+        : [];
       const purchaseInvoice =
         row.purchaseInvoices.find((invoice) =>
           invoice.items.some((item) => item.purchaseReceipt === row.name) &&
@@ -628,7 +630,9 @@ export async function GET(request: NextRequest) {
           stockUom: item.stockUom,
         })),
         tallyStatus: tally.status,
-        tallyPercentage: activeLinked ? calculateGrnMatchPercentage(combinedPurchaseReceiptItems, activeLinked.items) : null,
+        tallyPercentage: activeLinkedStockReturns.length > 0
+          ? calculateGrnMatchPercentage(row.items, combinedStockReturnItems)
+          : null,
         tallyIssueItems: tally.issueItems,
         tallyIssues,
         purchaseInvoice: serializePurchaseInvoice(purchaseInvoice),
@@ -638,26 +642,28 @@ export async function GET(request: NextRequest) {
       const linkedStockReturnNames = [...new Set(
         row.supplierStockReturnLinks.map((link) => link.supplierStockReturn.name),
       )];
-      const linked = linkedStockReturnNames
+      const linkedStockReturns = linkedStockReturnNames
         .map((name) => stockReturnByName.get(name))
-        .find((stockReturn): stockReturn is (typeof allStockReturnsForLookup)[number] => Boolean(stockReturn)) ?? null;
-      const activeLinked = !isPurchaseReceiptCancelled(row) && linked?.docstatus !== 2 ? linked : null;
-      const linkedPurchaseReceiptsForTally = activeLinked
-        ? linkedPurchaseReceiptsForStockReturn(activeLinked)
+        .filter((stockReturn): stockReturn is (typeof allStockReturnsForLookup)[number] => Boolean(stockReturn));
+      const linked = linkedStockReturns[0] ?? null;
+      const activeLinkedStockReturns = !isPurchaseReceiptCancelled(row)
+        ? linkedStockReturns.filter((stockReturn) => stockReturn.docstatus !== 2)
         : [];
-      const combinedPurchaseReceiptItems = linkedPurchaseReceiptsForTally.flatMap((receipt) => receipt.items);
-      const tally = activeLinked
-        ? tallyLinkedItems(combinedPurchaseReceiptItems, activeLinked.items)
+      const combinedStockReturnItems = activeLinkedStockReturns.flatMap((stockReturn) => stockReturn.items);
+      const tally = activeLinkedStockReturns.length > 0
+        ? tallyLinkedItems(row.items, combinedStockReturnItems)
         : { status: "not_linked" as const, issueItems: [] };
-      const tallyIssues = activeLinked ? buildTallyIssues(combinedPurchaseReceiptItems, activeLinked.items) : [];
+      const tallyIssues = activeLinkedStockReturns.length > 0
+        ? buildTallyIssues(row.items, combinedStockReturnItems)
+        : [];
       const purchaseInvoice =
         backfillPurchaseInvoices.find((invoice) =>
           invoice.items.some((item) => item.purchaseReceipt === row.name) &&
           !invoice.items.some((item) => item.supplierStockReturn),
         ) ?? null;
-      const supplierStockReturnPurchaseInvoice = activeLinked
+      const supplierStockReturnPurchaseInvoice = activeLinkedStockReturns[0]
         ? backfillPurchaseInvoices.find((invoice) =>
-            invoice.items.some((item) => item.supplierStockReturn === activeLinked.name),
+            invoice.items.some((item) => item.supplierStockReturn === activeLinkedStockReturns[0].name),
           ) ?? null
         : null;
       return {
@@ -710,7 +716,9 @@ export async function GET(request: NextRequest) {
           stockUom: item.stockUom,
         })),
         tallyStatus: tally.status,
-        tallyPercentage: activeLinked ? calculateGrnMatchPercentage(combinedPurchaseReceiptItems, activeLinked.items) : null,
+        tallyPercentage: activeLinkedStockReturns.length > 0
+          ? calculateGrnMatchPercentage(row.items, combinedStockReturnItems)
+          : null,
         tallyIssueItems: tally.issueItems,
         tallyIssues,
         purchaseInvoice: serializeBackfillPurchaseInvoice(purchaseInvoice),

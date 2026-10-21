@@ -79,7 +79,7 @@ export async function POST(
     if ((pr?.docstatus ?? backfillPr?.docstatus) === 2) {
       return NextResponse.json({ error: "Cancelled purchase receipts cannot be linked" }, { status: 400 });
     }
-    purchaseReceiptId = pr?.id ?? null;
+    purchaseReceiptId = pr?.id ?? backfillPr?.id ?? null;
     purchaseReceiptIsBackfill = !pr && Boolean(backfillPr);
   }
 
@@ -89,26 +89,6 @@ export async function POST(
     }
     if (stockReturnIsBackfill !== purchaseReceiptIsBackfill) {
       return NextResponse.json({ error: "Live and backfill records cannot share a multi-PR link" }, { status: 400 });
-    }
-
-    const linkedNames = purchaseReceiptIsBackfill
-      ? (await prisma.grnBackfillSupplierStockReturnPurchaseReceipt.findMany({
-          where: { purchaseReceiptId },
-          select: { supplierStockReturn: { select: { name: true } } },
-        })).map((link) => link.supplierStockReturn.name)
-      : (await prisma.grnSupplierStockReturnPurchaseReceipt.findMany({
-          where: { purchaseReceiptId },
-          select: { supplierStockReturn: { select: { name: true } } },
-        })).map((link) => link.supplierStockReturn.name);
-    if (!purchaseReceiptIsBackfill) {
-      const livePr = await prisma.grnPurchaseReceipt.findUnique({
-        where: { id: purchaseReceiptId },
-        select: { supplierStockReturnName: true },
-      });
-      if (livePr?.supplierStockReturnName) linkedNames.push(livePr.supplierStockReturnName);
-    }
-    if (mode === "append" && linkedNames.some((linkedName) => linkedName !== stockReturnName)) {
-      return NextResponse.json({ error: "This purchase receipt is already linked to another SSR" }, { status: 409 });
     }
 
     await prisma.$transaction(async (tx) => {
@@ -166,22 +146,37 @@ export async function POST(
             where: { companyId_name: { companyId: targetCompanyId, name: stockReturnName } },
             data: { purchaseReceiptName: stockReturn?.purchaseReceiptName ?? purchaseReceiptName },
           });
-          await tx.grnPurchaseReceipt.update({
-            where: { id: purchaseReceiptId },
+          await tx.grnPurchaseReceipt.updateMany({
+            where: { id: purchaseReceiptId, supplierStockReturnName: null },
             data: { supplierStockReturnName: stockReturnName },
           });
         } else {
           await tx.grnSupplierStockReturnPurchaseReceipt.deleteMany({
             where: { supplierStockReturnId: stockReturn!.id, purchaseReceiptId },
           });
-          await tx.grnPurchaseReceipt.updateMany({
-            where: { id: purchaseReceiptId, supplierStockReturnName: stockReturnName },
-            data: { supplierStockReturnName: null },
-          });
           const remaining = await tx.grnSupplierStockReturnPurchaseReceipt.findFirst({
             where: { supplierStockReturnId: stockReturn!.id },
             orderBy: { createdAt: "asc" },
             select: { purchaseReceipt: { select: { name: true } } },
+          });
+          const remainingForPurchaseReceipt = await tx.grnSupplierStockReturnPurchaseReceipt.findFirst({
+            where: { purchaseReceiptId },
+            orderBy: { createdAt: "asc" },
+            select: { supplierStockReturn: { select: { name: true } } },
+          });
+          const currentPurchaseReceipt = await tx.grnPurchaseReceipt.findUnique({
+            where: { id: purchaseReceiptId },
+            select: { supplierStockReturnName: true },
+          });
+          await tx.grnPurchaseReceipt.update({
+            where: { id: purchaseReceiptId },
+            data: {
+              supplierStockReturnName:
+                remainingForPurchaseReceipt?.supplierStockReturn.name ??
+                (currentPurchaseReceipt?.supplierStockReturnName !== stockReturnName
+                  ? currentPurchaseReceipt?.supplierStockReturnName
+                  : null),
+            },
           });
           await tx.grnSupplierStockReturn.update({
             where: { companyId_name: { companyId: targetCompanyId, name: stockReturnName } },
@@ -191,7 +186,7 @@ export async function POST(
       }
 
       if (mode === "append") {
-        if (purchaseReceiptId) {
+        if (purchaseReceiptId && !purchaseReceiptIsBackfill) {
           await attachPendingSupplierStockReturnPurchaseInvoices(tx, {
             companyId: targetCompanyId,
             stockReturnName,
