@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { formatAppIsoDate } from "@/lib/format-datetime";
+import { resolveBankTransferMopName } from "@/lib/payment-gateway-match";
 
 const BASE_URL = (process.env.ERPNEXT_BASE_URL ?? "").replace(/\/$/, "");
 const API_KEY = process.env.ERPNEXT_API_KEY ?? "";
@@ -51,7 +52,7 @@ export async function POST(req: Request) {
   if (testBankTransfer && body.po_no) {
     const steps: Record<string, unknown> = {};
     const dateStr = toDateStr(new Date());
-    const mopName = process.env.ERPNEXT_BANK_TRANSFER_MOP ?? "Wire Transfer";
+    const mopName = resolveBankTransferMopName(null);
 
     try {
       const filters = encodeURIComponent(JSON.stringify([
@@ -196,7 +197,7 @@ export async function POST(req: Request) {
       const invoiceName = json.data.name;
       const debitTo = json.data.debit_to ?? "Debtors - SV1";
       const totalAmount = json.data.grand_total ?? qty * rate;
-      const mopName = process.env.ERPNEXT_BANK_TRANSFER_MOP ?? "Wire Transfer";
+      const mopName = resolveBankTransferMopName(null);
       try {
         const mopRes = await fetch(
           `${BASE_URL}/api/resource/Mode%20of%20Payment/${encodeURIComponent(mopName)}`,

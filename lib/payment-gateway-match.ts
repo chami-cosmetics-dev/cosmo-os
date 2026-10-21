@@ -32,3 +32,26 @@ export function resolveMintpayMopName(
   if (!vault && !value) return "MintPay";
   return value || "Mintpay";
 }
+
+/**
+ * ERP Mode of Payment name for bank transfer.
+ * Cosmetics.lk (Cosmo OS) defaults to "Wire Transfer".
+ * Vault OS uses "Bank Transfer" for every bank-transfer order — Vault Wire Transfer
+ * has no company accounts, so Payment Entries must not use that name.
+ * Stored or env "Wire Transfer" on Vault is rewritten to "Bank Transfer".
+ */
+export function resolveBankTransferMopName(
+  stored: string | null | undefined,
+  options?: { vaultOs?: boolean; envValue?: string | null },
+): string {
+  const vault = options?.vaultOs ?? isVaultOsDeployment();
+  const envValue =
+    options && "envValue" in options
+      ? options.envValue
+      : process.env.ERPNEXT_BANK_TRANSFER_MOP;
+  const value = stored?.trim() || envValue?.trim() || "";
+  if (vault && (!value || compactPaymentGateway(value) === "wiretransfer")) {
+    return "Bank Transfer";
+  }
+  return value || "Wire Transfer";
+}

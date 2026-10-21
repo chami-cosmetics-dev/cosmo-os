@@ -1,6 +1,7 @@
 import "server-only";
 
 import { prisma } from "@/lib/prisma";
+import { resolveBankTransferMopName } from "@/lib/payment-gateway-match";
 
 export type ErpPaymentModeOption = {
   key: string;
@@ -39,7 +40,10 @@ export function listErpPaymentModesFromInstance(
   const options: ErpPaymentModeOption[] = [];
 
   for (const def of MOP_FIELD_DEFS) {
-    const mopName = instance[def.field]?.trim();
+    const raw = instance[def.field]?.trim();
+    if (!raw) continue;
+    const mopName =
+      def.field === "bankTransferMop" ? resolveBankTransferMopName(raw, { envValue: null }) : raw;
     if (!mopName || seen.has(mopName)) continue;
     seen.add(mopName);
     options.push({ key: def.key, label: def.label, mopName });

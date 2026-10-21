@@ -249,28 +249,32 @@ export function handoverSummaryCashAmount(delivery: {
   return delivery.cashAmount;
 }
 
-export type HandoverClosedInvoice = {
+export type HandoverCollectableOrder = {
   orderNumber: string;
   companyName: string;
-  invoiceCompleteAt: string | null;
+  cashAmount: string;
+  deliveredAt: string | null;
 };
 
-export function listHandoverClosedInvoices(
+export function listHandoverCollectableOrders(
   deliveries: Array<{
     orderNumber: string;
     erpnextCompany: string | null;
     locationName: string;
+    cashAmount: string;
+    deliveredAt: Date | null;
     invoiceCompleteAt: Date | null;
     fulfillmentStage: string;
   }>,
-): HandoverClosedInvoice[] {
+): HandoverCollectableOrder[] {
   return deliveries.flatMap((delivery) => {
-    if (!isInvoiceClosed(delivery)) return [];
+    if (isInvoiceClosed(delivery)) return [];
     return [
       {
         orderNumber: delivery.orderNumber,
         companyName: handoverCompanyName(delivery.erpnextCompany, delivery.locationName),
-        invoiceCompleteAt: delivery.invoiceCompleteAt?.toISOString() ?? null,
+        cashAmount: delivery.cashAmount,
+        deliveredAt: delivery.deliveredAt?.toISOString() ?? null,
       },
     ];
   });
