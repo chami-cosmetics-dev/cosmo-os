@@ -260,7 +260,7 @@ async function evaluatePurchasingUnlock(tx: Tx, id: string) {
   const request = await tx.itemCreationRequest.findUniqueOrThrow({ where: { id } });
   if (
     request.purchasingStatus === ItemCreationPurchasingStatus.LOCKED &&
-    request.seoSetupStatus === ItemCreationSeoSetupStatus.COMPLETED &&
+    request.seoSetupStatus !== ItemCreationSeoSetupStatus.PENDING &&
     request.digitalMarketingStatus === ItemCreationDigitalStatus.IMAGE_CREATED
   ) {
     await tx.itemCreationRequest.update({
@@ -836,6 +836,12 @@ export async function markStoreSent(context: UserContext, id: string) {
   requireWorkflowPermission(context, ITEM_CREATION_PERMISSIONS.stores);
   return prisma.$transaction(async (tx) => {
     const request = await getScopedRequest(tx, id, companyId(context));
+    if (
+      request.seoSetupStatus === ItemCreationSeoSetupStatus.PENDING ||
+      request.digitalMarketingStatus !== ItemCreationDigitalStatus.IMAGE_CREATED
+    ) {
+      throw new Error("Stores unlock after the item is created and Digital Marketing image is ready");
+    }
     if (request.storeTransferStatus !== "PENDING") throw new Error("Only pending store transfers can be marked sent");
     await tx.itemCreationRequest.update({ where: { id }, data: { storeTransferStatus: "SENT", sentAt: new Date(), sentBy: userId(context) } });
     await activity(tx, id, "STORE_SENT", "USER", userId(context), request.storeTransferStatus, "SENT");
@@ -846,6 +852,12 @@ export async function markStoreReceived(context: UserContext, id: string) {
   requireWorkflowPermission(context, ITEM_CREATION_PERMISSIONS.stores);
   return prisma.$transaction(async (tx) => {
     const request = await getScopedRequest(tx, id, companyId(context));
+    if (
+      request.seoSetupStatus === ItemCreationSeoSetupStatus.PENDING ||
+      request.digitalMarketingStatus !== ItemCreationDigitalStatus.IMAGE_CREATED
+    ) {
+      throw new Error("Stores unlock after the item is created and Digital Marketing image is ready");
+    }
     if (request.storeTransferStatus !== "SENT") throw new Error("Store transfer must be sent before received");
     await tx.itemCreationRequest.update({ where: { id }, data: { storeTransferStatus: "RECEIVED", receivedAt: new Date(), receivedBy: userId(context) } });
     await activity(tx, id, "STORE_RECEIVED", "USER", userId(context), request.storeTransferStatus, "RECEIVED");
@@ -857,6 +869,12 @@ export async function markStockAddedManually(context: UserContext, id: string) {
   requireWorkflowPermission(context, ITEM_CREATION_PERMISSIONS.stores);
   return prisma.$transaction(async (tx) => {
     const request = await getScopedRequest(tx, id, companyId(context));
+    if (
+      request.seoSetupStatus === ItemCreationSeoSetupStatus.PENDING ||
+      request.digitalMarketingStatus !== ItemCreationDigitalStatus.IMAGE_CREATED
+    ) {
+      throw new Error("Stores unlock after the item is created and Digital Marketing image is ready");
+    }
     if (request.storeStockStatus === "STOCK_ADDED") throw new Error("Stock is already marked added");
     await tx.itemCreationRequest.update({
       where: { id },
