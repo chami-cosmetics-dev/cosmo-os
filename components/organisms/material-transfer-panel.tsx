@@ -41,7 +41,6 @@ import {
   companiesForErp2,
   defaultSourceWarehouse,
   defaultTargetWarehouse,
-  erp1RequiresVatItems,
   warehouseOptions,
 } from "@/lib/material-transfer/warehouses";
 import { MaterialTransferHistory } from "@/components/organisms/material-transfer-history";
@@ -220,7 +219,7 @@ export function MaterialTransferPanel({
             itemName: existing.itemName,
             barcode: existing.barcode,
             uom: existing.uom,
-            taxStatus: null,
+            taxStatus: existing.taxStatus ?? null,
             availableQty: existing.availableQty,
           });
           continue;
@@ -348,7 +347,7 @@ export function MaterialTransferPanel({
           disabled={isBusy || !page?.erp1.configured}
           onClick={() => switchSlot("erp1")}
         >
-          ERP1 VAT items
+          ERP1 Vat items
         </Button>
         <Button
           type="button"
@@ -404,9 +403,7 @@ export function MaterialTransferPanel({
           </Select>
           <span className="text-muted-foreground text-xs">
             {slot === "erp1"
-              ? erp1RequiresVatItems(source, target)
-                ? "Every ERP1 warehouse. VAT items only."
-                : "OGF moves every item. VAT and non-VAT."
+              ? "Every ERP1 warehouse. Vat and Vat / Non Vat only."
               : "Defaults to the main warehouse. Main and shop warehouses are listed."}
           </span>
         </label>
@@ -478,6 +475,7 @@ export function MaterialTransferPanel({
             <tr>
               <th className="px-3 py-2 font-medium">SKU</th>
               <th className="px-3 py-2 font-medium">Item</th>
+              <th className="px-3 py-2 font-medium">Tax status</th>
               <th className="px-3 py-2 font-medium">Barcode</th>
               <th className="px-3 py-2 font-medium">Available</th>
               <th className="px-3 py-2 font-medium">Qty</th>
@@ -487,7 +485,7 @@ export function MaterialTransferPanel({
           <tbody>
             {lines.length === 0 ? (
               <tr>
-                <td className="text-muted-foreground px-3 py-6" colSpan={6}>
+                <td className="text-muted-foreground px-3 py-6" colSpan={7}>
                   No items yet.
                 </td>
               </tr>
@@ -506,6 +504,7 @@ export function MaterialTransferPanel({
                 >
                   <td className="px-3 py-2 font-medium">{line.itemCode}</td>
                   <td className="px-3 py-2">{line.itemName}</td>
+                  <td className="px-3 py-2">{line.taxStatus || "—"}</td>
                   <td className="px-3 py-2">{line.barcode || "—"}</td>
                   <td className="px-3 py-2">{line.availableQty ?? "—"}</td>
                   <td className="px-3 py-2">
@@ -572,6 +571,9 @@ export function MaterialTransferPanel({
                 >
                   <span>
                     {line.itemCode}
+                    {line.taxStatus ? (
+                      <span className="text-muted-foreground"> · {line.taxStatus}</span>
+                    ) : null}
                     {line.barcode ? <span className="text-muted-foreground"> · {line.barcode}</span> : null}
                     {low ? <span className="ml-2 font-medium text-amber-800 dark:text-amber-200">Below available</span> : null}
                   </span>
@@ -824,7 +826,7 @@ function ShopReturnQueue() {
                 >
                   <td className="py-1 pr-3">{line.itemCode}</td>
                   <td className="py-1 pr-3">
-                    {line.postSlot === "erp1" ? "ERP1 VAT" : line.postSlot === "erp2" ? "ERP2" : "—"}
+                    {line.postSlot === "erp1" ? "ERP1 Vat" : line.postSlot === "erp2" ? "ERP2" : "—"}
                   </td>
                   <td className="py-1 pr-3">{line.barcode || "—"}</td>
                   <td className="py-1 pr-3">{line.sentQty}</td>

@@ -80,9 +80,29 @@ describe("normalizeSendDraft", () => {
         uom: "Nos",
         qty: 2,
         availableQty: 5,
+        taxStatus: null,
         slot: null,
       },
     ]);
+  });
+
+  it("keeps ERP tax status on a line", () => {
+    const normalized = normalizeSendDraft(
+      draft({
+        lines: [
+          {
+            itemCode: "AJCC01_1",
+            itemName: "Non vat item",
+            barcode: "",
+            uom: "Nos",
+            qty: 1,
+            availableQty: 4,
+            taxStatus: "Non Vat",
+          },
+        ],
+      }),
+    );
+    expect(normalized.lines[0]?.taxStatus).toBe("Non Vat");
   });
 });
 

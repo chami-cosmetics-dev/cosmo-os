@@ -3,7 +3,6 @@ import ExcelJS from "exceljs";
 import { PURCHASE_HEADERS, type PurchaseHeader } from "@/lib/vault-supplement-import/headers";
 
 export const TEMPLATE_FILE_NAME = "vault-supplement-contacts-template.xlsx";
-export const DRAFT_FILE_NAME = "vault-supplement-contacts-draft.xlsx";
 export const ITEM_CODE_FILE_NAME = "vault-supplement-item-codes.xlsx";
 
 export const XLSX_CONTENT_TYPE =
@@ -32,8 +31,6 @@ const EXAMPLE = [
 ] as const;
 
 const TEXT_COLUMNS = new Set<PurchaseHeader>(["phone", "item_code", "invoice_no", "invoice_date", "source_ref"]);
-
-export type PurchaseSheetRow = Record<PurchaseHeader, string | number | null>;
 
 function applyTextFormat(cell: ExcelJS.Cell, header: PurchaseHeader) {
   if (TEXT_COLUMNS.has(header)) cell.numFmt = "@";
@@ -73,26 +70,6 @@ export async function buildTemplateWorkbook(): Promise<Buffer> {
   guide.getCell(4, 1).value = "This Guide sheet is not imported.";
   guide.getColumn(1).width = 110;
 
-  const bytes = await workbook.xlsx.writeBuffer();
-  return Buffer.from(bytes);
-}
-
-export async function buildPurchasesWorkbook(rows: PurchaseSheetRow[]): Promise<Buffer> {
-  const workbook = new ExcelJS.Workbook();
-  const sheet = workbook.addWorksheet("Purchases");
-  PURCHASE_HEADERS.forEach((header, index) => {
-    const cell = sheet.getCell(1, index + 1);
-    cell.value = header;
-    cell.font = { bold: true };
-  });
-  rows.forEach((row, rowIndex) => {
-    PURCHASE_HEADERS.forEach((header, column) => {
-      const cell = sheet.getCell(rowIndex + 2, column + 1);
-      const value = row[header];
-      cell.value = value == null || value === "" ? null : value;
-      applyTextFormat(cell, header);
-    });
-  });
   const bytes = await workbook.xlsx.writeBuffer();
   return Buffer.from(bytes);
 }

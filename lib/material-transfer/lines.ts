@@ -49,6 +49,7 @@ export function upsertTransferLine(lines: TransferLine[], item: TransferLookupIt
           uom: item.uom.trim() || "Nos",
           qty: 1,
           availableQty: item.availableQty,
+          taxStatus: item.taxStatus ?? null,
           slot: item.slot ?? null,
         },
       ],
@@ -69,6 +70,7 @@ export function upsertTransferLine(lines: TransferLine[], item: TransferLookupIt
         uom: line.uom.trim() || item.uom.trim() || "Nos",
         qty: nextQty,
         availableQty,
+        taxStatus: item.taxStatus ?? line.taxStatus ?? null,
         slot: item.slot ?? line.slot ?? null,
       };
     }),

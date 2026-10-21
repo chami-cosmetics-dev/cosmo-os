@@ -4,6 +4,7 @@ import {
   resolveShopToMain,
   shopReturnDestination,
   shopReturnHeader,
+  shopReturnTaxStatus,
   type ShopReturnWarehouse,
 } from "@/lib/material-transfer/shop-return";
 
@@ -16,11 +17,19 @@ function warehouse(
 }
 
 describe("shop return split", () => {
-  it("sends VAT items to ERP1 and other items to ERP2", () => {
+  it("sends Vat and Vat / Non Vat to ERP1 and other items to ERP2", () => {
     expect(shopReturnDestination("Vat")).toBe("erp1");
+    expect(shopReturnDestination("vat")).toBe("erp1");
     expect(shopReturnDestination("Vat / Non Vat")).toBe("erp1");
     expect(shopReturnDestination("Non Vat")).toBe("erp2");
     expect(shopReturnDestination("")).toBe("erp2");
+  });
+
+  it("keeps ERP1 tax status when the SKU is on ERP1", () => {
+    expect(shopReturnTaxStatus("Vat / Non Vat", "Non Vat", true)).toBe("Vat / Non Vat");
+    expect(shopReturnTaxStatus(null, "Vat / Non Vat", true)).toBe("Vat / Non Vat");
+    expect(shopReturnTaxStatus("Non Vat", "Vat / Non Vat", true)).toBe("Non Vat");
+    expect(shopReturnTaxStatus(null, "Non Vat", false)).toBe("Non Vat");
   });
 
   it("builds one header when both ERPs have lines", () => {
