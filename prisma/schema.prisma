@@ -29,6 +29,7 @@ model Company {
   emailTemplates                  EmailTemplate[]
   employeeProfiles                EmployeeProfile[]
   failedOrderWebhooks             FailedOrderWebhook[]
+  erpGrnWebhooks                  ErpGrnWebhook[]
   auditLogs                       AuditLog[]
   invites                         Invite[]
   orders                          Order[]
@@ -185,6 +186,7 @@ model ErpnextInstance {
   locations             CompanyLocation[]
   supplierPayableSnapshots SupplierPayableSnapshot[]
   receivableOutstandingSnapshots ReceivableOutstandingSnapshot[]
+  erpGrnWebhooks ErpGrnWebhook[]
 
   @@index([companyId])
 }
@@ -255,6 +257,33 @@ model FailedOrderWebhook {
   @@index([companyId, resolvedAt, createdAt(sort: Desc)])
   @@index([companyId, createdAt(sort: Desc)])
   @@index([companyId, resolvedAt, nextAutoRetryAt])
+}
+
+model ErpGrnWebhook {
+  id                String           @id @default(cuid())
+  companyId         String?
+  companyLocationId String?
+  erpnextInstanceId String?
+  documentType      String
+  documentName      String?
+  erpCompany        String?
+  endpoint          String
+  status            String           @default("received")
+  errorMessage      String?
+  errorStack        String?
+  rawPayload        Json
+  attemptCount      Int              @default(1)
+  lastAttemptAt     DateTime         @default(now())
+  resolvedAt        DateTime?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  company           Company?         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyLocation   CompanyLocation? @relation(fields: [companyLocationId], references: [id], onDelete: SetNull)
+  erpnextInstance   ErpnextInstance? @relation(fields: [erpnextInstanceId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, status, createdAt(sort: Desc)])
+  @@index([status, createdAt(sort: Desc)])
+  @@index([companyId, documentType, documentName])
 }
 
 model ShopifyWebhookSecret {
@@ -987,6 +1016,7 @@ model CompanyLocation {
   shadowLocations             CompanyLocation[]            @relation("LocationShadowParent")
   profiles                    EmployeeProfile[]
   failedOrderWebhooks         FailedOrderWebhook[]
+  erpGrnWebhooks              ErpGrnWebhook[]
   grnPurchaseReceipts         GrnPurchaseReceipt[]
   grnBackfillPurchaseReceipts GrnBackfillPurchaseReceipt[]
   invites                     Invite[]
