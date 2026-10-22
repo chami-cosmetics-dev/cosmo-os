@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   canEditRequest,
+  canExportScope,
   canViewRequest,
   canViewScope,
   scopeFilter,
@@ -44,6 +45,28 @@ describe("tabs", () => {
     expect(scopeFilter(merchant, "mine")).toEqual({ source: "staff", createdById: "u1" });
     expect(scopeFilter(admin, "mine")).toEqual({ source: "staff" });
     expect(scopeFilter(callCentre, "web")).toEqual({ source: { in: ["shopify", "import"] } });
+  });
+
+  it("lets manage export Website and My requests, not All staff", () => {
+    const manager = viewerFromPermissions({
+      userId: "u4",
+      roleNames: [],
+      permissionKeys: ["stock_requests.read", "stock_requests.manage"],
+    });
+    const merchantManager = viewerFromPermissions({
+      userId: "u1",
+      roleNames: ["Merchant 01"],
+      permissionKeys: ["stock_requests.create", "stock_requests.manage"],
+    });
+    expect(canExportScope(callCentre, "web")).toBe(false);
+    expect(canExportScope(merchant, "mine")).toBe(false);
+    expect(canExportScope(manager, "web")).toBe(true);
+    expect(canExportScope(manager, "mine")).toBe(false);
+    expect(canExportScope(merchantManager, "mine")).toBe(true);
+    expect(canExportScope(merchantManager, "web")).toBe(false);
+    expect(canExportScope(admin, "web")).toBe(true);
+    expect(canExportScope(admin, "mine")).toBe(true);
+    expect(canExportScope(admin, "staff")).toBe(false);
   });
 
   it("gives read_all its own tab of every staff request, and keeps admins on My requests", () => {

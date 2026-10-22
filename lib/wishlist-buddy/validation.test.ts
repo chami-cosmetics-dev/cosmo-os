@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   notifyRequestBodySchema,
   shopifyNumericId,
+  stockRequestExportScopeSchema,
   stockRequestListQuerySchema,
   stockRequestPatchBodySchema,
 } from "./validation";
@@ -36,6 +37,14 @@ describe("stockRequestPatchBodySchema", () => {
     expect(stockRequestPatchBodySchema.safeParse({}).success).toBe(false);
     expect(stockRequestPatchBodySchema.safeParse({ status: "closed" }).success).toBe(false);
     expect(stockRequestPatchBodySchema.safeParse({ status: "order_placed" }).success).toBe(true);
+  });
+});
+
+describe("stockRequestExportScopeSchema", () => {
+  it("allows website and my requests, not staff", () => {
+    expect(stockRequestExportScopeSchema.parse("web")).toBe("web");
+    expect(stockRequestExportScopeSchema.parse("mine")).toBe("mine");
+    expect(stockRequestExportScopeSchema.safeParse("staff").success).toBe(false);
   });
 });
 

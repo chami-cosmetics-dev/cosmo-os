@@ -69,6 +69,9 @@ export const stockRequestListQuerySchema = z.object({
 /** Stock Requests tab: website, the viewer's own, or every staff request. */
 export const stockRequestScopeSchema = z.enum(["web", "mine", "staff"]).default("web");
 
+/** Export is Website requests or My requests only. */
+export const stockRequestExportScopeSchema = z.enum(["web", "mine"]);
+
 /** "New request" form on the My requests tab. Phone is required; email is optional. */
 export const staffStockRequestCreateBodySchema = z.object({
   sku: z.string().trim().min(1, "Pick a product").max(100),

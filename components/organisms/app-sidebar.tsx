@@ -42,7 +42,7 @@ import {
   SearchCheck,
   Stethoscope,
 } from "lucide-react";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import {
   Sidebar,
   SidebarContent,
@@ -91,10 +91,14 @@ export function AppSidebar({
   const canViewRiderPerformance = hasSidebarPermission("riders.performance.read");
   const canViewOrders = hasSidebarPermission("orders.read");
   const canViewAbandonedOrders = hasSidebarPermission("abandoned_orders.read");
+  const canViewNewItemRequests =
+    hasSidebarPermission("new_item_requests.manage") ||
+    hasSidebarPermission("new_item_requests.admin");
   const canViewStockRequests =
     hasSidebarPermission("stock_requests.read") ||
     hasSidebarPermission("stock_requests.create") ||
-    hasSidebarPermission("stock_requests.read_all");
+    hasSidebarPermission("stock_requests.read_all") ||
+    canViewNewItemRequests;
   const canViewContactMaster =
     hasSidebarPermission("contacts.master.read") ||
     hasSidebarPermission("contacts.read");
@@ -140,8 +144,6 @@ export function AppSidebar({
     hasSidebarPermission("purchasing.market_prices.manage");
   const canViewGrn = hasSidebarPermission("purchasing.grn.read");
   const canAdminNewItemRequests = hasSidebarPermission("new_item_requests.admin");
-  const canManageNewItemRequestsOnly =
-    hasSidebarPermission("new_item_requests.manage") && !canAdminNewItemRequests;
   const canViewPurchasing =
     canViewOsf ||
     canViewPurchasingTools ||
@@ -256,12 +258,16 @@ export function AppSidebar({
     canViewReturns ||
     canViewExchanges ||
     canManageBookNotes ||
-    canManageNewItemRequestsOnly ||
+    canViewNewItemRequests ||
     Boolean(fulfillmentHref);
   const canViewStickers = canStickerBatch || canStickerPrint;
   const canViewSeoContent = hasSidebarPermission("products.seo.read");
   const canViewProductManagement = canViewProducts || canViewVatStatus || canViewSeoContent;
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const onNewItemRequestsTab =
+    searchParams.get("tab") === "new-items" ||
+    pathname.startsWith("/dashboard/new-item-requests");
 
   return (
     <Sidebar
@@ -393,7 +399,10 @@ export function AppSidebar({
                   href="/dashboard/orders/stock-requests"
                   icon={BellRing}
                   label="Stock Requests"
-                  isActive={pathname === "/dashboard/orders/stock-requests"}
+                  isActive={
+                    pathname.startsWith("/dashboard/orders/stock-requests") ||
+                    pathname.startsWith("/dashboard/new-item-requests")
+                  }
                 />
               )}
               {canViewOrders && (
@@ -405,14 +414,6 @@ export function AppSidebar({
                   icon={NotebookPen}
                   label="Book Notes"
                   isActive={pathname === "/dashboard/book-notes"}
-                />
-              )}
-              {canManageNewItemRequestsOnly && (
-                <NavItem
-                  href="/dashboard/new-item-requests"
-                  icon={ClipboardList}
-                  label="New item requests"
-                  isActive={pathname === "/dashboard/new-item-requests"}
                 />
               )}
               {canReadBookNotes && (
@@ -740,10 +741,10 @@ export function AppSidebar({
               )}
               {canAdminNewItemRequests && (
                 <NavItem
-                  href="/dashboard/new-item-requests"
+                  href="/dashboard/orders/stock-requests?tab=new-items"
                   icon={ClipboardList}
                   label="New item requests"
-                  isActive={pathname === "/dashboard/new-item-requests"}
+                  isActive={onNewItemRequestsTab}
                 />
               )}
             </SidebarGroupContent>

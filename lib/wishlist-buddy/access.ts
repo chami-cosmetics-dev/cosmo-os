@@ -8,6 +8,7 @@
  * - All staff requests tab (`stock_requests.read_all`): every staff request, grouped by creator.
  *   View only. Does not include website requests and does not allow editing someone else's request.
  * - Admins see and change everything (both original tabs; "My requests" shows every staff request).
+ * - Export on Website and My requests needs `stock_requests.manage` (admins included) plus view on that tab.
  */
 
 export const WEB_REQUEST_SOURCES = ["shopify", "import"] as const;
@@ -46,6 +47,12 @@ export function canViewScope(viewer: StockRequestViewer, scope: StockRequestScop
   if (scope === "web") return viewer.canViewWeb;
   if (scope === "staff") return viewer.canViewAllStaff;
   return viewer.canCreate;
+}
+
+/** Website and My requests only. Needs `stock_requests.manage` and view access to that tab. */
+export function canExportScope(viewer: StockRequestViewer, scope: StockRequestScope): boolean {
+  if (scope === "staff") return false;
+  return viewer.canManageWeb && canViewScope(viewer, scope);
 }
 
 type RequestOwnership = { source: string; createdById: string | null };

@@ -15,6 +15,12 @@ import {
   sampleQueueWhere,
 } from "@/lib/fulfillment-queue-filters";
 import { getLegacyAccSinvFulfillmentWhere } from "@/lib/legacy-acc-sinv";
+import {
+  isMerchantTrackingCode,
+  parseOrderCouponList,
+} from "@/lib/merchant-dm-sales";
+import { trackingCodesMatch } from "@/lib/merchant-wholesale";
+import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
 import { resolveOrderStageEnteredAt, waitingHoursSince } from "@/lib/order-stage-timing";
 import { prisma } from "@/lib/prisma";
 import {
@@ -245,17 +251,79 @@ async function fetchFinanceApprovalReminders(
   return { reminders, totalCount };
 }
 
+function uniqueCouponCodes(codes: string[] | null | undefined): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const code of codes ?? []) {
+    const trimmed = code.trim();
+    if (!trimmed) continue;
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(trimmed);
+  }
+  return out;
+}
+
+function merchantOrderOwnershipOr(
+  merchantUserId: string,
+  merchantCouponCodes: string[],
+): Prisma.OrderWhereInput[] {
+  return [
+    { assignedMerchantId: merchantUserId },
+    ...uniqueCouponCodes(merchantCouponCodes).map((code) => ({
+      discountCodes: { string_contains: code },
+    })),
+  ];
+}
+
+/**
+ * MER/WH code on the order wins: that order belongs to the merchant who owns
+ * that code. assignedMerchantId is only a fallback when the order has no
+ * merchant tracking code.
+ */
+export function merchantOwnsReminderOrder(
+  order: {
+    assignedMerchantId?: string | null;
+    sourceName?: string | null;
+    discountCodes?: unknown;
+    rawPayload?: unknown;
+  },
+  merchantUserId: string,
+  merchantCouponCodes: string[],
+): boolean {
+  const savedCodes = uniqueCouponCodes(merchantCouponCodes);
+  const keys = new Set(savedCodes.map((code) => code.toLowerCase()));
+  const orderCoupons = parseOrderCouponList(
+    getMerchantCouponCode({
+      sourceName: order.sourceName,
+      discountCodes: order.discountCodes,
+      rawPayload: order.rawPayload,
+      joinAllDiscountCodes: true,
+    }),
+  );
+  const tracking = orderCoupons.filter((code) => isMerchantTrackingCode(code));
+  if (tracking.length > 0) {
+    return tracking.some(
+      (code) =>
+        keys.has(code) || savedCodes.some((saved) => trackingCodesMatch(saved, code)),
+    );
+  }
+  return order.assignedMerchantId === merchantUserId;
+}
+
 export function buildMerchantPaymentApprovalWhere(
   companyId: string,
   merchantUserId: string,
+  merchantCouponCodes: string[] = [],
 ): Prisma.ApprovalRequestWhereInput {
   return {
     companyId,
     type: ORDER_PAYMENT_APPROVAL,
     status: "pending",
     order: {
-      assignedMerchantId: merchantUserId,
       NOT: { financialStatus: { equals: "voided", mode: "insensitive" } },
+      OR: merchantOrderOwnershipOr(merchantUserId, merchantCouponCodes),
     },
   };
 }
@@ -298,12 +366,22 @@ async function fetchMerchantPaymentApprovalReminders(
     return { reminders: [], totalCount: 0 };
   }
 
-  const where = buildMerchantPaymentApprovalWhere(companyId, context.userId);
-  const totalCount = await prisma.approvalRequest.count({ where });
+  const merchant = await prisma.user.findFirst({
+    where: { id: context.userId, companyId },
+    select: { couponCodes: true, wholesaleCouponCodes: true },
+  });
+  const merchantCouponCodes = [
+    ...(merchant?.couponCodes ?? []),
+    ...(merchant?.wholesaleCouponCodes ?? []),
+  ];
+  const where = buildMerchantPaymentApprovalWhere(
+    companyId,
+    context.userId,
+    merchantCouponCodes,
+  );
   const approvals = await prisma.approvalRequest.findMany({
     where,
     orderBy: { createdAt: "asc" },
-    take: REMINDER_LIMIT_PER_CATEGORY,
     select: {
       id: true,
       createdAt: true,
@@ -313,16 +391,25 @@ async function fetchMerchantPaymentApprovalReminders(
           name: true,
           orderNumber: true,
           shopifyOrderId: true,
+          assignedMerchantId: true,
+          sourceName: true,
+          discountCodes: true,
+          rawPayload: true,
         },
       },
     },
   });
+  const owned = approvals.filter(
+    (approval) =>
+      approval.order != null &&
+      merchantOwnsReminderOrder(approval.order, context.userId!, merchantCouponCodes),
+  );
 
   return {
-    totalCount,
-    reminders: approvals.map((approval) =>
-      mapMerchantPaymentApprovalReminder(approval, now),
-    ),
+    totalCount: owned.length,
+    reminders: owned
+      .slice(0, REMINDER_LIMIT_PER_CATEGORY)
+      .map((approval) => mapMerchantPaymentApprovalReminder(approval, now)),
   };
 }
 
@@ -336,15 +423,16 @@ const MERCHANT_DISPATCH_PENDING_STAGES = [
 export function buildMerchantDispatchPendingWhere(
   companyId: string,
   merchantUserId: string,
+  merchantCouponCodes: string[] = [],
 ): Prisma.OrderWhereInput {
   return {
     companyId,
-    assignedMerchantId: merchantUserId,
     cancelledAt: null,
     dispatchedAt: null,
     fulfillmentStage: { in: [...MERCHANT_DISPATCH_PENDING_STAGES] },
     ...excludePosOrdersWhere,
     NOT: { financialStatus: { equals: "voided", mode: "insensitive" } },
+    OR: merchantOrderOwnershipOr(merchantUserId, merchantCouponCodes),
   };
 }
 
@@ -383,24 +471,43 @@ async function fetchMerchantDispatchPendingReminders(
     return { reminders: [], totalCount: 0 };
   }
 
-  const where = buildMerchantDispatchPendingWhere(companyId, context.userId);
-  const totalCount = await prisma.order.count({ where });
+  const merchant = await prisma.user.findFirst({
+    where: { id: context.userId, companyId },
+    select: { couponCodes: true, wholesaleCouponCodes: true },
+  });
+  const merchantCouponCodes = [
+    ...(merchant?.couponCodes ?? []),
+    ...(merchant?.wholesaleCouponCodes ?? []),
+  ];
+  const where = buildMerchantDispatchPendingWhere(
+    companyId,
+    context.userId,
+    merchantCouponCodes,
+  );
   const orders = await prisma.order.findMany({
     where,
     orderBy: { createdAt: "asc" },
-    take: REMINDER_LIMIT_PER_CATEGORY,
     select: {
       id: true,
       name: true,
       orderNumber: true,
       shopifyOrderId: true,
       createdAt: true,
+      assignedMerchantId: true,
+      sourceName: true,
+      discountCodes: true,
+      rawPayload: true,
     },
   });
+  const owned = orders.filter((order) =>
+    merchantOwnsReminderOrder(order, context.userId!, merchantCouponCodes),
+  );
 
   return {
-    totalCount,
-    reminders: orders.map((order) => mapMerchantDispatchPendingReminder(order, now)),
+    totalCount: owned.length,
+    reminders: owned
+      .slice(0, REMINDER_LIMIT_PER_CATEGORY)
+      .map((order) => mapMerchantDispatchPendingReminder(order, now)),
   };
 }
 
