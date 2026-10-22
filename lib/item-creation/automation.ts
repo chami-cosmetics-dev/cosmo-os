@@ -2,13 +2,13 @@ import "server-only";
 
 import {
   ItemCreationErp,
-  ItemCreationShopifyActivationStatus,
   ItemCreationStockReceiptStatus,
   ItemCreationUpdateSource,
   Prisma,
 } from "@prisma/client";
 
 import { ITEM_CREATION_PERMISSIONS, ITEM_CREATION_PRICE_LISTS } from "@/lib/item-creation/workflow";
+import { isItemCreationTaxStatus } from "@/lib/item-creation/helpers";
 import { fetchBinActualQty, getAllOsfErpInstances, stockForColumn, type OsfErpCredentials, type OsfErpInstance } from "@/lib/osf/erp-stock";
 import { resolveOsfColumns } from "@/lib/osf/column-config";
 import { resolveTransferItemIdentity } from "@/lib/material-transfer/erp";
@@ -17,6 +17,7 @@ import { normalizeSkuKey } from "@/lib/product-items/erp-priority-sync";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserContext, hasPermission } from "@/lib/rbac";
 import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
+import { updateShopifyVariantPrice } from "@/lib/shopify-admin";
 
 type UserContext = NonNullable<Awaited<ReturnType<typeof getCurrentUserContext>>>;
 type Tx = Prisma.TransactionClient;
@@ -26,7 +27,6 @@ type ErpSlotSet = {
   erp2: OsfErpInstance | null;
 };
 
-const SHOPIFY_ACTIVATION_ERP_METHOD = "item_creation.activate_shopify_product";
 const ITEM_CREATION_PRODUCT_PRIORITY_FIELDS = [
   process.env.ITEM_CREATION_PRODUCT_PRIORITY_FIELD,
   "custom_product_priority",
@@ -384,22 +384,32 @@ async function setErpItemProductPriority(cfg: OsfErpCredentials, itemCode: strin
   throw new Error(`Could not set Product Priority for ${itemCode}: ${message}`);
 }
 
+async function setErpItemTaxStatus(cfg: OsfErpCredentials, itemCode: string, taxStatus: string) {
+  await updateErpDoc<Record<string, unknown>>(cfg, "Item", itemCode, {
+    custom_tax_status: taxStatus,
+  });
+  return { field: "custom_tax_status", value: taxStatus };
+}
+
 async function ensureErp2Item(input: {
   cfg: OsfErpCredentials;
   itemCode: string;
   itemName: string;
   brand: string;
   barcodes: string[];
+  taxStatus: string;
 }) {
   const existing = await getErpDoc<Record<string, unknown>>(input.cfg, "Item", input.itemCode);
   if (existing) {
+    const body: Record<string, unknown> = { custom_tax_status: input.taxStatus };
     if (input.barcodes.length > 0) {
-      await updateErpDoc<Record<string, unknown>>(input.cfg, "Item", input.itemCode, {
-        barcodes: input.barcodes.map((barcode) => ({ barcode })),
-      });
+      body.barcodes = input.barcodes.map((barcode) => ({ barcode }));
+    }
+    if (Object.keys(body).length > 0) {
+      await updateErpDoc<Record<string, unknown>>(input.cfg, "Item", input.itemCode, body);
     }
     await setErpItemProductPriority(input.cfg, input.itemCode);
-    return { itemCode: input.itemCode, created: false, barcodeUpdated: input.barcodes.length > 0 };
+    return { itemCode: input.itemCode, created: false, barcodeUpdated: input.barcodes.length > 0, taxStatusUpdated: true };
   }
 
   await ensureErpBrand(input.cfg, input.brand);
@@ -411,10 +421,11 @@ async function ensureErp2Item(input: {
     stock_uom: process.env.ITEM_CREATION_ERP_STOCK_UOM ?? "Nos",
     brand: input.brand.trim() || undefined,
     description: `${itemName} in Sri Lanka`,
+    custom_tax_status: input.taxStatus,
     barcodes: input.barcodes.map((barcode) => ({ barcode })),
   });
   await setErpItemProductPriority(input.cfg, input.itemCode);
-  return { itemCode: input.itemCode, created: true, barcodeUpdated: input.barcodes.length > 0 };
+  return { itemCode: input.itemCode, created: true, barcodeUpdated: input.barcodes.length > 0, taxStatusUpdated: true };
 }
 
 export async function handleErp1ItemWebhook(companyIds: string[], payload: ErpItemWebhookPayload) {
@@ -431,7 +442,7 @@ export async function handleErp1ItemWebhook(companyIds: string[], payload: ErpIt
       sku: { equals: itemCode, mode: "insensitive" },
       overallStatus: "IN_PROGRESS",
     },
-    select: { id: true, companyId: true, creationSources: true, seoSetupStatus: true },
+    select: { id: true, companyId: true, creationSources: true, seoSetupStatus: true, taxStatus: true },
   });
   if (requests.length === 0) return { matched: 0, skipped: "no_active_request" };
 
@@ -441,6 +452,8 @@ export async function handleErp1ItemWebhook(companyIds: string[], payload: ErpIt
   let advancedSeo = 0;
   let priorityUpdated = 0;
   let priorityFailed = 0;
+  let taxStatusUpdated = 0;
+  let taxStatusFailed = 0;
   for (const request of requests) {
     await prisma.$transaction(async (tx) => {
       await tx.itemCreationRequest.update({
@@ -489,6 +502,34 @@ export async function handleErp1ItemWebhook(companyIds: string[], payload: ErpIt
       });
     }
 
+    if (Array.isArray(request.creationSources) && request.creationSources.includes("SHOPIFY")) {
+      try {
+        const { erp1 } = await resolveErps(request.companyId);
+        if (!erp1) throw new Error("ERP1 instance is not configured");
+        const tax = await setErpItemTaxStatus(erp1.cfg, itemCode, request.taxStatus);
+        taxStatusUpdated += 1;
+        await prisma.itemCreationActivity.create({
+          data: {
+            itemRequestId: request.id,
+            type: "ERP1_TAX_STATUS_UPDATED",
+            source: "SYSTEM",
+            metadata: { itemCode, ...tax },
+          },
+        });
+      } catch (error) {
+        taxStatusFailed += 1;
+        const message = error instanceof Error ? error.message : "Tax status update failed";
+        await prisma.itemCreationActivity.create({
+          data: {
+            itemRequestId: request.id,
+            type: "ERP1_TAX_STATUS_FAILED",
+            source: "SYSTEM",
+            metadata: { itemCode, taxStatus: request.taxStatus, error: message.slice(0, 700) },
+          },
+        });
+      }
+    }
+
     if (!requestNeedsErp2(request.creationSources)) {
       const advanced = await prisma.$transaction((tx) =>
         advanceSeoToItemCreated(tx, request, {
@@ -514,7 +555,14 @@ export async function handleErp1ItemWebhook(companyIds: string[], payload: ErpIt
     try {
       const { erp2 } = await resolveErps(request.companyId);
       if (!erp2) throw new Error("ERP2 instance is not configured");
-      const result = await ensureErp2Item({ cfg: erp2.cfg, itemCode, itemName, brand, barcodes });
+      const result = await ensureErp2Item({
+        cfg: erp2.cfg,
+        itemCode,
+        itemName,
+        brand,
+        barcodes,
+        taxStatus: request.taxStatus,
+      });
       await prisma.$transaction(async (tx) => {
         await tx.itemCreationRequest.update({
           where: { id: request.id },
@@ -530,6 +578,8 @@ export async function handleErp1ItemWebhook(companyIds: string[], payload: ErpIt
           brand,
           barcodes,
           barcodeUpdated: result.barcodeUpdated,
+          taxStatusUpdated: result.taxStatusUpdated,
+          taxStatus: request.taxStatus,
           reconciledExisting: !result.created,
         });
         const advanced = await advanceSeoToItemCreated(tx, request, {
@@ -557,7 +607,17 @@ export async function handleErp1ItemWebhook(companyIds: string[], payload: ErpIt
       });
     }
   }
-  return { matched: requests.length, completed, failed, skippedErp2, advancedSeo, priorityUpdated, priorityFailed };
+  return {
+    matched: requests.length,
+    completed,
+    failed,
+    skippedErp2,
+    advancedSeo,
+    priorityUpdated,
+    priorityFailed,
+    taxStatusUpdated,
+    taxStatusFailed,
+  };
 }
 
 export async function retryErp2ItemCreation(context: UserContext, id: string) {
@@ -577,6 +637,53 @@ export async function retryErp2ItemCreation(context: UserContext, id: string) {
       ? request.erp1Barcodes.map((barcode) => ({ barcode: String(barcode) }))
       : [],
   });
+}
+
+export async function syncItemCreationTaxStatus(context: UserContext, id: string) {
+  requireItemCreationPermission(context, ITEM_CREATION_PERMISSIONS.admin);
+  const request = await prisma.itemCreationRequest.findFirstOrThrow({
+    where: { id, companyId: companyId(context) },
+    select: { id: true, companyId: true, sku: true, taxStatus: true, creationSources: true, erp1ItemCode: true, erp2ItemCode: true },
+  });
+  if (!isItemCreationTaxStatus(request.taxStatus)) throw new Error("Tax status is invalid");
+
+  const errors: string[] = [];
+  const updated: string[] = [];
+  const sources = Array.isArray(request.creationSources) ? request.creationSources : [];
+
+  if (sources.includes("SHOPIFY") && request.erp1ItemCode) {
+    try {
+      const { erp1 } = await resolveErps(request.companyId);
+      if (!erp1) throw new Error("ERP1 instance is not configured");
+      await setErpItemTaxStatus(erp1.cfg, request.erp1ItemCode, request.taxStatus);
+      updated.push("ERP1");
+    } catch (error) {
+      errors.push(`ERP1: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  if (sources.includes("ERP2") && request.erp2ItemCode) {
+    try {
+      const { erp2 } = await resolveErps(request.companyId);
+      if (!erp2) throw new Error("ERP2 instance is not configured");
+      await setErpItemTaxStatus(erp2.cfg, request.erp2ItemCode, request.taxStatus);
+      updated.push("ERP2");
+    } catch (error) {
+      errors.push(`ERP2: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  await prisma.itemCreationActivity.create({
+    data: {
+      itemRequestId: request.id,
+      type: errors.length > 0 ? "TAX_STATUS_UPDATE_FAILED" : "TAX_STATUS_UPDATED",
+      source: "USER",
+      userId: userId(context),
+      metadata: { itemCode: request.sku, taxStatus: request.taxStatus, updated, errors },
+    },
+  });
+  if (errors.length > 0) throw new Error(errors.join("; "));
+  return { ok: true, updated };
 }
 
 async function upsertItemPrice(input: {
@@ -619,10 +726,75 @@ async function resolvePriceListName(cfg: OsfErpCredentials, requestedName: strin
   return match?.name?.trim() || requestedName;
 }
 
+async function updateItemCreationShopifyPrice(request: {
+  companyId: string;
+  sku: string;
+  creationSources: Prisma.JsonValue | null;
+  standardPrice: Prisma.Decimal;
+}) {
+  if (!Array.isArray(request.creationSources) || !request.creationSources.includes("SHOPIFY")) {
+    return { ok: true, updated: 0, skipped: true as const };
+  }
+
+  const productItems = await prisma.productItem.findMany({
+    where: {
+      companyId: request.companyId,
+      sku: { equals: request.sku, mode: "insensitive" },
+    },
+    select: {
+      id: true,
+      shopifyProductId: true,
+      shopifyVariantId: true,
+      companyLocation: { select: { shopifyAdminStoreHandle: true, shopifyShopName: true } },
+    },
+  });
+  const targets = new Map<string, {
+    productId: string;
+    variantId: string;
+    storeHandle: string;
+    productItemIds: string[];
+  }>();
+  for (const item of productItems) {
+    const storeHandle = (
+      item.companyLocation.shopifyAdminStoreHandle ?? item.companyLocation.shopifyShopName
+    )?.trim();
+    const productId = item.shopifyProductId.trim();
+    const variantId = item.shopifyVariantId.trim();
+    if (!storeHandle || !/\d+$/.test(productId) || !/\d+$/.test(variantId)) continue;
+    const key = `${storeHandle.toLowerCase()}::${productId}::${variantId}`;
+    const current = targets.get(key);
+    if (current) {
+      current.productItemIds.push(item.id);
+    } else {
+      targets.set(key, { productId, variantId, storeHandle, productItemIds: [item.id] });
+    }
+  }
+  if (targets.size === 0) {
+    throw new Error(`No Shopify variant was found for SKU ${request.sku}`);
+  }
+
+  const updatedIds: string[] = [];
+  for (const target of targets.values()) {
+    await updateShopifyVariantPrice({
+      storeHandle: target.storeHandle,
+      productId: target.productId,
+      variantId: target.variantId,
+      price: request.standardPrice.toString(),
+    });
+    updatedIds.push(...target.productItemIds);
+  }
+  await prisma.productItem.updateMany({
+    where: { id: { in: updatedIds } },
+    data: { price: request.standardPrice },
+  });
+  return { ok: true, updated: targets.size, skipped: false as const };
+}
+
 export async function updateItemCreationPrices(context: UserContext, id: string) {
   requireItemCreationPermission(context, ITEM_CREATION_PERMISSIONS.purchasing);
+  const scopedCompanyId = companyId(context);
   const request = await prisma.itemCreationRequest.findFirstOrThrow({
-    where: { id, companyId: companyId(context) },
+    where: { id, companyId: scopedCompanyId },
   });
   if (request.purchasingStatus !== "WAITING_FOR_PRICES") {
     throw new Error("Only waiting purchasing requests can update prices");
@@ -649,10 +821,24 @@ export async function updateItemCreationPrices(context: UserContext, id: string)
       : []),
   ];
 
+  const staleRunBefore = new Date(Date.now() - 30 * 60 * 1000);
+  const claim = await prisma.itemCreationRequest.updateMany({
+    where: {
+      id,
+      companyId: scopedCompanyId,
+      purchasingStatus: "WAITING_FOR_PRICES",
+      OR: [
+        { erp1StandardPriceStatus: { not: "UPDATING" } },
+        { erp1StandardPriceStatus: "UPDATING", updatedAt: { lt: staleRunBefore } },
+      ],
+    },
+    data: { erp1StandardPriceStatus: "UPDATING" },
+  });
+  if (claim.count !== 1) throw new Error("Price update is already in progress for this item");
+
   await prisma.itemCreationRequest.update({
     where: { id },
     data: {
-      erp1StandardPriceStatus: "UPDATING",
       erp1OgfPriceStatus: needsErp1Ogf && request.ogfPrice ? "UPDATING" : "NOT_REQUIRED",
       erp2StandardPriceStatus: needsErp2 ? "UPDATING" : "NOT_REQUIRED",
       erp2OgfPriceStatus: !vaultOs && needsErp2 && request.ogfPrice ? "UPDATING" : "NOT_REQUIRED",
@@ -688,7 +874,7 @@ export async function updateItemCreationPrices(context: UserContext, id: string)
       });
       const data =
         op.key === "erp1Standard"
-          ? { erp1StandardPrice: saved.rate, erp1StandardPriceStatus: "UPDATED" as const }
+          ? { erp1StandardPrice: saved.rate }
           : op.key === "erp1Ogf"
             ? { erp1OgfPrice: saved.rate, erp1OgfPriceStatus: "UPDATED" as const }
             : op.key === "erp2Standard"
@@ -711,7 +897,7 @@ export async function updateItemCreationPrices(context: UserContext, id: string)
       const message = error instanceof Error ? error.message : "Item Price update failed";
       const data =
         op.key === "erp1Standard"
-          ? { erp1StandardPriceStatus: "FAILED" as const, erp1StandardPriceError: message.slice(0, 1000) }
+          ? { erp1StandardPriceError: message.slice(0, 1000) }
           : op.key === "erp1Ogf"
             ? { erp1OgfPriceStatus: "FAILED" as const, erp1OgfPriceError: message.slice(0, 1000) }
             : op.key === "erp2Standard"
@@ -733,6 +919,56 @@ export async function updateItemCreationPrices(context: UserContext, id: string)
     }
   }
 
+  await prisma.itemCreationRequest.update({
+    where: { id },
+    data: {
+      erp1StandardPriceStatus: (results.erp1Standard as { ok?: boolean } | undefined)?.ok
+        ? "UPDATED"
+        : "FAILED",
+    },
+  });
+  let shopifyPriceResult: { ok: boolean; updated: number; skipped: boolean; error?: string } = {
+    ok: true,
+    updated: 0,
+    skipped: true,
+  };
+  try {
+    shopifyPriceResult = await updateItemCreationShopifyPrice(request);
+    results.shopify = shopifyPriceResult;
+    await prisma.itemCreationActivity.create({
+      data: {
+        itemRequestId: id,
+        type: shopifyPriceResult.skipped
+          ? "SHOPIFY_STANDARD_PRICE_SKIPPED"
+          : "SHOPIFY_STANDARD_PRICE_UPDATED",
+        source: "SYSTEM",
+        userId: userId(context),
+        metadata: {
+          sku: request.sku,
+          rate: Number(request.standardPrice),
+          updated: shopifyPriceResult.updated,
+          skipped: shopifyPriceResult.skipped,
+        },
+      },
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Shopify price update failed";
+    shopifyPriceResult = { ok: false, updated: 0, skipped: false, error: message };
+    results.shopify = shopifyPriceResult;
+    await prisma.itemCreationActivity.create({
+      data: {
+        itemRequestId: id,
+        type: "SHOPIFY_STANDARD_PRICE_FAILED",
+        source: "SYSTEM",
+        userId: userId(context),
+        metadata: {
+          sku: request.sku,
+          rate: Number(request.standardPrice),
+          error: message.slice(0, 700),
+        },
+      },
+    });
+  }
   const refreshed = await prisma.itemCreationRequest.findUniqueOrThrow({ where: { id } });
   const requiredUpdated =
     refreshed.erp1StandardPriceStatus === "UPDATED" &&
@@ -741,7 +977,8 @@ export async function updateItemCreationPrices(context: UserContext, id: string)
     (!requestNeedsErp2(refreshed.creationSources) ||
       (refreshed.erp2StandardPriceStatus === "UPDATED" &&
         (vaultOs || !refreshed.ogfPrice || refreshed.erp2OgfPriceStatus === "UPDATED") &&
-        (vaultOs || !refreshed.gccPrice || refreshed.erp2GccPriceStatus === "UPDATED")));
+        (vaultOs || !refreshed.gccPrice || refreshed.erp2GccPriceStatus === "UPDATED"))) &&
+    shopifyPriceResult.ok;
   if (requiredUpdated) {
     await prisma.$transaction(async (tx) => {
       await tx.itemCreationRequest.update({
@@ -1188,7 +1425,6 @@ async function updateStockCompletion(company: string, erp: ItemCreationErp, item
               stockAddedAt: new Date(),
               stockAddedBy: actorId ?? null,
               stockAddedSource: "USER",
-              shopifyActivationStatus: "WAITING",
             },
           });
           await activity(tx, id, "ERP1_STOCK_COMPLETED", "SYSTEM", actorId ?? null);
@@ -1267,139 +1503,4 @@ export async function retryPurchaseReceipt(context: UserContext, receiptId: stri
     where: { id: receiptId },
     include: { items: true },
   });
-}
-
-type ShopifyActivationResult = {
-  productId: string;
-  variantId: string;
-  alreadyActive?: boolean;
-  via: "erp_script" | "direct";
-};
-
-function unwrapFrappeMethodResponse(value: unknown): Record<string, unknown> {
-  if (!value || typeof value !== "object") return {};
-  const row = value as Record<string, unknown>;
-  const message = row.message;
-  if (message && typeof message === "object" && !Array.isArray(message)) {
-    return message as Record<string, unknown>;
-  }
-  return row;
-}
-
-async function activateShopifyViaErpScript(input: {
-  companyId: string;
-  itemRequestId: string;
-  sku: string;
-}): Promise<ShopifyActivationResult | null> {
-  const { erp1 } = await resolveErps(input.companyId);
-  if (!erp1) throw new Error("ERP1 instance is not configured");
-
-  const response = await erpJson<Record<string, unknown>>(erp1.cfg, `/api/method/${SHOPIFY_ACTIVATION_ERP_METHOD}`, {
-    method: "POST",
-    body: JSON.stringify({
-      sku: input.sku,
-      item_code: input.sku,
-      itemRequestId: input.itemRequestId,
-      item_request_id: input.itemRequestId,
-    }),
-  });
-  const data = unwrapFrappeMethodResponse(response);
-  if (data.ok === false || data.success === false) {
-    throw new Error(String(data.error || data.message || "ERP Shopify activation script failed"));
-  }
-
-  const productId = String(data.product_id ?? data.productId ?? data.shopify_product_id ?? "").replace(/\D/g, "");
-  const variantId = String(data.variant_id ?? data.variantId ?? data.shopify_variant_id ?? "").replace(/\D/g, "");
-  if (!productId) {
-    throw new Error("ERP Shopify activation script did not return product_id");
-  }
-
-  return {
-    productId,
-    variantId,
-    alreadyActive: Boolean(data.already_active ?? data.alreadyActive),
-    via: "erp_script",
-  };
-}
-
-async function activateShopifyForItemRequest(request: {
-  id: string;
-  companyId: string;
-  sku: string;
-  shopifyProductId: string | null;
-  shopifyVariantId: string | null;
-}): Promise<ShopifyActivationResult> {
-  const scripted = await activateShopifyViaErpScript({
-    companyId: request.companyId,
-    itemRequestId: request.id,
-    sku: request.sku,
-  });
-  if (!scripted) throw new Error("ERP Shopify activation script did not return a result");
-  return scripted;
-}
-
-export async function activateItemCreationShopify(context: UserContext, id: string) {
-  requireItemCreationPermission(context, ITEM_CREATION_PERMISSIONS.stores);
-  const request = await prisma.itemCreationRequest.findFirstOrThrow({
-    where: { id, companyId: companyId(context) },
-  });
-  if (request.storeStockStatus !== "STOCK_ADDED") throw new Error("ERP1 stock must be completed first");
-  if (request.purchasingStatus !== "PRICE_UPDATED") throw new Error("Price must be updated before Shopify activation");
-
-  await prisma.itemCreationRequest.update({
-    where: { id },
-    data: { shopifyActivationStatus: "ACTIVATING", shopifyActivationError: null },
-  });
-  await prisma.itemCreationActivity.create({
-    data: {
-      itemRequestId: id,
-      type: "SHOPIFY_ACTIVATION_STARTED",
-      source: "USER",
-      userId: userId(context),
-      metadata: { itemCode: request.sku },
-    },
-  });
-
-  try {
-    const result = await activateShopifyForItemRequest(request);
-    await prisma.$transaction(async (tx) => {
-      await tx.itemCreationRequest.update({
-        where: { id },
-        data: {
-          shopifyProductId: result.productId,
-          shopifyVariantId: result.variantId || request.shopifyVariantId,
-          shopifyActivationStatus: "ACTIVE",
-          shopifyActivatedAt: new Date(),
-          shopifyActivationError: null,
-          overallStatus: "COMPLETED",
-          completedAt: new Date(),
-        },
-      });
-      await activity(tx, id, "STORES_DONE", "USER", userId(context), { itemCode: request.sku });
-      await activity(tx, id, "SHOPIFY_ACTIVATED", "SYSTEM", userId(context), {
-        itemCode: request.sku,
-        productId: result.productId,
-        variantId: result.variantId || request.shopifyVariantId || "",
-        alreadyActive: result.alreadyActive,
-        via: result.via,
-      });
-    });
-    return { ok: true };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Shopify activation failed";
-    await prisma.$transaction(async (tx) => {
-      await tx.itemCreationRequest.update({
-        where: { id },
-        data: {
-          shopifyActivationStatus: ItemCreationShopifyActivationStatus.FAILED,
-          shopifyActivationError: message.slice(0, 1000),
-        },
-      });
-      await activity(tx, id, "SHOPIFY_ACTIVATION_FAILED", "SYSTEM", userId(context), {
-        itemCode: request.sku,
-        error: message.slice(0, 700),
-      });
-    });
-    throw error;
-  }
 }
