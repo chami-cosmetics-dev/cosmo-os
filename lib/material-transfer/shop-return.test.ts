@@ -93,7 +93,7 @@ describe("resolveShopToMain", () => {
   });
 
   it("sends Cool Planet VAT stock to the Cosmetics main and other items to the MNK main", () => {
-    const result = resolveShopToMain("Cool Planet", [
+    const result = resolveShopToMain("CoolPlanet", [
       warehouse("Cool Planet Nugegoda Shop Warehouse - Cosmo", "Cosmetics.lk", "erp1"),
       warehouse("Main Warehouse - Cosmo", "Cosmetics.lk", "erp1"),
       warehouse("Main Warehouse 2 - Cosmo", "Cosmetics.lk", "erp1"),
