@@ -19,12 +19,18 @@ describe("shop scope", () => {
     expect(warehouseMatchesOutlet("Shop Warehouse - Chami", "GCC")).toBe(false);
     expect(warehouseMatchesOutlet("GCC Shop Warehouse - Cosmo", "Galle")).toBe(true);
     expect(warehouseMatchesOutlet("Pepiliyana Shop Warehouse - Cosmo", "Galle")).toBe(false);
+    expect(
+      warehouseMatchesOutlet("Cool Planet Nugegoda Shop Warehouse - Cosmo", "CoolPlanet"),
+    ).toBe(true);
+    expect(warehouseMatchesOutlet("Pepiliyana Shop Warehouse - Cosmo", "CoolPlanet")).toBe(false);
   });
 
   it("shows an ERP2 company transfer only to the mapped outlet", () => {
     const see = (warehouse: string, outletName: string) =>
       transferVisibleToShop(warehouse, { explicitWarehouses: [], outletName });
     expect(see("Shop Warehouse - MNK", "Cool Planet")).toBe(true);
+    expect(see("Shop Warehouse - MNK", "CoolPlanet")).toBe(true);
+    expect(see("Cool Planet Nugegoda Shop Warehouse - Cosmo", "CoolPlanet")).toBe(true);
     expect(see("Main Warehouse - MNK", "Cool Planet Nugegoda")).toBe(true);
     expect(see("Shop Warehouse - MNK", "GCC")).toBe(false);
     expect(see("Shop Warehouse - LMJ", "Pepiliyana")).toBe(true);

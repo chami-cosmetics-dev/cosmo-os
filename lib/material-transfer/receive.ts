@@ -17,7 +17,8 @@ const OUTLET_WORDS = new Set(["shop", "warehouse", "main", "stores", "store"]);
  * and shop-to-main from that company's shop warehouse to its main warehouse.
  * LMJ Pepiliyana, MNK Cool Planet Nugegoda, AJS Kiribathgoda, Chami GCC,
  * DTD Negombo (Thilakma Negombo), SPK Nittambuwa, LWK OGF, DRO Maharagama.
- * Galle is the GCC outlet, so it shares Chami.
+ * Galle is the GCC outlet, so it shares Chami. CoolPlanet staff see the
+ * Cosmetics Cool Planet warehouse and the MNK shop warehouse.
  */
 const ERP2_CODE_OUTLETS: Record<string, readonly string[]> = {
   lmj: ["pepiliyana"],
@@ -33,6 +34,7 @@ const ERP2_CODE_OUTLETS: Record<string, readonly string[]> = {
 /** Staff outlet name → a word in the ERP1 warehouse name. Galle's shop is named GCC. */
 const OUTLET_WAREHOUSE_ALIASES: Record<string, readonly string[]> = {
   galle: ["gcc"],
+  coolplanet: ["cool planet", "cool planet nugegoda"],
 };
 
 function outletKey(outletName: string): string {
@@ -68,12 +70,18 @@ function warehouseCompanyCode(warehouse: string): string | null {
   return code && ERP2_CODE_OUTLETS[code] ? code : null;
 }
 
+function compactKey(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
 function warehouseNameContainsOutlet(warehouse: string, outletName: string | null | undefined): boolean {
   const outlet = (outletName ?? "").trim().toLowerCase();
   if (outlet.length < 2 || OUTLET_WORDS.has(outlet)) return false;
   const name = warehouse.trim().toLowerCase();
   if (!name) return false;
   if (name.includes(outlet)) return true;
+  const outletCompact = compactKey(outlet);
+  if (outletCompact.length >= 4 && compactKey(name).includes(outletCompact)) return true;
   const tokens = name.split(/[^a-z0-9]+/).filter(Boolean);
   return tokens.includes(outlet);
 }
