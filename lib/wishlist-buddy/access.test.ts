@@ -47,7 +47,7 @@ describe("tabs", () => {
     expect(scopeFilter(callCentre, "web")).toEqual({ source: { in: ["shopify", "import"] } });
   });
 
-  it("lets manage export Website and My requests, not All staff", () => {
+  it("lets manage export Website, My requests, and All staff when that tab is visible", () => {
     const manager = viewerFromPermissions({
       userId: "u4",
       roleNames: [],
@@ -58,12 +58,19 @@ describe("tabs", () => {
       roleNames: ["Merchant 01"],
       permissionKeys: ["stock_requests.create", "stock_requests.manage"],
     });
+    const staffManager = viewerFromPermissions({
+      userId: "u5",
+      roleNames: ["supervisor"],
+      permissionKeys: ["stock_requests.read_all", "stock_requests.manage"],
+    });
     expect(canExportScope(callCentre, "web")).toBe(false);
     expect(canExportScope(merchant, "mine")).toBe(false);
     expect(canExportScope(manager, "web")).toBe(true);
     expect(canExportScope(manager, "mine")).toBe(false);
     expect(canExportScope(merchantManager, "mine")).toBe(true);
     expect(canExportScope(merchantManager, "web")).toBe(false);
+    expect(canExportScope(supervisor, "staff")).toBe(false);
+    expect(canExportScope(staffManager, "staff")).toBe(true);
     expect(canExportScope(admin, "web")).toBe(true);
     expect(canExportScope(admin, "mine")).toBe(true);
     expect(canExportScope(admin, "staff")).toBe(false);

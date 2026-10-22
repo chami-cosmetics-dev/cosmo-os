@@ -87,6 +87,17 @@ import {
 import { formatAppDate, formatAppDateTime } from "@/lib/format-datetime";
 import { loyaltyProfileIncompleteMessage, getLoyaltyProfileMissingFields } from "@/lib/customer-insight/loyalty-profile-complete";
 import { notify } from "@/lib/notify";
+import {
+  DUMP_HAS_MORE_HEADER,
+  DUMP_NEXT_CURSOR_HEADER,
+  DUMP_PAGE_CONTACTS_HEADER,
+  DUMP_TOTAL_HEADER,
+  dumpProgressPercent,
+  parseContentDispositionFilename,
+  parseDumpCountHeader,
+  parseDumpFlagHeader,
+  parseDumpTotalHeader,
+} from "@/lib/reports/dump-download";
 import { cn } from "@/lib/utils";
 
 const CHART_BLUE = "#3b82f6";
@@ -464,6 +475,24 @@ function InsightSearchableMultiSelect({
       </PopoverContent>
     </Popover>
   );
+}
+
+async function fetchAllocationContactsExportPage(url: string): Promise<Response> {
+  let lastError: Error | null = null;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const res = await fetch(url, {
+        credentials: "include",
+        cache: "no-store",
+        signal: AbortSignal.timeout(120_000),
+      });
+      if (res.ok || (res.status < 500 && res.status !== 429)) return res;
+      lastError = new Error(`Export page failed (${res.status})`);
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error("Export page failed");
+    }
+  }
+  throw lastError ?? new Error("Export page failed");
 }
 
 function InsightSearchableSelect({
@@ -1128,38 +1157,97 @@ export function CustomerInsightPanel({
   async function exportAllocationContactsCsv() {
     if (!canExportFilteredCsv) return;
     setBusyKey("allocation-contacts-export");
+    const toastId = "allocation-contacts-export";
+    notify.loading("Preparing allocation contacts…", toastId);
     try {
-      const params = new URLSearchParams();
-      params.set("format", "contacts");
-      if (allocationContactsMerchant.trim()) {
-        params.set("assignedMerchant", allocationContactsMerchant.trim());
-      }
-      const res = await fetch(
-        `/api/admin/customer-insight/allocation-summary/export?${params.toString()}`,
-        { credentials: "include" }
-      );
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        notify.error(data.error ?? "Export failed");
-        return;
-      }
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
+      const chunks: BlobPart[] = [];
+      let after = "";
+      let includeHeader = true;
+      let expectedRows = 0;
+      let receivedContacts = 0;
       const slug = allocationContactsMerchant
         .trim()
         .replace(/[^a-zA-Z0-9_-]+/g, "-")
         .replace(/^-+|-+$/g, "")
         .slice(0, 40);
-      a.download = `insight-merchant-allocation-contacts-${
+      let fileName = `insight-merchant-allocation-contacts-${
         allocationContactsMerchant.trim() ? slug || "merchant" : "all"
       }.csv`;
+      let lastNotified = -1;
+      const MAX_PAGES = 500;
+      const merchant = allocationContactsMerchant.trim();
+
+      for (let page = 0; page < MAX_PAGES; page += 1) {
+        const params = new URLSearchParams();
+        params.set("format", "contacts");
+        if (merchant) params.set("assignedMerchant", merchant);
+        params.set("page", String(page));
+        if (after) params.set("after", after);
+        if (!includeHeader) params.set("header", "0");
+
+        const res = await fetchAllocationContactsExportPage(
+          `/api/admin/customer-insight/allocation-summary/export?${params.toString()}`
+        );
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          notify.error(data.error ?? "Export failed", toastId);
+          return;
+        }
+
+        expectedRows =
+          parseDumpTotalHeader(res.headers.get(DUMP_TOTAL_HEADER)) || expectedRows;
+        fileName =
+          parseContentDispositionFilename(res.headers.get("Content-Disposition")) ??
+          fileName;
+        const pageContacts = parseDumpCountHeader(
+          res.headers.get(DUMP_PAGE_CONTACTS_HEADER)
+        );
+        const hasMore = parseDumpFlagHeader(res.headers.get(DUMP_HAS_MORE_HEADER));
+        const nextCursor = res.headers.get(DUMP_NEXT_CURSOR_HEADER)?.trim() ?? "";
+        chunks.push(await res.arrayBuffer());
+        receivedContacts += pageContacts;
+
+        if (expectedRows > 0) {
+          const percent = dumpProgressPercent(receivedContacts, expectedRows);
+          if (percent > 0 && percent !== lastNotified) {
+            lastNotified = percent;
+            notify.loading(`Downloading contacts — ${percent}%`, toastId);
+          }
+        } else {
+          notify.loading(
+            `Downloading contacts — ${receivedContacts.toLocaleString()}`,
+            toastId
+          );
+        }
+
+        if (!hasMore || pageContacts === 0) break;
+        after = nextCursor;
+        includeHeader = false;
+        if (page === MAX_PAGES - 1) {
+          notify.error(
+            `Export stopped after ${receivedContacts.toLocaleString()} contacts. Try again.`,
+            toastId
+          );
+          return;
+        }
+      }
+
+      const url = URL.createObjectURL(
+        new Blob(chunks, { type: "text/csv;charset=utf-8" })
+      );
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = fileName;
       a.click();
       URL.revokeObjectURL(url);
-      notify.success("Allocation contacts downloaded.");
+      notify.success(
+        receivedContacts > 0
+          ? `Allocation contacts downloaded (${receivedContacts.toLocaleString()} contacts)`
+          : "Allocation contacts downloaded.",
+        toastId
+      );
     } catch {
-      notify.error("Export failed");
+      notify.error("Export failed", toastId);
     } finally {
       setBusyKey(null);
     }

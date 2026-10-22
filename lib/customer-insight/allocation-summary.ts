@@ -48,8 +48,6 @@ export type AssignedMerchantRosterMatch = {
   label: string;
 };
 
-export const ALLOCATION_EXPORT_BATCH_SIZE = 2500;
-
 export type MerchantAllocationDateRange = {
   from: Date;
   to: Date;

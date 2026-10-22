@@ -19,12 +19,13 @@ export async function GET(request: NextRequest) {
   const sp = request.nextUrl.searchParams;
   const scope = stockRequestExportScopeSchema.safeParse(sp.get("scope") || undefined);
   if (!scope.success) {
-    return NextResponse.json({ error: "Export is only for Website requests and My requests" }, { status: 400 });
+    return NextResponse.json({ error: "Invalid tab" }, { status: 400 });
   }
   const parsed = stockRequestListQuerySchema.safeParse({
     status: sp.get("status") || undefined,
     stock: sp.get("stock") || undefined,
     search: sp.get("search") || undefined,
+    createdBy: sp.get("createdBy") || undefined,
   });
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Invalid query" }, { status: 400 });
@@ -38,6 +39,7 @@ export async function GET(request: NextRequest) {
       status: parsed.data.status,
       stock: parsed.data.stock,
       search: parsed.data.search,
+      createdById: scope.data === "staff" ? parsed.data.createdBy : undefined,
     });
     const sheetRows = items.map(stockRequestExportRow);
     const workbook = XLSX.utils.book_new();

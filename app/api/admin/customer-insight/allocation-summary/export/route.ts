@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import {
-  ALLOCATION_EXPORT_BATCH_SIZE,
   listMerchantAllocationCounts,
   listMerchantPurchaseCountSummary,
   loadAssignedMerchantAliasMap,
@@ -9,7 +8,7 @@ import {
   uniqueContactPhones,
   type PurchaseCountFilter,
 } from "@/lib/customer-insight/allocation-summary";
-import { firstPurchaseAtForContact, loadFirstPurchaseIndexes } from "@/lib/customer-insight/first-purchase";
+import { firstPurchaseAtForLoadedContacts } from "@/lib/customer-insight/first-purchase";
 import { resolveAssignedMerchantFilterLabels } from "@/lib/customer-insight/merchant-label-aliases";
 import { hasInsightAdminView } from "@/lib/customer-insight/ownership";
 import { prisma } from "@/lib/prisma";
@@ -17,15 +16,27 @@ import { formatAllocatedMerchantExport } from "@/lib/reports/allocated-merchant-
 import { logReportDownload } from "@/lib/report-download-log";
 import { requirePermission } from "@/lib/rbac";
 import {
+  DUMP_HAS_MORE_HEADER,
+  DUMP_NEXT_CURSOR_HEADER,
+  DUMP_PAGE_CONTACTS_HEADER,
+  DUMP_TOTAL_HEADER,
+  dumpExposeHeaders,
+} from "@/lib/reports/dump-download";
+import {
   buildCsv,
-  formatCsvDataLine,
-  formatCsvHeaderLine,
+  escapeCsvCell,
+  formatCsvHeader,
   formatIsoDate,
   type CsvPrimitive,
 } from "@/lib/reports/csv";
 
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+/** Contacts export is paged; 800s kept for purchase-performance on this same route. */
 export const maxDuration = 800;
+
+/** Stay under Vercel’s ~4.5MB buffered response cap (85k allocated ≈ 22 pages). */
+const ALLOCATION_CONTACTS_EXPORT_PAGE_SIZE = 4000;
 
 const CONTACT_EXPORT_HEADERS = [
   "merchant",
@@ -86,12 +97,37 @@ function parsePurchaseCountFilter(
   return { preset: "today" };
 }
 
+function parseNonNegInt(value: string | null, fallback: number) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) return fallback;
+  return Math.floor(n);
+}
+
+function encodeCsvPage(
+  headers: readonly string[],
+  lines: string[],
+  includeHeader: boolean
+) {
+  const out: string[] = [];
+  if (includeHeader) {
+    out.push(headers.map(formatCsvHeader).join(","));
+  }
+  out.push(...lines);
+  const body = out.length > 0 ? `${out.join("\r\n")}\r\n` : "";
+  return includeHeader ? `\uFEFF${body}` : body;
+}
+
 async function exportAllocatedContactsCsv(
+  request: NextRequest,
   companyId: string,
   userId: string,
   assignedMerchant: string
 ): Promise<NextResponse> {
   const merchantNeedle = assignedMerchant.trim();
+  const after = request.nextUrl.searchParams.get("after")?.trim() || null;
+  const pageIndex = parseNonNegInt(request.nextUrl.searchParams.get("page"), 0);
+  const includeHeader = request.nextUrl.searchParams.get("header") !== "0";
+  const isFirstPage = pageIndex === 0 && !after;
 
   // No merchant picked = every allocated contact, across all merchants.
   const aliases = merchantNeedle
@@ -115,6 +151,11 @@ async function exportAllocatedContactsCsv(
           })),
         };
 
+  const where = {
+    companyId,
+    AND: [{ assignedMerchant: { not: "" } }, merchantWhere],
+  };
+
   const safeSlug = merchantNeedle
     .replace(/[^a-zA-Z0-9_-]+/g, "-")
     .replace(/^-+|-+$/g, "")
@@ -122,91 +163,84 @@ async function exportAllocatedContactsCsv(
   const fileName = merchantNeedle
     ? `insight-merchant-allocation-contacts-${safeSlug || "merchant"}.csv`
     : "insight-merchant-allocation-contacts-all.csv";
-  const aliasToRoster = await loadAssignedMerchantAliasMap(companyId);
-  const firstPurchaseIndexes = await loadFirstPurchaseIndexes(companyId);
 
-  await logReportDownload({
+  const [expectedRows, batch, aliasToRoster] = await Promise.all([
+    isFirstPage ? prisma.contactMaster.count({ where }) : Promise.resolve(0),
+    prisma.contactMaster.findMany({
+      where,
+      take: ALLOCATION_CONTACTS_EXPORT_PAGE_SIZE + 1,
+      ...(after ? { skip: 1, cursor: { id: after } } : {}),
+      orderBy: { id: "asc" },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        phoneNumber: true,
+        assignedMerchant: true,
+        phones: { select: { phoneNumber: true } },
+        emails: { select: { email: true } },
+      },
+    }),
+    loadAssignedMerchantAliasMap(companyId),
+  ]);
+
+  const hasMore = batch.length > ALLOCATION_CONTACTS_EXPORT_PAGE_SIZE;
+  const pageRows = hasMore
+    ? batch.slice(0, ALLOCATION_CONTACTS_EXPORT_PAGE_SIZE)
+    : batch;
+  const firstPurchaseById = await firstPurchaseAtForLoadedContacts(
     companyId,
-    userId,
-    reportKey: "customer_insight:allocation_contacts",
-    reportLabel: "Customer Insight Allocation Contacts",
-    filters: merchantNeedle
-      ? `assignedMerchant=${merchantNeedle}`
-      : "assignedMerchant=all",
-    fileName,
-  });
+    pageRows
+  );
 
-  const encoder = new TextEncoder();
-  const stream = new ReadableStream<Uint8Array>({
-    async start(controller) {
-      try {
-        controller.enqueue(
-          encoder.encode(formatCsvHeaderLine(CONTACT_EXPORT_HEADERS))
-        );
+  if (isFirstPage) {
+    await logReportDownload({
+      companyId,
+      userId,
+      reportKey: "customer_insight:allocation_contacts",
+      reportLabel: "Customer Insight Allocation Contacts",
+      filters: merchantNeedle
+        ? `assignedMerchant=${merchantNeedle}&expected=${expectedRows}`
+        : `assignedMerchant=all&expected=${expectedRows}`,
+      fileName,
+    });
+  }
 
-        let cursor: string | undefined;
-        for (;;) {
-          const batch = await prisma.contactMaster.findMany({
-            where: {
-              companyId,
-              AND: [{ assignedMerchant: { not: "" } }, merchantWhere],
-            },
-            take: ALLOCATION_EXPORT_BATCH_SIZE,
-            ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
-            orderBy: { id: "asc" },
-            select: {
-              id: true,
-              name: true,
-              phoneNumber: true,
-              assignedMerchant: true,
-              phones: { select: { phoneNumber: true } },
-              emails: { select: { email: true } },
-            },
-          });
-          if (batch.length === 0) break;
+  const lines: string[] = [];
+  for (const contact of pageRows) {
+    const raw = contact.assignedMerchant?.trim() ?? "";
+    if (!raw) continue;
+    const merchant = resolveAllocatedMerchant(raw, aliasToRoster);
+    const phones = uniqueContactPhones(contact.phoneNumber, contact.phones);
+    const row: AllocationContactExportRow = {
+      merchant: formatAllocatedMerchantExport(merchant.label, merchant.value),
+      name: contact.name,
+      phone_number: phones[0] ?? "",
+      extra_phones: phones.slice(1).join("; "),
+      first_purchased_date: formatIsoDate(firstPurchaseById.get(contact.id)),
+    };
+    lines.push(
+      CONTACT_EXPORT_HEADERS.map((header) => escapeCsvCell(row[header])).join(
+        ","
+      )
+    );
+  }
 
-          const lines: string[] = [];
-          for (const contact of batch) {
-            const raw = contact.assignedMerchant?.trim() ?? "";
-            if (!raw) continue;
-            const merchant = resolveAllocatedMerchant(raw, aliasToRoster);
-            const phones = uniqueContactPhones(
-              contact.phoneNumber,
-              contact.phones
-            );
-            const row: AllocationContactExportRow = {
-              merchant: formatAllocatedMerchantExport(merchant.label, merchant.value),
-              name: contact.name,
-              phone_number: phones[0] ?? "",
-              extra_phones: phones.slice(1).join("; "),
-              first_purchased_date: formatIsoDate(
-                firstPurchaseAtForContact(firstPurchaseIndexes, contact)
-              ),
-            };
-            lines.push(formatCsvDataLine(CONTACT_EXPORT_HEADERS, row));
-          }
-          if (lines.length > 0) {
-            controller.enqueue(encoder.encode(lines.join("")));
-          }
-
-          cursor = batch[batch.length - 1]!.id;
-          if (batch.length < ALLOCATION_EXPORT_BATCH_SIZE) break;
-        }
-
-        controller.close();
-      } catch (error) {
-        controller.error(error);
-      }
-    },
-  });
-
-  return new NextResponse(stream, {
-    headers: {
-      "Content-Type": "text/csv; charset=utf-8",
-      "Content-Disposition": `attachment; filename="${fileName}"`,
-      "Cache-Control": "no-store",
-    },
-  });
+  return new NextResponse(
+    encodeCsvPage(CONTACT_EXPORT_HEADERS, lines, includeHeader),
+    {
+      headers: {
+        "Content-Type": "text/csv; charset=utf-8",
+        "Content-Disposition": `attachment; filename="${fileName}"`,
+        "Cache-Control": "no-store",
+        [DUMP_TOTAL_HEADER]: String(expectedRows),
+        [DUMP_HAS_MORE_HEADER]: hasMore ? "1" : "0",
+        [DUMP_NEXT_CURSOR_HEADER]: pageRows.at(-1)?.id ?? "",
+        [DUMP_PAGE_CONTACTS_HEADER]: String(pageRows.length),
+        "Access-Control-Expose-Headers": dumpExposeHeaders(),
+      },
+    }
+  );
 }
 
 export async function GET(request: NextRequest) {
@@ -233,7 +267,12 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   if (searchParams.get("format") === "contacts") {
     const assignedMerchant = (searchParams.get("assignedMerchant") ?? "").trim();
-    return exportAllocatedContactsCsv(companyId, user.id, assignedMerchant);
+    return exportAllocatedContactsCsv(
+      request,
+      companyId,
+      user.id,
+      assignedMerchant
+    );
   }
 
   const report =

@@ -188,7 +188,7 @@ function StockRequestsList({
   const [loading, setLoading] = useState(initialData === null);
   const [recheckingId, setRecheckingId] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
-  const canExport = viewer.canManageWeb && (scope === "web" || scope === "mine");
+  const canExport = viewer.canManageWeb && (scope === "web" || scope === "mine" || scope === "staff");
 
   const [editing, setEditing] = useState<StockRequestItem | null>(null);
   const [formStatus, setFormStatus] = useState<StockRequestStatus>("new");
@@ -251,6 +251,7 @@ function StockRequestsList({
       if (status !== "all") params.set("status", status);
       if (stock !== "all") params.set("stock", stock);
       if (search) params.set("search", search);
+      if (scope === "staff" && creator !== "all") params.set("createdBy", creator);
       const response = await fetch(`/api/admin/stock-requests/export?${params.toString()}`);
       if (!response.ok) {
         const body = (await response.json().catch(() => ({}))) as { error?: string };
@@ -441,6 +442,7 @@ function StockRequestsList({
                 </label>
                 <Select
                   value={creator}
+                  disabled={exporting}
                   onValueChange={(v) => {
                     setPage(1);
                     setCreator(v);

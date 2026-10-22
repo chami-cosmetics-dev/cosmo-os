@@ -100,6 +100,11 @@ const DEFAULT_PERMISSIONS = [
     description: "Search a SKU and view live VAT tax status from ERP1 and ERP2",
   },
   {
+    key: "products.order_availability.read",
+    description:
+      "Check live ERP2 main-warehouse availability for multiple SKUs and see suggested companies within the monthly cap",
+  },
+  {
     key: "products.gift_vouchers.read",
     description:
       "View the full gift voucher code table (including order no, used date, phone no) and check codes",
@@ -402,7 +407,7 @@ const DEFAULT_PERMISSIONS = [
   {
     key: "stock_requests.manage",
     description:
-      "Update stock request status, remarks, and the warehouse the sale came from. Export Website requests and My requests",
+      "Update stock request status, remarks, and the warehouse the sale came from. Export Website requests, My requests, and All staff requests",
   },
   {
     key: "stock_requests.create",

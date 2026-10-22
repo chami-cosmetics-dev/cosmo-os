@@ -256,6 +256,17 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
           // substring match for contact fields
           { customerEmail: { contains: searchTerm, mode: "insensitive" } },
           { customerPhone: { contains: searchTerm, mode: "insensitive" } },
+          // SKU on any line item (partial, case-insensitive)
+          {
+            lineItems: {
+              some: {
+                productItem: {
+                  companyId,
+                  sku: { contains: searchTerm, mode: "insensitive" },
+                },
+              },
+            },
+          },
           ...(returnSiIds.length > 0 ? [{ id: { in: returnSiIds } }] : []),
           ...(kokoRefOrderIds.length > 0 ? [{ id: { in: kokoRefOrderIds } }] : []),
         ],
