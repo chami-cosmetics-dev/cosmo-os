@@ -23,6 +23,7 @@ export type ReceivableRow = {
   shippingService: string | null;
   shippingServiceType: "Rider" | "Courier" | null;
   cosmoOrderStatus: string | null;
+  isCancelled: boolean;
   reason: string | null;
   age: number | null;
   ageingBucket: "1-2 Days" | "3-4 Days" | "5-7 Days" | "08-30 Days" | "31+ Days" | "No Dispatch";
@@ -155,12 +156,12 @@ async function fetchAccountsReceivable(input: { cfg: OsfErpCredentials; company:
   }));
 }
 
-function enrich(row: Awaited<ReturnType<typeof fetchAccountsReceivable>>[number], reportDate: string, erpSlot: "ERP1" | "ERP2" | null, order?: { id: string; posProfile: string | null; dispatchedToCustomer: boolean; dispatchedAt: Date | null; fulfillmentStage: string; cancelReason: string | null; dispatchedByCourierService: { name: string | null } | null; dispatchedByRider: { name: string | null } | null; dispatchedByRiderId: string | null }) {
+function enrich(row: Awaited<ReturnType<typeof fetchAccountsReceivable>>[number], reportDate: string, erpSlot: "ERP1" | "ERP2" | null, order?: { id: string; posProfile: string | null; dispatchedToCustomer: boolean; dispatchedAt: Date | null; fulfillmentStage: string; cancelledAt: Date | null; financialStatus: string | null; cancelReason: string | null; dispatchedByCourierService: { name: string | null } | null; dispatchedByRider: { name: string | null } | null; dispatchedByRiderId: string | null }) {
   const dispatchDate = order?.dispatchedAt?.toISOString().slice(0, 10) ?? null;
   const age = dateAge(reportDate, dispatchDate ?? row.invoiceDate);
   const ageingBucket = ageBucket(age);
   const shippingServiceType = order?.dispatchedByCourierService ? "Courier" : order?.dispatchedByRider || order?.dispatchedByRiderId ? "Rider" : null;
-  return { ...row, erpSlot, orderId: order?.id ?? null, dispatchDate, shippingService: order?.dispatchedByCourierService?.name ?? order?.dispatchedByRider?.name ?? order?.dispatchedByRiderId ?? null, shippingServiceType, cosmoOrderStatus: order?.fulfillmentStage ?? null, reason: order?.cancelReason ?? null, isPosOrder: Boolean(order?.posProfile), isCustomerPickup: Boolean(order?.dispatchedToCustomer), age, ageingBucket, ...ageingValues(row.outstanding, ageingBucket) } satisfies ReceivableRow;
+  return { ...row, erpSlot, orderId: order?.id ?? null, dispatchDate, shippingService: order?.dispatchedByCourierService?.name ?? order?.dispatchedByRider?.name ?? order?.dispatchedByRiderId ?? null, shippingServiceType, cosmoOrderStatus: order?.fulfillmentStage ?? null, isCancelled: Boolean(order?.cancelledAt) || order?.financialStatus?.toLowerCase() === "voided", reason: order?.cancelReason ?? null, isPosOrder: Boolean(order?.posProfile), isCustomerPickup: Boolean(order?.dispatchedToCustomer), age, ageingBucket, ...ageingValues(row.outstanding, ageingBucket) } satisfies ReceivableRow;
 }
 
 function jsonRows(value: Prisma.JsonValue | null): ReceivableRow[] { return Array.isArray(value) ? (value as ReceivableRow[]) : []; }
@@ -181,7 +182,7 @@ export async function refreshReceivables(companyId: string, reportDate: string):
   const [instances, locations, orders] = await Promise.all([
     getAllOsfErpInstances(companyId),
     prisma.companyLocation.findMany({ where: { companyId, erpnextInstanceId: { not: null }, erpnextCompany: { not: null } }, select: { erpnextInstanceId: true, erpnextCompany: true } }),
-    prisma.order.findMany({ where: { companyId, erpnextInvoiceId: { not: null } }, select: { id: true, erpnextInvoiceId: true, posProfile: true, dispatchedToCustomer: true, dispatchedAt: true, fulfillmentStage: true, cancelReason: true, dispatchedByRiderId: true, dispatchedByCourierService: { select: { name: true } }, dispatchedByRider: { select: { name: true } } } }),
+    prisma.order.findMany({ where: { companyId, erpnextInvoiceId: { not: null } }, select: { id: true, erpnextInvoiceId: true, posProfile: true, dispatchedToCustomer: true, dispatchedAt: true, fulfillmentStage: true, cancelledAt: true, financialStatus: true, cancelReason: true, dispatchedByRiderId: true, dispatchedByCourierService: { select: { name: true } }, dispatchedByRider: { select: { name: true } } } }),
   ]);
   const orderMap = new Map(orders.filter((order) => order.erpnextInvoiceId).map((order) => [order.erpnextInvoiceId!.toLowerCase(), order]));
   const slots = resolveErpSlots(instances);

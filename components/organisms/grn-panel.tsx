@@ -57,6 +57,7 @@ type UserRef = {
 
 type PurchaseInvoiceRef = {
   name: string;
+  purchaseReceiptName: string | null;
   erpUrl: string | null;
   postingDate: string | null;
   docstatus: number | null;
@@ -130,7 +131,9 @@ type PurchaseReceiptRow = {
     ssrQty: number;
   }[];
   purchaseInvoice: PurchaseInvoiceRef | null;
+  purchaseInvoices: PurchaseInvoiceRef[];
   supplierStockReturnPurchaseInvoice: PurchaseInvoiceRef | null;
+  supplierStockReturnPurchaseInvoices: PurchaseInvoiceRef[];
 };
 
 type SupplierStockReturnRow = {
@@ -263,39 +266,88 @@ function CancelledBadge() {
 }
 
 function buildPriceTallyRows(
-  ssr: SupplierStockReturnRow | null,
+  ssr: SupplierStockReturnRow | SupplierStockReturnRow[] | null,
   pr: PurchaseReceiptRow | PurchaseReceiptRow[] | null,
 ) {
+  const epsilon = 0.000001;
   const purchaseReceipts = pr ? (Array.isArray(pr) ? pr : [pr]) : [];
-  const purchaseInvoiceItems = purchaseReceipts.flatMap((receipt) =>
-    receipt.purchaseInvoice?.items.filter((item) => item.purchaseReceipt === receipt.name) ?? [],
+  const stockReturns = ssr ? (Array.isArray(ssr) ? ssr : [ssr]) : [];
+  const purchaseInvoiceItems = purchaseReceipts.flatMap((receipt) => {
+    const invoices = receipt.purchaseInvoices.length > 0
+      ? receipt.purchaseInvoices
+      : receipt.purchaseInvoice
+        ? [receipt.purchaseInvoice]
+        : [];
+    return invoices.flatMap((invoice) =>
+      invoice.items
+        .filter(
+          (item) =>
+            item.purchaseReceipt === receipt.name ||
+            (!item.purchaseReceipt && invoice.purchaseReceiptName === receipt.name && !item.supplierStockReturn),
+        )
+        .map((item) => ({ invoiceName: invoice.name, item })),
+    );
+  });
+  const supplierStockReturnPurchaseInvoices = purchaseReceipts
+    .flatMap((receipt) =>
+      receipt.supplierStockReturnPurchaseInvoices.length > 0
+        ? receipt.supplierStockReturnPurchaseInvoices
+        : receipt.supplierStockReturnPurchaseInvoice
+          ? [receipt.supplierStockReturnPurchaseInvoice]
+          : [],
+    )
+    .filter((invoice, index, invoices) => invoices.findIndex((candidate) => candidate.name === invoice.name) === index);
+  const supplierStockReturnNames = new Set(
+    (stockReturns.length > 0
+      ? stockReturns.map((stockReturn) => stockReturn.name)
+      : purchaseReceipts.flatMap((receipt) => receipt.adjustmentNos)
+    ).filter(Boolean),
   );
-  const supplierStockReturnPurchaseInvoice = purchaseReceipts.find(
-    (receipt) => receipt.supplierStockReturnPurchaseInvoice,
-  )?.supplierStockReturnPurchaseInvoice ?? null;
-  const supplierStockReturnName = ssr?.name ?? purchaseReceipts.find((receipt) => receipt.adjustmentNo)?.adjustmentNo ?? null;
-  if (!purchaseInvoiceItems.length && !supplierStockReturnPurchaseInvoice) return [];
+  const ssrInvoiceItems = supplierStockReturnPurchaseInvoices.flatMap((invoice) => {
+    const hasTaggedItems = invoice.items.some((item) => Boolean(item.supplierStockReturn));
+    return invoice.items
+      .filter((item) =>
+        !hasTaggedItems ||
+        supplierStockReturnNames.size === 0 ||
+        (item.supplierStockReturn != null && supplierStockReturnNames.has(item.supplierStockReturn)),
+      )
+      .map((item) => ({ invoiceName: invoice.name, item }));
+  });
 
-  const groupItems = (items: PurchaseInvoiceRef["items"]) => {
-    const grouped = new Map<string, { itemName: string | null; qty: number; amount: number; uom: string | null }>();
-    for (const item of items) {
+  if (!purchaseInvoiceItems.length && !ssrInvoiceItems.length) return [];
+
+  const groupItems = (entries: Array<{ invoiceName: string; item: PurchaseInvoiceRef["items"][number] }>) => {
+    const grouped = new Map<
+      string,
+      {
+        itemName: string | null;
+        qty: number;
+        amount: number;
+        uom: string | null;
+        prices: Map<string, { qty: number; amount: number }>;
+      }
+    >();
+    for (const { invoiceName, item } of entries) {
       const current = grouped.get(item.itemCode);
+      const prices = current?.prices ?? new Map<string, { qty: number; amount: number }>();
+      const invoicePrice = prices.get(invoiceName);
+      prices.set(invoiceName, {
+        qty: (invoicePrice?.qty ?? 0) + item.qty,
+        amount: (invoicePrice?.amount ?? 0) + item.amount,
+      });
       grouped.set(item.itemCode, {
         itemName: current?.itemName ?? item.itemName,
         qty: (current?.qty ?? 0) + item.qty,
         amount: (current?.amount ?? 0) + item.amount,
         uom: current?.uom ?? item.stockUom,
+        prices,
       });
     }
     return grouped;
   };
 
   const prByItem = groupItems(purchaseInvoiceItems);
-  const ssrByItem = groupItems(
-    supplierStockReturnPurchaseInvoice?.items.filter(
-      (item) => !supplierStockReturnName || item.supplierStockReturn === supplierStockReturnName,
-    ) ?? [],
-  );
+  const ssrByItem = groupItems(ssrInvoiceItems);
 
   return Array.from(new Set([...prByItem.keys(), ...ssrByItem.keys()]))
     .map((itemCode) => {
@@ -303,6 +355,47 @@ function buildPriceTallyRows(
       const ssrItem = ssrByItem.get(itemCode);
       const prRate = prItem?.qty ? prItem.amount / prItem.qty : null;
       const ssrRate = ssrItem?.qty ? Math.abs(ssrItem.amount / ssrItem.qty) : null;
+      const prPrices = [...(prItem?.prices ?? new Map())].map(([invoiceName, price]) => ({
+        invoiceName,
+        qty: Math.abs(price.qty),
+        rate: price.qty ? Math.abs(price.amount / price.qty) : null,
+      }));
+      const ssrPrices = [...(ssrItem?.prices ?? new Map())].map(([invoiceName, price]) => ({
+        invoiceName,
+        qty: Math.abs(price.qty),
+        rate: price.qty ? Math.abs(price.amount / price.qty) : null,
+      }));
+      let prIndex = 0;
+      let ssrIndex = 0;
+      let prRemaining = prPrices[0]?.qty ?? 0;
+      let ssrRemaining = ssrPrices[0]?.qty ?? 0;
+      let priceMismatch = false;
+      while (prIndex < prPrices.length && ssrIndex < ssrPrices.length) {
+        const prPrice = prPrices[prIndex];
+        const ssrPrice = ssrPrices[ssrIndex];
+        if (!prPrice || !ssrPrice) break;
+        const prPriceRate = prPrice.rate;
+        const ssrPriceRate = ssrPrice.rate;
+        const allocatedQty = Math.min(prRemaining, ssrRemaining);
+        if (
+          allocatedQty > epsilon &&
+          (prPriceRate == null ||
+            ssrPriceRate == null ||
+            Math.abs(prPriceRate - ssrPriceRate) > epsilon)
+        ) {
+          priceMismatch = true;
+        }
+        prRemaining -= allocatedQty;
+        ssrRemaining -= allocatedQty;
+        if (prRemaining <= epsilon) {
+          prIndex += 1;
+          prRemaining = prPrices[prIndex]?.qty ?? 0;
+        }
+        if (ssrRemaining <= epsilon) {
+          ssrIndex += 1;
+          ssrRemaining = ssrPrices[ssrIndex]?.qty ?? 0;
+        }
+      }
       return {
         itemCode,
         itemName: prItem?.itemName ?? ssrItem?.itemName ?? null,
@@ -312,16 +405,13 @@ function buildPriceTallyRows(
         ssrRate,
         prAmount: prItem?.amount ?? 0,
         ssrAmount: ssrItem?.amount ?? 0,
+        prPrices,
+        ssrPrices,
         uom: prItem?.uom ?? ssrItem?.uom ?? null,
-        issue: prRate == null || ssrRate == null || Math.abs(prRate - ssrRate) > 0.000001,
+        issue: priceMismatch,
       };
     })
     .sort((a, b) => Number(a.issue) - Number(b.issue) || a.itemCode.localeCompare(b.itemCode));
-}
-
-function hasPriceMismatch(row: PurchaseReceiptRow) {
-  if (!row.purchaseInvoice || !row.supplierStockReturnPurchaseInvoice) return false;
-  return buildPriceTallyRows(null, row).some((priceRow) => priceRow.issue);
 }
 
 function purchaseInvoiceTotal(row: PurchaseReceiptRow) {
@@ -334,11 +424,6 @@ function itemIssueCount(row: PurchaseReceiptRow) {
   return row.tallyIssues.length || row.tallyIssueItems.length;
 }
 
-function priceIssueCount(row: PurchaseReceiptRow) {
-  if (!row.purchaseInvoice || !row.supplierStockReturnPurchaseInvoice) return 0;
-  return buildPriceTallyRows(null, row).filter((priceRow) => priceRow.issue).length;
-}
-
 function linkModeLabel(ssr: SupplierStockReturnRow | null, pr: PurchaseReceiptRow | null) {
   if (!ssr || !pr) return null;
   const rec = ssr.matchRecommendation;
@@ -347,21 +432,21 @@ function linkModeLabel(ssr: SupplierStockReturnRow | null, pr: PurchaseReceiptRo
     : "Manually linked";
 }
 
-function PurchaseInvoiceStatusBadge({ row }: { row: PurchaseReceiptRow | null | undefined }) {
-  if (!row?.purchaseInvoice && !row?.supplierStockReturnPurchaseInvoice) {
+function PurchaseInvoiceStatusBadge({ row }: { row: PurchaseReceiptRow | PurchaseReceiptRow[] | null | undefined }) {
+  const purchaseReceipts = row ? (Array.isArray(row) ? row : [row]) : [];
+  const hasPrPi = purchaseReceipts.some((receipt) => receipt.purchaseInvoices.length > 0 || Boolean(receipt.purchaseInvoice));
+  const hasSsrPi = purchaseReceipts.some((receipt) => receipt.supplierStockReturnPurchaseInvoices.length > 0);
+  if (!hasPrPi && !hasSsrPi) {
     return <span className="text-xs text-muted-foreground">No PI prices</span>;
   }
-
-  const hasPrPi = Boolean(row.purchaseInvoice);
-  const hasSsrPi = Boolean(row.supplierStockReturnPurchaseInvoice);
-  const label = row.adjustmentNo
+  const label = purchaseReceipts.some((receipt) => receipt.adjustmentNo)
     ? hasPrPi && hasSsrPi
       ? "PI linked"
       : hasPrPi
         ? "PR PI linked"
         : "SSR PI linked"
     : "PI linked";
-  const complete = !row.adjustmentNo || (hasPrPi && hasSsrPi);
+  const complete = !purchaseReceipts.some((receipt) => receipt.adjustmentNo) || (hasPrPi && hasSsrPi);
 
   return (
     <span
@@ -387,10 +472,23 @@ function PurchaseInvoicePriceTallyDetails({
   defaultOpen?: boolean;
 }) {
   const purchaseReceipts = Array.isArray(row) ? row : [row];
-  const purchaseInvoice = purchaseReceipts.find((receipt) => receipt.purchaseInvoice)?.purchaseInvoice ?? null;
-  const supplierStockReturnPurchaseInvoice = purchaseReceipts.find(
-    (receipt) => receipt.supplierStockReturnPurchaseInvoice,
-  )?.supplierStockReturnPurchaseInvoice ?? null;
+  const purchaseInvoices = purchaseReceipts
+    .flatMap((receipt) => receipt.purchaseInvoices.length > 0
+      ? receipt.purchaseInvoices
+      : receipt.purchaseInvoice
+        ? [receipt.purchaseInvoice]
+        : [],
+    )
+    .filter((invoice, index, invoices) => invoices.findIndex((candidate) => candidate.name === invoice.name) === index);
+  const supplierStockReturnPurchaseInvoices = purchaseReceipts
+    .flatMap((receipt) =>
+      receipt.supplierStockReturnPurchaseInvoices.length > 0
+        ? receipt.supplierStockReturnPurchaseInvoices
+        : receipt.supplierStockReturnPurchaseInvoice
+          ? [receipt.supplierStockReturnPurchaseInvoice]
+          : [],
+    )
+    .filter((invoice, index, invoices) => invoices.findIndex((candidate) => candidate.name === invoice.name) === index);
 
   return (
     <details className="rounded-lg border bg-background/50 p-3" open={defaultOpen}>
@@ -398,48 +496,50 @@ function PurchaseInvoicePriceTallyDetails({
         <div className="flex flex-col gap-1">
           <div className="text-sm font-semibold">Purchase invoice price tally</div>
           <div className="text-xs text-muted-foreground">
-            {!purchaseInvoice
+            {purchaseInvoices.length === 0
               ? "No linked purchase receipt invoice stored yet."
-              : !supplierStockReturnPurchaseInvoice
+              : supplierStockReturnPurchaseInvoices.length === 0
                 ? "No linked supplier stock return invoice stored yet."
-                : `${purchaseReceipts.map((receipt) => receipt.name).join(", ")} vs ${supplierStockReturnPurchaseInvoice.name}`}
+                : `PR PI ${purchaseInvoices.map((invoice) => invoice.name).join(", ")} vs SSR PI ${supplierStockReturnPurchaseInvoices.map((invoice) => invoice.name).join(", ")}`}
           </div>
         </div>
       </summary>
       <div className="mt-3 space-y-3">
         <div className="flex flex-wrap gap-3">
-          {purchaseInvoice?.erpUrl && (
+          {purchaseInvoices.map((invoice) => invoice.erpUrl && (
             <a
-              href={purchaseInvoice.erpUrl}
+              key={invoice.name}
+              href={invoice.erpUrl}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex w-fit items-center gap-2 text-sm text-primary hover:underline"
             >
               <ExternalLink className="size-4" />
-              Open PR PI
+              Open PR PI {invoice.name}
             </a>
-          )}
-          {supplierStockReturnPurchaseInvoice?.erpUrl && (
+          ))}
+          {supplierStockReturnPurchaseInvoices.map((invoice) => invoice.erpUrl && (
             <a
-              href={supplierStockReturnPurchaseInvoice.erpUrl}
+              key={invoice.name}
+              href={invoice.erpUrl}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex w-fit items-center gap-2 text-sm text-primary hover:underline"
             >
               <ExternalLink className="size-4" />
-              Open SSR PI
+              Open SSR PI {invoice.name}
             </a>
-          )}
+          ))}
         </div>
-        {(purchaseInvoice || supplierStockReturnPurchaseInvoice) && (
+        {(purchaseInvoices.length > 0 || supplierStockReturnPurchaseInvoices.length > 0) && (
           <div className="overflow-x-auto rounded-md border bg-background/70">
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>SKU</TableHead>
                   <TableHead>Item Name</TableHead>
-                    <TableHead className="text-right">PR Price</TableHead>
-                    <TableHead className="text-right">SSR Price</TableHead>
+                  <TableHead className="text-right">PR Price</TableHead>
+                  <TableHead className="text-right">SSR Price</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -454,8 +554,28 @@ function PurchaseInvoicePriceTallyDetails({
                     <TableRow key={item.itemCode} className={item.issue ? "bg-amber-500/10" : undefined}>
                       <TableCell className="font-medium">{item.itemCode}</TableCell>
                       <TableCell>{item.itemName ?? "-"}</TableCell>
-                      <TableCell className="text-right">{item.prRate == null ? "-" : item.prRate.toFixed(2)}</TableCell>
-                      <TableCell className="text-right">{item.ssrRate == null ? "-" : item.ssrRate.toFixed(2)}</TableCell>
+                      <TableCell className="text-right">
+                        {item.prPrices.length > 1
+                          ? item.prPrices.map((price) => (
+                              <div key={price.invoiceName}>
+                                {price.invoiceName}: {price.rate == null ? "-" : price.rate.toFixed(2)}
+                              </div>
+                            ))
+                          : item.prRate == null
+                            ? "-"
+                            : item.prRate.toFixed(2)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {item.ssrPrices.length > 1
+                          ? item.ssrPrices.map((price) => (
+                              <div key={price.invoiceName}>
+                                {price.invoiceName}: {price.rate == null ? "-" : price.rate.toFixed(2)}
+                              </div>
+                            ))
+                          : item.ssrRate == null
+                            ? "-"
+                            : item.ssrRate.toFixed(2)}
+                      </TableCell>
                     </TableRow>
                   ))
                 )}
@@ -468,9 +588,13 @@ function PurchaseInvoicePriceTallyDetails({
   );
 }
 
-function buildItemMatchRows(pr: PurchaseReceiptRow | PurchaseReceiptRow[], ssr: SupplierStockReturnRow | null) {
+function buildItemMatchRows(
+  pr: PurchaseReceiptRow | PurchaseReceiptRow[],
+  ssr: SupplierStockReturnRow | SupplierStockReturnRow[] | null,
+) {
   if (!ssr) return [];
   const purchaseReceipts = Array.isArray(pr) ? pr : [pr];
+  const stockReturns = Array.isArray(ssr) ? ssr : [ssr];
   const prTotals = new Map<string, { itemName: string | null; qty: number }>();
   const ssrTotals = new Map<string, { itemName: string | null; qty: number }>();
 
@@ -483,12 +607,14 @@ function buildItemMatchRows(pr: PurchaseReceiptRow | PurchaseReceiptRow[], ssr: 
       });
     }
   }
-  for (const item of ssr.items) {
-    const current = ssrTotals.get(item.itemCode);
-    ssrTotals.set(item.itemCode, {
-      itemName: current?.itemName ?? item.itemName,
-      qty: (current?.qty ?? 0) + item.qty,
-    });
+  for (const stockReturn of stockReturns) {
+    for (const item of stockReturn.items) {
+      const current = ssrTotals.get(item.itemCode);
+      ssrTotals.set(item.itemCode, {
+        itemName: current?.itemName ?? item.itemName,
+        qty: (current?.qty ?? 0) + item.qty,
+      });
+    }
   }
 
   return Array.from(new Set([...prTotals.keys(), ...ssrTotals.keys()]))
@@ -1085,8 +1211,6 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
 
   const supplierStockReturnOptionsForPr = useCallback(
     (row: PurchaseReceiptRow) => {
-      const rule = intercompanySupplierRuleForSupplier(row.supplier, row.supplierName);
-      if (!rule || rule.locationId !== row.companyLocationId) return [];
       const linkedNames = new Set(row.adjustmentNos);
       return data.supplierStockReturns
         .filter(
@@ -1095,8 +1219,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
             !stockReturn.isCancelled &&
             stockReturn.companyId === row.companyId &&
             !linkedNames.has(stockReturn.name) &&
-            intercompanySupplierRuleForSupplier(stockReturn.supplier, stockReturn.supplierName)?.locationId ===
-              row.companyLocationId &&
+            Boolean(intercompanySupplierRuleForSupplier(stockReturn.supplier, stockReturn.supplierName)) &&
             (stockReturn.matchRecommendation?.percentage ?? 0) < 100,
         )
         .sort((a, b) => a.name.localeCompare(b.name));
@@ -1114,16 +1237,56 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
     [data.supplierStockReturns],
   );
 
+  const linkedStockReturnsForPr = useCallback(
+    (row: PurchaseReceiptRow) =>
+      row.adjustmentNos
+        .map((name) => supplierStockReturnByName.get(name) ?? null)
+        .filter(
+          (stockReturn): stockReturn is SupplierStockReturnRow =>
+            stockReturn !== null && stockReturn.companyId === row.companyId,
+        ),
+    [supplierStockReturnByName],
+  );
+
+  const linkedPurchaseReceiptsForPr = useCallback(
+    (row: PurchaseReceiptRow) => {
+      const names = new Set([row.name]);
+      for (const stockReturn of linkedStockReturnsForPr(row)) {
+        for (const name of stockReturn.purchaseReceiptNames) names.add(name);
+      }
+      return [...names]
+        .map((name) => purchaseReceiptByKey.get(`${row.companyId}:${name}`) ?? purchaseReceiptByName.get(name) ?? null)
+        .filter((receipt): receipt is PurchaseReceiptRow => Boolean(receipt));
+    },
+    [linkedStockReturnsForPr, purchaseReceiptByKey, purchaseReceiptByName],
+  );
+
+  const priceTallyRowsForPr = useCallback(
+    (row: PurchaseReceiptRow) =>
+      buildPriceTallyRows(linkedStockReturnsForPr(row), linkedPurchaseReceiptsForPr(row)),
+    [linkedPurchaseReceiptsForPr, linkedStockReturnsForPr],
+  );
+
+  const hasPriceMismatchForPr = useCallback(
+    (row: PurchaseReceiptRow) => priceTallyRowsForPr(row).some((priceRow) => priceRow.issue),
+    [priceTallyRowsForPr],
+  );
+
+  const priceIssueCountForPr = useCallback(
+    (row: PurchaseReceiptRow) => priceTallyRowsForPr(row).filter((priceRow) => priceRow.issue).length,
+    [priceTallyRowsForPr],
+  );
 
 
-  const selectedPrStockReturn = selectedPr?.adjustmentNo
-    ? supplierStockReturnByName.get(selectedPr.adjustmentNo) ?? null
-    : null;
+
+  const selectedPrStockReturns = selectedPr ? linkedStockReturnsForPr(selectedPr) : [];
+  const selectedPrStockReturn = selectedPrStockReturns[0] ?? null;
+  const selectedPrLinkedPurchaseReceipts = selectedPr ? linkedPurchaseReceiptsForPr(selectedPr) : [];
   const selectedPrMatchRows = selectedPr
-    ? buildItemMatchRows(selectedPr, selectedPrStockReturn)
+    ? buildItemMatchRows(selectedPrLinkedPurchaseReceipts, selectedPrStockReturns)
     : [];
-  const selectedPrPriceRows = selectedPr && selectedPrStockReturn
-    ? buildPriceTallyRows(selectedPrStockReturn, selectedPr)
+  const selectedPrPriceRows = selectedPr && selectedPrStockReturns.length > 0
+    ? buildPriceTallyRows(selectedPrStockReturns, selectedPrLinkedPurchaseReceipts)
     : [];
 
   const selectedSsrPurchaseReceipt = selectedSsr?.purchaseReceiptName
@@ -1217,9 +1380,9 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
 
   const rowMismatchedForStage = useCallback((row: PurchaseReceiptRow, stage: GrnActionStage) => {
     if (stage === "handover") return row.tallyStatus === "issue" || rowMissingIntercompanySsr(row);
-    if (stage === "valued") return hasPriceMismatch(row);
+    if (stage === "valued") return hasPriceMismatchForPr(row);
     return false;
-  }, [rowMissingIntercompanySsr]);
+  }, [hasPriceMismatchForPr, rowMissingIntercompanySsr]);
 
   const stageCardCounts = useMemo(
     () =>
@@ -1297,7 +1460,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
         return permissions.canMarkHandover && row.tallyStatus !== "issue" && !rowMissingIntercompanySsr(row);
       }
       if (stageFilter.stage === "valued") {
-        return permissions.canMarkValued && Boolean(row.handoverAt && row.handoverReceivedAt) && !hasPriceMismatch(row);
+        return permissions.canMarkValued && Boolean(row.handoverAt && row.handoverReceivedAt) && !hasPriceMismatchForPr(row);
       }
       return permissions.canMarkReceived && Boolean(row.handoverAt) && Boolean(row.valuedAt);
     },
@@ -1307,6 +1470,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
       permissions.canMarkReceived,
       permissions.canMarkValued,
       rowCompletedForStage,
+      hasPriceMismatchForPr,
       rowMissingIntercompanySsr,
       stageFilter.stage,
     ],
@@ -1403,16 +1567,20 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
   const multiLinkPrs = useMemo(() => {
     const term = multipleSsrSearch.trim().toLowerCase();
     return activePurchaseReceipts.filter((row) => {
-      if (row.docstatus !== 1) return false;
-      const rule = intercompanySupplierRuleForSupplier(row.supplier, row.supplierName);
-      if (!rule || rule.locationId !== row.companyLocationId) return false;
-      if (row.tallyPercentage != null && row.tallyPercentage >= 100) return false;
+      if (row.docstatus === 2) return false;
+      const hasExistingSsrLink = row.adjustmentNos.length > 0;
+      const isIntercompanyPr =
+        hasExistingSsrLink ||
+        intercompanySupplierPrefixes.some((rule) => rule.locationId === row.companyLocationId);
+      if (!isIntercompanyPr) return false;
+      const hasCleanFullTally = row.tallyStatus === "matched" && (row.tallyPercentage ?? 0) >= 100;
+      if (hasCleanFullTally) return false;
       if (!term) return true;
       return [row.name, row.supplier, row.supplierName, row.companyName, ...row.adjustmentNos]
         .filter(Boolean)
         .some((value) => value!.toLowerCase().includes(term));
     });
-  }, [activePurchaseReceipts, intercompanySupplierRuleForSupplier, multipleSsrSearch]);
+  }, [activePurchaseReceipts, intercompanySupplierPrefixes, multipleSsrSearch]);
 
   const prPageCount = Math.max(1, Math.ceil(filteredPrs.length / prPageSize));
   const ssrPageCount = Math.max(1, Math.ceil(filteredSsrs.length / ssrPageSize));
@@ -1457,7 +1625,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
     if (stageFilter.status !== "mismatch") return null;
     if (stageFilter.stage === "handover" && row.tallyStatus === "issue") return "item-mismatch";
     if (stageFilter.stage === "handover" && rowMissingIntercompanySsr(row)) return "missing-ssr";
-    if (stageFilter.stage === "valued" && hasPriceMismatch(row)) return "price-mismatch";
+    if (stageFilter.stage === "valued" && hasPriceMismatchForPr(row)) return "price-mismatch";
     return null;
   }
 
@@ -2033,7 +2201,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                       {row.amendedFrom && (
                         <div className="text-xs text-muted-foreground">Amended from {row.amendedFrom}</div>
                       )}
-                      {(itemIssueCount(row) > 0 || priceIssueCount(row) > 0 || rowMissingIntercompanySsr(row)) && (
+                      {(itemIssueCount(row) > 0 || priceIssueCountForPr(row) > 0 || rowMissingIntercompanySsr(row)) && (
                         <div className="mt-1 flex flex-wrap gap-1">
                           {rowMissingIntercompanySsr(row) && (
                             <button
@@ -2059,7 +2227,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                               {itemIssueCount(row)} item issue{itemIssueCount(row) === 1 ? "" : "s"}
                             </button>
                           )}
-                          {priceIssueCount(row) > 0 && (
+                          {priceIssueCountForPr(row) > 0 && (
                             <button
                               type="button"
                               className="rounded bg-amber-500/10 px-1.5 py-0.5 text-xs font-medium text-amber-800"
@@ -2068,15 +2236,30 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                                 openPurchaseReceipt(row, "price-mismatch");
                               }}
                             >
-                              {priceIssueCount(row)} price issue{priceIssueCount(row) === 1 ? "" : "s"}
+                              {priceIssueCountForPr(row)} price issue{priceIssueCountForPr(row) === 1 ? "" : "s"}
                             </button>
                           )}
                         </div>
                       )}
                     </TableCell>
                     <TableCell>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span>{row.adjustmentNo ?? "-"}</span>
+                      <div className="flex flex-col gap-1">
+                        {row.adjustmentNos.length > 0 ? row.adjustmentNos.map((name) => (
+                          <button
+                            key={name}
+                            type="button"
+                            className="w-fit text-left text-primary underline-offset-4 hover:underline"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              const stockReturn = supplierStockReturnByName.get(name);
+                              if (stockReturn) setSelectedSsr(stockReturn);
+                            }}
+                          >
+                            {name}
+                          </button>
+                        )) : (
+                          <span>-</span>
+                        )}
                         {row.adjustmentDocstatus === 2 && <CancelledBadge />}
                       </div>
                     </TableCell>
@@ -2131,7 +2314,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                       </TableCell>
                     )}
                     <TableCell>
-                      <PurchaseInvoiceStatusBadge row={row} />
+                  <PurchaseInvoiceStatusBadge row={linkedPurchaseReceiptsForPr(row)} />
                     </TableCell>
                     {permissions.canViewReceived && (
                       <TableCell>
@@ -2847,20 +3030,23 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
               </div>
               <div>
                 <div className="text-xs text-muted-foreground">Adjustment No</div>
-                <div className="font-medium">{selectedPrStockReturn ? (
-                  <button
-                    type="button"
-                    className="text-primary underline-offset-4 hover:underline"
-                    onClick={() => {
-                      setSelectedPr(null);
-                      setSelectedSsr(selectedPrStockReturn);
-                    }}
-                  >
-                    {selectedPrStockReturn.name}
-                  </button>
-                ) : (
-                  selectedPr.adjustmentNo ?? "-"
-                )}</div>
+                <div className="flex flex-col items-start gap-1 font-medium">
+                  {selectedPrStockReturns.length > 0 ? selectedPrStockReturns.map((stockReturn) => (
+                    <button
+                      key={stockReturn.name}
+                      type="button"
+                      className="text-primary underline-offset-4 hover:underline"
+                      onClick={() => {
+                        setSelectedPr(null);
+                        setSelectedSsr(stockReturn);
+                      }}
+                    >
+                      {stockReturn.name}
+                    </button>
+                  )) : (
+                    selectedPr.adjustmentNo ?? "-"
+                  )}
+                </div>
                 {linkModeLabel(selectedPrStockReturn, selectedPr) && (
                   <div className="mt-1 text-xs text-muted-foreground">
                     {linkModeLabel(selectedPrStockReturn, selectedPr)}
@@ -2942,7 +3128,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
               )}
               {selectedPrStockReturn && (
                 <PurchaseInvoicePriceTallyDetails
-                  row={selectedPr}
+                  row={selectedPrLinkedPurchaseReceipts}
                   priceRows={selectedPrPriceRows}
                   defaultOpen={selectedPrFocus === "price-mismatch"}
                 />

@@ -19,6 +19,8 @@ function escapeHtml(value: string) { return value.replace(/&/g, "&amp;").replace
 function money(value: number) { return value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 const AGEING_HEADERS = ["1 to 2 Days", "3 to 4 Days", "5 to 7 Days", "08 to 30 Days", "Above 01 Month"] as const;
 function ageingValues(row: ReceivableRow) { return [row.ageing1To2, row.ageing3To4, row.ageing5To7, row.ageing8To30, row.ageing31Plus]; }
+function isReturned(row: ReceivableRow) { return /^(returned_to_store|returned)$/i.test(row.cosmoOrderStatus ?? ""); }
+function isInvoiceCreatedNotDispatched(row: ReceivableRow) { return !row.isCancelled && !isReturned(row) && !row.dispatchDate && !row.isPosOrder && row.cosmoOrderStatus !== "delivery_complete"; }
 function styleWorkbook(book: XLSX.WorkBook) {
   const headerStyle = { fill: { fgColor: { rgb: "17365D" } }, font: { bold: true, color: { rgb: "FFFFFF" } }, alignment: { horizontal: "center", vertical: "center", wrapText: true } };
   const amountStyle = { fill: { fgColor: { rgb: "E2F0D9" } }, numFmt: "#,##0.00" };
@@ -76,10 +78,10 @@ function ageingValueCountCells(rows: ReceivableRow[]) {
 }
 function summaryWorkbook(groups: { company: string; paymentPending: number; paymentValue: number; dispatchPending: number; dispatchValue: number; deliveryIncomplete: number; deliveryValue: number }[], allRows: ReceivableRow[], deliveryRows: ReceivableRow[]) {
   const book = XLSX.utils.book_new();
-  const companyRows = groups.map((group) => ({ Company: group.company, "Payment Pending Count": group.paymentPending, "Payment Pending Value": group.paymentValue, "Dispatch Pending Count": group.dispatchPending, "Dispatch Pending Value": group.dispatchValue, "Delivery Incomplete Count": group.deliveryIncomplete, "Delivery Incomplete Value": group.deliveryValue, ...ageingTotals(allRows.filter((row) => row.company === group.company)) }));
-  XLSX.utils.book_append_sheet(book, XLSX.utils.json_to_sheet([...companyRows, { Company: "Total", "Payment Pending Count": groups.reduce((sum, row) => sum + row.paymentPending, 0), "Payment Pending Value": groups.reduce((sum, row) => sum + row.paymentValue, 0), "Dispatch Pending Count": groups.reduce((sum, row) => sum + row.dispatchPending, 0), "Dispatch Pending Value": groups.reduce((sum, row) => sum + row.dispatchValue, 0), "Delivery Incomplete Count": groups.reduce((sum, row) => sum + row.deliveryIncomplete, 0), "Delivery Incomplete Value": groups.reduce((sum, row) => sum + row.deliveryValue, 0), ...ageingTotals(allRows) }]), "Company Summary");
+  const companyRows = groups.map((group) => ({ Company: group.company, "Payment Pending Count": group.paymentPending, "Payment Pending Value": group.paymentValue, "Dispatch Pending Count": group.dispatchPending, "Dispatch Pending Value": group.dispatchValue, "Delivery Incomplete Count": group.deliveryIncomplete, "Delivery Incomplete Value": group.deliveryValue }));
+  XLSX.utils.book_append_sheet(book, XLSX.utils.json_to_sheet([...companyRows, { Company: "Total", "Payment Pending Count": groups.reduce((sum, row) => sum + row.paymentPending, 0), "Payment Pending Value": groups.reduce((sum, row) => sum + row.paymentValue, 0), "Dispatch Pending Count": groups.reduce((sum, row) => sum + row.dispatchPending, 0), "Dispatch Pending Value": groups.reduce((sum, row) => sum + row.dispatchValue, 0), "Delivery Incomplete Count": groups.reduce((sum, row) => sum + row.deliveryIncomplete, 0), "Delivery Incomplete Value": groups.reduce((sum, row) => sum + row.deliveryValue, 0) }]), "Company Summary");
   const paymentRows = allRows.filter((row) => row.cosmoOrderStatus === "delivery_complete");
-  const dispatchRows = allRows.filter((row) => !row.dispatchDate && !row.isPosOrder && row.cosmoOrderStatus !== "delivery_complete");
+  const dispatchRows = allRows.filter(isInvoiceCreatedNotDispatched);
   const companyAgeing = (rows: ReceivableRow[]) => [...new Set(rows.map((row) => row.company))].sort().map((company) => ({ Company: company, Count: rows.filter((row) => row.company === company).length, Value: rows.filter((row) => row.company === company).reduce((sum, row) => sum + row.outstanding, 0), ...ageingTotals(rows.filter((row) => row.company === company)) }));
   const paymentAgeingRows = companyAgeing(paymentRows);
   XLSX.utils.book_append_sheet(book, XLSX.utils.json_to_sheet([...paymentAgeingRows, { Company: "Total", Count: paymentRows.length, Value: paymentRows.reduce((sum, row) => sum + row.outstanding, 0), ...ageingTotals(paymentRows) }]), "Payment Pending");
@@ -96,7 +98,7 @@ function summaryWorkbook(groups: { company: string; paymentPending: number; paym
 function summaryTablesHtml(groups: { company: string; paymentPending: number; paymentValue: number; dispatchPending: number; dispatchValue: number }[], allRows: ReceivableRow[], deliveryRows: ReceivableRow[]) {
   const table = (title: string, headers: string[], rows: string) => `<h3 style="margin:22px 0 8px;padding:8px 10px;background:#d9eaf7;color:#17365d;border-left:5px solid #2f5597;">${title}</h3><table style="border-collapse:collapse;width:100%;border:1px solid #b8c7d9;font-size:13px;"><thead><tr style="background:#17365d;color:#fff;">${headers.map((header) => `<th style="padding:7px;border:1px solid #b8c7d9;text-align:left;">${header}</th>`).join("")}</tr></thead><tbody>${rows || `<tr><td colspan="${headers.length}" style="padding:8px;">No rows</td></tr>`}</tbody></table>`;
   const paymentRows = allRows.filter((row) => row.cosmoOrderStatus === "delivery_complete");
-  const dispatchRows = allRows.filter((row) => !row.dispatchDate && !row.isPosOrder && row.cosmoOrderStatus !== "delivery_complete");
+  const dispatchRows = allRows.filter(isInvoiceCreatedNotDispatched);
   const ageingHeaders = AGEING_HEADERS.map((header) => header);
   const ageingCells = (rows: ReceivableRow[]) => { const values = AGEING_HEADERS.map((_, index) => rows.reduce((sum, row) => sum + ageingValues(row)[index], 0)); return values.map((value, index) => { const count = rows.filter((row) => ageingValues(row)[index] > 0).length; return `<td style="text-align:right;">${money(value)} (${count})</td>`; }).join(""); };
   const paymentRowsHtml = groups.map((row) => { const selected = paymentRows.filter((item) => item.company === row.company); return `<tr><td>${escapeHtml(row.company)}</td><td>${selected.length}</td><td>${money(row.paymentValue)}</td>${ageingCells(selected)}</tr>`; }).join("") + `<tr style="font-weight:bold;background:#e2f0d9;"><td>Total</td><td>${paymentRows.length}</td><td>${money(paymentRows.reduce((sum, row) => sum + row.outstanding, 0))}</td>${ageingCells(paymentRows)}</tr>`;
@@ -112,7 +114,7 @@ async function template(companyId: string, key: string) {
 }
 function detailRows(rows: ReceivableRow[], key: string) {
   if (key === RECEIVABLE_DELIVERY_PAYMENT_PENDING_DAILY_KEY) return rows.filter((row) => row.cosmoOrderStatus === "delivery_complete");
-  if (key === RECEIVABLE_NOT_DISPATCHED_DAILY_KEY) return rows.filter((row) => !row.dispatchDate && !row.isPosOrder && row.cosmoOrderStatus !== "delivery_complete");
+  if (key === RECEIVABLE_NOT_DISPATCHED_DAILY_KEY) return rows.filter(isInvoiceCreatedNotDispatched);
   return rows.filter((row) => Boolean(row.dispatchDate) && !row.isCustomerPickup && row.cosmoOrderStatus !== "delivery_complete");
 }
 function detailSummaryHtml(rows: ReceivableRow[], showValueCount = false) {

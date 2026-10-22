@@ -17,6 +17,27 @@ export const ITEM_CREATION_STATUS_LABELS: Record<string, string> = {
   CANCELLED: "Cancelled",
 };
 
+export const ITEM_CREATION_COMPLETED_STAGE_RETENTION_DAYS = 2;
+const ITEM_CREATION_COMPLETED_STAGE_RETENTION_MS =
+  ITEM_CREATION_COMPLETED_STAGE_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+
+export function isItemCreationStageCompletionVisible(
+  completedAt: string | Date | null | undefined,
+  now = Date.now(),
+) {
+  // Keep legacy completed records visible when no completion timestamp was stored.
+  if (!completedAt) return true;
+  const timestamp = completedAt instanceof Date ? completedAt.getTime() : Date.parse(completedAt);
+  return Number.isFinite(timestamp) && timestamp >= now - ITEM_CREATION_COMPLETED_STAGE_RETENTION_MS;
+}
+
+export const ITEM_CREATION_TAX_STATUS_VALUES = ["Non Vat", "Vat", "Vat / Non Vat"] as const;
+export type ItemCreationTaxStatus = (typeof ITEM_CREATION_TAX_STATUS_VALUES)[number];
+
+export function isItemCreationTaxStatus(value: unknown): value is ItemCreationTaxStatus {
+  return typeof value === "string" && ITEM_CREATION_TAX_STATUS_VALUES.includes(value as ItemCreationTaxStatus);
+}
+
 export type PriceStatus =
   | "WAITING_BOTH"
   | "WAITING_STANDARD"

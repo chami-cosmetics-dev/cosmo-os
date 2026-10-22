@@ -14,12 +14,13 @@ import {
 
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserContext, hasPermission } from "@/lib/rbac";
-import { getPriceStatus } from "@/lib/item-creation/helpers";
+import { getPriceStatus, isItemCreationTaxStatus } from "@/lib/item-creation/helpers";
 import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 import { getAllOsfErpInstances } from "@/lib/osf/erp-stock";
 
 export const ITEM_CREATION_PERMISSIONS = {
   admin: "item_creation.admin.manage",
+  adminViewer: "item_creation.admin.view",
   manageAll: "item_creation.admin.manage_all",
   seo: "item_creation.seo.manage",
   digitalMarketing: "item_creation.digital_marketing.manage",
@@ -43,12 +44,30 @@ export function canManageAllItemCreation(context: UserContext) {
   return hasPermission(context, ITEM_CREATION_PERMISSIONS.manageAll);
 }
 
+export function canViewAllItemCreation(context: UserContext) {
+  return (
+    hasPermission(context, ITEM_CREATION_PERMISSIONS.adminViewer) ||
+    hasPermission(context, ITEM_CREATION_PERMISSIONS.manageAll)
+  );
+}
+
 export function canUseItemCreation(context: UserContext, permission: string) {
-  return canManageAllItemCreation(context) || hasPermission(context, permission);
+  return (
+    canManageAllItemCreation(context) ||
+    hasPermission(context, permission) ||
+    (permission === ITEM_CREATION_PERMISSIONS.digitalMarketing &&
+      hasPermission(context, ITEM_CREATION_PERMISSIONS.digitalMarketingAdmin))
+  );
 }
 
 function requireWorkflowPermission(context: UserContext, permission: string) {
   if (!canUseItemCreation(context, permission)) {
+    throw new Error("Permission denied");
+  }
+}
+
+function requireItemCreationAdminEdit(context: UserContext) {
+  if (!canManageAllItemCreation(context)) {
     throw new Error("Permission denied");
   }
 }
@@ -67,6 +86,15 @@ function requireDigitalMarketingAdmin(context: UserContext) {
   requireWorkflowPermission(context, ITEM_CREATION_PERMISSIONS.digitalMarketingAdmin);
 }
 
+function requireDigitalMarketingPermission(context: UserContext) {
+  if (
+    !canUseItemCreation(context, ITEM_CREATION_PERMISSIONS.digitalMarketing) &&
+    !hasPermission(context, ITEM_CREATION_PERMISSIONS.digitalMarketingAdmin)
+  ) {
+    throw new Error("Permission denied");
+  }
+}
+
 async function getDigitalMarketingUsers(company: string) {
   return prisma.user.findMany({
     where: {
@@ -76,6 +104,31 @@ async function getDigitalMarketingUsers(company: string) {
           role: {
             rolePermissions: {
               some: { permission: { key: ITEM_CREATION_PERMISSIONS.digitalMarketing } },
+            },
+          },
+        },
+      },
+      NOT: {
+        userRoles: {
+          some: {
+            role: {
+              OR: [
+                { name: { in: ["admin", "super_admin"] } },
+                {
+                  rolePermissions: {
+                    some: {
+                      permission: {
+                        key: {
+                          in: [
+                            ITEM_CREATION_PERMISSIONS.admin,
+                            ITEM_CREATION_PERMISSIONS.manageAll,
+                          ],
+                        },
+                      },
+                    },
+                  },
+                },
+              ],
             },
           },
         },
@@ -367,6 +420,7 @@ export async function createItemRequest(
     gccPrice?: unknown;
     addErp1OgfPrice?: unknown;
     country?: string;
+    taxStatus?: unknown;
     creationSources?: unknown;
   }
 ) {
@@ -382,6 +436,7 @@ function validateCreateInput(input: {
   gccPrice?: unknown;
   addErp1OgfPrice?: unknown;
   country?: string;
+  taxStatus?: unknown;
   creationSources?: unknown;
 }) {
   const sku = trimSku(input.sku);
@@ -393,7 +448,9 @@ function validateCreateInput(input: {
   if (!standardPrice) throw new Error("Standard Price is required");
   const description = input.description?.trim();
   const country = input.country?.trim() ?? "";
+  const taxStatus = input.taxStatus ?? "Vat / Non Vat";
   if (!description) throw new Error("Description is required");
+  if (!isItemCreationTaxStatus(taxStatus)) throw new Error("Tax status is invalid");
   const requestedSources = Array.isArray(input.creationSources)
     ? input.creationSources
     : ["SHOPIFY"];
@@ -407,7 +464,7 @@ function validateCreateInput(input: {
   if (creationSources.length === 0) throw new Error("At least one creation source is required");
   const addErp1OgfPrice = requestedErp1OgfPrice || Boolean(ogfPrice && !creationSources.includes("ERP2"));
   if (addErp1OgfPrice && !ogfPrice) throw new Error("OGF Price is required when adding OGF to ERP1");
-  return { sku, standardPrice, ogfPrice, gccPrice, addErp1OgfPrice, description, country, creationSources };
+  return { sku, standardPrice, ogfPrice, gccPrice, addErp1OgfPrice, description, country, taxStatus, creationSources };
 }
 
 function validateDetailsInput(input: {
@@ -418,6 +475,7 @@ function validateDetailsInput(input: {
   gccPrice?: unknown;
   addErp1OgfPrice?: unknown;
   country?: string;
+  taxStatus?: unknown;
 }) {
   return validateCreateInput(input);
 }
@@ -432,6 +490,7 @@ export async function createItemRequests(
     gccPrice?: unknown;
     addErp1OgfPrice?: unknown;
     country?: string;
+    taxStatus?: unknown;
     creationSources?: unknown;
   }>
 ) {
@@ -482,6 +541,7 @@ export async function createItemRequests(
           gccPrice: item.gccPrice,
           addErp1OgfPrice: item.addErp1OgfPrice,
           country: item.country,
+          taxStatus: item.taxStatus,
           creationSources: item.creationSources,
           digitalMarketingBrand: allocation?.brand ?? null,
           digitalMarketingAssigneeId: allocation?.userId ?? null,
@@ -496,19 +556,21 @@ export async function createItemRequests(
 }
 
 export async function listItemRequests(context: UserContext, filters: Record<string, string | null>) {
-  if (
-    !canUseItemCreation(context, ITEM_CREATION_PERMISSIONS.admin) &&
-    !canUseItemCreation(context, ITEM_CREATION_PERMISSIONS.seo) &&
-    !canUseItemCreation(context, ITEM_CREATION_PERMISSIONS.digitalMarketing) &&
-    !canUseItemCreation(context, ITEM_CREATION_PERMISSIONS.digitalMarketingAdmin) &&
-    !canUseItemCreation(context, ITEM_CREATION_PERMISSIONS.purchasing) &&
-    !canUseItemCreation(context, ITEM_CREATION_PERMISSIONS.stores)
-  ) {
+  const hasTeamView =
+    canUseItemCreation(context, ITEM_CREATION_PERMISSIONS.seo) ||
+    canUseItemCreation(context, ITEM_CREATION_PERMISSIONS.digitalMarketing) ||
+    canUseItemCreation(context, ITEM_CREATION_PERMISSIONS.digitalMarketingAdmin) ||
+    canUseItemCreation(context, ITEM_CREATION_PERMISSIONS.purchasing) ||
+    canUseItemCreation(context, ITEM_CREATION_PERMISSIONS.stores);
+  const hasCreatePermission = canUseItemCreation(context, ITEM_CREATION_PERMISSIONS.admin);
+  if (!canViewAllItemCreation(context) && !hasTeamView && !hasCreatePermission) {
     throw new Error("Permission denied");
   }
 
+  if (!canViewAllItemCreation(context) && !hasTeamView) return [];
+
   const where: Prisma.ItemCreationRequestWhereInput = { companyId: companyId(context) };
-  const hasAdminView = canUseItemCreation(context, ITEM_CREATION_PERMISSIONS.admin);
+  const hasAdminView = canViewAllItemCreation(context);
   const hasDigitalAdminView = canUseItemCreation(context, ITEM_CREATION_PERMISSIONS.digitalMarketingAdmin);
   const hasDigitalView = canUseItemCreation(context, ITEM_CREATION_PERMISSIONS.digitalMarketing);
   const hasOtherTeamView =
@@ -566,7 +628,12 @@ export async function listItemRequests(context: UserContext, filters: Record<str
   return prisma.itemCreationRequest.findMany({
     where,
     orderBy: { createdAt: "desc" },
-    include: { activities: { orderBy: { createdAt: "desc" } } },
+    include: {
+      activities: { orderBy: { createdAt: "desc" } },
+      digitalMarketingAssignee: {
+        select: { id: true, knownName: true, name: true, email: true },
+      },
+    },
     take: 250,
   });
 }
@@ -664,10 +731,15 @@ export async function assignItemCreationDigitalMarketingUser(
 }
 
 export async function getItemRequest(context: UserContext, id: string) {
-  requireWorkflowPermission(context, ITEM_CREATION_PERMISSIONS.admin);
+  if (!canViewAllItemCreation(context)) throw new Error("Permission denied");
   return prisma.itemCreationRequest.findFirstOrThrow({
     where: { id, companyId: companyId(context) },
-    include: { activities: { orderBy: { createdAt: "desc" } } },
+    include: {
+      activities: { orderBy: { createdAt: "desc" } },
+      digitalMarketingAssignee: {
+        select: { id: true, knownName: true, name: true, email: true },
+      },
+    },
   });
 }
 
@@ -682,10 +754,11 @@ export async function updateItemRequestDetails(
     gccPrice?: unknown;
     addErp1OgfPrice?: unknown;
     country: string;
+    taxStatus?: unknown;
     creationSources?: unknown;
   }
 ) {
-  requireWorkflowPermission(context, ITEM_CREATION_PERMISSIONS.admin);
+  requireItemCreationAdminEdit(context);
   const company = companyId(context);
   const details = validateDetailsInput(input);
 
@@ -714,6 +787,7 @@ export async function updateItemRequestDetails(
         gccPrice: details.gccPrice,
         addErp1OgfPrice: details.addErp1OgfPrice,
         country: details.country,
+        taxStatus: details.taxStatus,
       },
     });
     await activity(
@@ -730,6 +804,7 @@ export async function updateItemRequestDetails(
         gccPrice: request.gccPrice?.toString() ?? null,
         addErp1OgfPrice: request.addErp1OgfPrice,
         country: request.country,
+        taxStatus: request.taxStatus,
       }),
       JSON.stringify({
         sku: details.sku,
@@ -739,6 +814,7 @@ export async function updateItemRequestDetails(
         gccPrice: details.gccPrice?.toString() ?? null,
         addErp1OgfPrice: details.addErp1OgfPrice,
         country: details.country,
+        taxStatus: details.taxStatus,
       })
     );
     return updated;
@@ -746,7 +822,7 @@ export async function updateItemRequestDetails(
 }
 
 export async function deleteItemRequest(context: UserContext, id: string) {
-  requireWorkflowPermission(context, ITEM_CREATION_PERMISSIONS.admin);
+  requireItemCreationAdminEdit(context);
   const company = companyId(context);
 
   return prisma.$transaction(async (tx) => {
@@ -792,7 +868,7 @@ export async function markSeoImageUpdated(context: UserContext, id: string) {
 }
 
 export async function markDigitalImageCreated(context: UserContext, id: string, imageDriveUrl: string) {
-  requireWorkflowPermission(context, ITEM_CREATION_PERMISSIONS.digitalMarketing);
+  requireDigitalMarketingPermission(context);
   assertHttpUrl(imageDriveUrl);
   return prisma.$transaction(async (tx) => {
     const request = await getScopedRequest(tx, id, companyId(context));
@@ -809,6 +885,100 @@ export async function markDigitalImageCreated(context: UserContext, id: string, 
     await activity(tx, id, "DIGITAL_DRIVE_URL_UPDATED", "USER", userId(context), request.imageDriveUrl, imageDriveUrl.trim());
     await activity(tx, id, "DIGITAL_IMAGE_CREATED", "USER", userId(context), request.digitalMarketingStatus, "IMAGE_CREATED");
     await evaluatePurchasingUnlock(tx, id);
+  });
+}
+
+async function resetItemCreationAfterStageRevert(
+  tx: Tx,
+  id: string,
+  resetSeo: boolean,
+  actorId: string,
+  request: {
+    seoSetupStatus: string;
+    digitalMarketingStatus: string;
+    purchasingStatus: string;
+    storeTransferStatus: string;
+    storeStockStatus: string;
+    seoActivationStatus: string;
+  },
+) {
+  await tx.itemCreationRequest.update({
+    where: { id },
+    data: {
+      ...(resetSeo
+        ? {
+            seoSetupStatus: "PENDING",
+            itemCreatedAt: null,
+            itemCreatedBy: null,
+            imageUpdatedAt: null,
+            imageUpdatedBy: null,
+          }
+        : {}),
+      digitalMarketingStatus: "PENDING",
+      imageDriveUrl: null,
+      imageCreatedAt: null,
+      imageCreatedBy: null,
+      purchasingStatus: "LOCKED",
+      priceUpdatedAt: null,
+      priceUpdatedBy: null,
+      priceUpdatedSource: null,
+      storeTransferStatus: "PENDING",
+      sentAt: null,
+      sentBy: null,
+      receivedAt: null,
+      receivedBy: null,
+      storeStockStatus: "WAITING_FOR_PRICE",
+      stockReadyAt: null,
+      stockAddedAt: null,
+      stockAddedBy: null,
+      stockAddedSource: null,
+      seoActivationStatus: "LOCKED",
+      activatedAt: null,
+      activatedBy: null,
+      shopifyActivationStatus: "LOCKED",
+      shopifyActivatedAt: null,
+      shopifyActivationError: null,
+      overallStatus: "IN_PROGRESS",
+      completedAt: null,
+    },
+  });
+  await activity(
+    tx,
+    id,
+    resetSeo ? "SEO_STAGE_REVERTED" : "DIGITAL_MARKETING_STAGE_REVERTED",
+    ItemCreationUpdateSource.USER,
+    actorId,
+    JSON.stringify({
+      seoSetupStatus: request.seoSetupStatus,
+      digitalMarketingStatus: request.digitalMarketingStatus,
+      purchasingStatus: request.purchasingStatus,
+      storeTransferStatus: request.storeTransferStatus,
+      storeStockStatus: request.storeStockStatus,
+      seoActivationStatus: request.seoActivationStatus,
+    }),
+    resetSeo ? "PENDING" : "DIGITAL_MARKETING_PENDING",
+  );
+}
+
+export async function revertSeoStage(context: UserContext, id: string) {
+  requireWorkflowPermission(context, ITEM_CREATION_PERMISSIONS.seo);
+  return prisma.$transaction(async (tx) => {
+    const request = await getScopedRequest(tx, id, companyId(context));
+    if (request.seoSetupStatus === "PENDING") {
+      throw new Error("SEO is already at the initial stage");
+    }
+    await resetItemCreationAfterStageRevert(tx, id, true, userId(context), request);
+  });
+}
+
+export async function revertDigitalMarketingStage(context: UserContext, id: string) {
+  requireDigitalMarketingPermission(context);
+  return prisma.$transaction(async (tx) => {
+    const request = await getScopedRequest(tx, id, companyId(context));
+    if (request.digitalMarketingStatus === "PENDING") {
+      throw new Error("Digital Marketing is already at the initial stage");
+    }
+    await resetItemCreationAfterStageRevert(tx, id, false, userId(context), request);
   });
 }
 
@@ -890,8 +1060,27 @@ export async function activateItem(context: UserContext, id: string) {
   return prisma.$transaction(async (tx) => {
     const request = await getScopedRequest(tx, id, companyId(context));
     if (request.seoActivationStatus !== "WAITING_ACTIVATION") throw new Error("Only waiting-activation requests can be activated");
-    await tx.itemCreationRequest.update({ where: { id }, data: { seoActivationStatus: "ACTIVATED", activatedAt: new Date(), activatedBy: userId(context) } });
-    await activity(tx, id, "SEO_ITEM_ACTIVATED", "USER", userId(context), request.seoActivationStatus, "ACTIVATED");
+    await tx.itemCreationRequest.update({
+      where: { id },
+      data: {
+        seoActivationStatus: "ACTIVATED",
+        activatedAt: new Date(),
+        activatedBy: userId(context),
+        shopifyActivationStatus: "ACTIVE",
+        shopifyActivatedAt: new Date(),
+        shopifyActivationError: null,
+      },
+    });
+    await activity(
+      tx,
+      id,
+      "SHOPIFY_ACTIVATION_MARKED_MANUALLY",
+      "USER",
+      userId(context),
+      request.seoActivationStatus,
+      "ACTIVATED",
+      { shopifyRequestSent: false },
+    );
     await evaluateOverallCompletion(tx, id);
   });
 }
