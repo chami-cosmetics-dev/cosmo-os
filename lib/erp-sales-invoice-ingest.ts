@@ -11,7 +11,6 @@ import {
   ORDER_PAYMENT_APPROVAL,
 } from "@/lib/approval-workflow";
 import { needsKokoLinkTimeConfirm } from "@/lib/koko-order";
-import { eligibleMerchantUserWhere } from "@/lib/merchant-eligibility";
 import { resolveErpWebhookCustomerName } from "@/lib/erpnext-customer-display-name";
 import { findBarcodeForSku } from "@/lib/product-item-barcode.server";
 import { erpInvoiceReferenceLookupValues } from "@/lib/erp-invoice-reference";
@@ -546,8 +545,15 @@ export async function ingestParsedErpSalesInvoice(input: {
   let assignedMerchantId: string | undefined =
     location.defaultMerchantUserId ?? undefined;
   if (data.owner?.trim()) {
-    const erpUser = await prisma.user.findUnique({
-      where: { erpnextUsername: data.owner.trim() },
+    const owner = data.owner.trim();
+    const erpUser = await prisma.user.findFirst({
+      where: {
+        companyId: location.companyId,
+        OR: [
+          { erpnextUsername: owner },
+          { email: { equals: owner, mode: "insensitive" } },
+        ],
+      },
       select: { id: true },
     });
     if (erpUser) assignedMerchantId = erpUser.id;
@@ -565,13 +571,17 @@ export async function ingestParsedErpSalesInvoice(input: {
     merchant_coupon_code: data.merchant_coupon_code,
   });
 
-  // For non-POS ERP orders: if a coupon code is present, try to assign the merchant via
-  // coupon code (same logic as Shopify web order assignment in resolveAssignedMerchant).
-  // This makes AE/Origin ERP orders behave the same as SupplementVault.lk web orders.
+  // For non-POS ERP orders: if a coupon code is present, assign the merchant via coupon.
+  // Do not require Digital Marketing / Sales Marketing department — Cosmo ERP merchants
+  // often have a merchant role + MER code with department unset (assignedMerchantId
+  // would otherwise stay null and merchant reminder bubbles would skip the order).
   if (!isPOS && merCouponCode) {
     const couponLower = merCouponCode.toLowerCase();
     const merchants = await prisma.user.findMany({
-      where: eligibleMerchantUserWhere(location.companyId),
+      where: {
+        companyId: location.companyId,
+        couponCodes: { isEmpty: false },
+      },
       select: { id: true, couponCodes: true },
     });
     const match = merchants.find((m) =>

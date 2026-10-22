@@ -21,6 +21,7 @@ import { fetchInventoryItemSku, fetchShopifyVariantInfo } from "@/lib/wishlist-b
 import { lookupStockAcrossErps } from "@/lib/wishlist-buddy/stock-lookup";
 import {
   canEditRequest,
+  canExportScope,
   canViewRequest,
   canViewScope,
   scopeFilter,
@@ -599,7 +600,9 @@ async function listStaffCreators(companyId: string): Promise<StockRequestCreator
     );
 }
 
-export async function listStockRequests(input: {
+const STOCK_REQUEST_EXPORT_CAP = 5_000;
+
+type StockRequestListInput = {
   companyId: string;
   viewer: StockRequestViewer;
   scope: StockRequestScope;
@@ -607,12 +610,9 @@ export async function listStockRequests(input: {
   stock?: StockRequestStockFilter;
   search?: string;
   createdById?: string;
-  page?: number;
-  limit?: number;
-}): Promise<StockRequestListResponse> {
-  if (!canViewScope(input.viewer, input.scope)) throw new StockRequestForbiddenError();
-  const page = input.page ?? 1;
-  const limit = input.limit ?? 25;
+};
+
+function stockRequestListWhere(input: StockRequestListInput): Prisma.StockRequestWhereInput {
   const search = input.search?.trim();
   const statusWhere: Prisma.StockRequestWhereInput =
     input.status === "open"
@@ -627,7 +627,7 @@ export async function listStockRequests(input: {
         ? { stockLookupStatus: input.stock }
         : {};
   const creatorId = input.scope === "staff" ? input.createdById : undefined;
-  const where: Prisma.StockRequestWhereInput = {
+  return {
     companyId: input.companyId,
     ...scopeFilter(input.viewer, input.scope),
     ...(creatorId ? { createdById: creatorId } : {}),
@@ -651,6 +651,24 @@ export async function listStockRequests(input: {
         }
       : {}),
   };
+}
+
+export async function listStockRequests(input: {
+  companyId: string;
+  viewer: StockRequestViewer;
+  scope: StockRequestScope;
+  status?: StockRequestListFilter;
+  stock?: StockRequestStockFilter;
+  search?: string;
+  createdById?: string;
+  page?: number;
+  limit?: number;
+}): Promise<StockRequestListResponse> {
+  if (!canViewScope(input.viewer, input.scope)) throw new StockRequestForbiddenError();
+  const page = input.page ?? 1;
+  const limit = input.limit ?? 25;
+  const where = stockRequestListWhere(input);
+  const creatorId = input.scope === "staff" ? input.createdById : undefined;
   const groupByCreator = input.scope === "staff" && !creatorId;
   const [items, total, creators] = await Promise.all([
     prisma.stockRequest.findMany({
@@ -672,6 +690,17 @@ export async function listStockRequests(input: {
     limit,
     ...(creators ? { creators } : {}),
   };
+}
+
+export async function exportStockRequests(input: StockRequestListInput): Promise<StockRequestItem[]> {
+  if (!canExportScope(input.viewer, input.scope)) throw new StockRequestForbiddenError();
+  const rows = await prisma.stockRequest.findMany({
+    where: stockRequestListWhere(input),
+    select: listSelect,
+    orderBy: { createdAt: "desc" },
+    take: STOCK_REQUEST_EXPORT_CAP,
+  });
+  return rows.map(serializeStockRequest);
 }
 
 async function findRequestForViewer(input: {

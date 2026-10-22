@@ -2,8 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import { ExternalLink, Mail, Package, Phone, Plus, RefreshCw, Search } from "lucide-react";
+import { ExternalLink, Loader2, Mail, Package, Phone, Plus, RefreshCw, Search } from "lucide-react";
 
+import { NewItemRequestPanel, type NewItemRequestPanelProps } from "@/components/organisms/new-item-request-panel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -105,6 +106,9 @@ export type StockRequestsViewerProps = {
 
 type Scope = "web" | "mine" | "staff";
 
+export const NEW_ITEM_REQUESTS_TAB = "new-items" as const;
+export type StockRequestsPageTab = Scope | typeof NEW_ITEM_REQUESTS_TAB;
+
 const SCOPE_COPY: Record<Scope, { title: string; description: string; restockedLabel: string }> = {
   web: {
     title: "Website requests",
@@ -126,11 +130,16 @@ const SCOPE_COPY: Record<Scope, { title: string; description: string; restockedL
   },
 };
 
-const TAB_LABEL: Record<Scope, string> = {
+const TAB_LABEL: Record<StockRequestsPageTab, string> = {
   web: "Website requests",
   mine: "My requests",
   staff: "All staff requests",
+  [NEW_ITEM_REQUESTS_TAB]: "New item requests",
 };
+
+function isStockScope(tab: StockRequestsPageTab): tab is Scope {
+  return tab === "web" || tab === "mine" || tab === "staff";
+}
 
 function creatorLabel(item: StockRequestItem): string {
   return item.createdBy?.name || item.createdBy?.email || "Unknown";
@@ -178,6 +187,8 @@ function StockRequestsList({
   const [limit, setLimit] = useState(initialData?.limit ?? 25);
   const [loading, setLoading] = useState(initialData === null);
   const [recheckingId, setRecheckingId] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const canExport = viewer.canManageWeb && (scope === "web" || scope === "mine");
 
   const [editing, setEditing] = useState<StockRequestItem | null>(null);
   const [formStatus, setFormStatus] = useState<StockRequestStatus>("new");
@@ -231,6 +242,35 @@ function StockRequestsList({
       cancelled = true;
     };
   }, [scope, status, stock, search, creator, page, limit]);
+
+  async function exportView() {
+    setExporting(true);
+    try {
+      const params = new URLSearchParams();
+      params.set("scope", scope);
+      if (status !== "all") params.set("status", status);
+      if (stock !== "all") params.set("stock", stock);
+      if (search) params.set("search", search);
+      const response = await fetch(`/api/admin/stock-requests/export?${params.toString()}`);
+      if (!response.ok) {
+        const body = (await response.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? "Could not export");
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      const match = /filename="([^"]+)"/.exec(response.headers.get("Content-Disposition") ?? "");
+      link.href = url;
+      link.download = match?.[1] ?? `stock-requests-${scope}.xlsx`;
+      link.click();
+      URL.revokeObjectURL(url);
+      notify.success("Export downloaded");
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : "Could not export");
+    } finally {
+      setExporting(false);
+    }
+  }
 
   function replaceItem(item: StockRequestItem) {
     setData((d) => ({ ...d, items: d.items.map((i) => (i.id === item.id ? item : i)) }));
@@ -314,11 +354,27 @@ function StockRequestsList({
             <CardTitle>{copy.title}</CardTitle>
             <p className="text-sm text-muted-foreground">{copy.description}</p>
           </div>
-          {scope === "mine" && viewer.canCreate && (
-            <Button type="button" onClick={() => setCreating(true)}>
-              <Plus className="mr-1.5 size-4" aria-hidden />
-              New request
-            </Button>
+          {(canExport || (scope === "mine" && viewer.canCreate)) && (
+            <div className="flex flex-wrap gap-2">
+              {canExport && (
+                <Button type="button" variant="outline" disabled={exporting} onClick={() => void exportView()}>
+                  {exporting ? (
+                    <>
+                      <Loader2 className="animate-spin" aria-hidden />
+                      Exporting...
+                    </>
+                  ) : (
+                    "Export"
+                  )}
+                </Button>
+              )}
+              {scope === "mine" && viewer.canCreate && (
+                <Button type="button" onClick={() => setCreating(true)} disabled={exporting}>
+                  <Plus className="mr-1.5 size-4" aria-hidden />
+                  New request
+                </Button>
+              )}
+            </div>
           )}
         </CardHeader>
         <CardContent className="space-y-4">
@@ -334,6 +390,7 @@ function StockRequestsList({
               </label>
               <Select
                 value={status}
+                disabled={exporting}
                 onValueChange={(v) => {
                   setPage(1);
                   setStatus(v);
@@ -359,6 +416,7 @@ function StockRequestsList({
               </label>
               <Select
                 value={stock}
+                disabled={exporting}
                 onValueChange={(v) => {
                   setPage(1);
                   setStock(v);
@@ -410,6 +468,7 @@ function StockRequestsList({
                 id={`stock-requests-search-${scope}`}
                 placeholder={scope === "staff" ? "Name, phone, email, SKU, product or staff" : "Name, phone, email, SKU or product"}
                 value={searchInput}
+                disabled={exporting}
                 onChange={(e) => setSearchInput(e.target.value)}
               />
             </div>
@@ -1044,25 +1103,43 @@ function ProductThumb({ hit }: { hit: ProductHit }) {
 
 /**
  * Stock Requests: "Website requests" (stock_requests.read), "My requests"
- * (stock_requests.create), and "All staff requests" (stock_requests.read_all).
+ * (stock_requests.create), "All staff requests" (stock_requests.read_all),
+ * and "New item requests" (new_item_requests.manage / admin).
  */
 export function StockRequestsPanel({
   viewer,
   initialTab,
   initialData,
+  newItemRequests,
 }: {
   viewer: StockRequestsViewerProps;
-  initialTab: Scope;
-  initialData: StockRequestListResponse;
+  initialTab: StockRequestsPageTab;
+  initialData: StockRequestListResponse | null;
+  newItemRequests: Omit<NewItemRequestPanelProps, "embedded"> | null;
 }) {
-  const tabs: Scope[] = [
+  const tabs: StockRequestsPageTab[] = [
     ...(viewer.canViewWeb ? (["web"] as const) : []),
     ...(viewer.canCreate ? (["mine"] as const) : []),
     ...(viewer.canViewAllStaff ? (["staff"] as const) : []),
+    ...(newItemRequests ? ([NEW_ITEM_REQUESTS_TAB] as const) : []),
   ];
-  const [tab, setTab] = useState<Scope>(initialTab);
+  const [tab, setTab] = useState<StockRequestsPageTab>(initialTab);
 
-  if (tabs.length <= 1) {
+  function renderTab(value: StockRequestsPageTab) {
+    if (value === NEW_ITEM_REQUESTS_TAB) {
+      return newItemRequests ? <NewItemRequestPanel {...newItemRequests} embedded /> : null;
+    }
+    return (
+      <StockRequestsList
+        scope={value}
+        initialData={value === initialTab ? initialData : null}
+        viewer={viewer}
+      />
+    );
+  }
+
+  if (tabs.length <= 1 && initialTab !== NEW_ITEM_REQUESTS_TAB) {
+    if (!isStockScope(initialTab)) return null;
     return <StockRequestsList scope={initialTab} initialData={initialData} viewer={viewer} />;
   }
 
@@ -1070,7 +1147,7 @@ export function StockRequestsPanel({
     <Tabs
       value={tab}
       onValueChange={(value) => {
-        const next = value as Scope;
+        const next = value as StockRequestsPageTab;
         setTab(next);
         const url = new URL(window.location.href);
         url.searchParams.set("tab", next);
@@ -1078,7 +1155,7 @@ export function StockRequestsPanel({
       }}
       className="space-y-4"
     >
-      <TabsList>
+      <TabsList className="h-auto">
         {tabs.map((scope) => (
           <TabsTrigger key={scope} value={scope}>
             {TAB_LABEL[scope]}
@@ -1087,7 +1164,7 @@ export function StockRequestsPanel({
       </TabsList>
       {tabs.map((scope) => (
         <TabsContent key={scope} value={scope}>
-          <StockRequestsList scope={scope} initialData={scope === initialTab ? initialData : null} viewer={viewer} />
+          {renderTab(scope)}
         </TabsContent>
       ))}
     </Tabs>

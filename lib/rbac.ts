@@ -401,7 +401,8 @@ const DEFAULT_PERMISSIONS = [
   },
   {
     key: "stock_requests.manage",
-    description: "Update stock request status, remarks, and the warehouse the sale came from",
+    description:
+      "Update stock request status, remarks, and the warehouse the sale came from. Export Website requests and My requests",
   },
   {
     key: "stock_requests.create",
