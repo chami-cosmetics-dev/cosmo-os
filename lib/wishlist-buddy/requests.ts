@@ -694,10 +694,14 @@ export async function listStockRequests(input: {
 
 export async function exportStockRequests(input: StockRequestListInput): Promise<StockRequestItem[]> {
   if (!canExportScope(input.viewer, input.scope)) throw new StockRequestForbiddenError();
+  const creatorId = input.scope === "staff" ? input.createdById : undefined;
   const rows = await prisma.stockRequest.findMany({
     where: stockRequestListWhere(input),
     select: listSelect,
-    orderBy: { createdAt: "desc" },
+    orderBy:
+      input.scope === "staff" && !creatorId
+        ? [{ createdBy: { name: "asc" } }, { createdById: "asc" }, { createdAt: "desc" }]
+        : { createdAt: "desc" },
     take: STOCK_REQUEST_EXPORT_CAP,
   });
   return rows.map(serializeStockRequest);

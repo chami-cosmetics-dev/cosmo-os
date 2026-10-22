@@ -41,10 +41,10 @@ describe("stockRequestPatchBodySchema", () => {
 });
 
 describe("stockRequestExportScopeSchema", () => {
-  it("allows website and my requests, not staff", () => {
+  it("allows website, my requests, and all staff", () => {
     expect(stockRequestExportScopeSchema.parse("web")).toBe("web");
     expect(stockRequestExportScopeSchema.parse("mine")).toBe("mine");
-    expect(stockRequestExportScopeSchema.safeParse("staff").success).toBe(false);
+    expect(stockRequestExportScopeSchema.parse("staff")).toBe("staff");
   });
 });
 

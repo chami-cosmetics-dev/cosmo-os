@@ -69,8 +69,8 @@ export const stockRequestListQuerySchema = z.object({
 /** Stock Requests tab: website, the viewer's own, or every staff request. */
 export const stockRequestScopeSchema = z.enum(["web", "mine", "staff"]).default("web");
 
-/** Export is Website requests or My requests only. */
-export const stockRequestExportScopeSchema = z.enum(["web", "mine"]);
+/** Export: Website requests, My requests, or All staff requests. */
+export const stockRequestExportScopeSchema = z.enum(["web", "mine", "staff"]);
 
 /** "New request" form on the My requests tab. Phone is required; email is optional. */
 export const staffStockRequestCreateBodySchema = z.object({

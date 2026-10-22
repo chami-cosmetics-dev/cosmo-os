@@ -13,6 +13,8 @@ import { prisma } from "@/lib/prisma";
 const ID_CHUNK = 400;
 /** Above this, one company-wide MIN() beats per-contact order scans. */
 const BULK_ID_THRESHOLD = 800;
+/** IN-list size for scoped first-purchase lookups on one export page. */
+const KEY_CHUNK = 800;
 
 export type FirstPurchaseIndexes = {
   byPhone: Map<string, Date>;
@@ -127,6 +129,154 @@ export async function loadFirstPurchaseIndexes(
   }
 
   return { byPhone, byEmail, byContactId };
+}
+
+async function firstAtByPhoneKeys(
+  companyId: string,
+  keys: string[]
+): Promise<FirstAtRow[]> {
+  if (keys.length === 0) return [];
+  const out: FirstAtRow[] = [];
+  for (const slice of chunkArray(keys, KEY_CHUNK)) {
+    const rows = await prisma.$queryRaw<FirstAtRow[]>`
+      SELECT btrim("customerPhone") AS key,
+             MIN(COALESCE("deliveryCompleteAt", "invoiceCompleteAt", "createdAt")) AS first_at
+      FROM "Order"
+      WHERE "companyId" = ${companyId}
+        AND ${eligibleOrderSql}
+        AND btrim("customerPhone") IN (${Prisma.join(slice)})
+      GROUP BY btrim("customerPhone")
+    `;
+    out.push(...rows);
+  }
+  return out;
+}
+
+async function firstAtByErpKeys(
+  companyId: string,
+  keys: string[]
+): Promise<FirstAtRow[]> {
+  if (keys.length === 0) return [];
+  const out: FirstAtRow[] = [];
+  for (const slice of chunkArray(keys, KEY_CHUNK)) {
+    const rows = await prisma.$queryRaw<FirstAtRow[]>`
+      SELECT btrim("erpnextCustomerId") AS key,
+             MIN(COALESCE("deliveryCompleteAt", "invoiceCompleteAt", "createdAt")) AS first_at
+      FROM "Order"
+      WHERE "companyId" = ${companyId}
+        AND ${eligibleOrderSql}
+        AND btrim("erpnextCustomerId") IN (${Prisma.join(slice)})
+      GROUP BY btrim("erpnextCustomerId")
+    `;
+    out.push(...rows);
+  }
+  return out;
+}
+
+async function firstAtByEmailKeys(
+  companyId: string,
+  keys: string[]
+): Promise<FirstAtRow[]> {
+  if (keys.length === 0) return [];
+  const out: FirstAtRow[] = [];
+  for (const slice of chunkArray(keys, KEY_CHUNK)) {
+    const rows = await prisma.$queryRaw<FirstAtRow[]>`
+      SELECT lower(btrim("customerEmail")) AS key,
+             MIN(COALESCE("deliveryCompleteAt", "invoiceCompleteAt", "createdAt")) AS first_at
+      FROM "Order"
+      WHERE "companyId" = ${companyId}
+        AND ${eligibleOrderSql}
+        AND lower(btrim("customerEmail")) IN (${Prisma.join(slice)})
+      GROUP BY lower(btrim("customerEmail"))
+    `;
+    out.push(...rows);
+  }
+  return out;
+}
+
+/**
+ * First-purchase dates for contacts already loaded (one export page).
+ * Scoped MIN() on those phones/emails — not a company-wide Order scan.
+ */
+export async function firstPurchaseAtForLoadedContacts(
+  companyId: string,
+  contacts: FirstPurchaseContact[]
+): Promise<Map<string, Date>> {
+  const out = new Map<string, Date>();
+  if (contacts.length === 0) return out;
+
+  const phones = new Set<string>();
+  const emails = new Set<string>();
+  const ids: string[] = [];
+  for (const contact of contacts) {
+    ids.push(contact.id);
+    const keys = contactOrderLookupKeys({
+      primaryEmail: contact.email,
+      primaryPhone: contact.phoneNumber,
+      aliasEmails:
+        contact.aliasEmails ?? contact.emails?.map((row) => row.email) ?? [],
+      aliasPhones:
+        contact.aliasPhones ?? contact.phones?.map((row) => row.phoneNumber) ?? [],
+    });
+    for (const phone of keys.phones) {
+      if (phone) phones.add(phone);
+    }
+    for (const email of keys.emails) {
+      const key = email.trim().toLowerCase();
+      if (key) emails.add(key);
+    }
+  }
+
+  const phoneList = [...phones];
+  const [phoneRows, erpRows, emailRows, adaptChunks] = await Promise.all([
+    firstAtByPhoneKeys(companyId, phoneList),
+    firstAtByErpKeys(companyId, phoneList),
+    firstAtByEmailKeys(companyId, [...emails]),
+    Promise.all(
+      chunkArray(ids, 2_000).map((slice) =>
+        prisma.adaptPurchaseHistory.groupBy({
+          by: ["contactId"],
+          where: {
+            companyId,
+            contactId: { in: slice },
+            ...adaptSaleTotalWhere(),
+          },
+          _min: { invoiceDate: true },
+        })
+      )
+    ),
+  ]);
+
+  const indexes: FirstPurchaseIndexes = {
+    byPhone: new Map(),
+    byEmail: new Map(),
+    byContactId: new Map(),
+  };
+  for (const row of phoneRows) {
+    if (!row.key) continue;
+    rememberEarlier(indexes.byPhone, row.key, asDate(row.first_at));
+  }
+  for (const row of erpRows) {
+    if (!row.key) continue;
+    rememberEarlier(indexes.byPhone, row.key, asDate(row.first_at));
+  }
+  for (const row of emailRows) {
+    if (!row.key) continue;
+    rememberEarlier(indexes.byEmail, row.key.toLowerCase(), asDate(row.first_at));
+  }
+  for (const row of adaptChunks.flat()) {
+    if (!row._min.invoiceDate) continue;
+    indexes.byContactId.set(
+      row.contactId,
+      earlierDate(indexes.byContactId.get(row.contactId), row._min.invoiceDate)!
+    );
+  }
+
+  for (const contact of contacts) {
+    const at = firstPurchaseAtForContact(indexes, contact);
+    if (at) out.set(contact.id, at);
+  }
+  return out;
 }
 
 /** Phone-keyed contacts match phone only; email-keyed contacts match email. */
