@@ -39,11 +39,11 @@
     },
     {
       "path": "/api/cron/receivable-outstanding-email",
-      "schedule": "30 18 * * *"
+      "schedule": "30 5 * * *"
     },
     {
       "path": "/api/cron/supplier-payables-email",
-      "schedule": "30 18 * * *"
+      "schedule": "30 5 * * *"
     },
     {
       "path": "/api/cron/call-center-daily-email",

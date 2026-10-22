@@ -114,6 +114,45 @@ async function shopifyAdminJson<T>(
   return { ok: res.ok, status: res.status, data, text };
 }
 
+function shopifyNumericId(raw: string) {
+  return raw.trim().match(/(\d+)$/)?.[1] ?? null;
+}
+
+export async function updateShopifyVariantPrice(input: {
+  storeHandle: string;
+  productId: string;
+  variantId: string;
+  price: string | number;
+}) {
+  const storeHandle = normalizeShopifyStoreHandle(input.storeHandle);
+  const productId = shopifyNumericId(input.productId);
+  const variantId = shopifyNumericId(input.variantId);
+  const price = Number(input.price);
+  if (!storeHandle) throw new Error("Shopify store handle is missing");
+  if (!productId || !variantId) throw new Error("Shopify product or variant ID is invalid");
+  if (!Number.isFinite(price) || price <= 0) throw new Error("Shopify price is invalid");
+
+  const result = await shopifyAdminJson<{ variant?: { id?: number; price?: string } }>(
+    storeHandle,
+    `/products/${productId}/variants/${variantId}.json`,
+    {
+      method: "PUT",
+      body: JSON.stringify({
+        variant: {
+          id: Number(variantId),
+          price: price.toFixed(2),
+        },
+      }),
+    },
+  );
+  if (!result.ok) {
+    throw new Error(
+      `Shopify variant price update failed (${result.status})${result.text ? `: ${result.text.slice(0, 500)}` : ""}`,
+    );
+  }
+  return { storeHandle, productId, variantId, price: price.toFixed(2) };
+}
+
 export type ShopifyLoyaltyTagResult = {
   ok: boolean;
   error?: string;
