@@ -22,6 +22,10 @@ import {
 } from "@/lib/erp-credit-note-order-sync";
 import { buildErpOrderShippingFields } from "@/lib/order-shipping-display";
 import { buildErpOrderDiscountCodes } from "@/lib/order-discount-coupon";
+import {
+  isDmOnlyMerchantTracking,
+  parseOrderCouponList,
+} from "@/lib/merchant-dm-sales";
 import { orderStageUpdate } from "@/lib/order-stage-timing";
 import { isLegacyAccSinvRef } from "@/lib/legacy-acc-sinv";
 import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
@@ -540,11 +544,31 @@ export async function ingestParsedErpSalesInvoice(input: {
     parsedAddress;
   const district = storedDistrictFromAddress(shippingAddressObj);
 
+  // Read merchant coupon code directly from ERP invoice — stored as-is for display
+  const merCouponCode =
+    data.custom_merchant_coupon_code?.trim() ||
+    data.merchant_coupon_code?.trim() ||
+    null;
+  const erpDiscountCodes = buildErpOrderDiscountCodes({
+    coupon_code: data.coupon_code,
+    custom_coupon_code: data.custom_coupon_code,
+    custom_merchant_coupon_code: data.custom_merchant_coupon_code,
+    merchant_coupon_code: data.merchant_coupon_code,
+  });
+  const ingestCouponCodes = [
+    ...parseOrderCouponList(merCouponCode),
+    ...(erpDiscountCodes ?? []).flatMap((row) => parseOrderCouponList(row.code)),
+  ];
+  const leaveDmUnassigned = isDmOnlyMerchantTracking(ingestCouponCodes);
+
   // Try to match the owner (cashier for POS, merchant for non-POS) to a vault os user
-  // Fall back to location default merchant
+  // Fall back to location default merchant.
+  // DM_General / MER115 stay unassigned — no person owns that bucket.
   let assignedMerchantId: string | undefined =
     location.defaultMerchantUserId ?? undefined;
-  if (data.owner?.trim()) {
+  if (leaveDmUnassigned) {
+    assignedMerchantId = undefined;
+  } else if (data.owner?.trim()) {
     const owner = data.owner.trim();
     const erpUser = await prisma.user.findFirst({
       where: {
@@ -559,23 +583,11 @@ export async function ingestParsedErpSalesInvoice(input: {
     if (erpUser) assignedMerchantId = erpUser.id;
   }
 
-  // Read merchant coupon code directly from ERP invoice — stored as-is for display
-  const merCouponCode =
-    data.custom_merchant_coupon_code?.trim() ||
-    data.merchant_coupon_code?.trim() ||
-    null;
-  const erpDiscountCodes = buildErpOrderDiscountCodes({
-    coupon_code: data.coupon_code,
-    custom_coupon_code: data.custom_coupon_code,
-    custom_merchant_coupon_code: data.custom_merchant_coupon_code,
-    merchant_coupon_code: data.merchant_coupon_code,
-  });
-
   // For non-POS ERP orders: if a coupon code is present, assign the merchant via coupon.
   // Do not require Digital Marketing / Sales Marketing department — Cosmo ERP merchants
   // often have a merchant role + MER code with department unset (assignedMerchantId
   // would otherwise stay null and merchant reminder bubbles would skip the order).
-  if (!isPOS && merCouponCode) {
+  if (!leaveDmUnassigned && !isPOS && merCouponCode) {
     const couponLower = merCouponCode.toLowerCase();
     const merchants = await prisma.user.findMany({
       where: {
@@ -589,6 +601,12 @@ export async function ingestParsedErpSalesInvoice(input: {
     );
     if (match) assignedMerchantId = match.id;
   }
+
+  const assignedMerchantWrite = leaveDmUnassigned
+    ? { assignedMerchantId: null }
+    : assignedMerchantId
+      ? { assignedMerchantId }
+      : {};
 
   const posPaymentMethods = isPOS
     ? data.payments.map((p) => p.mode_of_payment).filter(Boolean)
@@ -725,7 +743,7 @@ export async function ingestParsedErpSalesInvoice(input: {
             paymentGatewayPrimary: resolvedPaymentMethods[0],
           }
         : {}),
-      ...(assignedMerchantId ? { assignedMerchantId } : {}),
+      ...assignedMerchantWrite,
     },
     update: {
       totalPrice: grandTotal,
@@ -754,7 +772,7 @@ export async function ingestParsedErpSalesInvoice(input: {
             paymentGatewayPrimary: resolvedPaymentMethods[0],
           }
         : {}),
-      ...(assignedMerchantId ? { assignedMerchantId } : {}),
+      ...assignedMerchantWrite,
     },
     select: {
       id: true,

@@ -55,7 +55,10 @@ import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 import { appendInsightFilterList } from "@/lib/customer-insight/filter-query-params";
 import { isNonProductInsightItem } from "@/lib/customer-insight/item-junk";
 import { formatRemovedEmailLabel } from "@/lib/contacts/removed-email-label";
-import { isCompletePhoneSearch } from "@/lib/phone-lookup";
+import {
+  isCompletePhoneSearch,
+  parseInsightPhoneSearchInput,
+} from "@/lib/phone-lookup";
 import {
   PRODUCT_ITEM_STATUS_CATEGORIES,
   PRODUCT_ITEM_STATUS_META,
@@ -188,8 +191,8 @@ function formatMemberSince(iso: string | null | undefined) {
 }
 
 /**
- * `contact.lastPurchaseAt` is derived in loadCustomerInsight from the purchase history
- * this page shows, not read from the drifting ContactMaster column.
+ * `contact.lastPurchaseAt` is the newest completed Cosmo order or Adapt invoice
+ * on this page, not the drifting ContactMaster stamp.
  */
 function formatLastPurchased(lastPurchaseAt: string | null, emptyLabel: string) {
   return lastPurchaseAt ? formatAppDate(lastPurchaseAt, "—") : emptyLabel;
@@ -1678,7 +1681,8 @@ export function CustomerInsightPanel({
 
   async function runSearch() {
     const q = phone.trim();
-    if (!q) {
+    const queries = parseInsightPhoneSearchInput(q);
+    if (queries.length === 0) {
       notify.error("Enter a phone number to search.");
       return;
     }
@@ -1688,7 +1692,7 @@ export function CustomerInsightPanel({
     setSearched(false);
     setItemFilter(null);
     setEditing(false);
-    const exactNumber = isCompletePhoneSearch(q);
+    const exactNumber = queries.every((query) => isCompletePhoneSearch(query));
     // Keep filter results until Clear filters; only skip brand/item scope on insight open.
     let autoOpenId: string | null = null;
     try {
@@ -2364,7 +2368,8 @@ export function CustomerInsightPanel({
               Phone search
             </legend>
             <p className="text-muted-foreground text-xs">
-              Enter a full customer phone number for an exact match.
+              Up to 10 numbers. Spaces ignored. Paste +94, 077, or 77 — same
+              number. Separate with a new line or comma.
             </p>
             <form
               className="flex flex-col gap-3 sm:flex-row"
@@ -2373,13 +2378,20 @@ export function CustomerInsightPanel({
                 void runSearch();
               }}
             >
-              <Input
+              <Textarea
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
-                placeholder="e.g. 0771234567"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    void runSearch();
+                  }
+                }}
+                placeholder={"0771234567\n+94771234567\n77 123 4567"}
                 disabled={isBusy}
                 inputMode="tel"
                 autoComplete="tel"
+                rows={3}
                 className="sm:max-w-sm"
               />
               <Button type="submit" disabled={isBusy}>
@@ -2914,7 +2926,11 @@ export function CustomerInsightPanel({
                   void loadInsight(
                     m.id,
                     1,
-                    isCompletePhoneSearch(phone) ? { brands: [], items: [] } : undefined
+                    parseInsightPhoneSearchInput(phone).every((query) =>
+                      isCompletePhoneSearch(query)
+                    )
+                      ? { brands: [], items: [] }
+                      : undefined
                   )
                 }
                 className="flex w-full flex-col rounded-md border px-3 py-2 text-left text-sm transition hover:bg-muted/50 disabled:opacity-50 sm:flex-row sm:items-center sm:justify-between"

@@ -41,16 +41,21 @@ export function NewItemRequestPanel({
         </p>
       </section>
       <NewItemRequestForm
+        canVote={!isAdmin}
         onCreated={(request) => {
-          setCreated((current) => [request, ...current]);
+          setCreated((current) => [request, ...current.filter((row) => row.id !== request.id)]);
           if (isAdmin) setBoardKey((value) => value + 1);
         }}
+        onVoted={(request) => {
+          setCreated((current) => [request, ...current.filter((row) => row.id !== request.id)]);
+        }}
       />
-      {isAdmin ? (
-        <NewItemRequestBrandBoard key={boardKey} initialBrands={initialBrands} />
-      ) : (
-        <NewItemRequestOwnList initialRequests={initialRequests} extraRequests={created} />
-      )}
+      <NewItemRequestOwnList
+        canVote={!isAdmin}
+        initialRequests={initialRequests}
+        extraRequests={created}
+      />
+      {isAdmin ? <NewItemRequestBrandBoard key={boardKey} initialBrands={initialBrands} /> : null}
     </div>
   );
 }

@@ -31,6 +31,8 @@ describe("phoneNumbersMatch", () => {
     expect(phoneNumbersMatch("0774223062", "94774223062")).toBe(true);
     expect(phoneNumbersMatch("0774223062", "+94774223062")).toBe(true);
     expect(phoneNumbersMatch("0774223062", "774223062")).toBe(true);
+    expect(phoneNumbersMatch("074 202 3010", "0742023010")).toBe(true);
+    expect(phoneNumbersMatch("+94 74 202 3010", "074 202 3010")).toBe(true);
   });
 
   it("rejects different numbers that only share last digits", () => {

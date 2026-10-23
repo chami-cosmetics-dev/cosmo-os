@@ -73,7 +73,7 @@ export type ContactInsightDto = {
   birthDay: number | null;
   assignedMerchant: string | null;
   category: string | null;
-  /** ContactMaster.lastPurchaseAt ISO timestamp, or null. */
+  /** Newest completed Cosmo order or Adapt invoice ISO timestamp, or null. */
   lastPurchaseAt: string | null;
   osRegBadge: { location: string } | null;
   /** Admin / Insight admin view only — emails cleared by cleanup. */
@@ -207,7 +207,7 @@ export type AllocatedFilterItemDto = {
   itemSpend?: number | null;
   loyalty: Pick<LoyaltyDto, "key" | "label" | "code">;
   assignedMerchant: string | null;
-  /** ContactMaster.lastPurchaseAt ISO timestamp, or null. */
+  /** Newest completed Cosmo order or Adapt invoice ISO timestamp, or null. */
   lastPurchaseAt: string | null;
   /** Earliest completed Cosmo order or Adapt invoice, or null. */
   firstPurchaseAt?: string | null;

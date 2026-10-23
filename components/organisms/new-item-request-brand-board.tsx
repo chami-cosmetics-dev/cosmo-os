@@ -1,17 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { formatAppDateTime } from "@/lib/format-datetime";
 import { notify } from "@/lib/notify";
-import type {
-  NewItemRequestBrandGroup,
-  NewItemRequestStatusValue,
-  NewItemRequestView,
+import {
+  formatVoteCount,
+  type NewItemRequestBrandGroup,
+  type NewItemRequestStatusValue,
+  type NewItemRequestView,
 } from "@/lib/new-item-requests/types";
 
 const FILTERS: { id: NewItemRequestStatusValue; label: string }[] = [
@@ -35,7 +35,6 @@ export function NewItemRequestBrandBoard({ initialBrands }: NewItemRequestBrandB
   const [brands, setBrands] = useState(initialBrands);
   const [activeBrand, setActiveBrand] = useState<string | null>(null);
   const [requests, setRequests] = useState<NewItemRequestView[]>([]);
-  const [priorityCount, setPriorityCount] = useState<number | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const isBusy = busyKey !== null;
 
@@ -60,19 +59,6 @@ export function NewItemRequestBrandBoard({ initialBrands }: NewItemRequestBrandB
     setActiveBrand(brandNormalized);
     setRequests(data.requests ?? []);
   }
-
-  async function loadPriorityMeta() {
-    const response = await fetch("/api/new-item-requests/priority", { cache: "no-store" });
-    const data = (await response.json()) as { count?: number; error?: string };
-    if (!response.ok) throw new Error(data.error ?? "Could not load priority list");
-    setPriorityCount(data.count ?? 0);
-  }
-
-  useEffect(() => {
-    void loadPriorityMeta().catch((error: unknown) => {
-      notify.error(error instanceof Error ? error.message : "Could not load priority list");
-    });
-  }, []);
 
   async function changeFilter(nextStatus: NewItemRequestStatusValue) {
     try {
@@ -104,25 +90,6 @@ export function NewItemRequestBrandBoard({ initialBrands }: NewItemRequestBrandB
     } catch (error) {
       notify.error(error instanceof Error ? error.message : "Could not update status");
       await loadBrands(status).catch(() => undefined);
-    } finally {
-      setBusyKey(null);
-    }
-  }
-
-  async function uploadPriority(file: File) {
-    try {
-      setBusyKey("priority");
-      const form = new FormData();
-      form.set("file", file);
-      const response = await fetch("/api/new-item-requests/priority", { method: "POST", body: form });
-      const data = (await response.json()) as { count?: number; error?: string };
-      if (!response.ok) throw new Error(data.error ?? "Could not upload priority file");
-      setPriorityCount(data.count ?? 0);
-      await loadBrands(status);
-      if (activeBrand) await loadBrand(activeBrand, status);
-      notify.success(`Saved ${data.count ?? 0} brand priorities.`);
-    } catch (error) {
-      notify.error(error instanceof Error ? error.message : "Could not upload priority file");
     } finally {
       setBusyKey(null);
     }
@@ -184,25 +151,6 @@ export function NewItemRequestBrandBoard({ initialBrands }: NewItemRequestBrandB
             )}
           </Button>
         </div>
-        <div className="space-y-1">
-          <label className="text-sm font-medium" htmlFor="brand-priority-file">
-            Brand priority file
-          </label>
-          <Input
-            id="brand-priority-file"
-            type="file"
-            accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv"
-            disabled={isBusy}
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              event.target.value = "";
-              if (file) void uploadPriority(file);
-            }}
-          />
-          <p className="text-muted-foreground text-xs">
-            {priorityCount == null ? "Loading count..." : `${priorityCount} brands on the current list`}
-          </p>
-        </div>
         {brands.length === 0 ? (
           <p className="text-muted-foreground text-sm">No brands in this filter.</p>
         ) : (
@@ -224,10 +172,13 @@ export function NewItemRequestBrandBoard({ initialBrands }: NewItemRequestBrandB
                 >
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <span className="font-medium">{brand.brandName}</span>
-                    <span className="text-muted-foreground text-xs">{brand.requestCount} requests</span>
+                    <span className="text-muted-foreground text-xs">
+                      {brand.requestCount} request{brand.requestCount === 1 ? "" : "s"}
+                      {` · ${brand.voteCount} vote${brand.voteCount === 1 ? "" : "s"}`}
+                    </span>
                   </div>
                   <p className="text-muted-foreground text-xs">
-                    {brand.isExisting ? "Existing" : "New"}
+                    {brand.isExisting ? "Catalogue brand" : "New brand"}
                     {brand.priority ? ` · ${brand.priority}` : ""}
                   </p>
                 </button>
@@ -240,15 +191,24 @@ export function NewItemRequestBrandBoard({ initialBrands }: NewItemRequestBrandB
             {requests.map((row) => (
               <li key={row.id} className="space-y-2 rounded-lg border p-3 text-sm">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="font-medium">{row.createdByName ?? "Unknown"}</span>
+                  <span className="font-medium">{row.productName || row.brandName}</span>
                   <span className="text-muted-foreground text-xs">{formatAppDateTime(row.createdAt)}</span>
                 </div>
-                <p>{row.description}</p>
                 <p className="text-muted-foreground text-xs">
-                  {row.brandIsExisting ? "Existing at submit" : "New at submit"}
+                  {row.createdByName ?? "Unknown"}
+                  {` · ${formatVoteCount(row)}`}
+                </p>
+                {row.description && row.description !== row.productName ? <p>{row.description}</p> : null}
+                <p className="text-muted-foreground text-xs">
+                  {row.brandIsExisting ? "Catalogue brand" : "New brand"}
                   {row.priority ? ` · ${row.priority}` : ""}
                   {` · ${statusLabel(row.status)}`}
                 </p>
+                {row.customerName || row.customerPhone ? (
+                  <p className="text-muted-foreground text-xs">
+                    {[row.customerName, row.customerPhone].filter(Boolean).join(" · ")}
+                  </p>
+                ) : null}
                 {row.storeUrl ? (
                   <a className="text-primary underline" href={row.storeUrl} target="_blank" rel="noreferrer">
                     Other-store link

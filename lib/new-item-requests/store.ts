@@ -1,14 +1,21 @@
 import "server-only";
 
 import { v2 as cloudinary } from "cloudinary";
-import { NewItemRequestStatus, type Prisma } from "@prisma/client";
+import { NewItemRequestStatus, Prisma } from "@prisma/client";
 
-import { canSuggestBrands, normalizeBrandName, toStoredBrand } from "@/lib/new-item-requests/brand";
+import {
+  brandPriorityFromItemStatuses,
+  canSearchProducts,
+  canSuggestBrands,
+  normalizeBrandName,
+  normalizeProductName,
+  toStoredBrand,
+} from "@/lib/new-item-requests/brand";
 import {
   canAdminNewItemRequests,
   canManageNewItemRequests,
+  canVoteOnNewItemRequests,
 } from "@/lib/new-item-requests/permissions";
-import { parseBrandPrioritySheet } from "@/lib/new-item-requests/priority-parse";
 import { assertStatusChange } from "@/lib/new-item-requests/status";
 import type {
   NewItemRequestBrandGroup,
@@ -42,6 +49,7 @@ const SUGGEST_CAP = 15;
 const requestInclude = {
   createdBy: { select: { name: true } },
   statusChangedBy: { select: { name: true } },
+  _count: { select: { votes: true } },
 } as const;
 
 function requireCompany(context: UserContext) {
@@ -69,28 +77,47 @@ function createdAtFilter(filters: NewItemRequestListFilters): Prisma.DateTimeFil
   };
 }
 
-async function priorityByNormalized(companyId: string, names: string[]) {
-  if (names.length === 0) return new Map<string, string>();
-  const rows = await prisma.newItemRequestBrandPriority.findMany({
-    where: { companyId, brandNameNormalized: { in: names } },
-    select: { brandNameNormalized: true, priority: true },
-  });
-  return new Map(rows.map((row) => [row.brandNameNormalized, row.priority]));
-}
-
-async function vendorNameByNormalized(companyId: string, names: string[]) {
+async function vendorsByNormalized(companyId: string, names: string[]) {
   const wanted = new Set(names);
-  if (wanted.size === 0) return new Map<string, string>();
+  if (wanted.size === 0) return new Map<string, { id: string; name: string }>();
   const vendors = await prisma.vendor.findMany({
     where: { companyId },
-    select: { name: true },
+    select: { id: true, name: true },
   });
+  const map = new Map<string, { id: string; name: string }>();
+  for (const vendor of vendors) {
+    const key = normalizeBrandName(vendor.name);
+    if (wanted.has(key) && !map.has(key)) map.set(key, vendor);
+  }
+  return map;
+}
+
+async function priorityByVendors(companyId: string, vendors: { id: string; name: string }[]) {
+  if (vendors.length === 0) return new Map<string, string>();
+  const grouped = await prisma.productItem.groupBy({
+    by: ["vendorId", "itemStatusCategory"],
+    where: { companyId, vendorId: { in: vendors.map((vendor) => vendor.id) } },
+  });
+  const categoriesByVendorId = new Map<string, string[]>();
+  for (const row of grouped) {
+    if (!row.vendorId) continue;
+    const list = categoriesByVendorId.get(row.vendorId) ?? [];
+    list.push(row.itemStatusCategory);
+    categoriesByVendorId.set(row.vendorId, list);
+  }
   const map = new Map<string, string>();
   for (const vendor of vendors) {
     const key = normalizeBrandName(vendor.name);
-    if (wanted.has(key) && !map.has(key)) map.set(key, vendor.name);
+    if (map.has(key)) continue;
+    const priority = brandPriorityFromItemStatuses(categoriesByVendorId.get(vendor.id) ?? []);
+    if (priority) map.set(key, priority);
   }
   return map;
+}
+
+async function priorityByNormalized(companyId: string, names: string[]) {
+  const vendors = await vendorsByNormalized(companyId, names);
+  return priorityByVendors(companyId, [...vendors.values()]);
 }
 
 function toView(
@@ -99,14 +126,18 @@ function toView(
     brandName: string;
     brandNameNormalized: string;
     brandIsExisting: boolean;
+    productName: string;
     description: string;
     storeUrl: string | null;
     imageUrl: string | null;
+    customerName: string | null;
+    customerPhone: string | null;
     status: NewItemRequestStatus;
     createdAt: Date;
     statusChangedAt: Date | null;
     createdBy: { name: string | null } | null;
     statusChangedBy: { name: string | null } | null;
+    _count?: { votes: number };
   },
   priority: string | null,
 ): NewItemRequestView {
@@ -116,9 +147,15 @@ function toView(
     brandNameNormalized: row.brandNameNormalized,
     brandIsExisting: row.brandIsExisting,
     priority,
+    productName: row.productName,
     description: row.description,
     storeUrl: row.storeUrl,
     imageUrl: row.imageUrl,
+    customerName: row.customerName,
+    customerPhone: row.customerPhone,
+    voteCount: row._count?.votes ?? 0,
+    voterNames: [],
+    hasVoted: false,
     status: row.status,
     createdAt: row.createdAt.toISOString(),
     createdByName: displayName(row.createdBy),
@@ -134,6 +171,46 @@ async function attachPriority(companyId: string, rows: NewItemRequestView[]): Pr
     ...row,
     priority: row.brandIsExisting ? (priorities.get(row.brandNameNormalized) ?? null) : null,
   }));
+}
+
+async function attachVotes(
+  companyId: string,
+  userId: string,
+  rows: NewItemRequestView[],
+): Promise<NewItemRequestView[]> {
+  if (rows.length === 0) return rows;
+  const votes = await prisma.newItemRequestVote.findMany({
+    where: { companyId, requestId: { in: rows.map((row) => row.id) } },
+    select: { requestId: true, userId: true, user: { select: { name: true } }, createdAt: true },
+    orderBy: { createdAt: "asc" },
+  });
+  const namesByRequest = new Map<string, string[]>();
+  const voted = new Set<string>();
+  for (const vote of votes) {
+    if (vote.userId === userId) voted.add(vote.requestId);
+    const list = namesByRequest.get(vote.requestId) ?? [];
+    const name = vote.user.name?.trim();
+    list.push(name || "Unknown");
+    namesByRequest.set(vote.requestId, list);
+  }
+  return rows.map((row) => {
+    const voterNames = namesByRequest.get(row.id) ?? [];
+    return {
+      ...row,
+      voteCount: voterNames.length || row.voteCount,
+      voterNames,
+      hasVoted: voted.has(row.id),
+    };
+  });
+}
+
+async function attachMeta(
+  companyId: string,
+  userId: string,
+  rows: NewItemRequestView[],
+): Promise<NewItemRequestView[]> {
+  const withPriority = await attachPriority(companyId, rows);
+  return attachVotes(companyId, userId, withPriority);
 }
 
 async function findVendorName(companyId: string, brandName: string) {
@@ -170,14 +247,11 @@ export async function suggestBrands(companyId: string, q: string): Promise<NewIt
   if (!canSuggestBrands(q)) return [];
   const vendors = await prisma.vendor.findMany({
     where: { companyId, name: { contains: q.trim(), mode: "insensitive" } },
-    select: { name: true },
+    select: { id: true, name: true },
     orderBy: { name: "asc" },
     take: SUGGEST_CAP,
   });
-  const priorities = await priorityByNormalized(
-    companyId,
-    vendors.map((vendor) => normalizeBrandName(vendor.name)),
-  );
+  const priorities = await priorityByVendors(companyId, vendors);
   return vendors.map((vendor) => ({
     name: vendor.name,
     priority: priorities.get(normalizeBrandName(vendor.name)) ?? null,
@@ -186,7 +260,15 @@ export async function suggestBrands(companyId: string, q: string): Promise<NewIt
 
 export async function createNewItemRequest(
   context: UserContext,
-  input: { brandName: string; description: string; storeUrl?: string; image?: File },
+  input: {
+    brandName: string;
+    productName: string;
+    description?: string;
+    storeUrl: string;
+    customerName?: string;
+    customerPhone?: string;
+    image?: File;
+  },
 ): Promise<NewItemRequestView> {
   if (!canManageNewItemRequests(context)) {
     throw new NewItemRequestError("Permission denied", 403);
@@ -197,27 +279,45 @@ export async function createNewItemRequest(
   if (!stored.brandName) {
     throw new NewItemRequestError("Brand is required", 400);
   }
+  const productName = input.productName.trim();
+  if (!productName) {
+    throw new NewItemRequestError("Product name is required", 400);
+  }
 
   let image: { imageUrl: string; imagePublicId: string | null } | null = null;
   if (input.image) {
     image = await uploadRequestImage(companyId, input.image);
   }
 
-  const row = await prisma.newItemRequest.create({
-    data: {
-      companyId,
-      brandName: stored.brandName,
-      brandNameNormalized: stored.brandNameNormalized,
-      brandIsExisting: stored.brandIsExisting,
-      description: input.description,
-      storeUrl: input.storeUrl ?? null,
-      imageUrl: image?.imageUrl ?? null,
-      imagePublicId: image?.imagePublicId ?? null,
-      createdByUserId: userId,
-    },
-    include: requestInclude,
+  const row = await prisma.$transaction(async (tx) => {
+    const created = await tx.newItemRequest.create({
+      data: {
+        companyId,
+        brandName: stored.brandName,
+        brandNameNormalized: stored.brandNameNormalized,
+        brandIsExisting: stored.brandIsExisting,
+        productName,
+        productNameNormalized: normalizeProductName(productName),
+        description: input.description?.trim() ?? "",
+        storeUrl: input.storeUrl,
+        customerName: input.customerName ?? null,
+        customerPhone: input.customerPhone ?? null,
+        imageUrl: image?.imageUrl ?? null,
+        imagePublicId: image?.imagePublicId ?? null,
+        createdByUserId: userId,
+      },
+    });
+    if (canVoteOnNewItemRequests(context)) {
+      await tx.newItemRequestVote.create({
+        data: { companyId, requestId: created.id, userId },
+      });
+    }
+    return tx.newItemRequest.findUniqueOrThrow({
+      where: { id: created.id },
+      include: requestInclude,
+    });
   });
-  const [view] = await attachPriority(companyId, [toView(row, null)]);
+  const [view] = await attachMeta(companyId, userId, [toView(row, null)]);
   return view;
 }
 
@@ -241,20 +341,7 @@ export async function listOwnRequests(
   context: UserContext,
   filters: NewItemRequestListFilters,
 ): Promise<NewItemRequestView[]> {
-  if (!canManageNewItemRequests(context)) {
-    throw new NewItemRequestError("Permission denied", 403);
-  }
-  const { companyId, userId } = requireCompany(context);
-  const rows = await prisma.newItemRequest.findMany({
-    where: listWhere(companyId, filters, { createdByUserId: userId }),
-    include: requestInclude,
-    orderBy: { createdAt: "desc" },
-    take: OWN_LIST_CAP,
-  });
-  return attachPriority(
-    companyId,
-    rows.map((row) => toView(row, null)),
-  );
+  return listCompanyRequests(context, filters, OWN_LIST_CAP);
 }
 
 export async function listCompanyRequests(
@@ -262,18 +349,19 @@ export async function listCompanyRequests(
   filters: NewItemRequestListFilters,
   take = EXPORT_CAP,
 ): Promise<NewItemRequestView[]> {
-  if (!canAdminNewItemRequests(context)) {
+  if (!canManageNewItemRequests(context)) {
     throw new NewItemRequestError("Permission denied", 403);
   }
-  const { companyId } = requireCompany(context);
+  const { companyId, userId } = requireCompany(context);
   const rows = await prisma.newItemRequest.findMany({
     where: listWhere(companyId, filters),
     include: requestInclude,
     orderBy: { createdAt: "desc" },
     take,
   });
-  return attachPriority(
+  return attachMeta(
     companyId,
+    userId,
     rows.map((row) => toView(row, null)),
   );
 }
@@ -283,14 +371,65 @@ export async function getRequest(context: UserContext, id: string): Promise<NewI
     throw new NewItemRequestError("Permission denied", 403);
   }
   const { companyId, userId } = requireCompany(context);
-  const isAdmin = canAdminNewItemRequests(context);
   const row = await prisma.newItemRequest.findFirst({
-    where: { id, companyId, ...(isAdmin ? {} : { createdByUserId: userId }) },
+    where: { id, companyId },
     include: requestInclude,
   });
   if (!row) throw new NewItemRequestError("Request not found", 404);
-  const [view] = await attachPriority(companyId, [toView(row, null)]);
+  const [view] = await attachMeta(companyId, userId, [toView(row, null)]);
   return view;
+}
+
+export async function suggestProducts(context: UserContext, q: string): Promise<NewItemRequestView[]> {
+  if (!canManageNewItemRequests(context)) {
+    throw new NewItemRequestError("Permission denied", 403);
+  }
+  if (!canSearchProducts(q)) return [];
+  const { companyId, userId } = requireCompany(context);
+  const term = q.trim();
+  const rows = await prisma.newItemRequest.findMany({
+    where: {
+      companyId,
+      status: "open",
+      OR: [
+        { productName: { contains: term, mode: "insensitive" } },
+        { description: { contains: term, mode: "insensitive" } },
+      ],
+    },
+    include: requestInclude,
+    orderBy: { createdAt: "desc" },
+    take: SUGGEST_CAP,
+  });
+  return attachMeta(
+    companyId,
+    userId,
+    rows.map((row) => toView(row, null)),
+  );
+}
+
+export async function voteOnRequest(context: UserContext, id: string): Promise<NewItemRequestView> {
+  if (!canVoteOnNewItemRequests(context)) {
+    throw new NewItemRequestError("Only merchants can vote", 403);
+  }
+  const { companyId, userId } = requireCompany(context);
+  const row = await prisma.newItemRequest.findFirst({
+    where: { id, companyId },
+    include: requestInclude,
+  });
+  if (!row) throw new NewItemRequestError("Request not found", 404);
+  if (row.status !== "open") {
+    throw new NewItemRequestError("Can only vote on open requests", 409);
+  }
+  try {
+    await prisma.newItemRequestVote.create({
+      data: { companyId, requestId: row.id, userId },
+    });
+  } catch (error) {
+    if (!(error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002")) {
+      throw error;
+    }
+  }
+  return getRequest(context, id);
 }
 
 export async function listBrandGroups(
@@ -303,33 +442,38 @@ export async function listBrandGroups(
   const { companyId } = requireCompany(context);
   const rows = await prisma.newItemRequest.findMany({
     where: listWhere(companyId, filters),
-    select: { brandName: true, brandNameNormalized: true, createdAt: true },
+    select: {
+      brandName: true,
+      brandNameNormalized: true,
+      createdAt: true,
+      _count: { select: { votes: true } },
+    },
     orderBy: { createdAt: "desc" },
   });
 
-  const groups = new Map<
-    string,
-    { brandName: string; count: number }
-  >();
+  const groups = new Map<string, { brandName: string; count: number; voteCount: number }>();
   for (const row of rows) {
     const existing = groups.get(row.brandNameNormalized);
     if (existing) {
       existing.count += 1;
+      existing.voteCount += row._count.votes;
     } else {
-      groups.set(row.brandNameNormalized, { brandName: row.brandName, count: 1 });
+      groups.set(row.brandNameNormalized, {
+        brandName: row.brandName,
+        count: 1,
+        voteCount: row._count.votes,
+      });
     }
   }
 
   const keys = [...groups.keys()];
-  const [vendors, priorities] = await Promise.all([
-    vendorNameByNormalized(companyId, keys),
-    priorityByNormalized(companyId, keys),
-  ]);
+  const vendors = await vendorsByNormalized(companyId, keys);
+  const priorities = await priorityByVendors(companyId, [...vendors.values()]);
 
   return keys
     .map((key) => {
       const group = groups.get(key)!;
-      const vendorName = vendors.get(key) ?? null;
+      const vendorName = vendors.get(key)?.name ?? null;
       const isExisting = Boolean(vendorName);
       return {
         brandName: vendorName ?? group.brandName,
@@ -338,6 +482,7 @@ export async function listBrandGroups(
         isNew: !isExisting,
         priority: isExisting ? (priorities.get(key) ?? null) : null,
         requestCount: group.count,
+        voteCount: group.voteCount,
       };
     })
     .sort((a, b) => b.requestCount - a.requestCount || a.brandName.localeCompare(b.brandName));
@@ -368,6 +513,7 @@ export async function listRequestsForBrand(
     isNew: true,
     priority: null,
     requestCount: requests.length,
+    voteCount: requests.reduce((sum, row) => sum + row.voteCount, 0),
   };
   return { brand, requests };
 }
@@ -392,7 +538,7 @@ export async function setNewItemRequestStatus(
     throw new NewItemRequestError("Cannot change this status", 409);
   }
   if (decision.ok === "noop") {
-    const [view] = await attachPriority(companyId, [toView(row, null)]);
+    const [view] = await attachMeta(companyId, userId, [toView(row, null)]);
     return view;
   }
 
@@ -405,46 +551,6 @@ export async function setNewItemRequestStatus(
     },
     include: requestInclude,
   });
-  const [view] = await attachPriority(companyId, [toView(updated, null)]);
+  const [view] = await attachMeta(companyId, userId, [toView(updated, null)]);
   return view;
-}
-
-export async function getPriorityMeta(context: UserContext) {
-  if (!canAdminNewItemRequests(context)) {
-    throw new NewItemRequestError("Permission denied", 403);
-  }
-  const { companyId } = requireCompany(context);
-  const [count, latest] = await Promise.all([
-    prisma.newItemRequestBrandPriority.count({ where: { companyId } }),
-    prisma.newItemRequestBrandPriority.findFirst({
-      where: { companyId },
-      orderBy: { updatedAt: "desc" },
-      select: { updatedAt: true },
-    }),
-  ]);
-  return { count, uploadedAt: latest?.updatedAt.toISOString() ?? null };
-}
-
-export async function replaceBrandPriorities(context: UserContext, sheetRows: unknown[][]) {
-  if (!canAdminNewItemRequests(context)) {
-    throw new NewItemRequestError("Permission denied", 403);
-  }
-  const { companyId, userId } = requireCompany(context);
-  const parsed = parseBrandPrioritySheet(sheetRows);
-  if (!parsed.ok) {
-    throw new NewItemRequestError(parsed.error, 400);
-  }
-  await prisma.$transaction(async (tx) => {
-    await tx.newItemRequestBrandPriority.deleteMany({ where: { companyId } });
-    await tx.newItemRequestBrandPriority.createMany({
-      data: parsed.rows.map((row) => ({
-        companyId,
-        brandName: row.brandName,
-        brandNameNormalized: row.brandNameNormalized,
-        priority: row.priority,
-        uploadedByUserId: userId,
-      })),
-    });
-  });
-  return { count: parsed.rows.length };
 }

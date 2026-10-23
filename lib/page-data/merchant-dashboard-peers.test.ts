@@ -266,4 +266,46 @@ describe("buildCohortPeerRows", () => {
     expect(rows[0]?.merchantId).toBe("sandali");
     expect(rows[0]?.total).toBe(500);
   });
+
+  it("keeps orphan DM-General off the race when no holder exists", () => {
+    const byMerchant = new Map();
+    byMerchant.set("nimthera", {
+      merchantId: "nimthera",
+      displayName: "Nimthera",
+      total: 76385,
+      orderCount: 5,
+      byLocation: new Map(),
+      byChannel: emptyChannelSales(),
+    });
+    byMerchant.set("__dm_general__", {
+      merchantId: "__dm_general__",
+      displayName: "DM-General",
+      total: 44070,
+      orderCount: 2,
+      byLocation: new Map(),
+      byChannel: emptyChannelSales(),
+    });
+
+    const rows = buildCohortPeerRows(
+      {
+        ...emptyCohort(byMerchant),
+        dmBucketId: "__dm_general__",
+        dmHolderIds: [],
+      },
+      [{ id: "nimthera", displayName: "Nimthera", couponCodes: ["MER109"] }],
+    );
+
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({
+      merchantId: "nimthera",
+      total: 76385,
+      orderCount: 5,
+    });
+    expect(rows[1]).toMatchObject({
+      merchantId: "__dm_general__",
+      displayName: "DM-General",
+      total: 44070,
+      excludeFromRace: true,
+    });
+  });
 });

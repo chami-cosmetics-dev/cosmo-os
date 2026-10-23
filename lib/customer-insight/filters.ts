@@ -25,7 +25,7 @@ import { findContactsByPurchasedBrandRanked } from "@/lib/page-data/contact-bran
 import { findContactsByPurchasedItemRanked } from "@/lib/customer-insight/item-filter";
 import { findContactsByPurchasedItemStatusRanked } from "@/lib/customer-insight/item-status-filter";
 import { resolveAssignedMerchantFilterLabels } from "@/lib/customer-insight/merchant-label-aliases";
-import { firstPurchaseAtByContactIds } from "@/lib/customer-insight/first-purchase";
+import { purchaseAtsForLoadedContacts } from "@/lib/customer-insight/first-purchase";
 import { prisma } from "@/lib/prisma";
 
 export type MonthDay = { month: number; day: number };
@@ -437,32 +437,6 @@ async function buildAllocationWhere(input: FilterQueryInput): Promise<{
     where.AND = [...existingAnd, callUpdateStatus];
   }
 
-  const purchasedBounds = purchasedAtBounds(
-    input.purchasedFrom,
-    input.purchasedTo
-  );
-  if (purchasedBounds) {
-    const existingAnd = Array.isArray(where.AND)
-      ? (where.AND as unknown[])
-      : where.AND
-        ? [where.AND]
-        : [];
-    where.AND = [...existingAnd, { lastPurchaseAt: purchasedBounds }];
-  }
-
-  if (input.noPurchaseMonths === 3 || input.noPurchaseMonths === 6) {
-    const cutoff = noPurchaseCutoff(input.noPurchaseMonths);
-    const inactivity = {
-      OR: [{ lastPurchaseAt: null }, { lastPurchaseAt: { lt: cutoff } }],
-    };
-    const existingAnd = Array.isArray(where.AND)
-      ? (where.AND as unknown[])
-      : where.AND
-        ? [where.AND]
-        : [];
-    where.AND = [...existingAnd, inactivity];
-  }
-
   const cityNeedle = input.city?.trim();
   if (cityNeedle) {
     const existingAnd = Array.isArray(where.AND)
@@ -736,11 +710,12 @@ export async function filterAllocatedContacts(
   );
   const needAllocated = Boolean(input.allocatedFrom || input.allocatedTo);
   const candidateIds = candidates.map((c) => c.id);
-  const [contacted, allocatedAt] = await Promise.all([
+  const [contacted, allocatedAt, purchaseAts] = await Promise.all([
     lastContactedMap(input.companyId, candidateIds),
     needAllocated
       ? allocationAtMap(input.companyId, candidateIds)
       : Promise.resolve(new Map<string, Date>()),
+    purchaseAtsForLoadedContacts(input.companyId, candidates),
   ]);
 
   const eligible: ContactCandidate[] = [];
@@ -780,10 +755,28 @@ export async function filterAllocatedContacts(
       continue;
     }
 
+    const lastPurchaseAt = purchaseAts.last.get(contact.id) ?? null;
+
+    if (
+      !inColomboDateRange(
+        lastPurchaseAt ?? undefined,
+        input.purchasedFrom,
+        input.purchasedTo
+      )
+    ) {
+      continue;
+    }
+
+    if (input.noPurchaseMonths === 3 || input.noPurchaseMonths === 6) {
+      if (!hasNoPurchaseWithinMonths(lastPurchaseAt, input.noPurchaseMonths)) {
+        continue;
+      }
+    }
+
     if (input.noPurchaseFrom && input.noPurchaseTo) {
       if (
         !hasNoPurchaseInDateRange(
-          contact.lastPurchaseAt,
+          lastPurchaseAt,
           input.noPurchaseFrom,
           input.noPurchaseTo
         )
@@ -815,6 +808,14 @@ export async function filterAllocatedContacts(
     missingKeeperIds.length > 0
       ? await findContactsByIds(missingKeeperIds, where, select)
       : [];
+  if (fetchedKeepers.length > 0) {
+    const keeperAts = await purchaseAtsForLoadedContacts(
+      input.companyId,
+      fetchedKeepers
+    );
+    for (const [id, at] of keeperAts.first) purchaseAts.first.set(id, at);
+    for (const [id, at] of keeperAts.last) purchaseAts.last.set(id, at);
+  }
   const linkedEligible = [
     ...(absorbedIds.size > 0
       ? eligible.filter((contact) => !absorbedIds.has(contact.id))
@@ -891,7 +892,7 @@ export async function filterAllocatedContacts(
       brandSpend,
       itemSpend,
       assignedMerchant: contact.assignedMerchant,
-      lastPurchaseAt: contact.lastPurchaseAt,
+      lastPurchaseAt: purchaseAts.last.get(contact.id) ?? null,
       lastContactedAt: contacted.get(contact.id) ?? null,
       callUpdateStatus: displayCallCenterCategory(contact.category),
       key,
@@ -924,11 +925,6 @@ export async function filterAllocatedContacts(
   const exportRows = input.forExport ? scored : null;
   const start = (input.page - 1) * input.pageSize;
   const pageItems = exportRows ?? scored.slice(start, start + input.pageSize);
-  const firstPurchaseById = await firstPurchaseAtByContactIds(
-    input.companyId,
-    pageItems.map((row) => row.contactId)
-  );
-
   return {
     items: pageItems.map((row) => {
       return {
@@ -945,7 +941,7 @@ export async function filterAllocatedContacts(
         },
         assignedMerchant: row.assignedMerchant,
         lastPurchaseAt: row.lastPurchaseAt?.toISOString() ?? null,
-        firstPurchaseAt: firstPurchaseById.get(row.contactId)?.toISOString() ?? null,
+        firstPurchaseAt: purchaseAts.first.get(row.contactId)?.toISOString() ?? null,
         lastContactedAt: row.lastContactedAt?.toISOString() ?? null,
         callUpdateStatus: row.callUpdateStatus,
         loyaltyOutreachStatus: row.loyaltyOutreachStatus,

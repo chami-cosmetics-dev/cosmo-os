@@ -10,14 +10,15 @@ import {
   cosmoDbLineToRaw,
   enrichPurchaseHistoryRow,
   erpInvoiceLineToRaw,
+  filterPurchaseHistoryLinesForOs,
+  isPurchaseHistoryCompanyForOs,
   matchesPurchaseHistoryFilters,
   mergePurchaseHistoryLines,
   parsePurchaseHistoryCompanies,
   purchaseHistoryErpCompanyOptions,
   purchaseHistoryErpSlot,
+  purchaseHistoryOsCompanyExtras,
   summarizePurchaseHistoryRows,
-  COSMO_ERP_COMPANY_OPTIONS,
-  VAULT_ERP_COMPANY_OPTIONS,
   type CatalogSellInfo,
   type PurchaseHistoryRawLine,
   type PurchaseHistoryRow,
@@ -59,29 +60,34 @@ export async function loadPurchaseHistory(
     erpSlot,
   } = query;
   const skuQ = sku?.trim() ?? "";
-  const selectedCompanies = parsePurchaseHistoryCompanies(companies ?? company);
+  const vaultOs = isVaultOsDeployment();
+  const selectedCompanies = parsePurchaseHistoryCompanies(companies ?? company).filter(
+    (name) => isPurchaseHistoryCompanyForOs(name, vaultOs),
+  );
 
-  const cosmoDb = await prisma.osfPurchaseHistoryLine.findMany({
-    where: {
-      companyId,
-      ...(skuQ
-        ? { sku: { contains: skuQ, mode: "insensitive" as const } }
-        : { postingDate: { gte: from, lte: to } }),
-      ...(supplier?.trim()
-        ? { supplier: { contains: supplier.trim(), mode: "insensitive" as const } }
-        : {}),
-    },
-    select: {
-      sku: true,
-      supplier: true,
-      postingDate: true,
-      qty: true,
-      rate: true,
-      netValue: true,
-      sourceRef: true,
-      excelCompany: true,
-    },
-  });
+  const cosmoDb = vaultOs
+    ? await prisma.osfPurchaseHistoryLine.findMany({
+        where: {
+          companyId,
+          ...(skuQ
+            ? { sku: { contains: skuQ, mode: "insensitive" as const } }
+            : { postingDate: { gte: from, lte: to } }),
+          ...(supplier?.trim()
+            ? { supplier: { contains: supplier.trim(), mode: "insensitive" as const } }
+            : {}),
+        },
+        select: {
+          sku: true,
+          supplier: true,
+          postingDate: true,
+          qty: true,
+          rate: true,
+          netValue: true,
+          sourceRef: true,
+          excelCompany: true,
+        },
+      })
+    : [];
   const cosmoLines = cosmoDb.map(cosmoDbLineToRaw);
 
   let erpInvoiceLines: PurchaseHistoryRawLine[] = [];
@@ -130,7 +136,10 @@ export async function loadPurchaseHistory(
     erpError = erpErrors.length > 0 ? erpErrors.join(" · ") : null;
   }
 
-  const merged = mergePurchaseHistoryLines(cosmoLines, erpInvoiceLines);
+  const merged = filterPurchaseHistoryLinesForOs(
+    mergePurchaseHistoryLines(cosmoLines, erpInvoiceLines),
+    vaultOs,
+  );
   const skus = [...new Set(merged.map((l) => l.sku))];
   const products =
     skus.length === 0
@@ -224,7 +233,8 @@ export async function loadPurchaseHistory(
       priorities: [...prioritySet].sort((a, b) => a.localeCompare(b)),
       companies: purchaseHistoryErpCompanyOptions(
         erpInvoiceLines.map((line) => line.company),
-        isVaultOsDeployment() ? VAULT_ERP_COMPANY_OPTIONS : COSMO_ERP_COMPANY_OPTIONS,
+        purchaseHistoryOsCompanyExtras(vaultOs),
+        vaultOs,
       ),
       countries: [...countrySet].sort((a, b) => a.localeCompare(b)),
     },

@@ -18,7 +18,7 @@ import {
   computeLifetimeTotal,
   isAdaptAmountExcludedFromSaleTotal,
   isOrderIncludedInCustomerLifetimeTotal,
-  isOrderReversed,
+  orderPurchaseAt,
 } from "@/lib/customer-insight/lifetime-total";
 import { parseLoyaltyOutreachStatus } from "@/lib/customer-insight/loyalty-outreach";
 import { loyaltyCode, loyaltyLabel } from "@/lib/customer-insight/loyalty-tier";
@@ -185,6 +185,8 @@ export async function loadCustomerInsight(input: {
           select: {
             id: true,
             createdAt: true,
+            deliveryCompleteAt: true,
+            invoiceCompleteAt: true,
             orderNumber: true,
             name: true,
             erpnextInvoiceId: true,
@@ -291,12 +293,13 @@ export async function loadCustomerInsight(input: {
     loyaltyEligibleDates.push(r.invoiceDate);
   }
 
-  // "Last purchased" is derived here rather than read from ContactMaster.lastPurchaseAt:
-  // that column only ever moves forward, so it drifts ahead of the history this page
-  // shows. A placed order counts from the day it is placed; reversals never do.
+  // Last purchased = newest completed Cosmo order or Adapt invoice, same docs
+  // as lifetime / first purchase. ContactMaster.lastPurchaseAt is a stamp that
+  // only moves forward and can sit on contacts with no invoice.
   const purchaseDates: number[] = [];
   for (const o of orders) {
-    if (!isOrderReversed(o)) purchaseDates.push(o.createdAt.getTime());
+    if (!isOrderIncludedInCustomerLifetimeTotal(o)) continue;
+    purchaseDates.push(orderPurchaseAt(o).getTime());
   }
   for (const r of adaptRows) {
     if (isAdaptAmountExcludedFromSaleTotal(r.financialStatus)) continue;

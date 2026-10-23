@@ -3,8 +3,10 @@ import * as XLSX from "xlsx";
 
 import {
   STOCK_PRICE_MISSING_DAILY_KEY,
+  VAULT_STOCK_PRICE_MISSING_TEMPLATE,
   builtinTemplateByKey,
 } from "@/lib/email-templates/catalog";
+import { stockPriceMissingCompanyWhere } from "@/lib/stock-price-missing/company";
 import {
   buildStockPriceMissingEmailContent,
   formatLocationsCell,
@@ -115,6 +117,18 @@ describe("buildStockPriceMissingEmailContent", () => {
     expect(built.html).toContain("1400.00");
   });
 
+  it("appends mismatch section before Vault footer when a saved template lacks the placeholder", () => {
+    const built = buildStockPriceMissingEmailContent({
+      companyName: "SupplementVault.lk",
+      subjectTemplate: "{{reportDate}} — gaps ERP1 {{erp1Count}}",
+      bodyHtmlTemplate: "<p>ERP1 {{erp1Count}}</p><p>Vault OS automated report.</p>",
+      now: new Date("2026-09-22T04:00:00.000Z"),
+      scan: sampleScan,
+    });
+    expect(built.html).toContain("C-1");
+    expect(built.html.indexOf("C-1")).toBeLessThan(built.html.indexOf("Vault OS automated report"));
+  });
+
   it("appends mismatch section when a saved template lacks the placeholder", () => {
     const built = buildStockPriceMissingEmailContent({
       companyName: "Cosmetics.lk",
@@ -126,6 +140,49 @@ describe("buildStockPriceMissingEmailContent", () => {
     expect(built.subject).toContain("std mismatch 1");
     expect(built.html).toContain("C-1");
     expect(built.html.indexOf("C-1")).toBeLessThan(built.html.indexOf("Cosmo OS automated report"));
+  });
+
+  it("renders Vault OS supplement copy and keeps mismatch tables", () => {
+    const built = buildStockPriceMissingEmailContent({
+      companyName: "SupplementVault.lk",
+      subjectTemplate: VAULT_STOCK_PRICE_MISSING_TEMPLATE.subject,
+      bodyHtmlTemplate: VAULT_STOCK_PRICE_MISSING_TEMPLATE.bodyHtml,
+      now: new Date("2026-09-22T04:00:00.000Z"),
+      scan: sampleScan,
+    });
+    expect(built.html).toContain("SupplementVault.lk");
+    expect(built.html).toContain("OGF is not used on Vault OS");
+    expect(built.html).toContain("Vault OS automated report");
+    expect(built.html).not.toContain("Cerave");
+    expect(built.html).toContain("C-1");
+    expect(built.subject).toContain("std mismatch 1");
+  });
+});
+
+describe("stockPriceMissingCompanyWhere", () => {
+  it("matches cosmetics on Cosmo and Vault/Supplement on Vault OS", () => {
+    expect(stockPriceMissingCompanyWhere(false)).toEqual({
+      name: { contains: "cosmetic", mode: "insensitive" },
+    });
+    expect(stockPriceMissingCompanyWhere(true)).toEqual({
+      OR: [
+        { name: { contains: "Vault", mode: "insensitive" } },
+        { name: { contains: "Supplement", mode: "insensitive" } },
+      ],
+    });
+  });
+});
+
+describe("VAULT_STOCK_PRICE_MISSING_TEMPLATE", () => {
+  it("sends to Asitha, Buddhima, Kavindu", () => {
+    expect(VAULT_STOCK_PRICE_MISSING_TEMPLATE.recipients).toContain("asitha@cosmetics.lk");
+    expect(VAULT_STOCK_PRICE_MISSING_TEMPLATE.recipients).toContain(
+      "buddhima.cosmetics@outlook.com",
+    );
+    expect(VAULT_STOCK_PRICE_MISSING_TEMPLATE.recipients).toContain(
+      "kavindu.cosmetic@gmail.com",
+    );
+    expect(VAULT_STOCK_PRICE_MISSING_TEMPLATE.ccRecipients).toBe("");
   });
 });
 

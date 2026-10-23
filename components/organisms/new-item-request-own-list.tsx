@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatAppDateTime } from "@/lib/format-datetime";
 import { notify } from "@/lib/notify";
-import type { NewItemRequestStatusValue, NewItemRequestView } from "@/lib/new-item-requests/types";
+import { formatVoteCount, type NewItemRequestStatusValue, type NewItemRequestView } from "@/lib/new-item-requests/types";
 
 const FILTERS: { id: NewItemRequestStatusValue; label: string }[] = [
   { id: "open", label: "Open" },
@@ -24,17 +24,23 @@ function statusLabel(status: NewItemRequestStatusValue) {
 type NewItemRequestOwnListProps = {
   initialRequests: NewItemRequestView[];
   extraRequests?: NewItemRequestView[];
+  canVote?: boolean;
 };
 
-export function NewItemRequestOwnList({ initialRequests, extraRequests = [] }: NewItemRequestOwnListProps) {
+export function NewItemRequestOwnList({
+  initialRequests,
+  extraRequests = [],
+  canVote = true,
+}: NewItemRequestOwnListProps) {
   const [status, setStatus] = useState<NewItemRequestStatusValue>("open");
   const [requests, setRequests] = useState(initialRequests);
   const [selected, setSelected] = useState<NewItemRequestView | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const isBusy = busyKey !== null;
+  const extrasById = new Map(extraRequests.map((row) => [row.id, row]));
   const shown = [
     ...extraRequests.filter((row) => row.status === status && !requests.some((item) => item.id === row.id)),
-    ...requests,
+    ...requests.map((row) => extrasById.get(row.id) ?? row),
   ];
 
   async function load(nextStatus: NewItemRequestStatusValue) {
@@ -66,11 +72,28 @@ export function NewItemRequestOwnList({ initialRequests, extraRequests = [] }: N
     }
   }
 
+  async function vote(id: string) {
+    try {
+      setBusyKey(`vote-${id}`);
+      const response = await fetch(`/api/new-item-requests/${id}/vote`, { method: "POST" });
+      const data = (await response.json()) as { request?: NewItemRequestView; error?: string };
+      if (!response.ok) throw new Error(data.error ?? "Could not vote");
+      if (!data.request) throw new Error("Could not vote");
+      setRequests((current) => current.map((row) => (row.id === data.request!.id ? data.request! : row)));
+      if (selected?.id === id) setSelected(data.request);
+      notify.success("Voted.");
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : "Could not vote");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Your requests</CardTitle>
-        <CardDescription>Only requests you created.</CardDescription>
+        <CardTitle>All merchant requests</CardTitle>
+        <CardDescription>Every shop sees the same list. Vote if the item is already here.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="flex flex-wrap gap-2">
@@ -101,37 +124,59 @@ export function NewItemRequestOwnList({ initialRequests, extraRequests = [] }: N
         ) : (
           <ul className="space-y-2">
             {shown.map((row) => (
-              <li key={row.id}>
+              <li key={row.id} className="flex items-stretch gap-2">
                 <button
                   type="button"
-                  className="hover:bg-secondary/30 w-full rounded-lg border px-3 py-2 text-left"
+                  className="hover:bg-secondary/30 min-w-0 flex-1 rounded-lg border px-3 py-2 text-left"
                   disabled={isBusy}
                   onClick={() => void openRow(row.id)}
                 >
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="font-medium">{row.brandName}</span>
+                    <span className="font-medium">{row.productName || row.brandName}</span>
                     <span className="text-muted-foreground text-xs">{statusLabel(row.status)}</span>
                   </div>
-                  <p className="text-muted-foreground mt-1 line-clamp-2 text-sm">{row.description}</p>
                   <p className="text-muted-foreground mt-1 text-xs">
-                    {row.brandIsExisting ? "Existing" : "New"}
-                    {row.priority ? ` · ${row.priority}` : ""}
+                    {row.brandName}
+                    {` · ${formatVoteCount(row)}`}
                     {` · ${formatAppDateTime(row.createdAt)}`}
                   </p>
                 </button>
+                {canVote && row.status === "open" && !row.hasVoted ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="self-center"
+                    disabled={isBusy}
+                    onClick={() => void vote(row.id)}
+                  >
+                    {busyKey === `vote-${row.id}` ? (
+                      <Loader2 className="animate-spin" aria-hidden />
+                    ) : (
+                      "Vote"
+                    )}
+                  </Button>
+                ) : null}
               </li>
             ))}
           </ul>
         )}
         {selected ? (
           <div className="space-y-2 rounded-lg border p-3 text-sm">
-            <p className="font-medium">{selected.brandName}</p>
-            <p>{selected.description}</p>
+            <p className="font-medium">{selected.productName}</p>
+            <p className="text-muted-foreground text-xs">{selected.brandName}</p>
+            {selected.description ? <p>{selected.description}</p> : null}
             <p className="text-muted-foreground">
-              {selected.brandIsExisting ? "Existing brand" : "New brand"}
+              {selected.brandIsExisting ? "Catalogue brand" : "New brand"}
               {selected.priority ? ` · ${selected.priority}` : ""}
+              {` · ${formatVoteCount(selected)}`}
               {` · ${statusLabel(selected.status)}`}
             </p>
+            {selected.customerName || selected.customerPhone ? (
+              <p className="text-muted-foreground text-xs">
+                {[selected.customerName, selected.customerPhone].filter(Boolean).join(" · ")}
+              </p>
+            ) : null}
             {selected.storeUrl ? (
               <a className="text-primary underline" href={selected.storeUrl} target="_blank" rel="noreferrer">
                 Other-store link

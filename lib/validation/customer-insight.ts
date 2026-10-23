@@ -16,19 +16,23 @@ import {
   LIMITS,
   trimmedString,
 } from "@/lib/validation";
-import { phoneDigitsOnly } from "@/lib/phone-lookup";
+import {
+  INSIGHT_PHONE_SEARCH_INPUT_MAX,
+  parseInsightPhoneSearchInput,
+  phoneDigitsOnly,
+} from "@/lib/phone-lookup";
 
-/** Phone search: trimmed, phone-like, ≥7 digits after normalize. */
+/** Phone search: one number or a paste of up to 10. Spaces / +94 / 077 / 77 ok. */
 export const customerInsightSearchQuerySchema = z
   .object({
-    phone: trimmedString(1, LIMITS.mobile.max),
+    phone: trimmedString(1, INSIGHT_PHONE_SEARCH_INPUT_MAX),
   })
   .superRefine((val, ctx) => {
-    const digits = phoneDigitsOnly(val.phone);
-    if (digits.length < 7) {
+    const queries = parseInsightPhoneSearchInput(val.phone);
+    if (queries.length === 0) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Phone number must have at least 7 digits",
+        message: "Enter at least one phone number (7+ digits)",
         path: ["phone"],
       });
     }

@@ -22,3 +22,11 @@ export function canManageNewItemRequests(context: UserContext) {
     hasPermission(context, NEW_ITEM_REQUESTS_PERMISSIONS.manage)
   );
 }
+
+/** Merchants with manage only. Purchasing admin / company admin cannot vote. */
+export function canVoteOnNewItemRequests(context: UserContext) {
+  return (
+    hasPermission(context, NEW_ITEM_REQUESTS_PERMISSIONS.manage) &&
+    !canAdminNewItemRequests(context)
+  );
+}

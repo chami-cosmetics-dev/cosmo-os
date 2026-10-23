@@ -8,9 +8,15 @@ export type NewItemRequestView = {
   brandNameNormalized: string;
   brandIsExisting: boolean;
   priority: string | null;
+  productName: string;
   description: string;
   storeUrl: string | null;
   imageUrl: string | null;
+  customerName: string | null;
+  customerPhone: string | null;
+  voteCount: number;
+  voterNames: string[];
+  hasVoted: boolean;
   status: NewItemRequestStatusValue;
   createdAt: string;
   createdByName: string | null;
@@ -25,6 +31,7 @@ export type NewItemRequestBrandGroup = {
   isNew: boolean;
   priority: string | null;
   requestCount: number;
+  voteCount: number;
 };
 
 export type NewItemRequestBrandHit = {
@@ -38,3 +45,9 @@ export type NewItemRequestListFilters = {
   createdFrom?: string;
   createdTo?: string;
 };
+
+export function formatVoteCount(row: { voteCount: number; voterNames?: string[] }) {
+  const count = `${row.voteCount} vote${row.voteCount === 1 ? "" : "s"}`;
+  const names = (row.voterNames ?? []).filter(Boolean);
+  return names.length > 0 ? `${count} · ${names.join(", ")}` : count;
+}
