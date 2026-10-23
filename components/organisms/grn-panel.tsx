@@ -1953,6 +1953,13 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
     window.location.href = `/api/admin/purchasing/grn/export?${params.toString()}`;
   }
 
+  function downloadIntercompanyReport() {
+    const params = new URLSearchParams();
+    if (dateRange.from) params.set("from", dateRange.from);
+    if (dateRange.to) params.set("to", dateRange.to);
+    window.location.href = `/api/admin/purchasing/grn/intercompany-export?${params.toString()}`;
+  }
+
   return (
     <div className="space-y-6 p-4 md:p-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
@@ -2050,7 +2057,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
           )}
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <h2 className="text-lg font-semibold">Purchase receipts</h2>
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
               <select
                 className="h-9 rounded-md border border-input bg-background px-3 text-sm"
                 value={companyFilter}
@@ -2077,6 +2084,10 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
               <Button type="button" variant="outline" onClick={() => downloadGrnExport("pdf")}>
                 <FileDown className="size-4" />
                 PDF
+              </Button>
+              <Button type="button" variant="outline" onClick={downloadIntercompanyReport}>
+                <FileDown className="size-4" />
+                Export intercompany report
               </Button>
             </div>
           </div>
