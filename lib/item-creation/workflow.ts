@@ -14,7 +14,11 @@ import {
 
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserContext, hasPermission } from "@/lib/rbac";
-import { getPriceStatus, isItemCreationTaxStatus } from "@/lib/item-creation/helpers";
+import {
+  ITEM_CREATION_COMPLETED_STAGE_RETENTION_DAYS,
+  getPriceStatus,
+  isItemCreationTaxStatus,
+} from "@/lib/item-creation/helpers";
 import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 import { getAllOsfErpInstances } from "@/lib/osf/erp-stock";
 
@@ -578,8 +582,17 @@ export async function listItemRequests(context: UserContext, filters: Record<str
     canUseItemCreation(context, ITEM_CREATION_PERMISSIONS.purchasing) ||
     canUseItemCreation(context, ITEM_CREATION_PERMISSIONS.stores);
   if (hasDigitalView && !hasDigitalAdminView && !hasAdminView && !hasOtherTeamView) {
-    where.digitalMarketingStatus = "PENDING";
+    const completedCutoff = new Date();
+    completedCutoff.setDate(
+      completedCutoff.getDate() - ITEM_CREATION_COMPLETED_STAGE_RETENTION_DAYS,
+    );
     where.AND = [
+      {
+        OR: [
+          { digitalMarketingStatus: "PENDING" },
+          { digitalMarketingStatus: "IMAGE_CREATED", imageCreatedAt: { gte: completedCutoff } },
+        ],
+      },
       {
         OR: [
           { digitalMarketingAssigneeId: userId(context) },

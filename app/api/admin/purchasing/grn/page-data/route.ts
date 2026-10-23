@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { resolveViewerFinanceLocationIds } from "@/lib/approval-workflow";
+import { buildGrnCompanyResolver } from "@/lib/grn-company-resolver";
 import { autoMatchBackfillIntercompanyGrn, autoMatchIntercompanyGrn, bestGrnMatchForStockReturn, calculateGrnMatchPercentage, isWithinGrnMatchCreationWindow, tallyLinkedItems } from "@/lib/grn";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserContext, hasPermission, requirePermission } from "@/lib/rbac";
@@ -341,18 +342,21 @@ export async function GET(request: NextRequest) {
       include: { items: true },
     }),
     prisma.companyLocation.findMany({
-      where: {
-        supplierPrefix: { not: null },
-      },
+      where: { companyId: userCompanyId },
       orderBy: [{ name: "asc" }],
       select: {
         id: true,
         name: true,
         companyId: true,
         supplierPrefix: true,
+        shortName: true,
+        erpnextCompany: true,
+        isMainCompany: true,
       },
     }),
   ]);
+
+  const companyResolver = buildGrnCompanyResolver(supplierPrefixLocations);
 
   const supplierPrefixRules = supplierPrefixLocations
     .map((row) => ({
@@ -671,11 +675,12 @@ export async function GET(request: NextRequest) {
       return {
         companyId: row.companyId,
         companyLocationId: row.companyLocationId,
-        companyName:
-          erpCompanyFromPayload(row.rawPayload) ??
-          row.companyLocation?.erpnextCompany ??
-          row.companyLocation?.name ??
-          row.company.name,
+        companyName: companyResolver.displayName({
+          documentName: row.name,
+          rawCompany: erpCompanyFromPayload(row.rawPayload),
+          companyLocationId: row.companyLocationId,
+          fallback: row.company.name,
+        }),
         name: row.name,
         erpUrl: erpDocUrl(
           erpBaseUrlForPayload(row.rawPayload, row.company.locations),
@@ -815,7 +820,12 @@ export async function GET(request: NextRequest) {
       return {
         companyId: row.companyId,
         companyLocationId: row.companyLocationId,
-        companyName: row.company?.name ?? erpCompanyFromPayload(row.rawPayload) ?? "Unknown company",
+        companyName: companyResolver.displayName({
+          documentName: row.name,
+          rawCompany: erpCompanyFromPayload(row.rawPayload),
+          companyLocationId: row.companyLocationId,
+          fallback: row.company?.name,
+        }),
         name: row.name,
         erpUrl: erpDocUrl(
           erpBaseUrlForPayload(row.rawPayload, row.company?.locations ?? []),
@@ -879,7 +889,11 @@ export async function GET(request: NextRequest) {
       const { recommendation, conflict, conflictMatches } = recommendationForStockReturn(row, linkedPurchaseReceipts);
       return {
         companyId: row.companyId,
-        companyName: row.company?.name ?? erpCompanyFromPayload(row.rawPayload) ?? "Unknown company",
+        companyName: companyResolver.displayName({
+          documentName: row.name,
+          rawCompany: erpCompanyFromPayload(row.rawPayload),
+          fallback: row.company?.name,
+        }),
         name: row.name,
         erpUrl: erpDocUrl(
           erpBaseUrlForPayload(row.rawPayload, row.company?.locations ?? []),
@@ -931,7 +945,11 @@ export async function GET(request: NextRequest) {
       const { recommendation, conflict, conflictMatches } = recommendationForStockReturn(row, linkedPurchaseReceipts);
       return {
         companyId: row.companyId,
-        companyName: row.company?.name ?? erpCompanyFromPayload(row.rawPayload) ?? "Unknown company",
+        companyName: companyResolver.displayName({
+          documentName: row.name,
+          rawCompany: erpCompanyFromPayload(row.rawPayload),
+          fallback: row.company?.name,
+        }),
         name: row.name,
         erpUrl: erpDocUrl(
           erpBaseUrlForPayload(row.rawPayload, row.company?.locations ?? []),
