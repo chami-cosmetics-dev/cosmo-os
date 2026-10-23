@@ -3,6 +3,8 @@
  * Companies can also create custom keys for future mails.
  */
 
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
+
 export const EMAIL_TEMPLATE_KEY_RE = /^[a-z][a-z0-9_]{1,63}$/;
 
 export type EmailTemplateDefinition = {
@@ -28,40 +30,35 @@ export const RECEIVABLE_DELIVERY_INCOMPLETE_DAILY_KEY = "receivable_delivery_inc
 export const RECEIVABLE_OPERATIONS_SUMMARY_DAILY_KEY = "receivable_operations_summary_daily";
 export const SUPPLIER_PAYABLE_OUTSTANDING_DAILY_KEY = "supplier_payable_outstanding_daily";
 
-export const BUILTIN_EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
-  {
-    key: RESIGNATION_NOTICE_KEY,
-    name: "Resignation Notice",
-    subject: "Staff Resignation: {{staffName}}",
-    bodyHtml: `<p>This is to inform you that the following staff member has resigned and the offboarding process has been completed.</p>
-<ul>
-<li><strong>Name:</strong> {{staffName}}</li>
-<li><strong>Resignation date:</strong> {{resignationDate}}</li>
-<li><strong>Reason:</strong> {{reason}}</li>
-<li><strong>Employee number:</strong> {{employeeNumber}}</li>
-<li><strong>Department:</strong> {{department}}</li>
-<li><strong>Designation:</strong> {{designation}}</li>
-<li><strong>Location:</strong> {{location}}</li>
-</ul>`,
-    recipients: "",
-    ccRecipients: "",
-    placeholders: [
-      "staffName",
-      "resignationDate",
-      "reason",
-      "employeeNumber",
-      "department",
-      "designation",
-      "location",
-    ],
-    builtin: true,
-  },
-  {
-    key: STOCK_PRICE_MISSING_DAILY_KEY,
-    name: "Stock — selling price missing",
-    subject:
-      "{{reportDate}} — Selling price gaps ({{itemCount}}: ERP1 {{erp1Count}}, ERP2 {{erp2Count}}) · std mismatch {{standardMismatchCount}}",
-    bodyHtml: `<p>Daily report for <strong>{{companyName}}</strong>.</p>
+const STOCK_PRICE_MISSING_PLACEHOLDERS = [
+  "companyName",
+  "reportDate",
+  "generatedAt",
+  "itemCount",
+  "erp1Label",
+  "erp2Label",
+  "erp1Count",
+  "erp2Count",
+  "erp1MissingStandardCount",
+  "erp1MissingOgfCount",
+  "erp1MissingBothCount",
+  "erp2MissingStandardCount",
+  "erp2MissingOgfCount",
+  "erp2MissingBothCount",
+  "erp1TableHtml",
+  "erp2TableHtml",
+  "standardMismatchCount",
+  "standardMismatchTableHtml",
+];
+
+const STOCK_PRICE_MISSING_SUBJECT =
+  "{{reportDate}} — Selling price gaps ({{itemCount}}: ERP1 {{erp1Count}}, ERP2 {{erp2Count}}) · std mismatch {{standardMismatchCount}}";
+
+export const COSMO_STOCK_PRICE_MISSING_TEMPLATE: EmailTemplateDefinition = {
+  key: STOCK_PRICE_MISSING_DAILY_KEY,
+  name: "Stock — selling price missing",
+  subject: STOCK_PRICE_MISSING_SUBJECT,
+  bodyHtml: `<p>Daily report for <strong>{{companyName}}</strong>.</p>
 <p>Generated: <strong>{{generatedAt}}</strong> (Colombo)</p>
 <p>
   Every item needs <strong>Standard Selling</strong>.
@@ -104,32 +101,103 @@ export const BUILTIN_EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
   OGF only when OSF has OGF/LWK ROP.
   ERP1/ERP2 exclude Discontinue; ERP2 also excludes Vat. Excel attached (ERP1, ERP2, standard-price mismatch).
 </p>`,
-    recipients: "asitha@cosmetics.lk",
-    ccRecipients:
-      "ruvindya.cosmetics@outlook.com, irush.cosmetics@outlook.com, ndilrukshi.cosmetics@outlook.com, harshanad.cosmetics@outlook.com, hpg.inoka@gmail.com",
+  recipients: "asitha@cosmetics.lk",
+  ccRecipients:
+    "ruvindya.cosmetics@outlook.com, irush.cosmetics@outlook.com, ndilrukshi.cosmetics@outlook.com, harshanad.cosmetics@outlook.com, hpg.inoka@gmail.com",
+  placeholders: STOCK_PRICE_MISSING_PLACEHOLDERS,
+  builtin: true,
+  automated: true,
+};
+
+/** Vault OS: Standard Selling only (no OGF list). Supplement catalog, ERP1 SV / ERP2 Origins+AE. */
+export const VAULT_STOCK_PRICE_MISSING_TEMPLATE: EmailTemplateDefinition = {
+  key: STOCK_PRICE_MISSING_DAILY_KEY,
+  name: "Stock — selling price missing",
+  subject: STOCK_PRICE_MISSING_SUBJECT,
+  bodyHtml: `<p>Daily report for <strong>{{companyName}}</strong>.</p>
+<p>Generated: <strong>{{generatedAt}}</strong> (Colombo)</p>
+<p>
+  Every supplement item with stock needs <strong>Standard Selling</strong>
+  on ERP1 (SupplementVault.lk) and ERP2 (Origins / AE).
+  OGF is not used on Vault OS.
+  VAT - Selling is optional and not used.
+</p>
+
+<p><strong>1) {{erp1Label}} (ERP1)</strong></p>
+<ul>
+  <li>Total: {{erp1Count}}</li>
+  <li>Standard missing only: {{erp1MissingStandardCount}}</li>
+  <li>OGF missing only: {{erp1MissingOgfCount}}</li>
+  <li>Both missing: {{erp1MissingBothCount}}</li>
+</ul>
+{{erp1TableHtml}}
+
+<p><strong>2) {{erp2Label}} (ERP2)</strong></p>
+<p>Discontinue Product Priority items excluded (live from ERP).</p>
+<ul>
+  <li>Total: {{erp2Count}}</li>
+  <li>Standard missing only: {{erp2MissingStandardCount}}</li>
+  <li>OGF missing only: {{erp2MissingOgfCount}}</li>
+  <li>Both missing: {{erp2MissingBothCount}}</li>
+</ul>
+{{erp2TableHtml}}
+
+<p><strong>3) Standard Selling mismatch (ERP1 vs ERP2)</strong></p>
+<p>Same SKU, both ERPs have Standard Selling, rates differ.</p>
+<ul>
+  <li>Total: {{standardMismatchCount}}</li>
+</ul>
+{{standardMismatchTableHtml}}
+
+<p style="color:#666;font-size:12px;margin-top:24px;">
+  Vault OS automated report.
+  Standard Selling required for all supplement items with stock.
+  ERP1/ERP2 exclude Discontinue.
+  Excel attached (ERP1, ERP2, standard-price mismatch).
+</p>`,
+  recipients:
+    "asitha@cosmetics.lk, buddhima.cosmetics@outlook.com, kavindu.cosmetic@gmail.com",
+  ccRecipients: "",
+  placeholders: STOCK_PRICE_MISSING_PLACEHOLDERS,
+  builtin: true,
+  automated: true,
+};
+
+export function stockPriceMissingBuiltinTemplate(): EmailTemplateDefinition {
+  return isVaultOsDeployment()
+    ? VAULT_STOCK_PRICE_MISSING_TEMPLATE
+    : COSMO_STOCK_PRICE_MISSING_TEMPLATE;
+}
+
+export const BUILTIN_EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
+  {
+    key: RESIGNATION_NOTICE_KEY,
+    name: "Resignation Notice",
+    subject: "Staff Resignation: {{staffName}}",
+    bodyHtml: `<p>This is to inform you that the following staff member has resigned and the offboarding process has been completed.</p>
+<ul>
+<li><strong>Name:</strong> {{staffName}}</li>
+<li><strong>Resignation date:</strong> {{resignationDate}}</li>
+<li><strong>Reason:</strong> {{reason}}</li>
+<li><strong>Employee number:</strong> {{employeeNumber}}</li>
+<li><strong>Department:</strong> {{department}}</li>
+<li><strong>Designation:</strong> {{designation}}</li>
+<li><strong>Location:</strong> {{location}}</li>
+</ul>`,
+    recipients: "",
+    ccRecipients: "",
     placeholders: [
-      "companyName",
-      "reportDate",
-      "generatedAt",
-      "itemCount",
-      "erp1Label",
-      "erp2Label",
-      "erp1Count",
-      "erp2Count",
-      "erp1MissingStandardCount",
-      "erp1MissingOgfCount",
-      "erp1MissingBothCount",
-      "erp2MissingStandardCount",
-      "erp2MissingOgfCount",
-      "erp2MissingBothCount",
-      "erp1TableHtml",
-      "erp2TableHtml",
-      "standardMismatchCount",
-      "standardMismatchTableHtml",
+      "staffName",
+      "resignationDate",
+      "reason",
+      "employeeNumber",
+      "department",
+      "designation",
+      "location",
     ],
     builtin: true,
-    automated: true,
   },
+  stockPriceMissingBuiltinTemplate(),
   {
     key: GRN_PENDING_DAILY_KEY,
     name: "GRN pending daily report",
@@ -184,10 +252,10 @@ export const BUILTIN_EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
 ];
 
 export function builtinTemplateByKey(key: string): EmailTemplateDefinition | undefined {
+  if (key === STOCK_PRICE_MISSING_DAILY_KEY) return stockPriceMissingBuiltinTemplate();
   return BUILTIN_EMAIL_TEMPLATES.find((t) => t.key === key);
 }
 
 export function isValidEmailTemplateKey(key: string): boolean {
   return EMAIL_TEMPLATE_KEY_RE.test(key);
 }
-

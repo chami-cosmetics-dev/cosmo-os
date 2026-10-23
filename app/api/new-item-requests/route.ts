@@ -7,7 +7,7 @@ import {
 import {
   createNewItemRequest,
   listBrandGroups,
-  listOwnRequests,
+  listCompanyRequests,
   NewItemRequestError,
 } from "@/lib/new-item-requests/store";
 import { requireAnyPermission } from "@/lib/rbac";
@@ -38,11 +38,11 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    const requests = await listCompanyRequests(auth.context, parsed.data);
     if (canAdminNewItemRequests(auth.context)) {
       const brands = await listBrandGroups(auth.context, parsed.data);
-      return NextResponse.json({ brands });
+      return NextResponse.json({ brands, requests });
     }
-    const requests = await listOwnRequests(auth.context, parsed.data);
     return NextResponse.json({ requests });
   } catch (error) {
     return jsonError(error);
@@ -67,8 +67,11 @@ export async function POST(request: NextRequest) {
 
   const parsed = newItemRequestCreateFieldsSchema.safeParse({
     brandName: form.get("brandName") ?? "",
+    productName: form.get("productName") ?? "",
     description: form.get("description") ?? "",
     storeUrl: form.get("storeUrl") ?? "",
+    customerName: form.get("customerName") ?? "",
+    customerPhone: form.get("customerPhone") ?? "",
   });
   if (!parsed.success) {
     return NextResponse.json({ error: "Validation failed", details: parsed.error.flatten() }, { status: 400 });
@@ -77,8 +80,11 @@ export async function POST(request: NextRequest) {
   try {
     const created = await createNewItemRequest(auth.context!, {
       brandName: parsed.data.brandName,
+      productName: parsed.data.productName,
       description: parsed.data.description,
       storeUrl: parsed.data.storeUrl,
+      customerName: parsed.data.customerName,
+      customerPhone: parsed.data.customerPhone,
       image: image instanceof File && image.size > 0 ? image : undefined,
     });
     return NextResponse.json({ request: created });

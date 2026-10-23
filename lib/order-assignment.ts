@@ -2,6 +2,7 @@ import type { ShopifyOrderWebhookPayload } from "@/lib/validation/shopify-order"
 import type { CompanyLocation } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { eligibleMerchantUserWhere } from "@/lib/merchant-eligibility";
+import { isDmOnlyMerchantTracking } from "@/lib/merchant-dm-sales";
 import { trackingCodesMatch } from "@/lib/merchant-wholesale";
 
 function normalizeDiscountCodes(order: ShopifyOrderWebhookPayload) {
@@ -22,6 +23,10 @@ export async function resolveAssignedMerchant(
 ): Promise<string | null> {
   const sourceName = (order.source_name ?? "web").toLowerCase();
   const companyId = companyLocation.companyId;
+  const orderCodes = normalizeDiscountCodes(order);
+  if (isDmOnlyMerchantTracking(orderCodes)) {
+    return null;
+  }
 
   if (sourceName === "pos" && order.user_id != null) {
     const shopifyUserId = String(order.user_id);
@@ -35,21 +40,18 @@ export async function resolveAssignedMerchant(
     if (merchant) return merchant.id;
   }
 
-  if (sourceName === "web" && order.discount_codes && order.discount_codes.length > 0) {
-    const codes = normalizeDiscountCodes(order);
-    if (codes.length > 0) {
-      const merchants = await prisma.user.findMany({
-        where: eligibleMerchantUserWhere(companyId),
-        select: { id: true, couponCodes: true, wholesaleCouponCodes: true },
-      });
+  if (sourceName === "web" && orderCodes.length > 0) {
+    const merchants = await prisma.user.findMany({
+      where: eligibleMerchantUserWhere(companyId),
+      select: { id: true, couponCodes: true, wholesaleCouponCodes: true },
+    });
 
-      for (const merchant of merchants) {
-        if (hasMatchingCode(merchant.wholesaleCouponCodes, codes)) return merchant.id;
-      }
+    for (const merchant of merchants) {
+      if (hasMatchingCode(merchant.wholesaleCouponCodes, orderCodes)) return merchant.id;
+    }
 
-      for (const merchant of merchants) {
-        if (hasMatchingCode(merchant.couponCodes, codes)) return merchant.id;
-      }
+    for (const merchant of merchants) {
+      if (hasMatchingCode(merchant.couponCodes, orderCodes)) return merchant.id;
     }
   }
 

@@ -10,7 +10,7 @@ import {
   canManageNewItemRequests,
   NEW_ITEM_REQUESTS_ANY_PERMISSION,
 } from "@/lib/new-item-requests/permissions";
-import { listBrandGroups, listOwnRequests } from "@/lib/new-item-requests/store";
+import { listBrandGroups, listCompanyRequests } from "@/lib/new-item-requests/store";
 import { requireAnyPermission } from "@/lib/rbac";
 import { canViewScope, viewerFromPermissions, type StockRequestScope } from "@/lib/wishlist-buddy/access";
 import { listStockRequests } from "@/lib/wishlist-buddy/requests";
@@ -82,7 +82,7 @@ export default async function StockRequestsPage({
           limit: 25,
         })
       : Promise.resolve(null),
-    canNewItems && !isNewItemAdmin ? listOwnRequests(auth.context, filters) : Promise.resolve([]),
+    canNewItems ? listCompanyRequests(auth.context, filters) : Promise.resolve([]),
     canNewItems && isNewItemAdmin ? listBrandGroups(auth.context, filters) : Promise.resolve([]),
   ]);
 

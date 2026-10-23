@@ -1,6 +1,7 @@
 import "server-only";
 
 import { isBundleCatalogItem } from "@/lib/catalog-bundle";
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 import { loadStandardAndOgfPrices, fetchItemBrandsBySku } from "@/lib/stock-price-missing/erp-selling-prices";
 import {
   fetchPositiveBinsByWarehouses,
@@ -180,6 +181,7 @@ function buildErpSection(input: {
    * Null = no OGF ROP columns configured; skip this gate.
    */
   ogfRopSkus: Set<string> | null;
+  vaultOs: boolean;
 }): StockPriceMissingErpSection {
   const rows: StockPriceMissingRow[] = [];
   let missingStandardCount = 0;
@@ -200,6 +202,7 @@ function buildErpSection(input: {
         hasOgf: Boolean(ogfRate),
         brand: input.brandBySku.get(sku) ?? null,
         erp: input.erp,
+        vaultOs: input.vaultOs,
       }),
       input.ogfRopSkus == null
         ? null
@@ -245,15 +248,17 @@ function buildErpSection(input: {
 /**
  * ERP1 + ERP2 sections.
  * Standard Selling required for all items.
- * OGF: ERP1 only Cerave; ERP2 all brands except skip-list (Acnes…Cerave).
- * OGF also skipped when OSF has no OGF/LWK ROP (item not allowed at OGF).
- * Live ERP Product Priority: exclude Discontinue on that ERP; ERP2 also excludes Vat.
+ * Cosmo OGF: ERP1 only Cerave; ERP2 all brands except skip-list (Acnes…Cerave).
+ * Cosmo OGF also skipped when OSF has no OGF/LWK ROP (item not allowed at OGF).
+ * Vault OS: Standard Selling only — no OGF requirement.
+ * Live ERP Product Priority: exclude Discontinue on that ERP; Cosmo ERP2 also excludes Vat.
  * VAT - Selling price list ignored.
  * Also lists every SKU whose Standard Selling differs between ERP1 and ERP2. Stock ignored.
  */
 export async function scanStockPriceMissing(
   companyId: string,
 ): Promise<StockPriceMissingScanSummary> {
+  const vaultOs = isVaultOsDeployment();
   const [columns, instances] = await Promise.all([
     resolveOsfColumns(companyId),
     getAllOsfErpInstances(companyId),
@@ -265,7 +270,7 @@ export async function scanStockPriceMissing(
 
   const { erp1, erp2 } = pickErp1Erp2Instances(instances);
 
-  const ogfKeys = ogfRopColumnKeys(columns);
+  const ogfKeys = vaultOs ? [] : ogfRopColumnKeys(columns);
   const [stock1, stock2, prices1, prices2, priorities1, priorities2, ogfRopSkus] =
     await Promise.all([
       fetchPositiveStockTotalsByItem(erp1.cfg),
@@ -318,7 +323,7 @@ export async function scanStockPriceMissing(
     skus: [...stock2.keys()],
     bySku: priorities2.bySku,
     dropDiscontinue: true,
-    dropVat: true,
+    dropVat: !vaultOs,
   });
 
   for (const sku of bundleSkus) {
@@ -347,6 +352,7 @@ export async function scanStockPriceMissing(
       brandBySku: mergeBrandMaps(brands1, catalog.brandBySku),
       excludeSkus: erp1Exclude,
       ogfRopSkus,
+      vaultOs,
     }),
     erp2: buildErpSection({
       label: erp2.label?.trim() || "ERP2",
@@ -360,6 +366,7 @@ export async function scanStockPriceMissing(
       brandBySku: mergeBrandMaps(brands2, catalog.brandBySku),
       excludeSkus: erp2Exclude,
       ogfRopSkus,
+      vaultOs,
     }),
   };
 }

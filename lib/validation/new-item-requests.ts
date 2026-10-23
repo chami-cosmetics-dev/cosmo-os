@@ -1,22 +1,44 @@
 import { z } from "zod";
 
-import { LIMITS, trimmedString } from "@/lib/validation";
 import { NEW_ITEM_REQUEST_STATUSES } from "@/lib/new-item-requests/types";
+import { canonicalPhoneForErpCustomerId } from "@/lib/phone-lookup";
+import { LIMITS, trimmedString } from "@/lib/validation";
 
-const optionalHttpUrl = z
+const requiredHttpUrl = z
+  .string()
+  .transform((value) => value.trim())
+  .refine(
+    (value) =>
+      value.length > 0 &&
+      (value.startsWith("http://") || value.startsWith("https://")) &&
+      URL.canParse(value) &&
+      value.length <= LIMITS.logoUrl.max,
+    "Enter a valid http or https link",
+  );
+
+const optionalName = z
   .string()
   .optional()
   .transform((value) => {
     const trimmed = value?.trim();
     return trimmed ? trimmed : undefined;
   })
+  .refine((value) => !value || value.length <= LIMITS.name.max, "Name is too long");
+
+const optionalPhone = z
+  .string()
+  .optional()
+  .transform((value) => value?.trim() ?? "")
+  .refine((value) => !value || canonicalPhoneForErpCustomerId(value) !== null, "Enter a valid Sri Lankan phone number")
+  .transform((value) => (value ? canonicalPhoneForErpCustomerId(value)! : undefined));
+
+const optionalDescription = z
+  .string()
+  .optional()
+  .transform((value) => value?.trim() ?? "")
   .refine(
-    (value) =>
-      !value ||
-      ((value.startsWith("http://") || value.startsWith("https://")) &&
-        URL.canParse(value) &&
-        value.length <= LIMITS.logoUrl.max),
-    "Enter a valid http or https link",
+    (value) => value.length <= LIMITS.newItemRequestDescription.max,
+    "Description is too long",
   );
 
 const ymd = z
@@ -30,11 +52,14 @@ export const newItemRequestSuggestQuerySchema = z.object({
 
 export const newItemRequestCreateFieldsSchema = z.object({
   brandName: trimmedString(1, LIMITS.vendorName.max),
-  description: trimmedString(
-    LIMITS.newItemRequestDescription.min,
-    LIMITS.newItemRequestDescription.max,
+  productName: trimmedString(
+    LIMITS.newItemRequestProductName.min,
+    LIMITS.newItemRequestProductName.max,
   ),
-  storeUrl: optionalHttpUrl,
+  description: optionalDescription,
+  storeUrl: requiredHttpUrl,
+  customerName: optionalName,
+  customerPhone: optionalPhone,
 });
 
 export const newItemRequestListQuerySchema = z.object({

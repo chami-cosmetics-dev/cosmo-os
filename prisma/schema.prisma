@@ -118,7 +118,7 @@ model Company {
   materialTransfers               MaterialTransfer[]
   shopItemRequests                ShopItemRequest[]
   newItemRequests                 NewItemRequest[]
-  newItemRequestBrandPriorities   NewItemRequestBrandPriority[]
+  newItemRequestVotes             NewItemRequestVote[]
   riderFinanceCashReceipts        RiderFinanceCashReceipt[]
   giftVoucherGroups               GiftVoucherGroup[]
   giftVoucherCodes                GiftVoucherCode[]
@@ -678,7 +678,7 @@ model User {
   shopItemRequestsDone                   ShopItemRequest[]              @relation("ShopItemRequestDoneBy")
   newItemRequestsCreated                 NewItemRequest[]               @relation("NewItemRequestCreatedBy")
   newItemRequestsStatusChanged           NewItemRequest[]               @relation("NewItemRequestStatusChangedBy")
-  newItemRequestBrandPrioritiesUploaded  NewItemRequestBrandPriority[]  @relation("NewItemRequestBrandPriorityUploadedBy")
+  newItemRequestVotes                    NewItemRequestVote[]           @relation("NewItemRequestVoteUser")
   materialTransfersReceived              MaterialTransfer[]             @relation("MaterialTransferReceivedBy")
   materialTransferLinesCounted           MaterialTransferLine[]         @relation("MaterialTransferLineCountedBy")
   invitesSent                            Invite[]                       @relation("InvitedBy")
@@ -3281,44 +3281,48 @@ enum NewItemRequestStatus {
 }
 
 model NewItemRequest {
-  id                   String                @id @default(cuid())
-  companyId            String
-  brandName            String
-  brandNameNormalized  String
-  brandIsExisting      Boolean
-  description          String
-  storeUrl             String?
-  imageUrl             String?
-  imagePublicId        String?
-  status               NewItemRequestStatus  @default(open)
-  createdByUserId      String?
+  id                    String               @id @default(cuid())
+  companyId             String
+  brandName             String
+  brandNameNormalized   String
+  brandIsExisting       Boolean
+  productName           String               @default("")
+  productNameNormalized String               @default("")
+  description           String               @default("")
+  storeUrl              String?
+  imageUrl              String?
+  imagePublicId         String?
+  customerName          String?
+  customerPhone         String?
+  status                NewItemRequestStatus @default(open)
+  createdByUserId       String?
   statusChangedByUserId String?
-  statusChangedAt      DateTime?
-  createdAt            DateTime              @default(now())
-  updatedAt            DateTime              @updatedAt
-  company              Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  createdBy            User?                 @relation("NewItemRequestCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  statusChangedBy      User?                 @relation("NewItemRequestStatusChangedBy", fields: [statusChangedByUserId], references: [id], onDelete: SetNull)
+  statusChangedAt       DateTime?
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+  company               Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdBy             User?                @relation("NewItemRequestCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  statusChangedBy       User?                @relation("NewItemRequestStatusChangedBy", fields: [statusChangedByUserId], references: [id], onDelete: SetNull)
+  votes                 NewItemRequestVote[]
 
   @@index([companyId, status, createdAt(sort: Desc)])
   @@index([companyId, brandNameNormalized, status, createdAt(sort: Desc)])
   @@index([companyId, createdByUserId, createdAt(sort: Desc)])
+  @@index([companyId, productNameNormalized, status])
 }
 
-model NewItemRequestBrandPriority {
-  id                  String   @id @default(cuid())
-  companyId           String
-  brandName           String
-  brandNameNormalized String
-  priority            String
-  uploadedByUserId    String?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
-  company             Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  uploadedBy          User?    @relation("NewItemRequestBrandPriorityUploadedBy", fields: [uploadedByUserId], references: [id], onDelete: SetNull)
+model NewItemRequestVote {
+  id        String         @id @default(cuid())
+  companyId String
+  requestId String
+  userId    String
+  createdAt DateTime       @default(now())
+  company   Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  request   NewItemRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  user      User           @relation("NewItemRequestVoteUser", fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([companyId, brandNameNormalized])
-  @@index([companyId, brandNameNormalized])
+  @@unique([requestId, userId])
+  @@index([companyId, requestId])
 }
 
 model StoreStockCountReport {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  brandPriorityFromItemStatuses,
   canSuggestBrands,
   isExistingVendorName,
   normalizeBrandName,
@@ -50,5 +51,25 @@ describe("toStoredBrand", () => {
       brandNameNormalized: "new brand",
       brandIsExisting: false,
     });
+  });
+});
+
+describe("brandPriorityFromItemStatuses", () => {
+  it("picks Top Priority Brand over Priority Brand and Standard", () => {
+    expect(
+      brandPriorityFromItemStatuses([
+        "PRIORITY_BRAND_PRIORITY_PRODUCT",
+        "TOP_PRIORITY_BRAND_NON_PRIORITY_PRODUCT",
+        "CONTINUE",
+      ]),
+    ).toBe("Top Priority Brand");
+  });
+
+  it("returns null when there are no statuses", () => {
+    expect(brandPriorityFromItemStatuses([])).toBeNull();
+  });
+
+  it("maps Continue items to Standard", () => {
+    expect(brandPriorityFromItemStatuses(["CONTINUE"])).toBe("Standard");
   });
 });

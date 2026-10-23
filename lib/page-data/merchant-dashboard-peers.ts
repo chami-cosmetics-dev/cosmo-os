@@ -98,7 +98,8 @@ function sharePct(part: number, whole: number): number | null {
 
 /**
  * Single order pass attributing each eligible order to at most one cohort row
- * (personal MER → merchant; DM MER / no MER → synthetic DM-General when present).
+ * (personal MER → merchant; DM-shaped codes → DM-General only when a holder
+ * exists, otherwise omitted; no MER → DM-General only when a holder exists).
  */
 export async function fetchMerchantCohortSales(
   companyId: string,

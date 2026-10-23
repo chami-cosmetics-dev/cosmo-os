@@ -105,6 +105,17 @@ export function parseOrderCouponList(merchantCouponCode: string | null | undefin
     .filter(Boolean);
 }
 
+/**
+ * DM-only tracking (ERP DM_General / MER115, no personal MER).
+ * Those orders stay in the DM-General bucket — do not assign a person.
+ */
+export function isDmOnlyMerchantTracking(
+  codes: string[] | null | undefined,
+): boolean {
+  const tracking = (codes ?? []).filter((code) => isMerchantTrackingCode(code));
+  return tracking.length > 0 && tracking.every((code) => isDmCouponCode(code));
+}
+
 export type MerchantSalesBucket = "mer" | "dm";
 
 /**
@@ -137,7 +148,9 @@ export function classifyMerchantSalesBucket(input: {
 /**
  * Cohort attribution for peer graphs.
  * Personal MER → merchant user id.
- * DM MER / no merchant tracking code → synthetic DM-General id (when a DM holder exists).
+ * DM-shaped codes (MER115 / ERP DM_General) → synthetic DM-General when a holder
+ * exists; otherwise omit (never credit assignedMerchantId).
+ * No merchant tracking code → DM-General only when a DM holder exists.
  */
 export function resolveCohortMerchantId(input: {
   orderCoupons: string[];
@@ -152,8 +165,9 @@ export function resolveCohortMerchantId(input: {
     const hit = input.couponToMerchantId.get(code);
     if (hit) return hit;
   }
-  // ERP DM_General (etc.) may not be on any Vault user couponCodes — still DM bucket.
-  if (input.dmBucketId && tracking.some((c) => isDmCouponCode(c))) {
+  // ERP DM_General (etc.) may not be on any Vault user couponCodes.
+  // Never fall through to assignedMerchantId — DM-General stays unassigned.
+  if (tracking.some((c) => isDmCouponCode(c))) {
     return input.dmBucketId;
   }
   if (tracking.length === 0 && input.dmBucketId) {
