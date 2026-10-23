@@ -368,6 +368,40 @@ export function matchesPurchaseHistoryFilters(
   return true;
 }
 
+/** Prefer ERP Item.brand; fall back to Cosmo vendor. */
+export function pickPurchaseHistoryBrand(
+  erpBrand: string | null | undefined,
+  catalogBrand: string | null | undefined,
+): string | null {
+  return erpBrand?.trim() || catalogBrand?.trim() || null;
+}
+
+export function lookupPurchaseHistoryCatalog<T>(
+  map: Map<string, T>,
+  sku: string,
+): T | undefined {
+  const raw = sku.trim();
+  if (!raw) return undefined;
+  return map.get(raw) ?? map.get(raw.toUpperCase());
+}
+
+export function overlayPurchaseHistoryCatalog(
+  catalog: CatalogSellInfo | undefined,
+  extras: { brand?: string | null; country?: string | null },
+): CatalogSellInfo | undefined {
+  const brand = pickPurchaseHistoryBrand(extras.brand, catalog?.brand);
+  const country = extras.country?.trim() || catalog?.country?.trim() || null;
+  if (!catalog && !brand && !country) return undefined;
+  return {
+    productTitle: catalog?.productTitle ?? null,
+    brand,
+    priority: catalog?.priority ?? null,
+    country,
+    mrp: catalog?.mrp ?? null,
+    discountedPrice: catalog?.discountedPrice ?? null,
+  };
+}
+
 export function enrichPurchaseHistoryRow(
   line: PurchaseHistoryRawLine,
   catalog: CatalogSellInfo | undefined,

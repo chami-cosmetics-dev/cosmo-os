@@ -6,6 +6,9 @@ import {
   cosmoDbLineToRaw,
   enrichPurchaseHistoryRow,
   erpInvoiceLineToRaw,
+  lookupPurchaseHistoryCatalog,
+  overlayPurchaseHistoryCatalog,
+  pickPurchaseHistoryBrand,
   filterPurchaseHistoryLinesForOs,
   isIntercompanyPurchaseSupplier,
   isPurchaseHistoryCompanyForOs,
@@ -146,6 +149,60 @@ describe("mergePurchaseHistoryLines", () => {
     );
     expect(merged).toHaveLength(1);
     expect(merged[0]!.sku).toBe("SKU2");
+  });
+});
+
+describe("pickPurchaseHistoryBrand", () => {
+  it("prefers ERP Item.brand over Cosmo vendor", () => {
+    expect(pickPurchaseHistoryBrand("Now Foods", "Shopify Vendor")).toBe("Now Foods");
+  });
+
+  it("falls back to Cosmo vendor when ERP brand empty", () => {
+    expect(pickPurchaseHistoryBrand(null, "Shopify Vendor")).toBe("Shopify Vendor");
+    expect(pickPurchaseHistoryBrand("  ", "Shopify Vendor")).toBe("Shopify Vendor");
+  });
+
+  it("returns null when both empty", () => {
+    expect(pickPurchaseHistoryBrand(null, null)).toBeNull();
+    expect(pickPurchaseHistoryBrand("", "  ")).toBeNull();
+  });
+});
+
+describe("overlayPurchaseHistoryCatalog", () => {
+  it("fills brand from ERP when Cosmo vendor missing", () => {
+    const overlaid = overlayPurchaseHistoryCatalog(
+      {
+        productTitle: "Item",
+        brand: null,
+        priority: "Top",
+        mrp: 10,
+        discountedPrice: null,
+      },
+      { brand: "Cerave" },
+    );
+    expect(overlaid?.brand).toBe("Cerave");
+    expect(overlaid?.productTitle).toBe("Item");
+    expect(overlaid?.priority).toBe("Top");
+  });
+
+  it("builds stub catalog from ERP brand when item not in Cosmo", () => {
+    const overlaid = overlayPurchaseHistoryCatalog(undefined, { brand: "Now" });
+    expect(overlaid).toEqual({
+      productTitle: null,
+      brand: "Now",
+      priority: null,
+      country: null,
+      mrp: null,
+      discountedPrice: null,
+    });
+  });
+});
+
+describe("lookupPurchaseHistoryCatalog", () => {
+  it("matches SKU case-insensitively via uppercase key", () => {
+    const map = new Map<string, string>([["ABC", "Now"]]);
+    expect(lookupPurchaseHistoryCatalog(map, "abc")).toBe("Now");
+    expect(lookupPurchaseHistoryCatalog(map, " ABC ")).toBe("Now");
   });
 });
 

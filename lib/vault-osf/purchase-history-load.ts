@@ -1,7 +1,7 @@
 import "server-only";
 
 import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
-import { fetchItemCountries, OsfErpError } from "@/lib/osf/erp-cost-supplier";
+import { fetchItemCountriesAndBrands, OsfErpError } from "@/lib/osf/erp-cost-supplier";
 import { getAllOsfErpInstances } from "@/lib/osf/erp-stock";
 import { prisma } from "@/lib/prisma";
 import { resolveErpSlots } from "@/lib/product-items/erp-priority-sync";
@@ -12,8 +12,10 @@ import {
   erpInvoiceLineToRaw,
   filterPurchaseHistoryLinesForOs,
   isPurchaseHistoryCompanyForOs,
+  lookupPurchaseHistoryCatalog,
   matchesPurchaseHistoryFilters,
   mergePurchaseHistoryLines,
+  overlayPurchaseHistoryCatalog,
   parsePurchaseHistoryCompanies,
   purchaseHistoryErpCompanyOptions,
   purchaseHistoryErpSlot,
@@ -141,11 +143,20 @@ export async function loadPurchaseHistory(
     vaultOs,
   );
   const skus = [...new Set(merged.map((l) => l.sku))];
+  const skuVariants = [
+    ...new Set(
+      skus.flatMap((sku) => {
+        const raw = sku.trim();
+        if (!raw) return [];
+        return [raw, raw.toUpperCase(), raw.toLowerCase()];
+      }),
+    ),
+  ];
   const products =
-    skus.length === 0
+    skuVariants.length === 0
       ? []
       : await prisma.productItem.findMany({
-          where: { companyId, sku: { in: skus } },
+          where: { companyId, sku: { in: skuVariants } },
           select: {
             sku: true,
             productTitle: true,
@@ -157,36 +168,36 @@ export async function loadPurchaseHistory(
           },
         });
 
-  const countryBySku = await fetchItemCountries({
+  const { countryBySku, brandBySku } = await fetchItemCountriesAndBrands({
     instances: erpInstances,
-    itemCodes: skus,
+    itemCodes: skuVariants.length > 0 ? skuVariants : skus,
   });
 
   const catalogBySku = new Map<string, CatalogSellInfo>();
   for (const p of products) {
     const code = p.sku?.trim();
     if (!code || catalogBySku.has(code)) continue;
-    catalogBySku.set(code, {
+    const info: CatalogSellInfo = {
       productTitle: p.productTitle,
       brand: p.vendor?.name ?? null,
       priority: p.erp1ProductPriority?.trim() || p.erp2ProductPriority?.trim() || null,
-      country: countryBySku.get(code) ?? null,
+      country: lookupPurchaseHistoryCatalog(countryBySku, code) ?? null,
       mrp: p.compareAtPrice != null ? Number(p.compareAtPrice) : null,
       discountedPrice: p.price != null ? Number(p.price) : null,
-    });
+    };
+    catalogBySku.set(code, info);
+    const norm = code.toUpperCase();
+    if (norm && !catalogBySku.has(norm)) catalogBySku.set(norm, info);
   }
   for (const code of skus) {
-    if (catalogBySku.has(code)) continue;
-    const country = countryBySku.get(code);
-    if (!country) continue;
-    catalogBySku.set(code, {
-      productTitle: null,
-      brand: null,
-      priority: null,
-      country,
-      mrp: null,
-      discountedPrice: null,
+    const overlaid = overlayPurchaseHistoryCatalog(lookupPurchaseHistoryCatalog(catalogBySku, code), {
+      brand: lookupPurchaseHistoryCatalog(brandBySku, code) ?? null,
+      country: lookupPurchaseHistoryCatalog(countryBySku, code) ?? null,
     });
+    if (!overlaid) continue;
+    catalogBySku.set(code, overlaid);
+    const norm = code.trim().toUpperCase();
+    if (norm) catalogBySku.set(norm, overlaid);
   }
 
   const filters = {
@@ -204,9 +215,15 @@ export async function loadPurchaseHistory(
     erpSlot,
   };
   const filtered = merged.filter((line) =>
-    matchesPurchaseHistoryFilters(line, catalogBySku.get(line.sku), filters),
+    matchesPurchaseHistoryFilters(
+      line,
+      lookupPurchaseHistoryCatalog(catalogBySku, line.sku),
+      filters,
+    ),
   );
-  const rows = filtered.map((line) => enrichPurchaseHistoryRow(line, catalogBySku.get(line.sku)));
+  const rows = filtered.map((line) =>
+    enrichPurchaseHistoryRow(line, lookupPurchaseHistoryCatalog(catalogBySku, line.sku)),
+  );
   const summary = summarizePurchaseHistoryRows(rows);
 
   const brandSet = new Set<string>();
