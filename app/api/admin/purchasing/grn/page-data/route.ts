@@ -357,7 +357,6 @@ export async function GET(request: NextRequest) {
   ]);
 
   const companyResolver = buildGrnCompanyResolver(supplierPrefixLocations);
-
   const supplierPrefixRules = supplierPrefixLocations
     .map((row) => ({
       locationId: row.id,
@@ -458,6 +457,20 @@ export async function GET(request: NextRequest) {
     );
   };
   const allPurchaseReceiptsForMatching = [...purchaseReceipts, ...backfillPurchaseReceiptsForMatching];
+  const isMatchingIntercompanyPair = (
+    receipt: (typeof allPurchaseReceiptsForMatching)[number],
+    stockReturn: (typeof allStockReturnsForLookup)[number],
+  ) =>
+    receipt.companyId === stockReturn.companyId &&
+    companyResolver.isMatchingIntercompanyPair({
+      purchaseReceiptCompanyLocationId: receipt.companyLocationId,
+      purchaseReceiptSupplier: receipt.supplier,
+      purchaseReceiptSupplierName: receipt.supplierName,
+      stockReturnName: stockReturn.name,
+      stockReturnCompany: erpCompanyFromPayload(stockReturn.rawPayload),
+      stockReturnSupplier: stockReturn.supplier,
+      stockReturnSupplierName: stockReturn.supplierName,
+    });
   const activePurchaseReceiptsForMatching = allPurchaseReceiptsForMatching.filter((row) => !isPurchaseReceiptCancelled(row));
   const activePurchaseReceiptNames = new Set(activePurchaseReceiptsForMatching.map((row) => row.name));
   const activePurchaseReceiptByName = new Map(activePurchaseReceiptsForMatching.map((row) => [row.name, row]));
@@ -521,6 +534,7 @@ export async function GET(request: NextRequest) {
       .filter(
         (receipt) =>
           receipt.companyLocationId === supplierPrefixRule.locationId &&
+          isMatchingIntercompanyPair(receipt, stockReturn) &&
           isWithinGrnMatchCreationWindow(receipt, stockReturn),
       )
       .map((receipt) => ({
@@ -562,7 +576,9 @@ export async function GET(request: NextRequest) {
           ? bestGrnMatchForStockReturn(
               row,
               activeIntercompanyPurchaseReceipts.filter(
-                (receipt) => receipt.companyLocationId === supplierPrefixRule.locationId,
+                (receipt) =>
+                  receipt.companyLocationId === supplierPrefixRule.locationId &&
+                  isMatchingIntercompanyPair(receipt, row),
               ),
             )
           : null;

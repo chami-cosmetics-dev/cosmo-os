@@ -85,6 +85,7 @@ export function PurchaseHistoryPanel() {
   const [offset, setOffset] = useState(0);
   const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [generatingMarginReport, setGeneratingMarginReport] = useState(false);
   const [erpAvailable, setErpAvailable] = useState(true);
   const limit = 200;
 
@@ -180,13 +181,40 @@ export function PurchaseHistoryPanel() {
     }
   }, [filterParams, from, to]);
 
+  const generateMarginReport = useCallback(async () => {
+    setGeneratingMarginReport(true);
+    try {
+      const res = await fetch("/api/admin/purchasing/purchase-history/margin-report", {
+        cache: "no-store",
+      });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        notify.error(json.error ?? "Failed to generate margin report");
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      const match = /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") ?? "");
+      link.href = url;
+      link.download = match?.[1] ?? `margin-issues-${formatAppIsoDate(new Date())}.xlsx`;
+      link.click();
+      URL.revokeObjectURL(url);
+      notify.success("Margin report generated");
+    } catch {
+      notify.error("Failed to generate margin report");
+    } finally {
+      setGeneratingMarginReport(false);
+    }
+  }, []);
+
   useEffect(() => {
     void load(0);
     // Initial load only — Apply button refreshes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const busy = loading || exporting;
+  const busy = loading || exporting || generatingMarginReport;
 
   return (
     <div className="space-y-4 p-6">
@@ -438,6 +466,14 @@ export function PurchaseHistoryPanel() {
             <Download aria-hidden />
           )}
           Export
+        </Button>
+        <Button variant="outline" disabled={busy} onClick={() => void generateMarginReport()}>
+          {generatingMarginReport ? (
+            <Loader2 className="animate-spin" aria-hidden />
+          ) : (
+            <Download aria-hidden />
+          )}
+          Margin Report
         </Button>
       </div>
 
