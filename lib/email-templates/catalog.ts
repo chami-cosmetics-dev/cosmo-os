@@ -27,6 +27,7 @@ export const RECEIVABLE_NOT_DISPATCHED_DAILY_KEY = "receivable_not_dispatched_da
 export const RECEIVABLE_DELIVERY_INCOMPLETE_DAILY_KEY = "receivable_delivery_incomplete_daily";
 export const RECEIVABLE_OPERATIONS_SUMMARY_DAILY_KEY = "receivable_operations_summary_daily";
 export const SUPPLIER_PAYABLE_OUTSTANDING_DAILY_KEY = "supplier_payable_outstanding_daily";
+export const MARGIN_ISSUES_DAILY_KEY = "margin_issues_daily";
 
 export const BUILTIN_EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
   {
@@ -176,6 +177,20 @@ export const BUILTIN_EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
     recipients: "",
     ccRecipients: "",
     placeholders: ["companyName", "reportDate", "generatedAt", "summaryTableHtml", "supplierCount", "lineCount"],
+    builtin: true,
+    automated: true,
+  },
+  {
+    key: MARGIN_ISSUES_DAILY_KEY,
+    name: "Margin issues daily report",
+    subject: "Margin issues report — {{reportDate}}",
+    bodyHtml: `<p>Margin issues report for <strong>{{companyName}}</strong> on <strong>{{reportDate}}</strong>.</p>
+<p>Latest submitted purchase invoice cost compared with the ERP Standard Selling price list. The summary is grouped by margin band and product priority.</p>
+{{summaryTableHtml}}
+<p style="color:#666;font-size:12px;margin-top:24px;">The full SKU workings are attached as an Excel file.</p>`,
+    recipients: "",
+    ccRecipients: "",
+    placeholders: ["companyName", "reportDate", "generatedAt", "summaryTableHtml", "skuCount", "stockAvailable"],
     builtin: true,
     automated: true,
   },

@@ -103,5 +103,41 @@ export function buildGrnCompanyResolver(locations: GrnCompanyLocationRef[]) {
     return location.name.trim().split(/\s+/)[0]?.toUpperCase() || location.name;
   }
 
-  return { displayName, label, resolveLocation, resolveSupplierLocation };
+  function isMatchingIntercompanyPair(input: {
+    purchaseReceiptCompanyLocationId: string | null;
+    purchaseReceiptSupplier: string | null | undefined;
+    purchaseReceiptSupplierName?: string | null;
+    stockReturnName: string;
+    stockReturnCompany?: string | null;
+    stockReturnSupplier: string | null | undefined;
+    stockReturnSupplierName?: string | null;
+  }) {
+    const destinationLocation = resolveSupplierLocation(
+      input.stockReturnSupplier,
+      input.stockReturnSupplierName,
+    );
+    const sourceLocation = resolveLocation({
+      documentName: input.stockReturnName,
+      rawCompany: input.stockReturnCompany,
+    });
+    const purchaseReceiptSupplierLocation = resolveSupplierLocation(
+      input.purchaseReceiptSupplier,
+      input.purchaseReceiptSupplierName,
+    );
+    return Boolean(
+      destinationLocation &&
+        sourceLocation &&
+        purchaseReceiptSupplierLocation &&
+        destinationLocation.id === input.purchaseReceiptCompanyLocationId &&
+        sourceLocation.id === purchaseReceiptSupplierLocation.id,
+    );
+  }
+
+  return {
+    displayName,
+    label,
+    resolveLocation,
+    resolveSupplierLocation,
+    isMatchingIntercompanyPair,
+  };
 }

@@ -13,6 +13,9 @@ import { loadCachedReceivables, refreshReceivables } from "@/lib/receivable-outs
 import { SUPPLIER_PAYABLE_OUTSTANDING_DAILY_KEY } from "@/lib/email-templates/catalog";
 import { buildSupplierPayablesEmailPreview, buildSupplierPayablesEmailWorkbook } from "@/lib/supplier-payables-email";
 import { loadCachedSupplierPayables, refreshSupplierPayables } from "@/lib/supplier-payables";
+import { MARGIN_ISSUES_DAILY_KEY } from "@/lib/email-templates/catalog";
+import { buildMarginIssuesEmailPreview, buildMarginIssuesWorkbook } from "@/lib/margin-issues-email";
+import { loadMarginIssuesReport } from "@/lib/margin-issues";
 import { requirePermission } from "@/lib/rbac";
 import { LIMITS, trimmedString } from "@/lib/validation";
 
@@ -121,6 +124,12 @@ export async function POST(request: NextRequest) {
     const lineCount = actual.groups.reduce((sum, group) => sum + group.lines.length, 0);
     placeholders = { ...SAMPLE_PLACEHOLDERS, reportDate, summaryTableHtml: buildSupplierPayablesEmailPreview(actual.groups), supplierCount: actual.groups.length, lineCount };
     attachments = [{ fileName: `supplier-payable-outstanding-${reportDate}.xlsx`, contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", contentBase64: buildSupplierPayablesEmailWorkbook(actual.groups).toString("base64") }];
+  } else if (parsed.data.key === MARGIN_ISSUES_DAILY_KEY) {
+    const reportDate = getCurrentColomboReportDate();
+    const report = await loadMarginIssuesReport(user.companyId, reportDate);
+    const actual = buildMarginIssuesEmailPreview(report);
+    placeholders = { ...SAMPLE_PLACEHOLDERS, reportDate, summaryTableHtml: actual.summaryTableHtml, skuCount: actual.skuCount, stockAvailable: actual.stockAvailable };
+    attachments = [{ fileName: `margin-issues-${reportDate}.xlsx`, contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", contentBase64: buildMarginIssuesWorkbook(report).toString("base64") }];
   }
   const subject = `[TEST] ${renderEmailTemplatePlaceholders(parsed.data.subject, placeholders)}`;
   const html = `<p style="color:#666;font-size:12px;">Test email for template <strong>${parsed.data.name}</strong> (${parsed.data.key}).</p>${renderEmailTemplatePlaceholders(parsed.data.bodyHtml, placeholders)}`;

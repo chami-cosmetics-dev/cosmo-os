@@ -82,6 +82,10 @@
       "schedule": "30 10 * * *"
     },
     {
+      "path": "/api/cron/margin-issues-email",
+      "schedule": "30 18 * * *"
+    },
+    {
       "path": "/api/cron/wishlist-buddy-staff-restock",
       "schedule": "*/30 * * * *"
     }
