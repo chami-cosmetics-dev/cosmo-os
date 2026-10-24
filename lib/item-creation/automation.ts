@@ -1099,7 +1099,9 @@ export async function createStoreAllocationPurchaseReceipts(
     const instance = instanceById.get(item.erpInstanceId);
     if (!sku || !warehouse || !instance) throw new Error("Each allocation needs a valid SKU, warehouse, and ERP instance");
     if (!Number.isFinite(item.qty) || item.qty <= 0) throw new Error(`Quantity for ${sku} must be greater than zero`);
-    const company = item.company?.trim() || await getWarehouseCompany(instance.cfg, warehouse);
+    // The UI company value is a display label and may include the warehouse name.
+    // ERPNext requires the exact Company linked to the selected Warehouse.
+    const company = await getWarehouseCompany(instance.cfg, warehouse);
     if (!company) throw new Error(`Company is not configured on warehouse ${warehouse}`);
     const key = `${instance.id}:${company}:${warehouse}`;
     const group = groups.get(key) ?? { cfg: instance.cfg, company, warehouse, items: [] };
