@@ -49,12 +49,17 @@ function erpReasonFromReturnOrFallback(
 }
 
 /** Preserve existing OS cancel metadata; fill when/who gaps for ERP-driven voids. */
+export type ErpDrivenCancelFields = {
+  cancelledAt?: Date;
+  cancelReason?: string;
+};
+
 export function erpDrivenCancelFields(input: {
   cancelledAt: Date | null | undefined;
   cancelReason: string | null | undefined;
   reason: string;
   now?: Date;
-}): Prisma.OrderUpdateInput {
+}): ErpDrivenCancelFields {
   const now = input.now ?? new Date();
   return {
     ...(input.cancelledAt ? {} : { cancelledAt: now }),
