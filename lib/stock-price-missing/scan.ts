@@ -106,6 +106,39 @@ export async function fetchPositiveStockTotalsByItem(
   return map;
 }
 
+/**
+ * Current company-wide item balance across every ERP warehouse.
+ * Unlike the positive-only scan above, this keeps negative bins in the sum so
+ * the result is the actual net balance for an item across the ERP instance.
+ */
+export async function fetchStockBalancesByItem(
+  cfg: OsfErpCredentials,
+): Promise<Map<string, number>> {
+  const map = new Map<string, number>();
+  const fields = JSON.stringify(["item_code", "actual_qty"]);
+
+  for (let page = 0; page < MAX_BIN_PAGES; page++) {
+    const start = page * BIN_PAGE;
+    const path =
+      `/api/resource/Bin?fields=${encodeURIComponent(fields)}` +
+      `&limit_start=${start}&limit_page_length=${BIN_PAGE}`;
+    const json = await erpGetJson<{
+      data?: Array<{ item_code?: string; actual_qty?: number }>;
+    }>(cfg, path);
+    const rows = json.data ?? [];
+    for (const row of rows) {
+      const sku = row.item_code?.trim();
+      if (!sku) continue;
+      const qty = Number(row.actual_qty);
+      if (!Number.isFinite(qty)) continue;
+      map.set(sku, (map.get(sku) ?? 0) + qty);
+    }
+    if (rows.length < BIN_PAGE) break;
+  }
+
+  return map;
+}
+
 function locationsForSku(input: {
   sku: string;
   stockCols: OsfResolvedColumn[];
