@@ -3121,7 +3121,7 @@ function AdminTable({
                     {formatDate(item.createdAt)}
                   </td>
                   <td className="px-3 py-3">
-                    {readOnly ? (
+                    {readOnly || listView === "history" ? (
                       <span className="text-xs text-muted-foreground">View only</span>
                     ) : isEditing ? (
                       <div className="flex flex-wrap gap-2">

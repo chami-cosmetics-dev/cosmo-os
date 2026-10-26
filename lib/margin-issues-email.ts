@@ -8,8 +8,10 @@ import { prisma } from "@/lib/prisma";
 import {
   discountSummaryText,
   loadMarginIssuesReport,
+  ROP_FULFILLMENT_BANDS,
   type MarginIssueSummaryRow,
   type MarginIssuesReport,
+  type RopFulfillmentSummaryRow,
 } from "@/lib/margin-issues";
 
 function discountHtml(row: MarginIssueSummaryRow): string {
@@ -80,8 +82,28 @@ function summaryRowsHtml(report: MarginIssuesReport): string {
   </tr></tbody>`;
 }
 
+function ropFulfillmentRowsHtml(report: MarginIssuesReport): string {
+  const cell = (value: number, index: number, isTotal = false) => {
+    const fill = isTotal ? "#e2f0d9" : ["#fce4d6", "#fff2cc", "#d9ead3", "#c6e0b4"][index];
+    return `<td style="padding:7px;border:1px solid #b8c7d9;text-align:right;background:${fill};">${value.toLocaleString()}</td>`;
+  };
+  const rowHtml = (row: RopFulfillmentSummaryRow, isTotal = false) => `<tr style="${isTotal ? "background:#e2f0d9;font-weight:700;" : "background:#f5f8fb;"}">
+    <td style="padding:7px;border:1px solid #b8c7d9;${isTotal ? "color:#17365d;" : "padding-left:24px;"}">${escapeEmailHtml(row.priority)}</td>
+    ${ROP_FULFILLMENT_BANDS.map((band, index) => cell(row.counts[band.key], index, isTotal)).join("")}
+  </tr>`;
+  return `<h3 style="margin:24px 0 8px;padding:8px 12px;background:#4f6070;border-left:5px solid #4472c4;color:#d9e8ff;font-size:16px;">ROP Fulfillment</h3>
+  <table style="border-collapse:collapse;width:100%;border:1px solid #b8c7d9;font-size:13px;">
+    <thead><tr style="background:#17365d;color:#fff;">
+      <th style="padding:8px;border:1px solid #b8c7d9;text-align:left;">Priority</th>
+      ${ROP_FULFILLMENT_BANDS.map((band) => `<th style="padding:8px;border:1px solid #b8c7d9;">${escapeEmailHtml(band.label)}</th>`).join("")}
+    </tr></thead>
+    <tbody>${report.ropFulfillment.rows.map((row) => rowHtml(row)).join("")}${rowHtml(report.ropFulfillment.total, true)}</tbody>
+  </table>`;
+}
+
 export function buildMarginIssuesEmailPreview(report: MarginIssuesReport): { summaryTableHtml: string; skuCount: number; stockAvailable: number } {
-  const summaryTableHtml = `<table style="border-collapse:collapse;width:100%;border:1px solid #b8c7d9;font-size:13px;">
+  const marginTableHtml = `<h3 style="margin:8px 0;background:#4f6070;border-left:5px solid #4472c4;padding:8px 12px;color:#d9e8ff;font-size:16px;">Margin Issues</h3>
+  <table style="border-collapse:collapse;width:100%;border:1px solid #b8c7d9;font-size:13px;">
     <thead><tr style="background:#17365d;color:#fff;">
       <th style="padding:8px;border:1px solid #b8c7d9;text-align:left;">Margin</th>
       <th style="padding:8px;border:1px solid #b8c7d9;">Number of SKUs</th>
@@ -89,7 +111,7 @@ export function buildMarginIssuesEmailPreview(report: MarginIssuesReport): { sum
       <th style="padding:8px;border:1px solid #b8c7d9;text-align:left;">Brand List</th>
       <th style="padding:8px;border:1px solid #b8c7d9;text-align:left;">Discount 5-25%</th>
     </tr></thead>${summaryRowsHtml(report)}</table>`;
-  return { summaryTableHtml, skuCount: report.details.length, stockAvailable: report.total.stockAvailable };
+  return { summaryTableHtml: `${marginTableHtml}${ropFulfillmentRowsHtml(report)}`, skuCount: report.details.length, stockAvailable: report.total.stockAvailable };
 }
 
 function styleSheet(sheet: XLSX.WorkSheet, values: Record<string, unknown>[], groupColumn = "Margin") {
@@ -109,9 +131,9 @@ function styleSheet(sheet: XLSX.WorkSheet, values: Record<string, unknown>[], gr
         font: { name: "Aptos", size: 10, color: { rgb: "1F2937" } },
         alignment: {
           vertical: "center",
-          horizontal: ["Number of SKUs", "Stock Available", "Margin %", "Latest Purchase Price", "Standard Selling Price", "Stock Available"].includes(header) ? "right" : "left",
+          horizontal: ["Number of SKUs", "Stock Available", "Total ROP", "Margin %", "Latest Purchase Price", "Standard Selling Price"].includes(header) ? "right" : "left",
           wrapText: header === "Brand List" || header.includes("Discount") || header === "Brand",
-          indent: ["Number of SKUs", "Stock Available", "Margin %", "Latest Purchase Price", "Standard Selling Price"].includes(header) ? 0 : 1,
+          indent: ["Number of SKUs", "Stock Available", "Total ROP", "Margin %", "Latest Purchase Price", "Standard Selling Price"].includes(header) ? 0 : 1,
         },
         border: { bottom: { style: "hair", color: "D9E2F3" } },
       };
@@ -242,22 +264,62 @@ export function buildMarginIssuesWorkbook(report: MarginIssuesReport): Buffer {
   }
   XLSX.utils.book_append_sheet(book, summarySheet, "Margin Issues");
 
+  const ropValues: Array<Record<string, unknown>> = report.ropFulfillment.rows.map((row) => ({
+    Priority: row.priority,
+    [ROP_FULFILLMENT_BANDS[0].label]: row.counts[ROP_FULFILLMENT_BANDS[0].key],
+    [ROP_FULFILLMENT_BANDS[1].label]: row.counts[ROP_FULFILLMENT_BANDS[1].key],
+    [ROP_FULFILLMENT_BANDS[2].label]: row.counts[ROP_FULFILLMENT_BANDS[2].key],
+    [ROP_FULFILLMENT_BANDS[3].label]: row.counts[ROP_FULFILLMENT_BANDS[3].key],
+  }));
+  ropValues.push({
+    Priority: report.ropFulfillment.total.priority,
+    [ROP_FULFILLMENT_BANDS[0].label]: report.ropFulfillment.total.counts[ROP_FULFILLMENT_BANDS[0].key],
+    [ROP_FULFILLMENT_BANDS[1].label]: report.ropFulfillment.total.counts[ROP_FULFILLMENT_BANDS[1].key],
+    [ROP_FULFILLMENT_BANDS[2].label]: report.ropFulfillment.total.counts[ROP_FULFILLMENT_BANDS[2].key],
+    [ROP_FULFILLMENT_BANDS[3].label]: report.ropFulfillment.total.counts[ROP_FULFILLMENT_BANDS[3].key],
+  });
+  const ropSheet = XLSX.utils.json_to_sheet(ropValues);
+  styleSheet(ropSheet, ropValues, "");
+  const ropHeaders = Object.keys(ropValues[0] ?? {});
+  const ropRange = XLSX.utils.decode_range(ropSheet["!ref"] ?? "A1");
+  const ropBandFills = ["FCE4D6", "FFF2CC", "D9EAD3", "C6E0B4"];
+  for (let row = 1; row <= ropRange.e.r; row += 1) {
+    const isTotal = row === ropRange.e.r;
+    for (let column = 0; column <= ropRange.e.c; column += 1) {
+      const cell = ropSheet[XLSX.utils.encode_cell({ r: row, c: column })];
+      if (!cell) continue;
+      const bandIndex = column - 1;
+      const fill = isTotal ? "E2F0D9" : bandIndex >= 0 && bandIndex < ropBandFills.length ? ropBandFills[bandIndex] : "F5F8FB";
+      cell.s = {
+        ...(cell.s ?? {}),
+        fill: { fgColor: { rgb: fill } },
+        font: { ...(cell.s?.font ?? {}), bold: isTotal, color: { rgb: "17365D" } },
+        alignment: { ...(cell.s?.alignment ?? {}), horizontal: column === 0 ? "left" : "right", vertical: "center" },
+        border: { ...(cell.s?.border ?? {}), bottom: { style: isTotal ? "medium" : "hair", color: isTotal ? "88A86F" : "D9E2F3" } },
+      };
+      if (column > 0) cell.z = "#,##0";
+    }
+  }
+  ropSheet["!autofilter"] = { ref: `A1:${XLSX.utils.encode_col(ropHeaders.length - 1)}${ropValues.length + 1}` };
+  XLSX.utils.book_append_sheet(book, ropSheet, "ROP Fulfillment");
+
   const detailValues = report.details.map((row) => ({
     SKU: row.sku,
     Priority: row.priority,
     Brand: row.brand,
     "Margin Bucket": row.marginBucket,
-    "Margin %": row.marginPct / 100,
+    "Margin %": row.marginPct == null ? "" : row.marginPct / 100,
     "Latest Purchase Price": row.latestPurchasePrice,
     "Latest Purchase Date": row.latestPurchaseDate ?? "",
-    "Standard Selling Price": row.standardSellingPrice,
+    "Standard Selling Price": row.standardSellingPrice ?? "",
     "Stock Available": row.stockAvailable,
-    "Discount 0%": row.discountOutcomes[0],
-    "Discount 5%": row.discountOutcomes[5],
-    "Discount 10%": row.discountOutcomes[10],
-    "Discount 15%": row.discountOutcomes[15],
-    "Discount 20%": row.discountOutcomes[20],
-    "Discount 25%": row.discountOutcomes[25],
+    "Total ROP": row.totalRop,
+    "Discount 0%": row.discountOutcomes[0] ?? "",
+    "Discount 5%": row.discountOutcomes[5] ?? "",
+    "Discount 10%": row.discountOutcomes[10] ?? "",
+    "Discount 15%": row.discountOutcomes[15] ?? "",
+    "Discount 20%": row.discountOutcomes[20] ?? "",
+    "Discount 25%": row.discountOutcomes[25] ?? "",
   }));
   const detailSheet = XLSX.utils.json_to_sheet(detailValues);
   styleSheet(detailSheet, detailValues, "Margin Bucket");
@@ -278,8 +340,10 @@ export function buildMarginIssuesWorkbook(report: MarginIssuesReport): Buffer {
         const column = detailHeaders.indexOf(header);
         if (column >= 0) detailSheet[XLSX.utils.encode_cell({ r: row, c: column })].z = "#,##0.00";
       }
-      const stockColumn = detailHeaders.indexOf("Stock Available");
-      if (stockColumn >= 0) detailSheet[XLSX.utils.encode_cell({ r: row, c: stockColumn })].z = "#,##0";
+      for (const header of ["Stock Available", "Total ROP"]) {
+        const column = detailHeaders.indexOf(header);
+        if (column >= 0) detailSheet[XLSX.utils.encode_cell({ r: row, c: column })].z = "#,##0";
+      }
 
       const bucketColumn = detailHeaders.indexOf("Margin Bucket");
       if (bucketColumn >= 0) {

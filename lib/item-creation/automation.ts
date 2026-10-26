@@ -686,6 +686,59 @@ export async function syncItemCreationTaxStatus(context: UserContext, id: string
   return { ok: true, updated };
 }
 
+export async function syncItemCreationItemFields(context: UserContext, id: string) {
+  requireItemCreationPermission(context, ITEM_CREATION_PERMISSIONS.admin);
+  const request = await prisma.itemCreationRequest.findFirstOrThrow({
+    where: { id, companyId: companyId(context) },
+    select: {
+      id: true,
+      companyId: true,
+      description: true,
+      taxStatus: true,
+      creationSources: true,
+      erp1ItemCode: true,
+      erp2ItemCode: true,
+    },
+  });
+  const updated: string[] = [];
+  const errors: string[] = [];
+  const body = {
+    item_name: request.description,
+    description: `${request.description} in Sri Lanka`,
+    custom_tax_status: request.taxStatus,
+  };
+  const sources = Array.isArray(request.creationSources) ? request.creationSources : [];
+
+  const targets = [
+    sources.includes("SHOPIFY") && request.erp1ItemCode ? ["ERP1", request.erp1ItemCode] as const : null,
+    sources.includes("ERP2") && request.erp2ItemCode ? ["ERP2", request.erp2ItemCode] as const : null,
+  ].filter(
+    (target): target is readonly ["ERP1", string] | readonly ["ERP2", string] => Boolean(target),
+  );
+  const erps = await resolveErps(request.companyId);
+  for (const [erp, itemCode] of targets) {
+    try {
+      const cfg = erp === "ERP1" ? erps.erp1?.cfg : erps.erp2?.cfg;
+      if (!cfg) throw new Error(`${erp} instance is not configured`);
+      await updateErpDoc<Record<string, unknown>>(cfg, "Item", itemCode, body);
+      updated.push(erp);
+    } catch (error) {
+      errors.push(`${erp}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  await prisma.itemCreationActivity.create({
+    data: {
+      itemRequestId: request.id,
+      type: errors.length > 0 ? "ITEM_DETAILS_UPDATE_FAILED" : "ITEM_DETAILS_UPDATED",
+      source: "USER",
+      userId: userId(context),
+      metadata: { updated, errors },
+    },
+  });
+  if (errors.length > 0) throw new Error(errors.join("; "));
+  return { ok: true, updated };
+}
+
 async function upsertItemPrice(input: {
   cfg: OsfErpCredentials;
   itemCode: string;

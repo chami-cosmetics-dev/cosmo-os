@@ -255,7 +255,7 @@ export const BUILTIN_EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
     name: "Margin issues daily report",
     subject: "Margin issues report — {{reportDate}}",
     bodyHtml: `<p>Margin issues report for <strong>{{companyName}}</strong> on <strong>{{reportDate}}</strong>.</p>
-<p>Latest submitted purchase invoice cost compared with the ERP Standard Selling price list. The summary is grouped by margin band and product priority.</p>
+<p>Latest submitted purchase invoice cost compared with the ERP Standard Selling price list. The report includes margin bands by product priority and ROP fulfillment against current company-wide stock.</p>
 {{summaryTableHtml}}
 <p style="color:#666;font-size:12px;margin-top:24px;">The full SKU workings are attached as an Excel file.</p>`,
     recipients: "",
