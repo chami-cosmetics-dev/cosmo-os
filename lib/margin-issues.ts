@@ -4,9 +4,10 @@ import { fetchErpProductPriorities, normalizeSkuKey } from "@/lib/product-items/
 import { prisma } from "@/lib/prisma";
 import { sellingMargin } from "@/lib/osf/pricing-math";
 import { getAllOsfErpInstances } from "@/lib/osf/erp-stock";
+import { resolveOsfColumns } from "@/lib/osf/column-config";
 import { fetchLatestPurchases } from "@/lib/vault-osf/erp-purchases-monthly";
 import type { AllowedSupplier } from "@/lib/osf/erp-purchases";
-import { fetchPositiveStockTotalsByItem } from "@/lib/stock-price-missing/scan";
+import { fetchStockBalancesByItem } from "@/lib/stock-price-missing/scan";
 import { fetchItemBrandsBySku, fetchItemPricesForList } from "@/lib/stock-price-missing/erp-selling-prices";
 import { STANDARD_SELLING_PRICE_LIST } from "@/lib/sticker-lwk-erp-price-list";
 
@@ -37,11 +38,14 @@ export type MarginIssueSku = {
   brand: string;
   latestPurchasePrice: number;
   latestPurchaseDate: string | null;
-  standardSellingPrice: number;
-  marginPct: number;
+  standardSellingPrice: number | null;
+  marginPct: number | null;
   marginBucket: string;
+  /** Net current balance across every warehouse and configured ERP instance. */
   stockAvailable: number;
-  discountOutcomes: Record<number, DiscountOutcome>;
+  /** Total configured ROP across all active ROP columns/companies. */
+  totalRop: number;
+  discountOutcomes: Partial<Record<number, DiscountOutcome>>;
 };
 
 export type MarginIssueSummaryRow = {
@@ -61,6 +65,26 @@ export type MarginIssuesReport = {
   details: MarginIssueSku[];
   summary: MarginIssueSummaryRow[];
   total: MarginIssueSummaryRow;
+  ropFulfillment: RopFulfillmentReport;
+};
+
+export const ROP_FULFILLMENT_BANDS = [
+  { key: "0-10", label: "High risk 0-10%" },
+  { key: "10-30", label: "Below 30%" },
+  { key: "30-50", label: "30-50%" },
+  { key: "50-plus", label: "Above 50%" },
+] as const;
+
+export type RopFulfillmentBandKey = (typeof ROP_FULFILLMENT_BANDS)[number]["key"];
+
+export type RopFulfillmentSummaryRow = {
+  priority: string;
+  counts: Record<RopFulfillmentBandKey, number>;
+};
+
+export type RopFulfillmentReport = {
+  rows: RopFulfillmentSummaryRow[];
+  total: RopFulfillmentSummaryRow;
 };
 
 const OUTCOMES: DiscountOutcome[] = ["Loss", "Break-even", "Profit <5%", "Profit 5-10%", "Profit 10%+"];
@@ -93,7 +117,10 @@ export function marginBucketForPercent(marginPct: number): MarginBucket {
 export function discountOutcomeCounts(rows: MarginIssueSku[]): Record<number, DiscountCounts> {
   const output = emptyDiscountMap();
   for (const row of rows) {
-    for (const discount of MARGIN_DISCOUNTS) output[discount][row.discountOutcomes[discount]] += 1;
+    for (const discount of MARGIN_DISCOUNTS) {
+      const outcome = row.discountOutcomes[discount];
+      if (outcome) output[discount][outcome] += 1;
+    }
   }
   return output;
 }
@@ -117,6 +144,38 @@ function priorityRank(priority: string): number {
   return index >= 0 ? index : PRIORITY_ORDER.length;
 }
 
+function emptyRopCounts(): Record<RopFulfillmentBandKey, number> {
+  return Object.fromEntries(ROP_FULFILLMENT_BANDS.map((band) => [band.key, 0])) as Record<RopFulfillmentBandKey, number>;
+}
+
+export function ropFulfillmentBand(stock: number, rop: number): RopFulfillmentBandKey | null {
+  if (!Number.isFinite(stock) || !Number.isFinite(rop) || rop <= 0) return null;
+  const stockPercent = (stock / rop) * 100;
+  if (stockPercent <= 10) return "0-10";
+  if (stockPercent <= 30) return "10-30";
+  if (stockPercent <= 50) return "30-50";
+  return "50-plus";
+}
+
+function buildRopFulfillmentReport(rows: Array<{ priority: string; stock: number; rop: number }>): RopFulfillmentReport {
+  const byPriority = new Map<string, Record<RopFulfillmentBandKey, number>>();
+  for (const row of rows) {
+    const band = ropFulfillmentBand(row.stock, row.rop);
+    if (!band) continue;
+    const counts = byPriority.get(row.priority) ?? emptyRopCounts();
+    counts[band] += 1;
+    byPriority.set(row.priority, counts);
+  }
+
+  const priorities = [...byPriority.keys()].sort((a, b) => priorityRank(a) - priorityRank(b) || a.localeCompare(b));
+  const summaryRows = priorities.map((priority) => ({ priority, counts: byPriority.get(priority)! }));
+  const totalCounts = emptyRopCounts();
+  for (const row of summaryRows) {
+    for (const band of ROP_FULFILLMENT_BANDS) totalCounts[band.key] += row.counts[band.key];
+  }
+  return { rows: summaryRows, total: { priority: "Total", counts: totalCounts } };
+}
+
 export function buildMarginIssueSummary(details: MarginIssueSku[]): { summary: MarginIssueSummaryRow[]; total: MarginIssueSummaryRow } {
   const rows: MarginIssueSummaryRow[] = [];
   for (const bucket of MARGIN_BUCKETS) {
@@ -126,6 +185,14 @@ export function buildMarginIssueSummary(details: MarginIssueSku[]): { summary: M
     const priorities = [...new Set(bucketRows.map((row) => row.priority))].sort((a, b) => priorityRank(a) - priorityRank(b) || a.localeCompare(b));
     for (const priority of priorities) {
       rows.push(summaryRow(`  ${priority}`, bucketRows.filter((row) => row.priority === priority), bucket.key, false, bucket.label, false));
+    }
+  }
+  const missingPriceRows = details.filter((row) => row.marginBucket === "missing-standard-price");
+  if (missingPriceRows.length > 0) {
+    rows.push(summaryRow("Missing Standard Selling Price", missingPriceRows, "missing-standard-price", true, "Unavailable", false));
+    const priorities = [...new Set(missingPriceRows.map((row) => row.priority))].sort((a, b) => priorityRank(a) - priorityRank(b) || a.localeCompare(b));
+    for (const priority of priorities) {
+      rows.push(summaryRow(`  ${priority}`, missingPriceRows.filter((row) => row.priority === priority), "missing-standard-price", false, "Unavailable", false));
     }
   }
   return { summary: rows, total: summaryRow("Grand Total", details, "grand-total", true, "All margins") };
@@ -139,9 +206,10 @@ function mergeLatestPurchase(target: Map<string, { sku: string; rate: number; da
 }
 
 export async function loadMarginIssuesReport(companyId: string, reportDate: string): Promise<MarginIssuesReport> {
-  const [instances, allowedSuppliers] = await Promise.all([
+  const [instances, allowedSuppliers, ropColumns] = await Promise.all([
     getAllOsfErpInstances(companyId),
     prisma.supplier.findMany({ where: { companyId }, select: { name: true, code: true } }),
+    resolveOsfColumns(companyId),
   ]);
   if (instances.length === 0) throw new Error("No configured ERP instances are available for margin issues report");
 
@@ -153,7 +221,7 @@ export async function loadMarginIssuesReport(companyId: string, reportDate: stri
       fetchItemPricesForList(instance.cfg, STANDARD_SELLING_PRICE_LIST),
       fetchItemBrandsBySku(instance.cfg, skus),
       fetchErpProductPriorities(instance.cfg).catch(() => ({ bySku: new Map<string, string | null>() })),
-      fetchPositiveStockTotalsByItem(instance.cfg),
+      fetchStockBalancesByItem(instance.cfg),
     ]);
     return { sourceIndex, latest, prices, brands, priorities: priorities.bySku, stock };
   }));
@@ -171,17 +239,44 @@ export async function loadMarginIssuesReport(companyId: string, reportDate: stri
     select: { sku: true, erp1ProductPriority: true, erp2ProductPriority: true, vendor: { select: { name: true } } },
   });
   const productBySku = new Map(products.map((product) => [normalizeSkuKey(product.sku), product]));
+  const totalStockBySku = new Map<string, number>();
+  for (const source of sources) {
+    for (const [sku, quantity] of source.stock) {
+      const skuKey = normalizeSkuKey(sku);
+      if (!skuKey || !Number.isFinite(quantity)) continue;
+      totalStockBySku.set(skuKey, (totalStockBySku.get(skuKey) ?? 0) + quantity);
+    }
+  }
   const details: MarginIssueSku[] = [];
+  const priorityBySku = new Map<string, string>();
 
   for (const [skuKey, latest] of latestBySku) {
     const source = sources[latest.sourceIndex];
     if (!source) continue;
-    const standard = Number(source.prices[latest.sku] ?? Object.entries(source.prices).find(([key]) => normalizeSkuKey(key) === skuKey)?.[1] ?? "");
-    if (!Number.isFinite(standard) || standard <= 0) continue;
+    const preferredPrice = source.prices[latest.sku] ?? Object.entries(source.prices).find(([key]) => normalizeSkuKey(key) === skuKey)?.[1];
+    const standard = Number(preferredPrice ?? sources.map((item) => item.prices[latest.sku] ?? Object.entries(item.prices).find(([key]) => normalizeSkuKey(key) === skuKey)?.[1]).find((value) => value != null) ?? "");
     const product = productBySku.get(skuKey);
     const brand = sources.map((item) => item.brands.get(latest.sku)).find((value) => normalizeText(value)) ?? product?.vendor?.name ?? "";
     const priority = sources.map((item) => item.priorities.get(skuKey)).find((value) => normalizeText(value)) ?? product?.erp1ProductPriority ?? product?.erp2ProductPriority ?? "Unspecified";
-    const stock = sources.reduce((sum, item) => sum + (item.stock.get(latest.sku) ?? item.stock.get([...item.stock.keys()].find((key) => normalizeSkuKey(key) === skuKey) ?? "") ?? 0), 0);
+    const normalizedPriority = normalizeText(priority) || "Unspecified";
+    const stock = totalStockBySku.get(skuKey) ?? 0;
+    priorityBySku.set(skuKey, normalizedPriority);
+    if (!Number.isFinite(standard) || standard <= 0) {
+      details.push({
+        sku: latest.sku,
+        priority: normalizedPriority,
+        brand: normalizeText(brand),
+        latestPurchasePrice: latest.rate,
+        latestPurchaseDate: latest.date,
+        standardSellingPrice: null,
+        marginPct: null,
+        marginBucket: "missing-standard-price",
+        stockAvailable: stock,
+        totalRop: 0,
+        discountOutcomes: {},
+      });
+      continue;
+    }
     const margin = sellingMargin(standard, latest.rate);
     if (margin == null) continue;
     const marginPct = margin * 100;
@@ -189,7 +284,7 @@ export async function loadMarginIssuesReport(companyId: string, reportDate: stri
     const discountOutcomes = Object.fromEntries(MARGIN_DISCOUNTS.map((discount) => [discount, classifyDiscountOutcome(standard * (1 - discount / 100), latest.rate)])) as Record<number, DiscountOutcome>;
     details.push({
       sku: latest.sku,
-      priority: normalizeText(priority) || "Unspecified",
+      priority: normalizedPriority,
       brand: normalizeText(brand),
       latestPurchasePrice: latest.rate,
       latestPurchaseDate: latest.date,
@@ -197,13 +292,53 @@ export async function loadMarginIssuesReport(companyId: string, reportDate: stri
       marginPct,
       marginBucket: bucket.key,
       stockAvailable: stock,
+      totalRop: 0,
       discountOutcomes,
     });
   }
 
-  details.sort((a, b) => MARGIN_BUCKETS.findIndex((bucket) => bucket.key === a.marginBucket) - MARGIN_BUCKETS.findIndex((bucket) => bucket.key === b.marginBucket) || priorityRank(a.priority) - priorityRank(b.priority) || a.sku.localeCompare(b.sku));
+  details.sort((a, b) => {
+    const marginRank = (value: string) => {
+      const index = MARGIN_BUCKETS.findIndex((bucket) => bucket.key === value);
+      return index >= 0 ? index : MARGIN_BUCKETS.length;
+    };
+    return marginRank(a.marginBucket) - marginRank(b.marginBucket) || priorityRank(a.priority) - priorityRank(b.priority) || a.sku.localeCompare(b.sku);
+  });
   const grouped = buildMarginIssueSummary(details);
-  return { companyId, reportDate, details, ...grouped };
+  const ropColumnKeys = ropColumns.filter((column) => column.active && column.includeInRop).map((column) => column.key);
+  const latestSkuRows = [...latestBySku.values()];
+  const ropRows = ropColumnKeys.length === 0 || latestSkuRows.length === 0
+    ? []
+    : (
+        await Promise.all(
+          Array.from({ length: Math.ceil(latestSkuRows.length / 500) }, (_, index) =>
+            prisma.productOsfRop.findMany({
+              where: {
+                companyId,
+                columnKey: { in: ropColumnKeys },
+                sku: { in: latestSkuRows.slice(index * 500, index * 500 + 500).map((row) => row.sku) },
+              },
+              select: { sku: true, ropQty: true },
+            }),
+          ),
+        )
+      ).flat();
+  const ropBySku = new Map<string, number>();
+  for (const row of ropRows) {
+    const skuKey = normalizeSkuKey(row.sku);
+    if (!skuKey) continue;
+    ropBySku.set(skuKey, (ropBySku.get(skuKey) ?? 0) + row.ropQty);
+  }
+  const detailsWithRop = details.map((row) => ({
+    ...row,
+    totalRop: ropBySku.get(normalizeSkuKey(row.sku)) ?? 0,
+  }));
+  const ropFulfillment = buildRopFulfillmentReport([...latestBySku.keys()].map((skuKey) => ({
+    priority: priorityBySku.get(skuKey) ?? "Unspecified",
+    stock: totalStockBySku.get(skuKey) ?? 0,
+    rop: ropBySku.get(skuKey) ?? 0,
+  })));
+  return { companyId, reportDate, details: detailsWithRop, ropFulfillment, ...grouped };
 }
 
 export function discountCountsText(counts: DiscountCounts): string {

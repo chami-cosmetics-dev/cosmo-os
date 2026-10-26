@@ -6,7 +6,7 @@ import {
   ITEM_CREATION_PERMISSIONS,
   updateItemRequestDetails,
 } from "@/lib/item-creation/workflow";
-import { syncItemCreationTaxStatus } from "@/lib/item-creation/automation";
+import { syncItemCreationItemFields } from "@/lib/item-creation/automation";
 import { requireAnyPermission } from "@/lib/rbac";
 
 const ADMIN_ITEM_CREATION_PERMISSIONS = [
@@ -46,9 +46,7 @@ export async function PATCH(
     const { id } = await params;
     const body = await request.json();
     const item = await updateItemRequestDetails(auth.context!, id, body);
-    if (body && typeof body === "object" && Object.prototype.hasOwnProperty.call(body, "taxStatus")) {
-      await syncItemCreationTaxStatus(auth.context!, id);
-    }
+    await syncItemCreationItemFields(auth.context!, id);
     return NextResponse.json({ item });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Request failed";
