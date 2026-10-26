@@ -15,6 +15,7 @@ import {
   getOrderInvoiceItemCsvHeaders,
   joinDumpCouponCodes,
   resolveDumpCompletedAt,
+  resolveDumpMerchantName,
 } from "@/lib/reports/order-dump";
 import { getOrderDiscountCouponCode } from "@/lib/order-discount-coupon";
 import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
@@ -68,6 +69,54 @@ describe("joinDumpCouponCodes", () => {
         }),
       ),
     ).toBe("June15");
+  });
+});
+
+describe("resolveDumpMerchantName", () => {
+  const couponToMerchant = new Map([
+    ["mer91", { id: "sandali", name: "sandali" }],
+  ]);
+  const userToGroup = new Map<string, { id: string; name: string }>();
+
+  it("puts staffdc, dir100, and staffvat in Staff Sales even with a MER code", () => {
+    for (const discount of ["staffdc", "DIR100", "staffvat"]) {
+      expect(
+        resolveDumpMerchantName({
+          merchantCouponCode: "MER91-Sandali",
+          discountCouponCode: discount,
+          couponToMerchant,
+          assignedMerchantId: "sandali",
+          assignedMerchantName: "sandali",
+          userToGroup,
+        }),
+      ).toBe("Staff Sales");
+    }
+  });
+
+  it("keeps mapped MER merchant when no staff coupon is present", () => {
+    expect(
+      resolveDumpMerchantName({
+        merchantCouponCode: "MER91",
+        discountCouponCode: "SV20",
+        couponToMerchant,
+        assignedMerchantId: "sandali",
+        assignedMerchantName: "sandali",
+        userToGroup,
+      }),
+    ).toBe("sandali");
+  });
+
+  it("falls back to assigned merchant when coupons do not map", () => {
+    expect(
+      resolveDumpMerchantName({
+        merchantCouponCode: null,
+        discountCouponCode: null,
+        couponToMerchant,
+        assignedMerchantId: "sandali",
+        assignedMerchantName: "sandali",
+        userToGroup,
+      }),
+    ).toBe("sandali");
   });
 });
 

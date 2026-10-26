@@ -8,7 +8,6 @@ import { loadKokoRefNumbersForOrders } from "@/lib/approval-koko-list";
 import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 import { normalizeContactEmail } from "@/lib/contact-identifiers";
 import {
-  applyMerchantGroup,
   buildCouponToMerchantMap,
   getMerchantGroupUserMap,
 } from "@/lib/merchant-groups";
@@ -46,7 +45,7 @@ import {
   type MasterHistoryContact,
 } from "@/lib/reports/master-dump";
 import { resolveStoredCancelReason } from "@/lib/order-cancel-reason";
-import { joinDumpCouponCodes, summarizePaymentGateway } from "@/lib/reports/order-dump";
+import { joinDumpCouponCodes, resolveDumpMerchantName, summarizePaymentGateway } from "@/lib/reports/order-dump";
 import { resolveCustomerPhone, resolveShippingPhone } from "@/lib/order-sms-resolvers";
 import { normalizeShippingRuleLabelKey } from "@/lib/rider-delivery-charge";
 import { requirePermission } from "@/lib/rbac";
@@ -461,20 +460,19 @@ function pickListAt(order: MasterOrder) {
 
 function merchantName(input: {
   couponCode: string | null;
+  discountCouponCode?: string | null;
   couponToMerchant: Map<string, { id: string | null; name: string }>;
   assignedMerchant: MasterOrder["assignedMerchant"];
   userToGroup: Map<string, { id: string; name: string }>;
 }) {
-  for (const coupon of (input.couponCode ?? "").split(",")) {
-    const merchant = input.couponToMerchant.get(coupon.trim().toLowerCase());
-    if (merchant?.name) return merchant.name;
-  }
-  const assigned = displayName(input.assignedMerchant);
-  if (!assigned) return "";
-  return applyMerchantGroup(
-    { id: input.assignedMerchant?.id ?? null, name: assigned },
-    input.userToGroup,
-  ).name;
+  return resolveDumpMerchantName({
+    merchantCouponCode: input.couponCode,
+    discountCouponCode: input.discountCouponCode,
+    couponToMerchant: input.couponToMerchant,
+    assignedMerchantId: input.assignedMerchant?.id ?? null,
+    assignedMerchantName: displayName(input.assignedMerchant),
+    userToGroup: input.userToGroup,
+  });
 }
 
 function promoOwner(coupon: string | null, couponToMerchant: Map<string, { name: string }>) {
@@ -990,6 +988,7 @@ export async function GET(request: NextRequest) {
               coupon: joinDumpCouponCodes(merchantCoupon, discountCoupon),
               merchant: merchantName({
                 couponCode: merchantCoupon,
+                discountCouponCode: discountCoupon,
                 couponToMerchant,
                 assignedMerchant: order.assignedMerchant,
                 userToGroup,

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { isVaultStockItem, mapErpItemToCatalogRow } from "@/lib/vault-osf/catalog";
+import { erpItemPriority, isVaultStockItem, mapErpItemToCatalogRow } from "@/lib/vault-osf/catalog";
 
 describe("vault OSF catalog filters", () => {
   it("keeps enabled stock items", () => {
@@ -43,6 +43,25 @@ describe("vault OSF catalog filters", () => {
     expect(isVaultStockItem({ item_code: "TEST", disabled: 0, is_stock_item: 1 })).toBe(false);
     expect(isVaultStockItem({ item_code: "NW004-2", disabled: 1, is_stock_item: 1 })).toBe(false);
     expect(isVaultStockItem({ item_code: "NW004-2", disabled: 0, is_stock_item: 0 })).toBe(false);
+  });
+
+  it("maps ERP Product Priority onto catalog extras", () => {
+    const erp = {
+      name: "TE001-1",
+      item_code: "TE001-1",
+      item_name: "Test",
+      brand: "Test",
+      item_group: "Vitamins",
+      disabled: 0,
+      is_stock_item: 1,
+      custom_product_priority: "Top Priority",
+    };
+    expect(erpItemPriority(erp, "custom_product_priority")).toBe("Top Priority");
+    const row = mapErpItemToCatalogRow(erp, {
+      priorityStatus: erpItemPriority(erp, "custom_product_priority"),
+    });
+    expect(row?.sku).toBe("TE001-1");
+    expect(row?.priorityStatus).toBe("Top Priority");
   });
 
   it("keeps force-included NTC03-1 even when ERP disabled", () => {

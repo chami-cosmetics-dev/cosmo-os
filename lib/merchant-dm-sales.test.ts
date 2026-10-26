@@ -5,11 +5,37 @@ import {
   dmBucketShareForHolder,
   isDmCouponCode,
   isDmOnlyMerchantTracking,
+  isStaffSalesCouponCode,
   parseOrderCouponList,
   resolveCohortMerchantId,
   resolveDmHolderMerchantIds,
+  resolveFixedSalesCouponBucket,
   splitMerchantCouponSets,
+  STAFF_SALES_DISPLAY_NAME,
 } from "@/lib/merchant-dm-sales";
+
+describe("resolveFixedSalesCouponBucket", () => {
+  it("maps staff discount coupons to Staff Sales", () => {
+    expect(isStaffSalesCouponCode("STAFFDC")).toBe(true);
+    expect(isStaffSalesCouponCode("dir100")).toBe(true);
+    expect(isStaffSalesCouponCode("staff-vat")).toBe(true);
+    expect(isStaffSalesCouponCode("staff-sale")).toBe(true);
+    expect(isStaffSalesCouponCode("mer91")).toBe(false);
+    expect(resolveFixedSalesCouponBucket(["mer91", "staffdc"])).toEqual({
+      id: null,
+      name: STAFF_SALES_DISPLAY_NAME,
+    });
+    expect(resolveFixedSalesCouponBucket(["DIR100"])).toEqual({
+      id: null,
+      name: STAFF_SALES_DISPLAY_NAME,
+    });
+    expect(resolveFixedSalesCouponBucket(["staffvat"])).toEqual({
+      id: null,
+      name: STAFF_SALES_DISPLAY_NAME,
+    });
+    expect(resolveFixedSalesCouponBucket(["mer91", "sv20"])).toBeNull();
+  });
+});
 
 describe("isDmCouponCode", () => {
   it("matches MER115 and DM-General labels", () => {
