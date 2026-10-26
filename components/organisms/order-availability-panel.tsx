@@ -53,6 +53,17 @@ const CAP_LABEL: Partial<Record<CapStatus, { text: string; tone: "warn" | "dange
   unknown: { text: "Cap unknown", tone: "muted" },
 };
 
+function commonSkuExpansions(lines: OrderAvailabilityResponse["lines"]): Array<{ common: string; variants: string[] }> {
+  const groups = new Map<string, string[]>();
+  for (const line of lines) {
+    if (!line.fromCommonSku) continue;
+    const list = groups.get(line.fromCommonSku) ?? [];
+    list.push(line.sku);
+    groups.set(line.fromCommonSku, list);
+  }
+  return [...groups].map(([common, variants]) => ({ common, variants }));
+}
+
 function noOptionText(reason: NoOptionReason, limit: number): string {
   switch (reason) {
     case "all_over_cap":
@@ -222,6 +233,50 @@ function DetailCard({ result, company }: { result: OrderAvailabilityResponse; co
             </ul>
           </section>
         ) : null}
+        <section className="space-y-2">
+          <h3 className="font-medium">Shop warehouses</h3>
+          <p className="text-muted-foreground text-xs">
+            Retail floors at this company and elsewhere. Not used to rank companies or check the cap.
+          </p>
+          {detail.shops.length === 0 ? (
+            <p className="text-muted-foreground">No shop-warehouse stock for these SKUs.</p>
+          ) : (
+            <ul className="space-y-3">
+              {detail.shops.map((line) => (
+                <li key={line.key} className="rounded-md border p-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-medium">{line.sku}</span>
+                    <span className="text-muted-foreground">
+                      need {line.qty}, here {line.ownAvailable}
+                    </span>
+                  </div>
+                  {line.own.length > 0 ? (
+                    <ul className="mt-2 space-y-1">
+                      {line.own.map((row) => (
+                        <li key={row.warehouse} className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="text-muted-foreground min-w-0 break-words">{row.warehouse}</span>
+                          <span className="font-medium">{row.available}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                  {line.sources.length > 0 ? (
+                    <ul className="text-muted-foreground mt-2 space-y-1">
+                      {line.sources.map((source) => (
+                        <li key={`${source.company}::${source.warehouse}`} className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="min-w-0 break-words">
+                            {source.company} · {source.warehouse}
+                          </span>
+                          <span className="text-foreground font-medium">{source.available}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
         <p className="text-muted-foreground text-xs">
           Raise transfers through Material Transfer. This tab does not move stock.
         </p>
@@ -291,6 +346,7 @@ export function OrderAvailabilityPanel({ canManage }: { canManage: boolean }) {
   }
 
   const optionCompanies = result?.companies.filter((row) => row.option) ?? [];
+  const expansions = result ? commonSkuExpansions(result.lines) : [];
   const otherCompanies = result?.companies.filter((row) => !row.option) ?? [];
   const foundCount = result?.lines.filter((line) => line.found).length ?? 0;
 
@@ -299,8 +355,8 @@ export function OrderAvailabilityPanel({ canManage }: { canManage: boolean }) {
       <div>
         <h2 className="text-xl font-semibold">Order availability</h2>
         <p className="text-muted-foreground text-sm">
-          Live stock in ERP2 main warehouses for multiple SKUs. Suggests which company to place the order under, within
-          the monthly cap.
+          Live stock in ERP2 main warehouses. Type a common SKU (ORD04) or a variant (ORD04_1). Suggests which company
+          to place the order under, within the monthly cap.
         </p>
       </div>
 
@@ -311,7 +367,9 @@ export function OrderAvailabilityPanel({ canManage }: { canManage: boolean }) {
           <Textarea
             value={paste}
             onChange={(event) => setPaste(event.target.value)}
-            placeholder={"Paste SKUs, one per line. Add a quantity after a comma if needed:\nSKU1, 2\nSKU2"}
+            placeholder={
+              "Paste SKUs, one per line. Common SKU (ORD04) checks every variant (ORD04_1, ORD04_2). Add a quantity after a comma if needed:\nORD04, 2\nLAR78_1"
+            }
             rows={4}
             disabled={busy}
             aria-label="Paste SKUs"
@@ -396,6 +454,16 @@ export function OrderAvailabilityPanel({ canManage }: { canManage: boolean }) {
             <p className="text-sm">
               <span className="font-medium">Not found in ERP2:</span> {result.notFound.join(", ")}
             </p>
+          ) : null}
+          {expansions.length > 0 ? (
+            <ul className="space-y-1 text-sm">
+              {expansions.map((row) => (
+                <li key={row.common}>
+                  <span className="font-medium">{row.common}</span>
+                  <span className="text-muted-foreground"> → {row.variants.join(", ")}</span>
+                </li>
+              ))}
+            </ul>
           ) : null}
           {result.unpricedSkus.length > 0 ? (
             <p className="text-sm">

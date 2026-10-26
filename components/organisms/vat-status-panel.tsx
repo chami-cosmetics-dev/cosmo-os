@@ -7,11 +7,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { notify } from "@/lib/notify";
-import type { VatStatusLookup, VatStatusSlot } from "@/lib/vat-status/types";
+import { productPriorityLabel, type VatStatusLookup, type VatStatusSlot } from "@/lib/vat-status/types";
 
 type SkuSuggestion = {
   sku: string;
   title: string;
+  productPriority: string;
 };
 
 function statusText(slot: VatStatusSlot): string {
@@ -41,6 +42,12 @@ function SlotCard({ slot }: { slot: VatStatusSlot }) {
         </div>
         {membership ? (
           <p className="font-medium">{membership}</p>
+        ) : null}
+        {slot.found && !slot.error ? (
+          <div>
+            <p className="text-muted-foreground">Product Priority</p>
+            <p className="text-base font-medium">{slot.productPriority ?? "Product Priority not set"}</p>
+          </div>
         ) : null}
         {slot.itemName ? (
           <div>
@@ -164,6 +171,10 @@ export function VatStatusPanel() {
 
   const showList =
     open && sku.trim().length > 0 && (suggesting || suggestSettled || suggestions.length > 0);
+  const searchedPriority = result
+    ? productPriorityLabel(result.erp1.productPriority, result.erp2.productPriority) ||
+      (result.erp1.found || result.erp2.found ? "Product Priority not set" : "")
+    : "";
 
   return (
     <div className="space-y-6">
@@ -210,6 +221,9 @@ export function VatStatusPanel() {
                     {item.title ? (
                       <span className="text-muted-foreground line-clamp-1 text-xs">{item.title}</span>
                     ) : null}
+                    {item.productPriority ? (
+                      <span className="text-muted-foreground text-xs">{item.productPriority}</span>
+                    ) : null}
                   </button>
                 </li>
               ))}
@@ -236,6 +250,12 @@ export function VatStatusPanel() {
       {result ? (
         <div className="space-y-3">
           <p className="text-sm font-medium">SKU {result.sku}</p>
+          {searchedPriority ? (
+            <p className="text-sm">
+              <span className="text-muted-foreground">Product Priority </span>
+              {searchedPriority}
+            </p>
+          ) : null}
           {fetchedAt ? (
             <p className="text-muted-foreground text-xs">
               Read from ERP at {fetchedAt.toLocaleTimeString()}

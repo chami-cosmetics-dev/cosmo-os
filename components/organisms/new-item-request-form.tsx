@@ -261,6 +261,16 @@ export function NewItemRequestForm({
                     {hit.brandName}
                     {` · ${formatVoteCount(hit)}`}
                   </p>
+                  {hit.storeUrl ? (
+                    <a
+                      className="text-primary mt-1 block truncate text-xs underline"
+                      href={hit.storeUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {hit.storeUrl}
+                    </a>
+                  ) : null}
                 </div>
                 {canVote && hit.hasVoted ? (
                   <Button

@@ -28,6 +28,12 @@ export type SkuLine = NormalizedLine & {
   itemName: string | null;
   unitPrice: number | null;
   found: boolean;
+  /** Typed common SKU that expanded to this variant. Null if the merchant typed this SKU. */
+  fromCommonSku: string | null;
+};
+
+export type ExpandedLine = NormalizedLine & {
+  fromCommonSku: string | null;
 };
 
 export type WarehouseStock = {
@@ -83,6 +89,14 @@ export type PriorityWarehouseSlot = {
   company: string | null;
 };
 
+/** Shop-floor stock. Never used for ranking, options, or search cards. */
+export type ShopCompanyStock = {
+  company: string;
+  warehouses: string[];
+  /** Keyed by SkuLine.key, found SKUs only. */
+  lines: Record<string, CompanyLine>;
+};
+
 export type OrderAvailabilityResponse = {
   checkedAt: string;
   capMonth: string;
@@ -94,6 +108,8 @@ export type OrderAvailabilityResponse = {
   cap: { limit: number; nearThreshold: number; error: string | null };
   priorityWarehouses: Array<{ warehouse: string; priority: WarehousePriority }>;
   companies: CompanyResult[];
+  /** Shop warehouses by company. Hidden from search; used in company detail. */
+  shopCompanies: ShopCompanyStock[];
   options: string[];
   noOptionReason: NoOptionReason | null;
 };
@@ -116,5 +132,14 @@ export type OrderDetail = {
     ownAvailable: number;
     sources: DetailSource[];
     availableAnywhere: boolean;
+  }>;
+  /** Shop-floor stock for found SKUs that have any shop qty. Separate from main ranking. */
+  shops: Array<{
+    key: string;
+    sku: string;
+    qty: number;
+    own: WarehouseStock[];
+    ownAvailable: number;
+    sources: DetailSource[];
   }>;
 };

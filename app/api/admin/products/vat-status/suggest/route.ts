@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
-import { VAT_STATUS_PERMISSION } from "@/lib/vat-status/types";
+import { productPriorityLabel, VAT_STATUS_PERMISSION } from "@/lib/vat-status/types";
 import { vatStatusSuggestQuerySchema } from "@/lib/validation/vat-status";
 
 export const dynamic = "force-dynamic";
@@ -38,13 +38,15 @@ export async function GET(request: NextRequest) {
       sku: true,
       productTitle: true,
       variantTitle: true,
+      erp1ProductPriority: true,
+      erp2ProductPriority: true,
     },
     orderBy: { sku: "asc" },
     take: 40,
   });
 
   const seen = new Set<string>();
-  const suggestions: Array<{ sku: string; title: string }> = [];
+  const suggestions: Array<{ sku: string; title: string; productPriority: string }> = [];
   for (const row of rows) {
     const sku = row.sku?.trim();
     if (!sku) continue;
@@ -52,7 +54,11 @@ export async function GET(request: NextRequest) {
     if (seen.has(key)) continue;
     seen.add(key);
     const title = [row.productTitle, row.variantTitle].filter(Boolean).join(" — ");
-    suggestions.push({ sku, title });
+    suggestions.push({
+      sku,
+      title,
+      productPriority: productPriorityLabel(row.erp1ProductPriority, row.erp2ProductPriority),
+    });
     if (suggestions.length >= SUGGEST_LIMIT) break;
   }
 

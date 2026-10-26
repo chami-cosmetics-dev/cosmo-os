@@ -138,22 +138,34 @@ export function NewItemRequestOwnList({
           <ul className="space-y-2">
             {shown.map((row) => (
               <li key={row.id} className="flex items-stretch gap-2">
-                <button
-                  type="button"
-                  className="hover:bg-secondary/30 min-w-0 flex-1 rounded-lg border px-3 py-2 text-left"
-                  disabled={isBusy}
-                  onClick={() => void openRow(row.id)}
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="font-medium">{row.productName || row.brandName}</span>
-                    <span className="text-muted-foreground text-xs">{statusLabel(row.status)}</span>
-                  </div>
-                  <p className="text-muted-foreground mt-1 text-xs">
-                    {row.brandName}
-                    {` · ${formatVoteCount(row)}`}
-                    {` · ${formatAppDateTime(row.createdAt)}`}
-                  </p>
-                </button>
+                <div className="hover:bg-secondary/30 min-w-0 flex-1 rounded-lg border px-3 py-2 text-left">
+                  <button
+                    type="button"
+                    className="w-full text-left"
+                    disabled={isBusy}
+                    onClick={() => void openRow(row.id)}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="font-medium">{row.productName || row.brandName}</span>
+                      <span className="text-muted-foreground text-xs">{statusLabel(row.status)}</span>
+                    </div>
+                    <p className="text-muted-foreground mt-1 text-xs">
+                      {row.brandName}
+                      {` · ${formatVoteCount(row)}`}
+                      {` · ${formatAppDateTime(row.createdAt)}`}
+                    </p>
+                  </button>
+                  {row.storeUrl ? (
+                    <a
+                      className="text-primary mt-1 block truncate text-xs underline"
+                      href={row.storeUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {row.storeUrl}
+                    </a>
+                  ) : null}
+                </div>
                 {canVote && row.status === "open" && !row.hasVoted ? (
                   <Button
                     type="button"

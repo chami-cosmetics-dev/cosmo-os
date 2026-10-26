@@ -1,3 +1,4 @@
+import { baseSku } from "@/lib/osf/base-sku";
 import {
   MAX_DISTINCT_SKUS,
   NEAR_CAP_RATIO,
@@ -5,12 +6,14 @@ import {
   type CompanyLine,
   type CompanyResult,
   type DetailSource,
+  type ExpandedLine,
   type LineStatus,
   type NoOptionReason,
   type NormalizedLine,
   type OrderAvailabilityResponse,
   type OrderDetail,
   type RequestLine,
+  type ShopCompanyStock,
   type SkuLine,
   type WarehousePriority,
   type WarehouseStock,
@@ -60,6 +63,66 @@ export function normalizeRequestLines(
     };
   }
   return { ok: true, lines: [...byKey.values()] };
+}
+
+/** True when the SKU already has a trailing `_N` or `-N` variant suffix. */
+export function isVariantSku(sku: string): boolean {
+  const trimmed = sku.trim();
+  return trimmed.length > 0 && baseSku(trimmed) !== trimmed;
+}
+
+/** Exact common SKU, or a `_N` / `-N` variant of it. Does not match ORD040_1 for ORD04. */
+export function itemMatchesCommonSku(itemCode: string, commonSku: string): boolean {
+  const item = skuKey(itemCode);
+  const common = skuKey(commonSku);
+  if (!item || !common) return false;
+  return item === common || skuKey(baseSku(itemCode)) === common;
+}
+
+/**
+ * Common SKU (ORD04) → every ERP variant (ORD04_1, ORD04_2).
+ * A typed variant stays exact. Variants already on the request are not duplicated.
+ */
+export function expandCommonSkuLines(
+  lines: NormalizedLine[],
+  items: Iterable<{ itemCode: string }>,
+): ExpandedLine[] {
+  const erpItems = [...items];
+  const explicitKeys = new Set(lines.map((line) => line.key));
+  const out: ExpandedLine[] = [];
+  const seen = new Set<string>();
+
+  function push(line: ExpandedLine) {
+    if (seen.has(line.key)) return;
+    seen.add(line.key);
+    out.push(line);
+  }
+
+  for (const line of lines) {
+    if (isVariantSku(line.sku)) {
+      push({ ...line, fromCommonSku: null });
+      continue;
+    }
+    const matches = erpItems
+      .filter((item) => itemMatchesCommonSku(item.itemCode, line.sku))
+      .sort((a, b) => a.itemCode.localeCompare(b.itemCode, undefined, { numeric: true }));
+    if (matches.length === 0) {
+      push({ ...line, fromCommonSku: null });
+      continue;
+    }
+    for (const item of matches) {
+      const key = skuKey(item.itemCode);
+      if (key !== line.key && explicitKeys.has(key)) continue;
+      push({
+        key,
+        sku: item.itemCode,
+        qty: line.qty,
+        fromCommonSku: key === line.key ? null : line.sku,
+      });
+    }
+  }
+
+  return out;
 }
 
 export function classifyLine(available: number, qty: number): LineStatus {
@@ -227,53 +290,91 @@ export function pickOptions(
   return { companies, options, noOptionReason };
 }
 
+function collectShopSources(shops: ShopCompanyStock[], companyName: string, key: string): DetailSource[] {
+  const sources: DetailSource[] = [];
+  for (const other of shops) {
+    if (other.company === companyName) continue;
+    for (const row of other.lines[key]?.byWarehouse ?? []) {
+      if (row.available > 0) {
+        sources.push({
+          company: other.company,
+          warehouse: row.warehouse,
+          available: row.available,
+          priority: row.priority,
+        });
+      }
+    }
+  }
+  sources.sort(
+    (a, b) =>
+      b.available - a.available || a.company.localeCompare(b.company) || a.warehouse.localeCompare(b.warehouse),
+  );
+  return sources;
+}
+
 /** Selected company's own stock for covered SKUs, and where the short/missing ones sit elsewhere. */
 export function buildDetail(
-  response: Pick<OrderAvailabilityResponse, "lines" | "companies">,
+  response: Pick<OrderAvailabilityResponse, "lines" | "companies" | "shopCompanies">,
   companyName: string,
 ): OrderDetail | null {
   const selected = response.companies.find((row) => row.company === companyName);
   if (!selected) return null;
+  const shopCompanies = response.shopCompanies ?? [];
+  const ownShops = shopCompanies.find((row) => row.company === companyName);
 
-  const detail: OrderDetail = { company: companyName, covered: [], toMove: [] };
+  const detail: OrderDetail = { company: companyName, covered: [], toMove: [], shops: [] };
   for (const line of response.lines) {
     if (!line.found) continue;
     const own = selected.lines[line.key];
     if (!own) continue;
     if (own.status === "covered") {
       detail.covered.push({ key: line.key, sku: line.sku, qty: line.qty, byWarehouse: own.byWarehouse });
-      continue;
-    }
-    const sources: DetailSource[] = [];
-    for (const other of response.companies) {
-      if (other.company === companyName) continue;
-      for (const row of other.lines[line.key]?.byWarehouse ?? []) {
-        if (row.available > 0) {
-          sources.push({
-            company: other.company,
-            warehouse: row.warehouse,
-            available: row.available,
-            priority: row.priority,
-          });
+    } else {
+      const sources: DetailSource[] = [];
+      for (const other of response.companies) {
+        if (other.company === companyName) continue;
+        for (const row of other.lines[line.key]?.byWarehouse ?? []) {
+          if (row.available > 0) {
+            sources.push({
+              company: other.company,
+              warehouse: row.warehouse,
+              available: row.available,
+              priority: row.priority,
+            });
+          }
         }
       }
+      sources.sort(
+        (a, b) =>
+          prioritySortKey(a.priority) - prioritySortKey(b.priority) ||
+          b.available - a.available ||
+          a.company.localeCompare(b.company) ||
+          a.warehouse.localeCompare(b.warehouse),
+      );
+      detail.toMove.push({
+        key: line.key,
+        sku: line.sku,
+        qty: line.qty,
+        status: own.status,
+        ownAvailable: own.available,
+        sources,
+        availableAnywhere: sources.length > 0,
+      });
     }
-    sources.sort(
-      (a, b) =>
-        prioritySortKey(a.priority) - prioritySortKey(b.priority) ||
-        b.available - a.available ||
-        a.company.localeCompare(b.company) ||
-        a.warehouse.localeCompare(b.warehouse),
-    );
-    detail.toMove.push({
-      key: line.key,
-      sku: line.sku,
-      qty: line.qty,
-      status: own.status,
-      ownAvailable: own.available,
-      sources,
-      availableAnywhere: sources.length > 0,
-    });
+
+    const ownShop = ownShops?.lines[line.key];
+    const shopOwn = (ownShop?.byWarehouse ?? []).filter((row) => row.available > 0);
+    const shopSources = collectShopSources(shopCompanies, companyName, line.key);
+    if (shopOwn.length > 0 || shopSources.length > 0) {
+      detail.shops.push({
+        key: line.key,
+        sku: line.sku,
+        qty: line.qty,
+        own: shopOwn,
+        ownAvailable: ownShop?.available ?? 0,
+        sources: shopSources,
+      });
+    }
   }
   return detail;
 }
