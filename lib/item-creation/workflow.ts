@@ -71,7 +71,10 @@ function requireWorkflowPermission(context: UserContext, permission: string) {
 }
 
 function requireItemCreationAdminEdit(context: UserContext) {
-  if (!canManageAllItemCreation(context)) {
+  if (
+    !hasPermission(context, ITEM_CREATION_PERMISSIONS.admin) &&
+    !canManageAllItemCreation(context)
+  ) {
     throw new Error("Permission denied");
   }
 }
