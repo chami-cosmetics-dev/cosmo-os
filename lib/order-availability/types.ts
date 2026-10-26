@@ -1,4 +1,8 @@
 export const ORDER_AVAILABILITY_PERMISSION = "products.order_availability.read";
+export const ORDER_AVAILABILITY_MANAGE_PERMISSION = "products.order_availability.manage";
+
+export const PRIORITY_WAREHOUSE_SLOTS = [1, 2, 3, 4] as const;
+export type WarehousePriority = (typeof PRIORITY_WAREHOUSE_SLOTS)[number];
 
 export const MAX_DISTINCT_SKUS = 50;
 export const MAX_RAW_LINES = 200;
@@ -29,6 +33,7 @@ export type SkuLine = NormalizedLine & {
 export type WarehouseStock = {
   warehouse: string;
   available: number;
+  priority: WarehousePriority | null;
 };
 
 export type LineStatus = "covered" | "short" | "missing";
@@ -58,6 +63,10 @@ export type CompanyResult = {
   missingCount: number;
   totalAvailable: number;
   fullCoverage: boolean;
+  /** Best (lowest) pinned slot among this company's warehouses. Null = not pinned. */
+  warehousePriority: WarehousePriority | null;
+  /** Pinned-warehouse companies skip the monthly cap when labelled as options. */
+  capExempt: boolean;
   cap: CompanyCap | null;
   option: string | null;
 };
@@ -68,6 +77,12 @@ export type NoOptionReason =
   | "no_coverage"
   | "no_found_skus";
 
+export type PriorityWarehouseSlot = {
+  priority: WarehousePriority;
+  warehouse: string | null;
+  company: string | null;
+};
+
 export type OrderAvailabilityResponse = {
   checkedAt: string;
   capMonth: string;
@@ -77,6 +92,7 @@ export type OrderAvailabilityResponse = {
   orderValue: number;
   orderValueIsLowerBound: boolean;
   cap: { limit: number; nearThreshold: number; error: string | null };
+  priorityWarehouses: Array<{ warehouse: string; priority: WarehousePriority }>;
   companies: CompanyResult[];
   options: string[];
   noOptionReason: NoOptionReason | null;
@@ -86,6 +102,7 @@ export type DetailSource = {
   company: string;
   warehouse: string;
   available: number;
+  priority: WarehousePriority | null;
 };
 
 export type OrderDetail = {

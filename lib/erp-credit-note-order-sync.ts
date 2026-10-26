@@ -9,6 +9,7 @@ import {
   mergeErpReturnSalesInvoiceIds,
   normalizeErpReturnSalesInvoiceIds,
 } from "@/lib/erp-return-si";
+import { resolveStoredCancelReason } from "@/lib/order-cancel-reason";
 import { prisma } from "@/lib/prisma";
 
 export { resolveOrderCancelledByLabel } from "@/lib/order-cancelled-by-label";
@@ -30,6 +31,22 @@ export const ERP_CREDIT_NOTE_ORDER_PATCH = {
 /** Cancel attribution when OS has no local user (ERP webhook / reconcile). */
 export const ERP_CANCEL_REASON_CREDIT_NOTE = "ERP credit note";
 export const ERP_CANCEL_REASON_CANCEL = "ERP cancel";
+
+function erpReasonFromReturnOrFallback(
+  order: {
+    cancelReason?: string | null;
+    returns?: Array<{ cancelRemark?: string | null; returnRemark?: string | null }>;
+  },
+  fallback: string,
+) {
+  return (
+    resolveStoredCancelReason({
+      cancelReason: order.cancelReason,
+      returnCancelRemark: order.returns?.[0]?.cancelRemark,
+      returnRemark: order.returns?.[0]?.returnRemark,
+    }) || fallback
+  );
+}
 
 /** Preserve existing OS cancel metadata; fill when/who gaps for ERP-driven voids. */
 export function erpDrivenCancelFields(input: {
@@ -92,6 +109,11 @@ export async function applyErpCancelToOriginalOrder(invoiceRef: string) {
       fulfillmentStage: true,
       cancelledAt: true,
       cancelReason: true,
+      returns: {
+        orderBy: { returnDate: "desc" },
+        take: 1,
+        select: { cancelRemark: true, returnRemark: true },
+      },
     },
   });
   if (!original) return null;
@@ -122,7 +144,7 @@ export async function applyErpCancelToOriginalOrder(invoiceRef: string) {
       ...erpDrivenCancelFields({
         cancelledAt: original.cancelledAt,
         cancelReason: original.cancelReason,
-        reason: ERP_CANCEL_REASON_CANCEL,
+        reason: erpReasonFromReturnOrFallback(original, ERP_CANCEL_REASON_CANCEL),
       }),
     },
   });
@@ -211,7 +233,8 @@ export async function applyErpCreditNoteToOriginalOrder(
       cancelledAt: true,
       cancelReason: true,
       returns: {
-        select: { actionType: true },
+        orderBy: { returnDate: "desc" },
+        select: { actionType: true, cancelRemark: true, returnRemark: true },
       },
     },
   });
@@ -264,7 +287,7 @@ export async function applyErpCreditNoteToOriginalOrder(
       ...erpDrivenCancelFields({
         cancelledAt: original.cancelledAt,
         cancelReason: original.cancelReason,
-        reason: ERP_CANCEL_REASON_CREDIT_NOTE,
+        reason: erpReasonFromReturnOrFallback(original, ERP_CANCEL_REASON_CREDIT_NOTE),
       }),
       ...(returnInvoiceName ? { erpReturnSalesInvoiceIds: nextReturnIds } : {}),
     },
@@ -407,6 +430,11 @@ export async function reconcileOrderErpCreditNote(orderId: string): Promise<{
       revertedFromInvoiceCompleteAt: true,
       cancelledAt: true,
       cancelReason: true,
+      returns: {
+        orderBy: { returnDate: "desc" },
+        take: 1,
+        select: { cancelRemark: true, returnRemark: true },
+      },
       companyLocation: {
         select: {
           erpnextInstance: {
@@ -443,7 +471,7 @@ export async function reconcileOrderErpCreditNote(orderId: string): Promise<{
     const cancelPatch = erpDrivenCancelFields({
       cancelledAt: order.cancelledAt,
       cancelReason: order.cancelReason,
-      reason: ERP_CANCEL_REASON_CREDIT_NOTE,
+      reason: erpReasonFromReturnOrFallback(order, ERP_CANCEL_REASON_CREDIT_NOTE),
     });
     const needsCancelMeta = Boolean(cancelPatch.cancelledAt || cancelPatch.cancelReason);
     if (!returnSiChanged && !needsCancelMeta) {
@@ -511,7 +539,7 @@ export async function reconcileOrderErpCreditNote(orderId: string): Promise<{
       ...erpDrivenCancelFields({
         cancelledAt: order.cancelledAt,
         cancelReason: order.cancelReason,
-        reason: ERP_CANCEL_REASON_CREDIT_NOTE,
+        reason: erpReasonFromReturnOrFallback(order, ERP_CANCEL_REASON_CREDIT_NOTE),
       }),
       ...(names.length ? { erpReturnSalesInvoiceIds: nextReturnIds } : {}),
     },

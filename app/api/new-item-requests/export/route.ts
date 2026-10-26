@@ -34,6 +34,11 @@ export async function GET(request: NextRequest) {
       "Customer phone": row.customerPhone ?? "",
       Votes: row.voteCount,
       Voters: row.voterNames.join(", "),
+      "Vote details": row.votes
+        .map((vote) =>
+          [vote.userName, vote.customerName, vote.customerPhone, vote.customerEmail].filter(Boolean).join(" · "),
+        )
+        .join("; "),
       Status: row.status,
       "Status changed at": row.statusChangedAt ?? "",
       "Status changed by": row.statusChangedByName ?? "",
@@ -57,6 +62,7 @@ export async function GET(request: NextRequest) {
               "Customer phone",
               "Votes",
               "Voters",
+              "Vote details",
               "Status",
               "Status changed at",
               "Status changed by",

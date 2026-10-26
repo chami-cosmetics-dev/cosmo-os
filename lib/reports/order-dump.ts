@@ -1,4 +1,5 @@
 import { getOrderListFulfillmentStageBadges } from "@/lib/fulfillment-stage-display";
+import { resolveStoredCancelReason } from "@/lib/order-cancel-reason";
 import { isMintpayGateway } from "@/lib/payment-gateway-match";
 import { formatAppIsoTime } from "@/lib/format-datetime";
 import { buildCsv, escapeCsvCell, formatCsvHeader, formatIsoDate } from "@/lib/reports/csv";
@@ -150,6 +151,7 @@ export type OrderInvoiceCsvRow = {
   payment_gateway: string;
   koko_ref_number: string;
   payment_status: string;
+  cancel_reason: string;
   company_name: string;
   pos_profile: string;
   pos_warehouse: string;
@@ -193,6 +195,7 @@ export type OrderInvoiceItemCsvRow = {
   grand_total: string;
   status: string;
   payment_status: string;
+  cancel_reason: string;
   fulfillment_status: string;
   payment_gateway: string;
   koko_ref_number: string;
@@ -225,6 +228,7 @@ const ORDER_INVOICE_HEADERS = [
   "payment_gateway",
   "koko_ref_number",
   "payment_status",
+  "cancel_reason",
   "company_name",
   "pos_profile",
   "pos_warehouse",
@@ -271,6 +275,7 @@ const ORDER_INVOICE_ITEM_HEADERS = [
   "status",
   "fulfillment_status",
   "payment_status",
+  "cancel_reason",
   "payment_gateway",
   "koko_ref_number",
   "merchant_name",
@@ -383,6 +388,9 @@ export function createOrderInvoiceRow(input: {
   createdBy: string;
   couponCode?: string | null;
   kokoRefNumber?: string | null;
+  cancelReason?: string | null;
+  returnCancelRemark?: string | null;
+  returnRemark?: string | null;
 }): OrderInvoiceCsvRow {
   const sourceName = formatSourceName(input.sourceName);
   const completedAt = resolveDumpCompletedAt(input);
@@ -414,6 +422,7 @@ export function createOrderInvoiceRow(input: {
     payment_gateway: summarizePaymentGateway(input.paymentGateway),
     koko_ref_number: input.kokoRefNumber?.trim() ?? "",
     payment_status: input.financialStatus ?? "",
+    cancel_reason: resolveStoredCancelReason(input),
     company_name: input.companyName,
     pos_profile: input.posProfile ?? "",
     pos_warehouse: input.posWarehouse ?? "",
@@ -465,6 +474,9 @@ export function createOrderInvoiceItemRow(input: {
   merchantName: string;
   createdBy: string;
   kokoRefNumber?: string | null;
+  cancelReason?: string | null;
+  returnCancelRemark?: string | null;
+  returnRemark?: string | null;
 }): OrderInvoiceItemCsvRow {
   return {
     invoice_no: input.invoiceNo,
@@ -489,6 +501,7 @@ export function createOrderInvoiceItemRow(input: {
     grand_total: input.afterDiscountTotal ?? input.lineTotal,
     status: resolveCompletionStatus(input) ?? input.fulfillmentStage ?? "",
     payment_status: input.financialStatus ?? "",
+    cancel_reason: resolveStoredCancelReason(input),
     fulfillment_status: resolveExportFulfillmentStatus(input),
     payment_gateway: summarizePaymentGateway(input.paymentGateway),
     koko_ref_number: input.kokoRefNumber?.trim() ?? "",

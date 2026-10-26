@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { NewItemRequestVoteDialog } from "@/components/organisms/new-item-request-vote-dialog";
 import {
   formatVoteCount,
   type NewItemRequestBrandHit,
@@ -62,6 +63,7 @@ export function NewItemRequestForm({
   const [productHits, setProductHits] = useState<NewItemRequestView[]>([]);
   const [brandHits, setBrandHits] = useState<NewItemRequestBrandHit[]>([]);
   const [pickedBrand, setPickedBrand] = useState<NewItemRequestBrandHit | null>(null);
+  const [voting, setVoting] = useState<NewItemRequestView | null>(null);
   const [composing, setComposing] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [busyKey, setBusyKey] = useState<string | null>(null);
@@ -177,18 +179,22 @@ export function NewItemRequestForm({
     setComposing(false);
   }
 
-  async function vote(id: string) {
+  function applyVoted(request: NewItemRequestView) {
+    setProductHits((current) => current.map((row) => (row.id === request.id ? request : row)));
+    onVoted?.(request);
+  }
+
+  async function unvote(id: string) {
     try {
-      setBusyKey(`vote-${id}`);
-      const response = await fetch(`/api/new-item-requests/${id}/vote`, { method: "POST" });
+      setBusyKey(`unvote-${id}`);
+      const response = await fetch(`/api/new-item-requests/${id}/vote`, { method: "DELETE" });
       const data = (await response.json()) as { request?: NewItemRequestView; error?: string };
-      if (!response.ok) throw new Error(data.error ?? "Could not vote");
-      if (!data.request) throw new Error("Could not vote");
-      setProductHits((current) => current.map((row) => (row.id === data.request!.id ? data.request! : row)));
-      onVoted?.(data.request);
-      notify.success("Voted. No new request needed.");
+      if (!response.ok) throw new Error(data.error ?? "Could not remove vote");
+      if (!data.request) throw new Error("Could not remove vote");
+      applyVoted(data.request);
+      notify.success("Vote removed.");
     } catch (error) {
-      notify.error(error instanceof Error ? error.message : "Could not vote");
+      notify.error(error instanceof Error ? error.message : "Could not remove vote");
     } finally {
       setBusyKey(null);
     }
@@ -257,22 +263,25 @@ export function NewItemRequestForm({
                   </p>
                 </div>
                 {canVote && hit.hasVoted ? (
-                  <p className="text-muted-foreground text-xs">You voted</p>
-                ) : canVote ? (
                   <Button
                     type="button"
                     size="sm"
+                    variant="outline"
                     disabled={isBusy}
-                    onClick={() => void vote(hit.id)}
+                    onClick={() => void unvote(hit.id)}
                   >
-                    {busyKey === `vote-${hit.id}` ? (
+                    {busyKey === `unvote-${hit.id}` ? (
                       <>
                         <Loader2 className="animate-spin" aria-hidden />
-                        Voting...
+                        Removing...
                       </>
                     ) : (
-                      "Vote"
+                      "Remove vote"
                     )}
+                  </Button>
+                ) : canVote ? (
+                  <Button type="button" size="sm" disabled={isBusy} onClick={() => setVoting(hit)}>
+                    Vote
                   </Button>
                 ) : null}
               </li>
@@ -451,6 +460,14 @@ export function NewItemRequestForm({
           </>
         ) : null}
       </CardContent>
+      <NewItemRequestVoteDialog
+        request={voting}
+        open={voting !== null}
+        onOpenChange={(open) => {
+          if (!open) setVoting(null);
+        }}
+        onVoted={applyVoted}
+      />
     </Card>
   );
 }

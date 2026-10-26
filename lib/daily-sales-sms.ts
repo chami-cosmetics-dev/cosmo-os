@@ -1,17 +1,13 @@
 import type { Prisma } from "@prisma/client";
 
-import { aggregateErpDailySalesRange } from "@/lib/daily-sales-sms-erp";
 import {
   normalizeRecipientList,
 } from "@/lib/daily-sales-sms-recipients";
 import { formatAppIsoDate } from "@/lib/format-datetime";
 import { resolveFailureReportAmounts } from "@/lib/erp-sync-failure-email";
 import { sendSms } from "@/lib/hutch-sms";
-import {
-  buildDashboardSalesDateFilter,
-  isDashboardSalesOrderEligible,
-} from "@/lib/page-data/dashboard-sales";
 import { prisma } from "@/lib/prisma";
+import { salesNetContribution, salesNetPlacedWhere } from "@/lib/sales-net-placed";
 
 export { normalizeRecipientList } from "@/lib/daily-sales-sms-recipients";
 const REPORT_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -160,28 +156,22 @@ async function aggregateRange(
 ): Promise<{ total: number; count: number; byLocation: Map<string, number> }> {
   const fromDate = parseDayStart(fromYmd);
   const toDate = parseDayEnd(toYmd);
-  const dateFilter = buildDashboardSalesDateFilter({
-    fromDate,
-    toDate,
-    dateType: "all_orders",
-  });
 
   const orders = await prisma.order.findMany({
-    where: { companyId, ...dateFilter },
+    where: salesNetPlacedWhere(companyId, fromDate, toDate),
     select: {
       totalPrice: true,
-      totalShipping: true,
-      shippingLines: true,
-      discountCodes: true,
+      createdAt: true,
+      cancelledAt: true,
       financialStatus: true,
-      sourceName: true,
-      fulfillmentStatus: true,
       fulfillmentStage: true,
-      deliveryOutcome: true,
-      deliveryCompleteAt: true,
-      invoiceCompleteAt: true,
-      rawPayload: true,
+      fulfillmentStageEnteredAt: true,
       companyLocationId: true,
+      returns: {
+        select: { returnDate: true },
+        orderBy: { returnDate: "desc" },
+        take: 1,
+      },
     },
   });
 
@@ -190,20 +180,18 @@ async function aggregateRange(
   const byLocation = new Map<string, number>();
 
   for (const order of orders) {
-    if (!isDashboardSalesOrderEligible(order, "all_orders")) continue;
-    const amount = salesAmountExcludingShipping({
-      totalPrice: order.totalPrice,
-      totalShipping: order.totalShipping,
-      shippingLines: order.shippingLines,
-      discountCodes: order.discountCodes,
-    });
-    if (amount == null) continue;
-    total += amount;
-    count += 1;
+    const net = salesNetContribution(
+      { ...order, returnDate: order.returns[0]?.returnDate ?? null },
+      fromYmd,
+      toYmd,
+    );
+    if (net.signedAmount === 0 && net.includeInCount === 0) continue;
+    total += net.signedAmount;
+    count += net.includeInCount;
     if (order.companyLocationId) {
       byLocation.set(
         order.companyLocationId,
-        (byLocation.get(order.companyLocationId) ?? 0) + amount,
+        (byLocation.get(order.companyLocationId) ?? 0) + net.signedAmount,
       );
     }
   }
@@ -225,25 +213,6 @@ export async function buildDailySalesReport(
     select: { id: true, name: true, shortName: true },
   });
   const locationNameById = new Map(locations.map((l) => [l.id, l]));
-
-  // Prefer ERP SI posting_date + net_total (sales − same-day returns) on both
-  // Cosmo and Vault whenever ERP instances are configured — matches ERP day report.
-  const [dayErp, mtdErp] = await Promise.all([
-    aggregateErpDailySalesRange(companyId, reportDate, reportDate),
-    aggregateErpDailySalesRange(companyId, mtdFrom, reportDate),
-  ]);
-  if (dayErp && mtdErp) {
-    const base = {
-      reportDate,
-      dayValue: dayErp.total,
-      dayCount: dayErp.count,
-      mtdValue: mtdErp.total,
-      mtdCount: mtdErp.count,
-      dayLocations: locationRowsFromAgg(dayErp.byLocation, locationNameById),
-      locations: locationRowsFromAgg(mtdErp.byLocation, locationNameById),
-    };
-    return { ...base, messageBody: formatDailySalesSmsBody(base) };
-  }
 
   const [dayAgg, mtdAgg] = await Promise.all([
     aggregateRange(companyId, reportDate, reportDate),

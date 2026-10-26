@@ -79,6 +79,24 @@ export const newItemRequestStatusBodySchema = z.object({
   status: z.enum(["already_have", "closed"]),
 });
 
+export const newItemRequestVoteBodySchema = z.object({
+  customerName: trimmedString(1, LIMITS.name.max),
+  customerPhone: z
+    .string()
+    .transform((value) => canonicalPhoneForErpCustomerId(value))
+    .refine((value): value is string => value !== null, "Enter a valid Sri Lankan phone number"),
+  customerEmail: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .max(LIMITS.email.max)
+    .optional()
+    .transform((value) => (value ? value : undefined))
+    .pipe(z.email("Enter a valid email address").optional()),
+});
+
+export type NewItemRequestVoteBody = z.infer<typeof newItemRequestVoteBodySchema>;
+
 export function newItemRequestListQueryFromSearch(search: URLSearchParams) {
   return newItemRequestListQuerySchema.safeParse({
     status: search.get("status") ?? undefined,

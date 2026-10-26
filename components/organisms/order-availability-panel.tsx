@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, Plus, Search, Trash2 } from "lucide-react";
 
+import { OrderAvailabilityPriorityEditor } from "@/components/organisms/order-availability-priority-editor";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -141,6 +142,8 @@ function CompanyCard({
           {company.coveredCount} of {found.length}
         </Pill>
         {company.fullCoverage ? <Pill tone="ok">Full coverage</Pill> : null}
+        {company.warehousePriority ? <Pill tone="primary">Priority {company.warehousePriority}</Pill> : null}
+        {company.capExempt ? <Pill tone="ok">Cap waived</Pill> : null}
         {capLabel ? <Pill tone={capLabel.tone}>{capLabel.text}</Pill> : null}
         {selected ? <Pill tone="primary">Selected</Pill> : null}
       </div>
@@ -204,9 +207,10 @@ function DetailCard({ result, company }: { result: OrderAvailabilityResponse; co
                   {line.sources.length > 0 ? (
                     <ul className="text-muted-foreground mt-2 space-y-1">
                       {line.sources.map((source) => (
-                        <li key={`${source.company}::${source.warehouse}`} className="flex flex-wrap justify-between gap-2">
-                          <span className="break-words">
+                        <li key={`${source.company}::${source.warehouse}`} className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="flex min-w-0 flex-wrap items-center gap-1.5 break-words">
                             {source.company} · {source.warehouse}
+                            {source.priority ? <Pill tone="primary">Priority {source.priority}</Pill> : null}
                           </span>
                           <span className="text-foreground font-medium">{source.available}</span>
                         </li>
@@ -226,7 +230,7 @@ function DetailCard({ result, company }: { result: OrderAvailabilityResponse; co
   );
 }
 
-export function OrderAvailabilityPanel() {
+export function OrderAvailabilityPanel({ canManage }: { canManage: boolean }) {
   const [paste, setPaste] = useState("");
   const [rows, setRows] = useState<EntryRow[]>([]);
   const [busy, setBusy] = useState(false);
@@ -299,6 +303,8 @@ export function OrderAvailabilityPanel() {
           the monthly cap.
         </p>
       </div>
+
+      {canManage ? <OrderAvailabilityPriorityEditor /> : null}
 
       <div className="max-w-2xl space-y-3">
         <div className="space-y-2">

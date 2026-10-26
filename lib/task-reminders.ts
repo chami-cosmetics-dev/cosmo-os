@@ -1039,7 +1039,7 @@ async function fetchShopToMainReminders(companyId: string, now: Date): Promise<C
       category: "shop_to_main" as const,
       title: `Shop return from ${row.sourceWarehouse}`,
       body: `${units} units waiting for a stores count.`,
-      href: "/dashboard/store/material-transfer",
+      href: "/dashboard/store/material-transfer?tab=returns",
       waitingHours: waitingHoursSince(row.createdAt, now),
       invoiceLabel: row.sourceWarehouse,
     };

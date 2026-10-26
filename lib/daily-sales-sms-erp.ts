@@ -2,7 +2,9 @@
  * ERP-backed daily sales for Cosmo/Vault SMS — matches ERP day report:
  * submitted Sales Invoices by posting_date, net_total (excl shipping),
  * including same-day returns (even when original SI is older).
+ * Same-PO duplicate sales invoices count once (paid / Vault-linked SI kept).
  */
+import { keepCanonicalSalesInvoicesByPo } from "@/lib/erp-duplicate-sales-invoice";
 import { prisma } from "@/lib/prisma";
 
 export type ErpDailySalesInvoiceRow = {
@@ -12,6 +14,10 @@ export type ErpDailySalesInvoiceRow = {
   is_return?: number | boolean | null;
   docstatus?: number | null;
   posting_date?: string | null;
+  po_no?: string | null;
+  outstanding_amount?: number | string | null;
+  grand_total?: number | string | null;
+  creation?: string | null;
 };
 
 export type ErpDailySalesAgg = {
@@ -39,17 +45,31 @@ function isReturnInvoice(row: ErpDailySalesInvoiceRow): boolean {
   return Number.isFinite(net) && net < 0;
 }
 
+function toDedupeRow(row: ErpDailySalesInvoiceRow) {
+  const outstanding = Number(row.outstanding_amount);
+  return {
+    ...row,
+    name: (row.name ?? "").trim(),
+    outstanding_amount: Number.isFinite(outstanding) ? outstanding : 1,
+    grand_total: Number(row.grand_total ?? row.net_total ?? 0),
+    creation: row.creation ?? row.posting_date ?? null,
+  };
+}
+
 /** Pure reducer — used by SMS builder and unit tests. */
 export function aggregateErpSalesInvoiceRows(
   rows: ErpDailySalesInvoiceRow[],
   companyToLocationId: Map<string, string>,
+  preferInvoiceNames?: ReadonlySet<string>,
 ): ErpDailySalesAgg {
   let total = 0;
   let count = 0;
   const byLocation = new Map<string, number>();
 
-  for (const row of rows) {
-    if (row.docstatus != null && row.docstatus !== 1) continue;
+  const submitted = rows.filter((row) => row.docstatus == null || row.docstatus === 1);
+  const unique = keepCanonicalSalesInvoicesByPo(submitted.map(toDedupeRow), preferInvoiceNames);
+
+  for (const row of unique) {
     const net = Number(row.net_total ?? 0);
     if (!Number.isFinite(net)) continue;
 
@@ -95,6 +115,10 @@ async function listSubmittedSalesInvoicesForRange(
     "is_return",
     "docstatus",
     "posting_date",
+    "po_no",
+    "outstanding_amount",
+    "grand_total",
+    "creation",
   ]);
 
   const all: ErpDailySalesInvoiceRow[] = [];
@@ -158,5 +182,21 @@ export async function aggregateErpDailySalesRange(
     allRows.push(...rows);
   }
 
-  return aggregateErpSalesInvoiceRows(allRows, companyToLocationId);
+  const invoiceNames = [
+    ...new Set(allRows.map((row) => row.name?.trim()).filter((name): name is string => Boolean(name))),
+  ];
+  const linkedOrders =
+    invoiceNames.length === 0
+      ? []
+      : await prisma.order.findMany({
+          where: { companyId, erpnextInvoiceId: { in: invoiceNames } },
+          select: { erpnextInvoiceId: true },
+        });
+  const preferInvoiceNames = new Set(
+    linkedOrders
+      .map((order) => order.erpnextInvoiceId?.trim())
+      .filter((name): name is string => Boolean(name)),
+  );
+
+  return aggregateErpSalesInvoiceRows(allRows, companyToLocationId, preferInvoiceNames);
 }

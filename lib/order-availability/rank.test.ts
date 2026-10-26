@@ -41,6 +41,8 @@ function company(name: string, extra: Partial<CompanyResult> = {}): CompanyResul
     missingCount: 0,
     totalAvailable: 0,
     fullCoverage: false,
+    warehousePriority: null,
+    capExempt: false,
     cap: null,
     option: null,
     ...extra,
@@ -125,8 +127,8 @@ describe("buildCompanyResults + rankCompanies", () => {
       status: "covered",
       available: 6,
       byWarehouse: [
-        { warehouse: "Main 2 - C1", available: 5 },
-        { warehouse: "Main - C1", available: 1 },
+        { warehouse: "Main 2 - C1", available: 5, priority: null },
+        { warehouse: "Main - C1", available: 1, priority: null },
       ],
     });
     expect(c1.lines.NF).toBeUndefined();
@@ -134,6 +136,31 @@ describe("buildCompanyResults + rankCompanies", () => {
     expect(c1.totalAvailable).toBe(3); // min(6,2) + min(1,1)
     expect(c2.lines.S1.status).toBe("short");
     expect([c2.coveredCount, c2.shortCount, c2.missingCount]).toEqual([1, 1, 1]);
+  });
+
+  it("ranks pinned warehouses first, then coverage; zero coverage stays last", () => {
+    const ranked = rankCompanies([
+      company("Top", { coveredCount: 5, totalAvailable: 9 }),
+      company("P2", { coveredCount: 1, totalAvailable: 1, warehousePriority: 2, capExempt: true }),
+      company("P1", { coveredCount: 1, totalAvailable: 1, warehousePriority: 1, capExempt: true }),
+      company("EmptyP1", { coveredCount: 0, warehousePriority: 1, capExempt: true }),
+    ]);
+    expect(ranked.map((row) => row.company)).toEqual(["P1", "P2", "Top", "EmptyP1"]);
+  });
+
+  it("lists a pinned warehouse before a larger unpinned one", () => {
+    const results = buildCompanyResults({
+      skuLines: [skuLine("S1", 2)],
+      warehousesByCompany,
+      binAvailable: bins,
+      warehousePriority: new Map([["Main - C1", 1]]),
+    });
+    expect(results.find((row) => row.company === "C1")?.lines.S1.byWarehouse).toEqual([
+      { warehouse: "Main - C1", available: 1, priority: 1 },
+      { warehouse: "Main 2 - C1", available: 5, priority: null },
+    ]);
+    expect(results.find((row) => row.company === "C1")?.warehousePriority).toBe(1);
+    expect(results.find((row) => row.company === "C1")?.capExempt).toBe(true);
   });
 
   it("ranks by coverage, then capped quantity, then short count, then name", () => {
@@ -217,6 +244,28 @@ describe("pickOptions", () => {
     expect(result.noOptionReason).toBeNull();
   });
 
+  it("still labels a cap-exempt company that is over the cap", () => {
+    const result = pickOptions(
+      [
+        company("Pinned", { coveredCount: 5, cap: cap("reached"), warehousePriority: 1, capExempt: true }),
+        company("C1", { coveredCount: 4, cap: cap("ok") }),
+      ],
+      3,
+      { foundCount: 5, capError: null },
+    );
+    expect(result.options).toEqual(["Pinned", "C1"]);
+  });
+
+  it("still labels a cap-exempt company when month-to-date sales cannot be read", () => {
+    const result = pickOptions(
+      [company("Pinned", { coveredCount: 2, cap: cap("unknown"), warehousePriority: 1, capExempt: true })],
+      3,
+      { foundCount: 2, capError: "boom" },
+    );
+    expect(result.options).toEqual(["Pinned"]);
+    expect(result.noOptionReason).toBeNull();
+  });
+
   it("never labels a company with zero coverage and returns fewer options when fewer qualify", () => {
     const result = pickOptions(
       [company("C1", { coveredCount: 2, cap: cap("ok") }), company("C2", { coveredCount: 0, cap: cap("ok") })],
@@ -255,15 +304,15 @@ describe("buildDetail", () => {
     companies: [
       company("C1", {
         lines: {
-          S1: { status: "covered", available: 4, byWarehouse: [{ warehouse: "Main - C1", available: 4 }] },
-          S2: { status: "short", available: 1, byWarehouse: [{ warehouse: "Main - C1", available: 1 }] },
+          S1: { status: "covered", available: 4, byWarehouse: [{ warehouse: "Main - C1", available: 4, priority: null }] },
+          S2: { status: "short", available: 1, byWarehouse: [{ warehouse: "Main - C1", available: 1, priority: null }] },
           S3: { status: "missing", available: 0, byWarehouse: [] },
         },
       }),
       company("C2", {
         lines: {
-          S1: { status: "covered", available: 2, byWarehouse: [{ warehouse: "Main - C2", available: 2 }] },
-          S2: { status: "covered", available: 3, byWarehouse: [{ warehouse: "Main - C2", available: 3 }] },
+          S1: { status: "covered", available: 2, byWarehouse: [{ warehouse: "Main - C2", available: 2, priority: null }] },
+          S2: { status: "covered", available: 3, byWarehouse: [{ warehouse: "Main - C2", available: 3, priority: null }] },
           S3: { status: "missing", available: 0, byWarehouse: [] },
         },
       }),
@@ -274,8 +323,8 @@ describe("buildDetail", () => {
             status: "covered",
             available: 9,
             byWarehouse: [
-              { warehouse: "Main A - C3", available: 7 },
-              { warehouse: "Main B - C3", available: 2 },
+              { warehouse: "Main A - C3", available: 7, priority: null },
+              { warehouse: "Main B - C3", available: 2, priority: 1 },
             ],
           },
           S3: { status: "missing", available: 0, byWarehouse: [] },
@@ -287,7 +336,7 @@ describe("buildDetail", () => {
   it("shows own stock for covered SKUs and other-company sources, largest first, for the rest", () => {
     const detail = buildDetail(response, "C1");
     expect(detail?.covered).toEqual([
-      { key: "S1", sku: "S1", qty: 1, byWarehouse: [{ warehouse: "Main - C1", available: 4 }] },
+      { key: "S1", sku: "S1", qty: 1, byWarehouse: [{ warehouse: "Main - C1", available: 4, priority: null }] },
     ]);
     expect(detail?.toMove).toEqual([
       {
@@ -297,9 +346,9 @@ describe("buildDetail", () => {
         status: "short",
         ownAvailable: 1,
         sources: [
-          { company: "C3", warehouse: "Main A - C3", available: 7 },
-          { company: "C2", warehouse: "Main - C2", available: 3 },
-          { company: "C3", warehouse: "Main B - C3", available: 2 },
+          { company: "C3", warehouse: "Main B - C3", available: 2, priority: 1 },
+          { company: "C3", warehouse: "Main A - C3", available: 7, priority: null },
+          { company: "C2", warehouse: "Main - C2", available: 3, priority: null },
         ],
         availableAnywhere: true,
       },

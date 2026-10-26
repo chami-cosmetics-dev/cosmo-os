@@ -66,12 +66,16 @@ function slotLabel(slot: TransferSlot) {
   return slot === "erp1" ? "ERP1" : "ERP2";
 }
 
+export type MaterialTransferPageTab = "send" | "requests" | "returns";
+
 export function MaterialTransferPanel({
   companyId,
   userId,
+  initialTab = "send",
 }: {
   companyId: string;
   userId: string;
+  initialTab?: MaterialTransferPageTab;
 }) {
   const [page, setPage] = useState<PageData | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
@@ -85,6 +89,7 @@ export function MaterialTransferPanel({
   const [busyKey, setBusyKey] = useState<"page" | "lookup" | "submit" | null>("page");
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [highlightedItemCode, setHighlightedItemCode] = useState<string | null>(null);
+  const [tab, setTab] = useState<MaterialTransferPageTab>(initialTab);
   const scanRef = useRef<HTMLInputElement>(null);
   const scanValueRef = useRef("");
   const linesRef = useRef<TransferLine[]>([]);
@@ -326,10 +331,21 @@ export function MaterialTransferPanel({
         </p>
       </div>
 
-      <Tabs defaultValue="send">
+      <Tabs
+        value={tab}
+        onValueChange={(value) => {
+          const next = value as MaterialTransferPageTab;
+          setTab(next);
+          const url = new URL(window.location.href);
+          if (next === "send") url.searchParams.delete("tab");
+          else url.searchParams.set("tab", next);
+          window.history.replaceState(null, "", url);
+        }}
+      >
         <TabsList className="h-auto w-full justify-start gap-1 sm:w-fit">
           <TabsTrigger value="send">Send</TabsTrigger>
           <TabsTrigger value="requests">Shop requests</TabsTrigger>
+          <TabsTrigger value="returns">Shop returns</TabsTrigger>
         </TabsList>
         <TabsContent value="send" className="flex flex-col gap-4">
       {busyKey === "page" ? (
@@ -608,12 +624,14 @@ export function MaterialTransferPanel({
         </DialogContent>
       </Dialog>
 
-      <ShopReturnQueue />
-
-      <MaterialTransferHistory scope="all" title="History" />
+      <MaterialTransferHistory scope="all" title="History" direction="store_to_shop" />
         </TabsContent>
         <TabsContent value="requests">
           <MaterialTransferRequestQueue />
+        </TabsContent>
+        <TabsContent value="returns" className="flex flex-col gap-4">
+          <ShopReturnQueue />
+          <MaterialTransferHistory scope="all" title="History" direction="shop_to_main" />
         </TabsContent>
       </Tabs>
     </div>

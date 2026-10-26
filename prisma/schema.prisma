@@ -120,9 +120,10 @@ model Company {
   newItemRequests                 NewItemRequest[]
   newItemRequestVotes             NewItemRequestVote[]
   riderFinanceCashReceipts        RiderFinanceCashReceipt[]
-  giftVoucherGroups               GiftVoucherGroup[]
-  giftVoucherCodes                GiftVoucherCode[]
-  giftVoucherCounter              GiftVoucherCounter?
+  giftVoucherGroups                    GiftVoucherGroup[]
+  giftVoucherCodes                     GiftVoucherCode[]
+  giftVoucherCounter                   GiftVoucherCounter?
+  orderAvailabilityPriorityWarehouses  OrderAvailabilityPriorityWarehouse[]
 }
 
 model PrintFormat {
@@ -3312,14 +3313,17 @@ model NewItemRequest {
 }
 
 model NewItemRequestVote {
-  id        String         @id @default(cuid())
-  companyId String
-  requestId String
-  userId    String
-  createdAt DateTime       @default(now())
-  company   Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  request   NewItemRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
-  user      User           @relation("NewItemRequestVoteUser", fields: [userId], references: [id], onDelete: Cascade)
+  id            String         @id @default(cuid())
+  companyId     String
+  requestId     String
+  userId        String
+  customerName  String?
+  customerPhone String?
+  customerEmail String?
+  createdAt     DateTime       @default(now())
+  company       Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  request       NewItemRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  user          User           @relation("NewItemRequestVoteUser", fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([requestId, userId])
   @@index([companyId, requestId])
@@ -3719,4 +3723,20 @@ model GiftVoucherCounter {
   lastGroupNumber Int
   updatedAt       DateTime @updatedAt
   company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+}
+
+/// Up to 4 ERP2 main warehouses that skip the monthly cap and rank first in order availability.
+model OrderAvailabilityPriorityWarehouse {
+  id        String   @id @default(cuid())
+  companyId String
+  warehouse String
+  /// 1 = highest priority … 4 = lowest of the pinned set
+  priority  Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, priority])
+  @@unique([companyId, warehouse])
+  @@index([companyId])
 }

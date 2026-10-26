@@ -2,6 +2,14 @@ export const NEW_ITEM_REQUEST_STATUSES = ["open", "already_have", "closed"] as c
 
 export type NewItemRequestStatusValue = (typeof NEW_ITEM_REQUEST_STATUSES)[number];
 
+export type NewItemRequestVoteView = {
+  userName: string;
+  customerName: string | null;
+  customerPhone: string | null;
+  customerEmail: string | null;
+  createdAt: string;
+};
+
 export type NewItemRequestView = {
   id: string;
   brandName: string;
@@ -16,6 +24,7 @@ export type NewItemRequestView = {
   customerPhone: string | null;
   voteCount: number;
   voterNames: string[];
+  votes: NewItemRequestVoteView[];
   hasVoted: boolean;
   status: NewItemRequestStatusValue;
   createdAt: string;

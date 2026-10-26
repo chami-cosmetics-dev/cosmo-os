@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Loader2 } from "lucide-react";
 
+import { NewItemRequestVoteList } from "@/components/organisms/new-item-request-vote-list";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatAppDateTime } from "@/lib/format-datetime";
@@ -209,6 +210,7 @@ export function NewItemRequestBrandBoard({ initialBrands }: NewItemRequestBrandB
                     {[row.customerName, row.customerPhone].filter(Boolean).join(" · ")}
                   </p>
                 ) : null}
+                <NewItemRequestVoteList votes={row.votes} />
                 {row.storeUrl ? (
                   <a className="text-primary underline" href={row.storeUrl} target="_blank" rel="noreferrer">
                     Other-store link

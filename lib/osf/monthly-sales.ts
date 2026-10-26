@@ -77,6 +77,14 @@ export function osfSalesGridBounds(asOfDate: string): { start: Date; endExclusiv
   return { start, endExclusive: new Date(asOfStart.getTime() + 86_400_000) };
 }
 
+/** Shift an ISO date back by whole calendar months (UTC date parts). */
+export function isoDateMonthsBefore(isoDate: string, months: number): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate);
+  if (!match) return isoDate;
+  const dt = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1 - months, Number(match[3])));
+  return dt.toISOString().slice(0, 10);
+}
+
 /** Inclusive ERP posting_date bounds for the purchase grid. */
 export function osfPurchaseGridBounds(asOfDate: string): { start: string; end: string } {
   const months = monthKeysInWindow(asOfDate);
