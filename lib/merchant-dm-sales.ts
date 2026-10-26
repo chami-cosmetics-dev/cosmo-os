@@ -14,7 +14,14 @@ export const DM_GENERAL_COHORT_ID = "__dm_general__";
 
 export const DM_GENERAL_DISPLAY_NAME = "DM-General";
 export const STAFF_SALES_DISPLAY_NAME = "Staff Sales";
-export const DIRECTOR_SALES_DISPLAY_NAME = "Director Sales";
+
+/** Staff discount coupons. Orders with these dump as Staff Sales. */
+export const STAFF_SALES_COUPON_KEYS = new Set([
+  "staffdc",
+  "dir100",
+  "staffvat",
+  "staffsale",
+]);
 
 /** Collapse blank / Unknown / Unassigned / "DM General" group label into DM-General. */
 export function normalizeDashboardMerchantLabel(
@@ -44,6 +51,16 @@ export function normalizeCouponKey(code: string): string {
   return code.trim().toLowerCase();
 }
 
+function compactCouponKey(code: string): string {
+  return normalizeCouponKey(code).replace(/[_-]+/g, "");
+}
+
+export function isStaffSalesCouponCode(code: string | null | undefined): boolean {
+  const key = compactCouponKey(String(code ?? ""));
+  if (!key) return false;
+  return STAFF_SALES_COUPON_KEYS.has(key);
+}
+
 /** Merchants who own DM coupon codes (DM-General bucket attributee). */
 export function resolveDmHolderMerchantIds(
   merchants: Array<{ id: string }>,
@@ -66,11 +83,7 @@ export function dmBucketShareForHolder(
 export function resolveFixedSalesCouponBucket(
   couponCodes: string[],
 ): { id: string | null; name: string } | null {
-  const normalized = couponCodes.map((code) => normalizeCouponKey(code)).filter(Boolean);
-  if (normalized.some((code) => code === "dir100")) {
-    return { id: null, name: DIRECTOR_SALES_DISPLAY_NAME };
-  }
-  if (normalized.some((code) => code.includes("staff"))) {
+  if (couponCodes.some((code) => isStaffSalesCouponCode(code))) {
     return { id: null, name: STAFF_SALES_DISPLAY_NAME };
   }
   return null;

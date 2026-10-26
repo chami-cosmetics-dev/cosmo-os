@@ -1,4 +1,9 @@
 import { getOrderListFulfillmentStageBadges } from "@/lib/fulfillment-stage-display";
+import { applyMerchantGroup } from "@/lib/merchant-groups";
+import {
+  parseOrderCouponList,
+  resolveFixedSalesCouponBucket,
+} from "@/lib/merchant-dm-sales";
 import { resolveStoredCancelReason } from "@/lib/order-cancel-reason";
 import { isMintpayGateway } from "@/lib/payment-gateway-match";
 import { formatAppIsoTime } from "@/lib/format-datetime";
@@ -311,6 +316,37 @@ export function joinDumpCouponCodes(...values: Array<string | null | undefined>)
     }
   }
   return parts.join(",");
+}
+
+/**
+ * Dump merchant column. Staff discount coupons (staffdc / dir100 / staffvat)
+ * win over MER tracking and assigned merchant.
+ */
+export function resolveDumpMerchantName(input: {
+  merchantCouponCode: string | null | undefined;
+  discountCouponCode?: string | null;
+  couponToMerchant: Map<string, { id: string | null; name: string }>;
+  assignedMerchantId?: string | null;
+  assignedMerchantName?: string | null;
+  userToGroup: Map<string, { id: string; name: string }>;
+}): string {
+  const coupons = parseOrderCouponList(
+    joinDumpCouponCodes(input.merchantCouponCode, input.discountCouponCode),
+  );
+  const fixedBucket = resolveFixedSalesCouponBucket(coupons);
+  if (fixedBucket) return fixedBucket.name;
+
+  for (const coupon of parseOrderCouponList(input.merchantCouponCode)) {
+    const merchant = input.couponToMerchant.get(coupon);
+    if (merchant?.name) return merchant.name;
+  }
+
+  const assignedName = input.assignedMerchantName?.trim();
+  if (!assignedName) return "";
+  return applyMerchantGroup(
+    { id: input.assignedMerchantId ?? null, name: assignedName },
+    input.userToGroup,
+  ).name;
 }
 
 export function buildOrderInvoiceCsv(rows: OrderInvoiceCsvRow[]) {

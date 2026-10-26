@@ -3,6 +3,10 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import { OsfErpError, type OsfErpCredentials } from "@/lib/osf/erp-stock";
 import {
+  normalizeSkuKey,
+  resolveProductPriorityFieldName,
+} from "@/lib/product-items/erp-priority-sync";
+import {
   fetchItemBarcodeList,
   fillMissingItemBarcodes,
   firstBarcodeFromErpItem,
@@ -44,6 +48,18 @@ export function isVaultStockItem(row: ErpItemRow): boolean {
   return row.is_stock_item === 1 || row.is_stock_item === true;
 }
 
+/** Read ERP Item Product Priority (custom field name from Custom Field discovery). */
+export function erpItemPriority(
+  row: ErpItemRow,
+  fieldName: string | null | undefined,
+): string | null {
+  if (!fieldName?.trim()) return null;
+  const value = (row as Record<string, unknown>)[fieldName];
+  if (value == null) return null;
+  const text = String(value).trim();
+  return text || null;
+}
+
 export function mapErpItemToCatalogRow(
   row: ErpItemRow,
   extras: { barcode?: string | null; priorityStatus?: string | null } = {},
@@ -65,7 +81,8 @@ export function mapErpItemToCatalogRow(
 
 export async function fetchVaultCatalog(cfg: OsfErpCredentials): Promise<VaultCatalogRow[]> {
   const items: ErpItemRow[] = [];
-  const fields = JSON.stringify([
+  const priorityField = await resolveProductPriorityFieldName(cfg);
+  const fieldList = [
     "name",
     "item_code",
     "item_name",
@@ -75,7 +92,11 @@ export async function fetchVaultCatalog(cfg: OsfErpCredentials): Promise<VaultCa
     "custom_country_claim_type",
     "disabled",
     "is_stock_item",
-  ]);
+  ];
+  if (priorityField && !fieldList.includes(priorityField)) {
+    fieldList.push(priorityField);
+  }
+  const fields = JSON.stringify(fieldList);
   const filters = JSON.stringify([
     ["disabled", "=", 0],
     ["is_stock_item", "=", 1],
@@ -101,6 +122,7 @@ export async function fetchVaultCatalog(cfg: OsfErpCredentials): Promise<VaultCa
   for (const row of items) {
     const mapped = mapErpItemToCatalogRow(row, {
       barcode: lookupBarcode(barcodes, (row.item_code ?? row.name ?? "").trim()),
+      priorityStatus: erpItemPriority(row, priorityField),
     });
     if (mapped) bySku.set(mapped.sku, applyVaultWorkbookUploadToCatalogRow(mapped));
   }
@@ -112,7 +134,7 @@ export async function fetchVaultCatalog(cfg: OsfErpCredentials): Promise<VaultCa
     if (!forced) continue;
     const mapped = mapErpItemToCatalogRow(forced, {
       barcode: lookupBarcode(barcodes, sku) ?? firstBarcodeFromErpItem(forced),
-      priorityStatus: "Newly added",
+      priorityStatus: erpItemPriority(forced, priorityField) ?? "Newly added",
     });
     if (mapped) bySku.set(mapped.sku, applyVaultWorkbookUploadToCatalogRow(mapped));
   }
@@ -153,29 +175,34 @@ export async function attachOsPriority(
 ): Promise<VaultCatalogRow[]> {
   const skus = rows.map((r) => r.sku);
   if (skus.length === 0) return rows;
+  const skuVariants = [...new Set(skus.flatMap((s) => [s, s.toUpperCase(), s.toLowerCase()]))];
   const items = await prisma.productItem.findMany({
-    where: { companyId, sku: { in: skus } },
+    where: { companyId, sku: { in: skuVariants } },
     select: { sku: true, erp1ProductPriority: true, barcode: true },
     orderBy: { updatedAt: "desc" },
   });
   const bySku = new Map<string, { priority: string | null; barcode: string | null }>();
   for (const item of items) {
     const sku = item.sku?.trim();
-    if (!sku || bySku.has(sku)) continue;
-    bySku.set(sku, {
+    if (!sku) continue;
+    const key = normalizeSkuKey(sku);
+    if (bySku.has(key)) continue;
+    bySku.set(key, {
       priority: item.erp1ProductPriority?.trim() || null,
       barcode: item.barcode?.trim() || null,
     });
   }
   return rows.map((row) => {
-    const extra = bySku.get(row.sku);
+    const extra = bySku.get(normalizeSkuKey(row.sku));
+    const erpPriority = row.priorityStatus?.trim() || null;
+    const osPriority = extra?.priority?.trim() || null;
     const merged = {
       ...row,
+      // Live ERP Item Product Priority wins; ProductItem fills blanks only.
       priorityStatus:
-        extra?.priority ??
-        (isVaultOsfForceIncludedSku(row.sku)
-          ? (row.priorityStatus ?? "Newly added")
-          : row.priorityStatus),
+        erpPriority ||
+        osPriority ||
+        (isVaultOsfForceIncludedSku(row.sku) ? "Newly added" : null),
       barcode: row.barcode || extra?.barcode || null,
     };
     return applyVaultWorkbookUploadToCatalogRow(merged);
