@@ -10,6 +10,7 @@ import { syncItemCreationItemFields } from "@/lib/item-creation/automation";
 import { requireAnyPermission } from "@/lib/rbac";
 
 const ADMIN_ITEM_CREATION_PERMISSIONS = [
+  ITEM_CREATION_PERMISSIONS.admin,
   ITEM_CREATION_PERMISSIONS.manageAll,
 ];
 
