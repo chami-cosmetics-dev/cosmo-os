@@ -2,6 +2,7 @@ import "server-only";
 
 import { formatAppIsoDate } from "@/lib/format-datetime";
 import { listTransferWarehouses, resolveTransferSlots } from "@/lib/material-transfer/erp";
+import { isShopWarehouseName } from "@/lib/item-trends/shop-warehouse-name";
 import { isMainWarehouseName } from "@/lib/material-transfer/warehouses";
 import { readOrderAvailabilityConfig } from "@/lib/order-availability/config";
 import { loadPriorityWarehouseRows, toPriorityMap } from "@/lib/order-availability/priority-warehouses";
@@ -9,11 +10,15 @@ import {
   buildCompanyResults,
   capStatus,
   computeOrderValue,
+  expandCommonSkuLines,
+  isVariantSku,
+  itemMatchesCommonSku,
   normalizeRequestLines,
   pickOptions,
   rankCompanies,
 } from "@/lib/order-availability/rank";
 import {
+  MAX_DISTINCT_SKUS,
   NEAR_CAP_RATIO,
   type OrderAvailabilityResponse,
   type RequestLine,
@@ -71,6 +76,43 @@ async function fetchItems(
       const itemCode = row.item_code?.trim();
       if (!itemCode) continue;
       out.set(skuKey(itemCode), { itemCode, itemName: row.item_name?.trim() || null });
+    }
+  }
+  return out;
+}
+
+const COMMON_SKU_BATCH = 10;
+
+/** ERP2 items whose code is the common SKU or a `_N` / `-N` variant of it. */
+async function fetchCommonSkuItems(
+  cfg: OsfErpCredentials,
+  commons: string[],
+): Promise<Map<string, { itemCode: string; itemName: string | null }>> {
+  const out = new Map<string, { itemCode: string; itemName: string | null }>();
+  const prefixes = [...new Set(commons.map((sku) => sku.trim()).filter(Boolean))];
+  if (prefixes.length === 0) return out;
+
+  for (let i = 0; i < prefixes.length; i += COMMON_SKU_BATCH) {
+    const batch = prefixes.slice(i, i + COMMON_SKU_BATCH);
+    const orFilters: Array<[string, string, string]> = [];
+    for (const prefix of batch) {
+      for (const form of new Set([prefix, skuKey(prefix)])) {
+        orFilters.push(["item_code", "=", form]);
+        orFilters.push(["item_code", "like", `${form}_%`]);
+        orFilters.push(["item_code", "like", `${form}-%`]);
+      }
+    }
+    const rows = await erpList<{ item_code?: string; item_name?: string }>(cfg, "Item", {
+      or_filters: JSON.stringify(orFilters),
+      fields: JSON.stringify(["item_code", "item_name"]),
+      limit_page_length: "500",
+    });
+    for (const row of rows) {
+      const itemCode = row.item_code?.trim();
+      if (!itemCode) continue;
+      if (!batch.some((prefix) => itemMatchesCommonSku(itemCode, prefix))) continue;
+      const key = skuKey(itemCode);
+      if (!out.has(key)) out.set(key, { itemCode, itemName: row.item_name?.trim() || null });
     }
   }
   return out;
@@ -183,18 +225,24 @@ export async function checkOrderAvailability(
   const cfg = erp2.cfg;
 
   const warehousesByCompany = new Map<string, string[]>();
+  const shopWarehousesByCompany = new Map<string, string[]>();
   const [warehouseRows, priorityRows] = await Promise.all([
     listTransferWarehouses(cfg),
     loadPriorityWarehouseRows(companyId),
   ]);
   for (const row of warehouseRows) {
-    if (!isMainWarehouseName(row.name)) continue;
-    const list = warehousesByCompany.get(row.company) ?? [];
+    const target = isMainWarehouseName(row.name)
+      ? warehousesByCompany
+      : isShopWarehouseName(row.name)
+        ? shopWarehousesByCompany
+        : null;
+    if (!target) continue;
+    const list = target.get(row.company) ?? [];
     list.push(row.name);
-    warehousesByCompany.set(row.company, list);
+    target.set(row.company, list);
   }
   const companies = [...warehousesByCompany.keys()];
-  const warehouses = [...warehousesByCompany.values()].flat();
+  const warehouses = [...warehousesByCompany.values(), ...shopWarehousesByCompany.values()].flat();
   const warehousePriority = toPriorityMap(priorityRows);
 
   const toYmd = formatAppIsoDate(new Date());
@@ -214,8 +262,30 @@ export async function checkOrderAvailability(
   // Avoid an unhandled rejection while the stock reads run; the result is read below.
   salesPromise.catch(() => undefined);
 
-  const items = await fetchItems(cfg, lookupCodes);
-  const skuLines: SkuLine[] = normalized.lines.map((line) => {
+  const commonQueries = normalized.lines.filter((line) => !isVariantSku(line.sku)).map((line) => line.sku);
+  const [exactItems, commonItems] = await Promise.all([
+    fetchItems(cfg, lookupCodes),
+    fetchCommonSkuItems(cfg, commonQueries),
+  ]);
+  const items = new Map(exactItems);
+  for (const [key, item] of commonItems) {
+    if (!items.has(key)) items.set(key, item);
+  }
+
+  const expanded = expandCommonSkuLines(normalized.lines, items.values());
+  if (expanded.length > MAX_DISTINCT_SKUS) {
+    throw new OrderAvailabilityInputError(
+      `These SKUs expand to ${expanded.length} variants. Check up to ${MAX_DISTINCT_SKUS} at a time — search fewer common SKUs.`,
+    );
+  }
+
+  const missingPriceSkus = expanded.map((line) => line.sku).filter((sku) => !local.has(skuKey(sku)));
+  const localExpanded = missingPriceSkus.length > 0 ? await localItems(companyId, missingPriceSkus) : local;
+  for (const [key, row] of localExpanded) {
+    if (!local.has(key)) local.set(key, row);
+  }
+
+  const skuLines: SkuLine[] = expanded.map((line) => {
     const item = items.get(line.key);
     return {
       ...line,
@@ -265,6 +335,11 @@ export async function checkOrderAvailability(
       .sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0]))
       .map(([warehouse, priority]) => ({ warehouse, priority })),
     companies: picked.companies,
+    shopCompanies: buildCompanyResults({
+      skuLines,
+      warehousesByCompany: shopWarehousesByCompany,
+      binAvailable,
+    }).map(({ company, warehouses, lines }) => ({ company, warehouses, lines })),
     options: picked.options,
     noOptionReason: picked.noOptionReason,
   };

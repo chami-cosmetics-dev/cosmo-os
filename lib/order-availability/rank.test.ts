@@ -7,6 +7,9 @@ import {
   capStatus,
   classifyLine,
   computeOrderValue,
+  expandCommonSkuLines,
+  isVariantSku,
+  itemMatchesCommonSku,
   normalizeRequestLines,
   parseSkuPaste,
   pickOptions,
@@ -27,6 +30,7 @@ function skuLine(sku: string, qty = 1, extra: Partial<SkuLine> = {}): SkuLine {
     itemName: null,
     unitPrice: 100,
     found: true,
+    fromCommonSku: null,
     ...extra,
   };
 }
@@ -94,6 +98,70 @@ describe("normalizeRequestLines", () => {
     const result = normalizeRequestLines(lines);
     expect(result.ok).toBe(false);
     expect(normalizeRequestLines(lines.slice(0, 50)).ok).toBe(true);
+  });
+});
+
+describe("isVariantSku / itemMatchesCommonSku", () => {
+  it("treats trailing _N or -N as a variant", () => {
+    expect(isVariantSku("ORD04_1")).toBe(true);
+    expect(isVariantSku("ORD04-2")).toBe(true);
+    expect(isVariantSku("ORD04")).toBe(false);
+    expect(isVariantSku("ORD04_RED")).toBe(false);
+  });
+
+  it("matches the common SKU and its variants only", () => {
+    expect(itemMatchesCommonSku("ORD04", "ord04")).toBe(true);
+    expect(itemMatchesCommonSku("ORD04_1", "ORD04")).toBe(true);
+    expect(itemMatchesCommonSku("ORD04-2", "ORD04")).toBe(true);
+    expect(itemMatchesCommonSku("ORD040_1", "ORD04")).toBe(false);
+    expect(itemMatchesCommonSku("ORD04_1", "ORD04_1")).toBe(true);
+  });
+});
+
+describe("expandCommonSkuLines", () => {
+  const items = [{ itemCode: "ORD04_1" }, { itemCode: "ORD04_2" }, { itemCode: "ORD040_1" }, { itemCode: "LAR78_1" }];
+
+  it("expands a common SKU to every matching variant and copies qty", () => {
+    expect(expandCommonSkuLines([{ key: "ORD04", sku: "ord04", qty: 2 }], items)).toEqual([
+      { key: "ORD04_1", sku: "ORD04_1", qty: 2, fromCommonSku: "ord04" },
+      { key: "ORD04_2", sku: "ORD04_2", qty: 2, fromCommonSku: "ord04" },
+    ]);
+  });
+
+  it("keeps a typed variant exact", () => {
+    expect(expandCommonSkuLines([{ key: "ORD04_1", sku: "ORD04_1", qty: 1 }], items)).toEqual([
+      { key: "ORD04_1", sku: "ORD04_1", qty: 1, fromCommonSku: null },
+    ]);
+  });
+
+  it("does not duplicate a variant already on the request", () => {
+    expect(
+      expandCommonSkuLines(
+        [
+          { key: "ORD04", sku: "ORD04", qty: 1 },
+          { key: "ORD04_1", sku: "ORD04_1", qty: 3 },
+        ],
+        items,
+      ),
+    ).toEqual([
+      { key: "ORD04_2", sku: "ORD04_2", qty: 1, fromCommonSku: "ORD04" },
+      { key: "ORD04_1", sku: "ORD04_1", qty: 3, fromCommonSku: null },
+    ]);
+  });
+
+  it("keeps an unmatched common SKU as a not-found line", () => {
+    expect(expandCommonSkuLines([{ key: "NOPE", sku: "NOPE", qty: 1 }], items)).toEqual([
+      { key: "NOPE", sku: "NOPE", qty: 1, fromCommonSku: null },
+    ]);
+  });
+
+  it("includes the common SKU itself when it is an ERP item", () => {
+    expect(
+      expandCommonSkuLines([{ key: "ORD04", sku: "ORD04", qty: 1 }], [{ itemCode: "ORD04" }, { itemCode: "ORD04_1" }]),
+    ).toEqual([
+      { key: "ORD04", sku: "ORD04", qty: 1, fromCommonSku: null },
+      { key: "ORD04_1", sku: "ORD04_1", qty: 1, fromCommonSku: "ORD04" },
+    ]);
   });
 });
 
@@ -331,6 +399,35 @@ describe("buildDetail", () => {
         },
       }),
     ],
+    shopCompanies: [
+      {
+        company: "C1",
+        warehouses: ["Shop - C1"],
+        lines: {
+          S1: { status: "covered", available: 2, byWarehouse: [{ warehouse: "Shop - C1", available: 2, priority: null }] },
+          S2: { status: "missing", available: 0, byWarehouse: [] },
+          S3: { status: "short", available: 1, byWarehouse: [{ warehouse: "Shop - C1", available: 1, priority: null }] },
+        },
+      },
+      {
+        company: "C2",
+        warehouses: ["Shop - C2"],
+        lines: {
+          S1: { status: "missing", available: 0, byWarehouse: [] },
+          S2: { status: "covered", available: 4, byWarehouse: [{ warehouse: "Shop - C2", available: 4, priority: null }] },
+          S3: { status: "missing", available: 0, byWarehouse: [] },
+        },
+      },
+      {
+        company: "ShopOnly",
+        warehouses: ["Shop - Only"],
+        lines: {
+          S1: { status: "short", available: 3, byWarehouse: [{ warehouse: "Shop - Only", available: 3, priority: null }] },
+          S2: { status: "missing", available: 0, byWarehouse: [] },
+          S3: { status: "missing", available: 0, byWarehouse: [] },
+        },
+      },
+    ],
   } as unknown as OrderAvailabilityResponse;
 
   it("shows own stock for covered SKUs and other-company sources, largest first, for the rest", () => {
@@ -362,6 +459,38 @@ describe("buildDetail", () => {
         availableAnywhere: false,
       },
     ]);
+  });
+
+  it("lists shop stock separately and keeps it out of main covered/toMove", () => {
+    const detail = buildDetail(response, "C1");
+    expect(detail?.shops).toEqual([
+      {
+        key: "S1",
+        sku: "S1",
+        qty: 1,
+        own: [{ warehouse: "Shop - C1", available: 2, priority: null }],
+        ownAvailable: 2,
+        sources: [{ company: "ShopOnly", warehouse: "Shop - Only", available: 3, priority: null }],
+      },
+      {
+        key: "S2",
+        sku: "S2",
+        qty: 3,
+        own: [],
+        ownAvailable: 0,
+        sources: [{ company: "C2", warehouse: "Shop - C2", available: 4, priority: null }],
+      },
+      {
+        key: "S3",
+        sku: "S3",
+        qty: 1,
+        own: [{ warehouse: "Shop - C1", available: 1, priority: null }],
+        ownAvailable: 1,
+        sources: [],
+      },
+    ]);
+    expect(detail?.covered.some((row) => row.byWarehouse.some((w) => w.warehouse.startsWith("Shop")))).toBe(false);
+    expect(detail?.toMove.some((row) => row.sources.some((s) => s.warehouse.startsWith("Shop")))).toBe(false);
   });
 
   it("returns null for an unknown company", () => {
