@@ -9,7 +9,10 @@ import {
   GIFT_VOUCHER_MANAGE_PERMISSION,
   GIFT_VOUCHER_READ_PERMISSION,
 } from "@/lib/gift-vouchers/types";
-import { ORDER_AVAILABILITY_PERMISSION } from "@/lib/order-availability/types";
+import {
+  ORDER_AVAILABILITY_MANAGE_PERMISSION,
+  ORDER_AVAILABILITY_PERMISSION,
+} from "@/lib/order-availability/types";
 import { getCurrentUserContext, hasPermission } from "@/lib/rbac";
 import { VAT_STATUS_PERMISSION } from "@/lib/vat-status/types";
 
@@ -26,7 +29,9 @@ export default async function VatStatusPage({ searchParams }: PageProps) {
   const canViewVat = hasPermission(context, VAT_STATUS_PERMISSION);
   const canManageVouchers = hasPermission(context, GIFT_VOUCHER_MANAGE_PERMISSION);
   const canViewVouchers = canManageVouchers || hasPermission(context, GIFT_VOUCHER_READ_PERMISSION);
-  const canViewOrderAvailability = hasPermission(context, ORDER_AVAILABILITY_PERMISSION);
+  const canManagePriority = hasPermission(context, ORDER_AVAILABILITY_MANAGE_PERMISSION);
+  const canViewOrderAvailability =
+    canManagePriority || hasPermission(context, ORDER_AVAILABILITY_PERMISSION);
 
   if (!canViewVat && !canViewVouchers && !canViewOrderAvailability) {
     return (
@@ -69,7 +74,7 @@ export default async function VatStatusPage({ searchParams }: PageProps) {
         ) : null}
         {canViewOrderAvailability ? (
           <TabsContent value="order-availability">
-            <OrderAvailabilityPanel />
+            <OrderAvailabilityPanel canManage={canManagePriority} />
           </TabsContent>
         ) : null}
       </Tabs>

@@ -4,6 +4,7 @@ import { formatAppIsoDate } from "@/lib/format-datetime";
 import { listTransferWarehouses, resolveTransferSlots } from "@/lib/material-transfer/erp";
 import { isMainWarehouseName } from "@/lib/material-transfer/warehouses";
 import { readOrderAvailabilityConfig } from "@/lib/order-availability/config";
+import { loadPriorityWarehouseRows, toPriorityMap } from "@/lib/order-availability/priority-warehouses";
 import {
   buildCompanyResults,
   capStatus,
@@ -182,7 +183,11 @@ export async function checkOrderAvailability(
   const cfg = erp2.cfg;
 
   const warehousesByCompany = new Map<string, string[]>();
-  for (const row of await listTransferWarehouses(cfg)) {
+  const [warehouseRows, priorityRows] = await Promise.all([
+    listTransferWarehouses(cfg),
+    loadPriorityWarehouseRows(companyId),
+  ]);
+  for (const row of warehouseRows) {
     if (!isMainWarehouseName(row.name)) continue;
     const list = warehousesByCompany.get(row.company) ?? [];
     list.push(row.name);
@@ -190,6 +195,7 @@ export async function checkOrderAvailability(
   }
   const companies = [...warehousesByCompany.keys()];
   const warehouses = [...warehousesByCompany.values()].flat();
+  const warehousePriority = toPriorityMap(priorityRows);
 
   const toYmd = formatAppIsoDate(new Date());
   const fromYmd = `${toYmd.slice(0, 7)}-01`;
@@ -231,16 +237,16 @@ export async function checkOrderAvailability(
   }
 
   const order = computeOrderValue(skuLines);
-  const ranked = rankCompanies(buildCompanyResults({ skuLines, warehousesByCompany, binAvailable })).map(
-    (row) => ({
-      ...row,
-      cap: capStatus({
-        limit: config.capLkr,
-        usedMtd: salesByCompany?.get(row.company) ?? null,
-        orderValue: order.value,
-      }),
+  const ranked = rankCompanies(
+    buildCompanyResults({ skuLines, warehousesByCompany, binAvailable, warehousePriority }),
+  ).map((row) => ({
+    ...row,
+    cap: capStatus({
+      limit: config.capLkr,
+      usedMtd: salesByCompany?.get(row.company) ?? null,
+      orderValue: order.value,
     }),
-  );
+  }));
   const picked = pickOptions(ranked, config.optionCount, {
     foundCount: foundCodes.length,
     capError,
@@ -255,6 +261,9 @@ export async function checkOrderAvailability(
     orderValue: order.value,
     orderValueIsLowerBound: order.isLowerBound,
     cap: { limit: config.capLkr, nearThreshold: config.capLkr * NEAR_CAP_RATIO, error: capError },
+    priorityWarehouses: [...warehousePriority.entries()]
+      .sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0]))
+      .map(([warehouse, priority]) => ({ warehouse, priority })),
     companies: picked.companies,
     options: picked.options,
     noOptionReason: picked.noOptionReason,

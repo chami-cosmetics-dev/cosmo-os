@@ -12,6 +12,7 @@ import {
   type OrderDetail,
   type RequestLine,
   type SkuLine,
+  type WarehousePriority,
   type WarehouseStock,
 } from "@/lib/order-availability/types";
 import { skuKey } from "@/lib/vat-status/types";
@@ -66,13 +67,41 @@ export function classifyLine(available: number, qty: number): LineStatus {
   return available >= qty ? "covered" : "short";
 }
 
+/** Unpinned warehouses sort after 1–4. Lower number wins. */
+export function prioritySortKey(priority: WarehousePriority | null | undefined): number {
+  return priority ?? 5;
+}
+
+function compareWarehouseStock(a: WarehouseStock, b: WarehouseStock): number {
+  return (
+    prioritySortKey(a.priority) - prioritySortKey(b.priority) ||
+    b.available - a.available ||
+    a.warehouse.localeCompare(b.warehouse)
+  );
+}
+
+function companyWarehousePriority(
+  warehouses: string[],
+  warehousePriority: ReadonlyMap<string, WarehousePriority>,
+): WarehousePriority | null {
+  let best: WarehousePriority | null = null;
+  for (const warehouse of warehouses) {
+    const priority = warehousePriority.get(warehouse);
+    if (priority == null) continue;
+    if (best == null || priority < best) best = priority;
+  }
+  return best;
+}
+
 /** Per-company coverage from main-warehouse stock. `binAvailable` is keyed `${warehouse}::${itemCode}`. */
 export function buildCompanyResults(input: {
   skuLines: SkuLine[];
   warehousesByCompany: Map<string, string[]>;
   binAvailable: Map<string, number>;
+  warehousePriority?: ReadonlyMap<string, WarehousePriority>;
 }): CompanyResult[] {
   const found = input.skuLines.filter((line) => line.found && line.itemCode);
+  const priorities = input.warehousePriority ?? new Map<string, WarehousePriority>();
   const results: CompanyResult[] = [];
 
   for (const [company, warehouses] of input.warehousesByCompany) {
@@ -81,14 +110,17 @@ export function buildCompanyResults(input: {
     let shortCount = 0;
     let missingCount = 0;
     let totalAvailable = 0;
+    const warehousePriority = companyWarehousePriority(warehouses, priorities);
 
     for (const line of found) {
       const byWarehouse: WarehouseStock[] = [];
       for (const warehouse of warehouses) {
         const available = input.binAvailable.get(`${warehouse}::${line.itemCode}`) ?? 0;
-        if (available > 0) byWarehouse.push({ warehouse, available });
+        if (available > 0) {
+          byWarehouse.push({ warehouse, available, priority: priorities.get(warehouse) ?? null });
+        }
       }
-      byWarehouse.sort((a, b) => b.available - a.available || a.warehouse.localeCompare(b.warehouse));
+      byWarehouse.sort(compareWarehouseStock);
       const available = byWarehouse.reduce((sum, row) => sum + row.available, 0);
       const status = classifyLine(available, line.qty);
       if (status === "covered") coveredCount += 1;
@@ -107,6 +139,8 @@ export function buildCompanyResults(input: {
       missingCount,
       totalAvailable,
       fullCoverage: found.length > 0 && coveredCount === found.length,
+      warehousePriority,
+      capExempt: warehousePriority != null,
       cap: null,
       option: null,
     });
@@ -116,13 +150,18 @@ export function buildCompanyResults(input: {
 }
 
 export function rankCompanies(results: CompanyResult[]): CompanyResult[] {
-  return [...results].sort(
-    (a, b) =>
+  return [...results].sort((a, b) => {
+    const aHasStock = a.coveredCount > 0 ? 0 : 1;
+    const bHasStock = b.coveredCount > 0 ? 0 : 1;
+    return (
+      aHasStock - bHasStock ||
+      prioritySortKey(a.warehousePriority) - prioritySortKey(b.warehousePriority) ||
       b.coveredCount - a.coveredCount ||
       b.totalAvailable - a.totalAvailable ||
       b.shortCount - a.shortCount ||
-      a.company.localeCompare(b.company),
-  );
+      a.company.localeCompare(b.company)
+    );
+  });
 }
 
 function roundMoney(n: number): number {
@@ -166,12 +205,15 @@ export function pickOptions(
 ): { companies: CompanyResult[]; options: string[]; noOptionReason: NoOptionReason | null } {
   const unlabelled = ranked.map((row) => ({ ...row, option: null }));
   if (context.foundCount === 0) return { companies: unlabelled, options: [], noOptionReason: "no_found_skus" };
-  if (context.capError) return { companies: unlabelled, options: [], noOptionReason: "cap_unavailable" };
+  const capReady = !context.capError;
+  if (!capReady && !unlabelled.some((row) => row.capExempt && row.coveredCount > 0)) {
+    return { companies: unlabelled, options: [], noOptionReason: "cap_unavailable" };
+  }
 
   const options: string[] = [];
   const companies = unlabelled.map((row) => {
-    const eligible =
-      row.coveredCount > 0 && (row.cap?.status === "ok" || row.cap?.status === "near");
+    const withinCap = row.cap?.status === "ok" || row.cap?.status === "near";
+    const eligible = row.coveredCount > 0 && (row.capExempt || (capReady && withinCap));
     if (!eligible || options.length >= optionCount) return row;
     const option = String.fromCharCode(65 + options.length);
     options.push(row.company);
@@ -206,11 +248,19 @@ export function buildDetail(
     for (const other of response.companies) {
       if (other.company === companyName) continue;
       for (const row of other.lines[line.key]?.byWarehouse ?? []) {
-        if (row.available > 0) sources.push({ company: other.company, warehouse: row.warehouse, available: row.available });
+        if (row.available > 0) {
+          sources.push({
+            company: other.company,
+            warehouse: row.warehouse,
+            available: row.available,
+            priority: row.priority,
+          });
+        }
       }
     }
     sources.sort(
       (a, b) =>
+        prioritySortKey(a.priority) - prioritySortKey(b.priority) ||
         b.available - a.available ||
         a.company.localeCompare(b.company) ||
         a.warehouse.localeCompare(b.warehouse),

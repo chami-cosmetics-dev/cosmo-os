@@ -102,7 +102,7 @@ describe("isDashboardSalesOrderEligible", () => {
   const deliveredAt = new Date("2026-07-01T10:00:00.000Z");
   const closedAt = new Date("2026-07-02T10:00:00.000Z");
 
-  it("counts paid, pending, and partially_paid for all_orders", () => {
+  it("counts paid, unpaid, and pending for all_orders and skips voids, returns, credit notes", () => {
     expect(
       isDashboardSalesOrderEligible(
         { sourceName: "web", financialStatus: "paid", fulfillmentStatus: null },
@@ -117,13 +117,30 @@ describe("isDashboardSalesOrderEligible", () => {
     ).toBe(true);
     expect(
       isDashboardSalesOrderEligible(
-        { sourceName: "web", financialStatus: "partially_paid", fulfillmentStatus: null },
+        { sourceName: "web", financialStatus: "unpaid", fulfillmentStatus: null },
         "all_orders",
       ),
     ).toBe(true);
     expect(
       isDashboardSalesOrderEligible(
         { sourceName: "web", financialStatus: "voided", fulfillmentStatus: null },
+        "all_orders",
+      ),
+    ).toBe(false);
+    expect(
+      isDashboardSalesOrderEligible(
+        { sourceName: "web", financialStatus: "refunded", fulfillmentStatus: null },
+        "all_orders",
+      ),
+    ).toBe(false);
+    expect(
+      isDashboardSalesOrderEligible(
+        {
+          sourceName: "web",
+          financialStatus: "paid",
+          fulfillmentStatus: null,
+          cancelledAt: new Date("2026-10-01T00:00:00.000Z"),
+        },
         "all_orders",
       ),
     ).toBe(false);
@@ -295,7 +312,7 @@ describe("isDashboardSalesOrderEligible", () => {
         "bill_done_in_dates",
       ),
     ).toBe(true);
-    expect(isDashboardSalesOrderEligible(returnedToStore, "all_orders")).toBe(true);
+    expect(isDashboardSalesOrderEligible(returnedToStore, "all_orders")).toBe(false);
   });
 
   it("includes non-voided POS in bill_done_old and done_after_delivery", () => {

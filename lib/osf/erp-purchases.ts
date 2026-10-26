@@ -362,6 +362,11 @@ export async function fetchLastPurchaseByItem(input: {
   itemCodes: string[];
   /** Inclusive lower bound (YYYY-MM-DD) for the "recently purchased" window. */
   recentSinceDate?: string;
+  /**
+   * Inclusive posting_date floor for the scan. Omit = full history (SKU calculator).
+   * OSF generate passes a lookback so this cannot walk every historical receipt.
+   */
+  postingDateFrom?: string;
   /** Company Supplier list; empty/omitted = no filter (legacy). */
   allowedSuppliers?: AllowedSupplier[];
   /** Default receipt; SKU calculator / Vault pass invoice. */
@@ -385,7 +390,12 @@ export async function fetchLastPurchaseByItem(input: {
     `\`${meta.childTable}\`.qty`,
     `\`${meta.childTable}\`.rate`,
   ]);
-  const filters = JSON.stringify([["docstatus", "=", 1]]);
+  const filterRows: Array<[string, string, string | number]> = [["docstatus", "=", 1]];
+  const postingDateFrom = input.postingDateFrom?.trim();
+  if (postingDateFrom) {
+    filterRows.push(["posting_date", ">=", postingDateFrom]);
+  }
+  const filters = JSON.stringify(filterRows);
 
   let result = new Map<string, ItemLastPurchase>();
   let latestReceiptForItem = new Map<string, string>();

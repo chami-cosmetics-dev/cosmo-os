@@ -16,6 +16,9 @@ import { findBarcodeForSku } from "@/lib/product-item-barcode.server";
 import { erpInvoiceReferenceLookupValues } from "@/lib/erp-invoice-reference";
 import { shouldVoidOrderForCancelledSalesInvoice } from "@/lib/erp-duplicate-sales-invoice";
 import {
+  ERP_CANCEL_REASON_CANCEL,
+  ERP_CANCEL_REASON_CREDIT_NOTE,
+  erpDrivenCancelFields,
   handleErpSalesInvoiceCreditNoteEvent,
   isErpReturnSalesInvoice,
   isErpSalesInvoiceCreditNoted,
@@ -79,6 +82,8 @@ async function findLinkedVaultOrderForErpInvoice(data: {
       orderNumber: true,
       companyId: true,
       financialStatus: true,
+      cancelledAt: true,
+      cancelReason: true,
       erpnextInvoiceId: true,
       assignedMerchant: { select: { name: true } },
     },
@@ -312,12 +317,19 @@ export async function ingestParsedErpSalesInvoice(input: {
     // Return SI without a matching Vault order — void a stray credit-note row if present.
     const existing = await prisma.order.findUnique({
       where: { shopifyOrderId: erpInvoiceId },
-      select: { id: true },
+      select: { id: true, cancelledAt: true, cancelReason: true },
     });
     if (existing) {
       await prisma.order.update({
         where: { id: existing.id },
-        data: { financialStatus: "voided" },
+        data: {
+          financialStatus: "voided",
+          ...erpDrivenCancelFields({
+            cancelledAt: existing.cancelledAt,
+            cancelReason: existing.cancelReason,
+            reason: ERP_CANCEL_REASON_CREDIT_NOTE,
+          }),
+        },
       });
       await cancelPendingApprovalsForOrder(existing.id);
       console.log(
@@ -375,7 +387,14 @@ export async function ingestParsedErpSalesInvoice(input: {
 
       await prisma.order.update({
         where: { id: linkedVaultOrder.id },
-        data: { financialStatus: "voided" },
+        data: {
+          financialStatus: "voided",
+          ...erpDrivenCancelFields({
+            cancelledAt: linkedVaultOrder.cancelledAt,
+            cancelReason: linkedVaultOrder.cancelReason,
+            reason: ERP_CANCEL_REASON_CANCEL,
+          }),
+        },
       });
       await cancelPendingApprovalsForOrder(linkedVaultOrder.id);
       console.log(
@@ -727,10 +746,26 @@ export async function ingestParsedErpSalesInvoice(input: {
       currency: data.currency ?? "LKR",
       financialStatus: isCreditNoted ? "voided" : financialStatus,
       ...(isCreditNoted
-        ? orderStageUpdate("returned", posCompletedAt ?? new Date())
-        : posCounterSaleCompletion
-          ? posCounterSaleCompletion
-          : orderStageUpdate("order_received", new Date())),
+        ? {
+            ...orderStageUpdate("returned", posCompletedAt ?? new Date()),
+            ...erpDrivenCancelFields({
+              cancelledAt: null,
+              cancelReason: null,
+              reason: ERP_CANCEL_REASON_CREDIT_NOTE,
+            }),
+          }
+        : {
+            ...(posCounterSaleCompletion
+              ? posCounterSaleCompletion
+              : orderStageUpdate("order_received", new Date())),
+            ...(financialStatus === "voided"
+              ? erpDrivenCancelFields({
+                  cancelledAt: null,
+                  cancelReason: null,
+                  reason: ERP_CANCEL_REASON_CANCEL,
+                })
+              : {}),
+          }),
       customerEmail,
       customerPhone,
       district,

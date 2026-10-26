@@ -1,3 +1,5 @@
+import { PassThrough } from "node:stream";
+
 import type { OsfCatalogRow } from "@/lib/osf/catalog-rows";
 import {
   OSF_ACCESS_PURCHASES,
@@ -576,12 +578,37 @@ export function filterColumnDefsByGroups(
   return defs;
 }
 
+type Commitable = { commit?: () => unknown };
+
+function commitExcelPart(part: Commitable): void {
+  part.commit?.();
+}
+
+/**
+ * Stream the OSF workbook to a zip. In-memory ExcelJS + writeBuffer kept every
+ * cell of Main plus each buyer sheet, then cloned the zip — that blew Vercel's 3 GB cap.
+ */
 export async function buildOsfWorkbookBuffer(input: BuildWorkbookInput): Promise<Buffer> {
   const ExcelJS = await import("exceljs");
   const rows = buildMainSheetRows(input);
   const defs = mainColumnDescriptors(input);
   const mainDefs = filterColumnDefsByAccessKeys(defs, input.effectiveColumnKeys ?? "all");
-  const wb = new ExcelJS.Workbook();
+
+  const pass = new PassThrough();
+  const chunks: Buffer[] = [];
+  pass.on("data", (chunk: Buffer | string) => {
+    chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
+  });
+  const finished = new Promise<void>((resolve, reject) => {
+    pass.once("finish", () => resolve());
+    pass.once("error", reject);
+  });
+
+  const wb = new ExcelJS.stream.xlsx.WorkbookWriter({
+    stream: pass,
+    useStyles: true,
+    useSharedStrings: false,
+  });
   const used = new Set<string>();
 
   const attachSheet = (
@@ -599,13 +626,16 @@ export async function buildOsfWorkbookBuffer(input: BuildWorkbookInput): Promise
 
     ws.addRow(sectionRow.map(cellValue));
     ws.addRow(headerRow.map(cellValue));
+    applyOsfWorkbookHeaderBands(ws, sheetDefs);
+    commitExcelPart(ws.getRow(1));
+    commitExcelPart(ws.getRow(2));
     for (const r of sheetRows) {
-      ws.addRow(
+      const excelRow = ws.addRow(
         sheetDefs.map((c) => cellValue(r[c.header] == null ? "" : (r[c.header] as SheetCell))),
       );
+      commitExcelPart(excelRow);
     }
-
-    applyOsfWorkbookHeaderBands(ws, sheetDefs);
+    commitExcelPart(ws);
   };
 
   attachSheet("Main", mainDefs, rows);
@@ -629,21 +659,28 @@ export async function buildOsfWorkbookBuffer(input: BuildWorkbookInput): Promise
   }
 
   const info = wb.addWorksheet(sanitizeSheetName("Info", used));
-  info.addRow(["asOfDate", input.asOfDate]);
-  info.addRow(["salesMonth", input.salesMonth]);
-  info.addRow(["salesGridMonths", monthKeysInWindow(input.asOfDate).join(",")]);
-  info.addRow(["osfVariant", input.osfVariant ?? "main"]);
-  info.addRow(["rows", rows.length]);
+  const infoLines: Array<Array<string | number>> = [
+    ["asOfDate", input.asOfDate],
+    ["salesMonth", input.salesMonth],
+    ["salesGridMonths", monthKeysInWindow(input.asOfDate).join(",")],
+    ["osfVariant", input.osfVariant ?? "main"],
+    ["rows", rows.length],
+  ];
   if (input.belowThresholdOnly) {
-    info.addRow(["mode", "reorder-only (below threshold %)"]);
+    infoLines.push(["mode", "reorder-only (below threshold %)"]);
     if (rows.length === 0) {
-      info.addRow([
+      infoLines.push([
         "notice",
         "No SKUs met the filter. A SKU is included only when total ROP > 0 and (total stock / total ROP) × 100 is below its reorder threshold % (default 70). SKUs without warehouse ROP are excluded.",
       ]);
     }
   }
+  for (const line of infoLines) {
+    commitExcelPart(info.addRow(line));
+  }
+  commitExcelPart(info);
 
-  const arrayBuffer = await wb.xlsx.writeBuffer();
-  return Buffer.from(arrayBuffer);
+  await wb.commit();
+  await finished;
+  return Buffer.concat(chunks);
 }

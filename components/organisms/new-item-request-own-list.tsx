@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { Loader2 } from "lucide-react";
 
+import { NewItemRequestVoteDialog } from "@/components/organisms/new-item-request-vote-dialog";
+import { NewItemRequestVoteList } from "@/components/organisms/new-item-request-vote-list";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatAppDateTime } from "@/lib/format-datetime";
@@ -35,13 +37,18 @@ export function NewItemRequestOwnList({
   const [status, setStatus] = useState<NewItemRequestStatusValue>("open");
   const [requests, setRequests] = useState(initialRequests);
   const [selected, setSelected] = useState<NewItemRequestView | null>(null);
+  const [voting, setVoting] = useState<NewItemRequestView | null>(null);
+  const [overrides, setOverrides] = useState<Record<string, NewItemRequestView>>({});
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const isBusy = busyKey !== null;
   const extrasById = new Map(extraRequests.map((row) => [row.id, row]));
+  function resolveRow(row: NewItemRequestView) {
+    return overrides[row.id] ?? extrasById.get(row.id) ?? row;
+  }
   const shown = [
     ...extraRequests.filter((row) => row.status === status && !requests.some((item) => item.id === row.id)),
-    ...requests.map((row) => extrasById.get(row.id) ?? row),
-  ];
+    ...requests,
+  ].map(resolveRow);
 
   async function load(nextStatus: NewItemRequestStatusValue) {
     try {
@@ -50,6 +57,7 @@ export function NewItemRequestOwnList({
       const data = (await response.json()) as { requests?: NewItemRequestView[]; error?: string };
       if (!response.ok) throw new Error(data.error ?? "Could not load requests");
       setRequests(data.requests ?? []);
+      setOverrides({});
       setSelected(null);
     } catch (error) {
       notify.error(error instanceof Error ? error.message : "Could not load requests");
@@ -72,18 +80,23 @@ export function NewItemRequestOwnList({
     }
   }
 
-  async function vote(id: string) {
+  function applyVoted(request: NewItemRequestView) {
+    setOverrides((current) => ({ ...current, [request.id]: request }));
+    setRequests((current) => current.map((row) => (row.id === request.id ? request : row)));
+    setSelected((current) => (current?.id === request.id ? request : current));
+  }
+
+  async function unvote(id: string) {
     try {
-      setBusyKey(`vote-${id}`);
-      const response = await fetch(`/api/new-item-requests/${id}/vote`, { method: "POST" });
+      setBusyKey(`unvote-${id}`);
+      const response = await fetch(`/api/new-item-requests/${id}/vote`, { method: "DELETE" });
       const data = (await response.json()) as { request?: NewItemRequestView; error?: string };
-      if (!response.ok) throw new Error(data.error ?? "Could not vote");
-      if (!data.request) throw new Error("Could not vote");
-      setRequests((current) => current.map((row) => (row.id === data.request!.id ? data.request! : row)));
-      if (selected?.id === id) setSelected(data.request);
-      notify.success("Voted.");
+      if (!response.ok) throw new Error(data.error ?? "Could not remove vote");
+      if (!data.request) throw new Error("Could not remove vote");
+      applyVoted(data.request);
+      notify.success("Vote removed.");
     } catch (error) {
-      notify.error(error instanceof Error ? error.message : "Could not vote");
+      notify.error(error instanceof Error ? error.message : "Could not remove vote");
     } finally {
       setBusyKey(null);
     }
@@ -148,12 +161,23 @@ export function NewItemRequestOwnList({
                     variant="outline"
                     className="self-center"
                     disabled={isBusy}
-                    onClick={() => void vote(row.id)}
+                    onClick={() => setVoting(row)}
                   >
-                    {busyKey === `vote-${row.id}` ? (
+                    Vote
+                  </Button>
+                ) : canVote && row.status === "open" && row.hasVoted ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="self-center"
+                    disabled={isBusy}
+                    onClick={() => void unvote(row.id)}
+                  >
+                    {busyKey === `unvote-${row.id}` ? (
                       <Loader2 className="animate-spin" aria-hidden />
                     ) : (
-                      "Vote"
+                      "Remove vote"
                     )}
                   </Button>
                 ) : null}
@@ -177,6 +201,7 @@ export function NewItemRequestOwnList({
                 {[selected.customerName, selected.customerPhone].filter(Boolean).join(" · ")}
               </p>
             ) : null}
+            <NewItemRequestVoteList votes={selected.votes} />
             {selected.storeUrl ? (
               <a className="text-primary underline" href={selected.storeUrl} target="_blank" rel="noreferrer">
                 Other-store link
@@ -189,6 +214,14 @@ export function NewItemRequestOwnList({
           </div>
         ) : null}
       </CardContent>
+      <NewItemRequestVoteDialog
+        request={voting}
+        open={voting !== null}
+        onOpenChange={(open) => {
+          if (!open) setVoting(null);
+        }}
+        onVoted={applyVoted}
+      />
     </Card>
   );
 }

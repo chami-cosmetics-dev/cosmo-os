@@ -45,6 +45,7 @@ import {
   type MasterDumpLine,
   type MasterHistoryContact,
 } from "@/lib/reports/master-dump";
+import { resolveStoredCancelReason } from "@/lib/order-cancel-reason";
 import { joinDumpCouponCodes, summarizePaymentGateway } from "@/lib/reports/order-dump";
 import { resolveCustomerPhone, resolveShippingPhone } from "@/lib/order-sms-resolvers";
 import { normalizeShippingRuleLabelKey } from "@/lib/rider-delivery-charge";
@@ -233,7 +234,7 @@ const ORDER_SELECT = {
   returns: {
     orderBy: { returnDate: "desc" as const },
     take: 1,
-    select: { actionStatus: true, returnDate: true, returnRemark: true },
+    select: { actionStatus: true, returnDate: true, returnRemark: true, cancelRemark: true },
   },
   exchangesAsOriginal: {
     orderBy: { createdAt: "desc" as const },
@@ -1056,7 +1057,11 @@ export async function GET(request: NextRequest) {
               revertedBy: displayName(order.revertedFromInvoiceCompleteBy),
               cancelledAt: order.cancelledAt,
               cancelledBy: displayName(order.cancelledBy),
-              cancelReason: order.cancelReason?.trim() ?? "",
+              cancelReason: resolveStoredCancelReason({
+                cancelReason: order.cancelReason,
+                returnCancelRemark: orderReturn?.cancelRemark,
+                returnRemark: orderReturn?.returnRemark,
+              }),
               cancelKind: labelOf(CANCEL_KIND, order.cancelKind),
               replacedByOrder: order.replacedByOrder ? orderLabel(order.replacedByOrder) : "",
               returnStatus: labelOf(SIMPLE_STATUS, orderReturn?.actionStatus),

@@ -329,6 +329,11 @@ const ORDER_DUMP_BASE_INCLUDE = {
   lastPrintedBy: { select: { knownName: true, name: true, email: true } },
   deliveryCompleteBy: { select: { knownName: true, name: true, email: true } },
   invoiceCompleteBy: { select: { knownName: true, name: true, email: true } },
+  returns: {
+    orderBy: { returnDate: "desc" as const },
+    take: 1,
+    select: { cancelRemark: true, returnRemark: true },
+  },
 } as const;
 
 const ORDER_DUMP_INVOICE_INCLUDE = {
@@ -665,6 +670,9 @@ export async function GET(request: NextRequest) {
           lineTotal,
           fulfillmentStage: order.fulfillmentStage,
           financialStatus: order.financialStatus,
+          cancelReason: order.cancelReason,
+          returnCancelRemark: order.returns[0]?.cancelRemark,
+          returnRemark: order.returns[0]?.returnRemark,
           deliveryCompleteAt: order.deliveryCompleteAt,
           deliveryCompleteBy: getUserDisplayName(order.deliveryCompleteBy),
           invoiceCompleteAt: order.invoiceCompleteAt,
@@ -798,6 +806,9 @@ export async function GET(request: NextRequest) {
       billingAddress: formatAddress(order.billingAddress),
       shippingAddress,
       financialStatus: order.financialStatus,
+      cancelReason: order.cancelReason,
+      returnCancelRemark: order.returns[0]?.cancelRemark,
+      returnRemark: order.returns[0]?.returnRemark,
       fulfillmentStatus: order.fulfillmentStatus,
       paymentGateway,
       subtotalPrice: decimalToString(order.subtotalPrice),

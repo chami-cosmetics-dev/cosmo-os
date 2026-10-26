@@ -22,6 +22,12 @@ import {
 } from "@/lib/page-data/dashboard-overview-shared";
 import { getPaymentMethodInfo } from "@/lib/payment-method-label";
 import { prisma } from "@/lib/prisma";
+import {
+  isCreditNoteSale,
+  isReversedSale,
+  salesNetContribution,
+  salesNetPlacedWhere,
+} from "@/lib/sales-net-placed";
 
 export type DashboardLocationMerchantRow = {
   merchantId: string | null;
@@ -51,11 +57,6 @@ function parseDayEndUtc(ymd: string): Date {
   return new Date(`${ymd}T23:59:59.999+05:30`);
 }
 
-const DASHBOARD_INVOICE_DATE_FINANCIAL_STATUSES = new Set([
-  "paid",
-  "pending",
-  "partially_paid",
-]);
 const DASHBOARD_POS_SOURCE_NAMES = new Set(["pos", "erpnext-pos"]);
 
 export type DashboardSalesEligibilityOrder = {
@@ -66,7 +67,15 @@ export type DashboardSalesEligibilityOrder = {
   deliveryOutcome?: string | null;
   deliveryCompleteAt?: Date | null;
   invoiceCompleteAt?: Date | null;
+  cancelledAt?: Date | null;
+  totalPrice?: unknown;
   rawPayload?: Prisma.JsonValue | null;
+};
+
+const SALES_NET_RETURN_SELECT = {
+  select: { returnDate: true },
+  orderBy: { returnDate: "desc" as const },
+  take: 1,
 };
 
 function normalizeStatus(value: unknown) {
@@ -75,10 +84,6 @@ function normalizeStatus(value: unknown) {
 
 function isPosOrder(sourceName: string | null | undefined) {
   return DASHBOARD_POS_SOURCE_NAMES.has(normalizeStatus(sourceName));
-}
-
-function isPaidOrPending(financialStatus: string | null | undefined) {
-  return DASHBOARD_INVOICE_DATE_FINANCIAL_STATUSES.has(normalizeStatus(financialStatus));
 }
 
 function isPhysicallyDelivered(order: DashboardSalesEligibilityOrder) {
@@ -229,7 +234,7 @@ export function isDashboardSalesOrderEligible(
   ]);
 
   if (statusKeys.has(dateType)) {
-    if (!isPaidOrPending(order.financialStatus)) return false;
+    if (isCreditNoteSale(order) || isReversedSale(order)) return false;
     if (dateType === "all_orders") return true;
     return getPlacedStatusPartition(order) === dateType;
   }
@@ -322,8 +327,11 @@ export async function fetchDashboardFilterSummaries(
     financialStatus: true,
     fulfillmentStatus: true,
     fulfillmentStage: true,
+    fulfillmentStageEnteredAt: true,
     deliveryCompleteAt: true,
     invoiceCompleteAt: true,
+    cancelledAt: true,
+    returns: SALES_NET_RETURN_SELECT,
   } as const;
 
   const [rangeOrders, backlogBillOpen, backlogNotDelivered] = await Promise.all([
@@ -334,6 +342,12 @@ export async function fetchDashboardFilterSummaries(
           { createdAt: { gte: fromDate, lte: toDate } },
           { invoiceCompleteAt: { gte: fromDate, lte: toDate } },
           { deliveryCompleteAt: { gte: fromDate, lte: toDate } },
+          { cancelledAt: { gte: fromDate, lte: toDate } },
+          {
+            fulfillmentStage: { in: ["returned", "returned_to_store"] },
+            fulfillmentStageEnteredAt: { gte: fromDate, lte: toDate },
+          },
+          { returns: { some: { returnDate: { gte: fromDate, lte: toDate } } } },
         ],
       },
       select: eligibilitySelect,
@@ -374,8 +388,17 @@ export async function fetchDashboardFilterSummaries(
       order.deliveryCompleteAt <= toDate;
     const placedBeforeRange = order.createdAt < fromDate;
 
+    const net = salesNetContribution(
+      { ...order, returnDate: order.returns[0]?.returnDate ?? null },
+      fromYmd,
+      toYmd,
+    );
+    if (net.signedAmount !== 0 || net.includeInCount !== 0) {
+      const allOrders = summaries.get("all_orders")!;
+      allOrders.total += net.signedAmount;
+      allOrders.orderCount += net.includeInCount;
+    }
     if (createdInRange && isDashboardSalesOrderEligible(order, "all_orders")) {
-      addToSummary(summaries.get("all_orders")!, order.totalPrice);
       const partition = getPlacedStatusPartition(order);
       addToSummary(summaries.get(partition)!, order.totalPrice);
     }
@@ -447,17 +470,17 @@ export async function fetchDashboardSalesByLocationMerchant(
     return { locations: [], invalidRange: true };
   }
 
-  // placed_* = createdAt buckets that tally; closed/delivered_* = other clocks.
-  const dateFilter = buildDashboardSalesDateFilter({
-    fromDate,
-    toDate,
-    dateType: params.dateType,
-  });
-
-  const where: Prisma.OrderWhereInput = {
-    companyId,
-    ...dateFilter,
-  };
+  const useNetPlaced = params.dateType === "all_orders";
+  const where: Prisma.OrderWhereInput = useNetPlaced
+    ? salesNetPlacedWhere(companyId, fromDate, toDate)
+    : {
+        companyId,
+        ...buildDashboardSalesDateFilter({
+          fromDate,
+          toDate,
+          dateType: params.dateType,
+        }),
+      };
 
   const [locations, usersWithCoupons, orders] = await Promise.all([
     prisma.companyLocation.findMany({
@@ -485,15 +508,19 @@ export async function fetchDashboardSalesByLocationMerchant(
         companyLocationId: true,
         assignedMerchantId: true,
         totalPrice: true,
+        createdAt: true,
+        cancelledAt: true,
         sourceName: true,
         financialStatus: true,
         fulfillmentStatus: true,
         fulfillmentStage: true,
+        fulfillmentStageEnteredAt: true,
         deliveryOutcome: true,
         deliveryCompleteAt: true,
         invoiceCompleteAt: true,
         discountCodes: true,
         rawPayload: true,
+        returns: SALES_NET_RETURN_SELECT,
         assignedMerchant: {
           select: dashboardMerchantUserSelect,
         },
@@ -513,7 +540,20 @@ export async function fetchDashboardSalesByLocationMerchant(
   }
 
   for (const order of orders) {
-    if (!isDashboardSalesOrderEligible(order, params.dateType)) continue;
+    let total = Number(order.totalPrice ?? 0);
+    let countDelta = 1;
+    if (useNetPlaced) {
+      const net = salesNetContribution(
+        { ...order, returnDate: order.returns[0]?.returnDate ?? null },
+        params.fromYmd,
+        params.toYmd,
+      );
+      if (net.signedAmount === 0 && net.includeInCount === 0) continue;
+      total = net.signedAmount;
+      countDelta = net.includeInCount;
+    } else if (!isDashboardSalesOrderEligible(order, params.dateType)) {
+      continue;
+    }
 
     const merchantMap = byLocationMerchant.get(order.companyLocationId);
     if (!merchantMap) continue;
@@ -540,16 +580,15 @@ export async function fetchDashboardSalesByLocationMerchant(
     });
     const merchantKey = dashboardMerchantRowKey(resolved);
     const existing = merchantMap.get(merchantKey);
-    const total = Number(order.totalPrice ?? 0);
     if (existing) {
       existing.total += total;
-      existing.orderCount += 1;
+      existing.orderCount += countDelta;
     } else {
       merchantMap.set(merchantKey, {
         merchantId: resolved.id,
         merchantName: resolved.name,
         total,
-        orderCount: 1,
+        orderCount: countDelta,
       });
     }
 
@@ -559,9 +598,9 @@ export async function fetchDashboardSalesByLocationMerchant(
       const existingSource = sourceList.find((row) => row.sourceName === sourceName);
       if (existingSource) {
         existingSource.total += total;
-        existingSource.orderCount += 1;
+        existingSource.orderCount += countDelta;
       } else {
-        sourceList.push({ sourceName, total, orderCount: 1 });
+        sourceList.push({ sourceName, total, orderCount: countDelta });
       }
     }
   }
@@ -601,16 +640,17 @@ export async function fetchDashboardSalesByLocationGateway(
     return { locations: [], invalidRange: true };
   }
 
-  const dateFilter = buildDashboardSalesDateFilter({
-    fromDate,
-    toDate,
-    dateType: params.dateType,
-  });
-
-  const where: Prisma.OrderWhereInput = {
-    companyId,
-    ...dateFilter,
-  };
+  const useNetPlaced = params.dateType === "all_orders";
+  const where: Prisma.OrderWhereInput = useNetPlaced
+    ? salesNetPlacedWhere(companyId, fromDate, toDate)
+    : {
+        companyId,
+        ...buildDashboardSalesDateFilter({
+          fromDate,
+          toDate,
+          dateType: params.dateType,
+        }),
+      };
 
   if (!gatewayColumns.hasPaymentGatewayPrimary) {
     const locations = await prisma.companyLocation.findMany({
@@ -663,15 +703,19 @@ export async function fetchDashboardSalesByLocationGateway(
       select: {
         companyLocationId: true,
         totalPrice: true,
+        createdAt: true,
+        cancelledAt: true,
         sourceName: true,
         financialStatus: true,
         fulfillmentStatus: true,
         fulfillmentStage: true,
+        fulfillmentStageEnteredAt: true,
         deliveryOutcome: true,
         deliveryCompleteAt: true,
         invoiceCompleteAt: true,
         rawPayload: true,
         paymentGatewayPrimary: true,
+        returns: SALES_NET_RETURN_SELECT,
       },
     }),
   ]);
@@ -684,7 +728,20 @@ export async function fetchDashboardSalesByLocationGateway(
   }
 
   for (const order of orders) {
-    if (!isDashboardSalesOrderEligible(order, params.dateType)) continue;
+    let total = Number(order.totalPrice ?? 0);
+    let countDelta = 1;
+    if (useNetPlaced) {
+      const net = salesNetContribution(
+        { ...order, returnDate: order.returns[0]?.returnDate ?? null },
+        params.fromYmd,
+        params.toYmd,
+      );
+      if (net.signedAmount === 0 && net.includeInCount === 0) continue;
+      total = net.signedAmount;
+      countDelta = net.includeInCount;
+    } else if (!isDashboardSalesOrderEligible(order, params.dateType)) {
+      continue;
+    }
 
     const list = byLocation.get(order.companyLocationId);
     if (!list) continue;
@@ -694,17 +751,16 @@ export async function fetchDashboardSalesByLocationGateway(
         paymentGatewayPrimary: order.paymentGatewayPrimary,
         financialStatus: order.financialStatus,
       }).label || "Unspecified";
-    const total = Number(order.totalPrice ?? 0);
     const existingGateway = list.find((row) => row.merchantName === gatewayLabel);
     if (existingGateway) {
       existingGateway.total += total;
-      existingGateway.orderCount += 1;
+      existingGateway.orderCount += countDelta;
     } else {
       list.push({
         merchantId: null,
         merchantName: gatewayLabel,
         total,
-        orderCount: 1,
+        orderCount: countDelta,
       });
     }
 
@@ -714,9 +770,9 @@ export async function fetchDashboardSalesByLocationGateway(
       const existingSource = sourceList.find((row) => row.sourceName === sourceName);
       if (existingSource) {
         existingSource.total += total;
-        existingSource.orderCount += 1;
+        existingSource.orderCount += countDelta;
       } else {
-        sourceList.push({ sourceName, total, orderCount: 1 });
+        sourceList.push({ sourceName, total, orderCount: countDelta });
       }
     }
   }

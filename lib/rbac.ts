@@ -105,6 +105,11 @@ const DEFAULT_PERMISSIONS = [
       "Check live ERP2 main-warehouse availability for multiple SKUs and see suggested companies within the monthly cap",
   },
   {
+    key: "products.order_availability.manage",
+    description:
+      "Mark up to 4 ERP2 main warehouses as priority 1–4 for order availability. Those warehouses skip the monthly cap and rank first in merchant search",
+  },
+  {
     key: "products.gift_vouchers.read",
     description:
       "View the full gift voucher code table (including order no, used date, phone no) and check codes",

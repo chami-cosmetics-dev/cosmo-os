@@ -73,9 +73,11 @@ function varianceText(row: Pick<HistoryRow, "status" | "shortUnits" | "overUnits
 export function MaterialTransferHistory({
   scope,
   title = "History",
+  direction,
 }: {
   scope: "all" | "shop";
   title?: string;
+  direction?: HistoryRow["direction"];
 }) {
   const [rows, setRows] = useState<HistoryRow[]>([]);
   const [unassigned, setUnassigned] = useState(false);
@@ -89,7 +91,10 @@ export function MaterialTransferHistory({
     setLoading(true);
     try {
       const mismatch = mismatchOnly ? "&mismatch=1" : "";
-      const res = await fetch(`/api/admin/store/material-transfer/history?scope=${scope}${mismatch}`);
+      const directionQuery = direction ? `&direction=${direction}` : "";
+      const res = await fetch(
+        `/api/admin/store/material-transfer/history?scope=${scope}${directionQuery}${mismatch}`,
+      );
       const json = (await res.json()) as {
         transfers?: HistoryRow[];
         shopUnassigned?: boolean;
@@ -103,7 +108,7 @@ export function MaterialTransferHistory({
     } finally {
       setLoading(false);
     }
-  }, [scope, mismatchOnly]);
+  }, [scope, mismatchOnly, direction]);
 
   useEffect(() => {
     void load();
@@ -116,6 +121,8 @@ export function MaterialTransferHistory({
     window.addEventListener("material-transfer-saved", onSaved);
     return () => window.removeEventListener("material-transfer-saved", onSaved);
   }, [load]);
+
+  const visibleRows = direction ? rows.filter((row) => row.direction === direction) : rows;
 
   async function toggle(id: string) {
     if (openId === id) {
@@ -165,9 +172,13 @@ export function MaterialTransferHistory({
         </div>
       </div>
       <p className="text-muted-foreground text-sm">
-        {scope === "all"
-          ? "Every shop. Status updates when the shop marks the transfer received."
-          : "Transfers for your shop."}
+        {direction === "shop_to_main"
+          ? "Shop returns from every shop."
+          : direction === "store_to_shop" && scope === "all"
+            ? "Main-to-shop transfers. Status updates when the shop marks the transfer received."
+            : scope === "all"
+              ? "Every shop. Status updates when the shop marks the transfer received."
+              : "Transfers for your shop."}
       </p>
       {unassigned ? (
         <p className="text-sm text-red-600">
@@ -188,14 +199,14 @@ export function MaterialTransferHistory({
             </tr>
           </thead>
           <tbody>
-            {rows.length === 0 && !loading ? (
+            {visibleRows.length === 0 && !loading ? (
               <tr>
                 <td className="text-muted-foreground px-3 py-6" colSpan={7}>
-                  No transfers yet.
+                  {direction === "shop_to_main" ? "No shop returns yet." : "No transfers yet."}
                 </td>
               </tr>
             ) : (
-              rows.map((row) => (
+              visibleRows.map((row) => (
                 <Fragment key={row.id}>
                   <tr className="cursor-pointer border-t" onClick={() => void toggle(row.id)}>
                     <td className="px-3 py-2">{when(row.createdAt)}</td>

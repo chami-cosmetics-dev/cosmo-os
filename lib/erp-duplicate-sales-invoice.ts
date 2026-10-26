@@ -33,11 +33,69 @@ function byAgeThenName(left: SalesInvoicePoCandidate, right: SalesInvoicePoCandi
 }
 
 /** Paid invoice for this PO. If none are paid, the earliest submitted invoice. */
-export function selectCanonicalSalesInvoice<T extends SalesInvoicePoCandidate>(rows: T[]): T | null {
+export function selectCanonicalSalesInvoice<T extends SalesInvoicePoCandidate>(
+  rows: T[],
+  preferNames?: ReadonlySet<string>,
+): T | null {
   if (rows.length === 0) return null;
   const paid = rows.filter((row) => money(row.outstanding_amount) <= 0);
   const pool = paid.length > 0 ? paid : rows;
+  if (preferNames && preferNames.size > 0) {
+    const preferred = pool.filter((row) => preferNames.has(row.name));
+    if (preferred.length > 0) {
+      return [...preferred].sort(byAgeThenName)[0] ?? null;
+    }
+  }
   return [...pool].sort(byAgeThenName)[0] ?? null;
+}
+
+export type SalesInvoicePoDedupeRow = SalesInvoicePoCandidate & {
+  po_no?: string | null;
+  company?: string | null;
+  is_return?: number | boolean | null;
+  net_total?: number | string | null;
+};
+
+function isReturnInvoice(row: SalesInvoicePoDedupeRow): boolean {
+  if (row.is_return === 1 || row.is_return === true) return true;
+  const net = Number(row.net_total ?? 0);
+  return Number.isFinite(net) && net < 0;
+}
+
+function duplicatePoKey(row: SalesInvoicePoDedupeRow): string | null {
+  if (isReturnInvoice(row)) return null;
+  const poNo = (row.po_no ?? "").trim();
+  if (!poNo) return null;
+  return `${(row.company ?? "").trim().toLowerCase()}::${poNo}`;
+}
+
+/**
+ * One submitted sale per company + po_no. Returns and invoices with no PO stay.
+ * Prefers a paid invoice; if several are paid, prefers `preferNames` (Vault-linked SI).
+ */
+export function keepCanonicalSalesInvoicesByPo<T extends SalesInvoicePoDedupeRow>(
+  rows: T[],
+  preferNames?: ReadonlySet<string>,
+): T[] {
+  const groups = new Map<string, T[]>();
+  for (const row of rows) {
+    const key = duplicatePoKey(row);
+    if (!key) continue;
+    const group = groups.get(key);
+    if (group) group.push(row);
+    else groups.set(key, [row]);
+  }
+
+  const drop = new Set<string>();
+  for (const group of groups.values()) {
+    if (group.length < 2) continue;
+    const canonical = selectCanonicalSalesInvoice(group, preferNames);
+    for (const row of group) {
+      if (row.name && row.name !== canonical?.name) drop.add(row.name);
+    }
+  }
+  if (drop.size === 0) return rows;
+  return rows.filter((row) => !drop.has(row.name));
 }
 
 /**

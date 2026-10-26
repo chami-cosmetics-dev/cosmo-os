@@ -23,7 +23,9 @@ import type {
   NewItemRequestListFilters,
   NewItemRequestStatusValue,
   NewItemRequestView,
+  NewItemRequestVoteView,
 } from "@/lib/new-item-requests/types";
+import type { NewItemRequestVoteBody } from "@/lib/validation/new-item-requests";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserContext } from "@/lib/rbac";
 import { LIMITS } from "@/lib/validation";
@@ -155,6 +157,7 @@ function toView(
     customerPhone: row.customerPhone,
     voteCount: row._count?.votes ?? 0,
     voterNames: [],
+    votes: [],
     hasVoted: false,
     status: row.status,
     createdAt: row.createdAt.toISOString(),
@@ -181,24 +184,38 @@ async function attachVotes(
   if (rows.length === 0) return rows;
   const votes = await prisma.newItemRequestVote.findMany({
     where: { companyId, requestId: { in: rows.map((row) => row.id) } },
-    select: { requestId: true, userId: true, user: { select: { name: true } }, createdAt: true },
+    select: {
+      requestId: true,
+      userId: true,
+      customerName: true,
+      customerPhone: true,
+      customerEmail: true,
+      createdAt: true,
+      user: { select: { name: true } },
+    },
     orderBy: { createdAt: "asc" },
   });
-  const namesByRequest = new Map<string, string[]>();
+  const votesByRequest = new Map<string, NewItemRequestVoteView[]>();
   const voted = new Set<string>();
   for (const vote of votes) {
     if (vote.userId === userId) voted.add(vote.requestId);
-    const list = namesByRequest.get(vote.requestId) ?? [];
-    const name = vote.user.name?.trim();
-    list.push(name || "Unknown");
-    namesByRequest.set(vote.requestId, list);
+    const list = votesByRequest.get(vote.requestId) ?? [];
+    list.push({
+      userName: vote.user.name?.trim() || "Unknown",
+      customerName: vote.customerName,
+      customerPhone: vote.customerPhone,
+      customerEmail: vote.customerEmail,
+      createdAt: vote.createdAt.toISOString(),
+    });
+    votesByRequest.set(vote.requestId, list);
   }
   return rows.map((row) => {
-    const voterNames = namesByRequest.get(row.id) ?? [];
+    const requestVotes = votesByRequest.get(row.id) ?? [];
     return {
       ...row,
-      voteCount: voterNames.length || row.voteCount,
-      voterNames,
+      voteCount: requestVotes.length || row.voteCount,
+      voterNames: requestVotes.map((vote) => vote.userName),
+      votes: requestVotes,
       hasVoted: voted.has(row.id),
     };
   });
@@ -309,7 +326,13 @@ export async function createNewItemRequest(
     });
     if (canVoteOnNewItemRequests(context)) {
       await tx.newItemRequestVote.create({
-        data: { companyId, requestId: created.id, userId },
+        data: {
+          companyId,
+          requestId: created.id,
+          userId,
+          customerName: input.customerName ?? null,
+          customerPhone: input.customerPhone ?? null,
+        },
       });
     }
     return tx.newItemRequest.findUniqueOrThrow({
@@ -407,7 +430,11 @@ export async function suggestProducts(context: UserContext, q: string): Promise<
   );
 }
 
-export async function voteOnRequest(context: UserContext, id: string): Promise<NewItemRequestView> {
+export async function voteOnRequest(
+  context: UserContext,
+  id: string,
+  body: NewItemRequestVoteBody,
+): Promise<NewItemRequestView> {
   if (!canVoteOnNewItemRequests(context)) {
     throw new NewItemRequestError("Only merchants can vote", 403);
   }
@@ -422,13 +449,40 @@ export async function voteOnRequest(context: UserContext, id: string): Promise<N
   }
   try {
     await prisma.newItemRequestVote.create({
-      data: { companyId, requestId: row.id, userId },
+      data: {
+        companyId,
+        requestId: row.id,
+        userId,
+        customerName: body.customerName,
+        customerPhone: body.customerPhone,
+        customerEmail: body.customerEmail ?? null,
+      },
     });
   } catch (error) {
-    if (!(error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002")) {
-      throw error;
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      throw new NewItemRequestError("Already voted. Remove your vote first.", 409);
     }
+    throw error;
   }
+  return getRequest(context, id);
+}
+
+export async function unvoteOnRequest(context: UserContext, id: string): Promise<NewItemRequestView> {
+  if (!canVoteOnNewItemRequests(context)) {
+    throw new NewItemRequestError("Only merchants can vote", 403);
+  }
+  const { companyId, userId } = requireCompany(context);
+  const row = await prisma.newItemRequest.findFirst({
+    where: { id, companyId },
+    select: { id: true, status: true },
+  });
+  if (!row) throw new NewItemRequestError("Request not found", 404);
+  if (row.status !== "open") {
+    throw new NewItemRequestError("Can only remove a vote from an open request", 409);
+  }
+  await prisma.newItemRequestVote.deleteMany({
+    where: { companyId, requestId: row.id, userId },
+  });
   return getRequest(context, id);
 }
 

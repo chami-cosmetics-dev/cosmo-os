@@ -21,6 +21,7 @@ import {
 import { fetchWarehouseBins, getAllOsfErpInstances, stockForColumn } from "@/lib/osf/erp-stock";
 import {
   aggregateMonthlySalesBySku,
+  isoDateMonthsBefore,
   osfBestPurchaseBounds,
   osfPurchaseGridBounds,
   osfSalesGridBounds,
@@ -53,6 +54,9 @@ import { osfGenerateBodySchema } from "@/lib/validation/osf";
 function todayColombo(): string {
   return formatAppIsoDate(new Date());
 }
+
+/** Last-purchase scan lookback. Older receipts stay blank instead of paging all ERP history. */
+const LAST_PURCHASE_LOOKBACK_MONTHS = 24;
 
 /** Full catalog + April-to-date grids. Default 300s runs out of time and memory. */
 export const maxDuration = 800;
@@ -253,6 +257,7 @@ export async function POST(request: NextRequest) {
             cfg: inst.cfg,
             itemCodes: skus,
             recentSinceDate,
+            postingDateFrom: isoDateMonthsBefore(asOfDate, LAST_PURCHASE_LOOKBACK_MONTHS),
             allowedSuppliers,
           }),
           fetchMonthlyPurchasesInRange({

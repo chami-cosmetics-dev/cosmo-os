@@ -56,6 +56,8 @@ export const LIMITS = {
   smsPortalUrl: { max: 500 },
   productTitle: { max: 500 },
   sku: { max: 100 },
+  /** ERPNext warehouse name (e.g. "Main Warehouse - COMPANY") */
+  erpWarehouseName: { max: 200 },
   vendorName: { max: 200 },
   categoryName: { max: 500 },
   categoryFullName: { max: 1000 },
