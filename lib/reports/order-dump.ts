@@ -233,7 +233,6 @@ const ORDER_INVOICE_HEADERS = [
   "payment_gateway",
   "koko_ref_number",
   "payment_status",
-  "cancel_reason",
   "company_name",
   "pos_profile",
   "pos_warehouse",
@@ -254,6 +253,7 @@ const ORDER_INVOICE_HEADERS = [
   "billing_address",
   "shipping_address",
   "created_by",
+  "cancel_reason",
 ] as const;
 
 const ORDER_INVOICE_ITEM_HEADERS = [
@@ -280,7 +280,6 @@ const ORDER_INVOICE_ITEM_HEADERS = [
   "status",
   "fulfillment_status",
   "payment_status",
-  "cancel_reason",
   "payment_gateway",
   "koko_ref_number",
   "merchant_name",
@@ -288,6 +287,7 @@ const ORDER_INVOICE_ITEM_HEADERS = [
   "delivered_by",
   "delivery_completed_date",
   "pos_sale",
+  "cancel_reason",
 ] as const;
 
 export function getOrderInvoiceCsvHeaders(omitCustomerPhone = false) {

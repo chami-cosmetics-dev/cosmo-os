@@ -226,15 +226,15 @@ export async function fetchMerchantCohortSales(
       }
       continue;
     }
-    const loc = locationById.get(order.companyLocationId);
+    const shopLoc = locationById.get(order.companyLocationId);
     const merchantId = resolveCohortMerchantId({
       orderCoupons,
       couponToMerchantId,
       assignedMerchantId: order.assignedMerchantId,
       cohortIds,
       dmBucketId,
-      locationName: loc?.name,
-      locationDefaultMerchantId: loc?.defaultMerchantUserId,
+      locationName: shopLoc?.name,
+      locationDefaultMerchantId: shopLoc?.defaultMerchantUserId,
     });
     if (!merchantId) continue;
 
