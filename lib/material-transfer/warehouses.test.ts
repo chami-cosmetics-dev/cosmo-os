@@ -5,6 +5,9 @@ import {
   companyForWarehouses,
   defaultSourceWarehouse,
   defaultTargetWarehouse,
+  erp1NonVatTransferWarning,
+  erp1RequiresVatItems,
+  isOgfWarehouseName,
   warehouseOptions,
 } from "@/lib/material-transfer/warehouses";
 import type { TransferWarehouse } from "@/lib/material-transfer/types";
@@ -64,5 +67,89 @@ describe("warehouseOptions", () => {
     expect(
       companyForWarehouses("Main Warehouse - Chami", "Shop Warehouse - Chami", options),
     ).toBe("Chami Trading Lanka (Pvt) Ltd");
+  });
+});
+
+describe("erp1RequiresVatItems", () => {
+  it("recognizes the OGF shop warehouse", () => {
+    expect(isOgfWarehouseName("OGF Shop Warehouse - Cosmo")).toBe(true);
+    expect(isOgfWarehouseName("Main Warehouse - Cosmo")).toBe(false);
+    expect(isOgfWarehouseName("GCC Shop Warehouse - Cosmo")).toBe(false);
+    expect(isOgfWarehouseName("")).toBe(false);
+  });
+
+  it("skips the VAT-only rule when OGF is source or target", () => {
+    expect(erp1RequiresVatItems("Main Warehouse - Cosmo", "OGF Shop Warehouse - Cosmo")).toBe(false);
+    expect(erp1RequiresVatItems("OGF Shop Warehouse - Cosmo", "Main Warehouse - Cosmo")).toBe(false);
+    expect(erp1RequiresVatItems("OGF Shop Warehouse - Cosmo", "")).toBe(false);
+  });
+
+  it("keeps VAT-only for other ERP1 warehouse pairs", () => {
+    expect(erp1RequiresVatItems("Main Warehouse - Cosmo", "GCC Shop Warehouse - Cosmo")).toBe(true);
+    expect(erp1RequiresVatItems("Main Warehouse - Cosmo", "Maharagama Shop Warehouse - Cosmo")).toBe(
+      true,
+    );
+  });
+});
+
+describe("erp1NonVatTransferWarning", () => {
+  it("warns on OGF ERP1 non-VAT items without blocking", () => {
+    expect(
+      erp1NonVatTransferWarning(
+        "erp1",
+        "Main Warehouse - Cosmo",
+        "OGF Shop Warehouse - Cosmo",
+        "Non Vat",
+        "SKU1",
+      ),
+    ).toBe("SKU1 is Non Vat. Not Vat or Vat / Non Vat.");
+    expect(
+      erp1NonVatTransferWarning(
+        "erp1",
+        "OGF Shop Warehouse - Cosmo",
+        "Main Warehouse - Cosmo",
+        null,
+        "SKU1",
+      ),
+    ).toBe("SKU1 is not VAT. Not Vat or Vat / Non Vat.");
+  });
+
+  it("stays quiet for VAT items, ERP2, and non-OGF ERP1 pairs", () => {
+    expect(
+      erp1NonVatTransferWarning(
+        "erp1",
+        "Main Warehouse - Cosmo",
+        "OGF Shop Warehouse - Cosmo",
+        "Vat",
+        "SKU1",
+      ),
+    ).toBeNull();
+    expect(
+      erp1NonVatTransferWarning(
+        "erp1",
+        "Main Warehouse - Cosmo",
+        "OGF Shop Warehouse - Cosmo",
+        "Vat / Non Vat",
+        "SKU1",
+      ),
+    ).toBeNull();
+    expect(
+      erp1NonVatTransferWarning(
+        "erp2",
+        "Main Warehouse - Chami",
+        "Shop Warehouse - Chami",
+        "Non Vat",
+        "SKU1",
+      ),
+    ).toBeNull();
+    expect(
+      erp1NonVatTransferWarning(
+        "erp1",
+        "Main Warehouse - Cosmo",
+        "GCC Shop Warehouse - Cosmo",
+        "Non Vat",
+        "SKU1",
+      ),
+    ).toBeNull();
   });
 });
