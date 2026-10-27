@@ -1,3 +1,5 @@
+import { splitContactName } from "@/lib/customer-insight/contact-name";
+
 /** Required customer detail fields before loyalty respond / assign send. */
 
 export type LoyaltyProfileFields = {
@@ -14,7 +16,8 @@ export type LoyaltyProfileFields = {
 };
 
 export const LOYALTY_PROFILE_FIELD_LABELS = {
-  name: "Name",
+  firstName: "First name",
+  lastName: "Last name",
   email: "Email",
   phone: "Phone",
   gender: "Gender",
@@ -44,7 +47,9 @@ function hasBirthMonthDay(contact: LoyaltyProfileFields): boolean {
 /** Human-readable labels for empty loyalty profile fields. */
 export function getLoyaltyProfileMissingFields(contact: LoyaltyProfileFields): string[] {
   const missing: string[] = [];
-  if (!contact.name?.trim()) missing.push(LOYALTY_PROFILE_FIELD_LABELS.name);
+  const nameParts = splitContactName(contact.name ?? "");
+  if (!nameParts.firstName) missing.push(LOYALTY_PROFILE_FIELD_LABELS.firstName);
+  if (!nameParts.lastName) missing.push(LOYALTY_PROFILE_FIELD_LABELS.lastName);
   if (!contact.email?.trim()) missing.push(LOYALTY_PROFILE_FIELD_LABELS.email);
   if (!hasPhone(contact)) missing.push(LOYALTY_PROFILE_FIELD_LABELS.phone);
   if (!contact.gender?.trim()) missing.push(LOYALTY_PROFILE_FIELD_LABELS.gender);
