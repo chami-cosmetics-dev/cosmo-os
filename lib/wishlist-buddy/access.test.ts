@@ -27,6 +27,11 @@ const lead = viewerFromPermissions({
   roleNames: ["lead"],
   permissionKeys: ["stock_requests.create", "stock_requests.read_all"],
 });
+const purchasing = viewerFromPermissions({
+  userId: "u8",
+  roleNames: ["Purchasing Manager"],
+  permissionKeys: ["new_item_requests.admin"],
+});
 
 const web = { source: "shopify", createdById: null };
 const imported = { source: "import", createdById: null };
@@ -39,6 +44,8 @@ describe("tabs", () => {
     expect([canViewScope(callCentre, "web"), canViewScope(callCentre, "mine")]).toEqual([true, false]);
     expect([canViewScope(both, "web"), canViewScope(both, "mine")]).toEqual([true, true]);
     expect([canViewScope(admin, "web"), canViewScope(admin, "mine")]).toEqual([true, true]);
+    expect([canViewScope(purchasing, "web"), canViewScope(purchasing, "mine")]).toEqual([true, true]);
+    expect(canViewScope(purchasing, "staff")).toBe(false);
   });
 
   it("filters My requests to the creator, except for admins", () => {
@@ -125,5 +132,15 @@ describe("viewing and editing single requests", () => {
       expect(canViewRequest(admin, row)).toBe(true);
       expect(canEditRequest(admin, row)).toBe(true);
     }
+  });
+
+  it("lets new-item purchasing admins view website and own staff requests, not edit website", () => {
+    const own = { source: "staff", createdById: "u8" };
+    expect(canViewRequest(purchasing, web)).toBe(true);
+    expect(canEditRequest(purchasing, web)).toBe(false);
+    expect(canViewRequest(purchasing, own)).toBe(true);
+    expect(canEditRequest(purchasing, own)).toBe(true);
+    expect(canViewRequest(purchasing, someoneElses)).toBe(false);
+    expect(canExportScope(purchasing, "web")).toBe(false);
   });
 });

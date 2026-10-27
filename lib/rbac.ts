@@ -733,7 +733,7 @@ const DEFAULT_PERMISSIONS = [
   {
     key: "new_item_requests.admin",
     description:
-      "See all new item requests, export, and mark already have or closed",
+      "See all new item requests, export, and mark already have, ordered, or closed. Also opens Website requests (view) and My requests",
   },
 ] as const;
 

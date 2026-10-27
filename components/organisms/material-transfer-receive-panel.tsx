@@ -24,6 +24,10 @@ const SCAN_IDLE_MS = 100;
 const SCAN_GAP_RESET_MS = 300;
 const MAX_RECEIVED_QTY = 100_000;
 
+function isScannerBarcode(code: string): boolean {
+  return /^\d{8,}$/.test(code.trim());
+}
+
 function lineTone(matched: boolean, highlighted: boolean) {
   return cn(
     matched && "bg-green-100 dark:bg-green-950/40",
@@ -88,6 +92,7 @@ export function MaterialTransferReceivePanel() {
   const scanBufferRef = useRef("");
   const lastScanKeyAtRef = useRef(0);
   const scanTimerRef = useRef<number | null>(null);
+  const inputScanTimerRef = useRef<number | null>(null);
   const scanQueueRef = useRef<string[]>([]);
   const scanRunningRef = useRef(false);
   const rowRefs = useRef(new Map<string, HTMLTableRowElement>());
@@ -133,6 +138,7 @@ export function MaterialTransferReceivePanel() {
       setPinnedId(null);
       setHighlightId(null);
       setScan("");
+      queueMicrotask(() => scanRef.current?.focus());
     } catch (error) {
       notify.error(error instanceof Error ? error.message : "Could not open the transfer");
     } finally {
@@ -236,6 +242,7 @@ export function MaterialTransferReceivePanel() {
     setReceipt(nextReceipt);
     setPinnedId(hit.id);
     setHighlightId(hit.id);
+    scanRef.current?.focus();
     const ok = await postCount({ itemCode: hit.itemCode, qty: nextQty }, "scan", { keepBusy: true });
     if (!ok && receiptRef.current) {
       const reverted: Receipt = {
@@ -315,6 +322,7 @@ export function MaterialTransferReceivePanel() {
     return () => {
       window.removeEventListener("keydown", onKeyDown, true);
       if (scanTimerRef.current != null) window.clearTimeout(scanTimerRef.current);
+      if (inputScanTimerRef.current != null) window.clearTimeout(inputScanTimerRef.current);
     };
   }, []);
 
@@ -370,8 +378,9 @@ export function MaterialTransferReceivePanel() {
       <div>
         <h1 className="text-xl font-semibold">Receive transfer</h1>
         <p className="text-muted-foreground text-sm">
-          Scan a barcode anywhere on this page. The scanned line moves to the top and stays
-          highlighted. A line turns green when received qty matches sent qty. You can also type the qty.
+          Scan a barcode. The matching line count goes up by 1, moves to the top, and stays
+          highlighted. No Add press. A line turns green when received qty matches sent qty. You can
+          also type the qty.
         </p>
       </div>
 
@@ -412,6 +421,10 @@ export function MaterialTransferReceivePanel() {
             className="flex gap-2"
             onSubmit={(event) => {
               event.preventDefault();
+              if (inputScanTimerRef.current != null) {
+                window.clearTimeout(inputScanTimerRef.current);
+                inputScanTimerRef.current = null;
+              }
               const code = (scanRef.current?.value || scanValueRef.current || scan).trim();
               if (!code || busyKey === "mark") return;
               scanValueRef.current = "";
@@ -422,16 +435,36 @@ export function MaterialTransferReceivePanel() {
             <Input
               ref={scanRef}
               value={scan}
-              disabled={isBusy}
+              disabled={busyKey === "load" || busyKey === "mark"}
               placeholder="Scan barcode or type SKU"
               autoComplete="off"
               onFocus={unlockScanSound}
               onChange={(event) => {
-                scanValueRef.current = event.target.value;
-                setScan(event.target.value);
+                const value = event.target.value;
+                scanValueRef.current = value;
+                setScan(value);
+                if (inputScanTimerRef.current != null) {
+                  window.clearTimeout(inputScanTimerRef.current);
+                  inputScanTimerRef.current = null;
+                }
+                const code = value.trim();
+                if (!receiptRef.current || busyKeyRef.current === "mark") return;
+                if (code.length >= MIN_SCAN_LENGTH && findReceiptLine(receiptRef.current.lines, code)) {
+                  scanValueRef.current = "";
+                  setScan("");
+                  enqueueScan(code);
+                  return;
+                }
+                if (!isScannerBarcode(code)) return;
+                inputScanTimerRef.current = window.setTimeout(() => {
+                  inputScanTimerRef.current = null;
+                  scanValueRef.current = "";
+                  setScan("");
+                  enqueueScan(code);
+                }, SCAN_IDLE_MS);
               }}
             />
-            <Button type="submit" disabled={isBusy || !scan.trim()}>
+            <Button type="submit" disabled={busyKey === "mark" || !scan.trim()}>
               {busyKey === "scan" ? (
                 <>
                   <Loader2 className="animate-spin" aria-hidden />
