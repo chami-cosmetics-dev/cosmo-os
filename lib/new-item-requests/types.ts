@@ -1,6 +1,20 @@
-export const NEW_ITEM_REQUEST_STATUSES = ["open", "already_have", "closed"] as const;
+export const NEW_ITEM_REQUEST_STATUSES = ["open", "already_have", "ordered", "closed"] as const;
 
 export type NewItemRequestStatusValue = (typeof NEW_ITEM_REQUEST_STATUSES)[number];
+
+export const NEW_ITEM_REQUEST_STATUS_LABEL: Record<NewItemRequestStatusValue, string> = {
+  open: "Open",
+  already_have: "Already have",
+  ordered: "Ordered",
+  closed: "Closed",
+};
+
+export const NEW_ITEM_REQUEST_STATUS_FILTERS: { id: NewItemRequestStatusValue; label: string }[] =
+  NEW_ITEM_REQUEST_STATUSES.map((id) => ({ id, label: NEW_ITEM_REQUEST_STATUS_LABEL[id] }));
+
+export function newItemRequestStatusLabel(status: NewItemRequestStatusValue) {
+  return NEW_ITEM_REQUEST_STATUS_LABEL[status];
+}
 
 export type NewItemRequestVoteView = {
   userName: string;

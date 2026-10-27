@@ -11,8 +11,13 @@ describe("assertStatusChange", () => {
     expect(assertStatusChange("open", "closed")).toEqual({ ok: "change" });
   });
 
+  it("allows open to ordered", () => {
+    expect(assertStatusChange("open", "ordered")).toEqual({ ok: "change" });
+  });
+
   it("is idempotent for the same status", () => {
     expect(assertStatusChange("already_have", "already_have")).toEqual({ ok: "noop" });
+    expect(assertStatusChange("ordered", "ordered")).toEqual({ ok: "noop" });
     expect(assertStatusChange("closed", "closed")).toEqual({ ok: "noop" });
     expect(assertStatusChange("open", "open")).toEqual({ ok: "noop" });
   });
@@ -23,6 +28,10 @@ describe("assertStatusChange", () => {
 
   it("rejects closed to already_have", () => {
     expect(assertStatusChange("closed", "already_have")).toEqual({ ok: "reject" });
+  });
+
+  it("rejects ordered to closed", () => {
+    expect(assertStatusChange("ordered", "closed")).toEqual({ ok: "reject" });
   });
 
   it("rejects closed to open", () => {

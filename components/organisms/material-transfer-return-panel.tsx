@@ -19,6 +19,13 @@ import { notify } from "@/lib/notify";
 import { playScanErrorSound, unlockScanSound } from "@/lib/store-stock-count/scan-sound";
 import { cn } from "@/lib/utils";
 
+const MIN_SCAN_LENGTH = 4;
+const SCAN_IDLE_MS = 100;
+
+function isScannerBarcode(code: string): boolean {
+  return /^\d{8,}$/.test(code.trim());
+}
+
 type Setup = {
   legs: ShopReturnLeg[];
 };
@@ -38,9 +45,16 @@ export function MaterialTransferReturnPanel() {
   const [highlightedItemCode, setHighlightedItemCode] = useState<string | null>(null);
   const scanRef = useRef<HTMLInputElement>(null);
   const scanValueRef = useRef("");
+  const scanTimerRef = useRef<number | null>(null);
   const linesRef = useRef<TransferLine[]>([]);
   linesRef.current = lines;
   const scanLocked = busyKey === "page" || busyKey === "submit";
+
+  useEffect(() => {
+    return () => {
+      if (scanTimerRef.current != null) window.clearTimeout(scanTimerRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -170,6 +184,10 @@ export function MaterialTransferReturnPanel() {
             className="flex gap-2"
             onSubmit={(event) => {
               event.preventDefault();
+              if (scanTimerRef.current != null) {
+                window.clearTimeout(scanTimerRef.current);
+                scanTimerRef.current = null;
+              }
               void addCode(scanRef.current?.value || scanValueRef.current || scan);
             }}
           >
@@ -181,8 +199,24 @@ export function MaterialTransferReturnPanel() {
               autoComplete="off"
               onFocus={unlockScanSound}
               onChange={(event) => {
-                scanValueRef.current = event.target.value;
-                setScan(event.target.value);
+                const value = event.target.value;
+                scanValueRef.current = value;
+                setScan(value);
+                if (scanTimerRef.current != null) {
+                  window.clearTimeout(scanTimerRef.current);
+                  scanTimerRef.current = null;
+                }
+                if (scanLocked) return;
+                const code = value.trim();
+                if (code.length >= MIN_SCAN_LENGTH && findTransferLine(linesRef.current, code)) {
+                  void addCode(code);
+                  return;
+                }
+                if (!isScannerBarcode(code)) return;
+                scanTimerRef.current = window.setTimeout(() => {
+                  scanTimerRef.current = null;
+                  void addCode(code);
+                }, SCAN_IDLE_MS);
               }}
             />
             <Button type="submit" disabled={scanLocked || !scan.trim()}>

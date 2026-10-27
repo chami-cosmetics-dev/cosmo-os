@@ -9,18 +9,22 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatAppDateTime } from "@/lib/format-datetime";
 import { notify } from "@/lib/notify";
-import { formatVoteCount, type NewItemRequestStatusValue, type NewItemRequestView } from "@/lib/new-item-requests/types";
+import {
+  formatVoteCount,
+  NEW_ITEM_REQUEST_STATUS_FILTERS,
+  newItemRequestStatusLabel,
+  type NewItemRequestStatusValue,
+  type NewItemRequestView,
+} from "@/lib/new-item-requests/types";
 
-const FILTERS: { id: NewItemRequestStatusValue; label: string }[] = [
-  { id: "open", label: "Open" },
-  { id: "already_have", label: "Already have" },
-  { id: "closed", label: "Closed" },
-];
-
-function statusLabel(status: NewItemRequestStatusValue) {
-  if (status === "already_have") return "Already have";
-  if (status === "closed") return "Closed";
-  return "Open";
+function StatusMark({ status }: { status: NewItemRequestStatusValue }) {
+  const label = newItemRequestStatusLabel(status);
+  if (status === "ordered") {
+    return (
+      <span className="bg-primary/10 text-primary rounded px-1.5 py-0.5 text-xs font-medium">{label}</span>
+    );
+  }
+  return <span className="text-muted-foreground text-xs">{label}</span>;
 }
 
 type NewItemRequestOwnListProps = {
@@ -106,11 +110,14 @@ export function NewItemRequestOwnList({
     <Card>
       <CardHeader>
         <CardTitle>All merchant requests</CardTitle>
-        <CardDescription>Every shop sees the same list. Vote if the item is already here.</CardDescription>
+        <CardDescription>
+          Every shop sees the same list. Vote if the item is already here. Ordered means purchasing placed a purchase
+          order.
+        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="flex flex-wrap gap-2">
-          {FILTERS.map((filter) => (
+          {NEW_ITEM_REQUEST_STATUS_FILTERS.map((filter) => (
             <Button
               key={filter.id}
               type="button"
@@ -147,7 +154,7 @@ export function NewItemRequestOwnList({
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <span className="font-medium">{row.productName || row.brandName}</span>
-                      <span className="text-muted-foreground text-xs">{statusLabel(row.status)}</span>
+                      <StatusMark status={row.status} />
                     </div>
                     <p className="text-muted-foreground mt-1 text-xs">
                       {row.brandName}
@@ -206,7 +213,7 @@ export function NewItemRequestOwnList({
               {selected.brandIsExisting ? "Catalogue brand" : "New brand"}
               {selected.priority ? ` · ${selected.priority}` : ""}
               {` · ${formatVoteCount(selected)}`}
-              {` · ${statusLabel(selected.status)}`}
+              {` · ${newItemRequestStatusLabel(selected.status)}`}
             </p>
             {selected.customerName || selected.customerPhone ? (
               <p className="text-muted-foreground text-xs">

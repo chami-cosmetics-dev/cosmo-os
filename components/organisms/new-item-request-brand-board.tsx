@@ -6,25 +6,29 @@ import { Loader2 } from "lucide-react";
 import { NewItemRequestVoteList } from "@/components/organisms/new-item-request-vote-list";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { formatAppDateTime } from "@/lib/format-datetime";
 import { notify } from "@/lib/notify";
 import {
   formatVoteCount,
+  NEW_ITEM_REQUEST_STATUS_FILTERS,
+  newItemRequestStatusLabel,
   type NewItemRequestBrandGroup,
   type NewItemRequestStatusValue,
   type NewItemRequestView,
 } from "@/lib/new-item-requests/types";
 
-const FILTERS: { id: NewItemRequestStatusValue; label: string }[] = [
-  { id: "open", label: "Open" },
-  { id: "already_have", label: "Already have" },
-  { id: "closed", label: "Closed" },
-];
-
-function statusLabel(status: NewItemRequestStatusValue) {
-  if (status === "already_have") return "Already have";
-  if (status === "closed") return "Closed";
-  return "Open";
+function markStatusToast(status: Exclude<NewItemRequestStatusValue, "open">) {
+  if (status === "already_have") return "Marked already have.";
+  if (status === "ordered") return "Marked ordered.";
+  return "Marked closed.";
 }
 
 type NewItemRequestBrandBoardProps = {
@@ -37,6 +41,7 @@ export function NewItemRequestBrandBoard({ initialBrands }: NewItemRequestBrandB
   const [activeBrand, setActiveBrand] = useState<string | null>(null);
   const [requests, setRequests] = useState<NewItemRequestView[]>([]);
   const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [closingId, setClosingId] = useState<string | null>(null);
   const isBusy = busyKey !== null;
 
   async function loadBrands(nextStatus: NewItemRequestStatusValue) {
@@ -75,7 +80,7 @@ export function NewItemRequestBrandBoard({ initialBrands }: NewItemRequestBrandB
     }
   }
 
-  async function markStatus(id: string, nextStatus: "already_have" | "closed") {
+  async function markStatus(id: string, nextStatus: Exclude<NewItemRequestStatusValue, "open">) {
     try {
       setBusyKey(id);
       const response = await fetch(`/api/new-item-requests/${id}/status`, {
@@ -85,9 +90,10 @@ export function NewItemRequestBrandBoard({ initialBrands }: NewItemRequestBrandB
       });
       const data = (await response.json()) as { error?: string };
       if (!response.ok) throw new Error(data.error ?? "Could not update status");
+      setClosingId(null);
       await loadBrands(status);
       if (activeBrand) await loadBrand(activeBrand, status);
-      notify.success(nextStatus === "already_have" ? "Marked already have." : "Marked closed.");
+      notify.success(markStatusToast(nextStatus));
     } catch (error) {
       notify.error(error instanceof Error ? error.message : "Could not update status");
       await loadBrands(status).catch(() => undefined);
@@ -125,11 +131,13 @@ export function NewItemRequestBrandBoard({ initialBrands }: NewItemRequestBrandB
     <Card>
       <CardHeader>
         <CardTitle>Purchasing board</CardTitle>
-        <CardDescription>Open demand grouped by brand. Already have is a status only.</CardDescription>
+        <CardDescription>
+          Open demand grouped by brand. Already have is a status only. Ordered means a purchase order was placed.
+        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="flex flex-wrap items-center gap-2">
-          {FILTERS.map((filter) => (
+          {NEW_ITEM_REQUEST_STATUS_FILTERS.map((filter) => (
             <Button
               key={filter.id}
               type="button"
@@ -203,7 +211,7 @@ export function NewItemRequestBrandBoard({ initialBrands }: NewItemRequestBrandB
                 <p className="text-muted-foreground text-xs">
                   {row.brandIsExisting ? "Catalogue brand" : "New brand"}
                   {row.priority ? ` · ${row.priority}` : ""}
-                  {` · ${statusLabel(row.status)}`}
+                  {` · ${newItemRequestStatusLabel(row.status)}`}
                 </p>
                 {row.customerName || row.customerPhone ? (
                   <p className="text-muted-foreground text-xs">
@@ -242,7 +250,7 @@ export function NewItemRequestBrandBoard({ initialBrands }: NewItemRequestBrandB
                       size="sm"
                       variant="outline"
                       disabled={isBusy}
-                      onClick={() => void markStatus(row.id, "closed")}
+                      onClick={() => setClosingId(row.id)}
                     >
                       Closed
                     </Button>
@@ -253,6 +261,48 @@ export function NewItemRequestBrandBoard({ initialBrands }: NewItemRequestBrandB
           </ul>
         ) : null}
       </CardContent>
+      <Dialog
+        open={closingId !== null}
+        onOpenChange={(open) => {
+          if (!open && !isBusy) setClosingId(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Close request</DialogTitle>
+            <DialogDescription>
+              Place a purchase order for this item? Merchants see Ordered if you do.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-col gap-2 sm:flex-col sm:space-x-0">
+            <Button
+              type="button"
+              disabled={isBusy || !closingId}
+              onClick={() => closingId && void markStatus(closingId, "ordered")}
+            >
+              {busyKey === closingId ? (
+                <>
+                  <Loader2 className="animate-spin" aria-hidden />
+                  Saving...
+                </>
+              ) : (
+                "Place purchase order"
+              )}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={isBusy || !closingId}
+              onClick={() => closingId && void markStatus(closingId, "closed")}
+            >
+              Close without order
+            </Button>
+            <Button type="button" variant="ghost" disabled={isBusy} onClick={() => setClosingId(null)}>
+              Cancel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }

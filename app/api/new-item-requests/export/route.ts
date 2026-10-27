@@ -3,6 +3,7 @@ import * as XLSX from "xlsx";
 
 import { NEW_ITEM_REQUESTS_PERMISSIONS } from "@/lib/new-item-requests/permissions";
 import { listCompanyRequests, NewItemRequestError } from "@/lib/new-item-requests/store";
+import { NEW_ITEM_REQUEST_STATUS_LABEL } from "@/lib/new-item-requests/types";
 import { requirePermission } from "@/lib/rbac";
 import { newItemRequestListQueryFromSearch } from "@/lib/validation/new-item-requests";
 
@@ -39,7 +40,7 @@ export async function GET(request: NextRequest) {
           [vote.userName, vote.customerName, vote.customerPhone, vote.customerEmail].filter(Boolean).join(" · "),
         )
         .join("; "),
-      Status: row.status,
+      Status: NEW_ITEM_REQUEST_STATUS_LABEL[row.status],
       "Status changed at": row.statusChangedAt ?? "",
       "Status changed by": row.statusChangedByName ?? "",
     }));

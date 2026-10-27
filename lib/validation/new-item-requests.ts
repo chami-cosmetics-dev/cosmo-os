@@ -76,7 +76,7 @@ export const newItemRequestListQuerySchema = z.object({
 });
 
 export const newItemRequestStatusBodySchema = z.object({
-  status: z.enum(["already_have", "closed"]),
+  status: z.enum(["already_have", "ordered", "closed"]),
 });
 
 export const newItemRequestVoteBodySchema = z.object({

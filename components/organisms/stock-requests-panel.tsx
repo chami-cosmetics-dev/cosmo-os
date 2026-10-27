@@ -1107,6 +1107,7 @@ function ProductThumb({ hit }: { hit: ProductHit }) {
  * Stock Requests: "Website requests" (stock_requests.read), "My requests"
  * (stock_requests.create), "All staff requests" (stock_requests.read_all),
  * and "New item requests" (new_item_requests.manage / admin).
+ * new_item_requests.admin also unlocks Website (view) and My requests.
  */
 export function StockRequestsPanel({
   viewer,

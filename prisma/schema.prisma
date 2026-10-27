@@ -3278,6 +3278,7 @@ model ShopItemRequestLine {
 enum NewItemRequestStatus {
   open
   already_have
+  ordered
   closed
 }
 

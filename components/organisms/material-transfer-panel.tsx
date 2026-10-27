@@ -48,9 +48,17 @@ import {
 import { MaterialTransferHistory } from "@/components/organisms/material-transfer-history";
 import { MaterialTransferRequestQueue } from "@/components/organisms/material-transfer-request-queue";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { findReceiptLine } from "@/lib/material-transfer/receive";
 import { notify } from "@/lib/notify";
 import { playScanErrorSound, unlockScanSound } from "@/lib/store-stock-count/scan-sound";
 import { cn } from "@/lib/utils";
+
+const MIN_SEND_SCAN_LENGTH = 4;
+const SEND_SCAN_IDLE_MS = 100;
+
+function isScannerBarcode(code: string): boolean {
+  return /^\d{8,}$/.test(code.trim());
+}
 
 type SlotPayload = {
   configured: boolean;
@@ -94,6 +102,7 @@ export function MaterialTransferPanel({
   const [tab, setTab] = useState<MaterialTransferPageTab>(initialTab);
   const scanRef = useRef<HTMLInputElement>(null);
   const scanValueRef = useRef("");
+  const sendScanTimerRef = useRef<number | null>(null);
   const linesRef = useRef<TransferLine[]>([]);
   const queueRef = useRef<
     Array<{ code: string; slot: TransferSlot; source: string; target: string; company: string }>
@@ -167,6 +176,12 @@ export function MaterialTransferPanel({
 
   const focusScan = useCallback(() => {
     scanRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (sendScanTimerRef.current != null) window.clearTimeout(sendScanTimerRef.current);
+    };
   }, []);
 
   function switchSlot(next: TransferSlot) {
@@ -338,7 +353,8 @@ export function MaterialTransferPanel({
         <h1 className="text-xl font-semibold">Material transfer</h1>
         <p className="text-muted-foreground text-sm">
           Stock Entry type Material Transfer. Scan a barcode or type a SKU. A repeat scan adds 1
-          to the qty. Sending submits the entry in ERP and moves stock.
+          to the qty. Matching barcodes count up without Add. Sending submits the entry in ERP and
+          moves stock.
         </p>
       </div>
 
@@ -471,6 +487,10 @@ export function MaterialTransferPanel({
         className="flex gap-2"
         onSubmit={(event) => {
           event.preventDefault();
+          if (sendScanTimerRef.current != null) {
+            window.clearTimeout(sendScanTimerRef.current);
+            sendScanTimerRef.current = null;
+          }
           void addCode(scanRef.current?.value || scanValueRef.current || scan);
         }}
       >
@@ -482,8 +502,24 @@ export function MaterialTransferPanel({
           autoComplete="off"
           onFocus={unlockScanSound}
           onChange={(event) => {
-            scanValueRef.current = event.target.value;
-            setScan(event.target.value);
+            const value = event.target.value;
+            scanValueRef.current = value;
+            setScan(value);
+            if (sendScanTimerRef.current != null) {
+              window.clearTimeout(sendScanTimerRef.current);
+              sendScanTimerRef.current = null;
+            }
+            if (scanLocked) return;
+            const code = value.trim();
+            if (code.length >= MIN_SEND_SCAN_LENGTH && findTransferLine(linesRef.current, code)) {
+              addCode(code);
+              return;
+            }
+            if (!isScannerBarcode(code)) return;
+            sendScanTimerRef.current = window.setTimeout(() => {
+              sendScanTimerRef.current = null;
+              addCode(code);
+            }, SEND_SCAN_IDLE_MS);
           }}
         />
         <Button type="submit" disabled={scanLocked || !scan.trim()}>
@@ -682,6 +718,13 @@ function ShopReturnQueue() {
   const [busyKey, setBusyKey] = useState<"load" | "count" | "confirm" | null>(null);
   const [scan, setScan] = useState("");
   const scanRef = useRef<HTMLInputElement>(null);
+  const openRef = useRef(open);
+  const busyKeyRef = useRef(busyKey);
+  const scanQueueRef = useRef<string[]>([]);
+  const scanRunningRef = useRef(false);
+  const countPromise = useRef<Promise<void>>(Promise.resolve());
+  openRef.current = open;
+  busyKeyRef.current = busyKey;
 
   const load = useCallback(async () => {
     setBusyKey("load");
@@ -708,7 +751,10 @@ function ShopReturnQueue() {
       const json = (await res.json()) as { transfer?: QueueTransfer; error?: string };
       if (!res.ok || !json.transfer) throw new Error(json.error || "Could not open the request");
       setOpen(json.transfer);
+      openRef.current = json.transfer;
       setHighlightId(null);
+      setScan("");
+      queueMicrotask(() => scanRef.current?.focus());
     } catch (error) {
       notify.error(error instanceof Error ? error.message : "Could not open the request");
     } finally {
@@ -717,31 +763,67 @@ function ShopReturnQueue() {
   }
 
   async function count(body: { code?: string; itemCode?: string; qty?: number }, highlight?: string) {
-    if (!open) return;
+    const current = openRef.current;
+    if (!current) return;
     setBusyKey("count");
-    try {
-      const res = await fetch(`/api/admin/store/material-transfer/${open.id}/count`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const json = (await res.json()) as { transfer?: QueueTransfer; error?: string };
-      if (!res.ok || !json.transfer) throw new Error(json.error || "Could not update the count");
-      const lines = highlight
-        ? [
-            ...json.transfer.lines.filter((line) => line.id === highlight),
-            ...json.transfer.lines.filter((line) => line.id !== highlight),
-          ]
-        : json.transfer.lines;
-      setOpen({ ...json.transfer, lines });
-      if (highlight) setHighlightId(highlight);
-    } catch (error) {
-      playScanErrorSound();
-      notify.error(error instanceof Error ? error.message : "Could not update the count");
-    } finally {
-      setBusyKey(null);
-      scanRef.current?.focus();
-    }
+    const run = (async () => {
+      try {
+        const res = await fetch(`/api/admin/store/material-transfer/${current.id}/count`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const json = (await res.json()) as { transfer?: QueueTransfer; error?: string };
+        if (!res.ok || !json.transfer) throw new Error(json.error || "Could not update the count");
+        const hitId =
+          highlight ??
+          (body.itemCode
+            ? json.transfer.lines.find((line) => line.itemCode === body.itemCode)?.id
+            : undefined);
+        const lines = hitId
+          ? [
+              ...json.transfer.lines.filter((line) => line.id === hitId),
+              ...json.transfer.lines.filter((line) => line.id !== hitId),
+            ]
+          : json.transfer.lines;
+        const next = { ...json.transfer, lines };
+        openRef.current = next;
+        setOpen(next);
+        if (hitId) setHighlightId(hitId);
+      } catch (error) {
+        playScanErrorSound();
+        notify.error(error instanceof Error ? error.message : "Could not update the count");
+      } finally {
+        setBusyKey(null);
+        scanRef.current?.focus();
+      }
+    })();
+    countPromise.current = run;
+    await run;
+  }
+
+  function enqueueCountScan(code: string) {
+    const trimmed = code.trim();
+    if (trimmed) scanQueueRef.current.push(trimmed);
+    if (!openRef.current || busyKeyRef.current === "confirm") return;
+    if (scanRunningRef.current || scanQueueRef.current.length === 0) return;
+    scanRunningRef.current = true;
+    void (async () => {
+      try {
+        while (scanQueueRef.current.length) {
+          const next = scanQueueRef.current.shift();
+          if (!next) continue;
+          await countPromise.current;
+          const current = openRef.current;
+          if (!current) continue;
+          const hit = findReceiptLine(current.lines, next);
+          await count({ code: next }, hit?.id);
+        }
+      } finally {
+        scanRunningRef.current = false;
+        if (scanQueueRef.current.length) enqueueCountScan("");
+      }
+    })();
   }
 
   async function confirm() {
@@ -805,7 +887,8 @@ function ShopReturnQueue() {
       {open ? (
         <div className="flex flex-col gap-3 rounded-md border p-3">
           <p className="text-sm">
-            Count what arrived. One list. Confirm posts VAT items to ERP1
+            Scan a barcode. Matching line count goes up by 1. No Add press. Confirm posts VAT items
+            to ERP1
             {open.targetWarehouse ? ` (${open.targetWarehouse})` : ""} and other items to ERP2
             {open.targetWarehouse2 ? ` (${open.targetWarehouse2})` : ""}.
           </p>
@@ -815,23 +898,29 @@ function ShopReturnQueue() {
               event.preventDefault();
               const code = (scanRef.current?.value || scan).trim();
               if (!code) return;
-              const hit = open.lines.find(
-                (line) => line.itemCode.toLowerCase() === code.toLowerCase() || line.barcode === code,
-              );
               setScan("");
-              if (scanRef.current) scanRef.current.value = "";
-              void count({ code }, hit?.id);
+              enqueueCountScan(code);
             }}
           >
             <Input
               ref={scanRef}
               value={scan}
-              onChange={(event) => setScan(event.target.value)}
+              disabled={busyKey === "confirm"}
+              onChange={(event) => {
+                const value = event.target.value;
+                setScan(value);
+                const code = value.trim();
+                const current = openRef.current;
+                if (!current || code.length < 4) return;
+                if (!findReceiptLine(current.lines, code)) return;
+                setScan("");
+                enqueueCountScan(code);
+              }}
               placeholder="Scan barcode or type SKU"
               autoComplete="off"
               onFocus={unlockScanSound}
             />
-            <Button type="submit" disabled={busyKey !== null || !scan.trim()}>
+            <Button type="submit" disabled={busyKey === "confirm" || !scan.trim()}>
               Add
             </Button>
           </form>
