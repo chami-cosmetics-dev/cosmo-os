@@ -1,12 +1,16 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  ERP_RESOLVED_APPROVAL_CANCEL_NOTE,
   FINANCE_PENDING_FULFILLMENT_EXCLUSION,
   FINANCE_PENDING_SPLIT_PAYMENT_QUEUE,
   isActiveErpSiRetryLease,
+  isErpClosedApprovalReviewNote,
   isOrderPaymentRequiresApproval,
   isPlaceholderErpInvoiceId,
   isRealErpSalesInvoiceId,
+  ORDER_VOIDED_APPROVAL_CANCEL_NOTE,
+  orderLooksErpResolved,
   pickOrderPaymentApprovalForFulfillmentGate,
 } from "@/lib/approval-workflow";
 
@@ -213,5 +217,42 @@ describe("orderPaymentRejectionReasonSchema", () => {
     expect(orderPaymentRejectionReasonSchema.safeParse("  abcde  ").success).toBe(true);
     expect(orderPaymentRejectionReasonSchema.safeParse("x".repeat(500)).success).toBe(true);
     expect(orderPaymentRejectionReasonSchema.safeParse("x".repeat(501)).success).toBe(false);
+  });
+});
+
+describe("orderLooksErpResolved", () => {
+  it("treats ERP cancel, credit note, return SI, and voided+returned as resolved", () => {
+    expect(orderLooksErpResolved({ cancelReason: "ERP cancel" })).toBe(true);
+    expect(orderLooksErpResolved({ cancelReason: "ERP credit note" })).toBe(true);
+    expect(orderLooksErpResolved({ erpReturnSalesInvoiceIds: ["RT-500-000810"] })).toBe(true);
+    expect(
+      orderLooksErpResolved({ financialStatus: "voided", fulfillmentStage: "returned" }),
+    ).toBe(true);
+  });
+
+  it("keeps returned-to-store unpaid/paid orders in OS queues", () => {
+    expect(
+      orderLooksErpResolved({
+        financialStatus: "pending",
+        fulfillmentStage: "returned_to_store",
+        cancelReason: null,
+        erpReturnSalesInvoiceIds: [],
+      }),
+    ).toBe(false);
+    expect(
+      orderLooksErpResolved({
+        financialStatus: "paid",
+        fulfillmentStage: "returned_to_store",
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("isErpClosedApprovalReviewNote", () => {
+  it("matches OS void and ERP-resolved cancel notes", () => {
+    expect(isErpClosedApprovalReviewNote(ORDER_VOIDED_APPROVAL_CANCEL_NOTE)).toBe(true);
+    expect(isErpClosedApprovalReviewNote(ERP_RESOLVED_APPROVAL_CANCEL_NOTE)).toBe(true);
+    expect(isErpClosedApprovalReviewNote("Approved")).toBe(false);
+    expect(isErpClosedApprovalReviewNote(null)).toBe(false);
   });
 });

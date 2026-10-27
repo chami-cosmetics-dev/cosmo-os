@@ -7,7 +7,7 @@ import {
   isOrderPaymentRequiresApproval,
   createOrGetOrderPaymentApproval,
   cancelPendingApprovalsForOrder,
-  orderHasPendingFinanceCancelApproval,
+  ERP_RESOLVED_APPROVAL_CANCEL_OPTIONS,
   ORDER_PAYMENT_APPROVAL,
 } from "@/lib/approval-workflow";
 import { needsKokoLinkTimeConfirm } from "@/lib/koko-order";
@@ -332,7 +332,7 @@ export async function ingestParsedErpSalesInvoice(input: {
           }),
         },
       });
-      await cancelPendingApprovalsForOrder(existing.id);
+      await cancelPendingApprovalsForOrder(existing.id, ERP_RESOLVED_APPROVAL_CANCEL_OPTIONS);
       console.log(
         `[ERPNext webhook] Credit note ${data.name} — voided existing order ${existing.id}`,
       );
@@ -379,13 +379,6 @@ export async function ingestParsedErpSalesInvoice(input: {
         return { ok: true, skipped: true, reason: "duplicate_invoice_cancel" };
       }
 
-      if (await orderHasPendingFinanceCancelApproval(linkedVaultOrder.id)) {
-        console.log(
-          `[ERPNext webhook] Cancelled invoice ${data.name} — order ${linkedVaultOrder.name ?? linkedVaultOrder.orderNumber ?? linkedVaultOrder.id} stays until finance approves the cancel`,
-        );
-        return { ok: true, skipped: true, reason: "finance_cancel_pending" };
-      }
-
       await prisma.order.update({
         where: { id: linkedVaultOrder.id },
         data: {
@@ -397,7 +390,10 @@ export async function ingestParsedErpSalesInvoice(input: {
           }),
         },
       });
-      await cancelPendingApprovalsForOrder(linkedVaultOrder.id);
+      await cancelPendingApprovalsForOrder(
+        linkedVaultOrder.id,
+        ERP_RESOLVED_APPROVAL_CANCEL_OPTIONS,
+      );
       console.log(
         `[ERPNext webhook] Cancelled invoice ${data.name} — voided Vault order ${linkedVaultOrder.name ?? linkedVaultOrder.orderNumber ?? linkedVaultOrder.id}`,
       );
@@ -848,7 +844,7 @@ export async function ingestParsedErpSalesInvoice(input: {
   });
 
   if (financialStatus === "voided" || isCreditNoted) {
-    await cancelPendingApprovalsForOrder(order.id);
+    await cancelPendingApprovalsForOrder(order.id, ERP_RESOLVED_APPROVAL_CANCEL_OPTIONS);
   }
 
   // For non-POS ERP orders: if payment requires approval and is unpaid, create an approval

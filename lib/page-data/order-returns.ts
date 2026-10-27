@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { formatInvoiceOrderReference } from "@/lib/fulfillment-order-reference";
 import { resolveOrderMerchantLabel } from "@/lib/order-merchant-coupon";
+import { reconcilePendingApprovalsForErpResolvedOrders } from "@/lib/approval-workflow";
 
 export type ReturnTrackingItem = {
   id: string;
@@ -76,6 +77,8 @@ export async function fetchReturnsTrackingData(input: {
   companyId: string;
 }): Promise<ReturnsTrackingData> {
   try {
+    await reconcilePendingApprovalsForErpResolvedOrders(input.companyId);
+
     // Sweep all pending returns for orders already voided — regardless of actionType.
     // A voided order can't be rearranged or cancelled further, so mark them solved.
     await prisma.orderReturn.updateMany({

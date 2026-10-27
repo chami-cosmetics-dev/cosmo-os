@@ -38,7 +38,7 @@ describe("applyErpCancelToOriginalOrder", () => {
     mocks.orderUpdate.mockResolvedValue({});
   });
 
-  it("leaves OS alone while a return cancel is waiting on finance", async () => {
+  it("voids OS and closes finance cancel when ERP already cancelled", async () => {
     mocks.orderFindFirst.mockResolvedValue({
       id: "ord_erp1",
       name: "60020100",
@@ -47,13 +47,19 @@ describe("applyErpCancelToOriginalOrder", () => {
       cancelledAt: null,
       cancelReason: null,
     });
-    mocks.approvalFindFirst.mockResolvedValue({ id: "appr_return_cancel" });
 
     const result = await applyErpCancelToOriginalOrder("600-006012");
 
     expect(result?.id).toBe("ord_erp1");
-    expect(mocks.orderUpdate).not.toHaveBeenCalled();
-    expect(mocks.approvalUpdateMany).not.toHaveBeenCalled();
+    expect(mocks.orderUpdate).toHaveBeenCalledOnce();
+    expect(mocks.orderUpdate.mock.calls[0][0].data.financialStatus).toBe("voided");
+    expect(mocks.orderUpdate.mock.calls[0][0].data.cancelReason).toBe("ERP cancel");
+    expect(mocks.approvalUpdateMany).toHaveBeenCalled();
+    expect(mocks.approvalUpdateMany.mock.calls[0][0].where).not.toHaveProperty("type");
+    expect(mocks.orderReturnUpdateMany).toHaveBeenCalledWith({
+      where: { orderId: "ord_erp1", actionStatus: "pending" },
+      data: expect.objectContaining({ actionStatus: "solved" }),
+    });
   });
 
   it("voids the order when finance has no pending cancel", async () => {
@@ -65,7 +71,6 @@ describe("applyErpCancelToOriginalOrder", () => {
       cancelledAt: null,
       cancelReason: null,
     });
-    mocks.approvalFindFirst.mockResolvedValue(null);
 
     await applyErpCancelToOriginalOrder("600-005759");
 
