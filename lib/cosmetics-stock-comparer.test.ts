@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import * as XLSX from "xlsx-js-style";
 
 import {
   attachSubjectRopPercent,
@@ -57,6 +58,8 @@ function detail(
     online: input.online ?? [],
     shops: input.shops ?? [],
     stockPctOfRop: input.stockPctOfRop,
+    barcode: input.barcode,
+    vatStatus: input.vatStatus,
   };
 }
 
@@ -134,6 +137,8 @@ describe("buildStockCompareExportMatrix", () => {
       detail({
         SKU: "B",
         "Product Title": "Bee",
+        barcode: "9314807088286",
+        vatStatus: "Vat",
         sales90d: 12,
         critical: true,
         stockPctOfRop: 8,
@@ -149,7 +154,9 @@ describe("buildStockCompareExportMatrix", () => {
 
     expect(matrix[0]).toEqual([
       "SKU",
+      "Barcode",
       "Product Title",
+      "VAT Status",
       "Main Warehouse Qty",
       "90-day Sales",
       "Critical",
@@ -160,8 +167,31 @@ describe("buildStockCompareExportMatrix", () => {
       "Shop · Pevi",
     ]);
     expect(matrix).toHaveLength(3);
-    expect(matrix[1]).toEqual(["B", "Bee", 0, 12, "CRITICAL", 8, 2, 4, "", 1]);
-    expect(matrix[2]).toEqual(["A", "Aye", 0, 0, "", "", "", "", 9, ""]);
+    expect(matrix[1]).toEqual(["B", "9314807088286", "Bee", "Vat", 0, 12, "CRITICAL", 8, 2, 4, "", 1]);
+    expect(matrix[2]).toEqual(["A", "", "Aye", "", 0, 0, "", "", "", "", 9, ""]);
+  });
+
+  it("serializes as an xlsx workbook Excel can open", () => {
+    const matrix = buildStockCompareExportMatrix([
+      detail({
+        SKU: "CAN07_1",
+        "Product Title": "Cantu",
+        barcode: "733739000927",
+        vatStatus: "Non Vat",
+      }),
+    ]);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(matrix), "Stock Compare");
+    const buffer = XLSX.write(workbook, { bookType: "xlsx", type: "buffer", cellStyles: true }) as Buffer;
+    expect(buffer.subarray(0, 2).toString()).toBe("PK");
+
+    const parsed = XLSX.read(buffer, { type: "buffer" });
+    expect(parsed.SheetNames).toEqual(["Stock Compare"]);
+    const rows = XLSX.utils.sheet_to_json<(string | number)[]>(parsed.Sheets["Stock Compare"]!, {
+      header: 1,
+    });
+    expect(rows[0]?.slice(0, 4)).toEqual(["SKU", "Barcode", "Product Title", "VAT Status"]);
+    expect(rows[1]?.slice(0, 4)).toEqual(["CAN07_1", "733739000927", "Cantu", "Non Vat"]);
   });
 });
 
@@ -746,11 +776,13 @@ describe("filterReportByMainRopPercent", () => {
         erp1ProductPriority: "Top Priority",
         erp2ProductPriority: null,
         vatStatus: "Vat",
+        barcode: "733739000927",
       },
     ]);
     expect(decorated[0]?.commonSku).toBe("LOW");
     expect(decorated[0]?.erp1ProductPriority).toBe("Top Priority");
     expect(decorated[0]?.vatStatus).toBe("Vat");
+    expect(decorated[0]?.barcode).toBe("733739000927");
   });
 });
 

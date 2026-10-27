@@ -49,6 +49,28 @@ type LiveStockResponse = {
 
 type MainFilter = "all" | "critical" | "elsewhere" | "none";
 const COSMETICS_MAIN_WAREHOUSE = "main warehouse - cosmo";
+const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+function downloadExcelWorkbook(workbook: XLSX.WorkBook, filename: string) {
+  const name = filename.toLowerCase().endsWith(".xlsx") ? filename : `${filename}.xlsx`;
+  const bytes = XLSX.write(workbook, {
+    bookType: "xlsx",
+    type: "array",
+    cellStyles: true,
+  }) as ArrayBuffer | Uint8Array;
+  const blob = new Blob([bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)], {
+    type: XLSX_MIME,
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = name;
+  link.rel = "noopener";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
 
 function reportIdentity(row: CosmeticsStockReportDetail): CatalogIdentityFields {
   return {
@@ -58,6 +80,7 @@ function reportIdentity(row: CosmeticsStockReportDetail): CatalogIdentityFields 
     erp1ProductPriority: row.erp1ProductPriority ?? null,
     erp2ProductPriority: row.erp2ProductPriority ?? null,
     vatStatus: row.vatStatus ?? "",
+    barcode: row.barcode ?? "",
   };
 }
 
@@ -144,7 +167,7 @@ function exportBrandReport(rows: BrandWarehouseViolation[]) {
   const workbook = XLSX.utils.book_new();
   appendBrandCheckSheet(workbook, rows);
   const today = new Date().toISOString().slice(0, 10);
-  XLSX.writeFile(workbook, `cosmetics-brand-erp-check-${today}.xlsx`);
+  downloadExcelWorkbook(workbook, `cosmetics-brand-erp-check-${today}.xlsx`);
 }
 
 function exportStockReport(rows: CosmeticsStockReportDetail[], ropCutoff: number | null) {
@@ -153,6 +176,8 @@ function exportStockReport(rows: CosmeticsStockReportDetail[], ropCutoff: number
   const headers = sheetRows[0] ?? [];
   const criticalCol = headers.indexOf("Critical");
   const ropCol = headers.indexOf("% of ROP");
+  const barcodeCol = headers.indexOf("Barcode");
+  const titleCol = headers.indexOf("Product Title");
 
   const worksheet = XLSX.utils.aoa_to_sheet(sheetRows);
   worksheet["!autofilter"] = {
@@ -161,12 +186,14 @@ function exportStockReport(rows: CosmeticsStockReportDetail[], ropCutoff: number
       e: { r: Math.max(sheetRows.length - 1, 0), c: Math.max(headers.length - 1, 0) },
     }),
   };
-  worksheet["!cols"] = headers.map((header, index) => {
-    if (index === 0) return { wch: 18 };
-    if (index === 1) return { wch: 42 };
-    if (index === 2) return { wch: 18 };
-    if (index < 6) return { wch: 14 };
-    return { wch: Math.min(28, Math.max(14, String(header).length + 2)) };
+  worksheet["!cols"] = headers.map((header) => {
+    const name = String(header);
+    if (name === "SKU") return { wch: 18 };
+    if (name === "Barcode") return { wch: 16 };
+    if (name === "Product Title") return { wch: 42 };
+    if (name === "VAT Status") return { wch: 14 };
+    if (name === "Main Warehouse Qty") return { wch: 18 };
+    return { wch: Math.min(28, Math.max(14, name.length + 2)) };
   });
   worksheet["!rows"] = sheetRows.map((_, index) => ({ hpt: index === 0 ? 20 : 17 }));
 
@@ -185,10 +212,11 @@ function exportStockReport(rows: CosmeticsStockReportDetail[], ropCutoff: number
       if (!cell) continue;
       cell.s = {
         alignment: {
-          horizontal: c === 1 ? "left" : "center",
+          horizontal: c === titleCol ? "left" : "center",
           vertical: "center",
         },
         border,
+        ...(c === barcodeCol ? { numFmt: "@" } : {}),
       };
     }
   }
@@ -239,7 +267,7 @@ function exportStockReport(rows: CosmeticsStockReportDetail[], ropCutoff: number
 
   XLSX.utils.book_append_sheet(workbook, worksheet, "Stock Compare");
   const today = new Date().toISOString().slice(0, 10);
-  XLSX.writeFile(workbook, `cosmetics-stock-compare-${today}.xlsx`);
+  downloadExcelWorkbook(workbook, `cosmetics-stock-compare-${today}.xlsx`);
 }
 
 function RopPercent({
