@@ -31,6 +31,7 @@ type ItemCreationItem = {
   digitalMarketingStatus: string;
   digitalMarketingBrand?: string | null;
   digitalMarketingAssigneeId?: string | null;
+  digitalMarketingAssigneeIds?: string[];
   digitalMarketingAssignee?: {
     id: string;
     knownName: string | null;
@@ -984,7 +985,7 @@ export function ItemCreationPanel({
                         />
                       </div>
                       <div className="flex min-w-0 flex-wrap items-center gap-2 xl:flex-nowrap">
-                        {!vaultOs && <>
+                        <>
                           <label className="flex h-9 items-center gap-2 rounded-md border px-3 text-sm font-medium">
                             <input
                               type="checkbox"
@@ -1012,8 +1013,8 @@ export function ItemCreationPanel({
                             />
                             ERP1 OGF
                           </label>
-                        </>}
-                        <select
+                        </>
+                        {!vaultOs && <select
                           value={row.taxStatus}
                           onChange={(event) => updateCreateRow(row.key, "taxStatus", event.target.value)}
                           aria-label="Tax status"
@@ -1022,7 +1023,7 @@ export function ItemCreationPanel({
                           {ITEM_CREATION_TAX_STATUS_VALUES.map((value) => (
                             <option key={value} value={value}>{value}</option>
                           ))}
-                        </select>
+                        </select>}
                       </div>
                     </div>
                     <button
@@ -1117,11 +1118,11 @@ export function ItemCreationPanel({
         </div>
       )}
 
-      {(permissions.adminViewer || permissions.manageAll) && activeView === "admin" ? (
+      {(permissions.admin || permissions.adminViewer || permissions.manageAll) && activeView === "admin" ? (
         <AdminTable
           items={items}
           isPending={isPending}
-          readOnly={!permissions.manageAll}
+          readOnly={!permissions.admin}
           onDelete={deleteRequest}
           onUpdate={updateRequest}
           onAction={runAction}
@@ -1158,7 +1159,7 @@ function MetricCard({ label, value }: { label: string; value: number }) {
   );
 }
 
-type BrandAllocation = { id: string; brand: string; userId: string; userName: string };
+type BrandAllocation = { id: string; brand: string; userId: string; userIds?: string[]; userName: string };
 type DigitalMarketingUser = { id: string; name: string };
 
 function BrandAllocationPanel({
@@ -1171,7 +1172,7 @@ function BrandAllocationPanel({
   const [allocations, setAllocations] = useState<BrandAllocation[]>([]);
   const [users, setUsers] = useState<DigitalMarketingUser[]>([]);
   const [brand, setBrand] = useState("");
-  const [userId, setUserId] = useState("");
+  const [userIds, setUserIds] = useState<string[]>([]);
   const [isBusy, setIsBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -1194,7 +1195,7 @@ function BrandAllocationPanel({
       const response = await fetch("/api/item-creation/brand-allocations", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ allocations: next.map(({ brand: value, userId: assignedUserId }) => ({ brand: value, userId: assignedUserId })) }),
+        body: JSON.stringify({ allocations: next.map(({ brand: value, userId: assignedUserId, ...row }) => ({ brand: value, userId: assignedUserId, userIds: (row as { userIds?: string[] }).userIds ?? [assignedUserId] })) }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "Failed to save allocations");
@@ -1209,27 +1210,27 @@ function BrandAllocationPanel({
 
   function addAllocation() {
     const trimmedBrand = brand.trim();
-    if (!trimmedBrand || !userId) {
+    if (!trimmedBrand || userIds.length === 0) {
       setError("Enter a brand and select an allocated person");
       return;
     }
-    void save([...allocations, { id: `new-${Date.now()}`, brand: trimmedBrand, userId, userName: users.find((user) => user.id === userId)?.name ?? "User" }]);
+    void save([...allocations, { id: `new-${Date.now()}`, brand: trimmedBrand, userId: userIds[0], userIds, userName: users.filter((user) => userIds.includes(user.id)).map((user) => user.name).join(", ") } as BrandAllocation]);
     setBrand("");
-    setUserId("");
+    setUserIds([]);
   }
 
   function removeAllocation(id: string) {
     void save(allocations.filter((allocation) => allocation.id !== id));
   }
 
-  async function updateRequestAssignee(itemId: string, assigneeId: string) {
+  async function updateRequestAssignee(itemId: string, assigneeIds: string[]) {
     setIsBusy(true);
     setError("");
     try {
       const response = await fetch(`/api/item-creation/${itemId}/digital-marketing/assignment`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ assigneeId: assigneeId || null }),
+        body: JSON.stringify({ assigneeId: assigneeIds[0] || null, assigneeIds }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "Failed to update request assignment");
@@ -1252,10 +1253,14 @@ function BrandAllocationPanel({
       </div>
       <div className="mt-4 grid gap-2 md:grid-cols-[1fr_1fr_auto]">
         <input value={brand} onChange={(event) => setBrand(event.target.value)} placeholder="Brand name" className={inputClass} />
-        <select value={userId} onChange={(event) => setUserId(event.target.value)} className={inputClass}>
-          <option value="">Select Digital Marketing user</option>
-          {users.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}
-        </select>
+        <div className="flex min-h-10 flex-wrap items-center gap-2 rounded-md border bg-background p-2">
+          {users.map((user) => (
+            <label key={user.id} className="flex items-center gap-2 rounded-md border px-2 py-1 text-sm">
+              <input type="checkbox" checked={userIds.includes(user.id)} onChange={(event) => setUserIds((current) => event.target.checked ? [...current, user.id] : current.filter((id) => id !== user.id))} className="size-4" />
+              {user.name}
+            </label>
+          ))}
+        </div>
         <button type="button" onClick={addAllocation} disabled={isBusy} className={primaryButtonClass}>Add Brand</button>
       </div>
       {error && <p className="mt-2 text-sm text-destructive">{error}</p>}
@@ -1267,14 +1272,29 @@ function BrandAllocationPanel({
               <tr key={allocation.id} className="border-b last:border-0">
                 <td className="px-3 py-2">{allocation.brand}</td>
                 <td className="px-3 py-2">
-                  <select
-                    value={allocation.userId}
-                    onChange={(event) => void save(allocations.map((candidate) => candidate.id === allocation.id ? { ...candidate, userId: event.target.value } : candidate))}
-                    disabled={isBusy}
-                    className={`${inputClass} min-w-52`}
-                  >
-                    {users.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}
-                  </select>
+                  <div className="flex min-w-64 flex-wrap gap-2 rounded-md border p-2">
+                    {users.map((user) => {
+                      const selectedIds = (allocation as BrandAllocation & { userIds?: string[] }).userIds ?? [allocation.userId];
+                      return (
+                      <label key={user.id} className="flex items-center gap-2 rounded-md border px-2 py-1 text-xs">
+                        <input type="checkbox" checked={selectedIds.includes(user.id)} onChange={(event) => {
+                      const ids = event.target.checked ? [...selectedIds, user.id] : selectedIds.filter((id) => id !== user.id);
+                      void save(allocations.map((candidate) =>
+                        candidate.id === allocation.id
+                          ? {
+                              ...candidate,
+                              userId: ids[0] ?? "",
+                              userIds: ids,
+                              userName: users.filter((user) => ids.includes(user.id)).map((user) => user.name).join(", "),
+                            }
+                          : candidate,
+                      ));
+                    }} disabled={isBusy} className="size-4" />
+                        {user.name}
+                      </label>
+                      );
+                    })}
+                  </div>
                 </td>
                 <td className="px-3 py-2"><button type="button" onClick={() => removeAllocation(allocation.id)} disabled={isBusy} className="text-sm text-destructive">Remove</button></td>
               </tr>
@@ -1294,10 +1314,12 @@ function BrandAllocationPanel({
                 <td className="max-w-sm px-3 py-2">{item.description}</td>
                 <td className="px-3 py-2">{item.digitalMarketingBrand ?? "Unmatched"}</td>
                 <td className="px-3 py-2">
-                  <select value={item.digitalMarketingAssigneeId ?? ""} onChange={(event) => void updateRequestAssignee(item.id, event.target.value)} disabled={isBusy} className={`${inputClass} min-w-52`}>
-                    <option value="">Unassigned</option>
-                    {users.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}
-                  </select>
+                  <div className="flex min-w-64 flex-wrap gap-2 rounded-md border p-2">
+                    {users.map((user) => {
+                      const selectedIds = item.digitalMarketingAssigneeIds ?? (item.digitalMarketingAssigneeId ? [item.digitalMarketingAssigneeId] : []);
+                      return <label key={user.id} className="flex items-center gap-2 rounded-md border px-2 py-1 text-xs"><input type="checkbox" checked={selectedIds.includes(user.id)} onChange={(event) => void updateRequestAssignee(item.id, event.target.checked ? [...selectedIds, user.id] : selectedIds.filter((id) => id !== user.id))} disabled={isBusy} className="size-4" />{user.name}</label>;
+                    })}
+                  </div>
                 </td>
               </tr>
             ))}

@@ -152,7 +152,7 @@ function displayUserName(user: { knownName: string | null; name: string | null; 
 
 function findBrandAllocation(
   description: string,
-  allocations: Array<{ brand: string; userId: string }>,
+  allocations: Array<{ brand: string; userId: string; userIds: Prisma.JsonValue }>,
 ) {
   const normalizedDescription = description.toLocaleLowerCase();
   return [...allocations]
@@ -519,7 +519,7 @@ export async function createItemRequests(
   return prisma.$transaction(async (tx) => {
     const brandAllocations = await tx.itemCreationBrandAllocation.findMany({
       where: { companyId: company },
-      select: { brand: true, userId: true },
+      select: { brand: true, userId: true, userIds: true },
     });
     const active = await tx.itemCreationRequest.findMany({
       where: {
@@ -552,6 +552,7 @@ export async function createItemRequests(
           creationSources: item.creationSources,
           digitalMarketingBrand: allocation?.brand ?? null,
           digitalMarketingAssigneeId: allocation?.userId ?? null,
+          digitalMarketingAssigneeIds: allocation?.userIds ?? (allocation?.userId ? [allocation.userId] : []),
           createdBy: userId(context),
         },
       });
@@ -600,6 +601,7 @@ export async function listItemRequests(context: UserContext, filters: Record<str
         OR: [
           { digitalMarketingAssigneeId: userId(context) },
           { digitalMarketingAssigneeId: null },
+          { digitalMarketingAssigneeIds: { array_contains: [userId(context)] } },
         ],
       },
     ];
@@ -670,6 +672,7 @@ export async function listItemCreationBrandAllocations(context: UserContext) {
       id: allocation.id,
       brand: allocation.brand,
       userId: allocation.userId,
+      userIds: Array.isArray(allocation.userIds) ? allocation.userIds : [allocation.userId],
       userName: displayUserName(allocation.user),
     })),
     users: users.map((user) => ({ id: user.id, name: displayUserName(user) })),
@@ -687,12 +690,16 @@ export async function saveItemCreationBrandAllocations(
   const users = await getDigitalMarketingUsers(company);
   const allowedUsers = new Set(users.map((user) => user.id));
   const normalized = input.map((entry) => {
-    const value = entry as { brand?: unknown; userId?: unknown };
+    const value = entry as { brand?: unknown; userId?: unknown; userIds?: unknown };
     const brand = String(value.brand ?? "").trim();
     const userIdValue = String(value.userId ?? "").trim();
     if (!brand) throw new Error("Brand is required");
     if (!allowedUsers.has(userIdValue)) throw new Error("Allocated user must have Digital Marketing permission");
-    return { brand, userId: userIdValue };
+    const userIds = Array.isArray(value.userIds)
+      ? [...new Set(value.userIds.map((id) => String(id).trim()).filter((id) => allowedUsers.has(id)))]
+      : [userIdValue];
+    if (userIds.length === 0) throw new Error("At least one allocated user is required");
+    return { brand, userId: userIds[0], userIds };
   });
   const seen = new Set<string>();
   for (const allocation of normalized) {
@@ -716,13 +723,15 @@ export async function assignItemCreationDigitalMarketingUser(
   context: UserContext,
   id: string,
   assigneeId: string | null,
+  assigneeIds?: string[],
 ) {
   requireDigitalMarketingAdmin(context);
   const company = companyId(context);
-  const normalizedAssigneeId = assigneeId?.trim() || null;
-  if (normalizedAssigneeId) {
+  const normalizedAssigneeIds = [...new Set((assigneeIds?.length ? assigneeIds : assigneeId ? [assigneeId] : []).map((value) => value.trim()).filter(Boolean))];
+  const normalizedAssigneeId = normalizedAssigneeIds[0] ?? null;
+  if (normalizedAssigneeIds.length > 0) {
     const users = await getDigitalMarketingUsers(company);
-    if (!users.some((user) => user.id === normalizedAssigneeId)) {
+    if (normalizedAssigneeIds.some((id) => !users.some((user) => user.id === id))) {
       throw new Error("Allocated user must have Digital Marketing permission");
     }
   }
@@ -731,7 +740,7 @@ export async function assignItemCreationDigitalMarketingUser(
     const request = await getScopedRequest(tx, id, company);
     const updated = await tx.itemCreationRequest.update({
       where: { id },
-      data: { digitalMarketingAssigneeId: normalizedAssigneeId },
+      data: { digitalMarketingAssigneeId: normalizedAssigneeId, digitalMarketingAssigneeIds: normalizedAssigneeIds },
     });
     await activity(
       tx,

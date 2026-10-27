@@ -18,6 +18,7 @@ export async function POST(
       auth.context!,
       id,
       body.assigneeId ? String(body.assigneeId) : null,
+      Array.isArray(body.assigneeIds) ? body.assigneeIds.map(String) : undefined,
     );
     return NextResponse.json({ item });
   } catch (error) {

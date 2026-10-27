@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { resolveCompanyIdsForErpWebhookSecret } from "@/lib/erp-item-price-sync";
 import { handleErp1ItemWebhook } from "@/lib/item-creation/automation";
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 import {
   findErpInstancesForWebhookSecret,
   syncItemTaxStatusFromWebhook,
@@ -36,12 +37,14 @@ export async function POST(request: NextRequest) {
   try {
     const payload = unwrapErpPayload(rawPayload);
     const instances = await findErpInstancesForWebhookSecret(incomingSecret);
-    const taxStatus = await syncItemTaxStatusFromWebhook({
-      instanceIds: instances.map((row) => row.id),
-      payload,
-    }).catch((error: unknown) => ({
-      error: error instanceof Error ? error.message : "Item tax status sync failed",
-    }));
+    const taxStatus = isVaultOsDeployment()
+      ? { skipped: true, reason: "vault_os" }
+      : await syncItemTaxStatusFromWebhook({
+          instanceIds: instances.map((row) => row.id),
+          payload,
+        }).catch((error: unknown) => ({
+          error: error instanceof Error ? error.message : "Item tax status sync failed",
+        }));
     const result = await handleErp1ItemWebhook(companyIds, payload);
     return NextResponse.json({ ok: true, ...result, taxStatus });
   } catch (error) {
