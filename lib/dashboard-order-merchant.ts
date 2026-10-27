@@ -4,7 +4,13 @@ import {
   resolveAssignedMerchantDashboardFallback,
   type MerchantUser,
 } from "@/lib/merchant-groups";
-import { normalizeDashboardMerchantLabel } from "@/lib/merchant-dm-sales";
+import {
+  DM_GENERAL_DISPLAY_NAME,
+  isDmOnlyMerchantTracking,
+  normalizeDashboardMerchantLabel,
+  shopLocationCreditsDmCouponToMerchant,
+  STAFF_SALES_DISPLAY_NAME,
+} from "@/lib/merchant-dm-sales";
 import {
   collectMerchantWholesaleCodes,
   normalizeWholesaleMerCodeKey,
@@ -97,6 +103,8 @@ export function resolveDashboardOrderMerchant(input: {
     couponCodes?: string[] | null;
   } | null;
   userToGroup: Map<string, { id: string; name: string }>;
+  locationName?: string | null;
+  locationDefaultMerchant?: { id: string | null; name: string | null } | null;
 }): DashboardMerchantHit {
   if (orderIsWholesale(input.orderCoupons)) {
     const owner = matchWholesaleOwner(input.orderCoupons, input.wholesaleOwners);
@@ -111,6 +119,32 @@ export function resolveDashboardOrderMerchant(input: {
   }
 
   const matched = matchMerchantFromCouponMap(input.orderCoupons, input.couponToUser);
+  if (matched?.name === STAFF_SALES_DISPLAY_NAME) {
+    return { id: matched.id, name: matched.name, isWholesale: false };
+  }
+  const dmOnlyOnShop =
+    shopLocationCreditsDmCouponToMerchant(input.locationName) &&
+    (isDmOnlyMerchantTracking(input.orderCoupons) ||
+      matched?.name === DM_GENERAL_DISPLAY_NAME);
+  if (dmOnlyOnShop) {
+    const assignedName = getMerchantDisplayName(input.assignedMerchant);
+    if (input.assignedMerchantId && assignedName && assignedName !== "Unknown") {
+      return {
+        id: input.assignedMerchantId,
+        name: normalizeDashboardMerchantLabel(assignedName),
+        isWholesale: false,
+      };
+    }
+    const defaultName = input.locationDefaultMerchant?.name?.trim();
+    if (defaultName) {
+      return {
+        id: input.locationDefaultMerchant?.id ?? null,
+        name: normalizeDashboardMerchantLabel(defaultName),
+        isWholesale: false,
+      };
+    }
+  }
+
   const resolved =
     matched ??
     resolveAssignedMerchantDashboardFallback({

@@ -246,6 +246,7 @@ export async function fetchCosmeticsLkDrilldown(
       assignedMerchantId: order.assignedMerchantId,
       assignedMerchant: order.assignedMerchant,
       userToGroup,
+      locationName: cosmeticsLoc.name,
     });
     const merchantId = resolved.id;
     const merchantName = resolved.name;

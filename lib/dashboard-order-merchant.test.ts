@@ -47,4 +47,63 @@ describe("resolveDashboardOrderMerchant", () => {
       isWholesale: true,
     });
   });
+
+  it("credits AE DM_General to the assigned shop merchant", () => {
+    expect(
+      resolveDashboardOrderMerchant({
+        orderCoupons: ["dm_general"],
+        couponToUser,
+        wholesaleOwners,
+        assignedMerchantId: "natasha",
+        assignedMerchant: { knownName: "Natasha", couponCodes: ["MER99"] },
+        userToGroup: new Map(),
+        locationName: "AE (PVT) LTD",
+      }),
+    ).toEqual({ id: "natasha", name: "Natasha", isWholesale: false });
+  });
+
+  it("credits AE DM_General to the location default merchant when unassigned", () => {
+    expect(
+      resolveDashboardOrderMerchant({
+        orderCoupons: ["dm_general"],
+        couponToUser,
+        wholesaleOwners,
+        assignedMerchantId: null,
+        assignedMerchant: null,
+        userToGroup: new Map(),
+        locationName: "AE (PVT) LTD",
+        locationDefaultMerchant: { id: "natasha", name: "Natasha" },
+      }),
+    ).toEqual({ id: "natasha", name: "Natasha", isWholesale: false });
+  });
+
+  it("credits Origins DM_General to the shop merchant", () => {
+    expect(
+      resolveDashboardOrderMerchant({
+        orderCoupons: ["mer115"],
+        couponToUser,
+        wholesaleOwners,
+        assignedMerchantId: null,
+        assignedMerchant: null,
+        userToGroup: new Map(),
+        locationName: "Origins (PVT) LTD",
+        locationDefaultMerchant: { id: "natasha", name: "Natasha" },
+      }),
+    ).toEqual({ id: "natasha", name: "Natasha", isWholesale: false });
+  });
+
+  it("keeps SupplementVault DM_General as DM-General", () => {
+    expect(
+      resolveDashboardOrderMerchant({
+        orderCoupons: ["dm_general"],
+        couponToUser,
+        wholesaleOwners,
+        assignedMerchantId: "natasha",
+        assignedMerchant: { knownName: "Natasha", couponCodes: ["MER99"] },
+        userToGroup: new Map(),
+        locationName: "SupplementVault.lk",
+        locationDefaultMerchant: { id: "natasha", name: "Natasha" },
+      }),
+    ).toEqual({ id: null, name: "DM-General", isWholesale: false });
+  });
 });

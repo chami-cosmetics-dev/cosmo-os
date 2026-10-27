@@ -28,6 +28,7 @@ import { buildErpOrderDiscountCodes } from "@/lib/order-discount-coupon";
 import {
   isDmOnlyMerchantTracking,
   parseOrderCouponList,
+  shopLocationCreditsDmCouponToMerchant,
 } from "@/lib/merchant-dm-sales";
 import { orderStageUpdate } from "@/lib/order-stage-timing";
 import { isLegacyAccSinvRef } from "@/lib/legacy-acc-sinv";
@@ -481,6 +482,7 @@ export async function ingestParsedErpSalesInvoice(input: {
   // Find location — match by warehouse field, then warehouse list, then company fallback
   const locationSelect = {
     id: true,
+    name: true,
     companyId: true,
     defaultMerchantUserId: true,
     shadowParentLocationId: true,
@@ -578,7 +580,9 @@ export async function ingestParsedErpSalesInvoice(input: {
     ...parseOrderCouponList(merCouponCode),
     ...(erpDiscountCodes ?? []).flatMap((row) => parseOrderCouponList(row.code)),
   ];
-  const leaveDmUnassigned = isDmOnlyMerchantTracking(ingestCouponCodes);
+  const leaveDmUnassigned =
+    isDmOnlyMerchantTracking(ingestCouponCodes) &&
+    !shopLocationCreditsDmCouponToMerchant(location.name);
 
   // Try to match the owner (cashier for POS, merchant for non-POS) to a vault os user
   // Fall back to location default merchant.

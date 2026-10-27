@@ -9,6 +9,7 @@ import {
 } from "@/lib/dashboard-order-merchant";
 import {
   buildCouponToMerchantMap,
+  getMerchantDisplayName,
   getMerchantGroupUserMap,
 } from "@/lib/merchant-groups";
 import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
@@ -125,6 +126,19 @@ export async function fetchDashboardBrandSales(
         assignedMerchant: {
           select: dashboardMerchantUserSelect,
         },
+        companyLocation: {
+          select: {
+            name: true,
+            defaultMerchant: {
+              select: {
+                id: true,
+                knownName: true,
+                name: true,
+                email: true,
+              },
+            },
+          },
+        },
         lineItems: {
           select: {
             price: true,
@@ -176,6 +190,13 @@ export async function fetchDashboardBrandSales(
       assignedMerchantId: order.assignedMerchantId,
       assignedMerchant: order.assignedMerchant,
       userToGroup,
+      locationName: order.companyLocation?.name,
+      locationDefaultMerchant: order.companyLocation?.defaultMerchant
+        ? {
+            id: order.companyLocation.defaultMerchant.id,
+            name: getMerchantDisplayName(order.companyLocation.defaultMerchant),
+          }
+        : null,
     });
     merchant = { id: resolved.id, name: resolved.name };
 
