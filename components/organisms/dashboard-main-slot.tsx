@@ -107,7 +107,8 @@ export function DashboardMainSlot({ canEditDashboard = false }: { canEditDashboa
     .map((location) => {
       const merchantTotals = [...location.merchants].sort((a, b) => b.total - a.total);
       const total = merchantTotals.reduce((sum, merchant) => sum + merchant.total, 0);
-      const topMerchant = merchantTotals[0];
+      const topMerchant =
+        merchantTotals.find((merchant) => merchant.total > 0) ?? merchantTotals[0];
 
       return {
         shop: location.name,
@@ -135,7 +136,8 @@ export function DashboardMainSlot({ canEditDashboard = false }: { canEditDashboa
     .map((location) => {
       const merchantTotals = [...location.merchants].sort((a, b) => b.total - a.total);
       const total = merchantTotals.reduce((sum, merchant) => sum + merchant.total, 0);
-      const topMerchant = merchantTotals[0] ?? null;
+      const topMerchant =
+        merchantTotals.find((merchant) => merchant.total > 0) ?? merchantTotals[0] ?? null;
       const merchantSegments = buildMerchantSegmentsFromRows(merchantTotals);
       const sourceBreakdown = buildSourceBreakdown(location.sources);
       const topSource =
@@ -447,16 +449,17 @@ function DonutChartCard({
 function buildMerchantSegmentsFromRows(
   rows: Array<{ merchantName: string; total: number }>,
 ) {
-  const total = rows.reduce((sum, row) => sum + row.total, 0);
+  const positiveRows = rows.filter((row) => row.total > 0);
+  const total = positiveRows.reduce((sum, row) => sum + row.total, 0);
   if (total <= 0) {
     return [];
   }
 
   let assignedPercent = 0;
 
-  return rows.map((row, index) => {
+  return positiveRows.map((row, index) => {
     const value =
-      index === rows.length - 1
+      index === positiveRows.length - 1
         ? Math.max(0, 100 - assignedPercent)
         : Math.round((row.total / total) * 100);
     assignedPercent += value;
@@ -499,15 +502,22 @@ function buildSourceBreakdown(
     buckets.Web.orders += row.orderCount;
   }
 
-  const total = Object.values(buckets).reduce((sum, bucket) => sum + bucket.total, 0);
+  const total = Object.values(buckets).reduce(
+    (sum, bucket) => sum + Math.max(0, bucket.total),
+    0,
+  );
   let assignedPercent = 0;
   const entries = Object.entries(buckets).sort(([, a], [, b]) => b.total - a.total);
+  const lastPositiveIndex = entries.reduce(
+    (found, [, bucket], index) => (bucket.total > 0 ? index : found),
+    -1,
+  );
 
   return entries.map(([label, bucket], index) => {
     const percent =
-      total <= 0
+      total <= 0 || bucket.total <= 0
         ? 0
-        : index === entries.length - 1
+        : index === lastPositiveIndex
           ? Math.max(0, 100 - assignedPercent)
           : Math.round((bucket.total / total) * 100);
     assignedPercent += percent;

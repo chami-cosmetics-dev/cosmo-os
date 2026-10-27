@@ -88,6 +88,11 @@ import {
   CALL_CENTER_UNCONTACTED_CATEGORY,
 } from "@/lib/contact-call-center-categories";
 import { formatAppDate, formatAppDateTime } from "@/lib/format-datetime";
+import {
+  CONTACT_LAST_NAME_REQUIRED_ERROR,
+  contactFirstNameError,
+  splitContactName,
+} from "@/lib/customer-insight/contact-name";
 import { loyaltyProfileIncompleteMessage, getLoyaltyProfileMissingFields } from "@/lib/customer-insight/loyalty-profile-complete";
 import { notify } from "@/lib/notify";
 import {
@@ -271,7 +276,8 @@ function InsightChartTooltip({
 }
 
 type ProfileForm = {
-  name: string;
+  firstName: string;
+  lastName: string;
   email: string;
   addPhoneNumber: string;
   gender: string;
@@ -1764,7 +1770,7 @@ export function CustomerInsightPanel({
       setInvoicePage(page);
       if (next.visibility === "owner" && next.contact) {
         setProfileForm({
-          name: next.contact.name,
+          ...splitContactName(next.contact.name),
           email: next.contact.email ?? "",
           addPhoneNumber: "",
           gender: next.contact.gender ?? "",
@@ -1824,12 +1830,24 @@ export function CustomerInsightPanel({
 
   async function saveProfile() {
     if (!selectedContactId || !profileForm) return;
+    const firstName = profileForm.firstName.trim();
+    const lastName = profileForm.lastName.trim();
+    const firstError = contactFirstNameError(firstName);
+    if (firstError) {
+      notify.error(firstError);
+      return;
+    }
+    if (!lastName) {
+      notify.error(CONTACT_LAST_NAME_REQUIRED_ERROR);
+      return;
+    }
     setBusyKey("profile");
     try {
       const dob = formBirthPartsToDb(profileForm);
       const addPhone = profileForm.addPhoneNumber.trim();
       const body: Record<string, unknown> = {
-        name: profileForm.name.trim(),
+        firstName,
+        lastName,
         email: profileForm.email.trim() || null,
         gender: profileForm.gender || null,
         language: profileForm.language || null,
@@ -3435,15 +3453,31 @@ export function CustomerInsightPanel({
                 {editing && profileForm ? (
                   <div className="grid gap-3 border-t border-border/60 pt-4 sm:grid-cols-2">
                     <label className="space-y-1 text-sm">
-                      <span className="text-muted-foreground">Name</span>
+                      <span className="text-muted-foreground">First name (required)</span>
                       <Input
-                        value={profileForm.name}
+                        value={profileForm.firstName}
                         onChange={(e) =>
                           setProfileForm((prev) =>
-                            prev ? { ...prev, name: e.target.value } : prev
+                            prev ? { ...prev, firstName: e.target.value } : prev
                           )
                         }
                         disabled={isBusy}
+                        autoComplete="given-name"
+                        aria-required
+                      />
+                    </label>
+                    <label className="space-y-1 text-sm">
+                      <span className="text-muted-foreground">Last name (required)</span>
+                      <Input
+                        value={profileForm.lastName}
+                        onChange={(e) =>
+                          setProfileForm((prev) =>
+                            prev ? { ...prev, lastName: e.target.value } : prev
+                          )
+                        }
+                        disabled={isBusy}
+                        autoComplete="family-name"
+                        aria-required
                       />
                     </label>
                     <label className="space-y-1 text-sm">
@@ -3644,7 +3678,14 @@ export function CustomerInsightPanel({
                         disabled={isBusy}
                         onClick={() => void saveProfile()}
                       >
-                        Save profile
+                        {busyKey === "profile" ? (
+                          <>
+                            <Loader2 className="animate-spin" aria-hidden />
+                            Saving...
+                          </>
+                        ) : (
+                          "Save profile"
+                        )}
                       </Button>
                     </div>
                   </div>
