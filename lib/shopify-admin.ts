@@ -153,6 +153,73 @@ export async function updateShopifyVariantPrice(input: {
   return { storeHandle, productId, variantId, price: price.toFixed(2) };
 }
 
+export async function updateShopifyVariantPriceBySku(input: {
+  storeHandle: string;
+  sku: string;
+  price: string | number;
+}) {
+  const storeHandle = normalizeShopifyStoreHandle(input.storeHandle);
+  const price = Number(input.price);
+  if (!storeHandle) throw new Error("Shopify store handle is missing");
+  if (!input.sku.trim()) throw new Error("Shopify SKU is missing");
+  if (!Number.isFinite(price) || price <= 0) throw new Error("Shopify price is invalid");
+
+  const token = getAdminToken();
+  const response = await fetch(`https://${storeHandle}.myshopify.com/admin/api/${SHOPIFY_API_VERSION}/graphql.json`, {
+    method: "POST",
+    headers: {
+      "X-Shopify-Access-Token": token,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      query: `query FindVariantBySku($query: String!) {
+        productVariants(first: 10, query: $query) {
+          nodes { id sku product { id } }
+        }
+      }`,
+      variables: { query: `sku:${input.sku.trim()}` },
+    }),
+  });
+  const search = await response.json().catch(() => null) as {
+    data?: { productVariants?: { nodes?: Array<{ id: string; sku: string | null; product?: { id: string } | null }> } };
+    errors?: Array<{ message?: string }>;
+  } | null;
+  if (!response.ok || search?.errors?.length) {
+    throw new Error(`Shopify SKU lookup failed (${response.status}): ${search?.errors?.map((error) => error.message).filter(Boolean).join("; ") ?? "unknown error"}`);
+  }
+  const variant = search?.data?.productVariants?.nodes?.find((node) => node.sku?.trim().toLowerCase() === input.sku.trim().toLowerCase());
+  if (!variant?.product?.id) return { ok: true, updated: false, skipped: true as const, reason: "variant_not_found", storeHandle };
+
+  const mutation = await fetch(`https://${storeHandle}.myshopify.com/admin/api/${SHOPIFY_API_VERSION}/graphql.json`, {
+    method: "POST",
+    headers: {
+      "X-Shopify-Access-Token": token,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      query: `mutation UpdateShopifyPrice($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+        productVariantsBulkUpdate(productId: $productId, variants: $variants) {
+          productVariants { id sku price }
+          userErrors { field message }
+        }
+      }`,
+      variables: {
+        productId: variant.product.id,
+        variants: [{ id: variant.id, price: price.toFixed(2) }],
+      },
+    }),
+  });
+  const result = await mutation.json().catch(() => null) as {
+    data?: { productVariantsBulkUpdate?: { productVariants?: Array<{ id: string; sku: string | null; price: string }>; userErrors?: Array<{ field?: string[]; message: string }> } };
+    errors?: Array<{ message?: string }>;
+  } | null;
+  const userErrors = result?.data?.productVariantsBulkUpdate?.userErrors ?? [];
+  if (!mutation.ok || result?.errors?.length || userErrors.length > 0) {
+    throw new Error(`Shopify price update failed (${mutation.status}): ${[...(result?.errors ?? []), ...userErrors].map((error) => error.message).filter(Boolean).join("; ") || "unknown error"}`);
+  }
+  return { ok: true, updated: true, skipped: false as const, storeHandle, price: price.toFixed(2) };
+}
+
 export type ShopifyLoyaltyTagResult = {
   ok: boolean;
   error?: string;

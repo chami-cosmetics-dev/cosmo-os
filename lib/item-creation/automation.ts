@@ -17,7 +17,7 @@ import { normalizeSkuKey } from "@/lib/product-items/erp-priority-sync";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserContext, hasPermission } from "@/lib/rbac";
 import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
-import { updateShopifyVariantPrice } from "@/lib/shopify-admin";
+import { updateShopifyVariantPriceBySku } from "@/lib/shopify-admin";
 
 type UserContext = NonNullable<Awaited<ReturnType<typeof getCurrentUserContext>>>;
 type Tx = Prisma.TransactionClient;
@@ -401,7 +401,7 @@ async function ensureErp2Item(input: {
 }) {
   const existing = await getErpDoc<Record<string, unknown>>(input.cfg, "Item", input.itemCode);
   if (existing) {
-    const body: Record<string, unknown> = { custom_tax_status: input.taxStatus };
+    const body: Record<string, unknown> = isVaultOsDeployment() ? {} : { custom_tax_status: input.taxStatus };
     if (input.barcodes.length > 0) {
       body.barcodes = input.barcodes.map((barcode) => ({ barcode }));
     }
@@ -421,7 +421,7 @@ async function ensureErp2Item(input: {
     stock_uom: process.env.ITEM_CREATION_ERP_STOCK_UOM ?? "Nos",
     brand: input.brand.trim() || undefined,
     description: `${itemName} in Sri Lanka`,
-    custom_tax_status: input.taxStatus,
+    ...(isVaultOsDeployment() ? {} : { custom_tax_status: input.taxStatus }),
     barcodes: input.barcodes.map((barcode) => ({ barcode })),
   });
   await setErpItemProductPriority(input.cfg, input.itemCode);
@@ -502,7 +502,7 @@ export async function handleErp1ItemWebhook(companyIds: string[], payload: ErpIt
       });
     }
 
-    if (Array.isArray(request.creationSources) && request.creationSources.includes("SHOPIFY")) {
+    if (!isVaultOsDeployment() && Array.isArray(request.creationSources) && request.creationSources.includes("SHOPIFY")) {
       try {
         const { erp1 } = await resolveErps(request.companyId);
         if (!erp1) throw new Error("ERP1 instance is not configured");
@@ -702,11 +702,11 @@ export async function syncItemCreationItemFields(context: UserContext, id: strin
   });
   const updated: string[] = [];
   const errors: string[] = [];
-  const body = {
+  const body: Record<string, unknown> = {
     item_name: request.description,
     description: `${request.description} in Sri Lanka`,
-    custom_tax_status: request.taxStatus,
   };
+  if (!isVaultOsDeployment()) body.custom_tax_status = request.taxStatus;
   const sources = Array.isArray(request.creationSources) ? request.creationSources : [];
 
   const targets = [
@@ -785,14 +785,19 @@ async function updateItemCreationShopifyPrice(request: {
   creationSources: Prisma.JsonValue | null;
   standardPrice: Prisma.Decimal;
 }) {
+  if (isVaultOsDeployment()) {
+    return { ok: true, updated: 0, skipped: true as const, reason: "vault_os_shopify_admin_api_unavailable" };
+  }
   if (!Array.isArray(request.creationSources) || !request.creationSources.includes("SHOPIFY")) {
     return { ok: true, updated: 0, skipped: true as const };
   }
 
+  const shopifyLocationName = isVaultOsDeployment() ? "SupplementVault.lk" : "Cosmetics.lk";
   const productItems = await prisma.productItem.findMany({
     where: {
       companyId: request.companyId,
       sku: { equals: request.sku, mode: "insensitive" },
+      companyLocation: { name: shopifyLocationName },
     },
     select: {
       id: true,
@@ -823,18 +828,17 @@ async function updateItemCreationShopifyPrice(request: {
     }
   }
   if (targets.size === 0) {
-    throw new Error(`No Shopify variant was found for SKU ${request.sku}`);
+    return { ok: true, updated: 0, skipped: true as const, reason: "variant_not_found" };
   }
 
   const updatedIds: string[] = [];
   for (const target of targets.values()) {
-    await updateShopifyVariantPrice({
+    const result = await updateShopifyVariantPriceBySku({
       storeHandle: target.storeHandle,
-      productId: target.productId,
-      variantId: target.variantId,
+      sku: request.sku,
       price: request.standardPrice.toString(),
     });
-    updatedIds.push(...target.productItemIds);
+    if (result.updated) updatedIds.push(...target.productItemIds);
   }
   await prisma.productItem.updateMany({
     where: { id: { in: updatedIds } },
@@ -980,7 +984,7 @@ export async function updateItemCreationPrices(context: UserContext, id: string)
         : "FAILED",
     },
   });
-  let shopifyPriceResult: { ok: boolean; updated: number; skipped: boolean; error?: string } = {
+  let shopifyPriceResult: { ok: boolean; updated: number; skipped: boolean; reason?: string; error?: string } = {
     ok: true,
     updated: 0,
     skipped: true,
@@ -1001,6 +1005,7 @@ export async function updateItemCreationPrices(context: UserContext, id: string)
           rate: Number(request.standardPrice),
           updated: shopifyPriceResult.updated,
           skipped: shopifyPriceResult.skipped,
+          reason: shopifyPriceResult.reason ?? null,
         },
       },
     });

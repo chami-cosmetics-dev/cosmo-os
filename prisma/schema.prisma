@@ -403,6 +403,7 @@ model ItemCreationRequest {
   digitalMarketingStatus  ItemCreationDigitalStatus           @default(PENDING)
   digitalMarketingBrand   String?
   digitalMarketingAssigneeId String?
+  digitalMarketingAssigneeIds Json @default("[]")
   purchasingStatus        ItemCreationPurchasingStatus        @default(LOCKED)
   storeTransferStatus     ItemCreationStoreTransferStatus     @default(PENDING)
   storeStockStatus        ItemCreationStoreStockStatus        @default(WAITING_FOR_PRICE)
@@ -500,6 +501,7 @@ model ItemCreationBrandAllocation {
   companyId String
   brand     String
   userId    String
+  userIds   Json     @default("[]")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)

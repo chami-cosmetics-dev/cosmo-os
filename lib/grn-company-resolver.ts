@@ -29,18 +29,27 @@ function documentCompanyCode(value: string | null | undefined) {
   return numericCode(value, /^(?:PR|SSR|PI)(\d+)-/i);
 }
 
-function supplierCompanyCode(value: string | null | undefined) {
-  return numericCode(value, /^OUT(\d+)/i);
+function supplierCompanyCode(value: string | null | undefined, allowedPrefixes: string[]) {
+  const prefixPattern = allowedPrefixes
+    .map((prefix) => prefix.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .filter(Boolean)
+    .join("|");
+  return prefixPattern ? numericCode(value, new RegExp(`^(?:${prefixPattern})(\\d+)`, "i")) : null;
 }
 
 export function buildGrnCompanyResolver(locations: GrnCompanyLocationRef[]) {
   const byId = new Map(locations.map((location) => [location.id, location]));
+  const allowedSupplierPrefixes = [...new Set(
+    locations
+      .map((location) => location.supplierPrefix?.trim().match(/^[A-Za-z]+/)?.[0] ?? "")
+      .filter(Boolean),
+  )];
   const byDocumentCode = new Map<string, GrnCompanyLocationRef>();
   const byExactName = new Map<string, GrnCompanyLocationRef>();
   const identityCandidates = new Map<string, GrnCompanyLocationRef[]>();
 
   for (const location of locations) {
-    const code = supplierCompanyCode(location.supplierPrefix);
+    const code = supplierCompanyCode(location.supplierPrefix, allowedSupplierPrefixes);
     if (code && !byDocumentCode.has(code)) byDocumentCode.set(code, location);
     for (const value of [location.name, location.erpnextCompany]) {
       const exact = normalizeGrnCompanyName(value);
@@ -78,7 +87,7 @@ export function buildGrnCompanyResolver(locations: GrnCompanyLocationRef[]) {
   }
 
   function resolveSupplierLocation(supplier: string | null | undefined, supplierName?: string | null) {
-    const supplierCode = supplierCompanyCode(supplier);
+    const supplierCode = supplierCompanyCode(supplier, allowedSupplierPrefixes);
     if (supplierCode) {
       const location = byDocumentCode.get(supplierCode);
       if (location) return location;
