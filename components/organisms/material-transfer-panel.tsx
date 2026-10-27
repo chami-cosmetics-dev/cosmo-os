@@ -41,6 +41,8 @@ import {
   companiesForErp2,
   defaultSourceWarehouse,
   defaultTargetWarehouse,
+  erp1NonVatTransferWarning,
+  erp1RequiresVatItems,
   warehouseOptions,
 } from "@/lib/material-transfer/warehouses";
 import { MaterialTransferHistory } from "@/components/organisms/material-transfer-history";
@@ -196,18 +198,27 @@ export function MaterialTransferPanel({
     setLines((prev) => clearAvailableQty(prev));
   }
 
-  const applyLookup = useCallback((item: TransferLookupItem) => {
-    const result = upsertTransferLine(linesRef.current, item);
-    if (result.rejected) {
+  const applyLookup = useCallback(
+    (item: TransferLookupItem) => {
+      const isNew = !findTransferLine(linesRef.current, item.itemCode);
+      const result = upsertTransferLine(linesRef.current, item);
+      if (result.rejected) {
+        playScanErrorSound();
+        notify.error("Cannot send more than available");
+        return;
+      }
+      const next = promoteTransferLine(result.lines, item.itemCode);
+      linesRef.current = next;
+      setLines(next);
+      setHighlightedItemCode(item.itemCode);
+      if (!isNew) return;
+      const warning = erp1NonVatTransferWarning(slot, source, target, item.taxStatus, item.itemCode);
+      if (!warning) return;
       playScanErrorSound();
-      notify.error("Cannot send more than available");
-      return;
-    }
-    const next = promoteTransferLine(result.lines, item.itemCode);
-    linesRef.current = next;
-    setLines(next);
-    setHighlightedItemCode(item.itemCode);
-  }, []);
+      notify.error(warning, `vat-warn-${item.itemCode}`);
+    },
+    [slot, source, target],
+  );
 
   const drainQueue = useCallback(async () => {
     if (drainingRef.current) return;
@@ -419,7 +430,9 @@ export function MaterialTransferPanel({
           </Select>
           <span className="text-muted-foreground text-xs">
             {slot === "erp1"
-              ? "Every ERP1 warehouse. Vat and Vat / Non Vat only."
+              ? erp1RequiresVatItems(source, target)
+                ? "Every ERP1 warehouse. Vat and Vat / Non Vat only."
+                : "OGF moves every item. VAT and non-VAT."
               : "Defaults to the main warehouse. Main and shop warehouses are listed."}
           </span>
         </label>
