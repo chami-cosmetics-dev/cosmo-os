@@ -207,6 +207,7 @@ export async function GET(request: NextRequest) {
       erp1ProductPriority: item.erp1ProductPriority,
       erp2ProductPriority: item.erp2ProductPriority,
       vatStatus: vatStatusLabel(item),
+      barcode: item.barcode ?? "",
     }));
     const mainColumnKey = watchedTargets.find((target) => target.role === "cosmetics-main")?.columnKey ?? null;
     const focusColumnKey = focusWarehouse

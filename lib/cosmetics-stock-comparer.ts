@@ -59,6 +59,7 @@ export type CosmeticsStockReportDetail = CosmeticsStockReportRow & {
   erp1ProductPriority?: string | null;
   erp2ProductPriority?: string | null;
   vatStatus?: string;
+  barcode?: string;
 };
 
 export type BrandWarehouseViolation = {
@@ -97,7 +98,9 @@ export const BRAND_WAREHOUSE_VIOLATION_HEADERS = [
 /** Fixed columns on the stock-compare sheet. Company qty columns follow these. */
 export const STOCK_COMPARE_EXPORT_FIXED_HEADERS = [
   "SKU",
+  "Barcode",
   "Product Title",
+  "VAT Status",
   "Main Warehouse Qty",
   "90-day Sales",
   "Critical",
@@ -127,7 +130,9 @@ export function buildStockCompareExportMatrix(
       const shopQty = new Map(row.shops.map((item) => [item.name, item.qty]));
       return [
         row.SKU,
+        (row.barcode ?? "").trim(),
         row["Product Title"],
+        (row.vatStatus ?? "").trim(),
         row["Main Warehouse Qty"],
         row.sales90d,
         row.critical ? "CRITICAL" : "",
@@ -568,6 +573,7 @@ export type CatalogIdentityFields = {
   erp1ProductPriority: string | null;
   erp2ProductPriority: string | null;
   vatStatus: string;
+  barcode?: string;
 };
 
 export type RopWatchRow = CatalogIdentityFields & {
@@ -607,6 +613,7 @@ export type SkuIdentity = {
   erp1ProductPriority: string | null;
   erp2ProductPriority: string | null;
   vatStatus: string;
+  barcode?: string;
 };
 
 export type IdentityFilter = {
@@ -742,6 +749,7 @@ function toIdentity(sku: string, title: string, identities: SkuIdentity[]): Cata
     erp1ProductPriority: blankToNull(found?.erp1ProductPriority),
     erp2ProductPriority: blankToNull(found?.erp2ProductPriority),
     vatStatus: (found?.vatStatus ?? "").trim(),
+    barcode: (found?.barcode ?? "").trim(),
   };
 }
 
