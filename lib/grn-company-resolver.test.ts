@@ -82,4 +82,21 @@ describe("buildGrnCompanyResolver", () => {
       }),
     ).toBe(true);
   });
+
+  it("resolves Vault SV supplier prefixes", () => {
+    const vaultResolver = buildGrnCompanyResolver([
+      { id: "sv", name: "SupplementVault.lk", erpnextCompany: "SupplementVault.lk", supplierPrefix: "SV030" },
+      { id: "ori", name: "Origins (PVT) LTD", erpnextCompany: "Origins (PVT) LTD", supplierPrefix: "SV029" },
+    ]);
+
+    expect(vaultResolver.resolveSupplierLocation("SV030")?.id).toBe("sv");
+    expect(vaultResolver.resolveSupplierLocation("SV029")?.id).toBe("ori");
+    expect(vaultResolver.isMatchingIntercompanyPair({
+      purchaseReceiptCompanyLocationId: "ori",
+      purchaseReceiptSupplier: "SV030",
+      stockReturnName: "SV100-SSR-00000021",
+      stockReturnCompany: "SupplementVault.lk",
+      stockReturnSupplier: "SV029",
+    })).toBe(true);
+  });
 });
