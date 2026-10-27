@@ -83,6 +83,23 @@ describe("salesNetContribution", () => {
     ).toEqual({ signedAmount: -32215, includeInCount: 0 });
   });
 
+  it("does not deduct a live order that only has a solved return ticket", () => {
+    expect(
+      salesNetContribution(
+        order({
+          created: "2026-10-26T04:40:27.000Z",
+          total: 40350,
+          status: "pending",
+          stage: "dispatched",
+          stageAt: "2026-10-27T06:59:01.000Z",
+          returnDate: "2026-10-27T06:57:16.000Z",
+        }),
+        "2026-10-27",
+        "2026-10-27",
+      ),
+    ).toEqual({ signedAmount: 0, includeInCount: 0 });
+  });
+
   it("never adds a credit note", () => {
     expect(
       salesNetContribution(

@@ -9,6 +9,7 @@ import {
 } from "@/lib/dashboard-order-merchant";
 import {
   buildCouponToMerchantMap,
+  getMerchantDisplayName,
   getMerchantGroupUserMap,
 } from "@/lib/merchant-groups";
 import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
@@ -493,7 +494,9 @@ export async function fetchDashboardSalesByLocationMerchant(
         defaultMerchant: {
           select: {
             id: true,
+            knownName: true,
             name: true,
+            email: true,
           },
         },
       },
@@ -531,6 +534,20 @@ export async function fetchDashboardSalesByLocationMerchant(
   const userToGroup = await getMerchantGroupUserMap(companyId);
   const couponToUser = buildCouponToMerchantMap(usersWithCoupons, userToGroup);
   const wholesaleOwners = buildWholesaleOwnerMap(usersWithCoupons);
+  const locationMeta = new Map(
+    locations.map((loc) => [
+      loc.id,
+      {
+        name: loc.name,
+        defaultMerchant: loc.defaultMerchant
+          ? {
+              id: loc.defaultMerchant.id,
+              name: getMerchantDisplayName(loc.defaultMerchant),
+            }
+          : null,
+      },
+    ]),
+  );
 
   const byLocationMerchant = new Map<string, Map<string, DashboardLocationMerchantRow>>();
   const sourceByLocation = new Map<string, DashboardLocationSales["sources"]>();
@@ -570,6 +587,7 @@ export async function fetchDashboardSalesByLocationMerchant(
       .map((coupon) => coupon.trim().toLowerCase())
       .filter(Boolean);
 
+    const locMeta = locationMeta.get(order.companyLocationId);
     const resolved = resolveDashboardOrderMerchant({
       orderCoupons: merchantCoupons,
       couponToUser,
@@ -577,6 +595,8 @@ export async function fetchDashboardSalesByLocationMerchant(
       assignedMerchantId: order.assignedMerchantId,
       assignedMerchant: order.assignedMerchant,
       userToGroup,
+      locationName: locMeta?.name,
+      locationDefaultMerchant: locMeta?.defaultMerchant,
     });
     const merchantKey = dashboardMerchantRowKey(resolved);
     const existing = merchantMap.get(merchantKey);

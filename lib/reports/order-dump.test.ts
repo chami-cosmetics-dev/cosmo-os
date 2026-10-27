@@ -301,11 +301,11 @@ describe("createOrderInvoiceRow completed columns", () => {
 });
 
 describe("dump cancel_reason column", () => {
-  it("sits after payment_status on invoice and item dumps", () => {
+  it("sits last on invoice and item dumps", () => {
     const invoice = getOrderInvoiceCsvHeaders();
     const item = getOrderInvoiceItemCsvHeaders();
-    expect(invoice[invoice.indexOf("payment_status") + 1]).toBe("cancel_reason");
-    expect(item[item.indexOf("payment_status") + 1]).toBe("cancel_reason");
+    expect(invoice.at(-1)).toBe("cancel_reason");
+    expect(item.at(-1)).toBe("cancel_reason");
   });
 });
 

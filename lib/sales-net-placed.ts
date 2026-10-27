@@ -43,7 +43,7 @@ export function isReversedSale(order: {
 
 /** Cancel / return / void day — earliest timestamp we have. */
 export function saleReversalAt(order: SalesNetPlacedOrder): Date | null {
-  if (!isReversedSale(order) && !order.returnDate) return null;
+  if (!isReversedSale(order)) return null;
   const dates = [order.cancelledAt, order.returnDate];
   if (
     RETURNED_STAGES.has(normalizeStatus(order.fulfillmentStage)) ||

@@ -174,7 +174,7 @@ export async function fetchMerchantCohortSales(
     prisma.companyLocation.findMany({
       where: { companyId },
       orderBy: { name: "asc" },
-      select: { id: true, name: true },
+      select: { id: true, name: true, defaultMerchantUserId: true },
     }),
     prisma.order.findMany({
       where: {
@@ -197,6 +197,7 @@ export async function fetchMerchantCohortSales(
     }),
   ]);
 
+  const locationById = new Map(locations.map((loc) => [loc.id, loc]));
   for (const loc of locations) {
     locationNames.set(loc.id, loc.name);
   }
@@ -225,12 +226,15 @@ export async function fetchMerchantCohortSales(
       }
       continue;
     }
+    const shopLoc = locationById.get(order.companyLocationId);
     const merchantId = resolveCohortMerchantId({
       orderCoupons,
       couponToMerchantId,
       assignedMerchantId: order.assignedMerchantId,
       cohortIds,
       dmBucketId,
+      locationName: shopLoc?.name,
+      locationDefaultMerchantId: shopLoc?.defaultMerchantUserId,
     });
     if (!merchantId) continue;
 
