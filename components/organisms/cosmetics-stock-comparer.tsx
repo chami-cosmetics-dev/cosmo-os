@@ -51,6 +51,13 @@ type MainFilter = "all" | "critical" | "elsewhere" | "none";
 const COSMETICS_MAIN_WAREHOUSE = "main warehouse - cosmo";
 const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
+function xlsxBytesToArrayBuffer(bytes: ArrayBuffer | Uint8Array): ArrayBuffer {
+  const src = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  const copy = new ArrayBuffer(src.byteLength);
+  new Uint8Array(copy).set(src);
+  return copy;
+}
+
 function downloadExcelWorkbook(workbook: XLSX.WorkBook, filename: string) {
   const name = filename.toLowerCase().endsWith(".xlsx") ? filename : `${filename}.xlsx`;
   const bytes = XLSX.write(workbook, {
@@ -58,9 +65,7 @@ function downloadExcelWorkbook(workbook: XLSX.WorkBook, filename: string) {
     type: "array",
     cellStyles: true,
   }) as ArrayBuffer | Uint8Array;
-  const blob = new Blob([bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)], {
-    type: XLSX_MIME,
-  });
+  const blob = new Blob([xlsxBytesToArrayBuffer(bytes)], { type: XLSX_MIME });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
