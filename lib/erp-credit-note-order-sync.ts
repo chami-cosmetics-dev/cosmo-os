@@ -3,7 +3,7 @@ import type { Prisma } from "@prisma/client";
 import { erpInvoiceReferenceLookupValues } from "@/lib/erp-invoice-reference";
 import {
   cancelPendingApprovalsForOrder,
-  orderHasPendingFinanceCancelApproval,
+  ERP_RESOLVED_APPROVAL_CANCEL_OPTIONS,
 } from "@/lib/approval-workflow";
 import {
   mergeErpReturnSalesInvoiceIds,
@@ -123,15 +123,6 @@ export async function applyErpCancelToOriginalOrder(invoiceRef: string) {
   });
   if (!original) return null;
 
-  // Finance approve in OS cancels the ERP invoice. A cancel webhook must not void
-  // the order or drop that approval first (ERP1 Shopify invoices webhook immediately).
-  if (await orderHasPendingFinanceCancelApproval(original.id)) {
-    console.log(
-      `[ERP cancel] Order ${original.name ?? original.id} has a pending finance cancel — OS approval will cancel the invoice`,
-    );
-    return original;
-  }
-
   await prisma.order.update({
     where: { id: original.id },
     data: {
@@ -153,7 +144,7 @@ export async function applyErpCancelToOriginalOrder(invoiceRef: string) {
       }),
     },
   });
-  await cancelPendingApprovalsForOrder(original.id);
+  await cancelPendingApprovalsForOrder(original.id, ERP_RESOLVED_APPROVAL_CANCEL_OPTIONS);
   return original;
 }
 
@@ -298,7 +289,7 @@ export async function applyErpCreditNoteToOriginalOrder(
     },
   });
 
-  await cancelPendingApprovalsForOrder(original.id);
+  await cancelPendingApprovalsForOrder(original.id, ERP_RESOLVED_APPROVAL_CANCEL_OPTIONS);
 
   return original;
 }
@@ -463,7 +454,7 @@ export async function reconcileOrderErpCreditNote(orderId: string): Promise<{
   };
 
   // Already voided/returned — still backfill Return SI ids when ERP has them,
-  // and fill cancel when/who gaps left by older ERP syncs.
+  // fill cancel when/who gaps, and drop leftover return/finance queue rows.
   if (order.financialStatus === "voided" && order.fulfillmentStage === "returned") {
     const creditNotes = await fetchErpCreditNotesAgainst(creds, invoiceName);
     const names = creditNoteReturnNames(creditNotes);
@@ -479,6 +470,7 @@ export async function reconcileOrderErpCreditNote(orderId: string): Promise<{
       reason: erpReasonFromReturnOrFallback(order, ERP_CANCEL_REASON_CREDIT_NOTE),
     });
     const needsCancelMeta = Boolean(cancelPatch.cancelledAt || cancelPatch.cancelReason);
+    await cancelPendingApprovalsForOrder(order.id, ERP_RESOLVED_APPROVAL_CANCEL_OPTIONS);
     if (!returnSiChanged && !needsCancelMeta) {
       return { updated: false, reason: "already_credit_noted" };
     }
@@ -528,6 +520,14 @@ export async function reconcileOrderErpCreditNote(orderId: string): Promise<{
   const status = typeof invoice.status === "string" ? invoice.status : null;
   const docstatus = typeof invoice.docstatus === "number" ? invoice.docstatus : null;
 
+  if (isErpSalesInvoiceCancelled(docstatus) && invoice.is_return !== 1) {
+    const applied = await applyErpCancelToOriginalOrder(invoiceName);
+    return {
+      updated: Boolean(applied),
+      reason: applied ? "erp_cancel_applied" : "erp_cancel_order_missing",
+    };
+  }
+
   if (!erpInvoiceIndicatesCreditNote({ status, docstatus }, creditNotes)) {
     return { updated: false, reason: "no_credit_note_in_erp" };
   }
@@ -550,6 +550,8 @@ export async function reconcileOrderErpCreditNote(orderId: string): Promise<{
     },
   });
 
+  await cancelPendingApprovalsForOrder(order.id, ERP_RESOLVED_APPROVAL_CANCEL_OPTIONS);
+
   return { updated: true, reason: "credit_note_applied" };
 }
 
@@ -559,11 +561,17 @@ export async function reconcileMissedErpCreditNotes(options?: { limit?: number }
 
   const candidates = await prisma.order.findMany({
     where: {
-      financialStatus: { not: "voided" },
-      fulfillmentStage: { not: "returned" },
       erpnextInvoiceId: { not: null },
       NOT: [{ erpnextInvoiceId: "pending" }, { erpnextInvoiceId: "pending_approval" }],
       companyLocation: { erpnextInstanceId: { not: null } },
+      OR: [
+        {
+          financialStatus: { not: "voided" },
+          fulfillmentStage: { not: "returned" },
+        },
+        { returns: { some: { actionStatus: "pending" } } },
+        { approvalRequests: { some: { status: "pending" } } },
+      ],
     },
     orderBy: { updatedAt: "desc" },
     take: limit,

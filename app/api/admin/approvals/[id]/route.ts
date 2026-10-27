@@ -13,6 +13,7 @@ import {
   RETURN_REARRANGE_PAYMENT_APPROVAL,
   hasPriorApprovedPaymentApproval,
   isActiveErpSiRetryLease,
+  isErpClosedApprovalReviewNote,
   isPlaceholderErpInvoiceId,
   isRealErpSalesInvoiceId,
   notifyApprovalRequester,
@@ -94,6 +95,58 @@ class ConcurrentApprovalDecisionError extends Error {
     super("Approval request was already reviewed");
     this.name = "ConcurrentApprovalDecisionError";
   }
+}
+
+/** Claim a pending approval as approved. If the ERP webhook already closed it, upgrade that cancel. */
+async function claimApprovalApprovedInTx(
+  tx: Prisma.TransactionClient,
+  input: {
+    approvalId: string;
+    companyId: string;
+    reviewerId: string;
+    reviewNote: string | null;
+    now: Date;
+  },
+) {
+  const updated = await tx.$executeRaw(
+    Prisma.sql`
+      UPDATE "ApprovalRequest"
+      SET
+        "status" = ${"approved"},
+        "reviewedById" = ${input.reviewerId},
+        "reviewNote" = ${input.reviewNote},
+        "reviewedAt" = ${input.now},
+        "updatedAt" = ${input.now}
+      WHERE "id" = ${input.approvalId}
+        AND "companyId" = ${input.companyId}
+        AND "status" = 'pending'
+    `,
+  );
+  if (Number(updated) > 0) return;
+
+  const current = await tx.approvalRequest.findUnique({
+    where: { id: input.approvalId },
+    select: { status: true, reviewNote: true, companyId: true },
+  });
+  if (
+    current?.companyId === input.companyId &&
+    current.status === "cancelled" &&
+    isErpClosedApprovalReviewNote(current.reviewNote)
+  ) {
+    await tx.approvalRequest.update({
+      where: { id: input.approvalId },
+      data: {
+        status: "approved",
+        reviewedById: input.reviewerId,
+        reviewNote: input.reviewNote,
+        reviewedAt: input.now,
+        updatedAt: input.now,
+      },
+    });
+    return;
+  }
+
+  throw new ConcurrentApprovalDecisionError();
 }
 
 async function trySyncKokoOrdersAfterApproval(input: {
@@ -556,23 +609,13 @@ export async function PATCH(
     const reviewNoteReturn = parsed.data.reviewNote ?? null;
     try {
       await prisma.$transaction(async (tx) => {
-        const updated = await tx.$executeRaw(
-          Prisma.sql`
-            UPDATE "ApprovalRequest"
-            SET
-              "status" = ${"approved"},
-              "reviewedById" = ${reviewerId},
-              "reviewNote" = ${reviewNoteReturn},
-              "reviewedAt" = ${now},
-              "updatedAt" = ${now}
-            WHERE "id" = ${approval.id}
-              AND "companyId" = ${companyId}
-              AND "status" = 'pending'
-          `,
-        );
-        if (Number(updated) === 0) {
-          throw new ConcurrentApprovalDecisionError();
-        }
+        await claimApprovalApprovedInTx(tx, {
+          approvalId: approval.id,
+          companyId,
+          reviewerId,
+          reviewNote: reviewNoteReturn,
+          now,
+        });
 
         await finalizeReturnCancelOsState(tx, {
           orderId: order.id,
@@ -707,23 +750,13 @@ export async function PATCH(
     const reviewNoteOrderCancel = parsed.data.reviewNote ?? null;
     try {
       await prisma.$transaction(async (tx) => {
-        const updated = await tx.$executeRaw(
-          Prisma.sql`
-            UPDATE "ApprovalRequest"
-            SET
-              "status" = ${"approved"},
-              "reviewedById" = ${reviewerId},
-              "reviewNote" = ${reviewNoteOrderCancel},
-              "reviewedAt" = ${now},
-              "updatedAt" = ${now}
-            WHERE "id" = ${approval.id}
-              AND "companyId" = ${companyId}
-              AND "status" = 'pending'
-          `,
-        );
-        if (Number(updated) === 0) {
-          throw new ConcurrentApprovalDecisionError();
-        }
+        await claimApprovalApprovedInTx(tx, {
+          approvalId: approval.id,
+          companyId,
+          reviewerId,
+          reviewNote: reviewNoteOrderCancel,
+          now,
+        });
 
         const nextReturnIds =
           external.completionMode === "credit_note" && external.creditNoteName

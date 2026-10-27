@@ -23,12 +23,7 @@ import {
 } from "@/lib/page-data/dashboard-overview-shared";
 import { getPaymentMethodInfo } from "@/lib/payment-method-label";
 import { prisma } from "@/lib/prisma";
-import {
-  isCreditNoteSale,
-  isReversedSale,
-  salesNetContribution,
-  salesNetPlacedWhere,
-} from "@/lib/sales-net-placed";
+import { isCreditNoteSale, isReversedSale } from "@/lib/sales-net-placed";
 
 export type DashboardLocationMerchantRow = {
   merchantId: string | null;
@@ -71,12 +66,6 @@ export type DashboardSalesEligibilityOrder = {
   cancelledAt?: Date | null;
   totalPrice?: unknown;
   rawPayload?: Prisma.JsonValue | null;
-};
-
-const SALES_NET_RETURN_SELECT = {
-  select: { returnDate: true },
-  orderBy: { returnDate: "desc" as const },
-  take: 1,
 };
 
 function normalizeStatus(value: unknown) {
@@ -332,7 +321,6 @@ export async function fetchDashboardFilterSummaries(
     deliveryCompleteAt: true,
     invoiceCompleteAt: true,
     cancelledAt: true,
-    returns: SALES_NET_RETURN_SELECT,
   } as const;
 
   const [rangeOrders, backlogBillOpen, backlogNotDelivered] = await Promise.all([
@@ -343,12 +331,6 @@ export async function fetchDashboardFilterSummaries(
           { createdAt: { gte: fromDate, lte: toDate } },
           { invoiceCompleteAt: { gte: fromDate, lte: toDate } },
           { deliveryCompleteAt: { gte: fromDate, lte: toDate } },
-          { cancelledAt: { gte: fromDate, lte: toDate } },
-          {
-            fulfillmentStage: { in: ["returned", "returned_to_store"] },
-            fulfillmentStageEnteredAt: { gte: fromDate, lte: toDate },
-          },
-          { returns: { some: { returnDate: { gte: fromDate, lte: toDate } } } },
         ],
       },
       select: eligibilitySelect,
@@ -389,17 +371,8 @@ export async function fetchDashboardFilterSummaries(
       order.deliveryCompleteAt <= toDate;
     const placedBeforeRange = order.createdAt < fromDate;
 
-    const net = salesNetContribution(
-      { ...order, returnDate: order.returns[0]?.returnDate ?? null },
-      fromYmd,
-      toYmd,
-    );
-    if (net.signedAmount !== 0 || net.includeInCount !== 0) {
-      const allOrders = summaries.get("all_orders")!;
-      allOrders.total += net.signedAmount;
-      allOrders.orderCount += net.includeInCount;
-    }
     if (createdInRange && isDashboardSalesOrderEligible(order, "all_orders")) {
+      addToSummary(summaries.get("all_orders")!, order.totalPrice);
       const partition = getPlacedStatusPartition(order);
       addToSummary(summaries.get(partition)!, order.totalPrice);
     }
@@ -471,17 +444,14 @@ export async function fetchDashboardSalesByLocationMerchant(
     return { locations: [], invalidRange: true };
   }
 
-  const useNetPlaced = params.dateType === "all_orders";
-  const where: Prisma.OrderWhereInput = useNetPlaced
-    ? salesNetPlacedWhere(companyId, fromDate, toDate)
-    : {
-        companyId,
-        ...buildDashboardSalesDateFilter({
-          fromDate,
-          toDate,
-          dateType: params.dateType,
-        }),
-      };
+  const where: Prisma.OrderWhereInput = {
+    companyId,
+    ...buildDashboardSalesDateFilter({
+      fromDate,
+      toDate,
+      dateType: params.dateType,
+    }),
+  };
 
   const [locations, usersWithCoupons, orders] = await Promise.all([
     prisma.companyLocation.findMany({
@@ -523,7 +493,6 @@ export async function fetchDashboardSalesByLocationMerchant(
         invoiceCompleteAt: true,
         discountCodes: true,
         rawPayload: true,
-        returns: SALES_NET_RETURN_SELECT,
         assignedMerchant: {
           select: dashboardMerchantUserSelect,
         },
@@ -557,20 +526,9 @@ export async function fetchDashboardSalesByLocationMerchant(
   }
 
   for (const order of orders) {
-    let total = Number(order.totalPrice ?? 0);
-    let countDelta = 1;
-    if (useNetPlaced) {
-      const net = salesNetContribution(
-        { ...order, returnDate: order.returns[0]?.returnDate ?? null },
-        params.fromYmd,
-        params.toYmd,
-      );
-      if (net.signedAmount === 0 && net.includeInCount === 0) continue;
-      total = net.signedAmount;
-      countDelta = net.includeInCount;
-    } else if (!isDashboardSalesOrderEligible(order, params.dateType)) {
-      continue;
-    }
+    if (!isDashboardSalesOrderEligible(order, params.dateType)) continue;
+    const total = Number(order.totalPrice ?? 0);
+    const countDelta = 1;
 
     const merchantMap = byLocationMerchant.get(order.companyLocationId);
     if (!merchantMap) continue;
@@ -660,17 +618,14 @@ export async function fetchDashboardSalesByLocationGateway(
     return { locations: [], invalidRange: true };
   }
 
-  const useNetPlaced = params.dateType === "all_orders";
-  const where: Prisma.OrderWhereInput = useNetPlaced
-    ? salesNetPlacedWhere(companyId, fromDate, toDate)
-    : {
-        companyId,
-        ...buildDashboardSalesDateFilter({
-          fromDate,
-          toDate,
-          dateType: params.dateType,
-        }),
-      };
+  const where: Prisma.OrderWhereInput = {
+    companyId,
+    ...buildDashboardSalesDateFilter({
+      fromDate,
+      toDate,
+      dateType: params.dateType,
+    }),
+  };
 
   if (!gatewayColumns.hasPaymentGatewayPrimary) {
     const locations = await prisma.companyLocation.findMany({
@@ -735,7 +690,6 @@ export async function fetchDashboardSalesByLocationGateway(
         invoiceCompleteAt: true,
         rawPayload: true,
         paymentGatewayPrimary: true,
-        returns: SALES_NET_RETURN_SELECT,
       },
     }),
   ]);
@@ -748,20 +702,9 @@ export async function fetchDashboardSalesByLocationGateway(
   }
 
   for (const order of orders) {
-    let total = Number(order.totalPrice ?? 0);
-    let countDelta = 1;
-    if (useNetPlaced) {
-      const net = salesNetContribution(
-        { ...order, returnDate: order.returns[0]?.returnDate ?? null },
-        params.fromYmd,
-        params.toYmd,
-      );
-      if (net.signedAmount === 0 && net.includeInCount === 0) continue;
-      total = net.signedAmount;
-      countDelta = net.includeInCount;
-    } else if (!isDashboardSalesOrderEligible(order, params.dateType)) {
-      continue;
-    }
+    if (!isDashboardSalesOrderEligible(order, params.dateType)) continue;
+    const total = Number(order.totalPrice ?? 0);
+    const countDelta = 1;
 
     const list = byLocation.get(order.companyLocationId);
     if (!list) continue;

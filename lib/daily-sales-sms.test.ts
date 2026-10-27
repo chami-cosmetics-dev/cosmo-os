@@ -31,6 +31,9 @@ describe("daily-sales-sms helpers", () => {
         { code: "SUPPLEMENTVA", value: -27010 },
       ],
       locations: [{ code: "SUPPLEMENTVA", value: 1000 }],
+      dayPriorPlacedCancels: { total: 0, count: 0, locations: [] },
+      mtdPriorMonthCancels: { total: 0, count: 0, locations: [] },
+      mtdInRangeCancels: { total: 0, count: 0, locations: [] },
     });
     expect(body).toContain("Value:  127,193");
     expect(body).toContain("ORIGINS->: 109,900");
@@ -87,6 +90,9 @@ describe("daily-sales-sms helpers", () => {
         { code: "WEB", value: 25877955 },
         { code: "OGF", value: 5629055 },
       ],
+      dayPriorPlacedCancels: { total: 0, count: 0, locations: [] },
+      mtdPriorMonthCancels: { total: 0, count: 0, locations: [] },
+      mtdInRangeCancels: { total: 0, count: 0, locations: [] },
     });
 
     expect(body).toContain("Day (2026-06-30)");
@@ -102,6 +108,41 @@ describe("daily-sales-sms helpers", () => {
     expect(body).toContain("OGF->: 5,629,055");
     expect(body.indexOf("Count:        198")).toBeLessThan(body.indexOf("MTD Sales:"));
     expect(body.indexOf("MTD Sales:")).toBeLessThan(body.indexOf("Count:        4120"));
+    expect(body).toContain("Cancel 2026-06-30 (placed before)");
+    expect(body).toContain("Cancel MTD (placed before 2026-06)");
+    expect(body).toContain("Cancel MTD (placed in 2026-06)");
+  });
+
+  it("prints voided cancel blocks company-wise", () => {
+    const body = formatDailySalesSmsBody({
+      reportDate: "2026-10-26",
+      dayValue: 608050,
+      dayCount: 35,
+      mtdValue: 1000000,
+      mtdCount: 100,
+      dayLocations: [{ code: "AE", value: 268610 }],
+      locations: [{ code: "AE", value: 500000 }],
+      dayPriorPlacedCancels: {
+        total: 188930,
+        count: 13,
+        locations: [
+          { code: "SV", value: 179620 },
+          { code: "ORIGINS", value: 9310 },
+        ],
+      },
+      mtdPriorMonthCancels: { total: 0, count: 0, locations: [] },
+      mtdInRangeCancels: {
+        total: 57810,
+        count: 2,
+        locations: [{ code: "SV", value: 57810 }],
+      },
+    });
+    expect(body).toContain("Cancel 2026-10-26 (placed before)");
+    expect(body).toContain("Total: 188,930");
+    expect(body).toContain("SV->: 179,620");
+    expect(body).toContain("ORIGINS->: 9,310");
+    expect(body).toContain("Cancel MTD (placed in 2026-10)");
+    expect(body).toContain("Total: 57,810");
   });
 
   it("formats empty day with MTD locations", () => {
@@ -113,6 +154,9 @@ describe("daily-sales-sms helpers", () => {
       mtdCount: 2,
       dayLocations: [],
       locations: [{ code: "HO", value: 1000 }],
+      dayPriorPlacedCancels: { total: 0, count: 0, locations: [] },
+      mtdPriorMonthCancels: { total: 0, count: 0, locations: [] },
+      mtdInRangeCancels: { total: 0, count: 0, locations: [] },
     });
     expect(body).toContain("Value:  0");
     expect(body).toContain("Count:        0");
