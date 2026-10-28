@@ -739,6 +739,11 @@ export function BookNoteFinancePanel({
                                             </td>
                                             <td className="p-2 text-right font-mono tabular-nums">
                                               {r.koko > 0 ? money(r.koko) : "—"}
+                                              {r.koko_reference ? (
+                                                <span className="text-muted-foreground mt-0.5 block text-[10px]">
+                                                  KOKO Order ID {r.koko_reference}
+                                                </span>
+                                              ) : null}
                                             </td>
                                             <td className="p-2 text-right font-mono tabular-nums">
                                               {r.mintpay > 0 ? money(r.mintpay) : "—"}
@@ -777,7 +782,7 @@ export function BookNoteFinancePanel({
                                                           ? ` · card ••${sl.cardLast4}`
                                                           : ""}
                                                         {sl.kokoReference
-                                                          ? ` · KOKO ${sl.kokoReference}`
+                                                          ? ` · KOKO Order ID ${sl.kokoReference}`
                                                           : ""}
                                                         {sl.mintpayReference
                                                           ? ` · MintPay Order ID ${sl.mintpayReference}`

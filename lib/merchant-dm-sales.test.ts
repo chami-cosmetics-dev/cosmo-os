@@ -10,7 +10,6 @@ import {
   resolveCohortMerchantId,
   resolveDmHolderMerchantIds,
   resolveFixedSalesCouponBucket,
-  shopLocationCreditsDmCouponToMerchant,
   splitMerchantCouponSets,
   STAFF_SALES_DISPLAY_NAME,
 } from "@/lib/merchant-dm-sales";
@@ -47,24 +46,6 @@ describe("isDmCouponCode", () => {
     expect(isDmCouponCode("DM_General")).toBe(true);
     expect(isDmCouponCode("MER91")).toBe(false);
     expect(isDmCouponCode("MER91-Sandali")).toBe(false);
-  });
-});
-
-describe("shopLocationCreditsDmCouponToMerchant", () => {
-  it("is true for AE and Origins shop names", () => {
-    expect(shopLocationCreditsDmCouponToMerchant("AE (PVT) LTD")).toBe(true);
-    expect(shopLocationCreditsDmCouponToMerchant("Origins (PVT) LTD")).toBe(
-      true,
-    );
-    expect(shopLocationCreditsDmCouponToMerchant("ae (pvt) ltd")).toBe(true);
-  });
-
-  it("is false for SupplementVault and blank", () => {
-    expect(shopLocationCreditsDmCouponToMerchant("SupplementVault.lk")).toBe(
-      false,
-    );
-    expect(shopLocationCreditsDmCouponToMerchant(null)).toBe(false);
-    expect(shopLocationCreditsDmCouponToMerchant("")).toBe(false);
   });
 });
 
@@ -160,35 +141,6 @@ describe("classifyMerchantSalesBucket", () => {
     ).toBeNull();
   });
 
-  it("treats AE DM_General as mer for the shop merchant", () => {
-    const personalOnly = splitMerchantCouponSets(["MER99"]);
-    expect(
-      classifyMerchantSalesBucket({
-        orderCoupons: ["dm_general"],
-        ...personalOnly,
-        assignedToViewer: true,
-        locationName: "AE (PVT) LTD",
-      }),
-    ).toBe("mer");
-    expect(
-      classifyMerchantSalesBucket({
-        orderCoupons: ["dm_general"],
-        ...personalOnly,
-        assignedToViewer: false,
-        locationName: "AE (PVT) LTD",
-        locationDefaultIsViewer: true,
-      }),
-    ).toBe("mer");
-    expect(
-      classifyMerchantSalesBucket({
-        orderCoupons: ["dm_general"],
-        ...personalOnly,
-        assignedToViewer: false,
-        locationName: "SupplementVault.lk",
-      }),
-    ).toBeNull();
-  });
-
   it("uses assignment only when user has no DM bucket", () => {
     const personalOnly = splitMerchantCouponSets(["MER91"]);
     expect(
@@ -265,44 +217,6 @@ describe("resolveCohortMerchantId", () => {
         dmBucketId: null,
       }),
     ).toBeNull();
-  });
-
-  it("credits AE DM_General to assigned shop merchant instead of DM bucket", () => {
-    const couponToMerchantId = new Map([
-      ["mer99", "u-natasha"],
-      ["mer115", "__dm_general__"],
-    ]);
-    expect(
-      resolveCohortMerchantId({
-        orderCoupons: ["dm_general"],
-        couponToMerchantId,
-        assignedMerchantId: "u-natasha",
-        cohortIds: new Set(["u-natasha"]),
-        dmBucketId: "__dm_general__",
-        locationName: "AE (PVT) LTD",
-      }),
-    ).toBe("u-natasha");
-    expect(
-      resolveCohortMerchantId({
-        orderCoupons: ["dm_general"],
-        couponToMerchantId,
-        assignedMerchantId: null,
-        cohortIds: new Set(["u-natasha"]),
-        dmBucketId: "__dm_general__",
-        locationName: "AE (PVT) LTD",
-        locationDefaultMerchantId: "u-natasha",
-      }),
-    ).toBe("u-natasha");
-    expect(
-      resolveCohortMerchantId({
-        orderCoupons: ["dm_general"],
-        couponToMerchantId,
-        assignedMerchantId: "u-natasha",
-        cohortIds: new Set(["u-natasha"]),
-        dmBucketId: "__dm_general__",
-        locationName: "SupplementVault.lk",
-      }),
-    ).toBe("__dm_general__");
   });
 
   it("keeps personal MER on the merchant user", () => {

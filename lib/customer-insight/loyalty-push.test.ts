@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  loyaltyErpSlotsToCreate,
   loyaltyExternalTargets,
   missingErpLoyaltyMessage,
 } from "@/lib/customer-insight/loyalty-push";
@@ -25,16 +26,62 @@ describe("loyaltyExternalTargets", () => {
 });
 
 describe("missingErpLoyaltyMessage", () => {
-  it("tells staff which ERP to create first", () => {
+  it("tells staff which ERP create failed", () => {
     expect(missingErpLoyaltyMessage(["erp2"], "0712345678")).toBe(
-      "Create this customer in ERP2 first for phone 0712345678, then retry Send."
+      "Could not create this customer in ERP2 for phone 0712345678. Retry Send after ERP is reachable."
     );
   });
 
   it("lists multiple missing slots", () => {
     expect(missingErpLoyaltyMessage(["erp1", "erp2"], null)).toBe(
-      "Create this customer in ERP1 and ERP2 first, then retry Send."
+      "Could not create this customer in ERP1 and ERP2. Retry Send after ERP is reachable."
     );
+  });
+});
+
+describe("loyaltyErpSlotsToCreate", () => {
+  it("creates only the missing slot", () => {
+    expect(
+      loyaltyErpSlotsToCreate({
+        instanceSlots: ["erp1", "erp2"],
+        foundSlots: ["erp1"],
+        missingSlots: ["erp2"],
+        errorSlots: [],
+      })
+    ).toEqual(["erp2"]);
+  });
+
+  it("creates both when neither ERP has the customer", () => {
+    expect(
+      loyaltyErpSlotsToCreate({
+        instanceSlots: ["erp1", "erp2"],
+        foundSlots: [],
+        missingSlots: ["erp1", "erp2"],
+        errorSlots: [],
+      })
+    ).toEqual(["erp1", "erp2"]);
+  });
+
+  it("does not create when lookup failed", () => {
+    expect(
+      loyaltyErpSlotsToCreate({
+        instanceSlots: ["erp1", "erp2"],
+        foundSlots: ["erp1"],
+        missingSlots: ["erp2"],
+        errorSlots: ["erp2"],
+      })
+    ).toEqual([]);
+  });
+
+  it("does not create a slot already found", () => {
+    expect(
+      loyaltyErpSlotsToCreate({
+        instanceSlots: ["erp1", "erp2"],
+        foundSlots: ["erp1", "erp2"],
+        missingSlots: [],
+        errorSlots: [],
+      })
+    ).toEqual([]);
   });
 });
 

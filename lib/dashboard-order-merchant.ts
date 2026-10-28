@@ -1,14 +1,11 @@
 import {
   getMerchantDisplayName,
   matchMerchantFromCouponMap,
-  resolveAssignedMerchantDashboardFallback,
   type MerchantUser,
 } from "@/lib/merchant-groups";
 import {
   DM_GENERAL_DISPLAY_NAME,
-  isDmOnlyMerchantTracking,
   normalizeDashboardMerchantLabel,
-  shopLocationCreditsDmCouponToMerchant,
   STAFF_SALES_DISPLAY_NAME,
 } from "@/lib/merchant-dm-sales";
 import {
@@ -88,8 +85,8 @@ export function matchWholesaleOwner(
 }
 
 /**
- * Personal MER stays on the merchant. WH orders get a separate wholesale name
- * so main-dashboard totals do not fold wholesale into personal sales.
+ * Personal MER stays on the merchant. No MER → DM-General (assigned cashier
+ * is not a dashboard merchant). WH orders get a separate wholesale name.
  */
 export function resolveDashboardOrderMerchant(input: {
   orderCoupons: string[];
@@ -122,42 +119,14 @@ export function resolveDashboardOrderMerchant(input: {
   if (matched?.name === STAFF_SALES_DISPLAY_NAME) {
     return { id: matched.id, name: matched.name, isWholesale: false };
   }
-  const dmOnlyOnShop =
-    shopLocationCreditsDmCouponToMerchant(input.locationName) &&
-    (isDmOnlyMerchantTracking(input.orderCoupons) ||
-      matched?.name === DM_GENERAL_DISPLAY_NAME);
-  if (dmOnlyOnShop) {
-    const assignedName = getMerchantDisplayName(input.assignedMerchant);
-    if (input.assignedMerchantId && assignedName && assignedName !== "Unknown") {
-      return {
-        id: input.assignedMerchantId,
-        name: normalizeDashboardMerchantLabel(assignedName),
-        isWholesale: false,
-      };
-    }
-    const defaultName = input.locationDefaultMerchant?.name?.trim();
-    if (defaultName) {
-      return {
-        id: input.locationDefaultMerchant?.id ?? null,
-        name: normalizeDashboardMerchantLabel(defaultName),
-        isWholesale: false,
-      };
-    }
+  if (matched && matched.name !== DM_GENERAL_DISPLAY_NAME) {
+    return {
+      id: matched.id,
+      name: normalizeDashboardMerchantLabel(matched.name),
+      isWholesale: false,
+    };
   }
-
-  const resolved =
-    matched ??
-    resolveAssignedMerchantDashboardFallback({
-      assignedMerchantId: input.assignedMerchantId,
-      assignedMerchant: input.assignedMerchant,
-      orderCoupons: input.orderCoupons,
-      userToGroup: input.userToGroup,
-    });
-  return {
-    id: resolved.id,
-    name: normalizeDashboardMerchantLabel(resolved.name),
-    isWholesale: false,
-  };
+  return { id: null, name: DM_GENERAL_DISPLAY_NAME, isWholesale: false };
 }
 
 export function dashboardMerchantRowKey(hit: {

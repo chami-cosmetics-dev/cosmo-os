@@ -70,7 +70,7 @@ describe("bookNotePutBodySchema", () => {
     expect(ok.success).toBe(true);
   });
 
-  it("requires a KOKO order reference when the KOKO amount is above 0", () => {
+  it("requires a KOKO Order ID when the KOKO amount is above 0", () => {
     const missing = bookNotePutBodySchema.safeParse({
       companyLocationId: LOC,
       postingDate: "2026-08-03",

@@ -23,6 +23,7 @@ import {
 } from "@/lib/page-data/dashboard-overview-shared";
 import { getPaymentMethodInfo } from "@/lib/payment-method-label";
 import { prisma } from "@/lib/prisma";
+import { salesAmountExcludingShipping } from "@/lib/sales-amount-excluding-shipping";
 import { isCreditNoteSale, isReversedSale } from "@/lib/sales-net-placed";
 
 export type DashboardLocationMerchantRow = {
@@ -65,6 +66,9 @@ export type DashboardSalesEligibilityOrder = {
   invoiceCompleteAt?: Date | null;
   cancelledAt?: Date | null;
   totalPrice?: unknown;
+  totalShipping?: unknown;
+  shippingLines?: unknown;
+  discountCodes?: unknown;
   rawPayload?: Prisma.JsonValue | null;
 };
 
@@ -274,8 +278,22 @@ function emptySummary(key: DashboardSalesDateType): DashboardFilterSummary {
   };
 }
 
-function addToSummary(summary: DashboardFilterSummary, totalPrice: unknown) {
-  summary.total += Number(totalPrice ?? 0);
+function dashboardSaleAmount(order: {
+  totalPrice: unknown;
+  totalShipping?: unknown;
+  shippingLines?: unknown;
+  discountCodes?: unknown;
+}): number {
+  return salesAmountExcludingShipping(order) ?? 0;
+}
+
+function addToSummary(summary: DashboardFilterSummary, order: {
+  totalPrice: unknown;
+  totalShipping?: unknown;
+  shippingLines?: unknown;
+  discountCodes?: unknown;
+}) {
+  summary.total += dashboardSaleAmount(order);
   summary.orderCount += 1;
 }
 
@@ -312,6 +330,9 @@ export async function fetchDashboardFilterSummaries(
 
   const eligibilitySelect = {
     totalPrice: true,
+    totalShipping: true,
+    shippingLines: true,
+    discountCodes: true,
     createdAt: true,
     sourceName: true,
     financialStatus: true,
@@ -344,7 +365,18 @@ export async function fetchDashboardFilterSummaries(
           dateType: "still_bill_open",
         }),
       },
-      select: { totalPrice: true, sourceName: true, financialStatus: true, fulfillmentStatus: true, fulfillmentStage: true, deliveryCompleteAt: true, invoiceCompleteAt: true },
+      select: {
+        totalPrice: true,
+        totalShipping: true,
+        shippingLines: true,
+        discountCodes: true,
+        sourceName: true,
+        financialStatus: true,
+        fulfillmentStatus: true,
+        fulfillmentStage: true,
+        deliveryCompleteAt: true,
+        invoiceCompleteAt: true,
+      },
     }),
     prisma.order.findMany({
       where: {
@@ -355,7 +387,18 @@ export async function fetchDashboardFilterSummaries(
           dateType: "still_not_delivered",
         }),
       },
-      select: { totalPrice: true, sourceName: true, financialStatus: true, fulfillmentStatus: true, fulfillmentStage: true, deliveryCompleteAt: true, invoiceCompleteAt: true },
+      select: {
+        totalPrice: true,
+        totalShipping: true,
+        shippingLines: true,
+        discountCodes: true,
+        sourceName: true,
+        financialStatus: true,
+        fulfillmentStatus: true,
+        fulfillmentStage: true,
+        deliveryCompleteAt: true,
+        invoiceCompleteAt: true,
+      },
     }),
   ]);
 
@@ -372,9 +415,9 @@ export async function fetchDashboardFilterSummaries(
     const placedBeforeRange = order.createdAt < fromDate;
 
     if (createdInRange && isDashboardSalesOrderEligible(order, "all_orders")) {
-      addToSummary(summaries.get("all_orders")!, order.totalPrice);
+      addToSummary(summaries.get("all_orders")!, order);
       const partition = getPlacedStatusPartition(order);
-      addToSummary(summaries.get(partition)!, order.totalPrice);
+      addToSummary(summaries.get(partition)!, order);
     }
 
     if (
@@ -382,7 +425,7 @@ export async function fetchDashboardFilterSummaries(
       invoiceInRange &&
       isDashboardSalesOrderEligible(order, "bill_done_in_dates")
     ) {
-      addToSummary(summaries.get("bill_done_in_dates")!, order.totalPrice);
+      addToSummary(summaries.get("bill_done_in_dates")!, order);
     }
 
     if (
@@ -390,7 +433,7 @@ export async function fetchDashboardFilterSummaries(
       deliveryInRange &&
       isDashboardSalesOrderEligible(order, "delivered_in_dates")
     ) {
-      addToSummary(summaries.get("delivered_in_dates")!, order.totalPrice);
+      addToSummary(summaries.get("delivered_in_dates")!, order);
     }
 
     if (
@@ -398,7 +441,7 @@ export async function fetchDashboardFilterSummaries(
       invoiceInRange &&
       isDashboardSalesOrderEligible(order, "bill_done_old")
     ) {
-      addToSummary(summaries.get("bill_done_old")!, order.totalPrice);
+      addToSummary(summaries.get("bill_done_old")!, order);
     }
 
     if (
@@ -406,18 +449,18 @@ export async function fetchDashboardFilterSummaries(
       deliveryInRange &&
       isDashboardSalesOrderEligible(order, "delivered_old")
     ) {
-      addToSummary(summaries.get("delivered_old")!, order.totalPrice);
+      addToSummary(summaries.get("delivered_old")!, order);
     }
   }
 
   for (const order of backlogBillOpen) {
     if (isDashboardSalesOrderEligible(order, "still_bill_open")) {
-      addToSummary(summaries.get("still_bill_open")!, order.totalPrice);
+      addToSummary(summaries.get("still_bill_open")!, order);
     }
   }
   for (const order of backlogNotDelivered) {
     if (isDashboardSalesOrderEligible(order, "still_not_delivered")) {
-      addToSummary(summaries.get("still_not_delivered")!, order.totalPrice);
+      addToSummary(summaries.get("still_not_delivered")!, order);
     }
   }
 
@@ -481,6 +524,8 @@ export async function fetchDashboardSalesByLocationMerchant(
         companyLocationId: true,
         assignedMerchantId: true,
         totalPrice: true,
+        totalShipping: true,
+        shippingLines: true,
         createdAt: true,
         cancelledAt: true,
         sourceName: true,
@@ -527,7 +572,7 @@ export async function fetchDashboardSalesByLocationMerchant(
 
   for (const order of orders) {
     if (!isDashboardSalesOrderEligible(order, params.dateType)) continue;
-    const total = Number(order.totalPrice ?? 0);
+    const total = dashboardSaleAmount(order);
     const countDelta = 1;
 
     const merchantMap = byLocationMerchant.get(order.companyLocationId);
@@ -678,6 +723,9 @@ export async function fetchDashboardSalesByLocationGateway(
       select: {
         companyLocationId: true,
         totalPrice: true,
+        totalShipping: true,
+        shippingLines: true,
+        discountCodes: true,
         createdAt: true,
         cancelledAt: true,
         sourceName: true,
@@ -703,7 +751,7 @@ export async function fetchDashboardSalesByLocationGateway(
 
   for (const order of orders) {
     if (!isDashboardSalesOrderEligible(order, params.dateType)) continue;
-    const total = Number(order.totalPrice ?? 0);
+    const total = dashboardSaleAmount(order);
     const countDelta = 1;
 
     const list = byLocation.get(order.companyLocationId);

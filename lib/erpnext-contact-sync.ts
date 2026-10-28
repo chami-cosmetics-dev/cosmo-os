@@ -399,6 +399,129 @@ export async function erpHasCustomerPhone(
   return Boolean(json.data?.[0]?.name?.trim());
 }
 
+export type EnsureErpCustomerInput = {
+  phone: string;
+  displayName: string;
+  email?: string | null;
+  customerGroup: string;
+  defaultCompany?: string | null;
+};
+
+export type EnsureErpCustomerResult = {
+  customerName: string;
+  created: boolean;
+};
+
+/** ERP Customer POST body. Document name = canonical mobile so phone identity stays unique. */
+export function buildErpCustomerCreateBody(input: {
+  displayName: string;
+  canonicalMobile: string;
+  email?: string | null;
+  customerGroup: string;
+  defaultCompany?: string | null;
+}): Record<string, unknown> {
+  const customerName = input.displayName.trim() || "Guest";
+  const email = input.email?.trim() || "";
+  const defaultCompany = input.defaultCompany?.trim() || "";
+  return {
+    doctype: "Customer",
+    name: input.canonicalMobile,
+    customer_name: customerName,
+    customer_type: "Individual",
+    customer_group: input.customerGroup.trim() || "Individual",
+    territory: "All Territories",
+    custom_total_purchasing_value: 0,
+    mobile_no: input.canonicalMobile,
+    ...(email ? { email_id: email } : {}),
+    ...(defaultCompany ? { default_company: defaultCompany } : {}),
+  };
+}
+
+export function erpCustomerCreateLooksLikeDuplicate(
+  status: number,
+  bodyText: string
+): boolean {
+  if (status === 409) return true;
+  const lower = bodyText.toLowerCase();
+  return lower.includes("duplicate") || lower.includes("already exists");
+}
+
+/** Location company for this ERP instance. Used only on create. */
+export async function defaultErpCompanyForInstance(
+  companyId: string,
+  instanceId: string
+): Promise<string | null> {
+  const loc = await prisma.companyLocation.findFirst({
+    where: {
+      companyId,
+      erpnextInstanceId: instanceId,
+      erpnextCompany: { not: null },
+    },
+    select: { erpnextCompany: true },
+    orderBy: [{ isMainCompany: "desc" }, { createdAt: "asc" }],
+  });
+  return loc?.erpnextCompany?.trim() || null;
+}
+
+/**
+ * Find Customer by phone, else create one.
+ * Never inserts a second Customer for the same mobile / canonical id.
+ */
+export async function ensureErpCustomerByPhone(
+  cfg: OsfErpCredentials,
+  input: EnsureErpCustomerInput
+): Promise<EnsureErpCustomerResult> {
+  const existing = await findErpCustomerNameByPhone(cfg, input.phone);
+  if (existing) {
+    return { customerName: existing, created: false };
+  }
+
+  const canonicalMobile = canonicalPhoneForErpCustomerId(input.phone);
+  if (!canonicalMobile) {
+    throw new OsfErpError(
+      `Cannot create ERP Customer: phone "${input.phone.trim()}" is not a valid Sri Lankan mobile`
+    );
+  }
+
+  const res = await fetch(`${cfg.baseUrl}/api/resource/Customer`, {
+    method: "POST",
+    headers: {
+      ...authHeaders(cfg),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(
+      buildErpCustomerCreateBody({
+        displayName: input.displayName,
+        canonicalMobile,
+        email: input.email,
+        customerGroup: input.customerGroup,
+        defaultCompany: input.defaultCompany,
+      })
+    ),
+  });
+
+  if (res.ok) {
+    const json = (await res.json().catch(() => null)) as
+      | { data?: { name?: string } }
+      | null;
+    const name = json?.data?.name?.trim() || canonicalMobile;
+    return { customerName: name, created: true };
+  }
+
+  const text = await res.text().catch(() => "");
+  if (erpCustomerCreateLooksLikeDuplicate(res.status, text)) {
+    const raced = await findErpCustomerNameByPhone(cfg, input.phone);
+    if (raced) {
+      return { customerName: raced, created: false };
+    }
+    return { customerName: canonicalMobile, created: false };
+  }
+
+  throw new OsfErpError(
+    `ERPNext POST /api/resource/Customer [${res.status}]: ${text.slice(0, 500)}`
+  );
+}
+
 /** Explicit OS→ERP loyalty send. Not used for automatic sync. */
 export async function setErpCustomerGroup(
   cfg: OsfErpCredentials,

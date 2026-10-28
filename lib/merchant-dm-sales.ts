@@ -36,14 +36,6 @@ export function normalizeDashboardMerchantLabel(
   return trimmed;
 }
 
-/** AE / Origins shop orders with DM_General count as that shop's merchant, not the web DM-General bucket. */
-export function shopLocationCreditsDmCouponToMerchant(
-  locationName: string | null | undefined,
-): boolean {
-  const key = (locationName ?? "").trim().toLowerCase();
-  return key === "ae (pvt) ltd" || key === "origins (pvt) ltd";
-}
-
 export function isDmCouponCode(code: string | null | undefined): boolean {
   const raw = String(code ?? "").trim();
   if (!raw) return false;
@@ -143,7 +135,6 @@ export type MerchantSalesBucket = "mer" | "dm";
  * Classify one order for a viewed merchant.
  * Personal MER codes → mer.
  * DM codes → dm.
- * AE / Origins shop DM_General → mer when this user is assigned or the shop default.
  * No merchant tracking code on the order → dm when this user owns DM; else mer if assigned to them.
  */
 export function classifyMerchantSalesBucket(input: {
@@ -162,13 +153,6 @@ export function classifyMerchantSalesBucket(input: {
     (c) => input.dm.has(c) || (input.hasDm && isDmCouponCode(c)),
   );
   if (merHit) return "mer";
-  if (
-    shopLocationCreditsDmCouponToMerchant(input.locationName) &&
-    isDmOnlyMerchantTracking(input.orderCoupons) &&
-    (input.assignedToViewer || Boolean(input.locationDefaultIsViewer))
-  ) {
-    return "mer";
-  }
   if (dmHit) return "dm";
   if (tracking.length > 0) return null;
   if (input.hasDm) return "dm";
@@ -194,14 +178,6 @@ export function resolveCohortMerchantId(input: {
   locationDefaultMerchantId?: string | null;
 }): string | null {
   const tracking = input.orderCoupons.filter((c) => isMerchantTrackingCode(c));
-  const shopDmOwnerId =
-    shopLocationCreditsDmCouponToMerchant(input.locationName) &&
-    isDmOnlyMerchantTracking(input.orderCoupons)
-      ? (input.assignedMerchantId ?? input.locationDefaultMerchantId ?? null)
-      : null;
-  if (shopDmOwnerId && input.cohortIds.has(shopDmOwnerId)) {
-    return shopDmOwnerId;
-  }
   for (const code of tracking) {
     const hit = input.couponToMerchantId.get(code);
     if (hit) return hit;
