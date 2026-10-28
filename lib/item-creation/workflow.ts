@@ -483,6 +483,7 @@ function validateDetailsInput(input: {
   addErp1OgfPrice?: unknown;
   country?: string;
   taxStatus?: unknown;
+  creationSources?: unknown;
 }) {
   return validateCreateInput(input);
 }
@@ -813,6 +814,7 @@ export async function updateItemRequestDetails(
         addErp1OgfPrice: details.addErp1OgfPrice,
         country: details.country,
         taxStatus: details.taxStatus,
+        creationSources: details.creationSources,
       },
     });
     await activity(
@@ -830,6 +832,7 @@ export async function updateItemRequestDetails(
         addErp1OgfPrice: request.addErp1OgfPrice,
         country: request.country,
         taxStatus: request.taxStatus,
+        creationSources: request.creationSources,
       }),
       JSON.stringify({
         sku: details.sku,
@@ -840,6 +843,7 @@ export async function updateItemRequestDetails(
         addErp1OgfPrice: details.addErp1OgfPrice,
         country: details.country,
         taxStatus: details.taxStatus,
+        creationSources: details.creationSources,
       })
     );
     return updated;
@@ -889,6 +893,19 @@ export async function markSeoImageUpdated(context: UserContext, id: string) {
     });
     await activity(tx, id, "SEO_IMAGE_UPDATED", "USER", userId(context), request.seoSetupStatus, "COMPLETED");
     await evaluatePurchasingUnlock(tx, id);
+  });
+}
+
+export async function markShopifyRemoved(context: UserContext, id: string) {
+  requireWorkflowPermission(context, ITEM_CREATION_PERMISSIONS.seo);
+  return prisma.$transaction(async (tx) => {
+    const request = await getScopedRequest(tx, id, companyId(context));
+    if (!request.shopifyRemovalPending) throw new Error("This request has no pending Shopify removal");
+    await tx.itemCreationRequest.update({
+      where: { id },
+      data: { shopifyRemovalPending: false },
+    });
+    await activity(tx, id, "SHOPIFY_REMOVAL_CONFIRMED", ItemCreationUpdateSource.USER, userId(context), "PENDING", "COMPLETED");
   });
 }
 
