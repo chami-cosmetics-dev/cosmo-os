@@ -89,7 +89,6 @@ import {
 } from "@/lib/contact-call-center-categories";
 import { formatAppDate, formatAppDateTime } from "@/lib/format-datetime";
 import {
-  CONTACT_LAST_NAME_REQUIRED_ERROR,
   contactFirstNameError,
   splitContactName,
 } from "@/lib/customer-insight/contact-name";
@@ -1837,10 +1836,6 @@ export function CustomerInsightPanel({
       notify.error(firstError);
       return;
     }
-    if (!lastName) {
-      notify.error(CONTACT_LAST_NAME_REQUIRED_ERROR);
-      return;
-    }
     setBusyKey("profile");
     try {
       const dob = formBirthPartsToDb(profileForm);
@@ -3453,7 +3448,7 @@ export function CustomerInsightPanel({
                 {editing && profileForm ? (
                   <div className="grid gap-3 border-t border-border/60 pt-4 sm:grid-cols-2">
                     <label className="space-y-1 text-sm">
-                      <span className="text-muted-foreground">First name (required)</span>
+                      <span className="text-muted-foreground">First name</span>
                       <Input
                         value={profileForm.firstName}
                         onChange={(e) =>
@@ -3463,11 +3458,10 @@ export function CustomerInsightPanel({
                         }
                         disabled={isBusy}
                         autoComplete="given-name"
-                        aria-required
                       />
                     </label>
                     <label className="space-y-1 text-sm">
-                      <span className="text-muted-foreground">Last name (required)</span>
+                      <span className="text-muted-foreground">Last name</span>
                       <Input
                         value={profileForm.lastName}
                         onChange={(e) =>
@@ -3477,7 +3471,6 @@ export function CustomerInsightPanel({
                         }
                         disabled={isBusy}
                         autoComplete="family-name"
-                        aria-required
                       />
                     </label>
                     <label className="space-y-1 text-sm">

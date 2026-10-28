@@ -25,7 +25,7 @@ export function isBlockedFirstNameTitle(value: string): boolean {
 }
 
 export function contactFirstNameError(firstName: string): string | null {
-  if (!firstName.trim()) return CONTACT_FIRST_NAME_REQUIRED_ERROR;
+  if (!firstName.trim()) return null;
   if (isBlockedFirstNameTitle(firstName)) return CONTACT_FIRST_NAME_TITLE_ERROR;
   return null;
 }

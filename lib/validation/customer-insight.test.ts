@@ -12,17 +12,16 @@ describe("customerInsightProfilePatchSchema name fields", () => {
     expect(parsed.name).toBe("Jane Doe");
   });
 
-  it("requires both first and last name when either is sent", () => {
+  it("allows first or last name to be omitted", () => {
+    expect(customerInsightProfilePatchSchema.parse({ firstName: "Jane" }).name).toBe(
+      "Jane"
+    );
+    expect(customerInsightProfilePatchSchema.parse({ lastName: "Doe" }).name).toBe(
+      "Doe"
+    );
     expect(
-      customerInsightProfilePatchSchema.safeParse({ firstName: "Jane" }).success
-    ).toBe(false);
-    expect(
-      customerInsightProfilePatchSchema.safeParse({ lastName: "Doe" }).success
-    ).toBe(false);
-    expect(
-      customerInsightProfilePatchSchema.safeParse({ firstName: "", lastName: "Doe" })
-        .success
-    ).toBe(false);
+      customerInsightProfilePatchSchema.parse({ firstName: "", lastName: "Doe" }).name
+    ).toBe("Doe");
   });
 
   it("rejects honorifics as a first name", () => {
@@ -38,15 +37,15 @@ describe("customerInsightProfilePatchSchema name fields", () => {
     }
   });
 
-  it("still accepts a two-part name on the legacy name field", () => {
+  it("still accepts a name on the legacy name field", () => {
     expect(
       customerInsightProfilePatchSchema.parse({ name: "Jane Doe" }).name
     ).toBe("Jane Doe");
     expect(
       customerInsightProfilePatchSchema.safeParse({ name: "Mr" }).success
     ).toBe(false);
-    expect(
-      customerInsightProfilePatchSchema.safeParse({ name: "Jane" }).success
-    ).toBe(false);
+    expect(customerInsightProfilePatchSchema.parse({ name: "Jane" }).name).toBe(
+      "Jane"
+    );
   });
 });

@@ -1,8 +1,7 @@
 import { z } from "zod";
 
 import {
-  CONTACT_FIRST_NAME_REQUIRED_ERROR,
-  CONTACT_LAST_NAME_REQUIRED_ERROR,
+  CONTACT_FIRST_NAME_TITLE_ERROR,
   contactFirstNameError,
   joinContactName,
   splitContactName,
@@ -127,13 +126,7 @@ export const customerInsightProfilePatchSchema = z
     const hasFirst = data.firstName !== undefined;
     const hasLast = data.lastName !== undefined;
     if (hasFirst || hasLast) {
-      if (!data.firstName) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: CONTACT_FIRST_NAME_REQUIRED_ERROR,
-          path: ["firstName"],
-        });
-      } else {
+      if (data.firstName) {
         const firstError = contactFirstNameError(data.firstName);
         if (firstError) {
           ctx.addIssue({
@@ -142,13 +135,6 @@ export const customerInsightProfilePatchSchema = z
             path: ["firstName"],
           });
         }
-      }
-      if (!data.lastName) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: CONTACT_LAST_NAME_REQUIRED_ERROR,
-          path: ["lastName"],
-        });
       }
       const joined = joinContactName(data.firstName ?? "", data.lastName ?? "");
       if (joined.length > LIMITS.name.max) {
@@ -160,21 +146,18 @@ export const customerInsightProfilePatchSchema = z
       }
     } else if (data.name !== undefined) {
       const parts = splitContactName(data.name);
-      if (!parts.firstName || !parts.lastName) {
+      let firstError: string | null = null;
+      if (parts.firstName) {
+        firstError = contactFirstNameError(parts.firstName);
+      } else if (data.name.trim()) {
+        firstError = CONTACT_FIRST_NAME_TITLE_ERROR;
+      }
+      if (firstError) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: "First name and last name are required",
+          message: firstError,
           path: ["name"],
         });
-      } else {
-        const firstError = contactFirstNameError(parts.firstName);
-        if (firstError) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            message: firstError,
-            path: ["name"],
-          });
-        }
       }
     }
   })

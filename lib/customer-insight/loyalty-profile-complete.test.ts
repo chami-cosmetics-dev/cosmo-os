@@ -35,22 +35,17 @@ describe("loyalty-profile-complete", () => {
       city: "",
       address: null,
     });
-    expect(missing).toContain("First name");
-    expect(missing).toContain("Last name");
+    expect(missing).not.toContain("First name");
+    expect(missing).not.toContain("Last name");
     expect(missing).toContain("Email");
     expect(missing).toContain("Phone");
     expect(missing).toContain("Birth date (month & day)");
   });
 
-  it("requires both first and last name, not a title", () => {
-    expect(
-      getLoyaltyProfileMissingFields({ ...complete, name: "Jane" })
-    ).toContain("Last name");
-    expect(
-      getLoyaltyProfileMissingFields({ ...complete, name: "Mr" })
-    ).toEqual(expect.arrayContaining(["First name", "Last name"]));
-    expect(
-      getLoyaltyProfileMissingFields({ ...complete, name: "Mr John Smith" })
-    ).toEqual([]);
+  it("does not require first or last name", () => {
+    expect(getLoyaltyProfileMissingFields({ ...complete, name: "" })).toEqual([]);
+    expect(getLoyaltyProfileMissingFields({ ...complete, name: "Jane" })).toEqual(
+      []
+    );
   });
 });

@@ -21,6 +21,7 @@ describe("contact-name", () => {
     expect(isBlockedFirstNameTitle("Missy")).toBe(false);
     expect(isBlockedFirstNameTitle("Jane")).toBe(false);
     expect(contactFirstNameError("Mrs")).toBe(CONTACT_FIRST_NAME_TITLE_ERROR);
+    expect(contactFirstNameError("")).toBeNull();
   });
 
   it("splits a stored full name and strips leading titles", () => {
