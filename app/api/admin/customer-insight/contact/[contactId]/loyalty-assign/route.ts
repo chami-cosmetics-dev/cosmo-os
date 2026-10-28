@@ -185,20 +185,6 @@ export async function POST(request: NextRequest, { params }: Params) {
   if (preflight.errors.includes("Contact not found")) {
     return NextResponse.json({ error: "Contact not found" }, { status: 404 });
   }
-  if (preflight.missingErpSlots.length > 0) {
-    const error = missingErpLoyaltyMessage(
-      preflight.missingErpSlots,
-      preflight.primaryPhone
-    );
-    return NextResponse.json(
-      {
-        error,
-        missingErpSlots: preflight.missingErpSlots,
-        retry: true,
-      },
-      { status: 400 }
-    );
-  }
   if (preflight.errors.length > 0) {
     return NextResponse.json(
       { error: preflight.errors[0], details: preflight.errors },
@@ -207,6 +193,41 @@ export async function POST(request: NextRequest, { params }: Params) {
   }
 
   const now = new Date();
+
+  let push = {
+    erpUpdated: 0,
+    erpCreated: 0,
+    shopifyUpdated: 0,
+    errors: [] as string[],
+    missingErpSlots: [] as string[],
+    blockedForMissingErp: false,
+  };
+  try {
+    push = await pushLoyaltyAssignmentToErpAndShopify({
+      companyId,
+      contactId: contact.id,
+      tier: parsed.data.tier,
+    });
+  } catch (err) {
+    push.errors.push(err instanceof Error ? err.message : "ERP/Shopify push failed");
+  }
+
+  if (push.blockedForMissingErp) {
+    return NextResponse.json(
+      {
+        error:
+          push.errors.find((e) => e.includes("Could not create this customer")) ??
+          missingErpLoyaltyMessage(push.missingErpSlots, preflight.primaryPhone),
+        missingErpSlots: push.missingErpSlots,
+        retry: true,
+        erpUpdated: push.erpUpdated,
+        erpCreated: push.erpCreated,
+        shopifyUpdated: push.shopifyUpdated,
+        pushErrors: push.errors,
+      },
+      { status: 400 }
+    );
+  }
 
   if (!isRetrySameTier) {
     await prisma.$transaction(async (tx) => {
@@ -234,39 +255,6 @@ export async function POST(request: NextRequest, { params }: Params) {
     });
   }
 
-  let push = {
-    erpUpdated: 0,
-    shopifyUpdated: 0,
-    errors: [] as string[],
-    missingErpSlots: [] as string[],
-    blockedForMissingErp: false,
-  };
-  try {
-    push = await pushLoyaltyAssignmentToErpAndShopify({
-      companyId,
-      contactId: contact.id,
-      tier: parsed.data.tier,
-    });
-  } catch (err) {
-    push.errors.push(err instanceof Error ? err.message : "ERP/Shopify push failed");
-  }
-
-  if (push.blockedForMissingErp) {
-    return NextResponse.json(
-      {
-        error:
-          push.errors.find((e) => e.includes("Create this customer")) ??
-          missingErpLoyaltyMessage(push.missingErpSlots, preflight.primaryPhone),
-        missingErpSlots: push.missingErpSlots,
-        retry: true,
-        erpUpdated: push.erpUpdated,
-        shopifyUpdated: push.shopifyUpdated,
-        pushErrors: push.errors,
-      },
-      { status: 400 }
-    );
-  }
-
   await writeAuditLog({
     companyId,
     actorUserId: user.id,
@@ -283,6 +271,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       remark,
       retry: isRetrySameTier,
       erpUpdated: push.erpUpdated,
+      erpCreated: push.erpCreated,
       shopifyUpdated: push.shopifyUpdated,
       pushErrors: push.errors,
     },
@@ -294,6 +283,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     assignedAt: now.toISOString(),
     retry: isRetrySameTier,
     erpUpdated: push.erpUpdated,
+    erpCreated: push.erpCreated,
     shopifyUpdated: push.shopifyUpdated,
     pushErrors: push.errors,
   });

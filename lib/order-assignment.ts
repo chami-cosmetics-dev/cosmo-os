@@ -2,10 +2,7 @@ import type { ShopifyOrderWebhookPayload } from "@/lib/validation/shopify-order"
 import type { CompanyLocation } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { eligibleMerchantUserWhere } from "@/lib/merchant-eligibility";
-import {
-  isDmOnlyMerchantTracking,
-  shopLocationCreditsDmCouponToMerchant,
-} from "@/lib/merchant-dm-sales";
+import { isDmOnlyMerchantTracking } from "@/lib/merchant-dm-sales";
 import { trackingCodesMatch } from "@/lib/merchant-wholesale";
 
 function normalizeDiscountCodes(order: ShopifyOrderWebhookPayload) {
@@ -28,9 +25,6 @@ export async function resolveAssignedMerchant(
   const companyId = companyLocation.companyId;
   const orderCodes = normalizeDiscountCodes(order);
   if (isDmOnlyMerchantTracking(orderCodes)) {
-    if (shopLocationCreditsDmCouponToMerchant(companyLocation.name)) {
-      return companyLocation.defaultMerchantUserId ?? null;
-    }
     return null;
   }
 

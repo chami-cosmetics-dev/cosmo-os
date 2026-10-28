@@ -11,10 +11,12 @@ import {
   normalizeRecipientList,
 } from "@/lib/daily-sales-sms-recipients";
 import { formatAppIsoDate } from "@/lib/format-datetime";
-import { resolveFailureReportAmounts } from "@/lib/erp-sync-failure-email";
 import { sendSms } from "@/lib/hutch-sms";
 import { isDashboardSalesOrderEligible } from "@/lib/page-data/dashboard-sales";
 import { prisma } from "@/lib/prisma";
+import { salesAmountExcludingShipping } from "@/lib/sales-amount-excluding-shipping";
+
+export { salesAmountExcludingShipping } from "@/lib/sales-amount-excluding-shipping";
 
 export { normalizeRecipientList } from "@/lib/daily-sales-sms-recipients";
 const REPORT_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -88,26 +90,6 @@ export function isValidReportDate(value: string): boolean {
 export function formatSalesAmount(value: number): string {
   const rounded = Math.round(value);
   return rounded.toLocaleString("en-LK", { maximumFractionDigits: 0 });
-}
-
-/** Order total for SMS — matches ERP (order total excluding shipping fee). */
-export function salesAmountExcludingShipping(input: {
-  totalPrice: unknown;
-  totalShipping?: unknown;
-  shippingLines?: unknown;
-  discountCodes?: unknown;
-}): number | null {
-  const total = Number(input.totalPrice);
-  if (!Number.isFinite(total)) return null;
-  return resolveFailureReportAmounts({
-    totalPrice: total,
-    totalShipping:
-      input.totalShipping == null || input.totalShipping === ""
-        ? null
-        : (input.totalShipping as string | number),
-    shippingLines: input.shippingLines,
-    discountCodes: input.discountCodes,
-  }).amountExcl;
 }
 
 function emptyCancelBlock(): DailySalesCancelBlock {
@@ -228,6 +210,9 @@ async function aggregateRange(
       invoiceCompleteAt: true,
       cancelledAt: true,
       companyLocationId: true,
+      totalShipping: true,
+      shippingLines: true,
+      discountCodes: true,
     },
   });
 
@@ -237,7 +222,7 @@ async function aggregateRange(
 
   for (const order of orders) {
     if (!isDashboardSalesOrderEligible(order, "all_orders")) continue;
-    const amount = Number(order.totalPrice ?? 0);
+    const amount = salesAmountExcludingShipping(order) ?? 0;
     if (!Number.isFinite(amount) || amount === 0) continue;
     total += amount;
     count += 1;
@@ -298,6 +283,9 @@ async function aggregateCancels(
       replacedByOrderId: true,
       cancelKind: true,
       companyLocationId: true,
+      totalShipping: true,
+      shippingLines: true,
+      discountCodes: true,
     },
   });
 
@@ -307,7 +295,7 @@ async function aggregateCancels(
     const cancelYmd = formatAppIsoDate(order.cancelledAt);
     const placedYmd = formatAppIsoDate(order.createdAt);
     if (!cancelYmd || !placedYmd) continue;
-    const amount = Number(order.totalPrice ?? 0);
+    const amount = salesAmountExcludingShipping(order) ?? 0;
     if (!Number.isFinite(amount) || amount === 0) continue;
 
     if (smsCancelMatchesDayPriorPlaced(placedYmd, cancelYmd, reportDate)) {

@@ -48,62 +48,53 @@ describe("resolveDashboardOrderMerchant", () => {
     });
   });
 
-  it("credits AE DM_General to the assigned shop merchant", () => {
+  it("keeps AE DM_General as DM-General even if someone is assigned", () => {
     expect(
       resolveDashboardOrderMerchant({
         orderCoupons: ["dm_general"],
         couponToUser,
         wholesaleOwners,
-        assignedMerchantId: "natasha",
-        assignedMerchant: { knownName: "Natasha", couponCodes: ["MER99"] },
+        assignedMerchantId: "himaya",
+        assignedMerchant: { knownName: "himaya", couponCodes: [] },
         userToGroup: new Map(),
         locationName: "AE (PVT) LTD",
-      }),
-    ).toEqual({ id: "natasha", name: "Natasha", isWholesale: false });
-  });
-
-  it("credits AE DM_General to the location default merchant when unassigned", () => {
-    expect(
-      resolveDashboardOrderMerchant({
-        orderCoupons: ["dm_general"],
-        couponToUser,
-        wholesaleOwners,
-        assignedMerchantId: null,
-        assignedMerchant: null,
-        userToGroup: new Map(),
-        locationName: "AE (PVT) LTD",
-        locationDefaultMerchant: { id: "natasha", name: "Natasha" },
-      }),
-    ).toEqual({ id: "natasha", name: "Natasha", isWholesale: false });
-  });
-
-  it("credits Origins DM_General to the shop merchant", () => {
-    expect(
-      resolveDashboardOrderMerchant({
-        orderCoupons: ["mer115"],
-        couponToUser,
-        wholesaleOwners,
-        assignedMerchantId: null,
-        assignedMerchant: null,
-        userToGroup: new Map(),
-        locationName: "Origins (PVT) LTD",
-        locationDefaultMerchant: { id: "natasha", name: "Natasha" },
-      }),
-    ).toEqual({ id: "natasha", name: "Natasha", isWholesale: false });
-  });
-
-  it("keeps SupplementVault DM_General as DM-General", () => {
-    expect(
-      resolveDashboardOrderMerchant({
-        orderCoupons: ["dm_general"],
-        couponToUser,
-        wholesaleOwners,
-        assignedMerchantId: "natasha",
-        assignedMerchant: { knownName: "Natasha", couponCodes: ["MER99"] },
-        userToGroup: new Map(),
-        locationName: "SupplementVault.lk",
-        locationDefaultMerchant: { id: "natasha", name: "Natasha" },
       }),
     ).toEqual({ id: null, name: "DM-General", isWholesale: false });
+  });
+
+  it("puts orders with no MER on DM-General even if a cashier is assigned", () => {
+    expect(
+      resolveDashboardOrderMerchant({
+        orderCoupons: [],
+        couponToUser,
+        wholesaleOwners,
+        assignedMerchantId: "himaya",
+        assignedMerchant: { knownName: "himaya", couponCodes: [] },
+        userToGroup: new Map(),
+        locationName: "AE (PVT) LTD",
+      }),
+    ).toEqual({ id: null, name: "DM-General", isWholesale: false });
+  });
+
+  it("assigns AE personal MER to that merchant", () => {
+    const natashaUsers = [
+      {
+        id: "natasha",
+        knownName: "Natasha",
+        couponCodes: ["MER99", "MER99-Dinuli"],
+        wholesaleCouponCodes: [] as string[],
+      },
+    ];
+    expect(
+      resolveDashboardOrderMerchant({
+        orderCoupons: ["mer99-dinuli"],
+        couponToUser: buildCouponToMerchantMap(natashaUsers),
+        wholesaleOwners: buildWholesaleOwnerMap(natashaUsers),
+        assignedMerchantId: "himaya",
+        assignedMerchant: { knownName: "himaya", couponCodes: [] },
+        userToGroup: new Map(),
+        locationName: "AE (PVT) LTD",
+      }),
+    ).toEqual({ id: "natasha", name: "Natasha", isWholesale: false });
   });
 });

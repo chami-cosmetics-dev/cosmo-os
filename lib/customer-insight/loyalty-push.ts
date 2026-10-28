@@ -1,5 +1,7 @@
 import { listContactEmails, listContactPhones } from "@/lib/contact-identifiers";
 import {
+  defaultErpCompanyForInstance,
+  ensureErpCustomerByPhone,
   findErpCustomerNameByPhone,
   getErpContactSyncInstances,
   setErpCustomerGroup,
@@ -39,11 +41,12 @@ export function loyaltyExternalTargets(tier: "gold" | "platinum"): {
 
 export type LoyaltyPushResult = {
   erpUpdated: number;
+  erpCreated: number;
   shopifyUpdated: number;
   errors: string[];
-  /** ERP slots where Customer was not found (e.g. `erp2`). */
+  /** ERP slots still missing after create attempt (e.g. `erp2`). */
   missingErpSlots: string[];
-  /** True when push skipped because Customer missing on one+ ERP. */
+  /** True when a missing Customer could not be created on one+ ERP. */
   blockedForMissingErp: boolean;
 };
 
@@ -55,7 +58,7 @@ export function missingErpLoyaltyMessage(
     .map((s) => s.toUpperCase())
     .join(" and ");
   const phoneBit = phone?.trim() ? ` for phone ${phone.trim()}` : "";
-  return `Create this customer in ${labels} first${phoneBit}, then retry Send.`;
+  return `Could not create this customer in ${labels}${phoneBit}. Retry Send after ERP is reachable.`;
 }
 
 async function resolveErpCustomersByPhone(
@@ -87,6 +90,21 @@ async function resolveErpCustomersByPhone(
   }
 
   return { found, missingSlots, errors };
+}
+
+/** Create only on slots that lookup confirmed missing. Never create after a lookup error. */
+export function loyaltyErpSlotsToCreate(input: {
+  instanceSlots: Array<"erp1" | "erp2">;
+  foundSlots: Array<"erp1" | "erp2">;
+  missingSlots: string[];
+  errorSlots: Array<"erp1" | "erp2">;
+}): Array<"erp1" | "erp2"> {
+  const found = new Set(input.foundSlots);
+  const missing = new Set(input.missingSlots);
+  const errored = new Set(input.errorSlots);
+  return input.instanceSlots.filter(
+    (slot) => missing.has(slot) && !found.has(slot) && !errored.has(slot)
+  );
 }
 
 export type LoyaltyErpPreflight = {
@@ -140,8 +158,12 @@ export async function preflightLoyaltyErpCustomers(input: {
  * Explicit assign send: ERP customer_group + Shopify loyalty tags.
  * Never called from automatic ERP→OS pull.
  *
- * If Customer missing on any configured ERP, blocks all updates and returns
- * `blockedForMissingErp` so UI can tell staff to create Customer first, then retry.
+ * Missing ERP Customer: create on that slot only (phone lookup first), then set
+ * Gold/Platinum. Lookup errors skip create (fail closed). Duplicate POST treated
+ * as existing. OS ContactMaster is never created here.
+ *
+ * If a missing Customer still cannot be created, blocks Shopify and returns
+ * `blockedForMissingErp` so OS assign can wait for retry.
  */
 export async function pushLoyaltyAssignmentToErpAndShopify(input: {
   companyId: string;
@@ -151,15 +173,17 @@ export async function pushLoyaltyAssignmentToErpAndShopify(input: {
   const targets = loyaltyExternalTargets(input.tier);
   const errors: string[] = [];
   let erpUpdated = 0;
+  let erpCreated = 0;
   let shopifyUpdated = 0;
 
   const contact = await prisma.contactMaster.findFirst({
     where: { id: input.contactId, companyId: input.companyId },
-    select: { id: true, phoneNumber: true, email: true },
+    select: { id: true, name: true, phoneNumber: true, email: true },
   });
   if (!contact) {
     return {
       erpUpdated: 0,
+      erpCreated: 0,
       shopifyUpdated: 0,
       errors: ["Contact not found"],
       missingErpSlots: [],
@@ -173,6 +197,7 @@ export async function pushLoyaltyAssignmentToErpAndShopify(input: {
   const primaryEmail = emails[0] ?? contact.email;
 
   const instances = await getErpContactSyncInstances(input.companyId);
+  let remainingMissingSlots: string[] = [];
   if (instances.length === 0) {
     errors.push("No ERP instances configured");
   } else if (!primaryPhone) {
@@ -181,22 +206,70 @@ export async function pushLoyaltyAssignmentToErpAndShopify(input: {
     const resolved = await resolveErpCustomersByPhone(instances, primaryPhone);
     errors.push(...resolved.errors);
 
-    if (resolved.missingSlots.length > 0) {
-      const msg = missingErpLoyaltyMessage(resolved.missingSlots, primaryPhone);
-      errors.push(msg);
-      for (const slot of resolved.missingSlots) {
-        errors.push(`${slot}: ERP Customer not found`);
+    const foundBySlot = new Set(resolved.found.map((row) => row.instance.slot));
+    const errorSlots = resolved.errors
+      .map((err) => {
+        const slot = err.split(":")[0]?.trim();
+        return slot === "erp1" || slot === "erp2" ? slot : null;
+      })
+      .filter((slot): slot is "erp1" | "erp2" => Boolean(slot));
+
+    const toUpdate = [...resolved.found];
+    const slotsToCreate = new Set(
+      loyaltyErpSlotsToCreate({
+        instanceSlots: instances.map((instance) => instance.slot),
+        foundSlots: resolved.found.map((row) => row.instance.slot),
+        missingSlots: resolved.missingSlots,
+        errorSlots,
+      })
+    );
+
+    for (const instance of instances) {
+      if (!slotsToCreate.has(instance.slot)) continue;
+      try {
+        const defaultCompany = await defaultErpCompanyForInstance(
+          input.companyId,
+          instance.id
+        );
+        const ensured = await ensureErpCustomerByPhone(instance.cfg, {
+          phone: primaryPhone,
+          displayName: contact.name,
+          email: primaryEmail,
+          customerGroup: targets.erpGroup,
+          defaultCompany,
+        });
+        toUpdate.push({ instance, customerName: ensured.customerName });
+        foundBySlot.add(instance.slot);
+        if (ensured.created) erpCreated += 1;
+      } catch (err) {
+        remainingMissingSlots.push(instance.slot);
+        errors.push(
+          `${instance.slot}: ${err instanceof Error ? err.message : "ERP create failed"}`
+        );
       }
+    }
+
+    remainingMissingSlots = [
+      ...new Set([
+        ...remainingMissingSlots,
+        ...resolved.missingSlots.filter((slot) => !foundBySlot.has(slot)),
+        ...errorSlots.filter((slot) => !foundBySlot.has(slot)),
+      ]),
+    ];
+
+    if (remainingMissingSlots.length > 0) {
+      errors.push(missingErpLoyaltyMessage(remainingMissingSlots, primaryPhone));
       return {
-        erpUpdated: 0,
+        erpUpdated,
+        erpCreated,
         shopifyUpdated: 0,
         errors,
-        missingErpSlots: resolved.missingSlots,
+        missingErpSlots: remainingMissingSlots,
         blockedForMissingErp: true,
       };
     }
 
-    for (const { instance, customerName } of resolved.found) {
+    for (const { instance, customerName } of toUpdate) {
       try {
         const ok = await setErpCustomerGroup(
           instance.cfg,
@@ -239,6 +312,7 @@ export async function pushLoyaltyAssignmentToErpAndShopify(input: {
     );
     return {
       erpUpdated,
+      erpCreated,
       shopifyUpdated,
       errors,
       missingErpSlots: [],
@@ -330,6 +404,7 @@ export async function pushLoyaltyAssignmentToErpAndShopify(input: {
 
   return {
     erpUpdated,
+    erpCreated,
     shopifyUpdated,
     errors,
     missingErpSlots: [],

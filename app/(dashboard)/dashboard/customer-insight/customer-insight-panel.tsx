@@ -4188,7 +4188,7 @@ export function CustomerInsightPanel({
               Only contacts the allocated merchant marked Responded. Assign Gold or
               Platinum from lifetime spend.
               {canAssignLoyalty
-                ? " Send writes ERP customer group and Shopify tag."
+                ? " Send creates the ERP customer if missing, then writes ERP customer group and Shopify tag."
                 : " Read-only."}
             </CardDescription>
           </CardHeader>
@@ -4265,23 +4265,29 @@ export function CustomerInsightPanel({
                                 typeof data.erpUpdated === "number"
                                   ? data.erpUpdated
                                   : 0;
+                              const erpCreated =
+                                typeof data.erpCreated === "number"
+                                  ? data.erpCreated
+                                  : 0;
                               const shopifyUpdated =
                                 typeof data.shopifyUpdated === "number"
                                   ? data.shopifyUpdated
                                   : 0;
+                              const createdBit =
+                                erpCreated > 0 ? `, created ${erpCreated}` : "";
                               if (pushErrors.length > 0) {
                                 notify.error(
                                   pushErrors[0] ??
-                                    `Assigned ${row.eligibleGroup}, but ERP/Shopify updates failed (ERP ${erpUpdated}, Shopify ${shopifyUpdated})`
+                                    `Assigned ${row.eligibleGroup}, but ERP/Shopify updates failed (ERP ${erpUpdated}${createdBit}, Shopify ${shopifyUpdated})`
                                 );
                               } else {
                                 notify.success(
                                   data.retry
-                                    ? `Retry OK: ERP ${erpUpdated}, Shopify ${shopifyUpdated}`
-                                    : `Sent to ${row.eligibleGroup} (ERP ${row.erpGroup}, Shopify ${row.shopifyTag})`
+                                    ? `Retry OK: ERP ${erpUpdated}${createdBit}, Shopify ${shopifyUpdated}`
+                                    : `Sent to ${row.eligibleGroup} (ERP ${row.erpGroup}${createdBit}, Shopify ${row.shopifyTag})`
                                 );
                               }
-                              if (pushErrors.length === 0 || erpUpdated > 0) {
+                              if (pushErrors.length === 0 || erpUpdated > 0 || erpCreated > 0) {
                                 setLoyaltyQueue((prev) =>
                                   prev.filter((x) => x.contactId !== row.contactId)
                                 );

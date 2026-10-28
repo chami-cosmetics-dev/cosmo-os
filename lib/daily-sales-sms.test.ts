@@ -41,7 +41,7 @@ describe("daily-sales-sms helpers", () => {
     expect(body).toContain("SUPPLEMENTVA->: -27,010");
   });
 
-  it("excludes shipping from order total (ERP-aligned)", () => {
+  it("excludes shipping from order total so it matches ERP Sales", () => {
     expect(
       salesAmountExcludingShipping({ totalPrice: 5500, totalShipping: 500 }),
     ).toBe(5000);
