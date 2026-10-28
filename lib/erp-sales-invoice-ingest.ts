@@ -22,6 +22,7 @@ import {
   handleErpSalesInvoiceCreditNoteEvent,
   isErpReturnSalesInvoice,
   isErpSalesInvoiceCreditNoted,
+  orderMatchesErpPoNo,
 } from "@/lib/erp-credit-note-order-sync";
 import { buildErpOrderShippingFields } from "@/lib/order-shipping-display";
 import { buildErpOrderDiscountCodes } from "@/lib/order-discount-coupon";
@@ -68,9 +69,7 @@ async function findLinkedVaultOrderForErpInvoice(data: {
   return prisma.order.findFirst({
     where: {
       OR: [
-        ...(poNo
-          ? [{ name: poNo }, { shopifyOrderId: poNo }, { orderNumber: poNo }]
-          : []),
+        ...orderMatchesErpPoNo(poNo),
         { erpnextInvoiceId: invoiceRef },
         ...invoiceRefs.map((ref) => ({ erpnextInvoiceId: ref })),
       ],

@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { notify } from "@/lib/notify";
 import { formatAppDateTime, formatAppStoredDateTime } from "@/lib/format-datetime";
 import { TASK_REMINDER_ORDER_ID_PARAM } from "@/lib/task-reminder-links";
+import { mergeHistorySearchRows } from "@/lib/page-data/finance-approvals-slices";
 
 export type FinanceApprovalItem = {
   id: string;
@@ -329,6 +330,7 @@ export function FinanceApprovalsPanel({
   const [busy, setBusy] = useState<"refresh" | "approve" | "reject" | "revert" | "cancel-duplicate" | null>(null);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [historySearchHits, setHistorySearchHits] = useState<FinanceApprovalItem[] | null>(null);
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 500);
@@ -349,14 +351,48 @@ export function FinanceApprovalsPanel({
 
   const effectiveSearch = useMemo(() => debouncedSearch.trim(), [debouncedSearch]);
 
+  useEffect(() => {
+    const term = effectiveSearch;
+    if (!term) {
+      setHistorySearchHits(null);
+      return;
+    }
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        const response = await fetch(
+          `/api/admin/approvals?q=${encodeURIComponent(term)}`,
+          { cache: "no-store", signal: controller.signal },
+        );
+        const data = (await response.json()) as { approvals?: FinanceApprovalItem[]; error?: string };
+        if (!response.ok) {
+          notify.error(data.error ?? "Failed to search approval history");
+          return;
+        }
+        setHistorySearchHits(data.approvals ?? []);
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        notify.error("Failed to search approval history");
+      }
+    })();
+    return () => controller.abort();
+  }, [effectiveSearch]);
+
   const pendingApprovals = approvals.filter(isPendingApproval);
-  const historyApprovals = approvals.filter((item) => !isPendingApproval(item));
+  const recentHistory = approvals.filter((item) => !isPendingApproval(item));
+  const historyApprovals = !effectiveSearch
+    ? recentHistory
+    : mergeHistorySearchRows(
+        recentHistory.filter((approval) => matchesApprovalSearch(approval, effectiveSearch)),
+        historySearchHits ?? [],
+      );
   const byView = view === "pending" ? pendingApprovals : historyApprovals;
   const visibleApprovals = filterByType(byView, typeFilter);
   const searchedApprovals = useMemo(() => {
+    if (view === "history") return visibleApprovals;
     if (!effectiveSearch) return visibleApprovals;
     return visibleApprovals.filter((approval) => matchesApprovalSearch(approval, effectiveSearch));
-  }, [visibleApprovals, effectiveSearch]);
+  }, [visibleApprovals, effectiveSearch, view]);
   const selected = searchedApprovals.find((item) => item.id === selectedId) ?? null;
   const requiresRejectionReason = selected?.type === "order_payment_approval";
   const rejectionReasonLength = reviewNote.trim().length;
@@ -742,6 +778,9 @@ export function FinanceApprovalsPanel({
         <Card className="border-border/70">
           <CardHeader>
             <CardTitle>{view === "pending" ? "Pending Requests" : "History"}</CardTitle>
+            {view === "history" && !effectiveSearch ? (
+              <p className="text-muted-foreground text-xs font-normal">Latest 50. Search by order number for older approvals.</p>
+            ) : null}
           </CardHeader>
           <CardContent className="p-0">
             <div className="border-b border-border/50 px-4 py-3">
@@ -749,9 +788,11 @@ export function FinanceApprovalsPanel({
                 <Search className="text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2" />
                 <Input
                   placeholder={
-                    groupByRider
-                      ? "Search by invoice, customer, rider, ERP SI..."
-                      : "Search by invoice, customer, ERP SI, or payment type..."
+                    view === "history"
+                      ? "Search by order number, invoice, or ERP SI..."
+                      : groupByRider
+                        ? "Search by invoice, customer, rider, ERP SI..."
+                        : "Search by invoice, customer, ERP SI, or payment type..."
                   }
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
@@ -859,7 +900,7 @@ export function FinanceApprovalsPanel({
                           ? "No approval requests match your search."
                           : view === "pending"
                             ? "No pending approval requests."
-                            : "No approval history yet."}
+                            : "No recent approval history."}
                       </td>
                     </tr>
                   )}

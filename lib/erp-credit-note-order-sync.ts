@@ -1,10 +1,14 @@
 import type { Prisma } from "@prisma/client";
 
-import { erpInvoiceReferenceLookupValues } from "@/lib/erp-invoice-reference";
+import {
+  erpInvoiceReferenceLookupValues,
+  erpPoNoLookupValues,
+} from "@/lib/erp-invoice-reference";
 import {
   cancelPendingApprovalsForOrder,
   ERP_RESOLVED_APPROVAL_CANCEL_OPTIONS,
 } from "@/lib/approval-workflow";
+import { shouldVoidOrderForCancelledSalesInvoice } from "@/lib/erp-duplicate-sales-invoice";
 import {
   mergeErpReturnSalesInvoiceIds,
   normalizeErpReturnSalesInvoiceIds,
@@ -69,12 +73,32 @@ export function erpDrivenCancelFields(input: {
 
 export type ErpSalesInvoiceCreditNoteSignal = {
   name: string;
+  po_no?: string | null;
   is_return?: number | null;
   grand_total?: number | null;
   return_against?: string | null;
   status?: string | null;
   docstatus?: number | null;
 };
+
+const ERP_NATIVE_ORDER_SOURCES = ["erpnext", "erpnext-pos"] as const;
+
+const erpCancelOrderSelect = {
+  id: true,
+  name: true,
+  financialStatus: true,
+  fulfillmentStage: true,
+  cancelledAt: true,
+  cancelReason: true,
+  erpnextInvoiceId: true,
+  returns: {
+    orderBy: { returnDate: "desc" as const },
+    take: 1,
+    select: { cancelRemark: true, returnRemark: true },
+  },
+} satisfies Prisma.OrderSelect;
+
+type ErpCancelOrderRow = Prisma.OrderGetPayload<{ select: typeof erpCancelOrderSelect }>;
 
 export function isErpReturnSalesInvoice(
   isReturn: number | null | undefined,
@@ -103,25 +127,65 @@ export function isErpSalesInvoiceCancelled(
   return docstatus === 2;
 }
 
-/** Void original OS order for ERP cancel — do not move to Returned. */
-export async function applyErpCancelToOriginalOrder(invoiceRef: string) {
-  const original = await prisma.order.findFirst({
-    where: orderMatchesErpInvoiceReference(invoiceRef),
-    select: {
-      id: true,
-      name: true,
-      financialStatus: true,
-      fulfillmentStage: true,
-      cancelledAt: true,
-      cancelReason: true,
-      returns: {
-        orderBy: { returnDate: "desc" },
-        take: 1,
-        select: { cancelRemark: true, returnRemark: true },
+/** Shopify/web po_no → OS name / orderNumber / shopifyOrderId (same as SI submit). */
+export function orderMatchesErpPoNo(poNo: string | null | undefined): Prisma.OrderWhereInput[] {
+  const trimmed = poNo?.trim();
+  if (!trimmed) return [];
+  const clauses: Prisma.OrderWhereInput[] = [];
+  for (const variant of erpPoNoLookupValues(trimmed)) {
+    clauses.push({ name: variant }, { shopifyOrderId: variant }, { orderNumber: variant });
+  }
+  return clauses;
+}
+
+function linkedVaultOrderWhereForCancelledInvoice(
+  invoiceRef: string,
+  poNo?: string | null,
+): Prisma.OrderWhereInput {
+  return {
+    AND: [
+      {
+        OR: [
+          ...orderMatchesErpPoNo(poNo),
+          ...(orderMatchesErpInvoiceReference(invoiceRef).OR ?? []),
+        ],
       },
-    },
+      { sourceName: { notIn: [...ERP_NATIVE_ORDER_SOURCES] } },
+    ],
+  };
+}
+
+async function findOrderForCancelledErpInvoice(
+  invoiceRef: string,
+  poNo?: string | null,
+): Promise<ErpCancelOrderRow | null> {
+  const linked = await prisma.order.findFirst({
+    where: linkedVaultOrderWhereForCancelledInvoice(invoiceRef, poNo),
+    select: erpCancelOrderSelect,
   });
+  if (linked) return linked;
+  return prisma.order.findFirst({
+    where: orderMatchesErpInvoiceReference(invoiceRef),
+    select: erpCancelOrderSelect,
+  });
+}
+
+/** Void original OS order for ERP cancel — do not move to Returned. */
+export async function applyErpCancelToOriginalOrder(
+  invoiceRef: string,
+  options?: { poNo?: string | null },
+) {
+  const original = await findOrderForCancelledErpInvoice(invoiceRef, options?.poNo);
   if (!original) return null;
+
+  if (
+    !shouldVoidOrderForCancelledSalesInvoice({
+      cancelledInvoiceName: invoiceRef,
+      linkedInvoiceId: original.erpnextInvoiceId,
+    })
+  ) {
+    return null;
+  }
 
   await prisma.order.update({
     where: { id: original.id },
@@ -318,7 +382,9 @@ export async function handleErpSalesInvoiceCreditNoteEvent(
     isErpSalesInvoiceCancelled(data.docstatus ?? null) &&
     data.is_return !== 1
   ) {
-    const original = await applyErpCancelToOriginalOrder(data.name);
+    const original = await applyErpCancelToOriginalOrder(data.name, {
+      poNo: data.po_no,
+    });
     if (!original) return { handled: false };
     return { handled: true, orderId: original.id };
   }
@@ -521,7 +587,10 @@ export async function reconcileOrderErpCreditNote(orderId: string): Promise<{
   const docstatus = typeof invoice.docstatus === "number" ? invoice.docstatus : null;
 
   if (isErpSalesInvoiceCancelled(docstatus) && invoice.is_return !== 1) {
-    const applied = await applyErpCancelToOriginalOrder(invoiceName);
+    const invoicePoNo = typeof invoice.po_no === "string" ? invoice.po_no : null;
+    const applied = await applyErpCancelToOriginalOrder(invoiceName, {
+      poNo: invoicePoNo?.trim() || order.name,
+    });
     return {
       updated: Boolean(applied),
       reason: applied ? "erp_cancel_applied" : "erp_cancel_order_missing",
