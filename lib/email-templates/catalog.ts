@@ -224,7 +224,7 @@ export const BUILTIN_EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
     automated: true,
   },
   ...[
-    [RECEIVABLE_DELIVERY_PAYMENT_PENDING_DAILY_KEY, "Receivable — delivery complete, payment pending", "Delivery complete, payment pending — {{reportDate}}", "Delivery complete, payment pending"],
+    [RECEIVABLE_DELIVERY_PAYMENT_PENDING_DAILY_KEY, "Finance receivable summary", "Finance receivable summary — {{reportDate}}", "Finance receivable summary"],
     [RECEIVABLE_NOT_DISPATCHED_DAILY_KEY, "Receivable — invoice created, not dispatched", "Invoice created, not dispatched — {{reportDate}}", "Invoice created, not dispatched"],
     [RECEIVABLE_DELIVERY_INCOMPLETE_DAILY_KEY, "Receivable — dispatched, delivery incomplete", "Dispatched, delivery incomplete — {{reportDate}}", "Dispatched, delivery incomplete"],
     [RECEIVABLE_OPERATIONS_SUMMARY_DAILY_KEY, "Receivable operations summary", "Receivable operations summary — {{reportDate}}", "Receivable operations summary"],
