@@ -114,7 +114,7 @@ export async function POST(request: NextRequest) {
   if (parsed.data.key.startsWith("receivable_")) {
     const reportDate = getCurrentColomboReportDate();
     await refreshReceivables(user.companyId, reportDate);
-    const actual = buildReceivableEmailPreview((await loadCachedReceivables(user.companyId, reportDate)).rows, parsed.data.key);
+    const actual = buildReceivableEmailPreview(await loadCachedReceivables(user.companyId, reportDate), parsed.data.key);
     placeholders = { ...SAMPLE_PLACEHOLDERS, reportDate, summaryTableHtml: actual.summaryTableHtml, rowCount: actual.rowCount, totalValue: actual.totalValue };
     attachments = [{ fileName: `${parsed.data.key}-${reportDate}.xlsx`, contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", contentBase64: actual.attachment.toString("base64") }];
   } else if (parsed.data.key === SUPPLIER_PAYABLE_OUTSTANDING_DAILY_KEY) {

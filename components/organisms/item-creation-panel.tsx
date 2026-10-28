@@ -1004,7 +1004,7 @@ export function ItemCreationPanel({
                             />
                             ERP 02
                           </label>
-                          <label className="flex h-9 items-center gap-2 rounded-md border px-3 text-sm font-medium">
+                          {!vaultOs && <label className="flex h-9 items-center gap-2 rounded-md border px-3 text-sm font-medium">
                             <input
                               type="checkbox"
                               checked={row.addErp1OgfPrice}
@@ -1012,7 +1012,7 @@ export function ItemCreationPanel({
                               className="size-4"
                             />
                             ERP1 OGF
-                          </label>
+                          </label>}
                         </>
                         {!vaultOs && <select
                           value={row.taxStatus}

@@ -1103,12 +1103,14 @@ async function createPurchaseReceipt(input: {
   supplier: string;
   warehouse: string;
   company?: string;
+  createdByEmail?: string;
   postingDate: string;
   items: Array<{ itemCode: string; qty: Prisma.Decimal; warehouse?: string }>;
 }) {
   const body = {
     supplier: input.supplier,
     company: input.company || undefined,
+    created_by: input.createdByEmail || undefined,
     items: input.items.map((item) => ({
       item_code: item.itemCode,
       qty: Number(item.qty),
@@ -1174,6 +1176,7 @@ export async function createStoreAllocationPurchaseReceipts(
       supplier,
       warehouse: group.warehouse,
       company: group.company,
+      createdByEmail: context.user?.email?.trim() || undefined,
       postingDate: new Date().toISOString().slice(0, 10),
       items: group.items.map((item) => ({
         itemCode: item.sku,
@@ -1343,6 +1346,7 @@ export async function createWarehousePurchaseReceipts(
         supplier: parsed.supplier,
         warehouse: receiptGroup.warehouse,
         company: receiptGroup.company,
+        createdByEmail: context.user?.email?.trim() || undefined,
         postingDate: parsed.postingDate,
         items: receiptGroup.items.map((item) => ({
           itemCode: item.itemCode,
@@ -1535,6 +1539,7 @@ export async function retryPurchaseReceipt(context: UserContext, receiptId: stri
       supplier: receipt.supplier,
       warehouse: receipt.warehouse,
       company: warehouseCompany,
+      createdByEmail: context.user?.email?.trim() || undefined,
       postingDate: new Date().toISOString().slice(0, 10),
       items: receipt.items.map((item) => ({
         itemCode: item.itemCode,
