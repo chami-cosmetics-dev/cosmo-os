@@ -18,7 +18,9 @@ import {
   type CompanyResult,
   type NoOptionReason,
   type OrderAvailabilityResponse,
+  type SkuLine,
 } from "@/lib/order-availability/types";
+import { isVatTaxStatus } from "@/lib/osf/vat-membership";
 import { cn } from "@/lib/utils";
 
 type EntryRow = { id: number; sku: string; qty: string };
@@ -99,6 +101,49 @@ function CapBar({ company, limit }: { company: CompanyResult; limit: number }) {
         <span>After order {money(cap.headroomAfter)} left</span>
       </div>
     </div>
+  );
+}
+
+function vatTone(taxStatus: string | null): "warn" | "muted" {
+  return isVatTaxStatus(taxStatus) ? "warn" : "muted";
+}
+
+function ItemTaxPills({ line }: { line: Pick<SkuLine, "taxStatus" | "productPriority"> }) {
+  return (
+    <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+      <span className="flex flex-wrap items-center gap-1.5">
+        <span className="text-muted-foreground text-xs">VAT status</span>
+        <Pill tone={vatTone(line.taxStatus)}>{line.taxStatus ?? "Not set"}</Pill>
+      </span>
+      <span className="flex flex-wrap items-center gap-1.5">
+        <span className="text-muted-foreground text-xs">Product Priority</span>
+        <Pill>{line.productPriority ?? "Not set"}</Pill>
+      </span>
+    </span>
+  );
+}
+
+function ItemTaxList({ lines }: { lines: SkuLine[] }) {
+  if (lines.length === 0) return null;
+  return (
+    <section className="space-y-2">
+      <h3 className="font-semibold">Items</h3>
+      <ul className="divide-y rounded-md border">
+        {lines.map((line) => (
+          <li key={line.key} className="flex flex-wrap items-start justify-between gap-2 px-3 py-2 text-sm">
+            <div className="min-w-0">
+              <p className="font-medium">
+                {line.sku}{" "}
+                <span className="text-muted-foreground font-normal">× {line.qty}</span>
+                {!line.found ? <span className="text-muted-foreground font-normal"> · not in ERP2</span> : null}
+              </p>
+              {line.itemName ? <p className="text-muted-foreground text-xs">{line.itemName}</p> : null}
+            </div>
+            <ItemTaxPills line={line} />
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -356,7 +401,8 @@ export function OrderAvailabilityPanel({ canManage }: { canManage: boolean }) {
         <h2 className="text-xl font-semibold">Order availability</h2>
         <p className="text-muted-foreground text-sm">
           Live stock in ERP2 main warehouses. Type a common SKU (ORD04) or a variant (ORD04_1). Suggests which company
-          to place the order under, within the monthly cap.
+          to place the order under, within the monthly cap. Each SKU also shows Item VAT status and Product Priority
+          from ERP1 and ERP2.
         </p>
       </div>
 
@@ -472,6 +518,8 @@ export function OrderAvailabilityPanel({ canManage }: { canManage: boolean }) {
             </p>
           ) : null}
           {result.cap.error ? <p className="text-destructive text-sm">{result.cap.error}</p> : null}
+
+          <ItemTaxList lines={result.lines} />
 
           {foundCount > 0 ? (
             <section className="space-y-3">

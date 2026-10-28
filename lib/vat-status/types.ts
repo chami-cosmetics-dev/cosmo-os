@@ -84,3 +84,13 @@ export function productPriorityLabel(
   if (a && b && a.toLowerCase() !== b.toLowerCase()) return `${a} / ${b}`;
   return a || b;
 }
+
+export function mergeItemTaxLabels(
+  erp1: Pick<ErpItemTaxHit, "taxStatus" | "productPriority"> | null | undefined,
+  erp2: Pick<ErpItemTaxHit, "taxStatus" | "productPriority"> | null | undefined,
+): { taxStatus: string | null; productPriority: string | null } {
+  return {
+    taxStatus: productPriorityLabel(erp1?.taxStatus, erp2?.taxStatus) || null,
+    productPriority: productPriorityLabel(erp1?.productPriority, erp2?.productPriority) || null,
+  };
+}

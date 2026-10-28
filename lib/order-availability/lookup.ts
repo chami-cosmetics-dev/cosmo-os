@@ -24,9 +24,18 @@ import {
   type RequestLine,
   type SkuLine,
 } from "@/lib/order-availability/types";
-import { OsfErpError, type OsfErpCredentials } from "@/lib/osf/erp-stock";
+import {
+  ERP_PRODUCT_PRIORITY_FIELD,
+  ERP_TAX_STATUS_FIELD,
+  fetchErpItemTaxHits,
+} from "@/lib/osf/erp-tax-status";
+import { OsfErpError, type OsfErpCredentials, type OsfErpInstance } from "@/lib/osf/erp-stock";
 import { prisma } from "@/lib/prisma";
-import { skuKey } from "@/lib/vat-status/types";
+import {
+  mergeItemTaxLabels,
+  skuKey,
+  type ErpItemTaxHit,
+} from "@/lib/vat-status/types";
 
 export class OrderAvailabilityInputError extends Error {
   constructor(message: string) {
@@ -58,37 +67,45 @@ async function erpList<T>(
   return Array.isArray(json.data) ? json.data : [];
 }
 
-/** ERP2 item_code + item_name per typed SKU key (case-insensitive). */
-async function fetchItems(
-  cfg: OsfErpCredentials,
-  codes: string[],
-): Promise<Map<string, { itemCode: string; itemName: string | null }>> {
-  const out = new Map<string, { itemCode: string; itemName: string | null }>();
-  const unique = [...new Set(codes)];
-  for (let i = 0; i < unique.length; i += ITEM_BATCH) {
-    const batch = unique.slice(i, i + ITEM_BATCH);
-    const rows = await erpList<{ item_code?: string; item_name?: string }>(cfg, "Item", {
-      filters: JSON.stringify([["item_code", "in", batch]]),
-      fields: JSON.stringify(["item_code", "item_name"]),
-      limit_page_length: String(batch.length * 2),
-    });
-    for (const row of rows) {
-      const itemCode = row.item_code?.trim();
-      if (!itemCode) continue;
-      out.set(skuKey(itemCode), { itemCode, itemName: row.item_name?.trim() || null });
-    }
-  }
+function taxHitMap(hits: ErpItemTaxHit[]): Map<string, ErpItemTaxHit> {
+  const out = new Map<string, ErpItemTaxHit>();
+  for (const hit of hits) out.set(skuKey(hit.itemCode), hit);
   return out;
 }
 
+/** ERP2 item_code + tax fields per typed SKU key (case-insensitive). */
+async function fetchItems(cfg: OsfErpCredentials, codes: string[]): Promise<Map<string, ErpItemTaxHit>> {
+  return taxHitMap(await fetchErpItemTaxHits(cfg, codes));
+}
+
+/** ERP1 tax/priority for the same SKUs. Failures are ignored so stock still returns. */
+async function fetchErp1TaxHits(
+  erp1: OsfErpInstance | null,
+  codes: string[],
+): Promise<Map<string, ErpItemTaxHit>> {
+  if (!erp1 || codes.length === 0) return new Map();
+  try {
+    return taxHitMap(await fetchErpItemTaxHits(erp1.cfg, codes));
+  } catch {
+    return new Map();
+  }
+}
+
 const COMMON_SKU_BATCH = 10;
+
+function trimmedField(row: Record<string, unknown>, field: string): string | null {
+  const value = row[field];
+  if (value == null) return null;
+  const text = String(value).trim();
+  return text || null;
+}
 
 /** ERP2 items whose code is the common SKU or a `_N` / `-N` variant of it. */
 async function fetchCommonSkuItems(
   cfg: OsfErpCredentials,
   commons: string[],
-): Promise<Map<string, { itemCode: string; itemName: string | null }>> {
-  const out = new Map<string, { itemCode: string; itemName: string | null }>();
+): Promise<Map<string, ErpItemTaxHit>> {
+  const out = new Map<string, ErpItemTaxHit>();
   const prefixes = [...new Set(commons.map((sku) => sku.trim()).filter(Boolean))];
   if (prefixes.length === 0) return out;
 
@@ -102,17 +119,28 @@ async function fetchCommonSkuItems(
         orFilters.push(["item_code", "like", `${form}-%`]);
       }
     }
-    const rows = await erpList<{ item_code?: string; item_name?: string }>(cfg, "Item", {
+    const rows = await erpList<Record<string, unknown>>(cfg, "Item", {
       or_filters: JSON.stringify(orFilters),
-      fields: JSON.stringify(["item_code", "item_name"]),
+      fields: JSON.stringify([
+        "item_code",
+        "item_name",
+        ERP_TAX_STATUS_FIELD,
+        ERP_PRODUCT_PRIORITY_FIELD,
+      ]),
       limit_page_length: "500",
     });
     for (const row of rows) {
-      const itemCode = row.item_code?.trim();
+      const itemCode = String(row.item_code ?? "").trim();
       if (!itemCode) continue;
       if (!batch.some((prefix) => itemMatchesCommonSku(itemCode, prefix))) continue;
       const key = skuKey(itemCode);
-      if (!out.has(key)) out.set(key, { itemCode, itemName: row.item_name?.trim() || null });
+      if (out.has(key)) continue;
+      out.set(key, {
+        itemCode,
+        itemName: trimmedField(row, "item_name"),
+        taxStatus: trimmedField(row, ERP_TAX_STATUS_FIELD),
+        productPriority: trimmedField(row, ERP_PRODUCT_PRIORITY_FIELD),
+      });
     }
   }
   return out;
@@ -220,7 +248,7 @@ export async function checkOrderAvailability(
   const normalized = normalizeRequestLines(requestLines);
   if (!normalized.ok) throw new OrderAvailabilityInputError(normalized.error);
 
-  const erp2 = (await resolveTransferSlots(companyId)).erp2;
+  const { erp1, erp2 } = await resolveTransferSlots(companyId);
   if (!erp2) throw new OsfErpError("ERP2 is not configured");
   const cfg = erp2.cfg;
 
@@ -285,18 +313,31 @@ export async function checkOrderAvailability(
     if (!local.has(key)) local.set(key, row);
   }
 
-  const skuLines: SkuLine[] = expanded.map((line) => {
+  const draftLines: SkuLine[] = expanded.map((line) => {
     const item = items.get(line.key);
+    const labels = mergeItemTaxLabels(null, item);
     return {
       ...line,
       itemCode: item?.itemCode ?? null,
       itemName: item?.itemName ?? null,
       unitPrice: local.get(line.key)?.price ?? null,
       found: Boolean(item),
+      taxStatus: labels.taxStatus,
+      productPriority: labels.productPriority,
     };
   });
-  const foundCodes = skuLines.flatMap((line) => (line.itemCode ? [line.itemCode] : []));
-  const binAvailable = await fetchBinAvailable(cfg, warehouses, foundCodes);
+  const foundCodes = draftLines.flatMap((line) => (line.itemCode ? [line.itemCode] : []));
+  const taxCodes = [
+    ...new Set(draftLines.flatMap((line) => [line.sku, line.itemCode].filter((code): code is string => Boolean(code)))),
+  ];
+  const [binAvailable, erp1Hits] = await Promise.all([
+    fetchBinAvailable(cfg, warehouses, foundCodes),
+    fetchErp1TaxHits(erp1, taxCodes),
+  ]);
+  const skuLines: SkuLine[] = draftLines.map((line) => {
+    const labels = mergeItemTaxLabels(erp1Hits.get(line.key), items.get(line.key));
+    return { ...line, taxStatus: labels.taxStatus, productPriority: labels.productPriority };
+  });
 
   let capError: string | null = null;
   let salesByCompany: Map<string, number> | null = null;

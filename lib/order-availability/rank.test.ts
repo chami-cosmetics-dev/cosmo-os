@@ -31,6 +31,8 @@ function skuLine(sku: string, qty = 1, extra: Partial<SkuLine> = {}): SkuLine {
     unitPrice: 100,
     found: true,
     fromCommonSku: null,
+    taxStatus: null,
+    productPriority: null,
     ...extra,
   };
 }
