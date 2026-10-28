@@ -42,7 +42,6 @@ type ItemCreationItem = {
   storeTransferStatus: string;
   storeStockStatus: string;
   imageDriveUrl: string | null;
-  shopifyRemovalPending?: boolean;
   erpStandardPrice: string | number | null;
   erpOgfPrice: string | number | null;
   erp1OgfPrice: string | number | null;
@@ -289,12 +288,6 @@ function teamViewLabel(view: WorkTeamView) {
   return teamLabels[view];
 }
 
-function creationSourceLabel(source: string) {
-  if (source === "SHOPIFY") return "Shopify";
-  if (source === "ERP2") return "ERP2";
-  return source;
-}
-
 function recentCompletionVisible(completedAt: string | null | undefined, now: number | null) {
   return now == null || isItemCreationStageCompletionVisible(completedAt, now);
 }
@@ -409,26 +402,12 @@ export function ItemCreationPanel({
     if (!response.ok) throw new Error(data.error ?? "Action failed");
     await refresh();
     if (url.startsWith("/api/item-creation/stock/")) {
-      const receipts = Array.isArray(data.receipts) ? data.receipts : [];
-      const createdCount = receipts.filter(
-        (receipt: { status?: string }) => receipt.status === "SUBMITTED",
-      ).length;
-      const failedCount = receipts.filter(
-        (receipt: { status?: string }) => receipt.status === "FAILED",
-      ).length;
-      const erpLabel = url.endsWith("/erp1") ? "ERP1" : "ERP2";
-      if (failedCount > 0) {
-        setMessage(
-          `${createdCount} Purchase Receipt${createdCount === 1 ? "" : "s"} created; ` +
-          `${failedCount} failed in ${erpLabel}. Check the failed rows and retry.`,
-        );
-      } else {
-        setMessage(
-          createdCount === 1
-            ? "Purchase Receipt created"
-            : `${createdCount} Purchase Receipts created`,
-        );
-      }
+      const receiptCount = Array.isArray(data.receipts) ? data.receipts.length : 1;
+      setMessage(
+        receiptCount === 1
+          ? "Purchase Receipt created"
+          : `${receiptCount} Purchase Receipts created`
+      );
       return;
     }
     setMessage("Updated");
@@ -630,20 +609,6 @@ export function ItemCreationPanel({
             Revert SEO
           </button>
         </div>
-      ),
-    },
-    {
-      title: "Remove from Shopify",
-      subtitle: "Remove the item from Shopify, then confirm it here.",
-      team: "seo",
-      visible: canAct("seo"),
-      items: items.filter(
-        (item) => item.shopifyRemovalPending && !item.creationSources.includes("SHOPIFY"),
-      ),
-      action: (item: ItemCreationItem) => (
-        <ActionButton onClick={() => runAction(`/api/item-creation/${item.id}/seo/shopify-removed`)}>
-          Mark Shopify Removed
-        </ActionButton>
       ),
     },
     {
@@ -2811,12 +2776,6 @@ function RequestCard({
           <div className="mt-1 text-xs uppercase tracking-wide text-muted-foreground">
             {item.country}
           </div>
-          <div className="mt-2 text-xs text-muted-foreground">
-            <span className="font-medium">Sources to create:</span>{" "}
-            {item.creationSources.length > 0
-              ? item.creationSources.map(creationSourceLabel).join(", ")
-              : "None"}
-          </div>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">{action}</div>
       </div>
@@ -2928,7 +2887,7 @@ function AdminTable({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [listView, setListView] = useState<"active" | "history">("active");
   const [now, setNow] = useState<number | null>(null);
-  const [editRow, setEditRow] = useState<Omit<CreateRow, "key">>({
+  const [editRow, setEditRow] = useState<Omit<CreateRow, "key" | "creationSources">>({
     sku: "",
     description: "",
     standardPrice: "",
@@ -2937,7 +2896,6 @@ function AdminTable({
     addErp1OgfPrice: false,
     country: "",
     taxStatus: "Vat / Non Vat",
-    creationSources: ["SHOPIFY"],
   });
 
   useEffect(() => {
@@ -2960,7 +2918,6 @@ function AdminTable({
       addErp1OgfPrice: item.addErp1OgfPrice,
       country: item.country,
       taxStatus: item.taxStatus,
-      creationSources: [...item.creationSources],
     });
   }
 
@@ -3037,7 +2994,7 @@ function AdminTable({
               {[
                 "SKU",
                 "Description",
-                "Selected Sources",
+                "Country",
                 "ERP2 Creation",
                 "SEO Setup",
                 "Digital Marketing",
@@ -3086,43 +3043,16 @@ function AdminTable({
                   </td>
                   <td className="px-3 py-3">
                     {isEditing ? (
-                      <div className="grid gap-2">
-                        {(["SHOPIFY", "ERP2"] as const).map((source) => (
-                          <label key={source} className="flex w-fit items-center gap-2 rounded-md border bg-background px-2 py-1.5 text-xs font-medium">
-                            <input
-                              type="checkbox"
-                              checked={editRow.creationSources.includes(source)}
-                              onChange={() =>
-                                setEditRow((row) => {
-                                  const next = row.creationSources.includes(source)
-                                    ? row.creationSources.filter((value) => value !== source)
-                                    : [...row.creationSources, source];
-                                  return { ...row, creationSources: next.length > 0 ? next : [source] };
-                                })
-                              }
-                              className="size-4"
-                            />
-                            {creationSourceLabel(source)}
-                          </label>
-                        ))}
-                      </div>
+                      <input
+                        value={editRow.country}
+                        onChange={(event) => setEditRow((row) => ({ ...row, country: event.target.value }))}
+                        className="h-9 w-28 rounded-md border bg-background px-2 text-sm"
+                      />
                     ) : (
-                      <div className="flex flex-wrap gap-1">
-                        {item.creationSources.length > 0 ? item.creationSources.map((source) => (
-                          <span key={source} className="rounded-md border bg-muted/40 px-2 py-1 text-xs font-medium">
-                            {creationSourceLabel(source)}
-                          </span>
-                        )) : <span className="text-muted-foreground">—</span>}
-                      </div>
+                      item.country
                     )}
                     {isEditing && (
                       <div className="mt-2 grid gap-2">
-                        <input
-                          value={editRow.country}
-                          onChange={(event) => setEditRow((row) => ({ ...row, country: event.target.value }))}
-                          placeholder="Country"
-                          className="h-9 w-28 rounded-md border bg-background px-2 text-sm"
-                        />
                         <input
                           value={editRow.standardPrice}
                           onChange={(event) => setEditRow((row) => ({ ...row, standardPrice: event.target.value }))}

@@ -340,12 +340,6 @@ async function updateErpDoc<T>(cfg: OsfErpCredentials, doctype: string, name: st
   });
 }
 
-async function deleteErpDoc(cfg: OsfErpCredentials, doctype: string, name: string) {
-  return erpJson<unknown>(cfg, `/api/resource/${encodeURIComponent(doctype)}/${encodeURIComponent(name)}`, {
-    method: "DELETE",
-  });
-}
-
 async function submitErpDoc<T extends Record<string, unknown>>(cfg: OsfErpCredentials, doc: T) {
   return erpJson<T>(cfg, "/api/method/frappe.client.submit", {
     method: "POST",
@@ -397,7 +391,7 @@ async function setErpItemTaxStatus(cfg: OsfErpCredentials, itemCode: string, tax
   return { field: "custom_tax_status", value: taxStatus };
 }
 
-async function ensureErpItem(input: {
+async function ensureErp2Item(input: {
   cfg: OsfErpCredentials;
   itemCode: string;
   itemName: string;
@@ -432,10 +426,6 @@ async function ensureErpItem(input: {
   });
   await setErpItemProductPriority(input.cfg, input.itemCode);
   return { itemCode: input.itemCode, created: true, barcodeUpdated: input.barcodes.length > 0, taxStatusUpdated: true };
-}
-
-async function ensureErp2Item(input: Parameters<typeof ensureErpItem>[0]) {
-  return ensureErpItem(input);
 }
 
 export async function handleErp1ItemWebhook(companyIds: string[], payload: ErpItemWebhookPayload) {
@@ -747,181 +737,6 @@ export async function syncItemCreationItemFields(context: UserContext, id: strin
   });
   if (errors.length > 0) throw new Error(errors.join("; "));
   return { ok: true, updated };
-}
-
-type ItemCreationSource = "SHOPIFY" | "ERP2";
-
-function normalizedItemCreationSources(value: Prisma.JsonValue | null | undefined): ItemCreationSource[] {
-  if (!Array.isArray(value)) return [];
-  return [...new Set(value.map((source) => String(source).trim().toUpperCase()))]
-    .filter((source): source is ItemCreationSource => source === "SHOPIFY" || source === "ERP2");
-}
-
-export async function syncItemCreationSourceChanges(
-  context: UserContext,
-  id: string,
-  previousSources: unknown,
-) {
-  requireItemCreationPermission(context, ITEM_CREATION_PERMISSIONS.admin);
-  const request = await prisma.itemCreationRequest.findFirstOrThrow({
-    where: { id, companyId: companyId(context) },
-    select: {
-      id: true,
-      companyId: true,
-      sku: true,
-      description: true,
-      taxStatus: true,
-      creationSources: true,
-      seoSetupStatus: true,
-      erp1ItemCode: true,
-      erp1ItemName: true,
-      erp1Brand: true,
-      erp1Barcodes: true,
-      erp1ItemCreatedAt: true,
-      erp2ItemCode: true,
-      erp2ItemCreationStatus: true,
-      erp2ItemCreationError: true,
-    },
-  });
-  const before = normalizedItemCreationSources(previousSources as Prisma.JsonValue);
-  const after = normalizedItemCreationSources(request.creationSources);
-  const added = after.filter((source) => !before.includes(source));
-  const removed = before.filter((source) => !after.includes(source));
-  if (added.length === 0 && removed.length === 0) return { ok: true, added, removed, updated: [] };
-
-  // A request that has not reached SEO item creation should simply retain the
-  // edited sources for the normal creation flow.
-  if (request.seoSetupStatus === "PENDING") {
-    return { ok: true, added, removed, updated: [] };
-  }
-
-  const erps = await resolveErps(request.companyId);
-  const updated: string[] = [];
-  const errors: string[] = [];
-  const patch: Prisma.ItemCreationRequestUpdateInput = {};
-  const itemName = request.erp1ItemName?.trim() || request.description.trim() || request.sku;
-  const brand = request.erp1Brand?.trim() || "";
-  const barcodes = Array.isArray(request.erp1Barcodes)
-    ? request.erp1Barcodes.map((value) => String(value).trim()).filter(Boolean)
-    : [];
-
-  async function addSource(source: ItemCreationSource) {
-    const slot = source === "SHOPIFY" ? erps.erp1 : erps.erp2;
-    const existingCode = source === "SHOPIFY" ? request.erp1ItemCode : request.erp2ItemCode;
-    if (existingCode) return;
-    if (!slot) throw new Error(`${source === "SHOPIFY" ? "ERP1" : "ERP2"} instance is not configured`);
-    const result = await ensureErpItem({
-      cfg: slot.cfg,
-      itemCode: request.sku,
-      itemName,
-      brand,
-      barcodes,
-      taxStatus: request.taxStatus,
-    });
-    if (source === "SHOPIFY") {
-      Object.assign(patch, {
-        erp1ItemCode: result.itemCode,
-        erp1ItemName: itemName,
-        erp1Brand: brand,
-        erp1Barcodes: barcodes,
-        erp1ItemCreatedAt: new Date(),
-        shopifyRemovalPending: false,
-      });
-      updated.push("ERP1");
-    } else {
-      Object.assign(patch, {
-        erp2ItemCode: result.itemCode,
-        erp2ItemCreatedAt: new Date(),
-        erp2ItemCreationStatus: "COMPLETED",
-        erp2ItemCreationError: null,
-      });
-      updated.push("ERP2");
-    }
-  }
-
-  async function removeSource(source: ItemCreationSource) {
-    const slot = source === "SHOPIFY" ? erps.erp1 : erps.erp2;
-    const itemCode = source === "SHOPIFY" ? request.erp1ItemCode : request.erp2ItemCode;
-    if (!itemCode) {
-      if (source === "SHOPIFY") Object.assign(patch, { shopifyRemovalPending: true });
-      return;
-    }
-    if (!slot) throw new Error(`${source === "SHOPIFY" ? "ERP1" : "ERP2"} instance is not configured`);
-    await deleteErpDoc(slot.cfg, "Item", itemCode);
-    if (source === "SHOPIFY") {
-      Object.assign(patch, {
-        erp1ItemCode: null,
-        erp1ItemName: null,
-        erp1Brand: null,
-        erp1Barcodes: null,
-        erp1ItemCreatedAt: null,
-        shopifyRemovalPending: true,
-      });
-      updated.push("ERP1 deleted; SEO removal required");
-    } else {
-      Object.assign(patch, {
-        erp2ItemCode: null,
-        erp2ItemCreatedAt: null,
-        erp2ItemCreationStatus: "WAITING_ERP1",
-        erp2ItemCreationError: null,
-      });
-      updated.push("ERP2 deleted");
-    }
-  }
-
-  for (const source of added) {
-    try {
-      await addSource(source);
-      await prisma.itemCreationActivity.create({
-        data: {
-          itemRequestId: request.id,
-          type: "ITEM_CREATION_SOURCE_ADDED",
-          source: "SYSTEM",
-          userId: userId(context),
-          metadata: { source, itemCode: request.sku },
-        },
-      });
-    } catch (error) {
-      errors.push(`${source === "SHOPIFY" ? "ERP1" : "ERP2"} create: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
-  for (const source of removed) {
-    try {
-      await removeSource(source);
-      await prisma.itemCreationActivity.create({
-        data: {
-          itemRequestId: request.id,
-          type: "ITEM_CREATION_SOURCE_REMOVED",
-          source: "SYSTEM",
-          userId: userId(context),
-          metadata: {
-            source,
-            itemCode: request.sku,
-            shopifyRemovalRequired: source === "SHOPIFY",
-          },
-        },
-      });
-    } catch (error) {
-      errors.push(`${source === "SHOPIFY" ? "ERP1" : "ERP2"} delete: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
-
-  if (Object.keys(patch).length > 0) {
-    await prisma.itemCreationRequest.update({ where: { id: request.id }, data: patch });
-  }
-  if (errors.length > 0) {
-    await prisma.itemCreationActivity.create({
-      data: {
-        itemRequestId: request.id,
-        type: "ITEM_CREATION_SOURCE_SYNC_FAILED",
-        source: "SYSTEM",
-        userId: userId(context),
-        metadata: { added, removed, errors },
-      },
-    });
-    throw new Error(errors.join("; "));
-  }
-  return { ok: true, added, removed, updated };
 }
 
 async function upsertItemPrice(input: {
@@ -1428,9 +1243,6 @@ export async function createWarehousePurchaseReceipts(
     select: {
       id: true,
       sku: true,
-      creationSources: true,
-      erp1ItemCode: true,
-      erp2ItemCode: true,
       seoSetupStatus: true,
       digitalMarketingStatus: true,
       storeStockStatus: true,
@@ -1447,18 +1259,6 @@ export async function createWarehousePurchaseReceipts(
         if (!request) throw new Error(`Item request not found for ${item.itemCode}`);
         if (normalizeSkuKey(request.sku) !== normalizeSkuKey(item.itemCode)) {
           throw new Error(`SKU mismatch for ${item.itemCode}`);
-        }
-        const sources = Array.isArray(request.creationSources) ? request.creationSources : [];
-        const sourceSelected = erp === "ERP1" ? sources.includes("SHOPIFY") : sources.includes("ERP2");
-        if (!sourceSelected) {
-          throw new Error(`${item.itemCode} was not selected for ${erp} item creation`);
-        }
-        const erpItemCode = erp === "ERP1" ? request.erp1ItemCode : request.erp2ItemCode;
-        if (!erpItemCode) {
-          throw new Error(`${item.itemCode} has not been created in ${erp} yet`);
-        }
-        if (normalizeSkuKey(erpItemCode) !== normalizeSkuKey(item.itemCode)) {
-          throw new Error(`${item.itemCode} does not match the confirmed ${erp} item code`);
         }
         if (request.seoSetupStatus === "PENDING") {
           throw new Error(`${item.itemCode} cannot receive stock until the item is created`);

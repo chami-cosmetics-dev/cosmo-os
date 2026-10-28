@@ -460,7 +460,6 @@ model ItemCreationRequest {
   activatedBy             String?
   shopifyProductId        String?
   shopifyVariantId        String?
-  shopifyRemovalPending   Boolean                             @default(false)
   shopifyActivationStatus ItemCreationShopifyActivationStatus @default(LOCKED)
   shopifyActivatedAt      DateTime?
   shopifyActivationError  String?
