@@ -46,6 +46,7 @@ describe("applyErpCancelToOriginalOrder", () => {
       fulfillmentStage: "returned_to_store",
       cancelledAt: null,
       cancelReason: null,
+      erpnextInvoiceId: "600-006012",
     });
 
     const result = await applyErpCancelToOriginalOrder("600-006012");
@@ -70,6 +71,7 @@ describe("applyErpCancelToOriginalOrder", () => {
       fulfillmentStage: "returned_to_store",
       cancelledAt: null,
       cancelReason: null,
+      erpnextInvoiceId: "600-005759",
     });
 
     await applyErpCancelToOriginalOrder("600-005759");
@@ -78,5 +80,50 @@ describe("applyErpCancelToOriginalOrder", () => {
     expect(mocks.orderUpdate.mock.calls[0][0].data.financialStatus).toBe("voided");
     expect(mocks.orderUpdate.mock.calls[0][0].data.cancelReason).toBe("ERP cancel");
     expect(mocks.approvalUpdateMany).toHaveBeenCalled();
+  });
+
+  it("looks up Shopify/web orders by po_no before ERP-native SI name", async () => {
+    mocks.orderFindFirst.mockResolvedValue({
+      id: "ord_shopify",
+      name: "60020348",
+      financialStatus: "paid",
+      fulfillmentStage: "print",
+      cancelledAt: null,
+      cancelReason: null,
+      erpnextInvoiceId: "pending",
+    });
+
+    const result = await applyErpCancelToOriginalOrder("600-006437", {
+      poNo: "60020348",
+    });
+
+    expect(result?.id).toBe("ord_shopify");
+    const firstWhere = mocks.orderFindFirst.mock.calls[0][0].where as {
+      AND: Array<{ OR?: unknown; sourceName?: { notIn: string[] } }>;
+    };
+    expect(firstWhere.AND[1]?.sourceName?.notIn).toEqual(["erpnext", "erpnext-pos"]);
+    expect(JSON.stringify(firstWhere.AND[0]?.OR)).toContain("60020348");
+    expect(mocks.orderUpdate).toHaveBeenCalledOnce();
+    expect(mocks.approvalUpdateMany.mock.calls[0][0].where).not.toHaveProperty("type");
+  });
+
+  it("does not void a Shopify order when a duplicate SI is cancelled", async () => {
+    mocks.orderFindFirst.mockResolvedValue({
+      id: "ord_keep",
+      name: "60020348",
+      financialStatus: "paid",
+      fulfillmentStage: "print",
+      cancelledAt: null,
+      cancelReason: null,
+      erpnextInvoiceId: "600-006510",
+    });
+
+    const result = await applyErpCancelToOriginalOrder("600-006437", {
+      poNo: "60020348",
+    });
+
+    expect(result).toBeNull();
+    expect(mocks.orderUpdate).not.toHaveBeenCalled();
+    expect(mocks.approvalUpdateMany).not.toHaveBeenCalled();
   });
 });

@@ -1,43 +1,21 @@
-import { NextResponse } from "next/server";
-import { Prisma } from "@prisma/client";
+import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 
+import { resolveViewerFinanceLocationIds } from "@/lib/approval-workflow";
 import {
-  DELIVERY_PAYMENT_APPROVAL,
-  DELIVERY_PAYMENT_FINANCE_UI_ENABLED,
-  INVOICE_REVERT_VOID_APPROVAL,
-  ORDER_CANCEL_APPROVAL,
-  ORDER_PAYMENT_APPROVAL,
-  PAYMENT_METHOD_CHANGE_APPROVAL,
-  RETURN_CANCEL_APPROVAL,
-  RETURN_REARRANGE_PAYMENT_APPROVAL,
-  parseReturnCancelApprovalNote,
-  reconcileOrphanPendingPaymentApprovalsForPaidOrders,
-  reconcilePendingApprovalsForErpResolvedOrders,
-  reconcilePendingApprovalsForVoidedOrders,
-  reconcilePendingDeliveryApprovalsForCourierOrders,
-  reconcilePendingDeliveryApprovalsForCustomerPickupOrders,
-  reconcilePendingDeliveryApprovalsForInvoiceCompleteOrders,
-  reconcilePendingOrderPaymentApprovalsForCardOnDelivery,
-  resolveViewerFinanceLocationIds,
-} from "@/lib/approval-workflow";
-import { enrichApprovalDisplay } from "@/lib/approval-display";
-import {
-  loadKokoFieldsForApprovals,
-  mergeKokoFieldsIntoApproval,
-} from "@/lib/approval-koko-list";
-import { buildErpAdminInvoiceUrl } from "@/lib/erp-admin-url";
-import { financePaymentReferenceKind } from "@/lib/koko-approval-reference";
-import {
-  enrichApprovalsWithKokoDuplicateGroups,
-  loadKokoDuplicateCandidatesForCompany,
-} from "@/lib/koko-duplicate-cancel";
-import { prisma } from "@/lib/prisma";
+  listFinanceApprovals,
+  reconcileFinanceApprovalsForList,
+} from "@/lib/page-data/finance-approvals";
 import { requireAnyPermission } from "@/lib/rbac";
-import { resolveReturnCancelCompletionMode } from "@/lib/return-cancel-completion";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
-export async function GET() {
+const querySchema = z.object({
+  q: z.string().trim().max(80).optional(),
+});
+
+export async function GET(request: NextRequest) {
   const auth = await requireAnyPermission([
     "finance.approvals.read",
     "finance.approvals.manage",
@@ -52,190 +30,32 @@ export async function GET() {
     return NextResponse.json({ error: "No company associated with your account" }, { status: 404 });
   }
 
+  const parsed = querySchema.safeParse({
+    q: request.nextUrl.searchParams.get("q") ?? undefined,
+  });
+  if (!parsed.success) {
+    return NextResponse.json({ error: "Invalid search" }, { status: 400 });
+  }
+
   const financeLocationIds = await resolveViewerFinanceLocationIds(
     userId,
     companyId,
     (auth.context?.roleNames as string[]) ?? []
   );
 
-  await Promise.all([
-    reconcilePendingApprovalsForVoidedOrders(companyId),
-    reconcilePendingApprovalsForErpResolvedOrders(companyId),
-    reconcileOrphanPendingPaymentApprovalsForPaidOrders(companyId),
-    reconcilePendingOrderPaymentApprovalsForCardOnDelivery(companyId),
-    reconcilePendingDeliveryApprovalsForInvoiceCompleteOrders(companyId),
-    reconcilePendingDeliveryApprovalsForCourierOrders(companyId),
-    reconcilePendingDeliveryApprovalsForCustomerPickupOrders(companyId),
-  ]);
-
-  const locationFilter =
-    financeLocationIds === null
-      ? Prisma.empty
-      : financeLocationIds.length === 0
-        ? Prisma.sql`AND FALSE`
-        : Prisma.sql`AND COALESCE(o."companyLocationId", ort_order."companyLocationId") IN (${Prisma.join(financeLocationIds)})`;
-
-  const rows = await prisma.$queryRaw<Array<{
-    id: string;
-    type: string;
-    status: string;
-    orderId: string | null;
-    orderReturnId: string | null;
-    requestNote: string | null;
-    reviewNote: string | null;
-    kokoReference: string | null;
-    createdAt: Date;
-    reviewedAt: Date | null;
-    invoiceNo: string | null;
-    totalPrice: Prisma.Decimal | null;
-    customerPhone: string | null;
-    customerEmail: string | null;
-    orderLinked: boolean;
-    requestedByName: string | null;
-    requestedByEmail: string | null;
-    reviewedByName: string | null;
-    reviewedByEmail: string | null;
-    shopifyOrderId: string | null;
-    erpnextInvoiceId: string | null;
-    financialStatus: string | null;
-    sourceName: string | null;
-    erpBaseUrl: string | null;
-    returnedByName: string | null;
-    returnedByEmail: string | null;
-    cancelRequestedByName: string | null;
-    cancelRequestedByEmail: string | null;
-    returnRemark: string | null;
-    cancelRemark: string | null;
-    returnDate: Date | null;
-    cancelRequestedAt: Date | null;
-    riderId: string | null;
-    riderName: string | null;
-    riderMobile: string | null;
-    paymentGatewayPrimary: string | null;
-    paymentGatewayNames: string[];
-  }>>(
-    Prisma.sql`
-      SELECT
-        ar."id",
-        ar."type",
-        ar."status",
-        ar."orderId",
-        ar."orderReturnId",
-        ar."requestNote",
-        ar."reviewNote",
-        ar."kokoReference",
-        ar."createdAt",
-        ar."reviewedAt",
-        COALESCE(o."name", o."orderNumber", o."shopifyOrderId") AS "invoiceNo",
-        o."totalPrice",
-        o."customerPhone",
-        o."customerEmail",
-        (o."id" IS NOT NULL) AS "orderLinked",
-        COALESCE(reqUser."knownName", reqUser."name") AS "requestedByName",
-        reqUser."email" AS "requestedByEmail",
-        rev."name" AS "reviewedByName",
-        rev."email" AS "reviewedByEmail",
-        o."shopifyOrderId",
-        COALESCE(o."erpnextInvoiceId", ort_order."erpnextInvoiceId") AS "erpnextInvoiceId",
-        COALESCE(o."financialStatus", ort_order."financialStatus") AS "financialStatus",
-        COALESCE(o."sourceName", ort_order."sourceName") AS "sourceName",
-        ei."baseUrl" AS "erpBaseUrl",
-        returnedBy."name" AS "returnedByName",
-        returnedBy."email" AS "returnedByEmail",
-        cancelBy."name" AS "cancelRequestedByName",
-        cancelBy."email" AS "cancelRequestedByEmail",
-        ort."returnRemark",
-        ort."cancelRemark",
-        ort."returnDate",
-        ort."cancelRequestedAt",
-        rider."id" AS "riderId",
-        COALESCE(rider."knownName", rider."name") AS "riderName",
-        rider."mobile" AS "riderMobile",
-        o."paymentGatewayPrimary",
-        COALESCE(o."paymentGatewayNames", ARRAY[]::TEXT[]) AS "paymentGatewayNames"
-      FROM "ApprovalRequest" ar
-      LEFT JOIN "Order" o ON o."id" = ar."orderId"
-      LEFT JOIN "OrderReturn" ort ON ort."id" = ar."orderReturnId"
-      LEFT JOIN "Order" ort_order ON ort_order."id" = ort."orderId"
-      LEFT JOIN "CompanyLocation" cl ON cl."id" = COALESCE(o."companyLocationId", ort_order."companyLocationId")
-      LEFT JOIN "ErpnextInstance" ei ON ei."id" = cl."erpnextInstanceId"
-      LEFT JOIN "User" reqUser ON reqUser."id" = ar."requestedById"
-      LEFT JOIN "User" rev ON rev."id" = ar."reviewedById"
-      LEFT JOIN "User" returnedBy ON returnedBy."id" = ort."returnedById"
-      LEFT JOIN "User" cancelBy ON cancelBy."id" = ort."actionById"
-      LEFT JOIN "User" rider ON rider."id" = COALESCE(o."dispatchedByRiderId", ort_order."dispatchedByRiderId")
-      WHERE ar."companyId" = ${companyId}
-        AND ar."type" IN (
-          ${RETURN_REARRANGE_PAYMENT_APPROVAL},
-          ${RETURN_CANCEL_APPROVAL},
-          ${ORDER_PAYMENT_APPROVAL},
-          ${DELIVERY_PAYMENT_APPROVAL},
-          ${INVOICE_REVERT_VOID_APPROVAL},
-          ${PAYMENT_METHOD_CHANGE_APPROVAL},
-          ${ORDER_CANCEL_APPROVAL}
-        )
-        AND (${DELIVERY_PAYMENT_FINANCE_UI_ENABLED} OR ar."type" <> ${DELIVERY_PAYMENT_APPROVAL})
-        ${locationFilter}
-      ORDER BY
-        CASE WHEN ar."status" = 'pending' THEN 0 ELSE 1 END,
-        ar."createdAt" DESC
-      LIMIT 100
-    `
-  );
-
-  const kokoByApproval = await loadKokoFieldsForApprovals(rows.map((row) => row.id));
-  const candidates = await loadKokoDuplicateCandidatesForCompany(companyId);
-
-  const mapped = rows.map((row) => {
-      const cancelNote = row.type === RETURN_CANCEL_APPROVAL ? parseReturnCancelApprovalNote(row.requestNote) : null;
-      const enriched = enrichApprovalDisplay({
-        ...row,
-        totalPrice: row.totalPrice?.toString() ?? null,
-        createdAt: row.createdAt.toISOString(),
-        reviewedAt: row.reviewedAt?.toISOString() ?? null,
-      });
-
-      const isOrderCancel = row.type === ORDER_CANCEL_APPROVAL;
-      const paymentReferenceKind = financePaymentReferenceKind({
-        type: row.type,
-        requestNote: row.requestNote,
-        paymentGatewayPrimary: row.paymentGatewayPrimary,
-        paymentGatewayNames: row.paymentGatewayNames,
-      });
-      return mergeKokoFieldsIntoApproval(
-        {
-          ...enriched,
-        shopifyOrderId: cancelNote?.shopifyOrderId ?? row.shopifyOrderId,
-        erpnextInvoiceId: cancelNote?.erpnextInvoiceId ?? row.erpnextInvoiceId,
-        completionMode:
-          row.type === RETURN_CANCEL_APPROVAL || row.type === ORDER_CANCEL_APPROVAL
-            ? resolveReturnCancelCompletionMode(row.financialStatus)
-            : undefined,
-        erpAdminInvoiceUrl: buildErpAdminInvoiceUrl({
-          baseUrl: row.erpBaseUrl,
-          sourceName: row.sourceName,
-          name: row.invoiceNo,
-          erpnextInvoiceId: cancelNote?.erpnextInvoiceId ?? row.erpnextInvoiceId,
-        }),
-        returnedByName: row.returnedByName,
-        returnedByEmail: row.returnedByEmail,
-        cancelRequestedByName: isOrderCancel ? row.reviewedByName : row.cancelRequestedByName,
-        cancelRequestedByEmail: isOrderCancel ? row.reviewedByEmail : row.cancelRequestedByEmail,
-        returnRemark: cancelNote?.returnRemark ?? row.returnRemark,
-        cancelRemark: isOrderCancel ? row.requestNote : (cancelNote?.cancelRemark ?? row.cancelRemark),
-        returnDate: cancelNote?.returnDate ?? row.returnDate?.toISOString() ?? null,
-        cancelRequestedAt: isOrderCancel ? row.createdAt.toISOString() : (cancelNote?.cancelRequestedAt ?? row.cancelRequestedAt?.toISOString() ?? null),
-        riderId: row.riderId,
-        riderName: row.riderName,
-        riderMobile: row.riderMobile,
-        paymentReferenceKind,
-        requiresKokoReference: paymentReferenceKind != null,
-        },
-        kokoByApproval,
-      );
+  const historyQuery = parsed.data.q?.trim() || null;
+  if (historyQuery) {
+    const approvals = await listFinanceApprovals({
+      companyId,
+      financeLocationIds,
+      historyQuery,
+      includePending: false,
     });
+    return NextResponse.json({ approvals });
+  }
 
-  return NextResponse.json({
-    approvals: enrichApprovalsWithKokoDuplicateGroups(mapped, candidates),
-  });
+  await reconcileFinanceApprovalsForList(companyId);
+  const approvals = await listFinanceApprovals({ companyId, financeLocationIds });
+
+  return NextResponse.json({ approvals });
 }

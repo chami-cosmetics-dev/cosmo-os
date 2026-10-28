@@ -7,6 +7,7 @@ import {
   isErpSalesInvoiceCancelled,
   isErpSalesInvoiceCreditNoted,
   orderMatchesErpInvoiceReference,
+  orderMatchesErpPoNo,
   resolveOrderCancelledByLabel,
 } from "@/lib/erp-credit-note-order-sync";
 import { mergeErpReturnSalesInvoiceIds } from "@/lib/erp-return-si";
@@ -102,6 +103,20 @@ describe("erp-credit-note-order-sync", () => {
       "SV100-0253",
       "SV1000253",
     ]);
+  });
+
+  it("matches Shopify/web orders by ERP po_no and hashed name", () => {
+    expect(orderMatchesErpPoNo(null)).toEqual([]);
+    expect(orderMatchesErpPoNo("  ")).toEqual([]);
+    expect(orderMatchesErpPoNo("60020348")).toEqual(
+      expect.arrayContaining([
+        { name: "60020348" },
+        { orderNumber: "60020348" },
+        { shopifyOrderId: "60020348" },
+        { name: "#60020348" },
+        { orderNumber: "#60020348" },
+      ]),
+    );
   });
 
   it("appends and dedupes Return SI ids for writer path", () => {
