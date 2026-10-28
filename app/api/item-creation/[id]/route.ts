@@ -6,7 +6,7 @@ import {
   ITEM_CREATION_PERMISSIONS,
   updateItemRequestDetails,
 } from "@/lib/item-creation/workflow";
-import { syncItemCreationItemFields } from "@/lib/item-creation/automation";
+import { syncItemCreationItemFields, syncItemCreationSourceChanges } from "@/lib/item-creation/automation";
 import { requireAnyPermission } from "@/lib/rbac";
 
 const ADMIN_ITEM_CREATION_PERMISSIONS = [
@@ -46,7 +46,9 @@ export async function PATCH(
   try {
     const { id } = await params;
     const body = await request.json();
+    const before = await getItemRequest(auth.context!, id);
     const item = await updateItemRequestDetails(auth.context!, id, body);
+    await syncItemCreationSourceChanges(auth.context!, id, before.creationSources);
     await syncItemCreationItemFields(auth.context!, id);
     return NextResponse.json({ item });
   } catch (error) {
