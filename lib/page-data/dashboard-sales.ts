@@ -279,7 +279,7 @@ function emptySummary(key: DashboardSalesDateType): DashboardFilterSummary {
 }
 
 function dashboardSaleAmount(order: {
-  totalPrice?: unknown;
+  totalPrice: unknown;
   totalShipping?: unknown;
   shippingLines?: unknown;
   discountCodes?: unknown;
@@ -288,7 +288,7 @@ function dashboardSaleAmount(order: {
 }
 
 function addToSummary(summary: DashboardFilterSummary, order: {
-  totalPrice?: unknown;
+  totalPrice: unknown;
   totalShipping?: unknown;
   shippingLines?: unknown;
   discountCodes?: unknown;

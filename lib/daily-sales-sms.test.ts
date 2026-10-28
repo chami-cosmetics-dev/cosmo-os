@@ -73,6 +73,7 @@ describe("daily-sales-sms helpers", () => {
         discountCodes: [{ code: "FREESP" }],
       }),
     ).toBe(5000);
+    expect(salesAmountExcludingShipping({})).toBeNull();
   });
 
   it("builds leadership SMS body layout", () => {

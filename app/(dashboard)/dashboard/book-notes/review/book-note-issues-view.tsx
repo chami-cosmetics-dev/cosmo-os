@@ -619,6 +619,9 @@ function IssueDetail({
                     {sl.amount_display ?? sl.amount}
                   </span>
                   {sl.card_last_4 ? ` · ****${sl.card_last_4}` : ""}
+                  {sl.koko_reference
+                    ? ` · KOKO Order ID ${sl.koko_reference}`
+                    : ""}
                   {sl.mintpay_reference
                     ? ` · MintPay Order ID ${sl.mintpay_reference}`
                     : ""}
