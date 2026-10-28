@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { buildVatStatusSlot, pickErpTaxHit, productPriorityLabel } from "@/lib/vat-status/types";
+import {
+  buildVatStatusSlot,
+  mergeItemTaxLabels,
+  pickErpTaxHit,
+  productPriorityLabel,
+} from "@/lib/vat-status/types";
 
 describe("pickErpTaxHit", () => {
   it("matches SKU ignoring case", () => {
@@ -111,5 +116,23 @@ describe("productPriorityLabel", () => {
 
   it("joins different ERP values", () => {
     expect(productPriorityLabel("Top Priority", "Non Priority")).toBe("Top Priority / Non Priority");
+  });
+});
+
+describe("mergeItemTaxLabels", () => {
+  it("joins tax status and Product Priority from both ERPs", () => {
+    expect(
+      mergeItemTaxLabels(
+        { taxStatus: "Vat", productPriority: "Top Priority" },
+        { taxStatus: "Non Vat", productPriority: "Top Priority" },
+      ),
+    ).toEqual({ taxStatus: "Vat / Non Vat", productPriority: "Top Priority" });
+  });
+
+  it("uses one ERP when the other is missing", () => {
+    expect(mergeItemTaxLabels({ taxStatus: "Vat", productPriority: null }, null)).toEqual({
+      taxStatus: "Vat",
+      productPriority: null,
+    });
   });
 });

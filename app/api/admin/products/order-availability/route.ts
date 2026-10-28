@@ -2,13 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { checkOrderAvailability, OrderAvailabilityInputError } from "@/lib/order-availability/lookup";
 import { ORDER_AVAILABILITY_PERMISSION } from "@/lib/order-availability/types";
-import { requirePermission } from "@/lib/rbac";
+import { requireAnyPermission } from "@/lib/rbac";
+import { VAT_STATUS_PERMISSION } from "@/lib/vat-status/types";
 import { orderAvailabilityRequestSchema } from "@/lib/validation/order-availability";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
-  const auth = await requirePermission(ORDER_AVAILABILITY_PERMISSION);
+  const auth = await requireAnyPermission([ORDER_AVAILABILITY_PERMISSION, VAT_STATUS_PERMISSION]);
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }

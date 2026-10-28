@@ -3,7 +3,6 @@ import { redirect } from "next/navigation";
 import { PermissionDeniedCard } from "@/components/molecules/permission-denied-card";
 import { GiftVouchersPanel } from "@/components/organisms/gift-vouchers-panel";
 import { OrderAvailabilityPanel } from "@/components/organisms/order-availability-panel";
-import { VatStatusPanel } from "@/components/organisms/vat-status-panel";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   GIFT_VOUCHER_MANAGE_PERMISSION,
@@ -31,14 +30,16 @@ export default async function VatStatusPage({ searchParams }: PageProps) {
   const canViewVouchers = canManageVouchers || hasPermission(context, GIFT_VOUCHER_READ_PERMISSION);
   const canManagePriority = hasPermission(context, ORDER_AVAILABILITY_MANAGE_PERMISSION);
   const canViewOrderAvailability =
-    canManagePriority || hasPermission(context, ORDER_AVAILABILITY_PERMISSION);
+    canManagePriority ||
+    hasPermission(context, ORDER_AVAILABILITY_PERMISSION) ||
+    canViewVat;
 
-  if (!canViewVat && !canViewVouchers && !canViewOrderAvailability) {
+  if (!canViewVouchers && !canViewOrderAvailability) {
     return (
       <div className="p-4 md:p-6">
         <PermissionDeniedCard
-          title="VAT status"
-          message="You need products.vat_status.read, products.gift_vouchers.read, or products.order_availability.read to open this page. Ask an administrator to grant it."
+          title="Order availability"
+          message="You need products.order_availability.read, products.vat_status.read, or products.gift_vouchers.read to open this page. Ask an administrator to grant it."
         />
       </div>
     );
@@ -46,35 +47,29 @@ export default async function VatStatusPage({ searchParams }: PageProps) {
 
   const { tab } = await searchParams;
   const permittedTabs = [
-    canViewVat ? "vat-status" : null,
-    canViewVouchers ? "gift-vouchers" : null,
     canViewOrderAvailability ? "order-availability" : null,
+    canViewVouchers ? "gift-vouchers" : null,
   ].filter((value): value is string => Boolean(value));
-  const defaultTab = tab && permittedTabs.includes(tab) ? tab : permittedTabs[0];
+  const defaultTab =
+    tab && permittedTabs.includes(tab) ? tab : (permittedTabs[0] ?? "order-availability");
 
   return (
     <div className="p-4 md:p-6">
       <Tabs defaultValue={defaultTab} className="gap-6">
         <TabsList>
-          {canViewVat ? <TabsTrigger value="vat-status">VAT Status</TabsTrigger> : null}
-          {canViewVouchers ? <TabsTrigger value="gift-vouchers">Gift Vouchers</TabsTrigger> : null}
           {canViewOrderAvailability ? (
             <TabsTrigger value="order-availability">Order Availability</TabsTrigger>
           ) : null}
+          {canViewVouchers ? <TabsTrigger value="gift-vouchers">Gift Vouchers</TabsTrigger> : null}
         </TabsList>
-        {canViewVat ? (
-          <TabsContent value="vat-status">
-            <VatStatusPanel />
+        {canViewOrderAvailability ? (
+          <TabsContent value="order-availability">
+            <OrderAvailabilityPanel canManage={canManagePriority} />
           </TabsContent>
         ) : null}
         {canViewVouchers ? (
           <TabsContent value="gift-vouchers">
             <GiftVouchersPanel canManage={canManageVouchers} />
-          </TabsContent>
-        ) : null}
-        {canViewOrderAvailability ? (
-          <TabsContent value="order-availability">
-            <OrderAvailabilityPanel canManage={canManagePriority} />
           </TabsContent>
         ) : null}
       </Tabs>

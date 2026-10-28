@@ -30,6 +30,10 @@ export type SkuLine = NormalizedLine & {
   found: boolean;
   /** Typed common SKU that expanded to this variant. Null if the merchant typed this SKU. */
   fromCommonSku: string | null;
+  /** Combined ERP1 / ERP2 Item Manufacturing tax status. */
+  taxStatus: string | null;
+  /** Combined ERP1 / ERP2 Product Priority. */
+  productPriority: string | null;
 };
 
 export type ExpandedLine = NormalizedLine & {

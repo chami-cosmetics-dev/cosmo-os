@@ -683,7 +683,7 @@ export function AppSidebar({
                 <NavItem
                   href="/dashboard/products/vat-status"
                   icon={BadgeCheck}
-                  label="VAT Status"
+                  label="Order Availability"
                   isActive={pathname === "/dashboard/products/vat-status"}
                 />
               )}
