@@ -5,6 +5,7 @@ import {
   findErpCustomerNameByPhone,
   getErpContactSyncInstances,
   setErpCustomerGroup,
+  type ErpContactSlot,
   type ErpInstanceForContactSync,
 } from "@/lib/erpnext-contact-sync";
 import { buildPhoneLookupVariants } from "@/lib/phone-lookup";
@@ -66,12 +67,12 @@ async function resolveErpCustomersByPhone(
   phone: string
 ): Promise<{
   found: Array<{ instance: ErpInstanceForContactSync; customerName: string }>;
-  missingSlots: string[];
+  missingSlots: ErpContactSlot[];
   errors: string[];
 }> {
   const found: Array<{ instance: ErpInstanceForContactSync; customerName: string }> =
     [];
-  const missingSlots: string[] = [];
+  const missingSlots: ErpContactSlot[] = [];
   const errors: string[] = [];
 
   for (const instance of instances) {
@@ -206,7 +207,9 @@ export async function pushLoyaltyAssignmentToErpAndShopify(input: {
     const resolved = await resolveErpCustomersByPhone(instances, primaryPhone);
     errors.push(...resolved.errors);
 
-    const foundBySlot = new Set(resolved.found.map((row) => row.instance.slot));
+    const foundBySlot = new Set<string>(
+      resolved.found.map((row) => row.instance.slot)
+    );
     const errorSlots = resolved.errors
       .map((err) => {
         const slot = err.split(":")[0]?.trim();
