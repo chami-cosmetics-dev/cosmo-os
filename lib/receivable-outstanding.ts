@@ -5,6 +5,7 @@ import { Prisma } from "@prisma/client";
 import { getAllOsfErpInstances, OsfErpError, type OsfErpCredentials } from "@/lib/osf/erp-stock";
 import { prisma } from "@/lib/prisma";
 import { resolveErpSlots } from "@/lib/product-items/erp-priority-sync";
+import { fetchClearingAccountReport, type ClearingAccountSummary } from "@/lib/receivable-clearing";
 
 type ReportColumn = { fieldname?: string | null; label?: string | null };
 type ReportResponse = { message?: { columns?: ReportColumn[]; result?: unknown[] } };
@@ -23,6 +24,7 @@ export type ReceivableRow = {
   shippingService: string | null;
   shippingServiceType: "Rider" | "Courier" | null;
   cosmoOrderStatus: string | null;
+  isCancelled: boolean;
   reason: string | null;
   age: number | null;
   ageingBucket: "1-2 Days" | "3-4 Days" | "5-7 Days" | "08-30 Days" | "31+ Days" | "No Dispatch";
@@ -40,7 +42,13 @@ export type ReceivableResult = {
   refreshedAt: string | null;
   lastAttemptAt: string | null;
   rows: ReceivableRow[];
+  clearingAccounts: ClearingAccountSummary[];
   errors: string[];
+};
+
+type ReceivableSnapshotPayload = {
+  receivables: ReceivableRow[];
+  clearingAccounts: ClearingAccountSummary[];
 };
 
 function headers(cfg: OsfErpCredentials) {
@@ -155,24 +163,35 @@ async function fetchAccountsReceivable(input: { cfg: OsfErpCredentials; company:
   }));
 }
 
-function enrich(row: Awaited<ReturnType<typeof fetchAccountsReceivable>>[number], reportDate: string, erpSlot: "ERP1" | "ERP2" | null, order?: { id: string; posProfile: string | null; dispatchedToCustomer: boolean; dispatchedAt: Date | null; fulfillmentStage: string; cancelReason: string | null; dispatchedByCourierService: { name: string | null } | null; dispatchedByRider: { name: string | null } | null; dispatchedByRiderId: string | null }) {
+function enrich(row: Awaited<ReturnType<typeof fetchAccountsReceivable>>[number], reportDate: string, erpSlot: "ERP1" | "ERP2" | null, order?: { id: string; posProfile: string | null; dispatchedToCustomer: boolean; dispatchedAt: Date | null; fulfillmentStage: string; cancelledAt: Date | null; financialStatus: string | null; cancelReason: string | null; dispatchedByCourierService: { name: string | null } | null; dispatchedByRider: { name: string | null } | null; dispatchedByRiderId: string | null }) {
   const dispatchDate = order?.dispatchedAt?.toISOString().slice(0, 10) ?? null;
   const age = dateAge(reportDate, dispatchDate ?? row.invoiceDate);
   const ageingBucket = ageBucket(age);
   const shippingServiceType = order?.dispatchedByCourierService ? "Courier" : order?.dispatchedByRider || order?.dispatchedByRiderId ? "Rider" : null;
-  return { ...row, erpSlot, orderId: order?.id ?? null, dispatchDate, shippingService: order?.dispatchedByCourierService?.name ?? order?.dispatchedByRider?.name ?? order?.dispatchedByRiderId ?? null, shippingServiceType, cosmoOrderStatus: order?.fulfillmentStage ?? null, reason: order?.cancelReason ?? null, isPosOrder: Boolean(order?.posProfile), isCustomerPickup: Boolean(order?.dispatchedToCustomer), age, ageingBucket, ...ageingValues(row.outstanding, ageingBucket) } satisfies ReceivableRow;
+  return { ...row, erpSlot, orderId: order?.id ?? null, dispatchDate, shippingService: order?.dispatchedByCourierService?.name ?? order?.dispatchedByRider?.name ?? order?.dispatchedByRiderId ?? null, shippingServiceType, cosmoOrderStatus: order?.fulfillmentStage ?? null, isCancelled: Boolean(order?.cancelledAt) || order?.financialStatus?.toLowerCase() === "voided", reason: order?.cancelReason ?? null, isPosOrder: Boolean(order?.posProfile), isCustomerPickup: Boolean(order?.dispatchedToCustomer), age, ageingBucket, ...ageingValues(row.outstanding, ageingBucket) } satisfies ReceivableRow;
 }
 
-function jsonRows(value: Prisma.JsonValue | null): ReceivableRow[] { return Array.isArray(value) ? (value as ReceivableRow[]) : []; }
+function snapshotPayload(value: Prisma.JsonValue | null): ReceivableSnapshotPayload {
+  if (Array.isArray(value)) return { receivables: value as ReceivableRow[], clearingAccounts: [] };
+  if (!value || typeof value !== "object") return { receivables: [], clearingAccounts: [] };
+  const object = value as { receivables?: unknown; clearingAccounts?: unknown };
+  return {
+    receivables: Array.isArray(object.receivables) ? object.receivables as ReceivableRow[] : [],
+    clearingAccounts: Array.isArray(object.clearingAccounts) ? object.clearingAccounts as ClearingAccountSummary[] : [],
+  };
+}
 
 export async function loadCachedReceivables(companyId: string, reportDate: string): Promise<ReceivableResult> {
   const snapshots = await prisma.receivableOutstandingSnapshot.findMany({ where: { companyId, reportDate }, orderBy: [{ erpCompany: "asc" }] });
-  const rows = snapshots.flatMap((snapshot) => jsonRows(snapshot.rows));
+  const payloads = snapshots.map((snapshot) => snapshotPayload(snapshot.rows));
+  const rows = payloads.flatMap((payload) => payload.receivables);
+  const clearingAccounts = payloads.flatMap((payload) => payload.clearingAccounts);
   return {
     reportDate,
     refreshedAt: snapshots.map((row) => row.lastSuccessAt?.toISOString() ?? null).filter(Boolean).sort().at(-1) ?? null,
     lastAttemptAt: snapshots.map((row) => row.lastAttemptAt.toISOString()).sort().at(-1) ?? null,
     rows,
+    clearingAccounts,
     errors: snapshots.map((row) => row.error).filter((row): row is string => Boolean(row)),
   };
 }
@@ -181,7 +200,7 @@ export async function refreshReceivables(companyId: string, reportDate: string):
   const [instances, locations, orders] = await Promise.all([
     getAllOsfErpInstances(companyId),
     prisma.companyLocation.findMany({ where: { companyId, erpnextInstanceId: { not: null }, erpnextCompany: { not: null } }, select: { erpnextInstanceId: true, erpnextCompany: true } }),
-    prisma.order.findMany({ where: { companyId, erpnextInvoiceId: { not: null } }, select: { id: true, erpnextInvoiceId: true, posProfile: true, dispatchedToCustomer: true, dispatchedAt: true, fulfillmentStage: true, cancelReason: true, dispatchedByRiderId: true, dispatchedByCourierService: { select: { name: true } }, dispatchedByRider: { select: { name: true } } } }),
+    prisma.order.findMany({ where: { companyId, erpnextInvoiceId: { not: null } }, select: { id: true, erpnextInvoiceId: true, posProfile: true, dispatchedToCustomer: true, dispatchedAt: true, fulfillmentStage: true, cancelledAt: true, financialStatus: true, cancelReason: true, dispatchedByRiderId: true, dispatchedByCourierService: { select: { name: true } }, dispatchedByRider: { select: { name: true } } } }),
   ]);
   const orderMap = new Map(orders.filter((order) => order.erpnextInvoiceId).map((order) => [order.erpnextInvoiceId!.toLowerCase(), order]));
   const slots = resolveErpSlots(instances);
@@ -197,15 +216,33 @@ export async function refreshReceivables(companyId: string, reportDate: string):
       }
     }
     for (const erpCompany of companies) {
+      const existing = await prisma.receivableOutstandingSnapshot.findUnique({ where: { companyId_erpnextInstanceId_erpCompany_reportDate: { companyId, erpnextInstanceId: instance.id, erpCompany, reportDate } }, select: { rows: true } });
+      const previous = snapshotPayload(existing?.rows ?? null);
+      let receivableRows: ReceivableRow[] | null = null;
+      let clearingAccounts: ClearingAccountSummary[] | null = null;
+      const errors: string[] = [];
       try {
         const reportRows = await fetchAccountsReceivable({ cfg: instance.cfg, company: erpCompany, reportDate });
-        const rows = reportRows.map((row) => enrich(row, reportDate, erpSlot, orderMap.get(row.invoiceNo.toLowerCase()))).filter((row) => !isExcludedOrderStage(row.cosmoOrderStatus));
-        await prisma.receivableOutstandingSnapshot.upsert({ where: { companyId_erpnextInstanceId_erpCompany_reportDate: { companyId, erpnextInstanceId: instance.id, erpCompany, reportDate } }, create: { companyId, erpnextInstanceId: instance.id, erpSlot, erpLabel: instance.label, erpCompany, reportDate, rows: rows as unknown as Prisma.InputJsonValue, lastSuccessAt: now, lastAttemptAt: now }, update: { erpSlot, erpLabel: instance.label, rows: rows as unknown as Prisma.InputJsonValue, error: null, lastSuccessAt: now, lastAttemptAt: now } });
+        receivableRows = reportRows.map((row) => enrich(row, reportDate, erpSlot, orderMap.get(row.invoiceNo.toLowerCase()))).filter((row) => !isExcludedOrderStage(row.cosmoOrderStatus));
       } catch (error) {
-        const detail = error instanceof Error ? error.message : String(error);
-        const errorMessage = `${erpSlot ?? instance.label} / ${erpCompany}: ${detail}`;
-        await prisma.receivableOutstandingSnapshot.upsert({ where: { companyId_erpnextInstanceId_erpCompany_reportDate: { companyId, erpnextInstanceId: instance.id, erpCompany, reportDate } }, create: { companyId, erpnextInstanceId: instance.id, erpSlot, erpLabel: instance.label, erpCompany, reportDate, error: errorMessage, lastAttemptAt: now }, update: { error: errorMessage, lastAttemptAt: now } });
+        errors.push(`Receivable: ${error instanceof Error ? error.message : String(error)}`);
       }
+      try {
+        clearingAccounts = await fetchClearingAccountReport({ cfg: instance.cfg, company: erpCompany, reportDate, erpSlot, erpLabel: instance.label });
+      } catch (error) {
+        errors.push(`Clearing accounts: ${error instanceof Error ? error.message : String(error)}`);
+      }
+      const payload: ReceivableSnapshotPayload = {
+        receivables: receivableRows ?? previous.receivables,
+        clearingAccounts: clearingAccounts ?? previous.clearingAccounts,
+      };
+      const refreshedSuccessfully = Boolean(receivableRows || clearingAccounts);
+      const errorMessage = errors.length > 0 ? `${erpSlot ?? instance.label} / ${erpCompany}: ${errors.join(" | ")}` : null;
+      await prisma.receivableOutstandingSnapshot.upsert({
+        where: { companyId_erpnextInstanceId_erpCompany_reportDate: { companyId, erpnextInstanceId: instance.id, erpCompany, reportDate } },
+        create: { companyId, erpnextInstanceId: instance.id, erpSlot, erpLabel: instance.label, erpCompany, reportDate, rows: payload as unknown as Prisma.InputJsonValue, lastSuccessAt: refreshedSuccessfully ? now : null, lastAttemptAt: now, error: errorMessage },
+        update: { erpSlot, erpLabel: instance.label, rows: payload as unknown as Prisma.InputJsonValue, ...(refreshedSuccessfully ? { lastSuccessAt: now } : {}), error: errorMessage, lastAttemptAt: now },
+      });
     }
   }
   return loadCachedReceivables(companyId, reportDate);

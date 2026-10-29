@@ -57,6 +57,7 @@ type UserRef = {
 
 type PurchaseInvoiceRef = {
   name: string;
+  purchaseReceiptName: string | null;
   erpUrl: string | null;
   postingDate: string | null;
   docstatus: number | null;
@@ -130,7 +131,9 @@ type PurchaseReceiptRow = {
     ssrQty: number;
   }[];
   purchaseInvoice: PurchaseInvoiceRef | null;
+  purchaseInvoices: PurchaseInvoiceRef[];
   supplierStockReturnPurchaseInvoice: PurchaseInvoiceRef | null;
+  supplierStockReturnPurchaseInvoices: PurchaseInvoiceRef[];
 };
 
 type SupplierStockReturnRow = {
@@ -194,7 +197,7 @@ type GrnPanelPermissions = {
 };
 
 type GrnActionStage = "handover" | "valued" | "received";
-type GrnStageStatusFilter = "all" | "pending" | "completed" | "mismatch" | "verify";
+type GrnStageStatusFilter = "all" | "pending" | "completed" | "mismatch" | "verify" | "not_received";
 type SsrStatusFilter = "all" | "waiting" | "partial" | "conflict";
 type GrnStageFilter = {
   stage: GrnActionStage;
@@ -263,39 +266,88 @@ function CancelledBadge() {
 }
 
 function buildPriceTallyRows(
-  ssr: SupplierStockReturnRow | null,
+  ssr: SupplierStockReturnRow | SupplierStockReturnRow[] | null,
   pr: PurchaseReceiptRow | PurchaseReceiptRow[] | null,
 ) {
+  const epsilon = 0.000001;
   const purchaseReceipts = pr ? (Array.isArray(pr) ? pr : [pr]) : [];
-  const purchaseInvoiceItems = purchaseReceipts.flatMap((receipt) =>
-    receipt.purchaseInvoice?.items.filter((item) => item.purchaseReceipt === receipt.name) ?? [],
+  const stockReturns = ssr ? (Array.isArray(ssr) ? ssr : [ssr]) : [];
+  const purchaseInvoiceItems = purchaseReceipts.flatMap((receipt) => {
+    const invoices = receipt.purchaseInvoices.length > 0
+      ? receipt.purchaseInvoices
+      : receipt.purchaseInvoice
+        ? [receipt.purchaseInvoice]
+        : [];
+    return invoices.flatMap((invoice) =>
+      invoice.items
+        .filter(
+          (item) =>
+            item.purchaseReceipt === receipt.name ||
+            (!item.purchaseReceipt && invoice.purchaseReceiptName === receipt.name && !item.supplierStockReturn),
+        )
+        .map((item) => ({ invoiceName: invoice.name, item })),
+    );
+  });
+  const supplierStockReturnPurchaseInvoices = purchaseReceipts
+    .flatMap((receipt) =>
+      receipt.supplierStockReturnPurchaseInvoices.length > 0
+        ? receipt.supplierStockReturnPurchaseInvoices
+        : receipt.supplierStockReturnPurchaseInvoice
+          ? [receipt.supplierStockReturnPurchaseInvoice]
+          : [],
+    )
+    .filter((invoice, index, invoices) => invoices.findIndex((candidate) => candidate.name === invoice.name) === index);
+  const supplierStockReturnNames = new Set(
+    (stockReturns.length > 0
+      ? stockReturns.map((stockReturn) => stockReturn.name)
+      : purchaseReceipts.flatMap((receipt) => receipt.adjustmentNos)
+    ).filter(Boolean),
   );
-  const supplierStockReturnPurchaseInvoice = purchaseReceipts.find(
-    (receipt) => receipt.supplierStockReturnPurchaseInvoice,
-  )?.supplierStockReturnPurchaseInvoice ?? null;
-  const supplierStockReturnName = ssr?.name ?? purchaseReceipts.find((receipt) => receipt.adjustmentNo)?.adjustmentNo ?? null;
-  if (!purchaseInvoiceItems.length && !supplierStockReturnPurchaseInvoice) return [];
+  const ssrInvoiceItems = supplierStockReturnPurchaseInvoices.flatMap((invoice) => {
+    const hasTaggedItems = invoice.items.some((item) => Boolean(item.supplierStockReturn));
+    return invoice.items
+      .filter((item) =>
+        !hasTaggedItems ||
+        supplierStockReturnNames.size === 0 ||
+        (item.supplierStockReturn != null && supplierStockReturnNames.has(item.supplierStockReturn)),
+      )
+      .map((item) => ({ invoiceName: invoice.name, item }));
+  });
 
-  const groupItems = (items: PurchaseInvoiceRef["items"]) => {
-    const grouped = new Map<string, { itemName: string | null; qty: number; amount: number; uom: string | null }>();
-    for (const item of items) {
+  if (!purchaseInvoiceItems.length && !ssrInvoiceItems.length) return [];
+
+  const groupItems = (entries: Array<{ invoiceName: string; item: PurchaseInvoiceRef["items"][number] }>) => {
+    const grouped = new Map<
+      string,
+      {
+        itemName: string | null;
+        qty: number;
+        amount: number;
+        uom: string | null;
+        prices: Map<string, { qty: number; amount: number }>;
+      }
+    >();
+    for (const { invoiceName, item } of entries) {
       const current = grouped.get(item.itemCode);
+      const prices = current?.prices ?? new Map<string, { qty: number; amount: number }>();
+      const invoicePrice = prices.get(invoiceName);
+      prices.set(invoiceName, {
+        qty: (invoicePrice?.qty ?? 0) + item.qty,
+        amount: (invoicePrice?.amount ?? 0) + item.amount,
+      });
       grouped.set(item.itemCode, {
         itemName: current?.itemName ?? item.itemName,
         qty: (current?.qty ?? 0) + item.qty,
         amount: (current?.amount ?? 0) + item.amount,
         uom: current?.uom ?? item.stockUom,
+        prices,
       });
     }
     return grouped;
   };
 
   const prByItem = groupItems(purchaseInvoiceItems);
-  const ssrByItem = groupItems(
-    supplierStockReturnPurchaseInvoice?.items.filter(
-      (item) => !supplierStockReturnName || item.supplierStockReturn === supplierStockReturnName,
-    ) ?? [],
-  );
+  const ssrByItem = groupItems(ssrInvoiceItems);
 
   return Array.from(new Set([...prByItem.keys(), ...ssrByItem.keys()]))
     .map((itemCode) => {
@@ -303,6 +355,47 @@ function buildPriceTallyRows(
       const ssrItem = ssrByItem.get(itemCode);
       const prRate = prItem?.qty ? prItem.amount / prItem.qty : null;
       const ssrRate = ssrItem?.qty ? Math.abs(ssrItem.amount / ssrItem.qty) : null;
+      const prPrices = [...(prItem?.prices ?? new Map())].map(([invoiceName, price]) => ({
+        invoiceName,
+        qty: Math.abs(price.qty),
+        rate: price.qty ? Math.abs(price.amount / price.qty) : null,
+      }));
+      const ssrPrices = [...(ssrItem?.prices ?? new Map())].map(([invoiceName, price]) => ({
+        invoiceName,
+        qty: Math.abs(price.qty),
+        rate: price.qty ? Math.abs(price.amount / price.qty) : null,
+      }));
+      let prIndex = 0;
+      let ssrIndex = 0;
+      let prRemaining = prPrices[0]?.qty ?? 0;
+      let ssrRemaining = ssrPrices[0]?.qty ?? 0;
+      let priceMismatch = false;
+      while (prIndex < prPrices.length && ssrIndex < ssrPrices.length) {
+        const prPrice = prPrices[prIndex];
+        const ssrPrice = ssrPrices[ssrIndex];
+        if (!prPrice || !ssrPrice) break;
+        const prPriceRate = prPrice.rate;
+        const ssrPriceRate = ssrPrice.rate;
+        const allocatedQty = Math.min(prRemaining, ssrRemaining);
+        if (
+          allocatedQty > epsilon &&
+          (prPriceRate == null ||
+            ssrPriceRate == null ||
+            Math.abs(prPriceRate - ssrPriceRate) > epsilon)
+        ) {
+          priceMismatch = true;
+        }
+        prRemaining -= allocatedQty;
+        ssrRemaining -= allocatedQty;
+        if (prRemaining <= epsilon) {
+          prIndex += 1;
+          prRemaining = prPrices[prIndex]?.qty ?? 0;
+        }
+        if (ssrRemaining <= epsilon) {
+          ssrIndex += 1;
+          ssrRemaining = ssrPrices[ssrIndex]?.qty ?? 0;
+        }
+      }
       return {
         itemCode,
         itemName: prItem?.itemName ?? ssrItem?.itemName ?? null,
@@ -312,16 +405,13 @@ function buildPriceTallyRows(
         ssrRate,
         prAmount: prItem?.amount ?? 0,
         ssrAmount: ssrItem?.amount ?? 0,
+        prPrices,
+        ssrPrices,
         uom: prItem?.uom ?? ssrItem?.uom ?? null,
-        issue: prRate == null || ssrRate == null || Math.abs(prRate - ssrRate) > 0.000001,
+        issue: priceMismatch,
       };
     })
     .sort((a, b) => Number(a.issue) - Number(b.issue) || a.itemCode.localeCompare(b.itemCode));
-}
-
-function hasPriceMismatch(row: PurchaseReceiptRow) {
-  if (!row.purchaseInvoice || !row.supplierStockReturnPurchaseInvoice) return false;
-  return buildPriceTallyRows(null, row).some((priceRow) => priceRow.issue);
 }
 
 function purchaseInvoiceTotal(row: PurchaseReceiptRow) {
@@ -334,11 +424,6 @@ function itemIssueCount(row: PurchaseReceiptRow) {
   return row.tallyIssues.length || row.tallyIssueItems.length;
 }
 
-function priceIssueCount(row: PurchaseReceiptRow) {
-  if (!row.purchaseInvoice || !row.supplierStockReturnPurchaseInvoice) return 0;
-  return buildPriceTallyRows(null, row).filter((priceRow) => priceRow.issue).length;
-}
-
 function linkModeLabel(ssr: SupplierStockReturnRow | null, pr: PurchaseReceiptRow | null) {
   if (!ssr || !pr) return null;
   const rec = ssr.matchRecommendation;
@@ -347,21 +432,21 @@ function linkModeLabel(ssr: SupplierStockReturnRow | null, pr: PurchaseReceiptRo
     : "Manually linked";
 }
 
-function PurchaseInvoiceStatusBadge({ row }: { row: PurchaseReceiptRow | null | undefined }) {
-  if (!row?.purchaseInvoice && !row?.supplierStockReturnPurchaseInvoice) {
+function PurchaseInvoiceStatusBadge({ row }: { row: PurchaseReceiptRow | PurchaseReceiptRow[] | null | undefined }) {
+  const purchaseReceipts = row ? (Array.isArray(row) ? row : [row]) : [];
+  const hasPrPi = purchaseReceipts.some((receipt) => receipt.purchaseInvoices.length > 0 || Boolean(receipt.purchaseInvoice));
+  const hasSsrPi = purchaseReceipts.some((receipt) => receipt.supplierStockReturnPurchaseInvoices.length > 0);
+  if (!hasPrPi && !hasSsrPi) {
     return <span className="text-xs text-muted-foreground">No PI prices</span>;
   }
-
-  const hasPrPi = Boolean(row.purchaseInvoice);
-  const hasSsrPi = Boolean(row.supplierStockReturnPurchaseInvoice);
-  const label = row.adjustmentNo
+  const label = purchaseReceipts.some((receipt) => receipt.adjustmentNo)
     ? hasPrPi && hasSsrPi
       ? "PI linked"
       : hasPrPi
         ? "PR PI linked"
         : "SSR PI linked"
     : "PI linked";
-  const complete = !row.adjustmentNo || (hasPrPi && hasSsrPi);
+  const complete = !purchaseReceipts.some((receipt) => receipt.adjustmentNo) || (hasPrPi && hasSsrPi);
 
   return (
     <span
@@ -387,10 +472,23 @@ function PurchaseInvoicePriceTallyDetails({
   defaultOpen?: boolean;
 }) {
   const purchaseReceipts = Array.isArray(row) ? row : [row];
-  const purchaseInvoice = purchaseReceipts.find((receipt) => receipt.purchaseInvoice)?.purchaseInvoice ?? null;
-  const supplierStockReturnPurchaseInvoice = purchaseReceipts.find(
-    (receipt) => receipt.supplierStockReturnPurchaseInvoice,
-  )?.supplierStockReturnPurchaseInvoice ?? null;
+  const purchaseInvoices = purchaseReceipts
+    .flatMap((receipt) => receipt.purchaseInvoices.length > 0
+      ? receipt.purchaseInvoices
+      : receipt.purchaseInvoice
+        ? [receipt.purchaseInvoice]
+        : [],
+    )
+    .filter((invoice, index, invoices) => invoices.findIndex((candidate) => candidate.name === invoice.name) === index);
+  const supplierStockReturnPurchaseInvoices = purchaseReceipts
+    .flatMap((receipt) =>
+      receipt.supplierStockReturnPurchaseInvoices.length > 0
+        ? receipt.supplierStockReturnPurchaseInvoices
+        : receipt.supplierStockReturnPurchaseInvoice
+          ? [receipt.supplierStockReturnPurchaseInvoice]
+          : [],
+    )
+    .filter((invoice, index, invoices) => invoices.findIndex((candidate) => candidate.name === invoice.name) === index);
 
   return (
     <details className="rounded-lg border bg-background/50 p-3" open={defaultOpen}>
@@ -398,48 +496,50 @@ function PurchaseInvoicePriceTallyDetails({
         <div className="flex flex-col gap-1">
           <div className="text-sm font-semibold">Purchase invoice price tally</div>
           <div className="text-xs text-muted-foreground">
-            {!purchaseInvoice
+            {purchaseInvoices.length === 0
               ? "No linked purchase receipt invoice stored yet."
-              : !supplierStockReturnPurchaseInvoice
+              : supplierStockReturnPurchaseInvoices.length === 0
                 ? "No linked supplier stock return invoice stored yet."
-                : `${purchaseReceipts.map((receipt) => receipt.name).join(", ")} vs ${supplierStockReturnPurchaseInvoice.name}`}
+                : `PR PI ${purchaseInvoices.map((invoice) => invoice.name).join(", ")} vs SSR PI ${supplierStockReturnPurchaseInvoices.map((invoice) => invoice.name).join(", ")}`}
           </div>
         </div>
       </summary>
       <div className="mt-3 space-y-3">
         <div className="flex flex-wrap gap-3">
-          {purchaseInvoice?.erpUrl && (
+          {purchaseInvoices.map((invoice) => invoice.erpUrl && (
             <a
-              href={purchaseInvoice.erpUrl}
+              key={invoice.name}
+              href={invoice.erpUrl}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex w-fit items-center gap-2 text-sm text-primary hover:underline"
             >
               <ExternalLink className="size-4" />
-              Open PR PI
+              Open PR PI {invoice.name}
             </a>
-          )}
-          {supplierStockReturnPurchaseInvoice?.erpUrl && (
+          ))}
+          {supplierStockReturnPurchaseInvoices.map((invoice) => invoice.erpUrl && (
             <a
-              href={supplierStockReturnPurchaseInvoice.erpUrl}
+              key={invoice.name}
+              href={invoice.erpUrl}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex w-fit items-center gap-2 text-sm text-primary hover:underline"
             >
               <ExternalLink className="size-4" />
-              Open SSR PI
+              Open SSR PI {invoice.name}
             </a>
-          )}
+          ))}
         </div>
-        {(purchaseInvoice || supplierStockReturnPurchaseInvoice) && (
+        {(purchaseInvoices.length > 0 || supplierStockReturnPurchaseInvoices.length > 0) && (
           <div className="overflow-x-auto rounded-md border bg-background/70">
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>SKU</TableHead>
                   <TableHead>Item Name</TableHead>
-                    <TableHead className="text-right">PR Price</TableHead>
-                    <TableHead className="text-right">SSR Price</TableHead>
+                  <TableHead className="text-right">PR Price</TableHead>
+                  <TableHead className="text-right">SSR Price</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -454,8 +554,28 @@ function PurchaseInvoicePriceTallyDetails({
                     <TableRow key={item.itemCode} className={item.issue ? "bg-amber-500/10" : undefined}>
                       <TableCell className="font-medium">{item.itemCode}</TableCell>
                       <TableCell>{item.itemName ?? "-"}</TableCell>
-                      <TableCell className="text-right">{item.prRate == null ? "-" : item.prRate.toFixed(2)}</TableCell>
-                      <TableCell className="text-right">{item.ssrRate == null ? "-" : item.ssrRate.toFixed(2)}</TableCell>
+                      <TableCell className="text-right">
+                        {item.prPrices.length > 1
+                          ? item.prPrices.map((price) => (
+                              <div key={price.invoiceName}>
+                                {price.invoiceName}: {price.rate == null ? "-" : price.rate.toFixed(2)}
+                              </div>
+                            ))
+                          : item.prRate == null
+                            ? "-"
+                            : item.prRate.toFixed(2)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {item.ssrPrices.length > 1
+                          ? item.ssrPrices.map((price) => (
+                              <div key={price.invoiceName}>
+                                {price.invoiceName}: {price.rate == null ? "-" : price.rate.toFixed(2)}
+                              </div>
+                            ))
+                          : item.ssrRate == null
+                            ? "-"
+                            : item.ssrRate.toFixed(2)}
+                      </TableCell>
                     </TableRow>
                   ))
                 )}
@@ -468,9 +588,13 @@ function PurchaseInvoicePriceTallyDetails({
   );
 }
 
-function buildItemMatchRows(pr: PurchaseReceiptRow | PurchaseReceiptRow[], ssr: SupplierStockReturnRow | null) {
+function buildItemMatchRows(
+  pr: PurchaseReceiptRow | PurchaseReceiptRow[],
+  ssr: SupplierStockReturnRow | SupplierStockReturnRow[] | null,
+) {
   if (!ssr) return [];
   const purchaseReceipts = Array.isArray(pr) ? pr : [pr];
+  const stockReturns = Array.isArray(ssr) ? ssr : [ssr];
   const prTotals = new Map<string, { itemName: string | null; qty: number }>();
   const ssrTotals = new Map<string, { itemName: string | null; qty: number }>();
 
@@ -483,12 +607,14 @@ function buildItemMatchRows(pr: PurchaseReceiptRow | PurchaseReceiptRow[], ssr: 
       });
     }
   }
-  for (const item of ssr.items) {
-    const current = ssrTotals.get(item.itemCode);
-    ssrTotals.set(item.itemCode, {
-      itemName: current?.itemName ?? item.itemName,
-      qty: (current?.qty ?? 0) + item.qty,
-    });
+  for (const stockReturn of stockReturns) {
+    for (const item of stockReturn.items) {
+      const current = ssrTotals.get(item.itemCode);
+      ssrTotals.set(item.itemCode, {
+        itemName: current?.itemName ?? item.itemName,
+        qty: (current?.qty ?? 0) + item.qty,
+      });
+    }
   }
 
   return Array.from(new Set([...prTotals.keys(), ...ssrTotals.keys()]))
@@ -848,6 +974,77 @@ function PurchaseReceiptPicker({
     </Popover>
   );
 }
+
+function SupplierStockReturnPicker({
+  value,
+  disabled,
+  supplierStockReturns,
+  onChange,
+}: {
+  value: string;
+  disabled: boolean;
+  supplierStockReturns: SupplierStockReturnRow[];
+  onChange: (value: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const selected = supplierStockReturns.find((row) => `${row.companyId}:${row.name}` === value) ?? null;
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          disabled={disabled}
+          className="h-auto min-h-9 w-full justify-between gap-2 px-3 py-2 text-left font-normal"
+        >
+          <span className="min-w-0">
+            {selected ? (
+              <>
+                <span className="block truncate font-medium">{selected.name}</span>
+                <span className="block truncate text-xs text-muted-foreground">
+                  {selected.supplierName ?? selected.supplier} - {selected.companyName}
+                </span>
+              </>
+            ) : (
+              <span className="text-muted-foreground">Search supplier stock return</span>
+            )}
+          </span>
+          <ChevronsUpDown className="size-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[min(520px,calc(100vw-2rem))] border-border/70 p-0" align="start">
+        <Command>
+          <CommandInput placeholder="Search SSR, supplier, company..." />
+          <CommandList>
+            <CommandEmpty>No supplier stock return found.</CommandEmpty>
+            <CommandGroup>
+              {supplierStockReturns.map((ssr) => (
+                <CommandItem
+                  key={`${ssr.companyId}:${ssr.name}`}
+                  value={[ssr.name, ssr.supplier, ssr.supplierName, ssr.companyName].filter(Boolean).join(" ")}
+                  onSelect={() => {
+                    onChange(`${ssr.companyId}:${ssr.name}`);
+                    setOpen(false);
+                  }}
+                >
+                  <div className="min-w-0">
+                    <div className="truncate font-medium">{ssr.name}</div>
+                    <div className="truncate text-xs text-muted-foreground">
+                      {ssr.supplierName ?? ssr.supplier} - {ssr.companyName}
+                    </div>
+                  </div>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
 export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) {
   const [data, setData] = useState<PageData>({
     purchaseReceipts: [],
@@ -859,6 +1056,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
   const [search, setSearch] = useState("");
   const [companyFilter, setCompanyFilter] = useState("all");
   const [ssrSearch, setSsrSearch] = useState("");
+  const [multipleSsrSearch, setMultipleSsrSearch] = useState("");
   const [ssrStatusFilter, setSsrStatusFilter] = useState<SsrStatusFilter>("all");
   const [stageFilter, setStageFilter] = useState<GrnStageFilter>(() => ({
     stage: firstAllowedStage(permissions),
@@ -872,6 +1070,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
   const [dateRange, setDateRange] = useState(() => getCurrentMonthRange());
   const [selectedPrBySsr, setSelectedPrBySsr] = useState<Record<string, string>>({});
   const [additionalPrBySsr, setAdditionalPrBySsr] = useState<Record<string, string>>({});
+  const [additionalSsrByPr, setAdditionalSsrByPr] = useState<Record<string, string>>({});
   const [selectedPr, setSelectedPr] = useState<PurchaseReceiptRow | null>(null);
   const [selectedPrFocus, setSelectedPrFocus] = useState<PrDialogFocus>(null);
   const [selectedSsr, setSelectedSsr] = useState<SupplierStockReturnRow | null>(null);
@@ -1010,6 +1209,24 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
     [activeIntercompanyPurchaseReceipts, intercompanySupplierRuleForSupplier, purchaseReceiptByKey],
   );
 
+  const supplierStockReturnOptionsForPr = useCallback(
+    (row: PurchaseReceiptRow) => {
+      const linkedNames = new Set(row.adjustmentNos);
+      return data.supplierStockReturns
+        .filter(
+          (stockReturn) =>
+            stockReturn.docstatus === 1 &&
+            !stockReturn.isCancelled &&
+            stockReturn.companyId === row.companyId &&
+            !linkedNames.has(stockReturn.name) &&
+            Boolean(intercompanySupplierRuleForSupplier(stockReturn.supplier, stockReturn.supplierName)) &&
+            (stockReturn.matchRecommendation?.percentage ?? 0) < 100,
+        )
+        .sort((a, b) => a.name.localeCompare(b.name));
+    },
+    [data.supplierStockReturns, intercompanySupplierRuleForSupplier],
+  );
+
   const purchaseReceiptByName = useMemo(
     () => new Map(data.purchaseReceipts.map((row) => [row.name, row])),
     [data.purchaseReceipts],
@@ -1020,16 +1237,56 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
     [data.supplierStockReturns],
   );
 
+  const linkedStockReturnsForPr = useCallback(
+    (row: PurchaseReceiptRow) =>
+      row.adjustmentNos
+        .map((name) => supplierStockReturnByName.get(name) ?? null)
+        .filter(
+          (stockReturn): stockReturn is SupplierStockReturnRow =>
+            stockReturn !== null && stockReturn.companyId === row.companyId,
+        ),
+    [supplierStockReturnByName],
+  );
+
+  const linkedPurchaseReceiptsForPr = useCallback(
+    (row: PurchaseReceiptRow) => {
+      const names = new Set([row.name]);
+      for (const stockReturn of linkedStockReturnsForPr(row)) {
+        for (const name of stockReturn.purchaseReceiptNames) names.add(name);
+      }
+      return [...names]
+        .map((name) => purchaseReceiptByKey.get(`${row.companyId}:${name}`) ?? purchaseReceiptByName.get(name) ?? null)
+        .filter((receipt): receipt is PurchaseReceiptRow => Boolean(receipt));
+    },
+    [linkedStockReturnsForPr, purchaseReceiptByKey, purchaseReceiptByName],
+  );
+
+  const priceTallyRowsForPr = useCallback(
+    (row: PurchaseReceiptRow) =>
+      buildPriceTallyRows(linkedStockReturnsForPr(row), linkedPurchaseReceiptsForPr(row)),
+    [linkedPurchaseReceiptsForPr, linkedStockReturnsForPr],
+  );
+
+  const hasPriceMismatchForPr = useCallback(
+    (row: PurchaseReceiptRow) => priceTallyRowsForPr(row).some((priceRow) => priceRow.issue),
+    [priceTallyRowsForPr],
+  );
+
+  const priceIssueCountForPr = useCallback(
+    (row: PurchaseReceiptRow) => priceTallyRowsForPr(row).filter((priceRow) => priceRow.issue).length,
+    [priceTallyRowsForPr],
+  );
 
 
-  const selectedPrStockReturn = selectedPr?.adjustmentNo
-    ? supplierStockReturnByName.get(selectedPr.adjustmentNo) ?? null
-    : null;
+
+  const selectedPrStockReturns = selectedPr ? linkedStockReturnsForPr(selectedPr) : [];
+  const selectedPrStockReturn = selectedPrStockReturns[0] ?? null;
+  const selectedPrLinkedPurchaseReceipts = selectedPr ? linkedPurchaseReceiptsForPr(selectedPr) : [];
   const selectedPrMatchRows = selectedPr
-    ? buildItemMatchRows(selectedPr, selectedPrStockReturn)
+    ? buildItemMatchRows(selectedPrLinkedPurchaseReceipts, selectedPrStockReturns)
     : [];
-  const selectedPrPriceRows = selectedPr && selectedPrStockReturn
-    ? buildPriceTallyRows(selectedPrStockReturn, selectedPr)
+  const selectedPrPriceRows = selectedPr && selectedPrStockReturns.length > 0
+    ? buildPriceTallyRows(selectedPrStockReturns, selectedPrLinkedPurchaseReceipts)
     : [];
 
   const selectedSsrPurchaseReceipt = selectedSsr?.purchaseReceiptName
@@ -1097,12 +1354,18 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
     return Boolean(row.receivedAt);
   }, []);
 
+  const rowNeedsValuingVerification = useCallback((row: PurchaseReceiptRow) => {
+    return !row.isCancelled && Boolean(row.handoverAt) && !row.handoverReceivedAt && !row.valuedAt;
+  }, []);
+
   const rowNeedsVerification = useCallback((row: PurchaseReceiptRow, stage: GrnActionStage) => {
     if (row.isCancelled) return false;
     if (stage === "handover") return Boolean(row.notReceivedAt) && !row.handoverAt;
-    if (stage === "valued") return Boolean(row.handoverAt) && !row.handoverReceivedAt && !row.valuedAt;
+    if (stage === "valued") return rowNeedsValuingVerification(row);
     return false;
-  }, []);
+  }, [rowNeedsValuingVerification]);
+
+  const rowNotReceivedByValuing = rowNeedsValuingVerification;
 
   const rowMissingIntercompanySsr = useCallback(
     (row: PurchaseReceiptRow) => {
@@ -1117,9 +1380,9 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
 
   const rowMismatchedForStage = useCallback((row: PurchaseReceiptRow, stage: GrnActionStage) => {
     if (stage === "handover") return row.tallyStatus === "issue" || rowMissingIntercompanySsr(row);
-    if (stage === "valued") return hasPriceMismatch(row);
+    if (stage === "valued") return hasPriceMismatchForPr(row);
     return false;
-  }, [rowMissingIntercompanySsr]);
+  }, [hasPriceMismatchForPr, rowMissingIntercompanySsr]);
 
   const stageCardCounts = useMemo(
     () =>
@@ -1133,6 +1396,10 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
           const verify = data.purchaseReceipts.filter(
             (row) => (companyFilter === "all" || row.companyName === companyFilter) && rowNeedsVerification(row, key),
           ).length;
+          const notReceived = data.purchaseReceipts.filter(
+            (row) => (companyFilter === "all" || row.companyName === companyFilter) &&
+              key === "handover" && rowNotReceivedByValuing(row),
+          ).length;
           return [
             key,
             {
@@ -1141,11 +1408,12 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
               completed,
               mismatch,
               verify,
+              not_received: notReceived,
             },
           ];
         }),
       ) as Record<GrnActionStage, Record<GrnStageStatusFilter, number>>,
-    [allowedStageFilters, companyFilter, data.purchaseReceipts, rowBelongsToStage, rowCompletedForStage, rowMismatchedForStage, rowNeedsVerification],
+    [allowedStageFilters, companyFilter, data.purchaseReceipts, rowBelongsToStage, rowCompletedForStage, rowMismatchedForStage, rowNeedsVerification, rowNotReceivedByValuing],
   );
 
   const filteredPrs = useMemo(() => {
@@ -1161,6 +1429,8 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
       const matchesStage =
         allowedStageFilters.length === 0
           ? !row.isCancelled
+          : stageFilter.status === "not_received"
+            ? stageFilter.stage === "handover" && rowNotReceivedByValuing(row)
           : stageFilter.status === "verify"
             ? rowNeedsVerification(row, stageFilter.stage)
             : rowBelongsToStage(row, stageFilter.stage) &&
@@ -1170,7 +1440,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
           (stageFilter.status === "mismatch" && rowMismatchedForStage(row, stageFilter.stage)));
       return matchesStage;
     });
-  }, [allowedStageFilters.length, companyFilter, data.purchaseReceipts, rowBelongsToStage, rowCompletedForStage, rowMismatchedForStage, rowNeedsVerification, search, stageFilter.stage, stageFilter.status]);
+  }, [allowedStageFilters.length, companyFilter, data.purchaseReceipts, rowBelongsToStage, rowCompletedForStage, rowMismatchedForStage, rowNeedsVerification, rowNotReceivedByValuing, search, stageFilter.stage, stageFilter.status]);
 
   const fieldForStage = useCallback((stage: GrnActionStage): "handoverAt" | "valuedAt" | "receivedAt" => {
     if (stage === "handover") return "handoverAt";
@@ -1190,7 +1460,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
         return permissions.canMarkHandover && row.tallyStatus !== "issue" && !rowMissingIntercompanySsr(row);
       }
       if (stageFilter.stage === "valued") {
-        return permissions.canMarkValued && Boolean(row.handoverAt && row.handoverReceivedAt) && !hasPriceMismatch(row);
+        return permissions.canMarkValued && Boolean(row.handoverAt && row.handoverReceivedAt) && !hasPriceMismatchForPr(row);
       }
       return permissions.canMarkReceived && Boolean(row.handoverAt) && Boolean(row.valuedAt);
     },
@@ -1200,6 +1470,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
       permissions.canMarkReceived,
       permissions.canMarkValued,
       rowCompletedForStage,
+      hasPriceMismatchForPr,
       rowMissingIntercompanySsr,
       stageFilter.stage,
     ],
@@ -1293,6 +1564,24 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
     [data.supplierStockReturns, intercompanySupplierRuleForSupplier, permissions.canMatchSsr, ssrMatchesSearch],
   );
 
+  const multiLinkPrs = useMemo(() => {
+    const term = multipleSsrSearch.trim().toLowerCase();
+    return activePurchaseReceipts.filter((row) => {
+      if (row.docstatus === 2) return false;
+      const hasExistingSsrLink = row.adjustmentNos.length > 0;
+      const isIntercompanyPr =
+        hasExistingSsrLink ||
+        intercompanySupplierPrefixes.some((rule) => rule.locationId === row.companyLocationId);
+      if (!isIntercompanyPr) return false;
+      const hasCleanFullTally = row.tallyStatus === "matched" && (row.tallyPercentage ?? 0) >= 100;
+      if (hasCleanFullTally) return false;
+      if (!term) return true;
+      return [row.name, row.supplier, row.supplierName, row.companyName, ...row.adjustmentNos]
+        .filter(Boolean)
+        .some((value) => value!.toLowerCase().includes(term));
+    });
+  }, [activePurchaseReceipts, intercompanySupplierPrefixes, multipleSsrSearch]);
+
   const prPageCount = Math.max(1, Math.ceil(filteredPrs.length / prPageSize));
   const ssrPageCount = Math.max(1, Math.ceil(filteredSsrs.length / ssrPageSize));
   const paginatedPrs = useMemo(
@@ -1336,7 +1625,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
     if (stageFilter.status !== "mismatch") return null;
     if (stageFilter.stage === "handover" && row.tallyStatus === "issue") return "item-mismatch";
     if (stageFilter.stage === "handover" && rowMissingIntercompanySsr(row)) return "missing-ssr";
-    if (stageFilter.stage === "valued" && hasPriceMismatch(row)) return "price-mismatch";
+    if (stageFilter.stage === "valued" && hasPriceMismatchForPr(row)) return "price-mismatch";
     return null;
   }
 
@@ -1538,6 +1827,92 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
     }
   }
 
+  async function appendPrSupplierStockReturn(row: PurchaseReceiptRow) {
+    if (!permissions.canMatchSsr) {
+      notify.error("You do not have permission to match SSRs");
+      return;
+    }
+    const key = `${row.companyId}:${row.name}`;
+    const selectedSsrKey = additionalSsrByPr[key] || "";
+    const separatorIndex = selectedSsrKey.indexOf(":");
+    const stockReturnCompanyId = separatorIndex >= 0 ? selectedSsrKey.slice(0, separatorIndex) : undefined;
+    const stockReturnName = separatorIndex >= 0 ? selectedSsrKey.slice(separatorIndex + 1) : selectedSsrKey;
+    if (!stockReturnName || !stockReturnCompanyId) {
+      notify.error("Select another supplier stock return first");
+      return;
+    }
+    setBusyKey(`append-ssr-link:${key}`);
+    try {
+      const res = await fetch(
+        `/api/admin/purchasing/grn/supplier-stock-returns/${encodeURIComponent(stockReturnName)}/link`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            mode: "append",
+            purchaseReceiptName: row.name,
+            companyId: stockReturnCompanyId,
+            purchaseReceiptCompanyId: row.companyId,
+          }),
+        },
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || "Failed to add supplier stock return link");
+      }
+      setAdditionalSsrByPr((previous) => {
+        const next = { ...previous };
+        delete next[key];
+        return next;
+      });
+      await loadData();
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : "Failed to add supplier stock return link");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function removePrSupplierStockReturn(row: PurchaseReceiptRow, stockReturnName: string) {
+    if (!permissions.canMatchSsr) {
+      notify.error("You do not have permission to match SSRs");
+      return;
+    }
+    const stockReturn = data.supplierStockReturns.find(
+      (candidate) => candidate.companyId === row.companyId && candidate.name === stockReturnName,
+    );
+    if (!stockReturn) {
+      notify.error("Supplier stock return not found in the current data range");
+      return;
+    }
+    const key = `${row.companyId}:${row.name}`;
+    setBusyKey(`remove-ssr-link:${key}:${stockReturnName}`);
+    try {
+      const res = await fetch(
+        `/api/admin/purchasing/grn/supplier-stock-returns/${encodeURIComponent(stockReturnName)}/link`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            mode: "remove",
+            purchaseReceiptName: row.name,
+            companyId: stockReturn.companyId,
+            purchaseReceiptCompanyId: row.companyId,
+          }),
+        },
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || "Failed to remove supplier stock return link");
+      }
+      await loadData();
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : "Failed to remove supplier stock return link");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
   async function unlinkSsr(row: SupplierStockReturnRow) {
     if (!permissions.canMatchSsr) {
       notify.error("You do not have permission to match SSRs");
@@ -1576,6 +1951,13 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
     if (dateRange.from) params.set("from", dateRange.from);
     if (dateRange.to) params.set("to", dateRange.to);
     window.location.href = `/api/admin/purchasing/grn/export?${params.toString()}`;
+  }
+
+  function downloadIntercompanyReport() {
+    const params = new URLSearchParams();
+    if (dateRange.from) params.set("from", dateRange.from);
+    if (dateRange.to) params.set("to", dateRange.to);
+    window.location.href = `/api/admin/purchasing/grn/intercompany-export?${params.toString()}`;
   }
 
   return (
@@ -1618,6 +2000,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
           <TabsTrigger value="grn">GRN table</TabsTrigger>
           <TabsTrigger value="ssr">SSR matcher</TabsTrigger>
           <TabsTrigger value="multi">Multiple PR links</TabsTrigger>
+          <TabsTrigger value="multi-ssr">Multiple SSR links</TabsTrigger>
         </TabsList>
 
         <TabsContent value="grn" className="space-y-4 rounded-lg border bg-card/60 p-4 md:p-6">
@@ -1636,7 +2019,14 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                     {(
                       key === "received"
                         ? (["all", "pending", "completed"] as const)
-                        : (["all", "pending", "completed", "mismatch", "verify"] as const)
+                      : ([
+                          "all",
+                          "pending",
+                          "completed",
+                          "mismatch",
+                          "verify",
+                          ...(key === "handover" ? (["not_received"] as const) : []),
+                        ] as const)
                     ).map((status) => {
                       const active = stageFilter.stage === key && stageFilter.status === status;
                       return (
@@ -1652,7 +2042,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                           onClick={() => setStageFilter({ stage: key, status })}
                         >
                           <div className="truncate text-xs font-medium capitalize text-muted-foreground">
-                            {status}
+                            {status === "not_received" ? "Not received" : status}
                           </div>
                           <div className="text-xl font-semibold leading-tight">
                             {stageCardCounts[key]?.[status] ?? 0}
@@ -1667,7 +2057,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
           )}
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <h2 className="text-lg font-semibold">Purchase receipts</h2>
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
               <select
                 className="h-9 rounded-md border border-input bg-background px-3 text-sm"
                 value={companyFilter}
@@ -1694,6 +2084,10 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
               <Button type="button" variant="outline" onClick={() => downloadGrnExport("pdf")}>
                 <FileDown className="size-4" />
                 PDF
+              </Button>
+              <Button type="button" variant="outline" onClick={downloadIntercompanyReport}>
+                <FileDown className="size-4" />
+                Export intercompany report
               </Button>
             </div>
           </div>
@@ -1818,7 +2212,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                       {row.amendedFrom && (
                         <div className="text-xs text-muted-foreground">Amended from {row.amendedFrom}</div>
                       )}
-                      {(itemIssueCount(row) > 0 || priceIssueCount(row) > 0 || rowMissingIntercompanySsr(row)) && (
+                      {(itemIssueCount(row) > 0 || priceIssueCountForPr(row) > 0 || rowMissingIntercompanySsr(row)) && (
                         <div className="mt-1 flex flex-wrap gap-1">
                           {rowMissingIntercompanySsr(row) && (
                             <button
@@ -1844,7 +2238,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                               {itemIssueCount(row)} item issue{itemIssueCount(row) === 1 ? "" : "s"}
                             </button>
                           )}
-                          {priceIssueCount(row) > 0 && (
+                          {priceIssueCountForPr(row) > 0 && (
                             <button
                               type="button"
                               className="rounded bg-amber-500/10 px-1.5 py-0.5 text-xs font-medium text-amber-800"
@@ -1853,15 +2247,30 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                                 openPurchaseReceipt(row, "price-mismatch");
                               }}
                             >
-                              {priceIssueCount(row)} price issue{priceIssueCount(row) === 1 ? "" : "s"}
+                              {priceIssueCountForPr(row)} price issue{priceIssueCountForPr(row) === 1 ? "" : "s"}
                             </button>
                           )}
                         </div>
                       )}
                     </TableCell>
                     <TableCell>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span>{row.adjustmentNo ?? "-"}</span>
+                      <div className="flex flex-col gap-1">
+                        {row.adjustmentNos.length > 0 ? row.adjustmentNos.map((name) => (
+                          <button
+                            key={name}
+                            type="button"
+                            className="w-fit text-left text-primary underline-offset-4 hover:underline"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              const stockReturn = supplierStockReturnByName.get(name);
+                              if (stockReturn) setSelectedSsr(stockReturn);
+                            }}
+                          >
+                            {name}
+                          </button>
+                        )) : (
+                          <span>-</span>
+                        )}
                         {row.adjustmentDocstatus === 2 && <CancelledBadge />}
                       </div>
                     </TableCell>
@@ -1916,7 +2325,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                       </TableCell>
                     )}
                     <TableCell>
-                      <PurchaseInvoiceStatusBadge row={row} />
+                  <PurchaseInvoiceStatusBadge row={linkedPurchaseReceiptsForPr(row)} />
                     </TableCell>
                     {permissions.canViewReceived && (
                       <TableCell>
@@ -2454,6 +2863,136 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
           </div>
         </div>
         </TabsContent>
+
+        <TabsContent value="multi-ssr" className="space-y-4 rounded-lg border bg-card/60 p-4 md:p-6">
+          <div id="multiple-ssr-links" className="space-y-3 scroll-mt-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <h3 className="text-base font-semibold">Multiple SSR links</h3>
+                <p className="text-sm text-muted-foreground">
+                  Add or remove SSRs for a PR here. Links are manual and the combined tally uses every linked SSR.
+                </p>
+              </div>
+              <Input
+                className="sm:w-80"
+                placeholder="Search PR, SSR, supplier"
+                value={multipleSsrSearch}
+                onChange={(event) => setMultipleSsrSearch(event.target.value)}
+              />
+            </div>
+            <div className="overflow-hidden rounded-lg border bg-background/45">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>PR No</TableHead>
+                    <TableHead>Linked SSRs</TableHead>
+                    <TableHead>Combined tally</TableHead>
+                    <TableHead>Add another SSR</TableHead>
+                    <TableHead className="w-28">Action</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {multiLinkPrs.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={5} className="h-20 text-center text-muted-foreground">
+                        No pending or mismatched intercompany PR records available for multiple SSR matching.
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    multiLinkPrs.map((row) => {
+                      const rowKey = `${row.companyId}:${row.name}`;
+                      const linkedSsrs = row.adjustmentNos
+                        .map((name) => supplierStockReturnByName.get(name) ?? null)
+                        .filter((stockReturn): stockReturn is SupplierStockReturnRow => Boolean(stockReturn));
+                      const percentage = row.tallyPercentage ?? 0;
+                      return (
+                        <TableRow key={`multi-ssr-link:${rowKey}`}>
+                          <TableCell className="font-medium">
+                            <button
+                              type="button"
+                              className="text-left text-primary underline-offset-4 hover:underline"
+                              onClick={() => setSelectedPr(row)}
+                            >
+                              {row.name}
+                            </button>
+                          </TableCell>
+                          <TableCell>
+                            <div className="space-y-1">
+                              {row.adjustmentNos.length === 0 ? (
+                                <span className="text-xs text-muted-foreground">No SSR linked</span>
+                              ) : (
+                                row.adjustmentNos.map((name) => (
+                                  <div key={name} className="flex items-center gap-2">
+                                    <button
+                                      type="button"
+                                      className="text-primary underline-offset-4 hover:underline"
+                                      onClick={() => {
+                                        const stockReturn = linkedSsrs.find((candidate) => candidate.name === name);
+                                        if (stockReturn) setSelectedSsr(stockReturn);
+                                      }}
+                                    >
+                                      {name}
+                                    </button>
+                                    <Button
+                                      type="button"
+                                      size="icon"
+                                      variant="ghost"
+                                      className="size-7"
+                                      title={`Remove ${name}`}
+                                      aria-label={`Remove ${name}`}
+                                      disabled={busyKey === `remove-ssr-link:${rowKey}:${name}`}
+                                      onClick={() => removePrSupplierStockReturn(row, name)}
+                                    >
+                                      <Trash2 className="size-3.5" />
+                                    </Button>
+                                  </div>
+                                ))
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="font-medium">{percentage.toFixed(2)}%</div>
+                            <div className="text-xs text-muted-foreground">
+                              {linkedSsrs.length} SSR{linkedSsrs.length === 1 ? "" : "s"} combined
+                            </div>
+                          </TableCell>
+                          <TableCell onClick={(event) => event.stopPropagation()}>
+                            <SupplierStockReturnPicker
+                              value={additionalSsrByPr[rowKey] ?? ""}
+                              disabled={!permissions.canMatchSsr}
+                              supplierStockReturns={supplierStockReturnOptionsForPr(row)}
+                              onChange={(value) =>
+                                setAdditionalSsrByPr((previous) => ({
+                                  ...previous,
+                                  [rowKey]: value,
+                                }))
+                              }
+                            />
+                          </TableCell>
+                          <TableCell onClick={(event) => event.stopPropagation()}>
+                            <Button
+                              type="button"
+                              size="sm"
+                              disabled={
+                                !permissions.canMatchSsr ||
+                                !additionalSsrByPr[rowKey] ||
+                                busyKey === `append-ssr-link:${rowKey}`
+                              }
+                              onClick={() => appendPrSupplierStockReturn(row)}
+                            >
+                              <Link2 className="size-4" />
+                              Add SSR
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+        </TabsContent>
       </Tabs>
 
       <Dialog
@@ -2502,20 +3041,23 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
               </div>
               <div>
                 <div className="text-xs text-muted-foreground">Adjustment No</div>
-                <div className="font-medium">{selectedPrStockReturn ? (
-                  <button
-                    type="button"
-                    className="text-primary underline-offset-4 hover:underline"
-                    onClick={() => {
-                      setSelectedPr(null);
-                      setSelectedSsr(selectedPrStockReturn);
-                    }}
-                  >
-                    {selectedPrStockReturn.name}
-                  </button>
-                ) : (
-                  selectedPr.adjustmentNo ?? "-"
-                )}</div>
+                <div className="flex flex-col items-start gap-1 font-medium">
+                  {selectedPrStockReturns.length > 0 ? selectedPrStockReturns.map((stockReturn) => (
+                    <button
+                      key={stockReturn.name}
+                      type="button"
+                      className="text-primary underline-offset-4 hover:underline"
+                      onClick={() => {
+                        setSelectedPr(null);
+                        setSelectedSsr(stockReturn);
+                      }}
+                    >
+                      {stockReturn.name}
+                    </button>
+                  )) : (
+                    selectedPr.adjustmentNo ?? "-"
+                  )}
+                </div>
                 {linkModeLabel(selectedPrStockReturn, selectedPr) && (
                   <div className="mt-1 text-xs text-muted-foreground">
                     {linkModeLabel(selectedPrStockReturn, selectedPr)}
@@ -2597,7 +3139,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
               )}
               {selectedPrStockReturn && (
                 <PurchaseInvoicePriceTallyDetails
-                  row={selectedPr}
+                  row={selectedPrLinkedPurchaseReceipts}
                   priceRows={selectedPrPriceRows}
                   defaultOpen={selectedPrFocus === "price-mismatch"}
                 />

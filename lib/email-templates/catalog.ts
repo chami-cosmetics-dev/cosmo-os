@@ -27,6 +27,7 @@ export const RECEIVABLE_NOT_DISPATCHED_DAILY_KEY = "receivable_not_dispatched_da
 export const RECEIVABLE_DELIVERY_INCOMPLETE_DAILY_KEY = "receivable_delivery_incomplete_daily";
 export const RECEIVABLE_OPERATIONS_SUMMARY_DAILY_KEY = "receivable_operations_summary_daily";
 export const SUPPLIER_PAYABLE_OUTSTANDING_DAILY_KEY = "supplier_payable_outstanding_daily";
+export const MARGIN_ISSUES_DAILY_KEY = "margin_issues_daily";
 
 export const BUILTIN_EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
   {
@@ -153,7 +154,7 @@ export const BUILTIN_EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
     automated: true,
   },
   ...[
-    [RECEIVABLE_DELIVERY_PAYMENT_PENDING_DAILY_KEY, "Receivable — delivery complete, payment pending", "Delivery complete, payment pending — {{reportDate}}", "Delivery complete, payment pending"],
+    [RECEIVABLE_DELIVERY_PAYMENT_PENDING_DAILY_KEY, "Finance receivable summary", "Finance receivable summary — {{reportDate}}", "Finance receivable summary"],
     [RECEIVABLE_NOT_DISPATCHED_DAILY_KEY, "Receivable — invoice created, not dispatched", "Invoice created, not dispatched — {{reportDate}}", "Invoice created, not dispatched"],
     [RECEIVABLE_DELIVERY_INCOMPLETE_DAILY_KEY, "Receivable — dispatched, delivery incomplete", "Dispatched, delivery incomplete — {{reportDate}}", "Dispatched, delivery incomplete"],
     [RECEIVABLE_OPERATIONS_SUMMARY_DAILY_KEY, "Receivable operations summary", "Receivable operations summary — {{reportDate}}", "Receivable operations summary"],
@@ -176,6 +177,20 @@ export const BUILTIN_EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
     recipients: "",
     ccRecipients: "",
     placeholders: ["companyName", "reportDate", "generatedAt", "summaryTableHtml", "supplierCount", "lineCount"],
+    builtin: true,
+    automated: true,
+  },
+  {
+    key: MARGIN_ISSUES_DAILY_KEY,
+    name: "Margin issues daily report",
+    subject: "Margin issues report — {{reportDate}}",
+    bodyHtml: `<p>Margin issues report for <strong>{{companyName}}</strong> on <strong>{{reportDate}}</strong>.</p>
+<p>Latest submitted purchase invoice cost compared with the ERP Standard Selling price list. The report includes margin bands by product priority and ROP fulfillment against current company-wide stock.</p>
+{{summaryTableHtml}}
+<p style="color:#666;font-size:12px;margin-top:24px;">The full SKU workings are attached as an Excel file.</p>`,
+    recipients: "",
+    ccRecipients: "",
+    placeholders: ["companyName", "reportDate", "generatedAt", "summaryTableHtml", "skuCount", "stockAvailable"],
     builtin: true,
     automated: true,
   },

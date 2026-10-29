@@ -8,7 +8,7 @@ import {
 import { ErpSyncFailureEmailSettingsForm } from "@/components/molecules/erp-sync-failure-email-settings-form";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { BUILTIN_EMAIL_TEMPLATES, GRN_PENDING_DAILY_KEY } from "@/lib/email-templates/catalog";
+import { BUILTIN_EMAIL_TEMPLATES, GRN_PENDING_DAILY_KEY, RECEIVABLE_DELIVERY_PAYMENT_PENDING_DAILY_KEY } from "@/lib/email-templates/catalog";
 import { prisma } from "@/lib/prisma";
 import { hasPermission, requirePermission } from "@/lib/rbac";
 import { ChevronLeft, Mail } from "lucide-react";
@@ -31,12 +31,13 @@ function mergeTemplates(
 
   for (const builtin of BUILTIN_EMAIL_TEMPLATES) {
     const row = byKey.get(builtin.key);
+    const forceFinanceReceivableDefaults = builtin.key === RECEIVABLE_DELIVERY_PAYMENT_PENDING_DAILY_KEY;
     out.push({
       id: row?.id ?? null,
       key: builtin.key,
-      name: row?.name ?? builtin.name,
-      subject: row?.subject ?? builtin.subject,
-      bodyHtml: row?.bodyHtml ?? builtin.bodyHtml,
+      name: forceFinanceReceivableDefaults ? builtin.name : row?.name ?? builtin.name,
+      subject: forceFinanceReceivableDefaults ? builtin.subject : row?.subject ?? builtin.subject,
+      bodyHtml: forceFinanceReceivableDefaults ? builtin.bodyHtml : row?.bodyHtml ?? builtin.bodyHtml,
       recipients: row?.recipients ?? builtin.recipients,
       ccRecipients: row?.ccRecipients ?? builtin.ccRecipients,
       placeholders: builtin.placeholders,

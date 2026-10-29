@@ -107,7 +107,11 @@ const DEFAULT_PERMISSIONS = [
   },
   {
     key: "item_creation.admin.manage",
-    description: "Create Item Creation requests and read all Item Creation statuses",
+    description: "Create Item Creation requests",
+  },
+  {
+    key: "item_creation.admin.view",
+    description: "View every Item Creation stage without edit access",
   },
   {
     key: "item_creation.admin.manage_all",
@@ -120,6 +124,10 @@ const DEFAULT_PERMISSIONS = [
   {
     key: "item_creation.digital_marketing.manage",
     description: "Manage Item Creation image and Google Drive steps",
+  },
+  {
+    key: "item_creation.digital_marketing.admin",
+    description: "Manage Digital Marketing brand allocations and request assignments",
   },
   {
     key: "item_creation.purchasing.manage",
@@ -677,6 +685,11 @@ const DEFAULT_PERMISSIONS = [
   {
     key: "outlets.read.assigned",
     description: "View and edit outlet reviews for assigned outlets only",
+  },
+  {
+    key: "consultation_insights.access",
+    description:
+      "Consultation Insights — open the physical consultation log (add, edit review, delete, export)",
   },
   {
     key: "book_notes.manage",

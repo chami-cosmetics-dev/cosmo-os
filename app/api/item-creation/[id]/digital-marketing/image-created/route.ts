@@ -7,7 +7,11 @@ export async function POST(
 ) {
   return runItemCreationAction(
     params,
-    [ITEM_CREATION_PERMISSIONS.manageAll, ITEM_CREATION_PERMISSIONS.digitalMarketing],
+    [
+      ITEM_CREATION_PERMISSIONS.manageAll,
+      ITEM_CREATION_PERMISSIONS.digitalMarketing,
+      ITEM_CREATION_PERMISSIONS.digitalMarketingAdmin,
+    ],
     (context, id, body) => markDigitalImageCreated(context, id, String((body as { imageDriveUrl?: string }).imageDriveUrl ?? "")),
     request
   );

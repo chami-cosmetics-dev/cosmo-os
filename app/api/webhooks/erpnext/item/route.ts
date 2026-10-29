@@ -4,6 +4,7 @@ import {
   findErpInstancesForWebhookSecret,
   syncItemTaxStatusFromWebhook,
 } from "@/lib/vat-status/sync-from-webhook";
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -32,10 +33,12 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const result = await syncItemTaxStatusFromWebhook({
-      instanceIds: instances.map((row) => row.id),
-      payload: unwrapErpPayload(rawPayload),
-    });
+    const result = isVaultOsDeployment()
+      ? { skipped: true, reason: "vault_os" }
+      : await syncItemTaxStatusFromWebhook({
+          instanceIds: instances.map((row) => row.id),
+          payload: unwrapErpPayload(rawPayload),
+        });
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Item tax status sync failed";

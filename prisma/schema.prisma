@@ -29,6 +29,7 @@ model Company {
   emailTemplates                  EmailTemplate[]
   employeeProfiles                EmployeeProfile[]
   failedOrderWebhooks             FailedOrderWebhook[]
+  erpGrnWebhooks                  ErpGrnWebhook[]
   auditLogs                       AuditLog[]
   invites                         Invite[]
   orders                          Order[]
@@ -111,6 +112,7 @@ model Company {
   osRegistrationCaptures          OsRegistrationCapture[]
   osRegistrationSettings          OsRegistrationSettings?
   itemCreationRequests            ItemCreationRequest[]
+  itemCreationBrandAllocations    ItemCreationBrandAllocation[]
   itemCreationStockReceipts       ItemCreationStockReceipt[]
   stockRequests                   StockRequest[]
   materialTransfers               MaterialTransfer[]
@@ -183,6 +185,7 @@ model ErpnextInstance {
   locations             CompanyLocation[]
   supplierPayableSnapshots SupplierPayableSnapshot[]
   receivableOutstandingSnapshots ReceivableOutstandingSnapshot[]
+  erpGrnWebhooks ErpGrnWebhook[]
 
   @@index([companyId])
 }
@@ -253,6 +256,33 @@ model FailedOrderWebhook {
   @@index([companyId, resolvedAt, createdAt(sort: Desc)])
   @@index([companyId, createdAt(sort: Desc)])
   @@index([companyId, resolvedAt, nextAutoRetryAt])
+}
+
+model ErpGrnWebhook {
+  id                String           @id @default(cuid())
+  companyId         String?
+  companyLocationId String?
+  erpnextInstanceId String?
+  documentType      String
+  documentName      String?
+  erpCompany        String?
+  endpoint          String
+  status            String           @default("received")
+  errorMessage      String?
+  errorStack        String?
+  rawPayload        Json
+  attemptCount      Int              @default(1)
+  lastAttemptAt     DateTime         @default(now())
+  resolvedAt        DateTime?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  company           Company?         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyLocation   CompanyLocation? @relation(fields: [companyLocationId], references: [id], onDelete: SetNull)
+  erpnextInstance   ErpnextInstance? @relation(fields: [erpnextInstanceId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, status, createdAt(sort: Desc)])
+  @@index([status, createdAt(sort: Desc)])
+  @@index([companyId, documentType, documentName])
 }
 
 model ShopifyWebhookSecret {
@@ -366,11 +396,15 @@ model ItemCreationRequest {
   gccPrice                Decimal?                            @db.Decimal(12, 2)
   addErp1OgfPrice         Boolean                             @default(false)
   country                 String
+  taxStatus               String                              @default("Vat / Non Vat")
   creationSources         Json                                @default("[\"SHOPIFY\"]")
   overallStatus           ItemCreationOverallStatus           @default(IN_PROGRESS)
   seoSetupStatus          ItemCreationSeoSetupStatus          @default(PENDING)
   seoActivationStatus     ItemCreationSeoActivationStatus     @default(LOCKED)
   digitalMarketingStatus  ItemCreationDigitalStatus           @default(PENDING)
+  digitalMarketingBrand   String?
+  digitalMarketingAssigneeId String?
+  digitalMarketingAssigneeIds Json @default("[]")
   purchasingStatus        ItemCreationPurchasingStatus        @default(LOCKED)
   storeTransferStatus     ItemCreationStoreTransferStatus     @default(PENDING)
   storeStockStatus        ItemCreationStoreStockStatus        @default(WAITING_FOR_PRICE)
@@ -427,6 +461,7 @@ model ItemCreationRequest {
   activatedBy             String?
   shopifyProductId        String?
   shopifyVariantId        String?
+  shopifyRemovalPending   Boolean                             @default(false)
   shopifyActivationStatus ItemCreationShopifyActivationStatus @default(LOCKED)
   shopifyActivatedAt      DateTime?
   shopifyActivationError  String?
@@ -435,11 +470,14 @@ model ItemCreationRequest {
   createdAt               DateTime                            @default(now())
   updatedAt               DateTime                            @updatedAt
   company                 Company                             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  digitalMarketingAssignee User?                              @relation("ItemCreationDigitalMarketingAssignee", fields: [digitalMarketingAssigneeId], references: [id], onDelete: SetNull)
   activities              ItemCreationActivity[]
   stockReceiptItems       ItemCreationStockReceiptItem[]
 
   @@index([companyId, sku])
   @@index([companyId, overallStatus])
+  @@index([companyId, digitalMarketingBrand])
+  @@index([companyId, digitalMarketingAssigneeId])
   @@index([sku])
   @@index([overallStatus])
 }
@@ -458,6 +496,21 @@ model ItemCreationActivity {
 
   @@index([itemRequestId])
   @@index([createdAt])
+}
+
+model ItemCreationBrandAllocation {
+  id        String   @id @default(cuid())
+  companyId String
+  brand     String
+  userId    String
+  userIds   Json     @default("[]")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user      User     @relation("ItemCreationBrandAllocationUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, brand])
+  @@index([companyId, userId])
 }
 
 model ItemCreationStockReceipt {
@@ -484,11 +537,11 @@ model ItemCreationStockReceipt {
 model ItemCreationStockReceiptItem {
   id             String                   @id @default(cuid())
   stockReceiptId String
-  itemRequestId  String
+  itemRequestId  String?
   itemCode       String
   qty            Decimal                  @db.Decimal(12, 3)
   stockReceipt   ItemCreationStockReceipt @relation(fields: [stockReceiptId], references: [id], onDelete: Cascade)
-  itemRequest    ItemCreationRequest      @relation(fields: [itemRequestId], references: [id], onDelete: Cascade)
+  itemRequest    ItemCreationRequest?     @relation(fields: [itemRequestId], references: [id], onDelete: Cascade)
 
   @@index([itemRequestId])
   @@index([stockReceiptId])
@@ -676,6 +729,8 @@ model User {
   riderDeliveryTasks                     RiderDeliveryTask[]            @relation("RiderDeliveryTaskRider")
   riderDeliveryTasksManualIncentive      RiderDeliveryTask[]            @relation("RiderDeliveryTaskManualIncentiveBy")
   userRoles                              UserRole[]
+  itemCreationBrandAllocations           ItemCreationBrandAllocation[] @relation("ItemCreationBrandAllocationUser")
+  itemCreationDigitalMarketingRequests   ItemCreationRequest[]          @relation("ItemCreationDigitalMarketingAssignee")
   osfUserColumnAccess                    OsfUserColumnAccess[]
   storeStockCountReportsCreated          StoreStockCountReport[]        @relation("StoreStockCountReportCreatedBy")
   storeStockCountReportsUpdated          StoreStockCountReport[]        @relation("StoreStockCountReportUpdatedBy")
@@ -958,6 +1013,7 @@ model CompanyLocation {
   shadowLocations             CompanyLocation[]            @relation("LocationShadowParent")
   profiles                    EmployeeProfile[]
   failedOrderWebhooks         FailedOrderWebhook[]
+  erpGrnWebhooks              ErpGrnWebhook[]
   grnPurchaseReceipts         GrnPurchaseReceipt[]
   grnBackfillPurchaseReceipts GrnBackfillPurchaseReceipt[]
   invites                     Invite[]
@@ -2547,6 +2603,36 @@ model OutletReview {
 
   @@index([outletId])
   @@index([orderId])
+}
+
+// ── Consultation Insights (physical consultation log) ───────────────────────
+
+/// One row per invoice. A customer added with several invoices shares one `entryId`.
+model PhysicalConsultation {
+  id                String   @id @default(cuid())
+  companyId         String
+  /// Groups the rows created by a single "Add" (one customer visit).
+  entryId           String
+  /// Calendar date stored as UTC midnight (YYYY-MM-DD).
+  consultationDate  DateTime @db.Date
+  contactNumber     String
+  invoiceNumber     String
+  customerName      String
+  /// "merchant" (online merchant user) or "showroom" (company location).
+  merchantKind      String
+  merchantUserId    String?
+  companyLocationId String?
+  /// Denormalized so the log survives renames / deleted users.
+  merchantName      String
+  physicalReview    String?
+  createdByUserId   String?
+  updatedByUserId   String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([companyId, consultationDate])
+  @@index([companyId, invoiceNumber])
+  @@index([entryId])
 }
 
 // ── Order Support File (OSF) ────────────────────────────────────────────────

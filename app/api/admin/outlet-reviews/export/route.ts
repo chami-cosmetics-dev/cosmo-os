@@ -105,6 +105,38 @@ export async function GET(request: NextRequest) {
     XLSX.utils.book_append_sheet(workbook, worksheet, toSheetName(sheet.outletName, usedSheetNames));
   }
 
+  const isStatus = (value: string, expected: "yes" | "already done") => value.trim().toLowerCase() === expected;
+  const summaryRows = exportOutlets
+    .slice()
+    .sort((first, second) => first.name.localeCompare(second.name))
+    .map(({ id: outletId, name: outletName }) => {
+      const reviews = data.reviews.filter((review) => review.outletId === outletId);
+      return {
+        Outlet: outletName,
+        "Review Requested - Yes": reviews.filter((review) => isStatus(review.reviewRequested, "yes")).length,
+        "Review Requested - Already Done": reviews.filter((review) => isStatus(review.reviewRequested, "already done")).length,
+        "Review Collected - Yes": reviews.filter((review) => isStatus(review.reviewCollected, "yes")).length,
+        "Review Collected - Already Done": reviews.filter((review) => isStatus(review.reviewCollected, "already done")).length,
+      };
+    });
+  const summaryWorksheet = XLSX.utils.json_to_sheet(summaryRows);
+  summaryWorksheet["!cols"] = [
+    { wch: 28 },
+    { wch: 24 },
+    { wch: 32 },
+    { wch: 24 },
+    { wch: 32 },
+  ];
+  const summaryRange = XLSX.utils.decode_range(summaryWorksheet["!ref"] ?? "A1");
+  const summaryHeaderStyle = { fill: { fgColor: { rgb: "17365D" } }, font: { bold: true, color: { rgb: "FFFFFF" } }, alignment: { horizontal: "center", vertical: "center", wrapText: true } };
+  for (let column = summaryRange.s.c; column <= summaryRange.e.c; column += 1) {
+    const cell = summaryWorksheet[XLSX.utils.encode_cell({ r: 0, c: column })];
+    if (cell) cell.s = summaryHeaderStyle;
+  }
+  summaryWorksheet["!freeze"] = { xSplit: 0, ySplit: 1 };
+  summaryWorksheet["!autofilter"] = { ref: XLSX.utils.encode_range(summaryRange) };
+  XLSX.utils.book_append_sheet(workbook, summaryWorksheet, "Review Summary");
+
   const today = formatAppIsoDate(new Date());
   const outletLabel = outletId && outletId !== "__all"
     ? (data.outlets.find((o) => o.id === outletId)?.name ?? "outlet").replace(/\s+/g, "-").toLowerCase()
