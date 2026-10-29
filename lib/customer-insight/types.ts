@@ -22,6 +22,8 @@ export type LoyaltyAssignmentDto = {
   assignedAt: string;
   assignedByName: string | null;
   assignedByUserId: string | null;
+  /** Present when this assignment was a manual override. */
+  reason: string | null;
 };
 
 export type LoyaltyThresholds = {
@@ -189,6 +191,8 @@ export type CustomerInsightDto = {
   canEditProfile?: boolean;
   canMarkContacted?: boolean;
   loyaltyAssignment?: LoyaltyAssignmentDto | null;
+  /** Tiers a permitted user may set without spend eligibility. */
+  manualLoyaltyTiers?: Array<"gold" | "platinum">;
   /** Spend-based Gold/Platinum action still pending (new assign or Gold→Platinum). */
   loyaltyEligibility?: LoyaltyEligibilityDto | null;
   loyaltyOutreachStatus?: LoyaltyOutreachStatus | null;

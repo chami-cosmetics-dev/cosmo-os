@@ -30,6 +30,8 @@ export type AbandonedOrdersListItem = {
   customerName: string | null;
   customerPhone: string | null;
   customerEmail: string | null;
+  /** Newest ContactMaster.lastPurchaseAt for this checkout phone. Null = never purchased / no contact. */
+  lastPurchaseAt: string | null;
   billingAddressText: string | null;
   shippingAddressText: string | null;
 

@@ -303,6 +303,11 @@ const DEFAULT_PERMISSIONS = [
       "Customer Insight: add/link a new phone number (keeps previous numbers for search and purchase history)",
   },
   {
+    key: "contacts.loyalty.manual_assign",
+    description:
+      "Customer Insight: mark Gold or Platinum on contacts who do not meet the spend limit, with a required reason",
+  },
+  {
     key: "contacts.updates.read",
     description: "View Contact Updates",
   },

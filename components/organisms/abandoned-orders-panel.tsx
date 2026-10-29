@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Pagination } from "@/components/ui/pagination";
 import { TableSkeleton } from "@/components/skeletons/table-skeleton";
 import { notify } from "@/lib/notify";
-import { APP_LOCALE, formatAppDateTime } from "@/lib/format-datetime";
+import { APP_LOCALE, formatAppDate, formatAppDateTime } from "@/lib/format-datetime";
 import type {
   AbandonedOrdersListItem,
   AbandonedOrdersPagination,
@@ -481,6 +481,12 @@ export function AbandonedOrdersPanel({
                               ) : (
                                 <div className="text-sm">Phone: —</div>
                               )}
+                              <div className="text-xs leading-snug text-muted-foreground">
+                                Last purchase{" "}
+                                {item.lastPurchaseAt
+                                  ? formatAppDate(item.lastPurchaseAt)
+                                  : "Never"}
+                              </div>
                               {item.customerEmail ? (
                                 <a
                                   href={`mailto:${item.customerEmail}`}
@@ -608,6 +614,12 @@ export function AbandonedOrdersPanel({
                 <div>
                   {selectedItem.customerName ?? "Customer"} • Total: {selectedItem.totalPrice}{" "}
                   {selectedItem.currency}
+                </div>
+                <div>
+                  Last purchase:{" "}
+                  {selectedItem.lastPurchaseAt
+                    ? formatAppDate(selectedItem.lastPurchaseAt)
+                    : "Never"}
                 </div>
                 <div>
                   <span className="font-medium text-foreground">Billing:</span>{" "}

@@ -69,6 +69,7 @@ export async function applyErpLoyaltyTierToContact(input: {
     current.loyaltyAssignedTier === next &&
     current.loyaltyOutreachStatus === "assigned";
   if (alreadyAssigned) return "unchanged";
+  const tierChanged = current.loyaltyAssignedTier !== next;
   await prisma.contactMaster.update({
     where: { id: input.contactId },
     data: {
@@ -76,6 +77,9 @@ export async function applyErpLoyaltyTierToContact(input: {
       loyaltyAssignedAt: current.loyaltyAssignedAt ?? new Date(),
       loyaltyOutreachStatus: "assigned",
       loyaltyOutreachUpdatedAt: new Date(),
+      ...(tierChanged
+        ? { loyaltyAssignedReason: null, loyaltyAssignedByUserId: null }
+        : {}),
     },
   });
   return "updated";

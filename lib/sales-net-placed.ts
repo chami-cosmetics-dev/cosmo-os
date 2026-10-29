@@ -31,14 +31,17 @@ export function isCreditNoteSale(order: { totalPrice?: unknown }): boolean {
   return Number.isFinite(amount) && amount < 0;
 }
 
+/**
+ * ERP Sales stays until Credit Note or cancel SI (OS voided / cancelledAt).
+ * Warehouse `returned_to_store` does not reverse the invoice.
+ */
 export function isReversedSale(order: {
   cancelledAt?: Date | null;
   financialStatus?: string | null;
   fulfillmentStage?: string | null;
 }): boolean {
   if (order.cancelledAt) return true;
-  if (REVERSED_STATUSES.has(normalizeStatus(order.financialStatus))) return true;
-  return RETURNED_STAGES.has(normalizeStatus(order.fulfillmentStage));
+  return REVERSED_STATUSES.has(normalizeStatus(order.financialStatus));
 }
 
 /** Cancel / return / void day — earliest timestamp we have. */

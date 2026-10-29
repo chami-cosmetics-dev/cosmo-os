@@ -93,6 +93,7 @@ import {
   splitContactName,
 } from "@/lib/customer-insight/contact-name";
 import { loyaltyProfileIncompleteMessage, getLoyaltyProfileMissingFields } from "@/lib/customer-insight/loyalty-profile-complete";
+import { ManualLoyaltyDialog } from "@/app/(dashboard)/dashboard/customer-insight/manual-loyalty-dialog";
 import { notify } from "@/lib/notify";
 import {
   DUMP_HAS_MORE_HEADER,
@@ -629,6 +630,7 @@ export function CustomerInsightPanel({
   canAddContactPhone = false,
   canManageLoyalty = false,
   canAssignLoyalty = false,
+  canManualLoyaltyOverride = false,
   initialContactId = null,
   initialEdit = false,
 }: {
@@ -638,12 +640,14 @@ export function CustomerInsightPanel({
   canAddContactPhone?: boolean;
   canManageLoyalty?: boolean;
   canAssignLoyalty?: boolean;
+  canManualLoyaltyOverride?: boolean;
   initialContactId?: string | null;
   initialEdit?: boolean;
 }) {
   const [phone, setPhone] = useState("");
   const [insightTab, setInsightTab] = useState("filters");
   const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [manualLoyaltyOpen, setManualLoyaltyOpen] = useState(false);
   const [matches, setMatches] = useState<SearchMatchDto[] | null>(null);
   const [truncated, setTruncated] = useState(false);
   const [searched, setSearched] = useState(false);
@@ -3311,11 +3315,30 @@ export function CustomerInsightPanel({
                       {insight.loyaltyAssignment ? (
                         <p className="text-xs text-muted-foreground">
                           Assigned by{" "}
-                          {insight.loyaltyAssignment.assignedByName ?? "unknown"}{" "}
+                          {insight.loyaltyAssignment.assignedByName ?? "unknown"}
                           {insight.loyaltyAssignment.assignedAt
-                            ? `· ${new Date(insight.loyaltyAssignment.assignedAt).toLocaleString()}`
+                            ? ` · ${formatAppDateTime(insight.loyaltyAssignment.assignedAt)}`
                             : ""}
                         </p>
+                      ) : null}
+                      {insight.loyaltyAssignment?.reason ? (
+                        <p className="text-xs text-muted-foreground">
+                          Reason: {insight.loyaltyAssignment.reason}
+                        </p>
+                      ) : null}
+                      {canManualLoyaltyOverride &&
+                      selectedContactId &&
+                      (insight.manualLoyaltyTiers?.length ?? 0) > 0 ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="mt-1"
+                          disabled={isBusy}
+                          onClick={() => setManualLoyaltyOpen(true)}
+                        >
+                          Mark loyalty
+                        </Button>
                       ) : null}
                       {insight.loyaltyEligibility ? (
                         <p className="text-xs font-medium text-amber-700 dark:text-amber-400">
@@ -5785,6 +5808,18 @@ export function CustomerInsightPanel({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {canManualLoyaltyOverride && selectedContactId ? (
+        <ManualLoyaltyDialog
+          open={manualLoyaltyOpen}
+          onOpenChange={setManualLoyaltyOpen}
+          contactId={selectedContactId}
+          tiers={insight?.manualLoyaltyTiers ?? []}
+          disabled={isBusy}
+          onAssigned={async () => {
+            await loadInsight(selectedContactId, invoicePage);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

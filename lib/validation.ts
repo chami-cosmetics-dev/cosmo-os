@@ -70,6 +70,7 @@ export const LIMITS = {
   packageHoldReasonName: { max: 200 },
   courierServiceName: { max: 200 },
   orderRemarkContent: { max: 2000 },
+  loyaltyReason: { min: 1, max: 200 },
   logoUrl: { max: 2048 },
   /** Manual invoice number prefix (digits), e.g. 900 → 900001 */
   manualInvoicePrefix: { min: 1, max: 12 },

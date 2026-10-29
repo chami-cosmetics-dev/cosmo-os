@@ -7,6 +7,10 @@ import type {
   FollowUpStatus,
 } from "@/lib/abandoned-orders-constants";
 import { ABANDONMENT_REASONS, FOLLOW_UP_STATUSES } from "@/lib/abandoned-orders-constants";
+import {
+  lastPurchaseAtForCheckoutPhones,
+  lookupLastPurchaseAtByPhones,
+} from "@/lib/abandoned-checkout-last-purchase";
 import type { AbandonedOrdersListItem } from "@/lib/page-data/abandoned-orders-types";
 
 type CheckoutRow = {
@@ -56,6 +60,7 @@ function toListItem(
     exactDuplicateCount?: number;
     sameDaySiblingCount?: number;
     sameDaySiblings?: AbandonedOrdersListItem["sameDaySiblings"];
+    lastPurchaseAt?: Date | null;
   }
 ): AbandonedOrdersListItem {
   return {
@@ -65,6 +70,7 @@ function toListItem(
     customerName: row.customerName,
     customerPhone: row.customerPhone,
     customerEmail: row.customerEmail,
+    lastPurchaseAt: meta?.lastPurchaseAt ? meta.lastPurchaseAt.toISOString() : null,
     billingAddressText: row.billingAddressText,
     shippingAddressText: row.shippingAddressText,
     lineItemsSummary: row.lineItemsSummary,
@@ -216,5 +222,14 @@ export async function updateAbandonedCheckoutFollowUp(input: {
     },
   });
 
-  return toListItem(updated, { exactDuplicateCount: peerIds.length });
+  const lastPurchaseByPhone = await lookupLastPurchaseAtByPhones(input.companyId, [
+    updated.customerPhone,
+  ]);
+
+  return toListItem(updated, {
+    exactDuplicateCount: peerIds.length,
+    lastPurchaseAt: lastPurchaseAtForCheckoutPhones(lastPurchaseByPhone, [
+      updated.customerPhone,
+    ]),
+  });
 }

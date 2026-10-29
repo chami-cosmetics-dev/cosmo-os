@@ -83,6 +83,24 @@ describe("salesNetContribution", () => {
     ).toEqual({ signedAmount: -32215, includeInCount: 0 });
   });
 
+  it("keeps returned_to_store on the place day until voided", () => {
+    const returned = order({
+      created: "2026-10-06T04:00:00.000Z",
+      total: 9500,
+      status: "pending",
+      stage: "returned_to_store",
+      stageAt: "2026-10-15T08:00:00.000Z",
+    });
+    expect(salesNetContribution(returned, "2026-10-06", "2026-10-06")).toEqual({
+      signedAmount: 9500,
+      includeInCount: 1,
+    });
+    expect(salesNetContribution(returned, "2026-10-15", "2026-10-15")).toEqual({
+      signedAmount: 0,
+      includeInCount: 0,
+    });
+  });
+
   it("does not deduct a live order that only has a solved return ticket", () => {
     expect(
       salesNetContribution(
