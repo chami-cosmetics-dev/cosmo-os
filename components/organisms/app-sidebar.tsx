@@ -39,6 +39,7 @@ import {
   ClipboardCheck,
   BellRing,
   ArrowLeftRight,
+  Target,
 } from "lucide-react";
 import { usePathname } from "next/navigation";
 import {
@@ -134,7 +135,10 @@ export function AppSidebar({
     hasSidebarPermission("purchasing.market_prices.read") ||
     hasSidebarPermission("purchasing.market_prices.manage");
   const canViewGrn = hasSidebarPermission("purchasing.grn.read");
+  // Sales Budget: no permission gate yet.
+  const canViewSalesBudget = true;
   const canViewPurchasing =
+    canViewSalesBudget ||
     canViewOsf ||
     canViewPurchasingTools ||
     canViewPurchaseHistory ||
@@ -701,6 +705,14 @@ export function AppSidebar({
                   icon={ReceiptText}
                   label="GRN"
                   isActive={pathname === "/dashboard/purchasing/grn"}
+                />
+              )}
+              {canViewSalesBudget && (
+                <NavItem
+                  href="/dashboard/purchasing/sales-budget"
+                  icon={Target}
+                  label="Sales Budget"
+                  isActive={pathname === "/dashboard/purchasing/sales-budget"}
                 />
               )}
             </SidebarGroupContent>

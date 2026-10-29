@@ -115,6 +115,7 @@ model Company {
   stockRequests                   StockRequest[]
   materialTransfers               MaterialTransfer[]
   shopItemRequests                ShopItemRequest[]
+  salesBudgetSnapshots            SalesBudgetSnapshot[]
   riderFinanceCashReceipts        RiderFinanceCashReceipt[]
   giftVoucherGroups               GiftVoucherGroup[]
   giftVoucherCodes                GiftVoucherCode[]
@@ -625,6 +626,7 @@ model User {
   materialTransfersCreated               MaterialTransfer[]             @relation("MaterialTransferCreatedBy")
   shopItemRequestsCreated                ShopItemRequest[]              @relation("ShopItemRequestCreatedBy")
   shopItemRequestsDone                   ShopItemRequest[]              @relation("ShopItemRequestDoneBy")
+  salesBudgetSnapshotsSaved              SalesBudgetSnapshot[]          @relation("SalesBudgetSnapshotSavedBy")
   materialTransfersReceived              MaterialTransfer[]             @relation("MaterialTransferReceivedBy")
   materialTransferLinesCounted           MaterialTransferLine[]         @relation("MaterialTransferLineCountedBy")
   invitesSent                            Invite[]                       @relation("InvitedBy")
@@ -3166,6 +3168,24 @@ model ShopItemRequest {
 
   @@index([companyId, status, createdAt(sort: Desc)])
   @@index([companyId, outletName, status, createdAt(sort: Desc)])
+}
+
+/// Saved Sales Budget for one month, frozen when saved (like the report snapshots): every
+/// merchant / shop line + the user edits as JSON. Download builds the Excel from it.
+model SalesBudgetSnapshot {
+  id            String   @id @default(cuid())
+  companyId     String
+  /// Budget month, YYYY-MM (saved during the month before).
+  targetMonth   String
+  /// { sections: the Export sheets' lines, edits: the edited Budgeted Qty cells }.
+  snapshot      Json
+  lastUpdatedAt DateTime @default(now())
+  lastSavedById String?
+  createdAt     DateTime @default(now())
+  company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  lastSavedBy   User?    @relation("SalesBudgetSnapshotSavedBy", fields: [lastSavedById], references: [id], onDelete: SetNull)
+
+  @@unique([companyId, targetMonth])
 }
 
 model ShopItemRequestLine {
