@@ -1,5 +1,6 @@
 import type { Prisma } from "@prisma/client";
 
+import { orderMatchesDashboardCoupon } from "@/lib/dashboard-coupon-filter";
 import {
   buildWholesaleOwnerMap,
   dashboardMerchantRowKey,
@@ -68,6 +69,7 @@ export async function fetchDashboardBrandSales(
     toYmd: string;
     dateType: DashboardSalesDateType;
     locationId?: string;
+    couponCode?: string | null;
   },
 ): Promise<DashboardBrandSalesResult> {
   const fromDate = parseDayStartUtc(params.fromYmd);
@@ -167,6 +169,7 @@ export async function fetchDashboardBrandSales(
 
   for (const order of orders) {
     if (!isDashboardSalesOrderEligible(order, params.dateType)) continue;
+    if (!orderMatchesDashboardCoupon(order, params.couponCode)) continue;
 
     // Determine merchant for this order
     let merchant: { id: string | null; name: string } | null = null;

@@ -35,7 +35,7 @@ export function DashboardCosmeticsLkDrilldownSheet({
   onOpenChange: (open: boolean) => void;
   locationName: string;
 }) {
-  const { fromDate, toDate, dateType, filterInfo } = useDashboardOverview();
+  const { fromDate, toDate, dateType, couponCode, filterInfo } = useDashboardOverview();
   const [data, setData] = useState<CosmeticsLkDrilldown | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -51,6 +51,7 @@ export function DashboardCosmeticsLkDrilldownSheet({
         to: toDate,
         date_type: dateType,
       });
+      if (couponCode) params.set("coupon_code", couponCode);
       const res = await fetch(
         `/api/admin/dashboard/cosmetics-lk-drilldown?${params.toString()}`,
       );
@@ -69,7 +70,7 @@ export function DashboardCosmeticsLkDrilldownSheet({
     } finally {
       if (id === fetchIdRef.current) setLoading(false);
     }
-  }, [dateType, fromDate, toDate]);
+  }, [couponCode, dateType, fromDate, toDate]);
 
   // Load on open and whenever the dashboard filters move while open, so the
   // panel never shows figures from a different range than the card behind it.

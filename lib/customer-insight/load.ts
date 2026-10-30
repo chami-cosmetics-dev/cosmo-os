@@ -2,6 +2,10 @@ import { adaptLineItemsForPurchaseUi } from "@/lib/adapt-import/line-items";
 import { listContactEmails, listContactPhones } from "@/lib/contact-identifiers";
 import { buildContactOrderLookupOr } from "@/lib/contact-purchase-lookup";
 import { brandFromAdaptLineItem, brandFromVendorName } from "@/lib/customer-insight/brand";
+import {
+  insightCatalogLabelsBySku,
+  insightLineCatalogLabels,
+} from "@/lib/customer-insight/line-catalog";
 import { getLastContactedAt } from "@/lib/customer-insight/contacted";
 import { resolveInsightPhoneCluster } from "@/lib/customer-insight/phone-contact-collapse";
 import { canonicalPhoneForErpCustomerId } from "@/lib/phone-lookup";
@@ -40,6 +44,7 @@ import type { CustomerInsightDto, InvoiceLineDto } from "@/lib/customer-insight/
 import { getOrderDiscountCouponCode } from "@/lib/order-discount-coupon";
 import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
 import { prisma } from "@/lib/prisma";
+import { skuKey } from "@/lib/vat-status/types";
 
 /**
  * When admin passes viewAsMerchant, ownership/visibility use that merchant's
@@ -215,6 +220,10 @@ export async function loadCustomerInsight(input: {
                     productTitle: true,
                     variantTitle: true,
                     sku: true,
+                    erp1ProductPriority: true,
+                    erp2ProductPriority: true,
+                    erp1TaxStatus: true,
+                    erp2TaxStatus: true,
                     vendor: { select: { name: true } },
                   },
                 },
@@ -310,6 +319,35 @@ export async function loadCustomerInsight(input: {
   const lastPurchaseAt =
     purchaseDates.length > 0 ? new Date(Math.max(...purchaseDates)) : null;
 
+  const adaptSkus = new Set<string>();
+  for (const row of historyAdaptRows) {
+    for (const line of adaptLineItemsForPurchaseUi(row.lineItems)) {
+      const sku = line.sku?.trim();
+      if (sku) adaptSkus.add(sku);
+    }
+  }
+  const adaptCatalogRows =
+    adaptSkus.size > 0
+      ? await prisma.productItem.findMany({
+          where: {
+            companyId: input.companyId,
+            status: { not: "archived" },
+            OR: [...adaptSkus].map((sku) => ({
+              sku: { equals: sku, mode: "insensitive" as const },
+            })),
+          },
+          orderBy: { updatedAt: "desc" },
+          select: {
+            sku: true,
+            erp1ProductPriority: true,
+            erp2ProductPriority: true,
+            erp1TaxStatus: true,
+            erp2TaxStatus: true,
+          },
+        })
+      : [];
+  const adaptCatalogBySku = insightCatalogLabelsBySku(adaptCatalogRows);
+
   const seriesEvents = [
     ...historyOrders.map((o) => ({
       date: o.createdAt,
@@ -345,15 +383,20 @@ export async function loadCustomerInsight(input: {
 
   const paged = mergeAndPaginateInvoices({
     orders: historyOrders.map((o) => {
-      const lineItems: InvoiceLineDto[] = o.lineItems.map((li) => ({
-        id: li.id,
-        productTitle: li.productItem.productTitle,
-        variantTitle: li.productItem.variantTitle,
-        sku: li.productItem.sku,
-        quantity: li.quantity,
-        price: li.price.toString(),
-        brand: brandFromVendorName(li.productItem.vendor?.name),
-      }));
+      const lineItems: InvoiceLineDto[] = o.lineItems.map((li) => {
+        const labels = insightLineCatalogLabels(li.productItem);
+        return {
+          id: li.id,
+          productTitle: li.productItem.productTitle,
+          variantTitle: li.productItem.variantTitle,
+          sku: li.productItem.sku,
+          quantity: li.quantity,
+          price: li.price.toString(),
+          brand: brandFromVendorName(li.productItem.vendor?.name),
+          priority: labels.priority,
+          vatStatus: labels.vatStatus,
+        };
+      });
       return {
         id: o.id,
         createdAt: o.createdAt,
@@ -389,15 +432,20 @@ export async function loadCustomerInsight(input: {
     adaptRows: historyAdaptRows.map((r) => {
       const rawItems = Array.isArray(r.lineItems) ? r.lineItems : [];
       const lineItems: InvoiceLineDto[] = adaptLineItemsForPurchaseUi(r.lineItems).map(
-        (li, idx) => ({
-          id: li.id,
-          productTitle: li.productTitle,
-          variantTitle: li.variantTitle,
-          sku: li.sku,
-          quantity: li.quantity,
-          price: li.price,
-          brand: brandFromAdaptLineItem(rawItems[idx] ?? null),
-        })
+        (li, idx) => {
+          const labels = li.sku ? adaptCatalogBySku.get(skuKey(li.sku)) : undefined;
+          return {
+            id: li.id,
+            productTitle: li.productTitle,
+            variantTitle: li.variantTitle,
+            sku: li.sku,
+            quantity: li.quantity,
+            price: li.price,
+            brand: brandFromAdaptLineItem(rawItems[idx] ?? null),
+            priority: labels?.priority ?? null,
+            vatStatus: labels?.vatStatus ?? null,
+          };
+        },
       );
       return {
         id: r.id,

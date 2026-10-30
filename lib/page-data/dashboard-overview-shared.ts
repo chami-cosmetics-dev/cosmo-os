@@ -127,6 +127,7 @@ export type DashboardOverviewInitialState = {
   analysisType: "merchant" | "gateway";
   lastUpdatedAt: number;
   filterSummaries?: DashboardFilterSummary[];
+  couponCodes?: string[];
   salesLocations: Array<{
     id: string;
     name: string;

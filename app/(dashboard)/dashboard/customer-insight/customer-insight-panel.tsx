@@ -106,6 +106,7 @@ import {
   parseDumpFlagHeader,
   parseDumpTotalHeader,
 } from "@/lib/reports/dump-download";
+import { priorityLabelClass } from "@/components/organisms/item-trends/priority-label";
 import { cn } from "@/lib/utils";
 
 const CHART_BLUE = "#3b82f6";
@@ -140,6 +141,51 @@ function formatAmount(value: string | number, currency?: string | null) {
     maximumFractionDigits: 2,
   });
   return currency ? `${formatted} ${currency}` : formatted;
+}
+
+function vatStatusBadgeClass(status: string) {
+  const key = status.trim().toLowerCase().replace(/[_-]+/g, " ");
+  if (key === "vat") {
+    return "bg-emerald-500/25 text-emerald-800 ring-emerald-500/60 dark:bg-emerald-400/25 dark:text-emerald-100";
+  }
+  if (key === "non vat" || key === "nonvat") {
+    return "bg-slate-500/20 text-slate-800 ring-slate-500/50 dark:bg-slate-400/20 dark:text-slate-100";
+  }
+  return "bg-amber-500/25 text-amber-800 ring-amber-500/60 dark:bg-amber-400/25 dark:text-amber-100";
+}
+
+function LineCatalogBadges({
+  priority,
+  vatStatus,
+}: {
+  priority?: string | null;
+  vatStatus?: string | null;
+}) {
+  if (!priority && !vatStatus) return null;
+  return (
+    <div className="mt-1.5 flex flex-wrap gap-1">
+      {priority ? (
+        <span
+          className={cn(
+            "inline-flex max-w-full truncate rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ring-inset",
+            priorityLabelClass(priority),
+          )}
+        >
+          {priority}
+        </span>
+      ) : null}
+      {vatStatus ? (
+        <span
+          className={cn(
+            "inline-flex max-w-full truncate rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ring-inset",
+            vatStatusBadgeClass(vatStatus),
+          )}
+        >
+          {vatStatus}
+        </span>
+      ) : null}
+    </div>
+  );
 }
 
 function formatChartAxis(value: number) {
@@ -3881,6 +3927,10 @@ export function CustomerInsightPanel({
                                           .filter(Boolean)
                                           .join(" • ") || "Standard item"}
                                       </p>
+                                      <LineCatalogBadges
+                                        priority={item.priority}
+                                        vatStatus={item.vatStatus}
+                                      />
                                       <p className="mt-1 text-xs">
                                         Qty {item.quantity}
                                         <span className="text-muted-foreground">
