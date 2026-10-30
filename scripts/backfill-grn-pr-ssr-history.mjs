@@ -69,6 +69,15 @@ function nullIfBlank(value) {
   return trimmed && trimmed.toLowerCase() !== "none" ? trimmed : null;
 }
 
+function erpCompanyFromRawPayload(rawPayload) {
+  if (!rawPayload || typeof rawPayload !== "object" || Array.isArray(rawPayload)) return null;
+  const top = rawPayload;
+  const payload = top.data && typeof top.data === "object" && !Array.isArray(top.data)
+    ? top.data
+    : top;
+  return nullIfBlank(payload.company);
+}
+
 function resolveSlots(instances) {
   const erp1 = instances.find((instance) => /erp[_\s-]*1\b/i.test(instance.label ?? ""));
   const erp2 = instances.find((instance) => /erp[_\s-]*2\b/i.test(instance.label ?? ""));
@@ -234,15 +243,19 @@ async function markMissingDocumentsDeleted(location, input, names, cutoff) {
   const [liveRows, backfillRows] = await Promise.all([
     prisma[input.liveModel].findMany({
       where: { companyId: location.companyId, deletedAt: null, ...dateScope },
-      select: { id: true, name: true },
+      select: { id: true, name: true, rawPayload: true },
     }),
     prisma[input.backfillModel].findMany({
       where: { companyId: location.companyId, deletedAt: null, ...dateScope },
-      select: { id: true, name: true },
+      select: { id: true, name: true, rawPayload: true },
     }),
   ]);
-  const missingLiveIds = liveRows.filter((row) => !sourceNames.has(row.name)).map((row) => row.id);
-  const missingBackfillIds = backfillRows.filter((row) => !sourceNames.has(row.name)).map((row) => row.id);
+  const belongsToErpCompany = (row) =>
+    erpCompanyFromRawPayload(row.rawPayload)?.toLowerCase() === location.erpnextCompany.toLowerCase();
+  const liveRowsForLocation = liveRows.filter(belongsToErpCompany);
+  const backfillRowsForLocation = backfillRows.filter(belongsToErpCompany);
+  const missingLiveIds = liveRowsForLocation.filter((row) => !sourceNames.has(row.name)).map((row) => row.id);
+  const missingBackfillIds = backfillRowsForLocation.filter((row) => !sourceNames.has(row.name)).map((row) => row.id);
   if (!dryRun) {
     const deletedAt = new Date();
     await Promise.all([
@@ -253,7 +266,7 @@ async function markMissingDocumentsDeleted(location, input, names, cutoff) {
         ? prisma[input.backfillModel].updateMany({ where: { id: { in: missingBackfillIds } }, data: { deletedAt } })
         : Promise.resolve(),
     ]);
-    const deletedNames = [...liveRows, ...backfillRows]
+    const deletedNames = [...liveRowsForLocation, ...backfillRowsForLocation]
       .filter((row) => !sourceNames.has(row.name))
       .map((row) => row.name);
     if (input.doctype === "Purchase Receipt" && deletedNames.length > 0) {
