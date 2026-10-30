@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { resolveViewerFinanceLocationIds } from "@/lib/approval-workflow";
+import { buildGrnCompanyResolver } from "@/lib/grn-company-resolver";
 import { autoMatchBackfillIntercompanyGrn, autoMatchIntercompanyGrn, bestGrnMatchForStockReturn, calculateGrnMatchPercentage, isWithinGrnMatchCreationWindow, tallyLinkedItems } from "@/lib/grn";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserContext, hasPermission, requirePermission } from "@/lib/rbac";
@@ -182,6 +183,7 @@ export async function GET(request: NextRequest) {
         ...companyScope,
         ...locationScope,
         ...stageVisibilityScope,
+        deletedAt: null,
         ...(dateFilter
           ? {
               OR: [
@@ -194,7 +196,10 @@ export async function GET(request: NextRequest) {
       orderBy: [{ creation: "desc" }, { createdAt: "desc" }],
       include: {
         items: true,
-        supplierStockReturnLinks: { include: { supplierStockReturn: { select: { name: true } } } },
+        supplierStockReturnLinks: {
+          where: { supplierStockReturn: { deletedAt: null } },
+          include: { supplierStockReturn: { select: { name: true } } },
+        },
         handoverBy: { select: { id: true, name: true, email: true } },
         handoverRevertedBy: { select: { id: true, name: true, email: true } },
         handoverReceivedBy: { select: { id: true, name: true, email: true } },
@@ -228,6 +233,7 @@ export async function GET(request: NextRequest) {
       where: {
         ...companyScope,
         ...locationScope,
+        deletedAt: null,
         ...(dateFilter
           ? {
               OR: [
@@ -240,7 +246,10 @@ export async function GET(request: NextRequest) {
       orderBy: [{ creation: "desc" }, { createdAt: "desc" }],
       include: {
         items: true,
-        supplierStockReturnLinks: { include: { supplierStockReturn: { select: { name: true } } } },
+        supplierStockReturnLinks: {
+          where: { supplierStockReturn: { deletedAt: null } },
+          include: { supplierStockReturn: { select: { name: true } } },
+        },
         company: {
           select: {
             name: true,
@@ -259,6 +268,7 @@ export async function GET(request: NextRequest) {
     prisma.grnSupplierStockReturn.findMany({
       where: {
         ...companyScope,
+        deletedAt: null,
         ...(dateFilter
           ? {
               OR: [
@@ -271,7 +281,10 @@ export async function GET(request: NextRequest) {
       orderBy: [{ creation: "desc" }, { createdAt: "desc" }],
       include: {
         items: true,
-        purchaseReceiptLinks: { include: { purchaseReceipt: { select: { name: true } } } },
+        purchaseReceiptLinks: {
+          where: { purchaseReceipt: { deletedAt: null } },
+          include: { purchaseReceipt: { select: { name: true } } },
+        },
         company: {
           select: {
             name: true,
@@ -289,6 +302,7 @@ export async function GET(request: NextRequest) {
     prisma.grnBackfillSupplierStockReturn.findMany({
       where: {
         ...companyScope,
+        deletedAt: null,
         ...(dateFilter
           ? {
               OR: [
@@ -301,7 +315,10 @@ export async function GET(request: NextRequest) {
       orderBy: [{ creation: "desc" }, { createdAt: "desc" }],
       include: {
         items: true,
-        purchaseReceiptLinks: { include: { purchaseReceipt: { select: { name: true } } } },
+        purchaseReceiptLinks: {
+          where: { purchaseReceipt: { deletedAt: null } },
+          include: { purchaseReceipt: { select: { name: true } } },
+        },
         company: {
           select: {
             name: true,
@@ -319,6 +336,7 @@ export async function GET(request: NextRequest) {
     prisma.grnBackfillPurchaseInvoice.findMany({
       where: {
         ...companyScope,
+        deletedAt: null,
         ...(dateFilter ? { postingDate: dateFilter } : {}),
       },
       orderBy: [{ postingDate: "desc" }, { createdAt: "desc" }],
@@ -327,29 +345,102 @@ export async function GET(request: NextRequest) {
     prisma.grnPurchaseInvoice.findMany({
       where: {
         ...companyScope,
+        deletedAt: null,
         docstatus: { not: 2 },
         OR: [
+          { purchaseReceiptName: { not: null } },
+          { items: { some: { purchaseReceipt: { not: null } } } },
           { supplierStockReturnName: { not: null } },
           { items: { some: { supplierStockReturn: { not: null } } } },
+          { isReturn: 1 },
+          { billNo: { startsWith: "SSR-" } },
         ],
       },
       orderBy: [{ postingDate: "desc" }, { createdAt: "desc" }],
       include: { items: true },
     }),
     prisma.companyLocation.findMany({
-      where: {
-        supplierPrefix: { not: null },
-      },
+      where: { companyId: userCompanyId },
       orderBy: [{ name: "asc" }],
       select: {
         id: true,
         name: true,
         companyId: true,
         supplierPrefix: true,
+        shortName: true,
+        erpnextCompany: true,
+        isMainCompany: true,
       },
     }),
   ]);
 
+  const [
+    deletedPurchaseReceipts,
+    deletedBackfillPurchaseReceipts,
+    deletedStockReturns,
+    deletedBackfillStockReturns,
+    deletedPurchaseInvoices,
+    deletedBackfillPurchaseInvoices,
+  ] = await Promise.all([
+    prisma.grnPurchaseReceipt.findMany({
+      where: { ...companyScope, ...locationScope, deletedAt: { not: null } },
+      orderBy: { deletedAt: "desc" },
+      include: {
+        company: {
+          select: {
+            name: true,
+            locations: { select: { erpnextCompany: true, erpnextInstance: { select: { baseUrl: true } } } },
+          },
+        },
+      },
+    }),
+    prisma.grnBackfillPurchaseReceipt.findMany({
+      where: { ...companyScope, ...locationScope, deletedAt: { not: null } },
+      orderBy: { deletedAt: "desc" },
+      include: {
+        company: {
+          select: {
+            name: true,
+            locations: { select: { erpnextCompany: true, erpnextInstance: { select: { baseUrl: true } } } },
+          },
+        },
+      },
+    }),
+    prisma.grnSupplierStockReturn.findMany({
+      where: { ...companyScope, deletedAt: { not: null } },
+      orderBy: { deletedAt: "desc" },
+      include: {
+        company: {
+          select: {
+            name: true,
+            locations: { select: { erpnextCompany: true, erpnextInstance: { select: { baseUrl: true } } } },
+          },
+        },
+      },
+    }),
+    prisma.grnBackfillSupplierStockReturn.findMany({
+      where: { ...companyScope, deletedAt: { not: null } },
+      orderBy: { deletedAt: "desc" },
+      include: {
+        company: {
+          select: {
+            name: true,
+            locations: { select: { erpnextCompany: true, erpnextInstance: { select: { baseUrl: true } } } },
+          },
+        },
+      },
+    }),
+    prisma.grnPurchaseInvoice.findMany({
+      where: { ...companyScope, deletedAt: { not: null } },
+      orderBy: { deletedAt: "desc" },
+    }),
+    prisma.grnBackfillPurchaseInvoice.findMany({
+      where: { ...companyScope, deletedAt: { not: null } },
+      orderBy: { deletedAt: "desc" },
+    }),
+  ]);
+
+  const companyResolver = buildGrnCompanyResolver(supplierPrefixLocations);
   const supplierPrefixRules = supplierPrefixLocations
     .map((row) => ({
       locationId: row.id,
@@ -360,6 +451,48 @@ export async function GET(request: NextRequest) {
       key: normalizeSupplierMatchValue(row.supplierPrefix),
     }))
     .filter((row) => row.key.length > 0);
+
+  const serializeDeletedRecord = (
+    row: {
+      name: string;
+      supplier: string;
+      supplierName: string | null;
+      postingDate?: Date | null;
+      returnDate?: Date | null;
+      creation: Date | null;
+      deletedAt: Date | null;
+      rawPayload: unknown;
+      company?: { name: string; locations: Array<{ erpnextCompany: string | null; erpnextInstance: { baseUrl: string } | null }> };
+    },
+    documentType: "PR" | "SSR" | "PI",
+    isBackfill: boolean,
+  ) => ({
+    documentType,
+    name: row.name,
+    companyName: companyResolver.displayName({
+      documentName: row.name,
+      rawCompany: erpCompanyFromPayload(row.rawPayload),
+      fallback: row.company?.name ?? "Unknown company",
+    }),
+    supplier: row.supplier,
+    supplierName: row.supplierName,
+    documentDate: iso(row.postingDate ?? row.returnDate ?? row.creation),
+    deletedAt: iso(row.deletedAt),
+    isBackfill,
+    erpUrl: erpDocUrl(
+      erpBaseUrlForPayload(row.rawPayload, row.company?.locations ?? []),
+      documentType === "PR" ? "purchase-receipt" : documentType === "SSR" ? "supplier-stock-return" : "purchase-invoice",
+      row.name,
+    ),
+  });
+  const deletedRecords = [
+    ...deletedPurchaseReceipts.map((row) => serializeDeletedRecord(row, "PR", false)),
+    ...deletedBackfillPurchaseReceipts.map((row) => serializeDeletedRecord(row, "PR", true)),
+    ...deletedStockReturns.map((row) => serializeDeletedRecord(row, "SSR", false)),
+    ...deletedBackfillStockReturns.map((row) => serializeDeletedRecord(row, "SSR", true)),
+    ...deletedPurchaseInvoices.map((row) => serializeDeletedRecord(row, "PI", false)),
+    ...deletedBackfillPurchaseInvoices.map((row) => serializeDeletedRecord(row, "PI", true)),
+  ].sort((a, b) => (b.deletedAt ?? "").localeCompare(a.deletedAt ?? ""));
   const supplierPrefixRuleForSupplier = (
     supplier: string | null | undefined,
     supplierName?: string | null,
@@ -376,6 +509,47 @@ export async function GET(request: NextRequest) {
     supplierStockReturnName: null as string | null,
   }));
   const stockReturnByName = new Map(allStockReturnsForLookup.map((row) => [row.name, row]));
+  const crossLinkedStockReturnNamesForPurchaseReceipt = (row: { companyId: string; name: string }) =>
+    allStockReturnsForLookup
+      .filter((stockReturn) => stockReturn.companyId === row.companyId && stockReturn.purchaseReceiptName === row.name)
+      .map((stockReturn) => stockReturn.name);
+  const crossLinkedPurchaseReceiptNamesForStockReturn = (row: { companyId: string; name: string }) =>
+    purchaseReceipts
+      .filter((purchaseReceipt) => purchaseReceipt.companyId === row.companyId && purchaseReceipt.supplierStockReturnName === row.name)
+      .map((purchaseReceipt) => purchaseReceipt.name);
+  const invoiceMatchesLinkedStockReturn = (
+    invoice: {
+      supplierStockReturnName: string | null;
+      billNo: string | null;
+      rawPayload: unknown;
+      items: Array<{ supplierStockReturn: string | null }>;
+    },
+    names: Set<string>,
+  ) => {
+    if (names.size === 0) return false;
+    if (invoice.supplierStockReturnName && names.has(invoice.supplierStockReturnName)) return true;
+    if (invoice.items.some((item) => item.supplierStockReturn && names.has(item.supplierStockReturn))) return true;
+    const payload = erpPayloadFromRaw(invoice.rawPayload);
+    const billNo = typeof payload?.bill_no === "string" ? payload.bill_no.trim() : invoice.billNo?.trim() ?? "";
+    if (billNo.startsWith("SSR-") && names.has(billNo.slice(4).trim())) return true;
+    const payloadItems = Array.isArray(payload?.items) ? payload.items : [];
+    return payloadItems.some((item) => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) return false;
+      const supplierStockReturn = (item as Record<string, unknown>).supplier_stock_return;
+      return typeof supplierStockReturn === "string" && names.has(supplierStockReturn.trim());
+    });
+  };
+  const invoiceMatchesPurchaseReceipt = (
+    invoice: {
+      isReturn: number | null;
+      purchaseReceiptName: string | null;
+      items: Array<{ purchaseReceipt: string | null }>;
+    },
+    names: Set<string>,
+  ) =>
+    invoice.isReturn !== 1 &&
+    (Boolean(invoice.purchaseReceiptName && names.has(invoice.purchaseReceiptName)) ||
+      invoice.items.some((item) => item.purchaseReceipt && names.has(item.purchaseReceipt)));
   const usedPurchaseReceiptNames = new Set(
     allStockReturnsForLookup
       .filter((row) => row.docstatus === 1)
@@ -385,6 +559,9 @@ export async function GET(request: NextRequest) {
       ])
       .filter((name): name is string => Boolean(name)),
   );
+  for (const purchaseReceipt of purchaseReceipts) {
+    if (purchaseReceipt.supplierStockReturnName) usedPurchaseReceiptNames.add(purchaseReceipt.name);
+  }
   const amendedPurchaseReceiptNames = new Set(
     [...purchaseReceipts, ...backfillPurchaseReceipts]
       .map((row) => row.amendedFrom)
@@ -406,6 +583,20 @@ export async function GET(request: NextRequest) {
     );
   };
   const allPurchaseReceiptsForMatching = [...purchaseReceipts, ...backfillPurchaseReceiptsForMatching];
+  const isMatchingIntercompanyPair = (
+    receipt: (typeof allPurchaseReceiptsForMatching)[number],
+    stockReturn: (typeof allStockReturnsForLookup)[number],
+  ) =>
+    receipt.companyId === stockReturn.companyId &&
+    companyResolver.isMatchingIntercompanyPair({
+      purchaseReceiptCompanyLocationId: receipt.companyLocationId,
+      purchaseReceiptSupplier: receipt.supplier,
+      purchaseReceiptSupplierName: receipt.supplierName,
+      stockReturnName: stockReturn.name,
+      stockReturnCompany: erpCompanyFromPayload(stockReturn.rawPayload),
+      stockReturnSupplier: stockReturn.supplier,
+      stockReturnSupplierName: stockReturn.supplierName,
+    });
   const activePurchaseReceiptsForMatching = allPurchaseReceiptsForMatching.filter((row) => !isPurchaseReceiptCancelled(row));
   const activePurchaseReceiptNames = new Set(activePurchaseReceiptsForMatching.map((row) => row.name));
   const activePurchaseReceiptByName = new Map(activePurchaseReceiptsForMatching.map((row) => [row.name, row]));
@@ -416,6 +607,7 @@ export async function GET(request: NextRequest) {
     const names = [...new Set([
       row.purchaseReceiptName,
       ...row.purchaseReceiptLinks.map((link) => link.purchaseReceipt.name),
+      ...crossLinkedPurchaseReceiptNamesForStockReturn(row),
     ].filter((name): name is string => Boolean(name)))];
     return names.flatMap((name) => {
       const receipt = activePurchaseReceiptByCompanyName.get(`${row.companyId}:${name}`) ?? activePurchaseReceiptByName.get(name);
@@ -433,6 +625,7 @@ export async function GET(request: NextRequest) {
     invoice
       ? {
           name: invoice.name,
+          purchaseReceiptName: invoice.purchaseReceiptName,
           erpUrl: null,
           postingDate: iso(invoice.postingDate),
           docstatus: invoice.docstatus,
@@ -455,13 +648,19 @@ export async function GET(request: NextRequest) {
   const candidateMatchesByStockReturn = new Map<string, Array<{ companyId: string; name: string; percentage: number }>>();
   const claimCountByPurchaseReceipt = new Map<string, number>();
   for (const stockReturn of allStockReturnsForLookup) {
-    if (stockReturn.docstatus !== 1 || stockReturn.purchaseReceiptName || stockReturn.purchaseReceiptLinks.length > 0) continue;
+    if (
+      stockReturn.docstatus !== 1 ||
+      stockReturn.purchaseReceiptName ||
+      stockReturn.purchaseReceiptLinks.length > 0 ||
+      crossLinkedPurchaseReceiptNamesForStockReturn(stockReturn).length > 0
+    ) continue;
     const supplierPrefixRule = supplierPrefixRuleForSupplier(stockReturn.supplier, stockReturn.supplierName);
     if (!supplierPrefixRule) continue;
     const candidates = activeIntercompanyPurchaseReceipts
       .filter(
         (receipt) =>
           receipt.companyLocationId === supplierPrefixRule.locationId &&
+          isMatchingIntercompanyPair(receipt, stockReturn) &&
           isWithinGrnMatchCreationWindow(receipt, stockReturn),
       )
       .map((receipt) => ({
@@ -503,7 +702,9 @@ export async function GET(request: NextRequest) {
           ? bestGrnMatchForStockReturn(
               row,
               activeIntercompanyPurchaseReceipts.filter(
-                (receipt) => receipt.companyLocationId === supplierPrefixRule.locationId,
+                (receipt) =>
+                  receipt.companyLocationId === supplierPrefixRule.locationId &&
+                  isMatchingIntercompanyPair(receipt, row),
               ),
             )
           : null;
@@ -521,6 +722,7 @@ export async function GET(request: NextRequest) {
       const linkedStockReturnNames = [...new Set([
         row.supplierStockReturnName,
         ...row.supplierStockReturnLinks.map((link) => link.supplierStockReturn.name),
+        ...crossLinkedStockReturnNamesForPurchaseReceipt(row),
       ].filter((name): name is string => Boolean(name)))];
       const linkedStockReturns = linkedStockReturnNames
         .map((name) => stockReturnByName.get(name))
@@ -530,29 +732,55 @@ export async function GET(request: NextRequest) {
         ? linkedStockReturns.filter((stockReturn) => stockReturn.docstatus !== 2)
         : [];
       const combinedStockReturnItems = activeLinkedStockReturns.flatMap((stockReturn) => stockReturn.items);
+      const combinedPurchaseReceipts = [
+        ...new Map(
+          activeLinkedStockReturns
+            .flatMap((stockReturn) => linkedPurchaseReceiptsForStockReturn(stockReturn))
+            .map((receipt) => [`${receipt.companyId}:${receipt.name}`, receipt] as const),
+        ).values(),
+      ];
+      const combinedPurchaseReceiptItems = combinedPurchaseReceipts.flatMap((receipt) => receipt.items);
+      const linkedPurchaseReceiptNameSet = new Set(combinedPurchaseReceipts.map((receipt) => receipt.name));
+      linkedPurchaseReceiptNameSet.add(row.name);
       const tally = activeLinkedStockReturns.length > 0
-        ? tallyLinkedItems(row.items, combinedStockReturnItems)
+        ? tallyLinkedItems(combinedPurchaseReceiptItems, combinedStockReturnItems)
         : { status: "not_linked" as const, issueItems: [] };
       const tallyIssues = activeLinkedStockReturns.length > 0
-        ? buildTallyIssues(row.items, combinedStockReturnItems)
+        ? buildTallyIssues(combinedPurchaseReceiptItems, combinedStockReturnItems)
         : [];
-      const purchaseInvoice =
-        row.purchaseInvoices.find((invoice) =>
-          invoice.items.some((item) => item.purchaseReceipt === row.name) &&
-          !invoice.items.some((item) => item.supplierStockReturn),
-        ) ?? null;
-      const supplierStockReturnPurchaseInvoice = linked
-        ? row.purchaseInvoices.find((invoice) =>
-            invoice.items.some((item) => item.supplierStockReturn === linked.name),
-          ) ?? livePurchaseInvoices.find((invoice) =>
-            invoice.supplierStockReturnName === linked.name ||
-            invoice.items.some((item) => item.supplierStockReturn === linked.name),
-          ) ?? null
-        : null;
+      const purchaseReceiptInvoices = [
+        ...row.purchaseInvoices,
+        ...livePurchaseInvoices.filter((invoice) =>
+          invoice.purchaseReceiptName === row.name ||
+          invoice.items.some((item) => item.purchaseReceipt === row.name),
+        ),
+      ].filter((invoice, index, invoices) =>
+        invoices.findIndex((candidate) => candidate.name === invoice.name) === index,
+      );
+      const linkedStockReturnNameSet = new Set(activeLinkedStockReturns.map((stockReturn) => stockReturn.name));
+      const liveSupplierStockReturnPurchaseInvoices = linkedStockReturnNameSet.size > 0
+        ? [
+            ...row.purchaseInvoices.filter((invoice) =>
+              invoiceMatchesLinkedStockReturn(invoice, linkedStockReturnNameSet) &&
+              !invoiceMatchesPurchaseReceipt(invoice, linkedPurchaseReceiptNameSet),
+            ),
+            ...livePurchaseInvoices.filter((invoice) =>
+              invoiceMatchesLinkedStockReturn(invoice, linkedStockReturnNameSet) &&
+              !invoiceMatchesPurchaseReceipt(invoice, linkedPurchaseReceiptNameSet),
+            ),
+          ]
+        : [];
+      const backfillSupplierStockReturnPurchaseInvoices = linkedStockReturnNameSet.size > 0
+        ? backfillPurchaseInvoices.filter((invoice) =>
+            invoiceMatchesLinkedStockReturn(invoice, linkedStockReturnNameSet) &&
+            !invoiceMatchesPurchaseReceipt(invoice, linkedPurchaseReceiptNameSet),
+          )
+        : [];
       const serializePurchaseInvoice = (invoice: (typeof row.purchaseInvoices)[number] | null) =>
         invoice
           ? {
               name: invoice.name,
+              purchaseReceiptName: invoice.purchaseReceiptName,
               erpUrl: erpDocUrl(
                 erpBaseUrlForPayload(invoice.rawPayload, row.company.locations),
                 "purchase-invoice",
@@ -576,14 +804,25 @@ export async function GET(request: NextRequest) {
               })),
             }
           : null;
+      const supplierStockReturnPurchaseInvoices = [
+        ...liveSupplierStockReturnPurchaseInvoices.map((invoice) => serializePurchaseInvoice(invoice)),
+        ...backfillSupplierStockReturnPurchaseInvoices.map((invoice) => serializeBackfillPurchaseInvoice(invoice)),
+      ].filter((invoice, index, invoices) =>
+        invoice && invoices.findIndex((candidate) => candidate?.name === invoice.name) === index,
+      );
+      const purchaseInvoices = purchaseReceiptInvoices
+        .filter((invoice) => invoiceMatchesPurchaseReceipt(invoice, new Set([row.name])))
+        .map((invoice) => serializePurchaseInvoice(invoice))
+        .filter((invoice): invoice is NonNullable<typeof invoice> => Boolean(invoice));
       return {
         companyId: row.companyId,
         companyLocationId: row.companyLocationId,
-        companyName:
-          erpCompanyFromPayload(row.rawPayload) ??
-          row.companyLocation?.erpnextCompany ??
-          row.companyLocation?.name ??
-          row.company.name,
+        companyName: companyResolver.displayName({
+          documentName: row.name,
+          rawCompany: erpCompanyFromPayload(row.rawPayload),
+          companyLocationId: row.companyLocationId,
+          fallback: row.company.name,
+        }),
         name: row.name,
         erpUrl: erpDocUrl(
           erpBaseUrlForPayload(row.rawPayload, row.company.locations),
@@ -631,17 +870,20 @@ export async function GET(request: NextRequest) {
         })),
         tallyStatus: tally.status,
         tallyPercentage: activeLinkedStockReturns.length > 0
-          ? calculateGrnMatchPercentage(row.items, combinedStockReturnItems)
+          ? calculateGrnMatchPercentage(combinedPurchaseReceiptItems, combinedStockReturnItems)
           : null,
         tallyIssueItems: tally.issueItems,
         tallyIssues,
-        purchaseInvoice: serializePurchaseInvoice(purchaseInvoice),
-        supplierStockReturnPurchaseInvoice: serializePurchaseInvoice(supplierStockReturnPurchaseInvoice),
+        purchaseInvoice: purchaseInvoices[0] ?? null,
+        purchaseInvoices,
+        supplierStockReturnPurchaseInvoice: supplierStockReturnPurchaseInvoices[0] ?? null,
+        supplierStockReturnPurchaseInvoices,
       };
     }), ...backfillPurchaseReceipts.map((row) => {
-      const linkedStockReturnNames = [...new Set(
-        row.supplierStockReturnLinks.map((link) => link.supplierStockReturn.name),
-      )];
+      const linkedStockReturnNames = [...new Set([
+        ...row.supplierStockReturnLinks.map((link) => link.supplierStockReturn.name),
+        ...crossLinkedStockReturnNamesForPurchaseReceipt(row),
+      ].filter((name): name is string => Boolean(name)))];
       const linkedStockReturns = linkedStockReturnNames
         .map((name) => stockReturnByName.get(name))
         .filter((stockReturn): stockReturn is (typeof allStockReturnsForLookup)[number] => Boolean(stockReturn));
@@ -650,26 +892,82 @@ export async function GET(request: NextRequest) {
         ? linkedStockReturns.filter((stockReturn) => stockReturn.docstatus !== 2)
         : [];
       const combinedStockReturnItems = activeLinkedStockReturns.flatMap((stockReturn) => stockReturn.items);
+      const combinedPurchaseReceipts = [
+        ...new Map(
+          activeLinkedStockReturns
+            .flatMap((stockReturn) => linkedPurchaseReceiptsForStockReturn(stockReturn))
+            .map((receipt) => [`${receipt.companyId}:${receipt.name}`, receipt] as const),
+        ).values(),
+      ];
+      const combinedPurchaseReceiptItems = combinedPurchaseReceipts.flatMap((receipt) => receipt.items);
+      const linkedPurchaseReceiptNameSet = new Set(combinedPurchaseReceipts.map((receipt) => receipt.name));
+      linkedPurchaseReceiptNameSet.add(row.name);
       const tally = activeLinkedStockReturns.length > 0
-        ? tallyLinkedItems(row.items, combinedStockReturnItems)
+        ? tallyLinkedItems(combinedPurchaseReceiptItems, combinedStockReturnItems)
         : { status: "not_linked" as const, issueItems: [] };
       const tallyIssues = activeLinkedStockReturns.length > 0
-        ? buildTallyIssues(row.items, combinedStockReturnItems)
+        ? buildTallyIssues(combinedPurchaseReceiptItems, combinedStockReturnItems)
         : [];
-      const purchaseInvoice =
-        backfillPurchaseInvoices.find((invoice) =>
-          invoice.items.some((item) => item.purchaseReceipt === row.name) &&
-          !invoice.items.some((item) => item.supplierStockReturn),
-        ) ?? null;
-      const supplierStockReturnPurchaseInvoice = activeLinkedStockReturns[0]
-        ? backfillPurchaseInvoices.find((invoice) =>
-            invoice.items.some((item) => item.supplierStockReturn === activeLinkedStockReturns[0].name),
-          ) ?? null
-        : null;
+      const linkedStockReturnNameSet = new Set(activeLinkedStockReturns.map((stockReturn) => stockReturn.name));
+      const liveSupplierStockReturnPurchaseInvoices = linkedStockReturnNameSet.size > 0
+        ? livePurchaseInvoices.filter((invoice) =>
+            invoiceMatchesLinkedStockReturn(invoice, linkedStockReturnNameSet) &&
+            !invoiceMatchesPurchaseReceipt(invoice, linkedPurchaseReceiptNameSet),
+          )
+        : [];
+      const backfillSupplierStockReturnPurchaseInvoices = linkedStockReturnNameSet.size > 0
+        ? backfillPurchaseInvoices.filter((invoice) =>
+            invoiceMatchesLinkedStockReturn(invoice, linkedStockReturnNameSet) &&
+            !invoiceMatchesPurchaseReceipt(invoice, linkedPurchaseReceiptNameSet),
+          )
+        : [];
+      const serializeLivePurchaseInvoice = (invoice: (typeof livePurchaseInvoices)[number] | null) =>
+        invoice
+          ? {
+              name: invoice.name,
+              purchaseReceiptName: invoice.purchaseReceiptName,
+              erpUrl: erpDocUrl(
+                erpBaseUrlForPayload(invoice.rawPayload, row.company?.locations ?? []),
+                "purchase-invoice",
+                invoice.name,
+              ),
+              postingDate: iso(invoice.postingDate),
+              docstatus: invoice.docstatus,
+              status: invoice.status,
+              items: invoice.items.map((item) => ({
+                name: item.name,
+                itemCode: item.itemCode,
+                itemName: item.itemName,
+                qty: Number(item.qty),
+                rate: Number(item.rate),
+                amount: Number(item.amount),
+                purchaseReceipt: item.purchaseReceipt,
+                purchaseReceiptItem: item.purchaseReceiptItem,
+                supplierStockReturn: item.supplierStockReturn,
+                supplierStockReturnItem: item.supplierStockReturnItem,
+                stockUom: item.stockUom,
+              })),
+            }
+          : null;
+      const supplierStockReturnPurchaseInvoices = [
+        ...liveSupplierStockReturnPurchaseInvoices.map((invoice) => serializeLivePurchaseInvoice(invoice)),
+        ...backfillSupplierStockReturnPurchaseInvoices.map((invoice) => serializeBackfillPurchaseInvoice(invoice)),
+      ].filter((invoice, index, invoices) =>
+        invoice && invoices.findIndex((candidate) => candidate?.name === invoice.name) === index,
+      );
+      const purchaseInvoices = backfillPurchaseInvoices
+        .filter((invoice) => invoiceMatchesPurchaseReceipt(invoice, new Set([row.name])))
+        .map((invoice) => serializeBackfillPurchaseInvoice(invoice))
+        .filter((invoice): invoice is NonNullable<typeof invoice> => Boolean(invoice));
       return {
         companyId: row.companyId,
         companyLocationId: row.companyLocationId,
-        companyName: row.company?.name ?? erpCompanyFromPayload(row.rawPayload) ?? "Unknown company",
+        companyName: companyResolver.displayName({
+          documentName: row.name,
+          rawCompany: erpCompanyFromPayload(row.rawPayload),
+          companyLocationId: row.companyLocationId,
+          fallback: row.company?.name,
+        }),
         name: row.name,
         erpUrl: erpDocUrl(
           erpBaseUrlForPayload(row.rawPayload, row.company?.locations ?? []),
@@ -717,12 +1015,14 @@ export async function GET(request: NextRequest) {
         })),
         tallyStatus: tally.status,
         tallyPercentage: activeLinkedStockReturns.length > 0
-          ? calculateGrnMatchPercentage(row.items, combinedStockReturnItems)
+          ? calculateGrnMatchPercentage(combinedPurchaseReceiptItems, combinedStockReturnItems)
           : null,
         tallyIssueItems: tally.issueItems,
         tallyIssues,
-        purchaseInvoice: serializeBackfillPurchaseInvoice(purchaseInvoice),
-        supplierStockReturnPurchaseInvoice: serializeBackfillPurchaseInvoice(supplierStockReturnPurchaseInvoice),
+        purchaseInvoice: purchaseInvoices[0] ?? null,
+        purchaseInvoices,
+        supplierStockReturnPurchaseInvoice: supplierStockReturnPurchaseInvoices[0] ?? null,
+        supplierStockReturnPurchaseInvoices,
       };
     })],
     supplierStockReturns: [...stockReturns.map((row) => {
@@ -731,7 +1031,11 @@ export async function GET(request: NextRequest) {
       const { recommendation, conflict, conflictMatches } = recommendationForStockReturn(row, linkedPurchaseReceipts);
       return {
         companyId: row.companyId,
-        companyName: row.company?.name ?? erpCompanyFromPayload(row.rawPayload) ?? "Unknown company",
+        companyName: companyResolver.displayName({
+          documentName: row.name,
+          rawCompany: erpCompanyFromPayload(row.rawPayload),
+          fallback: row.company?.name,
+        }),
         name: row.name,
         erpUrl: erpDocUrl(
           erpBaseUrlForPayload(row.rawPayload, row.company?.locations ?? []),
@@ -749,6 +1053,7 @@ export async function GET(request: NextRequest) {
         purchaseReceiptNames: [...new Set([
           row.purchaseReceiptName,
           ...row.purchaseReceiptLinks.map((link) => link.purchaseReceipt.name),
+          ...crossLinkedPurchaseReceiptNamesForStockReturn(row),
         ].filter((name): name is string => Boolean(name)))],
         canTally: row.docstatus !== 2 && (linkedPurchaseReceipts.length > 0 || !row.purchaseReceiptName || activePurchaseReceiptNames.has(row.purchaseReceiptName)),
         isBackfill: false,
@@ -782,7 +1087,11 @@ export async function GET(request: NextRequest) {
       const { recommendation, conflict, conflictMatches } = recommendationForStockReturn(row, linkedPurchaseReceipts);
       return {
         companyId: row.companyId,
-        companyName: row.company?.name ?? erpCompanyFromPayload(row.rawPayload) ?? "Unknown company",
+        companyName: companyResolver.displayName({
+          documentName: row.name,
+          rawCompany: erpCompanyFromPayload(row.rawPayload),
+          fallback: row.company?.name,
+        }),
         name: row.name,
         erpUrl: erpDocUrl(
           erpBaseUrlForPayload(row.rawPayload, row.company?.locations ?? []),
@@ -800,6 +1109,7 @@ export async function GET(request: NextRequest) {
         purchaseReceiptNames: [...new Set([
           row.purchaseReceiptName,
           ...row.purchaseReceiptLinks.map((link) => link.purchaseReceipt.name),
+          ...crossLinkedPurchaseReceiptNamesForStockReturn(row),
         ].filter((name): name is string => Boolean(name)))],
         canTally: row.docstatus !== 2 && (linkedPurchaseReceipts.length > 0 || !row.purchaseReceiptName || activePurchaseReceiptNames.has(row.purchaseReceiptName)),
         isBackfill: true,
@@ -833,6 +1143,7 @@ export async function GET(request: NextRequest) {
       supplier: row.supplier,
       supplierName: row.supplierName,
     })),
+    deletedRecords,
   });
 }
 

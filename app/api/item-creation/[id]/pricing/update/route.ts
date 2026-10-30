@@ -14,7 +14,7 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
   try {
     const { id } = await params;
     const result = await updateItemCreationPrices(auth.context!, id);
-    return NextResponse.json(result);
+    return NextResponse.json(result, { status: result.ok ? 200 : 400 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Price update failed";
     return NextResponse.json({ error: message }, { status: 400 });

@@ -7,8 +7,10 @@ import {
   getOgfPriceTally,
   getPriceStatus,
   getStandardPriceTally,
+  ITEM_CREATION_TAX_STATUS_VALUES,
   ITEM_CREATION_STATUS_LABELS,
   PRICE_STATUS_LABELS,
+  isItemCreationStageCompletionVisible,
 } from "@/lib/item-creation/helpers";
 import { allocateTakeQty } from "@/lib/store-allocation/allocate";
 
@@ -21,6 +23,7 @@ type ItemCreationItem = {
   gccPrice: string | number | null;
   addErp1OgfPrice: boolean;
   country: string;
+  taxStatus: string;
   creationSources: string[];
   overallStatus: string;
   seoSetupStatus: string;
@@ -28,10 +31,18 @@ type ItemCreationItem = {
   digitalMarketingStatus: string;
   digitalMarketingBrand?: string | null;
   digitalMarketingAssigneeId?: string | null;
+  digitalMarketingAssigneeIds?: string[];
+  digitalMarketingAssignee?: {
+    id: string;
+    knownName: string | null;
+    name: string | null;
+    email: string | null;
+  } | null;
   purchasingStatus: string;
   storeTransferStatus: string;
   storeStockStatus: string;
   imageDriveUrl: string | null;
+  shopifyRemovalPending?: boolean;
   erpStandardPrice: string | number | null;
   erpOgfPrice: string | number | null;
   erp1OgfPrice: string | number | null;
@@ -57,6 +68,7 @@ type Props = {
   initialFilters: Record<string, string>;
   permissions: {
     admin: boolean;
+    adminViewer: boolean;
     manageAll: boolean;
     seo: boolean;
     digitalMarketing: boolean;
@@ -79,6 +91,7 @@ type CreateRow = {
   gccPrice: string;
   addErp1OgfPrice: boolean;
   country: string;
+  taxStatus: string;
   creationSources: string[];
 };
 
@@ -276,6 +289,40 @@ function teamViewLabel(view: WorkTeamView) {
   return teamLabels[view];
 }
 
+function creationSourceLabel(source: string) {
+  if (source === "SHOPIFY") return "Shopify";
+  if (source === "ERP2") return "ERP2";
+  return source;
+}
+
+function recentCompletionVisible(completedAt: string | null | undefined, now: number | null) {
+  return now == null || isItemCreationStageCompletionVisible(completedAt, now);
+}
+
+function completedCountForView(items: ItemCreationItem[], view: TeamView, now: number | null) {
+  if (view === "admin") return items.filter((item) => item.overallStatus === "COMPLETED").length;
+  if (view === "seo") {
+    return items.filter(
+      (item) => item.seoActivationStatus === "ACTIVATED" && recentCompletionVisible(item.activatedAt, now),
+    ).length;
+  }
+  if (view === "digitalMarketing") {
+    return items.filter(
+      (item) => item.digitalMarketingStatus === "IMAGE_CREATED" && recentCompletionVisible(item.imageCreatedAt, now),
+    ).length;
+  }
+  if (view === "purchasing") {
+    return items.filter(
+      (item) => item.purchasingStatus === "PRICE_UPDATED" && recentCompletionVisible(item.priceUpdatedAt, now),
+    ).length;
+  }
+  return items.filter(
+    (item) =>
+      (item.storeTransferStatus === "RECEIVED" && recentCompletionVisible(item.receivedAt, now)) ||
+      (item.storeStockStatus === "STOCK_ADDED" && recentCompletionVisible(item.stockAddedAt, now)),
+  ).length;
+}
+
 const emptyCreateRow = (key: number): CreateRow => ({
   key,
   sku: "",
@@ -285,11 +332,12 @@ const emptyCreateRow = (key: number): CreateRow => ({
   gccPrice: "",
   addErp1OgfPrice: false,
   country: "",
+  taxStatus: "Vat / Non Vat",
   creationSources: ["SHOPIFY"],
 });
 
 function defaultView(permissions: Props["permissions"]): TeamView {
-  if (permissions.admin) return "admin";
+  if (permissions.admin || permissions.adminViewer) return "admin";
   if (permissions.seo) return "seo";
   if (permissions.digitalMarketing) return "digitalMarketing";
   if (permissions.purchasing) return "purchasing";
@@ -310,7 +358,17 @@ export function ItemCreationPanel({
     useState<DigitalMarketingAdminPage>("requests");
   const [createRows, setCreateRows] = useState<CreateRow[]>([emptyCreateRow(1)]);
   const [selectedCreateRows, setSelectedCreateRows] = useState<Set<number>>(new Set());
+  const [now, setNow] = useState<number | null>(null);
   const [isPending, startTransition] = useTransition();
+
+  useEffect(() => {
+    const initialTimer = window.setTimeout(() => setNow(Date.now()), 0);
+    const timer = window.setInterval(() => setNow(Date.now()), 60_000);
+    return () => {
+      window.clearTimeout(initialTimer);
+      window.clearInterval(timer);
+    };
+  }, []);
 
   const allCreateRowsSelected =
     createRows.length > 0 && createRows.every((row) => selectedCreateRows.has(row.key));
@@ -325,6 +383,10 @@ export function ItemCreationPanel({
 
   const canAct = (area: keyof Props["permissions"]) =>
     permissions.manageAll || permissions[area] || (area === "digitalMarketing" && permissions.digitalMarketingAdmin);
+
+  const visibleViewTabs = viewTabs.filter((tab) =>
+    tab.view === "admin" ? permissions.admin || permissions.adminViewer : canAct(tab.view),
+  );
 
   async function refresh(nextFilters = filters) {
     const params = new URLSearchParams(
@@ -347,12 +409,26 @@ export function ItemCreationPanel({
     if (!response.ok) throw new Error(data.error ?? "Action failed");
     await refresh();
     if (url.startsWith("/api/item-creation/stock/")) {
-      const receiptCount = Array.isArray(data.receipts) ? data.receipts.length : 1;
-      setMessage(
-        receiptCount === 1
-          ? "Purchase Receipt created"
-          : `${receiptCount} Purchase Receipts created`
-      );
+      const receipts = Array.isArray(data.receipts) ? data.receipts : [];
+      const createdCount = receipts.filter(
+        (receipt: { status?: string }) => receipt.status === "SUBMITTED",
+      ).length;
+      const failedCount = receipts.filter(
+        (receipt: { status?: string }) => receipt.status === "FAILED",
+      ).length;
+      const erpLabel = url.endsWith("/erp1") ? "ERP1" : "ERP2";
+      if (failedCount > 0) {
+        setMessage(
+          `${createdCount} Purchase Receipt${createdCount === 1 ? "" : "s"} created; ` +
+          `${failedCount} failed in ${erpLabel}. Check the failed rows and retry.`,
+        );
+      } else {
+        setMessage(
+          createdCount === 1
+            ? "Purchase Receipt created"
+            : `${createdCount} Purchase Receipts created`,
+        );
+      }
       return;
     }
     setMessage("Updated");
@@ -383,6 +459,7 @@ export function ItemCreationPanel({
             gccPrice: vaultOs ? undefined : row.gccPrice,
             addErp1OgfPrice: vaultOs ? false : row.addErp1OgfPrice,
             country: row.country.trim(),
+            taxStatus: row.taxStatus,
             creationSources: row.creationSources,
           }))
           .filter((row) => row.sku || row.description || row.standardPrice || (!vaultOs && (row.ogfPrice || row.gccPrice)));
@@ -541,21 +618,53 @@ export function ItemCreationPanel({
       visible: canAct("seo"),
       items: items.filter((item) => item.seoSetupStatus === "ITEM_CREATED"),
       action: (item: ItemCreationItem) => (
-        <ActionButton onClick={() => runAction(`/api/item-creation/${item.id}/seo/image-updated`)}>
-          Mark SEO Done
+        <div className="flex flex-wrap gap-2">
+          <ActionButton onClick={() => runAction(`/api/item-creation/${item.id}/seo/image-updated`)}>
+            Mark SEO Done
+          </ActionButton>
+          <button
+            type="button"
+            onClick={() => runAction(`/api/item-creation/${item.id}/seo/revert`)}
+            className={secondaryButtonClass}
+          >
+            Revert SEO
+          </button>
+        </div>
+      ),
+    },
+    {
+      title: "Remove from Shopify",
+      subtitle: "Remove the item from Shopify, then confirm it here.",
+      team: "seo",
+      visible: canAct("seo"),
+      items: items.filter(
+        (item) => item.shopifyRemovalPending && !item.creationSources.includes("SHOPIFY"),
+      ),
+      action: (item: ItemCreationItem) => (
+        <ActionButton onClick={() => runAction(`/api/item-creation/${item.id}/seo/shopify-removed`)}>
+          Mark Shopify Removed
         </ActionButton>
       ),
     },
     {
       title: "Waiting Activation",
-      subtitle: "Stock is added and SEO can activate the item.",
+      subtitle: "Mark the Shopify product as activated for internal tracking.",
       team: "seo",
       visible: canAct("seo"),
       items: items.filter((item) => item.seoActivationStatus === "WAITING_ACTIVATION"),
       action: (item: ItemCreationItem) => (
-        <ActionButton onClick={() => runAction(`/api/item-creation/${item.id}/seo/activate`)}>
-          Activate Item
-        </ActionButton>
+        <div className="flex flex-wrap gap-2">
+          <ActionButton onClick={() => runAction(`/api/item-creation/${item.id}/seo/activate`)}>
+            Mark Shopify Activated
+          </ActionButton>
+          <button
+            type="button"
+            onClick={() => runAction(`/api/item-creation/${item.id}/seo/revert`)}
+            className={secondaryButtonClass}
+          >
+            Revert SEO
+          </button>
+        </div>
       ),
     },
     {
@@ -563,8 +672,23 @@ export function ItemCreationPanel({
       subtitle: "SEO activation is done.",
       team: "seo",
       visible: canAct("seo"),
-      items: items.filter((item) => item.seoActivationStatus === "ACTIVATED"),
-      action: () => <StatusPill value="COMPLETED" />,
+      items: items.filter(
+        (item) =>
+          item.seoActivationStatus === "ACTIVATED" &&
+          recentCompletionVisible(item.activatedAt, now),
+      ),
+      action: (item: ItemCreationItem) => (
+        <div className="flex flex-wrap gap-2">
+          <StatusPill value="COMPLETED" />
+          <button
+            type="button"
+            onClick={() => runAction(`/api/item-creation/${item.id}/seo/revert`)}
+            className={secondaryButtonClass}
+          >
+            Revert SEO
+          </button>
+        </div>
+      ),
     },
     {
       title: "Pending",
@@ -572,7 +696,7 @@ export function ItemCreationPanel({
       team: "digitalMarketing",
       visible: canAct("digitalMarketing"),
       items: items.filter(
-        (item) => item.digitalMarketingStatus === "PENDING" && item.seoSetupStatus === "ITEM_CREATED"
+        (item) => item.digitalMarketingStatus === "PENDING" && item.seoSetupStatus !== "PENDING"
       ),
       action: (item: ItemCreationItem) => (
         <DigitalAction item={item} onAction={runAction} />
@@ -583,8 +707,23 @@ export function ItemCreationPanel({
       subtitle: "Drive links are ready for the next stages.",
       team: "digitalMarketing",
       visible: canAct("digitalMarketing"),
-      items: items.filter((item) => item.digitalMarketingStatus === "IMAGE_CREATED"),
-      action: () => <StatusPill value="COMPLETED" />,
+      items: items.filter(
+        (item) =>
+          item.digitalMarketingStatus === "IMAGE_CREATED" &&
+          recentCompletionVisible(item.imageCreatedAt, now),
+      ),
+      action: (item: ItemCreationItem) => (
+        <div className="flex flex-wrap gap-2">
+          <StatusPill value="COMPLETED" />
+          <button
+            type="button"
+            onClick={() => runAction(`/api/item-creation/${item.id}/digital-marketing/revert`)}
+            className={secondaryButtonClass}
+          >
+            Revert Image
+          </button>
+        </div>
+      ),
     },
     {
       title: "Pending",
@@ -594,7 +733,10 @@ export function ItemCreationPanel({
       items: items.filter((item) => item.purchasingStatus === "WAITING_FOR_PRICES"),
       action: (item: ItemCreationItem) => (
         <>
-          <ActionButton onClick={() => runAction(`/api/item-creation/${item.id}/pricing/update`)}>
+          <ActionButton
+            disabled={isPending}
+            onClick={() => runAction(`/api/item-creation/${item.id}/pricing/update`)}
+          >
             Update Prices
           </ActionButton>
           <ActionButton onClick={() => runAction(`/api/item-creation/${item.id}/purchasing/price-updated`)}>
@@ -608,7 +750,11 @@ export function ItemCreationPanel({
       subtitle: "Prices have been confirmed.",
       team: "purchasing",
       visible: canAct("purchasing"),
-      items: items.filter((item) => item.purchasingStatus === "PRICE_UPDATED"),
+      items: items.filter(
+        (item) =>
+          item.purchasingStatus === "PRICE_UPDATED" &&
+          recentCompletionVisible(item.priceUpdatedAt, now),
+      ),
       action: () => <StatusPill value="COMPLETED" />,
     },
     {
@@ -662,7 +808,7 @@ export function ItemCreationPanel({
               Item Creation
             </h1>
             <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-              Manage item setup, images, prices, transfers, stock, and final SEO activation.
+              Manage item setup, images, prices, transfers, stock, and the final Shopify activation marker.
             </p>
           </div>
           {message && (
@@ -674,15 +820,15 @@ export function ItemCreationPanel({
 
         <div className="mt-5 grid gap-3 md:grid-cols-4">
           <MetricCard label="In Progress" value={items.filter((item) => item.overallStatus === "IN_PROGRESS").length} />
-          <MetricCard label="Completed" value={items.filter((item) => item.overallStatus === "COMPLETED").length} />
+          <MetricCard label="Completed" value={completedCountForView(items, activeView, now)} />
           <MetricCard label="Waiting Prices" value={items.filter((item) => item.purchasingStatus === "WAITING_FOR_PRICES").length} />
           <MetricCard label="Waiting Activation" value={items.filter((item) => item.seoActivationStatus === "WAITING_ACTIVATION").length} />
         </div>
       </div>
 
-      {permissions.admin && (
+      {(permissions.admin || permissions.adminViewer) && (
         <div className="grid gap-2 rounded-lg border bg-card p-2 md:grid-cols-5">
-          {viewTabs.map((tab) => (
+          {visibleViewTabs.map((tab) => (
             <button
               key={tab.view}
               type="button"
@@ -814,9 +960,9 @@ export function ItemCreationPanel({
                 {createRows.map((row, index) => (
                   <div
                     key={row.key}
-                    className="grid gap-3 rounded-md border bg-background p-3 xl:grid-cols-[auto_150px_minmax(280px,1.7fr)_repeat(4,minmax(120px,1fr))_auto] xl:grid-rows-2"
+                    className="grid gap-3 rounded-md border bg-background p-3 xl:grid-cols-[auto_150px_minmax(240px,1fr)_minmax(520px,2fr)_auto] xl:items-center"
                   >
-                    <label className="flex h-10 items-center justify-center self-center rounded-md border bg-muted/20 px-3 xl:row-span-2">
+                    <label className="flex h-10 items-center justify-center self-center rounded-md border bg-muted/20 px-3">
                       <input
                         type="checkbox"
                         checked={selectedCreateRows.has(row.key)}
@@ -830,85 +976,99 @@ export function ItemCreationPanel({
                       onChange={(event) => updateCreateRow(row.key, "sku", event.target.value)}
                       required
                       placeholder="SKU"
-                      className={`${inputClass} self-center xl:row-span-2`}
+                      className={`${inputClass} self-center`}
                     />
                     <textarea
                       value={row.description}
                       onChange={(event) => updateCreateRow(row.key, "description", event.target.value)}
                       required
                       placeholder="Description"
-                      className={`${inputClass} h-full min-h-20 resize-none py-2 xl:row-span-2`}
+                      className={`${inputClass} min-h-20 resize-none py-2`}
                     />
-                    <input
-                      value={row.standardPrice}
-                      onChange={(event) => updateCreateRow(row.key, "standardPrice", event.target.value)}
-                      required
-                      type="number"
-                      step="0.01"
-                      placeholder="Standard"
-                      className={inputClass}
-                    />
-                    {!vaultOs && <input
-                      value={row.ogfPrice}
-                      onChange={(event) => updateCreateRow(row.key, "ogfPrice", event.target.value)}
-                      type="number"
-                      step="0.01"
-                      placeholder="OGF"
-                      className={inputClass}
-                    />}
-                    {!vaultOs && <input
-                      value={row.gccPrice}
-                      onChange={(event) => updateCreateRow(row.key, "gccPrice", event.target.value)}
-                      type="number"
-                      step="0.01"
-                      placeholder="GCC"
-                      className={inputClass}
-                    />}
-                    <input
-                      value={row.country}
-                      onChange={(event) => updateCreateRow(row.key, "country", event.target.value)}
-                      placeholder="Country"
-                      className={inputClass}
-                    />
+                    <div className="grid min-w-0 gap-3">
+                      <div className={`grid min-w-0 gap-3 sm:grid-cols-2 ${vaultOs ? "" : "xl:grid-cols-4"}`}>
+                        <input
+                          value={row.standardPrice}
+                          onChange={(event) => updateCreateRow(row.key, "standardPrice", event.target.value)}
+                          required
+                          type="number"
+                          step="0.01"
+                          placeholder="Standard"
+                          className={inputClass}
+                        />
+                        {!vaultOs && <input
+                          value={row.ogfPrice}
+                          onChange={(event) => updateCreateRow(row.key, "ogfPrice", event.target.value)}
+                          type="number"
+                          step="0.01"
+                          placeholder="OGF"
+                          className={inputClass}
+                        />}
+                        {!vaultOs && <input
+                          value={row.gccPrice}
+                          onChange={(event) => updateCreateRow(row.key, "gccPrice", event.target.value)}
+                          type="number"
+                          step="0.01"
+                          placeholder="GCC"
+                          className={inputClass}
+                        />}
+                        <input
+                          value={row.country}
+                          onChange={(event) => updateCreateRow(row.key, "country", event.target.value)}
+                          placeholder="Country"
+                          className={inputClass}
+                        />
+                      </div>
+                      <div className="flex min-w-0 flex-wrap items-center gap-2 xl:flex-nowrap">
+                        <>
+                          <label className="flex h-9 items-center gap-2 rounded-md border px-3 text-sm font-medium">
+                            <input
+                              type="checkbox"
+                              checked={row.creationSources.includes("SHOPIFY")}
+                              onChange={() => toggleCreateSource(row.key, "SHOPIFY")}
+                              className="size-4"
+                            />
+                            Shopify
+                          </label>
+                          <label className="flex h-9 items-center gap-2 rounded-md border px-3 text-sm font-medium">
+                            <input
+                              type="checkbox"
+                              checked={row.creationSources.includes("ERP2")}
+                              onChange={() => toggleCreateSource(row.key, "ERP2")}
+                              className="size-4"
+                            />
+                            ERP 02
+                          </label>
+                          {!vaultOs && <label className="flex h-9 items-center gap-2 rounded-md border px-3 text-sm font-medium">
+                            <input
+                              type="checkbox"
+                              checked={row.addErp1OgfPrice}
+                              onChange={(event) => updateCreateRow(row.key, "addErp1OgfPrice", event.target.checked)}
+                              className="size-4"
+                            />
+                            ERP1 OGF
+                          </label>}
+                        </>
+                        {!vaultOs && <select
+                          value={row.taxStatus}
+                          onChange={(event) => updateCreateRow(row.key, "taxStatus", event.target.value)}
+                          aria-label="Tax status"
+                          className="h-9 w-40 shrink-0 rounded-md border bg-background px-3 py-1 text-sm outline-none transition focus:border-primary"
+                        >
+                          {ITEM_CREATION_TAX_STATUS_VALUES.map((value) => (
+                            <option key={value} value={value}>{value}</option>
+                          ))}
+                        </select>}
+                      </div>
+                    </div>
                     <button
                       type="button"
                       onClick={() => removeCreateRow(row.key)}
-                      className={`${secondaryButtonClass} h-10 px-3 xl:row-span-2`}
+                      className={`${secondaryButtonClass} h-10 px-3`}
                       aria-label={`Remove item ${index + 1}`}
                     >
                       Remove
                     </button>
-                    <div className="flex flex-wrap items-center gap-2 xl:col-start-4 xl:col-end-8">
-                      {!vaultOs && <>
-                        <label className="flex h-9 items-center gap-2 rounded-md border px-3 text-sm font-medium">
-                          <input
-                            type="checkbox"
-                            checked={row.creationSources.includes("SHOPIFY")}
-                            onChange={() => toggleCreateSource(row.key, "SHOPIFY")}
-                            className="size-4"
-                          />
-                          Shopify
-                        </label>
-                        <label className="flex h-9 items-center gap-2 rounded-md border px-3 text-sm font-medium">
-                          <input
-                            type="checkbox"
-                            checked={row.creationSources.includes("ERP2")}
-                            onChange={() => toggleCreateSource(row.key, "ERP2")}
-                            className="size-4"
-                          />
-                          ERP 02
-                        </label>
-                        <label className="flex h-9 items-center gap-2 rounded-md border px-3 text-sm font-medium">
-                          <input
-                            type="checkbox"
-                            checked={row.addErp1OgfPrice}
-                            onChange={(event) => updateCreateRow(row.key, "addErp1OgfPrice", event.target.checked)}
-                            className="size-4"
-                          />
-                          ERP1 OGF
-                        </label>
-                      </>}
-                    </div>
                   </div>
                 ))}
               </div>
@@ -993,17 +1153,18 @@ export function ItemCreationPanel({
         </div>
       )}
 
-      {permissions.admin && activeView === "admin" && (
+      {(permissions.admin || permissions.adminViewer || permissions.manageAll) && activeView === "admin" ? (
         <AdminTable
           items={items}
           isPending={isPending}
+          readOnly={!permissions.admin}
           onDelete={deleteRequest}
           onUpdate={updateRequest}
           onAction={runAction}
           onRefresh={refreshRequests}
           vaultOs={vaultOs}
         />
-      )}
+      ) : null}
 
       {activeView !== "admin" &&
         !(activeView === "digitalMarketing" &&
@@ -1033,7 +1194,7 @@ function MetricCard({ label, value }: { label: string; value: number }) {
   );
 }
 
-type BrandAllocation = { id: string; brand: string; userId: string; userName: string };
+type BrandAllocation = { id: string; brand: string; userId: string; userIds?: string[]; userName: string };
 type DigitalMarketingUser = { id: string; name: string };
 
 function BrandAllocationPanel({
@@ -1046,7 +1207,7 @@ function BrandAllocationPanel({
   const [allocations, setAllocations] = useState<BrandAllocation[]>([]);
   const [users, setUsers] = useState<DigitalMarketingUser[]>([]);
   const [brand, setBrand] = useState("");
-  const [userId, setUserId] = useState("");
+  const [userIds, setUserIds] = useState<string[]>([]);
   const [isBusy, setIsBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -1069,7 +1230,7 @@ function BrandAllocationPanel({
       const response = await fetch("/api/item-creation/brand-allocations", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ allocations: next.map(({ brand: value, userId: assignedUserId }) => ({ brand: value, userId: assignedUserId })) }),
+        body: JSON.stringify({ allocations: next.map(({ brand: value, userId: assignedUserId, ...row }) => ({ brand: value, userId: assignedUserId, userIds: (row as { userIds?: string[] }).userIds ?? [assignedUserId] })) }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "Failed to save allocations");
@@ -1084,27 +1245,27 @@ function BrandAllocationPanel({
 
   function addAllocation() {
     const trimmedBrand = brand.trim();
-    if (!trimmedBrand || !userId) {
+    if (!trimmedBrand || userIds.length === 0) {
       setError("Enter a brand and select an allocated person");
       return;
     }
-    void save([...allocations, { id: `new-${Date.now()}`, brand: trimmedBrand, userId, userName: users.find((user) => user.id === userId)?.name ?? "User" }]);
+    void save([...allocations, { id: `new-${Date.now()}`, brand: trimmedBrand, userId: userIds[0], userIds, userName: users.filter((user) => userIds.includes(user.id)).map((user) => user.name).join(", ") } as BrandAllocation]);
     setBrand("");
-    setUserId("");
+    setUserIds([]);
   }
 
   function removeAllocation(id: string) {
     void save(allocations.filter((allocation) => allocation.id !== id));
   }
 
-  async function updateRequestAssignee(itemId: string, assigneeId: string) {
+  async function updateRequestAssignee(itemId: string, assigneeIds: string[]) {
     setIsBusy(true);
     setError("");
     try {
       const response = await fetch(`/api/item-creation/${itemId}/digital-marketing/assignment`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ assigneeId: assigneeId || null }),
+        body: JSON.stringify({ assigneeId: assigneeIds[0] || null, assigneeIds }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "Failed to update request assignment");
@@ -1127,10 +1288,14 @@ function BrandAllocationPanel({
       </div>
       <div className="mt-4 grid gap-2 md:grid-cols-[1fr_1fr_auto]">
         <input value={brand} onChange={(event) => setBrand(event.target.value)} placeholder="Brand name" className={inputClass} />
-        <select value={userId} onChange={(event) => setUserId(event.target.value)} className={inputClass}>
-          <option value="">Select Digital Marketing user</option>
-          {users.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}
-        </select>
+        <div className="flex min-h-10 flex-wrap items-center gap-2 rounded-md border bg-background p-2">
+          {users.map((user) => (
+            <label key={user.id} className="flex items-center gap-2 rounded-md border px-2 py-1 text-sm">
+              <input type="checkbox" checked={userIds.includes(user.id)} onChange={(event) => setUserIds((current) => event.target.checked ? [...current, user.id] : current.filter((id) => id !== user.id))} className="size-4" />
+              {user.name}
+            </label>
+          ))}
+        </div>
         <button type="button" onClick={addAllocation} disabled={isBusy} className={primaryButtonClass}>Add Brand</button>
       </div>
       {error && <p className="mt-2 text-sm text-destructive">{error}</p>}
@@ -1142,14 +1307,29 @@ function BrandAllocationPanel({
               <tr key={allocation.id} className="border-b last:border-0">
                 <td className="px-3 py-2">{allocation.brand}</td>
                 <td className="px-3 py-2">
-                  <select
-                    value={allocation.userId}
-                    onChange={(event) => void save(allocations.map((candidate) => candidate.id === allocation.id ? { ...candidate, userId: event.target.value } : candidate))}
-                    disabled={isBusy}
-                    className={`${inputClass} min-w-52`}
-                  >
-                    {users.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}
-                  </select>
+                  <div className="flex min-w-64 flex-wrap gap-2 rounded-md border p-2">
+                    {users.map((user) => {
+                      const selectedIds = (allocation as BrandAllocation & { userIds?: string[] }).userIds ?? [allocation.userId];
+                      return (
+                      <label key={user.id} className="flex items-center gap-2 rounded-md border px-2 py-1 text-xs">
+                        <input type="checkbox" checked={selectedIds.includes(user.id)} onChange={(event) => {
+                      const ids = event.target.checked ? [...selectedIds, user.id] : selectedIds.filter((id) => id !== user.id);
+                      void save(allocations.map((candidate) =>
+                        candidate.id === allocation.id
+                          ? {
+                              ...candidate,
+                              userId: ids[0] ?? "",
+                              userIds: ids,
+                              userName: users.filter((user) => ids.includes(user.id)).map((user) => user.name).join(", "),
+                            }
+                          : candidate,
+                      ));
+                    }} disabled={isBusy} className="size-4" />
+                        {user.name}
+                      </label>
+                      );
+                    })}
+                  </div>
                 </td>
                 <td className="px-3 py-2"><button type="button" onClick={() => removeAllocation(allocation.id)} disabled={isBusy} className="text-sm text-destructive">Remove</button></td>
               </tr>
@@ -1169,10 +1349,12 @@ function BrandAllocationPanel({
                 <td className="max-w-sm px-3 py-2">{item.description}</td>
                 <td className="px-3 py-2">{item.digitalMarketingBrand ?? "Unmatched"}</td>
                 <td className="px-3 py-2">
-                  <select value={item.digitalMarketingAssigneeId ?? ""} onChange={(event) => void updateRequestAssignee(item.id, event.target.value)} disabled={isBusy} className={`${inputClass} min-w-52`}>
-                    <option value="">Unassigned</option>
-                    {users.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}
-                  </select>
+                  <div className="flex min-w-64 flex-wrap gap-2 rounded-md border p-2">
+                    {users.map((user) => {
+                      const selectedIds = item.digitalMarketingAssigneeIds ?? (item.digitalMarketingAssigneeId ? [item.digitalMarketingAssigneeId] : []);
+                      return <label key={user.id} className="flex items-center gap-2 rounded-md border px-2 py-1 text-xs"><input type="checkbox" checked={selectedIds.includes(user.id)} onChange={(event) => void updateRequestAssignee(item.id, event.target.checked ? [...selectedIds, user.id] : selectedIds.filter((id) => id !== user.id))} disabled={isBusy} className="size-4" />{user.name}</label>;
+                    })}
+                  </div>
                 </td>
               </tr>
             ))}
@@ -1398,12 +1580,14 @@ function TeamWorkflowView({
 function ActionButton({
   children,
   onClick,
+  disabled = false,
 }: {
   children: ReactNode;
   onClick: () => void;
+  disabled?: boolean;
 }) {
   return (
-    <button type="button" onClick={onClick} className={primaryButtonClass}>
+    <button type="button" onClick={onClick} disabled={disabled} className={primaryButtonClass}>
       {children}
     </button>
   );
@@ -2594,6 +2778,7 @@ function RequestCard({
   const showPrices = team === "purchasing";
   const showStock = team === "stores";
   const showImage = team === "seo" || team === "digitalMarketing";
+  const showDigitalAssignee = team === "digitalMarketing";
   const needsErp2 = item.creationSources.includes("ERP2");
   const needsErp1Ogf = item.addErp1OgfPrice || (item.ogfPrice !== null && !needsErp2);
   const ogfTarget = needsErp1Ogf
@@ -2626,6 +2811,12 @@ function RequestCard({
           <div className="mt-1 text-xs uppercase tracking-wide text-muted-foreground">
             {item.country}
           </div>
+          <div className="mt-2 text-xs text-muted-foreground">
+            <span className="font-medium">Sources to create:</span>{" "}
+            {item.creationSources.length > 0
+              ? item.creationSources.map(creationSourceLabel).join(", ")
+              : "None"}
+          </div>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">{action}</div>
       </div>
@@ -2635,6 +2826,17 @@ function RequestCard({
           {showPrices && <InfoBlock label="Price Status" value={PRICE_STATUS_LABELS[priceStatus]} />}
           {showStock && <InfoBlock label="Stock Status" value={status(item.storeStockStatus)} />}
           {showImage && <InfoBlock label="Google Drive" value={<DriveLink url={item.imageDriveUrl} />} />}
+          {showDigitalAssignee && (
+            <InfoBlock
+              label="Assigned to"
+              value={
+                item.digitalMarketingAssignee?.knownName?.trim() ||
+                item.digitalMarketingAssignee?.name?.trim() ||
+                item.digitalMarketingAssignee?.email?.trim() ||
+                "Unassigned"
+              }
+            />
+          )}
         </div>
       )}
 
@@ -2707,6 +2909,7 @@ function DigitalAction({
 function AdminTable({
   items,
   isPending,
+  readOnly,
   onDelete,
   onUpdate,
   onAction,
@@ -2715,6 +2918,7 @@ function AdminTable({
 }: {
   items: ItemCreationItem[];
   isPending: boolean;
+  readOnly: boolean;
   onDelete: (id: string) => void;
   onUpdate: (id: string, body: unknown) => void;
   onAction: (url: string, body?: unknown) => void;
@@ -2722,8 +2926,9 @@ function AdminTable({
   vaultOs: boolean;
 }) {
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [listView, setListView] = useState<"active" | "history">("active");
   const [now, setNow] = useState<number | null>(null);
-  const [editRow, setEditRow] = useState<Omit<CreateRow, "key" | "creationSources">>({
+  const [editRow, setEditRow] = useState<Omit<CreateRow, "key">>({
     sku: "",
     description: "",
     standardPrice: "",
@@ -2731,6 +2936,8 @@ function AdminTable({
     gccPrice: "",
     addErp1OgfPrice: false,
     country: "",
+    taxStatus: "Vat / Non Vat",
+    creationSources: ["SHOPIFY"],
   });
 
   useEffect(() => {
@@ -2752,6 +2959,8 @@ function AdminTable({
       gccPrice: item.gccPrice === null ? "" : String(item.gccPrice),
       addErp1OgfPrice: item.addErp1OgfPrice,
       country: item.country,
+      taxStatus: item.taxStatus,
+      creationSources: [...item.creationSources],
     });
   }
 
@@ -2770,13 +2979,21 @@ function AdminTable({
     }
   }
 
+  const activeItems = items.filter((item) => item.overallStatus !== "COMPLETED");
+  const historyItems = items.filter((item) => item.overallStatus === "COMPLETED");
+  const visibleItems = listView === "active" ? activeItems : historyItems;
+
   return (
     <section className="overflow-hidden rounded-lg border bg-card">
       <div className="flex items-center justify-between gap-3 border-b p-4">
         <div>
-          <h2 className="text-lg font-semibold tracking-normal">All Requests</h2>
+          <h2 className="text-lg font-semibold tracking-normal">
+            {listView === "active" ? "Active Requests" : "Item History"}
+          </h2>
           <p className="text-sm text-muted-foreground">
-            Full workflow status across every team.
+            {listView === "active"
+              ? "New and in-progress item creation requests."
+              : "Completed item creation requests retained for admin history."}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -2789,9 +3006,29 @@ function AdminTable({
             Refresh
           </button>
           <span className="rounded-md bg-muted px-2.5 py-1 text-sm font-medium">
-            {items.length}
+            {visibleItems.length}
           </span>
         </div>
+      </div>
+      <div className="flex flex-wrap gap-1 border-b p-2">
+        <button
+          type="button"
+          onClick={() => setListView("active")}
+          className={`rounded-md px-4 py-2 text-sm font-medium transition ${
+            listView === "active" ? "bg-primary text-primary-foreground" : "hover:bg-muted"
+          }`}
+        >
+          Active ({activeItems.length})
+        </button>
+        <button
+          type="button"
+          onClick={() => setListView("history")}
+          className={`rounded-md px-4 py-2 text-sm font-medium transition ${
+            listView === "history" ? "bg-primary text-primary-foreground" : "hover:bg-muted"
+          }`}
+        >
+          History ({historyItems.length})
+        </button>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full min-w-[1100px] text-left text-sm">
@@ -2800,7 +3037,7 @@ function AdminTable({
               {[
                 "SKU",
                 "Description",
-                "Country",
+                "Selected Sources",
                 "ERP2 Creation",
                 "SEO Setup",
                 "Digital Marketing",
@@ -2821,7 +3058,7 @@ function AdminTable({
             </tr>
           </thead>
           <tbody>
-            {items.map((item) => {
+            {visibleItems.map((item) => {
               const isEditing = editingId === item.id;
               return (
                 <tr key={item.id} className="border-b align-top last:border-0">
@@ -2849,16 +3086,43 @@ function AdminTable({
                   </td>
                   <td className="px-3 py-3">
                     {isEditing ? (
-                      <input
-                        value={editRow.country}
-                        onChange={(event) => setEditRow((row) => ({ ...row, country: event.target.value }))}
-                        className="h-9 w-28 rounded-md border bg-background px-2 text-sm"
-                      />
+                      <div className="grid gap-2">
+                        {(["SHOPIFY", "ERP2"] as const).map((source) => (
+                          <label key={source} className="flex w-fit items-center gap-2 rounded-md border bg-background px-2 py-1.5 text-xs font-medium">
+                            <input
+                              type="checkbox"
+                              checked={editRow.creationSources.includes(source)}
+                              onChange={() =>
+                                setEditRow((row) => {
+                                  const next = row.creationSources.includes(source)
+                                    ? row.creationSources.filter((value) => value !== source)
+                                    : [...row.creationSources, source];
+                                  return { ...row, creationSources: next.length > 0 ? next : [source] };
+                                })
+                              }
+                              className="size-4"
+                            />
+                            {creationSourceLabel(source)}
+                          </label>
+                        ))}
+                      </div>
                     ) : (
-                      item.country
+                      <div className="flex flex-wrap gap-1">
+                        {item.creationSources.length > 0 ? item.creationSources.map((source) => (
+                          <span key={source} className="rounded-md border bg-muted/40 px-2 py-1 text-xs font-medium">
+                            {creationSourceLabel(source)}
+                          </span>
+                        )) : <span className="text-muted-foreground">—</span>}
+                      </div>
                     )}
                     {isEditing && (
                       <div className="mt-2 grid gap-2">
+                        <input
+                          value={editRow.country}
+                          onChange={(event) => setEditRow((row) => ({ ...row, country: event.target.value }))}
+                          placeholder="Country"
+                          className="h-9 w-28 rounded-md border bg-background px-2 text-sm"
+                        />
                         <input
                           value={editRow.standardPrice}
                           onChange={(event) => setEditRow((row) => ({ ...row, standardPrice: event.target.value }))}
@@ -2894,6 +3158,16 @@ function AdminTable({
                           />
                           Add OGF to ERP1
                         </label>}
+                        <select
+                          value={editRow.taxStatus}
+                          onChange={(event) => setEditRow((row) => ({ ...row, taxStatus: event.target.value }))}
+                          aria-label="Tax status"
+                          className="h-9 w-40 rounded-md border bg-background px-2 text-sm"
+                        >
+                          {ITEM_CREATION_TAX_STATUS_VALUES.map((value) => (
+                            <option key={value} value={value}>{value}</option>
+                          ))}
+                        </select>
                       </div>
                     )}
                   </td>
@@ -2901,7 +3175,7 @@ function AdminTable({
                     <div className="grid gap-2">
                       <div className="flex flex-wrap items-center gap-2">
                         <StatusPill value={item.erp2ItemCreationStatus} />
-                        {item.erp2ItemCreationStatus === "FAILED" && (
+                        {!readOnly && item.erp2ItemCreationStatus === "FAILED" && (
                           <button
                             type="button"
                             disabled={isPending}
@@ -2939,7 +3213,9 @@ function AdminTable({
                     {formatDate(item.createdAt)}
                   </td>
                   <td className="px-3 py-3">
-                    {isEditing ? (
+                    {readOnly || listView === "history" ? (
+                      <span className="text-xs text-muted-foreground">View only</span>
+                    ) : isEditing ? (
                       <div className="flex flex-wrap gap-2">
                         <button
                           type="button"

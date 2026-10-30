@@ -8,6 +8,11 @@ const nullableString = z
 
 const optionalNumber = z.coerce.number().optional().nullable();
 
+export const erpnextGrnDeletionWebhookSchema = z.object({
+  name: z.string().min(1),
+  company: z.string().min(1),
+});
+
 export const erpnextPurchaseReceiptWebhookSchema = z.object({
   name: z.string().min(1),
   company: z.string().min(1),

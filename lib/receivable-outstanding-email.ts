@@ -10,6 +10,7 @@ import {
 import { parseEmailAddressList, renderEmailTemplatePlaceholders } from "@/lib/email-templates/render";
 import { formatAppDateTime } from "@/lib/format-datetime";
 import { loadCachedReceivables, refreshReceivables, type ReceivableRow } from "@/lib/receivable-outstanding";
+import type { ClearingAccountSummary } from "@/lib/receivable-clearing";
 import { sendErpSyncFailureAlertEmail } from "@/lib/maileroo";
 import { prisma } from "@/lib/prisma";
 
@@ -18,7 +19,54 @@ const DETAIL_KEYS = [RECEIVABLE_DELIVERY_PAYMENT_PENDING_DAILY_KEY, RECEIVABLE_N
 function escapeHtml(value: string) { return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
 function money(value: number) { return value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 const AGEING_HEADERS = ["1 to 2 Days", "3 to 4 Days", "5 to 7 Days", "08 to 30 Days", "Above 01 Month"] as const;
+const FINANCE_BUCKETS = [
+  { key: "koko", label: "Koko", days: 20 },
+  { key: "cash", label: "Cash", days: 2 },
+  { key: "citypak", label: "Citypak", days: 1 },
+  { key: "mintpay", label: "Mintpay", days: 7 },
+] as const;
 function ageingValues(row: ReceivableRow) { return [row.ageing1To2, row.ageing3To4, row.ageing5To7, row.ageing8To30, row.ageing31Plus]; }
+function isReturned(row: ReceivableRow) { return /^(returned_to_store|returned)$/i.test(row.cosmoOrderStatus ?? ""); }
+function isInvoiceCreatedNotDispatched(row: ReceivableRow) { return !row.isCancelled && !isReturned(row) && !row.dispatchDate && !row.isPosOrder && row.cosmoOrderStatus !== "delivery_complete"; }
+function financeBucketValue(accounts: ClearingAccountSummary[], company: string, bucket: (typeof FINANCE_BUCKETS)[number], above: boolean) {
+  let value = 0;
+  let count = 0;
+  for (const account of accounts) {
+    if (account.company !== company || !account.accountName.toLowerCase().includes(bucket.key)) continue;
+    for (const entry of account.outstandingTransactions) {
+      if (entry.ageInDays == null) continue;
+      const inRange = entry.ageInDays != null && entry.ageInDays <= bucket.days;
+      if (inRange !== !above) continue;
+      value += entry.remainingOutstanding;
+      count += 1;
+    }
+  }
+  return `${money(value)} (${count})`;
+}
+function financeClearingSummaryHtml(accounts: ClearingAccountSummary[]) {
+  const companies = [...new Set(accounts.map((account) => account.company))].sort();
+  const withinHeaders = FINANCE_BUCKETS.map((bucket) => `<th style="padding:7px;border:1px solid #b8c7d9;text-align:right;">${bucket.label} (${bucket.days} days)</th>`).join("");
+  const aboveHeaders = FINANCE_BUCKETS.map((bucket) => `<th style="padding:7px;border:1px solid #b8c7d9;text-align:right;">${bucket.label}</th>`).join("");
+  const rows = companies.map((company) => `<tr><td style="padding:7px;border:1px solid #b8c7d9;">${escapeHtml(company)}</td>${FINANCE_BUCKETS.map((bucket) => `<td style="padding:7px;border:1px solid #b8c7d9;text-align:right;">${financeBucketValue(accounts, company, bucket, false)}</td>`).join("")}${FINANCE_BUCKETS.map((bucket) => `<td style="padding:7px;border:1px solid #b8c7d9;text-align:right;">${financeBucketValue(accounts, company, bucket, true)}</td>`).join("")}</tr>`).join("");
+  const totalCell = (bucket: (typeof FINANCE_BUCKETS)[number], above: boolean) => {
+    let value = 0;
+    let count = 0;
+    for (const account of accounts) {
+      if (!account.accountName.toLowerCase().includes(bucket.key)) continue;
+      for (const entry of account.outstandingTransactions) {
+        if (entry.ageInDays == null) continue;
+        const inRange = entry.ageInDays != null && entry.ageInDays <= bucket.days;
+        if (inRange !== !above) continue;
+        value += entry.remainingOutstanding;
+        count += 1;
+      }
+    }
+    return `${money(value)} (${count})`;
+  };
+  const total = `<tr style="font-weight:bold;background:#e2f0d9;"><td style="padding:7px;border:1px solid #b8c7d9;">Total</td>${FINANCE_BUCKETS.map((bucket) => `<td style="padding:7px;border:1px solid #b8c7d9;text-align:right;">${totalCell(bucket, false)}</td>`).join("")}${FINANCE_BUCKETS.map((bucket) => `<td style="padding:7px;border:1px solid #b8c7d9;text-align:right;">${totalCell(bucket, true)}</td>`).join("")}</tr>`;
+  return `<h3 style="margin:22px 0 8px;padding:8px 10px;background:#d9eaf7;color:#17365d;border-left:5px solid #2f5597;">Clearing account outstanding</h3><table style="border-collapse:collapse;width:100%;border:1px solid #b8c7d9;font-size:13px;"><thead><tr style="background:#17365d;color:#fff;"><th rowspan="2" style="padding:7px;border:1px solid #b8c7d9;text-align:left;">Company</th><th colspan="4" style="padding:7px;border:1px solid #b8c7d9;">Finance — within allocated range</th><th colspan="4" style="padding:7px;border:1px solid #b8c7d9;">Finance-above allocated range</th></tr><tr style="background:#4169a1;color:#fff;">${withinHeaders}${aboveHeaders}</tr></thead><tbody>${rows || `<tr><td colspan="9" style="padding:8px;">No clearing-account outstanding entries</td></tr>`}${total}</tbody></table>`;
+}
+function tableHeading(title: string) { return `<h3 style="margin:22px 0 8px;padding:8px 10px;background:#d9eaf7;color:#17365d;border-left:5px solid #2f5597;">${title}</h3>`; }
 function styleWorkbook(book: XLSX.WorkBook) {
   const headerStyle = { fill: { fgColor: { rgb: "17365D" } }, font: { bold: true, color: { rgb: "FFFFFF" } }, alignment: { horizontal: "center", vertical: "center", wrapText: true } };
   const amountStyle = { fill: { fgColor: { rgb: "E2F0D9" } }, numFmt: "#,##0.00" };
@@ -38,7 +86,61 @@ function styleWorkbook(book: XLSX.WorkBook) {
     worksheet["!cols"] = Array.from({ length: range.e.c - range.s.c + 1 }, (_, index) => ({ wch: Math.max(13, Math.min(25, String(worksheet[XLSX.utils.encode_cell({ r: 0, c: index })]?.v ?? "").length + 4)) }));
   }
 }
-function workbook(rows: ReceivableRow[], sheetName: string) {
+function appendClearingSheets(book: XLSX.WorkBook, accounts: ClearingAccountSummary[]) {
+  const accountRows = accounts.map((account) => ({
+    "Clearing Account": account.accountName,
+    "Account ID": account.accountId,
+    Company: account.company,
+    ERP: account.erpSlot ?? "",
+    Currency: account.currency ?? "",
+    "Closing Debit": account.closingDebit,
+    "Closing Credit": account.closingCredit,
+    Outstanding: account.outstanding,
+    "FIFO Outstanding": account.fifoOutstanding,
+    "Unmatched Credits": account.unmatchedCredits,
+    Reconciled: account.reconciled ? "Yes" : "No",
+    "Reconciliation Difference": account.reconciliationDifference,
+    Warning: account.reconciliationWarning ?? "",
+  }));
+  const outstandingRows = accounts.flatMap((account) => account.outstandingTransactions.map((row) => ({
+    "Clearing Account": account.accountName,
+    "Account ID": account.accountId,
+    Company: account.company,
+    ERP: account.erpSlot ?? "",
+    "Posting Date": row.postingDate ?? "",
+    "Voucher Type": row.voucherType ?? "",
+    "Voucher Number": row.voucherNumber ?? "",
+    "GL Entry ID": row.glEntryId ?? "",
+    "Original Incoming Amount": row.originalIncomingAmount,
+    "Cleared Amount": row.clearedAmount,
+    "Remaining Outstanding": row.remainingOutstanding,
+    "Age in Days": row.ageInDays ?? "",
+    "Unattributed Opening Balance": row.unattributedOpeningBalance ? "Yes" : "No",
+    Allocations: row.allocations.map((allocation) => `${allocation.voucherNumber ?? allocation.glEntryId ?? ""}: ${allocation.amount.toFixed(2)}`).join("; "),
+  })));
+  const ledgerRows = accounts.flatMap((account) => account.generalLedger.map((row) => ({
+    "Clearing Account": account.accountName,
+    "Account ID": account.accountId,
+    Company: account.company,
+    ERP: account.erpSlot ?? "",
+    "GL Entry ID": row.glEntryId ?? "",
+    "Posting Date": row.postingDate ?? "",
+    Creation: row.creationTimestamp ?? "",
+    Account: row.account,
+    "Voucher Type": row.voucherType ?? "",
+    "Voucher Number": row.voucherNumber ?? "",
+    Debit: row.debit,
+    Credit: row.credit,
+    Remarks: row.remarks ?? "",
+    Direction: row.direction,
+    "Allocated Amount": row.allocatedAmount,
+    "Unmatched Credit": row.unmatchedCredit,
+  })));
+  XLSX.utils.book_append_sheet(book, XLSX.utils.json_to_sheet(accountRows), "Clearing Accounts");
+  XLSX.utils.book_append_sheet(book, XLSX.utils.json_to_sheet(outstandingRows), "Clearing Outstanding");
+  XLSX.utils.book_append_sheet(book, XLSX.utils.json_to_sheet(ledgerRows), "Clearing General Ledger");
+}
+function workbook(rows: ReceivableRow[], sheetName: string, clearingAccounts: ClearingAccountSummary[] = []) {
   const values = rows.map((row) => ({
     Customer: row.customer,
     Company: row.company,
@@ -60,8 +162,42 @@ function workbook(rows: ReceivableRow[], sheetName: string) {
   }));
   const book = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(book, XLSX.utils.json_to_sheet(values), sheetName);
+  if (clearingAccounts.length) appendClearingSheets(book, clearingAccounts);
   styleWorkbook(book);
   return XLSX.write(book, { type: "buffer", bookType: "xlsx" }) as Buffer;
+}
+type CombinedReceivableSummaryRow = {
+  Company: string;
+  Count: number;
+  Value: number;
+  [key: string]: string | number;
+};
+
+function combinedReceivableSummaryRows(rows: ReceivableRow[], clearingAccounts: ClearingAccountSummary[]): CombinedReceivableSummaryRow[] {
+  const grouped = new Map<string, { Company: string; Count: number; Value: number; ageing: Array<{ value: number; count: number }> }>();
+  const getGroup = (company: string) => grouped.get(company) ?? { Company: company, Count: 0, Value: 0, ageing: AGEING_HEADERS.map(() => ({ value: 0, count: 0 })) };
+  const addInvoice = (row: ReceivableRow) => {
+    const group = getGroup(row.company);
+    group.Count += 1;
+    group.Value += row.outstanding;
+    const values = ageingValues(row);
+    values.forEach((value, index) => { group.ageing[index]!.value += value; if (value > 0) group.ageing[index]!.count += 1; });
+    grouped.set(row.company, group);
+  };
+  for (const row of rows) addInvoice(row);
+  for (const account of clearingAccounts) {
+    const group = getGroup(account.company);
+    group.Count += account.outstandingTransactions.length;
+    group.Value += account.outstanding;
+    for (const entry of account.outstandingTransactions) {
+      const age = entry.ageInDays;
+      const index = age == null ? AGEING_HEADERS.length - 1 : age <= 2 ? 0 : age <= 4 ? 1 : age <= 7 ? 2 : age <= 30 ? 3 : 4;
+      group.ageing[index]!.value += entry.remainingOutstanding;
+      group.ageing[index]!.count += 1;
+    }
+    grouped.set(account.company, group);
+  }
+  return [...grouped.values()].sort((first, second) => first.Company.localeCompare(second.Company)).map((group) => ({ Company: group.Company, Count: group.Count, Value: group.Value, ...Object.fromEntries(group.ageing.flatMap((bucket, index) => [[`${AGEING_HEADERS[index]} Value`, bucket.value], [`${AGEING_HEADERS[index]} Count`, bucket.count]])) }));
 }
 function ageingTotals(rows: ReceivableRow[]) {
   const buckets = ["1-2 Days", "3-4 Days", "5-7 Days", "08-30 Days", "31+ Days", "No Dispatch"] as const;
@@ -74,45 +210,55 @@ function ageingValueCountCells(rows: ReceivableRow[]) {
     return `<td style="text-align:right;">${money(value)} (${count})</td>`;
   }).join("");
 }
-function summaryWorkbook(groups: { company: string; paymentPending: number; paymentValue: number; dispatchPending: number; dispatchValue: number; deliveryIncomplete: number; deliveryValue: number }[], allRows: ReceivableRow[], deliveryRows: ReceivableRow[]) {
+function summaryWorkbook(groups: { company: string; paymentPending: number; paymentValue: number; dispatchPending: number; dispatchValue: number; deliveryIncomplete: number; deliveryValue: number }[], allRows: ReceivableRow[], deliveryRows: ReceivableRow[], clearingAccounts: ClearingAccountSummary[] = []) {
   const book = XLSX.utils.book_new();
-  const companyRows = groups.map((group) => ({ Company: group.company, "Payment Pending Count": group.paymentPending, "Payment Pending Value": group.paymentValue, "Dispatch Pending Count": group.dispatchPending, "Dispatch Pending Value": group.dispatchValue, "Delivery Incomplete Count": group.deliveryIncomplete, "Delivery Incomplete Value": group.deliveryValue, ...ageingTotals(allRows.filter((row) => row.company === group.company)) }));
-  XLSX.utils.book_append_sheet(book, XLSX.utils.json_to_sheet([...companyRows, { Company: "Total", "Payment Pending Count": groups.reduce((sum, row) => sum + row.paymentPending, 0), "Payment Pending Value": groups.reduce((sum, row) => sum + row.paymentValue, 0), "Dispatch Pending Count": groups.reduce((sum, row) => sum + row.dispatchPending, 0), "Dispatch Pending Value": groups.reduce((sum, row) => sum + row.dispatchValue, 0), "Delivery Incomplete Count": groups.reduce((sum, row) => sum + row.deliveryIncomplete, 0), "Delivery Incomplete Value": groups.reduce((sum, row) => sum + row.deliveryValue, 0), ...ageingTotals(allRows) }]), "Company Summary");
+  const companyRows = groups.map((group) => ({ Company: group.company, "Payment Pending Count": group.paymentPending, "Payment Pending Value": group.paymentValue, "Dispatch Pending Count": group.dispatchPending, "Dispatch Pending Value": group.dispatchValue, "Delivery Incomplete Count": group.deliveryIncomplete, "Delivery Incomplete Value": group.deliveryValue }));
+  XLSX.utils.book_append_sheet(book, XLSX.utils.json_to_sheet([...companyRows, { Company: "Total", "Payment Pending Count": groups.reduce((sum, row) => sum + row.paymentPending, 0), "Payment Pending Value": groups.reduce((sum, row) => sum + row.paymentValue, 0), "Dispatch Pending Count": groups.reduce((sum, row) => sum + row.dispatchPending, 0), "Dispatch Pending Value": groups.reduce((sum, row) => sum + row.dispatchValue, 0), "Delivery Incomplete Count": groups.reduce((sum, row) => sum + row.deliveryIncomplete, 0), "Delivery Incomplete Value": groups.reduce((sum, row) => sum + row.deliveryValue, 0) }]), "Company Summary");
   const paymentRows = allRows.filter((row) => row.cosmoOrderStatus === "delivery_complete");
-  const dispatchRows = allRows.filter((row) => !row.dispatchDate && !row.isPosOrder && row.cosmoOrderStatus !== "delivery_complete");
+  const dispatchRows = allRows.filter(isInvoiceCreatedNotDispatched);
   const companyAgeing = (rows: ReceivableRow[]) => [...new Set(rows.map((row) => row.company))].sort().map((company) => ({ Company: company, Count: rows.filter((row) => row.company === company).length, Value: rows.filter((row) => row.company === company).reduce((sum, row) => sum + row.outstanding, 0), ...ageingTotals(rows.filter((row) => row.company === company)) }));
+  const receivableOutstandingRows = combinedReceivableSummaryRows(allRows, clearingAccounts);
+  const combinedTotals = receivableOutstandingRows.reduce((total, row) => { total.Count += Number(row.Count); total.Value += Number(row.Value); AGEING_HEADERS.forEach((header, index) => { total.ageing[index]!.value += Number(row[`${header} Value`] ?? 0); total.ageing[index]!.count += Number(row[`${header} Count`] ?? 0); }); return total; }, { Count: 0, Value: 0, ageing: AGEING_HEADERS.map(() => ({ value: 0, count: 0 })) });
+  const combinedTotal = { Company: "Total", Count: combinedTotals.Count, Value: combinedTotals.Value, ...Object.fromEntries(combinedTotals.ageing.flatMap((bucket, index) => [[`${AGEING_HEADERS[index]} Value`, bucket.value], [`${AGEING_HEADERS[index]} Count`, bucket.count]])) };
+  XLSX.utils.book_append_sheet(book, XLSX.utils.json_to_sheet([...receivableOutstandingRows, combinedTotal]), "Receivable Outstanding");
   const paymentAgeingRows = companyAgeing(paymentRows);
   XLSX.utils.book_append_sheet(book, XLSX.utils.json_to_sheet([...paymentAgeingRows, { Company: "Total", Count: paymentRows.length, Value: paymentRows.reduce((sum, row) => sum + row.outstanding, 0), ...ageingTotals(paymentRows) }]), "Payment Pending");
-  const dispatchCountRows = [...new Set(dispatchRows.map((row) => row.company))].sort().map((company) => { const rows = dispatchRows.filter((row) => row.company === company); return { Company: company, Count: rows.length, "1-2 Days Count": rows.filter((row) => row.ageingBucket === "1-2 Days").length, "3-4 Days Count": rows.filter((row) => row.ageingBucket === "3-4 Days").length, "5-7 Days Count": rows.filter((row) => row.ageingBucket === "5-7 Days").length, "08-30 Days Count": rows.filter((row) => row.ageingBucket === "08-30 Days").length, "31+ Days Count": rows.filter((row) => row.ageingBucket === "31+ Days").length, "No Dispatch Count": rows.filter((row) => row.ageingBucket === "No Dispatch").length }; });
-  XLSX.utils.book_append_sheet(book, XLSX.utils.json_to_sheet([...dispatchCountRows, { Company: "Total", Count: dispatchRows.length, "1-2 Days Count": dispatchRows.filter((row) => row.ageingBucket === "1-2 Days").length, "3-4 Days Count": dispatchRows.filter((row) => row.ageingBucket === "3-4 Days").length, "5-7 Days Count": dispatchRows.filter((row) => row.ageingBucket === "5-7 Days").length, "08-30 Days Count": dispatchRows.filter((row) => row.ageingBucket === "08-30 Days").length, "31+ Days Count": dispatchRows.filter((row) => row.ageingBucket === "31+ Days").length, "No Dispatch Count": dispatchRows.filter((row) => row.ageingBucket === "No Dispatch").length }]), "Dispatch Pending");
+  const dispatchCountRows = [...new Set(dispatchRows.map((row) => row.company))].sort().map((company) => { const rows = dispatchRows.filter((row) => row.company === company); return { Company: company, Count: rows.length, ...ageingTotals(rows) }; });
+  XLSX.utils.book_append_sheet(book, XLSX.utils.json_to_sheet([...dispatchCountRows, { Company: "Total", Count: dispatchRows.length, ...ageingTotals(dispatchRows) }]), "Dispatch Pending");
   const byService = new Map<string, { service: string; count: number; value: number }>();
   for (const row of deliveryRows) { const service = `${row.shippingServiceType ?? "Unassigned"}: ${row.shippingService ?? "Unassigned"}`; const item = byService.get(service) ?? { service, count: 0, value: 0 }; item.count += 1; item.value += row.outstanding; byService.set(service, item); }
   const serviceRows = [...new Set(deliveryRows.map((row) => `${row.shippingServiceType ?? "Unassigned"}: ${row.shippingService ?? "Unassigned"}`))].sort().map((service) => { const rows = deliveryRows.filter((row) => `${row.shippingServiceType ?? "Unassigned"}: ${row.shippingService ?? "Unassigned"}` === service); return { "Rider / Courier": service, Count: rows.length, Value: rows.reduce((sum, row) => sum + row.outstanding, 0), ...ageingTotals(rows) }; });
   XLSX.utils.book_append_sheet(book, XLSX.utils.json_to_sheet([...serviceRows, { "Rider / Courier": "Total", Count: deliveryRows.length, Value: deliveryRows.reduce((sum, row) => sum + row.outstanding, 0), ...ageingTotals(deliveryRows) }]), "Delivery Incomplete");
   XLSX.utils.book_append_sheet(book, XLSX.utils.json_to_sheet([...byService.values(), { service: "Total", count: deliveryRows.length, value: deliveryRows.reduce((sum, row) => sum + row.outstanding, 0) }]), "Rider Courier Summary");
+  if (clearingAccounts.length) appendClearingSheets(book, clearingAccounts);
   styleWorkbook(book);
   return XLSX.write(book, { type: "buffer", bookType: "xlsx" }) as Buffer;
 }
-function summaryTablesHtml(groups: { company: string; paymentPending: number; paymentValue: number; dispatchPending: number; dispatchValue: number }[], allRows: ReceivableRow[], deliveryRows: ReceivableRow[]) {
+function summaryTablesHtml(groups: { company: string; paymentPending: number; paymentValue: number; dispatchPending: number; dispatchValue: number }[], allRows: ReceivableRow[], deliveryRows: ReceivableRow[], clearingAccounts: ClearingAccountSummary[] = []) {
   const table = (title: string, headers: string[], rows: string) => `<h3 style="margin:22px 0 8px;padding:8px 10px;background:#d9eaf7;color:#17365d;border-left:5px solid #2f5597;">${title}</h3><table style="border-collapse:collapse;width:100%;border:1px solid #b8c7d9;font-size:13px;"><thead><tr style="background:#17365d;color:#fff;">${headers.map((header) => `<th style="padding:7px;border:1px solid #b8c7d9;text-align:left;">${header}</th>`).join("")}</tr></thead><tbody>${rows || `<tr><td colspan="${headers.length}" style="padding:8px;">No rows</td></tr>`}</tbody></table>`;
   const paymentRows = allRows.filter((row) => row.cosmoOrderStatus === "delivery_complete");
-  const dispatchRows = allRows.filter((row) => !row.dispatchDate && !row.isPosOrder && row.cosmoOrderStatus !== "delivery_complete");
+  const dispatchRows = allRows.filter(isInvoiceCreatedNotDispatched);
   const ageingHeaders = AGEING_HEADERS.map((header) => header);
   const ageingCells = (rows: ReceivableRow[]) => { const values = AGEING_HEADERS.map((_, index) => rows.reduce((sum, row) => sum + ageingValues(row)[index], 0)); return values.map((value, index) => { const count = rows.filter((row) => ageingValues(row)[index] > 0).length; return `<td style="text-align:right;">${money(value)} (${count})</td>`; }).join(""); };
   const paymentRowsHtml = groups.map((row) => { const selected = paymentRows.filter((item) => item.company === row.company); return `<tr><td>${escapeHtml(row.company)}</td><td>${selected.length}</td><td>${money(row.paymentValue)}</td>${ageingCells(selected)}</tr>`; }).join("") + `<tr style="font-weight:bold;background:#e2f0d9;"><td>Total</td><td>${paymentRows.length}</td><td>${money(paymentRows.reduce((sum, row) => sum + row.outstanding, 0))}</td>${ageingCells(paymentRows)}</tr>`;
-  const ageingCounts = (rows: ReceivableRow[]) => AGEING_HEADERS.map((_, index) => rows.filter((row) => ageingValues(row)[index] > 0).length).map((value) => `<td style="text-align:right;">${value}</td>`).join("");
-  const dispatchRowsHtml = groups.map((row) => { const selected = dispatchRows.filter((item) => item.company === row.company); return `<tr><td>${escapeHtml(row.company)}</td><td>${selected.length}</td>${ageingCounts(selected)}</tr>`; }).join("") + `<tr style="font-weight:bold;background:#e2f0d9;"><td>Total</td><td>${dispatchRows.length}</td>${ageingCounts(dispatchRows)}</tr>`;
+  const dispatchRowsHtml = groups.map((row) => { const selected = dispatchRows.filter((item) => item.company === row.company); return `<tr><td>${escapeHtml(row.company)}</td><td>${selected.length}</td>${ageingCells(selected)}</tr>`; }).join("") + `<tr style="font-weight:bold;background:#e2f0d9;"><td>Total</td><td>${dispatchRows.length}</td>${ageingCells(dispatchRows)}</tr>`;
   const deliveryRowsHtml = [...new Set(deliveryRows.map((row) => `${row.shippingServiceType ?? "Unassigned"}: ${row.shippingService ?? "Unassigned"}`))].sort().map((service) => { const selected = deliveryRows.filter((item) => `${item.shippingServiceType ?? "Unassigned"}: ${item.shippingService ?? "Unassigned"}` === service); return `<tr><td>${escapeHtml(service)}</td><td>${selected.length}</td><td>${money(selected.reduce((sum, row) => sum + row.outstanding, 0))}</td>${ageingCells(selected)}</tr>`; }).join("") + `<tr style="font-weight:bold;background:#e2f0d9;"><td>Total</td><td>${deliveryRows.length}</td><td>${money(deliveryRows.reduce((sum, row) => sum + row.outstanding, 0))}</td>${ageingCells(deliveryRows)}</tr>`;
-  return `${table("Payment pending — company wise", ["Company", "Count", "Total Value", ...ageingHeaders], paymentRowsHtml)}${table("Dispatch pending — company wise", ["Company", "Count", ...ageingHeaders], dispatchRowsHtml)}${table("Dispatched, delivery incomplete — rider/courier wise", ["Rider / Courier", "Count", "Total Value", ...ageingHeaders], deliveryRowsHtml)}`;
+  const combinedRows = combinedReceivableSummaryRows(allRows, clearingAccounts);
+  const combinedCell = (row: (typeof combinedRows)[number], header: string) => `${money(Number(row[`${header} Value`] ?? 0))} (${Number(row[`${header} Count`] ?? 0)})`;
+  const outstandingRowsHtml = combinedRows.map((row) => `<tr><td>${escapeHtml(row.Company)}</td><td>${row.Count}</td><td>${money(Number(row.Value))}</td>${AGEING_HEADERS.map((header) => `<td style="text-align:right;">${combinedCell(row, header)}</td>`).join("")}</tr>`).join("");
+  const combinedTotal = combinedRows.reduce((total, row) => { total.Count += Number(row.Count); total.Value += Number(row.Value); for (const header of AGEING_HEADERS) { total[`${header} Value`] = Number(total[`${header} Value`] ?? 0) + Number(row[`${header} Value`] ?? 0); total[`${header} Count`] = Number(total[`${header} Count`] ?? 0) + Number(row[`${header} Count`] ?? 0); } return total; }, { Count: 0, Value: 0 } as Record<string, number>);
+  const outstandingTotalHtml = `<tr style="font-weight:bold;background:#e2f0d9;"><td>Total</td><td>${combinedTotal.Count}</td><td>${money(combinedTotal.Value)}</td>${AGEING_HEADERS.map((header) => `<td style="text-align:right;">${money(combinedTotal[`${header} Value`] ?? 0)} (${combinedTotal[`${header} Count`] ?? 0})</td>`).join("")}</tr>`;
+  return `${table("Receivable Outstanding", ["Company", "Count", "Total Value", ...ageingHeaders], `${outstandingRowsHtml}${outstandingTotalHtml}`)}${table("Payment pending — company wise", ["Company", "Count", "Total Value", ...ageingHeaders], paymentRowsHtml)}${table("Dispatch pending — company wise", ["Company", "Count", "Total Value", ...ageingHeaders], dispatchRowsHtml)}${table("Dispatched, delivery incomplete — rider/courier wise", ["Rider / Courier", "Count", "Total Value", ...ageingHeaders], deliveryRowsHtml)}`;
 }
 async function template(companyId: string, key: string) {
   const builtin = builtinTemplateByKey(key)!;
   const stored = await prisma.emailTemplate.findUnique({ where: { companyId_key: { companyId, key } } });
-  return { subject: stored?.subject?.trim() || builtin.subject, bodyHtml: stored?.bodyHtml?.trim() || builtin.bodyHtml, recipients: stored?.recipients ?? builtin.recipients, ccRecipients: stored?.ccRecipients ?? builtin.ccRecipients };
+  const forceFinanceReceivableDefaults = key === RECEIVABLE_DELIVERY_PAYMENT_PENDING_DAILY_KEY;
+  return { subject: forceFinanceReceivableDefaults ? builtin.subject : stored?.subject?.trim() || builtin.subject, bodyHtml: forceFinanceReceivableDefaults ? builtin.bodyHtml : stored?.bodyHtml?.trim() || builtin.bodyHtml, recipients: stored?.recipients ?? builtin.recipients, ccRecipients: stored?.ccRecipients ?? builtin.ccRecipients };
 }
 function detailRows(rows: ReceivableRow[], key: string) {
   if (key === RECEIVABLE_DELIVERY_PAYMENT_PENDING_DAILY_KEY) return rows.filter((row) => row.cosmoOrderStatus === "delivery_complete");
-  if (key === RECEIVABLE_NOT_DISPATCHED_DAILY_KEY) return rows.filter((row) => !row.dispatchDate && !row.isPosOrder && row.cosmoOrderStatus !== "delivery_complete");
+  if (key === RECEIVABLE_NOT_DISPATCHED_DAILY_KEY) return rows.filter(isInvoiceCreatedNotDispatched);
   return rows.filter((row) => Boolean(row.dispatchDate) && !row.isCustomerPickup && row.cosmoOrderStatus !== "delivery_complete");
 }
 function detailSummaryHtml(rows: ReceivableRow[], showValueCount = false) {
@@ -120,16 +266,20 @@ function detailSummaryHtml(rows: ReceivableRow[], showValueCount = false) {
   const body = companies.map((company) => { const selected = rows.filter((row) => row.company === company); const value = money(selected.reduce((sum, row) => sum + row.outstanding, 0)); return `<tr><td>${escapeHtml(company)}</td><td>${selected.length}</td><td>${value}${showValueCount ? ` (${selected.length})` : ""}</td>${ageingValueCountCells(selected)}</tr>`; }).join("") + `<tr style="font-weight:bold;background:#e2f0d9;"><td>Total</td><td>${rows.length}</td><td>${money(rows.reduce((sum, row) => sum + row.outstanding, 0))}${showValueCount ? ` (${rows.length})` : ""}</td>${ageingValueCountCells(rows)}</tr>`;
   return `<table style="border-collapse:collapse;width:100%;border:1px solid #b8c7d9;font-size:13px;"><thead><tr style="background:#17365d;color:#fff;"><th>Company</th><th>Count</th><th>Total Value</th>${AGEING_HEADERS.map((header) => `<th>${header}</th>`).join("")}</tr></thead><tbody>${body || "<tr><td colspan=8>No rows</td></tr>"}</tbody></table>`;
 }
-export function buildReceivableEmailPreview(rows: ReceivableRow[], key: string) {
+export function buildReceivableEmailPreview(input: { rows: ReceivableRow[]; clearingAccounts: ClearingAccountSummary[] }, key: string) {
+  const { rows, clearingAccounts } = input;
   if (key === RECEIVABLE_OPERATIONS_SUMMARY_DAILY_KEY) {
     const paymentRows = detailRows(rows, RECEIVABLE_DELIVERY_PAYMENT_PENDING_DAILY_KEY);
     const dispatchRows = detailRows(rows, RECEIVABLE_NOT_DISPATCHED_DAILY_KEY);
     const deliveryRows = detailRows(rows, RECEIVABLE_DELIVERY_INCOMPLETE_DAILY_KEY);
     const companies = [...new Set(rows.map((row) => row.company))].sort().map((name) => ({ company: name, paymentPending: paymentRows.filter((row) => row.company === name).length, paymentValue: paymentRows.filter((row) => row.company === name).reduce((sum, row) => sum + row.outstanding, 0), dispatchPending: dispatchRows.filter((row) => row.company === name).length, dispatchValue: dispatchRows.filter((row) => row.company === name).reduce((sum, row) => sum + row.outstanding, 0), deliveryIncomplete: deliveryRows.filter((row) => row.company === name).length, deliveryValue: deliveryRows.filter((row) => row.company === name).reduce((sum, row) => sum + row.outstanding, 0) }));
-    return { summaryTableHtml: summaryTablesHtml(companies, rows, deliveryRows), rowCount: rows.length, totalValue: money(rows.reduce((sum, row) => sum + row.outstanding, 0)), attachment: summaryWorkbook(companies, rows, deliveryRows) };
+    return { summaryTableHtml: `${summaryTablesHtml(companies, rows, deliveryRows, clearingAccounts)}${financeClearingSummaryHtml(clearingAccounts)}`, rowCount: rows.length, totalValue: money(rows.reduce((sum, row) => sum + row.outstanding, 0)), attachment: summaryWorkbook(companies, rows, deliveryRows, clearingAccounts) };
   }
   const selected = detailRows(rows, key);
-  return { summaryTableHtml: detailSummaryHtml(selected, key === RECEIVABLE_NOT_DISPATCHED_DAILY_KEY), rowCount: selected.length, totalValue: money(selected.reduce((sum, row) => sum + row.outstanding, 0)), attachment: workbook(selected, "Receivables") };
+  const isFinanceSummary = key === RECEIVABLE_DELIVERY_PAYMENT_PENDING_DAILY_KEY;
+  const financeSummary = isFinanceSummary ? financeClearingSummaryHtml(clearingAccounts) : "";
+  const detailTable = `${isFinanceSummary ? tableHeading("Delivery complete-payment pending") : ""}${detailSummaryHtml(selected, key === RECEIVABLE_NOT_DISPATCHED_DAILY_KEY)}`;
+  return { summaryTableHtml: `${detailTable}${financeSummary}`, rowCount: selected.length, totalValue: money(selected.reduce((sum, row) => sum + row.outstanding, 0)), attachment: workbook(selected, "Receivables", isFinanceSummary ? clearingAccounts : []) };
 }
 export async function runReceivableOutstandingDailyEmail(companyId: string, reportDate: string) {
   await refreshReceivables(companyId, reportDate);
@@ -141,8 +291,11 @@ export async function runReceivableOutstandingDailyEmail(companyId: string, repo
     const recipients = parseEmailAddressList(config.recipients);
     if (!recipients.length) continue;
     const rows = detailRows(loaded.rows, key);
-    const vars = { companyName: company?.name ?? "", reportDate, generatedAt, summaryTableHtml: detailSummaryHtml(rows, key === RECEIVABLE_NOT_DISPATCHED_DAILY_KEY), rowCount: String(rows.length), totalValue: money(rows.reduce((sum, row) => sum + row.outstanding, 0)) };
-    const sent = await sendErpSyncFailureAlertEmail({ toEmails: recipients, ccEmails: parseEmailAddressList(config.ccRecipients), subject: renderEmailTemplatePlaceholders(config.subject, vars), html: renderEmailTemplatePlaceholders(config.bodyHtml, vars), plain: `${key}: ${rows.length} rows, total ${vars.totalValue}`, attachments: [{ fileName: `${key}-${reportDate}.xlsx`, contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", contentBase64: workbook(rows, "Receivables").toString("base64") }] });
+    const isFinanceSummary = key === RECEIVABLE_DELIVERY_PAYMENT_PENDING_DAILY_KEY;
+    const financeSummary = isFinanceSummary ? financeClearingSummaryHtml(loaded.clearingAccounts) : "";
+    const detailTable = `${isFinanceSummary ? tableHeading("Delivery complete-payment pending") : ""}${detailSummaryHtml(rows, key === RECEIVABLE_NOT_DISPATCHED_DAILY_KEY)}`;
+    const vars = { companyName: company?.name ?? "", reportDate, generatedAt, summaryTableHtml: `${detailTable}${financeSummary}`, rowCount: String(rows.length), totalValue: money(rows.reduce((sum, row) => sum + row.outstanding, 0)) };
+    const sent = await sendErpSyncFailureAlertEmail({ toEmails: recipients, ccEmails: parseEmailAddressList(config.ccRecipients), subject: renderEmailTemplatePlaceholders(config.subject, vars), html: renderEmailTemplatePlaceholders(config.bodyHtml, vars), plain: `${key}: ${rows.length} rows, total ${vars.totalValue}`, attachments: [{ fileName: `${key}-${reportDate}.xlsx`, contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", contentBase64: workbook(rows, "Receivables", isFinanceSummary ? loaded.clearingAccounts : []).toString("base64") }] });
     if (!sent.success) throw new Error(sent.message ?? `Failed to send ${key}`);
   }
   const summaryConfig = await template(companyId, RECEIVABLE_OPERATIONS_SUMMARY_DAILY_KEY);
@@ -152,6 +305,6 @@ export async function runReceivableOutstandingDailyEmail(companyId: string, repo
   const dispatchRows = detailRows(loaded.rows, RECEIVABLE_NOT_DISPATCHED_DAILY_KEY);
   const deliveryRows = detailRows(loaded.rows, RECEIVABLE_DELIVERY_INCOMPLETE_DAILY_KEY);
   const companies = [...new Set(loaded.rows.map((row) => row.company))].sort().map((name) => ({ company: name, paymentPending: paymentRows.filter((row) => row.company === name).length, paymentValue: paymentRows.filter((row) => row.company === name).reduce((sum, row) => sum + row.outstanding, 0), dispatchPending: dispatchRows.filter((row) => row.company === name).length, dispatchValue: dispatchRows.filter((row) => row.company === name).reduce((sum, row) => sum + row.outstanding, 0), deliveryIncomplete: deliveryRows.filter((row) => row.company === name).length, deliveryValue: deliveryRows.filter((row) => row.company === name).reduce((sum, row) => sum + row.outstanding, 0) }));
-  const vars = { companyName: company?.name ?? "", reportDate, generatedAt, summaryTableHtml: summaryTablesHtml(companies, loaded.rows, deliveryRows), rowCount: String(loaded.rows.length), totalValue: money(loaded.rows.reduce((sum, row) => sum + row.outstanding, 0)) };
-  await sendErpSyncFailureAlertEmail({ toEmails: recipients, ccEmails: parseEmailAddressList(summaryConfig.ccRecipients), subject: renderEmailTemplatePlaceholders(summaryConfig.subject, vars), html: renderEmailTemplatePlaceholders(summaryConfig.bodyHtml, vars), plain: `Receivable operations summary for ${reportDate}`, attachments: [{ fileName: `receivable-operations-summary-${reportDate}.xlsx`, contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", contentBase64: summaryWorkbook(companies, loaded.rows, deliveryRows).toString("base64") }] });
+  const vars = { companyName: company?.name ?? "", reportDate, generatedAt, summaryTableHtml: `${summaryTablesHtml(companies, loaded.rows, deliveryRows, loaded.clearingAccounts)}${financeClearingSummaryHtml(loaded.clearingAccounts)}`, rowCount: String(loaded.rows.length), totalValue: money(loaded.rows.reduce((sum, row) => sum + row.outstanding, 0)) };
+  await sendErpSyncFailureAlertEmail({ toEmails: recipients, ccEmails: parseEmailAddressList(summaryConfig.ccRecipients), subject: renderEmailTemplatePlaceholders(summaryConfig.subject, vars), html: renderEmailTemplatePlaceholders(summaryConfig.bodyHtml, vars), plain: `Receivable operations summary for ${reportDate}`, attachments: [{ fileName: `receivable-operations-summary-${reportDate}.xlsx`, contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", contentBase64: summaryWorkbook(companies, loaded.rows, deliveryRows, loaded.clearingAccounts).toString("base64") }] });
 }

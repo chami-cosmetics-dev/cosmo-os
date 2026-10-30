@@ -120,6 +120,7 @@ model Company {
   newItemRequests                 NewItemRequest[]
   newItemRequestVotes             NewItemRequestVote[]
   loyaltyReasonTemplates          LoyaltyReasonTemplate[]
+  salesBudgetSnapshots            SalesBudgetSnapshot[]
   riderFinanceCashReceipts        RiderFinanceCashReceipt[]
   giftVoucherGroups                    GiftVoucherGroup[]
   giftVoucherCodes                     GiftVoucherCode[]
@@ -399,6 +400,7 @@ model ItemCreationRequest {
   gccPrice                Decimal?                            @db.Decimal(12, 2)
   addErp1OgfPrice         Boolean                             @default(false)
   country                 String
+  taxStatus               String                              @default("Vat / Non Vat")
   creationSources         Json                                @default("[\"SHOPIFY\"]")
   overallStatus           ItemCreationOverallStatus           @default(IN_PROGRESS)
   seoSetupStatus          ItemCreationSeoSetupStatus          @default(PENDING)
@@ -406,6 +408,7 @@ model ItemCreationRequest {
   digitalMarketingStatus  ItemCreationDigitalStatus           @default(PENDING)
   digitalMarketingBrand   String?
   digitalMarketingAssigneeId String?
+  digitalMarketingAssigneeIds Json @default("[]")
   purchasingStatus        ItemCreationPurchasingStatus        @default(LOCKED)
   storeTransferStatus     ItemCreationStoreTransferStatus     @default(PENDING)
   storeStockStatus        ItemCreationStoreStockStatus        @default(WAITING_FOR_PRICE)
@@ -462,6 +465,7 @@ model ItemCreationRequest {
   activatedBy             String?
   shopifyProductId        String?
   shopifyVariantId        String?
+  shopifyRemovalPending   Boolean                             @default(false)
   shopifyActivationStatus ItemCreationShopifyActivationStatus @default(LOCKED)
   shopifyActivatedAt      DateTime?
   shopifyActivationError  String?
@@ -503,6 +507,7 @@ model ItemCreationBrandAllocation {
   companyId String
   brand     String
   userId    String
+  userIds   Json     @default("[]")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -681,6 +686,7 @@ model User {
   newItemRequestsCreated                 NewItemRequest[]               @relation("NewItemRequestCreatedBy")
   newItemRequestsStatusChanged           NewItemRequest[]               @relation("NewItemRequestStatusChangedBy")
   newItemRequestVotes                    NewItemRequestVote[]           @relation("NewItemRequestVoteUser")
+  salesBudgetSnapshotsSaved              SalesBudgetSnapshot[]          @relation("SalesBudgetSnapshotSavedBy")
   materialTransfersReceived              MaterialTransfer[]             @relation("MaterialTransferReceivedBy")
   materialTransferLinesCounted           MaterialTransferLine[]         @relation("MaterialTransferLineCountedBy")
   invitesSent                            Invite[]                       @relation("InvitedBy")
@@ -2836,6 +2842,7 @@ model GrnPurchaseReceipt {
   receivedRevertedAt      DateTime?
   receivedRevertedById    String?
   supplierStockReturnName String?
+  deletedAt               DateTime?
   rawPayload              Json
   createdAt               DateTime                 @default(now())
   updatedAt               DateTime                 @updatedAt
@@ -2900,6 +2907,7 @@ model GrnSupplierStockReturn {
   owner               String?
   creation            DateTime?
   purchaseReceiptName String?
+  deletedAt           DateTime?
   rawPayload          Json
   createdAt           DateTime                     @default(now())
   updatedAt           DateTime                     @updatedAt
@@ -2961,6 +2969,7 @@ model GrnBackfillPurchaseReceipt {
   amendedFrom       String?
   owner             String?
   creation          DateTime?
+  deletedAt         DateTime?
   rawPayload        Json
   createdAt         DateTime                         @default(now())
   updatedAt         DateTime                         @updatedAt
@@ -3007,6 +3016,7 @@ model GrnBackfillSupplierStockReturn {
   owner               String?
   creation            DateTime?
   purchaseReceiptName String?
+  deletedAt           DateTime?
   rawPayload          Json
   createdAt           DateTime                             @default(now())
   updatedAt           DateTime                             @updatedAt
@@ -3071,6 +3081,7 @@ model GrnBackfillPurchaseInvoice {
   creation                DateTime?
   purchaseReceiptName     String?
   supplierStockReturnName String?
+  deletedAt              DateTime?
   rawPayload              Json
   createdAt               DateTime                         @default(now())
   updatedAt               DateTime                         @updatedAt
@@ -3139,6 +3150,7 @@ model GrnPurchaseInvoice {
   creation                DateTime?
   purchaseReceiptName     String?
   supplierStockReturnName String?
+  deletedAt              DateTime?
   rawPayload              Json
   createdAt               DateTime                 @default(now())
   updatedAt               DateTime                 @updatedAt
@@ -3283,6 +3295,24 @@ model ShopItemRequest {
 
   @@index([companyId, status, createdAt(sort: Desc)])
   @@index([companyId, outletName, status, createdAt(sort: Desc)])
+}
+
+/// Saved Sales Budget for one month, frozen when saved (like the report snapshots): every
+/// merchant / shop line + the user edits as JSON. Download builds the Excel from it.
+model SalesBudgetSnapshot {
+  id            String   @id @default(cuid())
+  companyId     String
+  /// Budget month, YYYY-MM (saved during the month before).
+  targetMonth   String
+  /// { sections: the Export sheets' lines, edits: the edited Budgeted Qty cells }.
+  snapshot      Json
+  lastUpdatedAt DateTime @default(now())
+  lastSavedById String?
+  createdAt     DateTime @default(now())
+  company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  lastSavedBy   User?    @relation("SalesBudgetSnapshotSavedBy", fields: [lastSavedById], references: [id], onDelete: SetNull)
+
+  @@unique([companyId, targetMonth])
 }
 
 model ShopItemRequestLine {

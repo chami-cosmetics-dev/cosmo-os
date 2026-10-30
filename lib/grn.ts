@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 
+import { buildGrnCompanyResolver } from "@/lib/grn-company-resolver";
 import { prisma } from "@/lib/prisma";
 import type {
   ErpnextPurchaseInvoiceWebhookPayload,
@@ -25,6 +26,12 @@ function unwrapRawPayload(rawPayload: unknown) {
   return top.data && typeof top.data === "object" && !Array.isArray(top.data)
     ? (top.data as Record<string, unknown>)
     : top;
+}
+
+function companyFromRawPayload(rawPayload: unknown) {
+  const payload = unwrapRawPayload(rawPayload);
+  const company = payload?.company;
+  return typeof company === "string" && company.trim() ? company.trim() : null;
 }
 
 function collectDelimitedNames(value: unknown) {
@@ -168,6 +175,91 @@ export async function resolveGrnWebhookInstanceSecret(erpCompany: string): Promi
   };
 }
 
+export async function markGrnDocumentDeleted(input: {
+  type: "purchase_receipt" | "supplier_stock_return" | "purchase_invoice";
+  company: string;
+  name: string;
+}) {
+  const location = await resolveCompanyLocationForErpCompany(input.company);
+  if (!location) {
+    return { ok: false as const, status: 404, error: "ERP company not mapped to a company location" };
+  }
+
+  const deletedAt = new Date();
+  await prisma.$transaction(async (tx) => {
+    if (input.type === "purchase_receipt") {
+      const [receipt, backfillReceipt] = await Promise.all([
+        tx.grnPurchaseReceipt.findUnique({
+          where: { companyId_name: { companyId: location.companyId, name: input.name } },
+          select: { id: true },
+        }),
+        tx.grnBackfillPurchaseReceipt.findUnique({
+          where: { companyId_name: { companyId: location.companyId, name: input.name } },
+          select: { id: true },
+        }),
+      ]);
+      if (!receipt && !backfillReceipt) return;
+      await Promise.all([
+        receipt ? tx.grnPurchaseReceipt.update({ where: { id: receipt.id }, data: { deletedAt } }) : Promise.resolve(),
+        backfillReceipt ? tx.grnBackfillPurchaseReceipt.update({ where: { id: backfillReceipt.id }, data: { deletedAt } }) : Promise.resolve(),
+      ]);
+      await tx.grnSupplierStockReturn.updateMany({
+        where: { companyId: location.companyId, purchaseReceiptName: input.name },
+        data: { purchaseReceiptName: null },
+      });
+      await tx.grnBackfillSupplierStockReturn.updateMany({
+        where: { companyId: location.companyId, purchaseReceiptName: input.name },
+        data: { purchaseReceiptName: null },
+      });
+      await Promise.all([
+        receipt ? tx.grnSupplierStockReturnPurchaseReceipt.deleteMany({ where: { purchaseReceiptId: receipt.id } }) : Promise.resolve(),
+        backfillReceipt ? tx.grnBackfillSupplierStockReturnPurchaseReceipt.deleteMany({ where: { purchaseReceiptId: backfillReceipt.id } }) : Promise.resolve(),
+      ]);
+      return;
+    }
+
+    if (input.type === "supplier_stock_return") {
+      const [stockReturn, backfillStockReturn] = await Promise.all([
+        tx.grnSupplierStockReturn.findUnique({
+          where: { companyId_name: { companyId: location.companyId, name: input.name } },
+          select: { id: true },
+        }),
+        tx.grnBackfillSupplierStockReturn.findUnique({
+          where: { companyId_name: { companyId: location.companyId, name: input.name } },
+          select: { id: true },
+        }),
+      ]);
+      if (!stockReturn && !backfillStockReturn) return;
+      await Promise.all([
+        stockReturn ? tx.grnSupplierStockReturn.update({ where: { id: stockReturn.id }, data: { deletedAt } }) : Promise.resolve(),
+        backfillStockReturn ? tx.grnBackfillSupplierStockReturn.update({ where: { id: backfillStockReturn.id }, data: { deletedAt } }) : Promise.resolve(),
+      ]);
+      await tx.grnPurchaseReceipt.updateMany({
+        where: { companyId: location.companyId, supplierStockReturnName: input.name },
+        data: { supplierStockReturnName: null },
+      });
+      await Promise.all([
+        stockReturn ? tx.grnSupplierStockReturnPurchaseReceipt.deleteMany({ where: { supplierStockReturnId: stockReturn.id } }) : Promise.resolve(),
+        backfillStockReturn ? tx.grnBackfillSupplierStockReturnPurchaseReceipt.deleteMany({ where: { supplierStockReturnId: backfillStockReturn.id } }) : Promise.resolve(),
+      ]);
+      return;
+    }
+
+    await Promise.all([
+      tx.grnPurchaseInvoice.updateMany({
+        where: { companyId: location.companyId, name: input.name },
+        data: { deletedAt },
+      }),
+      tx.grnBackfillPurchaseInvoice.updateMany({
+        where: { companyId: location.companyId, name: input.name },
+        data: { deletedAt },
+      }),
+    ]);
+  });
+
+  return { ok: true as const };
+}
+
 export async function ingestPurchaseReceiptFromWebhook(
   data: ErpnextPurchaseReceiptWebhookPayload,
   rawPayload: unknown,
@@ -189,7 +281,36 @@ export async function ingestPurchaseReceiptFromWebhook(
           select: { supplierStockReturnName: true },
         })
       : null;
-    const carriedStockReturnName = existing?.supplierStockReturnName ?? amendedFromReceipt?.supplierStockReturnName ?? null;
+  const carriedStockReturnReference =
+    existing?.supplierStockReturnName ?? amendedFromReceipt?.supplierStockReturnName ?? null;
+  const carriedStockReturn = carriedStockReturnReference
+    ? await prisma.grnSupplierStockReturn.findFirst({
+        where: { companyId, name: carriedStockReturnReference, docstatus: { not: 2 } },
+        select: {
+          companyId: true,
+          name: true,
+          supplier: true,
+          supplierName: true,
+          rawPayload: true,
+        },
+      })
+    : null;
+  const matchContext = carriedStockReturn ? await loadIntercompanyMatchContext() : null;
+  const carriedStockReturnName =
+    carriedStockReturn &&
+    matchContext &&
+    isMatchingIntercompanyCompanyFlow(
+      matchContext.resolvers.get(companyId),
+      {
+        companyId,
+        companyLocationId: location.id,
+        supplier: data.supplier,
+        supplierName: data.supplier_name,
+      },
+      carriedStockReturn,
+    )
+      ? carriedStockReturn.name
+      : null;
 
     const receipt = await tx.grnPurchaseReceipt.upsert({
       where: { companyId_name: { companyId, name: data.name } },
@@ -207,6 +328,7 @@ export async function ingestPurchaseReceiptFromWebhook(
         owner: data.owner,
         creation: parseDateTime(data.creation),
         supplierStockReturnName: carriedStockReturnName,
+        deletedAt: null,
         rawPayload: rawPayload as Prisma.InputJsonValue,
       },
       update: {
@@ -220,7 +342,8 @@ export async function ingestPurchaseReceiptFromWebhook(
         amendedFrom: data.amended_from,
         owner: data.owner,
         creation: parseDateTime(data.creation),
-        ...(carriedStockReturnName ? { supplierStockReturnName: carriedStockReturnName } : {}),
+        supplierStockReturnName: carriedStockReturnName,
+        deletedAt: null,
         rawPayload: rawPayload as Prisma.InputJsonValue,
       },
       select: { id: true },
@@ -242,6 +365,25 @@ export async function ingestPurchaseReceiptFromWebhook(
           warehouse: item.warehouse,
           stockUom: item.stock_uom,
         })),
+      });
+    }
+
+    if (carriedStockReturnReference && !carriedStockReturnName) {
+      await tx.grnSupplierStockReturn.updateMany({
+        where: {
+          companyId,
+          name: carriedStockReturnReference,
+          purchaseReceiptName: data.name,
+        },
+        data: { purchaseReceiptName: null },
+      });
+      await tx.grnPurchaseInvoice.updateMany({
+        where: {
+          companyId,
+          purchaseReceiptName: data.name,
+          supplierStockReturnName: carriedStockReturnReference,
+        },
+        data: { purchaseReceiptId: null, purchaseReceiptName: null },
       });
     }
 
@@ -291,7 +433,40 @@ export async function ingestSupplierStockReturnFromWebhook(
           select: { purchaseReceiptName: true },
         })
       : null;
-    const carriedPurchaseReceiptName = existing?.purchaseReceiptName ?? amendedFromStockReturn?.purchaseReceiptName ?? null;
+    const carriedPurchaseReceiptReference =
+      existing?.purchaseReceiptName ?? amendedFromStockReturn?.purchaseReceiptName ?? null;
+    const carriedPurchaseReceipt = carriedPurchaseReceiptReference
+      ? await prisma.grnPurchaseReceipt.findFirst({
+          where: { companyId, name: carriedPurchaseReceiptReference, docstatus: { not: 2 } },
+          select: {
+            id: true,
+            companyId: true,
+            companyLocationId: true,
+            name: true,
+            supplier: true,
+            supplierName: true,
+            handoverAt: true,
+            valuedAt: true,
+          },
+        })
+      : null;
+    const matchContext = carriedPurchaseReceipt ? await loadIntercompanyMatchContext() : null;
+    const carriedPurchaseReceiptName =
+      carriedPurchaseReceipt &&
+      matchContext &&
+      isMatchingIntercompanyCompanyFlow(
+        matchContext.resolvers.get(companyId),
+        carriedPurchaseReceipt,
+        {
+          companyId,
+          name: data.name,
+          supplier: data.supplier,
+          supplierName: data.supplier_name,
+          rawPayload,
+        },
+      )
+        ? carriedPurchaseReceipt.name
+        : null;
 
     const stockReturn = await tx.grnSupplierStockReturn.upsert({
       where: { companyId_name: { companyId, name: data.name } },
@@ -306,6 +481,7 @@ export async function ingestSupplierStockReturnFromWebhook(
         owner: data.owner,
         creation: parseDateTime(data.creation),
         purchaseReceiptName: carriedPurchaseReceiptName,
+        deletedAt: null,
         rawPayload: rawPayload as Prisma.InputJsonValue,
       },
       update: {
@@ -316,11 +492,31 @@ export async function ingestSupplierStockReturnFromWebhook(
         amendedFrom: data.amended_from,
         owner: data.owner,
         creation: parseDateTime(data.creation),
-        ...(carriedPurchaseReceiptName ? { purchaseReceiptName: carriedPurchaseReceiptName } : {}),
+        purchaseReceiptName: carriedPurchaseReceiptName,
+        deletedAt: null,
         rawPayload: rawPayload as Prisma.InputJsonValue,
       },
       select: { id: true },
     });
+
+    if (carriedPurchaseReceiptReference && !carriedPurchaseReceiptName) {
+      await tx.grnPurchaseReceipt.updateMany({
+        where: {
+          companyId,
+          name: carriedPurchaseReceiptReference,
+          supplierStockReturnName: data.name,
+        },
+        data: { supplierStockReturnName: null },
+      });
+      await tx.grnPurchaseInvoice.updateMany({
+        where: {
+          companyId,
+          purchaseReceiptName: carriedPurchaseReceiptReference,
+          supplierStockReturnName: data.name,
+        },
+        data: { purchaseReceiptId: null, purchaseReceiptName: null },
+      });
+    }
 
     if (carriedPurchaseReceiptName) {
       const linkedPurchaseReceipt = await tx.grnPurchaseReceipt.findFirst({
@@ -486,7 +682,14 @@ export async function ingestPurchaseInvoiceFromWebhook(
           name: ssrNameFromBillNo,
           docstatus: { not: 2 },
         },
-        select: { name: true, purchaseReceiptName: true },
+          select: {
+            companyId: true,
+            name: true,
+            purchaseReceiptName: true,
+            supplier: true,
+            supplierName: true,
+            rawPayload: true,
+          },
       })
     : linkedSupplierStockReturnNames.length
       ? await prisma.grnSupplierStockReturn.findFirst({
@@ -494,7 +697,14 @@ export async function ingestPurchaseInvoiceFromWebhook(
             name: { in: linkedSupplierStockReturnNames },
             docstatus: { not: 2 },
           },
-          select: { name: true, purchaseReceiptName: true },
+          select: {
+            companyId: true,
+            name: true,
+            purchaseReceiptName: true,
+            supplier: true,
+            supplierName: true,
+            rawPayload: true,
+          },
         })
       : null;
   if (linkedStockReturn && !linkedStockReturn.purchaseReceiptName) {
@@ -504,7 +714,14 @@ export async function ingestPurchaseInvoiceFromWebhook(
         name: linkedStockReturn.name,
         docstatus: { not: 2 },
       },
-      select: { name: true, purchaseReceiptName: true },
+      select: {
+        companyId: true,
+        name: true,
+        purchaseReceiptName: true,
+        supplier: true,
+        supplierName: true,
+        rawPayload: true,
+      },
     });
   }
   let linkedStockReturnPurchaseReceiptName = linkedStockReturn?.purchaseReceiptName ?? null;
@@ -527,7 +744,14 @@ export async function ingestPurchaseInvoiceFromWebhook(
       },
       orderBy: [{ creation: "desc" }, { createdAt: "desc" }],
       take: 200,
-      select: { name: true, purchaseReceiptName: true, rawPayload: true },
+      select: {
+        companyId: true,
+        name: true,
+        purchaseReceiptName: true,
+        supplier: true,
+        supplierName: true,
+        rawPayload: true,
+      },
     });
     linkedStockReturn =
       candidateStockReturns.find((row) =>
@@ -542,7 +766,7 @@ export async function ingestPurchaseInvoiceFromWebhook(
     return { ok: true as const, ignored: true as const };
   }
 
-  const purchaseReceipt = await prisma.grnPurchaseReceipt.findFirst({
+  let purchaseReceipt = await prisma.grnPurchaseReceipt.findFirst({
     where: {
       docstatus: { not: 2 },
       OR: [
@@ -559,8 +783,29 @@ export async function ingestPurchaseInvoiceFromWebhook(
           : []),
       ],
     },
-    select: { id: true, name: true, supplierStockReturnName: true, handoverAt: true, valuedAt: true, valuedById: true },
+    select: {
+      id: true,
+      companyId: true,
+      companyLocationId: true,
+      name: true,
+      supplier: true,
+      supplierName: true,
+      supplierStockReturnName: true,
+      handoverAt: true,
+      valuedAt: true,
+      valuedById: true,
+    },
   });
+  if (purchaseReceipt && linkedStockReturn) {
+    const matchContext = await loadIntercompanyMatchContext();
+    if (!isMatchingIntercompanyCompanyFlow(
+      matchContext.resolvers.get(purchaseReceipt.companyId),
+      purchaseReceipt,
+      linkedStockReturn,
+    )) {
+      purchaseReceipt = null;
+    }
+  }
   if (!purchaseReceipt) {
     const pendingSupplierStockReturnName = linkedStockReturn?.name ?? ssrNameFromBillNo;
     if (pendingSupplierStockReturnName) {
@@ -584,9 +829,12 @@ export async function ingestPurchaseInvoiceFromWebhook(
             creation: parseDateTime(data.creation),
             purchaseReceiptName: null,
             supplierStockReturnName: pendingSupplierStockReturnName,
+            deletedAt: null,
             rawPayload: rawPayload as Prisma.InputJsonValue,
           },
           update: {
+            purchaseReceiptId: null,
+            purchaseReceiptName: null,
             supplier: data.supplier,
             supplierName: data.supplier_name,
             postingDate: parseDateOnly(data.posting_date),
@@ -599,6 +847,7 @@ export async function ingestPurchaseInvoiceFromWebhook(
             owner: data.owner,
             creation: parseDateTime(data.creation),
             supplierStockReturnName: pendingSupplierStockReturnName,
+            deletedAt: null,
             rawPayload: rawPayload as Prisma.InputJsonValue,
           },
           select: { id: true },
@@ -618,8 +867,8 @@ export async function ingestPurchaseInvoiceFromWebhook(
               qty: item.qty,
               rate: item.rate,
               amount: item.amount,
-              purchaseReceipt: item.purchase_receipt ?? inheritedPurchaseReceiptName,
-              purchaseReceiptItem: item.purchase_receipt_item,
+              purchaseReceipt: null,
+              purchaseReceiptItem: null,
               supplierStockReturn: item.supplier_stock_return ?? pendingSupplierStockReturnName,
               supplierStockReturnItem: item.supplier_stock_return_item,
               stockUom: item.stock_uom,
@@ -660,6 +909,7 @@ export async function ingestPurchaseInvoiceFromWebhook(
         creation: parseDateTime(data.creation),
         purchaseReceiptName: purchaseReceipt.name,
         supplierStockReturnName,
+        deletedAt: null,
         rawPayload: rawPayload as Prisma.InputJsonValue,
       },
       update: {
@@ -677,6 +927,7 @@ export async function ingestPurchaseInvoiceFromWebhook(
         creation: parseDateTime(data.creation),
         purchaseReceiptName: purchaseReceipt.name,
         supplierStockReturnName,
+        deletedAt: null,
         rawPayload: rawPayload as Prisma.InputJsonValue,
       },
       select: { id: true },
@@ -859,6 +1110,7 @@ type MatchPurchaseReceipt = {
   companyLocationId: string | null;
   name: string;
   supplier: string;
+  supplierName: string | null;
   docstatus: number | null;
   creation: Date | null;
   postingDate?: Date | null;
@@ -870,10 +1122,12 @@ type MatchSupplierStockReturn = {
   companyId: string;
   name: string;
   supplier: string;
+  supplierName: string | null;
   docstatus: number | null;
   creation: Date | null;
   returnDate?: Date | null;
   purchaseReceiptName: string | null;
+  rawPayload: unknown;
   items: Array<{ itemCode: string; qty: Prisma.Decimal | number }>;
 };
 
@@ -946,38 +1200,164 @@ export function bestGrnMatchForStockReturn(
     .sort((a, b) => b.percentage - a.percentage || a.name.localeCompare(b.name))[0] ?? null;
 }
 
-function normalizeSupplierMatchValue(value: string | null | undefined) {
-  return value?.trim().toLowerCase() ?? "";
+async function loadIntercompanyMatchContext() {
+  const locations = await prisma.companyLocation.findMany({
+    select: {
+      id: true,
+      companyId: true,
+      name: true,
+      shortName: true,
+      erpnextCompany: true,
+      supplierPrefix: true,
+      isMainCompany: true,
+    },
+  });
+  const locationsByCompany = new Map<string, typeof locations>();
+  for (const location of locations) {
+    const companyLocations = locationsByCompany.get(location.companyId) ?? [];
+    companyLocations.push(location);
+    locationsByCompany.set(location.companyId, companyLocations);
+  }
+  const resolvers = new Map(
+    [...locationsByCompany].map(([companyId, companyLocations]) => [
+      companyId,
+      buildGrnCompanyResolver(companyLocations),
+    ]),
+  );
+  const intercompanyLocations = locations.filter((location) => location.supplierPrefix?.trim());
+  return {
+    resolvers,
+    locationIds: intercompanyLocations.map((location) => location.id),
+    supplierPrefixes: [
+      ...new Set(intercompanyLocations.map((location) => location.supplierPrefix!.trim())),
+    ],
+  };
+}
+
+async function clearInvalidIntercompanyGrnLinks(
+  matchContext: Awaited<ReturnType<typeof loadIntercompanyMatchContext>>,
+) {
+  const linkedPurchaseReceipts = await prisma.grnPurchaseReceipt.findMany({
+    where: {
+      docstatus: { not: 2 },
+      supplierStockReturnName: { not: null },
+    },
+    select: {
+      id: true,
+      companyId: true,
+      companyLocationId: true,
+      name: true,
+      supplier: true,
+      supplierName: true,
+      supplierStockReturnName: true,
+    },
+  });
+  if (linkedPurchaseReceipts.length === 0) return 0;
+
+  const linkedStockReturns = await prisma.grnSupplierStockReturn.findMany({
+    where: {
+      docstatus: { not: 2 },
+      name: { in: linkedPurchaseReceipts.map((receipt) => receipt.supplierStockReturnName!) },
+    },
+    select: {
+      companyId: true,
+      name: true,
+      supplier: true,
+      supplierName: true,
+      rawPayload: true,
+    },
+  });
+  const stockReturnByCompanyName = new Map(
+    linkedStockReturns.map((stockReturn) => [`${stockReturn.companyId}:${stockReturn.name}`, stockReturn]),
+  );
+  const invalidPairs = linkedPurchaseReceipts
+    .map((purchaseReceipt) => ({
+      purchaseReceipt,
+      stockReturn: stockReturnByCompanyName.get(
+        `${purchaseReceipt.companyId}:${purchaseReceipt.supplierStockReturnName}`,
+      ),
+    }))
+    .filter(
+      (
+        pair,
+      ): pair is {
+        purchaseReceipt: (typeof linkedPurchaseReceipts)[number];
+        stockReturn: (typeof linkedStockReturns)[number];
+      } => {
+        const stockReturn = pair.stockReturn;
+        if (!stockReturn) return false;
+        return !isMatchingIntercompanyCompanyFlow(
+          matchContext.resolvers.get(pair.purchaseReceipt.companyId),
+          pair.purchaseReceipt,
+          stockReturn,
+        );
+      },
+    );
+
+  for (const { purchaseReceipt, stockReturn } of invalidPairs) {
+    await prisma.$transaction(async (tx) => {
+      await tx.grnPurchaseReceipt.updateMany({
+        where: { id: purchaseReceipt.id, supplierStockReturnName: stockReturn.name },
+        data: { supplierStockReturnName: null },
+      });
+      await tx.grnSupplierStockReturn.updateMany({
+        where: {
+          companyId: stockReturn.companyId,
+          name: stockReturn.name,
+          purchaseReceiptName: purchaseReceipt.name,
+        },
+        data: { purchaseReceiptName: null },
+      });
+      await tx.grnPurchaseInvoice.updateMany({
+        where: {
+          companyId: purchaseReceipt.companyId,
+          purchaseReceiptName: purchaseReceipt.name,
+          supplierStockReturnName: stockReturn.name,
+        },
+        data: { purchaseReceiptId: null, purchaseReceiptName: null },
+      });
+    });
+  }
+
+  return invalidPairs.length;
+}
+
+function isMatchingIntercompanyCompanyFlow(
+  resolver: ReturnType<typeof buildGrnCompanyResolver> | undefined,
+  purchaseReceipt: Pick<
+    MatchPurchaseReceipt,
+    "companyId" | "companyLocationId" | "supplier" | "supplierName"
+  >,
+  stockReturn: Pick<
+    MatchSupplierStockReturn,
+    "companyId" | "name" | "supplier" | "supplierName" | "rawPayload"
+  >,
+) {
+  return Boolean(
+    resolver &&
+      purchaseReceipt.companyId === stockReturn.companyId &&
+      resolver.isMatchingIntercompanyPair({
+        purchaseReceiptCompanyLocationId: purchaseReceipt.companyLocationId,
+        purchaseReceiptSupplier: purchaseReceipt.supplier,
+        purchaseReceiptSupplierName: purchaseReceipt.supplierName,
+        stockReturnName: stockReturn.name,
+        stockReturnCompany: companyFromRawPayload(stockReturn.rawPayload),
+        stockReturnSupplier: stockReturn.supplier,
+        stockReturnSupplierName: stockReturn.supplierName,
+      }),
+  );
 }
 
 export async function autoMatchIntercompanyGrn() {
-  const supplierPrefixLocations = await prisma.companyLocation.findMany({
-    where: {
-      supplierPrefix: { not: null },
-    },
-    select: { id: true, supplierPrefix: true },
-  });
-  const supplierPrefixRules = supplierPrefixLocations
-    .map((row) => ({
-      locationId: row.id,
-      prefix: row.supplierPrefix?.trim() ?? "",
-      key: normalizeSupplierMatchValue(row.supplierPrefix),
-    }))
-    .filter((row) => row.key.length > 0);
-  if (supplierPrefixRules.length === 0) return { matched: 0 };
-
-  const ruleForSupplier = (supplier: string | null | undefined, supplierName?: string | null) => {
-    const values = [
-      normalizeSupplierMatchValue(supplier),
-      normalizeSupplierMatchValue(supplierName),
-    ].filter(Boolean);
-    return supplierPrefixRules.find((rule) => values.some((value) => value.includes(rule.key))) ?? null;
-  };
+  const matchContext = await loadIntercompanyMatchContext();
+  if (matchContext.locationIds.length === 0) return { matched: 0 };
+  const invalidLinksCleared = await clearInvalidIntercompanyGrnLinks(matchContext);
 
   const [purchaseReceipts, stockReturns] = await Promise.all([
     prisma.grnPurchaseReceipt.findMany({
       where: {
-        companyLocationId: { in: supplierPrefixRules.map((rule) => rule.locationId) },
+        companyLocationId: { in: matchContext.locationIds },
+        deletedAt: null,
         docstatus: { not: 2 },
         supplierStockReturnName: null,
       },
@@ -985,9 +1365,10 @@ export async function autoMatchIntercompanyGrn() {
     }),
     prisma.grnSupplierStockReturn.findMany({
       where: {
-        OR: supplierPrefixRules.flatMap((rule) => [
-          { supplier: { contains: rule.prefix, mode: "insensitive" as const } },
-          { supplierName: { contains: rule.prefix, mode: "insensitive" as const } },
+        deletedAt: null,
+        OR: matchContext.supplierPrefixes.flatMap((prefix) => [
+          { supplier: { contains: prefix, mode: "insensitive" as const } },
+          { supplierName: { contains: prefix, mode: "insensitive" as const } },
         ]),
         docstatus: { not: 2 },
         purchaseReceiptName: null,
@@ -1001,11 +1382,12 @@ export async function autoMatchIntercompanyGrn() {
   const usedPurchaseReceipts = new Set<string>();
   for (const stockReturn of stockReturns) {
     if (stockReturn.purchaseReceiptLinks.length > 0) continue;
-    const rule = ruleForSupplier(stockReturn.supplier, stockReturn.supplierName);
-    if (!rule) continue;
+    const resolver = matchContext.resolvers.get(stockReturn.companyId);
+    if (!resolver) continue;
     const candidates = purchaseReceipts.filter(
       (receipt) =>
-        receipt.companyLocationId === rule.locationId &&
+        receipt.companyId === stockReturn.companyId &&
+        isMatchingIntercompanyCompanyFlow(resolver, receipt, stockReturn) &&
         !usedPurchaseReceipts.has(`${receipt.companyId}:${receipt.name}`) &&
         receipt.supplierStockReturnLinks.length === 0,
     );
@@ -1037,37 +1419,18 @@ export async function autoMatchIntercompanyGrn() {
     matched += 1;
   }
 
-  return { matched };
+  return { matched, invalidLinksCleared };
 }
 
 export async function autoMatchBackfillIntercompanyGrn() {
-  const supplierPrefixLocations = await prisma.companyLocation.findMany({
-    where: {
-      supplierPrefix: { not: null },
-    },
-    select: { id: true, supplierPrefix: true },
-  });
-  const supplierPrefixRules = supplierPrefixLocations
-    .map((row) => ({
-      locationId: row.id,
-      prefix: row.supplierPrefix?.trim() ?? "",
-      key: normalizeSupplierMatchValue(row.supplierPrefix),
-    }))
-    .filter((row) => row.key.length > 0);
-  if (supplierPrefixRules.length === 0) return { matched: 0 };
-
-  const ruleForSupplier = (supplier: string | null | undefined, supplierName?: string | null) => {
-    const values = [
-      normalizeSupplierMatchValue(supplier),
-      normalizeSupplierMatchValue(supplierName),
-    ].filter(Boolean);
-    return supplierPrefixRules.find((rule) => values.some((value) => value.includes(rule.key))) ?? null;
-  };
+  const matchContext = await loadIntercompanyMatchContext();
+  if (matchContext.locationIds.length === 0) return { matched: 0 };
 
   const [livePurchaseReceipts, backfillPurchaseReceipts, stockReturns] = await Promise.all([
     prisma.grnPurchaseReceipt.findMany({
       where: {
-        companyLocationId: { in: supplierPrefixRules.map((rule) => rule.locationId) },
+        companyLocationId: { in: matchContext.locationIds },
+        deletedAt: null,
         docstatus: { not: 2 },
         supplierStockReturnName: null,
       },
@@ -1075,16 +1438,18 @@ export async function autoMatchBackfillIntercompanyGrn() {
     }),
     prisma.grnBackfillPurchaseReceipt.findMany({
       where: {
-        companyLocationId: { in: supplierPrefixRules.map((rule) => rule.locationId) },
+        companyLocationId: { in: matchContext.locationIds },
+        deletedAt: null,
         docstatus: { not: 2 },
       },
       include: { items: true, supplierStockReturnLinks: { select: { supplierStockReturnId: true } } },
     }),
     prisma.grnBackfillSupplierStockReturn.findMany({
       where: {
-        OR: supplierPrefixRules.flatMap((rule) => [
-          { supplier: { contains: rule.prefix, mode: "insensitive" as const } },
-          { supplierName: { contains: rule.prefix, mode: "insensitive" as const } },
+        deletedAt: null,
+        OR: matchContext.supplierPrefixes.flatMap((prefix) => [
+          { supplier: { contains: prefix, mode: "insensitive" as const } },
+          { supplierName: { contains: prefix, mode: "insensitive" as const } },
         ]),
         docstatus: { not: 2 },
         purchaseReceiptName: null,
@@ -1097,11 +1462,11 @@ export async function autoMatchBackfillIntercompanyGrn() {
   const usedPurchaseReceiptNames = new Set(
     [
       ...(await prisma.grnSupplierStockReturn.findMany({
-        where: { docstatus: { not: 2 }, purchaseReceiptName: { not: null } },
+        where: { deletedAt: null, docstatus: { not: 2 }, purchaseReceiptName: { not: null } },
         select: { purchaseReceiptName: true, purchaseReceiptLinks: { select: { purchaseReceipt: { select: { name: true } } } } },
       })),
       ...(await prisma.grnBackfillSupplierStockReturn.findMany({
-        where: { docstatus: { not: 2 }, purchaseReceiptName: { not: null } },
+        where: { deletedAt: null, docstatus: { not: 2 }, purchaseReceiptName: { not: null } },
         select: { purchaseReceiptName: true, purchaseReceiptLinks: { select: { purchaseReceipt: { select: { name: true } } } } },
       })),
     ]
@@ -1121,19 +1486,20 @@ export async function autoMatchBackfillIntercompanyGrn() {
     })),
     ...backfillPurchaseReceipts.map((receipt) => ({
       ...receipt,
-    supplierStockReturnName: null as string | null,
+      supplierStockReturnName: null as string | null,
       isBackfill: true,
     })),
   ];
 
   for (const stockReturn of stockReturns) {
     if (stockReturn.purchaseReceiptLinks.length > 0) continue;
-    const rule = ruleForSupplier(stockReturn.supplier, stockReturn.supplierName);
-    if (!rule) continue;
+    const resolver = matchContext.resolvers.get(stockReturn.companyId);
+    if (!resolver) continue;
     const candidates = purchaseReceiptsForMatching
       .filter(
         (receipt) =>
-          receipt.companyLocationId === rule.locationId &&
+          receipt.companyId === stockReturn.companyId &&
+          isMatchingIntercompanyCompanyFlow(resolver, receipt, stockReturn) &&
           receipt.supplierStockReturnLinks.length === 0 &&
           !usedPurchaseReceiptNames.has(receipt.name) &&
           isWithinGrnMatchCreationWindow(receipt, stockReturn),

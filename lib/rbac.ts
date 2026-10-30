@@ -121,7 +121,11 @@ const DEFAULT_PERMISSIONS = [
   },
   {
     key: "item_creation.admin.manage",
-    description: "Create Item Creation requests and read all Item Creation statuses",
+    description: "Create Item Creation requests",
+  },
+  {
+    key: "item_creation.admin.view",
+    description: "View every Item Creation stage without edit access",
   },
   {
     key: "item_creation.admin.manage_all",
@@ -1633,6 +1637,32 @@ export async function requirePermission(permissionKey: string) {
 
   perf.end({ status: 200, ok: true });
   return { ok: true as const, context };
+}
+
+/**
+ * Requires a signed-in user with a resolved Cosmo user (no permission check).
+ * Same retry as requirePermission when the first context build failed (e.g. DB hiccup).
+ */
+export async function requireUserContext() {
+  let context = await getCurrentUserContext();
+  if (!context) {
+    return { ok: false as const, status: 401, error: "Not authenticated" };
+  }
+  if (!context.user) {
+    try {
+      context = await buildContextFromSessionUser(context.sessionUser);
+    } catch (error) {
+      console.error("Failed RBAC retry in requireUserContext:", error);
+    }
+  }
+  if (!context.user) {
+    return {
+      ok: false as const,
+      status: 503,
+      error: "RBAC database is not initialized",
+    };
+  }
+  return { ok: true as const, context, user: context.user };
 }
 
 /** Requires user to have at least one of the given permissions. */
