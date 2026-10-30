@@ -141,6 +141,9 @@ describe("vault OSF workbook", () => {
     expect(idx("discountedPrice")).toBeLessThan(idx("maxSale"));
     expect(idx("ave")).toBeLessThan(idx("reorder:sv"));
     expect(idx("reorderTotal")).toBeLessThan(idx("latestPrice"));
+    expect(idx("latestSupplier")).toBeLessThan(idx("supplier1"));
+    expect(idx("supplier1")).toBeLessThan(idx("supplier1Price"));
+    expect(idx("supplier2")).toBeLessThan(idx("supplier2Price"));
 
     const firstPurch = idx("purchQty:2026-04");
     expect(defs[firstPurch]!.header).toBe("April 2026 Purchase Qty");
@@ -160,5 +163,43 @@ describe("vault OSF workbook", () => {
     expect(vaultOsfSubtotalColumn("sales:2026-06:total")).toBe(true);
     expect(vaultOsfSubtotalColumn("variantSku")).toBe(false);
     expect(vaultOsfSubtotalColumn("latestSupplier")).toBe(false);
+    expect(vaultOsfSubtotalColumn("supplier1")).toBe(false);
+    expect(vaultOsfSubtotalColumn("supplier1Price")).toBe(true);
+    expect(vaultOsfSubtotalColumn("supplier2Price")).toBe(true);
+  });
+
+  it("writes Supplier 1 / Supplier 2 name and price from ranked invoice suppliers", () => {
+    const row = buildVaultMainRows(
+      input({
+        rankedSuppliersBySku: new Map([
+          [
+            "NW004-2",
+            [
+              { value: 4800, supplier: "Acme", date: "2026-08-01" },
+              { value: 5100, supplier: "Beta Co", date: "2026-08-10" },
+            ],
+          ],
+        ]),
+      }),
+    )[0]!;
+    expect(row.latestSupplier).toBe("Maiso Franceise");
+    expect(row.supplier1).toBe("Acme");
+    expect(row.supplier1Price).toBe(4800);
+    expect(row.supplier2).toBe("Beta Co");
+    expect(row.supplier2Price).toBe(5100);
+  });
+
+  it("blanks Supplier 2 when only one ranked supplier exists", () => {
+    const row = buildVaultMainRows(
+      input({
+        rankedSuppliersBySku: new Map([
+          ["NW004-2", [{ value: 4800, supplier: "Acme", date: "2026-08-01" }]],
+        ]),
+      }),
+    )[0]!;
+    expect(row.supplier1).toBe("Acme");
+    expect(row.supplier1Price).toBe(4800);
+    expect(row.supplier2).toBeNull();
+    expect(row.supplier2Price).toBeNull();
   });
 });
