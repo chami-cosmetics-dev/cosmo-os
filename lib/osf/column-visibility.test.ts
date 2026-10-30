@@ -60,6 +60,10 @@ describe("buildOsfAccessCatalog", () => {
     expect(ids.has("Purchases")).toBe(true);
     expect(ids.has("Best Purchase Value")).toBe(true);
     expect(ids.has("Best Supplier")).toBe(true);
+    expect(ids.has("Supplier 1")).toBe(true);
+    expect(ids.has("Supplier 1 Price")).toBe(true);
+    expect(ids.has("Supplier 2")).toBe(true);
+    expect(ids.has("Supplier 2 Price")).toBe(true);
     expect(ids.has("Max sale")).toBe(true);
     expect(ids.has("AVE")).toBe(true);
   });

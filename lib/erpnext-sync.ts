@@ -16,6 +16,10 @@ import {
 } from "@/lib/erp-credit-note-items";
 import { mergeErpReturnSalesInvoiceIds } from "@/lib/erp-return-si";
 import {
+  couponFieldsForInvoiceCreate,
+  resolveCouponInvoiceItemRates,
+} from "@/lib/erp-best-discount-erp";
+import {
   buildErpItemsFromShopifyLineItems,
   sumErpInvoiceItemsTotal,
   type ErpSalesInvoiceItem,
@@ -462,24 +466,6 @@ function withCouponDiscountFallback(
   }
   retryBody.ignore_pricing_rule = 1;
   return retryBody;
-}
-
-function buildErpSalesInvoicePricingRuleRows(
-  items: ErpSalesInvoiceItem[],
-  pricingRule: string,
-): Array<{ pricing_rule: string; item_code: string; rule_applied: number }> {
-  const rule = pricingRule.trim();
-  if (!rule) return [];
-
-  const seen = new Set<string>();
-  const rows: Array<{ pricing_rule: string; item_code: string; rule_applied: number }> = [];
-  for (const item of items) {
-    const code = item.item_code?.trim();
-    if (!code || seen.has(code)) continue;
-    seen.add(code);
-    rows.push({ pricing_rule: rule, item_code: code, rule_applied: 1 });
-  }
-  return rows;
 }
 
 function shopifyLineItemsFromOrderRawPayload(
@@ -2582,12 +2568,25 @@ export async function syncOrderToERPNext(
 
   const netSiItems = buildErpItemsFromShopifyLineItems(lineItems, location.erpnextWarehouse, "net");
   const listSiItems = buildErpItemsFromShopifyLineItems(lineItems, location.erpnextWarehouse, "list");
-  // When a coupon is found in ERP we send items at Shopify list (pre-discount) rates and apply
-  // discount_amount explicitly. ERP's coupon pricing rules don't fire during API-based SI creation
-  // (they require client-side UI triggers), so relying on erp_price_list mode + coupon_code alone
-  // leaves the SI at full price. discount_amount at header level is the reliable path.
-  const siItems = useCouponPricing ? [...listSiItems] : [...netSiItems];
-  const netRateItems = [...netSiItems];
+  // Coupon invoices: max(coupon %, tabloid %) off Standard Selling per SKU.
+  // Do not send coupon_code / pricing_rules on create — ERP would reprice from the coupon rule.
+  let siItems = useCouponPricing ? [...listSiItems] : [...netSiItems];
+  const netRateItems = netSiItems.map((row) => ({ ...row }));
+  const vaultTotal = parseFloat(order.totalPrice.toString());
+
+  if (useCouponPricing) {
+    const priced = await resolveCouponInvoiceItemRates({
+      cfg,
+      productItems: siItems,
+      netFallbackItems: netSiItems.map((row) => ({ ...row })),
+      pricingRule: erpCouponResolved.pricingRule,
+      company: location.erpnextCompany,
+      asOfDate: dateStr,
+      shopifyGrandTotal: vaultTotal,
+      shippingAmt: shopifyShippingAmt,
+    });
+    siItems = priced.items;
+  }
 
   if (useShippingItem) {
     const shippingRow: ErpSalesInvoiceItem = {
@@ -2601,8 +2600,7 @@ export async function syncOrderToERPNext(
     netRateItems.push(shippingRow);
   }
 
-  const vaultTotal = parseFloat(order.totalPrice.toString());
-  // siItems already holds the right base rates (list for coupon orders, net for others).
+  // siItems already holds the right base rates (best-discount or Shopify nets).
   const itemsTotal =
     sumErpInvoiceItemsTotal(siItems) +
     (useShippingTaxRow || useShippingItem ? shopifyShippingAmt : 0);
@@ -2610,10 +2608,6 @@ export async function syncOrderToERPNext(
 
   const billingAddressHtml = formatAddressHtml(billingAddr);
   const shippingAddressHtml = formatAddressHtml(shippingAddr);
-
-  const pricingRuleRows = erpCouponResolved.pricingRule
-    ? buildErpSalesInvoicePricingRuleRows(siItems, erpCouponResolved.pricingRule)
-    : [];
 
   const siBody = {
     doctype: "Sales Invoice",
@@ -2628,8 +2622,8 @@ export async function syncOrderToERPNext(
     // Avoid ERP Hutch SMS Server Script calling frappe.generate_hash (not in safe_exec).
     sms_ebill_token: generateSmsEbillToken(),
     items: siItems,
-    ...erpCouponFields,
-    ...(pricingRuleRows.length > 0 ? { pricing_rules: pricingRuleRows } : {}),
+    ...couponFieldsForInvoiceCreate(erpCouponFields, erpCouponResolved.discountCodeLabel),
+    ...(useCouponPricing ? { ignore_pricing_rule: 1 } : {}),
     ...(customerEmail ? { contact_email: customerEmail } : {}),
     ...(contactMobile ? { contact_mobile: contactMobile } : {}),
     // Payment type mapped from Shopify gateway names
@@ -2847,7 +2841,7 @@ export async function syncOrderToERPNextFromOrder(order: OrderWithVaultData): Pr
     const netSiItems = buildErpItemsFromShopifyLineItems(shopifyLineItems, erpnextWarehouse, "net");
     const listSiItems = buildErpItemsFromShopifyLineItems(shopifyLineItems, erpnextWarehouse, "list");
     siItems = useCouponPricing ? [...listSiItems] : [...netSiItems];
-    netRateItems = useCouponPricing ? [...netSiItems] : undefined;
+    netRateItems = useCouponPricing ? netSiItems.map((row) => ({ ...row })) : undefined;
   } else {
     siItems = lineItems.map((li) => ({
       item_code: li.productItem.sku ?? li.productItem.productTitle.slice(0, 140),
@@ -2865,6 +2859,21 @@ export async function syncOrderToERPNextFromOrder(order: OrderWithVaultData): Pr
   });
   const useShippingTaxRow = shippingAmt > 0 && !!cfg.shippingChargeAccount;
   const useShippingItem = shippingAmt > 0 && !!cfg.shippingItem && !useShippingTaxRow;
+  const vaultTotal = parseFloat(order.totalPrice.toString());
+
+  if (useCouponPricing) {
+    const priced = await resolveCouponInvoiceItemRates({
+      cfg,
+      productItems: siItems,
+      netFallbackItems: (netRateItems ?? siItems).map((row) => ({ ...row })),
+      pricingRule: erpCouponResolved.pricingRule,
+      company: erpnextCompany,
+      asOfDate: dateStr,
+      shopifyGrandTotal: vaultTotal,
+      shippingAmt,
+    });
+    siItems = priced.items;
+  }
 
   if (useShippingItem) {
     const shippingRow: ErpSalesInvoiceItem = {
@@ -2881,14 +2890,9 @@ export async function syncOrderToERPNextFromOrder(order: OrderWithVaultData): Pr
   const itemsTotal =
     sumErpInvoiceItemsTotal(siItems) +
     (useShippingTaxRow || useShippingItem ? shippingAmt : 0);
-  const vaultTotal = parseFloat(order.totalPrice.toString());
   const discountAmt = parseFloat((itemsTotal - vaultTotal).toFixed(2));
 
   const addrHtml = formatAddressHtml(addr);
-
-  const pricingRuleRows = erpCouponResolved.pricingRule
-    ? buildErpSalesInvoicePricingRuleRows(siItems, erpCouponResolved.pricingRule)
-    : [];
 
   const siBody = {
     doctype: "Sales Invoice",
@@ -2903,8 +2907,8 @@ export async function syncOrderToERPNextFromOrder(order: OrderWithVaultData): Pr
     // Avoid ERP Hutch SMS Server Script calling frappe.generate_hash (not in safe_exec).
     sms_ebill_token: generateSmsEbillToken(),
     items: siItems,
-    ...erpCouponFields,
-    ...(pricingRuleRows.length > 0 ? { pricing_rules: pricingRuleRows } : {}),
+    ...couponFieldsForInvoiceCreate(erpCouponFields, erpCouponResolved.discountCodeLabel),
+    ...(useCouponPricing ? { ignore_pricing_rule: 1 } : {}),
     ...(customerEmail ? { contact_email: customerEmail } : {}),
     ...(contactMobile ? { contact_mobile: contactMobile } : {}),
     ...(erpPaymentType ? { custom_payment_type: erpPaymentType } : {}),

@@ -4,6 +4,7 @@ import {
   accumulateBestPurchaseFromRows,
   accumulateLastPurchasesFromRows,
   accumulateMonthlyPurchasesFromRows,
+  accumulateSupplierMinsFromRows,
   accumulateSupplierPurchasesFromRows,
   buildSupplierAllowlist,
   isAllowedSupplier,
@@ -11,7 +12,9 @@ import {
   isUsablePurchaseDoc,
   mergeBestPurchaseMaps,
   mergeMonthlyPurchaseMaps,
+  mergeSupplierMinMaps,
   normalizeSupplierKey,
+  rankedSuppliersFromMins,
   SKU_CALCULATOR_PURCHASE_SOURCE,
   type PurchaseRow,
 } from "@/lib/osf/erp-purchases";
@@ -773,5 +776,93 @@ describe("accumulateBestPurchaseFromRows", () => {
       supplier: "Beta Co",
       date: "2026-07-15",
     });
+  });
+});
+
+describe("accumulateSupplierMinsFromRows / rankedSuppliersFromMins", () => {
+  const bounds = { start: "2026-07-01", end: "2026-09-25" };
+
+  function inv(
+    name: string,
+    supplier: string,
+    supplierName: string,
+    date: string,
+    rate: number,
+    extra: Partial<PurchaseRow> = {},
+  ): PurchaseRow {
+    return {
+      name,
+      supplier,
+      supplier_name: supplierName,
+      posting_date: date,
+      item_code: "CAN07",
+      qty: 1,
+      rate,
+      net_amount: rate,
+      docstatus: 1,
+      is_return: 0,
+      ...extra,
+    };
+  }
+
+  it("ranks distinct suppliers by lowest unit rate; same supplier keeps one min", () => {
+    const mins = accumulateSupplierMinsFromRows({
+      rows: [
+        inv("PI-1", "ACME", "Acme", "2026-07-10", 50),
+        inv("PI-2", "ACME", "Acme", "2026-08-01", 30),
+        inv("PI-3", "BETA", "Beta Co", "2026-08-02", 40),
+        inv("PI-4", "GAMMA", "Gamma", "2026-09-01", 45),
+      ],
+      bounds,
+    });
+    const ranked = rankedSuppliersFromMins(mins).get("CAN07");
+    expect(ranked).toEqual([
+      { value: 30, supplier: "Acme", date: "2026-08-01" },
+      { value: 40, supplier: "Beta Co", date: "2026-08-02" },
+    ]);
+  });
+
+  it("leaves Supplier 2 empty when only one priced supplier exists", () => {
+    const mins = accumulateSupplierMinsFromRows({
+      rows: [inv("PI-1", "ACME", "Acme", "2026-08-01", 30)],
+      bounds,
+    });
+    expect(rankedSuppliersFromMins(mins).get("CAN07")).toEqual([
+      { value: 30, supplier: "Acme", date: "2026-08-01" },
+    ]);
+  });
+
+  it("skips zero rates, returns, and rows outside the window", () => {
+    const mins = accumulateSupplierMinsFromRows({
+      rows: [
+        inv("PI-OLD", "GAMMA", "Gamma", "2026-06-30", 10),
+        inv("PI-ZERO", "DELTA", "Delta", "2026-08-01", 0),
+        inv("PI-RET", "ACME", "Acme", "2026-08-02", 5, { is_return: 1 }),
+        inv("PI-OK", "BETA", "Beta Co", "2026-08-03", 40),
+      ],
+      bounds,
+    });
+    expect(rankedSuppliersFromMins(mins).get("CAN07")).toEqual([
+      { value: 40, supplier: "Beta Co", date: "2026-08-03" },
+    ]);
+  });
+
+  it("merges the same supplier across ERPs by the lower rate before ranking", () => {
+    const erp1 = accumulateSupplierMinsFromRows({
+      rows: [
+        inv("PI-A", "ACME", "Acme", "2026-08-01", 50),
+        inv("PI-B", "BETA", "Beta Co", "2026-08-02", 40),
+      ],
+      bounds,
+    });
+    const erp2 = accumulateSupplierMinsFromRows({
+      rows: [inv("PI-C", "ACME", "Acme", "2026-09-01", 25)],
+      bounds,
+    });
+    const ranked = rankedSuppliersFromMins(mergeSupplierMinMaps([erp1, erp2])).get("CAN07");
+    expect(ranked).toEqual([
+      { value: 25, supplier: "Acme", date: "2026-09-01" },
+      { value: 40, supplier: "Beta Co", date: "2026-08-02" },
+    ]);
   });
 });

@@ -5,6 +5,7 @@ import {
   indexLastPurchaseAtByPhone,
   lastPurchaseAtForCheckoutPhones,
   laterPurchaseAt,
+  rememberPhonePurchase,
 } from "@/lib/abandoned-checkout-last-purchase";
 
 describe("canonicalAbandonedCheckoutPhone", () => {
@@ -65,6 +66,24 @@ describe("indexLastPurchaseAtByPhone", () => {
       { phoneNumber: "0771234567", lastPurchaseAt: null },
     ]);
     expect(map.has("0771234567")).toBe(false);
+  });
+
+  it("uses purchaseLastOrderAt when lastPurchaseAt is empty", () => {
+    const at = new Date("2026-05-02T00:00:00.000Z");
+    const map = indexLastPurchaseAtByPhone([
+      { phoneNumber: "0771234567", lastPurchaseAt: null, purchaseLastOrderAt: at },
+    ]);
+    expect(map.get("0771234567")).toEqual(at);
+  });
+});
+
+describe("rememberPhonePurchase", () => {
+  it("indexes +94 and local forms so checkout lookup hits", () => {
+    const at = new Date("2026-07-01T00:00:00.000Z");
+    const map = new Map<string, Date>();
+    rememberPhonePurchase(map, "94779119674", at);
+    expect(lastPurchaseAtForCheckoutPhones(map, ["0779119674"])).toEqual(at);
+    expect(lastPurchaseAtForCheckoutPhones(map, ["+94779119674"])).toEqual(at);
   });
 });
 

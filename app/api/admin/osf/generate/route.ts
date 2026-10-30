@@ -17,6 +17,8 @@ import {
   fetchMonthlyPurchasesInRange,
   mergeBestPurchaseMaps,
   mergeMonthlyPurchaseMaps,
+  mergeSupplierMinMaps,
+  rankedSuppliersFromMins,
 } from "@/lib/osf/erp-purchases";
 import { fetchWarehouseBins, getAllOsfErpInstances, stockForColumn } from "@/lib/osf/erp-stock";
 import {
@@ -346,6 +348,9 @@ export async function POST(request: NextRequest) {
     const bestPurchaseBySku = mergeBestPurchaseMaps(
       perInstanceResults.map((r) => r.monthlyPurchases.best),
     );
+    const rankedSuppliersBySku = rankedSuppliersFromMins(
+      mergeSupplierMinMaps(perInstanceResults.map((r) => r.monthlyPurchases.supplierMins)),
+    );
 
     const countryInstances = [erp1Inst, erp2Inst, ...erpInstances].filter(
       (inst, idx, all): inst is NonNullable<typeof inst> => {
@@ -382,6 +387,7 @@ export async function POST(request: NextRequest) {
       salesByMonth,
       purchasesByMonth,
       bestPurchaseBySku,
+      rankedSuppliersBySku,
       belowThresholdOnly,
       effectiveColumnKeys,
       osfVariant,

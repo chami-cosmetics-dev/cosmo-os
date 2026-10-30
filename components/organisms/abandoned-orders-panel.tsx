@@ -417,6 +417,14 @@ export function AbandonedOrdersPanel({
                           <div className="text-sm font-medium leading-snug">
                             {formatAppDateTime(new Date(item.abandonedAt))}
                           </div>
+                          <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground pt-1">
+                            Last purchase
+                          </div>
+                          <div className="text-sm font-medium leading-snug">
+                            {item.lastPurchaseAt
+                              ? formatAppDate(item.lastPurchaseAt)
+                              : "Never"}
+                          </div>
                           {(item.lastFollowUpBy?.name || item.lastFollowUpAt) && (
                             <div className="text-xs leading-snug text-muted-foreground">
                               Updated
@@ -481,12 +489,6 @@ export function AbandonedOrdersPanel({
                               ) : (
                                 <div className="text-sm">Phone: —</div>
                               )}
-                              <div className="text-xs leading-snug text-muted-foreground">
-                                Last purchase{" "}
-                                {item.lastPurchaseAt
-                                  ? formatAppDate(item.lastPurchaseAt)
-                                  : "Never"}
-                              </div>
                               {item.customerEmail ? (
                                 <a
                                   href={`mailto:${item.customerEmail}`}
@@ -498,6 +500,16 @@ export function AbandonedOrdersPanel({
                               ) : (
                                 <div className="text-sm">Email: —</div>
                               )}
+                            </div>
+                            <div className="pt-1">
+                              <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                                Last purchase
+                              </div>
+                              <div className="text-sm font-medium">
+                                {item.lastPurchaseAt
+                                  ? formatAppDate(item.lastPurchaseAt)
+                                  : "Never"}
+                              </div>
                             </div>
                           </div>
 

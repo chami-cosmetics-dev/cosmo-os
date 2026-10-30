@@ -638,9 +638,93 @@ export function mergeBestPurchaseMaps(
   return out;
 }
 
+/** sku → supplierKey → lowest priced invoice for that supplier. */
+export type OsfSupplierMinMap = Map<string, Map<string, OsfBestPurchase>>;
+
+/**
+ * Per-SKU, per-supplier lowest positive unit rate in the window.
+ * One supplier keeps one entry (their cheapest invoice), not every line.
+ */
+export function accumulateSupplierMinsFromRows(input: {
+  rows: PurchaseRow[];
+  bounds: { start: string; end: string };
+  itemCodes?: Set<string>;
+  allowedSuppliers?: AllowedSupplier[];
+  result?: OsfSupplierMinMap;
+}): OsfSupplierMinMap {
+  const result = input.result ?? new Map<string, Map<string, OsfBestPurchase>>();
+  const allowlist = buildSupplierAllowlist(input.allowedSuppliers ?? []);
+
+  for (const row of input.rows) {
+    if (!isUsablePurchaseDoc(row)) continue;
+    if (isNoisePurchaseSupplier(row)) continue;
+    if (!isAllowedSupplier(row, allowlist)) continue;
+    const sku = row.item_code?.trim();
+    if (!sku) continue;
+    if (input.itemCodes && !input.itemCodes.has(sku)) continue;
+    const date = row.posting_date?.trim() ?? "";
+    if (!date || date < input.bounds.start || date > input.bounds.end) continue;
+    const rate = purchaseLineRate(row);
+    if (rate == null) continue;
+    const supplier = row.supplier_name?.trim() || row.supplier?.trim() || "";
+    if (!supplier) continue;
+    const supplierKey = normalizeSupplierKey(supplier);
+    if (!supplierKey) continue;
+    const candidate: OsfBestPurchase = { value: rate, supplier, date };
+    let bySupplier = result.get(sku);
+    if (!bySupplier) {
+      bySupplier = new Map<string, OsfBestPurchase>();
+      result.set(sku, bySupplier);
+    }
+    const prev = bySupplier.get(supplierKey);
+    if (isBetterPurchase(candidate, prev)) bySupplier.set(supplierKey, candidate);
+  }
+  return result;
+}
+
+/** Union per-supplier mins across ERP instances; same supplier keeps the lower rate. */
+export function mergeSupplierMinMaps(maps: OsfSupplierMinMap[]): OsfSupplierMinMap {
+  const out: OsfSupplierMinMap = new Map();
+  for (const map of maps) {
+    for (const [sku, bySupplier] of map) {
+      let dest = out.get(sku);
+      if (!dest) {
+        dest = new Map<string, OsfBestPurchase>();
+        out.set(sku, dest);
+      }
+      for (const [key, next] of bySupplier) {
+        const prev = dest.get(key);
+        if (isBetterPurchase(next, prev)) dest.set(key, next);
+      }
+    }
+  }
+  return out;
+}
+
+function compareRankedPurchases(a: OsfBestPurchase, b: OsfBestPurchase): number {
+  if (a.value !== b.value) return a.value - b.value;
+  const dateA = a.date ?? "";
+  const dateB = b.date ?? "";
+  if (dateA !== dateB) return dateB.localeCompare(dateA);
+  return a.supplier.localeCompare(b.supplier);
+}
+
+/** Lowest, then second-lowest, distinct suppliers for each SKU. */
+export function rankedSuppliersFromMins(
+  mins: OsfSupplierMinMap,
+  limit = 2,
+): Map<string, OsfBestPurchase[]> {
+  const out = new Map<string, OsfBestPurchase[]>();
+  for (const [sku, bySupplier] of mins) {
+    out.set(sku, [...bySupplier.values()].sort(compareRankedPurchases).slice(0, limit));
+  }
+  return out;
+}
+
 export type OsfPurchaseGridFetch = {
   monthly: Map<string, Record<string, OsfMonthPurchaseCell>>;
   best: Map<string, OsfBestPurchase>;
+  supplierMins: OsfSupplierMinMap;
 };
 
 /**
@@ -685,6 +769,7 @@ export async function fetchMonthlyPurchasesInRange(input: {
 
   let monthly = new Map<string, Record<string, OsfMonthPurchaseCell>>();
   let best = new Map<string, OsfBestPurchase>();
+  let supplierMins: OsfSupplierMinMap = new Map();
   for (let page = 0; page < MAX_PAGES; page += 1) {
     const path =
       `/api/resource/${encodeURIComponent(meta.doctype)}?fields=${encodeURIComponent(fields)}` +
@@ -711,6 +796,13 @@ export async function fetchMonthlyPurchasesInRange(input: {
         allowedSuppliers: input.allowedSuppliers,
         result: best,
       });
+      supplierMins = accumulateSupplierMinsFromRows({
+        rows,
+        bounds: input.bestWindow,
+        itemCodes: needed,
+        allowedSuppliers: input.allowedSuppliers,
+        result: supplierMins,
+      });
     }
 
     if (rows.length < PAGE_LENGTH) break;
@@ -720,5 +812,5 @@ export async function fetchMonthlyPurchasesInRange(input: {
       );
     }
   }
-  return { monthly, best };
+  return { monthly, best, supplierMins };
 }

@@ -1,0 +1,21 @@
+---
+description: One-word rollback of 2026-10-29 POS unknown-coupon Server Script change
+alwaysApply: true
+---
+
+# POS coupon script rollback (2026-10-29)
+
+If user says **rollback**, **revert**, **takeback**, or **undo** about POS/coupon/NG15/ERP script:
+
+Immediately restore old working Server Script **Validate Coupon Payment Type** on both Cosmo ERPs. Do not ask. Do not keep the 2026-10-29 unknown-coupon fallback.
+
+Restore from backups (pre-NG15 change, no `unknown POS coupon` comment):
+
+- ERP02 `https://cosmetics-lk-02.m.frappe.cloud` ← `tmp/erp02-validate-coupon.backup.py`
+- ERP01 `https://cosmetics-lk-01.m.frappe.cloud` ← `tmp/erp01-validate-coupon.backup.py`
+
+Copies also in agent store `d0e237de-aa42-4868-aed9-bb0a53c0444e` under `rollback/`.
+
+PUT `/api/resource/Server Script/Validate Coupon Payment Type` with backup `script` body. Verify saved script does **not** contain `unknown POS coupon`.
+
+Do **not** recorrect paid POS invoices unless user asks. Draft dry-run `110-001518` is unrelated leftover — delete from desk, do not submit.
