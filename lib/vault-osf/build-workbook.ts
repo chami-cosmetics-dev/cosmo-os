@@ -11,8 +11,15 @@ import {
   monthPurchaseTotalHeader,
   monthTotalSaleHeader,
 } from "@/lib/vault-osf/months";
-import type { VaultBusinessUnit, VaultCatalogRow } from "@/lib/vault-osf/types";
-import type { LatestPurchase, PriceInfo, PurchaseCell, SalesCell } from "@/lib/vault-osf/types";
+import type { OsfBestPurchase } from "@/lib/osf/erp-purchases";
+import type {
+  LatestPurchase,
+  PriceInfo,
+  PurchaseCell,
+  SalesCell,
+  VaultBusinessUnit,
+  VaultCatalogRow,
+} from "@/lib/vault-osf/types";
 
 export type VaultOsfColDef = {
   key: string;
@@ -32,6 +39,8 @@ export type VaultWorkbookInput = {
   purchases: Map<string, Record<string, PurchaseCell>>;
   prices: Map<string, PriceInfo>;
   latest: Map<string, LatestPurchase>;
+  /** Distinct suppliers ranked by lowest invoice unit rate (Supplier 1, Supplier 2). */
+  rankedSuppliersBySku?: Map<string, OsfBestPurchase[]>;
   /** sku → columnKey → rop */
   rops: Map<string, Record<string, number>>;
 };
@@ -125,6 +134,10 @@ export function vaultColumnDefs(units: VaultBusinessUnit[], asOfDate: string): V
   defs.push({ key: "reorderTotal", header: "Total", band: "order" });
   defs.push({ key: "latestPrice", header: "Latest price", section: "Supplier", band: "cost" });
   defs.push({ key: "latestSupplier", header: "Latest price suppliers", band: "cost" });
+  defs.push({ key: "supplier1", header: "Supplier 1", band: "cost" });
+  defs.push({ key: "supplier1Price", header: "Supplier 1 Price", band: "cost" });
+  defs.push({ key: "supplier2", header: "Supplier 2", band: "cost" });
+  defs.push({ key: "supplier2Price", header: "Supplier 2 Price", band: "cost" });
   return defs;
 }
 
@@ -159,6 +172,7 @@ export function vaultOsfSubtotalColumn(key: string): boolean {
   if (key.startsWith("reorder:")) return true;
   if (key === "reorderTotal") return true;
   if (key === "latestPrice") return true;
+  if (key === "supplier1Price" || key === "supplier2Price") return true;
   return false;
 }
 
@@ -224,6 +238,11 @@ export function buildVaultMainRows(input: VaultWorkbookInput): Array<Record<stri
     const latest = input.latest.get(item.sku);
     row.latestPrice = latest?.rate ?? null;
     row.latestSupplier = latest?.supplier ?? null;
+    const ranked = input.rankedSuppliersBySku?.get(item.sku) ?? [];
+    row.supplier1 = ranked[0]?.supplier ?? null;
+    row.supplier1Price = ranked[0]?.value ?? null;
+    row.supplier2 = ranked[1]?.supplier ?? null;
+    row.supplier2Price = ranked[1]?.value ?? null;
 
     rows.push(row);
   }

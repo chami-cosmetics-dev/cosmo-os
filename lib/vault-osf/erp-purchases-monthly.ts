@@ -1,7 +1,9 @@
 import {
+  accumulateSupplierMinsFromRows,
   buildSupplierAllowlist,
   isAllowedSupplier,
   type AllowedSupplier,
+  type OsfSupplierMinMap,
   type PurchaseRow,
 } from "@/lib/osf/erp-purchases";
 import { OsfErpError, type OsfErpCredentials } from "@/lib/osf/erp-stock";
@@ -231,12 +233,33 @@ export async function fetchPurchaseReceiptLinesInRange(input: {
   });
 }
 
+/**
+ * Per-supplier lowest invoice rate, skipping Origins Online.
+ * Same ranking as Cosmo OSF Supplier 1 / Supplier 2.
+ */
+export function accumulateVaultSupplierMins(input: {
+  rows: PurchaseInvoiceLine[];
+  bounds: { start: string; end: string };
+  allowedSuppliers: AllowedSupplier[];
+  result?: OsfSupplierMinMap;
+}): OsfSupplierMinMap {
+  const rows = input.rows.filter((row) => !isExcludedErpCompany(row.company ?? ""));
+  return accumulateSupplierMinsFromRows({
+    rows,
+    bounds: input.bounds,
+    allowedSuppliers: input.allowedSuppliers,
+    result: input.result,
+  });
+}
+
 export async function fetchMonthlyPurchases(input: {
   cfg: OsfErpCredentials;
   erpCompany: string;
   bounds: { start: string; end: string };
   allowedSuppliers: AllowedSupplier[];
-}): Promise<Map<string, PurchaseCell>> {
+  /** When set, also rank distinct suppliers by lowest unit rate in this window. */
+  supplierMinBounds?: { start: string; end: string };
+}): Promise<{ monthly: Map<string, PurchaseCell>; supplierMins: OsfSupplierMinMap }> {
   const rows = await fetchPurchaseInvoiceLines({
     cfg: input.cfg,
     filters: [
@@ -246,11 +269,20 @@ export async function fetchMonthlyPurchases(input: {
       ["posting_date", "<=", input.bounds.end],
     ],
   });
-  return accumulateMonthlyPurchases({
-    rows,
-    bounds: input.bounds,
-    allowedSuppliers: input.allowedSuppliers,
-  });
+  return {
+    monthly: accumulateMonthlyPurchases({
+      rows,
+      bounds: input.bounds,
+      allowedSuppliers: input.allowedSuppliers,
+    }),
+    supplierMins: input.supplierMinBounds
+      ? accumulateVaultSupplierMins({
+          rows,
+          bounds: input.supplierMinBounds,
+          allowedSuppliers: input.allowedSuppliers,
+        })
+      : new Map(),
+  };
 }
 
 export async function fetchLatestPurchases(input: {
