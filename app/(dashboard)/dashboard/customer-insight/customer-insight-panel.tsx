@@ -2758,6 +2758,10 @@ export function CustomerInsightPanel({
               <legend className="px-1 text-xs font-medium text-muted-foreground">
                 No purchase
               </legend>
+              <p className="text-muted-foreground text-xs">
+                Last purchase not in this range. Never bought counts. Same day
+                in both fields = that date only.
+              </p>
               <div className="grid grid-cols-2 gap-2">
                 <label className="space-y-1 text-sm">
                   <span className="text-muted-foreground">From</span>

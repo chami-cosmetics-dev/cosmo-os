@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import {
   cancelPendingDeliveryPaymentApprovalsForOrder,
+  cancelPendingOrderPaymentApprovalsForOrder,
   DELIVERY_PAYMENT_APPROVAL,
   INVOICE_REVERT_VOID_APPROVAL,
   ORDER_CANCEL_APPROVAL,
@@ -19,6 +20,10 @@ import {
   notifyApprovalRequester,
   resolveViewerFinanceLocationIds,
 } from "@/lib/approval-workflow";
+import {
+  isUnpaidBankTransferGateway,
+  keepOriginalCodPaymentFields,
+} from "@/lib/return-rearrange-original-payment";
 import {
   APPROVAL_SPLIT_KOKO,
   buildDefaultOrderPaymentRequestNote,
@@ -1219,6 +1224,26 @@ export async function PATCH(
           actionById: reviewerId,
         },
       });
+      if (approval.type === RETURN_REARRANGE_PAYMENT_APPROVAL && approval.orderId) {
+        const orderForRestore = await tx.order.findUnique({
+          where: { id: approval.orderId },
+          select: {
+            financialStatus: true,
+            paymentGatewayPrimary: true,
+            paymentGatewayNames: true,
+          },
+        });
+        if (orderForRestore && isUnpaidBankTransferGateway(orderForRestore)) {
+          await tx.order.update({
+            where: { id: approval.orderId },
+            data: {
+              ...keepOriginalCodPaymentFields(),
+              ...orderStageUpdate("returned_to_store", now),
+            },
+          });
+          await cancelPendingOrderPaymentApprovalsForOrder(approval.orderId, undefined, tx);
+        }
+      }
     }
 
     if (nextStatus === "approved") {

@@ -149,7 +149,7 @@ export async function fetchCosmeticsLkDrilldown(
     fromYmd: string;
     toYmd: string;
     dateType: DashboardSalesDateType;
-    couponCode?: string | null;
+    couponCodes?: string | readonly string[] | null;
   },
 ): Promise<CosmeticsLkDrilldownResult> {
   const fromDate = parseDayStartUtc(params.fromYmd);
@@ -228,7 +228,7 @@ export async function fetchCosmeticsLkDrilldown(
 
   for (const order of orders) {
     if (!isDashboardSalesOrderEligible(order, params.dateType)) continue;
-    if (!orderMatchesDashboardCoupon(order, params.couponCode)) continue;
+    if (!orderMatchesDashboardCoupon(order, params.couponCodes)) continue;
 
     const merchantCouponCode = getMerchantCouponCode({
       sourceName: order.sourceName,

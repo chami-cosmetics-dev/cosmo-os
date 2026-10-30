@@ -10,6 +10,7 @@ import { orderHasCardOnDeliveryGateway, isCardOnDeliveryGateway } from "@/lib/pa
 import { isMintpayGateway } from "@/lib/payment-gateway-match";
 import { needsKokoLinkTimeConfirm } from "@/lib/koko-order";
 import { APPROVAL_SPLIT_KOKO } from "@/lib/approval-payment-split";
+import { KEEP_ORIGINAL_PAYMENT_APPROVAL_CANCEL_NOTE } from "@/lib/return-rearrange-original-payment";
 
 export type ApprovalStatus = "pending" | "approved" | "rejected" | "cancelled";
 export const ORDER_VOIDED_APPROVAL_CANCEL_NOTE =
@@ -929,6 +930,22 @@ export async function cancelPendingDeliveryPaymentApprovalsForOrder(
 ) {
   return db.approvalRequest.updateMany({
     where: { orderId, type: DELIVERY_PAYMENT_APPROVAL, status: "pending" },
+    data: {
+      status: "cancelled",
+      reviewNote,
+      updatedAt: new Date(),
+    },
+  });
+}
+
+/** Drop a pre-dispatch payment approval spawned after a withdrawn bank-transfer rearrange. */
+export async function cancelPendingOrderPaymentApprovalsForOrder(
+  orderId: string,
+  reviewNote = KEEP_ORIGINAL_PAYMENT_APPROVAL_CANCEL_NOTE,
+  db: Prisma.TransactionClient | typeof prisma = prisma,
+) {
+  return db.approvalRequest.updateMany({
+    where: { orderId, type: ORDER_PAYMENT_APPROVAL, status: "pending" },
     data: {
       status: "cancelled",
       reviewNote,

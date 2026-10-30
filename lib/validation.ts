@@ -210,13 +210,25 @@ export const dashboardSalesDateTypeSchema = z
       | "still_not_delivered";
   });
 
-const dashboardCouponCodeQuerySchema = z
-  .string()
-  .max(LIMITS.couponCode.max)
+const MAX_DASHBOARD_COUPON_FILTERS = 40;
+
+const dashboardCouponCodesQuerySchema = z
+  .union([z.string(), z.array(z.string())])
   .optional()
   .transform((value) => {
-    const trimmed = value?.trim();
-    return trimmed ? trimmed : undefined;
+    const parts = Array.isArray(value) ? value : value ? [value] : [];
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const part of parts) {
+      for (const piece of part.split(/[,\s]+/)) {
+        const key = piece.trim().toUpperCase();
+        if (!key || key.length > LIMITS.couponCode.max || seen.has(key)) continue;
+        seen.add(key);
+        out.push(key);
+        if (out.length >= MAX_DASHBOARD_COUPON_FILTERS) return out;
+      }
+    }
+    return out;
   });
 
 export const dashboardSalesQuerySchema = z.object({
@@ -228,7 +240,7 @@ export const dashboardSalesQuerySchema = z.object({
     .enum(["true", "false"])
     .optional()
     .transform((v) => v !== "false"),
-  coupon_code: dashboardCouponCodeQuerySchema,
+  coupon_code: dashboardCouponCodesQuerySchema,
 });
 
 /** Cosmetics.lk drill-down: same clocks as the dashboard card, no analysis mode. */
@@ -236,7 +248,7 @@ export const cosmeticsLkDrilldownQuerySchema = z.object({
   from: ymdQuerySchema,
   to: ymdQuerySchema,
   date_type: dashboardSalesDateTypeSchema.optional().default("all_orders"),
-  coupon_code: dashboardCouponCodeQuerySchema,
+  coupon_code: dashboardCouponCodesQuerySchema,
 });
 
 export const dashboardBrandSalesQuerySchema = z.object({
@@ -244,7 +256,7 @@ export const dashboardBrandSalesQuerySchema = z.object({
   to: ymdQuerySchema,
   date_type: dashboardSalesDateTypeSchema.optional().default("all_orders"),
   location_id: z.string().max(40).optional().transform((s) => s?.trim() || undefined),
-  coupon_code: dashboardCouponCodeQuerySchema,
+  coupon_code: dashboardCouponCodesQuerySchema,
 });
 
 export const dashboardBrandConfigCreateSchema = z.object({

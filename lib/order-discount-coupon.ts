@@ -1,4 +1,4 @@
-import { unwrapErpWebhookPayload } from "@/lib/erpnext-customer-display-name";
+import { unwrapErpWebhookPayload } from "@/lib/erp-webhook-payload";
 import { resolveErpCouponCodeFromPricingRule } from "@/lib/erp-coupon-resolve";
 import { shouldResolveFromLinkedErpInvoice } from "@/lib/erp-order-link";
 import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";

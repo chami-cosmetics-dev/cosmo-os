@@ -40,7 +40,7 @@ export async function GET(request: NextRequest) {
     from: searchParams.get("from") ?? "",
     to: searchParams.get("to") ?? "",
     date_type: searchParams.get("date_type") ?? undefined,
-    coupon_code: searchParams.get("coupon_code") ?? undefined,
+    coupon_code: searchParams.getAll("coupon_code"),
   });
 
   if (!parsed.success) {
@@ -54,7 +54,7 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const { from, to, date_type: dateType, coupon_code: couponCode } = parsed.data;
+  const { from, to, date_type: dateType, coupon_code: couponCodes } = parsed.data;
   if (!hasPermission(auth.context, getDashboardDateTypePermission(dateType))) {
     perf.end({ status: 403, ok: false, dateType });
     return NextResponse.json(
@@ -70,7 +70,7 @@ export async function GET(request: NextRequest) {
     fromYmd: from,
     toYmd: to,
     dateType,
-    couponCode,
+    couponCodes,
   });
   perf.mark("query");
 

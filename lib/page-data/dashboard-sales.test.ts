@@ -8,7 +8,7 @@ import {
   getPlacedStatusPartition,
   isDashboardSalesOrderEligible,
 } from "@/lib/page-data/dashboard-sales";
-import { dashboardSalesDateTypeSchema } from "@/lib/validation";
+import { dashboardSalesDateTypeSchema, dashboardSalesQuerySchema } from "@/lib/validation";
 
 describe("normalizeDashboardSalesDateType / zod aliases", () => {
   it("maps legacy aliases to canonical date types", () => {
@@ -31,6 +31,23 @@ describe("normalizeDashboardSalesDateType / zod aliases", () => {
     expect(dashboardSalesDateTypeSchema.parse("delivered_pending_invoice")).toBe(
       "still_bill_open",
     );
+  });
+
+  it("accepts several coupon codes from repeated or comma-separated query values", () => {
+    expect(
+      dashboardSalesQuerySchema.parse({
+        from: "2026-10-01",
+        to: "2026-10-30",
+        coupon_code: ["ng15", "COS5", "NG15"],
+      }).coupon_code,
+    ).toEqual(["NG15", "COS5"]);
+    expect(
+      dashboardSalesQuerySchema.parse({
+        from: "2026-10-01",
+        to: "2026-10-30",
+        coupon_code: "NG15, COS5",
+      }).coupon_code,
+    ).toEqual(["NG15", "COS5"]);
   });
 });
 

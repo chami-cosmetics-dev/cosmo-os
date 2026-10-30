@@ -3,11 +3,16 @@ import { z } from "zod";
 
 import {
   cancelPendingDeliveryPaymentApprovalsForOrder,
+  cancelPendingOrderPaymentApprovalsForOrder,
   createInvoiceRevertVoidApproval,
   createOrGetReturnCancelApproval,
   createOrGetReturnRearrangeApproval,
   serializeReturnCancelApprovalNote,
 } from "@/lib/approval-workflow";
+import {
+  isUnpaidBankTransferGateway,
+  keepOriginalCodPaymentFields,
+} from "@/lib/return-rearrange-original-payment";
 import { writeAuditLog } from "@/lib/audit-log";
 import { isCitypakCourier, isRiderReturn } from "@/lib/courier";
 import { prisma } from "@/lib/prisma";
@@ -285,12 +290,11 @@ export async function PUT(
     });
 
     if (requiresBankTransferBeforeRearrange || isApprovalRequestFlow) {
+      // Stay on original mop until finance approves. Mutating to bank_transfer here
+      // made Keep Original inherit the mistaken mop and spawned a pre-dispatch approval.
       await tx.order.update({
         where: { id: existing.orderId },
         data: {
-          financialStatus: "pending",
-          paymentGatewayNames: ["bank_transfer"],
-          paymentGatewayPrimary: "bank_transfer",
           ...orderStageUpdate("returned_to_store", actionDate),
           fulfillmentStatus: "unfulfilled",
           packageReadyAt: null,
@@ -303,6 +307,7 @@ export async function PUT(
         },
       });
       await cancelPendingDeliveryPaymentApprovalsForOrder(existing.orderId, undefined, tx);
+      await cancelPendingOrderPaymentApprovalsForOrder(existing.orderId, undefined, tx);
       await tx.riderDeliveryTask.updateMany({
         where: { orderId: existing.orderId },
         data: {
@@ -317,6 +322,10 @@ export async function PUT(
         },
       });
     } else if (isRearrange || isConfirmRearrangePaid) {
+      const restoreOriginalPayment =
+        isRearrange &&
+        parsed.data.requestBankTransfer === false &&
+        isUnpaidBankTransferGateway(existing.order);
       await tx.order.update({
         where: { id: existing.orderId },
         data: {
@@ -326,7 +335,9 @@ export async function PUT(
                 paymentGatewayNames: ["bank_transfer"],
                 paymentGatewayPrimary: "bank_transfer",
               }
-            : {}),
+            : restoreOriginalPayment
+              ? keepOriginalCodPaymentFields()
+              : {}),
           ...orderStageUpdate("ready_to_dispatch", actionDate),
           fulfillmentStatus: "unfulfilled",
           // Merchant rearrange sends the order back to store. Package ready stays unset
@@ -341,6 +352,9 @@ export async function PUT(
         },
       });
       await cancelPendingDeliveryPaymentApprovalsForOrder(existing.orderId, undefined, tx);
+      if (restoreOriginalPayment) {
+        await cancelPendingOrderPaymentApprovalsForOrder(existing.orderId, undefined, tx);
+      }
       await tx.riderDeliveryTask.updateMany({
         where: { orderId: existing.orderId },
         data: {
@@ -450,7 +464,12 @@ export async function PUT(
       beforeData: { fulfillmentStage: existing.order.fulfillmentStage },
       afterData: {
         fulfillmentStage: requiresBankTransferBeforeRearrange || isApprovalRequestFlow ? "returned_to_store" : "ready_to_dispatch",
-        paymentGatewayPrimary: requiresBankTransferBeforeRearrange || isApprovalRequestFlow ? "bank_transfer" : existing.order.paymentGatewayPrimary,
+        paymentGatewayPrimary:
+          requiresBankTransferBeforeRearrange || isApprovalRequestFlow
+            ? existing.order.paymentGatewayPrimary
+            : parsed.data.requestBankTransfer === false && isUnpaidBankTransferGateway(existing.order)
+              ? keepOriginalCodPaymentFields().paymentGatewayPrimary
+              : existing.order.paymentGatewayPrimary,
         financialStatus: isConfirmRearrangePaid ? "paid" : existing.order.financialStatus,
       },
       metadata: {
@@ -484,8 +503,10 @@ export async function PUT(
             financialStatus: isConfirmRearrangePaid ? "paid" : existing.order.financialStatus,
             paymentGatewayPrimary:
               requiresBankTransferBeforeRearrange || isApprovalRequestFlow
-                ? "bank_transfer"
-                : existing.order.paymentGatewayPrimary,
+                ? existing.order.paymentGatewayPrimary
+                : parsed.data.requestBankTransfer === false && isUnpaidBankTransferGateway(existing.order)
+                  ? keepOriginalCodPaymentFields().paymentGatewayPrimary
+                  : existing.order.paymentGatewayPrimary,
             requiresBankTransferBeforeRearrange: requiresBankTransferBeforeRearrange || isApprovalRequestFlow,
           }
         : undefined,

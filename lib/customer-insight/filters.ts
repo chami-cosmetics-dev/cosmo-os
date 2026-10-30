@@ -324,6 +324,37 @@ export function purchasedAtBounds(
   return bounds;
 }
 
+/** SQL: last purchase not inside [from, to] (never bought counts). */
+export function noPurchaseDateRangeWhere(fromYmd: string, toYmd: string) {
+  const from = startOfColomboDay(fromYmd);
+  const to = endOfColomboDay(toYmd);
+  return {
+    OR: [
+      { lastPurchaseAt: null },
+      { lastPurchaseAt: { lt: from } },
+      { lastPurchaseAt: { gt: to } },
+    ],
+  };
+}
+
+export function noPurchaseMonthsWhere(months: 3 | 6, now = new Date()) {
+  return {
+    OR: [
+      { lastPurchaseAt: null },
+      { lastPurchaseAt: { lt: noPurchaseCutoff(months, now) } },
+    ],
+  };
+}
+
+function andWhere(where: Record<string, unknown>, clause: unknown) {
+  const existingAnd = Array.isArray(where.AND)
+    ? (where.AND as unknown[])
+    : where.AND
+      ? [where.AND]
+      : [];
+  where.AND = [...existingAnd, clause];
+}
+
 type ContactCandidate = {
   id: string;
   name: string;
@@ -462,6 +493,19 @@ async function buildAllocationWhere(input: FilterQueryInput): Promise<{
         ? [where.AND]
         : [];
     where.AND = [...existingAnd, ...osRegClause];
+  }
+
+  const purchasedBounds = purchasedAtBounds(input.purchasedFrom, input.purchasedTo);
+  if (purchasedBounds) {
+    andWhere(where, { lastPurchaseAt: purchasedBounds });
+  }
+
+  if (input.noPurchaseFrom && input.noPurchaseTo) {
+    andWhere(where, noPurchaseDateRangeWhere(input.noPurchaseFrom, input.noPurchaseTo));
+  }
+
+  if (input.noPurchaseMonths === 3 || input.noPurchaseMonths === 6) {
+    andWhere(where, noPurchaseMonthsWhere(input.noPurchaseMonths));
   }
 
   const assignedNeedle = input.assignedMerchant?.trim();
@@ -671,6 +715,19 @@ export async function filterAllocatedContacts(
     return emptyResult();
   }
 
+  const needLastContacted = Boolean(
+    input.lastContactedFrom || input.lastContactedTo
+  );
+  const needAllocated = Boolean(input.allocatedFrom || input.allocatedTo);
+  const sqlPaginate =
+    !hasBrands &&
+    !hasItemScope &&
+    !needLastContacted &&
+    !needAllocated &&
+    !input.birthdayFrom &&
+    !purchaseLocationId;
+
+  let sqlPageTotal: number | null = null;
   let candidates: ContactCandidate[];
 
   const select = {
@@ -692,6 +749,13 @@ export async function filterAllocatedContacts(
     updatedAt: true,
   } as const;
 
+  if (sqlPaginate && (input.minTotal != null || input.maxTotal != null)) {
+    const totalFilter: Record<string, number> = {};
+    if (input.minTotal != null) totalFilter.gte = input.minTotal;
+    if (input.maxTotal != null) totalFilter.lte = input.maxTotal;
+    andWhere(where, { purchaseTotalValue: totalFilter });
+  }
+
   if (hasBrands) {
     const brandIds = brandSortedIds.filter((id) =>
       itemContactIds ? itemContactIds.has(id) : true
@@ -700,15 +764,22 @@ export async function filterAllocatedContacts(
   } else if (itemContactIds) {
     const ids = itemSortedIds.slice(0, FILTER_CANDIDATE_CAP);
     candidates = await findContactsByIds(ids, where, select);
+  } else if (sqlPaginate) {
+    sqlPageTotal = await prisma.contactMaster.count({ where: where as never });
+    const skip = input.forExport ? 0 : (input.page - 1) * input.pageSize;
+    const take = input.forExport ? undefined : input.pageSize;
+    candidates = (await prisma.contactMaster.findMany({
+      where: where as never,
+      select: select as never,
+      orderBy: [{ purchaseTotalValue: "desc" }, { id: "asc" }],
+      skip,
+      ...(take != null ? { take } : {}),
+    })) as ContactCandidate[];
   } else {
     const ids = await findAllMatchingContactIds(where);
     candidates = await findContactsByIds(ids, where, select);
   }
 
-  const needLastContacted = Boolean(
-    input.lastContactedFrom || input.lastContactedTo
-  );
-  const needAllocated = Boolean(input.allocatedFrom || input.allocatedTo);
   const candidateIds = candidates.map((c) => c.id);
   const [contacted, allocatedAt, purchaseAts] = await Promise.all([
     lastContactedMap(input.companyId, candidateIds),
@@ -757,31 +828,33 @@ export async function filterAllocatedContacts(
 
     const lastPurchaseAt = purchaseAts.last.get(contact.id) ?? null;
 
-    if (
-      !inColomboDateRange(
-        lastPurchaseAt ?? undefined,
-        input.purchasedFrom,
-        input.purchasedTo
-      )
-    ) {
-      continue;
-    }
-
-    if (input.noPurchaseMonths === 3 || input.noPurchaseMonths === 6) {
-      if (!hasNoPurchaseWithinMonths(lastPurchaseAt, input.noPurchaseMonths)) {
-        continue;
-      }
-    }
-
-    if (input.noPurchaseFrom && input.noPurchaseTo) {
+    if (!sqlPaginate) {
       if (
-        !hasNoPurchaseInDateRange(
-          lastPurchaseAt,
-          input.noPurchaseFrom,
-          input.noPurchaseTo
+        !inColomboDateRange(
+          lastPurchaseAt ?? undefined,
+          input.purchasedFrom,
+          input.purchasedTo
         )
       ) {
         continue;
+      }
+
+      if (input.noPurchaseMonths === 3 || input.noPurchaseMonths === 6) {
+        if (!hasNoPurchaseWithinMonths(lastPurchaseAt, input.noPurchaseMonths)) {
+          continue;
+        }
+      }
+
+      if (input.noPurchaseFrom && input.noPurchaseTo) {
+        if (
+          !hasNoPurchaseInDateRange(
+            lastPurchaseAt,
+            input.noPurchaseFrom,
+            input.noPurchaseTo
+          )
+        ) {
+          continue;
+        }
       }
     }
 
@@ -867,8 +940,10 @@ export async function filterAllocatedContacts(
 
     // Badge = registered only; spend stays on lifetimeTotal / filters.
     const key = effectiveLoyaltyTierKey(contact.loyaltyAssignedTier);
-    if (input.minTotal != null && lifetimeTotal < input.minTotal) continue;
-    if (input.maxTotal != null && lifetimeTotal > input.maxTotal) continue;
+    if (!sqlPaginate) {
+      if (input.minTotal != null && lifetimeTotal < input.minTotal) continue;
+      if (input.maxTotal != null && lifetimeTotal > input.maxTotal) continue;
+    }
 
     const brandSpend = hasBrands
       ? brandSpendById.has(contact.id)
@@ -917,14 +992,16 @@ export async function filterAllocatedContacts(
       if (spendDiff !== 0) return spendDiff;
       return b.lifetimeTotal - a.lifetimeTotal;
     });
-  } else {
+  } else if (!sqlPaginate) {
     scored.sort((a, b) => b.lifetimeTotal - a.lifetimeTotal);
   }
 
-  const total = scored.length;
+  const total = sqlPageTotal ?? scored.length;
   const exportRows = input.forExport ? scored : null;
   const start = (input.page - 1) * input.pageSize;
-  const pageItems = exportRows ?? scored.slice(start, start + input.pageSize);
+  const pageItems =
+    exportRows ??
+    (sqlPageTotal != null ? scored : scored.slice(start, start + input.pageSize));
   return {
     items: pageItems.map((row) => {
       return {
