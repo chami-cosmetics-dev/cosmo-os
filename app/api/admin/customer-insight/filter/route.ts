@@ -10,6 +10,9 @@ import { requirePermission } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { customerInsightFilterQuerySchema } from "@/lib/validation/customer-insight";
 
+export const dynamic = "force-dynamic";
+export const maxDuration = 60;
+
 function queryParam(value: string | null): string | undefined {
   const trimmed = (value ?? "").trim();
   return trimmed || undefined;
