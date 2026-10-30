@@ -9,6 +9,16 @@ import {
   VAULT_OSF_MANUAL_SKU_META,
 } from "@/lib/vault-osf/sku-policy";
 
+function productPriorityStatus(
+  erp1: string | null | undefined,
+  erp2: string | null | undefined,
+): string | null {
+  const p1 = erp1?.trim() || "";
+  if (p1) return p1;
+  const p2 = erp2?.trim() || "";
+  return p2 || null;
+}
+
 export async function GET(request: NextRequest) {
   const auth = await requirePermission("purchasing.osf.read");
   if (!auth.ok) {
@@ -48,11 +58,16 @@ export async function GET(request: NextRequest) {
     select: {
       sku: true,
       productTitle: true,
+      erp1ProductPriority: true,
+      erp2ProductPriority: true,
       vendor: { select: { name: true } },
     },
   });
 
-  const bySku = new Map<string, { sku: string; productTitle: string; brand: string | null }>();
+  const bySku = new Map<
+    string,
+    { sku: string; productTitle: string; brand: string | null; priorityStatus: string | null }
+  >();
   for (const p of products) {
     const sku = p.sku?.trim();
     if (!sku || bySku.has(sku)) continue;
@@ -60,6 +75,7 @@ export async function GET(request: NextRequest) {
       sku,
       productTitle: p.productTitle,
       brand: p.vendor?.name ?? null,
+      priorityStatus: productPriorityStatus(p.erp1ProductPriority, p.erp2ProductPriority),
     });
   }
 
@@ -79,7 +95,7 @@ export async function GET(request: NextRequest) {
       ) {
         continue;
       }
-      bySku.set(sku, { sku, productTitle: title, brand });
+      bySku.set(sku, { sku, productTitle: title, brand, priorityStatus: null });
     }
   }
 
@@ -112,6 +128,7 @@ export async function GET(request: NextRequest) {
       sku,
       productTitle: catalog.productTitle,
       brand: catalog.brand,
+      priorityStatus: catalog.priorityStatus,
       shopAvailability: profile?.shopAvailability ?? null,
       ogfPrice: profile?.ogfPrice != null ? Number(profile.ogfPrice) : null,
       reorderThresholdPercent: profile?.reorderThresholdPercent ?? null,

@@ -5,10 +5,21 @@ import { fetchBinActualQty, getAllOsfErpInstances, stockForColumn } from "@/lib/
 import { isBelowReorderThreshold } from "@/lib/osf/threshold";
 import { prisma } from "@/lib/prisma";
 
+function productPriorityStatus(
+  erp1: string | null | undefined,
+  erp2: string | null | undefined,
+): string | null {
+  const p1 = erp1?.trim() || "";
+  if (p1) return p1;
+  const p2 = erp2?.trim() || "";
+  return p2 || null;
+}
+
 export type BelowThresholdSku = {
   sku: string;
   productTitle: string;
   brand: string | null;
+  priorityStatus: string | null;
   shopAvailability: string | null;
   ogfPrice: number | null;
   reorderThresholdPercent: number | null;
@@ -41,7 +52,13 @@ export async function listBelowThresholdSkus(
         status: { not: "archived" },
       },
       orderBy: { updatedAt: "desc" },
-      select: { sku: true, productTitle: true, vendor: { select: { name: true } } },
+      select: {
+        sku: true,
+        productTitle: true,
+        erp1ProductPriority: true,
+        erp2ProductPriority: true,
+        vendor: { select: { name: true } },
+      },
     }),
   ]);
 
@@ -49,13 +66,17 @@ export async function listBelowThresholdSkus(
   const ropCols = columns.filter((c) => c.active && c.includeInRop);
   if (stockCols.length === 0 || ropCols.length === 0) return [];
 
-  const bySku = new Map<string, { productTitle: string; brand: string | null }>();
+  const bySku = new Map<
+    string,
+    { productTitle: string; brand: string | null; priorityStatus: string | null }
+  >();
   for (const row of catalog) {
     const sku = row.sku?.trim();
     if (!sku || bySku.has(sku)) continue;
     bySku.set(sku, {
       productTitle: row.productTitle,
       brand: row.vendor?.name ?? null,
+      priorityStatus: productPriorityStatus(row.erp1ProductPriority, row.erp2ProductPriority),
     });
   }
 
@@ -127,6 +148,7 @@ export async function listBelowThresholdSkus(
       sku,
       productTitle: catalogRow?.productTitle ?? sku,
       brand: catalogRow?.brand ?? null,
+      priorityStatus: catalogRow?.priorityStatus ?? null,
       shopAvailability: profile?.shopAvailability ?? null,
       ogfPrice: profile?.ogfPrice != null ? Number(profile.ogfPrice) : null,
       reorderThresholdPercent: profile?.reorderThresholdPercent ?? null,
