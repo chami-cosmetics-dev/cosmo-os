@@ -40,6 +40,7 @@ import {
   BellRing,
   ArrowLeftRight,
   SearchCheck,
+  Target,
   Stethoscope,
 } from "lucide-react";
 import { usePathname, useSearchParams } from "next/navigation";
@@ -146,7 +147,10 @@ export function AppSidebar({
     hasSidebarPermission("purchasing.market_prices.manage");
   const canViewGrn = hasSidebarPermission("purchasing.grn.read");
   const canAdminNewItemRequests = hasSidebarPermission("new_item_requests.admin");
+  // Sales Budget: no permission gate yet.
+  const canViewSalesBudget = true;
   const canViewPurchasing =
+    canViewSalesBudget ||
     canViewOsf ||
     canViewPurchasingTools ||
     canViewPurchaseHistory ||
@@ -739,6 +743,14 @@ export function AppSidebar({
                   icon={ReceiptText}
                   label="GRN"
                   isActive={pathname === "/dashboard/purchasing/grn"}
+                />
+              )}
+              {canViewSalesBudget && (
+                <NavItem
+                  href="/dashboard/purchasing/sales-budget"
+                  icon={Target}
+                  label="Sales Budget"
+                  isActive={pathname === "/dashboard/purchasing/sales-budget"}
                 />
               )}
               {canAdminNewItemRequests && (

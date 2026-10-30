@@ -108,7 +108,6 @@ export function buildGrnCompanyResolver(locations: GrnCompanyLocationRef[]) {
     const location = byName(companyName);
     if (!location) return companyName.trim();
     if (location.shortName?.trim()) return location.shortName.trim().toUpperCase();
-    if (location.isMainCompany || /^cosmetics\.lk$/i.test(location.erpnextCompany?.trim() ?? "")) return "COS";
     return location.name.trim().split(/\s+/)[0]?.toUpperCase() || location.name;
   }
 
