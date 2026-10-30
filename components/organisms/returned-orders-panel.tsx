@@ -329,13 +329,9 @@ export function ReturnedOrdersPanel({
   }
 
   function isBankTransferRearrangePending(item: ReturnTrackingItem | null) {
-    return Boolean(
-      item &&
-        item.actionType === "rearrange" &&
-        item.actionStatus === "pending" &&
-        (item.paymentGatewayPrimary === "bank_transfer" ||
-          item.paymentGatewayNames.includes("bank_transfer"))
-    );
+    // Rearrange + pending is only the bank-transfer finance wait. Payment stays on the
+    // original mop until finance approves, so do not require bank_transfer here.
+    return Boolean(item && item.actionType === "rearrange" && item.actionStatus === "pending");
   }
 
   function needsBankTransferChoice(item: ReturnTrackingItem | null): boolean {
