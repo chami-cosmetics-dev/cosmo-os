@@ -62,10 +62,25 @@ function filenameDate(value: Date) {
   return value.toISOString().slice(0, 10);
 }
 
+function prCompanyName(rawPayload: unknown, fallback: string | null | undefined) {
+  if (rawPayload && typeof rawPayload === "object" && !Array.isArray(rawPayload)) {
+    const top = rawPayload as Record<string, unknown>;
+    const payload = top.data && typeof top.data === "object" && !Array.isArray(top.data)
+      ? top.data as Record<string, unknown>
+      : top;
+    if (typeof payload.company === "string" && payload.company.trim()) return payload.company.trim();
+  }
+  return fallback?.trim() || "Unassigned";
+}
+
 function exportRows(
   rows: Awaited<ReturnType<typeof loadRows>>,
 ) {
-  return rows.map((row) => ({
+  return rows.map((row) => {
+    const companyName = prCompanyName(row.rawPayload, row.companyLocation?.name);
+    return {
+    companyName,
+    Company: companyName,
     "PR No": row.name,
     "Adjustment No": row.supplierStockReturnName ?? "",
     "GRN Date": formatDate(row.creation ?? row.postingDate),
@@ -76,7 +91,8 @@ function exportRows(
     Valued: formatDate(row.valuedAt),
     "GRN Received": formatDate(row.receivedAt),
     Status: row.docstatus === 2 ? "Cancelled" : grnWorkflowStatus(row),
-  }));
+    };
+  });
 }
 
 async function loadRows(from: Date | null, to: Date | null, companyId?: string) {
@@ -84,6 +100,7 @@ async function loadRows(from: Date | null, to: Date | null, companyId?: string) 
   return prisma.grnPurchaseReceipt.findMany({
     where: {
       ...(companyId ? { companyId } : {}),
+      deletedAt: null,
       ...(dateFilter
         ? {
             OR: [
@@ -93,6 +110,7 @@ async function loadRows(from: Date | null, to: Date | null, companyId?: string) 
           }
         : {}),
     },
+    include: { companyLocation: { select: { name: true } } },
     orderBy: [{ creation: "desc" }, { createdAt: "desc" }],
     take: 5000,
   });
@@ -100,8 +118,39 @@ async function loadRows(from: Date | null, to: Date | null, companyId?: string) 
 
 function buildXlsx(rows: ReturnType<typeof exportRows>) {
   const workbook = XLSX.utils.book_new();
-  const sheet = XLSX.utils.json_to_sheet(rows);
-  XLSX.utils.book_append_sheet(workbook, sheet, "GRN");
+  const rowsByCompany = new Map<string, Array<Record<string, string>>>();
+  for (const { companyName, ...row } of rows) {
+    const companyRows = rowsByCompany.get(companyName) ?? [];
+    companyRows.push(
+      Object.fromEntries(Object.entries(row).filter(([key]) => key !== "Company")),
+    );
+    rowsByCompany.set(companyName, companyRows);
+  }
+
+  const usedSheetNames = new Set<string>();
+  const sheetNameForCompany = (companyName: string) => {
+    const base = companyName.replace(/[\\/?*\[\]:]/g, " ").trim().slice(0, 31) || "Unassigned";
+    let sheetName = base;
+    let suffix = 2;
+    while (usedSheetNames.has(sheetName)) {
+      const marker = ` (${suffix++})`;
+      sheetName = `${base.slice(0, 31 - marker.length)}${marker}`;
+    }
+    usedSheetNames.add(sheetName);
+    return sheetName;
+  };
+
+  if (rowsByCompany.size === 0) {
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet([]), "GRN");
+  } else {
+    for (const [companyName, companyRows] of rowsByCompany) {
+      XLSX.utils.book_append_sheet(
+        workbook,
+        XLSX.utils.json_to_sheet(companyRows),
+        sheetNameForCompany(companyName),
+      );
+    }
+  }
   return XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer;
 }
 
@@ -111,6 +160,7 @@ async function buildPdf(rows: ReturnType<typeof exportRows>, title: string) {
     "Adjustment No",
     "GRN Date",
     "GRN By",
+    "Company",
     "Supplier",
     "Handover Date",
     "Valued",
@@ -142,7 +192,7 @@ async function buildPdf(rows: ReturnType<typeof exportRows>, title: string) {
         : {
             table: {
               headerRows: 1,
-              widths: ["auto", "auto", "auto", "auto", "*", "auto", "auto", "auto"],
+              widths: ["auto", "auto", "auto", "auto", "*", "*", "auto", "auto", "auto"],
               body,
             },
             layout: "lightHorizontalLines",

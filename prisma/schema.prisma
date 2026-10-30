@@ -2805,6 +2805,7 @@ model GrnPurchaseReceipt {
   receivedRevertedAt      DateTime?
   receivedRevertedById    String?
   supplierStockReturnName String?
+  deletedAt               DateTime?
   rawPayload              Json
   createdAt               DateTime                 @default(now())
   updatedAt               DateTime                 @updatedAt
@@ -2869,6 +2870,7 @@ model GrnSupplierStockReturn {
   owner               String?
   creation            DateTime?
   purchaseReceiptName String?
+  deletedAt           DateTime?
   rawPayload          Json
   createdAt           DateTime                     @default(now())
   updatedAt           DateTime                     @updatedAt
@@ -2930,6 +2932,7 @@ model GrnBackfillPurchaseReceipt {
   amendedFrom       String?
   owner             String?
   creation          DateTime?
+  deletedAt         DateTime?
   rawPayload        Json
   createdAt         DateTime                         @default(now())
   updatedAt         DateTime                         @updatedAt
@@ -2976,6 +2979,7 @@ model GrnBackfillSupplierStockReturn {
   owner               String?
   creation            DateTime?
   purchaseReceiptName String?
+  deletedAt           DateTime?
   rawPayload          Json
   createdAt           DateTime                             @default(now())
   updatedAt           DateTime                             @updatedAt
@@ -3040,6 +3044,7 @@ model GrnBackfillPurchaseInvoice {
   creation                DateTime?
   purchaseReceiptName     String?
   supplierStockReturnName String?
+  deletedAt              DateTime?
   rawPayload              Json
   createdAt               DateTime                         @default(now())
   updatedAt               DateTime                         @updatedAt
@@ -3108,6 +3113,7 @@ model GrnPurchaseInvoice {
   creation                DateTime?
   purchaseReceiptName     String?
   supplierStockReturnName String?
+  deletedAt              DateTime?
   rawPayload              Json
   createdAt               DateTime                 @default(now())
   updatedAt               DateTime                 @updatedAt
