@@ -21,6 +21,7 @@ import {
   orderPurchaseAt,
 } from "@/lib/customer-insight/lifetime-total";
 import { parseLoyaltyOutreachStatus } from "@/lib/customer-insight/loyalty-outreach";
+import { availableManualLoyaltyTiers } from "@/lib/customer-insight/loyalty-manual";
 import { loyaltyCode, loyaltyLabel } from "@/lib/customer-insight/loyalty-tier";
 import { viewerIdentityForMerchantFilter } from "@/lib/customer-insight/merchant-label-aliases";
 import {
@@ -112,6 +113,7 @@ export async function loadCustomerInsight(input: {
       loyaltyAssignedTier: true,
       loyaltyAssignedAt: true,
       loyaltyAssignedByUserId: true,
+      loyaltyAssignedReason: true,
       loyaltyOutreachStatus: true,
       loyaltyAssignedBy: { select: { id: true, name: true, knownName: true } },
       emails: { orderBy: { createdAt: "asc" }, select: { email: true } },
@@ -475,8 +477,13 @@ export async function loadCustomerInsight(input: {
               contact.loyaltyAssignedBy?.name?.trim() ||
               (contact.loyaltyAssignedByUserId ? null : "ERP"),
             assignedByUserId: contact.loyaltyAssignedByUserId,
+            reason: contact.loyaltyAssignedReason?.trim() || null,
           }
         : null,
+    manualLoyaltyTiers: availableManualLoyaltyTiers(
+      contact.loyaltyAssignedTier,
+      lifetimeTotal
+    ),
     loyaltyOutreachStatus: parseLoyaltyOutreachStatus(
       contact.loyaltyOutreachStatus
     ),

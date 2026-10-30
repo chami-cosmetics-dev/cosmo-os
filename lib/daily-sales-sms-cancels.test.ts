@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   isReplacementCancel,
+  isSmsCreditNoteCancel,
   isVoidedFinancialStatus,
   smsCancelMatchesDayPriorPlaced,
   smsCancelMatchesMtdInRange,
@@ -9,6 +10,13 @@ import {
 } from "@/lib/daily-sales-sms-cancels";
 
 describe("SMS cancel classification", () => {
+  it("treats a stored return SI as a credit note, not an unpaid cancel", () => {
+    expect(isSmsCreditNoteCancel({ erpReturnSalesInvoiceIds: ["SV300-0779"] })).toBe(true);
+    expect(isSmsCreditNoteCancel({ erpReturnSalesInvoiceIds: ["  "] })).toBe(false);
+    expect(isSmsCreditNoteCancel({ erpReturnSalesInvoiceIds: [] })).toBe(false);
+    expect(isSmsCreditNoteCancel({})).toBe(false);
+  });
+
   it("treats voided as cancel and skips replacements", () => {
     expect(isVoidedFinancialStatus("voided")).toBe(true);
     expect(isVoidedFinancialStatus("paid")).toBe(false);

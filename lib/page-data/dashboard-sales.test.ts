@@ -284,20 +284,27 @@ describe("isDashboardSalesOrderEligible", () => {
     ).toBe(false);
   });
 
-  it("excludes returned to store from invoice-date totals", () => {
+  it("keeps returned_to_store in sales until voided, matching ERP Sales", () => {
     const returnedToStore = {
       sourceName: "web",
-      financialStatus: "paid",
+      financialStatus: "pending",
       fulfillmentStatus: "fulfilled",
       fulfillmentStage: "returned_to_store",
       invoiceCompleteAt: closedAt,
     };
-    expect(isDashboardSalesOrderEligible(returnedToStore, "bill_done_in_dates")).toBe(false);
-    expect(isDashboardSalesOrderEligible(returnedToStore, "bill_done_old")).toBe(false);
+    expect(isDashboardSalesOrderEligible(returnedToStore, "all_orders")).toBe(true);
+    expect(isDashboardSalesOrderEligible(returnedToStore, "bill_done_in_dates")).toBe(true);
+    expect(isDashboardSalesOrderEligible(returnedToStore, "bill_done_old")).toBe(true);
     expect(
       isDashboardSalesOrderEligible(
         { ...returnedToStore, sourceName: "erpnext-pos" },
         "bill_done_in_dates",
+      ),
+    ).toBe(true);
+    expect(
+      isDashboardSalesOrderEligible(
+        { ...returnedToStore, financialStatus: "voided" },
+        "all_orders",
       ),
     ).toBe(false);
     expect(
@@ -312,7 +319,6 @@ describe("isDashboardSalesOrderEligible", () => {
         "bill_done_in_dates",
       ),
     ).toBe(true);
-    expect(isDashboardSalesOrderEligible(returnedToStore, "all_orders")).toBe(false);
   });
 
   it("includes non-voided POS in bill_done_old and done_after_delivery", () => {

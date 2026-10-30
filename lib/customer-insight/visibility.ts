@@ -14,6 +14,8 @@ export function toLimitedInsightDto(full: CustomerInsightDto): CustomerInsightDt
     visibility: "limited",
     assignedMerchant: full.assignedMerchant,
     loyalty: full.loyalty,
+    loyaltyAssignment: full.loyaltyAssignment ?? null,
+    manualLoyaltyTiers: full.manualLoyaltyTiers ?? [],
     loyaltyEligibility: full.loyaltyEligibility ?? null,
     loyaltyOutreachStatus: full.loyaltyOutreachStatus ?? null,
     loyaltyNotInterestedReason: full.loyaltyNotInterestedReason ?? null,

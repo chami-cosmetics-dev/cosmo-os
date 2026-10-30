@@ -74,6 +74,8 @@ export type BuildWorkbookInput = {
   purchasesByMonth?: Map<string, Record<string, OsfMonthPurchaseCell>>;
   /** Lowest invoice unit rate in the trailing 3-month window. */
   bestPurchaseBySku?: Map<string, OsfBestPurchase>;
+  /** Distinct suppliers ranked by lowest invoice unit rate (Supplier 1, Supplier 2). */
+  rankedSuppliersBySku?: Map<string, OsfBestPurchase[]>;
   /** When true, Info sheet explains reorder-only / empty filter. */
   belowThresholdOnly?: boolean;
   /**
@@ -196,6 +198,10 @@ export function pricingHeaders(): string[] {
     "OGF Price",
     "Latest Cost",
     "Latest supplier",
+    "Supplier 1",
+    "Supplier 1 Price",
+    "Supplier 2",
+    "Supplier 2 Price",
     "Last Purchase Qty",
     "Last Purchase Date",
     "Days Since Last Purchase",
@@ -319,6 +325,11 @@ export function buildMainSheetRows(input: BuildWorkbookInput): Record<string, st
     record["OGF Price"] = ogf;
     record["Latest Cost"] = cost;
     record["Latest supplier"] = purchase?.supplier ?? costInfo?.supplier ?? "";
+    const ranked = input.rankedSuppliersBySku?.get(row.sku) ?? [];
+    record["Supplier 1"] = ranked[0]?.supplier ?? "";
+    record["Supplier 1 Price"] = ranked[0]?.value ?? null;
+    record["Supplier 2"] = ranked[1]?.supplier ?? "";
+    record["Supplier 2 Price"] = ranked[1]?.value ?? null;
     record["Last Purchase Qty"] = purchase?.qty ?? null;
     record["Last Purchase Date"] = purchase?.date ?? "";
     record["Days Since Last Purchase"] = daysBetween(purchase?.date ?? null, input.asOfDate);
@@ -438,6 +449,30 @@ export function mainColumnDescriptors(input: BuildWorkbookInput): OsfColumnDef[]
     header: "Latest supplier",
     pricing: true,
     accessKey: "Latest supplier",
+    band: "cost",
+  });
+  defs.push({
+    header: "Supplier 1",
+    pricing: true,
+    accessKey: "Supplier 1",
+    band: "cost",
+  });
+  defs.push({
+    header: "Supplier 1 Price",
+    pricing: true,
+    accessKey: "Supplier 1 Price",
+    band: "cost",
+  });
+  defs.push({
+    header: "Supplier 2",
+    pricing: true,
+    accessKey: "Supplier 2",
+    band: "cost",
+  });
+  defs.push({
+    header: "Supplier 2 Price",
+    pricing: true,
+    accessKey: "Supplier 2 Price",
     band: "cost",
   });
   defs.push({

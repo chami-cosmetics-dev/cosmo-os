@@ -4,6 +4,13 @@ export function isVoidedFinancialStatus(status: string | null | undefined): bool
   return (status ?? "").trim().toLowerCase() === "voided";
 }
 
+/** Paid void that posted an ERP credit note — hits Sales on CN posting date. */
+export function isSmsCreditNoteCancel(order: {
+  erpReturnSalesInvoiceIds?: string[] | null;
+}): boolean {
+  return (order.erpReturnSalesInvoiceIds ?? []).some((id) => id.trim().length > 0);
+}
+
 /** Cancel that was replaced — do not add to SMS cancel totals. */
 export function isReplacementCancel(order: {
   replacedByOrderId?: string | null;

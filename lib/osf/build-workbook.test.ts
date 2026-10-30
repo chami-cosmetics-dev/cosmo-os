@@ -204,6 +204,62 @@ describe("buildMainSheetRows", () => {
     expect(rows[0]!["Best Supplier"]).toBe("Beta Co");
   });
 
+  it("writes Supplier 1 / Supplier 2 name and price from ranked invoice suppliers", () => {
+    const rows = buildMainSheetRows({
+      catalog: [catalog[0]!],
+      columns,
+      profiles: new Map(),
+      binMap: new Map(),
+      costMap: new Map(),
+      purchaseMap: new Map([
+        [
+          "CAN07_1",
+          { supplier: "Last Co", qty: 2, rate: 70, date: "2026-09-20", recentQty: 2 },
+        ],
+      ]),
+      monthlySales: new Map(),
+      salesMonth: "2026-09",
+      asOfDate: "2026-09-25",
+      rankedSuppliersBySku: new Map([
+        [
+          "CAN07_1",
+          [
+            { value: 30, supplier: "Acme", date: "2026-08-01" },
+            { value: 40, supplier: "Beta Co", date: "2026-08-02" },
+          ],
+        ],
+      ]),
+    });
+    const row = rows[0]!;
+    expect(row["Latest supplier"]).toBe("Last Co");
+    expect(row["Supplier 1"]).toBe("Acme");
+    expect(row["Supplier 1 Price"]).toBe(30);
+    expect(row["Supplier 2"]).toBe("Beta Co");
+    expect(row["Supplier 2 Price"]).toBe(40);
+  });
+
+  it("blanks Supplier 2 when only one ranked supplier exists", () => {
+    const rows = buildMainSheetRows({
+      catalog: [catalog[0]!],
+      columns,
+      profiles: new Map(),
+      binMap: new Map(),
+      costMap: new Map(),
+      purchaseMap: new Map(),
+      monthlySales: new Map(),
+      salesMonth: "2026-09",
+      asOfDate: "2026-09-25",
+      rankedSuppliersBySku: new Map([
+        ["CAN07_1", [{ value: 30, supplier: "Acme", date: "2026-08-01" }]],
+      ]),
+    });
+    const row = rows[0]!;
+    expect(row["Supplier 1"]).toBe("Acme");
+    expect(row["Supplier 1 Price"]).toBe(30);
+    expect(row["Supplier 2"]).toBe("");
+    expect(row["Supplier 2 Price"]).toBeNull();
+  });
+
   it("VAT OSF: Cosmetics.lk + shop ROP only; Total ROP = Cosmetics.lk (not shop sum)", () => {
     const vatCols: OsfResolvedColumn[] = [
       {
@@ -489,6 +545,11 @@ describe("buildOsfWorkbookBuffer", () => {
       expect(headers).toContain("April 2026 Sales Total");
       expect(headers).toContain("Best Purchase Value");
       expect(headers).toContain("Best Supplier");
+      expect(headers).toContain("Supplier 1");
+      expect(headers).toContain("Supplier 1 Price");
+      expect(headers).toContain("Supplier 2");
+      expect(headers).toContain("Supplier 2 Price");
+      expect(headers.indexOf("Latest supplier")).toBeLessThan(headers.indexOf("Supplier 1"));
       expect(headers).toContain("April 2026 Purchase Qty");
       expect(headers).toContain("June 2026 Purchase Total");
       expect(headers).toContain("Max sale");

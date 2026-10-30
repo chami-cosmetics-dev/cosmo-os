@@ -71,6 +71,17 @@ export {
   CONTACTED_ALLOCATION_CATEGORY,
 } from "@/lib/customer-insight/contacted";
 export {
+  availableManualLoyaltyTiers,
+  canManualAssignLoyaltyTier,
+  CONTACTS_LOYALTY_MANUAL_ASSIGN,
+} from "@/lib/customer-insight/loyalty-manual";
+export {
+  currentLoyaltyReasonOsScope,
+  loyaltyReasonVisibleOnOs,
+  normalizeLoyaltyReasonLabel,
+  SEEDED_LOYALTY_REASONS,
+} from "@/lib/customer-insight/loyalty-reason-catalog";
+export {
   canAssignLoyaltyTier,
   canAssignOrUpgradeLoyaltyTier,
   isLoyaltyEligibleByTotal,

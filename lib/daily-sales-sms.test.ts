@@ -9,7 +9,19 @@ import {
   normalizeRecipientList,
   salesAmountExcludingShipping,
   shouldSkipAutomaticSend,
+  subtractLocationRows,
 } from "@/lib/daily-sales-sms";
+
+const emptyBlock = { total: 0, count: 0, locations: [] as { code: string; value: number }[] };
+
+const emptyVoidBlocks = {
+  dayPriorPlacedCancels: emptyBlock,
+  dayPriorPlacedCreditNotes: emptyBlock,
+  mtdPriorMonthCancels: emptyBlock,
+  mtdPriorMonthCreditNotes: emptyBlock,
+  mtdInRangeCancels: emptyBlock,
+  mtdInRangeCreditNotes: emptyBlock,
+};
 
 describe("daily-sales-sms helpers", () => {
   it("formats amounts with thousand separators", () => {
@@ -31,9 +43,7 @@ describe("daily-sales-sms helpers", () => {
         { code: "SUPPLEMENTVA", value: -27010 },
       ],
       locations: [{ code: "SUPPLEMENTVA", value: 1000 }],
-      dayPriorPlacedCancels: { total: 0, count: 0, locations: [] },
-      mtdPriorMonthCancels: { total: 0, count: 0, locations: [] },
-      mtdInRangeCancels: { total: 0, count: 0, locations: [] },
+      ...emptyVoidBlocks,
     });
     expect(body).toContain("Value:  127,193");
     expect(body).toContain("ORIGINS->: 109,900");
@@ -91,9 +101,7 @@ describe("daily-sales-sms helpers", () => {
         { code: "WEB", value: 25877955 },
         { code: "OGF", value: 5629055 },
       ],
-      dayPriorPlacedCancels: { total: 0, count: 0, locations: [] },
-      mtdPriorMonthCancels: { total: 0, count: 0, locations: [] },
-      mtdInRangeCancels: { total: 0, count: 0, locations: [] },
+      ...emptyVoidBlocks,
     });
 
     expect(body).toContain("Day (2026-06-30)");
@@ -109,9 +117,13 @@ describe("daily-sales-sms helpers", () => {
     expect(body).toContain("OGF->: 5,629,055");
     expect(body.indexOf("Count:        198")).toBeLessThan(body.indexOf("MTD Sales:"));
     expect(body.indexOf("MTD Sales:")).toBeLessThan(body.indexOf("Count:        4120"));
+    expect(body).toContain("CN 2026-06-30 (placed before)");
     expect(body).toContain("Cancel 2026-06-30 (placed before)");
+    expect(body).toContain("CN MTD (placed before 2026-06)");
     expect(body).toContain("Cancel MTD (placed before 2026-06)");
+    expect(body).toContain("CN MTD (placed in 2026-06)");
     expect(body).toContain("Cancel MTD (placed in 2026-06)");
+    expect(body).toContain("MTD net (less CN prior)");
   });
 
   it("prints voided cancel blocks company-wise", () => {
@@ -123,6 +135,7 @@ describe("daily-sales-sms helpers", () => {
       mtdCount: 100,
       dayLocations: [{ code: "AE", value: 268610 }],
       locations: [{ code: "AE", value: 500000 }],
+      ...emptyVoidBlocks,
       dayPriorPlacedCancels: {
         total: 188930,
         count: 13,
@@ -131,7 +144,6 @@ describe("daily-sales-sms helpers", () => {
           { code: "ORIGINS", value: 9310 },
         ],
       },
-      mtdPriorMonthCancels: { total: 0, count: 0, locations: [] },
       mtdInRangeCancels: {
         total: 57810,
         count: 2,
@@ -155,9 +167,7 @@ describe("daily-sales-sms helpers", () => {
       mtdCount: 2,
       dayLocations: [],
       locations: [{ code: "HO", value: 1000 }],
-      dayPriorPlacedCancels: { total: 0, count: 0, locations: [] },
-      mtdPriorMonthCancels: { total: 0, count: 0, locations: [] },
-      mtdInRangeCancels: { total: 0, count: 0, locations: [] },
+      ...emptyVoidBlocks,
     });
     expect(body).toContain("Value:  0");
     expect(body).toContain("Count:        0");
@@ -165,6 +175,54 @@ describe("daily-sales-sms helpers", () => {
     expect(body).toContain("Count:        2");
     expect(body).toContain("Day Sales (Location Wise):");
     expect(body).toContain("HO->: 1,000");
+  });
+
+  it("splits credit notes from unpaid cancels and nets MTD by prior-month CN", () => {
+    const body = formatDailySalesSmsBody({
+      reportDate: "2026-10-28",
+      dayValue: 76725,
+      dayCount: 8,
+      mtdValue: 2611025,
+      mtdCount: 165,
+      dayLocations: [{ code: "AE", value: 76725 }],
+      locations: [{ code: "AE", value: 2611025 }],
+      ...emptyVoidBlocks,
+      mtdPriorMonthCreditNotes: {
+        total: 108972.5,
+        count: 4,
+        locations: [{ code: "AE", value: 108972.5 }],
+      },
+      mtdPriorMonthCancels: {
+        total: 60382.5,
+        count: 2,
+        locations: [{ code: "AE", value: 60382.5 }],
+      },
+    });
+    expect(body).toContain("CN MTD (placed before 2026-10)");
+    expect(body).toContain("Total: 108,973");
+    expect(body).toContain("Cancel MTD (placed before 2026-10)");
+    expect(body).toContain("Total: 60,383");
+    expect(body).toContain("MTD net (less CN prior)");
+    expect(body).toContain("Total: 2,502,053");
+    expect(body).toContain("AE->: 2,502,053");
+    expect(body.indexOf("CN MTD (placed before 2026-10)")).toBeLessThan(
+      body.indexOf("Cancel MTD (placed before 2026-10)"),
+    );
+  });
+
+  it("subtracts credit-note location rows from MTD", () => {
+    expect(
+      subtractLocationRows(
+        [
+          { code: "AE", value: 2611025 },
+          { code: "SV", value: 2930825 },
+        ],
+        [{ code: "AE", value: 108972.5 }],
+      ),
+    ).toEqual([
+      { code: "SV", value: 2930825 },
+      { code: "AE", value: 2502052.5 },
+    ]);
   });
 
   it("computes month start and validates report dates", () => {

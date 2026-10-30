@@ -237,6 +237,7 @@ export async function POST(request: NextRequest, { params }: Params) {
           loyaltyAssignedTier: parsed.data.tier,
           loyaltyAssignedAt: now,
           loyaltyAssignedByUserId: user.id,
+          loyaltyAssignedReason: null,
           loyaltyOutreachStatus: "assigned",
           loyaltyOutreachUpdatedAt: now,
         },

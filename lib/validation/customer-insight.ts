@@ -349,6 +349,16 @@ export const customerInsightLoyaltyAssignBodySchema = z.object({
   remark: z.string().trim().max(2000).optional().nullable(),
 });
 
+export const customerInsightLoyaltyOverrideBodySchema = z.object({
+  tier: z.enum(["gold", "platinum"]),
+  reason: trimmedString(LIMITS.loyaltyReason.min, LIMITS.loyaltyReason.max),
+});
+
+export const loyaltyReasonTemplateReplicaBodySchema = z.object({
+  label: trimmedString(LIMITS.loyaltyReason.min, LIMITS.loyaltyReason.max),
+  syncKey: trimmedString(1, 80),
+});
+
 export const merchantLoyaltyOutreachBodySchema = z.object({
   contactId: cuidSchema,
   action: z.enum([

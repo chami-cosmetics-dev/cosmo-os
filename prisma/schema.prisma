@@ -119,6 +119,7 @@ model Company {
   shopItemRequests                ShopItemRequest[]
   newItemRequests                 NewItemRequest[]
   newItemRequestVotes             NewItemRequestVote[]
+  loyaltyReasonTemplates          LoyaltyReasonTemplate[]
   salesBudgetSnapshots            SalesBudgetSnapshot[]
   riderFinanceCashReceipts        RiderFinanceCashReceipt[]
   giftVoucherGroups                    GiftVoucherGroup[]
@@ -2248,6 +2249,8 @@ model ContactMaster {
   loyaltyEligibleAt        DateTime?
   /// Last loyalty outreach / assign status change.
   loyaltyOutreachUpdatedAt DateTime?
+  /// Why Gold/Platinum was set on a manual override. Null for eligible/ERP assign.
+  loyaltyAssignedReason    String?
   // Contact preferences
   contactSaved             Boolean?
   whatsappAllowed          Boolean?
@@ -2291,6 +2294,26 @@ model ContactMaster {
   @@index([companyId, loyaltyAssignedAt])
   @@index([companyId, loyaltyOutreachStatus])
   @@index([companyId, osRegistrationCreated, osRegLocation])
+}
+
+/// Reusable reason wording for manual Gold/Platinum overrides. Custom rows sync Cosmo↔Vault.
+model LoyaltyReasonTemplate {
+  id              String   @id @default(cuid())
+  companyId       String
+  label           String
+  normalizedLabel String
+  /// Shared id across OS for custom rows. Seeded rows use stable keys (seed:...).
+  syncKey         String
+  /// both | cosmo | vault
+  osScope         String
+  seeded          Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, normalizedLabel])
+  @@unique([companyId, syncKey])
+  @@index([companyId, osScope])
 }
 
 /// Staff-created public registration portal token. Stamp is immutable after create.

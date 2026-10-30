@@ -10,7 +10,12 @@ const ROWS: SourceRow[] = [
   { column: "% / 70% / Order qty", source: "Calc", note: "From stock + ROP" },
   { column: "MRP / Discounted", source: "Cosmo", note: "Compare-at / sell price" },
   { column: "OGF Price", source: "ERP", note: "Cosmo ERP OGF Price List (LWK POS) — synced into OS" },
-  { column: "Latest Cost / Supplier", source: "ERP", note: "Blank if missing — never invented" },
+  { column: "Latest Cost / Supplier", source: "ERP", note: "Last priced purchase — blank if missing, never invented" },
+  {
+    column: "Supplier 1 / Supplier 2",
+    source: "ERP",
+    note: "Cheapest then second-cheapest distinct invoice suppliers in last 3 months (name + unit rate). One supplier only → Supplier 2 blank",
+  },
   { column: "Cosmetics / OGF Margin", source: "Calc", note: "(original sell − cost) / original sell — per-user column access" },
   { column: "Monthly sales units", source: "Cosmo", note: "delivery/invoice complete, Colombo month" },
   {

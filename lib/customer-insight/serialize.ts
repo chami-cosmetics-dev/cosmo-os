@@ -115,6 +115,7 @@ export function buildCustomerInsightDto(input: {
   canEditProfile?: boolean;
   canMarkContacted?: boolean;
   loyaltyAssignment?: LoyaltyAssignmentDto | null;
+  manualLoyaltyTiers?: Array<"gold" | "platinum">;
   loyaltyOutreachStatus?: CustomerInsightDto["loyaltyOutreachStatus"];
   loyaltyNotInterestedReason?: string | null;
   historyScope?: HistoryScopeDto | null;
@@ -137,6 +138,7 @@ export function buildCustomerInsightDto(input: {
     canEditProfile: input.canEditProfile ?? true,
     canMarkContacted: input.canMarkContacted ?? true,
     loyaltyAssignment: input.loyaltyAssignment ?? null,
+    manualLoyaltyTiers: input.manualLoyaltyTiers ?? [],
     loyaltyEligibility: eligibility,
     loyaltyOutreachStatus: input.loyaltyOutreachStatus ?? null,
     loyaltyNotInterestedReason: input.loyaltyNotInterestedReason ?? null,
