@@ -282,7 +282,8 @@ interface DashboardBrandSalesChartProps {
 }
 
 export function DashboardBrandSalesChart({ canEditDashboard }: DashboardBrandSalesChartProps) {
-  const { fromDate, toDate, dateType, salesLocations, filterInfo } = useDashboardOverview();
+  const { fromDate, toDate, dateType, couponCode, salesLocations, filterInfo } =
+    useDashboardOverview();
 
   const [selectedLocationId, setSelectedLocationId] = useState<string>("all");
   const [data, setData] = useState<BrandSalesApiResponse | null>(null);
@@ -305,6 +306,7 @@ export function DashboardBrandSalesChart({ canEditDashboard }: DashboardBrandSal
         to: toDate,
         date_type: dateType,
       });
+      if (couponCode) params.set("coupon_code", couponCode);
       if (selectedLocationId !== "all") {
         params.set("location_id", selectedLocationId);
       }
@@ -319,7 +321,7 @@ export function DashboardBrandSalesChart({ canEditDashboard }: DashboardBrandSal
     } finally {
       if (id === fetchIdRef.current) setLoading(false);
     }
-  }, [fromDate, toDate, dateType, selectedLocationId]);
+  }, [fromDate, toDate, dateType, couponCode, selectedLocationId]);
 
   useEffect(() => {
     void fetchData();

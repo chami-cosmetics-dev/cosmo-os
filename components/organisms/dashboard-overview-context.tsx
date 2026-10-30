@@ -40,6 +40,8 @@ export type DashboardSalesLocation = {
   }>;
 };
 
+export const DASHBOARD_ALL_COUPONS_VALUE = "__all__";
+
 type DashboardOverviewContextValue = {
   fromDate: string;
   setFromDate: (v: string) => void;
@@ -49,6 +51,9 @@ type DashboardOverviewContextValue = {
   setDateType: (v: DashboardSalesDateType) => void;
   analysisType: "merchant" | "gateway";
   setAnalysisType: (v: "merchant" | "gateway") => void;
+  couponCode: string;
+  setCouponCode: (v: string) => void;
+  couponCodes: string[];
   initialRange: { fromDate: string; toDate: string };
   salesLocations: DashboardSalesLocation[];
   salesLoading: boolean;
@@ -85,6 +90,8 @@ export function DashboardOverviewProvider({
   const [analysisType, setAnalysisType] = useState<"merchant" | "gateway">(
     initialState?.analysisType ?? "merchant",
   );
+  const [couponCode, setCouponCode] = useState("");
+  const [couponCodes, setCouponCodes] = useState<string[]>(initialState?.couponCodes ?? []);
 
   const [salesLocations, setSalesLocations] = useState<DashboardSalesLocation[]>(
     initialState?.salesLocations ?? [],
@@ -112,8 +119,9 @@ export function DashboardOverviewProvider({
     });
     const range = `${fmt.format(from)} – ${fmt.format(to)}`;
     const dateSource = getDashboardSalesDateTypeLabel(dateType);
-    return `${range} · ${dateSource}`;
-  }, [fromDate, toDate, dateType]);
+    const couponPart = couponCode ? ` · ${couponCode}` : "";
+    return `${range} · ${dateSource}${couponPart}`;
+  }, [fromDate, toDate, dateType, couponCode]);
 
   const loadSales = useCallback(async (options?: { silent?: boolean }) => {
     const silent = options?.silent ?? false;
@@ -138,6 +146,7 @@ export function DashboardOverviewProvider({
         analysis_type: analysisType,
         include_summaries: "true",
       });
+      if (couponCode) params.set("coupon_code", couponCode);
       const res = await fetch(`/api/admin/dashboard/sales-by-location?${params.toString()}`);
       const body = (await res.json()) as {
         error?: string;
@@ -159,6 +168,7 @@ export function DashboardOverviewProvider({
           }>;
         }>;
         filterSummaries?: DashboardFilterSummary[];
+        couponCodes?: string[];
       };
       if (id !== fetchIdRef.current) return;
       if (!res.ok) {
@@ -186,6 +196,9 @@ export function DashboardOverviewProvider({
       if (body.filterSummaries) {
         setFilterSummaries(body.filterSummaries);
       }
+      if (body.couponCodes) {
+        setCouponCodes(body.couponCodes);
+      }
       setLastUpdatedAt(Date.now());
     } catch (e) {
       if (id !== fetchIdRef.current) return;
@@ -196,7 +209,7 @@ export function DashboardOverviewProvider({
     } finally {
       if (id === fetchIdRef.current && !silent) setSalesLoading(false);
     }
-  }, [analysisType, dateType, fromDate, hasInvalidRange, toDate]);
+  }, [analysisType, couponCode, dateType, fromDate, hasInvalidRange, toDate]);
 
   useEffect(() => {
     if (shouldSkipInitialFetchRef.current) {
@@ -205,6 +218,15 @@ export function DashboardOverviewProvider({
     }
     void loadSales();
   }, [loadSales]);
+
+  useEffect(() => {
+    if (!couponCode) return;
+    const selected = couponCode.trim().toUpperCase();
+    const stillPresent = couponCodes.some(
+      (code) => code.trim().toUpperCase() === selected,
+    );
+    if (!stillPresent) setCouponCode("");
+  }, [couponCode, couponCodes]);
 
   useEffect(() => {
     if (hasInvalidRange) return;
@@ -227,6 +249,9 @@ export function DashboardOverviewProvider({
       setDateType,
       analysisType,
       setAnalysisType,
+      couponCode,
+      setCouponCode,
+      couponCodes,
       initialRange,
       salesLocations,
       salesLoading,
@@ -239,6 +264,8 @@ export function DashboardOverviewProvider({
     }),
     [
       analysisType,
+      couponCode,
+      couponCodes,
       dateType,
       filterInfo,
       filterSummaries,

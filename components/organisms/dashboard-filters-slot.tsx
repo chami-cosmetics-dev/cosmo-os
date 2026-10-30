@@ -6,9 +6,19 @@ import { ChevronDown, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
-import { useDashboardOverview } from "@/components/organisms/dashboard-overview-context";
+import {
+  DASHBOARD_ALL_COUPONS_VALUE,
+  useDashboardOverview,
+} from "@/components/organisms/dashboard-overview-context";
 import { getAllowedDashboardDateTypes } from "@/lib/dashboard-date-type-permissions";
 import { formatAppIsoCalendarDate } from "@/lib/format-datetime";
 import {
@@ -160,6 +170,9 @@ export function DashboardFiltersSlot({ permissionKeys }: { permissionKeys: strin
     setDateType,
     analysisType,
     setAnalysisType,
+    couponCode,
+    setCouponCode,
+    couponCodes,
     initialRange,
     hasInvalidRange,
     refreshSales,
@@ -272,6 +285,33 @@ export function DashboardFiltersSlot({ permissionKeys }: { permissionKeys: strin
                 onChange={(event) => setToDate(event.target.value)}
                 className="h-9 w-[11rem] rounded-sm border-border bg-background"
               />
+            </div>
+            <div className="space-y-1.5">
+              <p className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
+                Coupon code
+              </p>
+              <Select
+                value={couponCode || DASHBOARD_ALL_COUPONS_VALUE}
+                onValueChange={(value) =>
+                  setCouponCode(value === DASHBOARD_ALL_COUPONS_VALUE ? "" : value)
+                }
+                disabled={salesLoading || hasInvalidRange}
+              >
+                <SelectTrigger
+                  className="h-9 w-[12rem] rounded-sm border-border bg-background"
+                  aria-label="Filter charts by coupon code"
+                >
+                  <SelectValue placeholder="All coupons" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={DASHBOARD_ALL_COUPONS_VALUE}>All coupons</SelectItem>
+                  {couponCodes.map((code) => (
+                    <SelectItem key={code.toUpperCase()} value={code}>
+                      {code}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="flex flex-wrap items-center gap-2 pb-0.5">
               <PresetButton

@@ -1,6 +1,10 @@
 import type { Prisma } from "@prisma/client";
 
 import {
+  getDashboardDiscountCoupon,
+  orderMatchesDashboardCoupon,
+} from "@/lib/dashboard-coupon-filter";
+import {
   buildWholesaleOwnerMap,
   dashboardMerchantRowKey,
   dashboardMerchantUserSelect,
@@ -303,6 +307,7 @@ export async function fetchDashboardFilterSummaries(
   companyId: string,
   fromYmd: string,
   toYmd: string,
+  couponCode?: string | null,
 ): Promise<{ filterSummaries: DashboardFilterSummary[]; invalidRange: boolean }> {
   const fromDate = parseDayStartUtc(fromYmd);
   const toDate = parseDayEndUtc(toYmd);
@@ -402,6 +407,7 @@ export async function fetchDashboardFilterSummaries(
   ]);
 
   for (const order of rangeOrders) {
+    if (!orderMatchesDashboardCoupon(order, couponCode)) continue;
     const createdInRange = order.createdAt >= fromDate && order.createdAt <= toDate;
     const invoiceInRange =
       order.invoiceCompleteAt != null &&
@@ -453,12 +459,18 @@ export async function fetchDashboardFilterSummaries(
   }
 
   for (const order of backlogBillOpen) {
-    if (isDashboardSalesOrderEligible(order, "still_bill_open")) {
+    if (
+      orderMatchesDashboardCoupon(order, couponCode) &&
+      isDashboardSalesOrderEligible(order, "still_bill_open")
+    ) {
       addToSummary(summaries.get("still_bill_open")!, order);
     }
   }
   for (const order of backlogNotDelivered) {
-    if (isDashboardSalesOrderEligible(order, "still_not_delivered")) {
+    if (
+      orderMatchesDashboardCoupon(order, couponCode) &&
+      isDashboardSalesOrderEligible(order, "still_not_delivered")
+    ) {
       addToSummary(summaries.get("still_not_delivered")!, order);
     }
   }
@@ -478,12 +490,17 @@ export async function fetchDashboardSalesByLocationMerchant(
     fromYmd: string;
     toYmd: string;
     dateType: DashboardSalesDateType;
+    couponCode?: string | null;
   },
-): Promise<{ locations: DashboardLocationSales[]; invalidRange: boolean }> {
+): Promise<{
+  locations: DashboardLocationSales[];
+  invalidRange: boolean;
+  couponCodes: string[];
+}> {
   const fromDate = parseDayStartUtc(params.fromYmd);
   const toDate = parseDayEndUtc(params.toYmd);
   if (fromDate > toDate) {
-    return { locations: [], invalidRange: true };
+    return { locations: [], invalidRange: true, couponCodes: [] };
   }
 
   const where: Prisma.OrderWhereInput = {
@@ -564,6 +581,7 @@ export async function fetchDashboardSalesByLocationMerchant(
 
   const byLocationMerchant = new Map<string, Map<string, DashboardLocationMerchantRow>>();
   const sourceByLocation = new Map<string, DashboardLocationSales["sources"]>();
+  const couponByKey = new Map<string, string>();
   for (const loc of locations) {
     byLocationMerchant.set(loc.id, new Map());
     sourceByLocation.set(loc.id, []);
@@ -571,6 +589,12 @@ export async function fetchDashboardSalesByLocationMerchant(
 
   for (const order of orders) {
     if (!isDashboardSalesOrderEligible(order, params.dateType)) continue;
+    const discountCoupon = getDashboardDiscountCoupon(order);
+    if (discountCoupon) {
+      const couponKey = discountCoupon.trim().toUpperCase();
+      if (!couponByKey.has(couponKey)) couponByKey.set(couponKey, couponKey);
+    }
+    if (!orderMatchesDashboardCoupon(order, params.couponCode)) continue;
     const total = dashboardSaleAmount(order);
     const countDelta = 1;
 
@@ -640,7 +664,11 @@ export async function fetchDashboardSalesByLocationMerchant(
     };
   });
 
-  return { locations: locationsOut, invalidRange: false };
+  return {
+    locations: locationsOut,
+    invalidRange: false,
+    couponCodes: [...couponByKey.values()].sort((a, b) => a.localeCompare(b)),
+  };
 }
 
 /**
@@ -653,13 +681,18 @@ export async function fetchDashboardSalesByLocationGateway(
     fromYmd: string;
     toYmd: string;
     dateType: DashboardSalesDateType;
+    couponCode?: string | null;
   },
-): Promise<{ locations: DashboardLocationSales[]; invalidRange: boolean }> {
+): Promise<{
+  locations: DashboardLocationSales[];
+  invalidRange: boolean;
+  couponCodes: string[];
+}> {
   const gatewayColumns = await getOrderPaymentGatewayColumnState();
   const fromDate = parseDayStartUtc(params.fromYmd);
   const toDate = parseDayEndUtc(params.toYmd);
   if (fromDate > toDate) {
-    return { locations: [], invalidRange: true };
+    return { locations: [], invalidRange: true, couponCodes: [] };
   }
 
   const where: Prisma.OrderWhereInput = {
@@ -698,6 +731,7 @@ export async function fetchDashboardSalesByLocationGateway(
         sources: [],
       })),
       invalidRange: false,
+      couponCodes: [],
     };
   }
 
@@ -743,6 +777,7 @@ export async function fetchDashboardSalesByLocationGateway(
 
   const byLocation = new Map<string, DashboardLocationMerchantRow[]>();
   const sourceByLocation = new Map<string, DashboardLocationSales["sources"]>();
+  const couponByKey = new Map<string, string>();
   for (const loc of locations) {
     byLocation.set(loc.id, []);
     sourceByLocation.set(loc.id, []);
@@ -750,6 +785,12 @@ export async function fetchDashboardSalesByLocationGateway(
 
   for (const order of orders) {
     if (!isDashboardSalesOrderEligible(order, params.dateType)) continue;
+    const discountCoupon = getDashboardDiscountCoupon(order);
+    if (discountCoupon) {
+      const couponKey = discountCoupon.trim().toUpperCase();
+      if (!couponByKey.has(couponKey)) couponByKey.set(couponKey, couponKey);
+    }
+    if (!orderMatchesDashboardCoupon(order, params.couponCode)) continue;
     const total = dashboardSaleAmount(order);
     const countDelta = 1;
 
@@ -800,5 +841,9 @@ export async function fetchDashboardSalesByLocationGateway(
     };
   });
 
-  return { locations: locationsOut, invalidRange: false };
+  return {
+    locations: locationsOut,
+    invalidRange: false,
+    couponCodes: [...couponByKey.values()].sort((a, b) => a.localeCompare(b)),
+  };
 }

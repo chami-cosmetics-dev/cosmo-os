@@ -118,6 +118,10 @@ export type InvoiceLineDto = {
   /** Unit price as string (Contact Master purchase table style). */
   price: string;
   brand?: string | null;
+  /** ERP Product Priority (ERP1 / ERP2 merged). */
+  priority?: string | null;
+  /** ERP Item Manufacturing Tax Status (Vat / Non Vat). */
+  vatStatus?: string | null;
 };
 
 export type UnifiedInvoiceRowDto = {

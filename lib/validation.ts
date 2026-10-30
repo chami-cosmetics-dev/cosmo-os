@@ -210,6 +210,15 @@ export const dashboardSalesDateTypeSchema = z
       | "still_not_delivered";
   });
 
+const dashboardCouponCodeQuerySchema = z
+  .string()
+  .max(LIMITS.couponCode.max)
+  .optional()
+  .transform((value) => {
+    const trimmed = value?.trim();
+    return trimmed ? trimmed : undefined;
+  });
+
 export const dashboardSalesQuerySchema = z.object({
   from: ymdQuerySchema,
   to: ymdQuerySchema,
@@ -219,6 +228,7 @@ export const dashboardSalesQuerySchema = z.object({
     .enum(["true", "false"])
     .optional()
     .transform((v) => v !== "false"),
+  coupon_code: dashboardCouponCodeQuerySchema,
 });
 
 /** Cosmetics.lk drill-down: same clocks as the dashboard card, no analysis mode. */
@@ -226,6 +236,7 @@ export const cosmeticsLkDrilldownQuerySchema = z.object({
   from: ymdQuerySchema,
   to: ymdQuerySchema,
   date_type: dashboardSalesDateTypeSchema.optional().default("all_orders"),
+  coupon_code: dashboardCouponCodeQuerySchema,
 });
 
 export const dashboardBrandSalesQuerySchema = z.object({
@@ -233,6 +244,7 @@ export const dashboardBrandSalesQuerySchema = z.object({
   to: ymdQuerySchema,
   date_type: dashboardSalesDateTypeSchema.optional().default("all_orders"),
   location_id: z.string().max(40).optional().transform((s) => s?.trim() || undefined),
+  coupon_code: dashboardCouponCodeQuerySchema,
 });
 
 export const dashboardBrandConfigCreateSchema = z.object({
