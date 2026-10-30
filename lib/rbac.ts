@@ -1603,6 +1603,32 @@ export async function requirePermission(permissionKey: string) {
   return { ok: true as const, context };
 }
 
+/**
+ * Requires a signed-in user with a resolved Cosmo user (no permission check).
+ * Same retry as requirePermission when the first context build failed (e.g. DB hiccup).
+ */
+export async function requireUserContext() {
+  let context = await getCurrentUserContext();
+  if (!context) {
+    return { ok: false as const, status: 401, error: "Not authenticated" };
+  }
+  if (!context.user) {
+    try {
+      context = await buildContextFromSessionUser(context.sessionUser);
+    } catch (error) {
+      console.error("Failed RBAC retry in requireUserContext:", error);
+    }
+  }
+  if (!context.user) {
+    return {
+      ok: false as const,
+      status: 503,
+      error: "RBAC database is not initialized",
+    };
+  }
+  return { ok: true as const, context, user: context.user };
+}
+
 /** Requires user to have at least one of the given permissions. */
 export async function requireAnyPermission(permissionKeys: string[]) {
   let context = await getCurrentUserContext();
