@@ -183,6 +183,7 @@ export async function GET(request: NextRequest) {
         ...companyScope,
         ...locationScope,
         ...stageVisibilityScope,
+        deletedAt: null,
         ...(dateFilter
           ? {
               OR: [
@@ -195,7 +196,10 @@ export async function GET(request: NextRequest) {
       orderBy: [{ creation: "desc" }, { createdAt: "desc" }],
       include: {
         items: true,
-        supplierStockReturnLinks: { include: { supplierStockReturn: { select: { name: true } } } },
+        supplierStockReturnLinks: {
+          where: { supplierStockReturn: { deletedAt: null } },
+          include: { supplierStockReturn: { select: { name: true } } },
+        },
         handoverBy: { select: { id: true, name: true, email: true } },
         handoverRevertedBy: { select: { id: true, name: true, email: true } },
         handoverReceivedBy: { select: { id: true, name: true, email: true } },
@@ -229,6 +233,7 @@ export async function GET(request: NextRequest) {
       where: {
         ...companyScope,
         ...locationScope,
+        deletedAt: null,
         ...(dateFilter
           ? {
               OR: [
@@ -241,7 +246,10 @@ export async function GET(request: NextRequest) {
       orderBy: [{ creation: "desc" }, { createdAt: "desc" }],
       include: {
         items: true,
-        supplierStockReturnLinks: { include: { supplierStockReturn: { select: { name: true } } } },
+        supplierStockReturnLinks: {
+          where: { supplierStockReturn: { deletedAt: null } },
+          include: { supplierStockReturn: { select: { name: true } } },
+        },
         company: {
           select: {
             name: true,
@@ -260,6 +268,7 @@ export async function GET(request: NextRequest) {
     prisma.grnSupplierStockReturn.findMany({
       where: {
         ...companyScope,
+        deletedAt: null,
         ...(dateFilter
           ? {
               OR: [
@@ -272,7 +281,10 @@ export async function GET(request: NextRequest) {
       orderBy: [{ creation: "desc" }, { createdAt: "desc" }],
       include: {
         items: true,
-        purchaseReceiptLinks: { include: { purchaseReceipt: { select: { name: true } } } },
+        purchaseReceiptLinks: {
+          where: { purchaseReceipt: { deletedAt: null } },
+          include: { purchaseReceipt: { select: { name: true } } },
+        },
         company: {
           select: {
             name: true,
@@ -290,6 +302,7 @@ export async function GET(request: NextRequest) {
     prisma.grnBackfillSupplierStockReturn.findMany({
       where: {
         ...companyScope,
+        deletedAt: null,
         ...(dateFilter
           ? {
               OR: [
@@ -302,7 +315,10 @@ export async function GET(request: NextRequest) {
       orderBy: [{ creation: "desc" }, { createdAt: "desc" }],
       include: {
         items: true,
-        purchaseReceiptLinks: { include: { purchaseReceipt: { select: { name: true } } } },
+        purchaseReceiptLinks: {
+          where: { purchaseReceipt: { deletedAt: null } },
+          include: { purchaseReceipt: { select: { name: true } } },
+        },
         company: {
           select: {
             name: true,
@@ -320,6 +336,7 @@ export async function GET(request: NextRequest) {
     prisma.grnBackfillPurchaseInvoice.findMany({
       where: {
         ...companyScope,
+        deletedAt: null,
         ...(dateFilter ? { postingDate: dateFilter } : {}),
       },
       orderBy: [{ postingDate: "desc" }, { createdAt: "desc" }],
@@ -328,6 +345,7 @@ export async function GET(request: NextRequest) {
     prisma.grnPurchaseInvoice.findMany({
       where: {
         ...companyScope,
+        deletedAt: null,
         docstatus: { not: 2 },
         OR: [
           { purchaseReceiptName: { not: null } },
@@ -356,6 +374,72 @@ export async function GET(request: NextRequest) {
     }),
   ]);
 
+  const [
+    deletedPurchaseReceipts,
+    deletedBackfillPurchaseReceipts,
+    deletedStockReturns,
+    deletedBackfillStockReturns,
+    deletedPurchaseInvoices,
+    deletedBackfillPurchaseInvoices,
+  ] = await Promise.all([
+    prisma.grnPurchaseReceipt.findMany({
+      where: { ...companyScope, ...locationScope, deletedAt: { not: null } },
+      orderBy: { deletedAt: "desc" },
+      include: {
+        company: {
+          select: {
+            name: true,
+            locations: { select: { erpnextCompany: true, erpnextInstance: { select: { baseUrl: true } } } },
+          },
+        },
+      },
+    }),
+    prisma.grnBackfillPurchaseReceipt.findMany({
+      where: { ...companyScope, ...locationScope, deletedAt: { not: null } },
+      orderBy: { deletedAt: "desc" },
+      include: {
+        company: {
+          select: {
+            name: true,
+            locations: { select: { erpnextCompany: true, erpnextInstance: { select: { baseUrl: true } } } },
+          },
+        },
+      },
+    }),
+    prisma.grnSupplierStockReturn.findMany({
+      where: { ...companyScope, deletedAt: { not: null } },
+      orderBy: { deletedAt: "desc" },
+      include: {
+        company: {
+          select: {
+            name: true,
+            locations: { select: { erpnextCompany: true, erpnextInstance: { select: { baseUrl: true } } } },
+          },
+        },
+      },
+    }),
+    prisma.grnBackfillSupplierStockReturn.findMany({
+      where: { ...companyScope, deletedAt: { not: null } },
+      orderBy: { deletedAt: "desc" },
+      include: {
+        company: {
+          select: {
+            name: true,
+            locations: { select: { erpnextCompany: true, erpnextInstance: { select: { baseUrl: true } } } },
+          },
+        },
+      },
+    }),
+    prisma.grnPurchaseInvoice.findMany({
+      where: { ...companyScope, deletedAt: { not: null } },
+      orderBy: { deletedAt: "desc" },
+    }),
+    prisma.grnBackfillPurchaseInvoice.findMany({
+      where: { ...companyScope, deletedAt: { not: null } },
+      orderBy: { deletedAt: "desc" },
+    }),
+  ]);
+
   const companyResolver = buildGrnCompanyResolver(supplierPrefixLocations);
   const supplierPrefixRules = supplierPrefixLocations
     .map((row) => ({
@@ -367,6 +451,48 @@ export async function GET(request: NextRequest) {
       key: normalizeSupplierMatchValue(row.supplierPrefix),
     }))
     .filter((row) => row.key.length > 0);
+
+  const serializeDeletedRecord = (
+    row: {
+      name: string;
+      supplier: string;
+      supplierName: string | null;
+      postingDate?: Date | null;
+      returnDate?: Date | null;
+      creation: Date | null;
+      deletedAt: Date | null;
+      rawPayload: unknown;
+      company?: { name: string; locations: Array<{ erpnextCompany: string | null; erpnextInstance: { baseUrl: string } | null }> };
+    },
+    documentType: "PR" | "SSR" | "PI",
+    isBackfill: boolean,
+  ) => ({
+    documentType,
+    name: row.name,
+    companyName: companyResolver.displayName({
+      documentName: row.name,
+      rawCompany: erpCompanyFromPayload(row.rawPayload),
+      fallback: row.company?.name ?? "Unknown company",
+    }),
+    supplier: row.supplier,
+    supplierName: row.supplierName,
+    documentDate: iso(row.postingDate ?? row.returnDate ?? row.creation),
+    deletedAt: iso(row.deletedAt),
+    isBackfill,
+    erpUrl: erpDocUrl(
+      erpBaseUrlForPayload(row.rawPayload, row.company?.locations ?? []),
+      documentType === "PR" ? "purchase-receipt" : documentType === "SSR" ? "supplier-stock-return" : "purchase-invoice",
+      row.name,
+    ),
+  });
+  const deletedRecords = [
+    ...deletedPurchaseReceipts.map((row) => serializeDeletedRecord(row, "PR", false)),
+    ...deletedBackfillPurchaseReceipts.map((row) => serializeDeletedRecord(row, "PR", true)),
+    ...deletedStockReturns.map((row) => serializeDeletedRecord(row, "SSR", false)),
+    ...deletedBackfillStockReturns.map((row) => serializeDeletedRecord(row, "SSR", true)),
+    ...deletedPurchaseInvoices.map((row) => serializeDeletedRecord(row, "PI", false)),
+    ...deletedBackfillPurchaseInvoices.map((row) => serializeDeletedRecord(row, "PI", true)),
+  ].sort((a, b) => (b.deletedAt ?? "").localeCompare(a.deletedAt ?? ""));
   const supplierPrefixRuleForSupplier = (
     supplier: string | null | undefined,
     supplierName?: string | null,
@@ -1017,6 +1143,7 @@ export async function GET(request: NextRequest) {
       supplier: row.supplier,
       supplierName: row.supplierName,
     })),
+    deletedRecords,
   });
 }
 

@@ -69,6 +69,15 @@ function nullIfBlank(value) {
   return trimmed && trimmed.toLowerCase() !== "none" ? trimmed : null;
 }
 
+function erpCompanyFromRawPayload(rawPayload) {
+  if (!rawPayload || typeof rawPayload !== "object" || Array.isArray(rawPayload)) return null;
+  const top = rawPayload;
+  const payload = top.data && typeof top.data === "object" && !Array.isArray(top.data)
+    ? top.data
+    : top;
+  return nullIfBlank(payload.company);
+}
+
 function resolveSlots(instances) {
   const erp1 = instances.find((instance) => /erp[_\s-]*1\b/i.test(instance.label ?? ""));
   const erp2 = instances.find((instance) => /erp[_\s-]*2\b/i.test(instance.label ?? ""));
@@ -209,15 +218,77 @@ async function filterMissingNames(location, input, names) {
   const [liveRows, backfillRows] = await Promise.all([
     prisma[input.liveModel].findMany({
       where: { companyId: location.companyId, name: { in: names } },
-      select: { name: true },
+      select: { name: true, deletedAt: true },
     }),
     prisma[input.backfillModel].findMany({
       where: { companyId: location.companyId, name: { in: names } },
-      select: { name: true },
+      select: { name: true, deletedAt: true },
     }),
   ]);
-  const existing = new Set([...liveRows, ...backfillRows].map((row) => row.name));
+  const existing = new Set(
+    [...liveRows, ...backfillRows]
+      .filter((row) => !row.deletedAt)
+      .map((row) => row.name),
+  );
   return names.filter((name) => !existing.has(name));
+}
+
+async function markMissingDocumentsDeleted(location, input, names, cutoff) {
+  const range = {
+    ...(from ? { gte: parseDateOnly(from) } : {}),
+    ...(cutoff ? { lte: parseDateOnly(cutoff) } : {}),
+  };
+  const dateScope = Object.keys(range).length > 0 ? { [input.liveDateField]: range } : {};
+  const sourceNames = new Set(names);
+  const [liveRows, backfillRows] = await Promise.all([
+    prisma[input.liveModel].findMany({
+      where: { companyId: location.companyId, deletedAt: null, ...dateScope },
+      select: { id: true, name: true, rawPayload: true },
+    }),
+    prisma[input.backfillModel].findMany({
+      where: { companyId: location.companyId, deletedAt: null, ...dateScope },
+      select: { id: true, name: true, rawPayload: true },
+    }),
+  ]);
+  const belongsToErpCompany = (row) =>
+    erpCompanyFromRawPayload(row.rawPayload)?.toLowerCase() === location.erpnextCompany.toLowerCase();
+  const liveRowsForLocation = liveRows.filter(belongsToErpCompany);
+  const backfillRowsForLocation = backfillRows.filter(belongsToErpCompany);
+  const missingLiveIds = liveRowsForLocation.filter((row) => !sourceNames.has(row.name)).map((row) => row.id);
+  const missingBackfillIds = backfillRowsForLocation.filter((row) => !sourceNames.has(row.name)).map((row) => row.id);
+  if (!dryRun) {
+    const deletedAt = new Date();
+    await Promise.all([
+      missingLiveIds.length
+        ? prisma[input.liveModel].updateMany({ where: { id: { in: missingLiveIds } }, data: { deletedAt } })
+        : Promise.resolve(),
+      missingBackfillIds.length
+        ? prisma[input.backfillModel].updateMany({ where: { id: { in: missingBackfillIds } }, data: { deletedAt } })
+        : Promise.resolve(),
+    ]);
+    const deletedNames = [...liveRowsForLocation, ...backfillRowsForLocation]
+      .filter((row) => !sourceNames.has(row.name))
+      .map((row) => row.name);
+    if (input.doctype === "Purchase Receipt" && deletedNames.length > 0) {
+      await Promise.all([
+        prisma.grnSupplierStockReturn.updateMany({
+          where: { companyId: location.companyId, purchaseReceiptName: { in: deletedNames } },
+          data: { purchaseReceiptName: null },
+        }),
+        prisma.grnBackfillSupplierStockReturn.updateMany({
+          where: { companyId: location.companyId, purchaseReceiptName: { in: deletedNames } },
+          data: { purchaseReceiptName: null },
+        }),
+      ]);
+    }
+    if (input.doctype === "Supplier Stock Return" && deletedNames.length > 0) {
+      await prisma.grnPurchaseReceipt.updateMany({
+        where: { companyId: location.companyId, supplierStockReturnName: { in: deletedNames } },
+        data: { supplierStockReturnName: null },
+      });
+    }
+  }
+  return missingLiveIds.length + missingBackfillIds.length;
 }
 
 async function fetchDoc(instance, doctype, name) {
@@ -244,6 +315,7 @@ async function upsertPurchaseReceipt(location, doc) {
       amendedFrom: nullIfBlank(doc.amended_from),
       owner: nullIfBlank(doc.owner),
       creation: parseDateTime(doc.creation),
+      deletedAt: null,
       rawPayload: doc,
     },
     update: {
@@ -257,6 +329,7 @@ async function upsertPurchaseReceipt(location, doc) {
       amendedFrom: nullIfBlank(doc.amended_from),
       owner: nullIfBlank(doc.owner),
       creation: parseDateTime(doc.creation),
+      deletedAt: null,
       rawPayload: doc,
     },
     select: { id: true },
@@ -296,6 +369,7 @@ async function upsertSupplierStockReturn(location, doc) {
       amendedFrom: nullIfBlank(doc.amended_from),
       owner: nullIfBlank(doc.owner),
       creation: parseDateTime(doc.creation),
+      deletedAt: null,
       rawPayload: doc,
     },
     update: {
@@ -306,6 +380,7 @@ async function upsertSupplierStockReturn(location, doc) {
       amendedFrom: nullIfBlank(doc.amended_from),
       owner: nullIfBlank(doc.owner),
       creation: parseDateTime(doc.creation),
+      deletedAt: null,
       rawPayload: doc,
     },
     select: { id: true },
@@ -365,6 +440,7 @@ async function upsertPurchaseInvoice(location, doc) {
       creation: parseDateTime(doc.creation),
       purchaseReceiptName,
       supplierStockReturnName,
+      deletedAt: null,
       rawPayload: doc,
     },
     update: {
@@ -381,6 +457,7 @@ async function upsertPurchaseInvoice(location, doc) {
       creation: parseDateTime(doc.creation),
       purchaseReceiptName,
       supplierStockReturnName,
+      deletedAt: null,
       rawPayload: doc,
     },
     select: { id: true },
@@ -422,10 +499,12 @@ async function backfillDoctype(instance, location, input) {
     dateField: input.dateField,
     to: cutoff,
   });
+  const deleted = await markMissingDocumentsDeleted(location, input, names, cutoff);
   const missingNames = await filterMissingNames(location, input, names);
   console.log(
     `  ${input.label}: ${names.length} ERP document(s), ${missingNames.length} missing` +
-      (cutoff ? ` before/equal ${cutoff}` : " across all time"),
+      (cutoff ? ` before/equal ${cutoff}` : " across all time") +
+      `, ${deleted} moved to deleted records${dryRun ? " (dry run)" : ""}`,
   );
 
   let ok = 0;
