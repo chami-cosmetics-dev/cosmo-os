@@ -3,10 +3,12 @@
 import { useEffect, useRef, useState } from "react";
 import { Loader2, RefreshCw, Search } from "lucide-react";
 
+import { priorityLabelClass } from "@/components/organisms/item-trends/priority-label";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { notify } from "@/lib/notify";
 import { orderQty } from "@/lib/osf/formulas";
+import { cn } from "@/lib/utils";
 
 type ColumnMeta = { key: string; label: string; includeInRop: boolean; active: boolean };
 
@@ -14,6 +16,7 @@ type ProfileItem = {
   sku: string;
   productTitle: string;
   brand: string | null;
+  priorityStatus: string | null;
   shopAvailability: string | null;
   ogfPrice: number | null;
   reorderThresholdPercent: number | null;
@@ -38,6 +41,21 @@ function parseRopInput(raw: string): number | null {
   if (trimmed === "") return null;
   const n = Math.floor(Number(trimmed));
   return Number.isFinite(n) ? Math.max(0, n) : null;
+}
+
+function PriorityBadge({ status, className }: { status: string | null; className?: string }) {
+  if (!status) return null;
+  return (
+    <span
+      className={cn(
+        "inline-flex max-w-full truncate rounded-full px-2 py-0.5 font-sans text-[10px] font-semibold ring-1 ring-inset",
+        priorityLabelClass(status),
+        className,
+      )}
+    >
+      {status}
+    </span>
+  );
 }
 
 export function OsfProductEditor({
@@ -285,7 +303,10 @@ export function OsfProductEditor({
                     onClick={() => selectItem(item)}
                   >
                     <div className="flex items-baseline justify-between gap-2">
-                      <div className="font-mono text-xs">{item.sku}</div>
+                      <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                        <span className="font-mono text-xs">{item.sku}</span>
+                        <PriorityBadge status={item.priorityStatus} />
+                      </div>
                       {item.stockPctOfRop != null ? (
                         <div className="shrink-0 text-[11px] text-muted-foreground">
                           {item.stockPctOfRop}% of ROP
@@ -306,7 +327,10 @@ export function OsfProductEditor({
           ) : (
             <>
               <div>
-                <div className="font-mono text-sm font-medium">{selected.sku}</div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="font-mono text-sm font-medium">{selected.sku}</div>
+                  <PriorityBadge status={selected.priorityStatus} className="text-[11px]" />
+                </div>
                 <div className="text-sm text-muted-foreground">{selected.productTitle}</div>
               </div>
               {hideCosmoFields ? null : (
