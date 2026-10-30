@@ -97,7 +97,7 @@ export function DashboardMainSlot({ canEditDashboard = false }: { canEditDashboa
     toDate,
     dateType,
     analysisType,
-    couponCode,
+    selectedCouponCodes,
     salesLocations,
     salesLoading,
     salesError,
@@ -219,7 +219,7 @@ export function DashboardMainSlot({ canEditDashboard = false }: { canEditDashboa
       />
       <DashboardSalesCharts stats={salesChartStats} />
       <DashboardLocationMerchantChartsDynamic
-        key={`${fromDate}-${toDate}-${dateType}-${analysisType}-${couponCode}`}
+        key={`${fromDate}-${toDate}-${dateType}-${analysisType}-${selectedCouponCodes.join(",")}`}
         locations={salesLocations}
         dateType={dateType}
         filterInfo={filterInfo}

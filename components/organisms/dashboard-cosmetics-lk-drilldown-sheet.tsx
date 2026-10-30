@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 
 import { useDashboardOverview } from "@/components/organisms/dashboard-overview-context";
+import { appendDashboardCouponQuery } from "@/lib/dashboard-coupon-filter";
 import {
   Sheet,
   SheetContent,
@@ -35,7 +36,8 @@ export function DashboardCosmeticsLkDrilldownSheet({
   onOpenChange: (open: boolean) => void;
   locationName: string;
 }) {
-  const { fromDate, toDate, dateType, couponCode, filterInfo } = useDashboardOverview();
+  const { fromDate, toDate, dateType, selectedCouponCodes, filterInfo } =
+    useDashboardOverview();
   const [data, setData] = useState<CosmeticsLkDrilldown | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -51,7 +53,7 @@ export function DashboardCosmeticsLkDrilldownSheet({
         to: toDate,
         date_type: dateType,
       });
-      if (couponCode) params.set("coupon_code", couponCode);
+      appendDashboardCouponQuery(params, selectedCouponCodes);
       const res = await fetch(
         `/api/admin/dashboard/cosmetics-lk-drilldown?${params.toString()}`,
       );
@@ -70,7 +72,7 @@ export function DashboardCosmeticsLkDrilldownSheet({
     } finally {
       if (id === fetchIdRef.current) setLoading(false);
     }
-  }, [couponCode, dateType, fromDate, toDate]);
+  }, [dateType, fromDate, selectedCouponCodes, toDate]);
 
   // Load on open and whenever the dashboard filters move while open, so the
   // panel never shows figures from a different range than the card behind it.

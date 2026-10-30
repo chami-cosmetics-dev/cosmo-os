@@ -307,7 +307,7 @@ export async function fetchDashboardFilterSummaries(
   companyId: string,
   fromYmd: string,
   toYmd: string,
-  couponCode?: string | null,
+  couponCodes?: string | readonly string[] | null,
 ): Promise<{ filterSummaries: DashboardFilterSummary[]; invalidRange: boolean }> {
   const fromDate = parseDayStartUtc(fromYmd);
   const toDate = parseDayEndUtc(toYmd);
@@ -407,7 +407,7 @@ export async function fetchDashboardFilterSummaries(
   ]);
 
   for (const order of rangeOrders) {
-    if (!orderMatchesDashboardCoupon(order, couponCode)) continue;
+    if (!orderMatchesDashboardCoupon(order, couponCodes)) continue;
     const createdInRange = order.createdAt >= fromDate && order.createdAt <= toDate;
     const invoiceInRange =
       order.invoiceCompleteAt != null &&
@@ -460,7 +460,7 @@ export async function fetchDashboardFilterSummaries(
 
   for (const order of backlogBillOpen) {
     if (
-      orderMatchesDashboardCoupon(order, couponCode) &&
+      orderMatchesDashboardCoupon(order, couponCodes) &&
       isDashboardSalesOrderEligible(order, "still_bill_open")
     ) {
       addToSummary(summaries.get("still_bill_open")!, order);
@@ -468,7 +468,7 @@ export async function fetchDashboardFilterSummaries(
   }
   for (const order of backlogNotDelivered) {
     if (
-      orderMatchesDashboardCoupon(order, couponCode) &&
+      orderMatchesDashboardCoupon(order, couponCodes) &&
       isDashboardSalesOrderEligible(order, "still_not_delivered")
     ) {
       addToSummary(summaries.get("still_not_delivered")!, order);
@@ -490,7 +490,7 @@ export async function fetchDashboardSalesByLocationMerchant(
     fromYmd: string;
     toYmd: string;
     dateType: DashboardSalesDateType;
-    couponCode?: string | null;
+    couponCodes?: string | readonly string[] | null;
   },
 ): Promise<{
   locations: DashboardLocationSales[];
@@ -594,7 +594,7 @@ export async function fetchDashboardSalesByLocationMerchant(
       const couponKey = discountCoupon.trim().toUpperCase();
       if (!couponByKey.has(couponKey)) couponByKey.set(couponKey, couponKey);
     }
-    if (!orderMatchesDashboardCoupon(order, params.couponCode)) continue;
+    if (!orderMatchesDashboardCoupon(order, params.couponCodes)) continue;
     const total = dashboardSaleAmount(order);
     const countDelta = 1;
 
@@ -681,7 +681,7 @@ export async function fetchDashboardSalesByLocationGateway(
     fromYmd: string;
     toYmd: string;
     dateType: DashboardSalesDateType;
-    couponCode?: string | null;
+    couponCodes?: string | readonly string[] | null;
   },
 ): Promise<{
   locations: DashboardLocationSales[];
@@ -790,7 +790,7 @@ export async function fetchDashboardSalesByLocationGateway(
       const couponKey = discountCoupon.trim().toUpperCase();
       if (!couponByKey.has(couponKey)) couponByKey.set(couponKey, couponKey);
     }
-    if (!orderMatchesDashboardCoupon(order, params.couponCode)) continue;
+    if (!orderMatchesDashboardCoupon(order, params.couponCodes)) continue;
     const total = dashboardSaleAmount(order);
     const countDelta = 1;
 

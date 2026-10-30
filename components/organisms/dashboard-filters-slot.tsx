@@ -1,24 +1,27 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ChevronDown, Loader2, RefreshCw } from "lucide-react";
+import { ChevronDown, Download, Loader2, RefreshCw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  appendDashboardCouponQuery,
+  formatDashboardCouponFilterLabel,
+} from "@/lib/dashboard-coupon-filter";
+import { notify } from "@/lib/notify";
 import { cn } from "@/lib/utils";
 
-import {
-  DASHBOARD_ALL_COUPONS_VALUE,
-  useDashboardOverview,
-} from "@/components/organisms/dashboard-overview-context";
+import { useDashboardOverview } from "@/components/organisms/dashboard-overview-context";
 import { getAllowedDashboardDateTypes } from "@/lib/dashboard-date-type-permissions";
 import { formatAppIsoCalendarDate } from "@/lib/format-datetime";
 import {
@@ -170,8 +173,8 @@ export function DashboardFiltersSlot({ permissionKeys }: { permissionKeys: strin
     setDateType,
     analysisType,
     setAnalysisType,
-    couponCode,
-    setCouponCode,
+    selectedCouponCodes,
+    setSelectedCouponCodes,
     couponCodes,
     initialRange,
     hasInvalidRange,
@@ -207,6 +210,7 @@ export function DashboardFiltersSlot({ permissionKeys }: { permissionKeys: strin
   const moreViewSelected = (MORE_VIEW_KEYS as readonly string[]).includes(dateType);
 
   const [moreViewsOpen, setMoreViewsOpen] = useState(moreViewSelected);
+  const [couponExporting, setCouponExporting] = useState(false);
 
   useEffect(() => {
     if (allowedDateTypes.length > 0 && !allowedDateTypeSet.has(dateType)) {
@@ -217,6 +221,43 @@ export function DashboardFiltersSlot({ permissionKeys }: { permissionKeys: strin
   useEffect(() => {
     if (moreViewSelected) setMoreViewsOpen(true);
   }, [moreViewSelected]);
+
+  async function exportCouponReport() {
+    if (hasInvalidRange || couponExporting) return;
+    setCouponExporting(true);
+    try {
+      const params = new URLSearchParams({
+        from: fromDate,
+        to: toDate,
+        date_type: dateType,
+      });
+      appendDashboardCouponQuery(params, selectedCouponCodes);
+      const res = await fetch(
+        `/api/admin/dashboard/coupon-report/export?${params.toString()}`,
+      );
+      if (!res.ok) {
+        const json = (await res.json().catch(() => ({}))) as { error?: string };
+        notify.error(json.error ?? "Coupon export failed.");
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      const disposition = res.headers.get("Content-Disposition") ?? "";
+      const match = /filename="([^"]+)"/.exec(disposition);
+      link.href = url;
+      link.download =
+        match?.[1] ?? `coupon-sales-report-${fromDate}-to-${toDate}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      notify.error("Coupon export failed.");
+    } finally {
+      setCouponExporting(false);
+    }
+  }
 
   const lastUpdatedLabel = lastUpdatedAt
     ? new Intl.DateTimeFormat(DASHBOARD_LOCALE, {
@@ -243,21 +284,38 @@ export function DashboardFiltersSlot({ permissionKeys }: { permissionKeys: strin
               Auto-refreshes every 60s · Last updated: {lastUpdatedLabel}
             </p>
           </div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="gap-2 self-start"
-            onClick={() => void refreshSales()}
-            disabled={salesLoading || hasInvalidRange}
-          >
-            {salesLoading ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <RefreshCw className="size-4" />
-            )}
-            Refresh
-          </Button>
+          <div className="flex flex-wrap items-center gap-2 self-start">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="gap-2"
+              onClick={() => void exportCouponReport()}
+              disabled={couponExporting || hasInvalidRange}
+            >
+              {couponExporting ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <Download className="size-4" />
+              )}
+              Export
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="gap-2"
+              onClick={() => void refreshSales()}
+              disabled={salesLoading || hasInvalidRange}
+            >
+              {salesLoading ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <RefreshCw className="size-4" />
+              )}
+              Refresh
+            </Button>
+          </div>
         </div>
       </CardHeader>
 
@@ -290,28 +348,57 @@ export function DashboardFiltersSlot({ permissionKeys }: { permissionKeys: strin
               <p className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
                 Coupon code
               </p>
-              <Select
-                value={couponCode || DASHBOARD_ALL_COUPONS_VALUE}
-                onValueChange={(value) =>
-                  setCouponCode(value === DASHBOARD_ALL_COUPONS_VALUE ? "" : value)
-                }
-                disabled={salesLoading || hasInvalidRange}
-              >
-                <SelectTrigger
-                  className="h-9 w-[12rem] rounded-sm border-border bg-background"
-                  aria-label="Filter charts by coupon code"
-                >
-                  <SelectValue placeholder="All coupons" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={DASHBOARD_ALL_COUPONS_VALUE}>All coupons</SelectItem>
-                  {couponCodes.map((code) => (
-                    <SelectItem key={code.toUpperCase()} value={code}>
-                      {code}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={salesLoading || hasInvalidRange}
+                    className="h-9 w-[14rem] justify-between rounded-sm border-border bg-background px-3 font-normal"
+                    aria-label="Filter charts by coupon code"
+                  >
+                    <span className="min-w-0 truncate text-left">
+                      {formatDashboardCouponFilterLabel(selectedCouponCodes)}
+                    </span>
+                    <ChevronDown className="size-4 shrink-0 opacity-60" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-[14rem]">
+                  <DropdownMenuLabel className="text-muted-foreground font-normal">
+                    Tick one or more
+                  </DropdownMenuLabel>
+                  <DropdownMenuCheckboxItem
+                    checked={selectedCouponCodes.length === 0}
+                    onCheckedChange={(checked) => {
+                      if (checked) setSelectedCouponCodes([]);
+                    }}
+                  >
+                    All coupons
+                  </DropdownMenuCheckboxItem>
+                  {couponCodes.length > 0 ? <DropdownMenuSeparator /> : null}
+                  {couponCodes.map((code) => {
+                    const selected = selectedCouponCodes.includes(code);
+                    return (
+                      <DropdownMenuCheckboxItem
+                        key={code}
+                        checked={selected}
+                        onCheckedChange={(checked) => {
+                          setSelectedCouponCodes((current) => {
+                            if (checked) {
+                              return current.includes(code)
+                                ? current
+                                : [...current, code].sort((a, b) => a.localeCompare(b));
+                            }
+                            return current.filter((value) => value !== code);
+                          });
+                        }}
+                      >
+                        {code}
+                      </DropdownMenuCheckboxItem>
+                    );
+                  })}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
             <div className="flex flex-wrap items-center gap-2 pb-0.5">
               <PresetButton

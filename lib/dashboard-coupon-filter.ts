@@ -22,16 +22,46 @@ export function getDashboardDiscountCoupon(order: DashboardCouponOrder): string 
   return trimmed ? trimmed : null;
 }
 
-/** Empty couponCode means "all coupons" — keep the order. */
+export function normalizeDashboardCouponSelection(
+  couponCode: string | readonly string[] | null | undefined,
+): string[] {
+  const raw = Array.isArray(couponCode) ? couponCode : couponCode ? [couponCode] : [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const value of raw) {
+    const key = normalizeDashboardCouponKey(String(value));
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(key);
+  }
+  return out;
+}
+
+/** Empty selection means "all coupons" — keep the order. */
 export function orderMatchesDashboardCoupon(
   order: DashboardCouponOrder,
-  couponCode: string | null | undefined,
+  couponCode: string | readonly string[] | null | undefined,
 ): boolean {
-  const wanted = couponCode?.trim();
-  if (!wanted) return true;
+  const wanted = normalizeDashboardCouponSelection(couponCode);
+  if (wanted.length === 0) return true;
   const actual = getDashboardDiscountCoupon(order);
   if (!actual) return false;
-  return normalizeDashboardCouponKey(actual) === normalizeDashboardCouponKey(wanted);
+  return wanted.includes(normalizeDashboardCouponKey(actual));
+}
+
+export function appendDashboardCouponQuery(
+  params: URLSearchParams,
+  couponCodes: string | readonly string[] | null | undefined,
+): void {
+  for (const code of normalizeDashboardCouponSelection(couponCodes)) {
+    params.append("coupon_code", code);
+  }
+}
+
+export function formatDashboardCouponFilterLabel(couponCodes: readonly string[]): string {
+  if (couponCodes.length === 0) return "All coupons";
+  if (couponCodes.length <= 2) return couponCodes.join(", ");
+  return `${couponCodes[0]}, ${couponCodes[1]} +${couponCodes.length - 2}`;
 }
 
 export function collectDashboardCouponCodes(orders: DashboardCouponOrder[]): string[] {

@@ -69,7 +69,7 @@ export async function fetchDashboardBrandSales(
     toYmd: string;
     dateType: DashboardSalesDateType;
     locationId?: string;
-    couponCode?: string | null;
+    couponCodes?: string | readonly string[] | null;
   },
 ): Promise<DashboardBrandSalesResult> {
   const fromDate = parseDayStartUtc(params.fromYmd);
@@ -169,7 +169,7 @@ export async function fetchDashboardBrandSales(
 
   for (const order of orders) {
     if (!isDashboardSalesOrderEligible(order, params.dateType)) continue;
-    if (!orderMatchesDashboardCoupon(order, params.couponCode)) continue;
+    if (!orderMatchesDashboardCoupon(order, params.couponCodes)) continue;
 
     // Determine merchant for this order
     let merchant: { id: string | null; name: string } | null = null;

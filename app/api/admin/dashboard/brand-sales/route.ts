@@ -30,7 +30,7 @@ export async function GET(request: NextRequest) {
     to: searchParams.get("to") ?? "",
     date_type: searchParams.get("date_type") ?? undefined,
     location_id: searchParams.get("location_id") ?? undefined,
-    coupon_code: searchParams.get("coupon_code") ?? undefined,
+    coupon_code: searchParams.getAll("coupon_code"),
   });
 
   if (!parsed.success) {
@@ -55,7 +55,7 @@ export async function GET(request: NextRequest) {
     toYmd: parsed.data.to,
     dateType: parsed.data.date_type,
     locationId: parsed.data.location_id,
-    couponCode: parsed.data.coupon_code,
+    couponCodes: parsed.data.coupon_code,
   });
 
   perf.end({ status: 200, ok: true });
