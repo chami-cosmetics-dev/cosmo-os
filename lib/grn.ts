@@ -175,6 +175,91 @@ export async function resolveGrnWebhookInstanceSecret(erpCompany: string): Promi
   };
 }
 
+export async function markGrnDocumentDeleted(input: {
+  type: "purchase_receipt" | "supplier_stock_return" | "purchase_invoice";
+  company: string;
+  name: string;
+}) {
+  const location = await resolveCompanyLocationForErpCompany(input.company);
+  if (!location) {
+    return { ok: false as const, status: 404, error: "ERP company not mapped to a company location" };
+  }
+
+  const deletedAt = new Date();
+  await prisma.$transaction(async (tx) => {
+    if (input.type === "purchase_receipt") {
+      const [receipt, backfillReceipt] = await Promise.all([
+        tx.grnPurchaseReceipt.findUnique({
+          where: { companyId_name: { companyId: location.companyId, name: input.name } },
+          select: { id: true },
+        }),
+        tx.grnBackfillPurchaseReceipt.findUnique({
+          where: { companyId_name: { companyId: location.companyId, name: input.name } },
+          select: { id: true },
+        }),
+      ]);
+      if (!receipt && !backfillReceipt) return;
+      await Promise.all([
+        receipt ? tx.grnPurchaseReceipt.update({ where: { id: receipt.id }, data: { deletedAt } }) : Promise.resolve(),
+        backfillReceipt ? tx.grnBackfillPurchaseReceipt.update({ where: { id: backfillReceipt.id }, data: { deletedAt } }) : Promise.resolve(),
+      ]);
+      await tx.grnSupplierStockReturn.updateMany({
+        where: { companyId: location.companyId, purchaseReceiptName: input.name },
+        data: { purchaseReceiptName: null },
+      });
+      await tx.grnBackfillSupplierStockReturn.updateMany({
+        where: { companyId: location.companyId, purchaseReceiptName: input.name },
+        data: { purchaseReceiptName: null },
+      });
+      await Promise.all([
+        receipt ? tx.grnSupplierStockReturnPurchaseReceipt.deleteMany({ where: { purchaseReceiptId: receipt.id } }) : Promise.resolve(),
+        backfillReceipt ? tx.grnBackfillSupplierStockReturnPurchaseReceipt.deleteMany({ where: { purchaseReceiptId: backfillReceipt.id } }) : Promise.resolve(),
+      ]);
+      return;
+    }
+
+    if (input.type === "supplier_stock_return") {
+      const [stockReturn, backfillStockReturn] = await Promise.all([
+        tx.grnSupplierStockReturn.findUnique({
+          where: { companyId_name: { companyId: location.companyId, name: input.name } },
+          select: { id: true },
+        }),
+        tx.grnBackfillSupplierStockReturn.findUnique({
+          where: { companyId_name: { companyId: location.companyId, name: input.name } },
+          select: { id: true },
+        }),
+      ]);
+      if (!stockReturn && !backfillStockReturn) return;
+      await Promise.all([
+        stockReturn ? tx.grnSupplierStockReturn.update({ where: { id: stockReturn.id }, data: { deletedAt } }) : Promise.resolve(),
+        backfillStockReturn ? tx.grnBackfillSupplierStockReturn.update({ where: { id: backfillStockReturn.id }, data: { deletedAt } }) : Promise.resolve(),
+      ]);
+      await tx.grnPurchaseReceipt.updateMany({
+        where: { companyId: location.companyId, supplierStockReturnName: input.name },
+        data: { supplierStockReturnName: null },
+      });
+      await Promise.all([
+        stockReturn ? tx.grnSupplierStockReturnPurchaseReceipt.deleteMany({ where: { supplierStockReturnId: stockReturn.id } }) : Promise.resolve(),
+        backfillStockReturn ? tx.grnBackfillSupplierStockReturnPurchaseReceipt.deleteMany({ where: { supplierStockReturnId: backfillStockReturn.id } }) : Promise.resolve(),
+      ]);
+      return;
+    }
+
+    await Promise.all([
+      tx.grnPurchaseInvoice.updateMany({
+        where: { companyId: location.companyId, name: input.name },
+        data: { deletedAt },
+      }),
+      tx.grnBackfillPurchaseInvoice.updateMany({
+        where: { companyId: location.companyId, name: input.name },
+        data: { deletedAt },
+      }),
+    ]);
+  });
+
+  return { ok: true as const };
+}
+
 export async function ingestPurchaseReceiptFromWebhook(
   data: ErpnextPurchaseReceiptWebhookPayload,
   rawPayload: unknown,
@@ -243,6 +328,7 @@ export async function ingestPurchaseReceiptFromWebhook(
         owner: data.owner,
         creation: parseDateTime(data.creation),
         supplierStockReturnName: carriedStockReturnName,
+        deletedAt: null,
         rawPayload: rawPayload as Prisma.InputJsonValue,
       },
       update: {
@@ -257,6 +343,7 @@ export async function ingestPurchaseReceiptFromWebhook(
         owner: data.owner,
         creation: parseDateTime(data.creation),
         supplierStockReturnName: carriedStockReturnName,
+        deletedAt: null,
         rawPayload: rawPayload as Prisma.InputJsonValue,
       },
       select: { id: true },
@@ -394,6 +481,7 @@ export async function ingestSupplierStockReturnFromWebhook(
         owner: data.owner,
         creation: parseDateTime(data.creation),
         purchaseReceiptName: carriedPurchaseReceiptName,
+        deletedAt: null,
         rawPayload: rawPayload as Prisma.InputJsonValue,
       },
       update: {
@@ -405,6 +493,7 @@ export async function ingestSupplierStockReturnFromWebhook(
         owner: data.owner,
         creation: parseDateTime(data.creation),
         purchaseReceiptName: carriedPurchaseReceiptName,
+        deletedAt: null,
         rawPayload: rawPayload as Prisma.InputJsonValue,
       },
       select: { id: true },
@@ -740,6 +829,7 @@ export async function ingestPurchaseInvoiceFromWebhook(
             creation: parseDateTime(data.creation),
             purchaseReceiptName: null,
             supplierStockReturnName: pendingSupplierStockReturnName,
+            deletedAt: null,
             rawPayload: rawPayload as Prisma.InputJsonValue,
           },
           update: {
@@ -757,6 +847,7 @@ export async function ingestPurchaseInvoiceFromWebhook(
             owner: data.owner,
             creation: parseDateTime(data.creation),
             supplierStockReturnName: pendingSupplierStockReturnName,
+            deletedAt: null,
             rawPayload: rawPayload as Prisma.InputJsonValue,
           },
           select: { id: true },
@@ -818,6 +909,7 @@ export async function ingestPurchaseInvoiceFromWebhook(
         creation: parseDateTime(data.creation),
         purchaseReceiptName: purchaseReceipt.name,
         supplierStockReturnName,
+        deletedAt: null,
         rawPayload: rawPayload as Prisma.InputJsonValue,
       },
       update: {
@@ -835,6 +927,7 @@ export async function ingestPurchaseInvoiceFromWebhook(
         creation: parseDateTime(data.creation),
         purchaseReceiptName: purchaseReceipt.name,
         supplierStockReturnName,
+        deletedAt: null,
         rawPayload: rawPayload as Prisma.InputJsonValue,
       },
       select: { id: true },
@@ -1264,6 +1357,7 @@ export async function autoMatchIntercompanyGrn() {
     prisma.grnPurchaseReceipt.findMany({
       where: {
         companyLocationId: { in: matchContext.locationIds },
+        deletedAt: null,
         docstatus: { not: 2 },
         supplierStockReturnName: null,
       },
@@ -1271,6 +1365,7 @@ export async function autoMatchIntercompanyGrn() {
     }),
     prisma.grnSupplierStockReturn.findMany({
       where: {
+        deletedAt: null,
         OR: matchContext.supplierPrefixes.flatMap((prefix) => [
           { supplier: { contains: prefix, mode: "insensitive" as const } },
           { supplierName: { contains: prefix, mode: "insensitive" as const } },
@@ -1335,6 +1430,7 @@ export async function autoMatchBackfillIntercompanyGrn() {
     prisma.grnPurchaseReceipt.findMany({
       where: {
         companyLocationId: { in: matchContext.locationIds },
+        deletedAt: null,
         docstatus: { not: 2 },
         supplierStockReturnName: null,
       },
@@ -1343,12 +1439,14 @@ export async function autoMatchBackfillIntercompanyGrn() {
     prisma.grnBackfillPurchaseReceipt.findMany({
       where: {
         companyLocationId: { in: matchContext.locationIds },
+        deletedAt: null,
         docstatus: { not: 2 },
       },
       include: { items: true, supplierStockReturnLinks: { select: { supplierStockReturnId: true } } },
     }),
     prisma.grnBackfillSupplierStockReturn.findMany({
       where: {
+        deletedAt: null,
         OR: matchContext.supplierPrefixes.flatMap((prefix) => [
           { supplier: { contains: prefix, mode: "insensitive" as const } },
           { supplierName: { contains: prefix, mode: "insensitive" as const } },
@@ -1364,11 +1462,11 @@ export async function autoMatchBackfillIntercompanyGrn() {
   const usedPurchaseReceiptNames = new Set(
     [
       ...(await prisma.grnSupplierStockReturn.findMany({
-        where: { docstatus: { not: 2 }, purchaseReceiptName: { not: null } },
+        where: { deletedAt: null, docstatus: { not: 2 }, purchaseReceiptName: { not: null } },
         select: { purchaseReceiptName: true, purchaseReceiptLinks: { select: { purchaseReceipt: { select: { name: true } } } } },
       })),
       ...(await prisma.grnBackfillSupplierStockReturn.findMany({
-        where: { docstatus: { not: 2 }, purchaseReceiptName: { not: null } },
+        where: { deletedAt: null, docstatus: { not: 2 }, purchaseReceiptName: { not: null } },
         select: { purchaseReceiptName: true, purchaseReceiptLinks: { select: { purchaseReceipt: { select: { name: true } } } } },
       })),
     ]

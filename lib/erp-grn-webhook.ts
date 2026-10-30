@@ -4,12 +4,14 @@ import {
   ingestPurchaseInvoiceFromWebhook,
   ingestPurchaseReceiptFromWebhook,
   ingestSupplierStockReturnFromWebhook,
+  markGrnDocumentDeleted,
   resolveGrnWebhookInstanceSecret,
 } from "@/lib/grn";
 import { unwrapErpWebhookPayload } from "@/lib/erpnext-customer-display-name";
 import { prisma } from "@/lib/prisma";
 import {
   erpnextPurchaseInvoiceWebhookSchema,
+  erpnextGrnDeletionWebhookSchema,
   erpnextPurchaseReceiptWebhookSchema,
   erpnextSupplierStockReturnWebhookSchema,
 } from "@/lib/validation/erpnext-grn";
@@ -54,6 +56,13 @@ export function normalizeErpGrnWebhookType(value: string): ErpGrnWebhookType | n
     return value;
   }
   return null;
+}
+
+function isDeletionEvent(rawPayload: unknown) {
+  const payload = payloadRecord(rawPayload);
+  if (payload.deleted === true || payload.is_deleted === true) return true;
+  return [payload.event, payload.action, payload.operation, payload.event_type, payload.type]
+    .some((value) => typeof value === "string" && /^(?:(?:on_)?delete(?:d)?|(?:on_)?trash)$/i.test(value.trim()));
 }
 
 async function createWebhookRecord(type: ErpGrnWebhookType, endpoint: string, rawPayload: unknown) {
@@ -149,6 +158,15 @@ async function markWebhookAttempt(id: string) {
 
 export async function processErpGrnWebhookPayload(type: ErpGrnWebhookType, rawPayload: unknown): Promise<ErpGrnWebhookResult> {
   const unwrapped = unwrapErpWebhookPayload(rawPayload) ?? rawPayload;
+  if (isDeletionEvent(rawPayload)) {
+    const parsed = erpnextGrnDeletionWebhookSchema.safeParse(unwrapped);
+    if (!parsed.success) {
+      throw new ErpGrnWebhookError("Invalid deletion payload", 400, parsed.error.flatten());
+    }
+    const result = await markGrnDocumentDeleted({ type, ...parsed.data });
+    if (!result.ok) throw new ErpGrnWebhookError(result.error, result.status);
+    return { ok: true, ignored: false };
+  }
   if (type === "purchase_receipt") {
     const parsed = erpnextPurchaseReceiptWebhookSchema.safeParse(unwrapped);
     if (!parsed.success) {

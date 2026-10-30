@@ -12,6 +12,7 @@ import {
   type IntercompanyStockReturn,
 } from "@/lib/grn-intercompany-report";
 import { buildGrnCompanyResolver } from "@/lib/grn-company-resolver";
+import { autoMatchBackfillIntercompanyGrn, autoMatchIntercompanyGrn } from "@/lib/grn";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserContext, requirePermission } from "@/lib/rbac";
 
@@ -38,8 +39,8 @@ function erpCompany(rawPayload: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-function activeRows<T extends { docstatus: number | null; status?: string | null }>(rows: T[]) {
-  return rows.filter((row) => !isCancelledIntercompanyDocument(row));
+function activeRows<T extends { name: string; docstatus: number | null; status?: string | null; amendedFrom?: string | null }>(rows: T[], amendedNames: ReadonlySet<string> = new Set()) {
+  return rows.filter((row) => !isCancelledIntercompanyDocument(row) && !amendedNames.has(row.name.trim().toUpperCase()));
 }
 
 function filenameDate(value: Date) {
@@ -298,6 +299,7 @@ export async function GET(request: NextRequest) {
 
   const from = parseDateParam(request.nextUrl.searchParams.get("from"));
   const to = parseDateParam(request.nextUrl.searchParams.get("to"), true);
+  await Promise.all([autoMatchIntercompanyGrn(), autoMatchBackfillIntercompanyGrn()]);
   const [company, locations, liveReceipts, backfillReceipts, liveReturns, backfillReturns, liveInvoices, backfillInvoices] = await Promise.all([
     prisma.company.findUnique({ where: { id: companyId }, select: { name: true } }),
     prisma.companyLocation.findMany({
@@ -313,7 +315,7 @@ export async function GET(request: NextRequest) {
       orderBy: { name: "asc" },
     }),
     prisma.grnPurchaseReceipt.findMany({
-      where: { companyId },
+      where: { companyId, deletedAt: null },
       select: {
         name: true, companyLocationId: true, postingDate: true, creation: true, docstatus: true,
         status: true, amendedFrom: true, supplier: true, supplierName: true,
@@ -323,7 +325,7 @@ export async function GET(request: NextRequest) {
       },
     }),
     prisma.grnBackfillPurchaseReceipt.findMany({
-      where: { companyId },
+      where: { companyId, deletedAt: null },
       select: {
         name: true, companyLocationId: true, postingDate: true, creation: true, docstatus: true,
         status: true, amendedFrom: true, supplier: true, supplierName: true, rawPayload: true,
@@ -332,7 +334,7 @@ export async function GET(request: NextRequest) {
       },
     }),
     prisma.grnSupplierStockReturn.findMany({
-      where: { companyId },
+      where: { companyId, deletedAt: null },
       select: {
         name: true, returnDate: true, creation: true, docstatus: true, amendedFrom: true,
         supplier: true, supplierName: true, purchaseReceiptName: true, rawPayload: true,
@@ -340,7 +342,7 @@ export async function GET(request: NextRequest) {
       },
     }),
     prisma.grnBackfillSupplierStockReturn.findMany({
-      where: { companyId },
+      where: { companyId, deletedAt: null },
       select: {
         name: true, returnDate: true, creation: true, docstatus: true, amendedFrom: true,
         supplier: true, supplierName: true, purchaseReceiptName: true, rawPayload: true,
@@ -348,7 +350,7 @@ export async function GET(request: NextRequest) {
       },
     }),
     prisma.grnPurchaseInvoice.findMany({
-      where: { companyId, docstatus: { not: 2 } },
+      where: { companyId, deletedAt: null, docstatus: { not: 2 } },
       select: {
         name: true, postingDate: true, docstatus: true, status: true, amendedFrom: true, isReturn: true,
         purchaseReceiptName: true, supplierStockReturnName: true, billNo: true,
@@ -356,7 +358,7 @@ export async function GET(request: NextRequest) {
       },
     }),
     prisma.grnBackfillPurchaseInvoice.findMany({
-      where: { companyId, docstatus: { not: 2 } },
+      where: { companyId, deletedAt: null, docstatus: { not: 2 } },
       select: {
         name: true, postingDate: true, docstatus: true, status: true, amendedFrom: true, isReturn: true,
         purchaseReceiptName: true, supplierStockReturnName: true, billNo: true,
@@ -376,8 +378,23 @@ export async function GET(request: NextRequest) {
     }),
   );
   const fallbackCompanyName = company?.name ?? "Unknown company";
+  const amendedPurchaseReceiptNames = new Set(
+    [...liveReceipts, ...backfillReceipts]
+      .map((row) => row.amendedFrom?.trim().toUpperCase())
+      .filter((name): name is string => Boolean(name)),
+  );
+  const amendedStockReturnNames = new Set(
+    [...liveReturns, ...backfillReturns]
+      .map((row) => row.amendedFrom?.trim().toUpperCase())
+      .filter((name): name is string => Boolean(name)),
+  );
+  const amendedInvoiceNames = new Set(
+    [...liveInvoices, ...backfillInvoices]
+      .map((row) => row.amendedFrom?.trim().toUpperCase())
+      .filter((name): name is string => Boolean(name)),
+  );
   const purchaseReceipts: IntercompanyPurchaseReceipt[] = [
-    ...activeRows(liveReceipts).map((row) => ({
+    ...activeRows(liveReceipts, amendedPurchaseReceiptNames).map((row) => ({
       name: row.name,
       companyName: companyResolver.displayName({
         documentName: row.name,
@@ -394,7 +411,7 @@ export async function GET(request: NextRequest) {
         ...row.supplierStockReturnLinks.map((link) => link.supplierStockReturn.name),
       ].filter((name): name is string => Boolean(name)),
     })),
-    ...activeRows(backfillReceipts).map((row) => ({
+    ...activeRows(backfillReceipts, amendedPurchaseReceiptNames).map((row) => ({
       name: row.name,
       companyName: companyResolver.displayName({
         documentName: row.name,
@@ -410,7 +427,7 @@ export async function GET(request: NextRequest) {
     })),
   ];
   const stockReturns: IntercompanyStockReturn[] = [
-    ...activeRows(liveReturns).map((row) => ({
+    ...activeRows(liveReturns, amendedStockReturnNames).map((row) => ({
       name: row.name,
       companyName: companyResolver.displayName({
         documentName: row.name,
@@ -426,7 +443,7 @@ export async function GET(request: NextRequest) {
         ...row.purchaseReceiptLinks.map((link) => link.purchaseReceipt.name),
       ].filter((name): name is string => Boolean(name)),
     })),
-    ...activeRows(backfillReturns).map((row) => ({
+    ...activeRows(backfillReturns, amendedStockReturnNames).map((row) => ({
       name: row.name,
       companyName: companyResolver.displayName({
         documentName: row.name,
@@ -443,7 +460,7 @@ export async function GET(request: NextRequest) {
       ].filter((name): name is string => Boolean(name)),
     })),
   ];
-  const invoices: IntercompanyInvoice[] = activeRows([...liveInvoices, ...backfillInvoices]).map((row) => ({
+  const invoices: IntercompanyInvoice[] = activeRows([...liveInvoices, ...backfillInvoices], amendedInvoiceNames).map((row) => ({
     name: row.name,
     postingDate: row.postingDate,
     isReturn: row.isReturn,

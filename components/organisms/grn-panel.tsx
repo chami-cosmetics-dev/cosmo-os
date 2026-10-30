@@ -174,10 +174,23 @@ type SupplierStockReturnRow = {
   }[];
 };
 
+type DeletedGrnRecord = {
+  documentType: "PR" | "SSR" | "PI";
+  name: string;
+  companyName: string;
+  supplier: string;
+  supplierName: string | null;
+  documentDate: string | null;
+  deletedAt: string | null;
+  isBackfill: boolean;
+  erpUrl: string | null;
+};
+
 type PageData = {
   purchaseReceipts: PurchaseReceiptRow[];
   supplierStockReturns: SupplierStockReturnRow[];
   intercompanySuppliers: IntercompanySupplierRow[];
+  deletedRecords: DeletedGrnRecord[];
 };
 
 type IntercompanySupplierRow = {
@@ -1050,6 +1063,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
     purchaseReceipts: [],
     supplierStockReturns: [],
     intercompanySuppliers: [],
+    deletedRecords: [],
   });
   const [loading, setLoading] = useState(true);
   const [busyKey, setBusyKey] = useState<string | null>(null);
@@ -1057,6 +1071,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
   const [companyFilter, setCompanyFilter] = useState("all");
   const [ssrSearch, setSsrSearch] = useState("");
   const [multipleSsrSearch, setMultipleSsrSearch] = useState("");
+  const [deletedSearch, setDeletedSearch] = useState("");
   const [ssrStatusFilter, setSsrStatusFilter] = useState<SsrStatusFilter>("all");
   const [stageFilter, setStageFilter] = useState<GrnStageFilter>(() => ({
     stage: firstAllowedStage(permissions),
@@ -2001,6 +2016,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
           <TabsTrigger value="ssr">SSR matcher</TabsTrigger>
           <TabsTrigger value="multi">Multiple PR links</TabsTrigger>
           <TabsTrigger value="multi-ssr">Multiple SSR links</TabsTrigger>
+          <TabsTrigger value="deleted">Deleted records</TabsTrigger>
         </TabsList>
 
         <TabsContent value="grn" className="space-y-4 rounded-lg border bg-card/60 p-4 md:p-6">
@@ -2991,6 +3007,75 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                 </TableBody>
               </Table>
             </div>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="deleted" className="space-y-4 rounded-lg border bg-card/60 p-4 md:p-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h3 className="text-base font-semibold">Deleted records</h3>
+              <p className="text-sm text-muted-foreground">
+                ERP-deleted PRs, SSRs, and PIs are kept here as read-only GRN history and excluded from matching, stages, and exports.
+              </p>
+            </div>
+            <Input
+              className="sm:w-80"
+              placeholder="Search PR, SSR, PI, supplier, company"
+              value={deletedSearch}
+              onChange={(event) => setDeletedSearch(event.target.value)}
+            />
+          </div>
+          <div className="overflow-hidden rounded-lg border bg-background/45">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Document</TableHead>
+                  <TableHead>Company</TableHead>
+                  <TableHead>Supplier</TableHead>
+                  <TableHead>Document date</TableHead>
+                  <TableHead>Deleted in ERP</TableHead>
+                  <TableHead>Source</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {data.deletedRecords
+                  .filter((row) => {
+                    const query = deletedSearch.trim().toLowerCase();
+                    if (!query) return true;
+                    return [row.documentType, row.name, row.companyName, row.supplier, row.supplierName]
+                      .some((value) => value?.toLowerCase().includes(query));
+                  })
+                  .map((row) => (
+                    <TableRow key={`${row.documentType}:${row.name}:${row.isBackfill ? "backfill" : "live"}`}>
+                      <TableCell className="font-medium">{row.documentType}</TableCell>
+                      <TableCell>
+                        {row.erpUrl ? (
+                          <a href={row.erpUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
+                            {row.name}<ExternalLink className="size-3.5" />
+                          </a>
+                        ) : row.name}
+                      </TableCell>
+                      <TableCell>{row.companyName}</TableCell>
+                      <TableCell>{row.supplierName ?? row.supplier}</TableCell>
+                      <TableCell>{formatDate(row.documentDate)}</TableCell>
+                      <TableCell>{formatDate(row.deletedAt)}</TableCell>
+                      <TableCell>{row.isBackfill ? "Backfill" : "Webhook"}</TableCell>
+                    </TableRow>
+                  ))}
+                {data.deletedRecords.filter((row) => {
+                  const query = deletedSearch.trim().toLowerCase();
+                  return !query || [row.documentType, row.name, row.companyName, row.supplier, row.supplierName]
+                    .some((value) => value?.toLowerCase().includes(query));
+                }).length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={7} className="h-20 text-center text-muted-foreground">
+                      No deleted GRN records found.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
           </div>
         </TabsContent>
       </Tabs>
