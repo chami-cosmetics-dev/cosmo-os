@@ -213,11 +213,11 @@ export function cosmoDbLineToRaw(line: {
 export function erpInvoiceLineToRaw(
   row: PurchaseInvoiceLine,
   erpBaseUrl?: string,
-  extras?: { erpSlot?: PurchaseHistoryErpSlot | null },
+  extras?: { erpSlot?: PurchaseHistoryErpSlot | null; intercompanyPrefixes?: string[] },
 ): PurchaseHistoryRawLine | null {
   if (!isSubmittedPurchase(row)) return null;
   if (isExcludedErpCompany(row.company ?? "")) return null;
-  if (isIntercompanyPurchaseSupplier(row.supplier, row.supplier_name)) return null;
+  if (isIntercompanyPurchaseSupplier(row.supplier, row.supplier_name, extras?.intercompanyPrefixes)) return null;
   const sku = row.item_code?.trim();
   if (!sku) return null;
   const postingDate = row.posting_date?.trim();
@@ -254,10 +254,11 @@ export function erpInvoiceLineToRaw(
 export function mergePurchaseHistoryLines(
   cosmo: PurchaseHistoryRawLine[],
   erpInvoices: PurchaseHistoryRawLine[],
+  intercompanyPrefixes?: string[],
 ): PurchaseHistoryRawLine[] {
   const map = new Map<string, PurchaseHistoryRawLine>();
   for (const line of cosmo) {
-    if (isIntercompanyPurchaseSupplier(line.supplier, line.supplier)) continue;
+    if (isIntercompanyPurchaseSupplier(line.supplier, line.supplier, intercompanyPrefixes)) continue;
     if (isExcludedErpCompany(line.excelCompany) || isExcludedErpCompany(line.company)) continue;
     map.set(purchaseHistoryDedupeKey(line), line);
   }

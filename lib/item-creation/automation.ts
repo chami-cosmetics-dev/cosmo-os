@@ -333,6 +333,32 @@ async function createErpDoc<T>(cfg: OsfErpCredentials, doctype: string, body: Re
   });
 }
 
+const ITEM_CREATION_OWNER_METHOD = process.env.ITEM_CREATION_ERP_SAVE_METHOD?.trim() || "cosmo_save_doc";
+
+function methodMessage(payload: unknown): Record<string, unknown> {
+  if (!payload || typeof payload !== "object") return {};
+  const message = (payload as { message?: unknown }).message;
+  return message && typeof message === "object" ? (message as Record<string, unknown>) : {};
+}
+
+function isMissingErpMethod(error: unknown) {
+  return error instanceof Error && /\[404\]/.test(error.message);
+}
+
+function isOwnerRejectedByErp(error: unknown) {
+  return error instanceof Error && /ERP user is (required|disabled or missing)/i.test(error.message);
+}
+
+async function saveErpDocWithOwner(
+  cfg: OsfErpCredentials,
+  input: { owner: string; action: "insert" | "update"; doc: Record<string, unknown> },
+) {
+  return erpJson<unknown>(cfg, `/api/method/${encodeURIComponent(ITEM_CREATION_OWNER_METHOD)}`, {
+    method: "POST",
+    body: JSON.stringify({ owner: input.owner, action: input.action, doc: input.doc }),
+  });
+}
+
 async function updateErpDoc<T>(cfg: OsfErpCredentials, doctype: string, name: string, body: Record<string, unknown>) {
   return erpJson<T>(cfg, `/api/resource/${encodeURIComponent(doctype)}/${encodeURIComponent(name)}`, {
     method: "PUT",
@@ -929,6 +955,7 @@ async function upsertItemPrice(input: {
   itemCode: string;
   priceList: string;
   rate: Prisma.Decimal;
+  createdByEmail?: string;
 }) {
   const priceList = await resolvePriceListName(input.cfg, input.priceList);
   const existing = await findErpDoc<{ name: string; price_list_rate?: number }>(
@@ -947,9 +974,31 @@ async function upsertItemPrice(input: {
     currency: process.env.ITEM_CREATION_ERP_CURRENCY ?? "LKR",
     uom: process.env.ITEM_CREATION_ERP_STOCK_UOM ?? "Nos",
   };
-  const doc = existing
-    ? await updateErpDoc<Record<string, unknown>>(input.cfg, "Item Price", existing.name, body)
-    : await createErpDoc<Record<string, unknown>>(input.cfg, "Item Price", body);
+  let doc: Record<string, unknown>;
+  const owner = input.createdByEmail?.trim();
+  if (owner) {
+    try {
+      const saved = await saveErpDocWithOwner(input.cfg, {
+        owner,
+        action: existing ? "update" : "insert",
+        doc: {
+          doctype: "Item Price",
+          ...(existing ? { name: existing.name } : {}),
+          ...body,
+        },
+      });
+      doc = methodMessage(saved);
+    } catch (error) {
+      if (!isMissingErpMethod(error) && !isOwnerRejectedByErp(error)) throw error;
+      doc = existing
+        ? await updateErpDoc<Record<string, unknown>>(input.cfg, "Item Price", existing.name, body)
+        : await createErpDoc<Record<string, unknown>>(input.cfg, "Item Price", body);
+    }
+  } else {
+    doc = existing
+      ? await updateErpDoc<Record<string, unknown>>(input.cfg, "Item Price", existing.name, body)
+      : await createErpDoc<Record<string, unknown>>(input.cfg, "Item Price", body);
+  }
   const resultRate = new Prisma.Decimal(String(doc.price_list_rate ?? input.rate));
   return { name: String(doc.name ?? existing?.name ?? ""), rate: resultRate, priceList };
 }
@@ -1113,6 +1162,7 @@ export async function updateItemCreationPrices(context: UserContext, id: string)
         itemCode: request.sku,
         priceList: op.priceList,
         rate: op.rate,
+        createdByEmail: context.user?.email?.trim() || undefined,
       });
       const data =
         op.key === "erp1Standard"
@@ -1295,7 +1345,6 @@ async function createPurchaseReceipt(input: {
   const body = {
     supplier: input.supplier,
     company: input.company || undefined,
-    created_by: input.createdByEmail || undefined,
     items: input.items.map((item) => ({
       item_code: item.itemCode,
       qty: Number(item.qty),
@@ -1305,7 +1354,25 @@ async function createPurchaseReceipt(input: {
       amount: 0,
     })),
   };
-  const created = await createErpDoc<Record<string, unknown>>(input.cfg, "Purchase Receipt", body);
+  const owner = input.createdByEmail?.trim();
+  if (owner) {
+    try {
+      const saved = await saveErpDocWithOwner(input.cfg, {
+        owner,
+        action: "insert",
+        doc: { doctype: "Purchase Receipt", ...body },
+      });
+      const message = methodMessage(saved);
+      const name = String(message.name ?? "");
+      if (!name) throw new Error("ERPNext owner-aware save did not return a Purchase Receipt name");
+      return name;
+    } catch (error) {
+      if (!isMissingErpMethod(error) && !isOwnerRejectedByErp(error)) throw error;
+    }
+  }
+
+  const legacyBody = { ...body, created_by: owner || undefined };
+  const created = await createErpDoc<Record<string, unknown>>(input.cfg, "Purchase Receipt", legacyBody);
   const name = String(created.name ?? "");
   if (!name) throw new Error("ERPNext did not return a Purchase Receipt name");
   const fullDoc = await getErpDoc<Record<string, unknown>>(input.cfg, "Purchase Receipt", name);

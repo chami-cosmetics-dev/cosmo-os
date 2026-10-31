@@ -8,6 +8,7 @@ import {
   intercompanyMatrixValue,
   isCancelledIntercompanyDocument,
   type IntercompanyInvoice,
+  type IntercompanyMaterialIssue,
   type IntercompanyPurchaseReceipt,
   type IntercompanyStockReturn,
 } from "@/lib/grn-intercompany-report";
@@ -182,7 +183,7 @@ function buildWorkbook(report: ReturnType<typeof buildIntercompanyReport>) {
     "Supplier Company": row.supplierCompanyLabel,
     "Supplier Company Name": row.supplierCompany,
     "PR Linked PI Value": row.prLinkedPiValue,
-    "SSR Linked PI Return Value": row.ssrLinkedPiReturnValue,
+    "SSR Return Value (PI / Material Issue)": row.ssrLinkedPiReturnValue,
     Difference: row.difference,
     Status: row.status,
   }));
@@ -193,7 +194,7 @@ function buildWorkbook(report: ReturnType<typeof buildIntercompanyReport>) {
       "Supplier Company",
       "Supplier Company Name",
       "PR Linked PI Value",
-      "SSR Linked PI Return Value",
+      "SSR Return Value (PI / Material Issue)",
       "Difference",
       "Status",
     ],
@@ -237,7 +238,7 @@ function buildWorkbook(report: ReturnType<typeof buildIntercompanyReport>) {
     "Counterparty Name": line.counterparty,
     Side: line.side,
     Status: line.status,
-    "Purchase Invoice": line.purchaseInvoice,
+    "Source Document": line.purchaseInvoice,
     "PR / SSR": line.reference,
     "Posting Date": reportDate(line.postingDate),
     SKU: line.itemCode,
@@ -254,7 +255,7 @@ function buildWorkbook(report: ReturnType<typeof buildIntercompanyReport>) {
       "Counterparty Name",
       "Side",
       "Status",
-      "Purchase Invoice",
+      "Source Document",
       "PR / SSR",
       "Posting Date",
       "SKU",
@@ -300,7 +301,7 @@ export async function GET(request: NextRequest) {
   const from = parseDateParam(request.nextUrl.searchParams.get("from"));
   const to = parseDateParam(request.nextUrl.searchParams.get("to"), true);
   await Promise.all([autoMatchIntercompanyGrn(), autoMatchBackfillIntercompanyGrn()]);
-  const [company, locations, liveReceipts, backfillReceipts, liveReturns, backfillReturns, liveInvoices, backfillInvoices] = await Promise.all([
+  const [company, locations, liveReceipts, backfillReceipts, liveReturns, backfillReturns, liveInvoices, backfillInvoices, materialIssueLinks] = await Promise.all([
     prisma.company.findUnique({ where: { id: companyId }, select: { name: true } }),
     prisma.companyLocation.findMany({
       where: { companyId },
@@ -339,6 +340,7 @@ export async function GET(request: NextRequest) {
         name: true, returnDate: true, creation: true, docstatus: true, amendedFrom: true,
         supplier: true, supplierName: true, purchaseReceiptName: true, rawPayload: true,
         purchaseReceiptLinks: { select: { purchaseReceipt: { select: { name: true } } } },
+        items: { select: { itemCode: true, qty: true } },
       },
     }),
     prisma.grnBackfillSupplierStockReturn.findMany({
@@ -347,6 +349,7 @@ export async function GET(request: NextRequest) {
         name: true, returnDate: true, creation: true, docstatus: true, amendedFrom: true,
         supplier: true, supplierName: true, purchaseReceiptName: true, rawPayload: true,
         purchaseReceiptLinks: { select: { purchaseReceipt: { select: { name: true } } } },
+        items: { select: { itemCode: true, qty: true } },
       },
     }),
     prisma.grnPurchaseInvoice.findMany({
@@ -363,6 +366,27 @@ export async function GET(request: NextRequest) {
         name: true, postingDate: true, docstatus: true, status: true, amendedFrom: true, isReturn: true,
         purchaseReceiptName: true, supplierStockReturnName: true, billNo: true,
         items: { select: { name: true, itemCode: true, itemName: true, qty: true, rate: true, amount: true, purchaseReceipt: true, supplierStockReturn: true } },
+      },
+    }),
+    prisma.grnSupplierStockReturnMaterialIssueLink.findMany({
+      where: { companyId, materialIssue: { docstatus: { not: 2 } } },
+      select: {
+        supplierStockReturnName: true,
+        materialIssue: {
+          select: {
+            name: true,
+            postingDate: true,
+            items: {
+              select: {
+                name: true,
+                itemCode: true,
+                itemName: true,
+                qty: true,
+                effectiveRate: true,
+              },
+            },
+          },
+        },
       },
     }),
   ]);
@@ -442,6 +466,7 @@ export async function GET(request: NextRequest) {
         row.purchaseReceiptName,
         ...row.purchaseReceiptLinks.map((link) => link.purchaseReceipt.name),
       ].filter((name): name is string => Boolean(name)),
+      items: row.items.map((item) => ({ itemCode: item.itemCode, qty: Number(item.qty) })),
     })),
     ...activeRows(backfillReturns, amendedStockReturnNames).map((row) => ({
       name: row.name,
@@ -458,6 +483,7 @@ export async function GET(request: NextRequest) {
         row.purchaseReceiptName,
         ...row.purchaseReceiptLinks.map((link) => link.purchaseReceipt.name),
       ].filter((name): name is string => Boolean(name)),
+      items: row.items.map((item) => ({ itemCode: item.itemCode, qty: Number(item.qty) })),
     })),
   ];
   const invoices: IntercompanyInvoice[] = activeRows([...liveInvoices, ...backfillInvoices], amendedInvoiceNames).map((row) => ({
@@ -479,7 +505,20 @@ export async function GET(request: NextRequest) {
     })),
   }));
 
-  const report = buildIntercompanyReport({ purchaseReceipts, stockReturns, invoices, companyLabels, from, to });
+  const materialIssues: IntercompanyMaterialIssue[] = materialIssueLinks.map((link) => ({
+    name: link.materialIssue.name,
+    postingDate: link.materialIssue.postingDate,
+    supplierStockReturnName: link.supplierStockReturnName,
+    items: link.materialIssue.items.map((item) => ({
+      id: item.name,
+      itemCode: item.itemCode,
+      itemName: item.itemName,
+      qty: Number(item.qty),
+      effectiveRate: item.effectiveRate == null ? null : Number(item.effectiveRate),
+    })),
+  }));
+
+  const report = buildIntercompanyReport({ purchaseReceipts, stockReturns, invoices, materialIssues, companyLabels, from, to });
   const buffer = buildWorkbook(report);
   const stamp = `${request.nextUrl.searchParams.get("from") ?? filenameDate(new Date())}-to-${request.nextUrl.searchParams.get("to") ?? filenameDate(new Date())}`;
   return new NextResponse(new Uint8Array(buffer), {

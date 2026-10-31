@@ -1,6 +1,7 @@
 import {
   buildSupplierAllowlist,
   isAllowedSupplier,
+  isIntercompanyPurchaseSupplier,
   type AllowedSupplier,
   type PurchaseRow,
 } from "@/lib/osf/erp-purchases";
@@ -41,11 +42,13 @@ export function accumulateMonthlyPurchases(input: {
   rows: PurchaseInvoiceLine[];
   bounds: { start: string; end: string };
   allowedSuppliers: AllowedSupplier[];
+  intercompanyPrefixes?: string[];
 }): Map<string, PurchaseCell> {
   const allowlist = buildSupplierAllowlist(input.allowedSuppliers);
   const map = new Map<string, { qty: number; netValue: number }>();
   for (const row of input.rows) {
     if (!isSubmittedPurchase(row)) continue;
+    if (isIntercompanyPurchaseSupplier(row.supplier, row.supplier_name, input.intercompanyPrefixes)) continue;
     if (isExcludedErpCompany(row.company ?? "")) continue;
     if (!isAllowedSupplier(row, allowlist)) continue;
     const date = row.posting_date?.trim() ?? "";
@@ -90,11 +93,13 @@ export function accumulateLatestPurchase(input: {
   rows: PurchaseInvoiceLine[];
   allowedSuppliers: AllowedSupplier[];
   existing?: Map<string, LatestPurchase>;
+  intercompanyPrefixes?: string[];
 }): Map<string, LatestPurchase> {
   const allowlist = buildSupplierAllowlist(input.allowedSuppliers);
   const result = input.existing ?? new Map<string, LatestPurchase>();
   for (const row of input.rows) {
     if (!isSubmittedPurchase(row)) continue;
+    if (isIntercompanyPurchaseSupplier(row.supplier, row.supplier_name, input.intercompanyPrefixes)) continue;
     if (isExcludedErpCompany(row.company ?? "")) continue;
     if (!isAllowedSupplier(row, allowlist)) continue;
     const sku = row.item_code?.trim();
@@ -257,6 +262,7 @@ export async function fetchLatestPurchases(input: {
   cfg: OsfErpCredentials;
   allowedSuppliers: AllowedSupplier[];
   existing?: Map<string, LatestPurchase>;
+  intercompanyPrefixes?: string[];
 }): Promise<Map<string, LatestPurchase>> {
   const rows = await fetchPurchaseInvoiceLines({
     cfg: input.cfg,
@@ -266,5 +272,6 @@ export async function fetchLatestPurchases(input: {
     rows,
     allowedSuppliers: input.allowedSuppliers,
     existing: input.existing,
+    intercompanyPrefixes: input.intercompanyPrefixes,
   });
 }
