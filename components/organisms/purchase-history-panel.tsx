@@ -39,6 +39,13 @@ type Summary = {
   marginLineCount: number;
 };
 
+type HighRiskRow = {
+  id: string; sku: string; cycleStart: string; totalRop: number; totalStock: number; reorderQty: number;
+  bestPrice: number | string | null; bestSupplier: string | null; orderPlaced: boolean; orderQty: number | null;
+  orderSupplier: string | null; orderReceiveDate: string | null; reasonType: string | null;
+  replacementSku: string | null; changedPriority: string | null; otherReason: string | null; createdAt: string;
+};
+
 function defaultFromTo() {
   const to = formatAppIsoDate(new Date());
   const d = new Date();
@@ -86,6 +93,9 @@ export function PurchaseHistoryPanel() {
   const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [generatingMarginReport, setGeneratingMarginReport] = useState(false);
+  const [view, setView] = useState<"history" | "high-risk">("history");
+  const [highRiskRows, setHighRiskRows] = useState<HighRiskRow[]>([]);
+  const [highRiskLoading, setHighRiskLoading] = useState(false);
   const [erpAvailable, setErpAvailable] = useState(true);
   const limit = 200;
 
@@ -216,6 +226,27 @@ export function PurchaseHistoryPanel() {
 
   const busy = loading || exporting || generatingMarginReport;
 
+  const loadHighRisk = async () => {
+    setHighRiskLoading(true);
+    try {
+      const res = await fetch("/api/admin/purchasing/purchase-history/high-risk", { cache: "no-store" });
+      const json = await res.json();
+      if (!res.ok) { notify.error(json.error ?? "Failed to load high risk items"); return; }
+      setHighRiskRows(json.rows ?? []);
+    } catch { notify.error("Failed to load high risk items"); }
+    finally { setHighRiskLoading(false); }
+  };
+
+  const saveHighRisk = async (row: HighRiskRow, patch: Record<string, unknown>) => {
+    const res = await fetch("/api/admin/purchasing/purchase-history/high-risk", {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: row.id, ...patch }),
+    });
+    const json = await res.json();
+    if (!res.ok) { notify.error(json.error ?? "Failed to save high risk item"); return; }
+    if (json.row?.status === "fulfilled") setHighRiskRows((prev) => prev.filter((item) => item.id !== row.id));
+    else setHighRiskRows((prev) => prev.map((item) => item.id === row.id ? { ...item, ...json.row } : item));
+  };
+
   return (
     <div className="space-y-4 p-6">
       <div>
@@ -225,6 +256,40 @@ export function PurchaseHistoryPanel() {
           suppliers excluded). Click a row to open the invoice in ERP.
         </p>
       </div>
+
+      <div className="flex gap-2 border-b">
+        <Button variant={view === "history" ? "default" : "ghost"} onClick={() => setView("history")}>Purchase History</Button>
+        <Button variant={view === "high-risk" ? "default" : "ghost"} onClick={() => { setView("high-risk"); void loadHighRisk(); }}>High Risk Items</Button>
+      </div>
+
+      {view === "high-risk" ? (
+        <div className="overflow-x-auto rounded-md border">
+          <table className="w-full text-sm"><thead className="bg-muted/50"><tr>
+            {['SKU','Record Date','Total ROP','Total Stock','Reorder Qty','Best Price','Best Supplier','Order Placed','Qty','Supplier','Receive Date','Reason'].map((h) => <th key={h} className="p-2 text-left">{h}</th>)}
+          </tr></thead><tbody>
+            {highRiskRows.length === 0 && !highRiskLoading ? <tr><td colSpan={12} className="p-4 text-muted-foreground">No high risk items.</td></tr> : highRiskRows.map((row) => (
+              <tr key={row.id} className="border-t align-top">
+                <td className="p-2 font-mono">{row.sku}</td><td className="p-2">{row.createdAt.slice(0,10)}</td>
+                <td className="p-2 text-right">{money(row.totalRop)}</td><td className="p-2 text-right">{money(row.totalStock)}</td><td className="p-2 text-right">{money(row.reorderQty)}</td>
+                <td className="p-2 text-right">{money(Number(row.bestPrice))}</td><td className="p-2">{row.bestSupplier ?? "—"}</td>
+                <td className="p-2"><input type="checkbox" checked={row.orderPlaced} onChange={(e) => void saveHighRisk(row, { orderPlaced: e.target.checked })} /></td>
+                <td className="p-2"><Input className="w-20" type="number" min={0} defaultValue={row.orderQty ?? ""} onBlur={(e) => void saveHighRisk(row, { orderQty: e.target.value === "" ? null : Number(e.target.value) })} /></td>
+                <td className="p-2"><Input className="w-36" defaultValue={row.orderSupplier ?? ""} onBlur={(e) => void saveHighRisk(row, { orderSupplier: e.target.value })} /></td>
+                <td className="p-2"><Input type="date" defaultValue={row.orderReceiveDate?.slice(0,10) ?? ""} onBlur={(e) => void saveHighRisk(row, { orderReceiveDate: e.target.value || null })} /></td>
+                <td className="p-2 space-y-2">
+                  <select className="h-9 rounded-md border bg-background px-2" defaultValue={row.reasonType ?? ""} onChange={(e) => void saveHighRisk(row, { reasonType: e.target.value || null })}>
+                    <option value="">—</option><option>Replace</option><option>Priority change</option><option>Other</option>
+                  </select>
+                  {row.reasonType === "Replace" ? <Input className="w-40" placeholder="Replacement SKU" defaultValue={row.replacementSku ?? ""} onBlur={(e) => void saveHighRisk(row, { replacementSku: e.target.value })} /> : null}
+                  {row.reasonType === "Priority change" ? <Input className="w-40" placeholder="New priority" defaultValue={row.changedPriority ?? ""} onBlur={(e) => void saveHighRisk(row, { changedPriority: e.target.value })} /> : null}
+                  {row.reasonType === "Other" ? <Input className="w-40" placeholder="Reason details" defaultValue={row.otherReason ?? ""} onBlur={(e) => void saveHighRisk(row, { otherReason: e.target.value })} /> : null}
+                </td>
+              </tr>
+            ))}
+          </tbody></table>
+        </div>
+      ) : (
+        <>
 
       <div className="flex flex-wrap items-end gap-3">
         <label className="space-y-1 text-sm">
@@ -603,6 +668,8 @@ export function PurchaseHistoryPanel() {
           Next
         </Button>
       </div>
+        </>
+      )}
     </div>
   );
 }

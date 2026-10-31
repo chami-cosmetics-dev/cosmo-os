@@ -1237,7 +1237,8 @@ async function loadIntercompanyMatchContext() {
 async function clearInvalidIntercompanyGrnLinks(
   matchContext: Awaited<ReturnType<typeof loadIntercompanyMatchContext>>,
 ) {
-  const linkedPurchaseReceipts = await prisma.grnPurchaseReceipt.findMany({
+  const [linkedPurchaseReceipts, specialLinks] = await Promise.all([
+    prisma.grnPurchaseReceipt.findMany({
     where: {
       docstatus: { not: 2 },
       supplierStockReturnName: { not: null },
@@ -1251,8 +1252,15 @@ async function clearInvalidIntercompanyGrnLinks(
       supplierName: true,
       supplierStockReturnName: true,
     },
-  });
+    }),
+    prisma.grnSpecialLink.findMany({
+      select: { companyId: true, purchaseReceiptName: true, purchaseReceiptIsBackfill: true, supplierStockReturnName: true, supplierStockReturnIsBackfill: true },
+    }),
+  ]);
   if (linkedPurchaseReceipts.length === 0) return 0;
+  const specialLinkPairs = new Set(
+    specialLinks.map((link) => `${link.companyId}:${link.purchaseReceiptName}:${link.purchaseReceiptIsBackfill}:${link.supplierStockReturnName}:${link.supplierStockReturnIsBackfill}`),
+  );
 
   const linkedStockReturns = await prisma.grnSupplierStockReturn.findMany({
     where: {
@@ -1260,6 +1268,7 @@ async function clearInvalidIntercompanyGrnLinks(
       name: { in: linkedPurchaseReceipts.map((receipt) => receipt.supplierStockReturnName!) },
     },
     select: {
+      id: true,
       companyId: true,
       name: true,
       supplier: true,
@@ -1285,7 +1294,7 @@ async function clearInvalidIntercompanyGrnLinks(
         stockReturn: (typeof linkedStockReturns)[number];
       } => {
         const stockReturn = pair.stockReturn;
-        if (!stockReturn) return false;
+        if (!stockReturn || specialLinkPairs.has(`${pair.purchaseReceipt.companyId}:${pair.purchaseReceipt.name}:false:${stockReturn.name}:false`)) return false;
         return !isMatchingIntercompanyCompanyFlow(
           matchContext.resolvers.get(pair.purchaseReceipt.companyId),
           pair.purchaseReceipt,

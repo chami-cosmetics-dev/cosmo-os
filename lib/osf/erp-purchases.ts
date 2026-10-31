@@ -146,12 +146,18 @@ function isOutletCashTransferSupplier(
 export function isIntercompanyPurchaseSupplier(
   supplierCode: string | null | undefined,
   supplierName: string | null | undefined,
+  configuredPrefixes?: string[],
 ): boolean {
-  if (isOutletCashTransferSupplier(supplierCode, supplierName)) return true;
   const code = normalizeSupplierToken(supplierCode);
   const name = normalizeSupplierToken(supplierName);
   const haystack = `${code} ${name}`.trim();
   if (!haystack) return false;
+  const prefixes = (configuredPrefixes ?? []).map((value) => normalizeSupplierToken(value)).filter(Boolean);
+  if (prefixes.length > 0) {
+    const compactHaystack = compactSupplierToken(`${supplierCode ?? ""} ${supplierName ?? ""}`);
+    return prefixes.some((prefix) => compactHaystack.includes(compactSupplierToken(prefix)));
+  }
+  if (isOutletCashTransferSupplier(supplierCode, supplierName)) return true;
   if (code && (INTERCOMPANY_SUPPLIER_CODES.has(code) || INTERCOMPANY_SUPPLIER_NAMES.has(code))) {
     return true;
   }
