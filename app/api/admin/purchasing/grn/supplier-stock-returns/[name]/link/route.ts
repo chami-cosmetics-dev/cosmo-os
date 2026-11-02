@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
+import { buildGrnCompanyResolver } from "@/lib/grn-company-resolver";
 import { attachPendingSupplierStockReturnPurchaseInvoices } from "@/lib/grn";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserContext, requirePermission } from "@/lib/rbac";
@@ -13,6 +14,18 @@ const schema = z.object({
   companyId: z.string().min(1).optional(),
   purchaseReceiptCompanyId: z.string().min(1).optional(),
 });
+
+function companyFromRawPayload(rawPayload: unknown) {
+  if (!rawPayload || typeof rawPayload !== "object" || Array.isArray(rawPayload)) return null;
+  const top = rawPayload as Record<string, unknown>;
+  const payload =
+    top.data && typeof top.data === "object" && !Array.isArray(top.data)
+      ? (top.data as Record<string, unknown>)
+      : top;
+  return typeof payload.company === "string" && payload.company.trim()
+    ? payload.company.trim()
+    : null;
+}
 
 export async function POST(
   request: NextRequest,
@@ -44,13 +57,27 @@ export async function POST(
 
   const stockReturn = await prisma.grnSupplierStockReturn.findUnique({
     where: { companyId_name: { companyId: targetCompanyId, name: stockReturnName } },
-    select: { id: true, docstatus: true, purchaseReceiptName: true },
+    select: {
+      id: true,
+      docstatus: true,
+      purchaseReceiptName: true,
+      supplier: true,
+      supplierName: true,
+      rawPayload: true,
+    },
   });
   const backfillStockReturn = stockReturn
     ? null
     : await prisma.grnBackfillSupplierStockReturn.findUnique({
         where: { companyId_name: { companyId: targetCompanyId, name: stockReturnName } },
-        select: { id: true, docstatus: true, purchaseReceiptName: true },
+        select: {
+          id: true,
+          docstatus: true,
+          purchaseReceiptName: true,
+          supplier: true,
+          supplierName: true,
+          rawPayload: true,
+        },
       });
   if (!stockReturn && !backfillStockReturn) {
     return NextResponse.json({ error: "Supplier stock return not found" }, { status: 404 });
@@ -62,16 +89,35 @@ export async function POST(
 
   let purchaseReceiptId: string | null = null;
   let purchaseReceiptIsBackfill = false;
+  let purchaseReceiptMatchData: {
+    companyLocationId: string | null;
+    supplier: string;
+    supplierName: string | null;
+  } | null = null;
   if (purchaseReceiptName) {
     const pr = await prisma.grnPurchaseReceipt.findUnique({
       where: { companyId_name: { companyId: purchaseReceiptCompanyId, name: purchaseReceiptName } },
-      select: { id: true, name: true, docstatus: true },
+      select: {
+        id: true,
+        name: true,
+        docstatus: true,
+        companyLocationId: true,
+        supplier: true,
+        supplierName: true,
+      },
     });
     const backfillPr = pr
       ? null
       : await prisma.grnBackfillPurchaseReceipt.findUnique({
           where: { companyId_name: { companyId: purchaseReceiptCompanyId, name: purchaseReceiptName } },
-          select: { id: true, name: true, docstatus: true },
+          select: {
+            id: true,
+            name: true,
+            docstatus: true,
+            companyLocationId: true,
+            supplier: true,
+            supplierName: true,
+          },
         });
     if (!pr && !backfillPr) {
       return NextResponse.json({ error: "Purchase receipt not found" }, { status: 404 });
@@ -79,40 +125,86 @@ export async function POST(
     if ((pr?.docstatus ?? backfillPr?.docstatus) === 2) {
       return NextResponse.json({ error: "Cancelled purchase receipts cannot be linked" }, { status: 400 });
     }
-    purchaseReceiptId = pr?.id ?? null;
+    purchaseReceiptId = pr?.id ?? backfillPr?.id ?? null;
     purchaseReceiptIsBackfill = !pr && Boolean(backfillPr);
+    purchaseReceiptMatchData = pr ?? backfillPr;
+  }
+
+  if (purchaseReceiptName && purchaseReceiptMatchData && mode !== "remove") {
+    const locations = await prisma.companyLocation.findMany({
+      where: { companyId: targetCompanyId },
+      select: {
+        id: true,
+        name: true,
+        shortName: true,
+        erpnextCompany: true,
+        supplierPrefix: true,
+        isMainCompany: true,
+      },
+    });
+    const resolver = buildGrnCompanyResolver(locations);
+    const selectedStockReturn = stockReturn ?? backfillStockReturn!;
+    const isMatchingPair = resolver.isMatchingIntercompanyPair({
+      purchaseReceiptCompanyLocationId: purchaseReceiptMatchData.companyLocationId,
+      purchaseReceiptSupplier: purchaseReceiptMatchData.supplier,
+      purchaseReceiptSupplierName: purchaseReceiptMatchData.supplierName,
+      stockReturnName,
+      stockReturnCompany: companyFromRawPayload(selectedStockReturn.rawPayload),
+      stockReturnSupplier: selectedStockReturn.supplier,
+      stockReturnSupplierName: selectedStockReturn.supplierName,
+    });
+    if (!isMatchingPair) {
+      return NextResponse.json(
+        { error: "The PR and SSR belong to different intercompany supplier flows" },
+        { status: 400 },
+      );
+    }
   }
 
   if (mode === "append" || mode === "remove") {
     if (!purchaseReceiptName || !purchaseReceiptId) {
       return NextResponse.json({ error: "A purchase receipt is required" }, { status: 400 });
     }
-    if (stockReturnIsBackfill !== purchaseReceiptIsBackfill) {
-      return NextResponse.json({ error: "Live and backfill records cannot share a multi-PR link" }, { status: 400 });
-    }
-
-    const linkedNames = purchaseReceiptIsBackfill
-      ? (await prisma.grnBackfillSupplierStockReturnPurchaseReceipt.findMany({
-          where: { purchaseReceiptId },
-          select: { supplierStockReturn: { select: { name: true } } },
-        })).map((link) => link.supplierStockReturn.name)
-      : (await prisma.grnSupplierStockReturnPurchaseReceipt.findMany({
-          where: { purchaseReceiptId },
-          select: { supplierStockReturn: { select: { name: true } } },
-        })).map((link) => link.supplierStockReturn.name);
-    if (!purchaseReceiptIsBackfill) {
-      const livePr = await prisma.grnPurchaseReceipt.findUnique({
-        where: { id: purchaseReceiptId },
-        select: { supplierStockReturnName: true },
-      });
-      if (livePr?.supplierStockReturnName) linkedNames.push(livePr.supplierStockReturnName);
-    }
-    if (mode === "append" && linkedNames.some((linkedName) => linkedName !== stockReturnName)) {
-      return NextResponse.json({ error: "This purchase receipt is already linked to another SSR" }, { status: 409 });
-    }
-
     await prisma.$transaction(async (tx) => {
-      if (purchaseReceiptIsBackfill) {
+      if (stockReturnIsBackfill !== purchaseReceiptIsBackfill) {
+        if (mode === "append") {
+          if (stockReturnIsBackfill) {
+            await tx.grnBackfillSupplierStockReturn.updateMany({
+              where: { companyId: targetCompanyId, name: stockReturnName, purchaseReceiptName: null },
+              data: { purchaseReceiptName },
+            });
+          } else {
+            await tx.grnSupplierStockReturn.updateMany({
+              where: { companyId: targetCompanyId, name: stockReturnName, purchaseReceiptName: null },
+              data: { purchaseReceiptName },
+            });
+          }
+          if (!purchaseReceiptIsBackfill) {
+            await tx.grnPurchaseReceipt.updateMany({
+              where: { companyId: purchaseReceiptCompanyId, name: purchaseReceiptName, supplierStockReturnName: null },
+              data: { supplierStockReturnName: stockReturnName },
+            });
+          }
+        } else {
+          if (stockReturnIsBackfill) {
+            await tx.grnBackfillSupplierStockReturn.updateMany({
+              where: { companyId: targetCompanyId, name: stockReturnName, purchaseReceiptName },
+              data: { purchaseReceiptName: null },
+            });
+          } else {
+            await tx.grnSupplierStockReturn.updateMany({
+              where: { companyId: targetCompanyId, name: stockReturnName, purchaseReceiptName },
+              data: { purchaseReceiptName: null },
+            });
+          }
+          if (!purchaseReceiptIsBackfill) {
+            await tx.grnPurchaseReceipt.updateMany({
+              where: { companyId: purchaseReceiptCompanyId, name: purchaseReceiptName, supplierStockReturnName: stockReturnName },
+              data: { supplierStockReturnName: null },
+            });
+          }
+        }
+      } else if (purchaseReceiptIsBackfill) {
         if (mode === "append") {
           await tx.grnBackfillSupplierStockReturnPurchaseReceipt.upsert({
             where: {
@@ -166,22 +258,37 @@ export async function POST(
             where: { companyId_name: { companyId: targetCompanyId, name: stockReturnName } },
             data: { purchaseReceiptName: stockReturn?.purchaseReceiptName ?? purchaseReceiptName },
           });
-          await tx.grnPurchaseReceipt.update({
-            where: { id: purchaseReceiptId },
+          await tx.grnPurchaseReceipt.updateMany({
+            where: { id: purchaseReceiptId, supplierStockReturnName: null },
             data: { supplierStockReturnName: stockReturnName },
           });
         } else {
           await tx.grnSupplierStockReturnPurchaseReceipt.deleteMany({
             where: { supplierStockReturnId: stockReturn!.id, purchaseReceiptId },
           });
-          await tx.grnPurchaseReceipt.updateMany({
-            where: { id: purchaseReceiptId, supplierStockReturnName: stockReturnName },
-            data: { supplierStockReturnName: null },
-          });
           const remaining = await tx.grnSupplierStockReturnPurchaseReceipt.findFirst({
             where: { supplierStockReturnId: stockReturn!.id },
             orderBy: { createdAt: "asc" },
             select: { purchaseReceipt: { select: { name: true } } },
+          });
+          const remainingForPurchaseReceipt = await tx.grnSupplierStockReturnPurchaseReceipt.findFirst({
+            where: { purchaseReceiptId },
+            orderBy: { createdAt: "asc" },
+            select: { supplierStockReturn: { select: { name: true } } },
+          });
+          const currentPurchaseReceipt = await tx.grnPurchaseReceipt.findUnique({
+            where: { id: purchaseReceiptId },
+            select: { supplierStockReturnName: true },
+          });
+          await tx.grnPurchaseReceipt.update({
+            where: { id: purchaseReceiptId },
+            data: {
+              supplierStockReturnName:
+                remainingForPurchaseReceipt?.supplierStockReturn.name ??
+                (currentPurchaseReceipt?.supplierStockReturnName !== stockReturnName
+                  ? currentPurchaseReceipt?.supplierStockReturnName
+                  : null),
+            },
           });
           await tx.grnSupplierStockReturn.update({
             where: { companyId_name: { companyId: targetCompanyId, name: stockReturnName } },
@@ -191,7 +298,7 @@ export async function POST(
       }
 
       if (mode === "append") {
-        if (purchaseReceiptId) {
+        if (purchaseReceiptId && !purchaseReceiptIsBackfill) {
           await attachPendingSupplierStockReturnPurchaseInvoices(tx, {
             companyId: targetCompanyId,
             stockReturnName,
@@ -294,9 +401,9 @@ export async function POST(
         await tx.grnBackfillSupplierStockReturnPurchaseReceipt.deleteMany({ where: { supplierStockReturnId: displaced.id, purchaseReceiptId: purchaseReceiptId ?? "__none__" } });
       }
     }
-    if (!purchaseReceiptIsBackfill) {
+    if (!purchaseReceiptIsBackfill && purchaseReceiptName) {
       await tx.grnPurchaseReceipt.updateMany({
-        where: { companyId: purchaseReceiptCompanyId, name: purchaseReceiptName ?? "__none__" },
+        where: { companyId: purchaseReceiptCompanyId, name: purchaseReceiptName },
         data: { supplierStockReturnName: stockReturnName },
       });
     }
@@ -395,6 +502,16 @@ export async function POST(
           supplierStockReturnName: null,
         },
       });
+      if (!purchaseReceiptIsBackfill && purchaseReceiptName) {
+        await tx.grnPurchaseReceipt.updateMany({
+          where: {
+            companyId: purchaseReceiptCompanyId,
+            name: purchaseReceiptName,
+            supplierStockReturnName: stockReturnName,
+          },
+          data: { supplierStockReturnName: null },
+        });
+      }
     }
   });
 

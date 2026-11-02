@@ -49,6 +49,70 @@ export async function GET(request: NextRequest) {
   }
   sheet["!cols"] = rows.length ? Object.keys(rows[0]).map((key) => ({ wch: Math.max(14, Math.min(24, key.length + 3)) })) : [];
   XLSX.utils.book_append_sheet(workbook, sheet, "Receivable Outstanding");
+  const clearingAccounts = loaded.clearingAccounts.map((account) => ({
+    "Clearing Account": account.accountName,
+    "Account ID": account.accountId,
+    Company: account.company,
+    ERP: account.erpSlot ?? "",
+    Currency: account.currency ?? "",
+    "Closing Debit": account.closingDebit,
+    "Closing Credit": account.closingCredit,
+    Outstanding: account.outstanding,
+    "FIFO Outstanding": account.fifoOutstanding,
+    "Unmatched Credits": account.unmatchedCredits,
+    Reconciled: account.reconciled ? "Yes" : "No",
+    "Reconciliation Difference": account.reconciliationDifference,
+    Warning: account.reconciliationWarning ?? "",
+  }));
+  const clearingOutstanding = loaded.clearingAccounts.flatMap((account) => account.outstandingTransactions.map((row) => ({
+    "Clearing Account": account.accountName,
+    "Account ID": account.accountId,
+    Company: account.company,
+    ERP: account.erpSlot ?? "",
+    "Posting Date": row.postingDate ?? "",
+    "Voucher Type": row.voucherType ?? "",
+    "Voucher Number": row.voucherNumber ?? "",
+    "GL Entry ID": row.glEntryId ?? "",
+    "Original Incoming Amount": row.originalIncomingAmount,
+    "Cleared Amount": row.clearedAmount,
+    "Remaining Outstanding": row.remainingOutstanding,
+    "Age in Days": row.ageInDays ?? "",
+    "Unattributed Opening Balance": row.unattributedOpeningBalance ? "Yes" : "No",
+    Allocations: row.allocations.map((allocation) => `${allocation.voucherNumber ?? allocation.glEntryId ?? ""}: ${allocation.amount.toFixed(2)}`).join("; "),
+  })));
+  const clearingLedger = loaded.clearingAccounts.flatMap((account) => account.generalLedger.map((row) => ({
+    "Clearing Account": account.accountName,
+    "Account ID": account.accountId,
+    Company: account.company,
+    ERP: account.erpSlot ?? "",
+    "GL Entry ID": row.glEntryId ?? "",
+    "Posting Date": row.postingDate ?? "",
+    Creation: row.creationTimestamp ?? "",
+    Account: row.account,
+    "Voucher Type": row.voucherType ?? "",
+    "Voucher Number": row.voucherNumber ?? "",
+    Debit: row.debit,
+    Credit: row.credit,
+    Remarks: row.remarks ?? "",
+    Direction: row.direction,
+    "Allocated Amount": row.allocatedAmount,
+    "Unmatched Credit": row.unmatchedCredit,
+  })));
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(clearingAccounts), "Clearing Accounts");
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(clearingOutstanding), "Clearing Outstanding");
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(clearingLedger), "Clearing General Ledger");
+  const clearingHeaderStyle = { fill: { fgColor: { rgb: "17365D" } }, font: { bold: true, color: { rgb: "FFFFFF" } }, alignment: { horizontal: "center", vertical: "center", wrapText: true } };
+  for (const name of ["Clearing Accounts", "Clearing Outstanding", "Clearing General Ledger"]) {
+    const worksheet = workbook.Sheets[name];
+    const range = XLSX.utils.decode_range(worksheet["!ref"] ?? "A1");
+    for (let column = range.s.c; column <= range.e.c; column += 1) {
+      const cell = worksheet[XLSX.utils.encode_cell({ r: 0, c: column })];
+      if (cell) cell.s = clearingHeaderStyle;
+    }
+    worksheet["!freeze"] = { xSplit: 0, ySplit: 1 };
+    worksheet["!autofilter"] = { ref: XLSX.utils.encode_range(range) };
+    worksheet["!cols"] = Array.from({ length: range.e.c - range.s.c + 1 }, (_, index) => ({ wch: Math.max(14, Math.min(32, String(worksheet[XLSX.utils.encode_cell({ r: 0, c: index })]?.v ?? "").length + 4)) }));
+  }
   const buffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer;
   return new NextResponse(new Uint8Array(buffer), { headers: { "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Content-Disposition": `attachment; filename="receivable-outstanding-${reportDate}.xlsx"`, "Cache-Control": "no-store" } });
 }

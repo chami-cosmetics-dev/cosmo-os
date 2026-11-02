@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 
 import { FailedOrderWebhooksPanel } from "@/components/organisms/failed-order-webhooks-panel";
+import { ErpGrnWebhooksPanel } from "@/components/organisms/erp-grn-webhooks-panel";
 import { PermissionDeniedCard } from "@/components/molecules/permission-denied-card";
 import { requirePermission } from "@/lib/rbac";
 
@@ -13,5 +14,10 @@ export default async function FailedOrderWebhooksPage() {
     return <PermissionDeniedCard />;
   }
 
-  return <FailedOrderWebhooksPanel />;
+  return (
+    <div className="space-y-6">
+      <FailedOrderWebhooksPanel />
+      <ErpGrnWebhooksPanel />
+    </div>
+  );
 }

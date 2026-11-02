@@ -15,19 +15,45 @@ export type ItemCostSupplier = {
   supplier: string | null;
 };
 
+function errorCode(error: unknown): string | null {
+  if (typeof error !== "object" || error === null || !("code" in error)) return null;
+  const code = error.code;
+  return typeof code === "string" ? code : null;
+}
+
+function isTransientNetworkError(error: unknown): boolean {
+  if (error instanceof TypeError) return true;
+  const code = errorCode(error);
+  if (code && ["ECONNRESET", "ECONNREFUSED", "ETIMEDOUT", "UND_ERR_SOCKET", "UND_ERR_CONNECT_TIMEOUT"].includes(code)) return true;
+  if (typeof error === "object" && error !== null && "cause" in error) return isTransientNetworkError(error.cause);
+  return false;
+}
+
+function wait(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
 async function erpGetJson<T>(cfg: OsfErpCredentials, path: string): Promise<T> {
-  const res = await fetch(`${cfg.baseUrl}${path}`, {
-    headers: {
-      Authorization: `token ${cfg.apiKey}:${cfg.apiSecret}`,
-      Accept: "application/json",
-    },
-    cache: "no-store",
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new OsfErpError(`ERPNext GET ${path} [${res.status}]: ${text.slice(0, 300)}`);
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const res = await fetch(`${cfg.baseUrl}${path}`, {
+        headers: {
+          Authorization: `token ${cfg.apiKey}:${cfg.apiSecret}`,
+          Accept: "application/json",
+        },
+        cache: "no-store",
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new OsfErpError(`ERPNext GET ${path} [${res.status}]: ${text.slice(0, 300)}`);
+      }
+      return (await res.json()) as T;
+    } catch (error) {
+      if (!isTransientNetworkError(error) || attempt === 1) throw error;
+      await wait(250);
+    }
   }
-  return (await res.json()) as T;
+  throw new Error("ERP request failed without an error");
 }
 
 const ITEM_BATCH = 100;
@@ -113,7 +139,8 @@ export async function fetchItemCountries(input: {
         }
       }
     } catch (err) {
-      if (!(err instanceof OsfErpError)) throw err;
+      if (!(err instanceof OsfErpError) && !isTransientNetworkError(err)) throw err;
+      console.warn("[erp-cost-supplier] country lookup skipped after ERP request failure", err);
     }
   }
   for (const code of items) {

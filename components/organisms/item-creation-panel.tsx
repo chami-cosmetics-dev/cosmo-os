@@ -7,8 +7,10 @@ import {
   getOgfPriceTally,
   getPriceStatus,
   getStandardPriceTally,
+  ITEM_CREATION_TAX_STATUS_VALUES,
   ITEM_CREATION_STATUS_LABELS,
   PRICE_STATUS_LABELS,
+  isItemCreationStageCompletionVisible,
 } from "@/lib/item-creation/helpers";
 import { allocateTakeQty } from "@/lib/store-allocation/allocate";
 
@@ -21,15 +23,26 @@ type ItemCreationItem = {
   gccPrice: string | number | null;
   addErp1OgfPrice: boolean;
   country: string;
+  taxStatus: string;
   creationSources: string[];
   overallStatus: string;
   seoSetupStatus: string;
   seoActivationStatus: string;
   digitalMarketingStatus: string;
+  digitalMarketingBrand?: string | null;
+  digitalMarketingAssigneeId?: string | null;
+  digitalMarketingAssigneeIds?: string[];
+  digitalMarketingAssignee?: {
+    id: string;
+    knownName: string | null;
+    name: string | null;
+    email: string | null;
+  } | null;
   purchasingStatus: string;
   storeTransferStatus: string;
   storeStockStatus: string;
   imageDriveUrl: string | null;
+  shopifyRemovalPending?: boolean;
   erpStandardPrice: string | number | null;
   erpOgfPrice: string | number | null;
   erp1OgfPrice: string | number | null;
@@ -39,12 +52,15 @@ type ItemCreationItem = {
   erp2ItemCode: string | null;
   createdAt: string;
   itemCreatedAt?: string | null;
+  imageCreatedAt?: string | null;
   imageUpdatedAt?: string | null;
   priceUpdatedAt?: string | null;
   stockReadyAt?: string | null;
   stockAddedAt?: string | null;
   sentAt?: string | null;
   receivedAt?: string | null;
+  activatedAt?: string | null;
+  completedAt?: string | null;
 };
 
 type Props = {
@@ -52,9 +68,11 @@ type Props = {
   initialFilters: Record<string, string>;
   permissions: {
     admin: boolean;
+    adminViewer: boolean;
     manageAll: boolean;
     seo: boolean;
     digitalMarketing: boolean;
+    digitalMarketingAdmin: boolean;
     purchasing: boolean;
     stores: boolean;
   };
@@ -63,6 +81,7 @@ type Props = {
 
 type TeamView = "admin" | "seo" | "digitalMarketing" | "purchasing" | "stores";
 type WorkTeamView = Exclude<TeamView, "admin">;
+type DigitalMarketingAdminPage = "requests" | "allocations";
 type CreateRow = {
   key: number;
   sku: string;
@@ -72,6 +91,7 @@ type CreateRow = {
   gccPrice: string;
   addErp1OgfPrice: boolean;
   country: string;
+  taxStatus: string;
   creationSources: string[];
 };
 
@@ -81,6 +101,29 @@ type StockOption = {
   label: string;
   company?: string | null;
   priority?: number;
+};
+
+type ExistingStockLookup = {
+  itemCode: string;
+  itemName: string;
+  barcode: string | null;
+  rop: number;
+  currentStock: number | null;
+  warehouseDetails: Array<{ warehouse: string; erp: "ERP1" | "ERP2"; barcode: string | null; rop: number; stock: number | null }>;
+  erps: Array<"ERP1" | "ERP2">;
+};
+
+type StockAllocationItem = Pick<
+  ItemCreationItem,
+  "id" | "sku" | "description" | "seoSetupStatus" | "digitalMarketingStatus"
+> & {
+  isExisting?: boolean;
+  erp?: StockErp;
+  erps?: StockErp[];
+  barcode?: string | null;
+  rop?: number;
+  currentStock?: number | null;
+  warehouseDetails?: Array<{ warehouse: string; erp: StockErp; barcode: string | null; rop: number; stock: number | null }>;
 };
 type StockOptions = {
   suppliers: StockOption[];
@@ -134,6 +177,78 @@ function elapsedLabel(since: string, now: number | null) {
   return `${hours}h ${minutes % 60}m`;
 }
 
+function elapsedBetween(since: string, until: string | null | undefined, now: number | null) {
+  if (now == null) return "-";
+  const end = until ? new Date(until).getTime() : now;
+  const minutes = Math.max(0, Math.floor((end - new Date(since).getTime()) / 60000));
+  const days = Math.floor(minutes / 1440);
+  const hours = Math.floor((minutes % 1440) / 60);
+  if (days > 0) return `${days}d ${hours}h`;
+  return `${hours}h ${minutes % 60}m`;
+}
+
+function stageAgeLabel(
+  item: ItemCreationItem,
+  stage: "seo" | "digital" | "purchasing" | "transfer" | "stock" | "activation",
+  value: string,
+  now: number | null,
+) {
+  if (
+    (stage === "digital" && item.seoSetupStatus === "PENDING") ||
+    (stage === "purchasing" && item.purchasingStatus === "LOCKED") ||
+    (stage === "stock" && item.storeStockStatus === "WAITING_FOR_PRICE") ||
+    (stage === "activation" && item.seoActivationStatus === "LOCKED")
+  ) {
+    return "-";
+  }
+  const start = stage === "seo"
+    ? item.createdAt
+    : stage === "digital"
+      ? item.itemCreatedAt ?? item.createdAt
+      : stage === "purchasing"
+        ? item.imageUpdatedAt ?? item.itemCreatedAt ?? item.createdAt
+        : stage === "transfer"
+            ? item.createdAt
+          : stage === "stock"
+            ? item.stockReadyAt ?? item.priceUpdatedAt ?? item.createdAt
+            : item.stockAddedAt ?? item.receivedAt ?? item.createdAt;
+  const end = stage === "seo" && value === "COMPLETED"
+    ? item.imageUpdatedAt ?? item.itemCreatedAt
+    : stage === "seo" && value === "ITEM_CREATED"
+      ? item.itemCreatedAt
+      : stage === "digital" && value === "IMAGE_CREATED"
+        ? item.imageCreatedAt ?? item.imageUpdatedAt
+        : stage === "purchasing" && value === "PRICE_UPDATED"
+          ? item.priceUpdatedAt
+          : stage === "transfer" && value === "RECEIVED"
+            ? item.receivedAt
+            : stage === "stock" && value === "STOCK_ADDED"
+              ? item.stockAddedAt
+              : stage === "activation" && value === "ACTIVATED"
+                ? item.activatedAt
+                : null;
+  return elapsedBetween(start, end, now);
+}
+
+function StageStatus({
+  item,
+  stage,
+  value,
+  now,
+}: {
+  item: ItemCreationItem;
+  stage: "seo" | "digital" | "purchasing" | "transfer" | "stock" | "activation";
+  value: string;
+  now: number | null;
+}) {
+  return (
+    <div className="grid gap-1">
+      <StatusPill value={value} />
+      <span className="text-xs text-muted-foreground">{stageAgeLabel(item, stage, value, now)}</span>
+    </div>
+  );
+}
+
 const inputClass =
   "h-10 w-full min-w-0 rounded-md border bg-background px-3 text-sm outline-none transition focus:border-primary";
 const primaryButtonClass =
@@ -174,6 +289,40 @@ function teamViewLabel(view: WorkTeamView) {
   return teamLabels[view];
 }
 
+function creationSourceLabel(source: string) {
+  if (source === "SHOPIFY") return "Shopify";
+  if (source === "ERP2") return "ERP2";
+  return source;
+}
+
+function recentCompletionVisible(completedAt: string | null | undefined, now: number | null) {
+  return now == null || isItemCreationStageCompletionVisible(completedAt, now);
+}
+
+function completedCountForView(items: ItemCreationItem[], view: TeamView, now: number | null) {
+  if (view === "admin") return items.filter((item) => item.overallStatus === "COMPLETED").length;
+  if (view === "seo") {
+    return items.filter(
+      (item) => item.seoActivationStatus === "ACTIVATED" && recentCompletionVisible(item.activatedAt, now),
+    ).length;
+  }
+  if (view === "digitalMarketing") {
+    return items.filter(
+      (item) => item.digitalMarketingStatus === "IMAGE_CREATED" && recentCompletionVisible(item.imageCreatedAt, now),
+    ).length;
+  }
+  if (view === "purchasing") {
+    return items.filter(
+      (item) => item.purchasingStatus === "PRICE_UPDATED" && recentCompletionVisible(item.priceUpdatedAt, now),
+    ).length;
+  }
+  return items.filter(
+    (item) =>
+      (item.storeTransferStatus === "RECEIVED" && recentCompletionVisible(item.receivedAt, now)) ||
+      (item.storeStockStatus === "STOCK_ADDED" && recentCompletionVisible(item.stockAddedAt, now)),
+  ).length;
+}
+
 const emptyCreateRow = (key: number): CreateRow => ({
   key,
   sku: "",
@@ -183,11 +332,12 @@ const emptyCreateRow = (key: number): CreateRow => ({
   gccPrice: "",
   addErp1OgfPrice: false,
   country: "",
+  taxStatus: "Vat / Non Vat",
   creationSources: ["SHOPIFY"],
 });
 
 function defaultView(permissions: Props["permissions"]): TeamView {
-  if (permissions.admin) return "admin";
+  if (permissions.admin || permissions.adminViewer) return "admin";
   if (permissions.seo) return "seo";
   if (permissions.digitalMarketing) return "digitalMarketing";
   if (permissions.purchasing) return "purchasing";
@@ -204,9 +354,21 @@ export function ItemCreationPanel({
   const [message, setMessage] = useState("");
   const [filters, setFilters] = useState<Record<string, string>>(initialFilters);
   const [activeView, setActiveView] = useState<TeamView>(defaultView(permissions));
+  const [digitalMarketingAdminPage, setDigitalMarketingAdminPage] =
+    useState<DigitalMarketingAdminPage>("requests");
   const [createRows, setCreateRows] = useState<CreateRow[]>([emptyCreateRow(1)]);
   const [selectedCreateRows, setSelectedCreateRows] = useState<Set<number>>(new Set());
+  const [now, setNow] = useState<number | null>(null);
   const [isPending, startTransition] = useTransition();
+
+  useEffect(() => {
+    const initialTimer = window.setTimeout(() => setNow(Date.now()), 0);
+    const timer = window.setInterval(() => setNow(Date.now()), 60_000);
+    return () => {
+      window.clearTimeout(initialTimer);
+      window.clearInterval(timer);
+    };
+  }, []);
 
   const allCreateRowsSelected =
     createRows.length > 0 && createRows.every((row) => selectedCreateRows.has(row.key));
@@ -220,7 +382,11 @@ export function ItemCreationPanel({
     selectedRowsForBulk.length > 0 && selectedRowsForBulk.every((row) => row.addErp1OgfPrice);
 
   const canAct = (area: keyof Props["permissions"]) =>
-    permissions.manageAll || permissions[area];
+    permissions.manageAll || permissions[area] || (area === "digitalMarketing" && permissions.digitalMarketingAdmin);
+
+  const visibleViewTabs = viewTabs.filter((tab) =>
+    tab.view === "admin" ? permissions.admin || permissions.adminViewer : canAct(tab.view),
+  );
 
   async function refresh(nextFilters = filters) {
     const params = new URLSearchParams(
@@ -243,12 +409,26 @@ export function ItemCreationPanel({
     if (!response.ok) throw new Error(data.error ?? "Action failed");
     await refresh();
     if (url.startsWith("/api/item-creation/stock/")) {
-      const receiptCount = Array.isArray(data.receipts) ? data.receipts.length : 1;
-      setMessage(
-        receiptCount === 1
-          ? "Purchase Receipt created"
-          : `${receiptCount} Purchase Receipts created`
-      );
+      const receipts = Array.isArray(data.receipts) ? data.receipts : [];
+      const createdCount = receipts.filter(
+        (receipt: { status?: string }) => receipt.status === "SUBMITTED",
+      ).length;
+      const failedCount = receipts.filter(
+        (receipt: { status?: string }) => receipt.status === "FAILED",
+      ).length;
+      const erpLabel = url.endsWith("/erp1") ? "ERP1" : "ERP2";
+      if (failedCount > 0) {
+        setMessage(
+          `${createdCount} Purchase Receipt${createdCount === 1 ? "" : "s"} created; ` +
+          `${failedCount} failed in ${erpLabel}. Check the failed rows and retry.`,
+        );
+      } else {
+        setMessage(
+          createdCount === 1
+            ? "Purchase Receipt created"
+            : `${createdCount} Purchase Receipts created`,
+        );
+      }
       return;
     }
     setMessage("Updated");
@@ -279,6 +459,7 @@ export function ItemCreationPanel({
             gccPrice: vaultOs ? undefined : row.gccPrice,
             addErp1OgfPrice: vaultOs ? false : row.addErp1OgfPrice,
             country: row.country.trim(),
+            taxStatus: row.taxStatus,
             creationSources: row.creationSources,
           }))
           .filter((row) => row.sku || row.description || row.standardPrice || (!vaultOs && (row.ogfPrice || row.gccPrice)));
@@ -437,21 +618,53 @@ export function ItemCreationPanel({
       visible: canAct("seo"),
       items: items.filter((item) => item.seoSetupStatus === "ITEM_CREATED"),
       action: (item: ItemCreationItem) => (
-        <ActionButton onClick={() => runAction(`/api/item-creation/${item.id}/seo/image-updated`)}>
-          Mark SEO Done
+        <div className="flex flex-wrap gap-2">
+          <ActionButton onClick={() => runAction(`/api/item-creation/${item.id}/seo/image-updated`)}>
+            Mark SEO Done
+          </ActionButton>
+          <button
+            type="button"
+            onClick={() => runAction(`/api/item-creation/${item.id}/seo/revert`)}
+            className={secondaryButtonClass}
+          >
+            Revert SEO
+          </button>
+        </div>
+      ),
+    },
+    {
+      title: "Remove from Shopify",
+      subtitle: "Remove the item from Shopify, then confirm it here.",
+      team: "seo",
+      visible: canAct("seo"),
+      items: items.filter(
+        (item) => item.shopifyRemovalPending && !item.creationSources.includes("SHOPIFY"),
+      ),
+      action: (item: ItemCreationItem) => (
+        <ActionButton onClick={() => runAction(`/api/item-creation/${item.id}/seo/shopify-removed`)}>
+          Mark Shopify Removed
         </ActionButton>
       ),
     },
     {
       title: "Waiting Activation",
-      subtitle: "Stock is added and SEO can activate the item.",
+      subtitle: "Mark the Shopify product as activated for internal tracking.",
       team: "seo",
       visible: canAct("seo"),
       items: items.filter((item) => item.seoActivationStatus === "WAITING_ACTIVATION"),
       action: (item: ItemCreationItem) => (
-        <ActionButton onClick={() => runAction(`/api/item-creation/${item.id}/seo/activate`)}>
-          Activate Item
-        </ActionButton>
+        <div className="flex flex-wrap gap-2">
+          <ActionButton onClick={() => runAction(`/api/item-creation/${item.id}/seo/activate`)}>
+            Mark Shopify Activated
+          </ActionButton>
+          <button
+            type="button"
+            onClick={() => runAction(`/api/item-creation/${item.id}/seo/revert`)}
+            className={secondaryButtonClass}
+          >
+            Revert SEO
+          </button>
+        </div>
       ),
     },
     {
@@ -459,8 +672,23 @@ export function ItemCreationPanel({
       subtitle: "SEO activation is done.",
       team: "seo",
       visible: canAct("seo"),
-      items: items.filter((item) => item.seoActivationStatus === "ACTIVATED"),
-      action: () => <StatusPill value="COMPLETED" />,
+      items: items.filter(
+        (item) =>
+          item.seoActivationStatus === "ACTIVATED" &&
+          recentCompletionVisible(item.activatedAt, now),
+      ),
+      action: (item: ItemCreationItem) => (
+        <div className="flex flex-wrap gap-2">
+          <StatusPill value="COMPLETED" />
+          <button
+            type="button"
+            onClick={() => runAction(`/api/item-creation/${item.id}/seo/revert`)}
+            className={secondaryButtonClass}
+          >
+            Revert SEO
+          </button>
+        </div>
+      ),
     },
     {
       title: "Pending",
@@ -468,7 +696,7 @@ export function ItemCreationPanel({
       team: "digitalMarketing",
       visible: canAct("digitalMarketing"),
       items: items.filter(
-        (item) => item.digitalMarketingStatus === "PENDING" && item.seoSetupStatus === "ITEM_CREATED"
+        (item) => item.digitalMarketingStatus === "PENDING" && item.seoSetupStatus !== "PENDING"
       ),
       action: (item: ItemCreationItem) => (
         <DigitalAction item={item} onAction={runAction} />
@@ -479,8 +707,23 @@ export function ItemCreationPanel({
       subtitle: "Drive links are ready for the next stages.",
       team: "digitalMarketing",
       visible: canAct("digitalMarketing"),
-      items: items.filter((item) => item.digitalMarketingStatus === "IMAGE_CREATED"),
-      action: () => <StatusPill value="COMPLETED" />,
+      items: items.filter(
+        (item) =>
+          item.digitalMarketingStatus === "IMAGE_CREATED" &&
+          recentCompletionVisible(item.imageCreatedAt, now),
+      ),
+      action: (item: ItemCreationItem) => (
+        <div className="flex flex-wrap gap-2">
+          <StatusPill value="COMPLETED" />
+          <button
+            type="button"
+            onClick={() => runAction(`/api/item-creation/${item.id}/digital-marketing/revert`)}
+            className={secondaryButtonClass}
+          >
+            Revert Image
+          </button>
+        </div>
+      ),
     },
     {
       title: "Pending",
@@ -490,7 +733,10 @@ export function ItemCreationPanel({
       items: items.filter((item) => item.purchasingStatus === "WAITING_FOR_PRICES"),
       action: (item: ItemCreationItem) => (
         <>
-          <ActionButton onClick={() => runAction(`/api/item-creation/${item.id}/pricing/update`)}>
+          <ActionButton
+            disabled={isPending}
+            onClick={() => runAction(`/api/item-creation/${item.id}/pricing/update`)}
+          >
             Update Prices
           </ActionButton>
           <ActionButton onClick={() => runAction(`/api/item-creation/${item.id}/purchasing/price-updated`)}>
@@ -504,7 +750,11 @@ export function ItemCreationPanel({
       subtitle: "Prices have been confirmed.",
       team: "purchasing",
       visible: canAct("purchasing"),
-      items: items.filter((item) => item.purchasingStatus === "PRICE_UPDATED"),
+      items: items.filter(
+        (item) =>
+          item.purchasingStatus === "PRICE_UPDATED" &&
+          recentCompletionVisible(item.priceUpdatedAt, now),
+      ),
       action: () => <StatusPill value="COMPLETED" />,
     },
     {
@@ -512,7 +762,12 @@ export function ItemCreationPanel({
       subtitle: "Send and receive the physical transfer.",
       team: "stores",
       visible: canAct("stores"),
-      items: items.filter((item) => item.storeTransferStatus !== "RECEIVED"),
+      items: items.filter(
+        (item) =>
+          item.storeTransferStatus !== "RECEIVED" &&
+          item.seoSetupStatus !== "PENDING" &&
+          item.digitalMarketingStatus === "IMAGE_CREATED",
+      ),
       action: (item: ItemCreationItem) =>
         item.storeTransferStatus === "PENDING" ? (
           <ActionButton onClick={() => runAction(`/api/item-creation/${item.id}/stores/sent`)}>
@@ -553,7 +808,7 @@ export function ItemCreationPanel({
               Item Creation
             </h1>
             <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-              Manage item setup, images, prices, transfers, stock, and final SEO activation.
+              Manage item setup, images, prices, transfers, stock, and the final Shopify activation marker.
             </p>
           </div>
           {message && (
@@ -565,15 +820,15 @@ export function ItemCreationPanel({
 
         <div className="mt-5 grid gap-3 md:grid-cols-4">
           <MetricCard label="In Progress" value={items.filter((item) => item.overallStatus === "IN_PROGRESS").length} />
-          <MetricCard label="Completed" value={items.filter((item) => item.overallStatus === "COMPLETED").length} />
+          <MetricCard label="Completed" value={completedCountForView(items, activeView, now)} />
           <MetricCard label="Waiting Prices" value={items.filter((item) => item.purchasingStatus === "WAITING_FOR_PRICES").length} />
           <MetricCard label="Waiting Activation" value={items.filter((item) => item.seoActivationStatus === "WAITING_ACTIVATION").length} />
         </div>
       </div>
 
-      {permissions.admin && (
+      {(permissions.admin || permissions.adminViewer) && (
         <div className="grid gap-2 rounded-lg border bg-card p-2 md:grid-cols-5">
-          {viewTabs.map((tab) => (
+          {visibleViewTabs.map((tab) => (
             <button
               key={tab.view}
               type="button"
@@ -592,6 +847,39 @@ export function ItemCreationPanel({
           ))}
         </div>
       )}
+
+      {permissions.digitalMarketingAdmin && activeView === "digitalMarketing" && (
+        <div className="inline-flex flex-wrap gap-1 rounded-md border bg-card p-1">
+          <button
+            type="button"
+            onClick={() => setDigitalMarketingAdminPage("requests")}
+            className={`rounded-md px-4 py-2 text-sm font-medium transition ${
+              digitalMarketingAdminPage === "requests"
+                ? "bg-primary text-primary-foreground"
+                : "hover:bg-muted"
+            }`}
+          >
+            Digital Marketing
+          </button>
+          <button
+            type="button"
+            onClick={() => setDigitalMarketingAdminPage("allocations")}
+            className={`rounded-md px-4 py-2 text-sm font-medium transition ${
+              digitalMarketingAdminPage === "allocations"
+                ? "bg-primary text-primary-foreground"
+                : "hover:bg-muted"
+            }`}
+          >
+            Brand Allocation
+          </button>
+        </div>
+      )}
+
+      {permissions.digitalMarketingAdmin &&
+        activeView === "digitalMarketing" &&
+        digitalMarketingAdminPage === "allocations" && (
+          <BrandAllocationPanel items={items} onRefresh={refreshRequests} />
+        )}
 
       {permissions.admin && activeView === "admin" && (
         <div className="space-y-4">
@@ -672,9 +960,9 @@ export function ItemCreationPanel({
                 {createRows.map((row, index) => (
                   <div
                     key={row.key}
-                    className="grid gap-3 rounded-md border bg-background p-3 xl:grid-cols-[auto_150px_minmax(280px,1.7fr)_repeat(4,minmax(120px,1fr))_auto] xl:grid-rows-2"
+                    className="grid gap-3 rounded-md border bg-background p-3 xl:grid-cols-[auto_150px_minmax(240px,1fr)_minmax(520px,2fr)_auto] xl:items-center"
                   >
-                    <label className="flex h-10 items-center justify-center self-center rounded-md border bg-muted/20 px-3 xl:row-span-2">
+                    <label className="flex h-10 items-center justify-center self-center rounded-md border bg-muted/20 px-3">
                       <input
                         type="checkbox"
                         checked={selectedCreateRows.has(row.key)}
@@ -688,83 +976,99 @@ export function ItemCreationPanel({
                       onChange={(event) => updateCreateRow(row.key, "sku", event.target.value)}
                       required
                       placeholder="SKU"
-                      className={`${inputClass} self-center xl:row-span-2`}
+                      className={`${inputClass} self-center`}
                     />
                     <textarea
                       value={row.description}
                       onChange={(event) => updateCreateRow(row.key, "description", event.target.value)}
                       required
                       placeholder="Description"
-                      className={`${inputClass} h-full min-h-20 resize-none py-2 xl:row-span-2`}
+                      className={`${inputClass} min-h-20 resize-none py-2`}
                     />
-                    <input
-                      value={row.standardPrice}
-                      onChange={(event) => updateCreateRow(row.key, "standardPrice", event.target.value)}
-                      required
-                      type="number"
-                      step="0.01"
-                      placeholder="Standard"
-                      className={inputClass}
-                    />
-                    {!vaultOs && <input
-                      value={row.ogfPrice}
-                      onChange={(event) => updateCreateRow(row.key, "ogfPrice", event.target.value)}
-                      type="number"
-                      step="0.01"
-                      placeholder="OGF"
-                      className={inputClass}
-                    />}
-                    {!vaultOs && <input
-                      value={row.gccPrice}
-                      onChange={(event) => updateCreateRow(row.key, "gccPrice", event.target.value)}
-                      type="number"
-                      step="0.01"
-                      placeholder="GCC"
-                      className={inputClass}
-                    />}
-                    <input
-                      value={row.country}
-                      onChange={(event) => updateCreateRow(row.key, "country", event.target.value)}
-                      placeholder="Country"
-                      className={inputClass}
-                    />
+                    <div className="grid min-w-0 gap-3">
+                      <div className={`grid min-w-0 gap-3 sm:grid-cols-2 ${vaultOs ? "" : "xl:grid-cols-4"}`}>
+                        <input
+                          value={row.standardPrice}
+                          onChange={(event) => updateCreateRow(row.key, "standardPrice", event.target.value)}
+                          required
+                          type="number"
+                          step="0.01"
+                          placeholder="Standard"
+                          className={inputClass}
+                        />
+                        {!vaultOs && <input
+                          value={row.ogfPrice}
+                          onChange={(event) => updateCreateRow(row.key, "ogfPrice", event.target.value)}
+                          type="number"
+                          step="0.01"
+                          placeholder="OGF"
+                          className={inputClass}
+                        />}
+                        {!vaultOs && <input
+                          value={row.gccPrice}
+                          onChange={(event) => updateCreateRow(row.key, "gccPrice", event.target.value)}
+                          type="number"
+                          step="0.01"
+                          placeholder="GCC"
+                          className={inputClass}
+                        />}
+                        <input
+                          value={row.country}
+                          onChange={(event) => updateCreateRow(row.key, "country", event.target.value)}
+                          placeholder="Country"
+                          className={inputClass}
+                        />
+                      </div>
+                      <div className="flex min-w-0 flex-wrap items-center gap-2 xl:flex-nowrap">
+                        <>
+                          <label className="flex h-9 items-center gap-2 rounded-md border px-3 text-sm font-medium">
+                            <input
+                              type="checkbox"
+                              checked={row.creationSources.includes("SHOPIFY")}
+                              onChange={() => toggleCreateSource(row.key, "SHOPIFY")}
+                              className="size-4"
+                            />
+                            Shopify
+                          </label>
+                          <label className="flex h-9 items-center gap-2 rounded-md border px-3 text-sm font-medium">
+                            <input
+                              type="checkbox"
+                              checked={row.creationSources.includes("ERP2")}
+                              onChange={() => toggleCreateSource(row.key, "ERP2")}
+                              className="size-4"
+                            />
+                            ERP 02
+                          </label>
+                          {!vaultOs && <label className="flex h-9 items-center gap-2 rounded-md border px-3 text-sm font-medium">
+                            <input
+                              type="checkbox"
+                              checked={row.addErp1OgfPrice}
+                              onChange={(event) => updateCreateRow(row.key, "addErp1OgfPrice", event.target.checked)}
+                              className="size-4"
+                            />
+                            ERP1 OGF
+                          </label>}
+                        </>
+                        {!vaultOs && <select
+                          value={row.taxStatus}
+                          onChange={(event) => updateCreateRow(row.key, "taxStatus", event.target.value)}
+                          aria-label="Tax status"
+                          className="h-9 w-40 shrink-0 rounded-md border bg-background px-3 py-1 text-sm outline-none transition focus:border-primary"
+                        >
+                          {ITEM_CREATION_TAX_STATUS_VALUES.map((value) => (
+                            <option key={value} value={value}>{value}</option>
+                          ))}
+                        </select>}
+                      </div>
+                    </div>
                     <button
                       type="button"
                       onClick={() => removeCreateRow(row.key)}
-                      className={`${secondaryButtonClass} h-10 px-3 xl:row-span-2`}
+                      className={`${secondaryButtonClass} h-10 px-3`}
                       aria-label={`Remove item ${index + 1}`}
                     >
                       Remove
                     </button>
-                    <div className="flex flex-wrap items-center gap-2 xl:col-start-4 xl:col-end-8">
-                      <label className="flex h-9 items-center gap-2 rounded-md border px-3 text-sm font-medium">
-                        <input
-                          type="checkbox"
-                          checked={row.creationSources.includes("SHOPIFY")}
-                          onChange={() => toggleCreateSource(row.key, "SHOPIFY")}
-                          className="size-4"
-                        />
-                        Shopify
-                      </label>
-                      <label className="flex h-9 items-center gap-2 rounded-md border px-3 text-sm font-medium">
-                        <input
-                          type="checkbox"
-                          checked={row.creationSources.includes("ERP2")}
-                          onChange={() => toggleCreateSource(row.key, "ERP2")}
-                          className="size-4"
-                        />
-                        ERP 02
-                      </label>
-                      <label className="flex h-9 items-center gap-2 rounded-md border px-3 text-sm font-medium">
-                        <input
-                          type="checkbox"
-                          checked={row.addErp1OgfPrice}
-                          onChange={(event) => updateCreateRow(row.key, "addErp1OgfPrice", event.target.checked)}
-                          className="size-4"
-                        />
-                        ERP1 OGF
-                      </label>
-                    </div>
                   </div>
                 ))}
               </div>
@@ -780,7 +1084,16 @@ export function ItemCreationPanel({
             <div className="mb-4 flex items-center justify-between gap-3">
               <h2 className="text-lg font-semibold tracking-normal">Filters</h2>
             </div>
-            <div className="grid gap-3 xl:grid-cols-[1fr_1fr_1fr_1fr_1fr_auto]">
+            <div className="grid gap-3 xl:grid-cols-[1.4fr_1fr_1fr_1fr_1fr_1fr_auto]">
+              <label className="grid gap-1 text-xs font-medium text-muted-foreground">
+                Search SKU or product name
+                <input
+                  name="search"
+                  placeholder="SKU or product name"
+                  defaultValue={filters.search ?? ""}
+                  className={inputClass}
+                />
+              </label>
               <label className="grid gap-1 text-xs font-medium text-muted-foreground">
                 SKU
                 <input
@@ -840,19 +1153,23 @@ export function ItemCreationPanel({
         </div>
       )}
 
-      {permissions.admin && activeView === "admin" && (
+      {(permissions.admin || permissions.adminViewer || permissions.manageAll) && activeView === "admin" ? (
         <AdminTable
           items={items}
           isPending={isPending}
+          readOnly={!permissions.admin}
           onDelete={deleteRequest}
           onUpdate={updateRequest}
           onAction={runAction}
           onRefresh={refreshRequests}
           vaultOs={vaultOs}
         />
-      )}
+      ) : null}
 
-      {activeView !== "admin" && (
+      {activeView !== "admin" &&
+        !(activeView === "digitalMarketing" &&
+          permissions.digitalMarketingAdmin &&
+          digitalMarketingAdminPage === "allocations") && (
         <TeamWorkflowView
           teamLabel={teamViewLabel(activeView)}
           sections={visibleSections}
@@ -874,6 +1191,178 @@ function MetricCard({ label, value }: { label: string; value: number }) {
       </div>
       <div className="mt-1 text-2xl font-semibold">{value}</div>
     </div>
+  );
+}
+
+type BrandAllocation = { id: string; brand: string; userId: string; userIds?: string[]; userName: string };
+type DigitalMarketingUser = { id: string; name: string };
+
+function BrandAllocationPanel({
+  items,
+  onRefresh,
+}: {
+  items: ItemCreationItem[];
+  onRefresh: () => void;
+}) {
+  const [allocations, setAllocations] = useState<BrandAllocation[]>([]);
+  const [users, setUsers] = useState<DigitalMarketingUser[]>([]);
+  const [brand, setBrand] = useState("");
+  const [userIds, setUserIds] = useState<string[]>([]);
+  const [isBusy, setIsBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function load() {
+    const response = await fetch("/api/item-creation/brand-allocations");
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error ?? "Failed to load brand allocations");
+    setAllocations(data.allocations ?? []);
+    setUsers(data.users ?? []);
+  }
+
+  useEffect(() => {
+    void load().catch((loadError) => setError(loadError instanceof Error ? loadError.message : "Failed to load allocations"));
+  }, []);
+
+  async function save(next: BrandAllocation[]) {
+    setIsBusy(true);
+    setError("");
+    try {
+      const response = await fetch("/api/item-creation/brand-allocations", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ allocations: next.map(({ brand: value, userId: assignedUserId, ...row }) => ({ brand: value, userId: assignedUserId, userIds: (row as { userIds?: string[] }).userIds ?? [assignedUserId] })) }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "Failed to save allocations");
+      setAllocations(data.allocations ?? []);
+      setUsers(data.users ?? users);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Failed to save allocations");
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  function addAllocation() {
+    const trimmedBrand = brand.trim();
+    if (!trimmedBrand || userIds.length === 0) {
+      setError("Enter a brand and select an allocated person");
+      return;
+    }
+    void save([...allocations, { id: `new-${Date.now()}`, brand: trimmedBrand, userId: userIds[0], userIds, userName: users.filter((user) => userIds.includes(user.id)).map((user) => user.name).join(", ") } as BrandAllocation]);
+    setBrand("");
+    setUserIds([]);
+  }
+
+  function removeAllocation(id: string) {
+    void save(allocations.filter((allocation) => allocation.id !== id));
+  }
+
+  async function updateRequestAssignee(itemId: string, assigneeIds: string[]) {
+    setIsBusy(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/item-creation/${itemId}/digital-marketing/assignment`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ assigneeId: assigneeIds[0] || null, assigneeIds }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "Failed to update request assignment");
+      onRefresh();
+    } catch (assignmentError) {
+      setError(assignmentError instanceof Error ? assignmentError.message : "Failed to update request assignment");
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  return (
+    <section className="rounded-lg border bg-card p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold tracking-normal">Digital Marketing Brand Allocation</h2>
+          <p className="mt-1 text-sm text-muted-foreground">New requests are matched by brand name in the product description.</p>
+        </div>
+        <button type="button" onClick={() => void load()} disabled={isBusy} className={secondaryButtonClass}>Refresh</button>
+      </div>
+      <div className="mt-4 grid gap-2 md:grid-cols-[1fr_1fr_auto]">
+        <input value={brand} onChange={(event) => setBrand(event.target.value)} placeholder="Brand name" className={inputClass} />
+        <div className="flex min-h-10 flex-wrap items-center gap-2 rounded-md border bg-background p-2">
+          {users.map((user) => (
+            <label key={user.id} className="flex items-center gap-2 rounded-md border px-2 py-1 text-sm">
+              <input type="checkbox" checked={userIds.includes(user.id)} onChange={(event) => setUserIds((current) => event.target.checked ? [...current, user.id] : current.filter((id) => id !== user.id))} className="size-4" />
+              {user.name}
+            </label>
+          ))}
+        </div>
+        <button type="button" onClick={addAllocation} disabled={isBusy} className={primaryButtonClass}>Add Brand</button>
+      </div>
+      {error && <p className="mt-2 text-sm text-destructive">{error}</p>}
+      <div className="mt-4 overflow-x-auto rounded-md border">
+        <table className="w-full text-left text-sm">
+          <thead className="border-b bg-muted/50"><tr><th className="px-3 py-2">Brand</th><th className="px-3 py-2">Allocated person</th><th className="px-3 py-2">Action</th></tr></thead>
+          <tbody>
+            {allocations.map((allocation) => (
+              <tr key={allocation.id} className="border-b last:border-0">
+                <td className="px-3 py-2">{allocation.brand}</td>
+                <td className="px-3 py-2">
+                  <div className="flex min-w-64 flex-wrap gap-2 rounded-md border p-2">
+                    {users.map((user) => {
+                      const selectedIds = (allocation as BrandAllocation & { userIds?: string[] }).userIds ?? [allocation.userId];
+                      return (
+                      <label key={user.id} className="flex items-center gap-2 rounded-md border px-2 py-1 text-xs">
+                        <input type="checkbox" checked={selectedIds.includes(user.id)} onChange={(event) => {
+                      const ids = event.target.checked ? [...selectedIds, user.id] : selectedIds.filter((id) => id !== user.id);
+                      void save(allocations.map((candidate) =>
+                        candidate.id === allocation.id
+                          ? {
+                              ...candidate,
+                              userId: ids[0] ?? "",
+                              userIds: ids,
+                              userName: users.filter((user) => ids.includes(user.id)).map((user) => user.name).join(", "),
+                            }
+                          : candidate,
+                      ));
+                    }} disabled={isBusy} className="size-4" />
+                        {user.name}
+                      </label>
+                      );
+                    })}
+                  </div>
+                </td>
+                <td className="px-3 py-2"><button type="button" onClick={() => removeAllocation(allocation.id)} disabled={isBusy} className="text-sm text-destructive">Remove</button></td>
+              </tr>
+            ))}
+            {allocations.length === 0 && <tr><td colSpan={3} className="px-3 py-4 text-muted-foreground">No brand allocations configured.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+      <div className="mt-5 overflow-x-auto rounded-md border">
+        <div className="border-b bg-muted/50 px-3 py-2 text-sm font-medium">Request-level assignments</div>
+        <table className="w-full text-left text-sm">
+          <thead className="border-b"><tr><th className="px-3 py-2">SKU</th><th className="px-3 py-2">Product</th><th className="px-3 py-2">Brand</th><th className="px-3 py-2">Assigned person</th></tr></thead>
+          <tbody>
+            {items.filter((item) => item.digitalMarketingStatus === "PENDING").map((item) => (
+              <tr key={item.id} className="border-b last:border-0">
+                <td className="px-3 py-2 font-medium">{item.sku}</td>
+                <td className="max-w-sm px-3 py-2">{item.description}</td>
+                <td className="px-3 py-2">{item.digitalMarketingBrand ?? "Unmatched"}</td>
+                <td className="px-3 py-2">
+                  <div className="flex min-w-64 flex-wrap gap-2 rounded-md border p-2">
+                    {users.map((user) => {
+                      const selectedIds = item.digitalMarketingAssigneeIds ?? (item.digitalMarketingAssigneeId ? [item.digitalMarketingAssigneeId] : []);
+                      return <label key={user.id} className="flex items-center gap-2 rounded-md border px-2 py-1 text-xs"><input type="checkbox" checked={selectedIds.includes(user.id)} onChange={(event) => void updateRequestAssignee(item.id, event.target.checked ? [...selectedIds, user.id] : selectedIds.filter((id) => id !== user.id))} disabled={isBusy} className="size-4" />{user.name}</label>;
+                    })}
+                  </div>
+                </td>
+              </tr>
+            ))}
+            {items.filter((item) => item.digitalMarketingStatus === "PENDING").length === 0 && <tr><td colSpan={4} className="px-3 py-4 text-muted-foreground">No pending Digital Marketing requests.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 
@@ -1054,7 +1543,7 @@ function TeamWorkflowView({
                 </div>
                 {section.team === "stores" && section.title === "Stock" ? (
                   <div className="space-y-4">
-                    <CombinedStockRequestTable items={section.items} onAction={onAction} />
+                    <CombinedStockRequestTableWithExistingItems items={section.items} onAction={onAction} />
                   </div>
                 ) : (
                   <div className="grid gap-3 xl:grid-cols-2">
@@ -1091,12 +1580,14 @@ function TeamWorkflowView({
 function ActionButton({
   children,
   onClick,
+  disabled = false,
 }: {
   children: ReactNode;
   onClick: () => void;
+  disabled?: boolean;
 }) {
   return (
-    <button type="button" onClick={onClick} className={primaryButtonClass}>
+    <button type="button" onClick={onClick} disabled={disabled} className={primaryButtonClass}>
       {children}
     </button>
   );
@@ -1117,7 +1608,9 @@ function CombinedStockRequestTable({
   const [totals, setTotals] = useState<Record<string, string>>({});
   const [warehouseToAdd, setWarehouseToAdd] = useState<Record<string, string>>({});
   const [confirmed, setConfirmed] = useState<Set<string>>(new Set());
-  const eligible = items.filter((item) => item.seoSetupStatus !== "PENDING");
+  const eligible = items.filter(
+    (item) => item.seoSetupStatus !== "PENDING" && item.digitalMarketingStatus === "IMAGE_CREATED",
+  );
   const allSelected = eligible.length > 0 && eligible.every((item) => selected.has(item.id));
 
   useEffect(() => {
@@ -1275,7 +1768,8 @@ function CombinedStockRequestTable({
       <table className="w-full min-w-[1100px] text-sm">
         <thead className="bg-muted/40 text-xs uppercase text-muted-foreground"><tr><th className="px-3 py-2">Select</th><th className="px-3 py-2 text-left">SKU</th><th className="px-3 py-2 text-left">Description</th><th className="px-3 py-2 text-left">Warehouse (ERP)</th><th className="px-3 py-2">Allocated Qty</th><th className="px-3 py-2 text-left">Company</th><th className="px-3 py-2">Action</th></tr></thead>
         <tbody>{items.map((item) => {
-          const locked = item.seoSetupStatus === "PENDING";
+          const locked =
+            item.seoSetupStatus === "PENDING" || item.digitalMarketingStatus !== "IMAGE_CREATED";
           const allocationRows = itemRows(item);
           const availableWarehouses = configuredWarehouses().filter(
             (option) => !allocationRows.some((row) => row.erp === option.erp && row.warehouse === option.name),
@@ -1283,11 +1777,411 @@ function CombinedStockRequestTable({
           return <tr key={item.id} className="border-t align-top">
             <td className="px-3 py-3"><input type="checkbox" disabled={locked} checked={selected.has(item.id)} onChange={() => toggle(item.id)} /></td>
             <td className="px-3 py-3 font-semibold">{item.sku}</td><td className="px-3 py-3 text-muted-foreground">{item.description}</td>
-            <td className="px-3 py-3" colSpan={3}>{locked ? "Waiting for item created" : <div className="space-y-2"><div className="flex flex-wrap items-center gap-2"><input type="number" min="0" value={totals[item.id] ?? ""} onChange={(event) => setTotals((current) => ({ ...current, [item.id]: event.target.value }))} placeholder="Total qty" className={`${inputClass} w-32`} /><button type="button" onClick={() => calculate(item)} className={secondaryButtonClass}>Calculate allocation</button><button type="button" onClick={() => confirm(item)} className={secondaryButtonClass}>{confirmed.has(item.id) ? "Confirmed" : "Confirm allocation"}</button><select value={warehouseToAdd[item.id] ?? ""} onChange={(event) => setWarehouseToAdd((current) => ({ ...current, [item.id]: event.target.value }))} disabled={availableWarehouses.length === 0} className={inputClass}><option value="">Select warehouse to add</option>{availableWarehouses.map((option) => <option key={warehouseOptionKey(option)} value={warehouseOptionKey(option)}>{option.label} ({option.erp.toUpperCase()})</option>)}</select><button type="button" onClick={() => addWarehouse(item)} disabled={!warehouseToAdd[item.id]} className={secondaryButtonClass}>Add Warehouse</button></div>{allocationRows.map((row) => <div key={row.key} className="grid grid-cols-[minmax(300px,1fr)_120px_minmax(180px,1fr)_auto] gap-2"><select value={row.warehouse} onChange={(event) => { const option = options.find((candidate) => candidate.name === event.target.value && candidate.erp === row.erp); setRows((current) => ({ ...current, [item.id]: allocationRows.map((entry) => entry.key === row.key ? { ...entry, warehouse: event.target.value, priority: option?.priority ?? entry.priority } : entry) })); setConfirmed((currentConfirmed) => { const next = new Set(currentConfirmed); next.delete(item.id); return next; }); }} className={inputClass}>{options.map((option) => <option key={`${option.erp}-${option.name}`} value={option.name}>{option.label} ({option.erp.toUpperCase()})</option>)}</select><input type="number" min="0" value={row.qty} onChange={(event) => setRows((current) => ({ ...current, [item.id]: allocationRows.map((entry) => entry.key === row.key ? { ...entry, qty: event.target.value } : entry) }))} className={inputClass} /><div className="flex items-center rounded-md border bg-muted/20 px-3 text-muted-foreground">{options.find((option) => option.name === row.warehouse && option.erp === row.erp)?.company ?? "-"}</div><button type="button" onClick={() => removeWarehouse(item.id, row.key)} className={secondaryButtonClass}>Remove</button></div>)}</div>}</td>
-            <td className="px-3 py-3"><button type="button" onClick={() => onAction(`/api/item-creation/${item.id}/stores/stock-added`)} className={secondaryButtonClass}>Manual</button></td>
+            <td className="px-3 py-3">{locked ? "Waiting for Digital Marketing image" : <button type="button" onClick={() => onAction(`/api/item-creation/${item.id}/stores/stock-added`)} className={secondaryButtonClass}>Manual</button>}</td>
           </tr>;
         })}</tbody>
       </table>
+    </div>
+  );
+}
+
+function CombinedStockRequestTableWithExistingItems({
+  items,
+  onAction,
+}: {
+  items: ItemCreationItem[];
+  onAction: (url: string, body?: unknown) => void;
+}) {
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [supplier, setSupplier] = useState("");
+  const [supplierOptions, setSupplierOptions] = useState<Array<{ name: string; label: string }>>([]);
+  const [options, setOptions] = useState<Array<StockOption & { erp: StockErp }>>([]);
+  const [optionsError, setOptionsError] = useState("");
+  const [existingItems, setExistingItems] = useState<StockAllocationItem[]>([]);
+  const [existingQuery, setExistingQuery] = useState("");
+  const [lookupMatches, setLookupMatches] = useState<ExistingStockLookup[]>([]);
+  const [lookupError, setLookupError] = useState("");
+  const [isLookingUp, setIsLookingUp] = useState(false);
+  const [rows, setRows] = useState<Record<string, StockWarehouseRow[]>>({});
+  const [totals, setTotals] = useState<Record<string, string>>({});
+  const [warehouseToAdd, setWarehouseToAdd] = useState<Record<string, string>>({});
+  const [confirmed, setConfirmed] = useState<Set<string>>(new Set());
+  const [allocationErrors, setAllocationErrors] = useState<Record<string, string>>({});
+
+  const workflowItems = items.filter(
+    (item) => item.seoSetupStatus !== "PENDING" && item.digitalMarketingStatus === "IMAGE_CREATED",
+  );
+  const allocationItems: StockAllocationItem[] = [...workflowItems, ...existingItems];
+  const isLocked = (item: StockAllocationItem) =>
+    !item.isExisting && (item.seoSetupStatus === "PENDING" || item.digitalMarketingStatus !== "IMAGE_CREATED");
+  const selectableItems = allocationItems.filter((item) => !isLocked(item));
+  const allSelected = selectableItems.length > 0 && selectableItems.every((item) => selected.has(item.id));
+
+  useEffect(() => {
+    void Promise.all((['erp1', 'erp2'] as StockErp[]).map(async (erp) => {
+      const response = await fetch(`/api/item-creation/stock/options?erp=${erp.toUpperCase()}`, { cache: "no-store" });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(data?.error ?? "Failed to load stock options");
+      return (data.warehouses ?? [])
+        .filter((option: StockOption) => {
+          const name = option.name.toLowerCase();
+          return name.includes("main") && !name.includes("shop");
+        })
+        .map((option: StockOption) => ({ ...option, label: option.name, erp }));
+    })).then((loaded) => {
+      setOptions(loaded.flat());
+      setOptionsError("");
+    }).catch((error) => {
+      setOptionsError(error instanceof Error ? error.message : "Failed to load stock options");
+    });
+  }, []);
+
+  useEffect(() => {
+    void Promise.all((['ERP1', 'ERP2'] as const).map(async (erp) => {
+      const response = await fetch(`/api/item-creation/stock/options?erp=${erp}`, { cache: "no-store" });
+      if (!response.ok) return [] as Array<{ name: string; label: string }>;
+      const data = (await response.json()) as { suppliers?: Array<{ name?: string; label?: string }> };
+      return (data.suppliers ?? []).flatMap((option) => option.name || option.label
+        ? [{ name: option.name || option.label!, label: option.label || option.name! }]
+        : []);
+    })).then((lists) => {
+      const unique = new Map<string, { name: string; label: string }>();
+      for (const option of lists.flat()) unique.set(option.name, option);
+      setSupplierOptions([...unique.values()].sort((a, b) => a.label.localeCompare(b.label)));
+    });
+  }, []);
+
+  function configuredWarehouses(item?: StockAllocationItem) {
+    return options.filter((option) => {
+      if (item?.isExisting && item.erps?.length && !item.erps.includes(option.erp)) return false;
+      if (item?.isExisting && !item.erps?.length && item.erp && option.erp !== item.erp) return false;
+      const name = option.name.toLowerCase();
+      return name.includes("main") && !name.includes("shop");
+    });
+  }
+
+  useEffect(() => {
+    if (options.length === 0) return;
+    setRows((current) => {
+      const next = { ...current };
+      for (const item of allocationItems) {
+        if (next[item.id]) continue;
+        next[item.id] = configuredWarehouses(item).map((option, index) => ({
+          key: index + 1,
+          warehouse: option.name,
+          qty: "0",
+          priority: option.priority ?? 2,
+          erp: option.erp,
+        }));
+      }
+      return next;
+    });
+    // Rows are initialized only for newly visible items; existing row edits are preserved.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, existingItems, options]);
+
+  function itemRows(item: StockAllocationItem) {
+    return rows[item.id] ?? [];
+  }
+
+  function warehouseOptionKey(option: StockOption & { erp: StockErp }) {
+    return `${option.erp}:${option.name}`;
+  }
+
+  function toggle(id: string) {
+    setSelected((current) => {
+      const next = new Set(current);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+
+  async function lookupExistingItem() {
+    const query = existingQuery.trim();
+    if (!query) return;
+    setIsLookingUp(true);
+    setLookupError("");
+    setLookupMatches([]);
+    try {
+      const response = await fetch(`/api/item-creation/stock/lookup?q=${encodeURIComponent(query)}`, { cache: "no-store" });
+      const data = await response.json().catch(() => null) as { items?: ExistingStockLookup[]; error?: string } | null;
+      if (!response.ok) throw new Error(data?.error ?? "Existing item lookup failed");
+      const matches = data?.items ?? [];
+      setLookupMatches(matches);
+      if (matches.length === 1) addExistingItem(matches[0]!);
+    } catch (error) {
+      setLookupError(error instanceof Error ? error.message : "Existing item lookup failed");
+    } finally {
+      setIsLookingUp(false);
+    }
+  }
+
+  function addExistingItem(match: ExistingStockLookup) {
+    const erps = match.erps.map((value) => value.toLowerCase() as StockErp);
+    const id = `existing:${match.itemCode}`;
+    setExistingItems((current) => current.some((item) => item.id === id)
+      ? current
+      : [...current, {
+          id,
+          sku: match.itemCode,
+          description: match.itemName,
+          seoSetupStatus: "ITEM_CREATED",
+          digitalMarketingStatus: "IMAGE_CREATED",
+          isExisting: true,
+          erp: erps.length === 1 ? erps[0] : undefined,
+          erps,
+          barcode: match.barcode,
+          rop: match.rop,
+          currentStock: match.currentStock,
+          warehouseDetails: match.warehouseDetails.map((detail) => ({ ...detail, erp: detail.erp.toLowerCase() as StockErp })),
+        }]);
+    setSelected((current) => new Set(current).add(id));
+    setLookupMatches((current) => current.filter((item) => item.itemCode !== match.itemCode));
+    setExistingQuery("");
+  }
+
+  function updateRow(itemId: string, key: number, patch: Partial<StockWarehouseRow>) {
+    setRows((current) => ({
+      ...current,
+      [itemId]: (current[itemId] ?? []).map((row) => row.key === key ? { ...row, ...patch } : row),
+    }));
+    setConfirmed((current) => {
+      const next = new Set(current);
+      next.delete(itemId);
+      return next;
+    });
+    setAllocationErrors((current) => ({ ...current, [itemId]: "" }));
+  }
+
+  function calculate(item: StockAllocationItem) {
+    const total = Math.max(0, Math.floor(Number(totals[item.id]) || 0));
+    const current = itemRows(item);
+    let remaining = total;
+    const values = new Map<string, number>();
+    const priorityFor = (row: StockWarehouseRow) => row.priority ?? 2;
+    for (const row of current.filter((entry) => priorityFor(entry) === 1)) {
+      const qty = Math.min(3, remaining);
+      values.set(String(row.key), qty);
+      remaining -= qty;
+      if (remaining === 0) break;
+    }
+    const extra = allocateTakeQty(remaining, current.map((row) => ({
+      key: String(row.key),
+      need: 0,
+      sales: 0,
+      priority: priorityFor(row),
+    })), false);
+    for (const allocation of extra) {
+      values.set(allocation.key, (values.get(allocation.key) ?? 0) + allocation.qty);
+    }
+    setRows((allRows) => ({
+      ...allRows,
+      [item.id]: current.map((row) => ({ ...row, qty: String(values.get(String(row.key)) ?? 0) })),
+    }));
+    setConfirmed((currentConfirmed) => {
+      const next = new Set(currentConfirmed);
+      next.delete(item.id);
+      return next;
+    });
+    setAllocationErrors((current) => ({ ...current, [item.id]: "" }));
+  }
+
+  function addWarehouse(item: StockAllocationItem) {
+    const selectedKey = warehouseToAdd[item.id];
+    const warehouse = configuredWarehouses(item).find((option) => warehouseOptionKey(option) === selectedKey);
+    if (!warehouse) return;
+    const current = itemRows(item);
+    if (current.some((row) => row.erp === warehouse.erp && row.warehouse === warehouse.name)) return;
+    setRows((allRows) => ({
+      ...allRows,
+      [item.id]: [...(allRows[item.id] ?? []), {
+        key: Math.max(0, ...current.map((row) => row.key)) + 1,
+        warehouse: warehouse.name,
+        qty: "0",
+        priority: warehouse.priority ?? 2,
+        erp: warehouse.erp,
+      }],
+    }));
+    setWarehouseToAdd((currentValues) => ({ ...currentValues, [item.id]: "" }));
+    setConfirmed((currentConfirmed) => {
+      const next = new Set(currentConfirmed);
+      next.delete(item.id);
+      return next;
+    });
+    setAllocationErrors((current) => ({ ...current, [item.id]: "" }));
+  }
+
+  function removeWarehouse(itemId: string, rowKey: number) {
+    setRows((current) => ({ ...current, [itemId]: (current[itemId] ?? []).filter((row) => row.key !== rowKey) }));
+    setConfirmed((current) => {
+      const next = new Set(current);
+      next.delete(itemId);
+      return next;
+    });
+    setAllocationErrors((current) => ({ ...current, [itemId]: "" }));
+  }
+
+  function confirm(item: StockAllocationItem) {
+    const total = Math.floor(Number(totals[item.id]));
+    const allocated = itemRows(item).reduce((sum, row) => sum + Math.max(0, Number(row.qty) || 0), 0);
+    if (!Number.isFinite(total) || total <= 0) {
+      setAllocationErrors((current) => ({ ...current, [item.id]: "Enter a total quantity greater than zero." }));
+      return;
+    }
+    if (allocated !== total) {
+      setAllocationErrors((current) => ({
+        ...current,
+        [item.id]: `Allocated quantity does not match the total (${allocated} of ${total}).`,
+      }));
+      return;
+    }
+    setAllocationErrors((current) => ({ ...current, [item.id]: "" }));
+    setConfirmed((current) => new Set(current).add(item.id));
+  }
+
+  function createReceipts() {
+    const supplierId = supplierOptions.find((option) => option.label === supplier || option.name === supplier)?.name ?? supplier.trim();
+    const grouped = new Map<StockErp, {
+      supplier: string;
+      warehouses: Array<{
+        warehouse: string;
+        company?: string;
+        items: Array<{ itemRequestId?: string; itemCode: string; qty: string; warehouse: string }>;
+      }>;
+    }>();
+    for (const item of selectableItems.filter((candidate) => selected.has(candidate.id) && confirmed.has(candidate.id))) {
+      for (const row of itemRows(item).filter((allocation) => allocation.warehouse.trim() && Number(allocation.qty) > 0)) {
+        const erp = row.erp ?? item.erp;
+        if (!erp) continue;
+        const option = options.find((candidate) => candidate.name === row.warehouse && candidate.erp === erp);
+        const payload = grouped.get(erp) ?? { supplier: supplierId, warehouses: [] };
+        let warehouse = payload.warehouses.find((entry) => entry.warehouse === row.warehouse);
+        if (!warehouse) {
+          warehouse = { warehouse: row.warehouse, company: option?.company ?? undefined, items: [] };
+          payload.warehouses.push(warehouse);
+        }
+        warehouse.items.push({
+          ...(item.isExisting ? {} : { itemRequestId: item.id }),
+          itemCode: item.sku,
+          qty: row.qty,
+          warehouse: row.warehouse,
+        });
+        grouped.set(erp, payload);
+      }
+    }
+    for (const [erp, payload] of grouped) onAction(`/api/item-creation/stock/${erp}`, payload);
+  }
+
+  return (
+    <div className="overflow-hidden rounded-lg border bg-background">
+      <div className="space-y-3 border-b p-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="flex items-center gap-2 text-sm">
+            <span>Supplier</span>
+            <input list="combined-item-stock-suppliers" value={supplier} onChange={(event) => setSupplier(event.target.value)} placeholder="Search supplier" className={`${inputClass} w-64`} />
+            <datalist id="combined-item-stock-suppliers">{supplierOptions.map((option) => <option key={option.name} value={option.label} label={option.name} />)}</datalist>
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <span>Existing item</span>
+            <input
+              value={existingQuery}
+              onChange={(event) => setExistingQuery(event.target.value)}
+              onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void lookupExistingItem(); } }}
+              placeholder="Search SKU or barcode"
+              className={`${inputClass} w-64`}
+            />
+          </label>
+          <button type="button" onClick={() => void lookupExistingItem()} disabled={isLookingUp || !existingQuery.trim()} className={secondaryButtonClass}>
+            {isLookingUp ? "Searching..." : "Add existing item"}
+          </button>
+          <button type="button" onClick={() => setSelected(allSelected ? new Set() : new Set(selectableItems.map((item) => item.id)))} className={secondaryButtonClass}>
+            Select all
+          </button>
+          <span className="text-sm text-muted-foreground">{selected.size} selected</span>
+          <button
+            type="button"
+            onClick={createReceipts}
+            disabled={!supplier.trim() || selectableItems.filter((item) => selected.has(item.id)).some((item) => !confirmed.has(item.id))}
+            className={primaryButtonClass}
+          >
+            Create Purchase Receipts
+          </button>
+        </div>
+        {(lookupError || optionsError) && <p className="text-sm text-destructive">{lookupError || optionsError}</p>}
+        {lookupMatches.length > 0 && (
+          <div className="flex flex-wrap gap-2 rounded-md border bg-muted/20 p-2 text-sm">
+            <span className="self-center text-muted-foreground">Select an ERP item:</span>
+            {lookupMatches.map((match) => (
+              <button key={match.itemCode} type="button" onClick={() => addExistingItem(match)} className={secondaryButtonClass}>
+                {match.itemCode} ({match.erps.join(" + ")})
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[1100px] text-sm">
+          <thead className="bg-muted/40 text-xs uppercase text-muted-foreground">
+            <tr><th className="px-3 py-2 text-left">Select</th><th className="px-3 py-2 text-left">SKU</th><th className="px-3 py-2 text-left">Description</th><th className="px-3 py-2 text-left">Warehouse (ERP)</th><th className="px-3 py-2">Allocated Qty</th><th className="px-3 py-2 text-left">Company</th><th className="px-3 py-2">Action</th></tr>
+          </thead>
+          <tbody>
+            {allocationItems.map((item) => {
+              const locked = isLocked(item);
+              const allocationRows = itemRows(item);
+              const availableWarehouses = configuredWarehouses(item).filter(
+                (option) => !allocationRows.some((row) => row.erp === option.erp && row.warehouse === option.name),
+              );
+              return (
+                <tr key={item.id} className="border-t align-top">
+                  <td className="px-3 py-3"><input type="checkbox" disabled={locked} checked={selected.has(item.id)} onChange={() => toggle(item.id)} /></td>
+                  <td className="px-3 py-3 font-semibold">{item.sku}{item.isExisting && <span className="mt-1 block text-xs font-normal text-muted-foreground">Existing {item.erps?.map((erp) => erp.toUpperCase()).join(" + ")}</span>}</td>
+                  <td className="px-3 py-3 text-muted-foreground">{item.description}</td>
+                  <td className="px-3 py-3" colSpan={3}>
+                    {locked ? <div className="rounded-md border border-dashed bg-muted/20 px-3 py-2 text-sm text-muted-foreground">Waiting for Digital Marketing image</div> : (
+                      <div className="space-y-2">
+                        <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/20 p-2">
+                          <label className="text-sm font-medium">Total qty</label>
+                          <input value={totals[item.id] ?? ""} onChange={(event) => { setTotals((current) => ({ ...current, [item.id]: event.target.value })); setConfirmed((current) => { const next = new Set(current); next.delete(item.id); return next; }); setAllocationErrors((current) => ({ ...current, [item.id]: "" })); }} type="number" min="1" step="1" className={`${inputClass} w-32`} />
+                          <button type="button" onClick={() => calculate(item)} className={secondaryButtonClass}>Calculate allocation</button>
+                          <button type="button" onClick={() => confirm(item)} disabled={confirmed.has(item.id)} className={secondaryButtonClass}>{confirmed.has(item.id) ? "Allocation confirmed" : "Confirm allocation"}</button>
+                        </div>
+                        {allocationErrors[item.id] && <p className="text-sm text-destructive">{allocationErrors[item.id]}</p>}
+                        {allocationRows.map((row) => {
+                          const warehouse = options.find((option) => option.name === row.warehouse && option.erp === row.erp);
+                          const warehouseDetail = item.warehouseDetails?.find((detail) => detail.warehouse === row.warehouse && detail.erp === row.erp);
+                          return (
+                            <div key={row.key} className="grid gap-2 lg:grid-cols-[minmax(260px,1fr)_120px_minmax(180px,1fr)_auto]">
+                              <select value={row.warehouse} onChange={(event) => updateRow(item.id, row.key, { warehouse: event.target.value })} className={inputClass}>
+                                <option value="">Select warehouse</option>
+                                {configuredWarehouses(item).map((option) => <option key={warehouseOptionKey(option)} value={option.name}>{option.name} ({option.erp.toUpperCase()})</option>)}
+                              </select>
+                              <input value={row.qty} onChange={(event) => updateRow(item.id, row.key, { qty: event.target.value })} type="number" min="0" step="1" className={inputClass} />
+                              <div className="min-h-10 rounded-md border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                                <div>{warehouse?.company || "-"}</div>
+                                {item.isExisting && <div>Barcode: {warehouseDetail?.barcode || item.barcode || "-"}</div>}
+                                {item.isExisting && <div>ROP: {warehouseDetail?.rop ?? 0} | Stock: {warehouseDetail?.stock ?? "Unavailable"}</div>}
+                              </div>
+                              <button type="button" onClick={() => removeWarehouse(item.id, row.key)} className={secondaryButtonClass}>Remove</button>
+                            </div>
+                          );
+                        })}
+                        <div className="flex flex-wrap items-center gap-2">
+                          <select value={warehouseToAdd[item.id] ?? ""} onChange={(event) => setWarehouseToAdd((current) => ({ ...current, [item.id]: event.target.value }))} className={`${inputClass} min-w-64`}>
+                            <option value="">Add warehouse</option>
+                            {availableWarehouses.map((option) => <option key={warehouseOptionKey(option)} value={warehouseOptionKey(option)}>{option.name} ({option.erp.toUpperCase()})</option>)}
+                          </select>
+                          <button type="button" onClick={() => addWarehouse(item)} className={secondaryButtonClass}>Add warehouse</button>
+                        </div>
+                      </div>
+                    )}
+                  </td>
+                  <td className="px-3 py-3">{item.isExisting ? <span className="text-xs text-muted-foreground">Existing item</span> : <button type="button" onClick={() => onAction(`/api/item-creation/${item.id}/stores/stock-added`)} className={secondaryButtonClass}>Manual</button>}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -1884,6 +2778,7 @@ function RequestCard({
   const showPrices = team === "purchasing";
   const showStock = team === "stores";
   const showImage = team === "seo" || team === "digitalMarketing";
+  const showDigitalAssignee = team === "digitalMarketing";
   const needsErp2 = item.creationSources.includes("ERP2");
   const needsErp1Ogf = item.addErp1OgfPrice || (item.ogfPrice !== null && !needsErp2);
   const ogfTarget = needsErp1Ogf
@@ -1916,6 +2811,12 @@ function RequestCard({
           <div className="mt-1 text-xs uppercase tracking-wide text-muted-foreground">
             {item.country}
           </div>
+          <div className="mt-2 text-xs text-muted-foreground">
+            <span className="font-medium">Sources to create:</span>{" "}
+            {item.creationSources.length > 0
+              ? item.creationSources.map(creationSourceLabel).join(", ")
+              : "None"}
+          </div>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">{action}</div>
       </div>
@@ -1925,6 +2826,17 @@ function RequestCard({
           {showPrices && <InfoBlock label="Price Status" value={PRICE_STATUS_LABELS[priceStatus]} />}
           {showStock && <InfoBlock label="Stock Status" value={status(item.storeStockStatus)} />}
           {showImage && <InfoBlock label="Google Drive" value={<DriveLink url={item.imageDriveUrl} />} />}
+          {showDigitalAssignee && (
+            <InfoBlock
+              label="Assigned to"
+              value={
+                item.digitalMarketingAssignee?.knownName?.trim() ||
+                item.digitalMarketingAssignee?.name?.trim() ||
+                item.digitalMarketingAssignee?.email?.trim() ||
+                "Unassigned"
+              }
+            />
+          )}
         </div>
       )}
 
@@ -1997,6 +2909,7 @@ function DigitalAction({
 function AdminTable({
   items,
   isPending,
+  readOnly,
   onDelete,
   onUpdate,
   onAction,
@@ -2005,6 +2918,7 @@ function AdminTable({
 }: {
   items: ItemCreationItem[];
   isPending: boolean;
+  readOnly: boolean;
   onDelete: (id: string) => void;
   onUpdate: (id: string, body: unknown) => void;
   onAction: (url: string, body?: unknown) => void;
@@ -2012,8 +2926,9 @@ function AdminTable({
   vaultOs: boolean;
 }) {
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [listView, setListView] = useState<"active" | "history">("active");
   const [now, setNow] = useState<number | null>(null);
-  const [editRow, setEditRow] = useState<Omit<CreateRow, "key" | "creationSources">>({
+  const [editRow, setEditRow] = useState<Omit<CreateRow, "key">>({
     sku: "",
     description: "",
     standardPrice: "",
@@ -2021,6 +2936,8 @@ function AdminTable({
     gccPrice: "",
     addErp1OgfPrice: false,
     country: "",
+    taxStatus: "Vat / Non Vat",
+    creationSources: ["SHOPIFY"],
   });
 
   useEffect(() => {
@@ -2042,6 +2959,8 @@ function AdminTable({
       gccPrice: item.gccPrice === null ? "" : String(item.gccPrice),
       addErp1OgfPrice: item.addErp1OgfPrice,
       country: item.country,
+      taxStatus: item.taxStatus,
+      creationSources: [...item.creationSources],
     });
   }
 
@@ -2060,13 +2979,21 @@ function AdminTable({
     }
   }
 
+  const activeItems = items.filter((item) => item.overallStatus !== "COMPLETED");
+  const historyItems = items.filter((item) => item.overallStatus === "COMPLETED");
+  const visibleItems = listView === "active" ? activeItems : historyItems;
+
   return (
     <section className="overflow-hidden rounded-lg border bg-card">
       <div className="flex items-center justify-between gap-3 border-b p-4">
         <div>
-          <h2 className="text-lg font-semibold tracking-normal">All Requests</h2>
+          <h2 className="text-lg font-semibold tracking-normal">
+            {listView === "active" ? "Active Requests" : "Item History"}
+          </h2>
           <p className="text-sm text-muted-foreground">
-            Full workflow status across every team.
+            {listView === "active"
+              ? "New and in-progress item creation requests."
+              : "Completed item creation requests retained for admin history."}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -2079,9 +3006,29 @@ function AdminTable({
             Refresh
           </button>
           <span className="rounded-md bg-muted px-2.5 py-1 text-sm font-medium">
-            {items.length}
+            {visibleItems.length}
           </span>
         </div>
+      </div>
+      <div className="flex flex-wrap gap-1 border-b p-2">
+        <button
+          type="button"
+          onClick={() => setListView("active")}
+          className={`rounded-md px-4 py-2 text-sm font-medium transition ${
+            listView === "active" ? "bg-primary text-primary-foreground" : "hover:bg-muted"
+          }`}
+        >
+          Active ({activeItems.length})
+        </button>
+        <button
+          type="button"
+          onClick={() => setListView("history")}
+          className={`rounded-md px-4 py-2 text-sm font-medium transition ${
+            listView === "history" ? "bg-primary text-primary-foreground" : "hover:bg-muted"
+          }`}
+        >
+          History ({historyItems.length})
+        </button>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full min-w-[1100px] text-left text-sm">
@@ -2090,7 +3037,7 @@ function AdminTable({
               {[
                 "SKU",
                 "Description",
-                "Country",
+                "Selected Sources",
                 "ERP2 Creation",
                 "SEO Setup",
                 "Digital Marketing",
@@ -2100,6 +3047,7 @@ function AdminTable({
                 "SEO Activation",
                 "Overall Status",
                 "Current Stage Age",
+                "Total Time",
                 "Created At",
                 "Actions",
               ].map((heading) => (
@@ -2110,7 +3058,7 @@ function AdminTable({
             </tr>
           </thead>
           <tbody>
-            {items.map((item) => {
+            {visibleItems.map((item) => {
               const isEditing = editingId === item.id;
               return (
                 <tr key={item.id} className="border-b align-top last:border-0">
@@ -2138,16 +3086,43 @@ function AdminTable({
                   </td>
                   <td className="px-3 py-3">
                     {isEditing ? (
-                      <input
-                        value={editRow.country}
-                        onChange={(event) => setEditRow((row) => ({ ...row, country: event.target.value }))}
-                        className="h-9 w-28 rounded-md border bg-background px-2 text-sm"
-                      />
+                      <div className="grid gap-2">
+                        {(["SHOPIFY", "ERP2"] as const).map((source) => (
+                          <label key={source} className="flex w-fit items-center gap-2 rounded-md border bg-background px-2 py-1.5 text-xs font-medium">
+                            <input
+                              type="checkbox"
+                              checked={editRow.creationSources.includes(source)}
+                              onChange={() =>
+                                setEditRow((row) => {
+                                  const next = row.creationSources.includes(source)
+                                    ? row.creationSources.filter((value) => value !== source)
+                                    : [...row.creationSources, source];
+                                  return { ...row, creationSources: next.length > 0 ? next : [source] };
+                                })
+                              }
+                              className="size-4"
+                            />
+                            {creationSourceLabel(source)}
+                          </label>
+                        ))}
+                      </div>
                     ) : (
-                      item.country
+                      <div className="flex flex-wrap gap-1">
+                        {item.creationSources.length > 0 ? item.creationSources.map((source) => (
+                          <span key={source} className="rounded-md border bg-muted/40 px-2 py-1 text-xs font-medium">
+                            {creationSourceLabel(source)}
+                          </span>
+                        )) : <span className="text-muted-foreground">—</span>}
+                      </div>
                     )}
                     {isEditing && (
                       <div className="mt-2 grid gap-2">
+                        <input
+                          value={editRow.country}
+                          onChange={(event) => setEditRow((row) => ({ ...row, country: event.target.value }))}
+                          placeholder="Country"
+                          className="h-9 w-28 rounded-md border bg-background px-2 text-sm"
+                        />
                         <input
                           value={editRow.standardPrice}
                           onChange={(event) => setEditRow((row) => ({ ...row, standardPrice: event.target.value }))}
@@ -2183,6 +3158,16 @@ function AdminTable({
                           />
                           Add OGF to ERP1
                         </label>}
+                        <select
+                          value={editRow.taxStatus}
+                          onChange={(event) => setEditRow((row) => ({ ...row, taxStatus: event.target.value }))}
+                          aria-label="Tax status"
+                          className="h-9 w-40 rounded-md border bg-background px-2 text-sm"
+                        >
+                          {ITEM_CREATION_TAX_STATUS_VALUES.map((value) => (
+                            <option key={value} value={value}>{value}</option>
+                          ))}
+                        </select>
                       </div>
                     )}
                   </td>
@@ -2190,7 +3175,7 @@ function AdminTable({
                     <div className="grid gap-2">
                       <div className="flex flex-wrap items-center gap-2">
                         <StatusPill value={item.erp2ItemCreationStatus} />
-                        {item.erp2ItemCreationStatus === "FAILED" && (
+                        {!readOnly && item.erp2ItemCreationStatus === "FAILED" && (
                           <button
                             type="button"
                             disabled={isPending}
@@ -2215,19 +3200,22 @@ function AdminTable({
                       )}
                     </div>
                   </td>
-                  <td className="px-3 py-3"><StatusPill value={item.seoSetupStatus} /></td>
-                  <td className="px-3 py-3"><StatusPill value={item.digitalMarketingStatus} /></td>
-                  <td className="px-3 py-3"><StatusPill value={item.purchasingStatus} /></td>
-                  <td className="px-3 py-3"><StatusPill value={item.storeTransferStatus} /></td>
-                  <td className="px-3 py-3"><StatusPill value={item.storeStockStatus} /></td>
-                  <td className="px-3 py-3"><StatusPill value={item.seoActivationStatus} /></td>
+                  <td className="px-3 py-3"><StageStatus item={item} stage="seo" value={item.seoSetupStatus} now={now} /></td>
+                  <td className="px-3 py-3"><StageStatus item={item} stage="digital" value={item.digitalMarketingStatus} now={now} /></td>
+                  <td className="px-3 py-3"><StageStatus item={item} stage="purchasing" value={item.purchasingStatus} now={now} /></td>
+                  <td className="px-3 py-3"><StageStatus item={item} stage="transfer" value={item.storeTransferStatus} now={now} /></td>
+                  <td className="px-3 py-3"><StageStatus item={item} stage="stock" value={item.storeStockStatus} now={now} /></td>
+                  <td className="px-3 py-3"><StageStatus item={item} stage="activation" value={item.seoActivationStatus} now={now} /></td>
                   <td className="px-3 py-3"><StatusPill value={item.overallStatus} /></td>
                   <td className="px-3 py-3 text-muted-foreground">{elapsedLabel(currentStageSince(item), now)}</td>
+                  <td className="px-3 py-3 text-muted-foreground">{elapsedBetween(item.createdAt, item.completedAt, now)}</td>
                   <td className="px-3 py-3">
                     {formatDate(item.createdAt)}
                   </td>
                   <td className="px-3 py-3">
-                    {isEditing ? (
+                    {readOnly || listView === "history" ? (
+                      <span className="text-xs text-muted-foreground">View only</span>
+                    ) : isEditing ? (
                       <div className="flex flex-wrap gap-2">
                         <button
                           type="button"

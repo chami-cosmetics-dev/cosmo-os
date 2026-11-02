@@ -64,6 +64,8 @@ const DashboardLocationMerchantChartsDynamic = dynamic(
       (module) => module.DashboardLocationMerchantCharts,
     ),
   {
+    // Client-only: the Radix accordion's generated ids differ between SSR and hydration.
+    ssr: false,
     loading: () => <DashboardChartSectionSkeleton label="Loading location charts..." />,
   },
 );

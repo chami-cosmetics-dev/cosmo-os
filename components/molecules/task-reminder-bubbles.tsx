@@ -617,6 +617,13 @@ export function TaskReminderBubbles() {
   }, [loadReminders]);
 
   const grouped = useMemo(() => groupReminders(reminders), [reminders]);
+  const userCategoryColumns = useMemo(() => {
+    const columns: TaskReminderCategory[][] = [];
+    for (let index = 0; index < userCategories.length; index += 10) {
+      columns.push(userCategories.slice(index, index + 10));
+    }
+    return columns;
+  }, [userCategories]);
 
   const closePanels = useCallback(() => {
     setActiveCategory(null);
@@ -710,16 +717,20 @@ export function TaskReminderBubbles() {
               anchorRef={bubbleAnchorRef}
               nodeCount={userCategories.length}
             />
-            <div className="relative mr-14 flex flex-col gap-2 py-1">
-              {userCategories.map((category) => (
-                <CategoryNode
-                  key={category}
-                  label={CATEGORY_NODE_LABELS[category] ?? CATEGORY_LABELS[category] ?? category}
-                  count={categoryCounts[category] ?? grouped.get(category)?.length ?? 0}
-                  active={shownCategory === category}
-                  onClick={() => toggleCategory(category)}
-                  variant={category === "erp_sync_warning" ? "warning" : "default"}
-                />
+            <div className="relative mr-14 flex items-end gap-3 py-1">
+              {userCategoryColumns.map((column, columnIndex) => (
+                <div key={columnIndex} className="flex flex-col justify-end gap-2">
+                  {column.map((category) => (
+                    <CategoryNode
+                      key={category}
+                      label={CATEGORY_NODE_LABELS[category] ?? CATEGORY_LABELS[category] ?? category}
+                      count={categoryCounts[category] ?? grouped.get(category)?.length ?? 0}
+                      active={shownCategory === category}
+                      onClick={() => toggleCategory(category)}
+                      variant={category === "erp_sync_warning" ? "warning" : "default"}
+                    />
+                  ))}
+                </div>
               ))}
             </div>
           </>

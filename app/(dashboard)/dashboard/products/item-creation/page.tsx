@@ -4,6 +4,7 @@ import { PermissionDeniedCard } from "@/components/molecules/permission-denied-c
 import { ItemCreationPanel } from "@/components/organisms/item-creation-panel";
 import {
   canManageAllItemCreation,
+  canViewAllItemCreation,
   canUseItemCreation,
   ITEM_CREATION_PERMISSIONS,
   listItemRequests,
@@ -42,11 +43,16 @@ export default async function ItemCreationPage() {
   const context = auth.context!;
   const permissions = {
     admin: canUseItemCreation(context, ITEM_CREATION_PERMISSIONS.admin),
+    adminViewer: canViewAllItemCreation(context),
     manageAll: canManageAllItemCreation(context),
     seo: canUseItemCreation(context, ITEM_CREATION_PERMISSIONS.seo),
     digitalMarketing: canUseItemCreation(
       context,
       ITEM_CREATION_PERMISSIONS.digitalMarketing
+    ) || canUseItemCreation(context, ITEM_CREATION_PERMISSIONS.digitalMarketingAdmin),
+    digitalMarketingAdmin: canUseItemCreation(
+      context,
+      ITEM_CREATION_PERMISSIONS.digitalMarketingAdmin,
     ),
     purchasing: canUseItemCreation(context, ITEM_CREATION_PERMISSIONS.purchasing),
     stores: canUseItemCreation(context, ITEM_CREATION_PERMISSIONS.stores),
