@@ -16,6 +16,10 @@ import {
   loadBookNoteDayDto,
   loadBookNoteDaysInRange,
 } from "@/lib/book-notes/load";
+import {
+  findForeignShopRow,
+  loadBookNoteOrderShopHits,
+} from "@/lib/book-notes/order-shop";
 import { postingDateToUtcMidnight } from "@/lib/book-notes/serialize";
 import {
   aggregateSplitLines,
@@ -355,25 +359,23 @@ export async function PUT(request: NextRequest) {
 
   const postingDateUtc = postingDateToUtcMidnight(postingDate);
 
-  // Validate optional orderIds belong to same company/location
-  const orderIds = cleaned
-    .map((r) => r.orderId)
-    .filter((id): id is string => Boolean(id));
-  if (orderIds.length > 0) {
-    const validOrders = await prisma.order.findMany({
-      where: {
-        id: { in: orderIds },
-        companyId,
-        companyLocationId,
-      },
-      select: { id: true },
-    });
-    const valid = new Set(validOrders.map((o) => o.id));
-    for (const r of cleaned) {
-      if (r.orderId && !valid.has(r.orderId)) {
-        r.orderId = null;
-      }
-    }
+  const orderHits = await loadBookNoteOrderShopHits({
+    companyId,
+    orderIds: cleaned
+      .map((r) => r.orderId)
+      .filter((id): id is string => Boolean(id)),
+    invoices: cleaned.map((r) => r.salesInvoice),
+  });
+  const foreign = findForeignShopRow({
+    selectedLocationId: companyLocationId,
+    rows: cleaned,
+    hits: orderHits,
+  });
+  if (foreign) {
+    return NextResponse.json(
+      { error: foreign.error, code: "ORDER_WRONG_SHOP" },
+      { status: 400 },
+    );
   }
 
   const savedDayId = await prisma.$transaction(async (tx) => {
