@@ -936,8 +936,78 @@ export function SalesBudgetPanel() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <Dialog
+        open={qtyEdits.targetQuestion != null}
+        onOpenChange={(open) => {
+          if (!open) void qtyEdits.answerTargetQuestion(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Targets have changed</DialogTitle>
+            <DialogDescription>
+              Month targets have changed for{" "}
+              {qtyEdits.targetQuestion?.changes.length ?? 0} merchants / shops
+              since this budget was saved. Do you want to update the Target %
+              and Budgeted Qty with today&apos;s targets? Budgeted Qty you
+              edited stays as it is.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-80 overflow-y-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="text-xs">Merchant / Shop</TableHead>
+                  <TableHead className="text-right text-xs">Saved</TableHead>
+                  <TableHead className="text-right text-xs">Today</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {(qtyEdits.targetQuestion?.changes ?? []).map((change) => (
+                  <TableRow key={`${change.sheet}|${change.entity}`}>
+                    <TableCell className="text-xs">
+                      {change.entity}
+                      <span className="text-muted-foreground"> · {change.sheet}</span>
+                    </TableCell>
+                    <TableCell className="text-right text-xs tabular-nums">
+                      {targetText(change.oldTarget, change.oldPercent)}
+                    </TableCell>
+                    <TableCell className="text-right text-xs tabular-nums">
+                      {targetText(change.newTarget, change.newPercent)}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button
+              variant="ghost"
+              onClick={() => void qtyEdits.answerTargetQuestion(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => void qtyEdits.answerTargetQuestion("keep")}
+            >
+              Keep saved targets
+            </Button>
+            <Button onClick={() => void qtyEdits.answerTargetQuestion("update")}>
+              Update targets
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
+}
+
+/** Month target with its Target % ("1,500,000 (8.3%)"); "-" when missing. */
+function targetText(target: number | null, percent: number | null) {
+  const amount = target == null ? "-" : target.toLocaleString("en-US");
+  return percent == null ? amount : `${amount} (${Math.round(percent * 10) / 10}%)`;
 }
 
 /** Selling price, with the compare-at price when there is one ("4,830 (was 6,900)"). */

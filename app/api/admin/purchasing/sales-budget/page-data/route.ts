@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { requireUserContext } from "@/lib/rbac";
+import { hasPermission, requireUserContext } from "@/lib/rbac";
 import { budgetTargetMonth } from "@/lib/sales-budget/budget-month";
 import {
   SALES_BUDGET_ALL_ENTITIES,
@@ -36,6 +36,9 @@ export const maxDuration = 300;
 export async function GET(request: NextRequest) {
   const auth = await requireUserContext();
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+  if (!hasPermission(auth.context, "purchasing.sales_budget.read")) {
+    return NextResponse.json({ error: "Permission denied" }, { status: 403 });
+  }
   const companyId = auth.user.companyId;
   if (!companyId) {
     return NextResponse.json(
