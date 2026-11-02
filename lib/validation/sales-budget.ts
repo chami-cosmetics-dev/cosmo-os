@@ -54,6 +54,11 @@ export const salesBudgetSaveBodySchema = z
      * today's prices too, "keep" = only update quantities.
      */
     prices: z.enum(["ask", "update", "keep"]).default("ask"),
+    /**
+     * Saved month targets differ from today's: "ask" = stop and list them (409), "update" =
+     * recalculate Target % / Budgeted Qty / Revenue with today's targets, "keep" = leave them.
+     */
+    targets: z.enum(["ask", "update", "keep"]).default("ask"),
   })
   .refine((b) => b.changes.length === 0 || (b.tab && b.entity && b.vat), {
     message: "Edits need the merchant / shop view they belong to",

@@ -10,12 +10,19 @@ import {
 import {
   BUDGET_REVENUE_PRICE,
   type BudgetPriceChange,
+  type BudgetTargetChange,
   type SalesBudgetPageData,
   type SalesBudgetRow,
   type SalesBudgetShopChannel,
   type SalesBudgetTab,
   type SalesBudgetVatFilter,
 } from "@/lib/sales-budget/config";
+
+/** Save answers to "saved values differ from today's": ask (409), update or keep. */
+type SaveChoices = {
+  prices: "ask" | "update" | "keep";
+  targets: "ask" | "update" | "keep";
+};
 
 /** One edited Budgeted Qty, with what it replaced (for revenue deltas / revert). */
 type QtyEntry = {
@@ -172,14 +179,18 @@ export function useBudgetQtyEdits(input: {
     preview: BudgetPriceChange[];
     payload: object;
     clearDrafts: boolean;
+    choices: SaveChoices;
+  } | null>(null);
+  /** Server found saved month targets that differ from today's; waiting for the user. */
+  const [targetQuestion, setTargetQuestion] = useState<{
+    changes: BudgetTargetChange[];
+    payload: object;
+    clearDrafts: boolean;
+    choices: SaveChoices;
   } | null>(null);
 
   const post = useCallback(
-    async (
-      payload: object,
-      clearDrafts: boolean,
-      prices: "ask" | "update" | "keep",
-    ) => {
+    async (payload: object, clearDrafts: boolean, choices: SaveChoices) => {
       if (!budgetFile) return;
       setSaving(true);
       try {
@@ -188,17 +199,22 @@ export function useBudgetQtyEdits(input: {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             targetMonth: budgetFile.targetMonth,
-            prices,
+            ...choices,
             ...payload,
           }),
         });
         const body = await res.json().catch(() => ({}));
+        if (res.status === 409 && body.code === "targets_changed") {
+          setTargetQuestion({ changes: body.changes ?? [], payload, clearDrafts, choices });
+          return;
+        }
         if (res.status === 409 && body.code === "prices_changed") {
           setPriceQuestion({
             count: body.count,
             preview: body.preview ?? [],
             payload,
             clearDrafts,
+            choices,
           });
           return;
         }
@@ -236,7 +252,7 @@ export function useBudgetQtyEdits(input: {
           }
         : { changes: [] },
       withEdits,
-      "ask",
+      { prices: "ask", targets: "ask" },
     );
   }, [
     canSave,
@@ -256,9 +272,20 @@ export function useBudgetQtyEdits(input: {
       const question = priceQuestion;
       setPriceQuestion(null);
       if (!question || !choice) return;
-      await post(question.payload, question.clearDrafts, choice);
+      await post(question.payload, question.clearDrafts, { ...question.choices, prices: choice });
     },
     [post, priceQuestion],
+  );
+
+  /** Target question: "update" / "keep" saves again with that choice; null = Cancel. */
+  const answerTargetQuestion = useCallback(
+    async (choice: "update" | "keep" | null) => {
+      const question = targetQuestion;
+      setTargetQuestion(null);
+      if (!question || !choice) return;
+      await post(question.payload, question.clearDrafts, { ...question.choices, targets: choice });
+    },
+    [post, targetQuestion],
   );
 
   /** Server total + the revenue change of every edited row that matches the filters. */
@@ -281,6 +308,8 @@ export function useBudgetQtyEdits(input: {
     canSave,
     priceQuestion,
     answerPriceQuestion,
+    targetQuestion,
+    answerTargetQuestion,
     blockedReason,
     budgetFile,
     isDirty: (sku: string) => sku in draftsHere,

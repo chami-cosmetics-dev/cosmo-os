@@ -3,8 +3,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { resolveViewerFinanceLocationIds } from "@/lib/approval-workflow";
 import { buildGrnCompanyResolver } from "@/lib/grn-company-resolver";
 import { autoMatchBackfillIntercompanyGrn, autoMatchIntercompanyGrn, bestGrnMatchForStockReturn, calculateGrnMatchPercentage, isWithinGrnMatchCreationWindow, tallyLinkedItems } from "@/lib/grn";
+import { isIntercompanyPurchaseSupplier } from "@/lib/osf/erp-purchases";
 import { prisma } from "@/lib/prisma";
-import { getCurrentUserContext, hasPermission, requirePermission } from "@/lib/rbac";
+import { getCurrentUserContext, hasPermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
@@ -111,11 +112,6 @@ function normalizeSupplierMatchValue(value: string | null | undefined) {
 }
 
 export async function GET(request: NextRequest) {
-  const auth = await requirePermission("purchasing.grn.read");
-  if (!auth.ok) {
-    return NextResponse.json({ error: auth.error }, { status: auth.status });
-  }
-
   const context = await getCurrentUserContext();
   const user = context?.user;
   if (!user?.companyId) {
@@ -131,12 +127,20 @@ export async function GET(request: NextRequest) {
   const canViewReceived =
     hasPermission(context, "purchasing.grn.view_received") ||
     hasPermission(context, "purchasing.grn.mark_received");
+  const canUseGrn =
+    hasPermission(context, "purchasing.grn.read") ||
+    hasPermission(context, "purchasing.grn.margin_approval") ||
+    hasPermission(context, "purchasing.grn.payment_approval.read") ||
+    hasPermission(context, "purchasing.grn.payment_approval.manage");
+  if (!canUseGrn) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  const canManagePayment = hasPermission(context, "purchasing.grn.payment_approval.manage");
   const roleNames = context?.roleNames ?? [];
   const shouldScopeToUserCompany =
     !canViewReceived &&
     !canViewHandover &&
     !canViewValued &&
-    !hasPermission(context, "purchasing.grn.match_ssr");
+    !hasPermission(context, "purchasing.grn.match_ssr") &&
+    !canManagePayment;
   const shouldShowOnlyHandoveredForValued =
     canViewValued &&
     !canViewHandover &&
@@ -408,6 +412,98 @@ export async function GET(request: NextRequest) {
       reason: true,
     },
   });
+
+  const receiptNamesForMarginApproval = [
+    ...new Set([...purchaseReceipts, ...backfillPurchaseReceipts].map((receipt) => receipt.name)),
+  ];
+  const companyIdsForMarginApproval = [
+    ...new Set([...purchaseReceipts, ...backfillPurchaseReceipts].map((receipt) => receipt.companyId)),
+  ];
+  const intercompanySupplierPrefixes = [
+    ...new Set(
+      supplierPrefixLocations
+        .map((location) => location.supplierPrefix?.trim())
+        .filter((prefix): prefix is string => Boolean(prefix)),
+    ),
+  ];
+  const isIntercompanyPurchaseReceipt = (row: { supplier: string; supplierName: string | null }) =>
+    isIntercompanyPurchaseSupplier(row.supplier, row.supplierName, intercompanySupplierPrefixes);
+  const marginApprovals = receiptNamesForMarginApproval.length === 0
+    ? []
+    : await prisma.grnMarginApproval.findMany({
+        where: {
+          companyId: { in: companyIdsForMarginApproval },
+          purchaseReceiptName: { in: receiptNamesForMarginApproval },
+        },
+        select: {
+          companyId: true,
+          purchaseReceiptName: true,
+          purchaseReceiptIsBackfill: true,
+          itemCode: true,
+          approvedAt: true,
+        },
+      });
+  const paymentApprovals = receiptNamesForMarginApproval.length === 0
+    ? []
+    : await prisma.grnPaymentApproval.findMany({
+        where: {
+          companyId: { in: companyIdsForMarginApproval },
+          purchaseReceiptName: { in: receiptNamesForMarginApproval },
+        },
+        select: {
+          companyId: true,
+          purchaseReceiptName: true,
+          purchaseReceiptIsBackfill: true,
+          approvedAt: true,
+          paidAt: true,
+        },
+      });
+  const marginApprovalByItem = new Map(
+    marginApprovals.map((approval) => [
+      `${approval.companyId}:${approval.purchaseReceiptName}:${approval.purchaseReceiptIsBackfill}:${approval.itemCode}`,
+      approval.approvedAt,
+    ]),
+  );
+  const marginApprovedAtForReceipt = (
+    row: { companyId: string; name: string; receivedAt: Date | null; items: Array<{ itemCode: string }> },
+    isBackfill: boolean,
+  ) => {
+    if (!row.receivedAt) return null;
+    const itemCodes = [...new Set(row.items.map((item) => item.itemCode))];
+    if (itemCodes.length === 0) return null;
+    const approvals = itemCodes.map((itemCode) =>
+      marginApprovalByItem.get(`${row.companyId}:${row.name}:${isBackfill}:${itemCode}`) ?? null,
+    );
+    if (approvals.some((approval) => !approval)) return null;
+    return approvals.reduce<Date | null>(
+      (latest, approval) => !latest || (approval && approval > latest) ? approval : latest,
+      null,
+    );
+  };
+  const paymentApprovalByReceipt = new Map(
+    paymentApprovals.map((approval) => [
+      `${approval.companyId}:${approval.purchaseReceiptName}:${approval.purchaseReceiptIsBackfill}`,
+      approval.approvedAt,
+    ]),
+  );
+  const paymentPaidByReceipt = new Map(
+    paymentApprovals.map((approval) => [
+      `${approval.companyId}:${approval.purchaseReceiptName}:${approval.purchaseReceiptIsBackfill}`,
+      approval.paidAt,
+    ]),
+  );
+  const paymentApprovedAtForReceipt = (
+    row: { companyId: string; name: string; receivedAt: Date | null },
+    isBackfill: boolean,
+  ) => row.receivedAt
+    ? paymentApprovalByReceipt.get(`${row.companyId}:${row.name}:${isBackfill}`) ?? null
+    : null;
+  const paymentPaidAtForReceipt = (
+    row: { companyId: string; name: string; receivedAt: Date | null },
+    isBackfill: boolean,
+  ) => row.receivedAt
+    ? paymentPaidByReceipt.get(`${row.companyId}:${row.name}:${isBackfill}`) ?? null
+    : null;
 
   const [
     deletedPurchaseReceipts,
@@ -958,6 +1054,10 @@ export async function GET(request: NextRequest) {
         receivedBy: row.receivedBy,
         receivedRevertedAt: iso(row.receivedRevertedAt),
         receivedRevertedBy: row.receivedRevertedBy,
+        marginApprovedAt: iso(marginApprovedAtForReceipt(row, false)),
+        paymentApprovedAt: iso(paymentApprovedAtForReceipt(row, false)),
+        paymentPaidAt: iso(paymentPaidAtForReceipt(row, false)),
+        isIntercompanySupplier: isIntercompanyPurchaseReceipt(row),
         canMarkReceived: true,
         status: row.status,
         docstatus: row.docstatus,
@@ -1110,6 +1210,10 @@ export async function GET(request: NextRequest) {
         receivedBy: row.receivedBy,
         receivedRevertedAt: iso(row.receivedRevertedAt),
         receivedRevertedBy: row.receivedRevertedBy,
+        marginApprovedAt: iso(marginApprovedAtForReceipt(row, true)),
+        paymentApprovedAt: iso(paymentApprovedAtForReceipt(row, true)),
+        paymentPaidAt: iso(paymentPaidAtForReceipt(row, true)),
+        isIntercompanySupplier: isIntercompanyPurchaseReceipt(row),
         canMarkReceived: true,
         status: row.status,
         docstatus: row.docstatus,

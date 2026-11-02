@@ -63,67 +63,133 @@ const TOTAL_ROW_STYLE = {
   fill: { fgColor: { rgb: "FFF2CC" } },
 };
 
+/** SUMMARY columns: ONLINE (one line per merchant). */
+const SUMMARY_HEADER = [
+  "Sheet",
+  "Merchant / Shop",
+  "Month Target",
+  "Target %",
+  "Budgeted Qty",
+  "Budgeted Revenue",
+];
+/** SUMMARY columns: shop sheets (one line per merchant of the shop, shop values on the first). */
+const SUMMARY_SHOP_HEADER = [
+  "Sheet",
+  "Merchant / Shop",
+  "Merchant",
+  "Month Target",
+  "Total Target",
+  "Target %",
+  "Budgeted Qty",
+  "Budgeted Revenue",
+];
+
 /**
- * SUMMARY sheet: for every data sheet, each merchant / shop's month target, Target % and
- * Budgeted Revenue total, then the sheet's Total line.
+ * SUMMARY sheet, one part per data sheet (each with its header), then the sheet's Total line:
+ * - ONLINE: each merchant's month target, Target %, Budgeted Qty and Revenue;
+ * - SHOP-SHOP / SHOP-ONLINE: each shop's merchants with their own month target, the shop's
+ *   combined target (Total Target), Target %, Budgeted Qty and Revenue on its first line.
  */
 function buildSummarySheet(sections: SalesBudgetExportSection[]) {
-  const header = [
-    "Sheet",
-    "Merchant / Shop",
-    "Month Target",
-    "Target %",
-    "Budgeted Qty",
-    "Budgeted Revenue",
-  ];
-  const aoa: Cell[][] = [header];
-  const totalRows: number[] = [];
+  type Line = { cells: Cell[]; kind: "header" | "data" | "total" | "blank"; money: number[] };
+  const lines: Line[] = [];
   const pct = (v: number | null) => (v == null ? "" : Math.round(v * 10) / 10);
-  for (const section of sections) {
+  const sectionQty = (section: SalesBudgetExportSection) =>
+    sumCells(section.entityTotals.map((t) => t.qty ?? ""));
+  const sectionRevenue = (section: SalesBudgetExportSection) =>
+    sumCells(section.entityTotals.map((t) => t.revenue ?? ""));
+
+  for (const [index, section] of sections.entries()) {
+    if (index > 0) lines.push({ cells: [], kind: "blank", money: [] });
+    if (section.sheetName === "ONLINE") {
+      const money = [2, 5];
+      lines.push({ cells: SUMMARY_HEADER, kind: "header", money: [] });
+      section.entities.forEach((name, i) => {
+        const t = section.entityTotals[i];
+        lines.push({
+          cells: [section.sheetName, name, t.target ?? "", pct(t.percent), t.qty ?? "", t.revenue ?? ""],
+          kind: "data",
+          money,
+        });
+      });
+      lines.push({
+        cells: [
+          section.sheetName,
+          "Total",
+          section.totalTarget ?? "",
+          section.totalTarget != null ? 100 : "",
+          sectionQty(section),
+          sectionRevenue(section),
+        ],
+        kind: "total",
+        money,
+      });
+      continue;
+    }
+
+    const money = [3, 4, 7];
+    lines.push({ cells: SUMMARY_SHOP_HEADER, kind: "header", money: [] });
     section.entities.forEach((name, i) => {
       const t = section.entityTotals[i];
-      aoa.push([
-        section.sheetName,
-        name,
-        t.target ?? "",
-        pct(t.percent),
-        t.qty ?? "",
-        t.revenue ?? "",
-      ]);
+      // No merchant with a target (or a snapshot saved before merchants were kept): one line.
+      const merchants: Array<{ name: string; target: number | "" }> = t.merchants?.length
+        ? t.merchants
+        : [{ name: "", target: "" }];
+      merchants.forEach((m, mi) => {
+        const shopValues: Cell[] =
+          mi === 0 ? [t.target ?? "", pct(t.percent), t.qty ?? "", t.revenue ?? ""] : ["", "", "", ""];
+        lines.push({
+          cells: [section.sheetName, name, m.name, m.target, ...shopValues],
+          kind: "data",
+          money,
+        });
+      });
     });
-    totalRows.push(aoa.length);
-    aoa.push([
-      section.sheetName,
-      "Total",
-      section.totalTarget ?? "",
-      section.totalTarget != null ? 100 : "",
-      sumCells(section.entityTotals.map((t) => t.qty ?? "")),
-      sumCells(section.entityTotals.map((t) => t.revenue ?? "")),
-    ]);
-    aoa.push(header.map(() => ""));
+    lines.push({
+      cells: [
+        section.sheetName,
+        "Total",
+        "",
+        "",
+        section.totalTarget ?? "",
+        section.totalTarget != null ? 100 : "",
+        sectionQty(section),
+        sectionRevenue(section),
+      ],
+      kind: "total",
+      money,
+    });
   }
 
-  const sheet = XLSX.utils.aoa_to_sheet(aoa);
-  for (let r = 0; r < aoa.length; r += 1) {
-    const blankLine = r > 0 && aoa[r][0] === "";
-    for (let c = 0; c < header.length; c += 1) {
+  const sheet = XLSX.utils.aoa_to_sheet(lines.map((l) => l.cells));
+  lines.forEach((l, r) => {
+    for (let c = 0; c < l.cells.length; c += 1) {
       const ref = XLSX.utils.encode_cell({ r, c });
       const cell = sheet[ref] ?? { t: "s", v: "" };
-      if (r === 0) cell.s = FIXED_HEADER;
-      else if (!blankLine) {
+      if (l.kind === "header") cell.s = FIXED_HEADER;
+      else {
         const numeric = typeof cell.v === "number";
-        const money = numeric && (c === 2 || c === 5);
+        const money = numeric && l.money.includes(c);
         cell.s = {
           ...dataStyle(null, numeric, money),
-          ...(totalRows.includes(r) ? TOTAL_ROW_STYLE : {}),
+          ...(l.kind === "total" ? TOTAL_ROW_STYLE : {}),
         };
         if (money) cell.z = MONEY_FORMAT;
       }
       sheet[ref] = cell;
     }
-  }
-  sheet["!cols"] = [{ wch: 14 }, { wch: 24 }, { wch: 16 }, { wch: 10 }, { wch: 14 }, { wch: 18 }];
-  sheet["!rows"] = [{ hpt: 24 }];
+  });
+  sheet["!cols"] = [
+    { wch: 14 },
+    { wch: 24 },
+    { wch: 18 },
+    { wch: 16 },
+    { wch: 16 },
+    { wch: 12 },
+    { wch: 14 },
+    { wch: 18 },
+  ];
+  sheet["!rows"] = lines.map((l) => (l.kind === "header" ? { hpt: 24 } : {}));
   return sheet;
 }
 
@@ -269,11 +335,11 @@ function columnLetter(index: number): string {
 
 /**
  * xlsx-js-style (SheetJS 0.18) ignores "!freeze" / "!views", so write the frozen pane into
- * each sheet's <sheetView> directly. `panes[i]` applies to sheet i + 1.
+ * each sheet's <sheetView> directly. `panes[i]` applies to sheet i + 1 (null = not frozen).
  */
 function applyFreezePanes(
   buffer: Buffer,
-  panes: Array<{ xSplit: number; ySplit: number }>,
+  panes: Array<{ xSplit: number; ySplit: number } | null>,
 ): Buffer {
   const zip = XLSX.CFB.read(buffer, { type: "buffer" });
   zip.FullPaths.forEach((path: string, i: number) => {
@@ -481,9 +547,10 @@ export function writeSalesBudgetWorkbook(sections: SalesBudgetExportSection[]): 
   const dumpRows = buildDumpRows(sections);
   XLSX.utils.book_append_sheet(workbook, buildDumpSheet(dumpRows), DUMP_SHEET);
   const buffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer;
-  // SUMMARY / DUMP: header row frozen. Data sheets: header rows + the Common SKU column.
+  // SUMMARY: not frozen (a header per part). Data sheets: header rows + the Common SKU column.
+  // DUMP: header row frozen.
   const frozen = applyFreezePanes(buffer, [
-    { xSplit: 0, ySplit: 1 },
+    null,
     ...sections.map((section) => ({ xSplit: freezeColumns(section), ySplit: FREEZE_ROWS })),
     { xSplit: 0, ySplit: 1 },
   ]);
