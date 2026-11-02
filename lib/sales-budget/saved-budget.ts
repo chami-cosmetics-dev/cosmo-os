@@ -4,10 +4,12 @@ import type { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
 import { budgetSaveBlockedReason } from "@/lib/sales-budget/budget-month";
+import { roundBudgetQty } from "@/lib/sales-budget/calculations";
 import {
   budgetSheetFor,
   SALES_BUDGET_VAT_LABELS,
   type BudgetPriceChange,
+  type BudgetTargetChange,
   type SalesBudgetPageData,
   type SalesBudgetShopChannel,
   type SalesBudgetTab,
@@ -25,7 +27,12 @@ import {
   sumCells,
   writeSalesBudgetWorkbook,
 } from "@/lib/sales-budget/export-workbook";
-import { loadSalesBudgetBase } from "@/lib/sales-budget/page-data";
+import {
+  loadSalesBudgetBase,
+  shopMerchantTargets,
+  targetFor,
+} from "@/lib/sales-budget/page-data";
+import type { SalesBudgetSalesData } from "@/lib/sales-budget/sales-data";
 
 /**
  * Saved Sales Budget = a snapshot, like the report snapshots (ReceivableOutstandingSnapshot):
@@ -35,8 +42,9 @@ import { loadSalesBudgetBase } from "@/lib/sales-budget/page-data";
  * data. The first save freezes every value (prices, stock, ROP, Highest Sale Qty) as of that
  * day; later saves change only the edited cells and what depends on them (Budgeted Revenue
  * beside them, the totals), plus — when the user chooses — today's prices for items whose
- * price changed, and Common SKUs activated since the first save (added with today's values;
- * existing lines untouched).
+ * price changed, today's month targets (Target %, and the Budgeted Qty / Revenue calculated from
+ * it) for merchants / shops whose target changed, and Common SKUs activated since the first save
+ * (added with today's values; existing lines untouched).
  */
 
 type VatClass = Exclude<SalesBudgetVatFilter, "all">;
@@ -283,6 +291,164 @@ function hasNewItems(budget: ParsedBudget, current: CurrentPrices): boolean {
   return [...current.values()].some((item) => !known.has(item.commonSku));
 }
 
+/** The screen view behind each sheet (for its targets). */
+const SHEET_VIEWS: Array<{ tab: SalesBudgetTab; channel: SalesBudgetShopChannel | null }> = [
+  { tab: "online", channel: null },
+  { tab: "shop", channel: "shop" },
+  { tab: "shop", channel: "online" },
+];
+const viewOfSheet = (sheet: string) =>
+  SHEET_VIEWS.find((v) => budgetSheetFor(v.tab, v.channel) === sheet);
+
+const samePercent = (a: number | null, b: number | null) =>
+  a == null || b == null ? a === b : Math.abs(a - b) < 1e-9;
+
+/** Shop sheets: the shop's merchants and their own targets today (none for ONLINE). */
+const merchantsNow = (
+  sales: SalesBudgetSalesData,
+  view: (typeof SHEET_VIEWS)[number],
+  entity: string,
+) =>
+  view.tab === "shop" && view.channel && view.channel !== "all"
+    ? shopMerchantTargets(sales, entity, view.channel)
+    : undefined;
+
+/**
+ * Merchant / shop blocks whose saved month target or Target % differs from today's (a change
+ * in one merchant's target also moves every other block's Target %, through the total), or
+ * — shops — whose merchants' own targets differ (snapshots saved before those were kept skip
+ * that check).
+ * Merchants / shops with no block in the snapshot are skipped, as for new items.
+ */
+export function findTargetChanges(budget: ParsedBudget, sales: SalesBudgetSalesData): BudgetTargetChange[] {
+  const out: BudgetTargetChange[] = [];
+  for (const section of budget.sections) {
+    const view = viewOfSheet(section.sheetName);
+    if (!view) continue;
+    section.entities.forEach((entity, i) => {
+      const saved = section.entityTotals[i];
+      const now = targetFor(sales, view.tab, entity, view.channel);
+      const merchants = merchantsNow(sales, view, entity);
+      const sameMerchants =
+        !saved?.merchants || JSON.stringify(saved.merchants) === JSON.stringify(merchants);
+      if (
+        saved &&
+        saved.target === now.selected &&
+        samePercent(saved.percent, now.percent) &&
+        sameMerchants
+      ) {
+        return;
+      }
+      out.push({
+        sheet: section.sheetName,
+        entity,
+        oldTarget: saved?.target ?? null,
+        newTarget: now.selected,
+        oldPercent: saved?.percent ?? null,
+        newPercent: now.percent,
+      });
+    });
+  }
+  return out;
+}
+
+/**
+ * Writes today's targets into the changed blocks: month target + Target % (+ the shops'
+ * merchant targets), and Budgeted Qty
+ * recalculated as on the screen (Highest Sale Qty × Target %; SHOP-SHOP = Highest Sale Qty) with
+ * its Budgeted Revenue. Cells a user edited keep their qty; their "original" becomes the new
+ * calculated value (an edit equal to it is no longer an edit).
+ */
+export function applyTargetChanges(
+  budget: ParsedBudget,
+  sales: SalesBudgetSalesData,
+  changes: BudgetTargetChange[],
+) {
+  if (changes.length === 0) return;
+  for (const section of budget.sections) {
+    const view = viewOfSheet(section.sheetName);
+    const changed = new Set(changes.filter((c) => c.sheet === section.sheetName).map((c) => c.entity));
+    if (!view || changed.size === 0) continue;
+    // Shops' merchant targets: today's for every shop (older snapshots have none yet).
+    section.entities.forEach((entity, i) => {
+      const merchants = merchantsNow(sales, view, entity);
+      if (merchants) section.entityTotals[i] = { ...section.entityTotals[i], merchants };
+    });
+    section.totalTarget = targetFor(sales, view.tab, null, view.channel).total;
+    const shopOnly = view.tab === "shop" && view.channel === "shop";
+    const col = (h: string) => section.fixedHeaders.indexOf(h);
+    const [skuCol, vatCol, priceCol, hsqCol] = [
+      col("Common SKU"),
+      col("VAT"),
+      col("Selling Price"),
+      col("Highest Sale Qty"),
+    ];
+    const metric = (h: string) => section.metricHeaders.indexOf(h);
+    const [hsqOffset, percentOffset, qtyOffset, revenueOffset] = [
+      metric("Highest Sale Qty"),
+      metric("Target %"),
+      metric("Budgeted Qty"),
+      metric("Budgeted Revenue"),
+    ];
+
+    section.entities.forEach((entity, i) => {
+      if (!changed.has(entity)) return;
+      const now = targetFor(sales, view.tab, entity, view.channel);
+      section.entityTotals[i] = { ...section.entityTotals[i], target: now.selected, percent: now.percent };
+      const share = shopOnly ? 1 : now.percent == null ? null : now.percent / 100;
+      for (const row of section.rows) {
+        const block = row.metrics[i];
+        if (!block) continue;
+        // Same rounding as the Export (one decimal).
+        block[percentOffset] = now.percent == null ? "" : Math.round(now.percent * 10) / 10;
+        const hsq = hsqCol !== -1 ? row.fixed[hsqCol] : block[hsqOffset];
+        const qty: Cell = typeof hsq === "number" && share != null ? roundBudgetQty(hsq * share) : "";
+        const isEdit = (e: SavedBudgetEdit) =>
+          e.sheet === section.sheetName &&
+          e.entity === entity &&
+          e.vat === String(row.fixed[vatCol]) &&
+          e.commonSku === String(row.fixed[skuCol]);
+        const edit = budget.edits.find(isEdit);
+        if (edit) {
+          edit.originalQty = qty;
+          if (edit.qty === qty) budget.edits = budget.edits.filter((e) => !isEdit(e));
+          continue;
+        }
+        block[qtyOffset] = qty;
+        block[revenueOffset] =
+          typeof qty === "number" ? revenueCell(qty, revenuePriceOf(row.fixed[priceCol])) : "";
+      }
+    });
+    retotalAll(section);
+  }
+}
+
+/**
+ * Snapshots saved before the shops' merchant targets were kept: adds today's merchants to a
+ * shop block only when their targets add up to the block's saved target (so the SUMMARY
+ * breakdown matches the saved numbers). Returns whether anything was added.
+ */
+export function fillMissingMerchantTargets(
+  sections: SalesBudgetExportSection[],
+  sales: SalesBudgetSalesData,
+): boolean {
+  let filled = false;
+  for (const section of sections) {
+    const view = viewOfSheet(section.sheetName);
+    if (!view) continue;
+    section.entities.forEach((entity, i) => {
+      const saved = section.entityTotals[i];
+      if (!saved || saved.merchants) return;
+      const merchants = merchantsNow(sales, view, entity);
+      if (!merchants) return;
+      const sum = merchants.length > 0 ? merchants.reduce((t, m) => t + m.target, 0) : null;
+      if (sum !== saved.target) return;
+      section.entityTotals[i] = { ...saved, merchants };
+      filled = true;
+    });
+  }
+  return filled;
+}
 
 export type SalesBudgetSaveInput = {
   companyId: string;
@@ -302,6 +468,11 @@ export type SalesBudgetSaveInput = {
    * "update" writes today's prices (and revenue) into those items, "keep" leaves them.
    */
   prices: "ask" | "update" | "keep";
+  /**
+   * Saved month targets vs today's (same choices): "update" writes today's Target % and the
+   * Budgeted Qty / Revenue calculated from it into the changed merchant / shop blocks.
+   */
+  targets: "ask" | "update" | "keep";
 };
 
 const PRICE_PREVIEW_COUNT = 5;
@@ -336,6 +507,17 @@ export async function saveSalesBudget(input: SalesBudgetSaveInput) {
   // The first save builds the whole budget (slow); do it before taking the lock.
   let fresh = existing ? null : await buildSalesBudgetExport(input.companyId, base);
 
+  if (existing && input.targets === "ask") {
+    const changes = findTargetChanges(fromSnapshot(existing.snapshot), base.sales);
+    if (changes.length > 0) {
+      throw new SalesBudgetSaveError(
+        `Targets have changed for ${changes.length} merchants / shops since this budget was saved.`,
+        409,
+        { code: "targets_changed", count: changes.length, changes },
+      );
+    }
+  }
+
   if (existing && input.prices === "ask") {
     const changes = findPriceChanges(fromSnapshot(existing.snapshot), current);
     if (changes.length > 0) {
@@ -365,8 +547,16 @@ export async function saveSalesBudget(input: SalesBudgetSaveInput) {
       let changed = !record;
       let addedItems = 0;
       let pricesUpdated = 0;
+      let targetsUpdated = 0;
       if (record) {
         budget = fromSnapshot(record.snapshot);
+        changed ||= fillMissingMerchantTargets(budget.sections, base.sales);
+        if (input.targets === "update") {
+          const targetChanges = findTargetChanges(budget, base.sales);
+          applyTargetChanges(budget, base.sales, targetChanges);
+          targetsUpdated = targetChanges.length;
+          changed ||= targetsUpdated > 0;
+        }
         if (hasNewItems(budget, current)) {
           addedItems = addNewItems(budget, await buildSalesBudgetExport(input.companyId, base));
           changed ||= addedItems > 0;
@@ -411,6 +601,7 @@ export async function saveSalesBudget(input: SalesBudgetSaveInput) {
         created: !record,
         addedItems,
         pricesUpdated,
+        targetsUpdated,
       };
     },
     // Building / editing the budget takes a while; a queued save waits its turn.
@@ -486,11 +677,16 @@ export async function getParsedSavedBudget(
 export async function buildSavedBudgetWorkbook(
   companyId: string,
   targetMonth: string,
+  /** Fills the SUMMARY's shop merchant targets for older snapshots (fillMissingMerchantTargets). */
+  sales?: SalesBudgetSalesData,
 ): Promise<{ buffer: Buffer; lastUpdatedAt: Date } | null> {
   const saved = await getParsedSavedBudget(companyId, targetMonth);
   if (!saved) return null;
+  // The cached snapshot is read-only: fill a copy.
+  const sections = sales ? structuredClone(saved.budget.sections) : saved.budget.sections;
+  if (sales) fillMissingMerchantTargets(sections, sales);
   return {
-    buffer: writeSalesBudgetWorkbook(saved.budget.sections),
+    buffer: writeSalesBudgetWorkbook(sections),
     lastUpdatedAt: saved.lastUpdatedAt,
   };
 }

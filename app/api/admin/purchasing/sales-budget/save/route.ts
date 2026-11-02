@@ -39,6 +39,7 @@ export async function POST(request: NextRequest) {
     userLabel: auth.user.knownName ?? auth.user.name ?? auth.user.email ?? auth.user.id,
     targetMonth: body.targetMonth,
     prices: body.prices,
+    targets: body.targets,
   };
 
   try {

@@ -47,6 +47,13 @@ export const SALES_BUDGET_ALL_ENTITIES = "all";
 export const SALES_BUDGET_ONLINE_MERCHANT_ROLE = "merchant-level-02";
 
 /**
+ * DM-General's merchant coupon (MER115-DMG, owned by Sandali). Online sales with no merchant —
+ * no assigned merchant and no merchant coupon (website orders), or a coupon nobody owns (staff
+ * sales, MER117-StaffDC) — count as this coupon owner's sales.
+ */
+export const SALES_BUDGET_DM_GENERAL_MER_CODE = "MER115";
+
+/**
  * A stock scope: ERP warehouses (exact names from "Stock Balance Summary - Item Wise")
  * and the OSF columns (Settings → OSF columns `key`) whose ROP counts for it.
  */
@@ -256,6 +263,17 @@ export type BudgetPriceChange = {
   newSellingPrice: string | number;
   oldCompareAtPrice: string | number;
   newCompareAtPrice: string | number;
+};
+
+/** Save: a merchant / shop block whose saved month target or Target % differs from today's. */
+export type BudgetTargetChange = {
+  /** Sheet: ONLINE, SHOP-SHOP or SHOP-ONLINE. */
+  sheet: string;
+  entity: string;
+  oldTarget: number | null;
+  newTarget: number | null;
+  oldPercent: number | null;
+  newPercent: number | null;
 };
 
 /** Saved Budgets list: one saved month. */

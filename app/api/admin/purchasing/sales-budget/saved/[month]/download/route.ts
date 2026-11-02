@@ -39,13 +39,11 @@ export async function GET(
   }
 
   try {
-    const saved = await buildSavedBudgetWorkbook(companyId, month);
+    const base = await loadSalesBudgetBase(companyId);
+    const saved = await buildSavedBudgetWorkbook(companyId, month, base.sales);
     if (!saved) return NextResponse.json({ error: NOT_FOUND }, { status: 404 });
     // Saves happen in the month before the budget month, so that month is the first excluded.
-    const csv = await buildSalesHistoryCsv(
-      await loadSalesBudgetBase(companyId),
-      addMonths(month, -1),
-    );
+    const csv = await buildSalesHistoryCsv(base, addMonths(month, -1));
     const names = budgetBundleNames(month, saved.lastUpdatedAt.toISOString());
     const zip = zipFiles([
       { name: names.xlsx, content: saved.buffer },

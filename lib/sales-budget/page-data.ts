@@ -256,13 +256,31 @@ function sumTargets(
 }
 
 /**
+ * A shop's merchants with their own month target for the channel (SHOP-SHOP: shop target,
+ * SHOP-ONLINE: online target): the parts of the shop's target. Merchants without one are left
+ * out. Highest target first.
+ */
+export function shopMerchantTargets(
+  sales: SalesBudgetSalesData,
+  shop: string,
+  channel: "shop" | "online",
+): Array<{ name: string; target: number }> {
+  const out: Array<{ name: string; target: number }> = [];
+  for (const id of new Set(sales.shopOnlineMerchantIds.get(shop) ?? [])) {
+    const target = sales.targetsByUser.get(id)?.[channel];
+    if (target != null) out.push({ name: sales.merchantNameById.get(id) ?? id, target });
+  }
+  return out.sort((a, b) => b.target - a.target || a.name.localeCompare(b.name));
+}
+
+/**
  * Month targets for a view (Merchant Dashboard "Month target", matched by user id):
  * - ONLINE tab: total = every ONLINE merchant's online target; selected = that merchant's.
  * - SHOP tab: a shop's target = its Outlet merchants' shop (SHOP channel) / online (ONLINE
  *   channel) / shop + online (All channel) targets; total = every shop.
  * Target % = selected / total × 100, or 100 for "All".
  */
-function targetFor(
+export function targetFor(
   sales: SalesBudgetSalesData,
   tab: SalesBudgetTab,
   entity: string | null,
