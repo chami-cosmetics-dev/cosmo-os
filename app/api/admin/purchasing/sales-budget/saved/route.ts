@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { requireUserContext } from "@/lib/rbac";
+import { hasPermission, requireUserContext } from "@/lib/rbac";
 import { listSavedBudgets } from "@/lib/sales-budget/saved-view";
 
 export const dynamic = "force-dynamic";
@@ -9,6 +9,9 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const auth = await requireUserContext();
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+  if (!hasPermission(auth.context, "purchasing.sales_budget.read")) {
+    return NextResponse.json({ error: "Permission denied" }, { status: 403 });
+  }
   const companyId = auth.user.companyId;
   if (!companyId) {
     return NextResponse.json(
