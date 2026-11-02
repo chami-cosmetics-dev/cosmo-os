@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { requireUserContext } from "@/lib/rbac";
+import { hasPermission, requireUserContext } from "@/lib/rbac";
 import { addMonths, budgetBundleNames } from "@/lib/sales-budget/budget-month";
 import { zipFiles } from "@/lib/sales-budget/export-workbook";
 import { loadSalesBudgetBase } from "@/lib/sales-budget/page-data";
@@ -25,6 +25,9 @@ export async function GET(
 ) {
   const auth = await requireUserContext();
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+  if (!hasPermission(auth.context, "purchasing.sales_budget.read")) {
+    return NextResponse.json({ error: "Permission denied" }, { status: 403 });
+  }
   const companyId = auth.user.companyId;
   if (!companyId) {
     return NextResponse.json(
@@ -39,13 +42,11 @@ export async function GET(
   }
 
   try {
-    const saved = await buildSavedBudgetWorkbook(companyId, month);
+    const base = await loadSalesBudgetBase(companyId);
+    const saved = await buildSavedBudgetWorkbook(companyId, month, base.sales);
     if (!saved) return NextResponse.json({ error: NOT_FOUND }, { status: 404 });
     // Saves happen in the month before the budget month, so that month is the first excluded.
-    const csv = await buildSalesHistoryCsv(
-      await loadSalesBudgetBase(companyId),
-      addMonths(month, -1),
-    );
+    const csv = await buildSalesHistoryCsv(base, addMonths(month, -1));
     const names = budgetBundleNames(month, saved.lastUpdatedAt.toISOString());
     const zip = zipFiles([
       { name: names.xlsx, content: saved.buffer },

@@ -174,6 +174,11 @@ const DEFAULT_PERMISSIONS = [
       "View Item Trends super dashboard (movement, outlets, ROP suggestions, districts)",
   },
   {
+    key: "purchasing.sales_budget.read",
+    description:
+      "View the Sales Budget: budgets per merchant / shop, Export, Save and Saved Budgets",
+  },
+  {
     key: "purchasing.market_prices.read",
     description:
       "View Market Price Compare dashboard and competitor price data",

@@ -7,7 +7,11 @@ import { monthKeyInColombo, salesMonthBounds } from "@/lib/osf/monthly-sales";
 import { prisma } from "@/lib/prisma";
 import { normalizeSkuKey } from "@/lib/product-items/erp-priority-sync";
 import { getMerchantDisplayName } from "@/lib/merchant-groups";
-import { SALES_BUDGET_ONLINE_MERCHANT_ROLE, SALES_BUDGET_SHOPS } from "@/lib/sales-budget/config";
+import {
+  SALES_BUDGET_DM_GENERAL_MER_CODE,
+  SALES_BUDGET_ONLINE_MERCHANT_ROLE,
+  SALES_BUDGET_SHOPS,
+} from "@/lib/sales-budget/config";
 
 /** One aggregated bucket: units of a variant SKU sold in a month. */
 export type SalesBucket = {
@@ -43,9 +47,13 @@ export type SalesBudgetSalesData = {
   /**
    * Merchant Dashboard "Month target" for the current month (MerchantMonthlyTarget
    * shop / online amounts), by user id — ACTIVE staff only. Read-only: the dashboard's
-   * carry-forward writes them.
+   * carry-forward writes them. Re-read on every load (targets change during the month).
    */
   targetsByUser: Map<string, { shop: number | null; online: number | null }>;
+  /** Whose targets count (active ONLINE merchants + active outlet staff). */
+  targetUserIds: string[];
+  /** Shop staff (shopOnlineMerchantIds) user id → name, for the SUMMARY's merchant targets. */
+  merchantNameById: Map<string, string>;
   /** "MER<n>" → the user owning that merchant coupon (unassigned online orders' merchant). */
   userByMerCode: Map<string, string>;
   fetchedAt: Date;
@@ -55,8 +63,21 @@ const CACHE_TTL_MS = 60 * 60 * 1000;
 const cache = new Map<string, SalesBudgetSalesData>();
 const inFlight = new Map<string, Promise<SalesBudgetSalesData>>();
 
-/** A sale's date: delivery complete, else invoice complete (UTC "timestamp without time zone"). */
-const SALE_DATE_SQL = Prisma.sql`COALESCE(o."deliveryCompleteAt", o."invoiceCompleteAt")`;
+/**
+ * A sale's date (UTC "timestamp without time zone"):
+ * - POS sale: the invoice date, ERP posting_date (a Colombo calendar day, as Colombo midnight),
+ *   else the order's createdAt. Its delivery / invoice complete times are when Cosmo synced the
+ *   invoice, which can be months later (backfills);
+ * - online order: delivery complete, else invoice complete.
+ */
+const SALE_DATE_SQL = Prisma.sql`(CASE
+  WHEN o."sourceName" = 'erpnext-pos' THEN COALESCE(
+    CASE WHEN o."rawPayload"->>'posting_date' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+      THEN ((o."rawPayload"->>'posting_date')::date::timestamp AT TIME ZONE 'Asia/Colombo') AT TIME ZONE 'UTC'
+    END,
+    o."createdAt")
+  ELSE COALESCE(o."deliveryCompleteAt", o."invoiceCompleteAt")
+END)`;
 
 /** The sale's Colombo calendar month, YYYY-MM (columns are UTC: mark them before converting). */
 const SALE_MONTH_SQL = Prisma.sql`to_char(timezone('Asia/Colombo', ${SALE_DATE_SQL} AT TIME ZONE 'UTC'), 'YYYY-MM')`;
@@ -119,9 +140,15 @@ type SaleAttributionRow = {
   mer_code: string | null;
 };
 
-/** Non-POS sales: the assigned merchant, else the user owning the order's merchant coupon. */
+/**
+ * Non-POS sales: the assigned merchant, else the user owning the order's merchant coupon, else
+ * DM-General's coupon owner (no merchant, or a coupon nobody owns, e.g. staff sales).
+ */
 function saleMerchantId(row: SaleAttributionRow, userByMerCode: Map<string, string>) {
-  return row.merchant_id ?? (row.mer_code ? (userByMerCode.get(row.mer_code) ?? null) : null);
+  const owner =
+    row.merchant_id ?? (row.mer_code ? (userByMerCode.get(row.mer_code) ?? null) : null);
+  if (owner || row.pos) return owner;
+  return userByMerCode.get(SALES_BUDGET_DM_GENERAL_MER_CODE) ?? null;
 }
 
 /** Units by variant SKU × month × POS flag × POS warehouse × merchant (counted lines only). */
@@ -371,7 +398,7 @@ async function buildSalesData(companyId: string): Promise<SalesBudgetSalesData> 
         userId: true,
         status: true,
         outlet: { select: { name: true } },
-        user: { select: { couponCodes: true } },
+        user: { select: { couponCodes: true, knownName: true, name: true, email: true } },
       },
     }),
   ]);
@@ -419,25 +446,33 @@ async function buildSalesData(companyId: string): Promise<SalesBudgetSalesData> 
     ]),
   );
 
+  // Targets: active staff only. Sales history above keeps everyone, so a merchant who left
+  // still owns their past sales, but their (possibly carried-forward) target no longer counts.
+  const targetUserIds = [
+    ...onlineMerchants
+      .filter((u) => (u.employeeProfile?.status ?? "active") === "active")
+      .map((u) => u.id),
+    ...outletStaff.filter((p) => p.status === "active").map((p) => p.userId),
+  ];
   return {
     bySku,
     currentMonth,
     onlineMerchantIds,
     shopOnlineMerchantIds,
-    // Targets: active staff only. Sales history above keeps everyone, so a merchant who left
-    // still owns their past sales, but their (possibly carried-forward) target no longer counts.
-    targetsByUser: await loadMonthTargets(companyId, currentMonth, [
-      ...onlineMerchants
-        .filter((u) => (u.employeeProfile?.status ?? "active") === "active")
-        .map((u) => u.id),
-      ...outletStaff.filter((p) => p.status === "active").map((p) => p.userId),
-    ]),
+    targetsByUser: await loadMonthTargets(companyId, currentMonth, targetUserIds),
+    targetUserIds,
+    merchantNameById: new Map(
+      outletStaff.flatMap((p) => (p.user ? [[p.userId, merchantLabel(p.user)] as const] : [])),
+    ),
     userByMerCode,
     fetchedAt: new Date(),
   };
 }
 
-/** Cached per company; `refresh` (the screen's Refresh) re-aggregates. */
+/**
+ * Cached per company; `refresh` (the screen's Refresh) re-aggregates. The month targets are
+ * re-read on every call, so targets added / changed on the Merchant Dashboard show at once.
+ */
 export async function getSalesBudgetSalesData(
   companyId: string,
   options: { refresh?: boolean } = {},
@@ -447,7 +482,14 @@ export async function getSalesBudgetSalesData(
     cached &&
     Date.now() - cached.fetchedAt.getTime() < CACHE_TTL_MS &&
     cached.currentMonth === monthKeyInColombo(new Date());
-  if (!options.refresh && fresh) return cached;
+  if (!options.refresh && fresh) {
+    const targetsByUser = await loadMonthTargets(
+      companyId,
+      cached.currentMonth,
+      cached.targetUserIds,
+    );
+    return { ...cached, targetsByUser };
+  }
 
   const existing = inFlight.get(companyId);
   if (existing) return existing;

@@ -14,6 +14,7 @@ import {
   loadSalesBudgetBase,
   matchesVat,
   resolveSalesBudgetScope,
+  shopMerchantTargets,
   sumRevenue,
   type SalesBudgetBase,
 } from "@/lib/sales-budget/page-data";
@@ -31,12 +32,17 @@ export type SalesBudgetExportSection = {
   entities: string[];
   /** `metrics[i]` = entity i's block; null when that entity doesn't carry the item. */
   rows: Array<{ fixed: Cell[]; metrics: Array<Cell[] | null> }>;
-  /** Per entity (same order): month target, Target %, summed Budgeted Qty and Revenue. */
+  /**
+   * Per entity (same order): month target, Target %, summed Budgeted Qty and Revenue. Shop
+   * sheets also keep the shop's merchants and their own targets (the parts of `target`);
+   * snapshots saved before this have none.
+   */
   entityTotals: Array<{
     target: number | null;
     percent: number | null;
     qty: number | null;
     revenue: number | null;
+    merchants?: Array<{ name: string; target: number }>;
   }>;
   /** All-entities month target ("Online total" / "All Shops total"). */
   totalTarget: number | null;
@@ -133,7 +139,8 @@ async function buildSection(
   let totalTarget: number | null = null;
 
   for (const [index, entity] of input.entities.entries()) {
-    const scope = await resolveSalesBudgetScope(base, input.scopeFor(entity));
+    const view = input.scopeFor(entity);
+    const scope = await resolveSalesBudgetScope(base, view);
     const { target } = scope.context;
     totalTarget = target.total;
     const entityRows: SalesBudgetRow[] = [];
@@ -166,6 +173,9 @@ async function buildSection(
         ? entityRows.reduce((sum, r) => sum + (r.budgetedQty ?? 0), 0)
         : null,
       revenue: sumRevenue(entityRows),
+      ...(view.tab === "shop" && view.shopChannel !== "all" && view.shopChannel != null
+        ? { merchants: shopMerchantTargets(base.sales, entity, view.shopChannel) }
+        : {}),
     });
     input.onEntity?.();
   }
