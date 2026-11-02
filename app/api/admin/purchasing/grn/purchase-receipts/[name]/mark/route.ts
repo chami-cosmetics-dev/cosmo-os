@@ -134,6 +134,7 @@ export async function POST(
       [FIELD_ACTOR_COLUMNS[parsed.data.field]]: user.id,
       [FIELD_REVERTED_AT_COLUMNS[parsed.data.field]]: null,
       [FIELD_REVERTED_BY_COLUMNS[parsed.data.field]]: null,
+      ...(parsed.data.field === "valuedAt" && { valuationRejectedAt: null, valuationRejectedById: null }),
       ...(parsed.data.field === "handoverAt" && { notReceivedAt: null, notReceivedById: null, handoverReceivedAt: null, handoverReceivedById: null }),
     });
     return NextResponse.json({ ok: true });
@@ -232,6 +233,8 @@ export async function POST(
             valuedById: null,
             valuedRevertedAt: null,
             valuedRevertedById: null,
+            valuationRejectedAt: null,
+            valuationRejectedById: null,
           },
         });
         return;
@@ -258,6 +261,8 @@ export async function POST(
           valuedById: null,
           valuedRevertedAt: null,
           valuedRevertedById: null,
+          valuationRejectedAt: null,
+          valuationRejectedById: null,
         },
       });
     });
@@ -304,6 +309,7 @@ export async function POST(
         [FIELD_ACTOR_COLUMNS[parsed.data.field]]: user.id,
         [FIELD_REVERTED_AT_COLUMNS[parsed.data.field]]: null,
         [FIELD_REVERTED_BY_COLUMNS[parsed.data.field]]: null,
+        ...(parsed.data.field === "valuedAt" && { valuationRejectedAt: null, valuationRejectedById: null }),
         ...(parsed.data.field === "handoverAt" && {
           notReceivedAt: null,
           notReceivedById: null,
