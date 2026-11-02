@@ -2902,6 +2902,44 @@ model GrnPurchaseReceiptItem {
   @@index([companyId, itemCode])
 }
 
+/// Per-SKU approval for the post-GRN-received margin review. Prices remain
+/// live ERP values, so the approval records the reviewed PR/SKU rather than a
+/// snapshot of a price or discount.
+model GrnMarginApproval {
+  id                  String   @id @default(cuid())
+  companyId           String
+  purchaseReceiptName String
+  purchaseReceiptIsBackfill Boolean @default(false)
+  itemCode            String
+  approvedAt          DateTime @default(now())
+  approvedById        String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@unique([companyId, purchaseReceiptName, purchaseReceiptIsBackfill, itemCode])
+  @@index([companyId, purchaseReceiptIsBackfill, purchaseReceiptName])
+  @@index([companyId, approvedAt])
+}
+
+/// PR-level confirmation that a GRN-received receipt is cleared for payment.
+/// Intercompany receipts skip margin review but still require this approval.
+model GrnPaymentApproval {
+  id                        String   @id @default(cuid())
+  companyId                 String
+  purchaseReceiptName       String
+  purchaseReceiptIsBackfill Boolean  @default(false)
+  approvedAt                DateTime @default(now())
+  approvedById              String?
+  paidAt                    DateTime?
+  paidById                  String?
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+
+  @@unique([companyId, purchaseReceiptName, purchaseReceiptIsBackfill])
+  @@index([companyId, purchaseReceiptIsBackfill, purchaseReceiptName])
+  @@index([companyId, approvedAt])
+}
+
 model GrnSupplierStockReturn {
   id                  String                       @id @default(cuid())
   companyId           String

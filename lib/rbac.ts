@@ -216,6 +216,18 @@ const DEFAULT_PERMISSIONS = [
     description: "Mark GRN purchase receipts as received",
   },
   {
+    key: "purchasing.grn.margin_approval",
+    description: "Approve GRN item margins after receipt",
+  },
+  {
+    key: "purchasing.grn.payment_approval.read",
+    description: "View company-scoped GRN payment approvals and mark approved payments as paid",
+  },
+  {
+    key: "purchasing.grn.payment_approval.manage",
+    description: "View and approve GRN payments across all companies",
+  },
+  {
     key: "store.allocation.read",
     description:
       "Use store location allocation advisor (SKU/barcode take-qty split)",
@@ -763,6 +775,8 @@ const DEFAULT_ROLES = [
       "purchasing.grn.mark_handover",
       "purchasing.grn.mark_valued",
       "purchasing.grn.mark_received",
+      "purchasing.grn.margin_approval",
+      "purchasing.grn.payment_approval.manage",
       "academy.learn",
       "academy.manage",
       "products.storage.read",

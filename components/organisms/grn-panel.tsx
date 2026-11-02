@@ -129,6 +129,10 @@ type PurchaseReceiptRow = {
   receivedBy: UserRef | null;
   receivedRevertedAt: string | null;
   receivedRevertedBy: UserRef | null;
+  marginApprovedAt: string | null;
+  paymentApprovedAt: string | null;
+  paymentPaidAt: string | null;
+  isIntercompanySupplier: boolean;
   canMarkReceived: boolean;
   itemCount: number;
   items: {
@@ -208,6 +212,19 @@ type DeletedGrnRecord = {
   erpUrl: string | null;
 };
 
+type MarginApprovalRow = {
+  companyId: string;
+  purchaseReceiptName: string;
+  purchaseReceiptIsBackfill: boolean;
+  supplier: string;
+  company: string;
+  itemCode: string;
+  itemName: string | null;
+  mrp: number | null;
+  cost: number | null;
+  approvedAt: string | null;
+};
+
 type PageData = {
   purchaseReceipts: PurchaseReceiptRow[];
   supplierStockReturns: SupplierStockReturnRow[];
@@ -229,10 +246,15 @@ type GrnPanelPermissions = {
   canMarkValued: boolean;
   canViewReceived: boolean;
   canMarkReceived: boolean;
+  canViewMarginApproval: boolean;
+  canMarkMarginApproval: boolean;
+  canViewPaymentApproval: boolean;
+  canMarkPaymentApproval: boolean;
+  canMarkPaid: boolean;
 };
 
 type GrnActionStage = "handover" | "valued" | "received";
-type GrnStageStatusFilter = "all" | "pending" | "completed" | "mismatch" | "verify" | "not_received";
+type GrnStageStatusFilter = "all" | "pending" | "completed" | "mismatch" | "verify" | "not_received" | "payment_pending" | "payment_approved";
 type SsrStatusFilter = "all" | "waiting" | "partial" | "conflict";
 type GrnStageFilter = {
   stage: GrnActionStage;
@@ -253,7 +275,7 @@ const SSR_STATUS_FILTERS: { key: SsrStatusFilter; label: string }[] = [
 function firstAllowedStage(permissions: GrnPanelPermissions): GrnActionStage {
   if (permissions.canViewHandover) return "handover";
   if (permissions.canViewValued) return "valued";
-  if (permissions.canViewReceived) return "received";
+  if (permissions.canViewReceived || permissions.canViewPaymentApproval) return "received";
   return "handover";
 }
 
@@ -264,6 +286,20 @@ function formatDate(value: string | null) {
     month: "2-digit",
     day: "2-digit",
   }).format(new Date(value));
+}
+
+function formatAmount(value: number | null) {
+  return value == null
+    ? "-"
+    : value.toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function formatMarginPercent(sellingPrice: number | null, cost: number | null) {
+  if (sellingPrice == null || cost == null || sellingPrice <= 0) return "-";
+  return `${(((sellingPrice - cost) / sellingPrice) * 100).toLocaleString("en-LK", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}%`;
 }
 
 function dateInputValue(date: Date) {
@@ -792,6 +828,8 @@ function GrnStageTimeline({
   onRevert,
   onHandoverReceived,
   onNotReceived,
+  onApprovePayment,
+  onMarkPaymentPaid,
 }: {
   row: PurchaseReceiptRow;
   permissions: GrnPanelPermissions;
@@ -799,6 +837,8 @@ function GrnStageTimeline({
   onRevert: (row: PurchaseReceiptRow, field: "handoverAt" | "valuedAt" | "receivedAt") => void;
   onHandoverReceived: (row: PurchaseReceiptRow) => void;
   onNotReceived: (row: PurchaseReceiptRow) => void;
+  onApprovePayment: (row: PurchaseReceiptRow) => void;
+  onMarkPaymentPaid: (row: PurchaseReceiptRow) => void;
 }) {
   const stages = [
     {
@@ -815,6 +855,9 @@ function GrnStageTimeline({
       notReceivedBy: row.notReceivedBy,
       canRevert: permissions.canMarkHandover,
       canMarkNotReceived: permissions.canMarkValued,
+      canMarkPayment: false,
+      canMarkPaid: false,
+      paidAt: null,
     },
     {
       label: "Valued",
@@ -830,6 +873,9 @@ function GrnStageTimeline({
       notReceivedBy: null,
       canRevert: permissions.canMarkValued,
       canMarkNotReceived: false,
+      canMarkPayment: false,
+      canMarkPaid: false,
+      paidAt: null,
     },
     {
       label: "GRN Received",
@@ -845,7 +891,51 @@ function GrnStageTimeline({
       notReceivedBy: null,
       canRevert: permissions.canMarkReceived,
       canMarkNotReceived: false,
+      canMarkPayment: false,
+      canMarkPaid: false,
+      paidAt: null,
     },
+    ...(permissions.canViewMarginApproval && !row.isIntercompanySupplier
+      ? [{
+          label: "Margin approval",
+          // Margin approval is item-level and intentionally has no PR-stage revert.
+          field: "receivedAt" as const,
+          at: row.marginApprovedAt,
+          by: null,
+          fallbackBy: "GRN margin approval",
+          revertedAt: null,
+          revertedBy: null,
+          handoverReceivedAt: null,
+          handoverReceivedBy: null,
+          notReceivedAt: null,
+          notReceivedBy: null,
+          canRevert: false,
+          canMarkNotReceived: false,
+          canMarkPayment: false,
+          canMarkPaid: false,
+          paidAt: null,
+        }]
+      : []),
+    ...(permissions.canViewPaymentApproval
+      ? [{
+          label: "Payment approval",
+          field: "receivedAt" as const,
+          at: row.paymentApprovedAt,
+          by: null,
+          fallbackBy: "GRN payment approval",
+          revertedAt: null,
+          revertedBy: null,
+          handoverReceivedAt: null,
+          handoverReceivedBy: null,
+          notReceivedAt: null,
+          notReceivedBy: null,
+          canRevert: false,
+          canMarkNotReceived: false,
+          canMarkPayment: permissions.canMarkPaymentApproval,
+          canMarkPaid: permissions.canMarkPaid,
+          paidAt: row.paymentPaidAt,
+        }]
+      : []),
   ];
 
   return (
@@ -892,9 +982,42 @@ function GrnStageTimeline({
                     Marked not received by {userLabel(stage.notReceivedBy) ?? "Unknown"} on {formatDate(stage.notReceivedAt)}
                   </div>
                 )}
+                {stage.paidAt && (
+                  <div className="text-xs text-emerald-300">
+                    Paid on {formatDate(stage.paidAt)}
+                  </div>
+                )}
               </div>
               <div className="flex flex-col items-end gap-2 text-right text-sm text-muted-foreground">
                 <span>{formatDate(stage.at)}</span>
+                {!complete && stage.canMarkPayment && row.receivedAt && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={row.isCancelled || busyKey === `payment:${row.companyId}:${row.name}`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onApprovePayment(row);
+                    }}
+                  >
+                    Approve payment
+                  </Button>
+                )}
+                {complete && !stage.paidAt && stage.canMarkPaid && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={row.isCancelled || busyKey === `payment-paid:${row.companyId}:${row.name}`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onMarkPaymentPaid(row);
+                    }}
+                  >
+                    Mark paid
+                  </Button>
+                )}
                 {complete && stage.canRevert && (
                   <div className="flex flex-wrap justify-end gap-2">
                     {stage.canMarkNotReceived && !row.receivedAt && !row.handoverReceivedAt && (
@@ -1243,6 +1366,11 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
   const [selectedPrFocus, setSelectedPrFocus] = useState<PrDialogFocus>(null);
   const [selectedSsr, setSelectedSsr] = useState<SupplierStockReturnRow | null>(null);
   const [selectedBulkPrKeys, setSelectedBulkPrKeys] = useState<Set<string>>(() => new Set());
+  const [marginApprovalRows, setMarginApprovalRows] = useState<MarginApprovalRow[]>([]);
+  const [marginApprovalLoading, setMarginApprovalLoading] = useState(false);
+  const [marginDiscount, setMarginDiscount] = useState(5);
+  const [marginCompanyFilter, setMarginCompanyFilter] = useState("all");
+  const [marginSupplierFilter, setMarginSupplierFilter] = useState("all");
   const loadDataRequestId = useRef(0);
   const loadDataAbortController = useRef<AbortController | null>(null);
 
@@ -1304,22 +1432,112 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
     [],
   );
 
+  const loadMarginApproval = useCallback(async () => {
+    if (!permissions.canViewMarginApproval) return;
+    setMarginApprovalLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (dateRange.from) params.set("from", dateRange.from);
+      if (dateRange.to) params.set("to", dateRange.to);
+      const res = await fetch(`/api/admin/purchasing/grn/margin-approval?${params.toString()}`, {
+        cache: "no-store",
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || "Failed to load margin approvals");
+      }
+      const json = (await res.json()) as { rows: MarginApprovalRow[] };
+      setMarginApprovalRows(json.rows);
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : "Failed to load margin approvals");
+    } finally {
+      setMarginApprovalLoading(false);
+    }
+  }, [dateRange.from, dateRange.to, permissions.canViewMarginApproval]);
+
+  useEffect(() => {
+    if (activeTab === "margin") void loadMarginApproval();
+  }, [activeTab, loadMarginApproval]);
+
+  async function approveMarginItems(rows: MarginApprovalRow[]) {
+    const pending = rows.filter((row) => !row.approvedAt);
+    if (pending.length === 0) return;
+    setBusyKey(`margin-approve:${pending.length === 1 ? pending[0]!.purchaseReceiptName : "bulk"}`);
+    try {
+      const res = await fetch("/api/admin/purchasing/grn/margin-approval", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          items: pending.map(({ companyId, purchaseReceiptName, purchaseReceiptIsBackfill, itemCode }) => ({
+            companyId,
+            purchaseReceiptName,
+            purchaseReceiptIsBackfill,
+            itemCode,
+          })),
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || "Failed to approve margin items");
+      }
+      await loadMarginApproval();
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : "Failed to approve margin items");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
   useEffect(() => {
     setStageFilter((current) => {
       const allowedStages: GrnActionStage[] = [
         ...(permissions.canViewHandover ? (["handover"] as const) : []),
         ...(permissions.canViewValued ? (["valued"] as const) : []),
-        ...(permissions.canViewReceived ? (["received"] as const) : []),
+        ...((permissions.canViewReceived || permissions.canViewPaymentApproval) ? (["received"] as const) : []),
       ];
       if (allowedStages.length === 0 || allowedStages.includes(current.stage)) return current;
       return { stage: allowedStages[0], status: "pending" };
     });
-  }, [permissions.canViewHandover, permissions.canViewReceived, permissions.canViewValued]);
+  }, [permissions.canViewHandover, permissions.canViewPaymentApproval, permissions.canViewReceived, permissions.canViewValued]);
 
   const activePurchaseReceipts = useMemo(
     () => data.purchaseReceipts.filter((row) => !row.isCancelled),
     [data.purchaseReceipts],
   );
+
+  const marginCompanies = useMemo(
+    () => [...new Set(marginApprovalRows.map((row) => row.company))].sort((a, b) => a.localeCompare(b)),
+    [marginApprovalRows],
+  );
+  const marginSuppliers = useMemo(
+    () => [...new Set(marginApprovalRows.map((row) => row.supplier))].sort((a, b) => a.localeCompare(b)),
+    [marginApprovalRows],
+  );
+  const filteredMarginApprovalRows = useMemo(
+    () => marginApprovalRows.filter(
+      (row) =>
+        (marginCompanyFilter === "all" || row.company === marginCompanyFilter) &&
+        (marginSupplierFilter === "all" || row.supplier === marginSupplierFilter),
+    ),
+    [marginApprovalRows, marginCompanyFilter, marginSupplierFilter],
+  );
+  const marginApprovalGroups = useMemo(() => {
+    const suppliers = new Map<string, Map<string, MarginApprovalRow[]>>();
+    for (const row of filteredMarginApprovalRows) {
+      const skus = suppliers.get(row.supplier) ?? new Map<string, MarginApprovalRow[]>();
+      const entries = skus.get(row.itemCode) ?? [];
+      entries.push(row);
+      skus.set(row.itemCode, entries);
+      suppliers.set(row.supplier, skus);
+    }
+    return [...suppliers.entries()].map(([supplier, skus]) => ({
+      supplier,
+      skus: [...skus.entries()].map(([itemCode, rows]) => ({
+        itemCode,
+        rows: rows.sort((a, b) => a.company.localeCompare(b.company) || a.purchaseReceiptName.localeCompare(b.purchaseReceiptName)),
+      })),
+    }));
+  }, [filteredMarginApprovalRows]);
 
   const intercompanySupplierPrefixes = useMemo(
     () =>
@@ -1493,9 +1711,11 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
       [
         permissions.canViewHandover ? { key: "handover" as const, label: "Handover marking" } : null,
         permissions.canViewValued ? { key: "valued" as const, label: "Valued marking" } : null,
-        permissions.canViewReceived ? { key: "received" as const, label: "GRN received" } : null,
+        (permissions.canViewReceived || permissions.canViewPaymentApproval)
+          ? { key: "received" as const, label: "GRN received" }
+          : null,
       ].filter((row): row is { key: GrnActionStage; label: string } => Boolean(row)),
-    [permissions.canViewHandover, permissions.canViewReceived, permissions.canViewValued],
+    [permissions.canViewHandover, permissions.canViewPaymentApproval, permissions.canViewReceived, permissions.canViewValued],
   );
   const visibleStageColumnCount =
     (permissions.canViewHandover ? 1 : 0) +
@@ -1568,6 +1788,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
             (row) => (companyFilter === "all" || row.companyName === companyFilter) &&
               key === "handover" && rowNotReceivedByValuing(row),
           ).length;
+          const paymentRows = rows.filter((row) => Boolean(row.receivedAt));
           return [
             key,
             {
@@ -1577,6 +1798,8 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
               mismatch,
               verify,
               not_received: notReceived,
+              payment_pending: paymentRows.filter((row) => !row.paymentApprovedAt).length,
+              payment_approved: paymentRows.filter((row) => Boolean(row.paymentApprovedAt)).length,
             },
           ];
         }),
@@ -1601,6 +1824,10 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
             ? stageFilter.stage === "handover" && rowNotReceivedByValuing(row)
           : stageFilter.status === "verify"
             ? rowNeedsVerification(row, stageFilter.stage)
+          : stageFilter.status === "payment_pending"
+            ? stageFilter.stage === "received" && Boolean(row.receivedAt) && !row.paymentApprovedAt
+          : stageFilter.status === "payment_approved"
+            ? stageFilter.stage === "received" && Boolean(row.paymentApprovedAt)
             : rowBelongsToStage(row, stageFilter.stage) &&
         (stageFilter.status === "all" ||
           (stageFilter.status === "pending" && !rowCompletedForStage(row, stageFilter.stage)) ||
@@ -1835,6 +2062,33 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
               ? "Failed to mark GRN row as not received"
               : "Failed to mark GRN row",
       );
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function updatePayment(row: PurchaseReceiptRow, action: "approve" | "paid") {
+    const key = action === "approve" ? `payment:${row.companyId}:${row.name}` : `payment-paid:${row.companyId}:${row.name}`;
+    setBusyKey(key);
+    try {
+      const res = await fetch("/api/admin/purchasing/grn/payment-approval", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          companyId: row.companyId,
+          purchaseReceiptName: row.name,
+          purchaseReceiptIsBackfill: row.isBackfill,
+          action,
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `Failed to ${action === "approve" ? "approve payment" : "mark payment paid"}`);
+      }
+      notify.success(action === "approve" ? "Payment approved" : "Payment marked paid");
+      await loadData();
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : `Failed to ${action === "approve" ? "approve payment" : "mark payment paid"}`);
     } finally {
       setBusyKey(null);
     }
@@ -2198,6 +2452,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="gap-4">
         <TabsList className="h-auto w-full justify-start gap-1 sm:w-fit">
           <TabsTrigger value="grn">GRN table</TabsTrigger>
+          {permissions.canViewMarginApproval && <TabsTrigger value="margin">Margin approval</TabsTrigger>}
           <TabsTrigger value="ssr">SSR matcher</TabsTrigger>
           <TabsTrigger value="multi">Multiple PR links</TabsTrigger>
           <TabsTrigger value="multi-ssr">Multiple SSR links</TabsTrigger>
@@ -2220,7 +2475,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                   >
                     {(
                       key === "received"
-                        ? (["all", "pending", "completed"] as const)
+                        ? (["all", "pending", "completed", "payment_pending", "payment_approved"] as const)
                       : ([
                           "all",
                           "pending",
@@ -2244,7 +2499,13 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                           onClick={() => setStageFilter({ stage: key, status })}
                         >
                           <div className="truncate text-xs font-medium capitalize text-muted-foreground">
-                            {status === "not_received" ? "Not received" : status}
+                            {status === "not_received"
+                              ? "Not received"
+                              : status === "payment_pending"
+                                ? "Payment pending"
+                                : status === "payment_approved"
+                                  ? "Payment approved"
+                                  : status}
                           </div>
                           <div className="text-xl font-semibold leading-tight">
                             {stageCardCounts[key]?.[status] ?? 0}
@@ -2579,6 +2840,168 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
           />
           </div>
         </TabsContent>
+
+        {permissions.canViewMarginApproval && (
+          <TabsContent value="margin" className="space-y-4 rounded-lg border bg-card/60 p-4 md:p-6">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <h2 className="text-lg font-semibold">Margin approval</h2>
+                <p className="text-sm text-muted-foreground">
+                  GRN-received items only. MRP is fetched live from the PR company&apos;s Standard Selling price list.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                  Company
+                  <select
+                    className="h-9 max-w-56 rounded-md border border-input bg-background px-2 text-sm text-foreground"
+                    value={marginCompanyFilter}
+                    onChange={(event) => setMarginCompanyFilter(event.target.value)}
+                  >
+                    <option value="all">All companies</option>
+                    {marginCompanies.map((company) => (
+                      <option key={company} value={company}>{company}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                  Supplier
+                  <select
+                    className="h-9 max-w-56 rounded-md border border-input bg-background px-2 text-sm text-foreground"
+                    value={marginSupplierFilter}
+                    onChange={(event) => setMarginSupplierFilter(event.target.value)}
+                  >
+                    <option value="all">All suppliers</option>
+                    {marginSuppliers.map((supplier) => (
+                      <option key={supplier} value={supplier}>{supplier}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                  Discount
+                  <select
+                    className="h-9 rounded-md border border-input bg-background px-2 text-sm text-foreground"
+                    value={marginDiscount}
+                    onChange={(event) => setMarginDiscount(Number(event.target.value))}
+                  >
+                    {[5, 10, 15, 20, 25].map((percentage) => (
+                      <option key={percentage} value={percentage}>{percentage}%</option>
+                    ))}
+                  </select>
+                </label>
+                <Button type="button" variant="outline" disabled={marginApprovalLoading} onClick={() => void loadMarginApproval()}>
+                  <RefreshCw className={`size-4 ${marginApprovalLoading ? "animate-spin" : ""}`} />
+                  Refresh
+                </Button>
+                {permissions.canMarkMarginApproval && (
+                  <Button
+                    type="button"
+                    disabled={
+                      marginApprovalLoading ||
+                      busyKey === "margin-approve:bulk" ||
+                      !filteredMarginApprovalRows.some((row) => !row.approvedAt && row.mrp != null && row.cost != null)
+                    }
+                    onClick={() => void approveMarginItems(filteredMarginApprovalRows.filter((row) => row.mrp != null && row.cost != null))}
+                  >
+                    <CheckCircle2 className="size-4" />
+                    Approve all
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            <div className="overflow-x-auto rounded-lg border bg-background/45">
+              <Table className="min-w-[1100px] table-fixed">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-[150px]">GRN</TableHead>
+                    <TableHead className="w-[300px]">Company</TableHead>
+                    <TableHead className="w-[105px] text-right">MRP</TableHead>
+                    <TableHead className="w-[135px] text-right">Discounted price</TableHead>
+                    <TableHead className="w-[105px] text-right">Cost</TableHead>
+                    <TableHead className="w-[105px] text-right">Margin %</TableHead>
+                    <TableHead className="w-[190px] whitespace-nowrap text-right">After Discount Margin %</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {marginApprovalGroups.flatMap(({ supplier, skus }) => {
+                    const supplierRows = skus.flatMap(({ rows }) => rows);
+                    const canApproveSupplier = supplierRows.some((row) => !row.approvedAt && row.mrp != null && row.cost != null);
+                    return [
+                      <TableRow key={`supplier:${supplier}`} className="bg-muted/35 hover:bg-muted/35">
+                        <TableCell colSpan={7} className="font-semibold">
+                          <div className="flex items-center justify-between gap-3">
+                            <span>{supplier}</span>
+                          {permissions.canMarkMarginApproval && (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              disabled={!canApproveSupplier || busyKey === "margin-approve:bulk"}
+                              onClick={() => void approveMarginItems(supplierRows.filter((row) => row.mrp != null && row.cost != null))}
+                            >
+                              Approve supplier
+                            </Button>
+                          )}
+                          </div>
+                        </TableCell>
+                      </TableRow>,
+                      ...skus.flatMap(({ itemCode, rows }) => [
+                      <TableRow key={`sku:${supplier}:${itemCode}`} className="bg-background/60 hover:bg-background/60">
+                        <TableCell colSpan={7} className="pl-8 font-medium">SKU: {itemCode}</TableCell>
+                      </TableRow>,
+                      ...rows.map((row) => {
+                        const discountedPrice = row.mrp == null ? null : row.mrp * (1 - marginDiscount / 100);
+                        const canApprove = row.mrp != null && row.cost != null;
+                        return (
+                          <TableRow key={`${row.companyId}:${row.purchaseReceiptName}:${row.purchaseReceiptIsBackfill}:${row.itemCode}`}>
+                            <TableCell className="font-medium">
+                              <div>{row.purchaseReceiptName}</div>
+                              {row.approvedAt ? (
+                                <span className="inline-flex items-center gap-1 text-xs text-emerald-400">
+                                  <CheckCircle2 className="size-3.5" /> Approved
+                                </span>
+                              ) : permissions.canMarkMarginApproval ? (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  className="mt-1"
+                                  disabled={!canApprove || busyKey === `margin-approve:${row.purchaseReceiptName}`}
+                                  onClick={() => void approveMarginItems([row])}
+                                >
+                                  Approve
+                                </Button>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">Pending</span>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              <div className="truncate" title={row.company}>{row.company}</div>
+                              {row.itemName && <div className="truncate text-xs text-muted-foreground" title={row.itemName}>{row.itemName}</div>}
+                            </TableCell>
+                            <TableCell className="text-right">{formatAmount(row.mrp)}</TableCell>
+                            <TableCell className="text-right">{formatAmount(discountedPrice)}</TableCell>
+                            <TableCell className="text-right">{formatAmount(row.cost)}</TableCell>
+                            <TableCell className="text-right">{formatMarginPercent(row.mrp, row.cost)}</TableCell>
+                            <TableCell className="text-right">{formatMarginPercent(discountedPrice, row.cost)}</TableCell>
+                          </TableRow>
+                        );
+                      }),
+                      ]),
+                    ];
+                  })}
+                  {!marginApprovalLoading && filteredMarginApprovalRows.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
+                        No GRN-received items match these filters.
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </TabsContent>
+        )}
 
         <TabsContent value="ssr" className="space-y-4 rounded-lg border bg-card/60 p-4 md:p-6">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -3379,6 +3802,8 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                 onRevert={(row, field) => mark(row, field, "revert")}
                 onHandoverReceived={(row) => mark(row, "handoverAt", "handover_received")}
                 onNotReceived={(row) => mark(row, "handoverAt", "not_received")}
+                onApprovePayment={(row) => updatePayment(row, "approve")}
+                onMarkPaymentPaid={(row) => updatePayment(row, "paid")}
               />
               {rowMissingIntercompanySsr(selectedPr) && (
                 <details
