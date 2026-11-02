@@ -88,6 +88,13 @@ export async function loadPurchaseHistory(
   let erpAvailable = true;
   let erpError: string | null = null;
   const erpInstances = await getAllOsfErpInstances(companyId);
+  const intercompanyLocations = await prisma.companyLocation.findMany({
+    where: { companyId, supplierPrefix: { not: null } },
+    select: { supplierPrefix: true },
+  });
+  const intercompanyPrefixes = intercompanyLocations
+    .map((location) => location.supplierPrefix?.trim())
+    .filter((prefix): prefix is string => Boolean(prefix));
   const slots = resolveErpSlots(erpInstances);
   if (erpInstances.length > 0) {
     const settled = await Promise.allSettled(
@@ -118,6 +125,7 @@ export async function loadPurchaseHistory(
       for (const row of result.value.invoices) {
         const converted = erpInvoiceLineToRaw(row, result.value.baseUrl, {
           erpSlot: result.value.erpSlot,
+          intercompanyPrefixes,
         });
         if (!converted) continue;
         const dedupe = `${converted.sourceRef ?? ""}|${converted.sku}|${converted.postingDate}|${converted.company ?? ""}|${converted.erpSlot ?? ""}`;
@@ -130,7 +138,7 @@ export async function loadPurchaseHistory(
     erpError = erpErrors.length > 0 ? erpErrors.join(" · ") : null;
   }
 
-  const merged = mergePurchaseHistoryLines(cosmoLines, erpInvoiceLines);
+  const merged = mergePurchaseHistoryLines(cosmoLines, erpInvoiceLines, intercompanyPrefixes);
   const skus = [...new Set(merged.map((l) => l.sku))];
   const products =
     skus.length === 0

@@ -86,6 +86,7 @@ model Company {
   grnPendingEmailSendLogs         GrnPendingEmailSendLog[]
   productOsfProfiles              ProductOsfProfile[]
   productOsfRops                  ProductOsfRop[]
+  highRiskReorderRecords          HighRiskReorderRecord[]
   osfColumnConfigs                OsfColumnConfig[]
   osfMonthlySalesHistories        OsfMonthlySalesHistory[]
   osfPurchaseHistoryLines         OsfPurchaseHistoryLine[]
@@ -705,6 +706,14 @@ model User {
   grnValuationReverts                    GrnPurchaseReceipt[]           @relation("GrnPurchaseReceiptValuedRevertedBy")
   grnReceipts                            GrnPurchaseReceipt[]           @relation("GrnPurchaseReceiptReceivedBy")
   grnReceiptReverts                      GrnPurchaseReceipt[]           @relation("GrnPurchaseReceiptReceivedRevertedBy")
+  grnBackfillHandovers                   GrnBackfillPurchaseReceipt[]   @relation("GrnBackfillPurchaseReceiptHandoverBy")
+  grnBackfillHandoverReverts             GrnBackfillPurchaseReceipt[]   @relation("GrnBackfillPurchaseReceiptHandoverRevertedBy")
+  grnBackfillHandoverReceipts            GrnBackfillPurchaseReceipt[]   @relation("GrnBackfillPurchaseReceiptHandoverReceivedBy")
+  grnBackfillNotReceived                 GrnBackfillPurchaseReceipt[]   @relation("GrnBackfillPurchaseReceiptNotReceivedBy")
+  grnBackfillValuations                  GrnBackfillPurchaseReceipt[]   @relation("GrnBackfillPurchaseReceiptValuedBy")
+  grnBackfillValuationReverts            GrnBackfillPurchaseReceipt[]   @relation("GrnBackfillPurchaseReceiptValuedRevertedBy")
+  grnBackfillReceipts                    GrnBackfillPurchaseReceipt[]   @relation("GrnBackfillPurchaseReceiptReceivedBy")
+  grnBackfillReceiptReverts              GrnBackfillPurchaseReceipt[]   @relation("GrnBackfillPurchaseReceiptReceivedRevertedBy")
   orderRemarksAdded                      OrderRemark[]
   orderSampleFreeIssuesAdded             OrderSampleFreeIssue[]
   smsLogs                                SmsLog[]
@@ -2647,12 +2656,45 @@ model ProductOsfProfile {
   gccPrice                Decimal? @db.Decimal(12, 2)
   /// Per-SKU reorder alert/filter threshold (1–100). Null ⇒ treat as 70 at runtime.
   reorderThresholdPercent Int?
+  highRiskOrderPlaced    Boolean  @default(false)
+  highRiskOrderQty       Int?
+  highRiskSupplier       String?
+  highRiskReceiveDate    DateTime? @db.Date
+  highRiskReason         String?
   createdAt               DateTime @default(now())
   updatedAt               DateTime @updatedAt
   company                 Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
   @@unique([companyId, sku])
   @@index([companyId])
+}
+
+model HighRiskReorderRecord {
+  id               String   @id @default(cuid())
+  companyId        String
+  cycleStart       DateTime @db.Date
+  sku              String
+  totalRop         Int
+  totalStock       Float
+  reorderQty       Int
+  bestPrice        Decimal? @db.Decimal(12, 2)
+  bestSupplier     String?
+  orderPlaced      Boolean  @default(false)
+  orderQty         Int?
+  orderSupplier    String?
+  orderReceiveDate DateTime? @db.Date
+  reasonType       String?
+  replacementSku   String?
+  changedPriority  String?
+  otherReason      String?
+  status           String   @default("active")
+  createdAt        DateTime @default(now())
+  fulfilledAt      DateTime?
+  archivedAt       DateTime?
+  company          Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, cycleStart, status])
+  @@index([companyId, sku, createdAt])
 }
 
 model ProductOsfRop {
@@ -2903,6 +2945,23 @@ model GrnSupplierStockReturnPurchaseReceipt {
   @@index([companyId, purchaseReceiptId])
 }
 
+model GrnSpecialLink {
+  id                    String                 @id @default(cuid())
+  companyId             String
+  supplierStockReturnName String
+  supplierStockReturnIsBackfill Boolean @default(false)
+  purchaseReceiptName     String
+  purchaseReceiptIsBackfill Boolean @default(false)
+  reason                String
+  createdByName         String?
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+
+  @@unique([companyId, supplierStockReturnName, supplierStockReturnIsBackfill, purchaseReceiptName, purchaseReceiptIsBackfill])
+  @@index([companyId, supplierStockReturnName, supplierStockReturnIsBackfill])
+  @@index([companyId, purchaseReceiptName, purchaseReceiptIsBackfill])
+}
+
 model GrnSupplierStockReturnItem {
   id                    String                 @id @default(cuid())
   companyId             String
@@ -2920,6 +2979,63 @@ model GrnSupplierStockReturnItem {
   @@index([companyId, itemCode])
 }
 
+/// Legacy SSRs were posted through Material Issue Stock Entries instead of PI
+/// returns. One Material Issue can be linked to more than one SSR, so its
+/// posted valuation is normalized and SSR links are stored separately.
+model GrnMaterialIssue {
+  id              String                 @id @default(cuid())
+  companyId       String
+  name            String
+  erpCompany      String?
+  purpose         String?
+  stockEntryType  String?
+  docstatus       Int?
+  postingDate     DateTime?
+  rawPayload      Json
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+  items           GrnMaterialIssueItem[]
+  supplierStockReturnLinks GrnSupplierStockReturnMaterialIssueLink[]
+
+  @@unique([companyId, name])
+}
+
+model GrnMaterialIssueItem {
+  id              String           @id @default(cuid())
+  companyId       String
+  materialIssueId String
+  name            String
+  itemCode        String
+  itemName        String?
+  qty             Decimal          @db.Decimal(18, 6)
+  stockUom        String?
+  basicRate       Decimal?         @db.Decimal(18, 6)
+  basicAmount     Decimal?         @db.Decimal(18, 6)
+  valuationRate   Decimal?         @db.Decimal(18, 6)
+  amount          Decimal?         @db.Decimal(18, 6)
+  effectiveRate   Decimal?         @db.Decimal(18, 6)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  materialIssue   GrnMaterialIssue @relation(fields: [materialIssueId], references: [id], onDelete: Cascade)
+
+  @@unique([materialIssueId, name])
+  @@index([companyId, itemCode])
+}
+
+model GrnSupplierStockReturnMaterialIssueLink {
+  id                           String           @id @default(cuid())
+  companyId                    String
+  supplierStockReturnName      String
+  supplierStockReturnIsBackfill Boolean         @default(false)
+  materialIssueId              String
+  createdAt                    DateTime         @default(now())
+  updatedAt                    DateTime         @updatedAt
+  materialIssue                GrnMaterialIssue @relation(fields: [materialIssueId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, supplierStockReturnName, supplierStockReturnIsBackfill])
+  @@index([companyId, materialIssueId])
+}
+
 model GrnBackfillPurchaseReceipt {
   id                String                           @id @default(cuid())
   companyId         String
@@ -2934,17 +3050,49 @@ model GrnBackfillPurchaseReceipt {
   amendedFrom       String?
   owner             String?
   creation          DateTime?
+  handoverAt              DateTime?
+  handoverById            String?
+  handoverRevertedAt      DateTime?
+  handoverRevertedById    String?
+  handoverReceivedAt      DateTime?
+  handoverReceivedById    String?
+  notReceivedAt           DateTime?
+  notReceivedById         String?
+  valuedAt                DateTime?
+  valuedById              String?
+  valuedRevertedAt        DateTime?
+  valuedRevertedById      String?
+  receivedAt              DateTime?
+  receivedById            String?
+  receivedRevertedAt      DateTime?
+  receivedRevertedById    String?
   deletedAt         DateTime?
   rawPayload        Json
   createdAt         DateTime                         @default(now())
   updatedAt         DateTime                         @updatedAt
   company           Company                          @relation(fields: [companyId], references: [id], onDelete: Cascade)
   companyLocation   CompanyLocation?                 @relation(fields: [companyLocationId], references: [id], onDelete: SetNull)
+  handoverBy              User?                    @relation("GrnBackfillPurchaseReceiptHandoverBy", fields: [handoverById], references: [id], onDelete: SetNull)
+  handoverRevertedBy      User?                    @relation("GrnBackfillPurchaseReceiptHandoverRevertedBy", fields: [handoverRevertedById], references: [id], onDelete: SetNull)
+  handoverReceivedBy      User?                    @relation("GrnBackfillPurchaseReceiptHandoverReceivedBy", fields: [handoverReceivedById], references: [id], onDelete: SetNull)
+  notReceivedBy           User?                    @relation("GrnBackfillPurchaseReceiptNotReceivedBy", fields: [notReceivedById], references: [id], onDelete: SetNull)
+  valuedBy                User?                    @relation("GrnBackfillPurchaseReceiptValuedBy", fields: [valuedById], references: [id], onDelete: SetNull)
+  valuedRevertedBy        User?                    @relation("GrnBackfillPurchaseReceiptValuedRevertedBy", fields: [valuedRevertedById], references: [id], onDelete: SetNull)
+  receivedBy              User?                    @relation("GrnBackfillPurchaseReceiptReceivedBy", fields: [receivedById], references: [id], onDelete: SetNull)
+  receivedRevertedBy      User?                    @relation("GrnBackfillPurchaseReceiptReceivedRevertedBy", fields: [receivedRevertedById], references: [id], onDelete: SetNull)
   items             GrnBackfillPurchaseReceiptItem[]
   supplierStockReturnLinks GrnBackfillSupplierStockReturnPurchaseReceipt[]
 
   @@unique([companyId, name])
   @@index([companyId, creation(sort: Desc)])
+  @@index([handoverById])
+  @@index([handoverRevertedById])
+  @@index([handoverReceivedById])
+  @@index([notReceivedById])
+  @@index([valuedById])
+  @@index([valuedRevertedById])
+  @@index([receivedById])
+  @@index([receivedRevertedById])
   @@index([companyId, supplier])
   @@index([companyId, amendedFrom])
   @@index([companyLocationId])
