@@ -14,6 +14,22 @@ export type IntercompanyStockReturn = {
   date: Date | null;
   cancelled: boolean;
   linkedPurchaseReceiptNames: string[];
+  items?: Array<{ itemCode: string; qty: number }>;
+};
+
+export type IntercompanyMaterialIssueItem = {
+  id: string;
+  itemCode: string;
+  itemName: string | null;
+  qty: number;
+  effectiveRate: number | null;
+};
+
+export type IntercompanyMaterialIssue = {
+  name: string;
+  postingDate: Date | null;
+  supplierStockReturnName: string;
+  items: IntercompanyMaterialIssueItem[];
 };
 
 export type IntercompanyInvoiceItem = {
@@ -42,8 +58,8 @@ export type IntercompanyReportLine = {
   companyLabel: string;
   counterparty: string;
   counterpartyLabel: string;
-  side: "PR PI" | "SSR PI Return";
-  status: "Linked PI" | "No linked PI";
+  side: "PR PI" | "SSR PI Return" | "SSR Material Issue";
+  status: "Linked PI" | "Linked Material Issue" | "No linked PI";
   purchaseInvoice: string;
   reference: string;
   postingDate: Date | null;
@@ -77,6 +93,7 @@ type BuildIntercompanyReportInput = {
   purchaseReceipts: IntercompanyPurchaseReceipt[];
   stockReturns: IntercompanyStockReturn[];
   invoices: IntercompanyInvoice[];
+  materialIssues?: IntercompanyMaterialIssue[];
   companyLabels?: ReadonlyMap<string, string>;
   from?: Date | null;
   to?: Date | null;
@@ -120,6 +137,12 @@ function itemValue(item: IntercompanyInvoiceItem) {
   if (Number.isFinite(amount) && amount !== 0) return amount;
   const fallback = Math.abs(Number(item.qty) * Number(item.rate));
   return Number.isFinite(fallback) ? fallback : 0;
+}
+
+function materialIssueItemValue(item: IntercompanyMaterialIssueItem, qty: number) {
+  const rate = Math.abs(Number(item.effectiveRate));
+  const value = Math.abs(qty) * rate;
+  return Number.isFinite(value) ? value : 0;
 }
 
 function uniqueCompanies(values: Iterable<string>) {
@@ -250,6 +273,69 @@ export function buildIntercompanyReport(input: BuildIntercompanyReportInput) {
     }
   }
 
+  // Legacy SSRs used a Material Issue rather than a PI return. Use that
+  // valuation only when the SSR does not already have an active PI return.
+  // A Material Issue can back several SSRs, so allocate each item quantity
+  // once across those linked returns instead of multiplying its value.
+  const materialIssuesByName = new Map<string, IntercompanyMaterialIssue[]>();
+  for (const materialIssue of input.materialIssues ?? []) {
+    const key = documentKey(materialIssue.name);
+    const group = materialIssuesByName.get(key) ?? [];
+    group.push(materialIssue);
+    materialIssuesByName.set(key, group);
+  }
+  for (const materialIssues of materialIssuesByName.values()) {
+    const remainingQtyByItem = new Map<string, number>();
+    for (const item of materialIssues[0]?.items ?? []) {
+      const key = documentKey(item.itemCode);
+      remainingQtyByItem.set(key, (remainingQtyByItem.get(key) ?? 0) + Math.abs(item.qty));
+    }
+    for (const materialIssue of [...materialIssues].sort((a, b) =>
+      documentKey(a.supplierStockReturnName).localeCompare(documentKey(b.supplierStockReturnName)),
+    )) {
+      const stockReturnName = documentKey(materialIssue.supplierStockReturnName);
+      if (!selectedStockReturnNames.has(stockReturnName) || returnsWithInvoice.has(stockReturnName)) continue;
+      const stockReturn = stockReturns.get(stockReturnName);
+      if (!stockReturn?.counterpartyCompanyName) continue;
+      const company = stockReturn.companyName;
+      const counterparty = stockReturn.counterpartyCompanyName;
+      if (companyKey(company) === companyKey(counterparty)) continue;
+      const remainingReturnQty = new Map<string, number>();
+      for (const item of stockReturn.items ?? []) {
+        const itemCode = documentKey(item.itemCode);
+        remainingReturnQty.set(itemCode, (remainingReturnQty.get(itemCode) ?? 0) + Math.abs(item.qty));
+      }
+      for (const item of materialIssue.items) {
+        const itemCode = documentKey(item.itemCode);
+        const availableQty = remainingQtyByItem.get(itemCode) ?? 0;
+        const requiredQty = remainingReturnQty.get(itemCode) ?? 0;
+        const allocatedQty = Math.min(availableQty, requiredQty);
+        if (allocatedQty <= 0) continue;
+        remainingQtyByItem.set(itemCode, availableQty - allocatedQty);
+        remainingReturnQty.set(itemCode, requiredQty - allocatedQty);
+        lines.push({
+          company,
+          companyLabel: reportLabel(company, input.companyLabels),
+          counterparty,
+          counterpartyLabel: reportLabel(counterparty, input.companyLabels),
+          side: "SSR Material Issue",
+          status: "Linked Material Issue",
+          purchaseInvoice: materialIssue.name,
+          reference: stockReturn.name,
+          postingDate: materialIssue.postingDate ?? stockReturn.date,
+          itemCode: item.itemCode,
+          itemName: item.itemName,
+          qty: -allocatedQty,
+          rate: item.effectiveRate ?? 0,
+          amount: roundMoney(-materialIssueItemValue(item, allocatedQty)),
+        });
+      }
+      if ([...remainingReturnQty.values()].every((qty) => qty === 0)) {
+        returnsWithInvoice.add(stockReturnName);
+      }
+    }
+  }
+
   for (const name of selectedPurchaseReceiptNames) {
     if (receiptsWithInvoice.has(name)) continue;
     const receipt = purchaseReceipts.get(name);
@@ -338,7 +424,7 @@ export function buildIntercompanyTallyDifferences(lines: IntercompanyReportLine[
   const differences = new Map<string, IntercompanyTallyDifference>();
 
   for (const line of lines) {
-    if (line.status !== "Linked PI") continue;
+    if (line.status === "No linked PI") continue;
     const isPurchaseReceipt = line.side === "PR PI";
     const receivingCompany = isPurchaseReceipt ? line.company : line.counterparty;
     const receivingCompanyLabel = isPurchaseReceipt ? line.companyLabel : line.counterpartyLabel;

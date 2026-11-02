@@ -217,6 +217,58 @@ describe("buildIntercompanyReport", () => {
     expect(report.lines.map((line) => line.status)).toEqual(["Linked PI", "Linked PI"]);
   });
 
+  it("uses a linked Material Issue as the SSR value when there is no PI return", () => {
+    const report = buildIntercompanyReport({
+      purchaseReceipts: [
+        {
+          name: "PR200-0001",
+          companyName: "AJS",
+          counterpartyCompanyName: "COS",
+          date: new Date("2026-10-20T00:00:00.000Z"),
+          cancelled: false,
+          linkedStockReturnNames: ["SSR600-0001"],
+        },
+      ],
+      stockReturns: [
+        {
+          name: "SSR600-0001",
+          companyName: "COS",
+          counterpartyCompanyName: "AJS",
+          date: new Date("2026-10-20T00:00:00.000Z"),
+          cancelled: false,
+          linkedPurchaseReceiptNames: ["PR200-0001"],
+          items: [{ itemCode: "ITEM-A", qty: -2 }],
+        },
+      ],
+      invoices: [invoice("PI200-0001", 100, { purchaseReceipt: "PR200-0001" })],
+      materialIssues: [
+        {
+          name: "MAT-STE-2026-00001",
+          postingDate: new Date("2026-10-20T00:00:00.000Z"),
+          supplierStockReturnName: "SSR600-0001",
+          items: [{ id: "mi-item", itemCode: "ITEM-A", itemName: "Item A", qty: -2, effectiveRate: 50 }],
+        },
+      ],
+    });
+
+    expect(intercompanyMatrixValue(report.matrix, "AJS", "COS")).toBe(100);
+    expect(intercompanyMatrixValue(report.matrix, "COS", "AJS")).toBe(-100);
+    expect(report.lines).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        side: "SSR Material Issue",
+        status: "Linked Material Issue",
+        purchaseInvoice: "MAT-STE-2026-00001",
+        amount: -100,
+      }),
+    ]));
+    expect(buildIntercompanyTallyDifferences(report.lines)[0]).toEqual(expect.objectContaining({
+      prLinkedPiValue: 100,
+      ssrLinkedPiReturnValue: 100,
+      difference: 0,
+      status: "Matched",
+    }));
+  });
+
   it("keeps intercompany documents without a linked PI in the detail sheet", () => {
     const report = buildIntercompanyReport({
       purchaseReceipts: [
