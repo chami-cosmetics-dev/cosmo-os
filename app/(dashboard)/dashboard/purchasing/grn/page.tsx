@@ -10,7 +10,12 @@ export default async function GrnPage() {
   const context = await getCurrentUserContext();
   if (!context?.user) redirect("/login");
 
-  if (!hasPermission(context, "purchasing.grn.read")) {
+  const canUseGrn =
+    hasPermission(context, "purchasing.grn.read") ||
+    hasPermission(context, "purchasing.grn.margin_approval") ||
+    hasPermission(context, "purchasing.grn.payment_approval.read") ||
+    hasPermission(context, "purchasing.grn.payment_approval.manage");
+  if (!canUseGrn) {
     return <PermissionDeniedCard />;
   }
 
@@ -30,6 +35,15 @@ export default async function GrnPage() {
           hasPermission(context, "purchasing.grn.view_received") ||
           hasPermission(context, "purchasing.grn.mark_received"),
         canMarkReceived: hasPermission(context, "purchasing.grn.mark_received"),
+        canViewMarginApproval: hasPermission(context, "purchasing.grn.margin_approval"),
+        canMarkMarginApproval: hasPermission(context, "purchasing.grn.margin_approval"),
+        canViewPaymentApproval:
+          hasPermission(context, "purchasing.grn.payment_approval.read") ||
+          hasPermission(context, "purchasing.grn.payment_approval.manage"),
+        canMarkPaymentApproval: hasPermission(context, "purchasing.grn.payment_approval.manage"),
+        canMarkPaid:
+          hasPermission(context, "purchasing.grn.payment_approval.read") ||
+          hasPermission(context, "purchasing.grn.payment_approval.manage"),
       }}
     />
   );

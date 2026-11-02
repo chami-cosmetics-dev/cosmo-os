@@ -764,9 +764,7 @@ export function ItemCreationPanel({
       visible: canAct("stores"),
       items: items.filter(
         (item) =>
-          item.storeTransferStatus !== "RECEIVED" &&
-          item.seoSetupStatus !== "PENDING" &&
-          item.digitalMarketingStatus === "IMAGE_CREATED",
+          item.storeTransferStatus !== "RECEIVED",
       ),
       action: (item: ItemCreationItem) =>
         item.storeTransferStatus === "PENDING" ? (
@@ -881,9 +879,9 @@ export function ItemCreationPanel({
           <BrandAllocationPanel items={items} onRefresh={refreshRequests} />
         )}
 
-      {permissions.admin && activeView === "admin" && (
+      {(permissions.admin || permissions.adminViewer || permissions.manageAll) && activeView === "admin" && (
         <div className="space-y-4">
-          <form action={submitCreate} className="rounded-lg border bg-card p-4">
+          {permissions.admin && <form action={submitCreate} className="rounded-lg border bg-card p-4">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
               <h2 className="text-lg font-semibold tracking-normal">
                 Create Item Request
@@ -1078,7 +1076,7 @@ export function ItemCreationPanel({
                 </button>
               </div>
             </div>
-          </form>
+          </form>}
 
           <form action={applyFilters} className="rounded-lg border bg-card p-4">
             <div className="mb-4 flex items-center justify-between gap-3">
