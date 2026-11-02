@@ -147,10 +147,9 @@ export async function loadPurchaseHistory(
   }
 
   const merged = filterPurchaseHistoryLinesForOs(
-    mergePurchaseHistoryLines(cosmoLines, erpInvoiceLines),
+    mergePurchaseHistoryLines(cosmoLines, erpInvoiceLines, intercompanyPrefixes),
     vaultOs,
   );
-  const merged = mergePurchaseHistoryLines(cosmoLines, erpInvoiceLines, intercompanyPrefixes);
   const skus = [...new Set(merged.map((l) => l.sku))];
   const skuVariants = [
     ...new Set(
