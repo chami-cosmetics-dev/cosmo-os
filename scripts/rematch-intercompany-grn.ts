@@ -181,15 +181,46 @@ async function attachLiveReturnInvoices(
   }
 }
 
+async function findSpecialLinks() {
+  try {
+    return await prisma.grnSpecialLink.findMany({
+      select: {
+        companyId: true,
+        purchaseReceiptName: true,
+        purchaseReceiptIsBackfill: true,
+        supplierStockReturnName: true,
+        supplierStockReturnIsBackfill: true,
+      },
+    });
+  } catch (error) {
+    // Vault may not have the optional Special Links feature migrated yet.
+    // Normal rematching remains safe: there are no special links to preserve.
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2021") {
+      return [];
+    }
+    throw error;
+  }
+}
+
 async function rematchLive(resolvers: Map<string, ReturnType<typeof buildGrnCompanyResolver>>) {
   const [livePurchaseReceipts, liveStockReturns] = await Promise.all([
     prisma.grnPurchaseReceipt.findMany({
       where: { docstatus: { not: 2 }, supplierStockReturnName: null },
-      include: { items: true, supplierStockReturnLinks: { select: { supplierStockReturnId: true } } },
+      select: {
+        id: true, companyId: true, companyLocationId: true, name: true, supplier: true, supplierName: true,
+        supplierStockReturnName: true, creation: true, postingDate: true,
+        items: { select: { itemCode: true, qty: true, stockQty: true } },
+        supplierStockReturnLinks: { select: { supplierStockReturnId: true } },
+      },
     }),
     prisma.grnSupplierStockReturn.findMany({
       where: { docstatus: { not: 2 }, purchaseReceiptName: null },
-      include: { items: true, purchaseReceiptLinks: { select: { purchaseReceiptId: true } } },
+      select: {
+        id: true, companyId: true, name: true, supplier: true, supplierName: true, purchaseReceiptName: true,
+        rawPayload: true, creation: true, returnDate: true,
+        items: { select: { itemCode: true, qty: true } },
+        purchaseReceiptLinks: { select: { purchaseReceiptId: true } },
+      },
       orderBy: [{ creation: "asc" }, { createdAt: "asc" }],
     }),
   ]);
@@ -244,15 +275,30 @@ async function rematchBackfill(resolvers: Map<string, ReturnType<typeof buildGrn
   ] = await Promise.all([
     prisma.grnPurchaseReceipt.findMany({
       where: { docstatus: { not: 2 }, supplierStockReturnName: null },
-      include: { items: true, supplierStockReturnLinks: { select: { supplierStockReturnId: true } } },
+      select: {
+        id: true, companyId: true, companyLocationId: true, name: true, supplier: true, supplierName: true,
+        supplierStockReturnName: true, creation: true, postingDate: true,
+        items: { select: { itemCode: true, qty: true, stockQty: true } },
+        supplierStockReturnLinks: { select: { supplierStockReturnId: true } },
+      },
     }),
     prisma.grnBackfillPurchaseReceipt.findMany({
       where: { docstatus: { not: 2 } },
-      include: { items: true, supplierStockReturnLinks: { select: { supplierStockReturnId: true } } },
+      select: {
+        id: true, companyId: true, companyLocationId: true, name: true, supplier: true, supplierName: true,
+        creation: true, postingDate: true,
+        items: { select: { itemCode: true, qty: true, stockQty: true } },
+        supplierStockReturnLinks: { select: { supplierStockReturnId: true } },
+      },
     }),
     prisma.grnBackfillSupplierStockReturn.findMany({
       where: { docstatus: { not: 2 }, purchaseReceiptName: null },
-      include: { items: true, purchaseReceiptLinks: { select: { purchaseReceiptId: true } } },
+      select: {
+        id: true, companyId: true, name: true, supplier: true, supplierName: true, purchaseReceiptName: true,
+        rawPayload: true, creation: true, returnDate: true,
+        items: { select: { itemCode: true, qty: true } },
+        purchaseReceiptLinks: { select: { purchaseReceiptId: true } },
+      },
       orderBy: [{ creation: "asc" }, { createdAt: "asc" }],
     }),
     prisma.grnSupplierStockReturn.findMany({
@@ -353,6 +399,7 @@ async function main() {
     backfillStockReturns,
     liveRelations,
     backfillRelations,
+    specialLinks,
     livePurchaseInvoices,
     backfillPurchaseInvoices,
   ] = await Promise.all([
@@ -416,6 +463,7 @@ async function main() {
     prisma.grnBackfillSupplierStockReturnPurchaseReceipt.findMany({
       select: { purchaseReceiptId: true, supplierStockReturnId: true },
     }),
+    findSpecialLinks(),
     prisma.grnPurchaseInvoice.findMany({
       where: {
         docstatus: { not: 2 },
@@ -571,7 +619,11 @@ async function main() {
     );
   }
 
+  const specialLinkPairs = new Set(
+    specialLinks.map((link) => `${link.companyId}:${link.purchaseReceiptName}:${link.purchaseReceiptIsBackfill}:${link.supplierStockReturnName}:${link.supplierStockReturnIsBackfill}`),
+  );
   const invalidPairs = [...pairs.values()].filter((pair) => {
+    if (specialLinkPairs.has(`${pair.purchaseReceipt.companyId}:${pair.purchaseReceipt.name}:${pair.purchaseReceipt.kind === "backfill"}:${pair.stockReturn.name}:${pair.stockReturn.kind === "backfill"}`)) return false;
     const resolver = resolverByCompany.get(pair.purchaseReceipt.companyId);
     return !(
       resolver &&

@@ -37,6 +37,7 @@ export type MarginIssueSku = {
   priority: string;
   brand: string;
   latestPurchasePrice: number;
+  latestPurchaseSupplier: string | null;
   latestPurchaseDate: string | null;
   standardSellingPrice: number | null;
   marginPct: number | null;
@@ -206,16 +207,18 @@ function mergeLatestPurchase(target: Map<string, { sku: string; rate: number; da
 }
 
 export async function loadMarginIssuesReport(companyId: string, reportDate: string): Promise<MarginIssuesReport> {
-  const [instances, allowedSuppliers, ropColumns] = await Promise.all([
+  const [instances, allowedSuppliers, locations, ropColumns] = await Promise.all([
     getAllOsfErpInstances(companyId),
     prisma.supplier.findMany({ where: { companyId }, select: { name: true, code: true } }),
+    prisma.companyLocation.findMany({ where: { companyId, supplierPrefix: { not: null } }, select: { supplierPrefix: true } }),
     resolveOsfColumns(companyId),
   ]);
   if (instances.length === 0) throw new Error("No configured ERP instances are available for margin issues report");
 
   const supplierList: AllowedSupplier[] = allowedSuppliers.map((supplier) => ({ name: supplier.name, code: supplier.code }));
+  const intercompanyPrefixes = locations.map((location) => location.supplierPrefix?.trim()).filter((prefix): prefix is string => Boolean(prefix));
   const sources = await Promise.all(instances.map(async (instance, sourceIndex) => {
-    const latest = await fetchLatestPurchases({ cfg: instance.cfg, allowedSuppliers: supplierList });
+    const latest = await fetchLatestPurchases({ cfg: instance.cfg, allowedSuppliers: supplierList, intercompanyPrefixes });
     const skus = [...latest.keys()];
     const [prices, brands, priorities, stock] = await Promise.all([
       fetchItemPricesForList(instance.cfg, STANDARD_SELLING_PRICE_LIST),
@@ -267,6 +270,7 @@ export async function loadMarginIssuesReport(companyId: string, reportDate: stri
         priority: normalizedPriority,
         brand: normalizeText(brand),
         latestPurchasePrice: latest.rate,
+        latestPurchaseSupplier: source.latest.get(latest.sku)?.supplier ?? null,
         latestPurchaseDate: latest.date,
         standardSellingPrice: null,
         marginPct: null,
@@ -287,6 +291,7 @@ export async function loadMarginIssuesReport(companyId: string, reportDate: stri
       priority: normalizedPriority,
       brand: normalizeText(brand),
       latestPurchasePrice: latest.rate,
+      latestPurchaseSupplier: source.latest.get(latest.sku)?.supplier ?? null,
       latestPurchaseDate: latest.date,
       standardSellingPrice: standard,
       marginPct,

@@ -11,6 +11,7 @@ const schema = z.object({
   field: z.enum(["handoverAt", "valuedAt", "receivedAt"]),
   action: z.enum(["mark", "revert", "not_received", "handover_received"]).optional().default("mark"),
   companyId: z.string().min(1).optional(),
+  isBackfill: z.boolean().optional().default(false),
 });
 
 const FIELD_PERMISSIONS: Record<z.infer<typeof schema>["field"], string> = {
@@ -68,6 +69,75 @@ export async function POST(
   const { name } = await params;
   const decodedName = decodeURIComponent(name);
   const targetCompanyId = parsed.data.companyId ?? companyId;
+
+  if (parsed.data.isBackfill) {
+    const row = await prisma.grnBackfillPurchaseReceipt.findUnique({
+      where: { companyId_name: { companyId: targetCompanyId, name: decodedName } },
+      select: {
+        docstatus: true,
+        handoverAt: true,
+        handoverReceivedAt: true,
+        valuedAt: true,
+        receivedAt: true,
+      },
+    });
+    if (!row) return NextResponse.json({ error: "Purchase receipt not found" }, { status: 404 });
+    if (row.docstatus === 2) return NextResponse.json({ error: "Cancelled purchase receipts cannot be marked" }, { status: 409 });
+
+    const now = new Date();
+    const update = async (data: Record<string, Date | string | null>) =>
+      prisma.grnBackfillPurchaseReceipt.update({
+        where: { companyId_name: { companyId: targetCompanyId, name: decodedName } },
+        data,
+      });
+
+    if (parsed.data.action === "not_received") {
+      if (parsed.data.field !== "handoverAt" || !row.handoverAt || row.receivedAt) {
+        return NextResponse.json({ error: "Only an unreceived handover can be marked not received" }, { status: 409 });
+      }
+      await update({ handoverAt: null, handoverById: null, handoverReceivedAt: null, handoverReceivedById: null, valuedAt: null, valuedById: null, receivedAt: null, receivedById: null, notReceivedAt: now, notReceivedById: user.id });
+      return NextResponse.json({ ok: true });
+    }
+    if (parsed.data.action === "handover_received") {
+      if (parsed.data.field !== "handoverAt" || !row.handoverAt || row.receivedAt) {
+        return NextResponse.json({ error: "Mark handover before marking it received" }, { status: 409 });
+      }
+      await update({ handoverReceivedAt: now, handoverReceivedById: user.id, notReceivedAt: null, notReceivedById: null, handoverRevertedAt: null, handoverRevertedById: null });
+      return NextResponse.json({ ok: true });
+    }
+    if (parsed.data.action === "revert") {
+      if (!row[parsed.data.field]) return NextResponse.json({ error: "This stage is not marked yet" }, { status: 409 });
+      const stageIndex = STAGE_ORDER.indexOf(parsed.data.field);
+      const data: Record<string, Date | string | null> = {};
+      for (const field of STAGE_ORDER.slice(stageIndex)) {
+        if (!row[field]) continue;
+        data[field] = null;
+        data[FIELD_ACTOR_COLUMNS[field]] = null;
+        data[FIELD_REVERTED_AT_COLUMNS[field]] = now;
+        data[FIELD_REVERTED_BY_COLUMNS[field]] = user.id;
+      }
+      if (parsed.data.field === "handoverAt") {
+        data.handoverReceivedAt = null;
+        data.handoverReceivedById = null;
+      }
+      await update(data);
+      return NextResponse.json({ ok: true });
+    }
+    if (parsed.data.field === "valuedAt" && (!row.handoverAt || !row.handoverReceivedAt)) {
+      return NextResponse.json({ error: "Mark handover received before marking valued" }, { status: 409 });
+    }
+    if (parsed.data.field === "receivedAt" && (!row.handoverAt || !row.valuedAt)) {
+      return NextResponse.json({ error: "Mark handover and valued before marking GRN received" }, { status: 409 });
+    }
+    await update({
+      [parsed.data.field]: now,
+      [FIELD_ACTOR_COLUMNS[parsed.data.field]]: user.id,
+      [FIELD_REVERTED_AT_COLUMNS[parsed.data.field]]: null,
+      [FIELD_REVERTED_BY_COLUMNS[parsed.data.field]]: null,
+      ...(parsed.data.field === "handoverAt" && { notReceivedAt: null, notReceivedById: null, handoverReceivedAt: null, handoverReceivedById: null }),
+    });
+    return NextResponse.json({ ok: true });
+  }
 
   const row = await prisma.grnPurchaseReceipt.findUnique({
     where: { companyId_name: { companyId: targetCompanyId, name: decodedName } },
