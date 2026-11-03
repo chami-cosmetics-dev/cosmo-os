@@ -1547,6 +1547,11 @@ model RiderDeliveryTask {
   failedAt                  DateTime?
   failureReason             String?
   latestSyncAt              DateTime?
+  /// GPS at door when rider marks delivery done (WGS84).
+  completedLatitude         Float?
+  completedLongitude        Float?
+  completedAccuracyMeters   Float?
+  completedLocationAt       DateTime?
   /// Staff-picked district for rider pay when auto shipping-label match fails.
   manualIncentiveLabelKey   String?
   manualIncentiveLabel      String?
@@ -1586,6 +1591,10 @@ model DeliveryPayment {
   referenceNote      String?
   bankReference      String?
   cardReference      String?
+  /** Last 4 digits of card used for card-on-delivery (also mirrored in cardReference). */
+  cardLast4          String?
+  /** Cloudinary URL of payment-slip photo for card-on-delivery. */
+  cardSlipImageUrl   String?
   collectedAt        DateTime?
   idempotencyKey     String?                  @unique
   createdAt          DateTime                 @default(now())

@@ -2,12 +2,14 @@ import { Alert } from "react-native";
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import type { PaymentLineDraft } from "@/src/components/payment-form";
+import { ApiError } from "@/src/api/client";
 import { useCompletedDeliveries } from "@/src/providers/completed-deliveries";
+import { useSync } from "@/src/providers/sync";
 import { getTenantDefinition } from "@/src/tenants/config";
 import type { TenantId } from "@/src/tenants/config";
 import type { MobileDeliveryDetail, OldItemCollectionStatus, PaymentMethod } from "@/src/types";
 import { amountsMatch, requiresPaymentReference } from "@/src/utils/delivery";
-import { submitOrQueue } from "@/src/utils/submit-or-queue";
+import { submitOrQueue, submitOrQueueSteps } from "@/src/utils/submit-or-queue";
 
 type DeliveryActionInput = {
   tenant: TenantId;
@@ -18,6 +20,7 @@ type DeliveryActionInput = {
   paymentNote: string;
   oldItemCollectionStatus: OldItemCollectionStatus;
   oldItemCollectionRemark: string;
+  cardSlipBase64?: string | null;
 };
 
 function normalizeLines(lines: PaymentLineDraft[], expectedAmount: number) {
@@ -38,12 +41,19 @@ function normalizeLines(lines: PaymentLineDraft[], expectedAmount: number) {
     .filter((line) => line.amount > 0 || line.paymentMethod === "already_paid");
 }
 
+function stableIdempotencyKey(kind: "payment" | "complete" | "fail", tenant: TenantId, deliveryId: string) {
+  return `${kind}-${tenant}-${deliveryId}`;
+}
+
 export function useDeliveryActions() {
   const router = useRouter();
   const { markCompleted } = useCompletedDeliveries();
+  const { refreshPendingQueue } = useSync();
   const [submitting, setSubmitting] = useState(false);
 
   async function markDelivered(input: DeliveryActionInput) {
+    if (submitting) return;
+
     const {
       tenant,
       deliveryId,
@@ -53,6 +63,7 @@ export function useDeliveryActions() {
       paymentNote,
       oldItemCollectionStatus,
       oldItemCollectionRemark,
+      cardSlipBase64,
     } = input;
 
     const expectedAmount = Number(delivery.amount);
@@ -63,16 +74,32 @@ export function useDeliveryActions() {
       .reduce((sum, line) => sum + line.amount, 0);
     const gave = Number(customerGaveAmount || 0);
     const needsOldItemCollection = delivery.requiresOldItemCollection;
+    const allowed = delivery.allowedPaymentMethods;
+    const usesCard = lines.some((line) => line.paymentMethod === "card");
+    const cardLast4 = lines.find((line) => line.paymentMethod === "card")?.cardReference?.trim() ?? "";
 
     if (lines.length === 0) {
       Alert.alert("Missing amount", "Enter at least one payment amount.");
       return;
     }
 
+    if (allowed?.length) {
+      const blocked = lines.find((line) => !allowed.includes(line.paymentMethod as PaymentMethod));
+      if (blocked) {
+        Alert.alert(
+          "Payment method not allowed",
+          blocked.paymentMethod === "card"
+            ? "Card is not allowed on coupon COD orders. Use cash or bank transfer."
+            : `Cannot use ${blocked.paymentMethod} on this order.`
+        );
+        return;
+      }
+    }
+
     if (!amountsMatch(delivery.amount, collectedTotal)) {
       Alert.alert(
         "Amount mismatch",
-        "Payment parts must add up to the order amount before completing."
+        "Payment parts must add up to the amount due before completing."
       );
       return;
     }
@@ -100,15 +127,19 @@ export function useDeliveryActions() {
     }
 
     for (const line of lines) {
-      if (requiresPaymentReference(line.paymentMethod)) {
-        const hasRef =
-          (line.paymentMethod === "bank_transfer" && line.bankReference) ||
-          (line.paymentMethod === "card" && line.cardReference);
-        if (!hasRef) {
-          Alert.alert("Missing reference", "Enter the payment reference for bank/card parts.");
-          return;
-        }
+      if (line.paymentMethod === "bank_transfer" && !line.bankReference) {
+        Alert.alert("Missing reference", "Enter the bank transfer reference.");
+        return;
       }
+      if (line.paymentMethod === "card" && !/^\d{4}$/.test(line.cardReference ?? "")) {
+        Alert.alert("Last 4 digits", "Enter the last 4 digits of the card.");
+        return;
+      }
+    }
+
+    if (usesCard && !cardSlipBase64?.trim()) {
+      Alert.alert("Slip photo required", "Take a photo of the card payment slip.");
+      return;
     }
 
     setSubmitting(true);
@@ -122,6 +153,13 @@ export function useDeliveryActions() {
             }
           : {};
 
+      const cardProof = usesCard
+        ? {
+            cardLast4,
+            cardSlipImageBase64: cardSlipBase64 ?? undefined,
+          }
+        : {};
+
       const paymentBody =
         lines.length === 1
           ? {
@@ -130,8 +168,9 @@ export function useDeliveryActions() {
               bankReference: lines[0].bankReference,
               cardReference: lines[0].cardReference,
               referenceNote: paymentNote.trim() || undefined,
+              ...cardProof,
               ...tenderFields,
-              idempotencyKey: `payment-${tenant}-${deliveryId}-${Date.now()}`,
+              idempotencyKey: stableIdempotencyKey("payment", tenant, deliveryId),
             }
           : {
               lines: lines.map((line) => ({
@@ -139,37 +178,36 @@ export function useDeliveryActions() {
                 amount: line.amount,
                 bankReference: line.bankReference,
                 cardReference: line.cardReference,
+                cardLast4: line.paymentMethod === "card" ? line.cardReference : undefined,
                 referenceNote: paymentNote.trim() || undefined,
               })),
+              ...cardProof,
               ...tenderFields,
-              idempotencyKey: `payment-${tenant}-${deliveryId}-${Date.now()}`,
+              idempotencyKey: stableIdempotencyKey("payment", tenant, deliveryId),
             };
 
-      const paymentResult = await submitOrQueue({
+      const closeResult = await submitOrQueueSteps({
         tenant,
-        endpoint: `/api/mobile/v1/deliveries/${deliveryId}/payment`,
-        body: paymentBody,
-        queuedMessage: "Payment was added to the sync queue.",
+        steps: [
+          {
+            endpoint: `/api/mobile/v1/deliveries/${deliveryId}/payment`,
+            method: "POST",
+            body: paymentBody,
+          },
+          {
+            endpoint: `/api/mobile/v1/deliveries/${deliveryId}/complete`,
+            method: "POST",
+            body: {
+              idempotencyKey: stableIdempotencyKey("complete", tenant, deliveryId),
+              oldItemCollectionStatus: needsOldItemCollection ? oldItemCollectionStatus : undefined,
+              oldItemCollectionRemark: needsOldItemCollection
+                ? oldItemCollectionRemark.trim() || undefined
+                : undefined,
+            },
+          },
+        ],
+        queuedMessage: "Payment + delivery done saved offline — will sync together.",
       });
-
-      const completeResult = await submitOrQueue({
-        tenant,
-        endpoint: `/api/mobile/v1/deliveries/${deliveryId}/complete`,
-        body: {
-          idempotencyKey: `complete-${tenant}-${deliveryId}-${Date.now()}`,
-          oldItemCollectionStatus: needsOldItemCollection ? oldItemCollectionStatus : undefined,
-          oldItemCollectionRemark: needsOldItemCollection
-            ? oldItemCollectionRemark.trim() || undefined
-            : undefined,
-        },
-        queuedMessage: "Delivery completion was added to the sync queue.",
-      });
-
-      if (paymentResult.mode === "live" && completeResult.mode === "live") {
-        Alert.alert("Order completed", "The order was completed successfully.");
-      } else {
-        Alert.alert("Queued", "Payment and delivery completion were added to the sync queue.");
-      }
 
       await markCompleted({
         tenant,
@@ -181,24 +219,54 @@ export function useDeliveryActions() {
         companyLocation: delivery.companyLocation ?? null,
         companyLabel: getTenantDefinition(tenant).label,
       });
+      await refreshPendingQueue();
 
-      router.navigate("/(tabs)/completed");
+      if (closeResult.mode === "live") {
+        Alert.alert("Order completed", "Delivery marked done. Invoice close stays with finance.");
+      } else {
+        Alert.alert("Saved offline", "Payment and done will sync together when online.");
+      }
+
+      router.navigate("/(tabs)/deliveries");
+    } catch (error) {
+      const message =
+        error instanceof ApiError
+          ? error.message
+          : error instanceof Error
+            ? error.message
+            : "Could not complete delivery";
+      Alert.alert("Could not complete", message);
     } finally {
       setSubmitting(false);
     }
   }
 
   async function markFailed(tenant: TenantId, deliveryId: string, failureReason: string) {
-    await submitOrQueue({
-      tenant,
-      endpoint: `/api/mobile/v1/deliveries/${deliveryId}/fail`,
-      body: {
-        reason: failureReason || "Customer unavailable",
-        idempotencyKey: `fail-${tenant}-${deliveryId}-${Date.now()}`,
-      },
-      queuedMessage: "Failure update was added to the sync queue.",
-    });
-    Alert.alert("Queued", "Failure update was added to the sync queue.");
+    if (submitting) return;
+    setSubmitting(true);
+    try {
+      const result = await submitOrQueue({
+        tenant,
+        endpoint: `/api/mobile/v1/deliveries/${deliveryId}/fail`,
+        body: {
+          reason: failureReason || "Customer unavailable",
+          idempotencyKey: stableIdempotencyKey("fail", tenant, deliveryId),
+        },
+        queuedMessage: "Failure update was added to the sync queue.",
+      });
+      await refreshPendingQueue();
+      if (result.mode === "live") {
+        Alert.alert("Marked failed", "Delivery was marked as failed.");
+      } else {
+        Alert.alert("Saved offline", result.message);
+      }
+      router.navigate("/(tabs)/deliveries");
+    } catch (error) {
+      const message = error instanceof ApiError ? error.message : "Could not mark failed";
+      Alert.alert("Could not mark failed", message);
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return {

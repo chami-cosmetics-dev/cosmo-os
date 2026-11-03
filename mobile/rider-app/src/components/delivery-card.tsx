@@ -26,7 +26,9 @@ export function DeliveryCard({ delivery, onPress, compact = false }: DeliveryCar
   const { colors, radii, shadows } = useTheme();
   const styles = useMemo(() => createStyles(colors, radii, shadows, compact), [colors, radii, shadows, compact]);
 
-  const queuedEndpoints = queuedActions.map((action) => action.endpoint);
+  const queuedEndpoints = queuedActions.flatMap((action) =>
+    action.steps.map((step) => step.endpoint)
+  );
   const isNotSynced = hasQueuedAction(delivery.id, queuedEndpoints);
   const routeBadgeLabel = getRouteBadgeLabel(delivery.deliveryStatus);
   const addressText = getAddressText(delivery);

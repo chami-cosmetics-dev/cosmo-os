@@ -33,15 +33,35 @@ export function SyncProvider({ children }: PropsWithChildren) {
     const remaining = [];
 
     for (const item of queue) {
-      const ok = await flushQueuedRequest({
-        tenant: item.tenant,
-        endpoint: item.endpoint,
-        method: item.method,
-        body: item.body,
-      });
+      let nextStepIndex = item.nextStepIndex ?? 0;
+      let keep = false;
 
-      if (!ok) {
-        remaining.push(item);
+      while (nextStepIndex < item.steps.length) {
+        const step = item.steps[nextStepIndex]!;
+        const result = await flushQueuedRequest({
+          tenant: item.tenant,
+          endpoint: step.endpoint,
+          method: step.method,
+          body: step.body,
+        });
+
+        if (result === "ok") {
+          nextStepIndex += 1;
+          continue;
+        }
+        if (result === "drop") {
+          // Permanent failure — drop whole job (do not block later sync).
+          keep = false;
+          nextStepIndex = item.steps.length;
+          break;
+        }
+        // retry: keep remaining steps together (payment done, complete still pending, etc.)
+        keep = true;
+        break;
+      }
+
+      if (keep) {
+        remaining.push({ ...item, nextStepIndex });
       }
     }
 

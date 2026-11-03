@@ -27,6 +27,7 @@ const API_KEY = "test-merchant-key";
 
 function sampleOrder() {
   return {
+    id: "clorder1001",
     shopifyOrderId: "1001",
     name: "#1001",
     orderNumber: "1001",
@@ -90,6 +91,7 @@ describe("merchant orders API", () => {
     vi.clearAllMocks();
     process.env.MERCHANT_ORDERS_API_KEY = API_KEY;
     process.env.MERCHANT_ORDERS_COMPANY_ID = "company-1";
+    process.env.APP_BASE_URL = "https://os.cosmetics.lk";
     prismaMock.company.findUnique.mockResolvedValue({ id: "company-1" });
     prismaMock.order.count.mockResolvedValue(1);
     prismaMock.order.findMany.mockResolvedValue([sampleOrder()]);
@@ -152,7 +154,7 @@ describe("merchant orders API", () => {
         fulfillmentStatus: "FULFILLED",
         currencyCode: "LKR",
         customerUrl: "",
-        statusUrl: "https://cosmetics.lk/orders/1001",
+        statusUrl: expect.stringMatching(/^https:\/\/os\.cosmetics\.lk\/o\/[A-Za-z0-9_-]+$/),
         subtotalPriceV2: { amount: "39.98", currencyCode: "LKR" },
         totalShippingPriceV2: { amount: "0.00", currencyCode: "LKR" },
         totalTaxV2: { amount: "0.00", currencyCode: "LKR" },
@@ -217,7 +219,7 @@ describe("merchant orders API", () => {
     expect(where.customerPhone).toEqual({ in: expect.arrayContaining(["0771234567"]) });
   });
 
-  it("maps an unfulfilled order and an empty status link", () => {
+  it("maps an unfulfilled order and a Cosmo status link", () => {
     expect(toGuideFulfillmentStatus(null)).toBe("UNFULFILLED");
     const presented = presentMerchantOrder({
       ...sampleOrder(),
@@ -227,7 +229,8 @@ describe("merchant orders API", () => {
       lineItems: [],
     });
     expect(presented.fulfillmentStatus).toBe("UNFULFILLED");
-    expect(presented.statusUrl).toBe("");
+    expect(presented.statusUrl).toMatch(/^https:\/\/os\.cosmetics\.lk\/o\/[A-Za-z0-9_-]+$/);
+    expect(presented.statusUrl).not.toContain("clorder1001");
     expect(presented.phone).toBe("+15551234567");
     expect(presented.lineItems).toEqual([]);
   });

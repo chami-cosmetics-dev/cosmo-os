@@ -3,7 +3,7 @@ import { apiClient } from "@/src/api/client";
 import { useRefreshOnFocus } from "@/src/hooks/use-refresh-on-focus";
 import { useCompletedDeliveries } from "@/src/providers/completed-deliveries";
 import { useAuth } from "@/src/providers/auth";
-import { getDeliveryKey } from "@/src/tenants/config";
+import { getDeliveryKey, getTenantDefinition, type TenantId } from "@/src/tenants/config";
 import { getConfiguredTenants } from "@/src/tenants";
 import type { MobileDeliveriesResponse, TenantMobileDelivery } from "@/src/types";
 import { isRenderableDelivery } from "@/src/utils/delivery";
@@ -16,6 +16,7 @@ export function useDeliveries() {
   const [deliveries, setDeliveries] = useState<TenantMobileDelivery[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [tenantErrors, setTenantErrors] = useState<TenantId[]>([]);
 
   const reload = useCallback(async () => {
     setRefreshing(true);
@@ -25,21 +26,43 @@ export function useDeliveries() {
         tenants.map(async (tenant) => {
           try {
             const data = await apiClient.get<MobileDeliveriesResponse>(tenant.id, "/api/mobile/v1/deliveries");
-            return data.deliveries.map((delivery) => ({
-              ...delivery,
-              tenant: tenant.id,
-              companyLabel: tenant.label,
-            }));
+            return {
+              ok: true as const,
+              tenantId: tenant.id,
+              deliveries: data.deliveries.map((delivery) => ({
+                ...delivery,
+                tenant: tenant.id,
+                companyLabel: tenant.label,
+              })),
+            };
           } catch {
-            return [];
+            return { ok: false as const, tenantId: tenant.id, deliveries: [] as TenantMobileDelivery[] };
           }
         })
       );
 
-      setDeliveries(responses.flat());
-      setError(null);
+      const failed = responses.filter((row) => !row.ok).map((row) => row.tenantId);
+      setTenantErrors(failed);
+      setDeliveries(responses.flatMap((row) => row.deliveries));
+
+      if (failed.length > 0 && responses.every((row) => !row.ok)) {
+        setError(
+          failed
+            .map((id) => `${getTenantDefinition(id).label} failed`)
+            .join(" · ")
+        );
+      } else if (failed.length > 0) {
+        setError(
+          failed
+            .map((id) => `${getTenantDefinition(id).label} failed — showing other companies`)
+            .join(" · ")
+        );
+      } else {
+        setError(null);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load deliveries");
+      setTenantErrors([]);
     } finally {
       setRefreshing(false);
     }
@@ -64,6 +87,7 @@ export function useDeliveries() {
     activeDeliveries,
     refreshing,
     error,
+    tenantErrors,
     reload,
   };
 }

@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { requireRiderMobileSession, mobileError } from "@/lib/mobile/api";
+import {
+  assertPaymentMethodsAllowed,
+  resolveMobileCollectAmount,
+} from "@/lib/mobile/collect-amount";
 import { inferCollectionStatus, inferExpectedPaymentMethod } from "@/lib/mobile/payment";
 import {
   derivePaymentHeaderFromLines,
@@ -12,6 +16,7 @@ import {
   cashDueFromPayment,
   computeChangeAmount,
 } from "@/lib/mobile/payment-tender";
+import { resolveCardLast4, uploadCardSlipImage } from "@/lib/mobile/card-slip";
 import { findRiderTaskById } from "@/lib/mobile/orders";
 import { mobileRouteIdSchema, riderPaymentSchema } from "@/lib/mobile/validation";
 import { prisma } from "@/lib/prisma";
@@ -65,13 +70,24 @@ export async function POST(
 
   const fallbackMethod =
     parsed.data.paymentMethod ?? inferExpectedPaymentMethod(task.order);
+  const topLevelLast4 = resolveCardLast4({
+    cardLast4: parsed.data.cardLast4,
+    cardReference: parsed.data.cardReference,
+  });
   const lines = normalizePaymentLines({
     paymentMethod: fallbackMethod,
     collectedAmount: parsed.data.collectedAmount,
     bankReference: parsed.data.bankReference,
-    cardReference: parsed.data.cardReference,
+    cardReference: topLevelLast4 ?? parsed.data.cardReference,
     referenceNote: parsed.data.referenceNote,
-    lines: parsed.data.lines,
+    lines: parsed.data.lines?.map((line) => ({
+      ...line,
+      cardReference:
+        resolveCardLast4({
+          cardLast4: line.cardLast4,
+          cardReference: line.cardReference,
+        }) ?? line.cardReference,
+    })),
   });
 
   if (lines.length === 0) {
@@ -81,14 +97,57 @@ export async function POST(
   const cashToCollect = approvalSplitCashCollectAmount(
     await loadLatestOrderSplitPaymentLines(task.orderId),
   );
-  const expectedAmount =
-    cashToCollect != null ? cashToCollect : Number(task.order.totalPrice);
+  const collect = resolveMobileCollectAmount({
+    totalPrice: task.order.totalPrice,
+    collectCashAmount: cashToCollect,
+    discountCodes: task.order.discountCodes,
+    paymentGatewayPrimary: task.order.paymentGatewayPrimary,
+    paymentGatewayNames: task.order.paymentGatewayNames,
+    financialStatus: task.order.financialStatus,
+  });
+  const methodError = assertPaymentMethodsAllowed(lines, collect.allowedPaymentMethods);
+  if (methodError) {
+    return mobileError(methodError, 400);
+  }
+  const expectedAmount = collect.amount;
   const collectedTotal = sumPaymentLineAmounts(lines);
   if (Math.abs(expectedAmount - collectedTotal) >= 0.01) {
-    return mobileError("Collected amount must match the order amount", 400);
+    return mobileError(
+      expectedAmount <= 0.009
+        ? "Already-paid orders must be recorded as Online with amount 0"
+        : "Collected amount must match the amount due",
+      400,
+    );
   }
 
   const header = derivePaymentHeaderFromLines(lines);
+  const usesCard = lines.some((line) => line.paymentMethod === "card");
+  const cardLast4 = usesCard
+    ? resolveCardLast4({
+        cardLast4: parsed.data.cardLast4 ?? header.cardReference,
+        cardReference: header.cardReference,
+      })
+    : null;
+  if (usesCard && !cardLast4) {
+    return mobileError("Enter the last 4 digits of the card", 400);
+  }
+
+  let cardSlipImageUrl = parsed.data.cardSlipImageUrl?.trim() || null;
+  if (usesCard && !cardSlipImageUrl && parsed.data.cardSlipImageBase64) {
+    const uploaded = await uploadCardSlipImage({
+      companyId: task.order.companyId,
+      orderId: task.orderId,
+      imageBase64: parsed.data.cardSlipImageBase64,
+    });
+    if ("error" in uploaded) {
+      return mobileError(uploaded.error, 400);
+    }
+    cardSlipImageUrl = uploaded.url;
+  }
+  if (usesCard && !cardSlipImageUrl) {
+    return mobileError("Photo of the card payment slip is required", 400);
+  }
+
   const cashDue = Number(
     cashDueFromPayment({
       paymentMethod: header.paymentMethod,
@@ -131,7 +190,9 @@ export async function POST(
         collectionStatus,
         referenceNote: header.referenceNote,
         bankReference: header.bankReference,
-        cardReference: header.cardReference,
+        cardReference: cardLast4 ?? header.cardReference,
+        cardLast4,
+        cardSlipImageUrl,
         collectedAt: now,
         idempotencyKey: parsed.data.idempotencyKey,
       },
@@ -145,7 +206,9 @@ export async function POST(
         collectionStatus,
         referenceNote: header.referenceNote,
         bankReference: header.bankReference,
-        cardReference: header.cardReference,
+        cardReference: cardLast4 ?? header.cardReference,
+        cardLast4,
+        cardSlipImageUrl,
         collectedAt: now,
         idempotencyKey: parsed.data.idempotencyKey ?? undefined,
       },

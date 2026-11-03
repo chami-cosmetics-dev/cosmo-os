@@ -86,6 +86,21 @@ export default function PerformanceScreen() {
               </View>
             </View>
 
+            <Text style={styles.pendingNote}>
+              Pay pending until finance closes invoice (same rule as Cosmo OS). Delivery done ≠ invoice
+              closed.
+            </Text>
+
+            {data.tenantErrors.length > 0 ? (
+              <Text style={styles.pendingNote}>
+                {data.tenantErrors
+                  .map((id) =>
+                    id === "vault" ? "Vault failed" : id === "cosmetics" ? "Cosmetics failed" : `${id} failed`
+                  )
+                  .join(" · ")}
+              </Text>
+            ) : null}
+
             {pendingCount > 0 ? (
               <Text style={styles.pendingNote}>
                 {pendingCount} delivery action(s) still syncing — totals may update after sync.
@@ -96,23 +111,29 @@ export default function PerformanceScreen() {
             {data.lines.length === 0 ? (
               <EmptyState
                 title="No completions yet this pay period"
-                message="When you complete deliveries, shipping amounts will add to your incentive here."
+                message="When you complete deliveries, pay appears here after invoice close."
               />
             ) : (
-              data.lines.map((line) => (
-                <View key={`${line.tenant ?? "t"}:${line.taskId}`} style={styles.lineCard}>
-                  <View style={styles.lineTop}>
-                    <Text style={styles.lineOrder}>{line.orderLabel}</Text>
-                    <Text style={styles.lineIncentive}>{formatMoney(line.incentiveAmount)}</Text>
+              data.lines.map((line) => {
+                const pendingPay = Number(line.incentiveAmount) <= 0;
+                return (
+                  <View key={`${line.tenant ?? "t"}:${line.taskId}`} style={styles.lineCard}>
+                    <View style={styles.lineTop}>
+                      <Text style={styles.lineOrder}>{line.orderLabel}</Text>
+                      <Text style={styles.lineIncentive}>{formatMoney(line.incentiveAmount)}</Text>
+                    </View>
+                    {line.companyLabel ? <Text style={styles.lineMeta}>{line.companyLabel}</Text> : null}
+                    {pendingPay ? (
+                      <Text style={styles.lineMeta}>Pending finance invoice close</Text>
+                    ) : null}
+                    {line.completedAt ? (
+                      <Text style={styles.lineMeta}>
+                        {new Date(line.completedAt).toLocaleString("en-LK")}
+                      </Text>
+                    ) : null}
                   </View>
-                  {line.companyLabel ? <Text style={styles.lineMeta}>{line.companyLabel}</Text> : null}
-                  {line.completedAt ? (
-                    <Text style={styles.lineMeta}>
-                      {new Date(line.completedAt).toLocaleString("en-LK")}
-                    </Text>
-                  ) : null}
-                </View>
-              ))
+                );
+              })
             )}
           </>
         )}
