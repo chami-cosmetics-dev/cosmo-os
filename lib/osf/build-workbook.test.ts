@@ -118,6 +118,7 @@ describe("buildMainSheetRows", () => {
     expect(first["LMJ ROP"]).toBe(10);
     expect(first["Total ROP"]).toBe(10);
     expect(first["OGF Price"]).toBe(90);
+    expect(first).toHaveProperty("Target Purchase Rate");
     expect(first["Sales Units (2026-06)"]).toBe(7);
     expect(first["June 2026 Sales Total"]).toBe(7);
     expect(first["Max sale"]).toBe(7);

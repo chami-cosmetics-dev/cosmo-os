@@ -131,6 +131,8 @@ export async function GET(request: NextRequest) {
       priorityStatus: catalog.priorityStatus,
       shopAvailability: profile?.shopAvailability ?? null,
       ogfPrice: profile?.ogfPrice != null ? Number(profile.ogfPrice) : null,
+      targetPurchaseRate:
+        profile?.targetPurchaseRate != null ? Number(profile.targetPurchaseRate) : null,
       reorderThresholdPercent: profile?.reorderThresholdPercent ?? null,
       rops: ropsBySku.get(sku) ?? {},
     };

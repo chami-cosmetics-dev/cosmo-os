@@ -54,10 +54,11 @@ export async function PATCH(
       data.reorderThresholdPercent !== undefined &&
       data.shopAvailability === undefined &&
       data.ogfPrice === undefined &&
+      data.targetPurchaseRate === undefined &&
       data.rops === undefined;
     if (!onlyThreshold) {
       return NextResponse.json(
-        { error: "purchasing.osf.manage required to edit availability, OGF, or ROP" },
+        { error: "purchasing.osf.manage required to edit availability, OGF, target rate, or ROP" },
         { status: 403 },
       );
     }
@@ -83,12 +84,16 @@ export async function PATCH(
       sku,
       shopAvailability: data.shopAvailability === undefined ? null : data.shopAvailability,
       ogfPrice: data.ogfPrice === undefined ? null : data.ogfPrice,
+      targetPurchaseRate: data.targetPurchaseRate === undefined ? null : data.targetPurchaseRate,
       reorderThresholdPercent:
         data.reorderThresholdPercent === undefined ? null : data.reorderThresholdPercent,
     },
     update: {
       ...(data.shopAvailability !== undefined ? { shopAvailability: data.shopAvailability } : {}),
       ...(data.ogfPrice !== undefined ? { ogfPrice: data.ogfPrice } : {}),
+      ...(data.targetPurchaseRate !== undefined
+        ? { targetPurchaseRate: data.targetPurchaseRate }
+        : {}),
       ...(data.reorderThresholdPercent !== undefined
         ? { reorderThresholdPercent: data.reorderThresholdPercent }
         : {}),
@@ -121,6 +126,8 @@ export async function PATCH(
     sku: profile.sku,
     shopAvailability: profile.shopAvailability,
     ogfPrice: profile.ogfPrice != null ? Number(profile.ogfPrice) : null,
+    targetPurchaseRate:
+      profile.targetPurchaseRate != null ? Number(profile.targetPurchaseRate) : null,
     reorderThresholdPercent: profile.reorderThresholdPercent,
     rops: ropsMap,
   });

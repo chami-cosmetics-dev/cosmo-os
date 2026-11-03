@@ -286,6 +286,8 @@ export async function POST(request: NextRequest) {
       profileMap.set(p.sku, {
         shopAvailability: p.shopAvailability,
         ogfPrice: p.ogfPrice != null ? Number(p.ogfPrice) : null,
+        targetPurchaseRate:
+          p.targetPurchaseRate != null ? Number(p.targetPurchaseRate) : null,
         reorderThresholdPercent: p.reorderThresholdPercent,
         rops: {},
       });
@@ -294,6 +296,7 @@ export async function POST(request: NextRequest) {
       const entry = profileMap.get(r.sku) ?? {
         shopAvailability: null,
         ogfPrice: null,
+        targetPurchaseRate: null,
         reorderThresholdPercent: null,
         rops: {},
       };

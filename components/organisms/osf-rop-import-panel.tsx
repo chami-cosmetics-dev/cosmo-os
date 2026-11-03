@@ -46,13 +46,13 @@ export function OsfRopImportPanel() {
       if (!res.ok) throw new Error(json.error ?? `Upload failed (${res.status})`);
 
       const updated = Number(json.updatedCells ?? 0);
+      const rates = Number(json.updatedTargetRates ?? 0);
       const errors = Array.isArray(json.errors) ? json.errors.length : 0;
+      const summary = `ROP import: ${updated} ROP cell(s), ${rates} target rate(s)`;
       if (errors > 0) {
-        notify.success(
-          `ROP import: ${updated} cell(s) updated, ${errors} issue(s) — check details in response if needed`,
-        );
+        notify.success(`${summary}, ${errors} issue(s) — check details in response if needed`);
       } else {
-        notify.success(`ROP import: ${updated} cell(s) updated`);
+        notify.success(summary);
       }
     } catch (err) {
       notify.error(err instanceof Error ? err.message : "Upload failed");
@@ -67,10 +67,10 @@ export function OsfRopImportPanel() {
       <div>
         <h3 className="font-medium">Import / update ROPs</h3>
         <p className="text-sm text-muted-foreground">
-          Download a template with all SKUs (SKU, barcode, location and shop ROP columns),
-          edit offline, then upload. Blank cells leave existing ROPs unchanged. For VAT Items OSF,
-          Total ROP uses Cosmetics.lk ROP only — shop ROPs are for planning and are not added
-          into Total ROP.
+          Download a template with all SKUs (SKU, barcode, Target Purchase Rate, location and shop
+          ROP columns), edit offline, then upload. Blank cells leave existing ROPs and target rates
+          unchanged. For VAT Items OSF, Total ROP uses Cosmetics.lk ROP only — shop ROPs are for
+          planning and are not added into Total ROP.
         </p>
       </div>
       <div className="flex flex-wrap gap-2">

@@ -23,6 +23,7 @@ export const OSF_STATIC_ASSIGNABLE_COLUMNS: OsfAccessColumnMeta[] = [
   { id: "Cosmetics MRP", label: "Cosmetics MRP" },
   { id: "Discounted Price", label: "Discounted Price" },
   { id: "OGF Price", label: "OGF Price" },
+  { id: "Target Purchase Rate", label: "Target Purchase Rate" },
   { id: "Latest Cost", label: "Latest Cost" },
   { id: "Latest supplier", label: "Latest supplier" },
   { id: "Supplier 1", label: "Supplier 1" },
@@ -46,6 +47,7 @@ export const OSF_STATIC_ASSIGNABLE_COLUMNS: OsfAccessColumnMeta[] = [
 export const LEGACY_GROUP_TO_COLUMN_KEYS: Record<string, string[]> = {
   pricing: ["Cosmetics MRP", "Discounted Price", "OGF Price"],
   cost: [
+    "Target Purchase Rate",
     "Latest Cost",
     "Latest supplier",
     "Supplier 1",
@@ -143,6 +145,7 @@ export function buildOsfAccessCatalog(
         "Cosmetics MRP",
         "Discounted Price",
         "OGF Price",
+        "Target Purchase Rate",
         "Latest Cost",
         "Latest supplier",
         "Supplier 1",
