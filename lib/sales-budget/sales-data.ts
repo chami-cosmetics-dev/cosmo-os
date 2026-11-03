@@ -360,17 +360,29 @@ async function buildSalesData(companyId: string): Promise<SalesBudgetSalesData> 
         employeeProfile: { select: { status: true } },
       },
     }),
-    // Shop online merchants come from Staff → Outlet, so moving a merchant needs no config edit.
+    // Shop online merchants come from Staff → Outlet (active + multi-assign).
     // Any status: a merchant who left still owns their past sales for that shop.
     prisma.employeeProfile.findMany({
       where: {
         companyId,
-        outlet: { name: { in: SALES_BUDGET_SHOPS.map((s) => s.outlet) } },
+        OR: [
+          { outlet: { name: { in: SALES_BUDGET_SHOPS.map((s) => s.outlet) } } },
+          {
+            outletAssignments: {
+              some: {
+                outlet: { name: { in: SALES_BUDGET_SHOPS.map((s) => s.outlet) } },
+              },
+            },
+          },
+        ],
       },
       select: {
         userId: true,
         status: true,
         outlet: { select: { name: true } },
+        outletAssignments: {
+          select: { outlet: { select: { name: true } } },
+        },
         user: { select: { couponCodes: true } },
       },
     }),
@@ -414,7 +426,13 @@ async function buildSalesData(companyId: string): Promise<SalesBudgetSalesData> 
     SALES_BUDGET_SHOPS.map((shop) => [
       shop.name,
       outletStaff
-        .filter((p) => p.outlet?.name === shop.outlet && hasMerchantCoupon(p.user?.couponCodes))
+        .filter((p) => {
+          if (!hasMerchantCoupon(p.user?.couponCodes)) return false;
+          if (p.outlet?.name === shop.outlet) return true;
+          return (p.outletAssignments ?? []).some(
+            (a) => a.outlet?.name === shop.outlet,
+          );
+        })
         .map((p) => p.userId),
     ]),
   );

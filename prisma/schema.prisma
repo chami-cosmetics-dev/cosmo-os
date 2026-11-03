@@ -1768,7 +1768,10 @@ model EmployeeProfile {
   locationId                String?
   departmentId              String?
   designationId             String?
+  /// Active / "working today" outlet (also used for coupon→shop grouping).
   outletId                  String?
+  /// Calendar day (Asia/Colombo YYYY-MM-DD) when outletId was last chosen.
+  activeOutletDateKey       String?
   appointmentDate           DateTime?
   status                    EmployeeStatus   @default(active)
   resignedAt                DateTime?
@@ -1783,9 +1786,23 @@ model EmployeeProfile {
   designation               Designation?     @relation(fields: [designationId], references: [id])
   location                  CompanyLocation? @relation(fields: [locationId], references: [id])
   outlet                    Outlet?          @relation(fields: [outletId], references: [id], onDelete: SetNull)
+  outletAssignments         EmployeeProfileOutlet[]
   user                      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([companyId, outletId])
+}
+
+/// Many outlets a staff member may work (merchant multi-outlet).
+model EmployeeProfileOutlet {
+  id                String          @id @default(cuid())
+  employeeProfileId String
+  outletId          String
+  createdAt         DateTime        @default(now())
+  employeeProfile   EmployeeProfile @relation(fields: [employeeProfileId], references: [id], onDelete: Cascade)
+  outlet            Outlet          @relation(fields: [outletId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeProfileId, outletId])
+  @@index([outletId])
 }
 
 model StickerBatch {
@@ -2622,13 +2639,14 @@ model ContactAllocationUpdate {
 // ── Outlet Reviews Feature ──────────────────────────────────────────────────
 
 model Outlet {
-  id               String            @id @default(cuid())
+  id               String                 @id @default(cuid())
   companyId        String
   name             String
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
   reviews          OutletReview[]
   employeeProfiles EmployeeProfile[]
+  profileAssignments EmployeeProfileOutlet[]
 
   @@unique([companyId, name])
   @@index([companyId])

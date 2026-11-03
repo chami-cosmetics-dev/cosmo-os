@@ -256,6 +256,7 @@ export async function cancelKokoDuplicateOrder(input: {
     },
   });
 
+  await prisma.riderDeliveryTask.deleteMany({ where: { orderId: order.id } });
   await cancelPendingApprovalsForOrder(order.id, { includeFinanceCancelApprovals: true });
   if (approval.status === "approved") {
     await prisma.approvalRequest.updateMany({
