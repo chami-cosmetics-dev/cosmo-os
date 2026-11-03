@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, Download, Eraser, Loader2, Plus, RefreshCw, Trash2, X } from "lucide-react";
+import { Check, Download, Eraser, FilterX, History, Loader2, Plus, RefreshCw, Trash2, X } from "lucide-react";
 
 import {
   AlertDialog,
@@ -15,6 +15,13 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -36,21 +43,26 @@ import {
   CONSULTATION_MERCHANT_OPTIONS,
   CONSULTATION_MONTH_PATTERN,
   CONSULTATION_PHONE_PATTERN,
+  EMPTY_CONSULTATION_FILTERS,
   cleanConsultationPhone,
   currentConsultationMonth,
+  filterConsultationGroups,
   findDuplicateInvoices,
   formatConsultationMonth,
   groupConsultations,
+  hasConsultationFilters,
   resolveCustomerName,
   resolveSuggestedMerchant,
   splitInvoiceNumbers,
   summarizeConsultations,
   todayConsultationDate,
+  type ConsultationFilters,
   type ConsultationGroup,
+  type ConsultationHistoryEntry,
   type ConsultationInvoiceMatch,
   type ConsultationRow,
 } from "@/lib/consultation-insights/shared";
-import { formatAppCalendarDate } from "@/lib/format-datetime";
+import { formatAppCalendarDate, formatAppDateTimeShort } from "@/lib/format-datetime";
 import { notify } from "@/lib/notify";
 import { cn } from "@/lib/utils";
 
@@ -89,6 +101,87 @@ function StatTile({ label, value }: { label: string; value: number }) {
       <p className="text-xl font-semibold tabular-nums">{value}</p>
       <p className="text-[11px] font-medium tracking-wider text-muted-foreground uppercase">{label}</p>
     </div>
+  );
+}
+
+const HISTORY_ACTION_LABELS: Record<string, { label: string; className: string }> = {
+  consultation_created: { label: "Added", className: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400" },
+  consultation_review_updated: { label: "Review", className: "bg-sky-500/15 text-sky-700 dark:text-sky-400" },
+  consultation_deleted: { label: "Deleted", className: "bg-rose-500/15 text-rose-700 dark:text-rose-400" },
+};
+
+/** Who added, re-reviewed or deleted customers, and when. Mounted only while open, so it reloads each time. */
+function HistoryDialog({ onClose }: { onClose: () => void }) {
+  const [entries, setEntries] = useState<ConsultationHistoryEntry[] | null>(null);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/admin/consultation-insights/history")
+      .then(async (res) => {
+        const data = (await res.json()) as { entries?: ConsultationHistoryEntry[] };
+        if (cancelled) return;
+        if (!res.ok || !data.entries) setError(true);
+        else setEntries(data.entries);
+      })
+      .catch(() => {
+        if (!cancelled) setError(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-3xl">
+        <DialogHeader>
+          <DialogTitle>Change history</DialogTitle>
+          <DialogDescription>Customers added, reviews changed and customers deleted — latest 100.</DialogDescription>
+        </DialogHeader>
+        {error && <p className="text-sm text-destructive">Couldn&apos;t load the history.</p>}
+        {!error && !entries && (
+          <p className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="size-4 animate-spin" /> Loading…
+          </p>
+        )}
+        {entries && entries.length === 0 && (
+          <p className="text-sm text-muted-foreground">No changes recorded yet.</p>
+        )}
+        {entries && entries.length > 0 && (
+          <ul className="divide-y divide-border/60">
+            {entries.map((entry) => {
+              const action = HISTORY_ACTION_LABELS[entry.action];
+              return (
+                <li key={entry.id} className="flex gap-3 py-2.5 text-sm">
+                  <span
+                    className={cn(
+                      "mt-0.5 h-fit w-16 shrink-0 rounded px-1.5 py-0.5 text-center text-[11px] font-medium",
+                      action?.className ?? "bg-muted text-muted-foreground",
+                    )}
+                  >
+                    {action?.label ?? entry.action}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p>{entry.summary}</p>
+                    {entry.reviewBefore !== null && (
+                      <p className="mt-0.5 text-xs break-words text-muted-foreground">
+                        <span className="line-through">{entry.reviewBefore || "(blank)"}</span>
+                        {" → "}
+                        <span className="text-foreground">{entry.reviewAfter || "(blank)"}</span>
+                      </p>
+                    )}
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {entry.actorName} · {formatAppDateTimeShort(entry.createdAt)}
+                    </p>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -189,16 +282,25 @@ export function ConsultationInsightsPanel({
   const monthRef = useRef(initialMonth);
   const [pendingDelete, setPendingDelete] = useState<ConsultationGroup | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   const summary = useMemo(() => summarizeConsultations(rows), [rows]);
   const groups = useMemo(() => groupConsultations(rows), [rows]);
+  const [filters, setFilters] = useState<ConsultationFilters>(EMPTY_CONSULTATION_FILTERS);
+  const filtering = hasConsultationFilters(filters);
+  const filteredGroups = useMemo(() => filterConsultationGroups(groups, filters), [groups, filters]);
   // Pages count customers, so one customer's invoices never split across pages.
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<PageSize>(20);
-  const pageCount = Math.max(1, Math.ceil(groups.length / pageSize));
+  const pageCount = Math.max(1, Math.ceil(filteredGroups.length / pageSize));
   const safePage = Math.min(page, pageCount);
   const groupOffset = (safePage - 1) * pageSize;
-  const pagedGroups = groups.slice(groupOffset, groupOffset + pageSize);
+  const pagedGroups = filteredGroups.slice(groupOffset, groupOffset + pageSize);
+  const monthStart = `${month}-01`;
+  const monthEnd = useMemo(() => {
+    const [year, monthIndex] = month.split("-").map(Number);
+    return new Date(Date.UTC(year, monthIndex, 0)).toISOString().slice(0, 10);
+  }, [month]);
   const duplicateInvoices = useMemo(() => findDuplicateInvoices(rows), [rows]);
   const maxMonth = currentConsultationMonth();
   const today = todayConsultationDate();
@@ -240,7 +342,19 @@ export function ConsultationInsightsPanel({
     monthRef.current = nextMonth;
     setMonth(nextMonth);
     setPage(1);
+    // The date range belongs to the old month; contact / invoice filters carry over.
+    setFilters((prev) => ({ ...prev, dateFrom: "", dateTo: "" }));
     void loadMonth(nextMonth);
+  }
+
+  function updateFilter(key: keyof ConsultationFilters, value: string) {
+    setFilters((prev) => ({ ...prev, [key]: value }));
+    setPage(1);
+  }
+
+  function clearFilters() {
+    setFilters(EMPTY_CONSULTATION_FILTERS);
+    setPage(1);
   }
 
   // Live: pick up rows added or reviewed by other staff.
@@ -639,18 +753,78 @@ export function ConsultationInsightsPanel({
             Live · {formatConsultationMonth(month)}
             <span className="font-normal text-muted-foreground">· refreshes every 10 seconds</span>
           </CardTitle>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void loadMonth(month)}
-            disabled={loadingRows}
-            title="Reload this month's customers"
-          >
-            <RefreshCw className={cn("mr-2 size-4", loadingRows && "animate-spin")} />
-            Refresh
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={() => setHistoryOpen(true)} title="Who changed what, and when">
+              <History className="mr-2 size-4" />
+              History
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void loadMonth(month)}
+              disabled={loadingRows}
+              title="Reload this month's customers"
+            >
+              <RefreshCw className={cn("mr-2 size-4", loadingRows && "animate-spin")} />
+              Refresh
+            </Button>
+          </div>
         </CardHeader>
         <CardContent className="p-0">
+          <div className="flex flex-wrap items-end gap-3 border-b border-border/50 px-4 py-3">
+            <div>
+              <FieldLabel optional>Date from</FieldLabel>
+              <Input
+                type="date"
+                value={filters.dateFrom}
+                min={monthStart}
+                max={filters.dateTo || monthEnd}
+                onChange={(e) => updateFilter("dateFrom", e.target.value)}
+                className="w-40"
+              />
+            </div>
+            <div>
+              <FieldLabel optional>Date to</FieldLabel>
+              <Input
+                type="date"
+                value={filters.dateTo}
+                min={filters.dateFrom || monthStart}
+                max={monthEnd}
+                onChange={(e) => updateFilter("dateTo", e.target.value)}
+                className="w-40"
+              />
+            </div>
+            <div>
+              <FieldLabel optional>Contact number</FieldLabel>
+              <Input
+                value={filters.contactNumber}
+                onChange={(e) => updateFilter("contactNumber", e.target.value)}
+                placeholder="0771234567"
+                inputMode="numeric"
+                className="w-44"
+              />
+            </div>
+            <div>
+              <FieldLabel optional>Order / invoice ID</FieldLabel>
+              <Input
+                value={filters.invoiceNumber}
+                onChange={(e) => updateFilter("invoiceNumber", e.target.value)}
+                placeholder="400-000567"
+                className="w-44"
+              />
+            </div>
+            {filtering && (
+              <>
+                <Button variant="ghost" size="sm" onClick={clearFilters} className="h-9">
+                  <FilterX className="mr-2 size-4" />
+                  Clear filters
+                </Button>
+                <span className="pb-2 text-xs text-muted-foreground">
+                  {filteredGroups.length} of {groups.length} customers
+                </span>
+              </>
+            )}
+          </div>
           {/* Scroll box so the header row stays visible; inner table container must not clip it. */}
           <div className="max-h-[70vh] overflow-auto [&_[data-slot=table-container]]:overflow-visible">
             <Table>
@@ -677,6 +851,16 @@ export function ConsultationInsightsPanel({
                         No customers for {formatConsultationMonth(month)} yet
                       </p>
                       <p className="mt-1">Use the form above to add the first one.</p>
+                    </TableCell>
+                  </TableRow>
+                )}
+                {rows.length > 0 && filteredGroups.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={8} className="py-10 text-center text-sm text-muted-foreground">
+                      <p className="font-medium text-foreground">No customers match these filters</p>
+                      <Button variant="link" size="sm" onClick={clearFilters}>
+                        Clear filters
+                      </Button>
                     </TableCell>
                   </TableRow>
                 )}
@@ -750,10 +934,11 @@ export function ConsultationInsightsPanel({
               </TableBody>
             </Table>
           </div>
-          {groups.length > 0 && (
+          {filteredGroups.length > 0 && (
             <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/50 px-4 py-3 text-sm text-muted-foreground">
               <div>
-                Showing customers {groupOffset + 1}-{groupOffset + pagedGroups.length} of {groups.length}
+                Showing customers {groupOffset + 1}-{groupOffset + pagedGroups.length} of {filteredGroups.length}
+                {filtering && ` (filtered from ${groups.length})`}
               </div>
               <div className="flex items-center gap-2">
                 <Select
@@ -808,6 +993,8 @@ export function ConsultationInsightsPanel({
           </div>
         </CardContent>
       </Card>
+
+      {historyOpen && <HistoryDialog onClose={() => setHistoryOpen(false)} />}
 
       <AlertDialog
         open={Boolean(pendingDelete)}

@@ -43,7 +43,7 @@ export async function DELETE(
   if (!access.ok) return access.response;
 
   const { id } = await params;
-  const deleted = await deleteConsultationEntry({ companyId: access.companyId, id });
+  const deleted = await deleteConsultationEntry({ companyId: access.companyId, userId: access.userId, id });
   if (deleted === 0) {
     return NextResponse.json({ error: "Row not found" }, { status: 404 });
   }
