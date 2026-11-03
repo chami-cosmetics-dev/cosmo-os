@@ -2689,6 +2689,8 @@ model ProductOsfProfile {
   ogfPrice                Decimal? @db.Decimal(12, 2)
   /// Chami shop selling rate from ERP "GCC PRICE LIST". Online stays on ProductItem.price.
   gccPrice                Decimal? @db.Decimal(12, 2)
+  /// Buyer target unit purchase cost for the SKU (manual; ROP template import or editor).
+  targetPurchaseRate      Decimal? @db.Decimal(12, 2)
   /// Per-SKU reorder alert/filter threshold (1–100). Null ⇒ treat as 70 at runtime.
   reorderThresholdPercent Int?
   highRiskOrderPlaced    Boolean  @default(false)

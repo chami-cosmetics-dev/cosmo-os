@@ -19,6 +19,7 @@ type ProfileItem = {
   priorityStatus: string | null;
   shopAvailability: string | null;
   ogfPrice: number | null;
+  targetPurchaseRate: number | null;
   reorderThresholdPercent: number | null;
   rops: Record<string, number>;
   stockPctOfRop?: number;
@@ -70,6 +71,7 @@ export function OsfProductEditor({
   const [selected, setSelected] = useState<ProfileItem | null>(null);
   const [shopAvailability, setShopAvailability] = useState<string>("");
   const [ogfPrice, setOgfPrice] = useState<string>("");
+  const [targetPurchaseRate, setTargetPurchaseRate] = useState<string>("");
   const [thresholdPercent, setThresholdPercent] = useState<string>("");
   const [rops, setRops] = useState<Record<string, string>>({});
   /** Live ERP stock keyed by column — null value = no warehouse / unknown */
@@ -164,6 +166,7 @@ export function OsfProductEditor({
     setSelected(item);
     setShopAvailability(item.shopAvailability ?? "");
     setOgfPrice(item.ogfPrice != null ? String(item.ogfPrice) : "");
+    setTargetPurchaseRate(item.targetPurchaseRate != null ? String(item.targetPurchaseRate) : "");
     setThresholdPercent(
       item.reorderThresholdPercent != null ? String(item.reorderThresholdPercent) : "",
     );
@@ -203,8 +206,10 @@ export function OsfProductEditor({
         payload.rops = ropsPayload;
         if (!hideCosmoFields) {
           const ogfTrimmed = ogfPrice.trim();
+          const rateTrimmed = targetPurchaseRate.trim();
           payload.shopAvailability = shopAvailability === "" ? null : shopAvailability;
           payload.ogfPrice = ogfTrimmed === "" ? null : Number(ogfTrimmed);
+          payload.targetPurchaseRate = rateTrimmed === "" ? null : Number(rateTrimmed);
         }
       }
       if (reorderThresholdPercent !== undefined) {
@@ -223,6 +228,7 @@ export function OsfProductEditor({
         ...selected,
         shopAvailability: json.shopAvailability,
         ogfPrice: json.ogfPrice,
+        targetPurchaseRate: json.targetPurchaseRate ?? null,
         reorderThresholdPercent: json.reorderThresholdPercent ?? null,
         rops: json.rops ?? {},
       });
@@ -240,7 +246,7 @@ export function OsfProductEditor({
         <p className="text-sm text-muted-foreground">
           {hideCosmoFields
             ? "Per-column ROP for SV, ORI and AE, plus reorder threshold %. Search a SKU to edit, or use the Excel import."
-            : "Shop Availability, per-column ROP, OGF Price, and reorder threshold %. Enter a % to list SKUs that already have ROP and whose stock is below that share of ROP."}
+            : "Shop Availability, per-column ROP, OGF Price, Target Purchase Rate, and reorder threshold %. Enter a % to list SKUs that already have ROP and whose stock is below that share of ROP."}
         </p>
       </div>
 
@@ -361,6 +367,23 @@ export function OsfProductEditor({
                     />
                     <span className="mt-1 block text-[11px] font-normal text-muted-foreground">
                       Synced from Cosmo ERP OGF Price List. Online Cosmetics.lk price is separate.
+                    </span>
+                  </label>
+                  <label className="block text-xs font-medium">
+                    Target Purchase Rate
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min={0}
+                      className="mt-1"
+                      disabled={!canManage || isBusy}
+                      value={targetPurchaseRate}
+                      placeholder="Target unit cost"
+                      onChange={(e) => setTargetPurchaseRate(e.target.value)}
+                    />
+                    <span className="mt-1 block text-[11px] font-normal text-muted-foreground">
+                      Manual target buy price per unit. Bulk-fill via ROP template import; edit here
+                      anytime.
                     </span>
                   </label>
                 </>

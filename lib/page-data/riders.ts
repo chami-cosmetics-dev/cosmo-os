@@ -4,6 +4,7 @@ import {
   riderTaskMatchesFr003Filter,
   summarizeRiderTaskStatuses,
 } from "@/lib/rider-ops-filter";
+import { loadPendingPaymentMethodChangeByOrderIds } from "@/lib/apply-collection-payment-method";
 import { approvalSplitCashCollectAmount } from "@/lib/approval-payment-split";
 import { loadSplitPaymentLinesByOrderIds } from "@/lib/order-split-payment";
 import {
@@ -215,7 +216,11 @@ export async function fetchRiderOrdersData(
     orderBy: [{ assignedAt: "desc" }],
   });
 
-  const splitByOrder = await loadSplitPaymentLinesByOrderIds(tasks.map((task) => task.order.id));
+  const orderIds = tasks.map((task) => task.order.id);
+  const [splitByOrder, pendingByOrder] = await Promise.all([
+    loadSplitPaymentLinesByOrderIds(orderIds),
+    loadPendingPaymentMethodChangeByOrderIds(orderIds),
+  ]);
 
   const rows: RiderOrderRow[] = tasks.map((task) => {
     const splitLines = splitByOrder.get(task.order.id) ?? [];
@@ -225,6 +230,7 @@ export async function fetchRiderOrdersData(
         ...task.order,
         collectCashAmount: approvalSplitCashCollectAmount(splitLines),
         splitLines,
+        pendingPaymentMethodChange: pendingByOrder.get(task.order.id) ?? null,
       },
     });
 

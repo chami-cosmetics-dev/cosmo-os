@@ -34,7 +34,6 @@ import {
   cancelErpnextSalesInvoice,
   syncApprovalSplitPaymentEntriesToErp,
   syncOrderDeliveryPaymentEntriesToErp,
-  syncBankTransferPaymentToERPNext,
 } from "@/lib/erpnext-sync";
 import {
   cancelShopifyOrder,
@@ -43,7 +42,6 @@ import {
 } from "@/lib/shopify-admin";
 import { needsKokoLinkTimeConfirm } from "@/lib/koko-order";
 import { prisma } from "@/lib/prisma";
-import { formatAppIsoDate } from "@/lib/format-datetime";
 import { requirePermission } from "@/lib/rbac";
 import {
   markOrderErpSyncFailed,
@@ -1157,7 +1155,6 @@ export async function PATCH(
     approval.type === PAYMENT_METHOD_CHANGE_APPROVAL
       ? parsePaymentMethodChangeTarget(approval.requestNote)
       : null;
-  const isBankTransferApproval = methodChangeTarget === "bank_transfer";
   const isPaymentReapproval =
     nextStatus === "approved" &&
     approval.orderId != null &&
@@ -1405,6 +1402,32 @@ export async function PATCH(
             ...stageData,
           },
         });
+        const existingPayment = await tx.deliveryPayment.findUnique({
+          where: { orderId: approval.orderId! },
+          select: { id: true, expectedAmount: true },
+        });
+        if (existingPayment) {
+          await tx.deliveryPayment.update({
+            where: { id: existingPayment.id },
+            data: {
+              paymentMethod: "already_paid",
+              collectionStatus: "collected",
+              customerGaveAmount: null,
+              changeAmount: null,
+            },
+          });
+          await tx.deliveryPaymentLine.deleteMany({
+            where: { deliveryPaymentId: existingPayment.id },
+          });
+          await tx.deliveryPaymentLine.create({
+            data: {
+              deliveryPaymentId: existingPayment.id,
+              paymentMethod: "already_paid",
+              amount: existingPayment.expectedAmount,
+              sortOrder: 0,
+            },
+          });
+        }
         await tx.$executeRaw(
           Prisma.sql`
             UPDATE "ApprovalRequest"
@@ -1618,13 +1641,13 @@ export async function PATCH(
   let kokoOrderSyncStatus: string | undefined;
 
   // First-time approval only — re-approval after HOD revert updates Vault paid status; ERP SI stays unchanged.
-  // Bank transfer method change gets a PE (not SI), handled separately below.
+  // Method-change (KOKO / Mintpay / bank transfer) posts a PE against the existing SI.
   if (
     nextStatus === "approved" &&
     !isPaymentReapproval &&
     !isSplitOrderPaymentApproval &&
     ((approval.type === ORDER_PAYMENT_APPROVAL && !unpaidCardOnDeliveryApprove) ||
-      (approval.type === PAYMENT_METHOD_CHANGE_APPROVAL && !isBankTransferApproval)) &&
+      approval.type === PAYMENT_METHOD_CHANGE_APPROVAL) &&
     approval.orderId
   ) {
     try {
@@ -1782,32 +1805,6 @@ export async function PATCH(
         },
         { status: 502 },
       );
-    }
-  }
-
-  if (nextStatus === "approved" && !isPaymentReapproval && isBankTransferApproval && approval.orderId) {
-    const orderForErp = await prisma.order.findUnique({
-      where: { id: approval.orderId },
-      select: { name: true, shopifyOrderId: true, companyLocationId: true },
-    });
-    if (orderForErp?.companyLocationId) {
-      const location = await prisma.companyLocation.findUnique({
-        where: { id: orderForErp.companyLocationId },
-        include: { erpnextInstance: true },
-      });
-      if (location) {
-        try {
-          const poNo = (orderForErp.name ?? orderForErp.shopifyOrderId ?? approval.orderId).slice(0, 140);
-          const dateStr = formatAppIsoDate(now);
-          await syncBankTransferPaymentToERPNext(poNo, location, dateStr);
-        } catch (err) {
-          const errMsg = err instanceof Error ? err.message : String(err);
-          console.error("[ERPNext] bank transfer PE failed:", errMsg);
-          await markOrderErpPeSyncFailed(approval.orderId, errMsg, "bank_transfer");
-          erpSyncFailed = true;
-          erpSyncError = errMsg;
-        }
-      }
     }
   }
 

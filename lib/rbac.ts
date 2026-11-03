@@ -158,7 +158,7 @@ const DEFAULT_PERMISSIONS = [
   {
     key: "purchasing.osf.manage",
     description:
-      "Edit OSF Shop Availability, ROP, OGF Price, and column mappings",
+      "Edit OSF Shop Availability, ROP, OGF Price, Target Purchase Rate, and column mappings",
   },
   {
     key: "purchasing.osf.permission",

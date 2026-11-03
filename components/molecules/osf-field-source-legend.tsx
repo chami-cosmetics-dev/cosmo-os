@@ -10,6 +10,11 @@ const ROWS: SourceRow[] = [
   { column: "% / 70% / Order qty", source: "Calc", note: "From stock + ROP" },
   { column: "MRP / Discounted", source: "Cosmo", note: "Compare-at / sell price" },
   { column: "OGF Price", source: "ERP", note: "Cosmo ERP OGF Price List (LWK POS) — synced into OS" },
+  {
+    column: "Target Purchase Rate",
+    source: "Cosmo UI",
+    note: "Manual target unit buy price — ROP template import or Product OSF editor",
+  },
   { column: "Latest Cost / Supplier", source: "ERP", note: "Last priced purchase — blank if missing, never invented" },
   {
     column: "Supplier 1 / Supplier 2",

@@ -64,6 +64,72 @@ describe("resolveRiderOpsPaymentDisplay", () => {
     expect(result.expectedAmount).toBe("2000.00");
   });
 
+  it("marks a finance-approved bank method change as already paid, even if COD was recorded", () => {
+    const result = resolveRiderOpsPaymentDisplay({
+      deliveryPayment: {
+        expectedAmount: { toString: () => "2212.50" },
+        collectedAmount: { toString: () => "2212.50" },
+        paymentMethod: "cod",
+        collectionStatus: "collected",
+        lines: [{ paymentMethod: "cod", amount: { toString: () => "2212.50" } }],
+      },
+      order: {
+        totalPrice: { toString: () => "2212.50" },
+        financialStatus: "paid",
+        paymentGatewayPrimary: "bank_transfer",
+        paymentGatewayNames: ["bank_transfer"],
+      },
+    });
+
+    expect(result.paymentMethod).toBe("already_paid");
+    expect(result.collectionStatus).toBe("collected");
+    expect(result.paymentLines).toEqual([{ paymentMethod: "already_paid", amount: "2212.50" }]);
+
+    const totals = {
+      cashTotal: 0,
+      kokoTotal: 0,
+      bankTransferTotal: 0,
+      cardTotal: 0,
+      alreadyPaidTotal: 0,
+      collectedTotal: 0,
+    };
+    accumulateRiderLocationPayment(totals, result);
+    expect(totals.cashTotal).toBe(0);
+    expect(totals.alreadyPaidTotal).toBe(2212.5);
+  });
+
+  it("zeros rider cash while a bank method-change approval is pending", () => {
+    const result = resolveRiderOpsPaymentDisplay({
+      deliveryPayment: {
+        expectedAmount: { toString: () => "2212.50" },
+        collectedAmount: { toString: () => "2212.50" },
+        paymentMethod: "cod",
+        collectionStatus: "collected",
+        lines: [{ paymentMethod: "cod", amount: { toString: () => "2212.50" } }],
+      },
+      order: {
+        totalPrice: { toString: () => "2212.50" },
+        financialStatus: "pending",
+        paymentGatewayPrimary: "Cash on Delivery (COD)",
+        pendingPaymentMethodChange: "bank_transfer",
+      },
+    });
+
+    expect(result.paymentMethod).toBe("Bank Transfer (pending approval)");
+    expect(result.collectedAmount).toBeNull();
+
+    const totals = {
+      cashTotal: 0,
+      kokoTotal: 0,
+      bankTransferTotal: 0,
+      cardTotal: 0,
+      alreadyPaidTotal: 0,
+      collectedTotal: 0,
+    };
+    accumulateRiderLocationPayment(totals, result);
+    expect(totals.cashTotal).toBe(0);
+  });
+
   it("joins multi-line payment methods", () => {
     const result = resolveRiderOpsPaymentDisplay({
       deliveryPayment: {

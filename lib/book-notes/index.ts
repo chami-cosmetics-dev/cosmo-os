@@ -19,6 +19,7 @@ export type { BookNoteWriteAccess } from "@/lib/book-notes/lock";
 export {
   resolveBookNoteShopAccess,
   assertBookNoteShopAllowed,
+  collectAssignedBookNoteLocationIds,
   resolveBookNoteWriteAccess,
 } from "@/lib/book-notes/access";
 export type { BookNoteShopAccess } from "@/lib/book-notes/access";

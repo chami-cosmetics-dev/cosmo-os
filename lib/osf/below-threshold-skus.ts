@@ -22,6 +22,7 @@ export type BelowThresholdSku = {
   priorityStatus: string | null;
   shopAvailability: string | null;
   ogfPrice: number | null;
+  targetPurchaseRate: number | null;
   reorderThresholdPercent: number | null;
   rops: Record<string, number>;
   totalStock: number;
@@ -151,6 +152,8 @@ export async function listBelowThresholdSkus(
       priorityStatus: catalogRow?.priorityStatus ?? null,
       shopAvailability: profile?.shopAvailability ?? null,
       ogfPrice: profile?.ogfPrice != null ? Number(profile.ogfPrice) : null,
+      targetPurchaseRate:
+        profile?.targetPurchaseRate != null ? Number(profile.targetPurchaseRate) : null,
       reorderThresholdPercent: profile?.reorderThresholdPercent ?? null,
       rops,
       totalStock,

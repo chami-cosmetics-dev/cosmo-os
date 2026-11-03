@@ -47,6 +47,7 @@ import {
 export type OsfProfileData = {
   shopAvailability: string | null;
   ogfPrice: number | null;
+  targetPurchaseRate?: number | null;
   reorderThresholdPercent?: number | null;
   rops: Record<string, number>;
 };
@@ -196,6 +197,7 @@ export function pricingHeaders(): string[] {
     "Cosmetics MRP",
     "Discounted Price",
     "OGF Price",
+    "Target Purchase Rate",
     "Latest Cost",
     "Latest supplier",
     "Supplier 1",
@@ -273,6 +275,7 @@ export function buildMainSheetRows(input: BuildWorkbookInput): Record<string, st
     // rate on the most recent Purchase Receipt (better populated). Feeds margins.
     const cost = costInfo?.cost ?? purchase?.rate ?? null;
     const ogf = profile?.ogfPrice ?? null;
+    const targetRate = profile?.targetPurchaseRate ?? null;
 
     const record: Record<string, string | number | null> = {
       "Variant SKU (_)": forms.skuUnderscore,
@@ -323,6 +326,7 @@ export function buildMainSheetRows(input: BuildWorkbookInput): Record<string, st
     record["Cosmetics MRP"] = listPrice;
     record["Discounted Price"] = row.discountedPrice;
     record["OGF Price"] = ogf;
+    record["Target Purchase Rate"] = targetRate;
     record["Latest Cost"] = cost;
     record["Latest supplier"] = purchase?.supplier ?? costInfo?.supplier ?? "";
     const ranked = input.rankedSuppliersBySku?.get(row.sku) ?? [];
@@ -438,6 +442,12 @@ export function mainColumnDescriptors(input: BuildWorkbookInput): OsfColumnDef[]
     band: "price",
   });
   defs.push({ header: "OGF Price", pricing: true, accessKey: "OGF Price", band: "price" });
+  defs.push({
+    header: "Target Purchase Rate",
+    pricing: true,
+    accessKey: "Target Purchase Rate",
+    band: "cost",
+  });
   defs.push({
     header: "Latest Cost",
     section: "Purchasing Cost",

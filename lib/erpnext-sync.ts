@@ -1220,6 +1220,76 @@ export function isUsableErpSalesInvoiceId(value: string | null | undefined): boo
   return isUsableErpInvoiceId(value);
 }
 
+type SalesInvoicePaymentTarget = {
+  name: string;
+  outstanding_amount: number;
+  debit_to: string;
+  customer: string;
+};
+
+const SALES_INVOICE_PAYMENT_FIELDS = encodeURIComponent(
+  JSON.stringify(["name", "outstanding_amount", "debit_to", "customer"]),
+);
+
+async function fetchSalesInvoicePaymentTarget(
+  cfg: ErpConfig,
+  invoiceName: string,
+): Promise<SalesInvoicePaymentTarget | null> {
+  return (
+    (await erpnextGet<SalesInvoicePaymentTarget>(
+      cfg,
+      `/api/resource/Sales Invoice/${encodeURIComponent(invoiceName)}?fields=${SALES_INVOICE_PAYMENT_FIELDS}`,
+    )) ?? null
+  );
+}
+
+/**
+ * Find the SI to allocate a Receive PE against.
+ * Cosmo ERP-native invoices have blank po_no — SI name is order.name / erpnextInvoiceId.
+ */
+async function findSubmittedSalesInvoiceForPayment(
+  cfg: ErpConfig,
+  company: string,
+  order: {
+    name: string | null;
+    shopifyOrderId?: string | null;
+    sourceName?: string | null;
+    erpnextInvoiceId?: string | null;
+  },
+): Promise<SalesInvoicePaymentTarget | null> {
+  const tried = new Set<string>();
+  const tryName = async (value: string | null | undefined) => {
+    const name = value?.trim();
+    if (!name || tried.has(name)) return null;
+    tried.add(name);
+    return fetchSalesInvoicePaymentTarget(cfg, name);
+  };
+
+  if (isUsableErpInvoiceId(order.erpnextInvoiceId)) {
+    const byId = await tryName(order.erpnextInvoiceId);
+    if (byId) return byId;
+  }
+
+  const byName = await tryName(order.name);
+  if (byName) return byName;
+
+  const orderPoNo = (order.name ?? order.shopifyOrderId ?? "").slice(0, 140);
+  if (!orderPoNo) return null;
+
+  const filters = encodeURIComponent(
+    JSON.stringify([
+      ["po_no", "=", orderPoNo],
+      ["company", "=", company],
+      ["docstatus", "=", "1"],
+    ]),
+  );
+  const list = await erpnextGet<SalesInvoicePaymentTarget[]>(
+    cfg,
+    `/api/resource/Sales Invoice?filters=${filters}&fields=${SALES_INVOICE_PAYMENT_FIELDS}&limit=1`,
+  );
+  return list?.[0] ?? null;
+}
+
 async function findExistingReceivePaymentEntry(
   cfg: ErpConfig,
   invoiceName: string,
@@ -1331,40 +1401,7 @@ async function createDeliveryPaymentEntryOnce(
   }
   mopName = resolveBankTransferMopName(mopName, { envValue: null });
 
-  const fields = encodeURIComponent(JSON.stringify(["name", "outstanding_amount", "debit_to", "customer"]));
-  let invoice: { name: string; outstanding_amount: number; debit_to: string; customer: string } | null = null;
-
-  // Prefer canonical SI id (Shopify orders often have erpnextInvoiceId ≠ order.name / po_no).
-  if (isUsableErpInvoiceId(order.erpnextInvoiceId)) {
-    invoice =
-      (await erpnextGet<{ name: string; outstanding_amount: number; debit_to: string; customer: string }>(
-        cfg,
-        `/api/resource/Sales Invoice/${encodeURIComponent(order.erpnextInvoiceId)}?fields=${fields}`,
-      )) ?? null;
-  }
-
-  if (!invoice && isErpOrder && order.name) {
-    invoice =
-      (await erpnextGet<{ name: string; outstanding_amount: number; debit_to: string; customer: string }>(
-        cfg,
-        `/api/resource/Sales Invoice/${encodeURIComponent(order.name)}?fields=${fields}`,
-      )) ?? null;
-  }
-
-  if (!invoice) {
-    const orderPoNo = (order.name ?? order.shopifyOrderId).slice(0, 140);
-    const filters = encodeURIComponent(
-      JSON.stringify([
-        ["po_no", "=", orderPoNo],
-        ["company", "=", location.erpnextCompany],
-        ["docstatus", "=", "1"],
-      ]),
-    );
-    const list = await erpnextGet<
-      Array<{ name: string; outstanding_amount: number; debit_to: string; customer: string }>
-    >(cfg, `/api/resource/Sales Invoice?filters=${filters}&fields=${fields}&limit=1`);
-    invoice = list?.[0] ?? null;
-  }
+  const invoice = await findSubmittedSalesInvoiceForPayment(cfg, location.erpnextCompany, order);
 
   if (!invoice) {
     const label = order.erpnextInvoiceId ?? order.name ?? order.shopifyOrderId;
@@ -2233,105 +2270,12 @@ export async function cancelErpnextSalesInvoice(
   return { outcome: "cancelled", invoiceName };
 }
 
-export async function syncBankTransferPaymentToERPNext(
-  orderPoNo: string,
-  location: LocationWithErpInstance,
-  dateStr: string,
-): Promise<void> {
-  await retryTransientErpOperation(`bank transfer PE ${orderPoNo}`, () =>
-    syncBankTransferPaymentToERPNextOnce(orderPoNo, location, dateStr),
-  );
-}
-
-async function syncBankTransferPaymentToERPNextOnce(
-  orderPoNo: string,
-  location: LocationWithErpInstance,
-  dateStr: string,
-): Promise<void> {
-  const cfg = getErpConfig(location.erpnextInstance);
-  if (!cfg.baseUrl || !cfg.apiKey || !cfg.apiSecret) {
-    console.log("[ERPNext] syncBankTransferPaymentToERPNext: skipping — credentials not configured");
-    return;
-  }
-  if (!location.erpnextCompany || !location.erpnextWarehouse) {
-    console.log(`[ERPNext] syncBankTransferPaymentToERPNext: skipping — location missing erpnextCompany or erpnextWarehouse`);
-    return;
-  }
-  console.log(`[ERPNext] syncBankTransferPaymentToERPNext called for po_no="${orderPoNo}" company="${location.erpnextCompany}"`);
-
-  const filters = encodeURIComponent(
-    JSON.stringify([
-      ["po_no", "=", orderPoNo],
-      ["company", "=", location.erpnextCompany],
-      ["docstatus", "=", "1"],
-    ]),
-  );
-  const fields = encodeURIComponent(
-    JSON.stringify(["name", "outstanding_amount", "debit_to", "customer"]),
-  );
-  const list = await erpnextGet<
-    Array<{ name: string; outstanding_amount: number; debit_to: string; customer: string }>
-  >(cfg, `/api/resource/Sales Invoice?filters=${filters}&fields=${fields}&limit=1`);
-
-  if (!list || list.length === 0) {
-    console.warn(`[ERPNext] No Sales Invoice found for po_no="${orderPoNo}" — skipping bank transfer payment entry`);
-    return;
-  }
-
-  const invoice = list[0];
-  if (invoice.outstanding_amount <= 0) {
-    console.log(`[ERPNext] Sales Invoice ${invoice.name} already fully paid — skipping`);
-    return;
-  }
-
-  const mop = await erpnextGet<{
-    name: string;
-    accounts: Array<{ company: string; default_account: string }>;
-  }>(cfg, `/api/resource/Mode%20of%20Payment/${encodeURIComponent(cfg.bankTransferMop)}`);
-
-  if (!mop) {
-    throw new Error(`ERPNext Mode of Payment "${cfg.bankTransferMop}" not found`);
-  }
-
-  const paidTo = mop.accounts.find((a) => a.company === location.erpnextCompany)?.default_account;
-  if (!paidTo) {
-    throw new Error(`No account mapped for "${cfg.bankTransferMop}" under company "${location.erpnextCompany}"`);
-  }
-
-  const pe = await erpnextPost<{ name: string }>(cfg, "/api/resource/Payment Entry", {
-    doctype: "Payment Entry",
-    payment_type: "Receive",
-    company: location.erpnextCompany,
-    posting_date: dateStr,
-    mode_of_payment: mop.name,
-    party_type: "Customer",
-    party: invoice.customer,
-    paid_from: invoice.debit_to,
-    paid_to: paidTo,
-    reference_no: invoice.name,
-    reference_date: dateStr,
-    paid_amount: invoice.outstanding_amount,
-    received_amount: invoice.outstanding_amount,
-    source_exchange_rate: 1,
-    target_exchange_rate: 1,
-    references: [
-      {
-        reference_doctype: "Sales Invoice",
-        reference_name: invoice.name,
-        allocated_amount: invoice.outstanding_amount,
-      },
-    ],
-    docstatus: 1,
-  });
-
-  console.log(`[ERPNext] Bank Transfer Payment Entry ${pe.name} created for Sales Invoice ${invoice.name}`);
-}
-
 /** Create a Payment Entry against an existing Sales Invoice when finance marks the order paid. */
 export async function syncFinanceApprovedPrepaidPaymentToERPNext(
   order: {
     name: string | null;
     shopifyOrderId: string;
+    sourceName?: string | null;
     erpnextInvoiceId?: string | null;
     paymentGatewayPrimary: string | null;
     paymentGatewayNames: string[];
@@ -2364,39 +2308,10 @@ export async function syncFinanceApprovedPrepaidPaymentToERPNext(
     return;
   }
 
-  const erpId = order.erpnextInvoiceId?.trim();
-  const directSiName =
-    erpId && erpId !== "pending" && erpId !== "pending_approval"
-      ? erpId
-      : null;
-
-  let invoice: { name: string; outstanding_amount: number; debit_to: string; customer: string } | null = null;
-
-  if (directSiName) {
-    invoice = await erpnextGet<{ name: string; outstanding_amount: number; debit_to: string; customer: string }>(
-      cfg,
-      `/api/resource/Sales Invoice/${encodeURIComponent(directSiName)}`,
-    ) ?? null;
-  } else {
-    const orderPoNo = (order.name ?? order.shopifyOrderId).slice(0, 140);
-    const filters = encodeURIComponent(
-      JSON.stringify([
-        ["po_no", "=", orderPoNo],
-        ["company", "=", location.erpnextCompany],
-        ["docstatus", "=", "1"],
-      ]),
-    );
-    const fields = encodeURIComponent(
-      JSON.stringify(["name", "outstanding_amount", "debit_to", "customer"]),
-    );
-    const list = await erpnextGet<
-      Array<{ name: string; outstanding_amount: number; debit_to: string; customer: string }>
-    >(cfg, `/api/resource/Sales Invoice?filters=${filters}&fields=${fields}&limit=1`);
-    invoice = list?.[0] ?? null;
-  }
+  const invoice = await findSubmittedSalesInvoiceForPayment(cfg, location.erpnextCompany, order);
 
   if (!invoice) {
-    const label = order.name ?? order.shopifyOrderId;
+    const label = order.erpnextInvoiceId ?? order.name ?? order.shopifyOrderId;
     if (requirePe) {
       throw new Error(`No Sales Invoice found for order "${label}" — cannot create finance-approved PE`);
     }

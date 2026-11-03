@@ -4,7 +4,14 @@ import {
   formatApprovalSplitAmountBreakdown,
   sortApprovalSplitLines,
 } from "@/lib/approval-payment-split";
+import {
+  pendingPaymentMethodChangeZerosCash,
+} from "@/lib/collection-payment-method";
 import { inferExpectedPaymentMethod } from "@/lib/mobile/payment";
+import {
+  paymentMethodChangeTargetLabel,
+  type PaymentMethodChangeTarget,
+} from "@/lib/payment-method-label";
 
 export type RiderOpsPaymentLine = {
   paymentMethod: string;
@@ -48,7 +55,30 @@ type OrderPaymentInferLike = {
   paymentGatewayNames?: string[] | null;
   collectCashAmount?: number | null;
   splitLines?: SplitLineLike[];
+  pendingPaymentMethodChange?: PaymentMethodChangeTarget | null;
 };
+
+function isPrepaidSettledOrder(order: OrderPaymentInferLike): boolean {
+  const status = order.financialStatus?.trim().toLowerCase() ?? "";
+  if (status !== "paid") return false;
+  const method = inferExpectedPaymentMethod({
+    financialStatus: order.financialStatus ?? null,
+    paymentGatewayPrimary: order.paymentGatewayPrimary ?? null,
+    paymentGatewayNames: order.paymentGatewayNames ?? [],
+  });
+  return method !== "cod";
+}
+
+function alreadyPaidDisplay(amount: string): RiderOpsPaymentDisplay {
+  return {
+    expectedAmount: amount,
+    collectedAmount: amount,
+    paymentMethod: "already_paid",
+    collectionStatus: "collected",
+    paymentLines: [{ paymentMethod: "already_paid", amount }],
+    amountSource: "order_total",
+  };
+}
 
 export type RiderLocationPaymentTotals = {
   cashTotal: number;
@@ -129,6 +159,24 @@ export function resolveRiderOpsPaymentDisplay(input: {
   }));
   const splitLabel = formatApprovalSplitAmountBreakdown(splitLines);
   const payment = input.deliveryPayment;
+  const orderTotal = toMoney(input.order.totalPrice);
+
+  if (pendingPaymentMethodChangeZerosCash(input.order.pendingPaymentMethodChange)) {
+    const target = input.order.pendingPaymentMethodChange!;
+    return {
+      expectedAmount: orderTotal,
+      collectedAmount: null,
+      paymentMethod: `${paymentMethodChangeTargetLabel(target)} (pending approval)`,
+      collectionStatus: null,
+      paymentLines: [],
+      amountSource: "order_total",
+    };
+  }
+
+  if (isPrepaidSettledOrder(input.order)) {
+    return alreadyPaidDisplay(orderTotal);
+  }
+
   if (splitLabel) {
     const total = splitLines.reduce((sum, line) => sum + line.amount, 0);
     return {
@@ -165,8 +213,8 @@ export function resolveRiderOpsPaymentDisplay(input: {
   }
 
   const cashDue = input.order.collectCashAmount;
-  const orderTotal =
-    cashDue != null && cashDue > 0 ? cashDue.toFixed(2) : toMoney(input.order.totalPrice);
+  const fallbackTotal =
+    cashDue != null && cashDue > 0 ? cashDue.toFixed(2) : orderTotal;
   const method =
     cashDue != null && cashDue > 0
       ? "cod"
@@ -177,7 +225,7 @@ export function resolveRiderOpsPaymentDisplay(input: {
         });
 
   return {
-    expectedAmount: orderTotal,
+    expectedAmount: fallbackTotal,
     collectedAmount: null,
     paymentMethod: method,
     collectionStatus: null,
