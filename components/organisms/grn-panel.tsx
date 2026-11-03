@@ -125,6 +125,7 @@ type PurchaseReceiptRow = {
   valuedBy: UserRef | null;
   valuedRevertedAt: string | null;
   valuedRevertedBy: UserRef | null;
+  valuationRejectedAt: string | null;
   receivedAt: string | null;
   receivedBy: UserRef | null;
   receivedRevertedAt: string | null;
@@ -849,6 +850,7 @@ function GrnStageTimeline({
       fallbackBy: null,
       revertedAt: row.handoverRevertedAt,
       revertedBy: row.handoverRevertedBy,
+      valuationRejectedAt: null,
       handoverReceivedAt: row.handoverReceivedAt,
       handoverReceivedBy: row.handoverReceivedBy,
       notReceivedAt: row.notReceivedAt,
@@ -867,6 +869,7 @@ function GrnStageTimeline({
       fallbackBy: "Cosmo API",
       revertedAt: row.valuedRevertedAt,
       revertedBy: row.valuedRevertedBy,
+      valuationRejectedAt: row.valuationRejectedAt,
       handoverReceivedAt: null,
       handoverReceivedBy: null,
       notReceivedAt: null,
@@ -885,6 +888,7 @@ function GrnStageTimeline({
       fallbackBy: null,
       revertedAt: row.receivedRevertedAt,
       revertedBy: row.receivedRevertedBy,
+      valuationRejectedAt: null,
       handoverReceivedAt: null,
       handoverReceivedBy: null,
       notReceivedAt: null,
@@ -905,6 +909,7 @@ function GrnStageTimeline({
           fallbackBy: "GRN margin approval",
           revertedAt: null,
           revertedBy: null,
+          valuationRejectedAt: null,
           handoverReceivedAt: null,
           handoverReceivedBy: null,
           notReceivedAt: null,
@@ -925,6 +930,7 @@ function GrnStageTimeline({
           fallbackBy: "GRN payment approval",
           revertedAt: null,
           revertedBy: null,
+          valuationRejectedAt: null,
           handoverReceivedAt: null,
           handoverReceivedBy: null,
           notReceivedAt: null,
@@ -970,6 +976,11 @@ function GrnStageTimeline({
                 {stage.revertedAt && (
                   <div className="text-xs text-amber-300">
                     Reverted by {userLabel(stage.revertedBy) ?? "Unknown"} on {formatDate(stage.revertedAt)}
+                  </div>
+                )}
+                {stage.valuationRejectedAt && (
+                  <div className="text-xs text-destructive">
+                    Valuation got rejected on {formatDate(stage.valuationRejectedAt)}
                   </div>
                 )}
                 {stage.handoverReceivedAt && (
@@ -1483,6 +1494,36 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
       await loadMarginApproval();
     } catch (error) {
       notify.error(error instanceof Error ? error.message : "Failed to approve margin items");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function rejectMarginItem(row: MarginApprovalRow) {
+    const key = `margin-reject:${row.purchaseReceiptName}`;
+    setBusyKey(key);
+    try {
+      const res = await fetch("/api/admin/purchasing/grn/margin-approval", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "reject",
+          items: [{
+            companyId: row.companyId,
+            purchaseReceiptName: row.purchaseReceiptName,
+            purchaseReceiptIsBackfill: row.purchaseReceiptIsBackfill,
+            itemCode: row.itemCode,
+          }],
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || "Failed to reject margin approval");
+      }
+      notify.success("Valuation rejected and returned to pending");
+      await Promise.all([loadMarginApproval(), loadData()]);
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : "Failed to reject margin approval");
     } finally {
       setBusyKey(null);
     }
@@ -2962,15 +3003,25 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                                   <CheckCircle2 className="size-3.5" /> Approved
                                 </span>
                               ) : permissions.canMarkMarginApproval ? (
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  className="mt-1"
-                                  disabled={!canApprove || busyKey === `margin-approve:${row.purchaseReceiptName}`}
-                                  onClick={() => void approveMarginItems([row])}
-                                >
-                                  Approve
-                                </Button>
+                                <div className="mt-1 flex flex-wrap gap-2">
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    disabled={!canApprove || busyKey === `margin-approve:${row.purchaseReceiptName}`}
+                                    onClick={() => void approveMarginItems([row])}
+                                  >
+                                    Approve
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="destructive"
+                                    disabled={busyKey === `margin-reject:${row.purchaseReceiptName}`}
+                                    onClick={() => void rejectMarginItem(row)}
+                                  >
+                                    Reject
+                                  </Button>
+                                </div>
                               ) : (
                                 <span className="text-xs text-muted-foreground">Pending</span>
                               )}

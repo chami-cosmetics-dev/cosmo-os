@@ -2881,6 +2881,8 @@ model GrnPurchaseReceipt {
   valuedById              String?
   valuedRevertedAt        DateTime?
   valuedRevertedById      String?
+  valuationRejectedAt     DateTime?
+  valuationRejectedById   String?
   receivedAt              DateTime?
   receivedById            String?
   receivedRevertedAt      DateTime?
@@ -3137,6 +3139,8 @@ model GrnBackfillPurchaseReceipt {
   valuedById              String?
   valuedRevertedAt        DateTime?
   valuedRevertedById      String?
+  valuationRejectedAt     DateTime?
+  valuationRejectedById   String?
   receivedAt              DateTime?
   receivedById            String?
   receivedRevertedAt      DateTime?
