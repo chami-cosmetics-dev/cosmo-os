@@ -115,9 +115,13 @@ export async function POST(request: NextRequest) {
 
   try {
     await ensureVaultForceIncludedRops(companyId);
-    const [catalogRaw, ropRows, historyRows, allowedSuppliers] = await Promise.all([
+    const [catalogRaw, ropRows, profiles, historyRows, allowedSuppliers] = await Promise.all([
       fetchVaultCatalog(erp1.cfg),
       prisma.productOsfRop.findMany({ where: { companyId } }),
+      prisma.productOsfProfile.findMany({
+        where: { companyId },
+        select: { sku: true, targetPurchaseRate: true },
+      }),
       prisma.osfMonthlySalesHistory.findMany({ where: { companyId } }),
       prisma.supplier.findMany({ where: { companyId }, select: { name: true, code: true } }),
     ]);
@@ -223,6 +227,13 @@ export async function POST(request: NextRequest) {
       entry[r.columnKey] = r.ropQty;
       rops.set(r.sku, entry);
     }
+    const targetPurchaseRates = new Map<string, number | null>();
+    for (const p of profiles) {
+      targetPurchaseRates.set(
+        p.sku,
+        p.targetPurchaseRate != null ? Number(p.targetPurchaseRate) : null,
+      );
+    }
 
     const binChunks = await Promise.all(
       [...warehousesByInstance.entries()].map(async ([id, whs]) => {
@@ -286,6 +297,7 @@ export async function POST(request: NextRequest) {
       latest,
       rankedSuppliersBySku: rankedSuppliersFromMins(mergeSupplierMinMaps(supplierMinChunks)),
       rops,
+      targetPurchaseRates,
     });
 
     const filename = `OSF-vault-${asOfDate}.xlsx`;

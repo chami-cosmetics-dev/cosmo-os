@@ -19,6 +19,7 @@ import {
 import {
   findForeignShopRow,
   loadBookNoteOrderShopHits,
+  locationNeedsCosmeticsPosFilter,
 } from "@/lib/book-notes/order-shop";
 import { postingDateToUtcMidnight } from "@/lib/book-notes/serialize";
 import {
@@ -368,6 +369,8 @@ export async function PUT(request: NextRequest) {
   });
   const foreign = findForeignShopRow({
     selectedLocationId: companyLocationId,
+    selectedIsCosmetics: locationNeedsCosmeticsPosFilter(location),
+    cosmeticsPosScope: access.cosmeticsPosScope,
     rows: cleaned,
     hits: orderHits,
   });

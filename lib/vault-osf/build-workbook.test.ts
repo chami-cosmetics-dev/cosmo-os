@@ -140,7 +140,9 @@ describe("vault OSF workbook", () => {
     expect(idx("purchValue:2026-09")).toBeLessThan(idx("mrp"));
     expect(idx("discountedPrice")).toBeLessThan(idx("maxSale"));
     expect(idx("ave")).toBeLessThan(idx("reorder:sv"));
-    expect(idx("reorderTotal")).toBeLessThan(idx("latestPrice"));
+    expect(idx("reorderTotal")).toBeLessThan(idx("targetPurchaseRate"));
+    expect(idx("targetPurchaseRate")).toBeLessThan(idx("latestPrice"));
+    expect(defs[idx("targetPurchaseRate")]!.header).toBe("Target Purchase Rate");
     expect(idx("latestSupplier")).toBeLessThan(idx("supplier1"));
     expect(idx("supplier1")).toBeLessThan(idx("supplier1Price"));
     expect(idx("supplier2")).toBeLessThan(idx("supplier2Price"));
@@ -163,9 +165,20 @@ describe("vault OSF workbook", () => {
     expect(vaultOsfSubtotalColumn("sales:2026-06:total")).toBe(true);
     expect(vaultOsfSubtotalColumn("variantSku")).toBe(false);
     expect(vaultOsfSubtotalColumn("latestSupplier")).toBe(false);
+    expect(vaultOsfSubtotalColumn("targetPurchaseRate")).toBe(true);
     expect(vaultOsfSubtotalColumn("supplier1")).toBe(false);
     expect(vaultOsfSubtotalColumn("supplier1Price")).toBe(true);
     expect(vaultOsfSubtotalColumn("supplier2Price")).toBe(true);
+  });
+
+  it("writes Target Purchase Rate from profile map", () => {
+    const row = buildVaultMainRows(
+      input({
+        targetPurchaseRates: new Map([["NW004-2", 4200.5]]),
+      }),
+    )[0]!;
+    expect(row.targetPurchaseRate).toBe(4200.5);
+    expect(buildVaultMainRows(input())[0]!.targetPurchaseRate).toBeNull();
   });
 
   it("writes Supplier 1 / Supplier 2 name and price from ranked invoice suppliers", () => {

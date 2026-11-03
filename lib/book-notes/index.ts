@@ -24,6 +24,13 @@ export {
 } from "@/lib/book-notes/access";
 export type { BookNoteShopAccess } from "@/lib/book-notes/access";
 
+export {
+  BOOK_NOTE_OUTLET_SHOP_MAP,
+  collectBookNoteCosmeticsPosScope,
+  isCosmeticsBookNoteLocation,
+} from "@/lib/book-notes/shop-outlet-map";
+export type { BookNoteCosmeticsPosScope } from "@/lib/book-notes/shop-outlet-map";
+
 export { resolveBookNoteSalesInvoice } from "@/lib/book-notes/invoice-identity";
 
 export {
