@@ -44,7 +44,8 @@ type StaffMember = {
   couponCodes?: string[];
   wholesaleCouponCodes?: string[];
   financeLocationIds?: string[];
-  outlets?: Outlet[];
+  /** Assigned floor outlets (not company catalog). */
+  assignedOutlets?: Outlet[];
   employeeProfile: {
     id: string;
     employeeNumber: string | null;
@@ -89,6 +90,36 @@ function withSelectedOption<T extends { id: string }>(
     return options;
   }
   return [selected, ...options];
+}
+
+/** Assigned outlets only — never the full company catalog. */
+function initialOutletIdsFromStaff(
+  data: {
+    assignedOutlets?: Array<{ id: string }> | null;
+    employeeProfile?: {
+      outletId?: string | null;
+      outlet?: { id: string } | null;
+    } | null;
+  },
+  catalogIds: string[],
+): string[] {
+  const primary =
+    data.employeeProfile?.outletId ??
+    data.employeeProfile?.outlet?.id ??
+    null;
+  const assigned = (data.assignedOutlets ?? [])
+    .map((o) => o.id)
+    .filter(Boolean);
+  // Guard: buggy payloads used to send every company outlet as "assigned".
+  if (
+    catalogIds.length > 1 &&
+    assigned.length >= catalogIds.length &&
+    catalogIds.every((id) => assigned.includes(id))
+  ) {
+    return primary ? [primary] : [];
+  }
+  if (assigned.length > 0) return [...new Set(assigned)];
+  return primary ? [primary] : [];
 }
 
 export function StaffEditForm({
@@ -198,13 +229,10 @@ export function StaffEditForm({
           ""
       );
       setOutletIds(
-        initialData.outlets?.length
-          ? initialData.outlets.map((o) => o.id)
-          : initialData.employeeProfile?.outletId
-            ? [initialData.employeeProfile.outletId]
-            : initialData.employeeProfile?.outlet?.id
-              ? [initialData.employeeProfile.outlet.id]
-              : [],
+        initialOutletIdsFromStaff(
+          initialData,
+          outlets.map((o) => o.id),
+        ),
       );
       setAppointmentDate(
         formatDateForInput(initialData.employeeProfile?.appointmentDate)
@@ -235,7 +263,7 @@ export function StaffEditForm({
     }
     setBusyKey("save");
     try {
-      const requestedOutletIds = outletIds;
+      const requestedOutletIds = isShopMerchant ? outletIds : [];
       const requestedOutletId = requestedOutletIds[0] ?? null;
       const res = await fetch(`/api/admin/staff/${staffId}`, {
         method: "PATCH",
@@ -280,7 +308,7 @@ export function StaffEditForm({
         return;
       }
 
-      const savedIds = (data.outlets ?? [])
+      const savedIds = (data.assignedOutlets ?? [])
         .map((o) => o.id)
         .sort()
         .join(",");
@@ -509,43 +537,6 @@ export function StaffEditForm({
         </Select>
       </div>
       <div className="space-y-2">
-        <label className="text-sm font-medium">Outlets</label>
-        <p className="text-muted-foreground text-xs">
-          Merchants can work multiple shops. They pick today&apos;s outlet on login.
-          Leave all unchecked for no outlet.
-        </p>
-        <div className="border-input bg-card text-card-foreground max-h-48 space-y-2 overflow-y-auto rounded-md border p-3">
-          {outletOptions.length === 0 ? (
-            <p className="text-muted-foreground text-sm">No outlets configured.</p>
-          ) : (
-            outletOptions.map((outlet) => {
-              const checked = outletIds.includes(outlet.id);
-              return (
-                <label
-                  key={outlet.id}
-                  className="flex cursor-pointer items-center gap-2 text-sm text-foreground"
-                >
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    onChange={(e) => {
-                      setOutletIds(
-                        e.target.checked
-                          ? [...outletIds, outlet.id]
-                          : outletIds.filter((id) => id !== outlet.id),
-                      );
-                    }}
-                    disabled={!canEdit || isBusy}
-                    className="border-input size-4 rounded"
-                  />
-                  {outlet.name}
-                </label>
-              );
-            })
-          )}
-        </div>
-      </div>
-      <div className="space-y-2">
         <label htmlFor="staff-appointmentDate" className="text-sm font-medium">
           Appointment date
         </label>
@@ -636,7 +627,11 @@ export function StaffEditForm({
           id="staff-isShopMerchant"
           type="checkbox"
           checked={isShopMerchant}
-          onChange={(e) => setIsShopMerchant(e.target.checked)}
+          onChange={(e) => {
+            const next = e.target.checked;
+            setIsShopMerchant(next);
+            if (!next) setOutletIds([]);
+          }}
           disabled={!canEdit || isBusy}
           className="size-4 rounded border-input"
         />
@@ -647,6 +642,46 @@ export function StaffEditForm({
       <p className="text-muted-foreground text-xs">
         Shop merchants must have at least one outlet. Shown on the GM scorecard.
       </p>
+
+      {isShopMerchant ? (
+        <div className="space-y-2">
+          <label className="text-sm font-medium">Outlets</label>
+          <p className="text-muted-foreground text-xs">
+            Merchants can work multiple shops. They pick today&apos;s outlet on login.
+            Leave all unchecked for no outlet.
+          </p>
+          <div className="border-input bg-card text-card-foreground max-h-48 space-y-2 overflow-y-auto rounded-md border p-3">
+            {outletOptions.length === 0 ? (
+              <p className="text-muted-foreground text-sm">No outlets configured.</p>
+            ) : (
+              outletOptions.map((outlet) => {
+                const checked = outletIds.includes(outlet.id);
+                return (
+                  <label
+                    key={outlet.id}
+                    className="flex cursor-pointer items-center gap-2 text-sm text-foreground"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={(e) => {
+                        setOutletIds(
+                          e.target.checked
+                            ? [...outletIds, outlet.id]
+                            : outletIds.filter((id) => id !== outlet.id),
+                        );
+                      }}
+                      disabled={!canEdit || isBusy}
+                      className="border-input size-4 rounded"
+                    />
+                    {outlet.name}
+                  </label>
+                );
+              })
+            )}
+          </div>
+        </div>
+      ) : null}
 
       {locations.length > 0 && (
         <>

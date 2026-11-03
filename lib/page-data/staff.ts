@@ -228,7 +228,7 @@ export async function fetchStaffPageData(
       shopifyUserIds: u.shopifyUserIds,
       couponCodes: u.couponCodes,
       userRoles: [],
-      outlets: assignedOutlets,
+      assignedOutlets,
       employeeProfile: u.employeeProfile
         ? {
             id: u.employeeProfile.id,
