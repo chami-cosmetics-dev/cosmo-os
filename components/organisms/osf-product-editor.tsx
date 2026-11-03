@@ -204,12 +204,12 @@ export function OsfProductEditor({
           else ropsPayload[key] = Math.max(0, Math.floor(Number(trimmed)) || 0);
         }
         payload.rops = ropsPayload;
+        const rateTrimmed = targetPurchaseRate.trim();
+        payload.targetPurchaseRate = rateTrimmed === "" ? null : Number(rateTrimmed);
         if (!hideCosmoFields) {
           const ogfTrimmed = ogfPrice.trim();
-          const rateTrimmed = targetPurchaseRate.trim();
           payload.shopAvailability = shopAvailability === "" ? null : shopAvailability;
           payload.ogfPrice = ogfTrimmed === "" ? null : Number(ogfTrimmed);
-          payload.targetPurchaseRate = rateTrimmed === "" ? null : Number(rateTrimmed);
         }
       }
       if (reorderThresholdPercent !== undefined) {
@@ -245,7 +245,7 @@ export function OsfProductEditor({
         <h3 className="font-medium">Product OSF editor</h3>
         <p className="text-sm text-muted-foreground">
           {hideCosmoFields
-            ? "Per-column ROP for SV, ORI and AE, plus reorder threshold %. Search a SKU to edit, or use the Excel import."
+            ? "Per-column ROP for SV, ORI and AE, Target Purchase Rate, and reorder threshold %. Search a SKU to edit, or use the Excel import."
             : "Shop Availability, per-column ROP, OGF Price, Target Purchase Rate, and reorder threshold %. Enter a % to list SKUs that already have ROP and whose stock is below that share of ROP."}
         </p>
       </div>
@@ -369,25 +369,25 @@ export function OsfProductEditor({
                       Synced from Cosmo ERP OGF Price List. Online Cosmetics.lk price is separate.
                     </span>
                   </label>
-                  <label className="block text-xs font-medium">
-                    Target Purchase Rate
-                    <Input
-                      type="number"
-                      step="0.01"
-                      min={0}
-                      className="mt-1"
-                      disabled={!canManage || isBusy}
-                      value={targetPurchaseRate}
-                      placeholder="Target unit cost"
-                      onChange={(e) => setTargetPurchaseRate(e.target.value)}
-                    />
-                    <span className="mt-1 block text-[11px] font-normal text-muted-foreground">
-                      Manual target buy price per unit. Bulk-fill via ROP template import; edit here
-                      anytime.
-                    </span>
-                  </label>
                 </>
               )}
+              <label className="block text-xs font-medium">
+                Target Purchase Rate
+                <Input
+                  type="number"
+                  step="0.01"
+                  min={0}
+                  className="mt-1"
+                  disabled={!canManage || isBusy}
+                  value={targetPurchaseRate}
+                  placeholder="Target unit cost"
+                  onChange={(e) => setTargetPurchaseRate(e.target.value)}
+                />
+                <span className="mt-1 block text-[11px] font-normal text-muted-foreground">
+                  Manual target buy price per unit. Bulk-fill via ROP template import; edit here
+                  anytime.
+                </span>
+              </label>
               <label className="block text-xs font-medium">
                 Reorder threshold % (blank = 70)
                 <Input

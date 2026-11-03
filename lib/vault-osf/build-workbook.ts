@@ -43,6 +43,8 @@ export type VaultWorkbookInput = {
   rankedSuppliersBySku?: Map<string, OsfBestPurchase[]>;
   /** sku → columnKey → rop */
   rops: Map<string, Record<string, number>>;
+  /** sku → manual target unit purchase rate */
+  targetPurchaseRates?: Map<string, number | null>;
 };
 
 export const COSMO_HEADERS_MUST_ABSENT = [
@@ -132,7 +134,13 @@ export function vaultColumnDefs(units: VaultBusinessUnit[], asOfDate: string): V
     });
   });
   defs.push({ key: "reorderTotal", header: "Total", band: "order" });
-  defs.push({ key: "latestPrice", header: "Latest price", section: "Supplier", band: "cost" });
+  defs.push({
+    key: "targetPurchaseRate",
+    header: "Target Purchase Rate",
+    section: "Supplier",
+    band: "cost",
+  });
+  defs.push({ key: "latestPrice", header: "Latest price", band: "cost" });
   defs.push({ key: "latestSupplier", header: "Latest price suppliers", band: "cost" });
   defs.push({ key: "supplier1", header: "Supplier 1", band: "cost" });
   defs.push({ key: "supplier1Price", header: "Supplier 1 Price", band: "cost" });
@@ -171,6 +179,7 @@ export function vaultOsfSubtotalColumn(key: string): boolean {
   if (key === "maxSale" || key === "ave") return true;
   if (key.startsWith("reorder:")) return true;
   if (key === "reorderTotal") return true;
+  if (key === "targetPurchaseRate") return true;
   if (key === "latestPrice") return true;
   if (key === "supplier1Price" || key === "supplier2Price") return true;
   return false;
@@ -235,6 +244,8 @@ export function buildVaultMainRows(input: VaultWorkbookInput): Array<Record<stri
     const price = input.prices.get(item.sku);
     row.mrp = price?.mrp ?? null;
     row.discountedPrice = price?.discountedPrice ?? null;
+    const targetRate = input.targetPurchaseRates?.get(item.sku);
+    row.targetPurchaseRate = targetRate == null ? null : targetRate;
     const latest = input.latest.get(item.sku);
     row.latestPrice = latest?.rate ?? null;
     row.latestSupplier = latest?.supplier ?? null;

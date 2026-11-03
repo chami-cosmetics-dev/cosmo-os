@@ -2,111 +2,112 @@ import { describe, expect, it } from "vitest";
 
 import {
   findForeignShopRow,
-  foreignShopForInvoice,
   foreignShopRowError,
   orderMatchesInvoice,
 } from "@/lib/book-notes/order-shop";
 
-const spk = {
-  id: "ord_spk",
-  companyLocationId: "loc_spk",
-  shopLabel: "SPK",
-  keys: ["acc-sinv-2026-0001", "inv-spk-1"],
+const mnk = {
+  id: "ord_mnk",
+  companyLocationId: "loc_mnk",
+  shopLabel: "MNK",
+  posProfile: null,
+  erpnextWarehouse: "Shop Warehouse - MNK",
+  keys: ["acc-sinv-mnk-1"],
 };
-const kandy = {
-  id: "ord_kandy",
-  companyLocationId: "loc_kandy",
-  shopLabel: "Kandy",
-  keys: ["acc-sinv-2026-0099", "inv-kandy-9"],
+
+const coolPlanet = {
+  id: "ord_cp",
+  companyLocationId: "loc_cosmo",
+  shopLabel: "Cosmetics.lk",
+  posProfile: "Cool Planet Nugegoda Shop",
+  erpnextWarehouse: "Cool Planet Nugegoda Shop Warehouse - Cosmo",
+  keys: ["acc-sinv-cp-1"],
+};
+
+const maharagama = {
+  id: "ord_maha",
+  companyLocationId: "loc_cosmo",
+  shopLabel: "Cosmetics.lk",
+  posProfile: "Maharagama Shop",
+  erpnextWarehouse: "Maharagama Shop Warehouse - Cosmo",
+  keys: ["acc-sinv-maha-1"],
 };
 
 describe("orderMatchesInvoice", () => {
   it("matches invoice keys case-insensitively", () => {
-    expect(orderMatchesInvoice(spk.keys, "ACC-SINV-2026-0001")).toBe(true);
-    expect(orderMatchesInvoice(spk.keys, "inv-spk-1")).toBe(true);
-    expect(orderMatchesInvoice(spk.keys, "nope")).toBe(false);
-    expect(orderMatchesInvoice(spk.keys, "  ")).toBe(false);
-  });
-});
-
-describe("foreignShopForInvoice", () => {
-  it("returns null when the invoice is unknown", () => {
-    expect(
-      foreignShopForInvoice({
-        salesInvoice: "HANDWRITTEN-1",
-        selectedLocationId: "loc_spk",
-        hits: [spk, kandy],
-      }),
-    ).toBeNull();
-  });
-
-  it("returns null when the invoice belongs to the selected shop", () => {
-    expect(
-      foreignShopForInvoice({
-        salesInvoice: "ACC-SINV-2026-0001",
-        selectedLocationId: "loc_spk",
-        hits: [spk, kandy],
-      }),
-    ).toBeNull();
-  });
-
-  it("flags an invoice that only exists at another shop", () => {
-    expect(
-      foreignShopForInvoice({
-        salesInvoice: "ACC-SINV-2026-0099",
-        selectedLocationId: "loc_spk",
-        hits: [spk, kandy],
-      }),
-    ).toEqual(kandy);
+    expect(orderMatchesInvoice(mnk.keys, "ACC-SINV-MNK-1")).toBe(true);
+    expect(orderMatchesInvoice(mnk.keys, "nope")).toBe(false);
   });
 });
 
 describe("findForeignShopRow", () => {
-  it("rejects an orderId from another outlet", () => {
+  it("rejects an invoice from another trading shop", () => {
     expect(
       findForeignShopRow({
-        selectedLocationId: "loc_spk",
-        rows: [
-          {
-            idxNo: "2",
-            salesInvoice: "ACC-SINV-2026-0099",
-            orderId: "ord_kandy",
-          },
-        ],
-        hits: [spk, kandy],
+        selectedLocationId: "loc_mnk",
+        selectedIsCosmetics: false,
+        cosmeticsPosScope: null,
+        rows: [{ idxNo: "1", salesInvoice: "ACC-SINV-CP-1" }],
+        hits: [mnk, coolPlanet],
       }),
     ).toEqual({
       error: foreignShopRowError({
-        idxNo: "2",
-        salesInvoice: "ACC-SINV-2026-0099",
-        shopLabel: "Kandy",
+        idxNo: "1",
+        salesInvoice: "ACC-SINV-CP-1",
+        shopLabel: "Cosmetics.lk",
       }),
     });
   });
 
-  it("rejects a typed invoice from another outlet", () => {
+  it("allows Cosmetics invoice on the merchant POS floor", () => {
     expect(
       findForeignShopRow({
-        selectedLocationId: "loc_spk",
-        rows: [{ idxNo: "3", salesInvoice: "inv-kandy-9", orderId: null }],
-        hits: [spk, kandy],
-      })?.error,
-    ).toContain("Kandy");
+        selectedLocationId: "loc_cosmo",
+        selectedIsCosmetics: true,
+        cosmeticsPosScope: {
+          posProfiles: ["Cool Planet Nugegoda Shop"],
+          warehouses: ["Cool Planet Nugegoda Shop Warehouse - Cosmo"],
+        },
+        rows: [
+          { idxNo: "1", salesInvoice: "ACC-SINV-CP-1", orderId: "ord_cp" },
+        ],
+        hits: [coolPlanet, maharagama],
+      }),
+    ).toBeNull();
   });
 
-  it("allows this outlet's order and unknown invoices", () => {
+  it("rejects Cosmetics invoice from another POS floor", () => {
     expect(
       findForeignShopRow({
-        selectedLocationId: "loc_spk",
-        rows: [
-          {
-            idxNo: "1",
-            salesInvoice: "ACC-SINV-2026-0001",
-            orderId: "ord_spk",
-          },
-          { idxNo: "2", salesInvoice: "BOOK-ONLY", orderId: null },
-        ],
-        hits: [spk, kandy],
+        selectedLocationId: "loc_cosmo",
+        selectedIsCosmetics: true,
+        cosmeticsPosScope: {
+          posProfiles: ["Cool Planet Nugegoda Shop"],
+          warehouses: ["Cool Planet Nugegoda Shop Warehouse - Cosmo"],
+        },
+        rows: [{ idxNo: "2", salesInvoice: "ACC-SINV-MAHA-1" }],
+        hits: [coolPlanet, maharagama],
+      }),
+    ).toEqual({
+      error: foreignShopRowError({
+        idxNo: "2",
+        salesInvoice: "ACC-SINV-MAHA-1",
+        shopLabel: "Maharagama Shop",
+      }),
+    });
+  });
+
+  it("allows unknown handwritten invoices", () => {
+    expect(
+      findForeignShopRow({
+        selectedLocationId: "loc_cosmo",
+        selectedIsCosmetics: true,
+        cosmeticsPosScope: {
+          posProfiles: ["Cool Planet Nugegoda Shop"],
+          warehouses: ["Cool Planet Nugegoda Shop Warehouse - Cosmo"],
+        },
+        rows: [{ idxNo: "3", salesInvoice: "HAND-1" }],
+        hits: [coolPlanet],
       }),
     ).toBeNull();
   });

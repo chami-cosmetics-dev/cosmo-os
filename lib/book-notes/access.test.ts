@@ -13,6 +13,7 @@ describe("collectAssignedBookNoteLocationIds", () => {
         profileLocationId: "loc_spk",
         profileCompanyId: "co1",
         defaultMerchantLocationIds: [],
+        mappedLocationIds: [],
       }),
     ).toEqual(["loc_spk"]);
   });
@@ -24,51 +25,43 @@ describe("collectAssignedBookNoteLocationIds", () => {
         profileLocationId: "loc_spk",
         profileCompanyId: "co2",
         defaultMerchantLocationIds: [],
+        mappedLocationIds: [],
       }),
     ).toEqual([]);
   });
 
-  it("unions default-merchant shops with employee location", () => {
+  it("unions default-merchant, profile, and outlet-mapped shops", () => {
     expect(
       collectAssignedBookNoteLocationIds({
         companyId: "co1",
         profileLocationId: "loc_spk",
         profileCompanyId: "co1",
-        defaultMerchantLocationIds: ["loc_lmj", "loc_spk", ""],
+        defaultMerchantLocationIds: ["loc_lmj", ""],
+        mappedLocationIds: ["loc_mnk", "loc_cosmo", "loc_spk"],
       }).sort(),
-    ).toEqual(["loc_lmj", "loc_spk"]);
-  });
-
-  it("returns empty when nothing is assigned", () => {
-    expect(
-      collectAssignedBookNoteLocationIds({
-        companyId: "co1",
-        profileLocationId: null,
-        profileCompanyId: "co1",
-        defaultMerchantLocationIds: [],
-      }),
-    ).toEqual([]);
+    ).toEqual(["loc_cosmo", "loc_lmj", "loc_mnk", "loc_spk"]);
   });
 });
 
 describe("assertBookNoteShopAllowed", () => {
   const access = {
     canAccessAllShops: false,
+    cosmeticsPosScope: null,
     locations: [
       {
-        id: "loc_spk",
-        name: "Speakeasy",
-        shortName: "SPK",
-        erpnextCompany: "SPK",
+        id: "loc_mnk",
+        name: "MNK Trading Lanka Pvt Ltd",
+        shortName: "MNK",
+        erpnextCompany: "MNK Trading Lanka (Pvt) Ltd",
       },
     ],
   };
 
   it("allows an assigned shop", () => {
-    expect(assertBookNoteShopAllowed(access, "loc_spk")).toBe(true);
+    expect(assertBookNoteShopAllowed(access, "loc_mnk")).toBe(true);
   });
 
   it("blocks a shop the merchant is not posted to", () => {
-    expect(assertBookNoteShopAllowed(access, "loc_kandy")).toBe(false);
+    expect(assertBookNoteShopAllowed(access, "loc_dro")).toBe(false);
   });
 });
