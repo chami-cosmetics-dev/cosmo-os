@@ -68,6 +68,14 @@ export async function POST(
     arrivedAt,
     oldItemCollectionStatus,
     oldItemCollectionRemark,
+    completedLatitude: parsed.data.completedLatitude,
+    completedLongitude: parsed.data.completedLongitude,
+    completedAccuracyMeters: parsed.data.completedAccuracyMeters,
+    completedLocationAt: parsed.data.completedLocationAt
+      ? new Date(parsed.data.completedLocationAt)
+      : parsed.data.completedLatitude != null
+        ? now
+        : null,
   });
 
   if (!result.success) {

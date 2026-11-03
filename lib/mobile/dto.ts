@@ -5,6 +5,7 @@ import type {
   RiderCashHandoverItem,
   RiderDeliveryTask,
 } from "@prisma/client";
+import { resolveMobileCollectAmount } from "@/lib/mobile/collect-amount";
 import { formatBusinessOrderNumber } from "@/lib/order-display-label";
 
 function formatMoney(value: { toString(): string } | null | undefined) {
@@ -50,6 +51,7 @@ export function toMobileDeliveryDto(input: {
     | "dispatchedAt"
   > & {
     paymentGatewayNames?: string[];
+    discountCodes?: unknown;
   };
   task: Pick<
     RiderDeliveryTask,
@@ -69,6 +71,10 @@ export function toMobileDeliveryDto(input: {
     | "failedAt"
     | "failureReason"
     | "latestSyncAt"
+    | "completedLatitude"
+    | "completedLongitude"
+    | "completedAccuracyMeters"
+    | "completedLocationAt"
   >;
   payment?: (Pick<
     DeliveryPayment,
@@ -105,11 +111,21 @@ export function toMobileDeliveryDto(input: {
   incentiveAmount?: string | null;
   /** Cash remaining from a KOKO/Bank + Cash split. Rider collects this, not the invoice total. */
   collectCashAmount?: number | null;
+  /** True when delivery is complete but finance has not closed the invoice yet (incentive locked). */
+  incentivePendingInvoiceClose?: boolean;
 }) {
   const { order, task, payment, companyLocation, specialDelivery, incentiveAmount } = input;
   const deliveryKind = specialDelivery?.deliveryKind ?? task.deliveryKind;
   const exchangePaymentDifference =
     specialDelivery?.exchangePaymentDifference ?? task.exchangePaymentDifference;
+  const collect = resolveMobileCollectAmount({
+    totalPrice: order.totalPrice,
+    collectCashAmount: input.collectCashAmount,
+    discountCodes: order.discountCodes,
+    paymentGatewayPrimary: order.paymentGatewayPrimary,
+    paymentGatewayNames: order.paymentGatewayNames,
+    financialStatus: order.financialStatus,
+  });
   return {
     id: task.id,
     orderId: order.id,
@@ -120,17 +136,17 @@ export function toMobileDeliveryDto(input: {
     customerEmail: order.customerEmail,
     shippingAddress: order.shippingAddress,
     billingAddress: order.billingAddress,
-    amount:
-      input.collectCashAmount != null && input.collectCashAmount > 0
-        ? formatMoney(input.collectCashAmount)
-        : formatMoney(order.totalPrice),
-    collectCashAmount: input.collectCashAmount != null ? formatMoney(input.collectCashAmount) : null,
+    amount: formatMoney(collect.amount),
+    orderTotal: formatMoney(order.totalPrice),
+    collectCashAmount:
+      collect.collectionKind === "partial" ? formatMoney(collect.amount) : null,
+    collectionKind: collect.collectionKind,
+    allowedPaymentMethods: collect.allowedPaymentMethods,
+    discountCouponCode: collect.discountCouponCode,
     incentiveAmount: incentiveAmount ?? "0.00",
+    incentivePendingInvoiceClose: Boolean(input.incentivePendingInvoiceClose),
     currency: order.currency,
-    expectedPaymentMethod:
-      input.collectCashAmount != null && input.collectCashAmount > 0
-        ? "cod"
-        : order.paymentGatewayPrimary,
+    expectedPaymentMethod: collect.expectedPaymentMethod,
     financialStatus: order.financialStatus,
     deliveryStatus: task.status,
     deliveryKind,
@@ -151,6 +167,15 @@ export function toMobileDeliveryDto(input: {
     completedAt: task.completedAt?.toISOString() ?? null,
     failedAt: task.failedAt?.toISOString() ?? null,
     latestSyncAt: task.latestSyncAt?.toISOString() ?? null,
+    completedLocation:
+      task.completedLatitude != null && task.completedLongitude != null
+        ? {
+            latitude: task.completedLatitude,
+            longitude: task.completedLongitude,
+            accuracyMeters: task.completedAccuracyMeters ?? null,
+            capturedAt: task.completedLocationAt?.toISOString() ?? null,
+          }
+        : null,
     dispatchedAt: order.dispatchedAt?.toISOString() ?? null,
     companyLocation,
     payment: payment

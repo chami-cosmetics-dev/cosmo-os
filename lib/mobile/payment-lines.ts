@@ -6,6 +6,7 @@ export type RiderPaymentLineInput = {
   amount: number;
   bankReference?: string | null;
   cardReference?: string | null;
+  cardLast4?: string | null;
   referenceNote?: string | null;
 };
 

@@ -3,6 +3,7 @@ import type { TenantId } from "@/src/tenants/config";
 export type DeliveryStatus = "assigned" | "accepted" | "arrived" | "completed" | "failed";
 export type DeliveryKind = "normal" | "rearranged" | "exchange";
 export type PaymentMethod = "cod" | "bank_transfer" | "card" | "already_paid";
+export type CollectionKind = "prepaid" | "partial" | "full";
 export type OldItemCollectionStatus = "pending" | "collected" | "not_collected";
 
 export type AddressLike = {
@@ -42,6 +43,11 @@ export type ApiMobileDelivery = {
   orderLabel: string;
   orderNumber?: string | null;
   amount: string;
+  orderTotal?: string | null;
+  collectCashAmount?: string | null;
+  collectionKind?: CollectionKind | null;
+  allowedPaymentMethods?: PaymentMethod[] | null;
+  discountCouponCode?: string | null;
   currency?: string | null;
   deliveryStatus: DeliveryStatus | string;
   deliveryKind: DeliveryKind;
@@ -54,6 +60,7 @@ export type ApiMobileDelivery = {
   billingAddress?: unknown;
   expectedPaymentMethod?: PaymentMethod | null;
   incentiveAmount?: string | null;
+  incentivePendingInvoiceClose?: boolean;
   companyLocation?: { name: string } | null;
   payment: DeliveryPayment | null;
   completedAt?: string | null;

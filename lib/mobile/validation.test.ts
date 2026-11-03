@@ -70,22 +70,30 @@ describe("riderPaymentSchema", () => {
     expect(result.success).toBe(false);
   });
 
-  it("requires card reference for card payment", () => {
-    const result = riderPaymentSchema.safeParse({
+  it("requires last 4 digits and slip photo for card payment", () => {
+    const missing = riderPaymentSchema.safeParse({
       paymentMethod: "card",
       collectedAmount: 1500,
     });
+    expect(missing.success).toBe(false);
 
-    expect(result.success).toBe(false);
+    const ok = riderPaymentSchema.safeParse({
+      paymentMethod: "card",
+      collectedAmount: 1500,
+      cardLast4: "4242",
+      cardSlipImageUrl: "https://res.cloudinary.com/demo/image/upload/slip.jpg",
+    });
+    expect(ok.success).toBe(true);
   });
 
-  it("accepts split cash + card lines", () => {
+  it("accepts split cash + card lines with last 4 and slip", () => {
     const result = riderPaymentSchema.safeParse({
       lines: [
         { paymentMethod: "cod", amount: 2000 },
-        { paymentMethod: "card", amount: 3000, cardReference: "POS-123" },
+        { paymentMethod: "card", amount: 3000, cardLast4: "4242" },
       ],
       customerGaveAmount: 2000,
+      cardSlipImageUrl: "https://res.cloudinary.com/demo/image/upload/slip.jpg",
     });
 
     expect(result.success).toBe(true);

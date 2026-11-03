@@ -15,7 +15,7 @@ import { formatMoney } from "@/src/utils/money";
 export default function DeliveriesScreen() {
   const router = useRouter();
   const { flushQueue, pendingCount } = useSync();
-  const { activeDeliveries, refreshing, reload } = useDeliveries();
+  const { activeDeliveries, refreshing, reload, error: loadError } = useDeliveries();
   const { data: performance, reload: reloadPerformance } = useRiderPerformance("current");
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -24,6 +24,12 @@ export default function DeliveriesScreen() {
     () => activeDeliveries.filter((delivery) => matchesDeliverySearch(delivery, searchQuery)),
     [activeDeliveries, searchQuery]
   );
+  const tenantErrorText =
+    performance.tenantErrors.length > 0
+      ? performance.tenantErrors
+          .map((id) => (id === "vault" ? "Vault failed" : id === "cosmetics" ? "Cosmetics failed" : `${id} failed`))
+          .join(" · ")
+      : null;
 
   return (
     <SafeAreaView style={styles.page}>
@@ -54,12 +60,24 @@ export default function DeliveriesScreen() {
             <Text style={styles.cueValue}>{formatMoney(performance.todayIncentiveTotal)}</Text>
             <Text style={styles.cueMeta}>{performance.todayCompletedCount} completed</Text>
           </View>
+          <Text style={styles.cueHint}>Pay pending until finance closes invoice</Text>
           {pendingCount > 0 ? (
             <Text style={styles.cuePending}>Sync pending — totals may update shortly</Text>
           ) : (
             <Text style={styles.cueHint}>Tap for pay-period performance</Text>
           )}
         </Pressable>
+
+        {loadError ? (
+          <View style={styles.errorCard}>
+            <Text style={styles.errorText}>{loadError}</Text>
+          </View>
+        ) : null}
+        {tenantErrorText && !loadError ? (
+          <View style={styles.errorCard}>
+            <Text style={styles.errorText}>{tenantErrorText}</Text>
+          </View>
+        ) : null}
 
         <View style={styles.searchCard}>
           <Text style={styles.searchLabel}>Search order</Text>
@@ -85,11 +103,19 @@ export default function DeliveriesScreen() {
 
         {filteredDeliveries.length === 0 ? (
           <EmptyState
-            title={activeDeliveries.length === 0 ? "No orders for today" : "No matching orders"}
+            title={
+              loadError && activeDeliveries.length === 0
+                ? "Could not load route"
+                : activeDeliveries.length === 0
+                  ? "No orders for today"
+                  : "No matching orders"
+            }
             message={
-              activeDeliveries.length === 0
-                ? "Today's assigned deliveries will appear here first."
-                : "Try order number, last 4 digits, customer name, or phone."
+              loadError && activeDeliveries.length === 0
+                ? loadError
+                : activeDeliveries.length === 0
+                  ? "Today's assigned deliveries will appear here first."
+                  : "Try order number, last 4 digits, customer name, or phone."
             }
           />
         ) : null}
@@ -122,6 +148,14 @@ function createStyles(colors: ReturnType<typeof useTheme>["colors"]) {
     cueMeta: { color: colors.textSoft, fontWeight: "700", fontSize: 13 },
     cueHint: { color: colors.brand, fontWeight: "600", fontSize: 12, marginTop: 2 },
     cuePending: { color: colors.textMuted, fontWeight: "600", fontSize: 12, marginTop: 2 },
+    errorCard: {
+      backgroundColor: colors.dangerSoft,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: colors.danger,
+      padding: 12,
+    },
+    errorText: { color: colors.danger, fontWeight: "700", fontSize: 13 },
     searchCard: {
       backgroundColor: colors.surface,
       borderRadius: 14,

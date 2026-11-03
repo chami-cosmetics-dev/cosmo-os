@@ -129,6 +129,7 @@ export async function GET(request: NextRequest) {
               task.manualIncentiveAmount
             ).toFixed(2)
           : "0.00",
+        incentivePendingInvoiceClose: !isRiderIncentiveUnlocked(task.order),
         collectCashAmount: cashByOrder.get(task.order.id) ?? null,
       })
     ),
