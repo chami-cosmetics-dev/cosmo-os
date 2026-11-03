@@ -17,6 +17,7 @@ const itemRefSchema = z.object({
 
 const approvalSchema = z.object({
   items: z.array(itemRefSchema).min(1).max(500),
+  action: z.enum(["approve", "reject"]).optional().default("approve"),
 });
 
 function parseDateParam(value: string | null, endOfDay = false) {
@@ -327,15 +328,60 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "One or more items are not eligible for margin approval" }, { status: 409 });
   }
 
-  await prisma.grnMarginApproval.createMany({
-    data: validItems.map((item) => ({
-      companyId: item!.companyId,
-      purchaseReceiptName: item!.purchaseReceiptName,
-      purchaseReceiptIsBackfill: item!.purchaseReceiptIsBackfill,
-      itemCode: item!.itemCode,
-      approvedById: user.id,
-    })),
-    skipDuplicates: true,
+  if (parsed.data.action === "approve") {
+    await prisma.grnMarginApproval.createMany({
+      data: validItems.map((item) => ({
+        companyId: item!.companyId,
+        purchaseReceiptName: item!.purchaseReceiptName,
+        purchaseReceiptIsBackfill: item!.purchaseReceiptIsBackfill,
+        itemCode: item!.itemCode,
+        approvedById: user.id,
+      })),
+      skipDuplicates: true,
+    });
+    return NextResponse.json({ ok: true, approved: validItems.length });
+  }
+
+  const receipts = [...new Map(validItems.map((item) => [
+    `${item!.companyId}:${item!.purchaseReceiptName}:${item!.purchaseReceiptIsBackfill}`,
+    item!,
+  ])).values()];
+  const now = new Date();
+  await prisma.$transaction(async (tx) => {
+    for (const receipt of receipts) {
+      const receiptWhere = {
+        companyId: receipt.companyId,
+        purchaseReceiptName: receipt.purchaseReceiptName,
+        purchaseReceiptIsBackfill: receipt.purchaseReceiptIsBackfill,
+      };
+      await Promise.all([
+        tx.grnMarginApproval.deleteMany({ where: receiptWhere }),
+        tx.grnPaymentApproval.deleteMany({ where: receiptWhere }),
+        receipt.purchaseReceiptIsBackfill
+          ? tx.grnBackfillPurchaseReceipt.updateMany({
+              where: { companyId: receipt.companyId, name: receipt.purchaseReceiptName },
+              data: {
+                valuedAt: null,
+                valuedById: null,
+                receivedAt: null,
+                receivedById: null,
+                valuationRejectedAt: now,
+                valuationRejectedById: user.id,
+              },
+            })
+          : tx.grnPurchaseReceipt.updateMany({
+              where: { companyId: receipt.companyId, name: receipt.purchaseReceiptName },
+              data: {
+                valuedAt: null,
+                valuedById: null,
+                receivedAt: null,
+                receivedById: null,
+                valuationRejectedAt: now,
+                valuationRejectedById: user.id,
+              },
+            }),
+      ]);
+    }
   });
-  return NextResponse.json({ ok: true, approved: validItems.length });
+  return NextResponse.json({ ok: true, rejected: receipts.length });
 }
