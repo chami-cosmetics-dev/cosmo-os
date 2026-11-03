@@ -52,39 +52,58 @@ type OutletEmployeeProfileRow = {
 
 type OutletRowWithEmployeeProfiles = Omit<OutletWithUsers, "users"> & {
   employeeProfiles?: OutletEmployeeProfileRow[];
+  profileAssignments?: Array<{ employeeProfile: OutletEmployeeProfileRow }>;
 };
 
 function outletRowsToAssignments(rows: OutletRowWithEmployeeProfiles[]): OutletWithUsers[] {
-  return rows.map((outlet) => ({
-    id: outlet.id,
-    name: outlet.name,
-    companyId: outlet.companyId,
-    users: (outlet.employeeProfiles ?? []).map((profile) => ({
-      userId: profile.userId,
-      couponCodes: profile.user.couponCodes ?? [],
-      user: {
-        id: profile.user.id,
-        name: profile.user.name,
-        email: profile.user.email,
-        knownName: profile.user.knownName,
-        mobile: profile.user.mobile,
-      },
-    })),
-  }));
+  return rows.map((outlet) => {
+    const byUserId = new Map<string, OutletUserAssignment>();
+    const push = (profile: OutletEmployeeProfileRow) => {
+      byUserId.set(profile.userId, {
+        userId: profile.userId,
+        couponCodes: profile.user.couponCodes ?? [],
+        user: {
+          id: profile.user.id,
+          name: profile.user.name,
+          email: profile.user.email,
+          knownName: profile.user.knownName,
+          mobile: profile.user.mobile,
+        },
+      });
+    };
+    for (const profile of outlet.employeeProfiles ?? []) push(profile);
+    for (const row of outlet.profileAssignments ?? []) push(row.employeeProfile);
+    return {
+      id: outlet.id,
+      name: outlet.name,
+      companyId: outlet.companyId,
+      users: [...byUserId.values()],
+    };
+  });
 }
+
+const outletStaffUserSelect = {
+  id: true,
+  name: true,
+  email: true,
+  knownName: true,
+  mobile: true,
+  couponCodes: true,
+} as const;
 
 const outletWithStaffInclude = {
   employeeProfiles: {
     select: {
       userId: true,
-      user: {
+      user: { select: outletStaffUserSelect },
+    },
+  },
+  profileAssignments: {
+    select: {
+      employeeProfile: {
         select: {
-          id: true,
-          name: true,
-          email: true,
-          knownName: true,
-          mobile: true,
-          couponCodes: true,
+          userId: true,
+          user: { select: outletStaffUserSelect },
         },
       },
     },
@@ -158,12 +177,26 @@ export async function deleteOutlet(outletId: string, companyId: string): Promise
 
 export async function getUserOutlets(userId: string, companyId: string): Promise<OutletWithUsers[]> {
   const profile = await prisma.employeeProfile.findFirst({
-    where: { userId, companyId, outletId: { not: null } },
-    select: { outletId: true },
+    where: { userId, companyId },
+    select: {
+      outletId: true,
+      outletAssignments: { select: { outletId: true } },
+    },
   });
-  if (!profile?.outletId) return [];
-  const outlet = await getOutletById(profile.outletId, companyId);
-  return outlet ? [outlet] : [];
+  if (!profile) return [];
+  const outletIds = [
+    ...new Set([
+      ...profile.outletAssignments.map((a) => a.outletId),
+      ...(profile.outletId ? [profile.outletId] : []),
+    ]),
+  ];
+  if (outletIds.length === 0) return [];
+  const outlets = await Promise.all(
+    outletIds.map((id) => getOutletById(id, companyId)),
+  );
+  return outlets
+    .filter((o): o is OutletWithUsers => Boolean(o))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export async function getOutletReview(orderId: string): Promise<{

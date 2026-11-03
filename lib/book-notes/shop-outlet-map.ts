@@ -97,13 +97,31 @@ export function bookNoteMapsForTradingShortName(
   return BOOK_NOTE_OUTLET_SHOP_MAP.filter((m) => m.tradingShortName === name);
 }
 
+function outletNamesFromInput(input: {
+  outletName?: string | null;
+  outletNames?: string[] | null;
+}): string[] {
+  const names = new Set<string>();
+  for (const n of input.outletNames ?? []) {
+    const t = (n ?? "").trim();
+    if (t) names.add(t);
+  }
+  const single = (input.outletName ?? "").trim();
+  if (single) names.add(single);
+  return [...names];
+}
+
 export function collectBookNoteTradingShortNames(input: {
   outletName?: string | null;
+  /** All floor outlets this merchant may book (multi-outlet). */
+  outletNames?: string[] | null;
   locationShortNames?: string[];
 }): string[] {
   const names = new Set<string>();
-  for (const m of bookNoteMapsForOutletName(input.outletName)) {
-    names.add(m.tradingShortName);
+  for (const outletName of outletNamesFromInput(input)) {
+    for (const m of bookNoteMapsForOutletName(outletName)) {
+      names.add(m.tradingShortName);
+    }
   }
   for (const shortName of input.locationShortNames ?? []) {
     const trimmed = shortName.trim();
@@ -114,10 +132,11 @@ export function collectBookNoteTradingShortNames(input: {
 
 export function collectBookNoteCosmeticsPosScope(input: {
   outletName?: string | null;
+  outletNames?: string[] | null;
   locationShortNames?: string[];
 }): BookNoteCosmeticsPosScope | null {
   const maps = [
-    ...bookNoteMapsForOutletName(input.outletName),
+    ...outletNamesFromInput(input).flatMap((n) => bookNoteMapsForOutletName(n)),
     ...(input.locationShortNames ?? []).flatMap((s) =>
       bookNoteMapsForTradingShortName(s),
     ),

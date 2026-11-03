@@ -787,6 +787,7 @@ export async function PATCH(
               : {}),
           },
         });
+        await tx.riderDeliveryTask.deleteMany({ where: { orderId: order.id } });
         await releaseKokoReferencesForOrderInTx(order.id, tx);
       });
     } catch (err) {
@@ -1052,6 +1053,7 @@ export async function PATCH(
             cancelledById: reviewerId,
           },
         });
+        await tx.riderDeliveryTask.deleteMany({ where: { orderId: approval.orderId! } });
         await releaseKokoReferencesForOrderInTx(approval.orderId!, tx);
 
         await tx.$executeRaw(

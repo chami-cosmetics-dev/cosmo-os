@@ -220,9 +220,6 @@ export default async function MerchantOrderStatusPage({
           </section>
         )}
 
-        <p style={{ marginTop: 24, fontSize: 12, color: "#a1a1aa", textAlign: "center" }}>
-          Sample status view · UI will match the mobile app later
-        </p>
       </div>
     </main>
   );

@@ -27,6 +27,7 @@ import {
   orderIsWholesale,
   wholesaleMerchantMatchesOrder,
 } from "@/lib/merchant-wholesale";
+import { salesAmountExcludingShipping } from "@/lib/sales-amount-excluding-shipping";
 
 export type CohortMerchantInput = {
   id: string;
@@ -185,6 +186,8 @@ export async function fetchMerchantCohortSales(
         companyLocationId: true,
         assignedMerchantId: true,
         totalPrice: true,
+        totalShipping: true,
+        shippingLines: true,
         sourceName: true,
         financialStatus: true,
         fulfillmentStatus: true,
@@ -213,7 +216,7 @@ export async function fetchMerchantCohortSales(
       joinAllDiscountCodes: true,
     });
     const orderCoupons = parseOrderCouponList(merchantCouponCode);
-    const amount = Number(order.totalPrice ?? 0);
+    const amount = salesAmountExcludingShipping(order) ?? 0;
     if (orderIsWholesale(orderCoupons)) {
       for (const m of merchants) {
         const whSet = wholesaleSetsByMerchant.get(m.id);

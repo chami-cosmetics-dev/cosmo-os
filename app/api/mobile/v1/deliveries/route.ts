@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { requireRiderMobileSession } from "@/lib/mobile/api";
+import { mobileActiveOrderWhere } from "@/lib/mobile/clear-cancelled-rider-task";
 import { toMobileDeliveryDto } from "@/lib/mobile/dto";
 import { resolveMobileSpecialDelivery } from "@/lib/mobile/special-delivery";
 import { mobileDeliveryStatusFilterSchema } from "@/lib/mobile/validation";
@@ -23,6 +24,7 @@ export async function GET(request: NextRequest) {
     prisma.riderDeliveryTask.findMany({
       where: {
         riderId: auth.session.userId,
+        order: mobileActiveOrderWhere(),
         ...(statusResult.success && statusResult.data ? { status: statusResult.data } : {}),
       },
       include: {

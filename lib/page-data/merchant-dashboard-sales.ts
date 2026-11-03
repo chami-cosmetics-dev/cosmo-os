@@ -25,6 +25,7 @@ import {
   orderIsWholesale,
   wholesaleMerchantMatchesOrder,
 } from "@/lib/merchant-wholesale";
+import { salesAmountExcludingShipping } from "@/lib/sales-amount-excluding-shipping";
 
 export type MerchantSalesLocationRow = {
   locationId: string;
@@ -148,6 +149,8 @@ export async function fetchMerchantUserSales(
         companyLocationId: true,
         assignedMerchantId: true,
         totalPrice: true,
+        totalShipping: true,
+        shippingLines: true,
         sourceName: true,
         financialStatus: true,
         fulfillmentStatus: true,
@@ -182,7 +185,7 @@ export async function fetchMerchantUserSales(
     if (!isDashboardSalesOrderEligible(order, dateType)) continue;
 
     const orderCoupons = orderTrackingCoupons(order);
-    const amount = Number(order.totalPrice ?? 0);
+    const amount = salesAmountExcludingShipping(order) ?? 0;
 
     if (orderIsWholesale(orderCoupons)) {
       if (wholesaleMerchantMatchesOrder(orderCoupons, wholesaleCodes)) {
@@ -384,6 +387,9 @@ function customerGroupKey(order: {
 
 type MerchantOrderForCustomers = {
   totalPrice: unknown;
+  totalShipping?: unknown;
+  shippingLines?: unknown;
+  discountCodes?: unknown;
   name: string | null;
   customerId: string | null;
   customerPhone: string | null;
@@ -407,7 +413,7 @@ function aggregateTopCustomers(
     const key = customerGroupKey(order);
     if (!key) continue;
 
-    const amount = Number(order.totalPrice ?? 0);
+    const amount = salesAmountExcludingShipping(order) ?? 0;
     const day = formatAppIsoDate(order.createdAt);
     const personName = pickPersonName(order);
     const existing = byCustomer.get(key);
@@ -505,6 +511,8 @@ export async function fetchMerchantTopCustomersBySales(
   const orderSelect = {
     id: true,
     totalPrice: true,
+    totalShipping: true,
+    shippingLines: true,
     name: true,
     customerId: true,
     customerPhone: true,
@@ -677,6 +685,8 @@ export async function fetchMerchantDailyInvoices(
         orderNumber: true,
         createdAt: true,
         totalPrice: true,
+        totalShipping: true,
+        shippingLines: true,
         customerPhone: true,
         customerEmail: true,
         companyLocationId: true,
@@ -820,7 +830,7 @@ export async function fetchMerchantDailyInvoices(
 
   let total = 0;
   const rows: MerchantDailyInvoiceRow[] = capped.map((order) => {
-    const amount = Number(order.totalPrice ?? 0);
+    const amount = salesAmountExcludingShipping(order) ?? 0;
     total += amount;
     const allocatedMerchant = resolveAllocatedMerchant(order);
     const allocationMismatch = Boolean(

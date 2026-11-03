@@ -1595,6 +1595,7 @@ export async function PATCH(
         },
       });
 
+      await prisma.riderDeliveryTask.deleteMany({ where: { orderId: order.id } });
       await releaseKokoReferencesForOrder(order.id);
 
       await writeAuditLog({
