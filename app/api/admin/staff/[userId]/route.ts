@@ -124,7 +124,8 @@ function serializeStaffUser(user: StaffUserWithDetails) {
     wholesaleCouponCodes: user.wholesaleCouponCodes,
     companyId: user.companyId,
     userRoles: user.userRoles.map((ur) => ur.role),
-    outlets: assignedOutlets,
+    /** Assigned floor outlets only — not the company outlet catalog. */
+    assignedOutlets,
     employeeProfile: user.employeeProfile
       ? {
           id: user.employeeProfile.id,
@@ -221,7 +222,8 @@ export async function GET(
       locations,
       departments,
       designations,
-      outlets,
+      // Catalog for the form — must not reuse `outlets` (collided with assigned list).
+      outletOptions: outlets,
     }),
   });
 }

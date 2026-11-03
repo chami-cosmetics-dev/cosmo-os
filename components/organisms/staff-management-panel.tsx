@@ -39,7 +39,7 @@ type StaffMember = {
   locations?: Location[];
   departments?: Department[];
   designations?: Designation[];
-  outlets?: Outlet[];
+  assignedOutlets?: Outlet[];
   employeeProfile: {
     id: string;
     employeeNumber: string | null;
@@ -527,7 +527,7 @@ export function StaffManagementPanel({
               locations={editData?.locations ?? locations}
               departments={editData?.departments ?? departments}
               designations={editData?.designations ?? designations}
-              outlets={editData?.outlets ?? outlets}
+              outlets={outlets}
               canEdit={canManageStaff}
               onSaved={handleEditSaved}
               onClose={closeEdit}
