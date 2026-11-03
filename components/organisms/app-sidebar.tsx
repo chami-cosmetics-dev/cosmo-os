@@ -147,8 +147,7 @@ export function AppSidebar({
     hasSidebarPermission("purchasing.market_prices.manage");
   const canViewGrn = hasSidebarPermission("purchasing.grn.read");
   const canAdminNewItemRequests = hasSidebarPermission("new_item_requests.admin");
-  // Sales Budget: no permission gate yet.
-  const canViewSalesBudget = true;
+  const canViewSalesBudget = hasSidebarPermission("purchasing.sales_budget.read");
   const canViewPurchasing =
     canViewSalesBudget ||
     canViewOsf ||

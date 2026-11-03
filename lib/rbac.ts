@@ -188,6 +188,11 @@ const DEFAULT_PERMISSIONS = [
       "View Item Trends super dashboard (movement, outlets, ROP suggestions, districts)",
   },
   {
+    key: "purchasing.sales_budget.read",
+    description:
+      "View the Sales Budget: budgets per merchant / shop, Export, Save and Saved Budgets",
+  },
+  {
     key: "purchasing.market_prices.read",
     description:
       "View Market Price Compare dashboard and competitor price data",
@@ -228,6 +233,18 @@ const DEFAULT_PERMISSIONS = [
   {
     key: "purchasing.grn.mark_received",
     description: "Mark GRN purchase receipts as received",
+  },
+  {
+    key: "purchasing.grn.margin_approval",
+    description: "Approve GRN item margins after receipt",
+  },
+  {
+    key: "purchasing.grn.payment_approval.read",
+    description: "View company-scoped GRN payment approvals and mark approved payments as paid",
+  },
+  {
+    key: "purchasing.grn.payment_approval.manage",
+    description: "View and approve GRN payments across all companies",
   },
   {
     key: "store.allocation.read",
@@ -799,6 +816,8 @@ const DEFAULT_ROLES = [
       "purchasing.grn.mark_valued",
       "purchasing.grn.mark_received",
       "new_item_requests.admin",
+      "purchasing.grn.margin_approval",
+      "purchasing.grn.payment_approval.manage",
       "academy.learn",
       "academy.manage",
       "products.storage.read",
