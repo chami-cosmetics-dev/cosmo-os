@@ -1,6 +1,15 @@
 import { Feather } from "@expo/vector-icons";
 import { useMemo, useState } from "react";
-import { Pressable, RefreshControl, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  Pressable,
+  RefreshControl,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 
 import { CompletedDeliveryCard } from "@/src/components/completed-delivery-card";
 import { DatePickerModal } from "@/src/components/date-picker-modal";
@@ -17,18 +26,25 @@ import {
 import { parseMoney } from "@/src/utils/money";
 
 export default function CompletedScreen() {
-  const { deliveries, refreshing, reload } = useCompletedDeliveriesList();
-  const { colors, radii, shadows } = useTheme();
-  const styles = useMemo(() => createStyles(colors, radii, shadows), [colors, radii, shadows]);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const { deliveries, recentDateKeys, refreshing, loadingMore, hasMore, reload, loadMore } =
+    useCompletedDeliveriesList(selectedDate);
+  const { colors, radii, shadows } = useTheme();
+  const styles = useMemo(() => createStyles(colors, radii, shadows), [colors, radii, shadows]);
 
-  const todayDeliveries = deliveries.filter((delivery) => isTodayDateKey(delivery.completedAt));
-  const todayRevenue = todayDeliveries.reduce((sum, delivery) => sum + parseMoney(delivery.amount), 0);
-  const workedDates = getUniqueDateKeys(deliveries.map((delivery) => delivery.completedAt));
+  const todayDeliveries = selectedDate
+    ? []
+    : deliveries.filter((delivery) => isTodayDateKey(delivery.completedAt));
+  const overviewDeliveries = selectedDate ? deliveries : todayDeliveries;
+  const overviewRevenue = overviewDeliveries.reduce((sum, delivery) => sum + parseMoney(delivery.amount), 0);
+  const workedDates = getUniqueDateKeys([
+    ...recentDateKeys,
+    ...deliveries.map((delivery) => delivery.completedAt),
+  ]);
 
   const historyDeliveries = selectedDate
-    ? deliveries.filter((delivery) => getCompletedDateKey(delivery.completedAt) === selectedDate)
+    ? deliveries
     : deliveries.filter((delivery) => !isTodayDateKey(delivery.completedAt));
 
   const todaySections = groupByCompletedDate(todayDeliveries);
@@ -39,6 +55,12 @@ export default function CompletedScreen() {
       <ScrollView
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void reload()} />}
         contentContainerStyle={styles.list}
+        onScroll={({ nativeEvent }) => {
+          const { layoutMeasurement, contentOffset, contentSize } = nativeEvent;
+          const nearBottom = layoutMeasurement.height + contentOffset.y >= contentSize.height - 180;
+          if (nearBottom) void loadMore();
+        }}
+        scrollEventThrottle={400}
       >
         <View style={styles.overview}>
           <Text style={styles.overviewEyebrow}>Overview</Text>
@@ -50,24 +72,28 @@ export default function CompletedScreen() {
           </View>
           <View style={styles.overviewStats}>
             <View style={styles.overviewStat}>
-              <Text style={styles.overviewLabel}>Total today</Text>
-              <Text style={styles.overviewValue}>{todayDeliveries.length}</Text>
+              <Text style={styles.overviewLabel}>
+                {selectedDate ? formatCompletedDateChipLabel(selectedDate) : "Total today"}
+              </Text>
+              <Text style={styles.overviewValue}>{overviewDeliveries.length}</Text>
             </View>
             <View style={styles.overviewStat}>
               <Text style={styles.overviewLabel}>Revenue</Text>
-              <Text style={styles.overviewValue}>Rs. {todayRevenue.toFixed(2)}</Text>
+              <Text style={styles.overviewValue}>Rs. {overviewRevenue.toFixed(2)}</Text>
             </View>
           </View>
         </View>
 
-        {todaySections.map((section) => (
-          <View key={`today-${section.title}`} style={styles.section}>
-            <Text style={styles.sectionTitle}>{section.title}</Text>
-            {section.items.map((delivery) => (
-              <CompletedDeliveryCard key={`${delivery.tenant}:${delivery.id}`} delivery={delivery} />
-            ))}
-          </View>
-        ))}
+        {!selectedDate
+          ? todaySections.map((section) => (
+              <View key={`today-${section.title}`} style={styles.section}>
+                <Text style={styles.sectionTitle}>{section.title}</Text>
+                {section.items.map((delivery) => (
+                  <CompletedDeliveryCard key={`${delivery.tenant}:${delivery.id}`} delivery={delivery} />
+                ))}
+              </View>
+            ))
+          : null}
 
         <View style={styles.historyTools}>
           <Pressable style={styles.datePickerButton} onPress={() => setShowDatePicker(true)}>
@@ -100,7 +126,17 @@ export default function CompletedScreen() {
           </View>
         ))}
 
-        {todayDeliveries.length === 0 && !selectedDate ? (
+        {hasMore ? (
+          <Pressable style={styles.loadMore} onPress={() => void loadMore()} disabled={loadingMore}>
+            {loadingMore ? (
+              <ActivityIndicator color={colors.brand} />
+            ) : (
+              <Text style={styles.loadMoreText}>Load more</Text>
+            )}
+          </Pressable>
+        ) : null}
+
+        {!selectedDate && todayDeliveries.length === 0 ? (
           <EmptyState
             title="No completed orders today"
             message="Today's completed deliveries will appear here first."
@@ -203,5 +239,16 @@ function createStyles(
     historyHeader: { gap: 4, marginTop: 4 },
     historyTitle: { fontSize: 18, fontWeight: "800", color: colors.text },
     historySubtitle: { color: colors.textMuted },
+    loadMore: {
+      alignItems: "center",
+      justifyContent: "center",
+      paddingVertical: 14,
+      borderRadius: radii.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+      marginTop: 4,
+    },
+    loadMoreText: { color: colors.brand, fontWeight: "700" },
   });
 }

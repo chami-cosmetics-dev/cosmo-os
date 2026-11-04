@@ -8,8 +8,20 @@ export const mobileLoginSchema = z.object({
 });
 
 export const mobileDeliveryStatusFilterSchema = z
-  .enum(["assigned", "accepted", "arrived", "completed", "failed"])
+  .enum(["assigned", "accepted", "arrived", "completed", "failed", "active"])
   .optional();
+
+/** List query for GET /api/mobile/v1/deliveries */
+export const mobileDeliveriesQuerySchema = z.object({
+  status: mobileDeliveryStatusFilterSchema,
+  limit: z.coerce.number().int().min(1).max(100).optional(),
+  offset: z.coerce.number().int().min(0).max(10_000).optional().default(0),
+  /** Asia/Colombo calendar day YYYY-MM-DD — filters completedAt (use with status=completed). */
+  on: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
+});
 
 const deliveryPaymentMethodSchema = z.enum(["cod", "bank_transfer", "card", "already_paid"]);
 

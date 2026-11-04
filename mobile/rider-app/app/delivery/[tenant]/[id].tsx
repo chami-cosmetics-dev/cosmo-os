@@ -220,16 +220,46 @@ export default function DeliveryDetailScreen() {
 
         <View style={styles.panel}>
           <Text style={styles.sectionTitle}>Failed delivery</Text>
+          <Text style={styles.paymentHint}>Tap a reason, or type your own.</Text>
+          <View style={styles.failChipRow}>
+            {(
+              [
+                "Customer not respond",
+                "Customer refused",
+                "Wrong address",
+                "Customer unavailable",
+              ] as const
+            ).map((reason) => {
+              const active = failureReason.trim() === reason;
+              return (
+                <Pressable
+                  key={reason}
+                  style={[styles.failChip, active ? styles.failChipActive : null]}
+                  onPress={() => setFailureReason(reason)}
+                >
+                  <Text style={[styles.failChipText, active ? styles.failChipTextActive : null]}>
+                    {reason}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
           <TextInput
             style={styles.input}
             value={failureReason}
             onChangeText={setFailureReason}
-            placeholder="Reason"
+            placeholder="Or type another reason"
             placeholderTextColor={colors.textSoft}
           />
-          <Pressable style={[styles.button, styles.failButton]} onPress={() => void markFailed(tenant, id, failureReason)}>
+          <Pressable
+            style={[styles.button, styles.failButton, submitting ? styles.buttonDisabled : null]}
+            disabled={submitting || !failureReason.trim()}
+            onPress={() => void markFailed(tenant, id, failureReason.trim())}
+          >
             <Feather name="x-circle" size={15} color={colors.white} />
-            <Text style={styles.buttonText}>Queue failed delivery</Text>
+            <Text style={styles.buttonText}>
+              {submitting ? "Saving…" : "Mark as failed"}
+            </Text>
           </Pressable>
         </View>
       </ScrollView>
@@ -328,7 +358,20 @@ function createStyles(
       justifyContent: "center",
       gap: 8,
     },
+    buttonDisabled: { opacity: 0.55 },
     failButton: { backgroundColor: colors.danger },
+    failChipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+    failChip: {
+      borderWidth: 1,
+      borderColor: colors.borderStrong,
+      borderRadius: radii.pill,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      backgroundColor: colors.surfaceMuted,
+    },
+    failChipActive: { backgroundColor: colors.dangerSoft, borderColor: colors.danger },
+    failChipText: { color: colors.textMuted, fontWeight: "700", fontSize: 13 },
+    failChipTextActive: { color: colors.danger },
     buttonText: { color: colors.white, fontWeight: "800" },
   });
 }

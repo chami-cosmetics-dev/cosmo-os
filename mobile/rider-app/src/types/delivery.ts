@@ -92,6 +92,10 @@ export type MobileDeliveryDetail = ApiMobileDeliveryDetail;
 
 export type MobileDeliveriesResponse = {
   deliveries: ApiMobileDelivery[];
+  hasMore?: boolean;
+  limit?: number | null;
+  offset?: number;
+  total?: number | null;
 };
 
 export type MobileDeliveryDetailResponse = {
