@@ -32,6 +32,13 @@ describe("collectBookNoteTradingShortNames", () => {
       }),
     ).toEqual(["SPK"]);
   });
+  it("unions multiple assigned outlets", () => {
+    expect(
+      collectBookNoteTradingShortNames({
+        outletNames: ["CoolPlanet", "Maharagama"],
+      }).sort(),
+    ).toEqual(["DRO", "MNK"]);
+  });
 });
 
 describe("collectBookNoteCosmeticsPosScope", () => {

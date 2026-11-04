@@ -46,14 +46,7 @@ export async function GET(request: NextRequest) {
   const periodKind = parsed.data.period as PayPeriodKind;
   const riderId = auth.session.userId;
 
-  const [config, incentiveContext] = await Promise.all([
-    prisma.riderPayPeriodConfig.findUnique({
-      where: { singletonKey: "default" },
-      select: { paydayDayOfMonth: true },
-    }),
-    loadRiderIncentiveContext(),
-  ]);
-  const paydayDayOfMonth = config?.paydayDayOfMonth ?? null;
+  const incentiveContext = await loadRiderIncentiveContext();
 
   const todayFrom = startOfDay(new Date());
   const todayTo = endOfDay(new Date());
@@ -88,20 +81,7 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const periodWindow = resolvePayPeriodWindow(paydayDayOfMonth, periodKind);
-  if (!periodWindow) {
-    return NextResponse.json({
-      paydayConfigured: false,
-      paydayDayOfMonth: null,
-      period: null,
-      completedCount: null,
-      failedCount: null,
-      incentiveTotal: null,
-      todayCompletedCount,
-      todayIncentiveTotal: decimalToFixed(todayIncentive),
-      lines: [],
-    });
-  }
+  const periodWindow = resolvePayPeriodWindow(periodKind);
 
   const [completedTasks, failedCount] = await Promise.all([
     prisma.riderDeliveryTask.findMany({
@@ -114,7 +94,7 @@ export async function GET(request: NextRequest) {
         id: true,
         completedAt: true,
         manualIncentiveLabelKey: true,
-      manualIncentiveAmount: true,
+        manualIncentiveAmount: true,
         order: {
           select: {
             id: true,
@@ -170,8 +150,9 @@ export async function GET(request: NextRequest) {
   }
 
   return NextResponse.json({
+    /** Always true — pay periods are calendar months; kept for older app builds. */
     paydayConfigured: true,
-    paydayDayOfMonth,
+    paydayDayOfMonth: null,
     period: {
       kind: periodWindow.kind,
       from: periodWindow.from.toISOString(),

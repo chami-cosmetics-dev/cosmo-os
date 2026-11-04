@@ -184,6 +184,12 @@ export async function fetchStaffPageData(
                 name: true,
               },
             },
+            outletAssignments: {
+              select: {
+                outlet: { select: { id: true, name: true } },
+              },
+              orderBy: { outlet: { name: "asc" } },
+            },
             appointmentDate: true,
             status: true,
             resignedAt: true,
@@ -198,39 +204,53 @@ export async function fetchStaffPageData(
     }),
   ]);
 
-  const staff = users.map((u) => ({
-    id: u.id,
-    name: u.name,
-    email: u.email,
-    nicNo: u.nicNo,
-    gender: u.gender,
-    dateOfBirth: u.dateOfBirth?.toISOString() ?? null,
-    mobile: u.mobile,
-    knownName: u.knownName,
-    shopifyUserIds: u.shopifyUserIds,
-    couponCodes: u.couponCodes,
-    userRoles: [],
-    employeeProfile: u.employeeProfile
-      ? {
-          id: u.employeeProfile.id,
-          employeeNumber: u.employeeProfile.employeeNumber,
-          epfNumber: u.employeeProfile.epfNumber,
-          locationId: u.employeeProfile.locationId,
-          location: u.employeeProfile.location,
-          departmentId: u.employeeProfile.departmentId,
-          department: u.employeeProfile.department,
-          designationId: u.employeeProfile.designationId,
-          designation: u.employeeProfile.designation,
-          outletId: u.employeeProfile.outletId,
-          outlet: u.employeeProfile.outlet,
-          appointmentDate: u.employeeProfile.appointmentDate?.toISOString() ?? null,
-          status: u.employeeProfile.status,
-          resignedAt: u.employeeProfile.resignedAt?.toISOString() ?? null,
-          isRider: u.employeeProfile.isRider,
-          isShopMerchant: u.employeeProfile.isShopMerchant,
-        }
-      : null,
-  }));
+  const staff = users.map((u) => {
+    const assignedOutlets = (() => {
+      const byId = new Map<string, { id: string; name: string }>();
+      for (const row of u.employeeProfile?.outletAssignments ?? []) {
+        byId.set(row.outlet.id, row.outlet);
+      }
+      if (u.employeeProfile?.outlet) {
+        byId.set(u.employeeProfile.outlet.id, u.employeeProfile.outlet);
+      }
+      return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
+    })();
+
+    return {
+      id: u.id,
+      name: u.name,
+      email: u.email,
+      nicNo: u.nicNo,
+      gender: u.gender,
+      dateOfBirth: u.dateOfBirth?.toISOString() ?? null,
+      mobile: u.mobile,
+      knownName: u.knownName,
+      shopifyUserIds: u.shopifyUserIds,
+      couponCodes: u.couponCodes,
+      userRoles: [],
+      assignedOutlets,
+      employeeProfile: u.employeeProfile
+        ? {
+            id: u.employeeProfile.id,
+            employeeNumber: u.employeeProfile.employeeNumber,
+            epfNumber: u.employeeProfile.epfNumber,
+            locationId: u.employeeProfile.locationId,
+            location: u.employeeProfile.location,
+            departmentId: u.employeeProfile.departmentId,
+            department: u.employeeProfile.department,
+            designationId: u.employeeProfile.designationId,
+            designation: u.employeeProfile.designation,
+            outletId: u.employeeProfile.outletId,
+            outlet: u.employeeProfile.outlet,
+            appointmentDate: u.employeeProfile.appointmentDate?.toISOString() ?? null,
+            status: u.employeeProfile.status,
+            resignedAt: u.employeeProfile.resignedAt?.toISOString() ?? null,
+            isRider: u.employeeProfile.isRider,
+            isShopMerchant: u.employeeProfile.isShopMerchant,
+          }
+        : null,
+    };
+  });
 
   const lookups = includeLookups && lookupCompanyId
     ? await fetchStaffLookups(lookupCompanyId)

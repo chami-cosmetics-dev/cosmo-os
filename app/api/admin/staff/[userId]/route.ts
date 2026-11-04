@@ -41,6 +41,8 @@ const updateStaffSchema = z.object({
   departmentId: cuidSchema.nullable().optional(),
   designationId: cuidSchema.nullable().optional(),
   outletId: cuidSchema.nullable().optional(),
+  /** Multi-outlet assign. When set, replaces join rows and syncs outletId. */
+  outletIds: z.array(cuidSchema).max(50).optional(),
   appointmentDate: z.string().optional(),
   isRider: z.boolean().optional(),
   isShopMerchant: z.boolean().optional(),
@@ -71,12 +73,43 @@ type StaffUserWithDetails = Prisma.UserGetPayload<{
         department: true;
         designation: true;
         outlet: true;
+        outletAssignments: { include: { outlet: true } };
       };
     };
   };
 }>;
 
+const staffDetailInclude = {
+  userRoles: { include: { role: true } },
+  employeeProfile: {
+    include: {
+      location: true,
+      department: true,
+      designation: true,
+      outlet: true,
+      outletAssignments: {
+        include: { outlet: true },
+        orderBy: { outlet: { name: "asc" as const } },
+      },
+    },
+  },
+} satisfies Prisma.UserInclude;
+
 function serializeStaffUser(user: StaffUserWithDetails) {
+  const assignedOutlets = (() => {
+    const byId = new Map<string, { id: string; name: string }>();
+    for (const row of user.employeeProfile?.outletAssignments ?? []) {
+      byId.set(row.outlet.id, { id: row.outlet.id, name: row.outlet.name });
+    }
+    if (user.employeeProfile?.outlet) {
+      byId.set(user.employeeProfile.outlet.id, {
+        id: user.employeeProfile.outlet.id,
+        name: user.employeeProfile.outlet.name,
+      });
+    }
+    return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
+  })();
+
   return {
     id: user.id,
     name: user.name,
@@ -91,6 +124,8 @@ function serializeStaffUser(user: StaffUserWithDetails) {
     wholesaleCouponCodes: user.wholesaleCouponCodes,
     companyId: user.companyId,
     userRoles: user.userRoles.map((ur) => ur.role),
+    /** Assigned floor outlets only — not the company outlet catalog. */
+    assignedOutlets,
     employeeProfile: user.employeeProfile
       ? {
           id: user.employeeProfile.id,
@@ -135,17 +170,7 @@ export async function GET(
 
   const user = await prisma.user.findUnique({
     where: { id: idResult.data },
-    include: {
-      userRoles: { include: { role: true } },
-      employeeProfile: {
-        include: {
-          location: true,
-          department: true,
-          designation: true,
-          outlet: true,
-        },
-      },
-    },
+    include: staffDetailInclude,
   });
 
   if (!user) {
@@ -197,7 +222,8 @@ export async function GET(
       locations,
       departments,
       designations,
-      outlets,
+      // Catalog for the form — must not reuse `outlets` (collided with assigned list).
+      outletOptions: outlets,
     }),
   });
 }
@@ -262,6 +288,15 @@ export async function PATCH(
       return NextResponse.json({ error: "Invalid outlet" }, { status: 400 });
     }
   }
+  if (data.outletIds && data.outletIds.length > 0) {
+    const found = await prisma.outlet.findMany({
+      where: { companyId, id: { in: data.outletIds } },
+      select: { id: true },
+    });
+    if (found.length !== new Set(data.outletIds).size) {
+      return NextResponse.json({ error: "Invalid outlet" }, { status: 400 });
+    }
+  }
   const parsedDob = data.dateOfBirth?.trim() ? new Date(data.dateOfBirth) : null;
   const validDob =
     parsedDob && !Number.isNaN(parsedDob.getTime()) ? parsedDob : undefined;
@@ -274,11 +309,21 @@ export async function PATCH(
 
   const nextIsShopMerchant =
     data.isShopMerchant ?? targetUser.employeeProfile?.isShopMerchant ?? false;
+  const nextOutletIds =
+    data.outletIds !== undefined
+      ? data.outletIds
+      : data.outletId !== undefined
+        ? data.outletId
+          ? [data.outletId]
+          : []
+        : null;
   const nextOutletId =
-    data.outletId !== undefined
-      ? data.outletId
-      : targetUser.employeeProfile?.outletId ?? null;
-  if (nextIsShopMerchant && !nextOutletId) {
+    nextOutletIds !== null
+      ? nextOutletIds[0] ?? null
+      : data.outletId !== undefined
+        ? data.outletId
+        : targetUser.employeeProfile?.outletId ?? null;
+  if (nextIsShopMerchant && !(nextOutletIds?.length || nextOutletId)) {
     return NextResponse.json(
       { error: "Outlet is required for shop merchants" },
       { status: 400 },
@@ -334,7 +379,11 @@ export async function PATCH(
       ...(data.locationId !== undefined && { locationId: data.locationId }),
       ...(data.departmentId !== undefined && { departmentId: data.departmentId }),
       ...(data.designationId !== undefined && { designationId: data.designationId }),
-      ...(data.outletId !== undefined && { outletId: data.outletId }),
+      ...(nextOutletIds === null &&
+        data.outletId !== undefined && { outletId: data.outletId }),
+      ...(nextOutletIds !== null && {
+        outletId: nextOutletIds[0] ?? null,
+      }),
       appointmentDate: validAppointment ?? undefined,
       ...(data.isRider !== undefined && { isRider: data.isRider }),
       ...(data.isShopMerchant !== undefined && {
@@ -342,19 +391,35 @@ export async function PATCH(
       }),
     };
 
+    let profileId = targetUser.employeeProfile?.id ?? null;
     if (targetUser.employeeProfile) {
       await tx.employeeProfile.update({
         where: { id: targetUser.employeeProfile.id },
         data: profileData,
       });
     } else {
-      await tx.employeeProfile.create({
+      const created = await tx.employeeProfile.create({
         data: {
           userId: idResult.data,
           companyId,
           ...profileData,
         },
       });
+      profileId = created.id;
+    }
+
+    if (nextOutletIds !== null && profileId) {
+      await tx.employeeProfileOutlet.deleteMany({
+        where: { employeeProfileId: profileId },
+      });
+      if (nextOutletIds.length > 0) {
+        await tx.employeeProfileOutlet.createMany({
+          data: nextOutletIds.map((outletId) => ({
+            employeeProfileId: profileId!,
+            outletId,
+          })),
+        });
+      }
     }
 
     if (data.financeLocationIds !== undefined) {
@@ -373,17 +438,7 @@ export async function PATCH(
 
   const updated = await prisma.user.findUnique({
     where: { id: idResult.data },
-    include: {
-      userRoles: { include: { role: true } },
-      employeeProfile: {
-        include: {
-          location: true,
-          department: true,
-          designation: true,
-          outlet: true,
-        },
-      },
-    },
+    include: staffDetailInclude,
   });
 
   await writeAuditLog({

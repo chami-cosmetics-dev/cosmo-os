@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import type { MerchantOrderRecord } from "@/lib/merchant-orders/present";
 
 const orderSelect = {
+  id: true,
   shopifyOrderId: true,
   name: true,
   orderNumber: true,
@@ -76,6 +77,7 @@ export async function resolveMerchantOrdersCompanyId(): Promise<string | null> {
 
 function toRecord(order: SelectedOrder): MerchantOrderRecord {
   return {
+    id: order.id,
     shopifyOrderId: order.shopifyOrderId,
     name: order.name,
     orderNumber: order.orderNumber,

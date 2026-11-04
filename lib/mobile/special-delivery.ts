@@ -1,6 +1,6 @@
 import "server-only";
 
-import { calculateExchangePaymentDifference, orderDisplayLabel, requiresOldItemCollection } from "@/lib/rider-delivery-special";
+import { calculateExchangePaymentDifference, orderDisplayLabel } from "@/lib/rider-delivery-special";
 
 type SpecialOrder = {
   id: string;
@@ -45,7 +45,8 @@ export function resolveMobileSpecialDelivery(input: {
         ? orderDisplayLabel(exchange.originalOrder)
         : exchange.originalReference,
       replacementOrderLabel: orderDisplayLabel(input.order),
-      requiresOldItemCollection: requiresOldItemCollection(exchange.reason),
+      // All exchanges: rider confirms old-item pickup (damaged/wrong and other reasons).
+      requiresOldItemCollection: true,
       oldItemCollectionStatus: input.task.oldItemCollectionStatus,
       oldItemCollectionRemark: input.task.oldItemCollectionRemark,
       exchangePaymentDifference:

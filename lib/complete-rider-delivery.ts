@@ -47,10 +47,20 @@ async function completeOrderAndOptionalTask(
       arrivedAt?: Date | null;
       oldItemCollectionStatus?: OldItemCollectionStatus;
       oldItemCollectionRemark?: string | null;
+      completedLatitude?: number | null;
+      completedLongitude?: number | null;
+      completedAccuracyMeters?: number | null;
+      completedLocationAt?: Date | null;
     };
   },
 ) {
   if (input.taskId) {
+    const hasGps =
+      input.taskExtras?.completedLatitude != null &&
+      input.taskExtras?.completedLongitude != null &&
+      Number.isFinite(input.taskExtras.completedLatitude) &&
+      Number.isFinite(input.taskExtras.completedLongitude);
+
     await tx.riderDeliveryTask.update({
       where: { id: input.taskId },
       data: {
@@ -69,6 +79,14 @@ async function completeOrderAndOptionalTask(
           ? {
               oldItemCollectionStatus: input.taskExtras.oldItemCollectionStatus,
               oldItemCollectionRemark: input.taskExtras.oldItemCollectionRemark ?? null,
+            }
+          : {}),
+        ...(hasGps
+          ? {
+              completedLatitude: input.taskExtras!.completedLatitude!,
+              completedLongitude: input.taskExtras!.completedLongitude!,
+              completedAccuracyMeters: input.taskExtras!.completedAccuracyMeters ?? null,
+              completedLocationAt: input.taskExtras!.completedLocationAt ?? input.now,
             }
           : {}),
       },
@@ -163,6 +181,10 @@ export async function completeRiderDeliveryTask(input: {
   arrivedAt?: Date | null;
   oldItemCollectionStatus?: OldItemCollectionStatus;
   oldItemCollectionRemark?: string | null;
+  completedLatitude?: number | null;
+  completedLongitude?: number | null;
+  completedAccuracyMeters?: number | null;
+  completedLocationAt?: Date | null;
 }): Promise<CompleteRiderDeliveryResult> {
   const now = input.now ?? new Date();
   const task = await prisma.riderDeliveryTask.findFirst({
@@ -201,6 +223,10 @@ export async function completeRiderDeliveryTask(input: {
         arrivedAt: input.arrivedAt,
         oldItemCollectionStatus: input.oldItemCollectionStatus,
         oldItemCollectionRemark: input.oldItemCollectionRemark,
+        completedLatitude: input.completedLatitude,
+        completedLongitude: input.completedLongitude,
+        completedAccuracyMeters: input.completedAccuracyMeters,
+        completedLocationAt: input.completedLocationAt,
       },
     }),
   );

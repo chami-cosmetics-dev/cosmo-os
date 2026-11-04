@@ -1,3 +1,5 @@
+import { buildMerchantOrderStatusUrl } from "@/lib/merchant-orders/status-token";
+
 export type MerchantOrderLineRecord = {
   shopifyLineItemId: string;
   quantity: number;
@@ -11,6 +13,7 @@ export type MerchantOrderLineRecord = {
 };
 
 export type MerchantOrderRecord = {
+  id: string;
   shopifyOrderId: string;
   name: string | null;
   orderNumber: string | null;
@@ -156,7 +159,7 @@ function processedAt(record: MerchantOrderRecord): string {
 export function presentMerchantOrder(record: MerchantOrderRecord) {
   const currency = currencyCode(record.currency);
   const rawLines = rawLineById(record.rawPayload);
-  const statusUrl = httpsUrl(rawObject(record.rawPayload)?.order_status_url);
+  const statusUrl = buildMerchantOrderStatusUrl(record.id);
 
   return {
     id: shopifyGid("Order", record.shopifyOrderId),

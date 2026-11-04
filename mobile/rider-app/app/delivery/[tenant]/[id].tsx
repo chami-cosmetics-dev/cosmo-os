@@ -35,6 +35,9 @@ export default function DeliveryDetailScreen() {
     setOldItemCollectionStatus,
     oldItemCollectionRemark,
     setOldItemCollectionRemark,
+    cardSlipUri,
+    cardSlipBase64,
+    pickCardSlip,
   } = useDeliveryDetail(tenantParam, id);
   const { submitting, markDelivered, markFailed, requiresReference, amountsMatch } = useDeliveryActions();
   const { colors, radii, shadows } = useTheme();
@@ -65,15 +68,19 @@ export default function DeliveryDetailScreen() {
     delivery.requiresOldItemCollection &&
     oldItemCollectionStatus === "not_collected" &&
     !oldItemCollectionRemark.trim();
-  const missingReference = paymentLines.some(
-    (line) => requiresReference(line.paymentMethod) && !line.reference.trim()
-  );
+  const missingReference = paymentLines.some((line) => {
+    if (line.paymentMethod === "bank_transfer") return !line.reference.trim();
+    if (line.paymentMethod === "card") return !/^\d{4}$/.test(line.reference.trim());
+    return false;
+  });
+  const usesCard = paymentLines.some((line) => line.paymentMethod === "card");
   const isCompleteDisabled =
     submitting ||
     !amountsMatch(delivery.amount, linesTotal) ||
     (delivery.requiresOldItemCollection && oldItemCollectionStatus === "pending") ||
     needsCollectionRemark ||
     missingReference ||
+    (usesCard && !cardSlipBase64) ||
     (cashDue > 0.009 && gave + 0.001 < cashDue);
 
   return (
@@ -157,12 +164,24 @@ export default function DeliveryDetailScreen() {
         </View>
 
         <View style={styles.panel}>
-          <Text style={styles.sectionTitle}>Payment confirmation</Text>
-          <Text style={styles.paymentHint}>Delivery fee: {formatMoney(delivery.amount, delivery.currency)}</Text>
-          <Text style={styles.paymentHint}>Priority surcharge: {formatMoney("0", delivery.currency)}</Text>
+          <Text style={styles.sectionTitle}>Collect at door</Text>
+          <Text style={styles.paymentHint}>
+            {delivery.collectionKind === "prepaid"
+              ? "Already paid — collect Rs. 0"
+              : delivery.collectionKind === "partial"
+                ? `Part paid — collect ${formatMoney(delivery.amount, delivery.currency)}`
+                : `Collect ${formatMoney(delivery.amount, delivery.currency)}`}
+          </Text>
+          {delivery.orderTotal && delivery.collectionKind !== "full" ? (
+            <Text style={styles.paymentHint}>
+              Order total {formatMoney(delivery.orderTotal, delivery.currency)}
+            </Text>
+          ) : null}
           <Text style={styles.earnedTotal}>
-            Total Earned{" "}
-            <Text style={styles.earnedTotalValue}>{formatMoney(delivery.amount, delivery.currency)}</Text>
+            Rider pay (after invoice close){" "}
+            <Text style={styles.earnedTotalValue}>
+              {formatMoney(delivery.incentiveAmount ?? "0", delivery.currency)}
+            </Text>
           </Text>
         </View>
 
@@ -174,10 +193,16 @@ export default function DeliveryDetailScreen() {
           paymentNote={paymentNote}
           submitting={submitting}
           disabled={isCompleteDisabled}
+          allowedMethods={delivery.allowedPaymentMethods}
+          collectionKind={delivery.collectionKind}
+          orderTotal={delivery.orderTotal}
+          discountCouponCode={delivery.discountCouponCode}
+          cardSlipUri={cardSlipUri}
           requiresReference={requiresReference}
           onLinesChange={setPaymentLines}
           onCustomerGaveAmountChange={setCustomerGaveAmount}
           onPaymentNoteChange={setPaymentNote}
+          onPickCardSlip={() => void pickCardSlip()}
           onSubmit={() =>
             void markDelivered({
               tenant,
@@ -186,6 +211,7 @@ export default function DeliveryDetailScreen() {
               paymentLines,
               customerGaveAmount,
               paymentNote,
+              cardSlipBase64,
               oldItemCollectionStatus,
               oldItemCollectionRemark,
             })
@@ -194,16 +220,46 @@ export default function DeliveryDetailScreen() {
 
         <View style={styles.panel}>
           <Text style={styles.sectionTitle}>Failed delivery</Text>
+          <Text style={styles.paymentHint}>Tap a reason, or type your own.</Text>
+          <View style={styles.failChipRow}>
+            {(
+              [
+                "Customer not respond",
+                "Customer refused",
+                "Wrong address",
+                "Customer unavailable",
+              ] as const
+            ).map((reason) => {
+              const active = failureReason.trim() === reason;
+              return (
+                <Pressable
+                  key={reason}
+                  style={[styles.failChip, active ? styles.failChipActive : null]}
+                  onPress={() => setFailureReason(reason)}
+                >
+                  <Text style={[styles.failChipText, active ? styles.failChipTextActive : null]}>
+                    {reason}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
           <TextInput
             style={styles.input}
             value={failureReason}
             onChangeText={setFailureReason}
-            placeholder="Reason"
+            placeholder="Or type another reason"
             placeholderTextColor={colors.textSoft}
           />
-          <Pressable style={[styles.button, styles.failButton]} onPress={() => void markFailed(tenant, id, failureReason)}>
+          <Pressable
+            style={[styles.button, styles.failButton, submitting ? styles.buttonDisabled : null]}
+            disabled={submitting || !failureReason.trim()}
+            onPress={() => void markFailed(tenant, id, failureReason.trim())}
+          >
             <Feather name="x-circle" size={15} color={colors.white} />
-            <Text style={styles.buttonText}>Queue failed delivery</Text>
+            <Text style={styles.buttonText}>
+              {submitting ? "Saving…" : "Mark as failed"}
+            </Text>
           </Pressable>
         </View>
       </ScrollView>
@@ -302,7 +358,20 @@ function createStyles(
       justifyContent: "center",
       gap: 8,
     },
+    buttonDisabled: { opacity: 0.55 },
     failButton: { backgroundColor: colors.danger },
+    failChipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+    failChip: {
+      borderWidth: 1,
+      borderColor: colors.borderStrong,
+      borderRadius: radii.pill,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      backgroundColor: colors.surfaceMuted,
+    },
+    failChipActive: { backgroundColor: colors.dangerSoft, borderColor: colors.danger },
+    failChipText: { color: colors.textMuted, fontWeight: "700", fontSize: 13 },
+    failChipTextActive: { color: colors.danger },
     buttonText: { color: colors.white, fontWeight: "800" },
   });
 }

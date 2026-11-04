@@ -95,6 +95,23 @@ export function getUniqueDateKeys(values: Array<string | null | undefined>) {
   );
 }
 
+export function getTodayDateKey() {
+  return getCompletedDateKey(new Date().toISOString());
+}
+
 export function isTodayDateKey(value: string | null | undefined) {
-  return getCompletedDateKey(value) === getCompletedDateKey(new Date().toISOString());
+  return getCompletedDateKey(value) === getTodayDateKey();
+}
+
+/** Past calendar days (YYYY-MM-DD) for history picker — excludes today. */
+export function getRecentHistoryDateKeys(dayCount = 60) {
+  const todayKey = getTodayDateKey();
+  const keys: string[] = [];
+  for (let i = 1; i <= dayCount; i += 1) {
+    const instant = new Date(Date.now() - i * 86_400_000);
+    const key = getCompletedDateKey(instant.toISOString());
+    if (key === "unknown" || key === todayKey) continue;
+    if (!keys.includes(key)) keys.push(key);
+  }
+  return keys.sort((a, b) => b.localeCompare(a));
 }
