@@ -4,7 +4,7 @@ import { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
 
-export const AUDIT_LOG_MODULES = ["reports", "users", "roles", "orders", "contacts", "settings", "staff", "complaints", "academy", "products", "store-allocation", "material-transfer", "customer-insight", "merchant-dashboard"] as const;
+export const AUDIT_LOG_MODULES = ["reports", "users", "roles", "orders", "contacts", "settings", "staff", "complaints", "academy", "products", "store-allocation", "material-transfer", "customer-insight", "merchant-dashboard", "consultation-insights"] as const;
 
 export const AUDIT_LOG_ACTIONS = [
   "download",
@@ -80,6 +80,9 @@ export const AUDIT_LOG_ACTIONS = [
   "gift_voucher_group_created",
   "gift_voucher_group_updated",
   "gift_voucher_code_used",
+  "consultation_created",
+  "consultation_review_updated",
+  "consultation_deleted",
 ] as const;
 
 export type AuditLogModule = (typeof AUDIT_LOG_MODULES)[number];
@@ -202,6 +205,11 @@ export const AUDIT_LOG_ACTION_GROUPS = [
     key: "merchant-dashboard",
     label: "Merchant Dashboard",
     actions: ["merchant_loyalty_contacted"],
+  },
+  {
+    key: "consultation-insights",
+    label: "Consultation Insights",
+    actions: ["consultation_created", "consultation_review_updated", "consultation_deleted"],
   },
 ] as const;
 

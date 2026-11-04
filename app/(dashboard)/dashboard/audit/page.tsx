@@ -73,6 +73,9 @@ const actionLabels: Record<string, string> = {
   gift_voucher_group_created: "Gift Voucher Group Created",
   gift_voucher_group_updated: "Gift Voucher Group Updated",
   gift_voucher_code_used: "Gift Voucher Code Used",
+  consultation_created: "Consultation Added",
+  consultation_review_updated: "Consultation Review Updated",
+  consultation_deleted: "Consultation Deleted",
 };
 
 function toTitleCase(value: string) {
