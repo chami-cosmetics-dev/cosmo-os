@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/sheet";
 import { useConfirmationDialog } from "@/components/providers/confirmation-dialog-provider";
 import { notify } from "@/lib/notify";
-import { resolveMintpayMopName } from "@/lib/payment-gateway-match";
+import { resolveBankTransferMopName, resolveMintpayMopName } from "@/lib/payment-gateway-match";
 
 type ErpInstance = {
   id: string;
@@ -69,7 +69,7 @@ const emptyForm = (): InstanceForm => ({
   cashMop: "Cash",
   codMop: "Cash On Delivery",
   cardDeliveryMop: "Credit Card",
-  bankTransferMop: "Wire Transfer",
+  bankTransferMop: resolveBankTransferMopName(null, { envValue: null }),
   kokoMop: "Koko",
   webxpayMop: "",
   mintpayMop: resolveMintpayMopName(null, { envValue: null }),
@@ -159,7 +159,7 @@ export function ErpInstancesSettingsForm({ canEdit }: ErpInstancesSettingsFormPr
       cashMop: instance.cashMop ?? "Cash",
       codMop: instance.codMop ?? "Cash On Delivery",
       cardDeliveryMop: instance.cardDeliveryMop ?? "Credit Card",
-      bankTransferMop: instance.bankTransferMop ?? "Wire Transfer",
+      bankTransferMop: resolveBankTransferMopName(instance.bankTransferMop, { envValue: null }),
       kokoMop: instance.kokoMop ?? "Koko",
       webxpayMop: instance.webxpayMop ?? "",
       mintpayMop: resolveMintpayMopName(instance.mintpayMop, { envValue: null }),

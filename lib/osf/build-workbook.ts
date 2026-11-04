@@ -1,3 +1,5 @@
+import { PassThrough } from "node:stream";
+
 import type { OsfCatalogRow } from "@/lib/osf/catalog-rows";
 import {
   OSF_ACCESS_PURCHASES,
@@ -45,6 +47,7 @@ import {
 export type OsfProfileData = {
   shopAvailability: string | null;
   ogfPrice: number | null;
+  targetPurchaseRate?: number | null;
   reorderThresholdPercent?: number | null;
   rops: Record<string, number>;
 };
@@ -72,6 +75,8 @@ export type BuildWorkbookInput = {
   purchasesByMonth?: Map<string, Record<string, OsfMonthPurchaseCell>>;
   /** Lowest invoice unit rate in the trailing 3-month window. */
   bestPurchaseBySku?: Map<string, OsfBestPurchase>;
+  /** Distinct suppliers ranked by lowest invoice unit rate (Supplier 1, Supplier 2). */
+  rankedSuppliersBySku?: Map<string, OsfBestPurchase[]>;
   /** When true, Info sheet explains reorder-only / empty filter. */
   belowThresholdOnly?: boolean;
   /**
@@ -192,8 +197,13 @@ export function pricingHeaders(): string[] {
     "Cosmetics MRP",
     "Discounted Price",
     "OGF Price",
+    "Target Purchase Rate",
     "Latest Cost",
     "Latest supplier",
+    "Supplier 1",
+    "Supplier 1 Price",
+    "Supplier 2",
+    "Supplier 2 Price",
     "Last Purchase Qty",
     "Last Purchase Date",
     "Days Since Last Purchase",
@@ -265,6 +275,7 @@ export function buildMainSheetRows(input: BuildWorkbookInput): Record<string, st
     // rate on the most recent Purchase Receipt (better populated). Feeds margins.
     const cost = costInfo?.cost ?? purchase?.rate ?? null;
     const ogf = profile?.ogfPrice ?? null;
+    const targetRate = profile?.targetPurchaseRate ?? null;
 
     const record: Record<string, string | number | null> = {
       "Variant SKU (_)": forms.skuUnderscore,
@@ -315,8 +326,14 @@ export function buildMainSheetRows(input: BuildWorkbookInput): Record<string, st
     record["Cosmetics MRP"] = listPrice;
     record["Discounted Price"] = row.discountedPrice;
     record["OGF Price"] = ogf;
+    record["Target Purchase Rate"] = targetRate;
     record["Latest Cost"] = cost;
     record["Latest supplier"] = purchase?.supplier ?? costInfo?.supplier ?? "";
+    const ranked = input.rankedSuppliersBySku?.get(row.sku) ?? [];
+    record["Supplier 1"] = ranked[0]?.supplier ?? "";
+    record["Supplier 1 Price"] = ranked[0]?.value ?? null;
+    record["Supplier 2"] = ranked[1]?.supplier ?? "";
+    record["Supplier 2 Price"] = ranked[1]?.value ?? null;
     record["Last Purchase Qty"] = purchase?.qty ?? null;
     record["Last Purchase Date"] = purchase?.date ?? "";
     record["Days Since Last Purchase"] = daysBetween(purchase?.date ?? null, input.asOfDate);
@@ -426,6 +443,12 @@ export function mainColumnDescriptors(input: BuildWorkbookInput): OsfColumnDef[]
   });
   defs.push({ header: "OGF Price", pricing: true, accessKey: "OGF Price", band: "price" });
   defs.push({
+    header: "Target Purchase Rate",
+    pricing: true,
+    accessKey: "Target Purchase Rate",
+    band: "cost",
+  });
+  defs.push({
     header: "Latest Cost",
     section: "Purchasing Cost",
     pricing: true,
@@ -436,6 +459,30 @@ export function mainColumnDescriptors(input: BuildWorkbookInput): OsfColumnDef[]
     header: "Latest supplier",
     pricing: true,
     accessKey: "Latest supplier",
+    band: "cost",
+  });
+  defs.push({
+    header: "Supplier 1",
+    pricing: true,
+    accessKey: "Supplier 1",
+    band: "cost",
+  });
+  defs.push({
+    header: "Supplier 1 Price",
+    pricing: true,
+    accessKey: "Supplier 1 Price",
+    band: "cost",
+  });
+  defs.push({
+    header: "Supplier 2",
+    pricing: true,
+    accessKey: "Supplier 2",
+    band: "cost",
+  });
+  defs.push({
+    header: "Supplier 2 Price",
+    pricing: true,
+    accessKey: "Supplier 2 Price",
     band: "cost",
   });
   defs.push({
@@ -576,12 +623,37 @@ export function filterColumnDefsByGroups(
   return defs;
 }
 
+type Commitable = { commit?: () => unknown };
+
+function commitExcelPart(part: Commitable): void {
+  part.commit?.();
+}
+
+/**
+ * Stream the OSF workbook to a zip. In-memory ExcelJS + writeBuffer kept every
+ * cell of Main plus each buyer sheet, then cloned the zip — that blew Vercel's 3 GB cap.
+ */
 export async function buildOsfWorkbookBuffer(input: BuildWorkbookInput): Promise<Buffer> {
   const ExcelJS = await import("exceljs");
   const rows = buildMainSheetRows(input);
   const defs = mainColumnDescriptors(input);
   const mainDefs = filterColumnDefsByAccessKeys(defs, input.effectiveColumnKeys ?? "all");
-  const wb = new ExcelJS.Workbook();
+
+  const pass = new PassThrough();
+  const chunks: Buffer[] = [];
+  pass.on("data", (chunk: Buffer | string) => {
+    chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
+  });
+  const finished = new Promise<void>((resolve, reject) => {
+    pass.once("finish", () => resolve());
+    pass.once("error", reject);
+  });
+
+  const wb = new ExcelJS.stream.xlsx.WorkbookWriter({
+    stream: pass,
+    useStyles: true,
+    useSharedStrings: false,
+  });
   const used = new Set<string>();
 
   const attachSheet = (
@@ -599,13 +671,16 @@ export async function buildOsfWorkbookBuffer(input: BuildWorkbookInput): Promise
 
     ws.addRow(sectionRow.map(cellValue));
     ws.addRow(headerRow.map(cellValue));
+    applyOsfWorkbookHeaderBands(ws, sheetDefs);
+    commitExcelPart(ws.getRow(1));
+    commitExcelPart(ws.getRow(2));
     for (const r of sheetRows) {
-      ws.addRow(
+      const excelRow = ws.addRow(
         sheetDefs.map((c) => cellValue(r[c.header] == null ? "" : (r[c.header] as SheetCell))),
       );
+      commitExcelPart(excelRow);
     }
-
-    applyOsfWorkbookHeaderBands(ws, sheetDefs);
+    commitExcelPart(ws);
   };
 
   attachSheet("Main", mainDefs, rows);
@@ -629,21 +704,28 @@ export async function buildOsfWorkbookBuffer(input: BuildWorkbookInput): Promise
   }
 
   const info = wb.addWorksheet(sanitizeSheetName("Info", used));
-  info.addRow(["asOfDate", input.asOfDate]);
-  info.addRow(["salesMonth", input.salesMonth]);
-  info.addRow(["salesGridMonths", monthKeysInWindow(input.asOfDate).join(",")]);
-  info.addRow(["osfVariant", input.osfVariant ?? "main"]);
-  info.addRow(["rows", rows.length]);
+  const infoLines: Array<Array<string | number>> = [
+    ["asOfDate", input.asOfDate],
+    ["salesMonth", input.salesMonth],
+    ["salesGridMonths", monthKeysInWindow(input.asOfDate).join(",")],
+    ["osfVariant", input.osfVariant ?? "main"],
+    ["rows", rows.length],
+  ];
   if (input.belowThresholdOnly) {
-    info.addRow(["mode", "reorder-only (below threshold %)"]);
+    infoLines.push(["mode", "reorder-only (below threshold %)"]);
     if (rows.length === 0) {
-      info.addRow([
+      infoLines.push([
         "notice",
         "No SKUs met the filter. A SKU is included only when total ROP > 0 and (total stock / total ROP) × 100 is below its reorder threshold % (default 70). SKUs without warehouse ROP are excluded.",
       ]);
     }
   }
+  for (const line of infoLines) {
+    commitExcelPart(info.addRow(line));
+  }
+  commitExcelPart(info);
 
-  const arrayBuffer = await wb.xlsx.writeBuffer();
-  return Buffer.from(arrayBuffer);
+  await wb.commit();
+  await finished;
+  return Buffer.concat(chunks);
 }

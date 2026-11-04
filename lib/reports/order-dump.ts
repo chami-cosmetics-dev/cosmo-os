@@ -1,4 +1,10 @@
 import { getOrderListFulfillmentStageBadges } from "@/lib/fulfillment-stage-display";
+import { applyMerchantGroup } from "@/lib/merchant-groups";
+import {
+  parseOrderCouponList,
+  resolveFixedSalesCouponBucket,
+} from "@/lib/merchant-dm-sales";
+import { resolveStoredCancelReason } from "@/lib/order-cancel-reason";
 import { isMintpayGateway } from "@/lib/payment-gateway-match";
 import { formatAppIsoTime } from "@/lib/format-datetime";
 import { buildCsv, escapeCsvCell, formatCsvHeader, formatIsoDate } from "@/lib/reports/csv";
@@ -150,6 +156,7 @@ export type OrderInvoiceCsvRow = {
   payment_gateway: string;
   koko_ref_number: string;
   payment_status: string;
+  cancel_reason: string;
   company_name: string;
   pos_profile: string;
   pos_warehouse: string;
@@ -193,6 +200,7 @@ export type OrderInvoiceItemCsvRow = {
   grand_total: string;
   status: string;
   payment_status: string;
+  cancel_reason: string;
   fulfillment_status: string;
   payment_gateway: string;
   koko_ref_number: string;
@@ -245,6 +253,7 @@ const ORDER_INVOICE_HEADERS = [
   "billing_address",
   "shipping_address",
   "created_by",
+  "cancel_reason",
 ] as const;
 
 const ORDER_INVOICE_ITEM_HEADERS = [
@@ -278,6 +287,7 @@ const ORDER_INVOICE_ITEM_HEADERS = [
   "delivered_by",
   "delivery_completed_date",
   "pos_sale",
+  "cancel_reason",
 ] as const;
 
 export function getOrderInvoiceCsvHeaders(omitCustomerPhone = false) {
@@ -306,6 +316,37 @@ export function joinDumpCouponCodes(...values: Array<string | null | undefined>)
     }
   }
   return parts.join(",");
+}
+
+/**
+ * Dump merchant column. Staff discount coupons (staffdc / dir100 / staffvat)
+ * win over MER tracking and assigned merchant.
+ */
+export function resolveDumpMerchantName(input: {
+  merchantCouponCode: string | null | undefined;
+  discountCouponCode?: string | null;
+  couponToMerchant: Map<string, { id: string | null; name: string }>;
+  assignedMerchantId?: string | null;
+  assignedMerchantName?: string | null;
+  userToGroup: Map<string, { id: string; name: string }>;
+}): string {
+  const coupons = parseOrderCouponList(
+    joinDumpCouponCodes(input.merchantCouponCode, input.discountCouponCode),
+  );
+  const fixedBucket = resolveFixedSalesCouponBucket(coupons);
+  if (fixedBucket) return fixedBucket.name;
+
+  for (const coupon of parseOrderCouponList(input.merchantCouponCode)) {
+    const merchant = input.couponToMerchant.get(coupon);
+    if (merchant?.name) return merchant.name;
+  }
+
+  const assignedName = input.assignedMerchantName?.trim();
+  if (!assignedName) return "";
+  return applyMerchantGroup(
+    { id: input.assignedMerchantId ?? null, name: assignedName },
+    input.userToGroup,
+  ).name;
 }
 
 export function buildOrderInvoiceCsv(rows: OrderInvoiceCsvRow[]) {
@@ -383,6 +424,9 @@ export function createOrderInvoiceRow(input: {
   createdBy: string;
   couponCode?: string | null;
   kokoRefNumber?: string | null;
+  cancelReason?: string | null;
+  returnCancelRemark?: string | null;
+  returnRemark?: string | null;
 }): OrderInvoiceCsvRow {
   const sourceName = formatSourceName(input.sourceName);
   const completedAt = resolveDumpCompletedAt(input);
@@ -414,6 +458,7 @@ export function createOrderInvoiceRow(input: {
     payment_gateway: summarizePaymentGateway(input.paymentGateway),
     koko_ref_number: input.kokoRefNumber?.trim() ?? "",
     payment_status: input.financialStatus ?? "",
+    cancel_reason: resolveStoredCancelReason(input),
     company_name: input.companyName,
     pos_profile: input.posProfile ?? "",
     pos_warehouse: input.posWarehouse ?? "",
@@ -465,6 +510,9 @@ export function createOrderInvoiceItemRow(input: {
   merchantName: string;
   createdBy: string;
   kokoRefNumber?: string | null;
+  cancelReason?: string | null;
+  returnCancelRemark?: string | null;
+  returnRemark?: string | null;
 }): OrderInvoiceItemCsvRow {
   return {
     invoice_no: input.invoiceNo,
@@ -489,6 +537,7 @@ export function createOrderInvoiceItemRow(input: {
     grand_total: input.afterDiscountTotal ?? input.lineTotal,
     status: resolveCompletionStatus(input) ?? input.fulfillmentStage ?? "",
     payment_status: input.financialStatus ?? "",
+    cancel_reason: resolveStoredCancelReason(input),
     fulfillment_status: resolveExportFulfillmentStatus(input),
     payment_gateway: summarizePaymentGateway(input.paymentGateway),
     koko_ref_number: input.kokoRefNumber?.trim() ?? "",

@@ -116,6 +116,25 @@ export function approvalSplitPrepaidSummary(
   };
 }
 
+export function approvalSplitLineCaption(method: string): string {
+  if (method === APPROVAL_SPLIT_CASH) return "Cash to collect";
+  return `${approvalSplitLineLabel(method)} paid`;
+}
+
+/** Rider summary: "KOKO paid 5000.00 + Cash to collect 3000.00". */
+export function formatApprovalSplitAmountBreakdown(
+  lines: Array<{ paymentMethod: string; amount: number | string | { toString(): string } }>,
+): string | null {
+  if (approvalSplitPairId(lines.map((line) => line.paymentMethod)) == null) return null;
+  return sortApprovalSplitLines(lines)
+    .map((line) => {
+      const amount = Number(line.amount.toString());
+      const formatted = Number.isFinite(amount) ? money(amount) : String(line.amount);
+      return `${approvalSplitLineCaption(line.paymentMethod)} ${formatted}`;
+    })
+    .join(" + ");
+}
+
 export function formatApprovalSplitInvoicePaymentLabel(
   lines: Array<{ paymentMethod: string; amount: number | string | { toString(): string } }>,
 ): string | null {

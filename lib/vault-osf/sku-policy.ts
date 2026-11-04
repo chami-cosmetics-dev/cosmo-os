@@ -8,10 +8,11 @@
  * - MANUAL_ROP: yellow rows — ROP was blank in generate; purchasing filled it by hand.
  *   Seed into ProductOsfRop so regenerate / ROP template keep those values.
  *
- * Barcode + Priority Status gaps: overlay snapshot
+ * Barcode gaps: overlay snapshot
  * `lib/vault-osf/workbook-upload-overlay-data.json` (regenerate via
  * `node scripts/generate-vault-osf-upload-overlay.mjs path/to/checked.xlsx`),
  * then live GET Item/{sku} when the child-table list is 403.
+ * Priority Status is live ERP Item Product Priority (ProductItem fills gaps).
  */
 
 export const VAULT_OSF_EXCLUDED_SKUS: ReadonlySet<string> = new Set([

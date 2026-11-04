@@ -12,6 +12,7 @@ export type RopImportError = {
 
 export type RopImportResult = {
   updatedCells: number;
+  updatedTargetRates: number;
   skippedBlank: number;
   rowsProcessed: number;
   errors: RopImportError[];
@@ -36,6 +37,9 @@ function readWorkbook(buffer: Buffer, filename: string) {
 /** Computed Cosmo ROP template column: Cosmetics.lk Main + ERP1 shop ROPs. */
 export const ERP_01_TOTAL_ROP_HEADER = "ERP 01 Total ROP";
 
+/** Per-SKU target unit purchase cost (profile field, not a location ROP). */
+export const TARGET_PURCHASE_RATE_HEADER = "Target Purchase Rate";
+
 /** Headers that are identity / computed — never a location ROP column. */
 export const ROP_SKIP_HEADERS = new Set([
   "barcode",
@@ -46,6 +50,10 @@ export const ROP_SKIP_HEADERS = new Set([
   "cosmetics.lk erp 01",
   "erp02",
   "erp 02",
+  TARGET_PURCHASE_RATE_HEADER.toLowerCase(),
+  "target purchase rate",
+  "target purchse rate",
+  "target rate",
 ]);
 
 /**
@@ -104,11 +112,28 @@ export function parseRopQtyCell(raw: unknown): { ok: true; value: number } | { o
   return { ok: true, value: Math.floor(num) };
 }
 
+export function parseTargetPurchaseRateCell(
+  raw: unknown,
+): { ok: true; value: number } | { ok: false; message: string } | { ok: true; blank: true } {
+  if (raw == null || raw === "") return { ok: true, blank: true };
+  if (typeof raw === "string" && raw.trim() === "") return { ok: true, blank: true };
+
+  const num = typeof raw === "number" ? raw : Number(String(raw).trim().replace(/,/g, ""));
+  if (!Number.isFinite(num)) {
+    return { ok: false, message: "Target Purchase Rate must be a non-negative number" };
+  }
+  if (num < 0 || num > 1_000_000) {
+    return { ok: false, message: "Target Purchase Rate must be between 0 and 1,000,000" };
+  }
+  return { ok: true, value: Math.round(num * 100) / 100 };
+}
+
 export type ParsedRopImport = {
   rows: Array<{
     sheetRow: number;
     sku: string;
     cells: Array<{ columnKey: string; columnLabel: string; qty: number }>;
+    targetPurchaseRate?: number;
   }>;
   skippedBlank: number;
   errors: RopImportError[];
@@ -144,6 +169,12 @@ export function parseRopImportSheet(
   if (skuIndex < 0) {
     throw new Error('Required column missing. Need "SKU" or "Variant SKU".');
   }
+  const targetRateIndex = headerNorm.findIndex(
+    (h) =>
+      h === TARGET_PURCHASE_RATE_HEADER.toLowerCase() ||
+      h === "target purchse rate" ||
+      h === "target rate",
+  );
 
   const headerMap = buildRopHeaderToKeyMap(ropColumns);
   const labelByKey = new Map(ropColumns.map((c) => [c.key, c.label]));
@@ -182,6 +213,7 @@ export function parseRopImportSheet(
       sheetRow: number;
       sku: string;
       cells: Array<{ columnKey: string; columnLabel: string; qty: number }>;
+      targetPurchaseRate?: number;
       duplicate: boolean;
     }
   >();
@@ -226,12 +258,34 @@ export function parseRopImportSheet(
       });
     }
 
-    bySku.set(skuKey, { sheetRow: r + 1, sku, cells, duplicate: false });
+    let targetPurchaseRate: number | undefined;
+    if (targetRateIndex >= 0) {
+      const rateParsed = parseTargetPurchaseRateCell(row[targetRateIndex]);
+      if (!rateParsed.ok) {
+        errors.push({
+          row: r + 1,
+          sku,
+          column: TARGET_PURCHASE_RATE_HEADER,
+          message: rateParsed.message,
+        });
+      } else if ("blank" in rateParsed) {
+        skippedBlank += 1;
+      } else {
+        targetPurchaseRate = rateParsed.value;
+      }
+    }
+
+    bySku.set(skuKey, { sheetRow: r + 1, sku, cells, targetPurchaseRate, duplicate: false });
   }
 
   const outRows = [...bySku.values()]
     .filter((r) => !r.duplicate)
-    .map(({ sheetRow, sku, cells }) => ({ sheetRow, sku, cells }));
+    .map(({ sheetRow, sku, cells, targetPurchaseRate }) => ({
+      sheetRow,
+      sku,
+      cells,
+      ...(targetPurchaseRate !== undefined ? { targetPurchaseRate } : {}),
+    }));
 
   return {
     rows: outRows,
@@ -254,6 +308,7 @@ export async function applyRopImport(params: {
   const parsed = parseRopImportSheet(params.buffer, params.filename, activeRop);
   const errors = [...parsed.errors];
   let updatedCells = 0;
+  let updatedTargetRates = 0;
   let rowsProcessed = 0;
 
   const skus = parsed.rows.map((r) => r.sku);
@@ -280,7 +335,7 @@ export async function applyRopImport(params: {
       });
       continue;
     }
-    if (row.cells.length === 0) {
+    if (row.cells.length === 0 && row.targetPurchaseRate === undefined) {
       rowsProcessed += 1;
       continue;
     }
@@ -304,11 +359,27 @@ export async function applyRopImport(params: {
       });
       updatedCells += 1;
     }
+
+    if (row.targetPurchaseRate !== undefined) {
+      await prisma.productOsfProfile.upsert({
+        where: {
+          companyId_sku: { companyId: params.companyId, sku: row.sku },
+        },
+        create: {
+          companyId: params.companyId,
+          sku: row.sku,
+          targetPurchaseRate: row.targetPurchaseRate,
+        },
+        update: { targetPurchaseRate: row.targetPurchaseRate },
+      });
+      updatedTargetRates += 1;
+    }
     rowsProcessed += 1;
   }
 
   return {
     updatedCells,
+    updatedTargetRates,
     skippedBlank: parsed.skippedBlank,
     rowsProcessed,
     errors,
@@ -333,9 +404,14 @@ export function erp1TotalRop(
 }
 
 export function buildRopTemplateAoa(params: {
-  rows: Array<{ sku: string; barcode: string | null; rops: Record<string, number | null> }>;
+  rows: Array<{
+    sku: string;
+    barcode: string | null;
+    rops: Record<string, number | null>;
+    targetPurchaseRate?: number | null;
+  }>;
   ropColumns: Array<{ key: string; label: string }>;
-  /** When set, insert computed ERP 01 Total ROP after Barcode. */
+  /** When set, insert computed ERP 01 Total ROP after Target Purchase Rate. */
   erp1TotalKeys?: string[];
 }): (string | number | null)[][] {
   const erp1Keys = params.erp1TotalKeys ?? [];
@@ -343,12 +419,14 @@ export function buildRopTemplateAoa(params: {
   const headers = [
     "SKU",
     "Barcode",
+    TARGET_PURCHASE_RATE_HEADER,
     ...(includeErp1Total ? [ERP_01_TOTAL_ROP_HEADER] : []),
     ...params.ropColumns.map((c) => c.label),
   ];
   const data = params.rows.map((r) => [
     r.sku,
     r.barcode ?? "",
+    r.targetPurchaseRate == null ? "" : r.targetPurchaseRate,
     ...(includeErp1Total ? [erp1TotalRop(r.rops, erp1Keys) ?? ""] : []),
     ...params.ropColumns.map((c) => {
       const v = r.rops[c.key];

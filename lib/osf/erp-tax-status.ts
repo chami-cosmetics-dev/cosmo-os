@@ -7,6 +7,9 @@ import type { ErpItemTaxHit } from "@/lib/vat-status/types";
 /** Cosmetics.lk / trading Item Manufacturing → Tax Status. */
 export const ERP_TAX_STATUS_FIELD = "custom_tax_status";
 
+/** Cosmetics.lk / trading Item Manufacturing → Product Priority. */
+export const ERP_PRODUCT_PRIORITY_FIELD = "custom_product_priority";
+
 const ITEM_BATCH = 80;
 
 async function erpGetJson<T>(cfg: OsfErpCredentials, path: string): Promise<T> {
@@ -38,6 +41,13 @@ function pickItemName(row: Record<string, unknown>): string | null {
   return text || null;
 }
 
+function pickProductPriority(row: Record<string, unknown>): string | null {
+  const value = row[ERP_PRODUCT_PRIORITY_FIELD];
+  if (value == null) return null;
+  const text = String(value).trim();
+  return text || null;
+}
+
 /** Item rows for the given codes. Missing item codes are omitted. */
 export async function fetchErpItemTaxHits(
   cfg: OsfErpCredentials,
@@ -47,7 +57,13 @@ export async function fetchErpItemTaxHits(
   const hits: ErpItemTaxHit[] = [];
   if (items.length === 0) return hits;
 
-  const fields = JSON.stringify(["name", "item_code", "item_name", ERP_TAX_STATUS_FIELD]);
+  const fields = JSON.stringify([
+    "name",
+    "item_code",
+    "item_name",
+    ERP_TAX_STATUS_FIELD,
+    ERP_PRODUCT_PRIORITY_FIELD,
+  ]);
 
   for (let i = 0; i < items.length; i += ITEM_BATCH) {
     const batch = items.slice(i, i + ITEM_BATCH);
@@ -63,6 +79,7 @@ export async function fetchErpItemTaxHits(
         itemCode: code,
         itemName: pickItemName(row),
         taxStatus: pickTaxStatus(row),
+        productPriority: pickProductPriority(row),
       });
     }
   }

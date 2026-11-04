@@ -1,5 +1,6 @@
 import type { Prisma } from "@prisma/client";
 
+import { orderMatchesDashboardCoupon } from "@/lib/dashboard-coupon-filter";
 import {
   buildWholesaleOwnerMap,
   dashboardMerchantRowKey,
@@ -9,6 +10,7 @@ import {
 } from "@/lib/dashboard-order-merchant";
 import {
   buildCouponToMerchantMap,
+  getMerchantDisplayName,
   getMerchantGroupUserMap,
 } from "@/lib/merchant-groups";
 import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
@@ -67,6 +69,7 @@ export async function fetchDashboardBrandSales(
     toYmd: string;
     dateType: DashboardSalesDateType;
     locationId?: string;
+    couponCodes?: string | readonly string[] | null;
   },
 ): Promise<DashboardBrandSalesResult> {
   const fromDate = parseDayStartUtc(params.fromYmd);
@@ -125,6 +128,19 @@ export async function fetchDashboardBrandSales(
         assignedMerchant: {
           select: dashboardMerchantUserSelect,
         },
+        companyLocation: {
+          select: {
+            name: true,
+            defaultMerchant: {
+              select: {
+                id: true,
+                knownName: true,
+                name: true,
+                email: true,
+              },
+            },
+          },
+        },
         lineItems: {
           select: {
             price: true,
@@ -153,6 +169,7 @@ export async function fetchDashboardBrandSales(
 
   for (const order of orders) {
     if (!isDashboardSalesOrderEligible(order, params.dateType)) continue;
+    if (!orderMatchesDashboardCoupon(order, params.couponCodes)) continue;
 
     // Determine merchant for this order
     let merchant: { id: string | null; name: string } | null = null;
@@ -176,6 +193,13 @@ export async function fetchDashboardBrandSales(
       assignedMerchantId: order.assignedMerchantId,
       assignedMerchant: order.assignedMerchant,
       userToGroup,
+      locationName: order.companyLocation?.name,
+      locationDefaultMerchant: order.companyLocation?.defaultMerchant
+        ? {
+            id: order.companyLocation.defaultMerchant.id,
+            name: getMerchantDisplayName(order.companyLocation.defaultMerchant),
+          }
+        : null,
     });
     merchant = { id: resolved.id, name: resolved.name };
 

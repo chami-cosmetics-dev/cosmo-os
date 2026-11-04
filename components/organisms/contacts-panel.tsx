@@ -33,10 +33,14 @@ import { formatAppDateTime } from "@/lib/format-datetime";
 import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 import { isImportedPurchaseOrigin, saleBusinessLabel } from "@/lib/customer-insight/invoices";
 import {
+  DUMP_HAS_MORE_HEADER,
+  DUMP_NEXT_CURSOR_HEADER,
+  DUMP_PAGE_CONTACTS_HEADER,
   DUMP_TOTAL_HEADER,
-  createCsvRowCounter,
   dumpProgressPercent,
   parseContentDispositionFilename,
+  parseDumpCountHeader,
+  parseDumpFlagHeader,
   parseDumpTotalHeader,
 } from "@/lib/reports/dump-download";
 
@@ -157,6 +161,23 @@ type CreateContactInput = {
 
 function toDateTimeLabel(value?: string | null) {
   return formatAppDateTime(value, "N/A");
+}
+
+async function fetchContactExportPage(url: string): Promise<Response> {
+  let lastError: Error | null = null;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const res = await fetch(url, {
+        cache: "no-store",
+        signal: AbortSignal.timeout(120_000),
+      });
+      if (res.ok || (res.status < 500 && res.status !== 429)) return res;
+      lastError = new Error(`Export page failed (${res.status})`);
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error("Export page failed");
+    }
+  }
+  throw lastError ?? new Error("Export page failed");
 }
 
 function statusLabel(status: ContactItem["status"]) {
@@ -362,83 +383,73 @@ export function ContactsPanel({
       toastId
     );
     try {
-      const params = new URLSearchParams();
-      if (effectiveSearch) params.set("search", effectiveSearch);
-      if (status !== "__all") params.set("status", status);
-      if (allocatedTo !== "__all") params.set("allocatedTo", allocatedTo);
-      if (brand !== "__all") params.set("brand", brand);
-      params.set("mode", mode);
-
-      const res = await fetch(`/api/admin/contacts/export?${params.toString()}`);
-      if (!res.ok) {
-        const data = (await res.json().catch(() => ({}))) as { error?: string };
-        notify.error(data.error ?? "Failed to export contacts", toastId);
-        return;
-      }
-
-      const expectedRows = parseDumpTotalHeader(res.headers.get(DUMP_TOTAL_HEADER));
-      const fileName =
-        parseContentDispositionFilename(res.headers.get("Content-Disposition")) ??
-        (mode === "purchase_summary"
+      const chunks: BlobPart[] = [];
+      let after = "";
+      let start = 1;
+      let includeHeader = true;
+      let expectedRows = 0;
+      let receivedContacts = 0;
+      let fileName =
+        mode === "purchase_summary"
           ? "contact-master-with-purchases.csv"
           : mode === "invoices"
             ? "contact-master-with-invoices.csv"
-            : "contact-master-export.csv");
-      const reader = res.body?.getReader();
-      if (!reader) {
-        notify.error("Export stream unavailable", toastId);
-        return;
-      }
-
-      const chunks: BlobPart[] = [];
-      const decoder = new TextDecoder();
-      const counter = createCsvRowCounter();
+            : "contact-master-export.csv";
       let lastNotified = -1;
-      /** Server/proxy often dies mid-stream near the end (~90%+) without a clean close. */
-      const STALL_MS = 90_000;
-      let stalled = false;
-      let stallTimer: ReturnType<typeof setTimeout> | null = null;
-      const armStallWatch = () => {
-        if (stallTimer) clearTimeout(stallTimer);
-        stallTimer = setTimeout(() => {
-          stalled = true;
-          void reader.cancel("export-stall");
-        }, STALL_MS);
-      };
-      armStallWatch();
+      const MAX_PAGES = 500;
 
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          if (!value) continue;
-          armStallWatch();
-          chunks.push(value);
-          if (expectedRows > 0) {
-            counter.consume(decoder.decode(value, { stream: true }));
-            const percent = dumpProgressPercent(counter.dataRows(), expectedRows);
-            if (percent > 0 && percent !== lastNotified) {
-              lastNotified = percent;
-              notify.loading(`Downloading contacts — ${percent}%`, toastId);
-            }
-          }
+      for (let page = 0; page < MAX_PAGES; page += 1) {
+        const params = new URLSearchParams();
+        if (effectiveSearch) params.set("search", effectiveSearch);
+        if (status !== "__all") params.set("status", status);
+        if (allocatedTo !== "__all") params.set("allocatedTo", allocatedTo);
+        if (brand !== "__all") params.set("brand", brand);
+        params.set("mode", mode);
+        params.set("page", String(page));
+        if (after) params.set("after", after);
+        if (start > 1) params.set("start", String(start));
+        if (!includeHeader) params.set("header", "0");
+
+        const res = await fetchContactExportPage(`/api/admin/contacts/export?${params.toString()}`);
+        if (!res.ok) {
+          const data = (await res.json().catch(() => ({}))) as { error?: string };
+          notify.error(data.error ?? "Failed to export contacts", toastId);
+          return;
         }
-      } finally {
-        if (stallTimer) clearTimeout(stallTimer);
-      }
-      if (expectedRows > 0) {
-        counter.consume(decoder.decode());
-      }
 
-      const receivedRows = expectedRows > 0 ? counter.dataRows() : 0;
-      if (expectedRows > 0 && receivedRows !== expectedRows) {
-        notify.error(
-          stalled
-            ? `Export stalled at ${lastNotified > 0 ? `${lastNotified}%` : "start"} (${receivedRows.toLocaleString()} of ${expectedRows.toLocaleString()}). Server timed out — try again, or use Contact Info Only.`
-            : `Export incomplete: got ${receivedRows.toLocaleString()} of ${expectedRows.toLocaleString()} contacts. Try again.`,
-          toastId
-        );
-        return;
+        expectedRows = parseDumpTotalHeader(res.headers.get(DUMP_TOTAL_HEADER)) || expectedRows;
+        fileName =
+          parseContentDispositionFilename(res.headers.get("Content-Disposition")) ?? fileName;
+        const pageContacts = parseDumpCountHeader(res.headers.get(DUMP_PAGE_CONTACTS_HEADER));
+        const hasMore = parseDumpFlagHeader(res.headers.get(DUMP_HAS_MORE_HEADER));
+        const nextCursor = res.headers.get(DUMP_NEXT_CURSOR_HEADER)?.trim() ?? "";
+        chunks.push(await res.arrayBuffer());
+        receivedContacts += pageContacts;
+
+        if (expectedRows > 0) {
+          const percent = dumpProgressPercent(receivedContacts, expectedRows);
+          if (percent > 0 && percent !== lastNotified) {
+            lastNotified = percent;
+            notify.loading(`Downloading contacts — ${percent}%`, toastId);
+          }
+        } else {
+          notify.loading(
+            `Downloading contacts — ${receivedContacts.toLocaleString()}`,
+            toastId
+          );
+        }
+
+        if (!hasMore || pageContacts === 0) break;
+        after = nextCursor;
+        start += pageContacts;
+        includeHeader = false;
+        if (page === MAX_PAGES - 1) {
+          notify.error(
+            `Export stopped after ${receivedContacts.toLocaleString()} contacts. Try again.`,
+            toastId
+          );
+          return;
+        }
       }
 
       const url = URL.createObjectURL(new Blob(chunks, { type: "text/csv;charset=utf-8" }));
@@ -449,8 +460,8 @@ export function ContactsPanel({
       URL.revokeObjectURL(url);
       setExportDialogOpen(false);
       notify.success(
-        expectedRows > 0
-          ? `Contact export downloaded (${expectedRows.toLocaleString()} rows)`
+        receivedContacts > 0
+          ? `Contact export downloaded (${receivedContacts.toLocaleString()} contacts)`
           : "Contact export downloaded",
         toastId
       );
@@ -1168,8 +1179,8 @@ export function ContactsPanel({
                       <DialogDescription>
                         Export uses your current filters (search, status, allocated merchant, brand).
                         All Contacts with no other filters is the full Contact Master list
-                        ({counts.all.toLocaleString()} rows). Keep this tab open until the row count
-                        matches. A short file (~5,000 rows) means the download was cut off.
+                        ({counts.all.toLocaleString()} rows). Download runs in pages — keep this tab
+                        open until it finishes.
                       </DialogDescription>
                     </DialogHeader>
                     <div className="rounded-lg border border-border/60 bg-background/50 px-3 py-2 text-sm">

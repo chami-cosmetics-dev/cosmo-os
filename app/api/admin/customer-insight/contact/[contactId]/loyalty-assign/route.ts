@@ -185,20 +185,6 @@ export async function POST(request: NextRequest, { params }: Params) {
   if (preflight.errors.includes("Contact not found")) {
     return NextResponse.json({ error: "Contact not found" }, { status: 404 });
   }
-  if (preflight.missingErpSlots.length > 0) {
-    const error = missingErpLoyaltyMessage(
-      preflight.missingErpSlots,
-      preflight.primaryPhone
-    );
-    return NextResponse.json(
-      {
-        error,
-        missingErpSlots: preflight.missingErpSlots,
-        retry: true,
-      },
-      { status: 400 }
-    );
-  }
   if (preflight.errors.length > 0) {
     return NextResponse.json(
       { error: preflight.errors[0], details: preflight.errors },
@@ -208,34 +194,9 @@ export async function POST(request: NextRequest, { params }: Params) {
 
   const now = new Date();
 
-  if (!isRetrySameTier) {
-    await prisma.$transaction(async (tx) => {
-      await tx.contactMaster.update({
-        where: { id: contact.id },
-        data: {
-          loyaltyAssignedTier: parsed.data.tier,
-          loyaltyAssignedAt: now,
-          loyaltyAssignedByUserId: user.id,
-          loyaltyOutreachStatus: "assigned",
-          loyaltyOutreachUpdatedAt: now,
-        },
-      });
-      await tx.contactAllocationUpdate.create({
-        data: {
-          companyId,
-          contactId: contact.id,
-          merchantId: user.id,
-          merchantName: user.knownName ?? user.name ?? null,
-          category: "Contacted",
-          remark,
-          outcome: "responded",
-        },
-      });
-    });
-  }
-
   let push = {
     erpUpdated: 0,
+    erpCreated: 0,
     shopifyUpdated: 0,
     errors: [] as string[],
     missingErpSlots: [] as string[],
@@ -255,16 +216,44 @@ export async function POST(request: NextRequest, { params }: Params) {
     return NextResponse.json(
       {
         error:
-          push.errors.find((e) => e.includes("Create this customer")) ??
+          push.errors.find((e) => e.includes("Could not create this customer")) ??
           missingErpLoyaltyMessage(push.missingErpSlots, preflight.primaryPhone),
         missingErpSlots: push.missingErpSlots,
         retry: true,
         erpUpdated: push.erpUpdated,
+        erpCreated: push.erpCreated,
         shopifyUpdated: push.shopifyUpdated,
         pushErrors: push.errors,
       },
       { status: 400 }
     );
+  }
+
+  if (!isRetrySameTier) {
+    await prisma.$transaction(async (tx) => {
+      await tx.contactMaster.update({
+        where: { id: contact.id },
+        data: {
+          loyaltyAssignedTier: parsed.data.tier,
+          loyaltyAssignedAt: now,
+          loyaltyAssignedByUserId: user.id,
+          loyaltyAssignedReason: null,
+          loyaltyOutreachStatus: "assigned",
+          loyaltyOutreachUpdatedAt: now,
+        },
+      });
+      await tx.contactAllocationUpdate.create({
+        data: {
+          companyId,
+          contactId: contact.id,
+          merchantId: user.id,
+          merchantName: user.knownName ?? user.name ?? null,
+          category: "Contacted",
+          remark,
+          outcome: "responded",
+        },
+      });
+    });
   }
 
   await writeAuditLog({
@@ -283,6 +272,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       remark,
       retry: isRetrySameTier,
       erpUpdated: push.erpUpdated,
+      erpCreated: push.erpCreated,
       shopifyUpdated: push.shopifyUpdated,
       pushErrors: push.errors,
     },
@@ -294,6 +284,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     assignedAt: now.toISOString(),
     retry: isRetrySameTier,
     erpUpdated: push.erpUpdated,
+    erpCreated: push.erpCreated,
     shopifyUpdated: push.shopifyUpdated,
     pushErrors: push.errors,
   });

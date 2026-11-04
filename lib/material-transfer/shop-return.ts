@@ -34,9 +34,21 @@ export type ShopReturnHeader =
     }
   | { ok: false; error: string };
 
-/** VAT lines post to ERP1. Every other line posts to ERP2. */
+/** Vat and Vat / Non Vat post to ERP1. Every other line posts to ERP2. */
 export function shopReturnDestination(taxStatus: string | null | undefined): TransferSlot {
   return isVatTaxStatus(taxStatus) ? "erp1" : "erp2";
+}
+
+/** Prefer ERP1 tax status when the SKU is on ERP1, so Vat / Non Vat stays on ERP1. */
+export function shopReturnTaxStatus(
+  erp1TaxStatus: string | null | undefined,
+  erp2TaxStatus: string | null | undefined,
+  onErp1: boolean,
+): string | null {
+  const erp1 = (erp1TaxStatus ?? "").trim() || null;
+  const erp2 = (erp2TaxStatus ?? "").trim() || null;
+  if (onErp1) return erp1 ?? erp2;
+  return erp2 ?? erp1;
 }
 
 function isCosmeticsMainWarehouse(row: { name: string; company: string }): boolean {

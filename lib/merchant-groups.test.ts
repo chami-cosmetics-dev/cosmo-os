@@ -81,9 +81,17 @@ describe("matchMerchantFromCouponMap", () => {
       id: null,
       name: "Staff Sales",
     });
-    expect(matchMerchantFromCouponMap(["staff-sale", "dir100"], map)).toEqual({
+    expect(matchMerchantFromCouponMap(["staffdc", "mer91"], map)).toEqual({
       id: null,
-      name: "Director Sales",
+      name: "Staff Sales",
+    });
+    expect(matchMerchantFromCouponMap(["dir100"], map)).toEqual({
+      id: null,
+      name: "Staff Sales",
+    });
+    expect(matchMerchantFromCouponMap(["staffvat", "mer91"], map)).toEqual({
+      id: null,
+      name: "Staff Sales",
     });
   });
 

@@ -26,9 +26,9 @@ import {
   getOrderInvoiceCsvHeaders,
   getOrderInvoiceItemCsvHeaders,
   joinDumpCouponCodes,
+  resolveDumpMerchantName,
 } from "@/lib/reports/order-dump";
 import {
-  applyMerchantGroup,
   buildCouponToMerchantMap,
   getMerchantGroupUserMap,
 } from "@/lib/merchant-groups";
@@ -271,28 +271,21 @@ function resolveOrderCreatedByEmail(input: {
   return "";
 }
 
-function resolveMerchantName(input: {
-  couponCode: string | null;
+function dumpMerchantName(input: {
+  merchantCouponCode: string | null;
+  discountCouponCode?: string | null;
   couponToMerchant: Map<string, { id: string | null; name: string }>;
   assignedMerchant: { id: string; knownName: string | null; name: string | null; email: string | null } | null;
   userToGroup: Map<string, { id: string; name: string }>;
 }) {
-  const coupons = (input.couponCode ?? "")
-    .split(",")
-    .map((coupon) => coupon.trim().toLowerCase())
-    .filter(Boolean);
-
-  for (const coupon of coupons) {
-    const merchant = input.couponToMerchant.get(coupon);
-    if (merchant) return merchant.name;
-  }
-
-  const assignedName = getUserDisplayName(input.assignedMerchant);
-  if (!assignedName) return "";
-  return applyMerchantGroup(
-    { id: input.assignedMerchant?.id ?? null, name: assignedName },
-    input.userToGroup,
-  ).name;
+  return resolveDumpMerchantName({
+    merchantCouponCode: input.merchantCouponCode,
+    discountCouponCode: input.discountCouponCode,
+    couponToMerchant: input.couponToMerchant,
+    assignedMerchantId: input.assignedMerchant?.id ?? null,
+    assignedMerchantName: getUserDisplayName(input.assignedMerchant),
+    userToGroup: input.userToGroup,
+  });
 }
 
 function getReportLabel(report: ReportKind, range: RangeKind) {
@@ -329,6 +322,11 @@ const ORDER_DUMP_BASE_INCLUDE = {
   lastPrintedBy: { select: { knownName: true, name: true, email: true } },
   deliveryCompleteBy: { select: { knownName: true, name: true, email: true } },
   invoiceCompleteBy: { select: { knownName: true, name: true, email: true } },
+  returns: {
+    orderBy: { returnDate: "desc" as const },
+    take: 1,
+    select: { cancelRemark: true, returnRemark: true },
+  },
 } as const;
 
 const ORDER_DUMP_INVOICE_INCLUDE = {
@@ -580,8 +578,9 @@ export async function GET(request: NextRequest) {
           erpnextInstance: order.companyLocation.erpnextInstance,
         });
       }
-      const merchantName = resolveMerchantName({
-        couponCode: merchantCouponCode,
+      const merchantName = dumpMerchantName({
+        merchantCouponCode,
+        discountCouponCode: couponCode,
         couponToMerchant,
         assignedMerchant: order.assignedMerchant,
         userToGroup,
@@ -665,6 +664,9 @@ export async function GET(request: NextRequest) {
           lineTotal,
           fulfillmentStage: order.fulfillmentStage,
           financialStatus: order.financialStatus,
+          cancelReason: order.cancelReason,
+          returnCancelRemark: order.returns[0]?.cancelRemark,
+          returnRemark: order.returns[0]?.returnRemark,
           deliveryCompleteAt: order.deliveryCompleteAt,
           deliveryCompleteBy: getUserDisplayName(order.deliveryCompleteBy),
           invoiceCompleteAt: order.invoiceCompleteAt,
@@ -738,8 +740,9 @@ export async function GET(request: NextRequest) {
       }
     }
     const couponCode = joinDumpCouponCodes(merchantCouponCode, discountCoupon);
-    const merchantName = resolveMerchantName({
-      couponCode: merchantCouponCode,
+    const merchantName = dumpMerchantName({
+      merchantCouponCode,
+      discountCouponCode: discountCoupon,
       couponToMerchant,
       assignedMerchant: order.assignedMerchant,
       userToGroup,
@@ -798,6 +801,9 @@ export async function GET(request: NextRequest) {
       billingAddress: formatAddress(order.billingAddress),
       shippingAddress,
       financialStatus: order.financialStatus,
+      cancelReason: order.cancelReason,
+      returnCancelRemark: order.returns[0]?.cancelRemark,
+      returnRemark: order.returns[0]?.returnRemark,
       fulfillmentStatus: order.fulfillmentStatus,
       paymentGateway,
       subtotalPrice: decimalToString(order.subtotalPrice),

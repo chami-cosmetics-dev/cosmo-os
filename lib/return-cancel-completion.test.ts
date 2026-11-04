@@ -258,6 +258,29 @@ describe("runReturnCancelExternalCompletion", () => {
     expect(result.error).toMatch(/not found/i);
   });
 
+  it("Shopify failure after ERP invoice cancel still completes", async () => {
+    const result = await runReturnCancelExternalCompletion({
+      order: baseOrder({ financialStatus: "pending" }),
+      location: baseLocation(),
+      deps: {
+        ensureErpnextCreditNote: vi.fn(),
+        cancelErpnextSalesInvoice: vi.fn().mockResolvedValue({
+          outcome: "cancelled",
+          invoiceName: "600-006012",
+        }),
+        cancelShopifyOrder: vi.fn().mockRejectedValue(new Error("Shopify cancel order 1 [500]: upstream timeout")),
+        shouldBlockShopifyCancelInOs: () => false,
+        isRealShopifyOrderId: () => true,
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.erpOutcome).toBe("cancelled");
+    expect(result.invoiceName).toBe("600-006012");
+    expect(result.shopifyOutcome).toBe("failed");
+    expect(result.error).toMatch(/500/);
+  });
+
   it("Vault Shopify skip does not fail unpaid completion", async () => {
     const result = await runReturnCancelExternalCompletion({
       order: baseOrder({ financialStatus: "pending" }),

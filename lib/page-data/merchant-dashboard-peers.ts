@@ -98,7 +98,8 @@ function sharePct(part: number, whole: number): number | null {
 
 /**
  * Single order pass attributing each eligible order to at most one cohort row
- * (personal MER → merchant; DM MER / no MER → synthetic DM-General when present).
+ * (personal MER → merchant; DM-shaped codes → DM-General only when a holder
+ * exists, otherwise omitted; no MER → DM-General only when a holder exists).
  */
 export async function fetchMerchantCohortSales(
   companyId: string,
@@ -173,7 +174,7 @@ export async function fetchMerchantCohortSales(
     prisma.companyLocation.findMany({
       where: { companyId },
       orderBy: { name: "asc" },
-      select: { id: true, name: true },
+      select: { id: true, name: true, defaultMerchantUserId: true },
     }),
     prisma.order.findMany({
       where: {
@@ -196,6 +197,7 @@ export async function fetchMerchantCohortSales(
     }),
   ]);
 
+  const locationById = new Map(locations.map((loc) => [loc.id, loc]));
   for (const loc of locations) {
     locationNames.set(loc.id, loc.name);
   }
@@ -224,12 +226,15 @@ export async function fetchMerchantCohortSales(
       }
       continue;
     }
+    const shopLoc = locationById.get(order.companyLocationId);
     const merchantId = resolveCohortMerchantId({
       orderCoupons,
       couponToMerchantId,
       assignedMerchantId: order.assignedMerchantId,
       cohortIds,
       dmBucketId,
+      locationName: shopLoc?.name,
+      locationDefaultMerchantId: shopLoc?.defaultMerchantUserId,
     });
     if (!merchantId) continue;
 

@@ -195,6 +195,9 @@ export async function fetchMerchantSalesHistory(
       where: { companyId, ...dateFilter },
       select: {
         companyLocationId: true,
+        companyLocation: {
+          select: { name: true, defaultMerchantUserId: true },
+        },
         assignedMerchantId: true,
         totalPrice: true,
         sourceName: true,
@@ -252,6 +255,9 @@ export async function fetchMerchantSalesHistory(
       dm: sets.dm,
       hasDm: sets.hasDm,
       assignedToViewer: order.assignedMerchantId === merchantUserId,
+      locationName: order.companyLocation?.name,
+      locationDefaultIsViewer:
+        order.companyLocation?.defaultMerchantUserId === merchantUserId,
     });
     if (!bucket) continue;
 

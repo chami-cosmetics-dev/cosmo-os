@@ -29,5 +29,6 @@ export async function getDefaultDashboardOverviewInitialState(
     lastUpdatedAt: Date.now(),
     filterSummaries: summaries.invalidRange ? [] : summaries.filterSummaries,
     salesLocations: result.locations,
+    couponCodes: result.couponCodes,
   };
 }

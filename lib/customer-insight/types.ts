@@ -22,6 +22,8 @@ export type LoyaltyAssignmentDto = {
   assignedAt: string;
   assignedByName: string | null;
   assignedByUserId: string | null;
+  /** Present when this assignment was a manual override. */
+  reason: string | null;
 };
 
 export type LoyaltyThresholds = {
@@ -73,7 +75,7 @@ export type ContactInsightDto = {
   birthDay: number | null;
   assignedMerchant: string | null;
   category: string | null;
-  /** ContactMaster.lastPurchaseAt ISO timestamp, or null. */
+  /** Newest completed Cosmo order or Adapt invoice ISO timestamp, or null. */
   lastPurchaseAt: string | null;
   osRegBadge: { location: string } | null;
   /** Admin / Insight admin view only — emails cleared by cleanup. */
@@ -116,6 +118,10 @@ export type InvoiceLineDto = {
   /** Unit price as string (Contact Master purchase table style). */
   price: string;
   brand?: string | null;
+  /** ERP Product Priority (ERP1 / ERP2 merged). */
+  priority?: string | null;
+  /** ERP Item Manufacturing Tax Status (Vat / Non Vat). */
+  vatStatus?: string | null;
 };
 
 export type UnifiedInvoiceRowDto = {
@@ -189,6 +195,8 @@ export type CustomerInsightDto = {
   canEditProfile?: boolean;
   canMarkContacted?: boolean;
   loyaltyAssignment?: LoyaltyAssignmentDto | null;
+  /** Tiers a permitted user may set without spend eligibility. */
+  manualLoyaltyTiers?: Array<"gold" | "platinum">;
   /** Spend-based Gold/Platinum action still pending (new assign or Gold→Platinum). */
   loyaltyEligibility?: LoyaltyEligibilityDto | null;
   loyaltyOutreachStatus?: LoyaltyOutreachStatus | null;
@@ -207,7 +215,7 @@ export type AllocatedFilterItemDto = {
   itemSpend?: number | null;
   loyalty: Pick<LoyaltyDto, "key" | "label" | "code">;
   assignedMerchant: string | null;
-  /** ContactMaster.lastPurchaseAt ISO timestamp, or null. */
+  /** Newest completed Cosmo order or Adapt invoice ISO timestamp, or null. */
   lastPurchaseAt: string | null;
   /** Earliest completed Cosmo order or Adapt invoice, or null. */
   firstPurchaseAt?: string | null;

@@ -5,11 +5,13 @@ import {
   builtinTemplateByKey,
 } from "@/lib/email-templates/catalog";
 import { parseEmailAddressList } from "@/lib/email-templates/render";
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 import { formatAppDateShort } from "@/lib/format-datetime";
 import { sendErpSyncFailureAlertEmail } from "@/lib/maileroo";
 import { prisma } from "@/lib/prisma";
 import { syncErpProductPriorities } from "@/lib/product-items/erp-priority-sync";
 import { buildStockPriceMissingEmailContent } from "@/lib/stock-price-missing/build-content";
+import { stockPriceMissingCompanyWhere } from "@/lib/stock-price-missing/company";
 import { scanStockPriceMissing } from "@/lib/stock-price-missing/scan";
 import {
   buildStockPriceMissingWorkbook,
@@ -57,16 +59,24 @@ export async function runStockPriceMissingDailyEmail(input?: {
   subject?: string;
   message?: string;
 }> {
-  const company = input?.companyId
+  const vaultOs = isVaultOsDeployment();
+  let company = input?.companyId
     ? await prisma.company.findUnique({
         where: { id: input.companyId },
         select: { id: true, name: true },
       })
     : await prisma.company.findFirst({
-        where: { name: { contains: "cosmetic", mode: "insensitive" } },
+        where: stockPriceMissingCompanyWhere(vaultOs),
         select: { id: true, name: true },
         orderBy: { createdAt: "asc" },
       });
+
+  if (!company && !input?.companyId && vaultOs) {
+    company = await prisma.company.findFirst({
+      select: { id: true, name: true },
+      orderBy: { createdAt: "asc" },
+    });
+  }
 
   if (!company) {
     return { status: "skipped_no_company" };
@@ -85,7 +95,7 @@ export async function runStockPriceMissingDailyEmail(input?: {
 
   let scan;
   try {
-    // Refresh Cosmo Product Priority from ERP (Discontinue / Vat filters).
+    // Refresh Product Priority from ERP (Discontinue / Vat filters).
     // Scan also reads live ERP prices, brands, and priorities.
     try {
       await syncErpProductPriorities(company.id);

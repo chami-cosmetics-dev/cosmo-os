@@ -4,11 +4,38 @@ import {
   classifyMerchantSalesBucket,
   dmBucketShareForHolder,
   isDmCouponCode,
+  isDmOnlyMerchantTracking,
+  isStaffSalesCouponCode,
   parseOrderCouponList,
   resolveCohortMerchantId,
   resolveDmHolderMerchantIds,
+  resolveFixedSalesCouponBucket,
   splitMerchantCouponSets,
+  STAFF_SALES_DISPLAY_NAME,
 } from "@/lib/merchant-dm-sales";
+
+describe("resolveFixedSalesCouponBucket", () => {
+  it("maps staff discount coupons to Staff Sales", () => {
+    expect(isStaffSalesCouponCode("STAFFDC")).toBe(true);
+    expect(isStaffSalesCouponCode("dir100")).toBe(true);
+    expect(isStaffSalesCouponCode("staff-vat")).toBe(true);
+    expect(isStaffSalesCouponCode("staff-sale")).toBe(true);
+    expect(isStaffSalesCouponCode("mer91")).toBe(false);
+    expect(resolveFixedSalesCouponBucket(["mer91", "staffdc"])).toEqual({
+      id: null,
+      name: STAFF_SALES_DISPLAY_NAME,
+    });
+    expect(resolveFixedSalesCouponBucket(["DIR100"])).toEqual({
+      id: null,
+      name: STAFF_SALES_DISPLAY_NAME,
+    });
+    expect(resolveFixedSalesCouponBucket(["staffvat"])).toEqual({
+      id: null,
+      name: STAFF_SALES_DISPLAY_NAME,
+    });
+    expect(resolveFixedSalesCouponBucket(["mer91", "sv20"])).toBeNull();
+  });
+});
 
 describe("isDmCouponCode", () => {
   it("matches MER115 and DM-General labels", () => {
@@ -19,6 +46,23 @@ describe("isDmCouponCode", () => {
     expect(isDmCouponCode("DM_General")).toBe(true);
     expect(isDmCouponCode("MER91")).toBe(false);
     expect(isDmCouponCode("MER91-Sandali")).toBe(false);
+  });
+});
+
+describe("isDmOnlyMerchantTracking", () => {
+  it("is true for ERP DM_General / MER115 with no personal MER", () => {
+    expect(isDmOnlyMerchantTracking(["DM_General"])).toBe(true);
+    expect(isDmOnlyMerchantTracking(["mer115"])).toBe(true);
+    expect(isDmOnlyMerchantTracking(["dm_general", "welcome10"])).toBe(true);
+  });
+
+  it("is false when a personal MER is present or tracking is empty", () => {
+    expect(isDmOnlyMerchantTracking(["mer109-nimthera", "dm_general"])).toBe(
+      false,
+    );
+    expect(isDmOnlyMerchantTracking(["mer109"])).toBe(false);
+    expect(isDmOnlyMerchantTracking([])).toBe(false);
+    expect(isDmOnlyMerchantTracking(null)).toBe(false);
   });
 });
 
@@ -160,6 +204,19 @@ describe("resolveCohortMerchantId", () => {
         dmBucketId: "__dm_general__",
       }),
     ).toBe("__dm_general__");
+  });
+
+  it("does not credit assigned merchant for DM_General when cohort has no DM holder", () => {
+    const couponToMerchantId = new Map([["mer109", "u-nimthera"]]);
+    expect(
+      resolveCohortMerchantId({
+        orderCoupons: ["dm_general"],
+        couponToMerchantId,
+        assignedMerchantId: "u-nimthera",
+        cohortIds: new Set(["u-nimthera"]),
+        dmBucketId: null,
+      }),
+    ).toBeNull();
   });
 
   it("keeps personal MER on the merchant user", () => {

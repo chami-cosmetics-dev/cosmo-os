@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { randomBytes } from "crypto";
+import { createRiderDeliveryToken } from "@/lib/rider-delivery-token";
 
 import { prisma } from "@/lib/prisma";
 import { writeAuditLog } from "@/lib/audit-log";
@@ -796,7 +796,7 @@ export async function PATCH(
             { status: 400 }
           );
         }
-        riderDeliveryToken = randomBytes(16).toString("hex");
+        riderDeliveryToken = createRiderDeliveryToken();
       } else if (data.courierServiceId) {
         const svc = await prisma.courierService.findFirst({
           where: { id: data.courierServiceId, companyId },

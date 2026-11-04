@@ -19,9 +19,17 @@ export type { BookNoteWriteAccess } from "@/lib/book-notes/lock";
 export {
   resolveBookNoteShopAccess,
   assertBookNoteShopAllowed,
+  collectAssignedBookNoteLocationIds,
   resolveBookNoteWriteAccess,
 } from "@/lib/book-notes/access";
 export type { BookNoteShopAccess } from "@/lib/book-notes/access";
+
+export {
+  BOOK_NOTE_OUTLET_SHOP_MAP,
+  collectBookNoteCosmeticsPosScope,
+  isCosmeticsBookNoteLocation,
+} from "@/lib/book-notes/shop-outlet-map";
+export type { BookNoteCosmeticsPosScope } from "@/lib/book-notes/shop-outlet-map";
 
 export { resolveBookNoteSalesInvoice } from "@/lib/book-notes/invoice-identity";
 

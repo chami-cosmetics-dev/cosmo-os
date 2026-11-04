@@ -42,4 +42,38 @@ describe("aggregateErpSalesInvoiceRows", () => {
     expect(agg.total).toBe(1000);
     expect(agg.count).toBe(1);
   });
+
+  it("counts one sale when two paid invoices share po_no", () => {
+    const agg = aggregateErpSalesInvoiceRows(
+      [
+        {
+          name: "SV100-1773",
+          company: "SupplementVault.lk",
+          po_no: "SV1009298",
+          net_total: 12150,
+          grand_total: 12550,
+          outstanding_amount: 0,
+          is_return: 0,
+          docstatus: 1,
+          creation: "2026-10-06 17:59:47",
+        },
+        {
+          name: "SV100-1774",
+          company: "SupplementVault.lk",
+          po_no: "SV1009298",
+          net_total: 12150,
+          grand_total: 12550,
+          outstanding_amount: 0,
+          is_return: 0,
+          docstatus: 1,
+          creation: "2026-10-06 17:59:52",
+        },
+      ],
+      companyToLocationId,
+      new Set(["SV100-1774"]),
+    );
+    expect(agg.total).toBe(12150);
+    expect(agg.count).toBe(1);
+    expect(agg.byLocation.get("loc-sv")).toBe(12150);
+  });
 });

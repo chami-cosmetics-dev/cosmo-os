@@ -4,6 +4,7 @@ import {
   buildDumpKeyPlan,
   formatDumpTimestamp,
   isProtectedSystem,
+  SCHEDULED_SYSTEMS,
   parseProtectedSystem,
   retentionClassesFor,
   systemFromObjectKey,
@@ -14,6 +15,10 @@ describe("protected systems", () => {
     expect(isProtectedSystem("vault")).toBe(true);
     expect(isProtectedSystem("cosmo-dev")).toBe(true);
     expect(isProtectedSystem("cosmo-prod")).toBe(true);
+  });
+
+  it("schedules only vault and cosmo-prod", () => {
+    expect([...SCHEDULED_SYSTEMS]).toEqual(["vault", "cosmo-prod"]);
   });
 
   it("rejects invalid system ids", () => {

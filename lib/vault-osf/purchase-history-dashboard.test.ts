@@ -2,10 +2,16 @@ import { describe, expect, it } from "vitest";
 
 import {
   canonicalizePurchaseHistoryCompany,
+  COSMO_ERP_COMPANY_OPTIONS,
   cosmoDbLineToRaw,
   enrichPurchaseHistoryRow,
   erpInvoiceLineToRaw,
+  lookupPurchaseHistoryCatalog,
+  overlayPurchaseHistoryCatalog,
+  pickPurchaseHistoryBrand,
+  filterPurchaseHistoryLinesForOs,
   isIntercompanyPurchaseSupplier,
+  isPurchaseHistoryCompanyForOs,
   matchesPurchaseHistoryFilters,
   mergePurchaseHistoryLines,
   parsePurchaseHistoryCompanies,
@@ -13,6 +19,7 @@ import {
   purchaseHistoryErpCompanyOptions,
   purchaseHistoryErpSlot,
   purchaseHistoryExportSheetRows,
+  purchaseHistoryOsCompanyExtras,
   purchaseInvoiceFormUrl,
   selectPurchaseHistoryErpInstances,
   summarizePurchaseHistoryRows,
@@ -142,6 +149,60 @@ describe("mergePurchaseHistoryLines", () => {
     );
     expect(merged).toHaveLength(1);
     expect(merged[0]!.sku).toBe("SKU2");
+  });
+});
+
+describe("pickPurchaseHistoryBrand", () => {
+  it("prefers ERP Item.brand over Cosmo vendor", () => {
+    expect(pickPurchaseHistoryBrand("Now Foods", "Shopify Vendor")).toBe("Now Foods");
+  });
+
+  it("falls back to Cosmo vendor when ERP brand empty", () => {
+    expect(pickPurchaseHistoryBrand(null, "Shopify Vendor")).toBe("Shopify Vendor");
+    expect(pickPurchaseHistoryBrand("  ", "Shopify Vendor")).toBe("Shopify Vendor");
+  });
+
+  it("returns null when both empty", () => {
+    expect(pickPurchaseHistoryBrand(null, null)).toBeNull();
+    expect(pickPurchaseHistoryBrand("", "  ")).toBeNull();
+  });
+});
+
+describe("overlayPurchaseHistoryCatalog", () => {
+  it("fills brand from ERP when Cosmo vendor missing", () => {
+    const overlaid = overlayPurchaseHistoryCatalog(
+      {
+        productTitle: "Item",
+        brand: null,
+        priority: "Top",
+        mrp: 10,
+        discountedPrice: null,
+      },
+      { brand: "Cerave" },
+    );
+    expect(overlaid?.brand).toBe("Cerave");
+    expect(overlaid?.productTitle).toBe("Item");
+    expect(overlaid?.priority).toBe("Top");
+  });
+
+  it("builds stub catalog from ERP brand when item not in Cosmo", () => {
+    const overlaid = overlayPurchaseHistoryCatalog(undefined, { brand: "Now" });
+    expect(overlaid).toEqual({
+      productTitle: null,
+      brand: "Now",
+      priority: null,
+      country: null,
+      mrp: null,
+      discountedPrice: null,
+    });
+  });
+});
+
+describe("lookupPurchaseHistoryCatalog", () => {
+  it("matches SKU case-insensitively via uppercase key", () => {
+    const map = new Map<string, string>([["ABC", "Now"]]);
+    expect(lookupPurchaseHistoryCatalog(map, "abc")).toBe("Now");
+    expect(lookupPurchaseHistoryCatalog(map, " ABC ")).toBe("Now");
   });
 });
 
@@ -576,6 +637,60 @@ describe("purchase history ERP companies", () => {
         VAULT_ERP_COMPANY_OPTIONS,
       ),
     ).toEqual(["AE (PVT) LTD", "Origins (PVT) LTD", "SupplementVault.lk"]);
+  });
+
+  it("drops Vault supplement companies on Cosmo OS", () => {
+    expect(purchaseHistoryOsCompanyExtras(false)).toEqual(["Cosmetics.lk"]);
+    expect(
+      purchaseHistoryErpCompanyOptions(
+        [
+          "Origins (PVT) LTD",
+          "AE (PVT) LTD",
+          "SupplementVault.lk",
+          "Cosmetics.lk",
+          "LWK Enterprises Pvt Ltd",
+        ],
+        COSMO_ERP_COMPANY_OPTIONS,
+        false,
+      ),
+    ).toEqual(["Cosmetics.lk", "LWK Enterprises Pvt Ltd"]);
+    expect(isPurchaseHistoryCompanyForOs("SupplementVault.lk", false)).toBe(false);
+    expect(isPurchaseHistoryCompanyForOs("Origins", false)).toBe(false);
+    expect(isPurchaseHistoryCompanyForOs("AE (PVT) LTD", false)).toBe(false);
+    expect(isPurchaseHistoryCompanyForOs("Cosmetics.lk", false)).toBe(true);
+    expect(
+      filterPurchaseHistoryLinesForOs(
+        [
+          { ...baseCosmo, sku: "COS", company: "Cosmetics.lk" },
+          { ...baseCosmo, sku: "SV", company: "SupplementVault.lk" },
+          { ...baseCosmo, sku: "OR", company: "Origins (PVT) LTD" },
+          { ...baseCosmo, sku: "AE", company: "AE (PVT) LTD" },
+          { ...baseCosmo, sku: "LWK", company: "LWK Enterprises Pvt Ltd" },
+        ],
+        false,
+      ).map((line) => line.sku),
+    ).toEqual(["COS", "LWK"]);
+  });
+
+  it("keeps only Vault supplement companies on Vault OS", () => {
+    expect(purchaseHistoryOsCompanyExtras(true)).toEqual([...VAULT_ERP_COMPANY_OPTIONS]);
+    expect(
+      purchaseHistoryErpCompanyOptions(
+        ["Cosmetics.lk", "AE", "LWK Enterprises Pvt Ltd"],
+        VAULT_ERP_COMPANY_OPTIONS,
+        true,
+      ),
+    ).toEqual(["AE (PVT) LTD", "Origins (PVT) LTD", "SupplementVault.lk"]);
+    expect(isPurchaseHistoryCompanyForOs("Cosmetics.lk", true)).toBe(false);
+    expect(
+      filterPurchaseHistoryLinesForOs(
+        [
+          { ...baseCosmo, sku: "COS", company: "Cosmetics.lk" },
+          { ...baseCosmo, sku: "SV", company: "SupplementVault.lk" },
+        ],
+        true,
+      ).map((line) => line.sku),
+    ).toEqual(["SV"]);
   });
 
   it("maps Cosmo file company to official ERP name", () => {

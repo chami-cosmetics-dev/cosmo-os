@@ -16,6 +16,10 @@ import {
 } from "@/lib/erp-credit-note-items";
 import { mergeErpReturnSalesInvoiceIds } from "@/lib/erp-return-si";
 import {
+  couponFieldsForInvoiceCreate,
+  resolveCouponInvoiceItemRates,
+} from "@/lib/erp-best-discount-erp";
+import {
   buildErpItemsFromShopifyLineItems,
   sumErpInvoiceItemsTotal,
   type ErpSalesInvoiceItem,
@@ -27,7 +31,11 @@ import {
   isCcCheckoutGateway,
   orderHasEarlyFinancialInvoiceCompleteGateway,
 } from "@/lib/delivery-payment-approval";
-import { isMintpayGateway, resolveMintpayMopName } from "@/lib/payment-gateway-match";
+import {
+  isMintpayGateway,
+  resolveBankTransferMopName,
+  resolveMintpayMopName,
+} from "@/lib/payment-gateway-match";
 import { markOrderFinanciallyInvoiceComplete } from "@/lib/financial-invoice-complete";
 import { formatAppIsoDate } from "@/lib/format-datetime";
 import {
@@ -36,6 +44,13 @@ import {
   markOrderErpPeSyncFailed,
 } from "@/lib/failed-erp-pe-sync";
 import { retryTransientErpOperation } from "@/lib/erpnext-transient-retry";
+import {
+  buildOwnedPaymentEntryCall,
+  buildResourcePaymentEntryBody,
+  paymentEntryNameFromSaveDoc,
+  shouldFallbackPaymentEntryOwner,
+  type DeliveryPaymentEntryFields,
+} from "@/lib/erp-payment-entry-owner";
 import {
   selectCanonicalSalesInvoice,
   unpaidDuplicateSalesInvoices,
@@ -112,7 +127,7 @@ export function getErpConfig(instance: ErpnextInstance | null): ErpConfig {
     cashMop: instance?.cashMop ?? process.env.ERPNEXT_CASH_MOP ?? "Cash",
     codMop: instance?.codMop ?? process.env.ERPNEXT_COD_MOP ?? "Cash On Delivery",
     cardDeliveryMop: instance?.cardDeliveryMop ?? process.env.ERPNEXT_CARD_DELIVERY_MOP ?? "Credit Card",
-    bankTransferMop: instance?.bankTransferMop ?? process.env.ERPNEXT_BANK_TRANSFER_MOP ?? "Wire Transfer",
+    bankTransferMop: resolveBankTransferMopName(instance?.bankTransferMop),
     kokoMop: instance?.kokoMop ?? process.env.ERPNEXT_KOKO_MOP ?? "Koko",
     webxpayMop: instance?.webxpayMop ?? process.env.ERPNEXT_WEBXPAY_MOP ?? "",
     mintpayMop: resolveMintpayMopName(instance?.mintpayMop),
@@ -375,6 +390,29 @@ async function erpnextPost<T>(cfg: ErpConfig, path: string, body: unknown): Prom
   return json.data;
 }
 
+async function erpnextMethod(cfg: ErpConfig, path: string, body: unknown): Promise<unknown> {
+  let res: Response;
+  try {
+    res = await fetch(`${cfg.baseUrl}${path}`, {
+      method: "POST",
+      headers: authHeaders(cfg),
+      body: JSON.stringify(body),
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(`ERPNext POST ${path}: ${msg}`);
+  }
+  const text = await res.text().catch(() => "");
+  if (!res.ok) {
+    throw new Error(`ERPNext POST ${path} [${res.status}]: ${text.slice(0, 800)}`);
+  }
+  try {
+    return text ? (JSON.parse(text) as unknown) : null;
+  } catch {
+    throw new Error(`ERPNext POST ${path}: invalid JSON`);
+  }
+}
+
 async function erpnextGet<T>(cfg: ErpConfig, path: string): Promise<T | null> {
   let res: Response;
   try {
@@ -428,24 +466,6 @@ function withCouponDiscountFallback(
   }
   retryBody.ignore_pricing_rule = 1;
   return retryBody;
-}
-
-function buildErpSalesInvoicePricingRuleRows(
-  items: ErpSalesInvoiceItem[],
-  pricingRule: string,
-): Array<{ pricing_rule: string; item_code: string; rule_applied: number }> {
-  const rule = pricingRule.trim();
-  if (!rule) return [];
-
-  const seen = new Set<string>();
-  const rows: Array<{ pricing_rule: string; item_code: string; rule_applied: number }> = [];
-  for (const item of items) {
-    const code = item.item_code?.trim();
-    if (!code || seen.has(code)) continue;
-    seen.add(code);
-    rows.push({ pricing_rule: rule, item_code: code, rule_applied: 1 });
-  }
-  return rows;
 }
 
 function shopifyLineItemsFromOrderRawPayload(
@@ -1042,6 +1062,7 @@ async function createPrepaidPaymentEntry(
   dateStr: string,
   mopName: string,
 ): Promise<void> {
+  const resolvedMopName = resolveBankTransferMopName(mopName, { envValue: null });
   await retryTransientErpOperation(`prepaid PE ${invoiceName}`, async () => {
     const invoice = await erpnextGet<{ outstanding_amount: number }>(
       cfg,
@@ -1055,11 +1076,11 @@ async function createPrepaidPaymentEntry(
     const mop = await erpnextGet<{
       name: string;
       accounts: Array<{ company: string; default_account: string }>;
-    }>(cfg, `/api/resource/Mode%20of%20Payment/${encodeURIComponent(mopName)}`);
+    }>(cfg, `/api/resource/Mode%20of%20Payment/${encodeURIComponent(resolvedMopName)}`);
 
     const paidTo = mop?.accounts?.find((a) => a.company === company)?.default_account;
     if (!paidTo) {
-      throw new Error(`No account mapped for "${mopName}" mode of payment under company "${company}"`);
+      throw new Error(`No account mapped for "${resolvedMopName}" mode of payment under company "${company}"`);
     }
 
     const amount = invoice?.outstanding_amount && invoice.outstanding_amount > 0
@@ -1092,7 +1113,7 @@ async function createPrepaidPaymentEntry(
       docstatus: 1,
     });
 
-    console.log(`[ERPNext] Payment Entry ${pe.name} created for Sales Invoice ${invoiceName} (${mopName})`);
+    console.log(`[ERPNext] Payment Entry ${pe.name} created for Sales Invoice ${invoiceName} (${resolvedMopName})`);
   });
 }
 
@@ -1155,6 +1176,8 @@ export type CreateDeliveryPaymentEntryOptions = {
   referenceNo?: string;
   /** Require the requested partial amount to match available SI outstanding exactly. */
   requireExactAmount?: boolean;
+  /** ERP User to stamp as Payment Entry owner (person who marked the invoice). */
+  owner?: string;
 };
 
 export type CreateDeliveryPaymentEntryResult = {
@@ -1195,6 +1218,76 @@ function isUsableErpInvoiceId(value: string | null | undefined): value is string
 /** Exported for unit tests — true when erpnextInvoiceId can be used for direct SI fetch. */
 export function isUsableErpSalesInvoiceId(value: string | null | undefined): boolean {
   return isUsableErpInvoiceId(value);
+}
+
+type SalesInvoicePaymentTarget = {
+  name: string;
+  outstanding_amount: number;
+  debit_to: string;
+  customer: string;
+};
+
+const SALES_INVOICE_PAYMENT_FIELDS = encodeURIComponent(
+  JSON.stringify(["name", "outstanding_amount", "debit_to", "customer"]),
+);
+
+async function fetchSalesInvoicePaymentTarget(
+  cfg: ErpConfig,
+  invoiceName: string,
+): Promise<SalesInvoicePaymentTarget | null> {
+  return (
+    (await erpnextGet<SalesInvoicePaymentTarget>(
+      cfg,
+      `/api/resource/Sales Invoice/${encodeURIComponent(invoiceName)}?fields=${SALES_INVOICE_PAYMENT_FIELDS}`,
+    )) ?? null
+  );
+}
+
+/**
+ * Find the SI to allocate a Receive PE against.
+ * Cosmo ERP-native invoices have blank po_no — SI name is order.name / erpnextInvoiceId.
+ */
+async function findSubmittedSalesInvoiceForPayment(
+  cfg: ErpConfig,
+  company: string,
+  order: {
+    name: string | null;
+    shopifyOrderId?: string | null;
+    sourceName?: string | null;
+    erpnextInvoiceId?: string | null;
+  },
+): Promise<SalesInvoicePaymentTarget | null> {
+  const tried = new Set<string>();
+  const tryName = async (value: string | null | undefined) => {
+    const name = value?.trim();
+    if (!name || tried.has(name)) return null;
+    tried.add(name);
+    return fetchSalesInvoicePaymentTarget(cfg, name);
+  };
+
+  if (isUsableErpInvoiceId(order.erpnextInvoiceId)) {
+    const byId = await tryName(order.erpnextInvoiceId);
+    if (byId) return byId;
+  }
+
+  const byName = await tryName(order.name);
+  if (byName) return byName;
+
+  const orderPoNo = (order.name ?? order.shopifyOrderId ?? "").slice(0, 140);
+  if (!orderPoNo) return null;
+
+  const filters = encodeURIComponent(
+    JSON.stringify([
+      ["po_no", "=", orderPoNo],
+      ["company", "=", company],
+      ["docstatus", "=", "1"],
+    ]),
+  );
+  const list = await erpnextGet<SalesInvoicePaymentTarget[]>(
+    cfg,
+    `/api/resource/Sales Invoice?filters=${filters}&fields=${SALES_INVOICE_PAYMENT_FIELDS}&limit=1`,
+  );
+  return list?.[0] ?? null;
 }
 
 async function findExistingReceivePaymentEntry(
@@ -1306,41 +1399,9 @@ async function createDeliveryPaymentEntryOnce(
     console.log(`[ERPNext] No delivery MOP matched for order ${order.name} — skipping PE`);
     return { outcome: "skipped" };
   }
+  mopName = resolveBankTransferMopName(mopName, { envValue: null });
 
-  const fields = encodeURIComponent(JSON.stringify(["name", "outstanding_amount", "debit_to", "customer"]));
-  let invoice: { name: string; outstanding_amount: number; debit_to: string; customer: string } | null = null;
-
-  // Prefer canonical SI id (Shopify orders often have erpnextInvoiceId ≠ order.name / po_no).
-  if (isUsableErpInvoiceId(order.erpnextInvoiceId)) {
-    invoice =
-      (await erpnextGet<{ name: string; outstanding_amount: number; debit_to: string; customer: string }>(
-        cfg,
-        `/api/resource/Sales Invoice/${encodeURIComponent(order.erpnextInvoiceId)}?fields=${fields}`,
-      )) ?? null;
-  }
-
-  if (!invoice && isErpOrder && order.name) {
-    invoice =
-      (await erpnextGet<{ name: string; outstanding_amount: number; debit_to: string; customer: string }>(
-        cfg,
-        `/api/resource/Sales Invoice/${encodeURIComponent(order.name)}?fields=${fields}`,
-      )) ?? null;
-  }
-
-  if (!invoice) {
-    const orderPoNo = (order.name ?? order.shopifyOrderId).slice(0, 140);
-    const filters = encodeURIComponent(
-      JSON.stringify([
-        ["po_no", "=", orderPoNo],
-        ["company", "=", location.erpnextCompany],
-        ["docstatus", "=", "1"],
-      ]),
-    );
-    const list = await erpnextGet<
-      Array<{ name: string; outstanding_amount: number; debit_to: string; customer: string }>
-    >(cfg, `/api/resource/Sales Invoice?filters=${filters}&fields=${fields}&limit=1`);
-    invoice = list?.[0] ?? null;
-  }
+  const invoice = await findSubmittedSalesInvoiceForPayment(cfg, location.erpnextCompany, order);
 
   if (!invoice) {
     const label = order.erpnextInvoiceId ?? order.name ?? order.shopifyOrderId;
@@ -1397,8 +1458,7 @@ async function createDeliveryPaymentEntryOnce(
 
   const dateStr = toDateStr(completedAt);
   const referenceNo = options?.referenceNo?.trim() || invoice.name;
-  const pe = await erpnextPost<{ name: string }>(cfg, "/api/resource/Payment Entry", {
-    doctype: "Payment Entry",
+  const peFields: DeliveryPaymentEntryFields = {
     payment_type: "Receive",
     company: location.erpnextCompany,
     posting_date: dateStr,
@@ -1420,13 +1480,43 @@ async function createDeliveryPaymentEntryOnce(
         allocated_amount: amount,
       },
     ],
-    docstatus: 1,
-  });
+  };
+  const owner = options?.owner?.trim() || "";
+  let paymentEntryName = "";
+  let stampedOwner = false;
+  if (owner) {
+    try {
+      const saved = await erpnextMethod(
+        cfg,
+        "/api/method/cosmo_save_doc",
+        buildOwnedPaymentEntryCall({ owner, fields: peFields }),
+      );
+      paymentEntryName = paymentEntryNameFromSaveDoc(saved);
+      if (!paymentEntryName) {
+        throw new Error("ERP did not return a Payment Entry number");
+      }
+      stampedOwner = true;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (!shouldFallbackPaymentEntryOwner(message)) throw err;
+      console.warn(
+        `[ERPNext] Payment Entry owner ${owner} was not stamped (${message}). Creating under the API user.`,
+      );
+    }
+  }
+  if (!paymentEntryName) {
+    const pe = await erpnextPost<{ name: string }>(
+      cfg,
+      "/api/resource/Payment Entry",
+      buildResourcePaymentEntryBody(peFields),
+    );
+    paymentEntryName = pe.name;
+  }
 
   console.log(
-    `[ERPNext] Delivery PE ${pe.name} created for Sales Invoice ${invoice.name} (${mopName}, ${amount})`,
+    `[ERPNext] Delivery PE ${paymentEntryName} created for Sales Invoice ${invoice.name} (${mopName}, ${amount}${stampedOwner ? `, owner ${owner}` : ""})`,
   );
-  return { outcome: "created", paymentEntryName: pe.name };
+  return { outcome: "created", paymentEntryName };
 }
 
 /**
@@ -1453,6 +1543,8 @@ export async function syncOrderDeliveryPaymentEntriesToErp(
     mopNameOverride?: string;
     /** Remaining cash from a KOKO/Bank + Cash split. */
     paidAmount?: number;
+    /** ERP User to stamp as Payment Entry owner. */
+    owner?: string;
   },
 ): Promise<CreateDeliveryPaymentEntryResult> {
   const payment = await prisma.deliveryPayment.findUnique({
@@ -1468,6 +1560,7 @@ export async function syncOrderDeliveryPaymentEntriesToErp(
       mopNameOverride: options.mopNameOverride,
       requireMop: options?.requireMop,
       paidAmount: options?.paidAmount,
+      owner: options?.owner,
     });
   }
 
@@ -1476,6 +1569,7 @@ export async function syncOrderDeliveryPaymentEntriesToErp(
       requireMop: options?.requireMop,
       mopNameOverride: options?.mopNameOverride,
       paidAmount: options?.paidAmount,
+      owner: options?.owner,
     });
   }
 
@@ -1495,6 +1589,7 @@ export async function syncOrderDeliveryPaymentEntriesToErp(
       requireMop: options?.requireMop,
       paidAmount: Number(line.amount),
       referenceNo: `OS-DP-${line.id}`,
+      owner: options?.owner,
     });
     if (result.outcome === "created" && result.paymentEntryName) {
       await prisma.deliveryPaymentLine.update({
@@ -1537,6 +1632,7 @@ export async function syncOrderDeliveryPaymentEntriesToErp(
       requireMop: options?.requireMop,
       paidAmount: Number(line.amount),
       referenceNo: `OS-DP-${line.id}`,
+      owner: options?.owner,
     });
 
     if (result.outcome === "created") {
@@ -2174,105 +2270,12 @@ export async function cancelErpnextSalesInvoice(
   return { outcome: "cancelled", invoiceName };
 }
 
-export async function syncBankTransferPaymentToERPNext(
-  orderPoNo: string,
-  location: LocationWithErpInstance,
-  dateStr: string,
-): Promise<void> {
-  await retryTransientErpOperation(`bank transfer PE ${orderPoNo}`, () =>
-    syncBankTransferPaymentToERPNextOnce(orderPoNo, location, dateStr),
-  );
-}
-
-async function syncBankTransferPaymentToERPNextOnce(
-  orderPoNo: string,
-  location: LocationWithErpInstance,
-  dateStr: string,
-): Promise<void> {
-  const cfg = getErpConfig(location.erpnextInstance);
-  if (!cfg.baseUrl || !cfg.apiKey || !cfg.apiSecret) {
-    console.log("[ERPNext] syncBankTransferPaymentToERPNext: skipping — credentials not configured");
-    return;
-  }
-  if (!location.erpnextCompany || !location.erpnextWarehouse) {
-    console.log(`[ERPNext] syncBankTransferPaymentToERPNext: skipping — location missing erpnextCompany or erpnextWarehouse`);
-    return;
-  }
-  console.log(`[ERPNext] syncBankTransferPaymentToERPNext called for po_no="${orderPoNo}" company="${location.erpnextCompany}"`);
-
-  const filters = encodeURIComponent(
-    JSON.stringify([
-      ["po_no", "=", orderPoNo],
-      ["company", "=", location.erpnextCompany],
-      ["docstatus", "=", "1"],
-    ]),
-  );
-  const fields = encodeURIComponent(
-    JSON.stringify(["name", "outstanding_amount", "debit_to", "customer"]),
-  );
-  const list = await erpnextGet<
-    Array<{ name: string; outstanding_amount: number; debit_to: string; customer: string }>
-  >(cfg, `/api/resource/Sales Invoice?filters=${filters}&fields=${fields}&limit=1`);
-
-  if (!list || list.length === 0) {
-    console.warn(`[ERPNext] No Sales Invoice found for po_no="${orderPoNo}" — skipping bank transfer payment entry`);
-    return;
-  }
-
-  const invoice = list[0];
-  if (invoice.outstanding_amount <= 0) {
-    console.log(`[ERPNext] Sales Invoice ${invoice.name} already fully paid — skipping`);
-    return;
-  }
-
-  const mop = await erpnextGet<{
-    name: string;
-    accounts: Array<{ company: string; default_account: string }>;
-  }>(cfg, `/api/resource/Mode%20of%20Payment/${encodeURIComponent(cfg.bankTransferMop)}`);
-
-  if (!mop) {
-    throw new Error(`ERPNext Mode of Payment "${cfg.bankTransferMop}" not found`);
-  }
-
-  const paidTo = mop.accounts.find((a) => a.company === location.erpnextCompany)?.default_account;
-  if (!paidTo) {
-    throw new Error(`No account mapped for "${cfg.bankTransferMop}" under company "${location.erpnextCompany}"`);
-  }
-
-  const pe = await erpnextPost<{ name: string }>(cfg, "/api/resource/Payment Entry", {
-    doctype: "Payment Entry",
-    payment_type: "Receive",
-    company: location.erpnextCompany,
-    posting_date: dateStr,
-    mode_of_payment: mop.name,
-    party_type: "Customer",
-    party: invoice.customer,
-    paid_from: invoice.debit_to,
-    paid_to: paidTo,
-    reference_no: invoice.name,
-    reference_date: dateStr,
-    paid_amount: invoice.outstanding_amount,
-    received_amount: invoice.outstanding_amount,
-    source_exchange_rate: 1,
-    target_exchange_rate: 1,
-    references: [
-      {
-        reference_doctype: "Sales Invoice",
-        reference_name: invoice.name,
-        allocated_amount: invoice.outstanding_amount,
-      },
-    ],
-    docstatus: 1,
-  });
-
-  console.log(`[ERPNext] Bank Transfer Payment Entry ${pe.name} created for Sales Invoice ${invoice.name}`);
-}
-
 /** Create a Payment Entry against an existing Sales Invoice when finance marks the order paid. */
 export async function syncFinanceApprovedPrepaidPaymentToERPNext(
   order: {
     name: string | null;
     shopifyOrderId: string;
+    sourceName?: string | null;
     erpnextInvoiceId?: string | null;
     paymentGatewayPrimary: string | null;
     paymentGatewayNames: string[];
@@ -2305,39 +2308,10 @@ export async function syncFinanceApprovedPrepaidPaymentToERPNext(
     return;
   }
 
-  const erpId = order.erpnextInvoiceId?.trim();
-  const directSiName =
-    erpId && erpId !== "pending" && erpId !== "pending_approval"
-      ? erpId
-      : null;
-
-  let invoice: { name: string; outstanding_amount: number; debit_to: string; customer: string } | null = null;
-
-  if (directSiName) {
-    invoice = await erpnextGet<{ name: string; outstanding_amount: number; debit_to: string; customer: string }>(
-      cfg,
-      `/api/resource/Sales Invoice/${encodeURIComponent(directSiName)}`,
-    ) ?? null;
-  } else {
-    const orderPoNo = (order.name ?? order.shopifyOrderId).slice(0, 140);
-    const filters = encodeURIComponent(
-      JSON.stringify([
-        ["po_no", "=", orderPoNo],
-        ["company", "=", location.erpnextCompany],
-        ["docstatus", "=", "1"],
-      ]),
-    );
-    const fields = encodeURIComponent(
-      JSON.stringify(["name", "outstanding_amount", "debit_to", "customer"]),
-    );
-    const list = await erpnextGet<
-      Array<{ name: string; outstanding_amount: number; debit_to: string; customer: string }>
-    >(cfg, `/api/resource/Sales Invoice?filters=${filters}&fields=${fields}&limit=1`);
-    invoice = list?.[0] ?? null;
-  }
+  const invoice = await findSubmittedSalesInvoiceForPayment(cfg, location.erpnextCompany, order);
 
   if (!invoice) {
-    const label = order.name ?? order.shopifyOrderId;
+    const label = order.erpnextInvoiceId ?? order.name ?? order.shopifyOrderId;
     if (requirePe) {
       throw new Error(`No Sales Invoice found for order "${label}" — cannot create finance-approved PE`);
     }
@@ -2509,12 +2483,25 @@ export async function syncOrderToERPNext(
 
   const netSiItems = buildErpItemsFromShopifyLineItems(lineItems, location.erpnextWarehouse, "net");
   const listSiItems = buildErpItemsFromShopifyLineItems(lineItems, location.erpnextWarehouse, "list");
-  // When a coupon is found in ERP we send items at Shopify list (pre-discount) rates and apply
-  // discount_amount explicitly. ERP's coupon pricing rules don't fire during API-based SI creation
-  // (they require client-side UI triggers), so relying on erp_price_list mode + coupon_code alone
-  // leaves the SI at full price. discount_amount at header level is the reliable path.
-  const siItems = useCouponPricing ? [...listSiItems] : [...netSiItems];
-  const netRateItems = [...netSiItems];
+  // Coupon invoices: max(coupon %, tabloid %) off Standard Selling per SKU.
+  // Do not send coupon_code / pricing_rules on create — ERP would reprice from the coupon rule.
+  let siItems = useCouponPricing ? [...listSiItems] : [...netSiItems];
+  const netRateItems = netSiItems.map((row) => ({ ...row }));
+  const vaultTotal = parseFloat(order.totalPrice.toString());
+
+  if (useCouponPricing) {
+    const priced = await resolveCouponInvoiceItemRates({
+      cfg,
+      productItems: siItems,
+      netFallbackItems: netSiItems.map((row) => ({ ...row })),
+      pricingRule: erpCouponResolved.pricingRule,
+      company: location.erpnextCompany,
+      asOfDate: dateStr,
+      shopifyGrandTotal: vaultTotal,
+      shippingAmt: shopifyShippingAmt,
+    });
+    siItems = priced.items;
+  }
 
   if (useShippingItem) {
     const shippingRow: ErpSalesInvoiceItem = {
@@ -2528,8 +2515,7 @@ export async function syncOrderToERPNext(
     netRateItems.push(shippingRow);
   }
 
-  const vaultTotal = parseFloat(order.totalPrice.toString());
-  // siItems already holds the right base rates (list for coupon orders, net for others).
+  // siItems already holds the right base rates (best-discount or Shopify nets).
   const itemsTotal =
     sumErpInvoiceItemsTotal(siItems) +
     (useShippingTaxRow || useShippingItem ? shopifyShippingAmt : 0);
@@ -2537,10 +2523,6 @@ export async function syncOrderToERPNext(
 
   const billingAddressHtml = formatAddressHtml(billingAddr);
   const shippingAddressHtml = formatAddressHtml(shippingAddr);
-
-  const pricingRuleRows = erpCouponResolved.pricingRule
-    ? buildErpSalesInvoicePricingRuleRows(siItems, erpCouponResolved.pricingRule)
-    : [];
 
   const siBody = {
     doctype: "Sales Invoice",
@@ -2555,8 +2537,8 @@ export async function syncOrderToERPNext(
     // Avoid ERP Hutch SMS Server Script calling frappe.generate_hash (not in safe_exec).
     sms_ebill_token: generateSmsEbillToken(),
     items: siItems,
-    ...erpCouponFields,
-    ...(pricingRuleRows.length > 0 ? { pricing_rules: pricingRuleRows } : {}),
+    ...couponFieldsForInvoiceCreate(erpCouponFields, erpCouponResolved.discountCodeLabel),
+    ...(useCouponPricing ? { ignore_pricing_rule: 1 } : {}),
     ...(customerEmail ? { contact_email: customerEmail } : {}),
     ...(contactMobile ? { contact_mobile: contactMobile } : {}),
     // Payment type mapped from Shopify gateway names
@@ -2774,7 +2756,7 @@ export async function syncOrderToERPNextFromOrder(order: OrderWithVaultData): Pr
     const netSiItems = buildErpItemsFromShopifyLineItems(shopifyLineItems, erpnextWarehouse, "net");
     const listSiItems = buildErpItemsFromShopifyLineItems(shopifyLineItems, erpnextWarehouse, "list");
     siItems = useCouponPricing ? [...listSiItems] : [...netSiItems];
-    netRateItems = useCouponPricing ? [...netSiItems] : undefined;
+    netRateItems = useCouponPricing ? netSiItems.map((row) => ({ ...row })) : undefined;
   } else {
     siItems = lineItems.map((li) => ({
       item_code: li.productItem.sku ?? li.productItem.productTitle.slice(0, 140),
@@ -2792,6 +2774,21 @@ export async function syncOrderToERPNextFromOrder(order: OrderWithVaultData): Pr
   });
   const useShippingTaxRow = shippingAmt > 0 && !!cfg.shippingChargeAccount;
   const useShippingItem = shippingAmt > 0 && !!cfg.shippingItem && !useShippingTaxRow;
+  const vaultTotal = parseFloat(order.totalPrice.toString());
+
+  if (useCouponPricing) {
+    const priced = await resolveCouponInvoiceItemRates({
+      cfg,
+      productItems: siItems,
+      netFallbackItems: (netRateItems ?? siItems).map((row) => ({ ...row })),
+      pricingRule: erpCouponResolved.pricingRule,
+      company: erpnextCompany,
+      asOfDate: dateStr,
+      shopifyGrandTotal: vaultTotal,
+      shippingAmt,
+    });
+    siItems = priced.items;
+  }
 
   if (useShippingItem) {
     const shippingRow: ErpSalesInvoiceItem = {
@@ -2808,14 +2805,9 @@ export async function syncOrderToERPNextFromOrder(order: OrderWithVaultData): Pr
   const itemsTotal =
     sumErpInvoiceItemsTotal(siItems) +
     (useShippingTaxRow || useShippingItem ? shippingAmt : 0);
-  const vaultTotal = parseFloat(order.totalPrice.toString());
   const discountAmt = parseFloat((itemsTotal - vaultTotal).toFixed(2));
 
   const addrHtml = formatAddressHtml(addr);
-
-  const pricingRuleRows = erpCouponResolved.pricingRule
-    ? buildErpSalesInvoicePricingRuleRows(siItems, erpCouponResolved.pricingRule)
-    : [];
 
   const siBody = {
     doctype: "Sales Invoice",
@@ -2830,8 +2822,8 @@ export async function syncOrderToERPNextFromOrder(order: OrderWithVaultData): Pr
     // Avoid ERP Hutch SMS Server Script calling frappe.generate_hash (not in safe_exec).
     sms_ebill_token: generateSmsEbillToken(),
     items: siItems,
-    ...erpCouponFields,
-    ...(pricingRuleRows.length > 0 ? { pricing_rules: pricingRuleRows } : {}),
+    ...couponFieldsForInvoiceCreate(erpCouponFields, erpCouponResolved.discountCodeLabel),
+    ...(useCouponPricing ? { ignore_pricing_rule: 1 } : {}),
     ...(customerEmail ? { contact_email: customerEmail } : {}),
     ...(contactMobile ? { contact_mobile: contactMobile } : {}),
     ...(erpPaymentType ? { custom_payment_type: erpPaymentType } : {}),

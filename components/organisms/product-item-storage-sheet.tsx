@@ -1,6 +1,5 @@
 "use client";
 
-import { upload } from "@vercel/blob/client";
 import {
   FileAudio,
   FileImage,
@@ -19,7 +18,9 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { uploadToCloudinary, type SignedUpload } from "@/lib/cloudinary-direct-upload";
 import { notify } from "@/lib/notify";
+import { SHORT_VIDEO_MAX_SECONDS } from "@/lib/seo-content/types";
 
 type AssetType = "image" | "video" | "audio" | "document";
 
@@ -32,6 +33,7 @@ type Asset = {
   fileSize: number | null;
   mimeType: string | null;
   provider: string | null;
+  durationSeconds: number | null;
   createdAt: string;
   uploadedBy: { id: string; name: string | null } | null;
 };
@@ -59,6 +61,12 @@ function formatBytes(bytes: number | null) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatDuration(seconds: number) {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
 }
 
 function proxyUrl(asset: Asset) {
@@ -91,6 +99,7 @@ export function ProductItemStorageSheet({
   const [assets, setAssets] = useState<Asset[]>([]);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -120,12 +129,17 @@ export function ProductItemStorageSheet({
     if (!sku || !familyName) return;
     const type = mimeToType(file.type || "application/octet-stream");
     setUploading(true);
+    setUploadProgress(null);
     try {
-      const blob = await upload(file.name, file, {
-        access: "private",
-        handleUploadUrl: "/api/admin/product-items/assets/upload",
-        clientPayload: JSON.stringify({ sku }),
+      const signRes = await fetch("/api/admin/product-items/assets/upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fileName: file.name, mimeType: file.type || null, fileSize: file.size }),
       });
+      const signed = (await signRes.json()) as SignedUpload & { error?: string };
+      if (!signRes.ok) throw new Error(signed.error ?? "Could not start upload");
+
+      const uploaded = await uploadToCloudinary(signed, file, setUploadProgress);
 
       const res = await fetch("/api/admin/product-items/assets", {
         method: "POST",
@@ -135,9 +149,10 @@ export function ProductItemStorageSheet({
           productTitle: productTitle ?? "",
           type,
           fileName: file.name,
-          blobUrl: blob.url,
-          fileSize: file.size,
+          blobUrl: uploaded.secureUrl,
+          fileSize: uploaded.bytes,
           mimeType: file.type || null,
+          durationSeconds: uploaded.duration,
         }),
       });
       const data = (await res.json()) as { ok?: boolean; error?: string };
@@ -150,6 +165,7 @@ export function ProductItemStorageSheet({
       notify.error(err instanceof Error ? err.message : "Upload failed");
     } finally {
       setUploading(false);
+      setUploadProgress(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
   }
@@ -271,7 +287,13 @@ export function ProductItemStorageSheet({
                       >
                         {asset.fileName}
                       </a>
-                      <p className="mt-0.5 text-xs text-muted-foreground">
+                      <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground">
+                        {asset.type === "video" && asset.durationSeconds != null ? (
+                          <span className="rounded-full bg-secondary px-1.5 py-0.5 text-[10px] font-semibold text-foreground">
+                            {asset.durationSeconds <= SHORT_VIDEO_MAX_SECONDS ? "Short" : "Long"} ·{" "}
+                            {formatDuration(asset.durationSeconds)}
+                          </span>
+                        ) : null}
                         {[formatBytes(asset.fileSize), asset.uploadedBy?.name]
                           .filter(Boolean)
                           .join(" · ")}
@@ -340,7 +362,11 @@ export function ProductItemStorageSheet({
               onClick={() => fileInputRef.current?.click()}
             >
               {uploading ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
-              {uploading ? "Uploading..." : `Upload ${currentTab.label}`}
+              {uploading
+                ? uploadProgress != null
+                  ? `Uploading ${Math.round(uploadProgress * 100)}%`
+                  : "Uploading..."
+                : `Upload ${currentTab.label}`}
             </Button>
           </div>
         ) : null}
