@@ -7,7 +7,6 @@ import { CompanySettingsForm } from "@/components/molecules/company-settings-for
 import { DepartmentsSettingsForm } from "@/components/molecules/departments-settings-form";
 import { DesignationsSettingsForm } from "@/components/molecules/designations-settings-form";
 import { LocationsSettingsForm } from "@/components/molecules/locations-settings-form";
-import { RiderPaydaySettingsForm } from "@/components/molecules/rider-payday-settings-form";
 import { RiderDeliveryChargesForm } from "@/components/molecules/rider-delivery-charges-form";
 import { ShopifyWebhookSecretsForm } from "@/components/molecules/shopify-webhook-secrets-form";
 import type { LocationsSettingsInitialData } from "@/lib/page-data/locations-settings";
@@ -25,9 +24,6 @@ export type SettingsPageData = {
     createdAt: string;
     updatedAt: string;
   } | null;
-  riderPayday?: {
-    paydayDayOfMonth: number | null;
-  };
 };
 
 interface SettingsPageDataProps {
@@ -100,10 +96,6 @@ export function SettingsPageData({
       <CompanySettingsForm
         canEdit={canEdit}
         initialCompany={data.company}
-      />
-      <RiderPaydaySettingsForm
-        canEdit={canEdit}
-        initialPaydayDayOfMonth={data.riderPayday?.paydayDayOfMonth ?? null}
       />
       <RiderDeliveryChargesForm canEdit={canEdit} />
       <div className="space-y-2 rounded-2xl border border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_10%,transparent),color-mix(in_srgb,var(--primary)_8%,transparent))] p-4 shadow-xs">

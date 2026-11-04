@@ -12,12 +12,10 @@ import type {
 import { parseMoney } from "@/src/utils/money";
 
 export type AggregatedRiderPerformance = {
-  paydayConfigured: boolean;
-  paydayDayOfMonth: number | null;
   period: RiderPerformanceResponse["period"];
-  completedCount: number | null;
-  failedCount: number | null;
-  incentiveTotal: string | null;
+  completedCount: number;
+  failedCount: number;
+  incentiveTotal: string;
   todayCompletedCount: number;
   todayIncentiveTotal: string;
   lines: RiderPerformanceLine[];
@@ -26,12 +24,10 @@ export type AggregatedRiderPerformance = {
 
 function emptyAggregate(): AggregatedRiderPerformance {
   return {
-    paydayConfigured: false,
-    paydayDayOfMonth: null,
     period: null,
-    completedCount: null,
-    failedCount: null,
-    incentiveTotal: null,
+    completedCount: 0,
+    failedCount: 0,
+    incentiveTotal: "0.00",
     todayCompletedCount: 0,
     todayIncentiveTotal: "0.00",
     lines: [],
@@ -71,9 +67,7 @@ export function useRiderPerformance(period: RiderPerformancePeriodKind = "curren
       }
 
       const preferred =
-        okPayloads.find((row) => row.tenant.id === "cosmetics" && row.payload?.paydayConfigured)?.payload ??
-        okPayloads.find((row) => row.payload?.paydayConfigured)?.payload ??
-        okPayloads[0]!.payload!;
+        okPayloads.find((row) => row.tenant.id === "cosmetics")?.payload ?? okPayloads[0]!.payload!;
 
       let completedCount = 0;
       let failedCount = 0;
@@ -81,36 +75,30 @@ export function useRiderPerformance(period: RiderPerformancePeriodKind = "curren
       let todayCompletedCount = 0;
       let todayIncentiveTotal = 0;
       const lines: RiderPerformanceLine[] = [];
-      let anyConfigured = false;
 
       for (const row of okPayloads) {
         const payload = row.payload!;
-        if (payload.paydayConfigured) {
-          anyConfigured = true;
-          completedCount += payload.completedCount ?? 0;
-          failedCount += payload.failedCount ?? 0;
-          incentiveTotal += parseMoney(payload.incentiveTotal);
-          for (const line of payload.lines) {
-            lines.push({
-              ...line,
-              tenant: row.tenant.id,
-              companyLabel: row.tenant.label,
-            });
-          }
-        }
+        completedCount += payload.completedCount ?? 0;
+        failedCount += payload.failedCount ?? 0;
+        incentiveTotal += parseMoney(payload.incentiveTotal);
         todayCompletedCount += payload.todayCompletedCount ?? 0;
         todayIncentiveTotal += parseMoney(payload.todayIncentiveTotal);
+        for (const line of payload.lines) {
+          lines.push({
+            ...line,
+            tenant: row.tenant.id,
+            companyLabel: row.tenant.label,
+          });
+        }
       }
 
       lines.sort((a, b) => String(b.completedAt ?? "").localeCompare(String(a.completedAt ?? "")));
 
       setData({
-        paydayConfigured: anyConfigured,
-        paydayDayOfMonth: preferred.paydayDayOfMonth,
         period: preferred.period,
-        completedCount: anyConfigured ? completedCount : null,
-        failedCount: anyConfigured ? failedCount : null,
-        incentiveTotal: anyConfigured ? incentiveTotal.toFixed(2) : null,
+        completedCount,
+        failedCount,
+        incentiveTotal: incentiveTotal.toFixed(2),
         todayCompletedCount,
         todayIncentiveTotal: todayIncentiveTotal.toFixed(2),
         lines,

@@ -3688,7 +3688,7 @@ model StoreStockCountUserSave {
   @@index([companyId])
 }
 
-/// Singleton: one payday day-of-month for all companies in this database.
+/// Legacy singleton (unused). Pay periods are calendar months in app code; keep row for old DBs.
 model RiderPayPeriodConfig {
   id               String   @id @default(cuid())
   singletonKey     String   @unique @default("default")

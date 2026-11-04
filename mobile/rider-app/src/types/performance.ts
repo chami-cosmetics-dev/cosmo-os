@@ -11,8 +11,9 @@ export type RiderPerformanceLine = {
 };
 
 export type RiderPerformanceResponse = {
-  paydayConfigured: boolean;
-  paydayDayOfMonth: number | null;
+  /** Legacy field — always true (calendar-month periods). */
+  paydayConfigured?: boolean;
+  paydayDayOfMonth?: number | null;
   period: {
     kind: RiderPerformancePeriodKind;
     from: string;
