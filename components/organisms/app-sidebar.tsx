@@ -39,10 +39,11 @@ import {
   ClipboardCheck,
   BellRing,
   ArrowLeftRight,
+  SearchCheck,
   Target,
   Stethoscope,
 } from "lucide-react";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import {
   Sidebar,
   SidebarContent,
@@ -57,6 +58,7 @@ import { NavItem } from "@/components/molecules/nav-item";
 import { UserMenu } from "@/components/molecules/user-menu";
 import { ALL_REPORT_DUMP_PERMISSIONS, REPORT_DUMP_PERMISSIONS } from "@/lib/report-permissions";
 import { APP_INITIALS, APP_NAME } from "@/lib/branding";
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 
 interface AppSidebarProps {
   user: {
@@ -90,10 +92,14 @@ export function AppSidebar({
   const canViewRiderPerformance = hasSidebarPermission("riders.performance.read");
   const canViewOrders = hasSidebarPermission("orders.read");
   const canViewAbandonedOrders = hasSidebarPermission("abandoned_orders.read");
+  const canViewNewItemRequests =
+    hasSidebarPermission("new_item_requests.manage") ||
+    hasSidebarPermission("new_item_requests.admin");
   const canViewStockRequests =
     hasSidebarPermission("stock_requests.read") ||
     hasSidebarPermission("stock_requests.create") ||
-    hasSidebarPermission("stock_requests.read_all");
+    hasSidebarPermission("stock_requests.read_all") ||
+    canViewNewItemRequests;
   const canViewContactMaster =
     hasSidebarPermission("contacts.master.read") ||
     hasSidebarPermission("contacts.read");
@@ -106,12 +112,15 @@ export function AppSidebar({
   const canViewEmailCleanup =
     hasSidebarPermission("contacts.master.manage") ||
     hasSidebarPermission("contacts.manage");
-  const canViewSupplementImport = hasSidebarPermission("contacts.master.manage");
+  const canViewSupplementImport =
+    isVaultOsDeployment() && hasSidebarPermission("contacts.master.manage");
   const canViewReturns = hasSidebarPermission("returns.read");
   const canViewExchanges = hasSidebarPermission("exchanges.read");
   const canViewProducts = hasSidebarPermission("products.read");
   const canViewVatStatus =
     hasSidebarPermission("products.vat_status.read") ||
+    hasSidebarPermission("products.order_availability.read") ||
+    hasSidebarPermission("products.order_availability.manage") ||
     hasSidebarPermission("products.gift_vouchers.read") ||
     hasSidebarPermission("products.gift_vouchers.manage");
   const canViewItemCreation =
@@ -137,6 +146,7 @@ export function AppSidebar({
     hasSidebarPermission("purchasing.market_prices.read") ||
     hasSidebarPermission("purchasing.market_prices.manage");
   const canViewGrn = hasSidebarPermission("purchasing.grn.read");
+  const canAdminNewItemRequests = hasSidebarPermission("new_item_requests.admin");
   const canViewSalesBudget = hasSidebarPermission("purchasing.sales_budget.read");
   const canViewPurchasing =
     canViewSalesBudget ||
@@ -145,13 +155,15 @@ export function AppSidebar({
     canViewPurchaseHistory ||
     canViewItemTrends ||
     canViewMarketPrices ||
-    canViewGrn;
+    canViewGrn ||
+    canAdminNewItemRequests;
   const canViewStoreAllocation = hasSidebarPermission("store.allocation.read");
   const canViewStoreStockCount = hasSidebarPermission("store.stock_count.read");
   const canViewMaterialTransfer = hasSidebarPermission("store.material_transfer.write");
   const canViewStore =
     canViewStoreAllocation || canViewStoreStockCount || canViewMaterialTransfer || hasOutlet;
   const canViewCompanySettings = hasSidebarPermission("settings.company");
+  const canViewSuppliersSettings = hasSidebarPermission("settings.suppliers");
   const canViewEmailTemplates = hasSidebarPermission("settings.email_templates");
   const canViewSmsSettings = hasSidebarPermission("settings.sms_portal");
   const canViewFulfillmentSettings = hasSidebarPermission("settings.fulfillment");
@@ -239,6 +251,7 @@ export function AppSidebar({
     canRegisterUsers;
   const canViewSettings =
     canViewCompanySettings ||
+    canViewSuppliersSettings ||
     canViewEmailTemplates ||
     canViewSmsSettings ||
     canViewFulfillmentSettings ||
@@ -251,10 +264,16 @@ export function AppSidebar({
     canViewReturns ||
     canViewExchanges ||
     canManageBookNotes ||
+    canViewNewItemRequests ||
     Boolean(fulfillmentHref);
   const canViewStickers = canStickerBatch || canStickerPrint;
-  const canViewProductManagement = canViewProducts || canViewVatStatus;
+  const canViewSeoContent = hasSidebarPermission("products.seo.read");
+  const canViewProductManagement = canViewProducts || canViewVatStatus || canViewSeoContent;
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const onNewItemRequestsTab =
+    searchParams.get("tab") === "new-items" ||
+    pathname.startsWith("/dashboard/new-item-requests");
 
   return (
     <Sidebar
@@ -386,7 +405,10 @@ export function AppSidebar({
                   href="/dashboard/orders/stock-requests"
                   icon={BellRing}
                   label="Stock Requests"
-                  isActive={pathname === "/dashboard/orders/stock-requests"}
+                  isActive={
+                    pathname.startsWith("/dashboard/orders/stock-requests") ||
+                    pathname.startsWith("/dashboard/new-item-requests")
+                  }
                 />
               )}
               {canViewOrders && (
@@ -621,7 +643,7 @@ export function AppSidebar({
           <SidebarGroup>
             <SidebarGroupLabel>General Settings</SidebarGroupLabel>
             <SidebarGroupContent>
-              {canViewCompanySettings && (
+              {(canViewCompanySettings || canViewSuppliersSettings) && (
                 <NavItem href="/dashboard/settings" icon={Settings} label="Settings" isActive={pathname === "/dashboard/settings"} />
               )}
               {canViewEmailTemplates && (
@@ -673,12 +695,15 @@ export function AppSidebar({
                 <NavItem
                   href="/dashboard/products/vat-status"
                   icon={BadgeCheck}
-                  label="VAT Status"
+                  label="Order Availability"
                   isActive={pathname === "/dashboard/products/vat-status"}
                 />
               )}
               {canViewItemCreation && (
                 <NavItem href="/dashboard/products/item-creation" icon={ClipboardCheck} label="Item Creation" isActive={pathname.startsWith("/dashboard/products/item-creation")} />
+              )}
+              {canViewSeoContent && (
+                <NavItem href="/dashboard/products/seo" icon={SearchCheck} label="SEO Content" isActive={pathname === "/dashboard/products/seo"} />
               )}
               {canViewProducts && (
                 <NavItem href="/dashboard/products/vendors-categories" icon={Tags} label="Vendors & Categories" isActive={pathname === "/dashboard/products/vendors-categories"} />
@@ -734,6 +759,14 @@ export function AppSidebar({
                   icon={Target}
                   label="Sales Budget"
                   isActive={pathname === "/dashboard/purchasing/sales-budget"}
+                />
+              )}
+              {canAdminNewItemRequests && (
+                <NavItem
+                  href="/dashboard/orders/stock-requests?tab=new-items"
+                  icon={ClipboardList}
+                  label="New item requests"
+                  isActive={onNewItemRequestsTab}
                 />
               )}
             </SidebarGroupContent>

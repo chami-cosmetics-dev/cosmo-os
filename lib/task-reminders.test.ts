@@ -9,6 +9,7 @@ import {
   isTaskReminderOverdue,
   mapMerchantDispatchPendingReminder,
   mapMerchantPaymentApprovalReminder,
+  merchantOwnsReminderOrder,
   resolveDispatchReminderSince,
 } from "@/lib/task-reminders";
 import { TASK_REMINDER_SLA_MS } from "@/lib/task-reminder-sla";
@@ -80,15 +81,75 @@ describe("merchant payment approval reminders", () => {
   const now = new Date("2026-09-15T12:00:00Z");
   const merchantId = "user-merchant-1";
 
-  it("scopes where to merchant assigned pending payment approvals only", () => {
-    const where = buildMerchantPaymentApprovalWhere("co-1", merchantId);
+  it("scopes where to assigned merchant or matching coupon", () => {
+    const where = buildMerchantPaymentApprovalWhere("co-1", merchantId, [
+      "MER86-Nirukshi",
+    ]);
     expect(where).toMatchObject({
       companyId: "co-1",
       type: ORDER_PAYMENT_APPROVAL,
       status: "pending",
-      order: { assignedMerchantId: merchantId },
     });
-    expect(where).not.toHaveProperty("OR");
+    expect(where.order).toMatchObject({
+      OR: [
+        { assignedMerchantId: merchantId },
+        { discountCodes: { string_contains: "MER86-Nirukshi" } },
+      ],
+    });
+  });
+
+  it("treats coupon-owned unassigned ERP orders as this merchant's", () => {
+    expect(
+      merchantOwnsReminderOrder(
+        {
+          assignedMerchantId: null,
+          sourceName: "erpnext",
+          discountCodes: [{ code: "MER86-Nirukshi", amount: 0 }],
+        },
+        merchantId,
+        ["MER86-Nirukshi", "MER86"],
+      ),
+    ).toBe(true);
+    expect(
+      merchantOwnsReminderOrder(
+        {
+          assignedMerchantId: null,
+          sourceName: "erpnext",
+          discountCodes: [{ code: "MER86-Nirukshi", amount: 0 }],
+        },
+        merchantId,
+        ["MER103-Semini"],
+      ),
+    ).toBe(false);
+    expect(
+      merchantOwnsReminderOrder(
+        { assignedMerchantId: merchantId, discountCodes: [] },
+        merchantId,
+        [],
+      ),
+    ).toBe(true);
+    expect(
+      merchantOwnsReminderOrder(
+        {
+          assignedMerchantId: "other-user",
+          sourceName: "erpnext",
+          discountCodes: [{ code: "MER86-Nirukshi", amount: 0 }],
+        },
+        merchantId,
+        ["MER86-Nirukshi"],
+      ),
+    ).toBe(true);
+    expect(
+      merchantOwnsReminderOrder(
+        {
+          assignedMerchantId: merchantId,
+          sourceName: "erpnext",
+          discountCodes: [{ code: "MER103-Semini", amount: 0 }],
+        },
+        merchantId,
+        ["MER86-Nirukshi"],
+      ),
+    ).toBe(false);
   });
 
   it("maps pending copy with merchant dashboard href", () => {
@@ -128,17 +189,21 @@ describe("merchant dispatch pending reminders", () => {
   });
 
   it("scopes where to the merchant's undispatched orders", () => {
-    const where = buildMerchantDispatchPendingWhere("co-1", merchantId);
+    const where = buildMerchantDispatchPendingWhere("co-1", merchantId, [
+      "MER86-Nirukshi",
+    ]);
     expect(where).toMatchObject({
       companyId: "co-1",
-      assignedMerchantId: merchantId,
       cancelledAt: null,
       dispatchedAt: null,
       fulfillmentStage: {
         in: ["order_received", "sample_free_issue", "print", "ready_to_dispatch"],
       },
+      OR: [
+        { assignedMerchantId: merchantId },
+        { discountCodes: { string_contains: "MER86-Nirukshi" } },
+      ],
     });
-    expect(where).not.toHaveProperty("OR");
   });
 
   it("maps pending copy with time since placed", () => {

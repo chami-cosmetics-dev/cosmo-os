@@ -131,4 +131,15 @@ describe("Citypak courier → City Pak MOP mapping", () => {
       "Cash On Delivery",
     );
   });
+
+  it("maps bank_transfer to the configured bankTransferMop", () => {
+    expect(mapDeliveryPaymentMethodToMop(cfg, "bank_transfer")).toBe("Wire Transfer");
+    expect(
+      mapDeliveryPaymentMethodToMop({ ...cfg, bankTransferMop: "Bank Transfer" }, "bank_transfer"),
+    ).toBe("Bank Transfer");
+    expect(resolveOrderPaymentMop(cfg, "bank_transfer", [])).toBe("Wire Transfer");
+    expect(
+      resolveOrderPaymentMop({ ...cfg, bankTransferMop: "Bank Transfer" }, "bank_transfer", []),
+    ).toBe("Bank Transfer");
+  });
 });

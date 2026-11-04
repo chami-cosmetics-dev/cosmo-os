@@ -17,10 +17,13 @@ import {
   fetchMonthlyPurchasesInRange,
   mergeBestPurchaseMaps,
   mergeMonthlyPurchaseMaps,
+  mergeSupplierMinMaps,
+  rankedSuppliersFromMins,
 } from "@/lib/osf/erp-purchases";
 import { fetchWarehouseBins, getAllOsfErpInstances, stockForColumn } from "@/lib/osf/erp-stock";
 import {
   aggregateMonthlySalesBySku,
+  isoDateMonthsBefore,
   osfBestPurchaseBounds,
   osfPurchaseGridBounds,
   osfSalesGridBounds,
@@ -53,6 +56,9 @@ import { osfGenerateBodySchema } from "@/lib/validation/osf";
 function todayColombo(): string {
   return formatAppIsoDate(new Date());
 }
+
+/** Last-purchase scan lookback. Older receipts stay blank instead of paging all ERP history. */
+const LAST_PURCHASE_LOOKBACK_MONTHS = 24;
 
 /** Full catalog + April-to-date grids. Default 300s runs out of time and memory. */
 export const maxDuration = 800;
@@ -253,6 +259,7 @@ export async function POST(request: NextRequest) {
             cfg: inst.cfg,
             itemCodes: skus,
             recentSinceDate,
+            postingDateFrom: isoDateMonthsBefore(asOfDate, LAST_PURCHASE_LOOKBACK_MONTHS),
             allowedSuppliers,
           }),
           fetchMonthlyPurchasesInRange({
@@ -279,6 +286,8 @@ export async function POST(request: NextRequest) {
       profileMap.set(p.sku, {
         shopAvailability: p.shopAvailability,
         ogfPrice: p.ogfPrice != null ? Number(p.ogfPrice) : null,
+        targetPurchaseRate:
+          p.targetPurchaseRate != null ? Number(p.targetPurchaseRate) : null,
         reorderThresholdPercent: p.reorderThresholdPercent,
         rops: {},
       });
@@ -287,6 +296,7 @@ export async function POST(request: NextRequest) {
       const entry = profileMap.get(r.sku) ?? {
         shopAvailability: null,
         ogfPrice: null,
+        targetPurchaseRate: null,
         reorderThresholdPercent: null,
         rops: {},
       };
@@ -341,6 +351,9 @@ export async function POST(request: NextRequest) {
     const bestPurchaseBySku = mergeBestPurchaseMaps(
       perInstanceResults.map((r) => r.monthlyPurchases.best),
     );
+    const rankedSuppliersBySku = rankedSuppliersFromMins(
+      mergeSupplierMinMaps(perInstanceResults.map((r) => r.monthlyPurchases.supplierMins)),
+    );
 
     const countryInstances = [erp1Inst, erp2Inst, ...erpInstances].filter(
       (inst, idx, all): inst is NonNullable<typeof inst> => {
@@ -377,6 +390,7 @@ export async function POST(request: NextRequest) {
       salesByMonth,
       purchasesByMonth,
       bestPurchaseBySku,
+      rankedSuppliersBySku,
       belowThresholdOnly,
       effectiveColumnKeys,
       osfVariant,

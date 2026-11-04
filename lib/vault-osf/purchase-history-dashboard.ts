@@ -21,6 +21,10 @@ export const VAULT_ERP_COMPANY_OPTIONS = [
 
 export const COSMO_ERP_COMPANY_OPTIONS = ["Cosmetics.lk"] as const;
 
+const VAULT_ERP_COMPANY_KEYS = new Set(
+  VAULT_ERP_COMPANY_OPTIONS.map((name) => name.toLowerCase()),
+);
+
 const COMPANY_ALIAS_KEY: Record<string, string> = {
   supplement: "SupplementVault.lk",
   supplemental: "SupplementVault.lk",
@@ -63,18 +67,50 @@ export function parsePurchaseHistoryCompanies(
   return out;
 }
 
+/** Vault OS: SupplementVault / Origins / AE. Cosmo OS: not those companies. */
+export function isVaultPurchaseHistoryCompany(
+  name: string | null | undefined,
+): boolean {
+  const canonical = canonicalizePurchaseHistoryCompany(name);
+  if (!canonical) return false;
+  return VAULT_ERP_COMPANY_KEYS.has(canonical.toLowerCase());
+}
+
+export function isPurchaseHistoryCompanyForOs(
+  name: string | null | undefined,
+  vaultOs: boolean,
+): boolean {
+  if (vaultOs) return isVaultPurchaseHistoryCompany(name);
+  return !isVaultPurchaseHistoryCompany(name);
+}
+
+export function purchaseHistoryOsCompanyExtras(vaultOs: boolean): readonly string[] {
+  return vaultOs ? VAULT_ERP_COMPANY_OPTIONS : COSMO_ERP_COMPANY_OPTIONS;
+}
+
+export function filterPurchaseHistoryLinesForOs<
+  T extends { company?: string | null; excelCompany?: string | null },
+>(lines: T[], vaultOs: boolean): T[] {
+  return lines.filter((line) =>
+    isPurchaseHistoryCompanyForOs(line.company ?? line.excelCompany, vaultOs),
+  );
+}
+
 export function purchaseHistoryErpCompanyOptions(
   fromErpCompanies: Iterable<string | null | undefined>,
   extras: readonly string[] = [],
+  vaultOs?: boolean,
 ): string[] {
   const set = new Set<string>();
+  const accept = (canonical: string) =>
+    vaultOs == null ? true : isPurchaseHistoryCompanyForOs(canonical, vaultOs);
   for (const extra of extras) {
     const canonical = canonicalizePurchaseHistoryCompany(extra);
-    if (canonical) set.add(canonical);
+    if (canonical && accept(canonical)) set.add(canonical);
   }
   for (const name of fromErpCompanies) {
     const canonical = canonicalizePurchaseHistoryCompany(name);
-    if (canonical) set.add(canonical);
+    if (canonical && accept(canonical)) set.add(canonical);
   }
   return [...set].sort((a, b) => a.localeCompare(b));
 }
@@ -331,6 +367,40 @@ export function matchesPurchaseHistoryFilters(
     if (points == null || points >= filters.marginBelow) return false;
   }
   return true;
+}
+
+/** Prefer ERP Item.brand; fall back to Cosmo vendor. */
+export function pickPurchaseHistoryBrand(
+  erpBrand: string | null | undefined,
+  catalogBrand: string | null | undefined,
+): string | null {
+  return erpBrand?.trim() || catalogBrand?.trim() || null;
+}
+
+export function lookupPurchaseHistoryCatalog<T>(
+  map: Map<string, T>,
+  sku: string,
+): T | undefined {
+  const raw = sku.trim();
+  if (!raw) return undefined;
+  return map.get(raw) ?? map.get(raw.toUpperCase());
+}
+
+export function overlayPurchaseHistoryCatalog(
+  catalog: CatalogSellInfo | undefined,
+  extras: { brand?: string | null; country?: string | null },
+): CatalogSellInfo | undefined {
+  const brand = pickPurchaseHistoryBrand(extras.brand, catalog?.brand);
+  const country = extras.country?.trim() || catalog?.country?.trim() || null;
+  if (!catalog && !brand && !country) return undefined;
+  return {
+    productTitle: catalog?.productTitle ?? null,
+    brand,
+    priority: catalog?.priority ?? null,
+    country,
+    mrp: catalog?.mrp ?? null,
+    discountedPrice: catalog?.discountedPrice ?? null,
+  };
 }
 
 export function enrichPurchaseHistoryRow(

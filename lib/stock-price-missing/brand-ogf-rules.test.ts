@@ -6,6 +6,12 @@ import {
 } from "@/lib/stock-price-missing/brand-ogf-rules";
 
 describe("brandRequiresOgf", () => {
+  it("Vault OS: never requires OGF", () => {
+    expect(brandRequiresOgf("Cerave", "erp1", true)).toBe(false);
+    expect(brandRequiresOgf("NOW Foods", "erp2", true)).toBe(false);
+    expect(brandRequiresOgf(null, "erp2", true)).toBe(false);
+  });
+
   it("ERP1: only Cerave needs OGF", () => {
     expect(brandRequiresOgf("Cerave", "erp1")).toBe(true);
     expect(brandRequiresOgf("Olay", "erp1")).toBe(false);
@@ -86,6 +92,27 @@ describe("classifyPriceGapForBrand", () => {
         erp: "erp2",
       }),
     ).toBe("OGF");
+  });
+
+  it("Vault OS: only flags Standard missing", () => {
+    expect(
+      classifyPriceGapForBrand({
+        hasStandard: true,
+        hasOgf: false,
+        brand: "NOW Foods",
+        erp: "erp2",
+        vaultOs: true,
+      }),
+    ).toBeNull();
+    expect(
+      classifyPriceGapForBrand({
+        hasStandard: false,
+        hasOgf: false,
+        brand: "NOW Foods",
+        erp: "erp1",
+        vaultOs: true,
+      }),
+    ).toBe("Standard");
   });
 
   it("ERP2 skip-list brand: only flags Standard", () => {

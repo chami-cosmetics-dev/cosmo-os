@@ -42,6 +42,7 @@ import type {
 import {
   BOOK_NOTE_ERP_PAYMENT_METHODS,
   columnsToSplitLines,
+  KOKO_ORDER_ID_LABEL,
   MINTPAY_ORDER_ID_LABEL,
   mintpayReferenceDigitWarning,
   missingKokoSplitReference,
@@ -115,6 +116,36 @@ function emptySplitLine(paymentMethod: BookNoteErpPaymentMethod = "Card"): Split
     mintpayReference: "",
     bankReference: "",
   };
+}
+
+function KokoReferenceInput({
+  value,
+  disabled,
+  onChange,
+  showLabel = true,
+}: {
+  value: string;
+  disabled: boolean;
+  onChange: (value: string) => void;
+  showLabel?: boolean;
+}) {
+  return (
+    <div>
+      {showLabel ? (
+        <label className="text-muted-foreground mb-1 block text-[10px] leading-snug">
+          {KOKO_ORDER_ID_LABEL}
+        </label>
+      ) : null}
+      <Input
+        value={value}
+        disabled={disabled}
+        aria-label={KOKO_ORDER_ID_LABEL}
+        required
+        className="h-8 font-mono text-xs"
+        onChange={(e) => onChange(e.target.value)}
+      />
+    </div>
+  );
 }
 
 function MintpayReferenceInput({
@@ -859,7 +890,7 @@ export function BookNotesPanel({
         const missingKoko = missingKokoSplitReference(payload);
         if (missingKoko != null) {
           showError(
-            `Row ${r.idxNo || "?"} split line ${missingKoko + 1}: enter the KOKO order reference`,
+            `Row ${r.idxNo || "?"} split line ${missingKoko + 1}: enter the ${KOKO_ORDER_ID_LABEL}`,
           );
           return null;
         }
@@ -875,7 +906,7 @@ export function BookNotesPanel({
       const kokoAmt = toNum(r.koko);
       if (kokoAmt > 0 && !normalizeKokoOrderReference(r.kokoReference)) {
         showError(
-          `Row ${r.idxNo || "?"}: enter the KOKO order reference when a KOKO amount is entered`,
+          `Row ${r.idxNo || "?"}: enter the ${KOKO_ORDER_ID_LABEL} when a KOKO amount is entered`,
         );
         return null;
       }
@@ -1149,7 +1180,7 @@ export function BookNotesPanel({
     });
     if (missingKoko.length > 0 || missingMintpay.length > 0) {
       if (missingKoko.length > 0) {
-        line += ` · KOKO reference missing: ${missingKoko.join(", ")}`;
+        line += ` · KOKO Order ID missing: ${missingKoko.join(", ")}`;
       }
       if (missingMintpay.length > 0) {
         line += ` · MintPay Order ID missing: ${missingMintpay.join(", ")}`;
@@ -1158,7 +1189,7 @@ export function BookNotesPanel({
       const parts: string[] = [];
       if (missingKoko.length > 0) {
         parts.push(
-          `KOKO order reference missing for ${missingKoko.join(", ")}.`,
+          `${KOKO_ORDER_ID_LABEL} missing for ${missingKoko.join(", ")}.`,
         );
       }
       if (missingMintpay.length > 0) {
@@ -1434,10 +1465,11 @@ export function BookNotesPanel({
           Enter shop invoices and payment splits as recorded in the physical
           book. Use <span className="font-semibold text-violet-700">SPLIT</span>{" "}
           when one invoice has multiple payment legs (e.g. two cards with
-          different receipt refs).           When a normal row includes card payment,
-          enter the last 4 digits of the POS receipt reference. When MintPay is
-          used, enter the MintPay Order ID shown in the MintPay app after
-          payment (7 digits). Pick any past
+          different receipt refs). When a normal row includes card payment,
+          enter the last 4 digits of the POS receipt reference. When KOKO is
+          used, enter the KOKO Order ID. When MintPay is used, enter the
+          MintPay Order ID shown in the MintPay app after payment (7 digits).
+          Pick any past
           date to create or edit your own sheet for that day (not future).
           Another merchant at the same shop keeps a separate sheet.
           {canAdminBookNotes
@@ -1715,7 +1747,7 @@ export function BookNotesPanel({
               <th className="p-2">Sales Invoice</th>
               <th className="p-2 w-28 text-right">Cash</th>
               <th className="p-2 w-32 text-right">Card</th>
-              <th className="p-2 w-36 text-right">KOKO</th>
+              <th className="p-2 w-44 text-right">KOKO</th>
               <th className="p-2 w-44 text-right">MintPay</th>
               <th className="p-2 w-28 text-right">Bank</th>
               <th className="p-2 w-28 text-right">Row Total</th>
@@ -1876,16 +1908,15 @@ export function BookNotesPanel({
                       }
                     />
                     {koko > 0 && !row.splitMode ? (
-                      <Input
-                        value={row.kokoReference}
-                        disabled={isBusy || readOnly}
-                        placeholder="KOKO order ref"
-                        aria-label="KOKO order reference"
-                        className="mt-1 h-7 font-mono text-xs"
-                        onChange={(e) =>
-                          updateRow(row.key, { kokoReference: e.target.value })
-                        }
-                      />
+                      <div className="mt-1">
+                        <KokoReferenceInput
+                          value={row.kokoReference}
+                          disabled={isBusy || readOnly}
+                          onChange={(kokoReference) =>
+                            updateRow(row.key, { kokoReference })
+                          }
+                        />
+                      </div>
                     ) : null}
                   </td>
                   <td className="p-1 align-top">
@@ -1980,7 +2011,7 @@ export function BookNotesPanel({
                                 <th className="p-2">Method</th>
                                 <th className="p-2 w-28 text-right">Amount</th>
                                 <th className="p-2 w-24">Card last 4</th>
-                                <th className="p-2">KOKO ref</th>
+                                <th className="p-2">{KOKO_ORDER_ID_LABEL}</th>
                                 <th className="p-2 min-w-[16rem] normal-case tracking-normal">
                                   {MINTPAY_ORDER_ID_LABEL}
                                 </th>
@@ -2049,16 +2080,13 @@ export function BookNotesPanel({
                                   </td>
                                   <td className="p-1">
                                     {sl.paymentMethod === "KOKO" ? (
-                                      <Input
+                                      <KokoReferenceInput
                                         value={sl.kokoReference}
                                         disabled={isBusy || readOnly}
-                                        placeholder="KOKO order ref"
-                                        aria-label="KOKO order reference"
-                                        required={toNum(sl.amount) > 0}
-                                        className="h-8"
-                                        onChange={(e) =>
+                                        showLabel={false}
+                                        onChange={(kokoReference) =>
                                           updateSplitLine(row.key, sl.key, {
-                                            kokoReference: e.target.value,
+                                            kokoReference,
                                           })
                                         }
                                       />

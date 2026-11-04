@@ -17,7 +17,6 @@ import { normalizeSkuKey } from "@/lib/product-items/erp-priority-sync";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserContext, hasPermission } from "@/lib/rbac";
 import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
-import { updateShopifyVariantPriceBySku } from "@/lib/shopify-admin";
 
 type UserContext = NonNullable<Awaited<ReturnType<typeof getCurrentUserContext>>>;
 type Tx = Prisma.TransactionClient;
@@ -1026,59 +1025,24 @@ async function updateItemCreationShopifyPrice(request: {
     return { ok: true, updated: 0, skipped: true as const };
   }
 
-  const shopifyLocationName = isVaultOsDeployment() ? "SupplementVault.lk" : "Cosmetics.lk";
-  const productItems = await prisma.productItem.findMany({
-    where: {
-      companyId: request.companyId,
-      sku: { equals: request.sku, mode: "insensitive" },
-      companyLocation: { name: shopifyLocationName },
-    },
-    select: {
-      id: true,
-      shopifyProductId: true,
-      shopifyVariantId: true,
-      companyLocation: { select: { shopifyAdminStoreHandle: true, shopifyShopName: true } },
-    },
-  });
-  const targets = new Map<string, {
-    productId: string;
-    variantId: string;
-    storeHandle: string;
-    productItemIds: string[];
-  }>();
-  for (const item of productItems) {
-    const storeHandle = (
-      item.companyLocation.shopifyAdminStoreHandle ?? item.companyLocation.shopifyShopName
-    )?.trim();
-    const productId = item.shopifyProductId.trim();
-    const variantId = item.shopifyVariantId.trim();
-    if (!storeHandle || !/\d+$/.test(productId) || !/\d+$/.test(variantId)) continue;
-    const key = `${storeHandle.toLowerCase()}::${productId}::${variantId}`;
-    const current = targets.get(key);
-    if (current) {
-      current.productItemIds.push(item.id);
-    } else {
-      targets.set(key, { productId, variantId, storeHandle, productItemIds: [item.id] });
-    }
-  }
-  if (targets.size === 0) {
-    return { ok: true, updated: 0, skipped: true as const, reason: "variant_not_found" };
-  }
+  const { erp1 } = await resolveErps(request.companyId);
+  if (!erp1) throw new Error("ERP1 instance is not configured for Shopify price updates");
 
-  const updatedIds: string[] = [];
-  for (const target of targets.values()) {
-    const result = await updateShopifyVariantPriceBySku({
-      storeHandle: target.storeHandle,
+  const method = process.env.ERPNEXT_SHOPIFY_PRICE_UPDATE_METHOD?.trim() || "cosmo_update_shopify_price";
+  const response = await erpJson<unknown>(erp1.cfg, `/api/method/${encodeURIComponent(method)}`, {
+    method: "POST",
+    body: JSON.stringify({
+      item_code: request.sku,
       sku: request.sku,
-      price: request.standardPrice.toString(),
-    });
-    if (result.updated) updatedIds.push(...target.productItemIds);
-  }
-  await prisma.productItem.updateMany({
-    where: { id: { in: updatedIds } },
-    data: { price: request.standardPrice },
+      price: request.standardPrice.toFixed(2),
+      shopify_store: "Cosmetics.lk",
+    }),
   });
-  return { ok: true, updated: targets.size, skipped: false as const };
+  const message = methodMessage(response);
+  if (message.ok === false || message.updated === false) {
+    throw new Error(String(message.error ?? message.message ?? "ERP1 Shopify price update failed"));
+  }
+  return { ok: true, updated: 1, skipped: false as const };
 }
 
 export async function updateItemCreationPrices(context: UserContext, id: string) {

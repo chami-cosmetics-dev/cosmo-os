@@ -47,4 +47,54 @@ describe("resolveDashboardOrderMerchant", () => {
       isWholesale: true,
     });
   });
+
+  it("keeps AE DM_General as DM-General even if someone is assigned", () => {
+    expect(
+      resolveDashboardOrderMerchant({
+        orderCoupons: ["dm_general"],
+        couponToUser,
+        wholesaleOwners,
+        assignedMerchantId: "himaya",
+        assignedMerchant: { knownName: "himaya", couponCodes: [] },
+        userToGroup: new Map(),
+        locationName: "AE (PVT) LTD",
+      }),
+    ).toEqual({ id: null, name: "DM-General", isWholesale: false });
+  });
+
+  it("puts orders with no MER on DM-General even if a cashier is assigned", () => {
+    expect(
+      resolveDashboardOrderMerchant({
+        orderCoupons: [],
+        couponToUser,
+        wholesaleOwners,
+        assignedMerchantId: "himaya",
+        assignedMerchant: { knownName: "himaya", couponCodes: [] },
+        userToGroup: new Map(),
+        locationName: "AE (PVT) LTD",
+      }),
+    ).toEqual({ id: null, name: "DM-General", isWholesale: false });
+  });
+
+  it("assigns AE personal MER to that merchant", () => {
+    const natashaUsers = [
+      {
+        id: "natasha",
+        knownName: "Natasha",
+        couponCodes: ["MER99", "MER99-Dinuli"],
+        wholesaleCouponCodes: [] as string[],
+      },
+    ];
+    expect(
+      resolveDashboardOrderMerchant({
+        orderCoupons: ["mer99-dinuli"],
+        couponToUser: buildCouponToMerchantMap(natashaUsers),
+        wholesaleOwners: buildWholesaleOwnerMap(natashaUsers),
+        assignedMerchantId: "himaya",
+        assignedMerchant: { knownName: "himaya", couponCodes: [] },
+        userToGroup: new Map(),
+        locationName: "AE (PVT) LTD",
+      }),
+    ).toEqual({ id: "natasha", name: "Natasha", isWholesale: false });
+  });
 });

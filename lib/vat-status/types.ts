@@ -6,6 +6,7 @@ export type ErpItemTaxHit = {
   itemCode: string;
   itemName: string | null;
   taxStatus: string | null;
+  productPriority?: string | null;
 };
 
 export type VatStatusSlotId = "erp1" | "erp2";
@@ -17,6 +18,7 @@ export type VatStatusSlot = {
   found: boolean;
   itemName: string | null;
   taxStatus: string | null;
+  productPriority: string | null;
   vat: boolean;
   error: string | null;
 };
@@ -52,6 +54,7 @@ export function buildVatStatusSlot(input: {
       found: false,
       itemName: null,
       taxStatus: null,
+      productPriority: null,
       vat: false,
       error,
     };
@@ -66,7 +69,28 @@ export function buildVatStatusSlot(input: {
     found: Boolean(hit),
     itemName: hit?.itemName?.trim() || null,
     taxStatus,
+    productPriority: hit?.productPriority?.trim() || null,
     vat: isVatTaxStatus(taxStatus),
     error: null,
+  };
+}
+
+export function productPriorityLabel(
+  erp1: string | null | undefined,
+  erp2: string | null | undefined,
+): string {
+  const a = (erp1 ?? "").trim();
+  const b = (erp2 ?? "").trim();
+  if (a && b && a.toLowerCase() !== b.toLowerCase()) return `${a} / ${b}`;
+  return a || b;
+}
+
+export function mergeItemTaxLabels(
+  erp1: Pick<ErpItemTaxHit, "taxStatus" | "productPriority"> | null | undefined,
+  erp2: Pick<ErpItemTaxHit, "taxStatus" | "productPriority"> | null | undefined,
+): { taxStatus: string | null; productPriority: string | null } {
+  return {
+    taxStatus: productPriorityLabel(erp1?.taxStatus, erp2?.taxStatus) || null,
+    productPriority: productPriorityLabel(erp1?.productPriority, erp2?.productPriority) || null,
   };
 }

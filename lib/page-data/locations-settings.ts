@@ -1,3 +1,4 @@
+import { publicCitypakLocationFields } from "@/lib/citypak-account";
 import { prisma } from "@/lib/prisma";
 import { getCompanyLocationInvoiceFields } from "@/lib/company-location-invoice-fields";
 import { eligibleMerchantUserWhere } from "@/lib/merchant-eligibility";
@@ -32,6 +33,9 @@ export type LocationsSettingsLocation = {
   erpnextWarehouse: string | null;
   fulfillmentBlocked: boolean;
   isMainCompany: boolean;
+  citypakAccountId: string | null;
+  hasCitypakApiToken: boolean;
+  citypakApiTokenMasked: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -84,6 +88,8 @@ export async function getLocationsSettingsInitialData(
         erpnextWarehouse: true,
         fulfillmentBlocked: true,
         isMainCompany: true,
+        citypakAccountId: true,
+        citypakApiToken: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -97,19 +103,26 @@ export async function getLocationsSettingsInitialData(
 
   const invoiceFields = await getCompanyLocationInvoiceFields(rows.map((row) => row.id));
 
-  const locations: LocationsSettingsLocation[] = rows.map((l) => ({
-    ...l,
-    manualInvoicePrefix: invoiceFields.get(l.id)?.manualInvoicePrefix ?? null,
-    manualInvoiceNextSeq: invoiceFields.get(l.id)?.manualInvoiceNextSeq ?? 0,
-    manualInvoiceSeqPadding: invoiceFields.get(l.id)?.manualInvoiceSeqPadding ?? 3,
-    supplierPrefix: l.supplierPrefix,
-    erpnextCompany: l.erpnextCompany,
-    erpnextWarehouse: l.erpnextWarehouse,
-    fulfillmentBlocked: l.fulfillmentBlocked,
-    isMainCompany: l.isMainCompany,
-    createdAt: l.createdAt.toISOString(),
-    updatedAt: l.updatedAt.toISOString(),
-  }));
+  const locations: LocationsSettingsLocation[] = rows.map((l) => {
+    const { citypakApiToken, ...rest } = l;
+    return {
+      ...rest,
+      manualInvoicePrefix: invoiceFields.get(l.id)?.manualInvoicePrefix ?? null,
+      manualInvoiceNextSeq: invoiceFields.get(l.id)?.manualInvoiceNextSeq ?? 0,
+      manualInvoiceSeqPadding: invoiceFields.get(l.id)?.manualInvoiceSeqPadding ?? 3,
+      supplierPrefix: l.supplierPrefix,
+      erpnextCompany: l.erpnextCompany,
+      erpnextWarehouse: l.erpnextWarehouse,
+      fulfillmentBlocked: l.fulfillmentBlocked,
+      isMainCompany: l.isMainCompany,
+      ...publicCitypakLocationFields({
+        citypakAccountId: l.citypakAccountId,
+        citypakApiToken,
+      }),
+      createdAt: l.createdAt.toISOString(),
+      updatedAt: l.updatedAt.toISOString(),
+    };
+  });
 
   return {
     locations,

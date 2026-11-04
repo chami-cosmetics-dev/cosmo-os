@@ -142,6 +142,6 @@ export const BOOK_NOTE_ISSUE_STATUS_LABELS: Record<BookNoteIssueStatus, string> 
     no_payment_entry_linked: "No payment entry",
     sales_invoice_not_found: "Invoice not found",
     no_invoice_number: "No invoice number",
-    koko_ref_missing: "KOKO reference missing",
+    koko_ref_missing: "KOKO Order ID missing",
     mintpay_ref_missing: "MintPay Order ID missing",
   };

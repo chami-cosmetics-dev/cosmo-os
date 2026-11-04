@@ -4,6 +4,7 @@ import {
   resolveShopToMain,
   shopReturnDestination,
   shopReturnHeader,
+  shopReturnTaxStatus,
   type ShopReturnWarehouse,
 } from "@/lib/material-transfer/shop-return";
 
@@ -16,11 +17,19 @@ function warehouse(
 }
 
 describe("shop return split", () => {
-  it("sends VAT items to ERP1 and other items to ERP2", () => {
+  it("sends Vat and Vat / Non Vat to ERP1 and other items to ERP2", () => {
     expect(shopReturnDestination("Vat")).toBe("erp1");
+    expect(shopReturnDestination("vat")).toBe("erp1");
     expect(shopReturnDestination("Vat / Non Vat")).toBe("erp1");
     expect(shopReturnDestination("Non Vat")).toBe("erp2");
     expect(shopReturnDestination("")).toBe("erp2");
+  });
+
+  it("keeps ERP1 tax status when the SKU is on ERP1", () => {
+    expect(shopReturnTaxStatus("Vat / Non Vat", "Non Vat", true)).toBe("Vat / Non Vat");
+    expect(shopReturnTaxStatus(null, "Vat / Non Vat", true)).toBe("Vat / Non Vat");
+    expect(shopReturnTaxStatus("Non Vat", "Vat / Non Vat", true)).toBe("Non Vat");
+    expect(shopReturnTaxStatus(null, "Non Vat", false)).toBe("Non Vat");
   });
 
   it("builds one header when both ERPs have lines", () => {
@@ -84,7 +93,7 @@ describe("resolveShopToMain", () => {
   });
 
   it("sends Cool Planet VAT stock to the Cosmetics main and other items to the MNK main", () => {
-    const result = resolveShopToMain("Cool Planet", [
+    const result = resolveShopToMain("CoolPlanet", [
       warehouse("Cool Planet Nugegoda Shop Warehouse - Cosmo", "Cosmetics.lk", "erp1"),
       warehouse("Main Warehouse - Cosmo", "Cosmetics.lk", "erp1"),
       warehouse("Main Warehouse 2 - Cosmo", "Cosmetics.lk", "erp1"),
@@ -181,6 +190,34 @@ describe("resolveShopToMain", () => {
           erpCompany: "LMJ International",
           sourceWarehouse: "Shop Warehouse - LMJ",
           targetWarehouse: "Main Warehouse - LMJ",
+        },
+      ],
+    });
+  });
+
+  it("sends Negombo from the DTD shop warehouse to the DTD main warehouse", () => {
+    const result = resolveShopToMain("Negombo", [
+      warehouse("Negombo Shop Warehouse - Cosmo", "Cosmetics.lk", "erp1"),
+      warehouse("Main Warehouse - Cosmo", "Cosmetics.lk", "erp1"),
+      warehouse("Shop Warehouse - DTD", "DTD Trading", "erp2"),
+      warehouse("Main Warehouse - DTD", "DTD Trading", "erp2"),
+      warehouse("Shop Warehouse - LMJ", "LMJ International", "erp2"),
+      warehouse("Main Warehouse - LMJ", "LMJ International", "erp2"),
+    ]);
+    expect(result).toEqual({
+      ok: true,
+      legs: [
+        {
+          slot: "erp1",
+          erpCompany: "Cosmetics.lk",
+          sourceWarehouse: "Negombo Shop Warehouse - Cosmo",
+          targetWarehouse: "Main Warehouse - Cosmo",
+        },
+        {
+          slot: "erp2",
+          erpCompany: "DTD Trading",
+          sourceWarehouse: "Shop Warehouse - DTD",
+          targetWarehouse: "Main Warehouse - DTD",
         },
       ],
     });

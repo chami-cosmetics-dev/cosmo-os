@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client";
 import {
   DELIVERY_PAYMENT_APPROVAL,
   DELIVERY_PAYMENT_FINANCE_UI_ENABLED,
+  reconcilePendingApprovalsForErpResolvedOrders,
   reconcilePendingApprovalsForVoidedOrders,
   reconcileOrphanPendingPaymentApprovalsForPaidOrders,
   resolveViewerFinanceLocationIds,
@@ -141,6 +142,7 @@ export async function GET() {
   );
 
   await reconcilePendingApprovalsForVoidedOrders(companyId);
+  await reconcilePendingApprovalsForErpResolvedOrders(companyId);
   await reconcileOrphanPendingPaymentApprovalsForPaidOrders(companyId);
   await dismissStaleApprovalNotifications(companyId, userId);
   await dismissDeliveryPaymentApprovalNotifications(companyId, userId);

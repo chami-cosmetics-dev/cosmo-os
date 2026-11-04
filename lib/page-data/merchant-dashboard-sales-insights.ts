@@ -166,6 +166,9 @@ export async function fetchMerchantSalesInsights(
       updatedAt: true,
       cancelledAt: true,
       assignedMerchantId: true,
+      companyLocation: {
+        select: { name: true, defaultMerchantUserId: true },
+      },
       sourceName: true,
       financialStatus: true,
       fulfillmentStatus: true,
@@ -194,6 +197,9 @@ export async function fetchMerchantSalesInsights(
       dm: sets.dm,
       hasDm: sets.hasDm,
       assignedToViewer: order.assignedMerchantId === merchantUserId,
+      locationName: order.companyLocation?.name,
+      locationDefaultIsViewer:
+        order.companyLocation?.defaultMerchantUserId === merchantUserId,
     });
     if (!bucket) continue;
 

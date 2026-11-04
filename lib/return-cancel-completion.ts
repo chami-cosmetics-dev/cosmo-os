@@ -150,19 +150,14 @@ export async function runReturnCancelExternalCompletion(input: {
       );
 
       let shopifyOutcome: ReturnCancelShopifyOutcome;
+      let shopifyError: string | undefined;
       try {
         shopifyOutcome = await cancelShopifyForReturn(input.order, shopifyHandle, deps);
       } catch (err) {
-        return {
-          ok: false,
-          completionMode,
-          erpOutcome: ensured.created ? "credit_note" : "already_done",
-          creditNoteName: ensured.creditNoteName,
-          invoiceName: ensured.originalInvoiceName,
-          originalStatus: ensured.originalStatus,
-          shopifyOutcome: "failed",
-          error: sanitizeReturnCancelError(err),
-        };
+        // ERP credit note already landed. Shopify failure must not block finance approve
+        // (ERP1 returns are real Shopify orders; ERP2 erp- ids skip Shopify).
+        shopifyOutcome = "failed";
+        shopifyError = sanitizeReturnCancelError(err);
       }
 
       return {
@@ -173,6 +168,7 @@ export async function runReturnCancelExternalCompletion(input: {
         invoiceName: ensured.originalInvoiceName,
         originalStatus: ensured.originalStatus,
         shopifyOutcome,
+        ...(shopifyError ? { error: shopifyError } : {}),
       };
     }
 
@@ -198,17 +194,13 @@ export async function runReturnCancelExternalCompletion(input: {
     }
 
     let shopifyOutcome: ReturnCancelShopifyOutcome;
+    let shopifyError: string | undefined;
     try {
       shopifyOutcome = await cancelShopifyForReturn(input.order, shopifyHandle, deps);
     } catch (err) {
-      return {
-        ok: false,
-        completionMode,
-        erpOutcome: cancelResult.outcome === "already_cancelled" ? "already_done" : "cancelled",
-        invoiceName: cancelResult.invoiceName,
-        shopifyOutcome: "failed",
-        error: sanitizeReturnCancelError(err),
-      };
+      // Invoice cancel already landed. Shopify failure must not block finance approve.
+      shopifyOutcome = "failed";
+      shopifyError = sanitizeReturnCancelError(err);
     }
 
     return {
@@ -217,6 +209,7 @@ export async function runReturnCancelExternalCompletion(input: {
       erpOutcome: cancelResult.outcome === "already_cancelled" ? "already_done" : "cancelled",
       invoiceName: cancelResult.invoiceName,
       shopifyOutcome,
+      ...(shopifyError ? { error: shopifyError } : {}),
     };
   } catch (err) {
     return {

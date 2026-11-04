@@ -183,7 +183,7 @@ export const bookNotePutRowSchema = z
       if (missingKoko != null) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: "KOKO order reference is required when KOKO amount is entered",
+          message: "KOKO Order ID is required when a KOKO amount is entered",
           path: ["splitLines", missingKoko, "kokoReference"],
         });
       }
@@ -212,7 +212,7 @@ export const bookNotePutRowSchema = z
     if (row.koko > 0 && !row.kokoReference) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "KOKO order reference is required when KOKO amount is entered",
+        message: "KOKO Order ID is required when a KOKO amount is entered",
         path: ["kokoReference"],
       });
     }

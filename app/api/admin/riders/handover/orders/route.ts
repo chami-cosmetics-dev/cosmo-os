@@ -8,6 +8,7 @@ import {
   handoverDeliveryMatchesQuery,
   handoverReceiptsCovering,
   handoverSummaryCashAmount,
+  isInvoiceClosed,
   latestReceiptForCompany,
   loadScopedRiderHandoverDeliveries,
 } from "@/lib/rider-handover";
@@ -59,8 +60,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Invalid date range" }, { status: 400 });
   }
 
-  const matched = loaded.deliveries.filter((delivery) =>
-    handoverDeliveryMatchesQuery(delivery, parsed.data.q ?? ""),
+  const matched = loaded.deliveries.filter(
+    (delivery) =>
+      !isInvoiceClosed(delivery) && handoverDeliveryMatchesQuery(delivery, parsed.data.q ?? ""),
   );
   const coveringReceipts = await handoverReceiptsCovering({
     companyId,

@@ -2,7 +2,9 @@ import {
   DELIVERY_PAYMENT_APPROVAL,
   getFinancePaymentApprovalBlockReason,
   ORDER_PAYMENT_APPROVAL,
+  PAYMENT_METHOD_CHANGE_APPROVAL,
 } from "@/lib/approval-workflow";
+import { FINANCE_PAYMENT_METHOD_CHANGE_PENDING } from "@/lib/collection-payment-method";
 import { writeAuditLog } from "@/lib/audit-log";
 import {
   clearOrderErpPeSyncFailure,
@@ -20,6 +22,7 @@ import { approvalSplitCashCollectAmount } from "@/lib/approval-payment-split";
 import { loadLatestOrderSplitPaymentLines } from "@/lib/order-split-payment";
 import { prisma } from "@/lib/prisma";
 import { shouldCommitInvoiceComplete } from "@/lib/rider-handover";
+import { ERP_OWNER_MISSING_MESSAGE, erpDocumentOwner } from "@/lib/erp-payment-entry-owner";
 
 export { markOrderFinanciallyInvoiceComplete } from "@/lib/financial-invoice-complete";
 
@@ -79,6 +82,17 @@ export async function markOrderInvoiceComplete(input: {
     return { success: false, ref, error: "Order not found" };
   }
   if (!input.posAlreadyPaid) {
+    const pendingMethodChange = await prisma.approvalRequest.findFirst({
+      where: {
+        orderId: order.id,
+        type: PAYMENT_METHOD_CHANGE_APPROVAL,
+        status: "pending",
+      },
+      select: { id: true },
+    });
+    if (pendingMethodChange) {
+      return { success: false, ref, error: FINANCE_PAYMENT_METHOD_CHANGE_PENDING };
+    }
     const financeBlock = await getFinancePaymentApprovalBlockReason({
       id: order.id,
       paymentGatewayPrimary: order.paymentGatewayPrimary,
@@ -125,6 +139,21 @@ export async function markOrderInvoiceComplete(input: {
     userId: input.userId,
   });
   const mopForFailure = resolvedMop ?? mopOverride ?? ERP_PE_SYNC_MOP_ORDER_AUTO;
+
+  let erpOwner = "";
+  if (input.commitOnlyWhenPaymentEntrySucceeds) {
+    const actorId = input.userId.trim();
+    const actor = actorId
+      ? await prisma.user.findUnique({
+          where: { id: actorId },
+          select: { erpnextUsername: true, email: true },
+        })
+      : null;
+    erpOwner = erpDocumentOwner(actor ?? {});
+    if (!erpOwner) {
+      return { success: false, ref, error: ERP_OWNER_MISSING_MESSAGE };
+    }
+  }
 
   const stampInvoice = async () => {
     await prisma.$transaction(async (tx) => {
@@ -185,6 +214,7 @@ export async function markOrderInvoiceComplete(input: {
           mopNameOverride: mopOverride ?? cashSplitMop ?? undefined,
           requireMop: true,
           ...(cashToCollect != null ? { paidAmount: cashToCollect } : {}),
+          ...(erpOwner ? { owner: erpOwner } : {}),
         },
       );
       if (peResult.outcome === "skipped") {
@@ -227,6 +257,7 @@ export async function markOrderInvoiceComplete(input: {
         paymentMopSource: mopOverride ? "override" : "order",
         posAlreadyPaid: input.posAlreadyPaid ?? false,
         commitOnlyWhenPaymentEntrySucceeds: input.commitOnlyWhenPaymentEntrySucceeds ?? false,
+        erpOwner: erpOwner || null,
       },
     });
   };

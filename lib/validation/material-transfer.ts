@@ -36,6 +36,7 @@ export const materialTransferSubmitSchema = z.object({
 export const materialTransferHistoryQuerySchema = z.object({
   status: z.enum(["sent", "received", "requested", "confirming", "confirmed"]).optional(),
   scope: z.enum(["all", "shop"]),
+  direction: z.enum(["store_to_shop", "shop_to_main"]).optional(),
   mismatch: z.literal("1").optional(),
 });
 

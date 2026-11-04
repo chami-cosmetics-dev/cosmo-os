@@ -67,6 +67,17 @@ export async function quickSearchOrders(params: {
         { name: { contains: searchTerm, mode: "insensitive" } },
         { customerPhone: { contains: searchTerm, mode: "insensitive" } },
         { customerEmail: { contains: searchTerm, mode: "insensitive" } },
+        // SKU on any line item (partial, case-insensitive)
+        {
+          lineItems: {
+            some: {
+              productItem: {
+                companyId: params.companyId,
+                sku: { contains: searchTerm, mode: "insensitive" },
+              },
+            },
+          },
+        },
         ...(nameMatches.length > 0 ? [{ id: { in: nameMatches.map((row) => row.id) } }] : []),
         ...(kokoRefOrderIds.length > 0 ? [{ id: { in: kokoRefOrderIds } }] : []),
       ],

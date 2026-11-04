@@ -3,6 +3,7 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 
 import { isRealErpSalesInvoiceId } from "@/lib/approval-workflow";
+import { fetchAuditLogs, writeAuditLog } from "@/lib/audit-log";
 import { collectContactPhonesSync } from "@/lib/contact-identifiers";
 import { buildContactOrderLookupOr } from "@/lib/contact-purchase-lookup";
 import { parseAppCalendarDayEnd, parseAppCalendarDayStart } from "@/lib/format-datetime";
@@ -11,6 +12,7 @@ import { prisma } from "@/lib/prisma";
 
 import {
   suggestConsultationMerchant,
+  type ConsultationHistoryEntry,
   type ConsultationInvoiceMatch,
   type ConsultationMerchantOption,
   type ConsultationRow,
@@ -192,7 +194,8 @@ export async function lookupConsultationInvoices(input: {
     if (!invoiceNumber || seen.has(invoiceNumber)) continue;
     seen.add(invoiceNumber);
     const locationName = order.companyLocation?.name ?? null;
-    const couponMerchant = extractDiscountCodes(order.discountCodes)
+    const discountCodes = extractDiscountCodes(order.discountCodes);
+    const couponMerchant = discountCodes
       .map((code) => couponOwners.get(code))
       .find(Boolean);
     const merchantName =
@@ -203,7 +206,7 @@ export async function lookupConsultationInvoices(input: {
       cancelled: isCancelledOrder(order),
       customerName: pickInvoiceCustomerName(order),
       locationName,
-      suggestedMerchant: suggestConsultationMerchant({ merchantName, locationName }),
+      suggestedMerchant: suggestConsultationMerchant({ merchantName, locationName, discountCodes }),
     });
   }
   return matches;
@@ -241,7 +244,16 @@ export async function createConsultationEntry(input: {
       }),
     ),
   );
-  return records.map(toRow);
+  const rows = records.map(toRow);
+  await logConsultationChange({
+    companyId: input.companyId,
+    userId: input.userId,
+    action: "consultation_created",
+    rows,
+    summary: `Added ${describeEntry(rows)} — ${merchant.label}`,
+    afterData: snapshotEntry(rows),
+  });
+  return rows;
 }
 
 /**
@@ -282,16 +294,89 @@ export async function getConsultationInvoiceValues(
   return values;
 }
 
+/** "D M J Wijewardana (400-000567, 600-006515)" */
+function describeEntry(rows: ConsultationRow[]) {
+  return `${rows[0]?.customerName ?? "Customer"} (${rows.map((row) => row.invoiceNumber).join(", ")})`;
+}
+
+/** Everything needed to see — or re-add — an entry from its history. */
+function snapshotEntry(rows: ConsultationRow[]) {
+  const head = rows[0];
+  return {
+    consultationDate: head?.consultationDate,
+    contactNumber: head?.contactNumber,
+    customerName: head?.customerName,
+    merchantName: head?.merchantName,
+    merchantKind: head?.merchantKind,
+    invoiceNumbers: rows.map((row) => row.invoiceNumber),
+    physicalReview: head?.physicalReview ?? "",
+  };
+}
+
+async function logConsultationChange(input: {
+  companyId: string;
+  userId: string;
+  action: "consultation_created" | "consultation_review_updated" | "consultation_deleted";
+  rows: ConsultationRow[];
+  summary: string;
+  beforeData?: unknown;
+  afterData?: unknown;
+}) {
+  await writeAuditLog({
+    companyId: input.companyId,
+    actorUserId: input.userId,
+    module: "consultation-insights",
+    action: input.action,
+    entityType: "physical_consultation",
+    entityId: input.rows[0]?.entryId ?? null,
+    summary: input.summary,
+    beforeData: input.beforeData,
+    afterData: input.afterData,
+  });
+}
+
+/** Latest adds / review changes / deletes, newest first. */
+export async function listConsultationHistory(companyId: string, limit = 100): Promise<ConsultationHistoryEntry[]> {
+  const entries = await fetchAuditLogs({ companyId, module: "consultation-insights", limit });
+  return entries.map((entry) => {
+    const before = entry.beforeData as { physicalReview?: string } | null;
+    const after = entry.afterData as { physicalReview?: string } | null;
+    return {
+      id: entry.id,
+      action: entry.action,
+      summary: entry.summary,
+      actorName: entry.actorUserName ?? entry.actorUserEmail ?? "Unknown user",
+      createdAt: entry.createdAt,
+      reviewBefore: entry.action === "consultation_review_updated" ? (before?.physicalReview ?? "") : null,
+      reviewAfter: entry.action === "consultation_review_updated" ? (after?.physicalReview ?? "") : null,
+    };
+  });
+}
+
 /** Deletes the customer and all of their invoice rows. Returns the number of rows removed. */
-export async function deleteConsultationEntry(input: { companyId: string; id: string }): Promise<number> {
+export async function deleteConsultationEntry(input: {
+  companyId: string;
+  userId: string;
+  id: string;
+}): Promise<number> {
   const existing = await prisma.physicalConsultation.findFirst({
     where: { id: input.id, companyId: input.companyId },
     select: { entryId: true },
   });
   if (!existing) return 0;
-  const result = await prisma.physicalConsultation.deleteMany({
-    where: { companyId: input.companyId, entryId: existing.entryId },
-  });
+  const where = { companyId: input.companyId, entryId: existing.entryId };
+  const rows = (await prisma.physicalConsultation.findMany({ where, orderBy: { createdAt: "asc" } })).map(toRow);
+  const result = await prisma.physicalConsultation.deleteMany({ where });
+  if (result.count > 0) {
+    await logConsultationChange({
+      companyId: input.companyId,
+      userId: input.userId,
+      action: "consultation_deleted",
+      rows,
+      summary: `Deleted ${describeEntry(rows)} — ${rows[0]?.merchantName ?? ""}`,
+      beforeData: snapshotEntry(rows),
+    });
+  }
   return result.count;
 }
 
@@ -304,7 +389,7 @@ export async function updateConsultationReview(input: {
 }): Promise<ConsultationRow[] | null> {
   const existing = await prisma.physicalConsultation.findFirst({
     where: { id: input.id, companyId: input.companyId },
-    select: { entryId: true },
+    select: { entryId: true, physicalReview: true },
   });
   if (!existing) return null;
   const where = { companyId: input.companyId, entryId: existing.entryId };
@@ -313,5 +398,19 @@ export async function updateConsultationReview(input: {
     data: { physicalReview: input.physicalReview, updatedByUserId: input.userId },
   });
   const records = await prisma.physicalConsultation.findMany({ where, orderBy: { createdAt: "asc" } });
-  return records.map(toRow);
+  const rows = records.map(toRow);
+  const before = existing.physicalReview ?? "";
+  const after = input.physicalReview ?? "";
+  if (before !== after) {
+    await logConsultationChange({
+      companyId: input.companyId,
+      userId: input.userId,
+      action: "consultation_review_updated",
+      rows,
+      summary: `${after ? (before ? "Changed" : "Added") : "Removed"} review for ${describeEntry(rows)}`,
+      beforeData: { physicalReview: before },
+      afterData: { physicalReview: after },
+    });
+  }
+  return rows;
 }

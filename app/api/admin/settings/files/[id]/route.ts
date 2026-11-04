@@ -1,7 +1,8 @@
-import { del } from "@vercel/blob";
 import { NextRequest, NextResponse } from "next/server";
 
 import { writeAuditLog } from "@/lib/audit-log";
+import { deleteStoredFileQuietly } from "@/lib/file-storage";
+import { storedFileResponse } from "@/lib/file-storage-response";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
@@ -9,7 +10,7 @@ import { cuidSchema } from "@/lib/validation";
 export const dynamic = "force-dynamic";
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
@@ -22,25 +23,12 @@ export async function GET(
   });
   if (!file) return NextResponse.json({ error: "File not found" }, { status: 404 });
 
-  const blobRes = await fetch(
-    file.blobUrl,
-    process.env.BLOB_READ_WRITE_TOKEN
-      ? { headers: { Authorization: `Bearer ${process.env.BLOB_READ_WRITE_TOKEN}` } }
-      : undefined,
-  );
-  if (!blobRes.ok || !blobRes.body) {
-    return NextResponse.json({ error: "Failed to fetch file" }, { status: 502 });
-  }
-
-  return new NextResponse(blobRes.body, {
-    headers: {
-      "Content-Type": file.mimeType ?? blobRes.headers.get("Content-Type") ?? "application/octet-stream",
-      "Cache-Control": "private, max-age=3600",
-      "Content-Disposition": `inline; filename="${file.fileName.replace(/"/g, "")}"`,
-      ...(blobRes.headers.get("Content-Length")
-        ? { "Content-Length": blobRes.headers.get("Content-Length")! }
-        : {}),
-    },
+  return storedFileResponse({
+    url: file.blobUrl,
+    request,
+    mimeType: file.mimeType,
+    fileName: file.fileName,
+    cacheControl: "private, max-age=3600",
   });
 }
 
@@ -61,19 +49,13 @@ export async function DELETE(
 
   const file = await prisma.file.findFirst({
     where: { id: idResult.data, companyId },
-    select: { id: true, fileName: true, blobUrl: true, provider: true },
+    select: { id: true, fileName: true, blobUrl: true },
   });
   if (!file) return NextResponse.json({ error: "File not found" }, { status: 404 });
 
   await prisma.file.delete({ where: { id: file.id } });
 
-  if (!file.provider || file.provider === "vercel_blob") {
-    try {
-      await del(file.blobUrl);
-    } catch {
-      // Already deleted or unavailable; the DB record is the source of truth for the app.
-    }
-  }
+  await deleteStoredFileQuietly(file.blobUrl, "settings file");
 
   await writeAuditLog({
     companyId,

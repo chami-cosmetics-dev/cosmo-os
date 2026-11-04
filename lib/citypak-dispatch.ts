@@ -1,11 +1,11 @@
 import { isCitypakCourier } from "@/lib/courier";
+import { pickCitypakDispatchAccount } from "@/lib/citypak-account";
 import {
   CITYPAK_BULK_CREATE_GAP_MS,
   CITYPAK_WAYBILL_SOURCE,
   citypakCodAmount,
   createCitypakOrder,
   getCitypakSender,
-  matchCitypakAccount,
   mergeShippingAddressWithCitypakOverride,
   normalizeCitypakPrefix,
   type CitypakShipmentOverride,
@@ -179,10 +179,13 @@ export async function ensureCitypakShipmentForDispatch(input: {
       prisma.companyLocation.findFirst({
         where: { id: input.order.companyLocationId, companyId: input.companyId },
         select: {
+          id: true,
           name: true,
           shortName: true,
           locationReference: true,
           manualInvoicePrefix: true,
+          citypakAccountId: true,
+          citypakApiToken: true,
         },
       }),
       prisma.orderWaybill.findFirst({
@@ -224,13 +227,23 @@ export async function ensureCitypakShipmentForDispatch(input: {
       locationName: locationReference || location?.shortName || location?.name,
     });
     const prefixKey = normalizeCitypakPrefix(prefix);
-    const account = matchCitypakAccount(accounts, prefix);
+    const account = pickCitypakDispatchAccount({
+      location: location
+        ? {
+            id: location.id,
+            citypakAccountId: location.citypakAccountId,
+            citypakApiToken: location.citypakApiToken,
+          }
+        : null,
+      prefixAccounts: accounts,
+      orderPrefix: prefix,
+    });
 
     if (!account?.apiToken) {
       // Not a transient API error — needs settings or Falcon file.
       return {
         status: "falcon",
-        error: `CityPak API not configured for invoice prefix ${prefixKey || prefix}. Use Falcon Upload.`,
+        error: `CityPak API not configured for this location (prefix ${prefixKey || prefix}). Add CityPak account ID and API key on the location, or a prefix account. Use Falcon Upload.`,
       };
     }
 
@@ -293,7 +306,9 @@ export async function ensureCitypakShipmentForDispatch(input: {
           uploadId: input.uploadId ?? null,
           rawPayload: {
             citypakAccountId: account.accountId,
-            citypakAccountDbId: account.id,
+            citypakAccountDbId: account.accountDbId,
+            citypakLocationId: account.locationId,
+            citypakAccountSource: account.source,
             citypakOrderId: created.orderId,
             trackingNumber: created.trackingNumber,
             reference,

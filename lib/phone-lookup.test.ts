@@ -4,6 +4,7 @@ import {
   buildPhoneSearchSuffixes,
   canonicalPhoneForErpCustomerId,
   normalizeOrderCustomerPhone,
+  parseInsightPhoneSearchInput,
 } from "@/lib/phone-lookup";
 
 describe("canonicalPhoneForErpCustomerId", () => {
@@ -94,5 +95,52 @@ describe("buildPhoneSearchSuffixes", () => {
     expect(suffixes).toEqual(
       expect.arrayContaining(["0774223062", "774223062"]),
     );
+  });
+});
+
+describe("parseInsightPhoneSearchInput", () => {
+  it("treats spaces inside one number as the same 10-digit local", () => {
+    expect(parseInsightPhoneSearchInput("074 202 3010")).toEqual(["0742023010"]);
+    expect(parseInsightPhoneSearchInput("+94 77 169 6734")).toEqual(["0771696734"]);
+  });
+
+  it("accepts +94, 077, and 77 as one number", () => {
+    expect(parseInsightPhoneSearchInput("+94771234567")).toEqual(["0771234567"]);
+    expect(parseInsightPhoneSearchInput("0771234567")).toEqual(["0771234567"]);
+    expect(parseInsightPhoneSearchInput("771234567")).toEqual(["0771234567"]);
+  });
+
+  it("splits a paste of up to 10 numbers", () => {
+    const pasted = [
+      "+94771696734",
+      "074 202 3010",
+      "0717575468",
+      "77 123 4567",
+    ].join("\n");
+    expect(parseInsightPhoneSearchInput(pasted)).toEqual([
+      "0771696734",
+      "0742023010",
+      "0717575468",
+      "0771234567",
+    ]);
+  });
+
+  it("splits space-separated distinct numbers", () => {
+    expect(parseInsightPhoneSearchInput("0771234567 0717575468")).toEqual([
+      "0771234567",
+      "0717575468",
+    ]);
+  });
+
+  it("dedupes formats of the same number and caps at 10", () => {
+    expect(
+      parseInsightPhoneSearchInput("0771234567, +94771234567, 771234567")
+    ).toEqual(["0771234567"]);
+    const many = Array.from({ length: 12 }, (_, i) => `07712345${String(i).padStart(2, "0")}`);
+    expect(parseInsightPhoneSearchInput(many.join("\n"))).toHaveLength(10);
+  });
+
+  it("keeps a short single query for partial search", () => {
+    expect(parseInsightPhoneSearchInput("0771234")).toEqual(["0771234"]);
   });
 });

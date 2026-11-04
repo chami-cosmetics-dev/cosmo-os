@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { fetchErpPaymentLegsByInvoice } from "@/lib/book-notes/erp-payment-legs";
 import { resolveBookNoteSalesInvoice } from "@/lib/book-notes/invoice-identity";
 import { mapOrderPaymentsToBookNoteSuggestion } from "@/lib/book-notes/payment-columns";
+import type { BookNoteCosmeticsPosScope } from "@/lib/book-notes/shop-outlet-map";
 import type { BookNoteOrderSuggestion } from "@/lib/book-notes/types";
 import { parseAppCalendarDayStart } from "@/lib/format-datetime";
 import { prisma } from "@/lib/prisma";
@@ -41,21 +42,40 @@ function scoreOrder(sourceName: string, salesInvoice: string, q: string): number
   return score;
 }
 
+function cosmeticsPosWhere(
+  scope: BookNoteCosmeticsPosScope | null | undefined,
+): Prisma.OrderWhereInput | undefined {
+  if (!scope) return undefined;
+  const or: Prisma.OrderWhereInput[] = [];
+  if (scope.posProfiles.length > 0) {
+    or.push({ posProfile: { in: scope.posProfiles } });
+  }
+  if (scope.warehouses.length > 0) {
+    or.push({ erpnextWarehouse: { in: scope.warehouses } });
+  }
+  if (or.length === 0) return undefined;
+  return { OR: or };
+}
+
 export async function searchBookNoteOrderSuggestions(input: {
   companyId: string;
   companyLocationId: string;
   q: string;
   postingDate?: string;
   limit?: number;
+  /** Cosmetics.lk only: limit to this floor POS when merchant is outlet-scoped. */
+  cosmeticsPosScope?: BookNoteCosmeticsPosScope | null;
 }): Promise<BookNoteOrderSuggestion[]> {
   const q = input.q.trim();
   if (q.length < 2) return [];
 
   const limit = Math.min(Math.max(input.limit ?? 20, 1), 20);
+  const posFilter = cosmeticsPosWhere(input.cosmeticsPosScope);
 
   const where: Prisma.OrderWhereInput = {
     companyId: input.companyId,
     companyLocationId: input.companyLocationId,
+    ...(posFilter ? { AND: [posFilter] } : {}),
     OR: [
       { erpnextInvoiceId: { contains: q, mode: "insensitive" } },
       { name: { contains: q, mode: "insensitive" } },

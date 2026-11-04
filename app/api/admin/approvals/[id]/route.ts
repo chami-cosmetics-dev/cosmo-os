@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import {
   cancelPendingDeliveryPaymentApprovalsForOrder,
+  cancelPendingOrderPaymentApprovalsForOrder,
   DELIVERY_PAYMENT_APPROVAL,
   INVOICE_REVERT_VOID_APPROVAL,
   ORDER_CANCEL_APPROVAL,
@@ -13,11 +14,16 @@ import {
   RETURN_REARRANGE_PAYMENT_APPROVAL,
   hasPriorApprovedPaymentApproval,
   isActiveErpSiRetryLease,
+  isErpClosedApprovalReviewNote,
   isPlaceholderErpInvoiceId,
   isRealErpSalesInvoiceId,
   notifyApprovalRequester,
   resolveViewerFinanceLocationIds,
 } from "@/lib/approval-workflow";
+import {
+  isUnpaidBankTransferGateway,
+  keepOriginalCodPaymentFields,
+} from "@/lib/return-rearrange-original-payment";
 import {
   APPROVAL_SPLIT_KOKO,
   buildDefaultOrderPaymentRequestNote,
@@ -28,7 +34,6 @@ import {
   cancelErpnextSalesInvoice,
   syncApprovalSplitPaymentEntriesToErp,
   syncOrderDeliveryPaymentEntriesToErp,
-  syncBankTransferPaymentToERPNext,
 } from "@/lib/erpnext-sync";
 import {
   cancelShopifyOrder,
@@ -37,7 +42,6 @@ import {
 } from "@/lib/shopify-admin";
 import { needsKokoLinkTimeConfirm } from "@/lib/koko-order";
 import { prisma } from "@/lib/prisma";
-import { formatAppIsoDate } from "@/lib/format-datetime";
 import { requirePermission } from "@/lib/rbac";
 import {
   markOrderErpSyncFailed,
@@ -94,6 +98,58 @@ class ConcurrentApprovalDecisionError extends Error {
     super("Approval request was already reviewed");
     this.name = "ConcurrentApprovalDecisionError";
   }
+}
+
+/** Claim a pending approval as approved. If the ERP webhook already closed it, upgrade that cancel. */
+async function claimApprovalApprovedInTx(
+  tx: Prisma.TransactionClient,
+  input: {
+    approvalId: string;
+    companyId: string;
+    reviewerId: string;
+    reviewNote: string | null;
+    now: Date;
+  },
+) {
+  const updated = await tx.$executeRaw(
+    Prisma.sql`
+      UPDATE "ApprovalRequest"
+      SET
+        "status" = ${"approved"},
+        "reviewedById" = ${input.reviewerId},
+        "reviewNote" = ${input.reviewNote},
+        "reviewedAt" = ${input.now},
+        "updatedAt" = ${input.now}
+      WHERE "id" = ${input.approvalId}
+        AND "companyId" = ${input.companyId}
+        AND "status" = 'pending'
+    `,
+  );
+  if (Number(updated) > 0) return;
+
+  const current = await tx.approvalRequest.findUnique({
+    where: { id: input.approvalId },
+    select: { status: true, reviewNote: true, companyId: true },
+  });
+  if (
+    current?.companyId === input.companyId &&
+    current.status === "cancelled" &&
+    isErpClosedApprovalReviewNote(current.reviewNote)
+  ) {
+    await tx.approvalRequest.update({
+      where: { id: input.approvalId },
+      data: {
+        status: "approved",
+        reviewedById: input.reviewerId,
+        reviewNote: input.reviewNote,
+        reviewedAt: input.now,
+        updatedAt: input.now,
+      },
+    });
+    return;
+  }
+
+  throw new ConcurrentApprovalDecisionError();
 }
 
 async function trySyncKokoOrdersAfterApproval(input: {
@@ -556,23 +612,13 @@ export async function PATCH(
     const reviewNoteReturn = parsed.data.reviewNote ?? null;
     try {
       await prisma.$transaction(async (tx) => {
-        const updated = await tx.$executeRaw(
-          Prisma.sql`
-            UPDATE "ApprovalRequest"
-            SET
-              "status" = ${"approved"},
-              "reviewedById" = ${reviewerId},
-              "reviewNote" = ${reviewNoteReturn},
-              "reviewedAt" = ${now},
-              "updatedAt" = ${now}
-            WHERE "id" = ${approval.id}
-              AND "companyId" = ${companyId}
-              AND "status" = 'pending'
-          `,
-        );
-        if (Number(updated) === 0) {
-          throw new ConcurrentApprovalDecisionError();
-        }
+        await claimApprovalApprovedInTx(tx, {
+          approvalId: approval.id,
+          companyId,
+          reviewerId,
+          reviewNote: reviewNoteReturn,
+          now,
+        });
 
         await finalizeReturnCancelOsState(tx, {
           orderId: order.id,
@@ -632,6 +678,10 @@ export async function PATCH(
       ok: true,
       status: "approved",
       completionMode: external.completionMode,
+      shopifyOutcome: external.shopifyOutcome,
+      ...(external.shopifyOutcome === "failed" && external.error
+        ? { shopifyWarning: external.error }
+        : {}),
       ...(external.completionMode === "credit_note"
         ? { creditNoteName: external.creditNoteName }
         : { invoiceName: external.invoiceName }),
@@ -703,23 +753,13 @@ export async function PATCH(
     const reviewNoteOrderCancel = parsed.data.reviewNote ?? null;
     try {
       await prisma.$transaction(async (tx) => {
-        const updated = await tx.$executeRaw(
-          Prisma.sql`
-            UPDATE "ApprovalRequest"
-            SET
-              "status" = ${"approved"},
-              "reviewedById" = ${reviewerId},
-              "reviewNote" = ${reviewNoteOrderCancel},
-              "reviewedAt" = ${now},
-              "updatedAt" = ${now}
-            WHERE "id" = ${approval.id}
-              AND "companyId" = ${companyId}
-              AND "status" = 'pending'
-          `,
-        );
-        if (Number(updated) === 0) {
-          throw new ConcurrentApprovalDecisionError();
-        }
+        await claimApprovalApprovedInTx(tx, {
+          approvalId: approval.id,
+          companyId,
+          reviewerId,
+          reviewNote: reviewNoteOrderCancel,
+          now,
+        });
 
         const nextReturnIds =
           external.completionMode === "credit_note" && external.creditNoteName
@@ -797,6 +837,10 @@ export async function PATCH(
       ok: true,
       status: "approved",
       completionMode: external.completionMode,
+      shopifyOutcome: external.shopifyOutcome,
+      ...(external.shopifyOutcome === "failed" && external.error
+        ? { shopifyWarning: external.error }
+        : {}),
       ...(external.completionMode === "credit_note"
         ? { creditNoteName: external.creditNoteName }
         : { invoiceName: external.invoiceName }),
@@ -1111,7 +1155,6 @@ export async function PATCH(
     approval.type === PAYMENT_METHOD_CHANGE_APPROVAL
       ? parsePaymentMethodChangeTarget(approval.requestNote)
       : null;
-  const isBankTransferApproval = methodChangeTarget === "bank_transfer";
   const isPaymentReapproval =
     nextStatus === "approved" &&
     approval.orderId != null &&
@@ -1178,6 +1221,26 @@ export async function PATCH(
           actionById: reviewerId,
         },
       });
+      if (approval.type === RETURN_REARRANGE_PAYMENT_APPROVAL && approval.orderId) {
+        const orderForRestore = await tx.order.findUnique({
+          where: { id: approval.orderId },
+          select: {
+            financialStatus: true,
+            paymentGatewayPrimary: true,
+            paymentGatewayNames: true,
+          },
+        });
+        if (orderForRestore && isUnpaidBankTransferGateway(orderForRestore)) {
+          await tx.order.update({
+            where: { id: approval.orderId },
+            data: {
+              ...keepOriginalCodPaymentFields(),
+              ...orderStageUpdate("returned_to_store", now),
+            },
+          });
+          await cancelPendingOrderPaymentApprovalsForOrder(approval.orderId, undefined, tx);
+        }
+      }
     }
 
     if (nextStatus === "approved") {
@@ -1339,6 +1402,32 @@ export async function PATCH(
             ...stageData,
           },
         });
+        const existingPayment = await tx.deliveryPayment.findUnique({
+          where: { orderId: approval.orderId! },
+          select: { id: true, expectedAmount: true },
+        });
+        if (existingPayment) {
+          await tx.deliveryPayment.update({
+            where: { id: existingPayment.id },
+            data: {
+              paymentMethod: "already_paid",
+              collectionStatus: "collected",
+              customerGaveAmount: null,
+              changeAmount: null,
+            },
+          });
+          await tx.deliveryPaymentLine.deleteMany({
+            where: { deliveryPaymentId: existingPayment.id },
+          });
+          await tx.deliveryPaymentLine.create({
+            data: {
+              deliveryPaymentId: existingPayment.id,
+              paymentMethod: "already_paid",
+              amount: existingPayment.expectedAmount,
+              sortOrder: 0,
+            },
+          });
+        }
         await tx.$executeRaw(
           Prisma.sql`
             UPDATE "ApprovalRequest"
@@ -1552,13 +1641,13 @@ export async function PATCH(
   let kokoOrderSyncStatus: string | undefined;
 
   // First-time approval only — re-approval after HOD revert updates Vault paid status; ERP SI stays unchanged.
-  // Bank transfer method change gets a PE (not SI), handled separately below.
+  // Method-change (KOKO / Mintpay / bank transfer) posts a PE against the existing SI.
   if (
     nextStatus === "approved" &&
     !isPaymentReapproval &&
     !isSplitOrderPaymentApproval &&
     ((approval.type === ORDER_PAYMENT_APPROVAL && !unpaidCardOnDeliveryApprove) ||
-      (approval.type === PAYMENT_METHOD_CHANGE_APPROVAL && !isBankTransferApproval)) &&
+      approval.type === PAYMENT_METHOD_CHANGE_APPROVAL) &&
     approval.orderId
   ) {
     try {
@@ -1716,32 +1805,6 @@ export async function PATCH(
         },
         { status: 502 },
       );
-    }
-  }
-
-  if (nextStatus === "approved" && !isPaymentReapproval && isBankTransferApproval && approval.orderId) {
-    const orderForErp = await prisma.order.findUnique({
-      where: { id: approval.orderId },
-      select: { name: true, shopifyOrderId: true, companyLocationId: true },
-    });
-    if (orderForErp?.companyLocationId) {
-      const location = await prisma.companyLocation.findUnique({
-        where: { id: orderForErp.companyLocationId },
-        include: { erpnextInstance: true },
-      });
-      if (location) {
-        try {
-          const poNo = (orderForErp.name ?? orderForErp.shopifyOrderId ?? approval.orderId).slice(0, 140);
-          const dateStr = formatAppIsoDate(now);
-          await syncBankTransferPaymentToERPNext(poNo, location, dateStr);
-        } catch (err) {
-          const errMsg = err instanceof Error ? err.message : String(err);
-          console.error("[ERPNext] bank transfer PE failed:", errMsg);
-          await markOrderErpPeSyncFailed(approval.orderId, errMsg, "bank_transfer");
-          erpSyncFailed = true;
-          erpSyncError = errMsg;
-        }
-      }
     }
   }
 

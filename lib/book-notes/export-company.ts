@@ -14,7 +14,7 @@ const DETAIL_HEADERS = [
   "Card",
   "Card last 4",
   "KOKO",
-  "KOKO reference",
+  "KOKO order ID",
   "MintPay",
   "MintPay order ID",
   "Bank transfer",

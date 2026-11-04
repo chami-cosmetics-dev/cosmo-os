@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { buildVatStatusSlot, pickErpTaxHit } from "@/lib/vat-status/types";
+import {
+  buildVatStatusSlot,
+  mergeItemTaxLabels,
+  pickErpTaxHit,
+  productPriorityLabel,
+} from "@/lib/vat-status/types";
 
 describe("pickErpTaxHit", () => {
   it("matches SKU ignoring case", () => {
@@ -54,6 +59,39 @@ describe("buildVatStatusSlot", () => {
     ).toBe(true);
   });
 
+  it("copies Product Priority from the ERP hit", () => {
+    expect(
+      buildVatStatusSlot({
+        id: "erp1",
+        label: "ERP1",
+        configured: true,
+        hit: {
+          itemCode: "AB-1",
+          itemName: "Cream",
+          taxStatus: "Vat",
+          productPriority: "Top Priority",
+        },
+      }),
+    ).toMatchObject({ found: true, productPriority: "Top Priority" });
+  });
+
+  it("hides Product Priority when the ERP errors", () => {
+    expect(
+      buildVatStatusSlot({
+        id: "erp2",
+        label: "ERP2",
+        configured: true,
+        error: "ERP down",
+        hit: {
+          itemCode: "AB-1",
+          itemName: "Cream",
+          taxStatus: "Vat",
+          productPriority: "Top Priority",
+        },
+      }).productPriority,
+    ).toBeNull();
+  });
+
   it("treats Non Vat and a missing item as not VAT", () => {
     expect(
       buildVatStatusSlot({
@@ -65,6 +103,36 @@ describe("buildVatStatusSlot", () => {
     ).toMatchObject({ found: true, vat: false, taxStatus: "Non Vat" });
     expect(
       buildVatStatusSlot({ id: "erp2", label: "ERP2", configured: true, hit: null }),
-    ).toMatchObject({ found: false, vat: false, taxStatus: null });
+    ).toMatchObject({ found: false, vat: false, taxStatus: null, productPriority: null });
+  });
+});
+
+describe("productPriorityLabel", () => {
+  it("returns one value when both ERPs match or one is empty", () => {
+    expect(productPriorityLabel("Top Priority", "Top Priority")).toBe("Top Priority");
+    expect(productPriorityLabel("Top Priority", null)).toBe("Top Priority");
+    expect(productPriorityLabel("", "Newly Added")).toBe("Newly Added");
+  });
+
+  it("joins different ERP values", () => {
+    expect(productPriorityLabel("Top Priority", "Non Priority")).toBe("Top Priority / Non Priority");
+  });
+});
+
+describe("mergeItemTaxLabels", () => {
+  it("joins tax status and Product Priority from both ERPs", () => {
+    expect(
+      mergeItemTaxLabels(
+        { taxStatus: "Vat", productPriority: "Top Priority" },
+        { taxStatus: "Non Vat", productPriority: "Top Priority" },
+      ),
+    ).toEqual({ taxStatus: "Vat / Non Vat", productPriority: "Top Priority" });
+  });
+
+  it("uses one ERP when the other is missing", () => {
+    expect(mergeItemTaxLabels({ taxStatus: "Vat", productPriority: null }, null)).toEqual({
+      taxStatus: "Vat",
+      productPriority: null,
+    });
   });
 });

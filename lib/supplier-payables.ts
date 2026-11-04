@@ -193,6 +193,7 @@ async function fetchAccountsPayable(input: {
     .filter((row): row is SupplierPayableLine => row !== null && row.outstanding > 0);
 
   const receiptByInvoice = new Map<string, string>();
+  const receiptDateByInvoice = new Map<string, string>();
   const paymentModeByInvoice = new Map<string, string>();
   const itemsByInvoice = new Map<string, Array<{ itemCode: string | null; itemName: string | null; poNumber: string | null; quantity: number; amount: number; availableStock: number }>>();
   for (let index = 0; index < invoiceRows.length; index += 10) {
@@ -205,6 +206,7 @@ async function fetchAccountsPayable(input: {
     );
     for (const [invoice, details] of resolved) {
       if (invoice && details?.receipt) receiptByInvoice.set(invoice, details.receipt);
+      if (invoice && details?.receiptDate) receiptDateByInvoice.set(invoice, details.receiptDate);
       if (invoice && details?.paymentMode) paymentModeByInvoice.set(invoice, details.paymentMode);
       if (invoice && details) itemsByInvoice.set(invoice, details.items);
     }
@@ -213,6 +215,7 @@ async function fetchAccountsPayable(input: {
     .map((line) => ({
       ...line,
       poNumber: line.poNumber ? receiptByInvoice.get(line.poNumber) ?? null : null,
+      poDate: line.poNumber ? receiptDateByInvoice.get(line.poNumber) ?? line.poDate : line.poDate,
       remark: line.poNumber ? paymentModeByInvoice.get(line.poNumber) ?? null : null,
       itemCode: line.poNumber ? itemsByInvoice.get(line.poNumber)?.[0]?.itemCode ?? null : null,
       itemName: line.poNumber ? itemsByInvoice.get(line.poNumber)?.[0]?.itemName ?? null : null,
@@ -226,21 +229,23 @@ async function fetchPurchaseReceiptForInvoice(
   company: string,
   reportDate: string,
   invoiceName: string | null,
-): Promise<{ receipt: string | null; paymentMode: string | null; itemCode: string | null; itemName: string | null; items: Array<{ itemCode: string | null; itemName: string | null; poNumber: string | null; quantity: number; amount: number; availableStock: number }> } | null> {
+): Promise<{ receipt: string | null; receiptDate: string | null; paymentMode: string | null; itemCode: string | null; itemName: string | null; items: Array<{ itemCode: string | null; itemName: string | null; poNumber: string | null; quantity: number; amount: number; availableStock: number }> } | null> {
   if (!invoiceName) return null;
   const path = `/api/resource/Purchase%20Invoice/${encodeURIComponent(invoiceName)}?fields=${encodeURIComponent(JSON.stringify(["mode_of_payment", "payment_schedule", "items"]))}`;
   try {
     const json = await erpGetJson<{ data?: { mode_of_payment?: string | null; payment_schedule?: Array<{ mode_of_payment?: string | null }>; items?: Array<{ purchase_receipt?: string | null; item_code?: string | null; item_name?: string | null; accepted_qty?: number | string; qty?: number | string; rate?: number | string; amount?: number | string }> } }>(cfg, path);
     const invoiceItems = (json.data?.items ?? []).map((entry) => ({ itemCode: text(entry.item_code), itemName: text(entry.item_name), poNumber: text(entry.purchase_receipt), quantity: money(entry.accepted_qty ?? entry.qty), amount: money(entry.amount) || money(entry.accepted_qty ?? entry.qty) * money(entry.rate), availableStock: 0 })).filter((entry) => entry.itemCode || entry.itemName);
     const receiptNames = [...new Set(invoiceItems.map((entry) => entry.poNumber).filter((value): value is string => Boolean(value)))];
-    const receiptItems = (await Promise.all(receiptNames.map(async (receipt) => {
+    const receiptDetails = await Promise.all(receiptNames.map(async (receipt) => {
       try {
-        const receiptJson = await erpGetJson<{ data?: { items?: Array<{ item_code?: string | null; item_name?: string | null; accepted_qty?: number | string; qty?: number | string; rate?: number | string; amount?: number | string }> } }>(cfg, `/api/resource/Purchase%20Receipt/${encodeURIComponent(receipt)}`);
-        return (receiptJson.data?.items ?? []).map((entry) => ({ itemCode: text(entry.item_code), itemName: text(entry.item_name), poNumber: receipt, quantity: money(entry.accepted_qty ?? entry.qty), amount: money(entry.amount) || money(entry.accepted_qty ?? entry.qty) * money(entry.rate), availableStock: 0 })).filter((entry) => entry.itemCode || entry.itemName);
+        const receiptJson = await erpGetJson<{ data?: { posting_date?: string | null; items?: Array<{ item_code?: string | null; item_name?: string | null; accepted_qty?: number | string; qty?: number | string; rate?: number | string; amount?: number | string }> } }>(cfg, `/api/resource/Purchase%20Receipt/${encodeURIComponent(receipt)}?fields=${encodeURIComponent(JSON.stringify(["posting_date", "items"]))}`);
+        return { date: text(receiptJson.data?.posting_date), items: (receiptJson.data?.items ?? []).map((entry) => ({ itemCode: text(entry.item_code), itemName: text(entry.item_name), poNumber: receipt, quantity: money(entry.accepted_qty ?? entry.qty), amount: money(entry.amount) || money(entry.accepted_qty ?? entry.qty) * money(entry.rate), availableStock: 0 })).filter((entry) => entry.itemCode || entry.itemName) };
       } catch {
-        return [];
+        return { date: null, items: [] };
       }
-    }))).flat();
+    }));
+    const receiptItems = receiptDetails.flatMap((detail) => detail.items);
+    const receiptDate = receiptDetails.map((detail) => detail.date).find((value): value is string => Boolean(value)) ?? null;
     const items = receiptItems.length ? receiptItems : invoiceItems;
     const itemCodes = [...new Set(items.map((entry) => entry.itemCode).filter((value): value is string => Boolean(value)))];
     if (itemCodes.length) {
@@ -258,6 +263,7 @@ async function fetchPurchaseReceiptForInvoice(
     const item = items[0];
     return {
       receipt: items.map((entry) => entry.poNumber).find(Boolean) ?? null,
+      receiptDate,
       paymentMode: text(json.data?.mode_of_payment) ?? text(json.data?.payment_schedule?.map((entry) => entry.mode_of_payment).find(Boolean)),
       itemCode: item?.itemCode ?? null,
       itemName: item?.itemName ?? null,

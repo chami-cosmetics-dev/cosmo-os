@@ -1,8 +1,6 @@
 import { phoneMatchKeys } from "@/lib/contacts/purchase-summary-export";
 import { prisma } from "@/lib/prisma";
 
-const ALLOCATION_MAP_BATCH = 5000;
-
 export type AllocatedMerchantPhoneSource = {
   assignedMerchant: string | null;
   phoneNumber: string | null;
@@ -55,35 +53,53 @@ export function resolveExportAssignedMerchant(
   return lookupAllocatedMerchantByPhone(map, phones);
 }
 
+/** Local / +94 / 94 forms for one page of blank-allocation phones. */
+export function allocationLookupPhones(
+  phones: Array<string | null | undefined>
+): string[] {
+  const out = new Set<string>();
+  for (const phone of phones) {
+    const trimmed = phone?.trim();
+    if (trimmed) out.add(trimmed);
+    for (const key of phoneMatchKeys(phone)) out.add(key);
+  }
+  return [...out];
+}
+
+/**
+ * Allocated siblings for a page of phones. Do not scan the whole Contact Master —
+ * a full-map preload is what made the ~88k export die mid-stream.
+ */
 export async function loadAllocatedMerchantByPhone(
-  companyId: string
+  companyId: string,
+  phones: Array<string | null | undefined>
 ): Promise<Map<string, string>> {
   const map = new Map<string, string>();
-  let cursor: string | undefined;
+  const phoneFilter = allocationLookupPhones(phones);
+  if (phoneFilter.length === 0) return map;
 
-  for (;;) {
-    const rows = await prisma.contactMaster.findMany({
-      where: {
-        companyId,
-        AND: [{ assignedMerchant: { not: null } }, { assignedMerchant: { not: "" } }],
-      },
-      take: ALLOCATION_MAP_BATCH,
-      ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
-      orderBy: { id: "asc" },
-      select: {
-        id: true,
-        assignedMerchant: true,
-        phoneNumber: true,
-        phones: { select: { phoneNumber: true } },
-      },
-    });
-    if (rows.length === 0) break;
-    for (const row of rows) {
-      indexAllocatedMerchantByPhones(map, row);
-    }
-    cursor = rows[rows.length - 1]!.id;
-    if (rows.length < ALLOCATION_MAP_BATCH) break;
+  const rows = await prisma.contactMaster.findMany({
+    where: {
+      companyId,
+      AND: [
+        { assignedMerchant: { not: null } },
+        { assignedMerchant: { not: "" } },
+        {
+          OR: [
+            { phoneNumber: { in: phoneFilter } },
+            { phones: { some: { phoneNumber: { in: phoneFilter } } } },
+          ],
+        },
+      ],
+    },
+    select: {
+      assignedMerchant: true,
+      phoneNumber: true,
+      phones: { select: { phoneNumber: true } },
+    },
+  });
+  for (const row of rows) {
+    indexAllocatedMerchantByPhones(map, row);
   }
-
   return map;
 }

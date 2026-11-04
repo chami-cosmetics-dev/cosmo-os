@@ -17,7 +17,9 @@ export type TransferLine = {
   qty: number;
   /** Qty in the source warehouse when the line was added. Null after the source changes. */
   availableQty: number | null;
-  /** Shop return destination. VAT is erp1, other items are erp2. */
+  /** ERP Item Manufacturing Tax Status: Vat, Non Vat, or Vat / Non Vat. */
+  taxStatus?: string | null;
+  /** Shop return destination. Vat and Vat / Non Vat are erp1, other items are erp2. */
   slot?: TransferSlot | null;
 };
 

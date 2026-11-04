@@ -49,24 +49,29 @@ export function DashboardSummaryCharts({
   stats,
   agentSegments,
 }: DashboardSummaryChartsProps) {
-  const totals = stats.map((stat, index) => ({
-    label: stat.shop,
-    value: parseMetric(stat.total),
-    color: CHART_COLORS[index % CHART_COLORS.length],
-  }));
+  const totals = stats
+    .map((stat) => ({
+      label: stat.shop,
+      value: parseMetric(stat.total),
+    }))
+    .filter((segment) => segment.value > 0)
+    .map((segment, index) => ({
+      ...segment,
+      color: CHART_COLORS[index % CHART_COLORS.length],
+    }));
 
   const agentTotals = (agentSegments ?? stats.map((stat) => ({
     label: stat.agent,
     value: parseMetric(stat.agentValue),
-  }))).map((segment, index) => ({
-    label: segment.label,
-    value: segment.value,
-    color: CHART_COLORS[index % CHART_COLORS.length],
-  }));
+  })))
+    .filter((segment) => segment.value > 0)
+    .map((segment, index) => ({
+      label: segment.label,
+      value: segment.value,
+      color: CHART_COLORS[index % CHART_COLORS.length],
+    }));
 
-  const grandTotal = totals.reduce((sum, current) => sum + current.value, 0);
-  const agentGrandTotal = agentTotals.reduce((sum, current) => sum + current.value, 0);
-  const remainder = Math.max(grandTotal - agentGrandTotal, 0);
+  const grandTotal = stats.reduce((sum, current) => sum + parseMetric(current.total), 0);
 
   const leftCenter = stats.reduce(
     (best, current) =>
@@ -74,22 +79,9 @@ export function DashboardSummaryCharts({
     stats[0] ?? { shop: "-", total: "0", agent: "-", agentValue: "0" },
   );
 
-  const topAgentSegment = agentTotals.reduce(
-    (best, current) => (current.value > best.value ? current : best),
-    agentTotals[0] ?? { label: "-", value: 0, color: CHART_COLORS[0] },
-  );
+  const topAgentSegment = agentTotals[0] ?? { label: "-", value: 0, color: CHART_COLORS[0] };
 
-  const rightSegments =
-    remainder > 0
-      ? [
-          ...agentTotals,
-          {
-            label: "Remaining",
-            value: remainder,
-            color: "color-mix(in srgb, var(--muted-foreground) 32%, transparent)",
-          },
-        ]
-      : agentTotals;
+  const rightSegments = agentTotals;
 
   return (
     <div className="grid gap-4 lg:grid-cols-2">

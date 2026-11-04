@@ -47,6 +47,9 @@ export const osfProfilePatchSchema = z.object({
   ogfPrice: z
     .union([z.number().finite().min(0).max(1_000_000), z.null()])
     .optional(),
+  targetPurchaseRate: z
+    .union([z.number().finite().min(0).max(1_000_000), z.null()])
+    .optional(),
   reorderThresholdPercent: z
     .union([z.number().int().min(1).max(100), z.null()])
     .optional(),

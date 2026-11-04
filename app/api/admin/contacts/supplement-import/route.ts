@@ -9,7 +9,7 @@ import { readUploadedXlsx, requireSupplementStaff } from "@/lib/vault-supplement
 export const maxDuration = 300;
 
 export async function POST(request: Request) {
-  const access = await requireSupplementStaff("vault");
+  const access = await requireSupplementStaff();
   if (!access.ok) return access.response;
 
   const uploaded = await readUploadedXlsx(request);

@@ -5,6 +5,12 @@ import {
 import { prisma } from "@/lib/prisma";
 import type { BookNoteWriteAccess } from "@/lib/book-notes/lock";
 import type { BookNoteLocationOption } from "@/lib/book-notes/types";
+import {
+  collectBookNoteCosmeticsPosScope,
+  collectBookNoteTradingShortNames,
+  isCosmeticsBookNoteLocation,
+  type BookNoteCosmeticsPosScope,
+} from "@/lib/book-notes/shop-outlet-map";
 
 type UserContext = NonNullable<Awaited<ReturnType<typeof getCurrentUserContext>>>;
 
@@ -16,9 +22,18 @@ const LOCATION_SELECT = {
 } as const;
 
 export type BookNoteShopAccess = {
-  /** Every user may still *enter* a book note against any company shop. */
+  /**
+   * Finance (`book_notes.read`) and book-note admins (`book_notes.admin`)
+   * may pick every company shop. Merchants are limited to assigned outlets.
+   */
   canAccessAllShops: boolean;
   locations: BookNoteLocationOption[];
+  /**
+   * When set, Cosmetics.lk order typeahead / save is limited to these POS
+   * profiles / warehouses. `null` means no POS filter (finance, or Cosmetics
+   * warehouse staff assigned directly to Cosmetics without a floor map).
+   */
+  cosmeticsPosScope: BookNoteCosmeticsPosScope | null;
 };
 
 /**
@@ -33,20 +48,142 @@ export type BookNoteViewScope = {
   canViewAllShops: boolean;
 };
 
+export function canAccessEveryBookNoteShop(context: UserContext): boolean {
+  return (
+    hasPermission(context, "book_notes.read") ||
+    hasPermission(context, "book_notes.admin")
+  );
+}
+
+/**
+ * Outlet ids this merchant may enter book notes for: employee location,
+ * default-merchant shops, and trading companies mapped from their floor outlet.
+ */
+export function collectAssignedBookNoteLocationIds(input: {
+  companyId: string;
+  profileLocationId: string | null | undefined;
+  profileCompanyId: string | null | undefined;
+  defaultMerchantLocationIds: string[];
+  mappedLocationIds: string[];
+}): string[] {
+  const ids = new Set<string>();
+  if (
+    input.profileLocationId &&
+    input.profileCompanyId === input.companyId
+  ) {
+    ids.add(input.profileLocationId);
+  }
+  for (const id of input.defaultMerchantLocationIds) {
+    if (id) ids.add(id);
+  }
+  for (const id of input.mappedLocationIds) {
+    if (id) ids.add(id);
+  }
+  return [...ids];
+}
+
 /**
  * Shops the current user may enter / view book notes for.
- * Every company location — visibility is narrowed by `resolveBookNoteViewScope`.
+ * Merchants: employee location + default-merchant + outlet→company map
+ * (trading shop + Cosmetics.lk when that floor has a POS).
+ * Finance / book-note admins: every company location.
  */
 export async function resolveBookNoteShopAccess(
-  _context: UserContext,
+  context: UserContext,
   companyId: string,
 ): Promise<BookNoteShopAccess> {
-  const locations = await prisma.companyLocation.findMany({
-    where: { companyId },
-    orderBy: { name: "asc" },
-    select: LOCATION_SELECT,
+  const canAccessAllShops = canAccessEveryBookNoteShop(context);
+  if (canAccessAllShops) {
+    const locations = await prisma.companyLocation.findMany({
+      where: { companyId },
+      orderBy: { name: "asc" },
+      select: LOCATION_SELECT,
+    });
+    return { canAccessAllShops: true, locations, cosmeticsPosScope: null };
+  }
+
+  const userId = context.user?.id ?? null;
+  if (!userId) {
+    return {
+      canAccessAllShops: false,
+      locations: [],
+      cosmeticsPosScope: null,
+    };
+  }
+
+  const [profile, defaultMerchantLocations, allLocations] = await Promise.all([
+    prisma.employeeProfile.findUnique({
+      where: { userId },
+      select: {
+        locationId: true,
+        companyId: true,
+        outlet: { select: { name: true } },
+        location: { select: { shortName: true, erpnextCompany: true, name: true } },
+      },
+    }),
+    prisma.companyLocation.findMany({
+      where: { companyId, defaultMerchantUserId: userId },
+      select: { id: true },
+    }),
+    prisma.companyLocation.findMany({
+      where: { companyId },
+      select: LOCATION_SELECT,
+    }),
+  ]);
+
+  const outletName = profile?.outlet?.name ?? null;
+  const profileShortName = profile?.location?.shortName ?? null;
+  const tradingShortNames = collectBookNoteTradingShortNames({
+    outletName,
+    locationShortNames: profileShortName ? [profileShortName] : [],
   });
-  return { canAccessAllShops: true, locations };
+  const cosmeticsPosScope = collectBookNoteCosmeticsPosScope({
+    outletName,
+    locationShortNames: profileShortName ? [profileShortName] : [],
+  });
+
+  const mappedLocationIds: string[] = [];
+  for (const loc of allLocations) {
+    const short = (loc.shortName ?? "").trim();
+    if (short && tradingShortNames.includes(short)) {
+      mappedLocationIds.push(loc.id);
+    }
+  }
+
+  const wantsCosmetics =
+    cosmeticsPosScope != null ||
+    (profile?.location != null &&
+      isCosmeticsBookNoteLocation(profile.location));
+  if (wantsCosmetics) {
+    for (const loc of allLocations) {
+      if (isCosmeticsBookNoteLocation(loc)) mappedLocationIds.push(loc.id);
+    }
+  }
+
+  const allowedIds = collectAssignedBookNoteLocationIds({
+    companyId,
+    profileLocationId: profile?.locationId,
+    profileCompanyId: profile?.companyId,
+    defaultMerchantLocationIds: defaultMerchantLocations.map((l) => l.id),
+    mappedLocationIds,
+  });
+  if (allowedIds.length === 0) {
+    return {
+      canAccessAllShops: false,
+      locations: [],
+      cosmeticsPosScope: null,
+    };
+  }
+
+  const locations = allLocations
+    .filter((l) => allowedIds.includes(l.id))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  return {
+    canAccessAllShops: false,
+    locations,
+    cosmeticsPosScope,
+  };
 }
 
 /**
@@ -58,9 +195,7 @@ export async function resolveBookNoteViewScope(
   context: UserContext,
 ): Promise<BookNoteViewScope> {
   return Promise.resolve({
-    canViewAllShops:
-      hasPermission(context, "book_notes.read") ||
-      hasPermission(context, "book_notes.admin"),
+    canViewAllShops: canAccessEveryBookNoteShop(context),
   });
 }
 

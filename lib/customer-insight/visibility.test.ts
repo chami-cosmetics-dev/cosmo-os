@@ -52,6 +52,14 @@ const sampleOwner: CustomerInsightDto = {
   lastContactedAt: "2026-01-01T00:00:00.000Z",
   canEditProfile: true,
   canMarkContacted: true,
+  loyaltyAssignment: {
+    tier: "gold",
+    assignedAt: "2026-01-02T00:00:00.000Z",
+    assignedByName: "Admin",
+    assignedByUserId: "u1",
+    reason: "Potential customer",
+  },
+  manualLoyaltyTiers: ["platinum"],
   invoices: [
     {
       id: "order:1",
@@ -115,6 +123,8 @@ describe("toLimitedInsightDto", () => {
     expect(limited.series).toBeUndefined();
     expect(limited.lastContactedAt).toBeUndefined();
     expect(limited.canEditProfile).toBeUndefined();
+    expect(limited.loyaltyAssignment).toEqual(sampleOwner.loyaltyAssignment);
+    expect(limited.manualLoyaltyTiers).toEqual(["platinum"]);
   });
 
   it("keeps spend-based Gold/Platinum eligibility on limited search view", () => {

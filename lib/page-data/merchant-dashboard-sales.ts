@@ -137,7 +137,7 @@ export async function fetchMerchantUserSales(
     prisma.companyLocation.findMany({
       where: { companyId },
       orderBy: { name: "asc" },
-      select: { id: true, name: true },
+      select: { id: true, name: true, defaultMerchantUserId: true },
     }),
     prisma.order.findMany({
       where: {
@@ -160,6 +160,7 @@ export async function fetchMerchantUserSales(
     }),
   ]);
 
+  const locationById = new Map(locations.map((loc) => [loc.id, loc]));
   const byLocation = new Map<string, MerchantSalesLocationRow>();
   for (const loc of locations) {
     byLocation.set(loc.id, {
@@ -191,12 +192,15 @@ export async function fetchMerchantUserSales(
       continue;
     }
 
+    const loc = locationById.get(order.companyLocationId);
     const bucket = classifyMerchantSalesBucket({
       orderCoupons,
       personal: sets.personal,
       dm: sets.dm,
       hasDm: sets.hasDm,
       assignedToViewer: order.assignedMerchantId === merchantUserId,
+      locationName: loc?.name,
+      locationDefaultIsViewer: loc?.defaultMerchantUserId === merchantUserId,
     });
     if (!bucket) continue;
 
