@@ -126,7 +126,15 @@ model Company {
   giftVoucherGroups                    GiftVoucherGroup[]
   giftVoucherCodes                     GiftVoucherCode[]
   giftVoucherCounter                   GiftVoucherCounter?
+  salesReportConfig                    SalesReportConfig?
   orderAvailabilityPriorityWarehouses  OrderAvailabilityPriorityWarehouse[]
+}
+
+model SalesReportConfig {
+  companyId String   @id
+  settings  Json
+  updatedAt DateTime @updatedAt
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
 }
 
 model PrintFormat {
