@@ -25,7 +25,10 @@ export function useDeliveries() {
       const responses = await Promise.all(
         tenants.map(async (tenant) => {
           try {
-            const data = await apiClient.get<MobileDeliveriesResponse>(tenant.id, "/api/mobile/v1/deliveries");
+            const data = await apiClient.get<MobileDeliveriesResponse>(
+              tenant.id,
+              "/api/mobile/v1/deliveries?status=active"
+            );
             return {
               ok: true as const,
               tenantId: tenant.id,
