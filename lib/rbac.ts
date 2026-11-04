@@ -450,6 +450,14 @@ const DEFAULT_PERMISSIONS = [
     key: "finance.receivable_outstanding.read",
     description: "View Receivable Outstanding report",
   },
+  {
+    key: "finance.sales_report.read",
+    description: "View Sales Report",
+  },
+  {
+    key: "finance.sales_report.manage",
+    description: "Edit Sales Report template and settings",
+  },
   // Reminder bubbles — auto-granted to admin/super_admin; other roles tick in Roles UI
   ...REMINDER_BUBBLE_PERMISSIONS.map((p) => ({
     key: p.key,
@@ -822,6 +830,8 @@ const DEFAULT_ROLES = [
       "finance.hod.revert_paid_to_unpaid",
       "finance.supplier_payables.read",
       "finance.receivable_outstanding.read",
+      "finance.sales_report.read",
+      "finance.sales_report.manage",
       "dashboard.view",
       "dashboard.merchant_view",
       "dashboard.merchant_admin_view",

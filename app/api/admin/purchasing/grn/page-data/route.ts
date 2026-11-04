@@ -506,6 +506,12 @@ export async function GET(request: NextRequest) {
     : null;
 
   const [
+    cancelledPurchaseReceipts,
+    cancelledBackfillPurchaseReceipts,
+    cancelledStockReturns,
+    cancelledBackfillStockReturns,
+    cancelledPurchaseInvoices,
+    cancelledBackfillPurchaseInvoices,
     deletedPurchaseReceipts,
     deletedBackfillPurchaseReceipts,
     deletedStockReturns,
@@ -513,6 +519,112 @@ export async function GET(request: NextRequest) {
     deletedPurchaseInvoices,
     deletedBackfillPurchaseInvoices,
   ] = await Promise.all([
+    prisma.grnPurchaseReceipt.findMany({
+      where: {
+        ...companyScope,
+        ...locationScope,
+        deletedAt: null,
+        AND: [
+          { OR: [{ docstatus: 2 }, { status: { equals: "cancelled", mode: "insensitive" } }, { status: { equals: "canceled", mode: "insensitive" } }] },
+          ...(dateFilter ? [{ OR: [{ creation: dateFilter }, { creation: null, postingDate: dateFilter }] }] : []),
+        ],
+      },
+      orderBy: [{ postingDate: "desc" }, { createdAt: "desc" }],
+      include: {
+        company: {
+          select: {
+            name: true,
+            locations: { select: { erpnextCompany: true, erpnextInstance: { select: { baseUrl: true } } } },
+          },
+        },
+      },
+    }),
+    prisma.grnBackfillPurchaseReceipt.findMany({
+      where: {
+        ...companyScope,
+        ...locationScope,
+        deletedAt: null,
+        AND: [
+          { OR: [{ docstatus: 2 }, { status: { equals: "cancelled", mode: "insensitive" } }, { status: { equals: "canceled", mode: "insensitive" } }] },
+          ...(dateFilter ? [{ OR: [{ creation: dateFilter }, { creation: null, postingDate: dateFilter }] }] : []),
+        ],
+      },
+      orderBy: [{ postingDate: "desc" }, { createdAt: "desc" }],
+      include: {
+        company: {
+          select: {
+            name: true,
+            locations: { select: { erpnextCompany: true, erpnextInstance: { select: { baseUrl: true } } } },
+          },
+        },
+      },
+    }),
+    prisma.grnSupplierStockReturn.findMany({
+      where: {
+        ...companyScope,
+        deletedAt: null,
+        docstatus: 2,
+        ...(dateFilter
+          ? {
+              OR: [
+                { returnDate: dateFilter },
+                { returnDate: null, creation: dateFilter },
+              ],
+            }
+          : {}),
+      },
+      orderBy: [{ returnDate: "desc" }, { createdAt: "desc" }],
+      include: {
+        company: {
+          select: {
+            name: true,
+            locations: { select: { erpnextCompany: true, erpnextInstance: { select: { baseUrl: true } } } },
+          },
+        },
+      },
+    }),
+    prisma.grnBackfillSupplierStockReturn.findMany({
+      where: {
+        ...companyScope,
+        deletedAt: null,
+        docstatus: 2,
+        ...(dateFilter
+          ? {
+              OR: [
+                { returnDate: dateFilter },
+                { returnDate: null, creation: dateFilter },
+              ],
+            }
+          : {}),
+      },
+      orderBy: [{ returnDate: "desc" }, { createdAt: "desc" }],
+      include: {
+        company: {
+          select: {
+            name: true,
+            locations: { select: { erpnextCompany: true, erpnextInstance: { select: { baseUrl: true } } } },
+          },
+        },
+      },
+    }),
+    prisma.grnPurchaseInvoice.findMany({
+      where: {
+        ...companyScope,
+        deletedAt: null,
+        OR: [{ docstatus: 2 }, { status: { equals: "cancelled", mode: "insensitive" } }, { status: { equals: "canceled", mode: "insensitive" } }],
+        ...(dateFilter ? { postingDate: dateFilter } : {}),
+      },
+      orderBy: [{ postingDate: "desc" }, { createdAt: "desc" }],
+    }),
+    prisma.grnBackfillPurchaseInvoice.findMany({
+      where: {
+        ...companyScope,
+        deletedAt: null,
+        OR: [{ docstatus: 2 }, { status: { equals: "cancelled", mode: "insensitive" } }, { status: { equals: "canceled", mode: "insensitive" } }],
+        ...(dateFilter ? { postingDate: dateFilter } : {}),
+      },
+      orderBy: [{ postingDate: "desc" }, { createdAt: "desc" }],
+    }),
     prisma.grnPurchaseReceipt.findMany({
       where: { ...companyScope, ...locationScope, deletedAt: { not: null } },
       orderBy: { deletedAt: "desc" },
@@ -624,6 +736,16 @@ export async function GET(request: NextRequest) {
     ...deletedPurchaseInvoices.map((row) => serializeDeletedRecord(row, "PI", false)),
     ...deletedBackfillPurchaseInvoices.map((row) => serializeDeletedRecord(row, "PI", true)),
   ].sort((a, b) => (b.deletedAt ?? "").localeCompare(a.deletedAt ?? ""));
+  const cancelledRecords = [
+    ...cancelledPurchaseReceipts.map((row) => serializeDeletedRecord(row, "PR", false)),
+    ...cancelledBackfillPurchaseReceipts.map((row) => serializeDeletedRecord(row, "PR", true)),
+    ...cancelledStockReturns.map((row) => serializeDeletedRecord(row, "SSR", false)),
+    ...cancelledBackfillStockReturns.map((row) => serializeDeletedRecord(row, "SSR", true)),
+    ...cancelledPurchaseInvoices.map((row) => serializeDeletedRecord(row, "PI", false)),
+    ...cancelledBackfillPurchaseInvoices.map((row) => serializeDeletedRecord(row, "PI", true)),
+  ]
+    .map(({ deletedAt: _deletedAt, ...record }) => record)
+    .sort((a, b) => (b.documentDate ?? "").localeCompare(a.documentDate ?? ""));
   const supplierPrefixRuleForSupplier = (
     supplier: string | null | undefined,
     supplierName?: string | null,
@@ -1368,6 +1490,7 @@ export async function GET(request: NextRequest) {
       supplierName: row.supplierName,
     })),
     deletedRecords,
+    cancelledRecords,
   });
 }
 

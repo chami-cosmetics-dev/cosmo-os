@@ -190,7 +190,7 @@ async function fetchAccountsPayable(input: {
         currency: text(valueFromReportRow(row, columns, ["currency"])),
       } satisfies SupplierPayableLine;
     })
-    .filter((row): row is SupplierPayableLine => Boolean(row));
+    .filter((row): row is SupplierPayableLine => row !== null && row.outstanding > 0);
 
   const receiptByInvoice = new Map<string, string>();
   const paymentModeByInvoice = new Map<string, string>();
@@ -337,7 +337,7 @@ function supplierKey(line: Pick<SupplierPayableLine, "supplierId" | "supplierNam
 function groupLines(lines: SupplierPayableLine[]): SupplierPayableGroup[] {
   const groups = new Map<string, SupplierPayableGroup>();
   for (const line of lines) {
-    if (line.outstanding === 0) continue;
+    if (line.outstanding <= 0) continue;
     const key = supplierKey(line);
     if (!key) continue;
     const group =

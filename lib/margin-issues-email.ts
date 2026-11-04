@@ -14,10 +14,6 @@ import {
   type RopFulfillmentSummaryRow,
 } from "@/lib/margin-issues";
 
-function discountHtml(row: MarginIssueSummaryRow): string {
-  return escapeEmailHtml(discountSummaryText(row)).replace(/\n/g, "<br>");
-}
-
 const CELL_LINE_HEIGHT_POINTS = 15;
 const CELL_PADDING_POINTS = 8;
 
@@ -50,19 +46,15 @@ function adaptiveRowHeight(record: Record<string, unknown>, headers: string[], w
 }
 
 function summaryRowsHtml(report: MarginIssuesReport): string {
-  const rowHtml = (row: MarginIssueSummaryRow, edge: "top" | "middle" | "bottom", discountRowSpan = 0) => {
+  const rowHtml = (row: MarginIssueSummaryRow, edge: "top" | "middle" | "bottom") => {
     const border = row.isGroup
       ? "border-top:2px solid #88a86f;border-left:1px solid #88a86f;border-right:1px solid #88a86f;"
       : `border-left:1px solid #c8d3e1;border-right:1px solid #c8d3e1;${edge === "bottom" ? "border-bottom:2px solid #88a86f;" : ""}`;
-    const discountCell = discountRowSpan > 0
-      ? `<td rowspan="${discountRowSpan}" style="padding:7px;border-left:1px solid #88a86f;border-right:1px solid #88a86f;border-top:2px solid #88a86f;border-bottom:2px solid #88a86f;background:#d9ead3;font-size:11px;line-height:1.35;white-space:nowrap;vertical-align:middle;">${discountHtml(row)}</td>`
-      : "";
     return `<tr style="${row.isGroup ? "background:#d9ead3;font-weight:700;" : "background:#f5f8fb;"}">
     <td style="padding:7px;border-top:1px solid #c8d3e1;${border}${row.isGroup ? "color:#17365d;" : "padding-left:24px;"}">${escapeEmailHtml(row.label)}</td>
     <td style="padding:7px;border-top:1px solid #c8d3e1;${border}text-align:right;">${row.numberOfSkus}</td>
     <td style="padding:7px;border-top:1px solid #c8d3e1;${border}text-align:right;background:#e2f0d9;">${row.stockAvailable.toLocaleString()}</td>
     <td style="padding:7px;border-top:1px solid #c8d3e1;${border}">${escapeEmailHtml(row.brands || "-")}</td>
-    ${discountCell}
   </tr>`;
   };
   const groupedRows: string[] = [];
@@ -70,7 +62,7 @@ function summaryRowsHtml(report: MarginIssuesReport): string {
     const group = report.summary[index];
     if (!group.isGroup) continue;
     const children = report.summary.filter((row) => !row.isGroup && row.groupKey === group.groupKey);
-    groupedRows.push(`<tbody>${rowHtml(group, "top", children.length + 1)}${children.map((row, childIndex) => rowHtml(row, childIndex === children.length - 1 ? "bottom" : "middle")).join("")}</tbody>`);
+    groupedRows.push(`<tbody>${rowHtml(group, "top")}${children.map((row, childIndex) => rowHtml(row, childIndex === children.length - 1 ? "bottom" : "middle")).join("")}</tbody>`);
   }
   const total = report.total;
   return `${groupedRows.join("")}<tbody><tr style="background:#e2f0d9;font-weight:700;">
@@ -78,7 +70,6 @@ function summaryRowsHtml(report: MarginIssuesReport): string {
     <td style="padding:7px;border:1px solid #9dbb89;text-align:right;">${total.numberOfSkus}</td>
     <td style="padding:7px;border:1px solid #9dbb89;text-align:right;">${total.stockAvailable.toLocaleString()}</td>
     <td style="padding:7px;border:1px solid #9dbb89;">${escapeEmailHtml(total.brands || "-")}</td>
-    <td style="padding:7px;border:1px solid #9dbb89;font-size:11px;line-height:1.35;white-space:nowrap;">${discountHtml(total)}</td>
   </tr></tbody>`;
 }
 
@@ -109,7 +100,6 @@ export function buildMarginIssuesEmailPreview(report: MarginIssuesReport): { sum
       <th style="padding:8px;border:1px solid #b8c7d9;">Number of SKUs</th>
       <th style="padding:8px;border:1px solid #b8c7d9;">Stock Available</th>
       <th style="padding:8px;border:1px solid #b8c7d9;text-align:left;">Brand List</th>
-      <th style="padding:8px;border:1px solid #b8c7d9;text-align:left;">Discount 5-25%</th>
     </tr></thead>${summaryRowsHtml(report)}</table>`;
   return { summaryTableHtml: `${marginTableHtml}${ropFulfillmentRowsHtml(report)}`, skuCount: report.details.length, stockAvailable: report.total.stockAvailable };
 }

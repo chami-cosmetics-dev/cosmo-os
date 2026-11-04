@@ -124,11 +124,12 @@ async function writeOrderedConcurrentLines<T>(
   items: T[],
   write: (text: string) => void,
   mapper: (item: T, index: number) => Promise<string>,
+  concurrency = 4,
 ) {
   if (items.length === 0) return;
   const pending: Array<string | undefined> = new Array(items.length);
   let next = 0;
-  await mapWithConcurrency(items, 4, async (item, index) => {
+  await mapWithConcurrency(items, concurrency, async (item, index) => {
     pending[index] = await mapper(item, index);
     while (next < pending.length && pending[next] != null) {
       write(pending[next]!);
@@ -448,6 +449,12 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: bounds.error }, { status: 400 });
   }
   const { from, to, label } = bounds;
+  // A full calendar-year export can contain tens of thousands of orders. It
+  // must only use data already stored in Cosmo: per-order ERP lookups turn the
+  // streaming response into a timeout-prone request and used to create a
+  // silently truncated CSV.
+  const useStoredExportData = range === "custom" || range === "historical-year";
+  const exportConcurrency = useStoredExportData ? 16 : 4;
   const orderWhere = {
     companyId,
     createdAt: {
@@ -523,7 +530,7 @@ export async function GET(request: NextRequest) {
         if (report === "invoice-item") {
           let cursorId: string | undefined;
           for (;;) {
-            if (request.signal.aborted) break;
+            if (request.signal.aborted) throw new Error("Historical export was interrupted before it completed");
             const orders = await prisma.order.findMany({
               where: orderWhere,
               orderBy: DUMP_ORDER_ORDER_BY,
@@ -570,7 +577,7 @@ export async function GET(request: NextRequest) {
         discountCodes: order.discountCodes,
         rawPayload: order.rawPayload,
       });
-      if (!couponCode) {
+      if (!couponCode && !useStoredExportData) {
         couponCode = await resolveOrderDiscountCouponForOrder({
           sourceName: order.sourceName,
           discountCodes: order.discountCodes,
@@ -593,6 +600,7 @@ export async function GET(request: NextRequest) {
         name: order.name,
         erpnextInvoiceId: order.erpnextInvoiceId,
         erpnextInstance: order.companyLocation.erpnextInstance,
+        allowLiveErpLookup: !useStoredExportData,
         lineItems: order.lineItems.map((item) => ({
           sku: item.productItem.sku,
           quantity: item.quantity,
@@ -676,14 +684,14 @@ export async function GET(request: NextRequest) {
         });
       });
             return itemRows.map((row) => formatCsvDataLine(csvHeaders, row)).join("");
-            });
+            }, exportConcurrency);
             cursorId = orders[orders.length - 1]!.id;
             if (orders.length < DUMP_ORDER_PAGE_SIZE) break;
           }
         } else {
           let cursorId: string | undefined;
           for (;;) {
-            if (request.signal.aborted) break;
+            if (request.signal.aborted) throw new Error("Historical export was interrupted before it completed");
             const orders = await prisma.order.findMany({
               where: orderWhere,
               orderBy: DUMP_ORDER_ORDER_BY,
@@ -720,6 +728,7 @@ export async function GET(request: NextRequest) {
       rawPayload: order.rawPayload,
     });
     if (
+      !useStoredExportData &&
       !discountCoupon &&
       order.sourceName.startsWith("erpnext") &&
       order.totalDiscounts != null &&
@@ -769,7 +778,7 @@ export async function GET(request: NextRequest) {
       shippingAddress,
     };
     let shippingRule = dumpInvoiceShippingRuleFromStored(shippingLookup);
-    if (!hasStoredDumpShippingResolution(shippingLookup)) {
+    if (!useStoredExportData && !hasStoredDumpShippingResolution(shippingLookup)) {
       const live = await resolveOrderShippingDisplayForOrder(shippingLookup);
       shippingRule = dumpInvoiceShippingRuleFromLive(live, shippingRule);
       await persistDumpShippingFill(order.id, live);
@@ -825,7 +834,7 @@ export async function GET(request: NextRequest) {
       createdBy,
       kokoRefNumber: orderIdToKokoRefNumber.get(order.id) ?? "",
     }));
-            });
+            }, exportConcurrency);
             cursorId = orders[orders.length - 1]!.id;
             if (orders.length < DUMP_ORDER_PAGE_SIZE) break;
           }

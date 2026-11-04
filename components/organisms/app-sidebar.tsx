@@ -184,6 +184,7 @@ export function AppSidebar({
     hasSidebarPermission("finance.supplier_payables.read") ||
     canViewPurchaseHistory;
   const canViewReceivableOutstanding = hasSidebarPermission("finance.receivable_outstanding.read");
+  const canViewSalesReport = !APP_NAME.toLowerCase().includes("vault") && hasSidebarPermission("finance.sales_report.read");
   const canViewAcademy =
     hasSidebarPermission("academy.learn") ||
     hasSidebarPermission("academy.manage");
@@ -568,6 +569,14 @@ export function AppSidebar({
                   icon={FileText}
                   label="Receivable Outstanding"
                   isActive={pathname === "/dashboard/reports/receivable-outstanding"}
+                />
+              )}
+              {canViewSalesReport && (
+                <NavItem
+                  href="/dashboard/sales-report"
+                  icon={TrendingUp}
+                  label="Sales Report"
+                  isActive={pathname === "/dashboard/sales-report"}
                 />
               )}
               {canViewReports && (
