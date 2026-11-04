@@ -6,6 +6,8 @@ import {
   toGuideFulfillmentStatus,
 } from "@/lib/merchant-orders/present";
 
+import styles from "../order-status.module.css";
+
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
@@ -23,6 +25,69 @@ function addressText(value: unknown): string {
     .join(", ");
 }
 
+function BagIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M6 8h12l-.7 11.2a2 2 0 0 1-2 1.8H8.7a2 2 0 0 1-2-1.8L6 8Z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      />
+      <path
+        d="M9 8V7a3 3 0 0 1 6 0v1"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function PinIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M12 21s7-5.2 7-11a7 7 0 1 0-14 0c0 5.8 7 11 7 11Z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      />
+      <circle cx="12" cy="10" r="2.2" stroke="currentColor" strokeWidth="1.8" />
+    </svg>
+  );
+}
+
+function MailIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect x="3.5" y="5.5" width="17" height="13" rx="2.5" stroke="currentColor" strokeWidth="1.8" />
+      <path d="m5 8 7 5 7-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function PhoneIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M8.5 3.8h2.2l1.2 4.1-1.6 1.1a11.5 11.5 0 0 0 4.7 4.7l1.1-1.6 4.1 1.2v2.2c0 .9-.7 1.7-1.6 1.7A14.7 14.7 0 0 1 4.8 5.4c0-.9.8-1.6 1.7-1.6Z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function ImageIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect x="3.5" y="5" width="17" height="14" rx="2.5" stroke="currentColor" strokeWidth="1.8" />
+      <circle cx="9" cy="10" r="1.6" fill="currentColor" />
+      <path d="m7.5 16.5 3.2-3.5 2.3 2.4 2.4-2.8 3.1 3.9" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 export default async function MerchantOrderStatusPage({
   params,
 }: {
@@ -33,193 +98,158 @@ export default async function MerchantOrderStatusPage({
   if (!order) notFound();
 
   const currency = (order.currency?.trim().toUpperCase() || "LKR").slice(0, 3);
-  const title = order.name?.trim() || order.orderNumber || "Order";
+  const orderName = order.name?.trim() || order.orderNumber || "Order";
+  const payment = toGuideFinancialStatus(order.financialStatus) || "—";
+  const fulfillment = toGuideFulfillmentStatus(order.fulfillmentStatus);
+  const shipping = addressText(order.shippingAddress);
+  const dateLabel = order.createdAt.toLocaleString("en-LK", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
 
   return (
-    <main
-      style={{
-        minHeight: "100vh",
-        margin: 0,
-        fontFamily: "ui-sans-serif, system-ui, sans-serif",
-        background: "#f4f4f5",
-        color: "#18181b",
-      }}
-    >
-      <div style={{ maxWidth: 480, margin: "0 auto", padding: "24px 16px 48px" }}>
-        <p style={{ margin: 0, fontSize: 12, letterSpacing: "0.08em", color: "#71717a" }}>
-          COSMETICS.LK
-        </p>
-        <h1 style={{ margin: "8px 0 4px", fontSize: 24, fontWeight: 700 }}>{title}</h1>
-        <p style={{ margin: 0, fontSize: 14, color: "#52525b" }}>
-          {order.createdAt.toLocaleString("en-LK", { dateStyle: "medium", timeStyle: "short" })}
-        </p>
+    <main className={styles.shell}>
+      <div className={styles.frame}>
+        <header className={styles.header}>
+          <p className={styles.brand}>Cosmetics.lk</p>
+          <h1 className={styles.title}>Order details</h1>
+          <p className={styles.subtitle}>{dateLabel}</p>
+        </header>
 
-        <section
-          style={{
-            marginTop: 20,
-            display: "grid",
-            gridTemplateColumns: "1fr 1fr",
-            gap: 12,
-          }}
-        >
-          <div
-            style={{
-              background: "#fff",
-              borderRadius: 12,
-              padding: 14,
-              border: "1px solid #e4e4e7",
-            }}
-          >
-            <div style={{ fontSize: 11, color: "#71717a", textTransform: "uppercase" }}>Payment</div>
-            <div style={{ marginTop: 4, fontWeight: 600 }}>
-              {toGuideFinancialStatus(order.financialStatus) || "—"}
-            </div>
+        <section className={styles.hero}>
+          <div className={styles.heroIcon}>
+            <BagIcon />
           </div>
-          <div
-            style={{
-              background: "#fff",
-              borderRadius: 12,
-              padding: 14,
-              border: "1px solid #e4e4e7",
-            }}
-          >
-            <div style={{ fontSize: 11, color: "#71717a", textTransform: "uppercase" }}>
-              Fulfillment
-            </div>
-            <div style={{ marginTop: 4, fontWeight: 600 }}>
-              {toGuideFulfillmentStatus(order.fulfillmentStatus)}
-            </div>
+          <div className={styles.heroBody}>
+            <p className={styles.heroName}>{orderName}</p>
+            <p className={styles.heroMeta}>{money(order.totalPrice, currency)}</p>
           </div>
         </section>
 
-        <section
-          style={{
-            marginTop: 16,
-            background: "#fff",
-            borderRadius: 12,
-            border: "1px solid #e4e4e7",
-            overflow: "hidden",
-          }}
-        >
-          <div style={{ padding: "12px 14px", borderBottom: "1px solid #f4f4f5", fontWeight: 600 }}>
-            Items
-          </div>
-          <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+        <div className={styles.pills}>
+          <span className={`${styles.pill} ${styles.pillAccent}`}>
+            <span className={styles.pillLabel}>Payment</span>
+            {payment}
+          </span>
+          <span className={`${styles.pill} ${styles.pillMuted}`}>
+            <span className={styles.pillLabel}>Status</span>
+            {fulfillment}
+          </span>
+        </div>
+
+        <section className={styles.section}>
+          <h2 className={styles.sectionTitle}>Items</h2>
+          <div className={styles.stack}>
             {order.lineItems.map((line, index) => {
-              const lineTotal = Number(line.price?.toString?.() ?? line.price ?? 0) * line.quantity;
+              const lineTotal =
+                Number(line.price?.toString?.() ?? line.price ?? 0) * line.quantity;
               return (
-                <li
+                <article
                   key={`${line.productItem.sku ?? "line"}-${index}`}
-                  style={{
-                    display: "flex",
-                    gap: 12,
-                    padding: "12px 14px",
-                    borderBottom: index === order.lineItems.length - 1 ? "none" : "1px solid #f4f4f5",
-                  }}
+                  className={styles.card}
                 >
-                  {line.productItem.imageUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={line.productItem.imageUrl}
-                      alt=""
-                      width={56}
-                      height={56}
-                      style={{ borderRadius: 8, objectFit: "cover", background: "#f4f4f5" }}
-                    />
-                  ) : (
-                    <div
-                      style={{
-                        width: 56,
-                        height: 56,
-                        borderRadius: 8,
-                        background: "#f4f4f5",
-                      }}
-                    />
-                  )}
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 600, fontSize: 14 }}>
-                      {line.productItem.productTitle}
-                    </div>
-                    {line.productItem.variantTitle ? (
-                      <div style={{ fontSize: 12, color: "#71717a" }}>
-                        {line.productItem.variantTitle}
+                  <div className={styles.itemRow}>
+                    {line.productItem.imageUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={line.productItem.imageUrl}
+                        alt=""
+                        width={64}
+                        height={64}
+                        className={styles.thumb}
+                      />
+                    ) : (
+                      <div className={styles.thumbPlaceholder}>
+                        <ImageIcon />
                       </div>
-                    ) : null}
-                    {line.productItem.sku ? (
-                      <div style={{ fontSize: 12, color: "#a1a1aa" }}>{line.productItem.sku}</div>
-                    ) : null}
-                    <div style={{ marginTop: 4, fontSize: 13, color: "#52525b" }}>
-                      Qty {line.quantity} · {money(lineTotal, currency)}
+                    )}
+                    <div className={styles.itemBody}>
+                      <p className={styles.itemTitle}>{line.productItem.productTitle}</p>
+                      {line.productItem.variantTitle ? (
+                        <p className={styles.itemMeta}>{line.productItem.variantTitle}</p>
+                      ) : null}
+                      {line.productItem.sku ? (
+                        <p className={styles.itemMeta}>{line.productItem.sku}</p>
+                      ) : null}
+                      <p className={styles.itemMeta}>Qty {line.quantity}</p>
+                      <p className={styles.itemPrice}>{money(lineTotal, currency)}</p>
                     </div>
                   </div>
-                </li>
+                </article>
               );
             })}
-          </ul>
-        </section>
-
-        <section
-          style={{
-            marginTop: 16,
-            background: "#fff",
-            borderRadius: 12,
-            border: "1px solid #e4e4e7",
-            padding: 14,
-            display: "grid",
-            gap: 8,
-            fontSize: 14,
-          }}
-        >
-          <div style={{ display: "flex", justifyContent: "space-between" }}>
-            <span style={{ color: "#71717a" }}>Subtotal</span>
-            <span>{money(order.subtotalPrice, currency)}</span>
-          </div>
-          <div style={{ display: "flex", justifyContent: "space-between" }}>
-            <span style={{ color: "#71717a" }}>Shipping</span>
-            <span>{money(order.totalShipping, currency)}</span>
-          </div>
-          <div style={{ display: "flex", justifyContent: "space-between" }}>
-            <span style={{ color: "#71717a" }}>Tax</span>
-            <span>{money(order.totalTax, currency)}</span>
-          </div>
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              borderTop: "1px solid #f4f4f5",
-              paddingTop: 8,
-              fontWeight: 700,
-              fontSize: 16,
-            }}
-          >
-            <span>Total</span>
-            <span>{money(order.totalPrice, currency)}</span>
           </div>
         </section>
 
-        {(order.customerEmail || order.customerPhone || addressText(order.shippingAddress)) && (
-          <section
-            style={{
-              marginTop: 16,
-              background: "#fff",
-              borderRadius: 12,
-              border: "1px solid #e4e4e7",
-              padding: 14,
-              fontSize: 14,
-              lineHeight: 1.5,
-            }}
-          >
-            <div style={{ fontWeight: 600, marginBottom: 6 }}>Customer</div>
-            {order.customerEmail ? <div>{order.customerEmail}</div> : null}
-            {order.customerPhone ? <div>{order.customerPhone}</div> : null}
-            {addressText(order.shippingAddress) ? (
-              <div style={{ marginTop: 6, color: "#52525b" }}>
-                {addressText(order.shippingAddress)}
-              </div>
-            ) : null}
+        <section className={styles.section}>
+          <h2 className={styles.sectionTitle}>Summary</h2>
+          <div className={`${styles.card} ${styles.totals}`}>
+            <div className={styles.totalRow}>
+              <span>Subtotal</span>
+              <strong>{money(order.subtotalPrice, currency)}</strong>
+            </div>
+            <div className={styles.totalRow}>
+              <span>Shipping</span>
+              <strong>{money(order.totalShipping, currency)}</strong>
+            </div>
+            <div className={styles.totalRow}>
+              <span>Tax</span>
+              <strong>{money(order.totalTax, currency)}</strong>
+            </div>
+            <div className={styles.totalDivider} />
+            <div className={styles.totalGrand}>
+              <span>Total</span>
+              <span>{money(order.totalPrice, currency)}</span>
+            </div>
+          </div>
+        </section>
+
+        {(order.customerEmail || order.customerPhone || shipping) && (
+          <section className={styles.section}>
+            <h2 className={styles.sectionTitle}>Customer</h2>
+            <div className={styles.stack}>
+              {order.customerEmail ? (
+                <div className={styles.card}>
+                  <div className={styles.infoRow}>
+                    <div className={styles.infoIcon}>
+                      <MailIcon />
+                    </div>
+                    <div className={styles.infoBody}>
+                      <p className={styles.infoLabel}>Email</p>
+                      <p className={styles.infoValue}>{order.customerEmail}</p>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+              {order.customerPhone ? (
+                <div className={styles.card}>
+                  <div className={styles.infoRow}>
+                    <div className={styles.infoIcon}>
+                      <PhoneIcon />
+                    </div>
+                    <div className={styles.infoBody}>
+                      <p className={styles.infoLabel}>Phone</p>
+                      <p className={styles.infoValue}>{order.customerPhone}</p>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+              {shipping ? (
+                <div className={styles.card}>
+                  <div className={styles.infoRow}>
+                    <div className={styles.infoIcon}>
+                      <PinIcon />
+                    </div>
+                    <div className={styles.infoBody}>
+                      <p className={styles.infoLabel}>Shipping address</p>
+                      <p className={styles.infoValue}>{shipping}</p>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+            </div>
           </section>
         )}
-
       </div>
     </main>
   );
