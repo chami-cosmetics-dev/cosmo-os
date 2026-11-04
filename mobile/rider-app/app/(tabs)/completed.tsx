@@ -18,37 +18,23 @@ import { useCompletedDeliveriesList } from "@/src/hooks/use-completed-deliveries
 import { useTheme } from "@/src/providers/theme";
 import {
   formatCompletedDateChipLabel,
-  getCompletedDateKey,
-  getUniqueDateKeys,
+  getRecentHistoryDateKeys,
   groupByCompletedDate,
-  isTodayDateKey,
 } from "@/src/utils/completed-dates";
 import { parseMoney } from "@/src/utils/money";
 
 export default function CompletedScreen() {
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
-  const { deliveries, recentDateKeys, refreshing, loadingMore, hasMore, reload, loadMore } =
+  const { deliveries, refreshing, loadingMore, hasMore, reload, loadMore } =
     useCompletedDeliveriesList(selectedDate);
   const { colors, radii, shadows } = useTheme();
   const styles = useMemo(() => createStyles(colors, radii, shadows), [colors, radii, shadows]);
 
-  const todayDeliveries = selectedDate
-    ? []
-    : deliveries.filter((delivery) => isTodayDateKey(delivery.completedAt));
-  const overviewDeliveries = selectedDate ? deliveries : todayDeliveries;
-  const overviewRevenue = overviewDeliveries.reduce((sum, delivery) => sum + parseMoney(delivery.amount), 0);
-  const workedDates = getUniqueDateKeys([
-    ...recentDateKeys,
-    ...deliveries.map((delivery) => delivery.completedAt),
-  ]);
-
-  const historyDeliveries = selectedDate
-    ? deliveries
-    : deliveries.filter((delivery) => !isTodayDateKey(delivery.completedAt));
-
-  const todaySections = groupByCompletedDate(todayDeliveries);
-  const historySections = groupByCompletedDate(historyDeliveries);
+  const historyDates = useMemo(() => getRecentHistoryDateKeys(60), []);
+  const revenue = deliveries.reduce((sum, delivery) => sum + parseMoney(delivery.amount), 0);
+  const sections = groupByCompletedDate(deliveries);
+  const viewingHistory = Boolean(selectedDate);
 
   return (
     <SafeAreaView style={styles.page}>
@@ -75,50 +61,32 @@ export default function CompletedScreen() {
               <Text style={styles.overviewLabel}>
                 {selectedDate ? formatCompletedDateChipLabel(selectedDate) : "Total today"}
               </Text>
-              <Text style={styles.overviewValue}>{overviewDeliveries.length}</Text>
+              <Text style={styles.overviewValue}>{deliveries.length}</Text>
             </View>
             <View style={styles.overviewStat}>
               <Text style={styles.overviewLabel}>Revenue</Text>
-              <Text style={styles.overviewValue}>Rs. {overviewRevenue.toFixed(2)}</Text>
+              <Text style={styles.overviewValue}>Rs. {revenue.toFixed(2)}</Text>
             </View>
           </View>
         </View>
-
-        {!selectedDate
-          ? todaySections.map((section) => (
-              <View key={`today-${section.title}`} style={styles.section}>
-                <Text style={styles.sectionTitle}>{section.title}</Text>
-                {section.items.map((delivery) => (
-                  <CompletedDeliveryCard key={`${delivery.tenant}:${delivery.id}`} delivery={delivery} />
-                ))}
-              </View>
-            ))
-          : null}
 
         <View style={styles.historyTools}>
           <Pressable style={styles.datePickerButton} onPress={() => setShowDatePicker(true)}>
             <Feather name="calendar" size={14} color={colors.text} />
             <Text style={styles.datePickerText}>
-              {selectedDate ? formatCompletedDateChipLabel(selectedDate) : "Pick worked date"}
+              {selectedDate ? formatCompletedDateChipLabel(selectedDate) : "View history date"}
             </Text>
             <Feather name="chevron-down" size={14} color={colors.textSoft} />
           </Pressable>
           {selectedDate ? (
             <Pressable style={styles.historyReset} onPress={() => setSelectedDate(null)}>
-              <Text style={styles.historyResetText}>Back to history</Text>
+              <Text style={styles.historyResetText}>Back to today</Text>
             </Pressable>
           ) : null}
         </View>
 
-        {!selectedDate ? (
-          <View style={styles.historyHeader}>
-            <Text style={styles.historyTitle}>Other history</Text>
-            <Text style={styles.historySubtitle}>Older completed deliveries</Text>
-          </View>
-        ) : null}
-
-        {historySections.map((section) => (
-          <View key={`history-${section.title}`} style={styles.section}>
+        {sections.map((section) => (
+          <View key={`day-${section.title}`} style={styles.section}>
             <Text style={styles.sectionTitle}>{section.title}</Text>
             {section.items.map((delivery) => (
               <CompletedDeliveryCard key={`${delivery.tenant}:${delivery.id}`} delivery={delivery} />
@@ -136,20 +104,13 @@ export default function CompletedScreen() {
           </Pressable>
         ) : null}
 
-        {!selectedDate && todayDeliveries.length === 0 ? (
+        {deliveries.length === 0 ? (
           <EmptyState
-            title="No completed orders today"
-            message="Today's completed deliveries will appear here first."
-          />
-        ) : null}
-
-        {historyDeliveries.length === 0 ? (
-          <EmptyState
-            title={selectedDate ? "No history for this date" : "No delivery history yet"}
+            title={viewingHistory ? "No history for this date" : "No completed orders today"}
             message={
-              selectedDate
+              viewingHistory
                 ? "No completed deliveries were found for the selected date."
-                : "Older completed deliveries will appear here automatically."
+                : "Today's completed deliveries will appear here. Pick a history date to load older days."
             }
           />
         ) : null}
@@ -157,9 +118,10 @@ export default function CompletedScreen() {
 
       <DatePickerModal
         visible={showDatePicker}
-        title="Select worked date"
-        dates={workedDates}
+        title="Select history date"
+        dates={historyDates}
         selectedDate={selectedDate}
+        overviewLabel="Today"
         onClose={() => setShowDatePicker(false)}
         onSelect={setSelectedDate}
       />
@@ -236,9 +198,6 @@ function createStyles(
     datePickerText: { flex: 1, color: colors.text, fontWeight: "700" },
     historyReset: { alignSelf: "flex-start" },
     historyResetText: { color: colors.brand, fontWeight: "700" },
-    historyHeader: { gap: 4, marginTop: 4 },
-    historyTitle: { fontSize: 18, fontWeight: "800", color: colors.text },
-    historySubtitle: { color: colors.textMuted },
     loadMore: {
       alignItems: "center",
       justifyContent: "center",
