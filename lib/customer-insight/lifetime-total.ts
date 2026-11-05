@@ -3,11 +3,18 @@
  * Pure reducers are unit-tested; loaders live alongside for API use.
  */
 
+import type { FulfillmentStage, Prisma } from "@prisma/client";
+
 /** Fulfillment stages that count toward customer lifetime spend (OSF completed-sale rules). */
 export const CUSTOMER_LIFETIME_TOTAL_FULFILLMENT_STAGES = [
   "delivery_complete",
   "invoice_complete",
-] as const;
+] as const satisfies readonly FulfillmentStage[];
+
+const RETURNED_FULFILLMENT_STAGES = [
+  "returned",
+  "returned_to_store",
+] as const satisfies readonly FulfillmentStage[];
 
 export type OrderAmountInput = {
   totalPrice: number | string;
@@ -46,7 +53,7 @@ function normalizeStatus(value: string | null | undefined): string {
 }
 
 /** Prisma filter for orders that count in customer insight lifetime totals. */
-export function customerLifetimeTotalOrderWhere() {
+export function customerLifetimeTotalOrderWhere(): Prisma.OrderWhereInput {
   return {
     cancelledAt: null,
     financialStatus: { not: "voided" },
@@ -58,7 +65,7 @@ export function customerLifetimeTotalOrderWhere() {
  * Brand/item Insight filters: completed sales plus voided/cancelled/returned rows.
  * Reversed rows match the contact but contribute 0 to brand/item spend.
  */
-export function customerInsightPurchaseMatchOrderWhere() {
+export function customerInsightPurchaseMatchOrderWhere(): Prisma.OrderWhereInput {
   return {
     OR: [
       customerLifetimeTotalOrderWhere(),
@@ -66,7 +73,7 @@ export function customerInsightPurchaseMatchOrderWhere() {
       { financialStatus: { in: ["voided", "void"] } },
       {
         fulfillmentStage: {
-          in: ["returned", "returned_to_store"],
+          in: [...RETURNED_FULFILLMENT_STAGES],
         },
       },
     ],
