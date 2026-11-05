@@ -11,11 +11,6 @@ export const CUSTOMER_LIFETIME_TOTAL_FULFILLMENT_STAGES = [
   "invoice_complete",
 ] as const satisfies readonly FulfillmentStage[];
 
-const RETURNED_FULFILLMENT_STAGES = [
-  "returned",
-  "returned_to_store",
-] as const satisfies readonly FulfillmentStage[];
-
 export type OrderAmountInput = {
   totalPrice: number | string;
   cancelledAt: Date | string | null;
@@ -62,22 +57,12 @@ export function customerLifetimeTotalOrderWhere(): Prisma.OrderWhereInput {
 }
 
 /**
- * Brand/item Insight filters: completed sales plus voided/cancelled/returned rows.
- * Reversed rows match the contact but contribute 0 to brand/item spend.
+ * Brand/item Insight filters: no stage/status gate.
+ * In-progress, completed, voided, and cancelled orders all match the contact.
+ * Spend is applied separately (0 for reversed / not yet completed).
  */
 export function customerInsightPurchaseMatchOrderWhere(): Prisma.OrderWhereInput {
-  return {
-    OR: [
-      customerLifetimeTotalOrderWhere(),
-      { cancelledAt: { not: null } },
-      { financialStatus: { in: ["voided", "void"] } },
-      {
-        fulfillmentStage: {
-          in: [...RETURNED_FULFILLMENT_STAGES],
-        },
-      },
-    ],
-  };
+  return {};
 }
 
 /**
