@@ -9,7 +9,7 @@ import { getTenantDefinition } from "@/src/tenants/config";
 import type { TenantId } from "@/src/tenants/config";
 import type { MobileDeliveryDetail, OldItemCollectionStatus, PaymentMethod } from "@/src/types";
 import { amountsMatch, requiresPaymentReference } from "@/src/utils/delivery";
-import { submitOrQueue, submitOrQueueSteps } from "@/src/utils/submit-or-queue";
+import { submitOrQueue } from "@/src/utils/submit-or-queue";
 
 type DeliveryActionInput = {
   tenant: TenantId;
@@ -160,7 +160,7 @@ export function useDeliveryActions() {
           }
         : {};
 
-      const paymentBody =
+      const closeBody =
         lines.length === 1
           ? {
               paymentMethod: lines[0].paymentMethod,
@@ -171,6 +171,11 @@ export function useDeliveryActions() {
               ...cardProof,
               ...tenderFields,
               idempotencyKey: stableIdempotencyKey("payment", tenant, deliveryId),
+              completeIdempotencyKey: stableIdempotencyKey("complete", tenant, deliveryId),
+              oldItemCollectionStatus: needsOldItemCollection ? oldItemCollectionStatus : undefined,
+              oldItemCollectionRemark: needsOldItemCollection
+                ? oldItemCollectionRemark.trim() || undefined
+                : undefined,
             }
           : {
               lines: lines.map((line) => ({
@@ -184,29 +189,19 @@ export function useDeliveryActions() {
               ...cardProof,
               ...tenderFields,
               idempotencyKey: stableIdempotencyKey("payment", tenant, deliveryId),
-            };
-
-      const closeResult = await submitOrQueueSteps({
-        tenant,
-        steps: [
-          {
-            endpoint: `/api/mobile/v1/deliveries/${deliveryId}/payment`,
-            method: "POST",
-            body: paymentBody,
-          },
-          {
-            endpoint: `/api/mobile/v1/deliveries/${deliveryId}/complete`,
-            method: "POST",
-            body: {
-              idempotencyKey: stableIdempotencyKey("complete", tenant, deliveryId),
+              completeIdempotencyKey: stableIdempotencyKey("complete", tenant, deliveryId),
               oldItemCollectionStatus: needsOldItemCollection ? oldItemCollectionStatus : undefined,
               oldItemCollectionRemark: needsOldItemCollection
                 ? oldItemCollectionRemark.trim() || undefined
                 : undefined,
-            },
-          },
-        ],
-        queuedMessage: "Payment + delivery done saved offline — will sync together.",
+            };
+
+      // One round-trip (payment+complete). Old two-step queue still works if offline path queues this.
+      const closeResult = await submitOrQueue({
+        tenant,
+        endpoint: `/api/mobile/v1/deliveries/${deliveryId}/close`,
+        body: closeBody,
+        queuedMessage: "Payment + delivery done saved offline — will sync when online.",
       });
 
       await markCompleted({
@@ -221,13 +216,12 @@ export function useDeliveryActions() {
       });
       await refreshPendingQueue();
 
+      router.navigate("/(tabs)/deliveries");
       if (closeResult.mode === "live") {
         Alert.alert("Order completed", "Delivery marked done. Invoice close stays with finance.");
       } else {
         Alert.alert("Saved offline", "Payment and done will sync together when online.");
       }
-
-      router.navigate("/(tabs)/deliveries");
     } catch (error) {
       const message =
         error instanceof ApiError

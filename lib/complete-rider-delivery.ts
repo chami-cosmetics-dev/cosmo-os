@@ -185,6 +185,11 @@ export async function completeRiderDeliveryTask(input: {
   completedLongitude?: number | null;
   completedAccuracyMeters?: number | null;
   completedLocationAt?: Date | null;
+  /**
+   * When true, skip invoice/approval side-effects so the mobile route can
+   * return immediately and run them with next/server `after()`.
+   */
+  skipPostDelivery?: boolean;
 }): Promise<CompleteRiderDeliveryResult> {
   const now = input.now ?? new Date();
   const task = await prisma.riderDeliveryTask.findFirst({
@@ -202,7 +207,7 @@ export async function completeRiderDeliveryTask(input: {
   }
 
   if (isRiderDeliveryAlreadyCompletedStage(task.order.fulfillmentStage)) {
-    if (task.order.fulfillmentStage === "delivery_complete") {
+    if (task.order.fulfillmentStage === "delivery_complete" && !input.skipPostDelivery) {
       await applyPostDeliverySafe({
         companyId: task.order.companyId,
         orderId: task.orderId,
@@ -231,11 +236,13 @@ export async function completeRiderDeliveryTask(input: {
     }),
   );
 
-  await applyPostDeliverySafe({
-    companyId: task.order.companyId,
-    orderId: task.orderId,
-    requestedById: input.riderId,
-  });
+  if (!input.skipPostDelivery) {
+    await applyPostDeliverySafe({
+      companyId: task.order.companyId,
+      orderId: task.orderId,
+      requestedById: input.riderId,
+    });
+  }
 
   return {
     success: true,
@@ -246,4 +253,13 @@ export async function completeRiderDeliveryTask(input: {
     hadTask: true,
     order: updated,
   };
+}
+
+/** Used by mobile routes after a fast complete response. */
+export async function runPostDeliveryAfterComplete(input: {
+  companyId: string;
+  orderId: string;
+  requestedById: string | null;
+}) {
+  await applyPostDeliverySafe(input);
 }

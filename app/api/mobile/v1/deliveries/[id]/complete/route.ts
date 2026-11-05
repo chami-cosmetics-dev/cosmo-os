@@ -1,9 +1,12 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 
 import { requireRiderMobileSession, mobileError } from "@/lib/mobile/api";
-import { findRiderTaskById } from "@/lib/mobile/orders";
+import { findRiderTaskForMutation } from "@/lib/mobile/find-rider-task-for-mutation";
 import { riderDeliveryCompleteSchema, mobileRouteIdSchema } from "@/lib/mobile/validation";
-import { completeRiderDeliveryTask } from "@/lib/complete-rider-delivery";
+import {
+  completeRiderDeliveryTask,
+  runPostDeliveryAfterComplete,
+} from "@/lib/complete-rider-delivery";
 import { sendOrderSms } from "@/lib/order-sms";
 import { resolveCustomerPhone } from "@/lib/order-sms-resolvers";
 
@@ -28,18 +31,31 @@ export async function POST(
     return mobileError("Invalid completion payload", 400);
   }
 
-  const task = await findRiderTaskById(idResult.data, auth.session.userId);
+  const task = await findRiderTaskForMutation(idResult.data, auth.session.userId);
   if (!task) {
     return mobileError("Delivery not found", 404);
   }
 
-  if (task.order.fulfillmentStage === "delivery_complete" || task.order.fulfillmentStage === "invoice_complete") {
+  if (
+    task.order.fulfillmentStage === "delivery_complete" ||
+    task.order.fulfillmentStage === "invoice_complete"
+  ) {
     const result = await completeRiderDeliveryTask({
       taskId: task.id,
       riderId: auth.session.userId,
+      skipPostDelivery: true,
     });
     if (!result.success) {
       return mobileError(result.error, result.status);
+    }
+    if (task.order.fulfillmentStage === "delivery_complete") {
+      after(() =>
+        runPostDeliveryAfterComplete({
+          companyId: task.order.companyId,
+          orderId: task.orderId,
+          requestedById: auth.session.userId,
+        })
+      );
     }
     return NextResponse.json({ success: true, alreadyCompleted: true });
   }
@@ -57,8 +73,12 @@ export async function POST(
   }
 
   const now = parsed.data.completedAt ? new Date(parsed.data.completedAt) : new Date();
-  const acceptedAt = parsed.data.acceptedAt ? new Date(parsed.data.acceptedAt) : task.acceptedAt ?? now;
-  const arrivedAt = parsed.data.arrivedAt ? new Date(parsed.data.arrivedAt) : task.arrivedAt ?? now;
+  const acceptedAt = parsed.data.acceptedAt
+    ? new Date(parsed.data.acceptedAt)
+    : task.acceptedAt ?? now;
+  const arrivedAt = parsed.data.arrivedAt
+    ? new Date(parsed.data.arrivedAt)
+    : task.arrivedAt ?? now;
 
   const result = await completeRiderDeliveryTask({
     taskId: task.id,
@@ -76,6 +96,7 @@ export async function POST(
       : parsed.data.completedLatitude != null
         ? now
         : null,
+    skipPostDelivery: true,
   });
 
   if (!result.success) {
@@ -85,11 +106,21 @@ export async function POST(
     return NextResponse.json({ success: true, alreadyCompleted: true });
   }
 
-  void sendOrderSms(result.order.companyId, result.order.id, "delivery_complete", {
-    orderNumber: result.order.orderNumber ?? result.order.name ?? result.order.shopifyOrderId,
-    customerPhone: resolveCustomerPhone(result.order),
-    locationName: result.order.companyLocation?.name ?? undefined,
-  }).catch((err) => console.error("[Mobile delivery] delivery_complete SMS failed:", err));
+  after(() =>
+    runPostDeliveryAfterComplete({
+      companyId: result.companyId,
+      orderId: result.orderId,
+      requestedById: auth.session.userId,
+    })
+  );
+
+  after(() =>
+    sendOrderSms(result.order.companyId, result.order.id, "delivery_complete", {
+      orderNumber: result.order.orderNumber ?? result.order.name ?? result.order.shopifyOrderId,
+      customerPhone: resolveCustomerPhone(result.order),
+      locationName: result.order.companyLocation?.name ?? undefined,
+    }).catch((err) => console.error("[Mobile delivery] delivery_complete SMS failed:", err))
+  );
 
   return NextResponse.json({ success: true });
 }

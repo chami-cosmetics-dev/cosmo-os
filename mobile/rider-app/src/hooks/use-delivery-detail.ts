@@ -86,15 +86,18 @@ export function useDeliveryDetail(tenantParam: string | undefined, id: string | 
 
     const result = await ImagePicker.launchCameraAsync({
       mediaTypes: ["images"],
-      quality: 0.55,
+      quality: 0.35,
       base64: true,
-      allowsEditing: true,
+      // Crop UI slows door flow — skip.
+      allowsEditing: false,
+      exif: false,
     }).catch(async () =>
       ImagePicker.launchImageLibraryAsync({
         mediaTypes: ["images"],
-        quality: 0.55,
+        quality: 0.35,
         base64: true,
-        allowsEditing: true,
+        allowsEditing: false,
+        exif: false,
       })
     );
 
