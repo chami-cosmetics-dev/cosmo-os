@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   isNonProductInsightItem,
+  normalizeInsightItemVariant,
   rankInsightItemOptions,
 } from "@/lib/customer-insight/filter-options";
 
@@ -55,6 +56,14 @@ describe("isNonProductInsightItem", () => {
         sku: "ACN-C10",
       })
     ).toBe(false);
+  });
+});
+
+describe("normalizeInsightItemVariant", () => {
+  it("treats Default Title as empty", () => {
+    expect(normalizeInsightItemVariant("Default Title")).toBe("");
+    expect(normalizeInsightItemVariant("  default title  ")).toBe("");
+    expect(normalizeInsightItemVariant("90 Tablets")).toBe("90 Tablets");
   });
 });
 

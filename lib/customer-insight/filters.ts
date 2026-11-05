@@ -25,7 +25,10 @@ import { findContactsByPurchasedBrandRanked } from "@/lib/page-data/contact-bran
 import { findContactsByPurchasedItemRanked } from "@/lib/customer-insight/item-filter";
 import { findContactsByPurchasedItemStatusRanked } from "@/lib/customer-insight/item-status-filter";
 import { resolveAssignedMerchantFilterLabels } from "@/lib/customer-insight/merchant-label-aliases";
-import { purchaseAtsForLoadedContacts } from "@/lib/customer-insight/first-purchase";
+import {
+  laterDate,
+  purchaseAtsForLoadedContacts,
+} from "@/lib/customer-insight/first-purchase";
 import { prisma } from "@/lib/prisma";
 
 export type MonthDay = { month: number; day: number };
@@ -826,11 +829,13 @@ export async function filterAllocatedContacts(
       continue;
     }
 
-    // Completed purchase dates only for inactivity filters. Purchased-from/to
-    // also accepts ContactMaster stamp so voided matches still pass the window.
+    // Completed-only dates miss in-progress / recently stamped purchases.
+    // Purchased-from/to uses the later of completed history and ContactMaster stamp.
     const completedLastPurchaseAt = purchaseAts.last.get(contact.id) ?? null;
-    const lastPurchaseAt =
-      completedLastPurchaseAt ?? contact.lastPurchaseAt ?? null;
+    const lastPurchaseAt = laterDate(
+      completedLastPurchaseAt,
+      contact.lastPurchaseAt
+    );
 
     if (!sqlPaginate) {
       if (
@@ -844,12 +849,7 @@ export async function filterAllocatedContacts(
       }
 
       if (input.noPurchaseMonths === 3 || input.noPurchaseMonths === 6) {
-        if (
-          !hasNoPurchaseWithinMonths(
-            completedLastPurchaseAt,
-            input.noPurchaseMonths
-          )
-        ) {
+        if (!hasNoPurchaseWithinMonths(lastPurchaseAt, input.noPurchaseMonths)) {
           continue;
         }
       }
@@ -857,7 +857,7 @@ export async function filterAllocatedContacts(
       if (input.noPurchaseFrom && input.noPurchaseTo) {
         if (
           !hasNoPurchaseInDateRange(
-            completedLastPurchaseAt,
+            lastPurchaseAt,
             input.noPurchaseFrom,
             input.noPurchaseTo
           )
@@ -976,8 +976,10 @@ export async function filterAllocatedContacts(
       brandSpend,
       itemSpend,
       assignedMerchant: contact.assignedMerchant,
-      lastPurchaseAt:
-        purchaseAts.last.get(contact.id) ?? contact.lastPurchaseAt ?? null,
+      lastPurchaseAt: laterDate(
+        purchaseAts.last.get(contact.id) ?? null,
+        contact.lastPurchaseAt
+      ),
       lastContactedAt: contacted.get(contact.id) ?? null,
       callUpdateStatus: displayCallCenterCategory(contact.category),
       key,
