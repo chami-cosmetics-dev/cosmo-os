@@ -309,8 +309,10 @@ export async function PATCH(
 
   const nextIsShopMerchant =
     data.isShopMerchant ?? targetUser.employeeProfile?.isShopMerchant ?? false;
-  const nextOutletIds =
-    data.outletIds !== undefined
+  // Non–shop-merchants never keep outlets (clears leftovers that trigger "Today: CoolPlanet").
+  const nextOutletIds = !nextIsShopMerchant
+    ? []
+    : data.outletIds !== undefined
       ? data.outletIds
       : data.outletId !== undefined
         ? data.outletId
@@ -383,6 +385,7 @@ export async function PATCH(
         data.outletId !== undefined && { outletId: data.outletId }),
       ...(nextOutletIds !== null && {
         outletId: nextOutletIds[0] ?? null,
+        ...(nextOutletIds.length === 0 ? { activeOutletDateKey: null } : {}),
       }),
       appointmentDate: validAppointment ?? undefined,
       ...(data.isRider !== undefined && { isRider: data.isRider }),

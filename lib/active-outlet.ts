@@ -18,24 +18,10 @@ function todayColomboKey(now = new Date()): string {
   return formatAppIsoDate(now, "");
 }
 
-/** Assigned outlets for a staff user (join table, fallback to legacy outletId). */
-export async function listAssignedOutlets(
-  userId: string,
-  companyId: string,
-): Promise<AssignedOutlet[]> {
-  const profile = await prisma.employeeProfile.findFirst({
-    where: { userId, companyId },
-    select: {
-      outletId: true,
-      outlet: { select: { id: true, name: true } },
-      outletAssignments: {
-        select: { outlet: { select: { id: true, name: true } } },
-        orderBy: { outlet: { name: "asc" } },
-      },
-    },
-  });
-  if (!profile) return [];
-
+function collectAssignedOutlets(profile: {
+  outlet: AssignedOutlet | null;
+  outletAssignments: Array<{ outlet: AssignedOutlet }>;
+}): AssignedOutlet[] {
   const byId = new Map<string, AssignedOutlet>();
   for (const row of profile.outletAssignments) {
     byId.set(row.outlet.id, { id: row.outlet.id, name: row.outlet.name });
@@ -49,6 +35,29 @@ export async function listAssignedOutlets(
   return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/**
+ * Assigned outlets for today's working-shop flow.
+ * Only shop merchants participate; leftover outlet rows on other staff are ignored.
+ */
+export async function listAssignedOutlets(
+  userId: string,
+  companyId: string,
+): Promise<AssignedOutlet[]> {
+  const profile = await prisma.employeeProfile.findFirst({
+    where: { userId, companyId },
+    select: {
+      isShopMerchant: true,
+      outlet: { select: { id: true, name: true } },
+      outletAssignments: {
+        select: { outlet: { select: { id: true, name: true } } },
+        orderBy: { outlet: { name: "asc" } },
+      },
+    },
+  });
+  if (!profile?.isShopMerchant) return [];
+  return collectAssignedOutlets(profile);
+}
+
 export async function getActiveOutletState(
   userId: string,
   companyId: string,
@@ -57,6 +66,7 @@ export async function getActiveOutletState(
   const profile = await prisma.employeeProfile.findFirst({
     where: { userId, companyId },
     select: {
+      isShopMerchant: true,
       outletId: true,
       activeOutletDateKey: true,
       outlet: { select: { id: true, name: true } },
@@ -67,30 +77,27 @@ export async function getActiveOutletState(
     },
   });
 
-  const assignedOutlets = (() => {
-    if (!profile) return [] as AssignedOutlet[];
-    const byId = new Map<string, AssignedOutlet>();
-    for (const row of profile.outletAssignments) {
-      byId.set(row.outlet.id, { id: row.outlet.id, name: row.outlet.name });
-    }
-    if (profile.outlet) {
-      byId.set(profile.outlet.id, {
-        id: profile.outlet.id,
-        name: profile.outlet.name,
-      });
-    }
-    return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
-  })();
+  if (!profile?.isShopMerchant) {
+    return {
+      assignedOutlets: [],
+      activeOutlet: null,
+      activeOutletDateKey: null,
+      todayKey,
+      needsServerSelection: false,
+    };
+  }
+
+  const assignedOutlets = collectAssignedOutlets(profile);
 
   const activeOutlet =
-    profile?.outlet &&
+    profile.outlet &&
     assignedOutlets.some((o) => o.id === profile.outletId)
       ? { id: profile.outlet.id, name: profile.outlet.name }
       : assignedOutlets.length === 1
         ? assignedOutlets[0]!
         : null;
 
-  const dateOk = profile?.activeOutletDateKey === todayKey;
+  const dateOk = profile.activeOutletDateKey === todayKey;
   const needsServerSelection =
     assignedOutlets.length > 1 &&
     (!activeOutlet || !dateOk || !assignedOutlets.some((o) => o.id === activeOutlet.id));
@@ -98,7 +105,7 @@ export async function getActiveOutletState(
   return {
     assignedOutlets,
     activeOutlet,
-    activeOutletDateKey: profile?.activeOutletDateKey ?? null,
+    activeOutletDateKey: profile.activeOutletDateKey ?? null,
     todayKey,
     needsServerSelection,
   };

@@ -1,6 +1,14 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   ImagePlus,
   Loader2,
@@ -328,6 +336,280 @@ function hasEnteredData(rows: LedgerRow[]): boolean {
       r.salesInvoice.trim() !== "" ||
       r.specialNote.trim() !== "" ||
       rowTotal(r) > 0,
+  );
+}
+
+function AmountFieldLabel({
+  children,
+  htmlFor,
+}: {
+  children: ReactNode;
+  htmlFor?: string;
+}) {
+  return (
+    <label
+      htmlFor={htmlFor}
+      className="text-muted-foreground mb-1 block text-[10px] font-medium uppercase tracking-wide"
+    >
+      {children}
+    </label>
+  );
+}
+
+/** Phone + tablet: labeled payment grid so Card/KOKO stay on-screen (no side-scroll). */
+function LedgerPaymentGrid({
+  row,
+  disabled,
+  onPatch,
+}: {
+  row: LedgerRow;
+  disabled: boolean;
+  onPatch: (patch: Partial<LedgerRow>) => void;
+}) {
+  const card = toNum(row.card);
+  const koko = toNum(row.koko);
+  const mintpay = toNum(row.mintpay);
+  const splitLocked = disabled || row.splitMode;
+
+  return (
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+      <div>
+        <AmountFieldLabel>Cash</AmountFieldLabel>
+        <Input
+          inputMode="decimal"
+          value={row.cash}
+          disabled={splitLocked}
+          className="h-9 text-right font-mono text-xs"
+          onChange={(e) => onPatch({ cash: e.target.value })}
+        />
+      </div>
+      <div>
+        <AmountFieldLabel>Card</AmountFieldLabel>
+        <Input
+          inputMode="decimal"
+          value={row.card}
+          disabled={splitLocked}
+          className="h-9 text-right font-mono text-xs"
+          onChange={(e) => onPatch({ card: e.target.value })}
+        />
+        {card > 0 && !row.splitMode ? (
+          <Input
+            inputMode="numeric"
+            maxLength={4}
+            value={row.cardReceiptRefLast4}
+            disabled={disabled}
+            placeholder="Last 4 ref"
+            aria-label="Card receipt reference last 4 digits"
+            className="mt-1 h-8 text-center font-mono text-xs tracking-widest"
+            onChange={(e) =>
+              onPatch({
+                cardReceiptRefLast4: e.target.value.replace(/\D/g, "").slice(0, 4),
+              })
+            }
+          />
+        ) : null}
+      </div>
+      <div>
+        <AmountFieldLabel>KOKO</AmountFieldLabel>
+        <Input
+          inputMode="decimal"
+          value={row.koko}
+          disabled={splitLocked}
+          className="h-9 text-right font-mono text-xs"
+          onChange={(e) => onPatch({ koko: e.target.value })}
+        />
+        {koko > 0 && !row.splitMode ? (
+          <div className="mt-1">
+            <KokoReferenceInput
+              value={row.kokoReference}
+              disabled={disabled}
+              onChange={(kokoReference) => onPatch({ kokoReference })}
+            />
+          </div>
+        ) : null}
+      </div>
+      <div>
+        <AmountFieldLabel>MintPay</AmountFieldLabel>
+        <Input
+          inputMode="decimal"
+          value={row.mintpay}
+          disabled={splitLocked}
+          className="h-9 text-right font-mono text-xs"
+          onChange={(e) => onPatch({ mintpay: e.target.value })}
+        />
+        {mintpay > 0 && !row.splitMode ? (
+          <div className="mt-1">
+            <MintpayReferenceInput
+              value={row.mintpayReference}
+              disabled={disabled}
+              onChange={(mintpayReference) => onPatch({ mintpayReference })}
+            />
+          </div>
+        ) : null}
+      </div>
+      <div>
+        <AmountFieldLabel>Bank</AmountFieldLabel>
+        <Input
+          inputMode="decimal"
+          value={row.bankTransfer}
+          disabled={splitLocked}
+          className="h-9 text-right font-mono text-xs"
+          onChange={(e) => onPatch({ bankTransfer: e.target.value })}
+        />
+      </div>
+      <div className="bg-muted/40 flex flex-col justify-end rounded-md border px-2 py-1.5">
+        <span className="text-muted-foreground text-[10px] font-medium uppercase tracking-wide">
+          Row total
+        </span>
+        <span className="font-mono text-sm font-semibold tabular-nums">
+          {rowTotal(row).toFixed(2)}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function SplitLinesStacked({
+  row,
+  disabled,
+  onAdd,
+  onRemove,
+  onUpdate,
+}: {
+  row: LedgerRow;
+  disabled: boolean;
+  onAdd: () => void;
+  onRemove: (lineKey: string) => void;
+  onUpdate: (lineKey: string, patch: Partial<SplitLineForm>) => void;
+}) {
+  return (
+    <div className="space-y-2 rounded-md border border-violet-200 bg-violet-50/60 p-2 dark:border-violet-900/40 dark:bg-violet-950/20">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs font-semibold uppercase tracking-wide text-violet-800 dark:text-violet-300">
+          Split payment lines
+        </p>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={disabled}
+          onClick={onAdd}
+        >
+          <Plus className="h-3.5 w-3.5" />
+          Add line
+        </Button>
+      </div>
+      <ul className="space-y-2">
+        {row.splitLines.map((sl, index) => (
+          <li
+            key={sl.key}
+            className="bg-background space-y-2 rounded-md border p-2"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-muted-foreground text-[10px] font-medium uppercase">
+                Line {index + 1}
+              </span>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                disabled={disabled}
+                onClick={() => onRemove(sl.key)}
+                aria-label="Remove split line"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <AmountFieldLabel>Method</AmountFieldLabel>
+                <Select
+                  value={sl.paymentMethod}
+                  disabled={disabled}
+                  onValueChange={(v) =>
+                    onUpdate(sl.key, {
+                      paymentMethod: v as BookNoteErpPaymentMethod,
+                    })
+                  }
+                >
+                  <SelectTrigger className="h-9 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {BOOK_NOTE_ERP_PAYMENT_METHODS.map((m) => (
+                      <SelectItem key={m} value={m}>
+                        {m}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <AmountFieldLabel>Amount</AmountFieldLabel>
+                <Input
+                  inputMode="decimal"
+                  value={sl.amount}
+                  disabled={disabled}
+                  className="h-9 text-right font-mono text-xs"
+                  onChange={(e) =>
+                    onUpdate(sl.key, { amount: e.target.value })
+                  }
+                />
+              </div>
+            </div>
+            {sl.paymentMethod === "Card" ? (
+              <div>
+                <AmountFieldLabel>Card last 4</AmountFieldLabel>
+                <Input
+                  inputMode="numeric"
+                  maxLength={4}
+                  value={sl.cardLast4}
+                  disabled={disabled}
+                  placeholder="1234"
+                  className="h-9 text-center font-mono tracking-widest"
+                  onChange={(e) =>
+                    onUpdate(sl.key, {
+                      cardLast4: e.target.value.replace(/\D/g, "").slice(0, 4),
+                    })
+                  }
+                />
+              </div>
+            ) : null}
+            {sl.paymentMethod === "KOKO" ? (
+              <KokoReferenceInput
+                value={sl.kokoReference}
+                disabled={disabled}
+                onChange={(kokoReference) => onUpdate(sl.key, { kokoReference })}
+              />
+            ) : null}
+            {sl.paymentMethod === "MintPay" ? (
+              <MintpayReferenceInput
+                value={sl.mintpayReference}
+                disabled={disabled}
+                onChange={(mintpayReference) =>
+                  onUpdate(sl.key, { mintpayReference })
+                }
+              />
+            ) : null}
+            {sl.paymentMethod === "Bank Transfer" ? (
+              <div>
+                <AmountFieldLabel>Bank ref</AmountFieldLabel>
+                <Input
+                  value={sl.bankReference}
+                  disabled={disabled}
+                  placeholder="Bank ref"
+                  className="h-9"
+                  onChange={(e) =>
+                    onUpdate(sl.key, { bankReference: e.target.value })
+                  }
+                />
+              </div>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
@@ -1739,7 +2021,226 @@ export function BookNotesPanel({
             {isDirty ? " · unsaved changes" : ""}
           </span>
         </div>
-        <div className="overflow-x-auto">
+
+        {/* Phone + tablet: stacked cards — all payment fields visible without side-scroll */}
+        <div className="space-y-3 p-3 lg:hidden">
+          {rows.length === 0 ? (
+            <p className="text-muted-foreground py-6 text-center text-sm">
+              No rows yet. Enter a row count above and click Create rows, or use
+              Add row.
+            </p>
+          ) : (
+            rows.map((row) => {
+              const cash = toNum(row.cash);
+              const card = toNum(row.card);
+              const koko = toNum(row.koko);
+              const mintpay = toNum(row.mintpay);
+              const bank = toNum(row.bankTransfer);
+              const multi =
+                row.splitMode ||
+                [cash, card, koko, mintpay, bank].filter((a) => a > 0).length >
+                  1;
+              return (
+                <div
+                  key={row.key}
+                  className={
+                    multi
+                      ? "space-y-3 rounded-lg border border-amber-200 bg-amber-50/80 p-3 dark:border-amber-900/40 dark:bg-amber-950/20"
+                      : "space-y-3 rounded-lg border p-3"
+                  }
+                >
+                  <div className="flex items-start gap-2">
+                    <div className="w-14 shrink-0">
+                      <AmountFieldLabel>Idx</AmountFieldLabel>
+                      <Input
+                        value={row.idxNo}
+                        disabled={isBusy || readOnly}
+                        className="h-9 font-mono text-xs"
+                        onChange={(e) =>
+                          updateRow(row.key, { idxNo: e.target.value })
+                        }
+                      />
+                    </div>
+                    <div className="relative min-w-0 flex-1">
+                      <AmountFieldLabel>Sales Invoice</AmountFieldLabel>
+                      <Input
+                        value={row.salesInvoice}
+                        disabled={isBusy || readOnly}
+                        placeholder="Type invoice no…"
+                        className="h-9 font-mono text-xs"
+                        onChange={(e) => {
+                          updateRow(row.key, {
+                            salesInvoice: e.target.value,
+                            orderId: null,
+                          });
+                          fetchSuggestions(row.key, e.target.value);
+                        }}
+                        onBlur={() => {
+                          setTimeout(() => {
+                            setSuggestForKey((k) =>
+                              k === row.key ? null : k,
+                            );
+                          }, 150);
+                        }}
+                      />
+                      {suggestForKey === row.key && suggestions.length > 0 && (
+                        <ul className="bg-popover absolute z-20 mt-1 max-h-48 w-full overflow-auto rounded-md border shadow-md">
+                          {suggestions.map((s) => (
+                            <li key={s.orderId}>
+                              <button
+                                type="button"
+                                className="hover:bg-accent w-full px-3 py-2 text-left text-xs"
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => applySuggestion(row.key, s)}
+                              >
+                                <span className="font-mono font-medium">
+                                  {s.label}
+                                </span>
+                                <span className="text-muted-foreground ml-2 block sm:ml-2 sm:inline">
+                                  {suggestionAmountHint(s)} · {s.sourceName}
+                                </span>
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                    <div className="flex shrink-0 flex-col gap-1 pt-5">
+                      <Button
+                        type="button"
+                        variant={row.splitMode ? "default" : "outline"}
+                        size="sm"
+                        disabled={isBusy || readOnly}
+                        className={
+                          row.splitMode
+                            ? "h-9 bg-violet-600 px-2 text-[11px] font-bold tracking-wide hover:bg-violet-700"
+                            : "h-9 px-2 text-[11px] font-bold tracking-wide"
+                        }
+                        onClick={() => toggleSplitMode(row.key)}
+                      >
+                        {row.splitMode ? "SPLIT" : "Split"}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-9 w-9 self-end"
+                        disabled={isBusy || readOnly}
+                        onClick={() => removeRow(row.key)}
+                        aria-label="Remove row"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+
+                  {row.splitMode ? (
+                    <SplitLinesStacked
+                      row={row}
+                      disabled={isBusy || readOnly}
+                      onAdd={() => addSplitLine(row.key)}
+                      onRemove={(lineKey) =>
+                        removeSplitLine(row.key, lineKey)
+                      }
+                      onUpdate={(lineKey, patch) =>
+                        updateSplitLine(row.key, lineKey, patch)
+                      }
+                    />
+                  ) : (
+                    <LedgerPaymentGrid
+                      row={row}
+                      disabled={isBusy || readOnly}
+                      onPatch={(patch) => updateRow(row.key, patch)}
+                    />
+                  )}
+
+                  <div>
+                    <Textarea
+                      value={row.specialNote}
+                      disabled={isBusy || readOnly}
+                      placeholder="Special note (optional)"
+                      aria-label={`Special note for row ${row.idxNo}`}
+                      maxLength={LIMITS.bookNoteSpecialNote.max}
+                      rows={2}
+                      className="min-h-[2.5rem] resize-y text-xs"
+                      onChange={(e) =>
+                        updateRow(row.key, {
+                          specialNote: e.target.value.slice(
+                            0,
+                            LIMITS.bookNoteSpecialNote.max,
+                          ),
+                        })
+                      }
+                    />
+                    {row.specialNote.trim().length > 0 ? (
+                      <p className="text-muted-foreground mt-0.5 text-[10px] tabular-nums">
+                        {row.specialNote.trim().length}/
+                        {LIMITS.bookNoteSpecialNote.max}
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+              );
+            })
+          )}
+          {rows.length > 0 ? (
+            <div className="bg-muted/30 space-y-2 rounded-lg border p-3 text-sm">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                <div>
+                  <span className="text-muted-foreground text-[10px] uppercase">
+                    Cash
+                  </span>
+                  <p className="font-mono font-semibold tabular-nums">
+                    {totals.cash.toFixed(2)}
+                  </p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground text-[10px] uppercase">
+                    Card
+                  </span>
+                  <p className="font-mono font-semibold tabular-nums">
+                    {totals.card.toFixed(2)}
+                  </p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground text-[10px] uppercase">
+                    KOKO
+                  </span>
+                  <p className="font-mono font-semibold tabular-nums">
+                    {totals.koko.toFixed(2)}
+                  </p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground text-[10px] uppercase">
+                    MintPay
+                  </span>
+                  <p className="font-mono font-semibold tabular-nums">
+                    {totals.mintpay.toFixed(2)}
+                  </p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground text-[10px] uppercase">
+                    Bank
+                  </span>
+                  <p className="font-mono font-semibold tabular-nums">
+                    {totals.bank.toFixed(2)}
+                  </p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground text-[10px] uppercase">
+                    Grand total
+                  </span>
+                  <p className="font-mono text-base font-bold tabular-nums">
+                    {grand.toFixed(2)}
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : null}
+        </div>
+
+        {/* Desktop: wide ledger table */}
+        <div className="hidden overflow-x-auto lg:block">
         <table className="w-full min-w-[720px] text-sm">
           <thead>
             <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
