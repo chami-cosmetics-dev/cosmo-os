@@ -55,6 +55,25 @@ export function customerLifetimeTotalOrderWhere() {
 }
 
 /**
+ * Brand/item Insight filters: completed sales plus voided/cancelled/returned rows.
+ * Reversed rows match the contact but contribute 0 to brand/item spend.
+ */
+export function customerInsightPurchaseMatchOrderWhere() {
+  return {
+    OR: [
+      customerLifetimeTotalOrderWhere(),
+      { cancelledAt: { not: null } },
+      { financialStatus: { in: ["voided", "void"] } },
+      {
+        fulfillmentStage: {
+          in: ["returned", "returned_to_store"],
+        },
+      },
+    ],
+  };
+}
+
+/**
  * An order that was undone: cancelled, voided or returned.
  * A reversed order is never a purchase, so it can never date one. Everything else
  * counts the moment it is placed \x{2014} waiting for delivery does not make it less of a sale.

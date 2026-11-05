@@ -3,7 +3,11 @@ import {
   brandsMatch,
   lineMatchesBrand,
 } from "@/lib/customer-insight/brand";
-import { isAdaptAmountExcludedFromSaleTotal } from "@/lib/customer-insight/lifetime-total";
+import { addFilterMatchSpend } from "@/lib/customer-insight/filter-match-spend";
+import {
+  isAdaptAmountExcludedFromSaleTotal,
+  isOrderReversed,
+} from "@/lib/customer-insight/lifetime-total";
 import {
   forEachIdPage,
   findAllContactsForPurchaseLookup,
@@ -72,11 +76,6 @@ export async function findContactsByPurchasedBrandRanked(
   if (!needle) return [];
 
   const spendByContact = new Map<string, number>();
-  const addSpend = (contactId: string, amount: number) => {
-    if (!contactId) return;
-    const add = Number.isFinite(amount) ? amount : 0;
-    spendByContact.set(contactId, (spendByContact.get(contactId) ?? 0) + add);
-  };
 
   // --- Adapt: direct contactId link (trusted) — all rows ---
   await forEachIdPage(
@@ -91,21 +90,21 @@ export async function findContactsByPurchasedBrandRanked(
     (adaptRows) => {
       for (const row of adaptRows) {
         if (!row.contactId) continue;
-        if (isAdaptAmountExcludedFromSaleTotal(row.financialStatus)) continue;
         const items = Array.isArray(row.lineItems) ? row.lineItems : [];
         let spend = 0;
         let matched = false;
+        const countSpend = !isAdaptAmountExcludedFromSaleTotal(row.financialStatus);
         for (const item of items) {
           if (!adaptItemMatchesBrand(item, needle)) continue;
           matched = true;
-          if (!item || typeof item !== "object") continue;
+          if (!countSpend || !item || typeof item !== "object") continue;
           const obj = item as Record<string, unknown>;
           spend += lineSpend(
             Number(obj.quantity ?? 0),
             String(obj.unitPrice ?? obj.price ?? "0")
           );
         }
-        if (matched) addSpend(row.contactId, spend);
+        if (matched) addFilterMatchSpend(spendByContact, row.contactId, spend);
       }
     }
   );
@@ -122,7 +121,6 @@ export async function findContactsByPurchasedBrandRanked(
 
   const brandOrderWhere = {
     companyId,
-    cancelledAt: null,
     lineItems: {
       some: {
         OR: [
@@ -149,6 +147,9 @@ export async function findContactsByPurchasedBrandRanked(
           id: true,
           customerPhone: true,
           customerEmail: true,
+          cancelledAt: true,
+          financialStatus: true,
+          fulfillmentStage: true,
           lineItems: {
             select: {
               quantity: true,
@@ -168,11 +169,13 @@ export async function findContactsByPurchasedBrandRanked(
       }),
     (brandOrders) => {
       for (const order of brandOrders) {
-        const { spend, matched } = sumBrandSpendOnOrderLines(
+        const { spend: matchedSpend, matched } = sumBrandSpendOnOrderLines(
           needle,
           order.lineItems
         );
         if (!matched) continue;
+        // Voided/cancelled/returned match the contact but add 0 to brand spend.
+        const spend = isOrderReversed(order) ? 0 : matchedSpend;
         const phone = order.customerPhone?.trim();
         const variants = phone ? buildPhoneLookupVariants(phone) : [];
         const email = order.customerEmail?.trim().toLowerCase() || null;
@@ -249,7 +252,7 @@ export async function findContactsByPurchasedBrandRanked(
       }
     }
 
-    if (contactId) addSpend(contactId, order.spend);
+    if (contactId) addFilterMatchSpend(spendByContact, contactId, order.spend);
   }
 
   return finalize();
