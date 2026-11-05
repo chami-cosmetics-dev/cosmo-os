@@ -826,7 +826,11 @@ export async function filterAllocatedContacts(
       continue;
     }
 
-    const lastPurchaseAt = purchaseAts.last.get(contact.id) ?? null;
+    // Completed purchase dates only for inactivity filters. Purchased-from/to
+    // also accepts ContactMaster stamp so voided matches still pass the window.
+    const completedLastPurchaseAt = purchaseAts.last.get(contact.id) ?? null;
+    const lastPurchaseAt =
+      completedLastPurchaseAt ?? contact.lastPurchaseAt ?? null;
 
     if (!sqlPaginate) {
       if (
@@ -840,7 +844,12 @@ export async function filterAllocatedContacts(
       }
 
       if (input.noPurchaseMonths === 3 || input.noPurchaseMonths === 6) {
-        if (!hasNoPurchaseWithinMonths(lastPurchaseAt, input.noPurchaseMonths)) {
+        if (
+          !hasNoPurchaseWithinMonths(
+            completedLastPurchaseAt,
+            input.noPurchaseMonths
+          )
+        ) {
           continue;
         }
       }
@@ -848,7 +857,7 @@ export async function filterAllocatedContacts(
       if (input.noPurchaseFrom && input.noPurchaseTo) {
         if (
           !hasNoPurchaseInDateRange(
-            lastPurchaseAt,
+            completedLastPurchaseAt,
             input.noPurchaseFrom,
             input.noPurchaseTo
           )
@@ -967,7 +976,8 @@ export async function filterAllocatedContacts(
       brandSpend,
       itemSpend,
       assignedMerchant: contact.assignedMerchant,
-      lastPurchaseAt: purchaseAts.last.get(contact.id) ?? null,
+      lastPurchaseAt:
+        purchaseAts.last.get(contact.id) ?? contact.lastPurchaseAt ?? null,
       lastContactedAt: contacted.get(contact.id) ?? null,
       callUpdateStatus: displayCallCenterCategory(contact.category),
       key,

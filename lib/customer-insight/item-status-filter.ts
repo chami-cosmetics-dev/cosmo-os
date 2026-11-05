@@ -1,11 +1,13 @@
 import {
-  customerLifetimeTotalOrderWhere,
+  customerInsightPurchaseMatchOrderWhere,
   isAdaptAmountExcludedFromSaleTotal,
+  isOrderIncludedInCustomerLifetimeTotal,
 } from "@/lib/customer-insight/lifetime-total";
 import {
   brandFromAdaptLineItem,
-  brandsMatch,
+  lineMatchesBrand,
 } from "@/lib/customer-insight/brand";
+import { addFilterMatchSpend } from "@/lib/customer-insight/filter-match-spend";
 import type { ItemPurchaseRank } from "@/lib/customer-insight/item-filter";
 import {
   forEachIdPage,
@@ -74,10 +76,6 @@ export async function findContactsByPurchasedItemStatusRanked(
     .filter(Boolean);
 
   const spendByContact = new Map<string, number>();
-  const addSpend = (contactId: string, amount: number) => {
-    if (!contactId || !(amount > 0)) return;
-    spendByContact.set(contactId, (spendByContact.get(contactId) ?? 0) + amount);
-  };
 
   const skuSet = new Set<string>();
   await forEachIdPage(
@@ -90,6 +88,7 @@ export async function findContactsByPurchasedItemStatusRanked(
         select: {
           id: true,
           sku: true,
+          productTitle: true,
           vendor: { select: { name: true } },
         },
         orderBy: { id: "asc" },
@@ -102,7 +101,12 @@ export async function findContactsByPurchasedItemStatusRanked(
         if (!sku) continue;
         if (
           brandNeedles.length > 0 &&
-          !brandNeedles.some((brand) => brandsMatch(p.vendor?.name, brand))
+          !brandNeedles.some((brand) =>
+            lineMatchesBrand(brand, {
+              vendorName: p.vendor?.name,
+              productTitle: p.productTitle,
+            })
+          )
         ) {
           continue;
         }
@@ -124,26 +128,43 @@ export async function findContactsByPurchasedItemStatusRanked(
       (adaptRows) => {
         for (const row of adaptRows) {
           if (!row.contactId) continue;
-          if (isAdaptAmountExcludedFromSaleTotal(row.financialStatus)) continue;
           const lines = Array.isArray(row.lineItems) ? row.lineItems : [];
           let spend = 0;
+          let matched = false;
+          const countSpend = !isAdaptAmountExcludedFromSaleTotal(
+            row.financialStatus
+          );
           for (const raw of lines) {
             const sku = adaptSku(raw);
             if (!sku || !skuSet.has(norm(sku))) continue;
             if (brandNeedles.length > 0) {
-              const lineBrand = brandFromAdaptLineItem(raw);
-              if (!brandNeedles.some((brand) => brandsMatch(lineBrand, brand))) {
+              const obj =
+                raw && typeof raw === "object"
+                  ? (raw as Record<string, unknown>)
+                  : null;
+              const title = String(
+                obj?.itemName ?? obj?.productTitle ?? obj?.name ?? ""
+              ).trim();
+              if (
+                !brandNeedles.some((brand) =>
+                  lineMatchesBrand(brand, {
+                    vendorName: brandFromAdaptLineItem(raw),
+                    productTitle: title,
+                  })
+                )
+              ) {
                 continue;
               }
             }
-            if (!raw || typeof raw !== "object") continue;
+            matched = true;
+            if (!countSpend || !raw || typeof raw !== "object") continue;
             const obj = raw as Record<string, unknown>;
             spend += lineSpend(
               Number(obj.quantity ?? 0),
               String(obj.unitPrice ?? obj.price ?? "0")
             );
           }
-          if (spend > 0) addSpend(row.contactId, spend);
+          if (matched) addFilterMatchSpend(spendByContact, row.contactId, spend);
         }
       }
     );
@@ -157,7 +178,7 @@ export async function findContactsByPurchasedItemStatusRanked(
 
   const orderWhere = {
     companyId,
-    ...customerLifetimeTotalOrderWhere(),
+    ...customerInsightPurchaseMatchOrderWhere(),
     lineItems: {
       some: {
         productItem: {
@@ -175,6 +196,9 @@ export async function findContactsByPurchasedItemStatusRanked(
           id: true,
           customerPhone: true,
           customerEmail: true,
+          cancelledAt: true,
+          financialStatus: true,
+          fulfillmentStage: true,
           lineItems: {
             select: {
               quantity: true,
@@ -183,6 +207,7 @@ export async function findContactsByPurchasedItemStatusRanked(
                 select: {
                   itemStatusCategory: true,
                   sku: true,
+                  productTitle: true,
                   vendor: { select: { name: true } },
                 },
               },
@@ -195,20 +220,28 @@ export async function findContactsByPurchasedItemStatusRanked(
       }),
     (orders) => {
       for (const order of orders) {
-        let spend = 0;
+        let matchedSpend = 0;
+        let matched = false;
         for (const li of order.lineItems) {
           if (!statusCategorySet.has(li.productItem.itemStatusCategory)) continue;
           if (
             brandNeedles.length > 0 &&
             !brandNeedles.some((brand) =>
-              brandsMatch(li.productItem.vendor?.name, brand)
+              lineMatchesBrand(brand, {
+                vendorName: li.productItem.vendor?.name,
+                productTitle: li.productItem.productTitle,
+              })
             )
           ) {
             continue;
           }
-          spend += lineSpend(li.quantity, li.price.toString());
+          matched = true;
+          matchedSpend += lineSpend(li.quantity, li.price.toString());
         }
-        if (!(spend > 0)) continue;
+        if (!matched) continue;
+        const spend = isOrderIncludedInCustomerLifetimeTotal(order)
+          ? matchedSpend
+          : 0;
         const phone = order.customerPhone?.trim();
         const variants = phone ? buildPhoneLookupVariants(phone) : [];
         const email = order.customerEmail?.trim().toLowerCase() || null;
@@ -275,7 +308,9 @@ export async function findContactsByPurchasedItemStatusRanked(
       const set = emailToContacts.get(order.email);
       if (set && set.size === 1) attributed = [...set][0]!;
     }
-    if (attributed) addSpend(attributed, order.spend);
+    if (attributed) {
+      addFilterMatchSpend(spendByContact, attributed, order.spend);
+    }
   }
 
   return finalize();
