@@ -186,6 +186,24 @@ export const riderDeliveryCompleteSchema = z.object({
   completedLocationAt: z.string().datetime().optional(),
 });
 
+/** Single round-trip: record payment + mark delivery complete. */
+export const riderDeliveryCloseSchema = riderPaymentSchema.and(
+  riderDeliveryCompleteSchema.pick({
+    acceptedAt: true,
+    arrivedAt: true,
+    completedAt: true,
+    oldItemCollectionStatus: true,
+    oldItemCollectionRemark: true,
+    completedLatitude: true,
+    completedLongitude: true,
+    completedAccuracyMeters: true,
+    completedLocationAt: true,
+  }).extend({
+    /** Optional distinct key for the complete half; payment uses idempotencyKey. */
+    completeIdempotencyKey: z.string().max(120).optional(),
+  })
+);
+
 export const riderDeliveryFailSchema = z.object({
   reason: trimmedString(1, LIMITS.orderRemarkContent.max),
   idempotencyKey: z.string().max(120).optional(),
