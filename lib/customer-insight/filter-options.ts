@@ -22,6 +22,16 @@ function pushUnique(
   out.push({ value: trimmed, label: trimmed });
 }
 
+/** Drop Shopify placeholder variants so the same SKU does not appear twice. */
+export function normalizeInsightItemVariant(
+  variant?: string | null
+): string {
+  const trimmed = variant?.trim() || "";
+  if (!trimmed) return "";
+  if (trimmed.toLowerCase() === "default title") return "";
+  return trimmed;
+}
+
 function pushItemOption(
   seen: Set<string>,
   out: FilterOptionDto[],
@@ -40,12 +50,25 @@ function pushItemOption(
   ) {
     return;
   }
-  const variantTrim = variant?.trim() || "";
-  const canonical = variantTrim ? `${trimmedTitle} — ${variantTrim}` : trimmedTitle;
-  const key = canonical.toLowerCase();
-  if (seen.has(key)) return;
-  seen.add(key);
+  const variantTrim = normalizeInsightItemVariant(variant);
+  const canonical = variantTrim
+    ? `${trimmedTitle} — ${variantTrim}`
+    : trimmedTitle;
   const skuTrim = sku?.trim() || null;
+  // One option per SKU when present — catalog often has duplicate ProductItem rows.
+  const key = skuTrim ? `sku:${skuTrim.toLowerCase()}` : canonical.toLowerCase();
+  if (seen.has(key)) {
+    if (!skuTrim || variantTrim) return;
+    // Prefer plain title over an earlier "title — variant" for the same SKU.
+    const idx = out.findIndex(
+      (row) => (row.sku ?? "").toLowerCase() === skuTrim.toLowerCase()
+    );
+    if (idx >= 0 && out[idx]!.label.includes(" — ")) {
+      out[idx] = { value: canonical, label: canonical, sku: skuTrim };
+    }
+    return;
+  }
+  seen.add(key);
   out.push({ value: canonical, label: canonical, sku: skuTrim });
 }
 
