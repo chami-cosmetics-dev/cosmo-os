@@ -13,6 +13,10 @@ import {
   splitInvoiceNumbers,
   suggestConsultationMerchant,
   summarizeConsultations,
+  EMPTY_CONSULTATION_FILTERS,
+  filterConsultationGroups,
+  hasConsultationFilters,
+  type ConsultationFilters,
   type ConsultationRow,
 } from "./shared";
 
@@ -48,10 +52,53 @@ describe("merchant suggestion", () => {
     expect(suggestConsultationMerchant({ merchantName: null, locationName: "Cosmetics.lk - New Web" })).toBeNull();
   });
 
+  it("maps the MER114-CM001 coupon to the Pepiliyana showroom ahead of its owner", () => {
+    expect(
+      suggestConsultationMerchant({
+        merchantName: "Venushka",
+        locationName: "LMJ International Lanka Pvt Ltd",
+        discountCodes: ["LOYALCS2", "mer114-cm001"],
+      }),
+    ).toBe("Showroom - Pepiliyana");
+    expect(
+      suggestConsultationMerchant({ merchantName: "Venushka", locationName: null, discountCodes: ["LOYALCS2"] }),
+    ).toBe("Venushka");
+  });
+
   it("only auto-picks when every invoice agrees", () => {
     expect(resolveSuggestedMerchant([{ suggestedMerchant: "Ishadi" }, { suggestedMerchant: null }])).toBe("Ishadi");
     expect(resolveSuggestedMerchant([{ suggestedMerchant: "Ishadi" }, { suggestedMerchant: "Dulshi" }])).toBeNull();
     expect(resolveSuggestedMerchant([])).toBeNull();
+  });
+});
+
+describe("filterConsultationGroups", () => {
+  const groups = groupConsultations([
+    row({ id: "a1", entryId: "a", consultationDate: "2026-10-05", contactNumber: "0711111111", invoiceNumber: "400-000100" }),
+    row({ id: "b1", entryId: "b", consultationDate: "2026-10-22", contactNumber: "0718257523", invoiceNumber: "400-000567" }),
+    row({ id: "b2", entryId: "b", consultationDate: "2026-10-22", contactNumber: "0718257523", invoiceNumber: "600-006515" }),
+  ]);
+  const ids = (filters: Partial<ConsultationFilters>) =>
+    filterConsultationGroups(groups, { ...EMPTY_CONSULTATION_FILTERS, ...filters }).map((group) => group.entryId);
+
+  it("filters by inclusive date range", () => {
+    expect(ids({ dateFrom: "2026-10-22" })).toEqual(["b"]);
+    expect(ids({ dateTo: "2026-10-05" })).toEqual(["a"]);
+    expect(ids({ dateFrom: "2026-10-06", dateTo: "2026-10-21" })).toEqual([]);
+  });
+
+  it("matches part of a contact number, ignoring spaces / dashes", () => {
+    expect(ids({ contactNumber: "071 825" })).toEqual(["b"]);
+  });
+
+  it("keeps the whole customer when any of their invoices matches", () => {
+    expect(ids({ invoiceNumber: "6515" })).toEqual(["b"]);
+    expect(filterConsultationGroups(groups, { ...EMPTY_CONSULTATION_FILTERS, invoiceNumber: "6515" })[0].rows).toHaveLength(2);
+  });
+
+  it("returns everything with no filters", () => {
+    expect(ids({})).toEqual(["a", "b"]);
+    expect(hasConsultationFilters(EMPTY_CONSULTATION_FILTERS)).toBe(false);
   });
 });
 

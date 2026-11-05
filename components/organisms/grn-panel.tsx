@@ -231,6 +231,7 @@ type PageData = {
   supplierStockReturns: SupplierStockReturnRow[];
   intercompanySuppliers: IntercompanySupplierRow[];
   deletedRecords: DeletedGrnRecord[];
+  cancelledRecords: Omit<DeletedGrnRecord, "deletedAt">[];
 };
 
 type IntercompanySupplierRow = {
@@ -1348,6 +1349,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
     supplierStockReturns: [],
     intercompanySuppliers: [],
     deletedRecords: [],
+    cancelledRecords: [],
   });
   const [loading, setLoading] = useState(true);
   const [busyKey, setBusyKey] = useState<string | null>(null);
@@ -1359,6 +1361,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
   const [specialStockReturnKey, setSpecialStockReturnKey] = useState("");
   const [specialLinkReason, setSpecialLinkReason] = useState("");
   const [deletedSearch, setDeletedSearch] = useState("");
+  const [cancelledSearch, setCancelledSearch] = useState("");
   const [ssrStatusFilter, setSsrStatusFilter] = useState<SsrStatusFilter>("all");
   const [stageFilter, setStageFilter] = useState<GrnStageFilter>(() => ({
     stage: firstAllowedStage(permissions),
@@ -2498,6 +2501,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
           <TabsTrigger value="multi">Multiple PR links</TabsTrigger>
           <TabsTrigger value="multi-ssr">Multiple SSR links</TabsTrigger>
           <TabsTrigger value="special">Special links</TabsTrigger>
+          <TabsTrigger value="cancelled">Cancelled records</TabsTrigger>
           <TabsTrigger value="deleted">Deleted records</TabsTrigger>
         </TabsList>
 
@@ -3703,6 +3707,73 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                 Save special link
               </Button>
             </div>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="cancelled" className="space-y-4 rounded-lg border bg-card/60 p-4 md:p-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h3 className="text-base font-semibold">Cancelled records</h3>
+              <p className="text-sm text-muted-foreground">
+                Cancelled PRs, SSRs, and PIs are kept here as read-only GRN history and excluded from matching, stages, and exports.
+              </p>
+            </div>
+            <Input
+              className="sm:w-80"
+              placeholder="Search PR, SSR, PI, supplier, company"
+              value={cancelledSearch}
+              onChange={(event) => setCancelledSearch(event.target.value)}
+            />
+          </div>
+          <div className="overflow-hidden rounded-lg border bg-background/45">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Document</TableHead>
+                  <TableHead>Company</TableHead>
+                  <TableHead>Supplier</TableHead>
+                  <TableHead>Document date</TableHead>
+                  <TableHead>Source</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {data.cancelledRecords
+                  .filter((row) => {
+                    const query = cancelledSearch.trim().toLowerCase();
+                    if (!query) return true;
+                    return [row.documentType, row.name, row.companyName, row.supplier, row.supplierName]
+                      .some((value) => value?.toLowerCase().includes(query));
+                  })
+                  .map((row) => (
+                    <TableRow key={`${row.documentType}:${row.name}:${row.isBackfill ? "backfill" : "live"}`}>
+                      <TableCell className="font-medium">{row.documentType}</TableCell>
+                      <TableCell>
+                        {row.erpUrl ? (
+                          <a href={row.erpUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
+                            {row.name}<ExternalLink className="size-3.5" />
+                          </a>
+                        ) : row.name}
+                      </TableCell>
+                      <TableCell>{row.companyName}</TableCell>
+                      <TableCell>{row.supplierName ?? row.supplier}</TableCell>
+                      <TableCell>{formatDate(row.documentDate)}</TableCell>
+                      <TableCell>{row.isBackfill ? "Backfill" : "Webhook"}</TableCell>
+                    </TableRow>
+                  ))}
+                {data.cancelledRecords.filter((row) => {
+                  const query = cancelledSearch.trim().toLowerCase();
+                  return !query || [row.documentType, row.name, row.companyName, row.supplier, row.supplierName]
+                    .some((value) => value?.toLowerCase().includes(query));
+                }).length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={6} className="h-20 text-center text-muted-foreground">
+                      No cancelled GRN records found.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
           </div>
         </TabsContent>
 
