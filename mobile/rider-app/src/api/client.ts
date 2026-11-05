@@ -4,11 +4,11 @@ import { captureException } from "@/src/lib/monitoring";
 import { loadSession, saveSession, type TenantRiderSession } from "@/src/storage/session";
 import { removeTenantFromSession } from "@/src/storage/session-types";
 
-const LOGIN_TIMEOUT_MS = 25_000;
+const REQUEST_TIMEOUT_MS = 25_000;
 
-async function fetchWithTimeout(url: string, init?: RequestInit) {
+async function fetchWithTimeout(url: string, init?: RequestInit, timeoutMs = REQUEST_TIMEOUT_MS) {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), LOGIN_TIMEOUT_MS);
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     return await fetch(url, { ...init, signal: controller.signal });
@@ -73,7 +73,7 @@ async function request<T>(path: string, options: RequestOptions): Promise<T> {
   let response: Response;
 
   try {
-    response = await fetch(`${apiBaseUrl}${path}`, {
+    response = await fetchWithTimeout(`${apiBaseUrl}${path}`, {
       ...options.init,
       headers: {
         "Content-Type": "application/json",
@@ -82,6 +82,11 @@ async function request<T>(path: string, options: RequestOptions): Promise<T> {
       },
     });
   } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      const timeoutError = new ApiError("Request timed out — try again", 408);
+      captureException(timeoutError, { path, tenant: options.tenant, phase: "timeout" });
+      throw timeoutError;
+    }
     captureException(error, { path, tenant: options.tenant, phase: "network" });
     throw error;
   }
@@ -184,21 +189,23 @@ async function postIgnoringErrors(tenant: TenantId, path: string) {
   }
 }
 
+export type FlushQueueResult = "ok" | "retry" | "drop";
+
 export async function flushQueuedRequest(params: {
   tenant: TenantId;
   endpoint: string;
   method: "POST" | "PATCH";
   body: Record<string, unknown>;
-}) {
+}): Promise<FlushQueueResult> {
   const apiBaseUrl = getTenantApiUrl(params.tenant);
-  if (!apiBaseUrl) return false;
+  if (!apiBaseUrl) return "retry";
 
   const session = await loadSession();
   const accessToken = session?.tenants[params.tenant]?.accessToken;
-  if (!accessToken) return false;
+  if (!accessToken) return "retry";
 
   try {
-    const response = await fetch(`${apiBaseUrl}${params.endpoint}`, {
+    const response = await fetchWithTimeout(`${apiBaseUrl}${params.endpoint}`, {
       method: params.method,
       headers: {
         "Content-Type": "application/json",
@@ -207,12 +214,20 @@ export async function flushQueuedRequest(params: {
       body: JSON.stringify(params.body),
     });
 
+    if (response.ok) return "ok";
+
     if (response.status === 401) {
       await handleUnauthorized(params.tenant);
+      return "retry";
     }
 
-    return response.ok;
+    // Permanent client errors must not block the rest of the queue.
+    if (response.status >= 400 && response.status < 500 && response.status !== 408) {
+      return "drop";
+    }
+
+    return "retry";
   } catch {
-    return false;
+    return "retry";
   }
 }

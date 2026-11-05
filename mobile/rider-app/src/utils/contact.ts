@@ -87,7 +87,16 @@ export async function openDirections(address: string) {
     return;
   }
 
-  const candidates = buildMapUrlCandidates(address);
+  // GPS only for map start point — never stored on delivery complete.
+  let origin: { latitude: number; longitude: number } | null = null;
+  try {
+    const { captureMapOriginGps } = await import("@/src/utils/location");
+    origin = await captureMapOriginGps();
+  } catch {
+    // Destination-only maps still work.
+  }
+
+  const candidates = buildMapUrlCandidates(address, origin);
   for (const url of candidates) {
     const opened = await tryOpenUrl(url);
     if (opened) return;

@@ -16,6 +16,7 @@ import {
 import { isCosmeticsLkLocationName } from "@/lib/cosmetics-lk-location";
 import { getPaymentMethodInfo } from "@/lib/payment-method-label";
 import { prisma } from "@/lib/prisma";
+import { salesAmountExcludingShipping } from "@/lib/sales-amount-excluding-shipping";
 
 export type CosmeticsLkBreakdownBucket = {
   key: string;
@@ -149,6 +150,8 @@ export async function fetchMerchantCosmeticsLkBreakdown(
       id: true,
       assignedMerchantId: true,
       totalPrice: true,
+      totalShipping: true,
+      shippingLines: true,
       sourceName: true,
       financialStatus: true,
       fulfillmentStatus: true,
@@ -190,7 +193,7 @@ export async function fetchMerchantCosmeticsLkBreakdown(
     });
     if (!bucket) continue;
 
-    const amount = Number(order.totalPrice ?? 0);
+    const amount = salesAmountExcludingShipping(order) ?? 0;
     selfTotal += amount;
     selfOrderCount += 1;
 

@@ -270,5 +270,6 @@ export async function finalizeReturnCancelOsState(
     },
   });
 
+  await tx.riderDeliveryTask.deleteMany({ where: { orderId: input.orderId } });
   await releaseKokoReferencesForOrderInTx(input.orderId, tx);
 }

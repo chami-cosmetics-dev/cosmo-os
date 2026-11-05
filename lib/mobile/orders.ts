@@ -7,6 +7,12 @@ export async function findRiderTaskById(taskId: string, riderId: string) {
     where: {
       id: taskId,
       riderId,
+      order: {
+        cancelledAt: null,
+        NOT: {
+          financialStatus: { equals: "voided", mode: "insensitive" },
+        },
+      },
     },
     include: {
       order: {

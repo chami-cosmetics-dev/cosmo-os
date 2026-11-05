@@ -1564,6 +1564,11 @@ model RiderDeliveryTask {
   failedAt                  DateTime?
   failureReason             String?
   latestSyncAt              DateTime?
+  /// GPS at door when rider marks delivery done (WGS84).
+  completedLatitude         Float?
+  completedLongitude        Float?
+  completedAccuracyMeters   Float?
+  completedLocationAt       DateTime?
   /// Staff-picked district for rider pay when auto shipping-label match fails.
   manualIncentiveLabelKey   String?
   manualIncentiveLabel      String?
@@ -1603,6 +1608,10 @@ model DeliveryPayment {
   referenceNote      String?
   bankReference      String?
   cardReference      String?
+  /** Last 4 digits of card used for card-on-delivery (also mirrored in cardReference). */
+  cardLast4          String?
+  /** Cloudinary URL of payment-slip photo for card-on-delivery. */
+  cardSlipImageUrl   String?
   collectedAt        DateTime?
   idempotencyKey     String?                  @unique
   createdAt          DateTime                 @default(now())
@@ -1776,7 +1785,10 @@ model EmployeeProfile {
   locationId                String?
   departmentId              String?
   designationId             String?
+  /// Active / "working today" outlet (also used for coupon→shop grouping).
   outletId                  String?
+  /// Calendar day (Asia/Colombo YYYY-MM-DD) when outletId was last chosen.
+  activeOutletDateKey       String?
   appointmentDate           DateTime?
   status                    EmployeeStatus   @default(active)
   resignedAt                DateTime?
@@ -1791,9 +1803,23 @@ model EmployeeProfile {
   designation               Designation?     @relation(fields: [designationId], references: [id])
   location                  CompanyLocation? @relation(fields: [locationId], references: [id])
   outlet                    Outlet?          @relation(fields: [outletId], references: [id], onDelete: SetNull)
+  outletAssignments         EmployeeProfileOutlet[]
   user                      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([companyId, outletId])
+}
+
+/// Many outlets a staff member may work (merchant multi-outlet).
+model EmployeeProfileOutlet {
+  id                String          @id @default(cuid())
+  employeeProfileId String
+  outletId          String
+  createdAt         DateTime        @default(now())
+  employeeProfile   EmployeeProfile @relation(fields: [employeeProfileId], references: [id], onDelete: Cascade)
+  outlet            Outlet          @relation(fields: [outletId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeProfileId, outletId])
+  @@index([outletId])
 }
 
 model StickerBatch {
@@ -2630,13 +2656,14 @@ model ContactAllocationUpdate {
 // ── Outlet Reviews Feature ──────────────────────────────────────────────────
 
 model Outlet {
-  id               String            @id @default(cuid())
+  id               String                 @id @default(cuid())
   companyId        String
   name             String
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
   reviews          OutletReview[]
   employeeProfiles EmployeeProfile[]
+  profileAssignments EmployeeProfileOutlet[]
 
   @@unique([companyId, name])
   @@index([companyId])
@@ -3669,7 +3696,7 @@ model StoreStockCountUserSave {
   @@index([companyId])
 }
 
-/// Singleton: one payday day-of-month for all companies in this database.
+/// Legacy singleton (unused). Pay periods are calendar months in app code; keep row for old DBs.
 model RiderPayPeriodConfig {
   id               String   @id @default(cuid())
   singletonKey     String   @unique @default("default")

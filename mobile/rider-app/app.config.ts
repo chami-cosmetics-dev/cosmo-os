@@ -36,7 +36,24 @@ export default ({ config }: ConfigContext): ExpoConfig => {
   const appEnv = resolveAppEnvironment();
   const projectId = appJson.expo.extra?.eas?.projectId;
 
-  const plugins: ExpoConfig["plugins"] = ["expo-router", "expo-font"];
+  const plugins: ExpoConfig["plugins"] = [
+    "expo-router",
+    "expo-font",
+    [
+      "expo-image-picker",
+      {
+        photosPermission: "Allow Cosmo Rider to attach card payment slip photos.",
+        cameraPermission: "Allow Cosmo Rider to photograph card payment slips.",
+      },
+    ],
+    [
+      "expo-location",
+      {
+        locationWhenInUsePermission:
+          "Allow Cosmo Rider to use your location for turn-by-turn maps to the delivery address.",
+      },
+    ],
+  ];
 
   return {
     ...config,

@@ -4,8 +4,10 @@ import { LogOut } from "lucide-react";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/organisms/app-sidebar";
 import { Topbar } from "@/components/organisms/topbar";
+import { ActiveOutletGate } from "@/components/organisms/active-outlet-gate";
 import { ConfirmationDialogProvider } from "@/components/providers/confirmation-dialog-provider";
 import { TaskReminderBubbles } from "@/components/molecules/task-reminder-bubbles";
+import { clearActiveOutletSession } from "@/lib/active-outlet-client";
 import { APP_NAME } from "@/lib/branding";
 
 interface DashboardTemplateProps {
@@ -51,6 +53,7 @@ export function DashboardTemplate({
               <a
                 href="/auth/logout"
                 className="mt-8 inline-flex items-center justify-center gap-2 rounded-xl border border-border/70 bg-background/80 px-4 py-2.5 text-sm font-semibold text-foreground shadow-sm transition-colors hover:bg-secondary/40"
+                onClick={() => clearActiveOutletSession()}
               >
                 <LogOut className="size-4" />
                 Log out
@@ -76,6 +79,7 @@ export function DashboardTemplate({
           <Topbar title={title} user={user} />
           <div className="min-w-0 flex-1 p-4">{children}</div>
           <TaskReminderBubbles />
+          <ActiveOutletGate />
         </SidebarInset>
       </SidebarProvider>
     </ConfirmationDialogProvider>

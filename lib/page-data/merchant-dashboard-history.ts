@@ -23,6 +23,7 @@ import {
   isWholesaleTrackingCode,
   orderIsWholesale,
 } from "@/lib/merchant-wholesale";
+import { salesAmountExcludingShipping } from "@/lib/sales-amount-excluding-shipping";
 
 function parseDayStartUtc(ymd: string): Date {
   return new Date(`${ymd}T00:00:00.000+05:30`);
@@ -200,6 +201,8 @@ export async function fetchMerchantSalesHistory(
         },
         assignedMerchantId: true,
         totalPrice: true,
+        totalShipping: true,
+        shippingLines: true,
         sourceName: true,
         financialStatus: true,
         fulfillmentStatus: true,
@@ -261,7 +264,7 @@ export async function fetchMerchantSalesHistory(
     });
     if (!bucket) continue;
 
-    const amount = Number(order.totalPrice ?? 0);
+    const amount = salesAmountExcludingShipping(order) ?? 0;
     const ymd = formatAppIsoDate(order.createdAt);
     const ym = ymd.slice(0, 7);
 

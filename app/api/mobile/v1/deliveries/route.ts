@@ -1,13 +1,92 @@
 import { NextRequest, NextResponse } from "next/server";
+import type { Prisma } from "@prisma/client";
 
 import { requireRiderMobileSession } from "@/lib/mobile/api";
+import { mobileActiveOrderWhere } from "@/lib/mobile/clear-cancelled-rider-task";
 import { toMobileDeliveryDto } from "@/lib/mobile/dto";
 import { resolveMobileSpecialDelivery } from "@/lib/mobile/special-delivery";
-import { mobileDeliveryStatusFilterSchema } from "@/lib/mobile/validation";
+import { mobileDeliveriesQuerySchema } from "@/lib/mobile/validation";
+import { parseAppCalendarDayEnd, parseAppCalendarDayStart } from "@/lib/format-datetime";
 import { isRiderIncentiveUnlocked } from "@/lib/rider-incentive";
 import { incentiveForOrder, loadRiderIncentiveContext } from "@/lib/rider-incentive-resolve";
 import { prisma } from "@/lib/prisma";
 import { loadSplitCashCollectByOrderIds } from "@/lib/order-split-payment";
+
+const ACTIVE_STATUSES = ["assigned", "accepted", "arrived"] as const;
+
+const orderInclude = {
+  id: true,
+  orderNumber: true,
+  name: true,
+  shopifyOrderId: true,
+  totalPrice: true,
+  totalShipping: true,
+  shippingLines: true,
+  rawPayload: true,
+  sourceName: true,
+  discountCodes: true,
+  currency: true,
+  customerPhone: true,
+  customerEmail: true,
+  shippingAddress: true,
+  billingAddress: true,
+  paymentGatewayPrimary: true,
+  paymentGatewayNames: true,
+  financialStatus: true,
+  fulfillmentStage: true,
+  invoiceCompleteAt: true,
+  deliveryOutcome: true,
+  deliveryFailedReason: true,
+  dispatchedAt: true,
+  returns: {
+    orderBy: { actionDate: "desc" as const },
+    take: 1,
+    select: {
+      actionType: true,
+    },
+  },
+  exchangesAsReplacement: {
+    orderBy: { createdAt: "desc" as const },
+    take: 1,
+    select: {
+      id: true,
+      reason: true,
+      originalReference: true,
+      originalOrder: {
+        select: {
+          id: true,
+          name: true,
+          orderNumber: true,
+          shopifyOrderId: true,
+          totalPrice: true,
+        },
+      },
+    },
+  },
+  companyLocation: { select: { id: true, name: true } },
+  deliveryPayment: {
+    select: {
+      expectedAmount: true,
+      collectedAmount: true,
+      paymentMethod: true,
+      collectionStatus: true,
+      referenceNote: true,
+      bankReference: true,
+      cardReference: true,
+      collectedAt: true,
+      lines: {
+        orderBy: { sortOrder: "asc" as const },
+        select: {
+          paymentMethod: true,
+          amount: true,
+          bankReference: true,
+          cardReference: true,
+          referenceNote: true,
+        },
+      },
+    },
+  },
+} satisfies Prisma.OrderSelect;
 
 export async function GET(request: NextRequest) {
   const auth = await requireRiderMobileSession(request);
@@ -15,99 +94,72 @@ export async function GET(request: NextRequest) {
     return auth.response;
   }
 
-  const statusResult = mobileDeliveryStatusFilterSchema.safeParse(
-    request.nextUrl.searchParams.get("status") ?? undefined
-  );
+  const parsed = mobileDeliveriesQuerySchema.safeParse({
+    status: request.nextUrl.searchParams.get("status") ?? undefined,
+    limit: request.nextUrl.searchParams.get("limit") ?? undefined,
+    offset: request.nextUrl.searchParams.get("offset") ?? undefined,
+    on: request.nextUrl.searchParams.get("on") ?? undefined,
+  });
 
-  const [tasks, incentiveContext] = await Promise.all([
+  if (!parsed.success) {
+    return NextResponse.json({ error: "Invalid query" }, { status: 400 });
+  }
+
+  const { status, offset, on } = parsed.data;
+  const isTerminal = status === "completed" || status === "failed";
+  const limit = parsed.data.limit ?? (isTerminal ? 40 : status === "active" ? 100 : undefined);
+
+  const statusWhere: Prisma.RiderDeliveryTaskWhereInput =
+    status === "active"
+      ? { status: { in: [...ACTIVE_STATUSES] } }
+      : status
+        ? { status }
+        : {};
+
+  const dayStart = on ? parseAppCalendarDayStart(on) : null;
+  const dayEnd = on ? parseAppCalendarDayEnd(on) : null;
+  const completedOnWhere: Prisma.RiderDeliveryTaskWhereInput =
+    dayStart && dayEnd
+      ? {
+          completedAt: {
+            gte: dayStart,
+            lte: dayEnd,
+          },
+        }
+      : {};
+
+  const orderBy: Prisma.RiderDeliveryTaskOrderByWithRelationInput[] = isTerminal
+    ? [{ completedAt: "desc" }, { assignedAt: "desc" }]
+    : [{ status: "asc" }, { assignedAt: "desc" }];
+
+  const where: Prisma.RiderDeliveryTaskWhereInput = {
+    riderId: auth.session.userId,
+    order: mobileActiveOrderWhere(),
+    ...statusWhere,
+    ...completedOnWhere,
+  };
+
+  const [tasks, incentiveContext, totalMatching] = await Promise.all([
     prisma.riderDeliveryTask.findMany({
-      where: {
-        riderId: auth.session.userId,
-        ...(statusResult.success && statusResult.data ? { status: statusResult.data } : {}),
-      },
+      where,
       include: {
         order: {
-          select: {
-            id: true,
-            orderNumber: true,
-            name: true,
-            shopifyOrderId: true,
-            totalPrice: true,
-            totalShipping: true,
-            shippingLines: true,
-            rawPayload: true,
-            sourceName: true,
-            discountCodes: true,
-            currency: true,
-            customerPhone: true,
-            customerEmail: true,
-            shippingAddress: true,
-            billingAddress: true,
-            paymentGatewayPrimary: true,
-            paymentGatewayNames: true,
-            financialStatus: true,
-            fulfillmentStage: true,
-            invoiceCompleteAt: true,
-            deliveryOutcome: true,
-            deliveryFailedReason: true,
-            dispatchedAt: true,
-            returns: {
-              orderBy: { actionDate: "desc" },
-              take: 1,
-              select: {
-                actionType: true,
-              },
-            },
-            exchangesAsReplacement: {
-              orderBy: { createdAt: "desc" },
-              take: 1,
-              select: {
-                id: true,
-                reason: true,
-                originalReference: true,
-                originalOrder: {
-                  select: {
-                    id: true,
-                    name: true,
-                    orderNumber: true,
-                    shopifyOrderId: true,
-                    totalPrice: true,
-                  },
-                },
-              },
-            },
-            companyLocation: { select: { id: true, name: true } },
-            deliveryPayment: {
-              select: {
-                expectedAmount: true,
-                collectedAmount: true,
-                paymentMethod: true,
-                collectionStatus: true,
-                referenceNote: true,
-                bankReference: true,
-                cardReference: true,
-                collectedAt: true,
-                lines: {
-                  orderBy: { sortOrder: "asc" },
-                  select: {
-                    paymentMethod: true,
-                    amount: true,
-                    bankReference: true,
-                    cardReference: true,
-                    referenceNote: true,
-                  },
-                },
-              },
-            },
-          },
+          select: orderInclude,
         },
       },
-      orderBy: [{ status: "asc" }, { assignedAt: "desc" }],
+      orderBy,
+      ...(limit != null ? { take: limit, skip: offset } : {}),
     }),
     loadRiderIncentiveContext(),
+    limit != null
+      ? prisma.riderDeliveryTask.count({ where })
+      : Promise.resolve(null),
   ]);
 
   const cashByOrder = await loadSplitCashCollectByOrderIds(tasks.map((task) => task.order.id));
+
+  const hasMore =
+    totalMatching != null && limit != null ? offset + tasks.length < totalMatching : false;
 
   return NextResponse.json({
     deliveries: tasks.map((task) =>
@@ -129,8 +181,13 @@ export async function GET(request: NextRequest) {
               task.manualIncentiveAmount
             ).toFixed(2)
           : "0.00",
+        incentivePendingInvoiceClose: !isRiderIncentiveUnlocked(task.order),
         collectCashAmount: cashByOrder.get(task.order.id) ?? null,
       })
     ),
+    hasMore,
+    limit: limit ?? null,
+    offset,
+    total: totalMatching,
   });
 }

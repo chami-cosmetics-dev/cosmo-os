@@ -118,6 +118,9 @@ export async function resolveBookNoteShopAccess(
         locationId: true,
         companyId: true,
         outlet: { select: { name: true } },
+        outletAssignments: {
+          select: { outlet: { select: { name: true } } },
+        },
         location: { select: { shortName: true, erpnextCompany: true, name: true } },
       },
     }),
@@ -131,14 +134,23 @@ export async function resolveBookNoteShopAccess(
     }),
   ]);
 
-  const outletName = profile?.outlet?.name ?? null;
+  const outletNames = [
+    ...new Set(
+      [
+        ...(profile?.outletAssignments.map((a) => a.outlet.name) ?? []),
+        profile?.outlet?.name,
+      ]
+        .map((n) => (n ?? "").trim())
+        .filter(Boolean),
+    ),
+  ];
   const profileShortName = profile?.location?.shortName ?? null;
   const tradingShortNames = collectBookNoteTradingShortNames({
-    outletName,
+    outletNames,
     locationShortNames: profileShortName ? [profileShortName] : [],
   });
   const cosmeticsPosScope = collectBookNoteCosmeticsPosScope({
-    outletName,
+    outletNames,
     locationShortNames: profileShortName ? [profileShortName] : [],
   });
 

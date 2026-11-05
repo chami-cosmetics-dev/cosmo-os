@@ -2,7 +2,7 @@
 
 import type { MouseEvent } from "react";
 import Link from "next/link";
-import { LayoutDashboard, LogOut, User } from "lucide-react";
+import { LayoutDashboard, LogOut, Store, User } from "lucide-react";
 
 import { useConfirmationDialog } from "@/components/providers/confirmation-dialog-provider";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -15,6 +15,10 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  clearActiveOutletSession,
+  requestOutletSwitch,
+} from "@/lib/active-outlet-client";
 
 interface UserMenuProps {
   user: {
@@ -46,6 +50,7 @@ export function UserMenu({ user }: UserMenuProps) {
       variant: "destructive",
     });
     if (!confirmed) return;
+    clearActiveOutletSession();
     window.location.href = "/auth/logout";
   }
 
@@ -99,6 +104,13 @@ export function UserMenu({ user }: UserMenuProps) {
               <User className="size-4" />
               Profile
             </Link>
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            className="rounded-xl px-3 py-3 focus:bg-secondary/10 focus:text-foreground"
+            onSelect={() => requestOutletSwitch()}
+          >
+            <Store className="size-4" />
+            Switch outlet
           </DropdownMenuItem>
         </DropdownMenuGroup>
         <DropdownMenuSeparator className="mx-2" />

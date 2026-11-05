@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Image, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import type { PaymentMethod } from "@/src/types";
 import { useTheme } from "@/src/providers/theme";
 import { getPaymentMethodLabel } from "@/src/utils/delivery";
@@ -19,10 +19,17 @@ type PaymentFormProps = {
   paymentNote: string;
   submitting: boolean;
   disabled: boolean;
+  /** When set, only these methods are tappable (coupon COD = cash+bank). */
+  allowedMethods?: PaymentMethod[] | null;
+  collectionKind?: "prepaid" | "partial" | "full" | null;
+  orderTotal?: string | null;
+  discountCouponCode?: string | null;
+  cardSlipUri?: string | null;
   requiresReference: (method: PaymentMethod) => boolean;
   onLinesChange: (lines: PaymentLineDraft[]) => void;
   onCustomerGaveAmountChange: (value: string) => void;
   onPaymentNoteChange: (value: string) => void;
+  onPickCardSlip?: () => void;
   onSubmit: () => void;
 };
 
@@ -45,17 +52,30 @@ export function PaymentForm({
   paymentNote,
   submitting,
   disabled,
+  allowedMethods,
+  collectionKind,
+  orderTotal,
+  discountCouponCode,
+  cardSlipUri,
   requiresReference,
   onLinesChange,
   onCustomerGaveAmountChange,
   onPaymentNoteChange,
+  onPickCardSlip,
   onSubmit,
 }: PaymentFormProps) {
   const { colors, radii, shadows } = useTheme();
   const styles = useMemo(() => createStyles(colors, radii, shadows), [colors, radii, shadows]);
 
   const currencyLabel = currency?.trim() || "LKR";
-  const linesTotal = lines.reduce((sum, line) => sum + (Number(line.amount) || 0), 0);
+  const allowed = allowedMethods?.length ? new Set(allowedMethods) : null;
+  const methodOptions = METHOD_OPTIONS.filter(([method]) => !allowed || allowed.has(method));
+  const linesTotal = lines.reduce((sum, line) => {
+    if (line.paymentMethod === "already_paid" && !(Number(line.amount) > 0)) {
+      return sum + expectedAmount;
+    }
+    return sum + (Number(line.amount) || 0);
+  }, 0);
   const cashDue = lines
     .filter((line) => line.paymentMethod === "cod")
     .reduce((sum, line) => sum + (Number(line.amount) || 0), 0);
@@ -66,11 +86,13 @@ export function PaymentForm({
   const tenderShort = cashDue > 0.009 && (!gaveValid || gave + 0.001 < cashDue);
   const remaining = Math.max(0, expectedAmount - linesTotal);
   const usedMethods = new Set(lines.map((line) => line.paymentMethod));
+  const usesCard = lines.some((line) => line.paymentMethod === "card");
   const canAddLine =
+    collectionKind !== "prepaid" &&
     lines.length < 3 &&
     remaining > 0.009 &&
     !usedMethods.has("already_paid") &&
-    METHOD_OPTIONS.some(([method]) => !usedMethods.has(method) && method !== "already_paid");
+    methodOptions.some(([method]) => !usedMethods.has(method) && method !== "already_paid");
 
   function updateLine(id: string, patch: Partial<PaymentLineDraft>) {
     onLinesChange(lines.map((line) => (line.id === id ? { ...line, ...patch } : line)));
@@ -84,8 +106,8 @@ export function PaymentForm({
   function addLine() {
     if (!canAddLine) return;
     const nextMethod =
-      METHOD_OPTIONS.find(([method]) => !usedMethods.has(method) && method !== "already_paid")?.[0] ??
-      "card";
+      methodOptions.find(([method]) => !usedMethods.has(method) && method !== "already_paid")?.[0] ??
+      "cod";
     onLinesChange([
       ...lines,
       {
@@ -97,18 +119,34 @@ export function PaymentForm({
     ]);
   }
 
+  const dueLabel =
+    collectionKind === "prepaid"
+      ? "Collect from customer"
+      : collectionKind === "partial"
+        ? "Cash still due"
+        : "Amount due";
+
   return (
     <View style={styles.panel}>
       <Text style={styles.sectionTitle}>Payment</Text>
       <Text style={styles.helperText}>
-        Collect the full order amount. Use Add method for split payments (e.g. cash + card).
+        {collectionKind === "prepaid"
+          ? "Already paid online — confirm with Online / Rs. 0. No door cash."
+          : collectionKind === "partial"
+            ? "Part paid online. Collect only the cash still due below."
+            : discountCouponCode
+              ? `Coupon ${discountCouponCode}: cash or bank only (card not allowed).`
+              : "Collect the amount due. Use Add method for split payments (e.g. cash + bank)."}
       </Text>
 
       <View style={styles.dueCard}>
-        <Text style={styles.dueLabel}>Order total</Text>
+        <Text style={styles.dueLabel}>{dueLabel}</Text>
         <Text style={styles.dueValue}>
           {expectedAmount.toFixed(2)} {currencyLabel}
         </Text>
+        {collectionKind === "partial" && orderTotal ? (
+          <Text style={styles.helperText}>Order total {orderTotal} {currencyLabel}</Text>
+        ) : null}
       </View>
 
       {lines.map((line, index) => (
@@ -125,7 +163,7 @@ export function PaymentForm({
           </View>
 
           <View style={styles.optionRow}>
-            {METHOD_OPTIONS.map(([value, label]) => {
+            {methodOptions.map(([value, label]) => {
               const takenByOther = lines.some(
                 (other) => other.id !== line.id && other.paymentMethod === value
               );
@@ -170,13 +208,39 @@ export function PaymentForm({
             <TextInput
               style={styles.input}
               value={line.reference}
-              onChangeText={(value) => updateLine(line.id, { reference: value })}
-              placeholder="Payment reference"
+              onChangeText={(value) =>
+                updateLine(line.id, {
+                  reference:
+                    line.paymentMethod === "card"
+                      ? value.replace(/\D/g, "").slice(0, 4)
+                      : value,
+                })
+              }
+              keyboardType={line.paymentMethod === "card" ? "number-pad" : "default"}
+              maxLength={line.paymentMethod === "card" ? 4 : undefined}
+              placeholder={
+                line.paymentMethod === "card" ? "Last 4 digits of card" : "Payment reference"
+              }
               placeholderTextColor={colors.textSoft}
             />
           ) : null}
         </View>
       ))}
+
+      {usesCard ? (
+        <View style={styles.slipCard}>
+          <Text style={styles.lineTitle}>Card payment slip photo</Text>
+          <Text style={styles.helperText}>Take a clear photo of the customer payment slip.</Text>
+          {cardSlipUri ? (
+            <Image source={{ uri: cardSlipUri }} style={styles.slipPreview} resizeMode="cover" />
+          ) : null}
+          <Pressable style={styles.addButton} onPress={onPickCardSlip}>
+            <Text style={styles.addButtonText}>
+              {cardSlipUri ? "Retake slip photo" : "Take / choose slip photo"}
+            </Text>
+          </Pressable>
+        </View>
+      ) : null}
 
       {canAddLine ? (
         <Pressable style={styles.addButton} onPress={addLine}>
@@ -330,6 +394,20 @@ function createStyles(
       alignItems: "center",
     },
     addButtonText: { color: colors.brand, fontWeight: "700" },
+    slipCard: {
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radii.sm,
+      padding: 12,
+      gap: 8,
+      backgroundColor: colors.surfaceMuted,
+    },
+    slipPreview: {
+      width: "100%",
+      height: 180,
+      borderRadius: radii.sm,
+      backgroundColor: colors.border,
+    },
     totalHint: { color: colors.textMuted, fontWeight: "600" },
     button: { borderRadius: radii.sm, backgroundColor: colors.brand, padding: 16, alignItems: "center" },
     buttonDisabled: { opacity: 0.7 },

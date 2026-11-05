@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
+import { Alert } from "react-native";
+import * as ImagePicker from "expo-image-picker";
 import { apiClient } from "@/src/api/client";
 import { createDefaultPaymentLine, type PaymentLineDraft } from "@/src/components/payment-form";
 import { useAuth } from "@/src/providers/auth";
@@ -20,6 +22,8 @@ export function useDeliveryDetail(tenantParam: string | undefined, id: string | 
   const [oldItemCollectionStatus, setOldItemCollectionStatus] =
     useState<OldItemCollectionStatus>("pending");
   const [oldItemCollectionRemark, setOldItemCollectionRemark] = useState("");
+  const [cardSlipUri, setCardSlipUri] = useState<string | null>(null);
+  const [cardSlipBase64, setCardSlipBase64] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     if (!id || !tenant || !activeTenantIds.includes(tenant)) return;
@@ -45,10 +49,13 @@ export function useDeliveryDetail(tenantParam: string | undefined, id: string | 
           (data.delivery.payment?.paymentMethod as PaymentMethod | undefined) ??
           (data.delivery.expectedPaymentMethod as PaymentMethod | undefined) ??
           "cod";
+        const allowed = data.delivery.allowedPaymentMethods;
+        const safeMethod =
+          allowed?.length && !allowed.includes(method) ? allowed[0]! : method;
         setPaymentLines([
           createDefaultPaymentLine(
             data.delivery.payment?.collectedAmount ?? data.delivery.amount,
-            method
+            safeMethod
           ),
         ]);
       }
@@ -56,6 +63,8 @@ export function useDeliveryDetail(tenantParam: string | undefined, id: string | 
       setCustomerGaveAmount(data.delivery.payment?.customerGaveAmount ?? "");
       setOldItemCollectionStatus(data.delivery.oldItemCollectionStatus ?? "pending");
       setOldItemCollectionRemark(data.delivery.oldItemCollectionRemark ?? "");
+      setCardSlipUri(null);
+      setCardSlipBase64(null);
     } finally {
       setLoading(false);
     }
@@ -64,6 +73,43 @@ export function useDeliveryDetail(tenantParam: string | undefined, id: string | 
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  async function pickCardSlip() {
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
+    if (!permission.granted) {
+      const library = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!library.granted) {
+        Alert.alert("Permission needed", "Allow camera or photos to capture the card slip.");
+        return;
+      }
+    }
+
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ["images"],
+      quality: 0.35,
+      base64: true,
+      // Crop UI slows door flow — skip.
+      allowsEditing: false,
+      exif: false,
+    }).catch(async () =>
+      ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        quality: 0.35,
+        base64: true,
+        allowsEditing: false,
+        exif: false,
+      })
+    );
+
+    if (result.canceled || !result.assets?.[0]) return;
+    const asset = result.assets[0];
+    if (!asset.base64) {
+      Alert.alert("Photo failed", "Could not read the slip photo. Try again.");
+      return;
+    }
+    setCardSlipUri(asset.uri);
+    setCardSlipBase64(`data:${asset.mimeType ?? "image/jpeg"};base64,${asset.base64}`);
+  }
 
   return {
     tenant: tenant as TenantId | undefined,
@@ -82,5 +128,8 @@ export function useDeliveryDetail(tenantParam: string | undefined, id: string | 
     setOldItemCollectionStatus,
     oldItemCollectionRemark,
     setOldItemCollectionRemark,
+    cardSlipUri,
+    cardSlipBase64,
+    pickCardSlip,
   };
 }

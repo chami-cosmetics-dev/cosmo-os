@@ -44,7 +44,8 @@ type StaffMember = {
   couponCodes?: string[];
   wholesaleCouponCodes?: string[];
   financeLocationIds?: string[];
-  outlets?: Outlet[];
+  /** Assigned floor outlets (not company catalog). */
+  assignedOutlets?: Outlet[];
   employeeProfile: {
     id: string;
     employeeNumber: string | null;
@@ -91,6 +92,36 @@ function withSelectedOption<T extends { id: string }>(
   return [selected, ...options];
 }
 
+/** Assigned outlets only — never the full company catalog. */
+function initialOutletIdsFromStaff(
+  data: {
+    assignedOutlets?: Array<{ id: string }> | null;
+    employeeProfile?: {
+      outletId?: string | null;
+      outlet?: { id: string } | null;
+    } | null;
+  },
+  catalogIds: string[],
+): string[] {
+  const primary =
+    data.employeeProfile?.outletId ??
+    data.employeeProfile?.outlet?.id ??
+    null;
+  const assigned = (data.assignedOutlets ?? [])
+    .map((o) => o.id)
+    .filter(Boolean);
+  // Guard: buggy payloads used to send every company outlet as "assigned".
+  if (
+    catalogIds.length > 1 &&
+    assigned.length >= catalogIds.length &&
+    catalogIds.every((id) => assigned.includes(id))
+  ) {
+    return primary ? [primary] : [];
+  }
+  if (assigned.length > 0) return [...new Set(assigned)];
+  return primary ? [primary] : [];
+}
+
 export function StaffEditForm({
   staffId,
   initialData,
@@ -113,7 +144,7 @@ export function StaffEditForm({
   const [locationId, setLocationId] = useState("");
   const [departmentId, setDepartmentId] = useState("");
   const [designationId, setDesignationId] = useState("");
-  const [outletId, setOutletId] = useState("");
+  const [outletIds, setOutletIds] = useState<string[]>([]);
   const [appointmentDate, setAppointmentDate] = useState("");
   const [shopifyUserIds, setShopifyUserIds] = useState("");
   const [couponCodes, setCouponCodes] = useState("");
@@ -140,7 +171,6 @@ export function StaffEditForm({
     initialData?.employeeProfile?.designationId ||
     initialData?.employeeProfile?.designation?.id ||
     "";
-  const effectiveOutletId = outletId;
   const genderLabel =
     GENDER_OPTIONS.find((option) => option.value === effectiveGender)?.label ?? "Select gender";
   const locationOptions = withSelectedOption(
@@ -198,10 +228,11 @@ export function StaffEditForm({
           initialData.employeeProfile?.designation?.id ??
           ""
       );
-      setOutletId(
-        initialData.employeeProfile?.outletId ??
-          initialData.employeeProfile?.outlet?.id ??
-          ""
+      setOutletIds(
+        initialOutletIdsFromStaff(
+          initialData,
+          outlets.map((o) => o.id),
+        ),
       );
       setAppointmentDate(
         formatDateForInput(initialData.employeeProfile?.appointmentDate)
@@ -226,13 +257,14 @@ export function StaffEditForm({
     e.preventDefault();
     if (!canEdit) return;
 
-    if (isShopMerchant && !effectiveOutletId) {
-      notify.error("Select an outlet for shop merchants");
+    if (isShopMerchant && outletIds.length === 0) {
+      notify.error("Select at least one outlet for shop merchants");
       return;
     }
     setBusyKey("save");
     try {
-      const requestedOutletId = outletId || null;
+      const requestedOutletIds = isShopMerchant ? outletIds : [];
+      const requestedOutletId = requestedOutletIds[0] ?? null;
       const res = await fetch(`/api/admin/staff/${staffId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -249,6 +281,7 @@ export function StaffEditForm({
           departmentId: departmentId || null,
           designationId: designationId || null,
           outletId: requestedOutletId,
+          outletIds: requestedOutletIds,
           appointmentDate: appointmentDate || undefined,
           shopifyUserIds: shopifyUserIds
             .split(",")
@@ -275,8 +308,13 @@ export function StaffEditForm({
         return;
       }
 
-      if ((data.employeeProfile?.outletId ?? null) !== requestedOutletId) {
-        notify.error("Outlet did not save. Please try again.");
+      const savedIds = (data.assignedOutlets ?? [])
+        .map((o) => o.id)
+        .sort()
+        .join(",");
+      const requestedSorted = [...requestedOutletIds].sort().join(",");
+      if (savedIds !== requestedSorted) {
+        notify.error("Outlets did not save. Please try again.");
         return;
       }
 
@@ -499,25 +537,6 @@ export function StaffEditForm({
         </Select>
       </div>
       <div className="space-y-2">
-        <label className="text-sm font-medium">
-          Outlet
-        </label>
-        <select
-          id="staff-outlet"
-          value={effectiveOutletId}
-          onChange={(event) => setOutletId(event.target.value)}
-          disabled={!canEdit || isBusy}
-          className="border-input bg-transparent ring-offset-background focus-visible:ring-ring flex h-9 w-full rounded-md border px-3 py-2 text-sm shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          <option value="">No outlet</option>
-          {outletOptions.map((outlet) => (
-            <option key={outlet.id} value={outlet.id}>
-              {outlet.name}
-            </option>
-          ))}
-        </select>
-      </div>
-      <div className="space-y-2">
         <label htmlFor="staff-appointmentDate" className="text-sm font-medium">
           Appointment date
         </label>
@@ -608,7 +627,11 @@ export function StaffEditForm({
           id="staff-isShopMerchant"
           type="checkbox"
           checked={isShopMerchant}
-          onChange={(e) => setIsShopMerchant(e.target.checked)}
+          onChange={(e) => {
+            const next = e.target.checked;
+            setIsShopMerchant(next);
+            if (!next) setOutletIds([]);
+          }}
           disabled={!canEdit || isBusy}
           className="size-4 rounded border-input"
         />
@@ -617,8 +640,48 @@ export function StaffEditForm({
         </label>
       </div>
       <p className="text-muted-foreground text-xs">
-        Shop merchants must have an outlet assigned. Shown on the GM scorecard.
+        Shop merchants must have at least one outlet. Shown on the GM scorecard.
       </p>
+
+      {isShopMerchant ? (
+        <div className="space-y-2">
+          <label className="text-sm font-medium">Outlets</label>
+          <p className="text-muted-foreground text-xs">
+            Merchants can work multiple shops. They pick today&apos;s outlet on login.
+            Leave all unchecked for no outlet.
+          </p>
+          <div className="border-input bg-card text-card-foreground max-h-48 space-y-2 overflow-y-auto rounded-md border p-3">
+            {outletOptions.length === 0 ? (
+              <p className="text-muted-foreground text-sm">No outlets configured.</p>
+            ) : (
+              outletOptions.map((outlet) => {
+                const checked = outletIds.includes(outlet.id);
+                return (
+                  <label
+                    key={outlet.id}
+                    className="flex cursor-pointer items-center gap-2 text-sm text-foreground"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={(e) => {
+                        setOutletIds(
+                          e.target.checked
+                            ? [...outletIds, outlet.id]
+                            : outletIds.filter((id) => id !== outlet.id),
+                        );
+                      }}
+                      disabled={!canEdit || isBusy}
+                      className="border-input size-4 rounded"
+                    />
+                    {outlet.name}
+                  </label>
+                );
+              })
+            )}
+          </div>
+        </div>
+      ) : null}
 
       {locations.length > 0 && (
         <>

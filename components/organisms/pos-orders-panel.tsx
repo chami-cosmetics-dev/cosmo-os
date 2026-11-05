@@ -18,6 +18,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Pagination } from "@/components/ui/pagination";
 import { viewerCreatedPosOrder } from "@/lib/order-cancel-finance";
 import { notify } from "@/lib/notify";
 import { formatAppDateTime } from "@/lib/format-datetime";
@@ -52,7 +53,12 @@ type Group = {
 type PosOrdersData = {
   orders: PosOrder[];
   groups: Group[];
+  companies: string[];
+  warehouses: string[];
+  posProfiles: string[];
   total: number;
+  page: number;
+  limit: number;
 };
 
 const ALL_VALUE = "__all";
@@ -114,36 +120,75 @@ export function PosOrdersPanel({
   currentUserId?: string | null;
   canCancelAnyPosOrder?: boolean;
 }) {
-  const [data, setData] = useState<PosOrdersData | null>(null);
+  const [orders, setOrders] = useState<PosOrder[]>([]);
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [companies, setCompanies] = useState<string[]>([]);
+  const [warehouses, setWarehouses] = useState<string[]>([]);
+  const [posProfiles, setPosProfiles] = useState<string[]>([]);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [companyFilter, setCompanyFilter] = useState("");
   const [warehouseFilter, setWarehouseFilter] = useState("");
   const [posProfileFilter, setPosProfileFilter] = useState("");
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(25);
   const [cancelTarget, setCancelTarget] = useState<PosOrder | null>(null);
   const [cancelReason, setCancelReason] = useState("");
   const [cancelKind, setCancelKind] = useState<OrderCancelKindChoice | "">("");
   const [cancelBusy, setCancelBusy] = useState(false);
 
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 500);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  const effectiveSearch = useMemo(() => debouncedSearch.trim(), [debouncedSearch]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [effectiveSearch, companyFilter, warehouseFilter, posProfileFilter]);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/admin/orders/pos-orders");
+      const params = new URLSearchParams();
+      params.set("page", String(page));
+      params.set("limit", String(limit));
+      if (effectiveSearch) params.set("search", effectiveSearch);
+      if (companyFilter) params.set("company", companyFilter);
+      if (warehouseFilter) params.set("warehouse", warehouseFilter);
+      if (posProfileFilter) params.set("pos_profile", posProfileFilter);
+
+      const res = await fetch(`/api/admin/orders/pos-orders?${params}`);
       if (!res.ok) {
         const err = (await res.json()) as { error?: string };
         notify.error(err.error ?? "Failed to load POS orders");
         return;
       }
-      setData((await res.json()) as PosOrdersData);
+      const data = (await res.json()) as PosOrdersData;
+      setOrders(data.orders);
+      setGroups(data.groups);
+      setCompanies(data.companies ?? []);
+      setWarehouses(data.warehouses ?? []);
+      setPosProfiles(data.posProfiles ?? []);
+      setTotal(data.total);
     } catch {
       notify.error("Failed to load POS orders");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [page, limit, effectiveSearch, companyFilter, warehouseFilter, posProfileFilter]);
 
   useEffect(() => {
-    void load();
+    let cancelled = false;
+    void load().finally(() => {
+      if (cancelled) return;
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [load]);
 
   async function requestCancel() {
@@ -180,72 +225,16 @@ export function PosOrdersPanel({
     }
   }
 
-  const companies = useMemo(() => {
-    if (!data) return [];
-    return [...new Set(data.orders.map((o) => o.company))].sort();
-  }, [data]);
-
-  // Warehouses filtered by selected company
-  const warehouses = useMemo(() => {
-    if (!data) return [];
-    const filtered = companyFilter ? data.orders.filter((o) => o.company === companyFilter) : data.orders;
-    return [...new Set(filtered.map((o) => o.warehouse))].sort();
-  }, [data, companyFilter]);
-
-  // POS profiles filtered by selected company + warehouse
-  const posProfiles = useMemo(() => {
-    if (!data) return [];
-    let filtered = data.orders;
-    if (companyFilter) filtered = filtered.filter((o) => o.company === companyFilter);
-    if (warehouseFilter) filtered = filtered.filter((o) => o.warehouse === warehouseFilter);
-    return [...new Set(filtered.map((o) => o.posProfile ?? "—"))].sort();
-  }, [data, companyFilter, warehouseFilter]);
-
-  const filteredOrders = useMemo(() => {
-    if (!data) return [];
-    return data.orders.filter((o) => {
-      if (companyFilter && o.company !== companyFilter) return false;
-      if (warehouseFilter && o.warehouse !== warehouseFilter) return false;
-      if (posProfileFilter) {
-        const profile = o.posProfile ?? "—";
-        if (profile !== posProfileFilter) return false;
-      }
-      if (search.trim()) {
-        const q = search.trim().toLowerCase();
-        return (
-          (o.invoiceNo?.toLowerCase().includes(q) ?? false) ||
-          (o.customerName?.toLowerCase().includes(q) ?? false) ||
-          (o.customerPhone?.includes(q) ?? false) ||
-          (o.posProfile?.toLowerCase().includes(q) ?? false)
-        );
-      }
-      return true;
-    });
-  }, [data, companyFilter, warehouseFilter, posProfileFilter, search]);
-
-  const summaryGroups = useMemo(() => {
-    if (!data) return [];
-    if (!companyFilter && !warehouseFilter && !posProfileFilter) return data.groups;
-    const groupMap = new Map<string, Group>();
-    for (const o of filteredOrders) {
-      const key = `${o.company}||${o.posProfile ?? ""}`;
-      const existing = groupMap.get(key);
-      if (existing) existing.count++;
-      else groupMap.set(key, { company: o.company, posProfile: o.posProfile, warehouse: o.warehouse, count: 1 });
-    }
-    return Array.from(groupMap.values()).sort(
-      (a, b) => a.company.localeCompare(b.company) || (a.posProfile ?? "").localeCompare(b.posProfile ?? ""),
-    );
-  }, [data, companyFilter, warehouseFilter, posProfileFilter, filteredOrders]);
-
-  // Summary cards: company → warehouses → pos profiles
   const companySummary = useMemo(() => {
-    const companyMap = new Map<string, {
-      warehouses: Map<string, { posProfiles: { name: string | null; count: number }[]; count: number }>;
-      total: number;
-    }>();
+    const companyMap = new Map<
+      string,
+      {
+        warehouses: Map<string, { posProfiles: { name: string | null; count: number }[]; count: number }>;
+        total: number;
+      }
+    >();
 
-    for (const g of summaryGroups) {
+    for (const g of groups) {
       let co = companyMap.get(g.company);
       if (!co) {
         co = { warehouses: new Map(), total: 0 };
@@ -275,7 +264,7 @@ export function PosOrdersPanel({
             posProfiles: wh.posProfiles.sort((a, b) => (a.name ?? "").localeCompare(b.name ?? "")),
           })),
       }));
-  }, [summaryGroups]);
+  }, [groups]);
 
   return (
     <div className="min-w-0 max-w-full overflow-x-hidden space-y-6">
@@ -293,8 +282,7 @@ export function PosOrdersPanel({
         </p>
       </section>
 
-      {/* Summary cards */}
-      {!loading && data && companySummary.length > 0 && (
+      {!loading && companySummary.length > 0 && (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {companySummary.map((co) => (
             <div
@@ -313,16 +301,24 @@ export function PosOrdersPanel({
                   <div key={wh.warehouse} className="rounded-lg bg-muted/40 px-2.5 py-1.5">
                     <div className="flex items-center gap-1.5">
                       <Package className="size-3 shrink-0 text-muted-foreground" />
-                      <span className="text-xs font-medium truncate">{wh.warehouse !== "—" ? wh.warehouse : "No warehouse"}</span>
-                      <span className="ml-auto shrink-0 text-xs font-medium text-foreground">{wh.count}</span>
+                      <span className="text-xs font-medium truncate">
+                        {wh.warehouse !== "—" ? wh.warehouse : "No warehouse"}
+                      </span>
+                      <span className="ml-auto shrink-0 text-xs font-medium text-foreground">
+                        {wh.count}
+                      </span>
                     </div>
                     {wh.posProfiles.length > 0 && (
                       <div className="mt-1 space-y-0.5 pl-4">
                         {wh.posProfiles.map((p) => (
                           <div key={p.name ?? "unknown"} className="flex items-center gap-1.5">
                             <ShoppingBag className="size-2.5 shrink-0 text-muted-foreground/60" />
-                            <span className="text-xs text-muted-foreground truncate">{p.name ?? "Unknown profile"}</span>
-                            <span className="ml-auto shrink-0 text-xs text-muted-foreground">{p.count}</span>
+                            <span className="text-xs text-muted-foreground truncate">
+                              {p.name ?? "Unknown profile"}
+                            </span>
+                            <span className="ml-auto shrink-0 text-xs text-muted-foreground">
+                              {p.count}
+                            </span>
                           </div>
                         ))}
                       </div>
@@ -335,7 +331,6 @@ export function PosOrdersPanel({
         </div>
       )}
 
-      {/* Filters + table */}
       <Card className="overflow-hidden border-border/70 shadow-xs">
         <CardHeader className="border-b border-border/50 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_12%,transparent),color-mix(in_srgb,var(--primary)_8%,transparent))]">
           <CardTitle className="flex items-center gap-2 text-xl">
@@ -343,7 +338,7 @@ export function PosOrdersPanel({
             POS Orders
           </CardTitle>
           <p className="text-muted-foreground text-sm">
-            {loading ? "Loading…" : `${filteredOrders.length} of ${data?.total ?? 0} orders`}
+            {loading ? "Loading…" : `${total} order${total === 1 ? "" : "s"}`}
           </p>
         </CardHeader>
         <CardContent className="min-w-0 max-w-full overflow-x-hidden space-y-4 pt-4">
@@ -371,7 +366,9 @@ export function PosOrdersPanel({
               <SelectContent>
                 <SelectItem value={ALL_VALUE}>All companies</SelectItem>
                 {companies.map((c) => (
-                  <SelectItem key={c} value={c}>{c}</SelectItem>
+                  <SelectItem key={c} value={c}>
+                    {c}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -388,7 +385,9 @@ export function PosOrdersPanel({
               <SelectContent>
                 <SelectItem value={ALL_VALUE}>All warehouses</SelectItem>
                 {warehouses.map((w) => (
-                  <SelectItem key={w} value={w}>{w}</SelectItem>
+                  <SelectItem key={w} value={w}>
+                    {w}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -402,7 +401,9 @@ export function PosOrdersPanel({
               <SelectContent>
                 <SelectItem value={ALL_VALUE}>All POS profiles</SelectItem>
                 {posProfiles.map((p) => (
-                  <SelectItem key={p} value={p}>{p}</SelectItem>
+                  <SelectItem key={p} value={p}>
+                    {p}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -410,103 +411,130 @@ export function PosOrdersPanel({
 
           {loading ? (
             <div className="py-12 text-center text-muted-foreground text-sm">Loading POS orders…</div>
-          ) : filteredOrders.length === 0 ? (
+          ) : orders.length === 0 ? (
             <div className="py-12 text-center text-muted-foreground text-sm">No POS orders found.</div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border/50 text-left text-xs text-muted-foreground">
-                    <th className="pb-2 pr-3 font-medium">Invoice</th>
-                    <th className="pb-2 pr-3 font-medium">Company</th>
-                    <th className="pb-2 pr-3 font-medium">Warehouse</th>
-                    <th className="pb-2 pr-3 font-medium">POS Profile</th>
-                    <th className="pb-2 pr-3 font-medium">Customer</th>
-                    <th className="pb-2 pr-3 font-medium">Payment</th>
-                    <th className="pb-2 pr-3 font-medium">Stage</th>
-                    <th className="pb-2 pr-3 font-medium">Status</th>
-                    <th className="pb-2 pr-3 font-medium text-right">Amount</th>
-                    <th className="pb-2 pr-3 font-medium">Date</th>
-                    <th className="pb-2 font-medium">Cancel</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border/30">
-                  {filteredOrders.map((o) => (
-                    <tr key={o.id} className="hover:bg-muted/30 transition-colors">
-                      <td className="py-2 pr-3 font-mono text-xs font-medium whitespace-nowrap">
-                        {o.invoiceNo ?? "—"}
-                      </td>
-                      <td className="py-2 pr-3 text-xs text-muted-foreground max-w-30 truncate">
-                        {o.companyLocationName ?? o.company}
-                      </td>
-                      <td className="py-2 pr-3 text-xs text-muted-foreground whitespace-nowrap">
-                        {o.warehouse}
-                      </td>
-                      <td className="py-2 pr-3 text-xs font-medium max-w-35 truncate">
-                        {o.posProfile ?? "—"}
-                      </td>
-                      <td className="py-2 pr-3 text-xs text-muted-foreground max-w-30 truncate">
-                        {o.customerName ?? o.customerPhone ?? "—"}
-                      </td>
-                      <td className="py-2 pr-3 text-xs whitespace-nowrap">
-                        {o.paymentGatewayPrimary ?? "—"}
-                      </td>
-                      <td className="py-2 pr-3 whitespace-nowrap">
-                        {o.fulfillmentStage ? (
-                          <Badge
-                            text={STAGE_LABELS[o.fulfillmentStage] ?? o.fulfillmentStage}
-                            cls={STAGE_CLASSES[o.fulfillmentStage] ?? "bg-secondary text-secondary-foreground"}
-                          />
-                        ) : (
-                          <span className="text-muted-foreground text-xs">—</span>
-                        )}
-                      </td>
-                      <td className="py-2 pr-3 whitespace-nowrap">
-                        {o.financialStatus ? (
-                          <Badge
-                            text={o.financialStatus.charAt(0).toUpperCase() + o.financialStatus.slice(1)}
-                            cls={FINANCIAL_STATUS_CLASSES[o.financialStatus.toLowerCase()] ?? "bg-secondary text-secondary-foreground"}
-                          />
-                        ) : (
-                          <span className="text-muted-foreground text-xs">—</span>
-                        )}
-                      </td>
-                      <td className="py-2 pr-3 text-right text-xs font-medium whitespace-nowrap">
-                        {formatPrice(o.totalPrice, o.currency)}
-                      </td>
-                      <td className="py-2 pr-3 text-xs text-muted-foreground whitespace-nowrap">
-                        {formatDate(o.createdAt)}
-                      </td>
-                      <td className="py-2 whitespace-nowrap">
-                        {o.financialStatus?.toLowerCase() === "voided" ? (
-                          <span className="text-xs text-muted-foreground">Cancelled</span>
-                        ) : o.hasPendingCancelApproval ? (
-                          <span className="text-xs font-medium text-amber-700 dark:text-amber-300">Pending finance</span>
-                        ) : canCancelAnyPosOrder || viewerCreatedPosOrder(currentUserId, o.assignedMerchantId) ? (
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className="h-8 gap-1 border-destructive/50 text-destructive hover:bg-destructive/10 hover:text-destructive"
-                            disabled={cancelBusy}
-                            onClick={() => {
-                              setCancelReason("");
-                              setCancelKind("");
-                              setCancelTarget(o);
-                            }}
-                          >
-                            <XCircle className="size-3.5" aria-hidden />
-                            Cancel
-                          </Button>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">—</span>
-                        )}
-                      </td>
+            <>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border/50 text-left text-xs text-muted-foreground">
+                      <th className="pb-2 pr-3 font-medium">Invoice</th>
+                      <th className="pb-2 pr-3 font-medium">Company</th>
+                      <th className="pb-2 pr-3 font-medium">Warehouse</th>
+                      <th className="pb-2 pr-3 font-medium">POS Profile</th>
+                      <th className="pb-2 pr-3 font-medium">Customer</th>
+                      <th className="pb-2 pr-3 font-medium">Payment</th>
+                      <th className="pb-2 pr-3 font-medium">Stage</th>
+                      <th className="pb-2 pr-3 font-medium">Status</th>
+                      <th className="pb-2 pr-3 font-medium text-right">Amount</th>
+                      <th className="pb-2 pr-3 font-medium">Date</th>
+                      <th className="pb-2 font-medium">Cancel</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody className="divide-y divide-border/30">
+                    {orders.map((o) => (
+                      <tr key={o.id} className="hover:bg-muted/30 transition-colors">
+                        <td className="py-2 pr-3 font-mono text-xs font-medium whitespace-nowrap">
+                          {o.invoiceNo ?? "—"}
+                        </td>
+                        <td className="py-2 pr-3 text-xs text-muted-foreground max-w-30 truncate">
+                          {o.companyLocationName ?? o.company}
+                        </td>
+                        <td className="py-2 pr-3 text-xs text-muted-foreground whitespace-nowrap">
+                          {o.warehouse}
+                        </td>
+                        <td className="py-2 pr-3 text-xs font-medium max-w-35 truncate">
+                          {o.posProfile ?? "—"}
+                        </td>
+                        <td className="py-2 pr-3 text-xs text-muted-foreground max-w-30 truncate">
+                          {o.customerName ?? o.customerPhone ?? "—"}
+                        </td>
+                        <td className="py-2 pr-3 text-xs whitespace-nowrap">
+                          {o.paymentGatewayPrimary ?? "—"}
+                        </td>
+                        <td className="py-2 pr-3 whitespace-nowrap">
+                          {o.fulfillmentStage ? (
+                            <Badge
+                              text={STAGE_LABELS[o.fulfillmentStage] ?? o.fulfillmentStage}
+                              cls={
+                                STAGE_CLASSES[o.fulfillmentStage] ??
+                                "bg-secondary text-secondary-foreground"
+                              }
+                            />
+                          ) : (
+                            <span className="text-muted-foreground text-xs">—</span>
+                          )}
+                        </td>
+                        <td className="py-2 pr-3 whitespace-nowrap">
+                          {o.financialStatus ? (
+                            <Badge
+                              text={
+                                o.financialStatus.charAt(0).toUpperCase() +
+                                o.financialStatus.slice(1)
+                              }
+                              cls={
+                                FINANCIAL_STATUS_CLASSES[o.financialStatus.toLowerCase()] ??
+                                "bg-secondary text-secondary-foreground"
+                              }
+                            />
+                          ) : (
+                            <span className="text-muted-foreground text-xs">—</span>
+                          )}
+                        </td>
+                        <td className="py-2 pr-3 text-right text-xs font-medium whitespace-nowrap">
+                          {formatPrice(o.totalPrice, o.currency)}
+                        </td>
+                        <td className="py-2 pr-3 text-xs text-muted-foreground whitespace-nowrap">
+                          {formatDate(o.createdAt)}
+                        </td>
+                        <td className="py-2 whitespace-nowrap">
+                          {o.financialStatus?.toLowerCase() === "voided" ? (
+                            <span className="text-xs text-muted-foreground">Cancelled</span>
+                          ) : o.hasPendingCancelApproval ? (
+                            <span className="text-xs font-medium text-amber-700 dark:text-amber-300">
+                              Pending finance
+                            </span>
+                          ) : canCancelAnyPosOrder ||
+                            viewerCreatedPosOrder(currentUserId, o.assignedMerchantId) ? (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-8 gap-1 border-destructive/50 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                              disabled={cancelBusy}
+                              onClick={() => {
+                                setCancelReason("");
+                                setCancelKind("");
+                                setCancelTarget(o);
+                              }}
+                            >
+                              <XCircle className="size-3.5" aria-hidden />
+                              Cancel
+                            </Button>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {total > 0 && (
+                <Pagination
+                  page={page}
+                  limit={limit}
+                  total={total}
+                  onPageChange={setPage}
+                  onLimitChange={(newLimit) => {
+                    setLimit(newLimit);
+                    setPage(1);
+                  }}
+                  limitOptions={[10, 25, 50, 100]}
+                />
+              )}
+            </>
           )}
         </CardContent>
       </Card>
@@ -543,7 +571,9 @@ export function PosOrdersPanel({
                 rows={3}
                 disabled={cancelBusy}
               />
-              <p className="mt-1 text-xs text-muted-foreground">{cancelReason.trim().length}/500 — minimum 5 characters</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {cancelReason.trim().length}/500 — minimum 5 characters
+              </p>
             </div>
           </div>
           <AlertDialogFooter>

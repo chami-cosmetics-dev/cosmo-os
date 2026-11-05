@@ -52,25 +52,19 @@ export default async function SettingsPage() {
   let initialSettingsData: SettingsPageDataType | null = null;
   let locationsInitial: Awaited<ReturnType<typeof getLocationsSettingsInitialData>> | null = null;
   if (canManageCompany && companyId) {
-    const [company, riderPayday] = await Promise.all([
-      prisma.company.findUnique({
-        where: { id: companyId },
-        select: {
-          id: true,
-          name: true,
-          logoUrl: true,
-          faviconUrl: true,
-          employeeSize: true,
-          address: true,
-          createdAt: true,
-          updatedAt: true,
-        },
-      }),
-      prisma.riderPayPeriodConfig.findUnique({
-        where: { singletonKey: "default" },
-        select: { paydayDayOfMonth: true },
-      }),
-    ]);
+    const company = await prisma.company.findUnique({
+      where: { id: companyId },
+      select: {
+        id: true,
+        name: true,
+        logoUrl: true,
+        faviconUrl: true,
+        employeeSize: true,
+        address: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
 
     initialSettingsData = {
       company: company
@@ -80,9 +74,6 @@ export default async function SettingsPage() {
             updatedAt: company.updatedAt.toISOString(),
           }
         : null,
-      riderPayday: {
-        paydayDayOfMonth: riderPayday?.paydayDayOfMonth ?? null,
-      },
     };
 
     try {

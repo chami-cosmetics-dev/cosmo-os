@@ -13,6 +13,7 @@ import {
   orderIsWholesale,
 } from "@/lib/merchant-wholesale";
 import { prisma } from "@/lib/prisma";
+import { salesAmountExcludingShipping } from "@/lib/sales-amount-excluding-shipping";
 
 /** Current month + this many past months (3 months total) are selectable for compare. */
 export const SALES_INSIGHTS_MONTHS_BACK = 2;
@@ -162,6 +163,8 @@ export async function fetchMerchantSalesInsights(
     },
     select: {
       totalPrice: true,
+      totalShipping: true,
+      shippingLines: true,
       createdAt: true,
       updatedAt: true,
       cancelledAt: true,
@@ -221,7 +224,7 @@ export async function fetchMerchantSalesInsights(
     }
 
     rows.push({
-      amount: Number(order.totalPrice ?? 0),
+      amount: salesAmountExcludingShipping(order) ?? 0,
       createdYmd: formatAppIsoDate(order.createdAt),
       eligible,
       deliveredYmd: deliveredAt ? formatAppIsoDate(deliveredAt) : null,
