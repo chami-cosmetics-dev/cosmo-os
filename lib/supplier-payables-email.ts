@@ -41,10 +41,28 @@ function buildConsignmentItemRows(rows: Awaited<ReturnType<typeof loadCachedSupp
   }
   return [...items.values()];
 }
-function rowsFor(groups: Awaited<ReturnType<typeof loadCachedSupplierPayables>>["groups"]) { return groups.flatMap((group) => group.lines.map((line) => ({ supplier: group.supplierName ?? group.supplierId, company: line.company, age: ageBucket(line.daysPastDue), outstanding: line.outstanding }))); }
+function rowsFor(groups: Awaited<ReturnType<typeof loadCachedSupplierPayables>>["groups"]) {
+  return groups.flatMap((group) => group.lines.map((line) => ({
+    supplier: group.supplierName ?? group.supplierId,
+    company: line.company,
+    age: ageBucket(line.daysPastDue),
+    outstanding: line.outstanding,
+    previousDaySettlements: group.previousDaySettlements,
+  })));
+}
 export function buildSupplierPayablesEmailPreview(rows: Awaited<ReturnType<typeof loadCachedSupplierPayables>>["groups"]) {
   type PayableEmailLine = ReturnType<typeof rowsFor>[number];
-  const table = (label: string, selectedLines: PayableEmailLine[]) => { const keys = [...new Set(selectedLines.map((line) => line.supplier))].sort(); const body = keys.map((supplier) => { const selected = selectedLines.filter((line) => line.supplier === supplier); const value = (bucket: string) => selected.filter((line) => line.age === bucket).reduce((sum, line) => sum + line.outstanding, 0); return `<tr><td style="padding:6px;border:1px solid #c8d3e1;">${supplier}</td><td style="padding:6px;border:1px solid #c8d3e1;text-align:right;background:#eaf3f8;">${money(value("0-10"))}</td><td style="padding:6px;border:1px solid #c8d3e1;text-align:right;background:#eaf3f8;">${money(value("11-30"))}</td><td style="padding:6px;border:1px solid #c8d3e1;text-align:right;background:#eaf3f8;">${money(value("31-60"))}</td><td style="padding:6px;border:1px solid #c8d3e1;text-align:right;background:#eaf3f8;">${money(value("61+"))}</td><td style="padding:6px;border:1px solid #c8d3e1;text-align:right;background:#e2f0d9;">${money(selected.reduce((sum, line) => sum + line.outstanding, 0))}</td></tr>`; }).join(""); return `<h3 style="margin:22px 0 8px;padding:8px 10px;background:#d9eaf7;color:#17365d;border-left:5px solid #2f5597;">${label}</h3><table style="border-collapse:collapse;width:100%;border:1px solid #b8c7d9;font-size:13px;"><thead><tr style="background:#17365d;color:#fff;"><th style="padding:7px;border:1px solid #b8c7d9;">Supplier</th><th style="padding:7px;border:1px solid #b8c7d9;background:#2f5597;">0-10 Days</th><th style="padding:7px;border:1px solid #b8c7d9;background:#2f5597;">11-30 Days</th><th style="padding:7px;border:1px solid #b8c7d9;background:#2f5597;">31-60 Days</th><th style="padding:7px;border:1px solid #b8c7d9;background:#2f5597;">61+ Days</th><th style="padding:7px;border:1px solid #b8c7d9;">Total Outstanding</th></tr></thead><tbody>${body || "<tr><td colspan=6 style=\"padding:8px\">No outstanding payables</td></tr>"}</tbody></table>`; };
+  const table = (label: string, selectedLines: PayableEmailLine[]) => {
+    const keys = [...new Set(selectedLines.map((line) => line.supplier))].sort();
+    const value = (selected: PayableEmailLine[], bucket: string) => selected.filter((line) => line.age === bucket).reduce((sum, line) => sum + line.outstanding, 0);
+    const settlements = (selected: PayableEmailLine[]) => selected[0]?.previousDaySettlements ?? 0;
+    const body = keys.map((supplier) => {
+      const selected = selectedLines.filter((line) => line.supplier === supplier);
+      return `<tr><td style="padding:6px;border:1px solid #c8d3e1;">${supplier}</td><td style="padding:6px;border:1px solid #c8d3e1;text-align:right;background:#eaf3f8;">${money(value(selected, "0-10"))}</td><td style="padding:6px;border:1px solid #c8d3e1;text-align:right;background:#eaf3f8;">${money(value(selected, "11-30"))}</td><td style="padding:6px;border:1px solid #c8d3e1;text-align:right;background:#eaf3f8;">${money(value(selected, "31-60"))}</td><td style="padding:6px;border:1px solid #c8d3e1;text-align:right;background:#eaf3f8;">${money(value(selected, "61+"))}</td><td style="padding:6px;border:1px solid #c8d3e1;text-align:right;background:#e2f0d9;">${money(selected.reduce((sum, line) => sum + line.outstanding, 0))}</td><td style="padding:6px;border:1px solid #c8d3e1;text-align:right;background:#fff2cc;">${money(settlements(selected))}</td></tr>`;
+    }).join("");
+    const total = (bucket: string) => value(selectedLines, bucket);
+    return `<h3 style="margin:22px 0 8px;padding:8px 10px;background:#d9eaf7;color:#17365d;border-left:5px solid #2f5597;">${label}</h3><table style="border-collapse:collapse;width:100%;border:1px solid #b8c7d9;font-size:13px;"><thead><tr style="background:#17365d;color:#fff;"><th style="padding:7px;border:1px solid #b8c7d9;">Supplier</th><th style="padding:7px;border:1px solid #b8c7d9;background:#2f5597;">0-10 Days</th><th style="padding:7px;border:1px solid #b8c7d9;background:#2f5597;">11-30 Days</th><th style="padding:7px;border:1px solid #b8c7d9;background:#2f5597;">31-60 Days</th><th style="padding:7px;border:1px solid #b8c7d9;background:#2f5597;">61+ Days</th><th style="padding:7px;border:1px solid #b8c7d9;">Total Outstanding</th><th style="padding:7px;border:1px solid #b8c7d9;background:#806000;">Previous day settlements</th></tr></thead><tbody>${body || "<tr><td colspan=7 style=\"padding:8px\">No outstanding payables</td></tr>"}<tr style="background:#e2f0d9;font-weight:bold;"><td style="padding:6px;border:1px solid #c8d3e1;">Total</td><td style="padding:6px;border:1px solid #c8d3e1;text-align:right;">${money(total("0-10"))}</td><td style="padding:6px;border:1px solid #c8d3e1;text-align:right;">${money(total("11-30"))}</td><td style="padding:6px;border:1px solid #c8d3e1;text-align:right;">${money(total("31-60"))}</td><td style="padding:6px;border:1px solid #c8d3e1;text-align:right;">${money(total("61+"))}</td><td style="padding:6px;border:1px solid #c8d3e1;text-align:right;">${money(selectedLines.reduce((sum, line) => sum + line.outstanding, 0))}</td><td style="padding:6px;border:1px solid #c8d3e1;text-align:right;">${money(keys.reduce((sum, supplier) => sum + settlements(selectedLines.filter((line) => line.supplier === supplier)), 0))}</td></tr></tbody></table>`;
+  };
   const normal = rows.filter((group) => !isConsignment(group.supplierName));
   const consignment = rows.filter((group) => isConsignment(group.supplierName));
   return `${table("Normal", rowsFor(normal))}${table("Consignment", rowsFor(consignment))}`;
@@ -73,6 +91,7 @@ export function buildSupplierPayablesEmailWorkbook(rows: Awaited<ReturnType<type
       "Due Date": line.dueDate ?? "",
       "Days Past Due": line.daysPastDue ?? "",
       Remark: line.remark ?? "",
+      "Previous day settlements": group.previousDaySettlements,
       Currency: line.currency ?? "",
     })));
     const sheet = XLSX.utils.json_to_sheet(values);

@@ -35,6 +35,7 @@ export async function GET(request: NextRequest) {
       "Due Date": line.dueDate ?? "",
       "Days Past Due": line.daysPastDue ?? "",
       Remark: line.remark ?? "",
+      "Previous day settlements": group.previousDaySettlements,
       Currency: line.currency ?? "",
     });
   const normalRows = loaded.groups.filter((group) => !isConsignmentSupplier(group.supplierName ?? "")).flatMap((group) =>
