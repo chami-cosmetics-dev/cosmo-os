@@ -13,7 +13,14 @@ import {
   getCustomerName,
   startOfDay,
 } from "@/lib/reports/csv";
-import { DUMP_TOTAL_HEADER } from "@/lib/reports/dump-download";
+import {
+  DUMP_HAS_MORE_HEADER,
+  DUMP_NEXT_CURSOR_HEADER,
+  DUMP_PAGE_CONTACTS_HEADER,
+  DUMP_TOTAL_HEADER,
+  countCsvDataRows,
+  dumpExposeHeaders,
+} from "@/lib/reports/dump-download";
 import {
   dumpInvoiceShippingRuleFromLive,
   dumpInvoiceShippingRuleFromStored,
@@ -301,10 +308,16 @@ function getReportLabel(report: ReportKind, range: RangeKind) {
   return "Web-site Invoice Detail (Invoice Wise) [Last 90 Days]";
 }
 
-const DUMP_ORDER_PAGE_SIZE = 200;
+/**
+ * One HTTP page. A single Dump 2 stream of ~22k invoice rows was cut at 18,327
+ * (function / proxy limit). The client concatenates pages.
+ * createdAt + id only: persisting shipping or coupon bumps updatedAt and a
+ * cursor sorted by updatedAt skips rows.
+ */
+const DUMP_INVOICE_EXPORT_ORDERS = 400;
+const DUMP_ITEM_EXPORT_ORDERS = 80;
 const DUMP_ORDER_ORDER_BY = [
   { createdAt: "desc" as const },
-  { updatedAt: "desc" as const },
   { id: "desc" as const },
 ];
 
@@ -518,25 +531,31 @@ export async function GET(request: NextRequest) {
       ? `order-invoice-item-${label}.csv`
       : `order-invoice-${label}.csv`;
 
-  const encoder = new TextEncoder();
-  const stream = new ReadableStream<Uint8Array>({
-    async start(controller) {
-      const write = (text: string) => controller.enqueue(encoder.encode(text));
-      try {
-        write(formatCsvHeaderLine(csvHeaders));
+  const after = request.nextUrl.searchParams.get("after")?.trim() ?? "";
+  const includeHeader = request.nextUrl.searchParams.get("header") !== "0";
+  const parts: string[] = [];
+  const write = (text: string) => {
+    parts.push(text);
+  };
+  let hasMore = false;
+  let nextCursor = "";
+
+  try {
+    if (includeHeader) write(formatCsvHeaderLine(csvHeaders));
 
         if (report === "invoice-item") {
-          let cursorId: string | undefined;
-          for (;;) {
             if (request.signal.aborted) throw new Error("Historical export was interrupted before it completed");
-            const orders = await prisma.order.findMany({
+            const fetchedOrders = await prisma.order.findMany({
               where: orderWhere,
               orderBy: DUMP_ORDER_ORDER_BY,
-              take: DUMP_ORDER_PAGE_SIZE,
-              ...(cursorId ? { skip: 1, cursor: { id: cursorId } } : {}),
+              take: DUMP_ITEM_EXPORT_ORDERS + 1,
+              ...(after ? { skip: 1, cursor: { id: after } } : {}),
               include: ORDER_DUMP_ITEM_INCLUDE,
             });
-            if (orders.length === 0) break;
+            hasMore = fetchedOrders.length > DUMP_ITEM_EXPORT_ORDERS;
+            const orders = hasMore ? fetchedOrders.slice(0, DUMP_ITEM_EXPORT_ORDERS) : fetchedOrders;
+            nextCursor = orders.at(-1)?.id ?? "";
+            if (orders.length > 0) {
             const orderIdToManualCreatorEmail = await loadManualCreatorEmails(
               companyId,
               orders.map((order) => order.id),
@@ -687,21 +706,20 @@ export async function GET(request: NextRequest) {
       });
             return itemRows.map((row) => formatCsvDataLine(csvHeaders, row)).join("");
             }, exportConcurrency);
-            cursorId = orders[orders.length - 1]!.id;
-            if (orders.length < DUMP_ORDER_PAGE_SIZE) break;
-          }
+            }
         } else {
-          let cursorId: string | undefined;
-          for (;;) {
             if (request.signal.aborted) throw new Error("Historical export was interrupted before it completed");
-            const orders = await prisma.order.findMany({
+            const fetchedOrders = await prisma.order.findMany({
               where: orderWhere,
               orderBy: DUMP_ORDER_ORDER_BY,
-              take: DUMP_ORDER_PAGE_SIZE,
-              ...(cursorId ? { skip: 1, cursor: { id: cursorId } } : {}),
+              take: DUMP_INVOICE_EXPORT_ORDERS + 1,
+              ...(after ? { skip: 1, cursor: { id: after } } : {}),
               include: ORDER_DUMP_INVOICE_INCLUDE,
             });
-            if (orders.length === 0) break;
+            hasMore = fetchedOrders.length > DUMP_INVOICE_EXPORT_ORDERS;
+            const orders = hasMore ? fetchedOrders.slice(0, DUMP_INVOICE_EXPORT_ORDERS) : fetchedOrders;
+            nextCursor = orders.at(-1)?.id ?? "";
+            if (orders.length > 0) {
             const orderIdToManualCreatorEmail = await loadManualCreatorEmails(
               companyId,
               orders.map((order) => order.id),
@@ -841,35 +859,37 @@ export async function GET(request: NextRequest) {
       kokoRefNumber: orderIdToKokoRefNumber.get(order.id) ?? "",
     }));
             }, exportConcurrency);
-            cursorId = orders[orders.length - 1]!.id;
-            if (orders.length < DUMP_ORDER_PAGE_SIZE) break;
-          }
+            }
         }
 
-        if (!request.signal.aborted) {
-          await logReportDownload({
-            companyId,
-            userId: auth.context?.user?.id,
-            reportKey: `orders:${report}:${range}`,
-            reportLabel,
-            filters,
-            fileName,
-          });
-        }
-        controller.close();
-      } catch (error) {
-        controller.error(error instanceof Error ? error : new Error("Dump failed"));
-      }
-    },
-  });
+    if (!hasMore && !request.signal.aborted) {
+      await logReportDownload({
+        companyId,
+        userId: auth.context?.user?.id,
+        reportKey: `orders:${report}:${range}`,
+        reportLabel,
+        filters,
+        fileName,
+      });
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Dump failed";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
 
-  return new NextResponse(stream, {
+  const csv = parts.join("");
+  const pageRows = countCsvDataRows(csv, includeHeader);
+
+  return new NextResponse(csv, {
     headers: {
       "Content-Type": "text/csv; charset=utf-8",
       "Content-Disposition": `attachment; filename="${fileName}"`,
       "Cache-Control": "no-store",
       [DUMP_TOTAL_HEADER]: String(totalCsvRows),
-      "Access-Control-Expose-Headers": DUMP_TOTAL_HEADER,
+      [DUMP_HAS_MORE_HEADER]: hasMore ? "1" : "0",
+      [DUMP_NEXT_CURSOR_HEADER]: nextCursor,
+      [DUMP_PAGE_CONTACTS_HEADER]: String(pageRows),
+      "Access-Control-Expose-Headers": dumpExposeHeaders(),
     },
   });
 }

@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  countCsvDataRows,
   createCsvRowCounter,
+  dumpPageIncludesHeader,
+  nextDumpPageHref,
   dumpExposeHeaders,
   dumpProgressPercent,
   parseContentDispositionFilename,
@@ -336,5 +339,22 @@ describe("dump page headers", () => {
     expect(parseDumpCountHeader("-1")).toBe(0);
     expect(dumpExposeHeaders()).toContain("X-Dump-Has-More");
     expect(dumpExposeHeaders()).toContain("X-Dump-Page-Contacts");
+  });
+
+  it("counts continuation pages that have no header row", () => {
+    expect(countCsvDataRows("6001,a\r\n6002,b\r\n", false)).toBe(2);
+    expect(countCsvDataRows("INVOICE_NO,ADDRESS\r\n6001,a\r\n", true)).toBe(1);
+  });
+
+  it("builds the next dump page without dropping report filters", () => {
+    const href = "/api/admin/reports/orders?report=invoice&range=last-90&omit_customer_phone=1";
+    expect(dumpPageIncludesHeader(href)).toBe(true);
+    const next = nextDumpPageHref(href, "ord_123");
+    expect(next).toContain("report=invoice");
+    expect(next).toContain("range=last-90");
+    expect(next).toContain("omit_customer_phone=1");
+    expect(next).toContain("after=ord_123");
+    expect(next).toContain("header=0");
+    expect(dumpPageIncludesHeader(next)).toBe(false);
   });
 });
