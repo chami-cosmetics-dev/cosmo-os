@@ -73,7 +73,7 @@ function noOptionText(reason: NoOptionReason, limit: number): string {
     case "cap_unavailable":
       return "Could not read this month's sales, so the cap cannot be checked. No company is suggested.";
     case "no_coverage":
-      return "No company's main warehouse holds enough of any of these SKUs.";
+      return "No ERP2 company's main warehouse holds enough of any of these SKUs.";
     case "no_found_skus":
       return "None of these SKUs were found in ERP2.";
   }
@@ -120,6 +120,49 @@ function ItemTaxPills({ line }: { line: Pick<SkuLine, "taxStatus" | "productPrio
         <Pill>{line.productPriority ?? "Not set"}</Pill>
       </span>
     </span>
+  );
+}
+
+function Erp1MainStock({ result }: { result: OrderAvailabilityResponse }) {
+  const rows = result.erp1Main ?? [];
+  if (rows.length === 0 && !result.erp1MainError) return null;
+  const found = result.lines.filter((line) => line.found);
+  return (
+    <section className="space-y-3">
+      <div>
+        <h3 className="font-semibold">ERP1 main warehouse</h3>
+        <p className="text-muted-foreground text-sm">
+          On-hand at Cosmetics.lk. Listed so it is not missed. Company suggestions still use ERP2 only.
+        </p>
+      </div>
+      {result.erp1MainError ? <p className="text-destructive text-sm">{result.erp1MainError}</p> : null}
+      {rows.map((company) => (
+        <div key={company.company} className="rounded-xl border p-4">
+          <div className="font-medium">{company.company}</div>
+          <p className="text-muted-foreground mt-1 text-xs">{company.warehouses.join(" · ")}</p>
+          <ul className="mt-3 divide-y rounded-md border">
+            {found.map((line) => {
+              const stock = company.lines[line.key];
+              const available = stock?.available ?? 0;
+              const where = (stock?.byWarehouse ?? [])
+                .filter((row) => row.available > 0)
+                .map((row) => `${row.warehouse}: ${row.available}`)
+                .join(" · ");
+              return (
+                <li key={line.key} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm">
+                  <span className="font-medium">
+                    {line.sku} <span className="text-muted-foreground font-normal">need {line.qty}</span>
+                  </span>
+                  <span className={cn(available > 0 ? "text-foreground" : "text-muted-foreground")}>
+                    {available} available{where ? ` · ${where}` : ""}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ))}
+    </section>
   );
 }
 
@@ -400,9 +443,9 @@ export function OrderAvailabilityPanel({ canManage }: { canManage: boolean }) {
       <div>
         <h2 className="text-xl font-semibold">Order availability</h2>
         <p className="text-muted-foreground text-sm">
-          Live stock in ERP2 main warehouses. Type a common SKU (ORD04) or a variant (ORD04_1). Suggests which company
-          to place the order under, within the monthly cap. Each SKU also shows Item VAT status and Product Priority
-          from ERP1 and ERP2.
+          Live stock in ERP2 main warehouses, plus the ERP1 main warehouse so Cosmetics.lk on-hand qty is visible. Type a
+          common SKU (ORD04) or a variant (ORD04_1). Suggests which ERP2 company to place the order under, within the
+          monthly cap. Each SKU also shows Item VAT status and Product Priority from ERP1 and ERP2.
         </p>
       </div>
 
@@ -520,6 +563,8 @@ export function OrderAvailabilityPanel({ canManage }: { canManage: boolean }) {
           {result.cap.error ? <p className="text-destructive text-sm">{result.cap.error}</p> : null}
 
           <ItemTaxList lines={result.lines} />
+
+          <Erp1MainStock result={result} />
 
           {foundCount > 0 ? (
             <section className="space-y-3">
