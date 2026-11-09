@@ -53,7 +53,7 @@ export function customerLifetimeTotalOrderWhere(): Prisma.OrderWhereInput {
     cancelledAt: null,
     financialStatus: { not: "voided" },
     fulfillmentStage: { in: [...CUSTOMER_LIFETIME_TOTAL_FULFILLMENT_STAGES] },
-  };
+  } satisfies Prisma.OrderWhereInput;
 }
 
 /**
