@@ -112,6 +112,13 @@ export type OrderAvailabilityResponse = {
   cap: { limit: number; nearThreshold: number; error: string | null };
   priorityWarehouses: Array<{ warehouse: string; priority: WarehousePriority }>;
   companies: CompanyResult[];
+  /**
+   * ERP1 main-warehouse stock (Cosmetics.lk). Shown so on-hand qty is not missed.
+   * Never ranked, never an option, never part of the cap check.
+   */
+  erp1Main: ShopCompanyStock[];
+  /** Set when the ERP1 main-warehouse read failed. ERP2 results still return. */
+  erp1MainError: string | null;
   /** Shop warehouses by company. Hidden from search; used in company detail. */
   shopCompanies: ShopCompanyStock[];
   options: string[];
