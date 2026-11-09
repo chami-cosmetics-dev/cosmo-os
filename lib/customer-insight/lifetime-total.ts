@@ -2,6 +2,7 @@
  * Lifetime placed-order total for loyalty.
  * Pure reducers are unit-tested; loaders live alongside for API use.
  */
+import type { FulfillmentStage, Prisma } from "@prisma/client";
 
 import type { FulfillmentStage, Prisma } from "@prisma/client";
 
@@ -53,7 +54,7 @@ export function customerLifetimeTotalOrderWhere(): Prisma.OrderWhereInput {
     cancelledAt: null,
     financialStatus: { not: "voided" },
     fulfillmentStage: { in: [...CUSTOMER_LIFETIME_TOTAL_FULFILLMENT_STAGES] },
-  };
+  } satisfies Prisma.OrderWhereInput;
 }
 
 /**
