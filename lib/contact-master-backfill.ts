@@ -1,5 +1,6 @@
 import { writeAuditLog } from "@/lib/audit-log";
 import { syncContactMaster } from "@/lib/contact-master-sync";
+import { shopifyUnallocatedMerchantLabel } from "@/lib/customer-insight/auto-allocate";
 import { buildPhoneLookupVariants, pickNameFromShippingJson } from "@/lib/phone-lookup";
 import { prisma } from "@/lib/prisma";
 
@@ -16,6 +17,7 @@ type ContactBackfillCandidate = {
   shippingAddress: unknown;
   createdAt: Date;
   assignedMerchant: { name: string | null; email: string | null } | null;
+  sourceName: string;
 };
 
 type ContactBackfillPreviewSample = {
@@ -51,6 +53,11 @@ export type ContactBackfillRunResult = {
   sampleEnrichedOrderLabels: string[];
   sampleConflictOrderLabels: string[];
 };
+
+function isShopifyOrderSource(sourceName: string) {
+  const source = sourceName.trim().toLowerCase();
+  return source === "web" || source === "pos" || source === "shopify";
+}
 
 function normalizeEmail(value: string | null | undefined) {
   const trimmed = value?.trim().toLowerCase() ?? "";
@@ -106,6 +113,7 @@ async function loadBackfillCandidates(companyId: string, scanLimit: number, batc
         customerPhone: true,
         shippingAddress: true,
         createdAt: true,
+        sourceName: true,
         assignedMerchant: { select: { name: true, email: true } },
       },
     }),
@@ -195,6 +203,9 @@ export async function runContactBackfill(companyId: string, actorUserId: string)
   const sampleConflictOrderLabels: string[] = [];
 
   for (const order of missingCandidates) {
+    const recentMerchant =
+      order.assignedMerchant?.name ?? order.assignedMerchant?.email ?? null;
+    const shopifyOrder = isShopifyOrderSource(order.sourceName);
     const result = await syncContactMaster({
       companyId,
       sourceLabel: "Order backfill",
@@ -205,7 +216,10 @@ export async function runContactBackfill(companyId: string, actorUserId: string)
       email: normalizeEmail(order.customerEmail),
       phoneNumber: normalizePhone(order.customerPhone),
       name: pickNameFromShippingJson(order.shippingAddress) || order.name,
-      recentMerchant: order.assignedMerchant?.name ?? order.assignedMerchant?.email ?? null,
+      recentMerchant,
+      ...(shopifyOrder
+        ? { assignedMerchantMer: shopifyUnallocatedMerchantLabel(recentMerchant) }
+        : {}),
       auditBehavior: "summary_only",
     });
 

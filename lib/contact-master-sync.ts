@@ -9,7 +9,10 @@ import {
   normalizeContactPhone,
 } from "@/lib/contact-identifiers";
 import { shouldPreferIncomingContactName } from "@/lib/contact-master-name";
-import { resolveAutoAllocateMerchant } from "@/lib/customer-insight/auto-allocate";
+import {
+  resolveAutoAllocateMerchant,
+  shopifyUnallocatedMerchantLabel,
+} from "@/lib/customer-insight/auto-allocate";
 import { buildPhoneLookupVariants } from "@/lib/phone-lookup";
 import { prisma } from "@/lib/prisma";
 import { LIMITS } from "@/lib/validation";
@@ -798,6 +801,7 @@ export async function syncContactMaster(input: SyncContactMasterInput): Promise<
 }
 
 export async function syncContactMasterFromShopifyOrder(input: SyncContactMasterFromOrderInput) {
+  const recentMerchant = input.recentMerchant ?? null;
   const syncInput: SyncContactMasterInput = {
     companyId: input.companyId,
     sourceLabel: "Shopify order",
@@ -808,7 +812,8 @@ export async function syncContactMasterFromShopifyOrder(input: SyncContactMaster
     email: input.order.contact_email ?? input.order.email ?? input.order.customer?.email ?? null,
     phoneNumber: input.order.phone ?? input.order.customer?.phone ?? null,
     name: pickBestCustomerName(input.order),
-    recentMerchant: input.recentMerchant,
+    recentMerchant,
+    assignedMerchantMer: shopifyUnallocatedMerchantLabel(recentMerchant),
     auditBehavior: "full",
   };
 

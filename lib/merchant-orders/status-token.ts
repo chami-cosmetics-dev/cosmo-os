@@ -43,6 +43,9 @@ export function openMerchantOrderStatusToken(token: string): string | null {
   } catch {
     return null;
   }
+  // base64url's last character can carry unused bits. A different string that
+  // decodes to the same bytes is still a tampered token.
+  if (packed.toString("base64url") !== raw) return null;
   if (packed.length < 12 + 16 + 1) return null;
 
   const iv = packed.subarray(0, 12);
