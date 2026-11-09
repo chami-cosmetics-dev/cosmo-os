@@ -27,6 +27,11 @@ type ErpSupplierRow = {
   supplier_name?: string | null;
 };
 
+type ErpSupplierPaymentRow = {
+  party?: string | null;
+  paid_amount?: number | string | null;
+};
+
 export type SupplierPayableLine = {
   supplierId: string;
   supplierName: string | null;
@@ -45,12 +50,14 @@ export type SupplierPayableLine = {
   itemCode?: string | null;
   itemName?: string | null;
   itemLines?: Array<{ itemCode: string | null; itemName: string | null; poNumber: string | null; quantity: number; amount: number; availableStock: number }>;
+  previousDaySettlements?: number;
 };
 
 export type SupplierPayableGroup = {
   supplierId: string;
   supplierName: string | null;
   totalOutstanding: number;
+  previousDaySettlements: number;
   currency: string | null;
   lines: SupplierPayableLine[];
 };
@@ -84,6 +91,12 @@ async function erpGetJson<T>(cfg: OsfErpCredentials, path: string): Promise<T> {
 
 function dateOnly(value: Date): string {
   return value.toISOString().slice(0, 10);
+}
+
+function previousCalendarDate(reportDate: string): string {
+  const date = new Date(`${reportDate}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() - 1);
+  return date.toISOString().slice(0, 10);
 }
 
 export function defaultSupplierPayablesReportDate(): string {
@@ -224,6 +237,34 @@ async function fetchAccountsPayable(input: {
     .filter((line) => Boolean(line.poNumber));
 }
 
+async function fetchPreviousDaySupplierSettlements(input: {
+  cfg: OsfErpCredentials;
+  company: string;
+  reportDate: string;
+}): Promise<Map<string, number>> {
+  const filters = JSON.stringify([
+    ["company", "=", input.company],
+    ["party_type", "=", "Supplier"],
+    ["payment_type", "=", "Pay"],
+    ["posting_date", "=", previousCalendarDate(input.reportDate)],
+    ["docstatus", "=", 1],
+  ]);
+  const fields = encodeURIComponent(JSON.stringify(["party", "paid_amount"]));
+  const settlements = new Map<string, number>();
+  for (let page = 0; page < MAX_SUPPLIER_PAGES; page += 1) {
+    const path = `/api/resource/Payment%20Entry?filters=${encodeURIComponent(filters)}&fields=${fields}` +
+      `&limit_start=${page * PAGE_LENGTH}&limit_page_length=${PAGE_LENGTH}`;
+    const json = await erpGetJson<{ data?: ErpSupplierPaymentRow[] }>(input.cfg, path);
+    const rows = json.data ?? [];
+    for (const row of rows) {
+      const supplierId = text(row.party)?.toLowerCase();
+      if (supplierId) settlements.set(supplierId, (settlements.get(supplierId) ?? 0) + money(row.paid_amount));
+    }
+    if (rows.length < PAGE_LENGTH) break;
+  }
+  return settlements;
+}
+
 async function fetchPurchaseReceiptForInvoice(
   cfg: OsfErpCredentials,
   company: string,
@@ -297,12 +338,14 @@ function decorateReportLines(input: {
   company: string;
   erpSlot: "ERP1" | "ERP2" | null;
   erpLabel: string | null;
+  previousDaySettlements: Map<string, number>;
 }): SupplierPayableLine[] {
   return input.lines.map((line) => ({
     ...line,
     company: input.company,
     erpSlot: input.erpSlot,
     erpLabel: input.erpLabel,
+    previousDaySettlements: input.previousDaySettlements.get(line.supplierId.toLowerCase()) ?? 0,
   }));
 }
 
@@ -342,6 +385,7 @@ function supplierKey(line: Pick<SupplierPayableLine, "supplierId" | "supplierNam
 
 function groupLines(lines: SupplierPayableLine[]): SupplierPayableGroup[] {
   const groups = new Map<string, SupplierPayableGroup>();
+  const settlementSources = new Map<string, Set<string>>();
   for (const line of lines) {
     if (line.outstanding <= 0) continue;
     const key = supplierKey(line);
@@ -352,10 +396,18 @@ function groupLines(lines: SupplierPayableLine[]): SupplierPayableGroup[] {
         supplierId: line.supplierId,
         supplierName: line.supplierName,
         totalOutstanding: 0,
+        previousDaySettlements: 0,
         currency: line.currency,
         lines: [],
       } satisfies SupplierPayableGroup);
     group.totalOutstanding += line.outstanding;
+    const source = [line.company, line.erpSlot ?? line.erpLabel ?? ""].join("\u0000");
+    const sources = settlementSources.get(key) ?? new Set<string>();
+    if (!sources.has(source)) {
+      group.previousDaySettlements += line.previousDaySettlements ?? 0;
+      sources.add(source);
+      settlementSources.set(key, sources);
+    }
     group.currency = group.currency ?? line.currency;
     group.supplierName = group.supplierName ?? line.supplierName;
     group.lines.push(line);
@@ -437,11 +489,10 @@ export async function refreshSupplierPayables(
     const seenSupplierIds = new Set<string>();
     for (const erpCompany of erpCompanies) {
       try {
-        const reportLines = await fetchAccountsPayable({
-          cfg: instance.cfg,
-          company: erpCompany,
-          reportDate,
-        });
+        const [reportLines, previousDaySettlements] = await Promise.all([
+          fetchAccountsPayable({ cfg: instance.cfg, company: erpCompany, reportDate }),
+          fetchPreviousDaySupplierSettlements({ cfg: instance.cfg, company: erpCompany, reportDate }),
+        ]);
         const supplierPrefixes = locations
           .filter(
             (location) =>
@@ -463,6 +514,7 @@ export async function refreshSupplierPayables(
           company: erpCompany,
           erpSlot,
           erpLabel: instance.label,
+          previousDaySettlements,
         });
         await prisma.supplierPayableSnapshot.upsert({
           where: {
