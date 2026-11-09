@@ -2,7 +2,6 @@
  * Lifetime placed-order total for loyalty.
  * Pure reducers are unit-tested; loaders live alongside for API use.
  */
-import type { FulfillmentStage, Prisma } from "@prisma/client";
 
 import type { FulfillmentStage, Prisma } from "@prisma/client";
 
