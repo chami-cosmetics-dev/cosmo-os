@@ -21,12 +21,7 @@ import {
   countCsvDataRows,
   dumpExposeHeaders,
 } from "@/lib/reports/dump-download";
-import {
-  dumpInvoiceShippingRuleFromLive,
-  dumpInvoiceShippingRuleFromStored,
-  dumpShippingPersistFields,
-  hasStoredDumpShippingResolution,
-} from "@/lib/reports/dump-invoice-shipping";
+import { dumpInvoiceShippingRuleFromStored } from "@/lib/reports/dump-invoice-shipping";
 import {
   createOrderInvoiceItemRow,
   createOrderInvoiceRow,
@@ -39,18 +34,13 @@ import {
   buildCouponToMerchantMap,
   getMerchantGroupUserMap,
 } from "@/lib/merchant-groups";
-import {
-  getOrderDiscountCouponCode,
-  mergeDiscountCouponIntoCodes,
-  resolveOrderDiscountCouponForOrder,
-} from "@/lib/order-discount-coupon";
+import { getOrderDiscountCouponCode } from "@/lib/order-discount-coupon";
 import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
 import {
   getPaymentMethodInfo,
   orderAlreadyPaidByCardCheckout,
 } from "@/lib/payment-method-label";
 import { resolveOrderLineItemsPricing } from "@/lib/order-line-item-pricing";
-import { resolveOrderShippingDisplayForOrder } from "@/lib/order-shipping-display";
 import { resolveCustomerPhone, resolveShippingPhone } from "@/lib/order-sms-resolvers";
 import { getOrderDumpPermission, getUtilityOrderDumpPermission } from "@/lib/report-permissions";
 import { requirePermission } from "@/lib/rbac";
@@ -309,13 +299,12 @@ function getReportLabel(report: ReportKind, range: RangeKind) {
 }
 
 /**
- * One HTTP page. A single Dump 2 stream of ~22k invoice rows was cut at 18,327
- * (function / proxy limit). The client concatenates pages.
- * createdAt + id only: persisting shipping or coupon bumps updatedAt and a
- * cursor sorted by updatedAt skips rows.
+ * One HTTP page, sized to stay under the ~4.5MB response cap.
+ * A single 22k-row stream was cut at 18,327. The client concatenates pages.
+ * createdAt + id only so the cursor stays stable.
  */
-const DUMP_INVOICE_EXPORT_ORDERS = 400;
-const DUMP_ITEM_EXPORT_ORDERS = 80;
+const DUMP_INVOICE_EXPORT_ORDERS = 2000;
+const DUMP_ITEM_EXPORT_ORDERS = 250;
 const DUMP_ORDER_ORDER_BY = [
   { createdAt: "desc" as const },
   { id: "desc" as const },
@@ -389,40 +378,6 @@ async function loadManualCreatorEmails(companyId: string, orderIds: string[]) {
   return orderIdToManualCreatorEmail;
 }
 
-async function persistDumpShippingFill(
-  orderId: string,
-  live: Parameters<typeof dumpShippingPersistFields>[0],
-) {
-  const fields = dumpShippingPersistFields(live);
-  if (!fields?.shippingLines) return;
-  try {
-    await prisma.order.update({
-      where: { id: orderId },
-      data: {
-        shippingLines: fields.shippingLines,
-        ...(fields.totalShipping
-          ? { totalShipping: new Prisma.Decimal(fields.totalShipping) }
-          : {}),
-      },
-    });
-  } catch {
-    /* dump still succeeds */
-  }
-}
-
-async function persistDumpDiscountCoupon(orderId: string, existing: unknown, coupon: string) {
-  const next = mergeDiscountCouponIntoCodes(existing, coupon);
-  if (next === existing) return;
-  try {
-    await prisma.order.update({
-      where: { id: orderId },
-      data: { discountCodes: next as Prisma.InputJsonValue },
-    });
-  } catch {
-    /* dump still succeeds */
-  }
-}
-
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
@@ -460,12 +415,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: bounds.error }, { status: 400 });
   }
   const { from, to, label } = bounds;
-  // A full calendar-year export can contain tens of thousands of orders. It
-  // must only use data already stored in Cosmo: per-order ERP lookups turn the
-  // streaming response into a timeout-prone request and used to create a
-  // silently truncated CSV.
-  const useStoredExportData = range === "custom" || range === "historical-year";
-  const exportConcurrency = useStoredExportData ? 16 : 4;
+  // Stored order fields only. A live ERP call per invoice made Dump 2 too slow
+  // and the download was cut off before the last rows.
+  const exportConcurrency = 16;
   const orderWhere = {
     companyId,
     createdAt: {
@@ -589,21 +541,11 @@ export async function GET(request: NextRequest) {
         rawPayload: order.rawPayload,
         assignedMerchantCouponCodes: order.assignedMerchant?.couponCodes ?? null,
       });
-      let couponCode = getOrderDiscountCouponCode({
+      const couponCode = getOrderDiscountCouponCode({
         sourceName: order.sourceName,
         discountCodes: order.discountCodes,
         rawPayload: order.rawPayload,
       });
-      if (!couponCode && !useStoredExportData) {
-        couponCode = await resolveOrderDiscountCouponForOrder({
-          sourceName: order.sourceName,
-          discountCodes: order.discountCodes,
-          rawPayload: order.rawPayload,
-          name: order.name,
-          erpnextInvoiceId: order.erpnextInvoiceId,
-          erpnextInstance: order.companyLocation.erpnextInstance,
-        });
-      }
       const merchantName = dumpMerchantName({
         merchantCouponCode,
         discountCouponCode: couponCode,
@@ -618,7 +560,7 @@ export async function GET(request: NextRequest) {
         name: order.name,
         erpnextInvoiceId: order.erpnextInvoiceId,
         erpnextInstance: order.companyLocation.erpnextInstance,
-        allowLiveErpLookup: !useStoredExportData,
+        allowLiveErpLookup: false,
         lineItems: order.lineItems.map((item) => ({
           sku: item.productItem.sku,
           quantity: item.quantity,
@@ -742,30 +684,11 @@ export async function GET(request: NextRequest) {
       assignedMerchantCouponCodes: order.assignedMerchant?.couponCodes ?? null,
       joinAllDiscountCodes: true,
     });
-    let discountCoupon = getOrderDiscountCouponCode({
+    const discountCoupon = getOrderDiscountCouponCode({
       sourceName: order.sourceName,
       discountCodes: order.discountCodes,
       rawPayload: order.rawPayload,
     });
-    if (
-      !useStoredExportData &&
-      !discountCoupon &&
-      order.sourceName.startsWith("erpnext") &&
-      order.totalDiscounts != null &&
-      order.totalDiscounts.gt(0)
-    ) {
-      discountCoupon = await resolveOrderDiscountCouponForOrder({
-        sourceName: order.sourceName,
-        discountCodes: order.discountCodes,
-        rawPayload: order.rawPayload,
-        name: order.name,
-        erpnextInvoiceId: order.erpnextInvoiceId,
-        erpnextInstance: order.companyLocation.erpnextInstance,
-      });
-      if (discountCoupon) {
-        await persistDumpDiscountCoupon(order.id, order.discountCodes, discountCoupon);
-      }
-    }
     const couponCode = joinDumpCouponCodes(merchantCouponCode, discountCoupon);
     const merchantName = dumpMerchantName({
       merchantCouponCode,
@@ -786,24 +709,15 @@ export async function GET(request: NextRequest) {
       erpnextUsernameToEmail,
     });
     const shippingAddress = formatAddress(order.shippingAddress);
-    const shippingLookup = {
+    const shippingRule = dumpInvoiceShippingRuleFromStored({
       totalShipping: decimalToString(order.totalShipping),
       shippingLines: order.shippingLines,
       rawPayload: order.rawPayload,
       sourceName: order.sourceName,
-      name: order.name,
-      erpnextInvoiceId: order.erpnextInvoiceId,
-      erpnextInstance: order.companyLocation.erpnextInstance,
       discountCodes: order.discountCodes,
       dispatchedToCustomer: order.dispatchedToCustomer,
       shippingAddress,
-    };
-    let shippingRule = dumpInvoiceShippingRuleFromStored(shippingLookup);
-    if (!useStoredExportData && !hasStoredDumpShippingResolution(shippingLookup)) {
-      const live = await resolveOrderShippingDisplayForOrder(shippingLookup);
-      shippingRule = dumpInvoiceShippingRuleFromLive(live, shippingRule);
-      await persistDumpShippingFill(order.id, live);
-    }
+    });
 
     return formatCsvDataLine(csvHeaders, createOrderInvoiceRow({
       invoiceNo,
