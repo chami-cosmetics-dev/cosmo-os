@@ -20,7 +20,13 @@ import {
   mergeSupplierMinMaps,
   rankedSuppliersFromMins,
 } from "@/lib/osf/erp-purchases";
-import { fetchWarehouseBins, getAllOsfErpInstances, stockForColumn } from "@/lib/osf/erp-stock";
+import {
+  fetchWarehouseBins,
+  fetchWarehouseLedgerQtyAfter,
+  getAllOsfErpInstances,
+  stockForColumn,
+} from "@/lib/osf/erp-stock";
+import { isOsfHistoricalAsOf, stockAsOfFromLaterMovements } from "@/lib/osf/historical-snapshot";
 import {
   aggregateMonthlySalesBySku,
   isoDateMonthsBefore,
@@ -121,7 +127,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "No company associated with your account" }, { status: 404 });
   }
 
-  const asOfDate = parsed.data.asOfDate ?? todayColombo();
+  const today = todayColombo();
+  const asOfDate = parsed.data.asOfDate ?? today;
+  const historicalAsOf = isOsfHistoricalAsOf(asOfDate, today);
   const {
     salesMonth,
     includeInactive,
@@ -130,6 +138,17 @@ export async function POST(request: NextRequest) {
     skuPrefix,
     maxStockPctOfRop,
   } = parsed.data;
+
+  if (historicalAsOf && (belowThresholdOnly || maxStockPctOfRop != null)) {
+    return NextResponse.json(
+      {
+        error:
+          "ROP history is not stored, so a past as-of date cannot filter by stock % of ROP.",
+        code: "HISTORICAL_ROP_UNAVAILABLE",
+      },
+      { status: 400 },
+    );
+  }
 
   const RECENT_PURCHASE_WINDOW_DAYS = 30;
   const recentSinceDate = new Date(
@@ -151,7 +170,8 @@ export async function POST(request: NextRequest) {
   }
 
   // OGF price refresh writes profiles. Stock, sales, and catalog do not wait on it.
-  const ogfSync = syncOgfPricesFromErp(companyId);
+  // A past as-of date does not use OGF, so skip the write.
+  const ogfSync = historicalAsOf ? null : syncOgfPricesFromErp(companyId);
 
   try {
     // Ensure Cosmetics shop warehouses from ERP1 exist as OSF columns before resolve.
@@ -186,7 +206,9 @@ export async function POST(request: NextRequest) {
           skuPrefix,
         }),
         resolveOsfColumns(companyId),
-        prisma.productOsfRop.findMany({ where: { companyId } }),
+        historicalAsOf
+          ? Promise.resolve([])
+          : prisma.productOsfRop.findMany({ where: { companyId } }),
         aggregateMonthlySalesBySku(companyId, salesMonth),
         aggregateSalesBySkuByMonthInRange(
           companyId,
@@ -198,11 +220,13 @@ export async function POST(request: NextRequest) {
           where: { companyId },
           select: { name: true, code: true },
         }),
-        loadShopifyCatalogPricesForCompany(companyId),
+        historicalAsOf
+          ? Promise.resolve({ prices: new Map(), warning: null })
+          : loadShopifyCatalogPricesForCompany(companyId),
       ]);
-    const profilesPromise = ogfSync.then(() =>
-      prisma.productOsfProfile.findMany({ where: { companyId } }),
-    );
+    const profilesPromise = ogfSync
+      ? ogfSync.then(() => prisma.productOsfProfile.findMany({ where: { companyId } }))
+      : Promise.resolve([]);
     if (shopifyPrices.warning) {
       console.warn("[OSF] Shopify catalog prices:", shopifyPrices.warning);
     }
@@ -250,16 +274,26 @@ export async function POST(request: NextRequest) {
     const perInstanceResults = await Promise.all(
       erpInstances.map(async (inst) => {
         const whs = [...(warehousesByInstance.get(inst.id) ?? [])];
-        const [bins, costs, purchases, monthlyPurchases] = await Promise.all([
+        const [currentBins, ledgerAfter, costs, purchases, monthlyPurchases] = await Promise.all([
           whs.length
             ? fetchWarehouseBins({ cfg: inst.cfg, warehouses: whs })
             : Promise.resolve(new Map<string, number>()),
-          fetchLatestCostAndSupplier({ cfg: inst.cfg, itemCodes: skus }),
+          historicalAsOf && whs.length
+            ? fetchWarehouseLedgerQtyAfter({
+                cfg: inst.cfg,
+                warehouses: whs,
+                afterDate: asOfDate,
+              })
+            : Promise.resolve(new Map<string, number>()),
+          historicalAsOf
+            ? Promise.resolve(new Map())
+            : fetchLatestCostAndSupplier({ cfg: inst.cfg, itemCodes: skus }),
           fetchLastPurchaseByItem({
             cfg: inst.cfg,
             itemCodes: skus,
             recentSinceDate,
             postingDateFrom: isoDateMonthsBefore(asOfDate, LAST_PURCHASE_LOOKBACK_MONTHS),
+            postingDateTo: historicalAsOf ? asOfDate : undefined,
             allowedSuppliers,
           }),
           fetchMonthlyPurchasesInRange({
@@ -271,6 +305,9 @@ export async function POST(request: NextRequest) {
             bestWindow: bestPurchaseBounds,
           }),
         ]);
+        const bins = historicalAsOf
+          ? stockAsOfFromLaterMovements(currentBins, ledgerAfter)
+          : currentBins;
         return { bins, costs, purchases, monthlyPurchases };
       }),
     );
@@ -387,6 +424,7 @@ export async function POST(request: NextRequest) {
       monthlySales,
       salesMonth,
       asOfDate,
+      historicalAsOf,
       salesByMonth,
       purchasesByMonth,
       bestPurchaseBySku,
