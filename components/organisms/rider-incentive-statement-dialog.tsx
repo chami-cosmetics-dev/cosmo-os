@@ -31,6 +31,9 @@ type StatementOrder = {
   shippingCost: string;
   riderPayment: string;
   unmatched: boolean;
+  pickup?: boolean;
+  orderShipping?: string;
+  payMethod?: string;
 };
 
 type StatementCompany = {
@@ -62,6 +65,8 @@ function orderMatchesSearch(order: ListedOrder, query: string) {
     order.phone,
     order.address,
     order.deliveryCity,
+    order.orderShipping,
+    order.payMethod,
     order.invoiceStatus,
     order.deliveryCompletedAt,
     order.invoiceCompletedAt,
@@ -237,7 +242,9 @@ export function RiderIncentiveStatementDialog({
                         <th className="px-3 py-1.5 font-medium">Shopify</th>
                         <th className="px-3 py-1.5 font-medium">ERP</th>
                         <th className="px-3 py-1.5 font-medium">City</th>
-                        <th className="px-3 py-1.5 text-right font-medium">Rider pay</th>
+                        <th className="px-3 py-1.5 font-medium">How we pay</th>
+                        <th className="px-3 py-1.5 text-right font-medium">Amount allocated</th>
+                        <th className="px-3 py-1.5 font-medium">Pick up</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -254,6 +261,7 @@ export function RiderIncentiveStatementDialog({
                           <td className="px-3 py-1.5">{order.shopifyOrderNumber || order.shopifyOrderId || "—"}</td>
                           <td className="px-3 py-1.5">{order.invoiceNumber || "—"}</td>
                           <td className="px-3 py-1.5">{order.deliveryCity || "—"}</td>
+                          <td className="px-3 py-1.5">{order.payMethod || "—"}</td>
                           <td className="px-3 py-1.5 text-right tabular-nums">
                             {order.riderPayment}
                             {order.unmatched ? (
@@ -262,6 +270,7 @@ export function RiderIncentiveStatementDialog({
                               </span>
                             ) : null}
                           </td>
+                          <td className="px-3 py-1.5">{order.pickup ? "Yes" : "No"}</td>
                         </tr>
                       ))}
                     </tbody>

@@ -18,6 +18,7 @@ type RiderPerformanceRow = {
   completedCount: number;
   incentiveTotal: string;
   unmatchedCount?: number;
+  pickupCount?: number;
 };
 
 type PerformanceSummary = {
@@ -188,6 +189,40 @@ export function RiderPerformancePanel({
     }
   }
 
+  async function exportAll() {
+    const unmatched = summary?.unmatchedTotal ?? 0;
+    if (unmatched > 0) {
+      notify.error(
+        `Finish ${unmatched} unmatched ${unmatched === 1 ? "order" : "orders"} before export`,
+      );
+      return;
+    }
+    setBusyKey("export-all");
+    try {
+      const params = new URLSearchParams({ from, to });
+      const res = await fetch(`/api/admin/riders/performance/statement/export-all?${params}`);
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        notify.error(typeof data.error === "string" ? data.error : "Export failed");
+        return;
+      }
+      const blob = await res.blob();
+      const disposition = res.headers.get("Content-Disposition") ?? "";
+      const match = disposition.match(/filename="([^"]+)"/);
+      const fileName = match?.[1] ?? "rider-pay-all.xlsx";
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = fileName;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      notify.error("Export failed");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
   function filteredOptions(taskId: string) {
     const q = (filterByTask[taskId] ?? "").trim().toLowerCase();
     if (!q) return districtOptions;
@@ -207,8 +242,9 @@ export function RiderPerformancePanel({
             <CardTitle>Rider performance</CardTitle>
             <CardDescription className="mt-1">
               Completed deliveries and rider pay from shipping-rule charges (Asia/Colombo dates).
-              Pick up, free-ship, and STAFFDC are not paid. Unmatched rows can take a district
-              from the charge sheet, or a typed rider pay when no district fits.
+              Pick up and STAFFDC stay in the completed count and are left out of rider pay.
+              Free ship still pays from the district. Unmatched rows can take a district from
+              the charge sheet, or a typed rider pay when no district fits.
             </CardDescription>
           </div>
           <div className="flex flex-wrap items-end gap-2">
@@ -276,7 +312,7 @@ export function RiderPerformancePanel({
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>No pay (Pick up / Free ship / STAFFDC)</CardDescription>
+            <CardDescription>No pay (Pick up / STAFFDC)</CardDescription>
             <CardTitle className="text-2xl tabular-nums">
               {summary?.excludedFromIncentiveTotal ?? 0}
             </CardTitle>
@@ -471,8 +507,25 @@ export function RiderPerformancePanel({
       </Card>
 
       <Card>
-        <CardHeader>
+        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0">
           <CardTitle className="text-base">Rider detail</CardTitle>
+          {canExportIncentive ? (
+            <Button
+              type="button"
+              variant="outline"
+              disabled={loading || isBusy || rows.length === 0}
+              onClick={() => void exportAll()}
+            >
+              {busyKey === "export-all" ? (
+                <>
+                  <Loader2 className="animate-spin" aria-hidden />
+                  Exporting...
+                </>
+              ) : (
+                "Export pay report"
+              )}
+            </Button>
+          ) : null}
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto rounded-lg border">
@@ -483,12 +536,13 @@ export function RiderPerformancePanel({
                   <th className="px-3 py-2 font-medium">Completed</th>
                   <th className="px-3 py-2 font-medium">Incentive</th>
                   <th className="px-3 py-2 font-medium">Unmatched</th>
+                  <th className="px-3 py-2 font-medium">Pick up</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="text-muted-foreground px-3 py-6 text-center">
+                    <td colSpan={5} className="text-muted-foreground px-3 py-6 text-center">
                       {loading ? "Loading…" : "No completed deliveries in this range."}
                     </td>
                   </tr>
@@ -516,6 +570,7 @@ export function RiderPerformancePanel({
                         <td className="px-3 py-2 tabular-nums">{row.completedCount}</td>
                         <td className="px-3 py-2 tabular-nums">{row.incentiveTotal}</td>
                         <td className="px-3 py-2 tabular-nums">{unmatched}</td>
+                        <td className="px-3 py-2 tabular-nums">{row.pickupCount ?? 0}</td>
                       </tr>
                     );
                   })

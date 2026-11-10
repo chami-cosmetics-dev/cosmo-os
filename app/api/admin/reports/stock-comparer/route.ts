@@ -10,11 +10,13 @@ import {
   isExcludedFromStockCompare,
   listWarehouseOptions,
   markCriticalTopSellers,
+  resolveStockCompareHomeWarehouse,
   selectWatchedTargets,
   type RopColumnRef,
   type StockBalanceRow,
 } from "@/lib/cosmetics-stock-comparer";
 import { loadWebsiteSalesLast90d } from "@/lib/cosmetics-stock-comparer-sales";
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 import { buildCatalogRows } from "@/lib/osf/catalog-rows";
 import { resolveOsfColumns } from "@/lib/osf/column-config";
 import { fetchBinActualQty, getAllOsfErpInstances, OsfErpError } from "@/lib/osf/erp-stock";
@@ -116,7 +118,9 @@ export async function GET(request: NextRequest) {
       includeInRop: column.includeInRop,
       companyLocationName: column.companyLocationName,
     }));
-  const watchedTargets = selectWatchedTargets(ropColumns);
+  const vault = isVaultOsDeployment();
+  const homeWarehouse = resolveStockCompareHomeWarehouse(columns, vault);
+  const watchedTargets = selectWatchedTargets(ropColumns, homeWarehouse);
   const warehouses = listWarehouseOptions(ropColumns, watchedTargets);
   const focusRaw = request.nextUrl.searchParams.get("focusWarehouse")?.trim() ?? "";
   let focusWarehouse: string | null = null;
@@ -172,9 +176,9 @@ export async function GET(request: NextRequest) {
     }
 
     const thresholdRows = focusWarehouse
-      ? buildFocusedStockReport(stockRows, focusWarehouse, threshold)
-      : buildCosmeticsStockReportDetails(stockRows, threshold);
-    const brandViolations = buildBrandWarehouseViolations(stockRows);
+      ? buildFocusedStockReport(stockRows, focusWarehouse, threshold, homeWarehouse)
+      : buildCosmeticsStockReportDetails(stockRows, threshold, homeWarehouse);
+    const brandViolations = vault ? [] : buildBrandWarehouseViolations(stockRows);
 
     let salesStatus: "ok" | "unavailable" = "ok";
     let salesWindow: {
@@ -197,8 +201,8 @@ export async function GET(request: NextRequest) {
       ropPercent == null
         ? thresholdRows
         : focusWarehouse
-          ? buildFocusedStockReport(stockRows, focusWarehouse, Number.POSITIVE_INFINITY)
-          : buildCosmeticsStockReportDetails(stockRows, Number.POSITIVE_INFINITY);
+          ? buildFocusedStockReport(stockRows, focusWarehouse, Number.POSITIVE_INFINITY, homeWarehouse)
+          : buildCosmeticsStockReportDetails(stockRows, Number.POSITIVE_INFINITY, homeWarehouse);
     const { rows: marked, cutoff } = markCriticalTopSellers(listSource, salesBySku, salesStatus === "ok");
 
     const identities = catalog.map((item) => ({

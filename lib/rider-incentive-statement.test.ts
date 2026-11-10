@@ -23,6 +23,9 @@ function line(overrides: Partial<IncentiveStatementInput> & Pick<IncentiveStatem
     shippingCost: 0,
     riderPayment: 0,
     unmatched: false,
+    pickup: false,
+    orderShipping: "Nugegoda",
+    payMethod: "Nugegoda",
     ...overrides,
   };
 }
@@ -107,5 +110,29 @@ describe("incentiveStatementCsv", () => {
     expect(csv).toContain("Company total");
     expect(csv).toContain("Full total");
     expect(csv).toContain("300.00");
+    expect(csv).toContain("Pick up");
+  });
+
+  it("keeps pickup on the line and out of the pay figure", () => {
+    const statement = groupIncentiveStatement([
+      line({
+        invoiceNumber: "600-9",
+        company: "SPK",
+        pickup: true,
+        riderPayment: 0,
+        shippingCost: 0,
+        orderShipping: "Pick Up",
+        payMethod: "Pick up",
+      }),
+    ]);
+    expect(statement.companies[0]?.orders[0]?.pickup).toBe(true);
+    expect(statement.riderPaymentTotal).toBe("0.00");
+    const csv = incentiveStatementCsv({
+      riderName: "Sampath",
+      companies: statement.companies,
+      shippingTotal: statement.shippingTotal,
+      riderPaymentTotal: statement.riderPaymentTotal,
+    });
+    expect(csv).toContain("Yes");
   });
 });

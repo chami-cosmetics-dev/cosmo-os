@@ -8,6 +8,7 @@ import { NotificationBell } from "@/components/molecules/notification-bell";
 import { ThemeToggle } from "@/components/molecules/theme-toggle";
 import { UserMenu } from "@/components/molecules/user-menu";
 import { APP_NAME } from "@/lib/branding";
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 
 interface TopbarProps {
   title?: string;
@@ -54,7 +55,10 @@ export function Topbar({ title = "Dashboard", user }: TopbarProps) {
     { prefix: "/dashboard/products/vendors-categories", label: "Vendors & Categories" },
     { prefix: "/dashboard/sticker-batch", label: "Sticker Batch & Print" },
     { prefix: "/dashboard/sticker-print", label: "Sticker Batch & Print" },
-    { prefix: "/dashboard/purchasing/stock-comparer", label: "Cosmetics Stock Comparer" },
+    {
+      prefix: "/dashboard/purchasing/stock-comparer",
+      label: isVaultOsDeployment() ? "Supplement Vault Stock Comparer" : "Cosmetics Stock Comparer",
+    },
     { prefix: "/dashboard/fulfillment", label: "Fulfillment" },
     { prefix: "/dashboard/cosmo-academy", label: "Cosmo Academy" },
   ];
