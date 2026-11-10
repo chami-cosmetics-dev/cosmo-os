@@ -145,6 +145,11 @@ export function buildStockCompareExportMatrix(
 }
 
 const MAIN_COSMO_WAREHOUSE = "main warehouse - cosmo";
+const VAULT_HOME_KEYS = ["main warehouse - sv-1", "main warehouse - sv1"] as const;
+const HOME_WAREHOUSE_KEYS = new Set<string>([MAIN_COSMO_WAREHOUSE, ...VAULT_HOME_KEYS]);
+
+export const COSMETICS_HOME_WAREHOUSE = "Main Warehouse - Cosmo";
+export const SUPPLEMENT_VAULT_HOME_WAREHOUSE = "Main Warehouse - SV-1";
 
 const COSMETICS_ONLY_BRANDS = [
   "Keune",
@@ -216,6 +221,48 @@ function isAllWarehouses(warehouse: string): boolean {
   return key(warehouse).includes("all warehouses");
 }
 
+/** Cosmetics main, or Supplement Vault main (`SV-1` / `SV1`). */
+export function homeMatchKeys(homeWarehouse: string): Set<string> {
+  const normalized = key(homeWarehouse);
+  const keys = new Set<string>([normalized]);
+  if (normalized === MAIN_COSMO_WAREHOUSE) keys.add(MAIN_COSMO_WAREHOUSE);
+  if ((VAULT_HOME_KEYS as readonly string[]).includes(normalized)) {
+    for (const alias of VAULT_HOME_KEYS) keys.add(alias);
+  }
+  return keys;
+}
+
+function findHomeRow(skuRows: ParsedStockRow[], homeWarehouse: string): ParsedStockRow | undefined {
+  const keys = homeMatchKeys(homeWarehouse);
+  return skuRows.find((row) => keys.has(key(row.warehouse)));
+}
+
+/** Vault OS uses the SV column bin. Cosmo OS uses Main Warehouse - Cosmo. */
+export function resolveStockCompareHomeWarehouse(
+  columns: Array<{ key: string; warehouses: string[] }>,
+  vault: boolean,
+): string {
+  if (vault) {
+    const sv = columns.find((column) => key(column.key) === "sv");
+    const fromSv = sv?.warehouses
+      .map((warehouse) => warehouse.trim())
+      .find((warehouse) => warehouse && !isAllWarehouses(warehouse));
+    if (fromSv) return fromSv;
+    for (const column of columns) {
+      const hit = column.warehouses.find((warehouse) =>
+        (VAULT_HOME_KEYS as readonly string[]).includes(key(warehouse)),
+      );
+      if (hit?.trim()) return hit.trim();
+    }
+    return SUPPLEMENT_VAULT_HOME_WAREHOUSE;
+  }
+  for (const column of columns) {
+    const hit = column.warehouses.find((warehouse) => key(warehouse) === MAIN_COSMO_WAREHOUSE);
+    if (hit?.trim()) return hit.trim();
+  }
+  return COSMETICS_HOME_WAREHOUSE;
+}
+
 function parseRows(inputRows: StockBalanceRow[]): ParsedStockRow[] {
   return inputRows
     .map((row): ParsedStockRow => ({
@@ -266,7 +313,7 @@ function outletFromRow(row: ParsedStockRow): string {
 export function classifyWarehouseKind(warehouse: string): LocationKind {
   const wh = key(warehouse);
   if (!wh || isAllWarehouses(warehouse)) return "online";
-  if (wh === MAIN_COSMO_WAREHOUSE) return "main";
+  if (HOME_WAREHOUSE_KEYS.has(wh)) return "main";
   if (isShopWarehouseName(warehouse)) return "shop";
   return "online";
 }
@@ -433,8 +480,9 @@ export function markCriticalTopSellers(
 export function buildCosmeticsStockReport(
   inputRows: StockBalanceRow[],
   threshold = 0,
+  homeWarehouse = COSMETICS_HOME_WAREHOUSE,
 ): CosmeticsStockReportRow[] {
-  return buildCosmeticsStockReportDetails(inputRows, threshold).map(
+  return buildCosmeticsStockReportDetails(inputRows, threshold, homeWarehouse).map(
     (row): CosmeticsStockReportRow => ({
       SKU: row.SKU,
       "Product Title": row["Product Title"],
@@ -453,6 +501,7 @@ export function buildCosmeticsStockReport(
 export function buildCosmeticsStockReportDetails(
   inputRows: StockBalanceRow[],
   threshold = 0,
+  homeWarehouse = COSMETICS_HOME_WAREHOUSE,
 ): CosmeticsStockReportDetail[] {
   const rows = parseRows(inputRows);
 
@@ -464,7 +513,7 @@ export function buildCosmeticsStockReportDetails(
 
   const reportRows: CosmeticsStockReportDetail[] = [];
   for (const skuRows of rowsBySku.values()) {
-    const mainRow = skuRows.find((row) => key(row.warehouse) === MAIN_COSMO_WAREHOUSE);
+    const mainRow = findHomeRow(skuRows, homeWarehouse);
     if (!mainRow || mainRow.qty > threshold) continue;
 
     const { online, shops } = partitionLocations(skuRows, new Set([key(mainRow.warehouse)]));
@@ -479,8 +528,10 @@ export function buildFocusedStockReport(
   inputRows: StockBalanceRow[],
   focusWarehouse: string,
   threshold = 0,
+  homeWarehouse = COSMETICS_HOME_WAREHOUSE,
 ): CosmeticsStockReportDetail[] {
   const focusKey = key(focusWarehouse);
+  const homeKeys = homeMatchKeys(homeWarehouse);
   const rows = parseRows(inputRows);
   const rowsBySku = new Map<string, ParsedStockRow[]>();
   for (const row of rows) {
@@ -492,8 +543,8 @@ export function buildFocusedStockReport(
   for (const skuRows of rowsBySku.values()) {
     const focusRow = skuRows.find((row) => key(row.warehouse) === focusKey);
     if (!focusRow || focusRow.qty > threshold) continue;
-    const cosmeticsMain = skuRows.find((row) => key(row.warehouse) === MAIN_COSMO_WAREHOUSE);
-    const { online, shops } = partitionLocations(skuRows, new Set([focusKey, MAIN_COSMO_WAREHOUSE]));
+    const cosmeticsMain = findHomeRow(skuRows, homeWarehouse);
+    const { online, shops } = partitionLocations(skuRows, new Set([focusKey, ...homeKeys]));
     reportRows.push(toDetail(focusRow, online, shops, 0, false, cosmeticsMain?.qty ?? null));
   }
   return reportRows.sort(compareReportRows);
@@ -660,15 +711,19 @@ function isErp2CompanyColumn(col: RopColumnRef): boolean {
   return true;
 }
 
-export function selectWatchedTargets(columns: RopColumnRef[]): WatchedTarget[] {
+export function selectWatchedTargets(
+  columns: RopColumnRef[],
+  homeWarehouse = COSMETICS_HOME_WAREHOUSE,
+): WatchedTarget[] {
   const active = columns.filter((col) => col.active && col.includeInRop);
   const targets: WatchedTarget[] = [];
+  const homeKeys = homeMatchKeys(homeWarehouse);
   const mainOwner = active.find((col) =>
-    col.warehouses.some((warehouse) => key(warehouse) === MAIN_COSMO_WAREHOUSE),
+    col.warehouses.some((warehouse) => homeKeys.has(key(warehouse))),
   );
   if (mainOwner) {
     const warehouse =
-      mainOwner.warehouses.find((name) => key(name) === MAIN_COSMO_WAREHOUSE) ?? "Main Warehouse - Cosmo";
+      mainOwner.warehouses.find((name) => homeKeys.has(key(name))) ?? homeWarehouse;
     targets.push({
       columnKey: mainOwner.key,
       label: mainOwner.label,
@@ -837,8 +892,9 @@ export function buildRopWatch(input: {
   ropBySkuColumn: Map<string, number>;
   identities: SkuIdentity[];
   percent: number;
+  homeWarehouse?: string;
 }): { rows: RopWatchRow[]; watchedWarehouseCount: number; warehouses: WarehouseOption[] } {
-  const targets = selectWatchedTargets(input.columns);
+  const targets = selectWatchedTargets(input.columns, input.homeWarehouse);
   const warehouses = listWarehouseOptions(input.columns, targets);
   const parsed = parseRows(input.stockRows);
   const qtyLookup = stockQtyLookup(parsed);
@@ -876,7 +932,10 @@ export function buildShopCompare(input: {
   threshold: number;
   ropWatch: RopWatchRow[];
   identities: SkuIdentity[];
+  homeWarehouse?: string;
 }): ShopCompareRow[] {
+  const homeWarehouse = input.homeWarehouse ?? COSMETICS_HOME_WAREHOUSE;
+  const homeKeys = homeMatchKeys(homeWarehouse);
   const parsed = parseRows(input.stockRows);
   const rowsBySku = new Map<string, ParsedStockRow[]>();
   for (const row of parsed) {
@@ -884,7 +943,7 @@ export function buildShopCompare(input: {
     rowsBySku.set(skuKey, [...(rowsBySku.get(skuKey) ?? []), row]);
   }
   const included = new Set<string>();
-  for (const row of buildCosmeticsStockReportDetails(input.stockRows, input.threshold)) {
+  for (const row of buildCosmeticsStockReportDetails(input.stockRows, input.threshold, homeWarehouse)) {
     included.add(key(row.SKU));
   }
   for (const row of input.ropWatch) {
@@ -894,7 +953,7 @@ export function buildShopCompare(input: {
   const shops: ShopCompareRow[] = [];
   for (const skuKey of included) {
     const skuRows = rowsBySku.get(skuKey) ?? [];
-    const main = skuRows.find((row) => key(row.warehouse) === MAIN_COSMO_WAREHOUSE) ?? null;
+    const main = skuRows.find((row) => homeKeys.has(key(row.warehouse))) ?? null;
     const shopLocations = locationsBeside(skuRows, new Set());
     shops.push({
       ...toIdentity(main?.sku ?? skuKey, main?.productTitle ?? skuRows[0]?.productTitle ?? "", input.identities),

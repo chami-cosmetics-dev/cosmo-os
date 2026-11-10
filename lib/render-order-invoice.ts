@@ -1,6 +1,7 @@
 import "server-only";
 
 import { findMatchingContacts } from "@/lib/contact-identifiers";
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 import { resolveErpApiCreds } from "@/lib/erpnext-customer-display-name";
 import { formatInvoiceOrderReference } from "@/lib/fulfillment-order-reference";
 import { getFinancePaymentApprovalBlockReason } from "@/lib/approval-workflow";
@@ -35,6 +36,14 @@ import { formatAddress as formatCsvAddress } from "@/lib/reports/csv";
 export type RenderOrderInvoiceResult =
   | { ok: true; html: string }
   | { ok: false; status: number; message: string };
+
+/** Used when a location has no invoice phone. Cosmo keeps the cosmetics line. */
+const COSMETICS_FALLBACK_INVOICE_PHONE = "+94777555304";
+const SUPPLEMENT_VAULT_INVOICE_PHONE = "074 416 2930 / 074 200 7821";
+
+function defaultInvoicePhone(): string {
+  return isVaultOsDeployment() ? SUPPLEMENT_VAULT_INVOICE_PHONE : COSMETICS_FALLBACK_INVOICE_PHONE;
+}
 
 function formatAddress(addr: unknown, storedDistrict?: string | null): string {
   const district = resolveOrderDistrict(storedDistrict, addr);
@@ -486,7 +495,7 @@ export async function renderOrderInvoice(input: {
       invoiceHeader: loc.invoiceHeader ?? "",
       invoiceSubHeader: loc.invoiceSubHeader ?? "",
       invoiceFooter: loc.invoiceFooter ?? "",
-      invoicePhone: loc.invoicePhone ?? "+94777555304",
+      invoicePhone: loc.invoicePhone?.trim() || defaultInvoicePhone(),
       invoiceEmail: loc.invoiceEmail ?? "",
       isMainCompany: loc.isMainCompany,
     },

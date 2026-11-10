@@ -10,6 +10,7 @@ import {
 import { formatAddress } from "@/lib/reports/csv";
 import {
   extractOrderShippingCity,
+  isPickupShippingLabel,
   isUsableShippingCityForCharge,
   riderIncentiveMatchDisplayLabel,
   resolveOrderShippingRuleLabel,
@@ -204,6 +205,7 @@ export async function GET(request: NextRequest) {
       incentiveAmount: match.amount,
       matched: match.matched,
       excludedFromIncentive: match.excludedFromIncentive,
+      pickup: isPickupShippingLabel(shippingLabel),
       invoiceClosed,
       financialStatus: task.order.financialStatus,
       completedAt: task.completedAt,
