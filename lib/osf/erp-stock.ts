@@ -171,6 +171,69 @@ export async function fetchWarehouseBins(input: {
   return map;
 }
 
+const LEDGER_PAGE = 500;
+const LEDGER_MAX_PAGES = 400;
+
+function isCancelledLedgerRow(value: number | string | undefined): boolean {
+  const v = String(value ?? "").trim().toLowerCase();
+  return v === "1" || v === "yes";
+}
+
+/**
+ * Sum of Stock Ledger `actual_qty` posted strictly after `afterDate` (YYYY-MM-DD).
+ * Movements on `afterDate` stay in the end-of-day balance. Cancelled rows are skipped.
+ * Keyed by `${warehouse}::${item_code}`.
+ */
+export async function fetchWarehouseLedgerQtyAfter(input: {
+  cfg: OsfErpCredentials;
+  warehouses: string[];
+  afterDate: string;
+}): Promise<Map<string, number>> {
+  const map = new Map<string, number>();
+  const warehouses = [...new Set(input.warehouses.map((w) => w.trim()).filter(Boolean))];
+  if (warehouses.length === 0) return map;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.afterDate)) {
+    throw new OsfErpError(`Invalid as-of date: ${input.afterDate}`);
+  }
+
+  const filters = JSON.stringify([
+    ["warehouse", "in", warehouses],
+    ["posting_date", ">", input.afterDate],
+  ]);
+  const fields = JSON.stringify(["item_code", "warehouse", "actual_qty", "is_cancelled"]);
+
+  for (let page = 0; page < LEDGER_MAX_PAGES; page += 1) {
+    const path =
+      `/api/resource/Stock Ledger Entry?filters=${encodeURIComponent(filters)}` +
+      `&fields=${encodeURIComponent(fields)}` +
+      `&limit_start=${page * LEDGER_PAGE}&limit_page_length=${LEDGER_PAGE}`;
+    const json = await erpGetJson<{
+      data?: Array<{
+        item_code?: string;
+        warehouse?: string;
+        actual_qty?: number | string;
+        is_cancelled?: number | string;
+      }>;
+    }>(input.cfg, path);
+    const rows = json.data ?? [];
+    for (const row of rows) {
+      if (isCancelledLedgerRow(row.is_cancelled)) continue;
+      const item = row.item_code?.trim();
+      const wh = row.warehouse?.trim();
+      if (!item || !wh) continue;
+      const qty = Number(row.actual_qty);
+      if (!Number.isFinite(qty) || qty === 0) continue;
+      const key = `${wh}::${item}`;
+      map.set(key, (map.get(key) ?? 0) + qty);
+    }
+    if (rows.length < LEDGER_PAGE) return map;
+  }
+
+  throw new OsfErpError(
+    `Stock ledger after ${input.afterDate} exceeded ${LEDGER_MAX_PAGES * LEDGER_PAGE} rows. Pick a later as-of date.`,
+  );
+}
+
 /** All Bin rows with actual_qty > 0 for warehouses (paginated, no SKU list). */
 export async function fetchPositiveBinsByWarehouses(input: {
   cfg: OsfErpCredentials;

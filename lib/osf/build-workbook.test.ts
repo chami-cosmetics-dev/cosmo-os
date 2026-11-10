@@ -482,6 +482,57 @@ describe("buildMainSheetRows", () => {
     // (100 - 60) / 100 = 40%, not (80 - 60) / 80 = 25%
     expect(first["Cosmetics Margin %"]).toBeCloseTo(40, 1);
   });
+
+  it("past as-of keeps stock, sales, and purchase cost and blanks prices and ROP", () => {
+    const rows = buildMainSheetRows({
+      catalog: [catalog[0]!],
+      columns,
+      profiles: new Map([
+        [
+          "CAN07_1",
+          {
+            shopAvailability: "allowed",
+            ogfPrice: 90,
+            targetPurchaseRate: 50,
+            rops: { lmj: 10 },
+          },
+        ],
+      ]),
+      binMap: new Map([["LMJ - WH::CAN07_1", 4]]),
+      costMap: new Map([["CAN07_1", { cost: 40, supplier: "Live Supplier" }]]),
+      purchaseMap: new Map([
+        [
+          "CAN07_1",
+          { supplier: "Acme", qty: 8, rate: 55, date: "2026-09-02", recentQty: 8 },
+        ],
+      ]),
+      monthlySales: new Map([["CAN07_1", 100]]),
+      salesByMonth: new Map([["CAN07_1", { "2026-09": 40 }]]),
+      salesMonth: "2026-09",
+      asOfDate: "2026-09-10",
+      historicalAsOf: true,
+    });
+    const row = rows[0]!;
+    expect(row["LMJ"]).toBe(4);
+    expect(row["Total Stock"]).toBe(4);
+    expect(row["Latest Cost"]).toBe(55);
+    expect(row["Latest supplier"]).toBe("Acme");
+    expect(row["Last Purchase Date"]).toBe("2026-09-02");
+    expect(row["Sales Units (2026-09)"]).toBe(40);
+    expect(row["LMJ ROP"]).toBeNull();
+    expect(row["Total ROP"]).toBeNull();
+    expect(row["% of ROP"]).toBeNull();
+    expect(row["LMJ ORDER QTY"]).toBeNull();
+    expect(row["TOTAL ORDER QTY"]).toBeNull();
+    expect(row["Cosmetics MRP"]).toBeNull();
+    expect(row["Discounted Price"]).toBeNull();
+    expect(row["OGF Price"]).toBeNull();
+    expect(row["Target Purchase Rate"]).toBeNull();
+    expect(row["Cosmetics Margin %"]).toBeNull();
+    expect(row["OGF Margin %"]).toBeNull();
+    expect(row["Shop Availability"]).toBe("");
+    expect(row["Description"]).toBe("Can Product 1");
+  });
 });
 
 const baseInput: Omit<BuildWorkbookInput, "buyers"> = {
