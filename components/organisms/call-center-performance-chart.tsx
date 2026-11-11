@@ -456,9 +456,9 @@ export function CallCenterPerformanceChart({
           <div>
             <CardTitle>Call Center Performance Analysis</CardTitle>
             <CardDescription className="mt-1">
-              Same counter as GM Calls today — contact updates plus loyalty
-              outreach (Contacted). Stacked total is the call count. Bulk
-              allocation is excluded.
+              Same counter as GM Calls today — merchant contact updates plus
+              loyalty outreach (Contacted). Admins/staff updates excluded.
+              Stacked total is the call count. Bulk allocation is excluded.
             </CardDescription>
           </div>
 

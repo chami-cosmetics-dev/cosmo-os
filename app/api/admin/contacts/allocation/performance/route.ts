@@ -3,8 +3,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { fetchCallCenterPerformanceRows } from "@/lib/page-data/call-center-performance";
 import { requireAnyPermission } from "@/lib/rbac";
 
-// GM-aligned ContactAllocationUpdate counts (exclude bulk allocation only).
-// Grouped by merchantId. Optional `from` / `to` filter by Colombo createdAt.
+// GM-aligned ContactAllocationUpdate counts for merchant-role users only
+// (admins/staff excluded; bulk allocation excluded). Grouped by merchantId.
+// Optional `from` / `to` filter by Colombo createdAt.
 
 export async function GET(request: NextRequest) {
   const auth = await requireAnyPermission(["contacts.allocation.read", "contacts.read"]);

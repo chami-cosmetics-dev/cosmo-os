@@ -3313,8 +3313,9 @@ export function MerchantDashboardPanel({ initialData }: Props) {
           <div className="space-y-1">
             <CardTitle className="text-base">Call center performance</CardTitle>
             <p className="text-muted-foreground text-xs">
-              Same counter as GM Calls today: contact updates plus loyalty
-              outreach. Bulk allocation is excluded.
+              Same counter as GM Calls today: merchant contact updates plus
+              loyalty outreach. Admins/staff updates excluded. Bulk allocation
+              is excluded.
             </p>
           </div>
           <div className="flex flex-wrap items-end gap-2">
