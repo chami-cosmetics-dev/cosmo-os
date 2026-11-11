@@ -9,6 +9,7 @@ import { getAllOsfErpInstances } from "@/lib/osf/erp-stock";
 import { fetchErpTaxStatusBySkus } from "@/lib/osf/erp-tax-status";
 import { normalizeSkuKey, resolveErpSlots } from "@/lib/product-items/erp-priority-sync";
 import { resolveOrderLineItemsPricing } from "@/lib/order-line-item-pricing";
+import { salesAmountExcludingShipping } from "@/lib/sales-amount-excluding-shipping";
 
 export const SALES_REPORT_DUMP2_HEADERS = [
   "INVOICE_NO", "ERP_INVOICE_ID", "SOURCE_NAME", "CUSTOMER_NAME", "GRAND_TOTAL", "INVOICE_DATE", "COUPON_CODE", "STATUS", "POS_WAREHOUSE", "POS_SALE", "CREATED_BY", "COMPANY_NAME", "DISCOUNTS", "CUSTOMER_EMAIL", "CUSTOMER_PHONE", "SHIPPING_ADDRESS", "BILLING_ADDRESS",
@@ -60,7 +61,7 @@ export async function loadSalesReportInputs(companyId: string, fromDate: string,
   const orders = await prisma.order.findMany({
     where: { companyId, createdAt: { gte: rangeStart, lt: reportEnd } }, orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     select: {
-      name: true, orderNumber: true, shopifyOrderId: true, erpnextInvoiceId: true, sourceName: true, totalPrice: true, totalDiscounts: true, createdAt: true, financialStatus: true, fulfillmentStage: true, deliveryCompleteAt: true, invoiceCompleteAt: true, customerEmail: true, customerPhone: true, shippingAddress: true, billingAddress: true, rawPayload: true, discountCodes: true, erpnextWarehouse: true,
+      name: true, orderNumber: true, shopifyOrderId: true, erpnextInvoiceId: true, sourceName: true, totalPrice: true, totalDiscounts: true, totalShipping: true, shippingLines: true, createdAt: true, financialStatus: true, fulfillmentStage: true, deliveryCompleteAt: true, invoiceCompleteAt: true, customerEmail: true, customerPhone: true, shippingAddress: true, billingAddress: true, rawPayload: true, discountCodes: true, erpnextWarehouse: true,
       assignedMerchant: { select: { email: true, couponCodes: true } }, companyLocation: { select: { name: true, erpnextCompany: true, erpnextInstance: { select: { baseUrl: true, apiKey: true, apiSecret: true } } } },
       lineItems: { select: { quantity: true, price: true, productItem: { select: { sku: true, vendor: { select: { name: true } } } } } },
     },
@@ -79,10 +80,16 @@ export async function loadSalesReportInputs(companyId: string, fromDate: string,
   ]);
   for (const order of orders) {
     const invoice = order.name || order.orderNumber || order.shopifyOrderId;
+    const salesTotal = salesAmountExcludingShipping({
+      totalPrice: order.totalPrice,
+      totalShipping: order.totalShipping,
+      shippingLines: order.shippingLines,
+      discountCodes: order.discountCodes,
+    }) ?? Number(order.totalPrice);
     const merchantCoupon = getMerchantCouponCode({ sourceName: order.sourceName, discountCodes: order.discountCodes, rawPayload: order.rawPayload, assignedMerchantCouponCodes: order.assignedMerchant?.couponCodes, joinAllDiscountCodes: true });
     const discountCoupon = getOrderDiscountCouponCode({ sourceName: order.sourceName, discountCodes: order.discountCodes, rawPayload: order.rawPayload });
     const coupon = joinDumpCouponCodes(merchantCoupon, discountCoupon);
-    dump2.push([invoice, order.erpnextInvoiceId || "", reportSourceName(order.sourceName), getCustomerName(order.shippingAddress) || getCustomerName(order.billingAddress) || order.customerEmail || "", order.totalPrice.toString(), formatIsoDate(order.createdAt), coupon, reportStatus(order), order.erpnextWarehouse || "", String(isPosSale(order.sourceName)), creatorEmail(order), order.companyLocation.erpnextCompany ?? order.companyLocation.name, order.totalDiscounts?.toString() || "0", order.customerEmail || "", order.customerPhone || "", formatAddress(order.shippingAddress), formatAddress(order.billingAddress)]);
+    dump2.push([invoice, order.erpnextInvoiceId || "", reportSourceName(order.sourceName), getCustomerName(order.shippingAddress) || getCustomerName(order.billingAddress) || order.customerEmail || "", salesTotal.toString(), formatIsoDate(order.createdAt), coupon, reportStatus(order), order.erpnextWarehouse || "", String(isPosSale(order.sourceName)), creatorEmail(order), order.companyLocation.erpnextCompany ?? order.companyLocation.name, order.totalDiscounts?.toString() || "0", order.customerEmail || "", order.customerPhone || "", formatAddress(order.shippingAddress), formatAddress(order.billingAddress)]);
     const linePricing = await resolveOrderLineItemsPricing({ sourceName: order.sourceName, rawPayload: order.rawPayload, name: order.name, erpnextInvoiceId: order.erpnextInvoiceId, erpnextInstance: order.companyLocation.erpnextInstance, lineItems: order.lineItems.map((line) => ({ sku: line.productItem.sku, quantity: line.quantity, price: line.price.toString() })) });
     const hasLineLevelDiscount = linePricing.some((pricing) => pricing.originalPrice != null || pricing.originalTotal != null);
     const orderDiscount = !hasLineLevelDiscount && order.totalDiscounts?.gt(0) ? order.totalDiscounts : null;

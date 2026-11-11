@@ -716,39 +716,9 @@ const DEFAULTS = {
  ],
  "vatLocation": "Cosmetics.lk",
  "outletWarehouses": [],
+ "saleAllocations": [],
  "palmersBrand": "Palmers",
  "warehouseFile": null,
- "visitorBlock": {
-  "shop": "Cool Planet Nugegoda Shop",
-  "homeRows": [
-   10,
-   11
-  ],
-  "slotRows": [
-   12,
-   13,
-   14,
-   15,
-   16,
-   17
-  ],
-  "totalRows": [
-   42,
-   43,
-   44,
-   45,
-   46,
-   47
-  ],
-  "owTotalRows": [
-   24,
-   25,
-   26,
-   27,
-   28,
-   29
-  ]
- },
  "checkRow": 62,
  "cosmoCell": "J48",
  "leave": [],

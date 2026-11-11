@@ -399,7 +399,16 @@ export function ItemCreationPanel({
   }
 
   async function post(url: string, body?: unknown) {
-    setMessage("");
+    const isStockReceiptRequest = url.startsWith("/api/item-creation/stock/");
+    if (isStockReceiptRequest) {
+      const erpLabel = url.endsWith("/erp1") ? "ERP1" : "ERP2";
+      const receiptCount = Array.isArray((body as { warehouses?: unknown[] } | undefined)?.warehouses)
+        ? (body as { warehouses: unknown[] }).warehouses.length
+        : 1;
+      setMessage(`Creating ${receiptCount} Purchase Receipt${receiptCount === 1 ? "" : "s"} in ${erpLabel}. Please wait...`);
+    } else {
+      setMessage("");
+    }
     const response = await fetch(url, {
       method: "POST",
       headers: body ? { "Content-Type": "application/json" } : undefined,
@@ -408,7 +417,7 @@ export function ItemCreationPanel({
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data.error ?? "Action failed");
     await refresh();
-    if (url.startsWith("/api/item-creation/stock/")) {
+    if (isStockReceiptRequest) {
       const receipts = Array.isArray(data.receipts) ? data.receipts : [];
       const createdCount = receipts.filter(
         (receipt: { status?: string }) => receipt.status === "SUBMITTED",
@@ -418,9 +427,16 @@ export function ItemCreationPanel({
       ).length;
       const erpLabel = url.endsWith("/erp1") ? "ERP1" : "ERP2";
       if (failedCount > 0) {
+        const failureDetails = receipts
+          .filter((receipt: { status?: string }) => receipt.status === "FAILED")
+          .map((receipt: { error?: string | null; items?: Array<{ itemCode?: string }> }) => {
+            const sku = receipt.items?.map((item) => item.itemCode).filter(Boolean).join(", ");
+            return `${sku || "Selected item"}: ${receipt.error || "Purchase Receipt creation failed."}`;
+          })
+          .join(" ");
         setMessage(
           `${createdCount} Purchase Receipt${createdCount === 1 ? "" : "s"} created; ` +
-          `${failedCount} failed in ${erpLabel}. Check the failed rows and retry.`,
+          `${failedCount} failed in ${erpLabel}. ${failureDetails}`,
         );
       } else {
         setMessage(

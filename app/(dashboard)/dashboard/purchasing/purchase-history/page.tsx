@@ -14,5 +14,10 @@ export default async function PurchaseHistoryPage() {
     return <PermissionDeniedCard />;
   }
 
-  return <PurchaseHistoryPanel />;
+  return (
+    <PurchaseHistoryPanel
+      canReadHighRisk={hasPermission(context, "purchasing.high_risk.read")}
+      canManageHighRisk={hasPermission(context, "purchasing.high_risk.manage")}
+    />
+  );
 }

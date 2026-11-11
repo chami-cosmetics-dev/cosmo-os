@@ -159,6 +159,28 @@ const SaleEngine = (() => {
   /* ---------- main processing ---------- */
   // Coupon tokens: "MER86-Nirukshi,COS5" -> ['mer86-nirukshi', 'cos5']
   const couponTokens = (c) => norm(c).split(',').map((t) => t.trim().toLowerCase()).filter(Boolean);
+  // A configured allocation moves a percentage of a merchant's sales during
+  // its own date range. It is deliberately independent of the report period.
+  function saleAllocationTargets(merchant, date, S) {
+    let parts = [{ merchant: norm(merchant), factor: 1 }];
+    for (const allocation of (S.saleAllocations || [])) {
+      const from = keyNames(allocation.from), to = norm(String(allocation.to || '').split(',')[0]);
+      const start = typeof allocation.fromDate === 'string' ? isoToSerial(allocation.fromDate) : null;
+      const end = typeof allocation.toDate === 'string' ? isoToSerial(allocation.toDate) : null;
+      const percent = Math.max(0, Math.min(100, Number(allocation.percent ?? 100))) / 100;
+      if (!from.length || !to || start === null || end === null || date === null || date < start || date > end || !percent) continue;
+      const next = [];
+      for (const part of parts) {
+        if (!from.includes(low(part.merchant))) { next.push(part); continue; }
+        if (percent < 1) next.push({ merchant: part.merchant, factor: part.factor * (1 - percent) });
+        next.push({ merchant: to, factor: part.factor * percent });
+      }
+      const grouped = new Map();
+      for (const part of next) { const key = low(part.merchant); const current = grouped.get(key); if (current) current.factor += part.factor; else grouped.set(key, part); }
+      parts = [...grouped.values()];
+    }
+    return parts;
+  }
   function couponMatches(tokens, codes, mode) {
     return codes.some((code) => tokens.some((t) => mode === 'contains' ? t.includes(code) : mode === 'starts' ? t.startsWith(code) : t === code));
   }
@@ -190,29 +212,12 @@ const SaleEngine = (() => {
       all.push({ row, inv, merchant, rule, date, pos, status, include, shipSvc, finalShip, tokens, amount: num(row[ix.GRAND_TOTAL]),
         discount: ix.DISCOUNTS !== undefined ? num(row[ix.DISCOUNTS]) : 0 });
     }
-    const inc = all.filter((x) => x.include);
-    // Merchants from elsewhere who sold at the visitor shop (Cool Planet) get their own rows under it.
-    // A Final Merchant ending in "-C" (e.g. Kanchana-C) is always counted as a Cool Planet sale.
-    const vb = S.visitorBlock && S.visitorBlock.shop ? S.visitorBlock : null;
-    const homeKeys = new Set(vb ? S.rows.filter((r) => (vb.homeRows || []).includes(r.row)).flatMap((r) => keyNames(r.key)) : []);
-    const cName = (m) => m.replace(/\s*-\s*C\s*$/i, '').trim();
-    for (const x of inc) {
-      x.visitor = null;
-      if (!vb) continue;
-      if (/-\s*C\s*$/i.test(x.merchant)) x.visitor = cName(x.merchant);
-      else if (x.pos === 1 && low(x.finalShip) === low(vb.shop) && !homeKeys.has(low(x.merchant))) x.visitor = x.merchant;
+    let inc = all.filter((x) => x.include);
+    if ((S.saleAllocations || []).length) {
+      inc = inc.flatMap((x) => saleAllocationTargets(x.merchant, x.date, S)
+        .filter((part) => part.factor > 0)
+        .map((part) => ({ ...x, merchant: part.merchant, amount: x.amount * part.factor })));
     }
-    const vMap = new Map();
-    for (const x of inc) if (x.visitor) { if (!vMap.has(x.visitor)) vMap.set(x.visitor, [0, 0]); vMap.get(x.visitor)[x.pos === 1 ? 1 : 0] += x.amount; }
-    const nSlots = vb ? (vb.slotRows || []).length : 0;
-    let vList = [...vMap.entries()].map(([name, v]) => ({ name, members: [name], online: v[0], showroom: v[1] }))
-      .sort((a, b) => (b.online + b.showroom) - (a.online + a.showroom) || a.name.localeCompare(b.name));
-    const overflow = nSlots && vList.length > nSlots;
-    if (overflow) {
-      const keep = vList.slice(0, nSlots - 1), rest = vList.slice(nSlots - 1);
-      vList = [...keep, { name: 'Others', members: rest.flatMap((x) => x.members), online: rest.reduce((s, x) => s + x.online, 0), showroom: rest.reduce((s, x) => s + x.showroom, 0) }];
-    }
-    const slots = vList;
     // pivot
     const pv = new Map();
     for (const x of inc) {
@@ -225,15 +230,13 @@ const SaleEngine = (() => {
     const keys = new Set(S.rows.flatMap((r) => keyNames(r.key)));
     const pivot = [...pv.keys()].sort(cmp).map((shop) => {
       const ms = [...pv.get(shop).entries()].sort((a, b) => cmp(a[0], b[0]))
-        .map(([merchant, v]) => ({ merchant, online: v[0], showroom: v[1],
-          onReport: keys.has(low(merchant)) || (!!vb && inc.some((x) => x.visitor && x.merchant === merchant && x.finalShip === shop)) }));
+        .map(([merchant, v]) => ({ merchant, online: v[0], showroom: v[1], onReport: keys.has(low(merchant)) }));
       return { shop, online: ms.reduce((s, x) => s + x.online, 0), showroom: ms.reduce((s, x) => s + x.showroom, 0), merchants: ms };
     });
     // merchant totals by key
     const byKey = new Map();
     const byShopKey = new Map();
     for (const x of inc) {
-      if (x.visitor) continue;   // shown on the visitor rows under Cool Planet instead
       const k = low(x.merchant);
       if (!byKey.has(k)) byKey.set(k, [0, 0]);
       byKey.get(k)[x.pos === 1 ? 1 : 0] += x.amount;
@@ -243,8 +246,7 @@ const SaleEngine = (() => {
     }
     const totalShowroom = inc.reduce((s, x) => s + (x.pos === 1 ? x.amount : 0), 0);
     const totalOnline = inc.reduce((s, x) => s + (x.pos === 1 ? 0 : x.amount), 0);
-    const placed = S.rows.reduce((s, r) => { const v = sumKey(byKey, r.key); return s + (v ? v[0] + v[1] : 0); }, 0)
-      + slots.reduce((s, x) => s + x.online + x.showroom, 0);
+    const placed = S.rows.reduce((s, r) => { const v = sumKey(byKey, r.key); return s + (v ? v[0] + v[1] : 0); }, 0);
     const review = inc.filter((x) => /CHECK/.test(x.rule));
     const notOnReport = [];
     for (const p of pivot) for (const m of p.merchants) if (!m.onReport) notOnReport.push({ shop: p.shop, ...m });
@@ -270,8 +272,6 @@ const SaleEngine = (() => {
           : `${fmtNum(totalShowroom + totalOnline - placed, 2)} is not on the report. See the merchants below.` },
       { label: 'Merchants not on the report', value: notOnReport.length, ok: notOnReport.length === 0,
         msg: notOnReport.length ? notOnReport.map((m) => `${m.merchant} (${m.shop}) ${fmtNum(m.online + m.showroom, 2)}`).join(' · ') : 'None' },
-      ...(vb ? [{ label: 'Other merchants at ' + vb.shop, value: slots.length, ok: !overflow, warn: overflow,
-        msg: slots.length ? slots.map((x) => `${x.name} ${fmtNum(x.online + x.showroom, 2)}`).join(' · ') + (overflow ? ` (more than ${nSlots} merchants: the smallest are combined as Others)` : ' – shown in their own rows under Cool Planet') : 'None' }] : []),
       { label: 'Coupon codes not in the map', value: inc.filter((x) => x.merchant.startsWith('UNMAPPED')).length,
         ok: !inc.some((x) => x.merchant.startsWith('UNMAPPED')),
         msg: [...new Set(inc.filter((x) => x.merchant.startsWith('UNMAPPED')).map((x) => x.merchant.slice(9)))].join(', ') || 'None' },
@@ -281,7 +281,7 @@ const SaleEngine = (() => {
       { label: 'Orders to confirm with staff', value: review.length, ok: review.length === 0, warn: true,
         msg: review.length ? `${fmtNum(review.reduce((s, x) => s + x.amount, 0), 2)} assigned from CREATED_BY for now. Download the Cosmetics review file.` : 'None' },
     ];
-    return { slots, headers, ix, all, inc, pivot, byKey, byShopKey, totalShowroom, totalOnline, placed, review, notOnReport, unassignedByShop, checks, days };
+    return { headers, ix, all, inc, pivot, byKey, byShopKey, totalShowroom, totalOnline, placed, review, notOnReport, unassignedByShop, checks, days };
   }
 
   function fmtNum(v, dp) {
@@ -380,17 +380,6 @@ const SaleEngine = (() => {
       mw.getCell('L' + r.row).value = (palm === null || palm === undefined || palm === '') ? null : Number(palm);
       mw.getCell('K' + r.row).value = (vat === null || vat === undefined || vat === '') ? null : Number(vat);
     }
-    // Cool Planet visitor rows: name, sales, VAT / Palmers; unused rows stay hidden
-    const vatOf = (m, map) => (m || []).reduce((s, n) => s + (map.get(n) || 0), 0);
-    ((S.visitorBlock && S.visitorBlock.slotRows) || []).forEach((row, i) => {
-      const sl = res.slots[i];
-      const set = (c, v) => { mw.getCell(c + row).value = v; };
-      mw.getRow(row).hidden = !sl;
-      if (!sl) { ['D', 'H', 'I', 'K', 'L', KEY].forEach((c) => set(c, null)); return; }
-      set('D', sl.name); set(KEY, sl.name); set('H', round2(sl.showroom)); set('I', round2(sl.online));
-      set('K', res.vat ? round2(vatOf(sl.members, res.vat.visitorVat)) : null);
-      set('L', res.vat ? round2(vatOf(sl.members, res.vat.visitorPalm)) : null);
-    });
     // Unmatched merchants are deliberately reported as Unassigned under their shop.
     // These rows are blank rows in the original template between outlet blocks.
     const unassignedRows = new Map([
@@ -407,30 +396,6 @@ const SaleEngine = (() => {
       set('K', res.vat ? round2(vat) : null); set('L', res.vat ? round2(palm) : null);
       mw.getRow(row).hidden = false;
     }
-    // "Total" rows after Staff Sales: an online merchant who also sold at Cool Planet gets her whole total
-    const vb = S.visitorBlock || {};
-    const slotRows = vb.slotRows || [], totRows = vb.totalRows || [], owTotRows = vb.owTotalRows || [];
-    const online = S.rows.filter((r) => low(r.outlet) === 'online');
-    const groups = [];
-    res.slots.forEach((sl, i) => {
-      if (i >= slotRows.length) return;
-      const on = online.find((r) => keyNames(r.key).includes(low(sl.name)));
-      if (!on) return;
-      let g = groups.find((x) => x.on === on); if (!g) groups.push(g = { on, slots: [] });
-      g.slots.push(slotRows[i]);
-    });
-    res.totalRows = [];
-    totRows.forEach((row, i) => {
-      const g = groups[i], owRow = owTotRows[i];
-      mw.getRow(row).hidden = !g; if (owRow) ow.getRow(owRow).hidden = !g;
-      if (!g) { ['D', 'E', 'F', 'H', 'I', 'K', 'L', KEY].forEach((c) => { mw.getCell(c + row).value = null; }); if (owRow) ow.getCell('D' + owRow).value = null; return; }
-      const on = g.on.row, sum = (c) => ({ formula: [c + on, ...g.slots.map((r) => c + r)].join('+') });
-      mw.getCell('D' + row).value = g.on.name; mw.getCell(KEY + row).value = g.on.name;
-      mw.getCell('E' + row).value = { formula: 'E' + on }; mw.getCell('F' + row).value = { formula: 'F' + on };
-      ['H', 'I', 'K', 'L'].forEach((c) => { mw.getCell(c + row).value = sum(c); });
-      if (owRow) ow.getCell('D' + owRow).value = g.on.name;
-      res.totalRows.push({ name: g.on.name, row, owRow });
-    });
     for (const t of S.extraTargets || []) {
       const ws = wb.getWorksheet(t.sheet);
       if (ws && t.value !== '' && t.value !== null && t.value !== undefined) ws.getCell(t.cell).value = Number(t.value);
@@ -602,7 +567,7 @@ const SaleEngine = (() => {
     for (const pivot of res.pivot || []) {
       const rows = S.rows.filter((r) => shopForOutlet(r.outlet) === pivot.shop);
       for (const merchant of pivot.merchants.filter((m) => m.showroom > 0)) {
-        if (rows.length && !['cool planet', 'pepiliyana'].includes(low(rows[0].outlet)) && !rows.some((r) => keyNames(r.key).includes(low(merchant.merchant)))) additions.push({ shop: pivot.shop, outlet: rows[0].outlet, name: merchant.merchant });
+        if (rows.length && low(rows[0].outlet) !== 'pepiliyana' && !rows.some((r) => keyNames(r.key).includes(low(merchant.merchant)))) additions.push({ shop: pivot.shop, outlet: rows[0].outlet, name: merchant.merchant });
       }
     }
     const inserted = [];
@@ -849,7 +814,7 @@ const SaleEngine = (() => {
     const byInv = new Map(), byErp = new Map();
     const d2 = res.ix;
     for (const x of res.inc) {
-      const info = { merchant: x.merchant, shop: x.finalShip, company: norm(x.row[d2.COMPANY_NAME]), visitor: x.visitor || null, coupon: norm(x.row[d2.COUPON_CODE]) };
+      const info = { merchant: x.merchant, shop: x.finalShip, company: norm(x.row[d2.COMPANY_NAME]), coupon: norm(x.row[d2.COUPON_CODE]), date: x.date };
       const a = low(x.row[d2.INVOICE_NO]); if (a && !byInv.has(a)) byInv.set(a, info);
       const b = low(x.row[d2.ERP_INVOICE_ID]); if (b && !byErp.has(b)) byErp.set(b, info);
     }
@@ -867,27 +832,27 @@ const SaleEngine = (() => {
       const location = ix.LOCATION_NAME !== undefined ? norm(row[ix.LOCATION_NAME]) : '';
       if (low(location) === 'cosmetics.lk' ? (kind === 'VAT' || kind === 'MIXED') : (location && vatKind(erp2Status) === 'VAT')) finalVat = 'VAT';
       lines.push({ row, coupon: info ? info.coupon : '', merchant: info ? info.merchant : '', shop: info ? info.shop : '', company: info ? info.company : '', sku, status, erp2Status, finalVat,
-        amount: num(row[ix.GRAND_TOTAL]), brand: norm(row[ix.BRAND]), location, inCopy: !!info, visitor: info ? info.visitor : null });
+        amount: num(row[ix.GRAND_TOTAL]), brand: norm(row[ix.BRAND]), location, inCopy: !!info });
     }
     const copy = lines.filter((l) => l.inCopy);
     const p1 = new Map(), p2 = new Map();
     for (const l of copy) {
-      if (l.finalVat === 'VAT') p1.set(l.merchant, (p1.get(l.merchant) || 0) + l.amount);
-      if (l.finalVat === 'VAT' && low(l.brand) === palm) p2.set(l.merchant, (p2.get(l.merchant) || 0) + l.amount);
+      for (const target of saleAllocationTargets(l.merchant, l.date, S)) {
+        if (l.finalVat === 'VAT') p1.set(target.merchant, (p1.get(target.merchant) || 0) + l.amount * target.factor);
+        if (l.finalVat === 'VAT' && low(l.brand) === palm) p2.set(target.merchant, (p2.get(target.merchant) || 0) + l.amount * target.factor);
+      }
     }
     const cmp = (a, b) => a[0].localeCompare(b[0], 'en', { sensitivity: 'base' });
     const pivot1 = [...p1.entries()].sort(cmp), pivot2 = [...p2.entries()].sort(cmp);
-    // report rows: lines from a Cool Planet visitor sale go to the visitor rows, everything else to the merchant's row
-    const byKey = new Map(), byShopKey = new Map(), visitorVat = new Map(), visitorPalm = new Map();
+    const byKey = new Map(), byShopKey = new Map();
     const MVv = vatMoves(S);
     for (const l of copy) {
       const isPalm = l.finalVat === 'VAT' && low(l.brand) === palm;
       if (l.finalVat !== 'VAT' && !isPalm) continue;
-      if (l.visitor) { if (l.finalVat === 'VAT') visitorVat.set(l.visitor, (visitorVat.get(l.visitor) || 0) + l.amount); if (isPalm) visitorPalm.set(l.visitor, (visitorPalm.get(l.visitor) || 0) + l.amount); }
-      else if (l.finalVat === 'VAT') { const k = MVv.target(l.merchant, l.coupon); l.reportKey = k; byKey.set(k, (byKey.get(k) || 0) + l.amount); const sk = low(l.shop) + '|' + low(k); byShopKey.set(sk, (byShopKey.get(sk) || 0) + l.amount); }
+      if (l.finalVat === 'VAT') for (const target of saleAllocationTargets(l.merchant, l.date, S)) { const k = MVv.target(target.merchant, l.coupon); l.reportKey = k; byKey.set(k, (byKey.get(k) || 0) + l.amount * target.factor); const sk = low(l.shop) + '|' + low(k); byShopKey.set(sk, (byShopKey.get(sk) || 0) + l.amount * target.factor); }
     }
     const palmByKey = new Map(), palmByShopKey = new Map();
-    for (const l of copy) if (l.finalVat === 'VAT' && !l.visitor && low(l.brand) === palm) { const k = MVv.target(l.merchant, l.coupon); palmByKey.set(k, (palmByKey.get(k) || 0) + l.amount); const sk = low(l.shop) + '|' + low(k); palmByShopKey.set(sk, (palmByShopKey.get(sk) || 0) + l.amount); }
+    for (const l of copy) if (l.finalVat === 'VAT' && low(l.brand) === palm) for (const target of saleAllocationTargets(l.merchant, l.date, S)) { const k = MVv.target(target.merchant, l.coupon); palmByKey.set(k, (palmByKey.get(k) || 0) + l.amount * target.factor); const sk = low(l.shop) + '|' + low(k); palmByShopKey.set(sk, (palmByShopKey.get(sk) || 0) + l.amount * target.factor); }
     const vatTotal = pivot1.reduce((s, x) => s + x[1], 0), palmersTotal = pivot2.reduce((s, x) => s + x[1], 0);
     const missing = copy.filter((l) => l.status === null);
     const keys = new Set(S.rows.flatMap((r) => keyNames(r.key)));
@@ -914,7 +879,7 @@ const SaleEngine = (() => {
       { label: 'VAT merchants not on the report', value: offReport.length, ok: offReport.length === 0,
         msg: offReport.length ? offReport.map(([m, v]) => `${m} ${fmtNum(v, 2)}`).join(' · ') : 'None' },
     ];
-    return { visitorVat, visitorPalm, palmersBrand, headers, ix, lines, copy, pivot1, pivot2, byKey, byShopKey, palmByKey, palmByShopKey, vatTotal, palmersTotal, checks, itemCount: items.size, itemKinds: kinds, emptyWhy };
+    return { palmersBrand, headers, ix, lines, copy, pivot1, pivot2, byKey, byShopKey, palmByKey, palmByShopKey, vatTotal, palmersTotal, checks, itemCount: items.size, itemKinds: kinds, emptyWhy };
   }
   function addVatSheets(wb, vat) {
     const H = vat.headers, ix = vat.ix;
@@ -995,27 +960,22 @@ const SaleEngine = (() => {
   function promoSummary(res, S) {
     const blank = () => ({ orders: new Set(), showroom: 0, online: 0, discount: 0 });
     const add = (st, x) => { st.orders.add(x.inv); st[x.pos === 1 ? 'showroom' : 'online'] += x.amount; st.discount += x.discount; };
-    const byMerchant = new Map(), byVisitor = new Map();
+    const byMerchant = new Map();
     for (const x of res.inc) {
-      const map = x.visitor ? byVisitor : byMerchant, k = x.visitor ? x.visitor : low(x.merchant);
-      if (!map.has(k)) map.set(k, blank()); add(map.get(k), x);
+      const k = low(x.merchant);
+      if (!byMerchant.has(k)) byMerchant.set(k, blank()); add(byMerchant.get(k), x);
     }
     const merge = (sts) => { const o = blank(); for (const s of sts) { if (!s) continue; s.orders.forEach((i) => o.orders.add(i)); o.showroom += s.showroom; o.online += s.online; o.discount += s.discount; } return o; };
     const fin = (label, st, extra) => ({ label, orders: st.orders.size, showroom: st.showroom, online: st.online, total: st.showroom + st.online, discount: st.discount, ...extra });
     const used = new Set();
     const outlets = [];
-    const vb = S.visitorBlock || {};
     for (const r of S.rows) {
       let g = outlets.find((o) => o.outlet === r.outlet); if (!g) outlets.push(g = { outlet: r.outlet, rows: [] });
       const names = keyNames(r.key); names.forEach((n) => used.add(n));
       g.rows.push(fin(r.name, merge(names.map((n) => byMerchant.get(n))), { key: r.key }));
-      // Cool Planet visitors right after the shop's own merchants
-      if ((vb.homeRows || []).length && r.row === Math.max(...vb.homeRows)) {
-        for (const sl of res.slots) g.rows.push(fin(sl.name + ' (at ' + (r.outlet || 'shop') + ')', merge(sl.members.map((n) => byVisitor.get(n))), { visitor: true }));
-      }
     }
     const others = [...byMerchant.entries()].filter(([k]) => !used.has(k)).map(([k, st]) => fin(res.inc.find((x) => low(x.merchant) === k).merchant, st, { other: true }));
-    const all = merge([...byMerchant.values(), ...byVisitor.values()]);
+    const all = merge([...byMerchant.values()]);
     const grand = fin('Grand Total', all);
     const pct = (v) => grand.total ? v / grand.total : 0;
     for (const g of outlets) { g.rows = g.rows.filter((x) => x.orders || x.total); g.rows.forEach((x) => { x.share = pct(x.total); });
@@ -1027,7 +987,7 @@ const SaleEngine = (() => {
     for (const g of outlets) {
       if (!g.rows.length) continue;
       if (low(g.outlet) === 'online') g.rows.forEach((x) => outletWise.push({ ...x, outlet: 'Online' }));
-      else outletWise.push({ ...g.total, label: g.rows.length === 1 && !g.rows[0].visitor ? g.rows[0].label : 'Total', outlet: g.outlet });
+      else outletWise.push({ ...g.total, label: g.rows.length === 1 ? g.rows[0].label : 'Total', outlet: g.outlet });
     }
     others.forEach((x) => outletWise.push({ ...x, outlet: 'Not on report' }));
     const days = new Map();
@@ -1036,6 +996,143 @@ const SaleEngine = (() => {
     grand.share = 1;
     return { outlets: outlets.filter((g) => g.rows.length), others, outletWise, grand, daily, location: res.pivot, avgOrder: grand.orders ? grand.total / grand.orders : 0 };
   }
+  // The Sales Report is generated directly from the configured Cosmo layout.
+  // This deliberately avoids carrying hidden rows, columns, and workbook state
+  // from the historical Excel template into every export.
+  async function buildCosmoReport(ExcelJS, res, S) {
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'Cosmo OS';
+    wb.created = new Date();
+    // These fills match the original manual Sales Report workbook exactly.
+    const NAVY = 'FF8EA9DB', TARGET = 'FFFFF2CC', VAT_SALE = 'FFCCCCFF', VAT_PERCENT = 'FFF0E1FF', TOTAL = 'FFFCE4D6', ONLINE = 'FFE2EFDA', SPECIAL = 'FFFFC58B', BORDER = 'FF000000', WHITE = 'FFFFFFFF';
+    const money = '#,##0;[Red](#,##0);-';
+    const percent = '0.0%;[Red](0.0%);-';
+    const d = res.days;
+    const title = `COSMETICS.LK ${d.monthName} MONTH TARGET`;
+    const daysElapsed = Math.max(1, Number(d.dayNo) || 1);
+    const daysInMonth = Math.max(daysElapsed, Number(d.daysInMonth) || daysElapsed);
+    const shopForOutlet = (outlet) => {
+      const mapped = (S.outletWarehouses || []).find((pair) => low(pair[0]) === low(outlet));
+      if (mapped) return norm(mapped[1]);
+      const target = low(outlet).replace(/\s+/g, '');
+      const aliases = target === 'negambo' ? ['negambo', 'negombo'] : target === 'galle' ? ['gcc'] : [target];
+      return [...(res.pivot || [])].find((p) => aliases.some((alias) => low(p.shop).replace(/\s+/g, '').includes(alias)))?.shop || '';
+    };
+    const shopMetric = (map, shop, key) => keyNames(key).reduce((sum, name) => sum + (map?.get(low(shop) + '|' + name) || 0), 0);
+    const configuredRows = (S.rows || []).map((row, index) => ({ ...row, index, outlet: norm(row.outlet), name: norm(row.name), key: norm(row.key || row.name) }));
+    const onlineOwner = (row) => {
+      const candidates = configuredRows.filter((candidate) => keyNames(candidate.key).some((name) => keyNames(row.key).includes(name)));
+      return candidates.find((candidate) => Number(candidate.onlineTarget) > 0) || candidates.find((candidate) => low(candidate.outlet) === 'online') || candidates[0] || row;
+    };
+    const metricRow = (row, fallbackShop = '') => {
+      const shop = shopForOutlet(row.outlet) || fallbackShop;
+      const globalSales = sumKey(res.byKey, row.key) || [0, 0];
+      const globalVat = sumKey(res.vat?.byKey || new Map(), row.key) || 0;
+      const globalPalmers = sumKey(res.vat?.palmByKey || new Map(), row.key) || 0;
+      const shopSales = keyNames(row.key).reduce((sum, name) => {
+        const values = res.byShopKey?.get(low(shop) + '|' + name) || [0, 0];
+        return [sum[0] + values[0], sum[1] + values[1]];
+      }, [0, 0]);
+      const showroom = low(row.outlet) === 'online' ? 0 : shopSales[1];
+      const showroomVat = low(row.outlet) === 'online' ? 0 : shopMetric(res.vat?.byShopKey, shop, row.key);
+      const showroomPalmers = low(row.outlet) === 'online' ? 0 : shopMetric(res.vat?.palmByShopKey, shop, row.key);
+      const physicalVat = (res.pivot || []).filter((pivot) => low(pivot.shop) !== 'online').reduce((sum, pivot) => sum + shopMetric(res.vat?.byShopKey, pivot.shop, row.key), 0);
+      const physicalPalmers = (res.pivot || []).filter((pivot) => low(pivot.shop) !== 'online').reduce((sum, pivot) => sum + shopMetric(res.vat?.palmByShopKey, pivot.shop, row.key), 0);
+      const configuredMatch = configuredRows.find((candidate) => keyNames(candidate.key).some((name) => keyNames(row.key).includes(name)));
+      const ownsOnline = (configuredMatch ? onlineOwner(configuredMatch) : row).index === row.index;
+      const online = ownsOnline ? globalSales[0] : 0;
+      const vat = showroomVat + (ownsOnline ? Math.max(0, globalVat - physicalVat) : 0);
+      const palmers = showroomPalmers + (ownsOnline ? Math.max(0, globalPalmers - physicalPalmers) : 0);
+      const showroomTarget = row.showroomTarget === '' || row.showroomTarget == null ? null : Number(row.showroomTarget) || 0;
+      const onlineTarget = row.onlineTarget === '' || row.onlineTarget == null ? null : Number(row.onlineTarget) || 0;
+      return { ...row, shop, showroomTarget, onlineTarget, showroom: round2(showroom), online: round2(online), vat: round2(vat), palmers: round2(palmers), generated: !!row.generated };
+    };
+    const representedAtShop = new Set(configuredRows.flatMap((row) => keyNames(row.key).map((name) => low(shopForOutlet(row.outlet)) + '|' + name)));
+    const generatedByShop = new Map();
+    for (const pivot of res.pivot || []) for (const merchant of pivot.merchants || []) {
+      const name = low(merchant.merchant);
+      const shopKey = low(pivot.shop) + '|' + name;
+      // A configured merchant owns their online sales through the row with an
+      // online target. Do not create a second, empty Online row for them.
+      const configuredMerchant = configuredRows.some((row) => keyNames(row.key).includes(name));
+      if (!name || representedAtShop.has(shopKey) || generatedByShop.has(shopKey) || (low(pivot.shop) === 'online' && configuredMerchant)) continue;
+      const outlet = configuredRows.find((row) => low(shopForOutlet(row.outlet)) === low(pivot.shop))?.outlet || (low(pivot.shop) === 'online' ? 'Online' : pivot.shop.replace(/\s+shop.*$/i, ''));
+      generatedByShop.set(shopKey, { index: configuredRows.length + generatedByShop.size, outlet, name: merchant.merchant, key: merchant.merchant, showroomTarget: null, onlineTarget: null, generated: true });
+    }
+    const allRows = configuredRows.concat([...generatedByShop.values()]);
+    const groups = [];
+    for (const row of allRows) {
+      const outlet = row.outlet || 'Unassigned';
+      let group = groups.find((item) => low(item.outlet) === low(outlet));
+      if (!group) groups.push(group = { outlet, shop: shopForOutlet(outlet), rows: [] });
+      group.rows.push(metricRow(row, group.shop));
+    }
+    const total = (rows) => rows.reduce((sum, row) => ({ showroom: sum.showroom + row.showroom, online: sum.online + row.online, vat: sum.vat + row.vat, palmers: sum.palmers + row.palmers, showroomTarget: sum.showroomTarget + (row.showroomTarget || 0), onlineTarget: sum.onlineTarget + (row.onlineTarget || 0) }), { showroom: 0, online: 0, vat: 0, palmers: 0, showroomTarget: 0, onlineTarget: 0 });
+    const metrics = (row) => {
+      const showroomTarget = row.showroomTarget || 0, onlineTarget = row.onlineTarget || 0, totalTarget = showroomTarget + onlineTarget;
+      const showroom = row.showroom || 0, online = row.online || 0, sale = showroom + online;
+      const forecast = sale / daysElapsed * daysInMonth;
+      return [showroomTarget || null, onlineTarget || null, totalTarget || null, showroom, online, sale, row.vat || null, row.palmers || null, showroomTarget ? showroom / showroomTarget : null, onlineTarget ? online / onlineTarget : null, totalTarget ? sale / totalTarget : null, totalTarget ? row.vat / totalTarget : null, totalTarget ? row.palmers / totalTarget : null, totalTarget ? totalTarget - sale : null, totalTarget ? totalTarget / daysInMonth : null, totalTarget ? forecast : null, totalTarget ? forecast / totalTarget : null];
+    };
+    const sheetHeaders = ['No', 'Outlet / Merchant Name', 'Merchant Name', 'Showroom Target', 'Online Target', 'Total Target', 'Showroom Sale', 'Online Sale', 'Total Sale', 'VAT Sale', 'Palmers Sale', 'Showroom Sale %', 'Online Sale %', 'Total Sale %', 'VAT Sale %', 'Palmers Sale %', 'Balance', 'Per Day Target', 'Forecast Month End Achievement', 'Forecast Achievement %'];
+    const widths = [7, 22, 27, 15, 15, 15, 15, 15, 15, 14, 15, 13, 13, 13, 13, 14, 15, 16, 19, 16];
+    const writeSheet = (name, detailed) => {
+      const ws = wb.addWorksheet(name, { views: [{ state: 'frozen', ySplit: 4 }] });
+      widths.forEach((width, index) => { ws.getColumn(index + 1).width = width; });
+      ws.mergeCells('A1:T1');
+      const titleCell = ws.getCell('A1'); titleCell.value = title; titleCell.font = { bold: true, size: 14 }; titleCell.alignment = { horizontal: 'center' };
+      ws.mergeCells('D3:F3'); ws.mergeCells('G3:K3'); ws.mergeCells('L3:P3');
+      ws.getCell('D3').value = 'Target'; ws.getCell('G3').value = 'Achievement'; ws.getCell('L3').value = 'Achievement %';
+      for (const range of ['A3:A4', 'B3:B4', 'C3:C4', 'Q3:Q4', 'R3:R4', 'S3:S4', 'T3:T4']) ws.mergeCells(range);
+      const row3 = ws.getRow(3), row4 = ws.getRow(4);
+      for (let col = 1; col <= 20; col++) for (const row of [row3, row4]) { const cell = row.getCell(col); cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: NAVY } }; cell.font = { bold: true, color: { argb: 'FF000000' } }; cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }; cell.border = { top: { style: 'thin', color: { argb: BORDER } }, bottom: { style: 'thin', color: { argb: BORDER } }, left: { style: 'thin', color: { argb: BORDER } }, right: { style: 'thin', color: { argb: BORDER } } }; }
+      row3.height = 22; row4.height = 30;
+      ['No', 'Outlet / Merchant Name', 'Merchant Name', 'Balance', 'Per Day Target', 'Forecast Month End Achievement', 'Forecast Achievement %'].forEach((label, index) => row3.getCell([1, 2, 3, 17, 18, 19, 20][index]).value = label);
+      sheetHeaders.slice(3, 16).forEach((label, index) => row4.getCell(index + 4).value = label);
+      let groupNo = 0;
+      const displayedGroups = detailed ? groups : groups.map((group) => low(group.outlet) === 'online' ? group : { ...group, rows: [{ ...total(group.rows), name: 'Total', key: '', outlet: group.outlet, generated: false }] });
+      for (const group of displayedGroups) {
+        const rows = group.rows.filter((row) => row.name || row.showroom || row.online);
+        if (!rows.length) continue;
+        groupNo += 1;
+        const start = ws.rowCount + 1;
+        for (const source of rows) {
+          const row = ws.addRow([null, null, source.name, ...metrics(source)]);
+          row.height = 22;
+          for (let col = 1; col <= 20; col++) {
+            const cell = row.getCell(col); cell.border = { top: { style: 'thin', color: { argb: BORDER } }, bottom: { style: 'thin', color: { argb: BORDER } }, left: { style: 'thin', color: { argb: BORDER } }, right: { style: 'thin', color: { argb: BORDER } } }; cell.alignment = { vertical: 'middle', horizontal: col >= 4 ? 'right' : 'left' };
+            if (col >= 4 && col <= 11 || col >= 17 && col <= 19) cell.numFmt = money;
+            if (col >= 12 && col <= 16 || col === 20) cell.numFmt = percent;
+            const fill = low(group.outlet) === 'online' ? ONLINE : TARGET;
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: fill } };
+            if (col === 10 || col === 11 || col === 15 || col === 16) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: VAT_SALE } };
+            if (low(group.outlet) !== 'online' && col >= 17) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: TOTAL } };
+          }
+          if (/palmers/i.test(source.name)) row.eachCell((cell, col) => { cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: col <= 2 ? ONLINE : SPECIAL } }; });
+          if (/staff sales/i.test(source.name)) row.eachCell((cell, col) => { cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: col <= 2 ? ONLINE : WHITE } }; if (col === 10 || col === 11 || col === 15 || col === 16) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: VAT_SALE } }; });
+        }
+        const groupTotals = total(rows);
+        if (detailed && rows.length > 1) {
+          const row = ws.addRow([null, null, 'Total', ...metrics(groupTotals)]);
+          row.font = { bold: true };
+          row.eachCell((cell, col) => { cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: TOTAL } }; if (col === 10 || col === 11 || col === 15 || col === 16) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: VAT_PERCENT } }; cell.border = { top: { style: 'thin', color: { argb: BORDER } }, bottom: { style: 'thin', color: { argb: BORDER } }, left: { style: 'thin', color: { argb: BORDER } }, right: { style: 'thin', color: { argb: BORDER } } }; if (col >= 4 && col <= 11 || col >= 17 && col <= 19) cell.numFmt = money; if (col >= 12 && col <= 16 || col === 20) cell.numFmt = percent; });
+        }
+        const end = ws.rowCount;
+        ws.getCell(start, 1).value = groupNo;
+        ws.getCell(start, 2).value = group.outlet;
+        if (end > start) { ws.mergeCells(start, 1, end, 1); ws.mergeCells(start, 2, end, 2); }
+      }
+      const all = total(displayedGroups.flatMap((group) => group.rows));
+      const grand = ws.addRow([null, 'Grand Total', '', ...metrics(all)]);
+      grand.font = { bold: true }; grand.eachCell((cell, col) => { cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: ONLINE } }; cell.border = { top: { style: 'medium', color: { argb: BORDER } }, bottom: { style: 'medium', color: { argb: BORDER } }, left: { style: 'thin', color: { argb: BORDER } }, right: { style: 'thin', color: { argb: BORDER } } }; if (col >= 4 && col <= 11 || col >= 17 && col <= 19) cell.numFmt = money; if (col >= 12 && col <= 16 || col === 20) cell.numFmt = percent; });
+      ws.autoFilter = { from: { row: 4, column: 1 }, to: { row: 4, column: 20 } };
+      return ws;
+    };
+    writeSheet('Merchant Wise', true);
+    writeSheet('Outlet Wise', false);
+    return fixOoxml(await wb.xlsx.writeBuffer());
+  }
+
   async function buildPromoWorkbook(ExcelJS, res, P, meta) {
     const wb = new ExcelJS.Workbook();
     const NAVY = 'FF1F3864', LIGHT = 'FFD9E1F2';
@@ -1093,7 +1190,7 @@ const SaleEngine = (() => {
     return fixOoxml(await wb.xlsx.writeBuffer());
   }
 
-  const api = { hasKw, vatMoves, couponStats, promoSummary, buildPromoWorkbook, couponTokens, fixOoxml, keyNames, sumKey, parseWarehouse, isWarehouse, processVat, isDump3, isItemList, vatKind, isoToSerial, serialToISO, serialToDate, computeDays, findHeader, finalMerchant, makeRules, processDump,
+  const api = { hasKw, vatMoves, couponStats, promoSummary, buildPromoWorkbook, buildCosmoReport, couponTokens, fixOoxml, keyNames, sumKey, parseWarehouse, isWarehouse, processVat, isDump3, isItemList, vatKind, isoToSerial, serialToISO, serialToDate, computeDays, findHeader, finalMerchant, makeRules, processDump,
     buildReport, buildWorkings, buildReview, fmtNum, REQUIRED };
   return api;
 })();

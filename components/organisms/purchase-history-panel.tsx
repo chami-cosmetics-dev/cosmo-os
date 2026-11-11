@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronDown, Download, Loader2, RefreshCw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Textarea } from "@/components/ui/textarea";
 import { formatAppIsoDate } from "@/lib/format-datetime";
 import { notify } from "@/lib/notify";
 import { formatPercentPoints } from "@/lib/osf/pricing-math";
@@ -40,11 +41,13 @@ type Summary = {
 };
 
 type HighRiskRow = {
-  id: string; sku: string; cycleStart: string; totalRop: number; totalStock: number; reorderQty: number;
+  id: string; sku: string; priority: string; cycleStart: string; totalRop: number; totalStock: number; reorderQty: number;
   bestPrice: number | string | null; bestSupplier: string | null; orderPlaced: boolean; orderQty: number | null;
   orderSupplier: string | null; orderReceiveDate: string | null; reasonType: string | null;
   replacementSku: string | null; changedPriority: string | null; otherReason: string | null; createdAt: string;
 };
+
+type ErpSupplierOption = { name: string; label: string };
 
 function defaultFromTo() {
   const to = formatAppIsoDate(new Date());
@@ -67,7 +70,13 @@ function marginLabel(fraction: number | null): string {
   return pct == null ? "—" : `${pct}%`;
 }
 
-export function PurchaseHistoryPanel() {
+export function PurchaseHistoryPanel({
+  canReadHighRisk,
+  canManageHighRisk,
+}: {
+  canReadHighRisk: boolean;
+  canManageHighRisk: boolean;
+}) {
   const defaults = defaultFromTo();
   const [from, setFrom] = useState(defaults.from);
   const [to, setTo] = useState(defaults.to);
@@ -96,6 +105,9 @@ export function PurchaseHistoryPanel() {
   const [view, setView] = useState<"history" | "high-risk">("history");
   const [highRiskRows, setHighRiskRows] = useState<HighRiskRow[]>([]);
   const [highRiskLoading, setHighRiskLoading] = useState(false);
+  const [highRiskExporting, setHighRiskExporting] = useState(false);
+  const [highRiskFilter, setHighRiskFilter] = useState("");
+  const [highRiskSupplierOptions, setHighRiskSupplierOptions] = useState<ErpSupplierOption[]>([]);
   const [erpAvailable, setErpAvailable] = useState(true);
   const limit = 200;
 
@@ -237,7 +249,19 @@ export function PurchaseHistoryPanel() {
     finally { setHighRiskLoading(false); }
   };
 
+  const loadHighRiskSuppliers = async () => {
+    try {
+      const res = await fetch("/api/admin/purchasing/purchase-history/high-risk/suppliers", { cache: "no-store" });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Failed to load ERP suppliers");
+      setHighRiskSupplierOptions(json.suppliers ?? []);
+    } catch {
+      notify.error("Failed to load ERP suppliers");
+    }
+  };
+
   const saveHighRisk = async (row: HighRiskRow, patch: Record<string, unknown>) => {
+    if (!canManageHighRisk) return;
     const res = await fetch("/api/admin/purchasing/purchase-history/high-risk", {
       method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: row.id, ...patch }),
     });
@@ -246,6 +270,52 @@ export function PurchaseHistoryPanel() {
     if (json.row?.status === "fulfilled") setHighRiskRows((prev) => prev.filter((item) => item.id !== row.id));
     else setHighRiskRows((prev) => prev.map((item) => item.id === row.id ? { ...item, ...json.row } : item));
   };
+
+  const exportHighRisk = async () => {
+    setHighRiskExporting(true);
+    try {
+      const res = await fetch("/api/admin/purchasing/purchase-history/high-risk/export", { cache: "no-store" });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        notify.error(json.error ?? "Failed to export high risk items");
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      const match = /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") ?? "");
+      link.href = url;
+      link.download = match?.[1] ?? "high-risk-items.xlsx";
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      notify.error("Failed to export high risk items");
+    } finally {
+      setHighRiskExporting(false);
+    }
+  };
+
+  const filteredHighRiskRows = useMemo(() => {
+    const needle = highRiskFilter.trim().toLowerCase();
+    if (!needle) return highRiskRows;
+    return highRiskRows.filter((row) => [
+      row.sku,
+      row.priority,
+      row.bestSupplier,
+      row.orderSupplier,
+      row.reasonType,
+      row.replacementSku,
+      row.changedPriority,
+      row.otherReason,
+      row.createdAt,
+      row.orderReceiveDate,
+      row.orderPlaced ? "yes" : "no",
+      row.totalRop,
+      row.totalStock,
+      row.reorderQty,
+      row.orderQty,
+    ].some((value) => String(value ?? "").toLowerCase().includes(needle)));
+  }, [highRiskFilter, highRiskRows]);
 
   return (
     <div className="space-y-4 p-6">
@@ -259,34 +329,54 @@ export function PurchaseHistoryPanel() {
 
       <div className="flex gap-2 border-b">
         <Button variant={view === "history" ? "default" : "ghost"} onClick={() => setView("history")}>Purchase History</Button>
-        <Button variant={view === "high-risk" ? "default" : "ghost"} onClick={() => { setView("high-risk"); void loadHighRisk(); }}>High Risk Items</Button>
+        {canReadHighRisk ? <Button variant={view === "high-risk" ? "default" : "ghost"} onClick={() => { setView("high-risk"); void loadHighRisk(); void loadHighRiskSuppliers(); }}>High Risk Items</Button> : null}
       </div>
 
       {view === "high-risk" ? (
-        <div className="overflow-x-auto rounded-md border">
-          <table className="w-full text-sm"><thead className="bg-muted/50"><tr>
-            {['SKU','Record Date','Total ROP','Total Stock','Reorder Qty','Best Price','Best Supplier','Order Placed','Qty','Supplier','Receive Date','Reason'].map((h) => <th key={h} className="p-2 text-left">{h}</th>)}
-          </tr></thead><tbody>
-            {highRiskRows.length === 0 && !highRiskLoading ? <tr><td colSpan={12} className="p-4 text-muted-foreground">No high risk items.</td></tr> : highRiskRows.map((row) => (
-              <tr key={row.id} className="border-t align-top">
-                <td className="p-2 font-mono">{row.sku}</td><td className="p-2">{row.createdAt.slice(0,10)}</td>
-                <td className="p-2 text-right">{money(row.totalRop)}</td><td className="p-2 text-right">{money(row.totalStock)}</td><td className="p-2 text-right">{money(row.reorderQty)}</td>
-                <td className="p-2 text-right">{money(Number(row.bestPrice))}</td><td className="p-2">{row.bestSupplier ?? "—"}</td>
-                <td className="p-2"><input type="checkbox" checked={row.orderPlaced} onChange={(e) => void saveHighRisk(row, { orderPlaced: e.target.checked })} /></td>
-                <td className="p-2"><Input className="w-20" type="number" min={0} defaultValue={row.orderQty ?? ""} onBlur={(e) => void saveHighRisk(row, { orderQty: e.target.value === "" ? null : Number(e.target.value) })} /></td>
-                <td className="p-2"><Input className="w-36" defaultValue={row.orderSupplier ?? ""} onBlur={(e) => void saveHighRisk(row, { orderSupplier: e.target.value })} /></td>
-                <td className="p-2"><Input type="date" defaultValue={row.orderReceiveDate?.slice(0,10) ?? ""} onBlur={(e) => void saveHighRisk(row, { orderReceiveDate: e.target.value || null })} /></td>
-                <td className="p-2 space-y-2">
-                  <select className="h-9 rounded-md border bg-background px-2" defaultValue={row.reasonType ?? ""} onChange={(e) => void saveHighRisk(row, { reasonType: e.target.value || null })}>
-                    <option value="">—</option><option>Replace</option><option>Priority change</option><option>Other</option>
-                  </select>
-                  {row.reasonType === "Replace" ? <Input className="w-40" placeholder="Replacement SKU" defaultValue={row.replacementSku ?? ""} onBlur={(e) => void saveHighRisk(row, { replacementSku: e.target.value })} /> : null}
-                  {row.reasonType === "Priority change" ? <Input className="w-40" placeholder="New priority" defaultValue={row.changedPriority ?? ""} onBlur={(e) => void saveHighRisk(row, { changedPriority: e.target.value })} /> : null}
-                  {row.reasonType === "Other" ? <Input className="w-40" placeholder="Reason details" defaultValue={row.otherReason ?? ""} onBlur={(e) => void saveHighRisk(row, { otherReason: e.target.value })} /> : null}
-                </td>
-              </tr>
-            ))}
-          </tbody></table>
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-1 items-center gap-3">
+              <Input
+                value={highRiskFilter}
+                onChange={(event) => setHighRiskFilter(event.target.value)}
+                placeholder="Filter SKU, priority, supplier, reason, date…"
+                className="max-w-xl"
+              />
+              <span className="whitespace-nowrap text-sm text-muted-foreground">{filteredHighRiskRows.length} of {highRiskRows.length}</span>
+            </div>
+            <Button variant="outline" disabled={highRiskLoading || highRiskExporting} onClick={() => void exportHighRisk()}>
+              {highRiskExporting ? <Loader2 className="animate-spin" /> : <Download />} Export
+            </Button>
+          </div>
+        <div className="space-y-3">
+          {highRiskRows.length === 0 && !highRiskLoading ? <div className="rounded-md border p-4 text-sm text-muted-foreground">No high risk items.</div> : filteredHighRiskRows.length === 0 ? <div className="rounded-md border p-4 text-sm text-muted-foreground">No high risk items match this filter.</div> : filteredHighRiskRows.map((row) => (
+            <article key={row.id} className="rounded-lg border bg-card p-3 text-sm shadow-xs">
+              <div className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-4 xl:grid-cols-8">
+                <div><p className="text-xs text-muted-foreground">SKU</p><p className="font-mono font-medium">{row.sku}</p></div>
+                <div><p className="text-xs text-muted-foreground">Priority</p><p className="font-medium">{row.priority}</p></div>
+                <div><p className="text-xs text-muted-foreground">Record date</p><p>{row.createdAt.slice(0, 10)}</p></div>
+                <div><p className="text-xs text-muted-foreground">Best price</p><p className="font-medium">{money(Number(row.bestPrice))}</p></div>
+                <div><p className="text-xs text-muted-foreground">Total ROP</p><p>{money(row.totalRop)}</p></div>
+                <div><p className="text-xs text-muted-foreground">Total stock</p><p>{money(row.totalStock)}</p></div>
+                <div><p className="text-xs text-muted-foreground">Reorder qty</p><p className="font-medium">{money(row.reorderQty)}</p></div>
+                <div><p className="text-xs text-muted-foreground">Best supplier</p><p className="truncate" title={row.bestSupplier ?? ""}>{row.bestSupplier ?? "—"}</p></div>
+                <label className="flex h-8 items-center gap-2 self-end font-medium"><input type="checkbox" disabled={!canManageHighRisk} checked={row.orderPlaced} onChange={(e) => void saveHighRisk(row, { orderPlaced: e.target.checked })} /> Order placed</label>
+                <label className="space-y-1"><span className="text-xs text-muted-foreground">Qty</span><Input className="h-8" disabled={!canManageHighRisk} type="number" min={0} defaultValue={row.orderQty ?? ""} onBlur={(e) => void saveHighRisk(row, { orderQty: e.target.value === "" ? null : Number(e.target.value) })} /></label>
+                <label className="space-y-1"><span className="text-xs text-muted-foreground">Receive date</span><Input className="h-8" type="date" disabled={!canManageHighRisk} defaultValue={row.orderReceiveDate?.slice(0, 10) ?? ""} onBlur={(e) => void saveHighRisk(row, { orderReceiveDate: e.target.value || null })} /></label>
+                <label className="col-span-2 space-y-1"><span className="text-xs text-muted-foreground">Supplier</span><Input className="h-8" list="high-risk-erp-suppliers" disabled={!canManageHighRisk} defaultValue={row.orderSupplier ?? ""} title={row.orderSupplier ?? ""} placeholder="Search ERP1 and ERP2 suppliers" onBlur={(e) => void saveHighRisk(row, { orderSupplier: e.target.value })} /></label>
+              </div>
+              <div className="mt-3 grid gap-2 border-t pt-3 md:grid-cols-[10rem_minmax(0,1fr)]">
+                <label className="space-y-1"><span className="text-xs text-muted-foreground">Reason</span><select disabled={!canManageHighRisk} className="h-8 w-full rounded-md border bg-background px-2 text-sm disabled:cursor-not-allowed disabled:opacity-50" defaultValue={row.reasonType ?? ""} onChange={(e) => void saveHighRisk(row, { reasonType: e.target.value || null })}><option value="">—</option><option>Replace</option><option>Priority change</option><option>Other</option></select></label>
+                <div className="space-y-1"><p className="text-xs text-muted-foreground">Details</p>
+                  {row.reasonType === "Replace" ? <Input className="h-8" disabled={!canManageHighRisk} placeholder="Replacement SKU" defaultValue={row.replacementSku ?? ""} title={row.replacementSku ?? ""} onBlur={(e) => void saveHighRisk(row, { replacementSku: e.target.value })} /> : null}
+                  {row.reasonType === "Priority change" ? <Input className="h-8" disabled={!canManageHighRisk} placeholder="New priority" defaultValue={row.changedPriority ?? ""} title={row.changedPriority ?? ""} onBlur={(e) => void saveHighRisk(row, { changedPriority: e.target.value })} /> : null}
+                  {row.reasonType === "Other" ? <Textarea disabled={!canManageHighRisk} className="min-h-16 resize-y py-1.5" placeholder="Reason details" defaultValue={row.otherReason ?? ""} onBlur={(e) => void saveHighRisk(row, { otherReason: e.target.value })} /> : <p className="pt-1 text-xs text-muted-foreground">Choose a reason to add details.</p>}
+                </div>
+              </div>
+            </article>
+          ))}
+          <datalist id="high-risk-erp-suppliers">{highRiskSupplierOptions.map((supplier) => <option key={supplier.name} value={supplier.label} label={supplier.name} />)}</datalist>
+        </div>
         </div>
       ) : (
         <>
