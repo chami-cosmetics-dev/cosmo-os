@@ -1,5 +1,6 @@
 import "server-only";
 
+import { formatAppIsoDate } from "@/lib/format-datetime";
 import { getAllOsfErpInstances, OsfErpError, type OsfErpCredentials } from "@/lib/osf/erp-stock";
 
 /**
@@ -14,11 +15,14 @@ import { getAllOsfErpInstances, OsfErpError, type OsfErpCredentials } from "@/li
 export const STOCK_BALANCE_REPORT_NAME = "Stock Balance Summary - Item Wise";
 
 /**
- * Filters the report is generated with. Empty = the report's own defaults
- * (every company/warehouse on the instance, balance as of today), matching the
- * manual xlsx exports compared in scripts/compare-erp-xlsx-snapshot.ts.
+ * Filters the report is generated with: every company/warehouse on the instance,
+ * balance as of today (Asia/Colombo), matching the manual xlsx exports compared in
+ * scripts/compare-erp-xlsx-snapshot.ts. Both ERPs made "As of Date" mandatory on
+ * 2026-11-11 (its "Today" default only applies in the ERP UI), so it is always sent.
  */
-const STOCK_BALANCE_REPORT_FILTERS: Record<string, unknown> = {};
+function stockBalanceReportFilters(): Record<string, unknown> {
+  return { as_of_date: formatAppIsoDate(new Date()) };
+}
 
 const POLL_INTERVAL_MS = 2000;
 /** Stays under the 300s route maxDuration with room for the ledger fetch + response. */
@@ -76,7 +80,7 @@ async function enqueueStockBalanceReport(cfg: OsfErpCredentials): Promise<string
     try {
       const json = await erpRequest<{ message?: { name?: string } }>(cfg, `/api/method/${method}`, {
         report_name: STOCK_BALANCE_REPORT_NAME,
-        filters: JSON.stringify(STOCK_BALANCE_REPORT_FILTERS),
+        filters: JSON.stringify(stockBalanceReportFilters()),
       });
       const name = json.message?.name;
       if (name) return name;
@@ -179,7 +183,7 @@ async function readPreparedReport(cfg: OsfErpCredentials, name: string): Promise
     "/api/method/frappe.desk.query_report.run",
     {
       report_name: STOCK_BALANCE_REPORT_NAME,
-      filters: JSON.stringify({ ...STOCK_BALANCE_REPORT_FILTERS, prepared_report_name: name }),
+      filters: JSON.stringify({ ...stockBalanceReportFilters(), prepared_report_name: name }),
     },
   );
   const columns = json.message?.columns;
