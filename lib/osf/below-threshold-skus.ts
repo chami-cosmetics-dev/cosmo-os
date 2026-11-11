@@ -56,6 +56,7 @@ export async function listBelowThresholdSkus(
       select: {
         sku: true,
         productTitle: true,
+        barcode: true,
         erp1ProductPriority: true,
         erp2ProductPriority: true,
         vendor: { select: { name: true } },
@@ -69,13 +70,19 @@ export async function listBelowThresholdSkus(
 
   const bySku = new Map<
     string,
-    { productTitle: string; brand: string | null; priorityStatus: string | null }
+    {
+      productTitle: string;
+      barcode: string | null;
+      brand: string | null;
+      priorityStatus: string | null;
+    }
   >();
   for (const row of catalog) {
     const sku = row.sku?.trim();
     if (!sku || bySku.has(sku)) continue;
     bySku.set(sku, {
       productTitle: row.productTitle,
+      barcode: row.barcode?.trim() || null,
       brand: row.vendor?.name ?? null,
       priorityStatus: productPriorityStatus(row.erp1ProductPriority, row.erp2ProductPriority),
     });
@@ -93,7 +100,7 @@ export async function listBelowThresholdSkus(
   for (const sku of bySku.keys()) {
     const catalogRow = bySku.get(sku)!;
     if (q) {
-      const hay = `${sku} ${catalogRow.productTitle}`.toLowerCase();
+      const hay = `${sku} ${catalogRow.productTitle} ${catalogRow.barcode ?? ""}`.toLowerCase();
       if (!hay.includes(q)) continue;
     }
     const rops = ropsBySku.get(sku) ?? {};

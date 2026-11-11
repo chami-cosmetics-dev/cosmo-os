@@ -75,13 +75,12 @@ function statementInputFromTask(
   const unlocked = isRiderIncentiveUnlocked(task.order);
   const eligible = isIncentiveEligibleOrder(task.order.financialStatus);
   const unmatched =
-    unlocked &&
     eligible &&
     !match.matched &&
     !match.excludedFromIncentive &&
     !task.manualIncentiveLabelKey;
-  const payable =
-    eligible && unlocked && !match.excludedFromIncentive ? match.amount : new Prisma.Decimal(0);
+  // Pay on delivery complete. Invoice close only labels statement invoice columns.
+  const payable = eligible && !match.excludedFromIncentive ? match.amount : new Prisma.Decimal(0);
   const districtLabel = match.labelKey
     ? districtLabelByKey.get(normalizeShippingRuleLabelKey(match.labelKey)) ?? null
     : null;
@@ -128,7 +127,7 @@ async function loadCompletedStatementTasks(input: {
       where: {
         ...(input.riderId ? { riderId: input.riderId } : {}),
         status: "completed",
-        // Month is the delivery-complete day. An earlier invoice close (KOKO, card, bank) does not move the pay.
+        // Month = delivery-complete day. Pay uses live charge sheet; invoice close does not gate amount.
         completedAt: { gte: input.from, lte: input.to },
         order: { companyId: input.companyId },
       },

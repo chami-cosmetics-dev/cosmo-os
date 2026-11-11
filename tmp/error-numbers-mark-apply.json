@@ -1,0 +1,118 @@
+{
+  "summary": {
+    "total": 132,
+    "updated": 120,
+    "already": 0,
+    "missing": 12,
+    "ambiguous": 0
+  },
+  "leftovers": [
+    {
+      "row": 89,
+      "contactNo": "40364",
+      "phone": "ess+",
+      "name": "DR ayomi",
+      "reason": "blank_phone_or_name"
+    },
+    {
+      "row": 93,
+      "contactNo": "75445",
+      "phone": "8.80E+12",
+      "phoneKey": "88012",
+      "name": "One GalleFace",
+      "reason": "no_match",
+      "nameHits": 1097
+    },
+    {
+      "row": 94,
+      "contactNo": "66201",
+      "phone": "2.12E+11",
+      "phoneKey": "21211",
+      "name": "Kiribathgoda Showroom",
+      "reason": "no_match",
+      "nameHits": 2092
+    },
+    {
+      "row": 96,
+      "contactNo": "40899",
+      "phone": "3.94E+11",
+      "phoneKey": "39411",
+      "name": "MS lankani",
+      "reason": "no_match",
+      "nameHits": 2
+    },
+    {
+      "row": 97,
+      "contactNo": "39739",
+      "phone": "3.94E+11",
+      "phoneKey": "39411",
+      "name": "MR NALAKA WIJETHUNGA",
+      "reason": "no_match",
+      "nameHits": 2
+    },
+    {
+      "row": 98,
+      "contactNo": "39832",
+      "phone": "3.94E+11",
+      "phoneKey": "39411",
+      "name": "Mr NALAKA WIJETHUNGA",
+      "reason": "no_match",
+      "nameHits": 2
+    },
+    {
+      "row": 104,
+      "contactNo": "65468",
+      "phone": "8.18E+11",
+      "phoneKey": "81811",
+      "name": "Kiribathgoda Showroom",
+      "reason": "no_match",
+      "nameHits": 2092
+    },
+    {
+      "row": 108,
+      "contactNo": "80958",
+      "phone": "9.41E+11",
+      "phoneKey": "94111",
+      "name": "Asha Asha",
+      "reason": "no_match",
+      "nameHits": 2
+    },
+    {
+      "row": 110,
+      "contactNo": "40672",
+      "phone": "9.72E+11",
+      "phoneKey": "97211",
+      "name": "Ms DOROTHY",
+      "reason": "no_match",
+      "nameHits": 3
+    },
+    {
+      "row": 111,
+      "contactNo": "39787",
+      "phone": "9.72E+11",
+      "phoneKey": "97211",
+      "name": "Mr Imal",
+      "reason": "no_match",
+      "nameHits": 2
+    },
+    {
+      "row": 112,
+      "contactNo": "74575",
+      "phone": "9.72E+11",
+      "phoneKey": "97211",
+      "name": "Adel Al rumeihi",
+      "reason": "no_match",
+      "nameHits": 3
+    },
+    {
+      "row": 114,
+      "contactNo": "40059",
+      "phone": "9.72E+11",
+      "phoneKey": "97211",
+      "name": "Ms nimodani",
+      "reason": "no_match",
+      "nameHits": 2
+    }
+  ],
+  "toUpdateCount": 120
+}

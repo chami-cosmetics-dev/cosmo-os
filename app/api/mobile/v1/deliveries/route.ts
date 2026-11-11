@@ -7,7 +7,6 @@ import { toMobileDeliveryDto } from "@/lib/mobile/dto";
 import { resolveMobileSpecialDelivery } from "@/lib/mobile/special-delivery";
 import { mobileDeliveriesQuerySchema } from "@/lib/mobile/validation";
 import { parseAppCalendarDayEnd, parseAppCalendarDayStart } from "@/lib/format-datetime";
-import { isRiderIncentiveUnlocked } from "@/lib/rider-incentive";
 import { incentiveForOrder, loadRiderIncentiveContext } from "@/lib/rider-incentive-resolve";
 import { prisma } from "@/lib/prisma";
 import { loadSplitCashCollectByOrderIds } from "@/lib/order-split-payment";
@@ -172,16 +171,14 @@ export async function GET(request: NextRequest) {
           order: task.order,
           task,
         }),
-        incentiveAmount: isRiderIncentiveUnlocked(task.order)
-          ? incentiveForOrder(
-              task.order,
-              incentiveContext.chargeByLabelKey,
-              incentiveContext.zoneMembersByZone,
-              task.manualIncentiveLabelKey,
-              task.manualIncentiveAmount
-            ).toFixed(2)
-          : "0.00",
-        incentivePendingInvoiceClose: !isRiderIncentiveUnlocked(task.order),
+        incentiveAmount: incentiveForOrder(
+          task.order,
+          incentiveContext.chargeByLabelKey,
+          incentiveContext.zoneMembersByZone,
+          task.manualIncentiveLabelKey,
+          task.manualIncentiveAmount
+        ).toFixed(2),
+        incentivePendingInvoiceClose: false,
         collectCashAmount: cashByOrder.get(task.order.id) ?? null,
       })
     ),

@@ -242,6 +242,7 @@ export function RiderPerformancePanel({
             <CardTitle>Rider performance</CardTitle>
             <CardDescription className="mt-1">
               Completed deliveries and rider pay from shipping-rule charges (Asia/Colombo dates).
+              Rider pay counts when delivery is completed — live charge-sheet rates, no invoice-close wait.
               Pick up and STAFFDC stay in the completed count and are left out of rider pay.
               Free ship still pays from the district. Unmatched rows can take a district from
               the charge sheet, or a typed rider pay when no district fits.

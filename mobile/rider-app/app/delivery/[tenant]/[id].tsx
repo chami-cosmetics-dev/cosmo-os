@@ -178,7 +178,7 @@ export default function DeliveryDetailScreen() {
             </Text>
           ) : null}
           <Text style={styles.earnedTotal}>
-            Rider pay (after invoice close){" "}
+            Rider pay{" "}
             <Text style={styles.earnedTotalValue}>
               {formatMoney(delivery.incentiveAmount ?? "0", delivery.currency)}
             </Text>

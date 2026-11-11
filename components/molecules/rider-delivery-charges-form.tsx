@@ -5,13 +5,16 @@ import { FileSpreadsheet, Loader2, Upload } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Pagination } from "@/components/ui/pagination";
 import { notify } from "@/lib/notify";
 
 type RiderDeliveryChargesFormProps = {
   canEdit: boolean;
 };
 
-type SampleRow = {
+type ChargeRow = {
+  id: string;
   label: string;
   district: string | null;
   shippingAmount: string;
@@ -42,30 +45,47 @@ type ZoneUploadResult = {
   warnings?: string[];
 };
 
+const PAGE_SIZE = 20;
+
 export function RiderDeliveryChargesForm({ canEdit }: RiderDeliveryChargesFormProps) {
   const [count, setCount] = useState(0);
-  const [sample, setSample] = useState<SampleRow[]>([]);
+  const [rows, setRows] = useState<ChargeRow[]>([]);
+  const [page, setPage] = useState(1);
+  const [searchInput, setSearchInput] = useState("");
+  const [search, setSearch] = useState("");
+  const [listLoading, setListLoading] = useState(true);
+  const [draftPay, setDraftPay] = useState<Record<string, string>>({});
   const [zoneCount, setZoneCount] = useState(0);
   const [zoneSample, setZoneSample] = useState<ZoneSampleRow[]>([]);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const isBusy = busyKey !== null;
 
-  async function reloadCharges() {
+  async function reloadCharges(nextPage = page, nextSearch = search) {
+    setListLoading(true);
     try {
-      const res = await fetch("/api/admin/settings/rider-delivery-charges");
+      const params = new URLSearchParams();
+      params.set("page", String(nextPage));
+      if (nextSearch) params.set("q", nextSearch);
+      const res = await fetch(`/api/admin/settings/rider-delivery-charges?${params.toString()}`);
       const data = (await res.json()) as {
         count?: number;
-        sample?: SampleRow[];
+        page?: number;
+        rows?: ChargeRow[];
         error?: string;
       };
       if (!res.ok) {
         notify.error(data.error ?? "Failed to load rider delivery charges");
         return;
       }
+      const nextRows = data.rows ?? [];
       setCount(data.count ?? 0);
-      setSample(data.sample ?? []);
+      setPage(data.page ?? nextPage);
+      setRows(nextRows);
+      setDraftPay(Object.fromEntries(nextRows.map((row) => [row.id, row.riderDeliveryCharge])));
     } catch {
       notify.error("Failed to load rider delivery charges");
+    } finally {
+      setListLoading(false);
     }
   }
 
@@ -89,9 +109,22 @@ export function RiderDeliveryChargesForm({ canEdit }: RiderDeliveryChargesFormPr
   }
 
   useEffect(() => {
-    void reloadCharges();
     void reloadZones();
   }, []);
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const next = searchInput.trim();
+      setSearch(next);
+      setPage(1);
+    }, 350);
+    return () => clearTimeout(t);
+  }, [searchInput]);
+
+  useEffect(() => {
+    void reloadCharges(page, search);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload when page/search change
+  }, [page, search]);
 
   async function handleChargeUpload(file: File | null) {
     if (!canEdit || !file) return;
@@ -122,7 +155,8 @@ export function RiderDeliveryChargesForm({ canEdit }: RiderDeliveryChargesFormPr
       if (data.warnings?.length) {
         notify.error(`${data.warnings.length} row warning(s) — check sheet amounts.`);
       }
-      await reloadCharges();
+      setPage(1);
+      await reloadCharges(1, search);
     } catch {
       notify.error("Upload failed");
     } finally {
@@ -162,6 +196,41 @@ export function RiderDeliveryChargesForm({ canEdit }: RiderDeliveryChargesFormPr
     }
   }
 
+  async function saveRiderPay(row: ChargeRow) {
+    if (!canEdit) return;
+    const raw = (draftPay[row.id] ?? "").trim();
+    const amount = Number(raw);
+    if (!Number.isFinite(amount) || amount < 0) {
+      notify.error("Enter a valid rider pay amount");
+      return;
+    }
+    setBusyKey(`pay-${row.id}`);
+    try {
+      const res = await fetch("/api/admin/settings/rider-delivery-charges", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: row.id, riderDeliveryCharge: amount }),
+      });
+      const data = (await res.json()) as { row?: ChargeRow; error?: string };
+      if (!res.ok || !data.row) {
+        notify.error(data.error ?? "Failed to save rider pay");
+        return;
+      }
+      setRows((current) =>
+        current.map((item) => (item.id === data.row!.id ? data.row! : item))
+      );
+      setDraftPay((current) => ({
+        ...current,
+        [data.row!.id]: data.row!.riderDeliveryCharge,
+      }));
+      notify.success(`Saved rider pay for ${data.row.label}`);
+    } catch {
+      notify.error("Failed to save rider pay");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
   return (
     <div className="space-y-4">
       <Card>
@@ -180,6 +249,7 @@ export function RiderDeliveryChargesForm({ canEdit }: RiderDeliveryChargesFormPr
         <CardContent className="space-y-4">
           <p className="text-sm text-muted-foreground">
             Rules loaded: <span className="font-semibold text-foreground">{count}</span>
+            {search ? " matching search" : ""}
           </p>
           {canEdit ? (
             <div className="flex flex-wrap items-center gap-3">
@@ -214,35 +284,112 @@ export function RiderDeliveryChargesForm({ canEdit }: RiderDeliveryChargesFormPr
               </p>
             </div>
           ) : null}
-          {sample.length > 0 ? (
-            <div className="rounded-md border text-sm overflow-x-auto">
-              <table className="w-full min-w-[480px]">
-                <thead className="bg-muted/50 text-left">
+          <div className="max-w-sm">
+            <Input
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              placeholder="Search city / label"
+              disabled={isBusy && busyKey === "charges"}
+              aria-label="Search city name"
+            />
+          </div>
+          <div className="rounded-md border text-sm overflow-x-auto">
+            <table className="w-full min-w-[560px]">
+              <thead className="bg-muted/50 text-left">
+                <tr>
+                  <th className="p-2 font-medium">Label</th>
+                  <th className="p-2 font-medium">District</th>
+                  <th className="p-2 font-medium">Shipping</th>
+                  <th className="p-2 font-medium">Rider pay</th>
+                  {canEdit ? <th className="p-2 font-medium w-[1%]" /> : null}
+                </tr>
+              </thead>
+              <tbody>
+                {listLoading ? (
                   <tr>
-                    <th className="p-2 font-medium">Label</th>
-                    <th className="p-2 font-medium">District</th>
-                    <th className="p-2 font-medium">Shipping</th>
-                    <th className="p-2 font-medium">Rider pay</th>
+                    <td
+                      colSpan={canEdit ? 5 : 4}
+                      className="p-4 text-muted-foreground"
+                    >
+                      <span className="inline-flex items-center gap-2">
+                        <Loader2 className="size-4 animate-spin" aria-hidden />
+                        Loading rules…
+                      </span>
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {sample.map((row) => (
-                    <tr key={row.label} className="border-t">
-                      <td className="p-2">{row.label}</td>
-                      <td className="p-2">{row.district ?? "—"}</td>
-                      <td className="p-2">{row.shippingAmount}</td>
-                      <td className="p-2 font-semibold">{row.riderDeliveryCharge}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {count > sample.length ? (
-                <p className="p-2 text-xs text-muted-foreground border-t">
-                  Showing first {sample.length} of {count}
-                </p>
-              ) : null}
-            </div>
-          ) : null}
+                ) : rows.length === 0 ? (
+                  <tr>
+                    <td
+                      colSpan={canEdit ? 5 : 4}
+                      className="p-4 text-muted-foreground"
+                    >
+                      {search ? "No cities match that search." : "No charge rules loaded."}
+                    </td>
+                  </tr>
+                ) : (
+                  rows.map((row) => {
+                    const draft = draftPay[row.id] ?? row.riderDeliveryCharge;
+                    const dirty = draft.trim() !== row.riderDeliveryCharge;
+                    const rowBusy = busyKey === `pay-${row.id}`;
+                    return (
+                      <tr key={row.id} className="border-t">
+                        <td className="p-2">{row.label}</td>
+                        <td className="p-2">{row.district ?? "—"}</td>
+                        <td className="p-2">{row.shippingAmount}</td>
+                        <td className="p-2">
+                          {canEdit ? (
+                            <Input
+                              type="number"
+                              min={0}
+                              step="0.01"
+                              className="h-8 w-28"
+                              value={draft}
+                              disabled={isBusy}
+                              onChange={(e) =>
+                                setDraftPay((current) => ({
+                                  ...current,
+                                  [row.id]: e.target.value,
+                                }))
+                              }
+                              aria-label={`Rider pay for ${row.label}`}
+                            />
+                          ) : (
+                            <span className="font-semibold">{row.riderDeliveryCharge}</span>
+                          )}
+                        </td>
+                        {canEdit ? (
+                          <td className="p-2">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="secondary"
+                              disabled={!dirty || isBusy}
+                              onClick={() => void saveRiderPay(row)}
+                            >
+                              {rowBusy ? (
+                                <>
+                                  <Loader2 className="animate-spin" aria-hidden />
+                                  Saving...
+                                </>
+                              ) : (
+                                "Save"
+                              )}
+                            </Button>
+                          </td>
+                        ) : null}
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+          <Pagination
+            page={page}
+            limit={PAGE_SIZE}
+            total={count}
+            onPageChange={(next) => setPage(next)}
+          />
         </CardContent>
       </Card>
 
