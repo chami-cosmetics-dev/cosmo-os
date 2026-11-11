@@ -1,0 +1,134 @@
+{
+  "summary": {
+    "total": 12,
+    "updated": 12,
+    "already": 0,
+    "missing": 0,
+    "ambiguous": 0
+  },
+  "resolved": [
+    {
+      "excelRow": 89,
+      "contactId": "cmserckaw4hodwcygr7l1wgbl",
+      "name": "DR ayomi",
+      "phone": "ess+",
+      "from": null,
+      "score": 99,
+      "status": "update"
+    },
+    {
+      "excelRow": 93,
+      "contactId": "cmsfa4dvo95irwcygllitbn2v",
+      "name": "One GalleFace",
+      "phone": "+8801712089363",
+      "from": null,
+      "score": 6,
+      "status": "update"
+    },
+    {
+      "excelRow": 94,
+      "contactId": "cmsf5dwz27yspwcyglqpw9ciq",
+      "name": "Kiribathgoda Showroom",
+      "phone": "+211923312555",
+      "from": null,
+      "score": 6,
+      "status": "update"
+    },
+    {
+      "excelRow": 96,
+      "contactId": "cmserqrne4kytwcygegt85xlp",
+      "name": "MS lankani",
+      "phone": "00393801727701",
+      "from": null,
+      "score": 5,
+      "status": "update"
+    },
+    {
+      "excelRow": 97,
+      "contactId": "cmseqz6pn4el3wcyglcij7szf",
+      "name": "Mr NALAKA WIJETHUNGA",
+      "phone": "+393922296479",
+      "from": null,
+      "score": 6,
+      "status": "update"
+    },
+    {
+      "excelRow": 97,
+      "contactId": "cmseqwbnq4dynwcyghu8v71lh",
+      "name": "MR NALAKA WIJETHUNGA",
+      "phone": "00393922296479",
+      "from": null,
+      "score": 6,
+      "status": "update"
+    },
+    {
+      "excelRow": 104,
+      "contactId": "cmsf4stel7u6jwcyg3yftn0e1",
+      "name": "Kiribathgoda Showroom",
+      "phone": "+818023951801",
+      "from": null,
+      "score": 5,
+      "status": "update"
+    },
+    {
+      "excelRow": 108,
+      "contactId": "cmsk0lsvc006tl104858ipqn3",
+      "name": "Asha Asha",
+      "phone": "+940743587135",
+      "from": null,
+      "score": 5,
+      "status": "update"
+    },
+    {
+      "excelRow": 110,
+      "contactId": "cmserkos14jivwcygcmg8dr3p",
+      "name": "Ms DOROTHY",
+      "phone": "00971506900730",
+      "from": null,
+      "score": 5,
+      "status": "update"
+    },
+    {
+      "excelRow": 111,
+      "contactId": "cmseqxn5y4e97wcygu9794g31",
+      "name": "Mr Imal",
+      "phone": "00971553943502",
+      "from": null,
+      "score": 5,
+      "status": "update"
+    },
+    {
+      "excelRow": 112,
+      "contactId": "cmsf9lvxs90whwcygethuhbuk",
+      "name": "Adel Al rumeihi",
+      "phone": "+971556966690",
+      "from": null,
+      "score": 5,
+      "status": "update"
+    },
+    {
+      "excelRow": 114,
+      "contactId": "cmser4rzn4fwtwcygkn0gzhqn",
+      "name": "Ms nimodani",
+      "phone": "+971588226261",
+      "from": null,
+      "score": 6,
+      "status": "update"
+    }
+  ],
+  "leftovers": [],
+  "toUpdate": [
+    "cmserckaw4hodwcygr7l1wgbl",
+    "cmsfa4dvo95irwcygllitbn2v",
+    "cmsf5dwz27yspwcyglqpw9ciq",
+    "cmserqrne4kytwcygegt85xlp",
+    "cmseqz6pn4el3wcyglcij7szf",
+    "cmseqwbnq4dynwcyghu8v71lh",
+    "cmsf4stel7u6jwcyg3yftn0e1",
+    "cmsk0lsvc006tl104858ipqn3",
+    "cmserkos14jivwcygcmg8dr3p",
+    "cmseqxn5y4e97wcygu9794g31",
+    "cmsf9lvxs90whwcygethuhbuk",
+    "cmser4rzn4fwtwcygkn0gzhqn"
+  ]
+}

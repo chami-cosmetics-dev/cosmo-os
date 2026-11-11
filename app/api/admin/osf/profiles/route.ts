@@ -47,6 +47,7 @@ export async function GET(request: NextRequest) {
           OR: [
             { sku: { contains: q, mode: "insensitive" as const } },
             { productTitle: { contains: q, mode: "insensitive" as const } },
+            { barcode: { contains: q, mode: "insensitive" as const } },
           ],
         }
       : {}),

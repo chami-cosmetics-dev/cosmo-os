@@ -253,7 +253,7 @@ export function OsfProductEditor({
       <div className="flex flex-wrap gap-2">
         <Input
           className="min-w-[12rem] flex-1"
-          placeholder="Type at least 3 characters (SKU or title)…"
+          placeholder="Type at least 3 characters (SKU, title, or barcode)…"
           value={q}
           onChange={(e) => setQ(e.target.value)}
           onKeyDown={(e) => {

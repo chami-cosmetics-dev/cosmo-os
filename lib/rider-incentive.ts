@@ -12,12 +12,10 @@ export type RiderIncentiveInputRow = {
   excludedFromIncentive?: boolean;
   /** Store pickup. Counted as completed, omitted from incentive pay. */
   pickup?: boolean;
-  /** Incentive counts only after invoice close. Delivery count does not use this. */
-  invoiceClosed: boolean;
   financialStatus: string | null;
 };
 
-/** Same close rule as handover `isInvoiceClosed`: stamp or stage. */
+/** Invoice-close stamp/stage. Kept for statements/handover display — incentive no longer waits on it. */
 export function isRiderIncentiveUnlocked(order: {
   invoiceCompleteAt?: Date | string | null;
   fulfillmentStage?: string | null;
@@ -88,11 +86,9 @@ export function aggregateRiderIncentives(rows: RiderIncentiveInputRow[]): Array<
       };
     existing.completedCount += 1;
     if (row.pickup) existing.pickupCount += 1;
-    if (row.invoiceClosed) {
-      existing.incentiveTotal = existing.incentiveTotal.add(normalizeIncentiveAmount(row.incentiveAmount));
-      if (row.matched === false && !row.excludedFromIncentive) {
-        existing.unmatchedCount += 1;
-      }
+    existing.incentiveTotal = existing.incentiveTotal.add(normalizeIncentiveAmount(row.incentiveAmount));
+    if (row.matched === false && !row.excludedFromIncentive) {
+      existing.unmatchedCount += 1;
     }
     map.set(row.riderId, existing);
   }
