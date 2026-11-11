@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { assignItemCreationDigitalMarketingUser } from "@/lib/item-creation/workflow";
 import { requireAnyPermission } from "@/lib/rbac";
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 
 const PERMISSIONS = ["item_creation.digital_marketing.admin", "item_creation.admin.manage_all"];
 
@@ -9,6 +10,7 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  if (isVaultOsDeployment()) return NextResponse.json({ error: "Item assignment is unavailable in Vault OS" }, { status: 404 });
   const auth = await requireAnyPermission(PERMISSIONS);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
   try {

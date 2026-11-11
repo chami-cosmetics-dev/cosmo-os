@@ -31,6 +31,7 @@ import {
 } from "@/lib/task-reminder-access";
 import { taskReminderHref } from "@/lib/task-reminder-links";
 import { TASK_REMINDER_SLA_MS } from "@/lib/task-reminder-sla";
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 
 export { TASK_REMINDER_SLA_HOURS, TASK_REMINDER_SLA_MS } from "@/lib/task-reminder-sla";
 const REMINDER_LIMIT_PER_CATEGORY = 20;
@@ -993,7 +994,12 @@ async function fetchItemCreationReminders(companyId: string, context: Permission
     } else if (request.seoSetupStatus === "ITEM_CREATED" && request.digitalMarketingStatus === "PENDING") {
       stage = "Digital Marketing image";
       since = request.itemCreatedAt ?? request.createdAt;
-      relevant ||= canDigital && (canDigitalAdmin || !request.digitalMarketingAssigneeId || request.digitalMarketingAssigneeId === context.userId);
+      relevant ||= canDigital && (
+        isVaultOsDeployment() ||
+        canDigitalAdmin ||
+        !request.digitalMarketingAssigneeId ||
+        request.digitalMarketingAssigneeId === context.userId
+      );
     } else if (request.purchasingStatus === "WAITING_FOR_PRICES") {
       stage = "Purchasing prices";
       relevant ||= canPurchasing;

@@ -429,10 +429,11 @@ async function ensureErpItem(input: {
   brand: string;
   barcodes: string[];
   taxStatus: string;
+  countryClaimType?: string | null;
 }) {
   const existing = await getErpDoc<Record<string, unknown>>(input.cfg, "Item", input.itemCode);
   if (existing) {
-    const body: Record<string, unknown> = isVaultOsDeployment() ? {} : { custom_tax_status: input.taxStatus };
+    const body: Record<string, unknown> = isVaultOsDeployment() ? { ...(input.countryClaimType ? { custom_country_claim_type: input.countryClaimType } : {}) } : { custom_tax_status: input.taxStatus };
     if (input.barcodes.length > 0) {
       body.barcodes = input.barcodes.map((barcode) => ({ barcode }));
     }
@@ -453,6 +454,7 @@ async function ensureErpItem(input: {
     brand: input.brand.trim() || undefined,
     description: `${itemName} in Sri Lanka`,
     ...(isVaultOsDeployment() ? {} : { custom_tax_status: input.taxStatus }),
+    ...(isVaultOsDeployment() && input.countryClaimType ? { custom_country_claim_type: input.countryClaimType } : {}),
     barcodes: input.barcodes.map((barcode) => ({ barcode })),
   });
   await setErpItemProductPriority(input.cfg, input.itemCode);
@@ -477,7 +479,7 @@ export async function handleErp1ItemWebhook(companyIds: string[], payload: ErpIt
       sku: { equals: itemCode, mode: "insensitive" },
       overallStatus: "IN_PROGRESS",
     },
-    select: { id: true, companyId: true, creationSources: true, seoSetupStatus: true, taxStatus: true },
+    select: { id: true, companyId: true, creationSources: true, seoSetupStatus: true, taxStatus: true, countryClaimType: true },
   });
   if (requests.length === 0) return { matched: 0, skipped: "no_active_request" };
 
@@ -535,6 +537,23 @@ export async function handleErp1ItemWebhook(companyIds: string[], payload: ErpIt
           metadata: { itemCode, error: message.slice(0, 700) },
         },
       });
+    }
+
+    if (isVaultOsDeployment() && request.countryClaimType && Array.isArray(request.creationSources) && request.creationSources.includes("SHOPIFY")) {
+      try {
+        const { erp1 } = await resolveErps(request.companyId);
+        if (!erp1) throw new Error("ERP1 instance is not configured");
+        await updateErpDoc(erp1.cfg, "Item", itemCode, { custom_country_claim_type: request.countryClaimType });
+      } catch (error) {
+        await prisma.itemCreationActivity.create({
+          data: {
+            itemRequestId: request.id,
+            type: "ERP1_COUNTRY_CLAIM_TYPE_FAILED",
+            source: "SYSTEM",
+            metadata: { itemCode, error: error instanceof Error ? error.message.slice(0, 700) : "Update failed" },
+          },
+        });
+      }
     }
 
     if (!isVaultOsDeployment() && Array.isArray(request.creationSources) && request.creationSources.includes("SHOPIFY")) {
@@ -597,6 +616,7 @@ export async function handleErp1ItemWebhook(companyIds: string[], payload: ErpIt
         brand,
         barcodes,
         taxStatus: request.taxStatus,
+        countryClaimType: request.countryClaimType,
       });
       await prisma.$transaction(async (tx) => {
         await tx.itemCreationRequest.update({
@@ -796,6 +816,7 @@ export async function syncItemCreationSourceChanges(
       sku: true,
       description: true,
       taxStatus: true,
+      countryClaimType: true,
       creationSources: true,
       seoSetupStatus: true,
       erp1ItemCode: true,
@@ -842,6 +863,7 @@ export async function syncItemCreationSourceChanges(
       brand,
       barcodes,
       taxStatus: request.taxStatus,
+      countryClaimType: request.countryClaimType,
     });
     if (source === "SHOPIFY") {
       Object.assign(patch, {

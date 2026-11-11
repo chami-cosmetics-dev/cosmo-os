@@ -71,9 +71,11 @@ function marginLabel(fraction: number | null): string {
 }
 
 export function PurchaseHistoryPanel({
+  canReadPurchaseHistory,
   canReadHighRisk,
   canManageHighRisk,
 }: {
+  canReadPurchaseHistory: boolean;
   canReadHighRisk: boolean;
   canManageHighRisk: boolean;
 }) {
@@ -102,7 +104,9 @@ export function PurchaseHistoryPanel({
   const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [generatingMarginReport, setGeneratingMarginReport] = useState(false);
-  const [view, setView] = useState<"history" | "high-risk">("history");
+  const [view, setView] = useState<"history" | "high-risk">(
+    canReadPurchaseHistory ? "history" : "high-risk",
+  );
   const [highRiskRows, setHighRiskRows] = useState<HighRiskRow[]>([]);
   const [highRiskLoading, setHighRiskLoading] = useState(false);
   const [highRiskExporting, setHighRiskExporting] = useState(false);
@@ -231,7 +235,11 @@ export function PurchaseHistoryPanel({
   }, []);
 
   useEffect(() => {
-    void load(0);
+    if (canReadPurchaseHistory) void load(0);
+    else if (canReadHighRisk) {
+      void loadHighRisk();
+      void loadHighRiskSuppliers();
+    }
     // Initial load only — Apply button refreshes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -320,15 +328,15 @@ export function PurchaseHistoryPanel({
   return (
     <div className="space-y-4 p-6">
       <div>
-        <h1 className="text-xl font-semibold">Purchase History</h1>
-        <p className="text-sm text-muted-foreground">
+        <h1 className="text-xl font-semibold">{canReadPurchaseHistory ? "Purchase History" : "High Risk Items"}</h1>
+        {canReadPurchaseHistory ? <p className="text-sm text-muted-foreground">
           Live ERP Purchase Invoices from both ERPs (cancelled, returns, and intercompany cash
           suppliers excluded). Click a row to open the invoice in ERP.
-        </p>
+        </p> : <p className="text-sm text-muted-foreground">Items currently in the high-risk reorder range.</p>}
       </div>
 
       <div className="flex gap-2 border-b">
-        <Button variant={view === "history" ? "default" : "ghost"} onClick={() => setView("history")}>Purchase History</Button>
+        {canReadPurchaseHistory ? <Button variant={view === "history" ? "default" : "ghost"} onClick={() => setView("history")}>Purchase History</Button> : null}
         {canReadHighRisk ? <Button variant={view === "high-risk" ? "default" : "ghost"} onClick={() => { setView("high-risk"); void loadHighRisk(); void loadHighRiskSuppliers(); }}>High Risk Items</Button> : null}
       </div>
 
