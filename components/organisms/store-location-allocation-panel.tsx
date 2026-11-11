@@ -75,6 +75,7 @@ export function StoreLocationAllocationPanel() {
   const [manualAllocationSkus, setManualAllocationSkus] = useState<Set<string>>(() => new Set());
   const [createdReceipts, setCreatedReceipts] = useState<string[]>([]);
   const [creatingPr, setCreatingPr] = useState(false);
+  const [purchaseReceiptMessage, setPurchaseReceiptMessage] = useState<string | null>(null);
   const [walkIndex, setWalkIndex] = useState(0);
   const [exporting, setExporting] = useState(false);
   const lastScanAt = useRef(0);
@@ -477,7 +478,11 @@ export function StoreLocationAllocationPanel() {
       notify.error("Every allocated location needs a warehouse and ERP instance");
       return;
     }
+    setCreatedReceipts([]);
     setCreatingPr(true);
+    setPurchaseReceiptMessage(
+      `Creating Purchase Receipt${payload.length === 1 ? "" : "s"} for ${payload.length} allocated warehouse ${payload.length === 1 ? "row" : "rows"}. Please wait...`,
+    );
     try {
       const res = await fetch("/api/admin/store-allocation/purchase-receipts", {
         method: "POST",
@@ -488,9 +493,16 @@ export function StoreLocationAllocationPanel() {
       if (!res.ok) throw new Error(data.error ?? "Purchase Receipt creation failed");
       const receipts = Array.isArray(data.receipts) ? data.receipts.map(String) : [];
       setCreatedReceipts(receipts);
+      setPurchaseReceiptMessage(
+        receipts.length === 1
+          ? `Purchase Receipt created: ${receipts[0]}`
+          : `${receipts.length} Purchase Receipts created successfully.`,
+      );
       notify.success(`${receipts.length} Purchase Receipt(s) created`);
     } catch (error) {
-      notify.error(error instanceof Error ? error.message : "Purchase Receipt creation failed");
+      const errorMessage = error instanceof Error ? error.message : "Purchase Receipt creation failed";
+      setPurchaseReceiptMessage(errorMessage);
+      notify.error(errorMessage);
     } finally {
       setCreatingPr(false);
     }
@@ -830,6 +842,14 @@ export function StoreLocationAllocationPanel() {
                       );
                     })}
                   </ul>
+                </div>
+              )}
+              {purchaseReceiptMessage && (
+                <div className={`mt-3 rounded-md border p-3 text-sm ${creatingPr ? "border-blue-500/40 bg-blue-500/10" : createdReceipts.length > 0 ? "border-emerald-500/40 bg-emerald-500/10" : "border-destructive/50 bg-destructive/10 text-destructive"}`}>
+                  <p className="font-medium">
+                    {creatingPr ? "Creating Purchase Receipts" : createdReceipts.length > 0 ? "Purchase Receipt result" : "Purchase Receipt could not be created"}
+                  </p>
+                  <p className="mt-1">{purchaseReceiptMessage}</p>
                 </div>
               )}
               <div className="mt-4 overflow-x-auto">

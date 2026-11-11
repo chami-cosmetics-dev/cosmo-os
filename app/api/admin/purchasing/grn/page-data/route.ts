@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { resolveViewerFinanceLocationIds } from "@/lib/approval-workflow";
 import { buildGrnCompanyResolver } from "@/lib/grn-company-resolver";
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 import { autoMatchBackfillIntercompanyGrn, autoMatchIntercompanyGrn, bestGrnMatchForStockReturn, calculateGrnMatchPercentage, isWithinGrnMatchCreationWindow, tallyLinkedItems } from "@/lib/grn";
 import { isIntercompanyPurchaseSupplier } from "@/lib/osf/erp-purchases";
 import { prisma } from "@/lib/prisma";
@@ -150,6 +151,7 @@ export async function GET(request: NextRequest) {
     !canViewHandover &&
     !canViewValued &&
     !hasPermission(context, "purchasing.grn.match_ssr");
+  const requiresVerificationBeforeGrnReceived = !isVaultOsDeployment();
   const financeLocationIds = shouldScopeToUserCompany
     ? await resolveViewerFinanceLocationIds(user.id, userCompanyId, roleNames)
     : null;
@@ -162,7 +164,9 @@ export async function GET(request: NextRequest) {
       : {};
   const stageVisibilityScope =
     shouldShowOnlyValuedForReceived
-      ? { valuedAt: { not: null } }
+      ? requiresVerificationBeforeGrnReceived
+        ? { valuedAt: { not: null }, handoverReceivedAt: { not: null } }
+        : { valuedAt: { not: null } }
       : shouldShowOnlyHandoveredForValued
         ? { handoverAt: { not: null } }
         : {};

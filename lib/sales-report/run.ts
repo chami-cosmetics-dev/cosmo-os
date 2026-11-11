@@ -1,13 +1,9 @@
-import fs from "node:fs/promises";
-import path from "node:path";
 import * as ExcelJS from "exceljs";
-import { HyperFormula } from "hyperformula";
 import * as fflate from "fflate";
 import SaleEngine from "./engine";
 import { SALES_REPORT_DEFAULTS } from "./defaults";
 import { loadSalesReportInputs } from "./data";
 import { loadSalesReportConfig } from "./config";
-import { prepareSalesReportTemplate } from "./template-layout";
 
 type ReportSettings = Record<string, unknown>;
 
@@ -24,6 +20,7 @@ export function mergeSalesReportSettings(saved?: ReportSettings) {
 export function salesReportSettingsForClient(settings: ReportSettings) {
   return {
     rows: settings.rows,
+    saleAllocations: settings.saleAllocations,
     maps: { ship: settings.ship, mer: settings.mer, special: settings.special, email: settings.email, override: settings.override, vatTo: settings.vatTo, noVatCoupons: settings.noVatCoupons, poya: settings.poya, outletWarehouses: settings.outletWarehouses },
     options: { shopifyDefault: settings.shopifyDefault, staffKeyword: settings.staffKeyword, vatLocation: settings.vatLocation, palmersBrand: settings.palmersBrand, excludeStatus: settings.excludeStatus },
   };
@@ -55,8 +52,5 @@ export async function buildSalesReportFile(companyId: string, fromDate: string, 
   }
   if (kind === "review") return { buffer: await SaleEngine.buildReview(ExcelJS, result), fileName: `Cosmetics Review ${dot}.xlsx` };
   if (kind === "workings") return { buffer: await SaleEngine.buildWorkings(ExcelJS, result, settings), fileName: `Sale Workings ${dot}.xlsx` };
-  const templateFile = await fs.readFile(path.join(process.cwd(), "lib", "sales-report", "Report Template.xlsx"));
-  const template = await prepareSalesReportTemplate(templateFile, settings as Parameters<typeof prepareSalesReportTemplate>[1], SALES_REPORT_DEFAULTS.rows as Parameters<typeof prepareSalesReportTemplate>[2]);
-  const report = await SaleEngine.buildReport(ExcelJS, HyperFormula, template, result, settings, { vat: {}, palmers: {} });
-  return { buffer: report.buffer, fileName: `Merchants Targets Achievement ${dot}.xlsx` };
+  return { buffer: await SaleEngine.buildCosmoReport(ExcelJS, result, settings), fileName: `Merchants Targets Achievement ${dot}.xlsx` };
 }
