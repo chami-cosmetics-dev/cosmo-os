@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 import { autoMatchIntercompanyGrn, tallyPurchaseInvoicePrices } from "@/lib/grn";
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserContext, requirePermission } from "@/lib/rbac";
 
@@ -69,6 +70,7 @@ export async function POST(
   const { name } = await params;
   const decodedName = decodeURIComponent(name);
   const targetCompanyId = parsed.data.companyId ?? companyId;
+  const requiresVerificationBeforeValuation = isVaultOsDeployment();
 
   if (parsed.data.isBackfill) {
     const row = await prisma.grnBackfillPurchaseReceipt.findUnique({
@@ -102,6 +104,9 @@ export async function POST(
       if (parsed.data.field !== "handoverAt" || !row.handoverAt || row.receivedAt) {
         return NextResponse.json({ error: "Mark handover before marking it received" }, { status: 409 });
       }
+      if (!requiresVerificationBeforeValuation && !row.valuedAt) {
+        return NextResponse.json({ error: "Mark valued before verifying the handover" }, { status: 409 });
+      }
       await update({ handoverReceivedAt: now, handoverReceivedById: user.id, notReceivedAt: null, notReceivedById: null, handoverRevertedAt: null, handoverRevertedById: null });
       return NextResponse.json({ ok: true });
     }
@@ -120,14 +125,18 @@ export async function POST(
         data.handoverReceivedAt = null;
         data.handoverReceivedById = null;
       }
+      if (!requiresVerificationBeforeValuation && parsed.data.field === "valuedAt") {
+        data.handoverReceivedAt = null;
+        data.handoverReceivedById = null;
+      }
       await update(data);
       return NextResponse.json({ ok: true });
     }
-    if (parsed.data.field === "valuedAt" && (!row.handoverAt || !row.handoverReceivedAt)) {
-      return NextResponse.json({ error: "Mark handover received before marking valued" }, { status: 409 });
+    if (parsed.data.field === "valuedAt" && (!row.handoverAt || (requiresVerificationBeforeValuation && !row.handoverReceivedAt))) {
+      return NextResponse.json({ error: requiresVerificationBeforeValuation ? "Mark handover received before marking valued" : "Mark handover before marking valued" }, { status: 409 });
     }
-    if (parsed.data.field === "receivedAt" && (!row.handoverAt || !row.valuedAt)) {
-      return NextResponse.json({ error: "Mark handover and valued before marking GRN received" }, { status: 409 });
+    if (parsed.data.field === "receivedAt" && (!row.handoverAt || !row.valuedAt || (!requiresVerificationBeforeValuation && !row.handoverReceivedAt))) {
+      return NextResponse.json({ error: requiresVerificationBeforeValuation ? "Mark handover and valued before marking GRN received" : "Mark handover, valued, and verified before marking GRN received" }, { status: 409 });
     }
     await update({
       [parsed.data.field]: now,
@@ -203,6 +212,9 @@ export async function POST(
     }
     if (row.receivedAt) {
       return NextResponse.json({ error: "GRN received rows cannot be marked not received" }, { status: 409 });
+    }
+    if (!requiresVerificationBeforeValuation && !row.valuedAt) {
+      return NextResponse.json({ error: "Mark valued before verifying the handover" }, { status: 409 });
     }
 
     await prisma.$transaction(async (tx) => {
@@ -287,6 +299,10 @@ export async function POST(
       data.handoverReceivedAt = null;
       data.handoverReceivedById = null;
     }
+    if (!requiresVerificationBeforeValuation && parsed.data.field === "valuedAt") {
+      data.handoverReceivedAt = null;
+      data.handoverReceivedById = null;
+    }
     await prisma.grnPurchaseReceipt.update({
       where: { companyId_name: { companyId: targetCompanyId, name: decodedName } },
       data,
@@ -294,11 +310,11 @@ export async function POST(
     await autoMatchIntercompanyGrn();
     return NextResponse.json({ ok: true });
   }
-  if (parsed.data.field === "valuedAt" && (!row.handoverAt || !row.handoverReceivedAt)) {
-    return NextResponse.json({ error: "Mark handover received before marking valued" }, { status: 409 });
+  if (parsed.data.field === "valuedAt" && (!row.handoverAt || (requiresVerificationBeforeValuation && !row.handoverReceivedAt))) {
+    return NextResponse.json({ error: requiresVerificationBeforeValuation ? "Mark handover received before marking valued" : "Mark handover before marking valued" }, { status: 409 });
   }
-  if (parsed.data.field === "receivedAt" && (!row.handoverAt || !row.valuedAt)) {
-    return NextResponse.json({ error: "Mark handover and valued before marking GRN received" }, { status: 409 });
+  if (parsed.data.field === "receivedAt" && (!row.handoverAt || !row.valuedAt || (!requiresVerificationBeforeValuation && !row.handoverReceivedAt))) {
+    return NextResponse.json({ error: requiresVerificationBeforeValuation ? "Mark handover and valued before marking GRN received" : "Mark handover, valued, and verified before marking GRN received" }, { status: 409 });
   }
 
   await prisma.$transaction(async (tx) => {

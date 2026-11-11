@@ -183,6 +183,14 @@ const DEFAULT_PERMISSIONS = [
     description: "View the Purchase History dashboard",
   },
   {
+    key: "purchasing.high_risk.read",
+    description: "View High Risk Items in Purchase History",
+  },
+  {
+    key: "purchasing.high_risk.manage",
+    description: "Update High Risk Item order and reason details",
+  },
+  {
     key: "purchasing.item_trends.read",
     description:
       "View Item Trends super dashboard (movement, outlets, ROP suggestions, districts)",
@@ -816,6 +824,8 @@ const DEFAULT_ROLES = [
       "purchasing.tools.read",
       "purchasing.tools.manage",
       "purchasing.purchase_history.read",
+      "purchasing.high_risk.read",
+      "purchasing.high_risk.manage",
       "purchasing.item_trends.read",
       "purchasing.market_prices.read",
       "purchasing.market_prices.manage",

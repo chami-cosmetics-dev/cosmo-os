@@ -29,6 +29,18 @@ export function validateSalesReportConfig(settings: Record<string, unknown>): st
     const outlet = String(item.outlet).trim();
     if (Number(item.row) === 0 && outlet.toLowerCase() !== "online" && ![...originalRows.values()].includes(outlet.toLowerCase()) && !warehouses.some((pair) => String(pair?.[0] ?? "").toLowerCase() === outlet.toLowerCase() && String(pair?.[1] ?? "").trim())) return `Add a warehouse for ${outlet}`;
   }
+  const allocations = settings.saleAllocations;
+  if (allocations !== undefined) {
+    if (!Array.isArray(allocations) || allocations.length > 100) return "Use up to 100 sale allocations";
+    for (const item of allocations) {
+      if (!item || typeof item !== "object" || Array.isArray(item)) return "Invalid sale allocation";
+      const allocation = item as Record<string, unknown>;
+      const from = String(allocation.from ?? "").trim(), to = String(allocation.to ?? "").trim();
+      const fromDate = String(allocation.fromDate ?? ""), toDate = String(allocation.toDate ?? "");
+      const percent = Number(allocation.percent ?? 100);
+      if (!from || !to || from.toLowerCase() === to.toLowerCase() || !/^\d{4}-\d{2}-\d{2}$/.test(fromDate) || !/^\d{4}-\d{2}-\d{2}$/.test(toDate) || fromDate > toDate || !Number.isFinite(percent) || percent <= 0 || percent > 100) return "Each sale allocation needs two different merchants, a valid date range, and a percentage from 1 to 100";
+    }
+  }
   return null;
 }
 

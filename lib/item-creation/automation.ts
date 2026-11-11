@@ -1347,6 +1347,44 @@ async function createPurchaseReceipt(input: {
   return String(submitted.name ?? name);
 }
 
+/** Convert ERPNext's technical response into an action the stores team can understand. */
+function describePurchaseReceiptError(
+  error: unknown,
+  input: { erpLabel: string; itemCodes: string[]; warehouse?: string },
+) {
+  const raw = error instanceof Error ? error.message : "Purchase Receipt creation failed";
+  const text = raw.replace(/\\n/g, " ").replace(/\\"/g, '"').replace(/\s+/g, " ").trim();
+  const itemCodes = [...new Set(input.itemCodes.filter(Boolean))];
+  const mentionedItem = itemCodes.find((itemCode) =>
+    text.toLowerCase().includes(itemCode.toLowerCase()),
+  );
+  const itemLabel = mentionedItem ?? (itemCodes.length === 1 ? itemCodes[0] : null);
+
+  if (/(could not find|not found|does not exist|invalid link).*\bitem\b|\bitem\b.*(could not find|not found|does not exist)/i.test(text)) {
+    return itemLabel
+      ? `Item ${itemLabel} is not available in ${input.erpLabel}. Create or sync it in ${input.erpLabel}, then retry the Purchase Receipt.`
+      : `One or more selected items are not available in ${input.erpLabel}. Create or sync them in ${input.erpLabel}, then retry the Purchase Receipt.`;
+  }
+  if (/(could not find|not found|does not exist|invalid link).*\bsupplier\b|\bsupplier\b.*(could not find|not found|does not exist)/i.test(text)) {
+    return `The selected supplier is not available in ${input.erpLabel}. Select a supplier configured in ${input.erpLabel}, then retry.`;
+  }
+  if (/(could not find|not found|does not exist|invalid link).*\bwarehouse\b|\bwarehouse\b.*(could not find|not found|does not exist)/i.test(text)) {
+    return `The selected warehouse${input.warehouse ? ` (${input.warehouse})` : ""} is not available in ${input.erpLabel}. Refresh the warehouse list and retry.`;
+  }
+  if (/company.*(not found|does not exist)|could not find company/i.test(text)) {
+    return `The company linked to the selected warehouse is not available in ${input.erpLabel}. Check the warehouse company configuration, then retry.`;
+  }
+  if (/insufficient stock|negative stock/i.test(text)) {
+    return `Purchase Receipt could not be created in ${input.erpLabel} because ERPNext reported insufficient stock. Check the selected item and warehouse, then retry.`;
+  }
+
+  const detail = text
+    .replace(/^ERPNext\s+(?:POST|PUT)\s+.*?\[\d+\]:\s*/i, "")
+    .replace(/^\{?\s*"?(?:exc_type|exception)"?\s*:\s*"?[^,]+,?\s*/i, "")
+    .slice(0, 220);
+  return `Purchase Receipt could not be created in ${input.erpLabel}${itemLabel ? ` for item ${itemLabel}` : ""}.${detail ? ` ERPNext reported: ${detail}` : ""}`;
+}
+
 export async function createStoreAllocationPurchaseReceipts(
   context: UserContext,
   input: {
@@ -1367,7 +1405,7 @@ export async function createStoreAllocationPurchaseReceipts(
 
   const instances = await getAllOsfErpInstances(companyId(context));
   const instanceById = new Map(instances.map((instance) => [instance.id, instance]));
-  const groups = new Map<string, { cfg: OsfErpCredentials; company: string; warehouse: string; items: typeof input.items }>();
+  const groups = new Map<string, { cfg: OsfErpCredentials; erpLabel: string; company: string; warehouse: string; items: typeof input.items }>();
 
   for (const item of input.items) {
     const sku = item.sku?.trim();
@@ -1380,26 +1418,40 @@ export async function createStoreAllocationPurchaseReceipts(
     const company = await getWarehouseCompany(instance.cfg, warehouse);
     if (!company) throw new Error(`Company is not configured on warehouse ${warehouse}`);
     const key = `${instance.id}:${company}:${warehouse}`;
-    const group = groups.get(key) ?? { cfg: instance.cfg, company, warehouse, items: [] };
+    const group = groups.get(key) ?? {
+      cfg: instance.cfg,
+      erpLabel: instance.label?.trim() || "the selected ERP",
+      company,
+      warehouse,
+      items: [],
+    };
     group.items.push(item);
     groups.set(key, group);
   }
 
   const receipts: string[] = [];
   for (const group of groups.values()) {
-    receipts.push(await createPurchaseReceipt({
-      cfg: group.cfg,
-      supplier,
-      warehouse: group.warehouse,
-      company: group.company,
-      createdByEmail: context.user?.email?.trim() || undefined,
-      postingDate: new Date().toISOString().slice(0, 10),
-      items: group.items.map((item) => ({
-        itemCode: item.sku,
-        qty: new Prisma.Decimal(item.qty),
-        warehouse: item.warehouse,
-      })),
-    }));
+    try {
+      receipts.push(await createPurchaseReceipt({
+        cfg: group.cfg,
+        supplier,
+        warehouse: group.warehouse,
+        company: group.company,
+        createdByEmail: context.user?.email?.trim() || undefined,
+        postingDate: new Date().toISOString().slice(0, 10),
+        items: group.items.map((item) => ({
+          itemCode: item.sku,
+          qty: new Prisma.Decimal(item.qty),
+          warehouse: item.warehouse,
+        })),
+      }));
+    } catch (error) {
+      throw new Error(describePurchaseReceiptError(error, {
+        erpLabel: group.erpLabel,
+        itemCodes: group.items.map((item) => item.sku),
+        warehouse: group.warehouse,
+      }));
+    }
   }
   return receipts;
 }
@@ -1607,7 +1659,11 @@ export async function createWarehousePurchaseReceipts(
         }
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Purchase Receipt creation failed";
+      const message = describePurchaseReceiptError(error, {
+        erpLabel: erp,
+        itemCodes: receipt.items.map((item) => item.itemCode),
+        warehouse: receiptGroup.warehouse,
+      });
       await prisma.$transaction(async (tx) => {
         await tx.itemCreationStockReceipt.update({
           where: { id: receipt.id },
