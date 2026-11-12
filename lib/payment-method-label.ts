@@ -67,6 +67,12 @@ export function getPaymentMethodInfo(input?: {
   if (normalized.replace(/[^a-z0-9]+/g, "").includes("mintpay")) {
     return { label: "Mintpay", variant: "paid" };
   }
+  if (
+    normalized.includes("amex") ||
+    normalized.replace(/[^a-z0-9]+/g, "").includes("americanexpress")
+  ) {
+    return { label: "AMEX", variant: "paid" };
+  }
   if (isAlreadyPaidCardCheckoutGateway(primary)) {
     return { label: normalized.includes("webxpay") ? "WebXPay" : "CC Checkout", variant: "card" };
   }
@@ -75,8 +81,7 @@ export function getPaymentMethodInfo(input?: {
     normalized.includes("card") ||
     normalized.includes("shopify payments") ||
     normalized.includes("visa") ||
-    normalized.includes("mastercard") ||
-    normalized.includes("amex")
+    normalized.includes("mastercard")
   ) {
     return { label: "Card", variant: "card" };
   }

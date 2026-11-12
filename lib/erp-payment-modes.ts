@@ -18,6 +18,7 @@ const MOP_FIELD_DEFS = [
   { key: "webxpay", label: "WebXPay", field: "webxpayMop" as const },
   { key: "mintpay", label: "Mintpay", field: "mintpayMop" as const },
   { key: "citypak", label: "City Pak", field: "citypakMop" as const },
+  { key: "amex", label: "AMEX", field: "amexMop" as const },
 ] as const;
 
 type ErpInstanceMops = {
@@ -29,6 +30,7 @@ type ErpInstanceMops = {
   webxpayMop: string | null;
   mintpayMop: string | null;
   citypakMop: string | null;
+  amexMop: string | null;
 };
 
 function mopNameKey(mopName: string): string {
@@ -88,6 +90,7 @@ export async function listCompanyErpPaymentModes(companyId: string): Promise<Erp
       webxpayMop: true,
       mintpayMop: true,
       citypakMop: true,
+      amexMop: true,
     },
   });
 
