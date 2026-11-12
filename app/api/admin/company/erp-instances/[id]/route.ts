@@ -19,6 +19,7 @@ const updateErpInstanceSchema = z.object({
   webxpayMop: z.string().max(200).optional().nullable(),
   mintpayMop: z.string().max(200).optional().nullable(),
   citypakMop: z.string().max(200).optional().nullable(),
+  amexMop: z.string().max(200).optional().nullable(),
   taxesAndCharges: z.string().max(200).optional().nullable(),
   shippingRule: z.string().max(200).optional().nullable(),
   shippingItem: z.string().max(200).optional().nullable(),

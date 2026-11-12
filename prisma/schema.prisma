@@ -186,6 +186,8 @@ model ErpnextInstance {
   mintpayMop            String?
   /// ERP Mode of Payment for Citypak/City Pack courier collections (e.g. "City Pak").
   citypakMop            String?
+  /// ERP Mode of Payment for AMEX card collections (e.g. "AMEX").
+  amexMop               String?
   taxesAndCharges       String?
   shippingRule          String?
   shippingItem          String?

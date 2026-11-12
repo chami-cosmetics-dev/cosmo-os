@@ -32,6 +32,7 @@ import {
   orderHasEarlyFinancialInvoiceCompleteGateway,
 } from "@/lib/delivery-payment-approval";
 import {
+  isAmexGateway,
   isMintpayGateway,
   resolveBankTransferMopName,
   resolveMintpayMopName,
@@ -113,6 +114,7 @@ type ErpConfig = {
   webxpayMop: string;
   mintpayMop: string;
   citypakMop: string;
+  amexMop: string;
   taxesAndCharges: string;
   shippingRule: string;
   shippingItem: string;
@@ -132,6 +134,7 @@ export function getErpConfig(instance: ErpnextInstance | null): ErpConfig {
     webxpayMop: instance?.webxpayMop ?? process.env.ERPNEXT_WEBXPAY_MOP ?? "",
     mintpayMop: resolveMintpayMopName(instance?.mintpayMop),
     citypakMop: instance?.citypakMop ?? process.env.ERPNEXT_CITYPAK_MOP ?? "",
+    amexMop: instance?.amexMop ?? process.env.ERPNEXT_AMEX_MOP ?? "AMEX",
     taxesAndCharges: instance?.taxesAndCharges ?? process.env.ERPNEXT_TAXES_AND_CHARGES ?? "",
     shippingRule: instance?.shippingRule ?? process.env.ERPNEXT_SHIPPING_RULE ?? "",
     shippingItem: instance?.shippingItem ?? process.env.ERPNEXT_SHIPPING_ITEM ?? "",
@@ -204,6 +207,7 @@ function resolveErpPaymentType(cfg: ErpConfig, gateways: string[]): string | nul
     const lower = g.toLowerCase().trim();
     if (lower.includes("koko")) return cfg.kokoMop;
     if (isMintpayGateway(g)) return cfg.mintpayMop;
+    if (isAmexGateway(g)) return cfg.amexMop || null;
     if (lower.includes("webxpay") || isCcCheckoutGateway(g)) return cfg.webxpayMop || null;
     if (lower.includes("credit card") || lower.includes("card delivery") || lower.includes("card payment")) return cfg.cardDeliveryMop;
     if (lower.includes("bank transfer") || lower.includes("bank draft") || lower.includes("wire")) return cfg.bankTransferMop;
@@ -223,6 +227,7 @@ function resolvePrepaidMop(cfg: ErpConfig, gateways: string[]): string | null {
   const lower = gateways.map((g) => g.toLowerCase().trim());
   if (lower.some((g) => g.includes("koko"))) return cfg.kokoMop;
   if (gateways.some((g) => isMintpayGateway(g))) return cfg.mintpayMop;
+  if (gateways.some((g) => isAmexGateway(g))) return cfg.amexMop || null;
   if (lower.some((g) => g.includes("webxpay") || isCcCheckoutGateway(g))) return cfg.webxpayMop || null;
   if (lower.some((g) => g.includes("bank"))) return cfg.bankTransferMop;
   return null;
