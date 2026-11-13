@@ -443,6 +443,7 @@ function validateCreateInput(input: {
   gccPrice?: unknown;
   addErp1OgfPrice?: unknown;
   country?: string;
+  countryClaimType?: string;
   taxStatus?: unknown;
   creationSources?: unknown;
 }) {
@@ -471,7 +472,7 @@ function validateCreateInput(input: {
   if (creationSources.length === 0) throw new Error("At least one creation source is required");
   const addErp1OgfPrice = requestedErp1OgfPrice || Boolean(ogfPrice && !creationSources.includes("ERP2"));
   if (addErp1OgfPrice && !ogfPrice) throw new Error("OGF Price is required when adding OGF to ERP1");
-  return { sku, standardPrice, ogfPrice, gccPrice, addErp1OgfPrice, description, country, taxStatus, creationSources };
+  return { sku, standardPrice, ogfPrice, gccPrice, addErp1OgfPrice, description, country, countryClaimType: vaultOs ? input.countryClaimType?.trim() || null : null, taxStatus, creationSources };
 }
 
 function validateDetailsInput(input: {
@@ -482,6 +483,7 @@ function validateDetailsInput(input: {
   gccPrice?: unknown;
   addErp1OgfPrice?: unknown;
   country?: string;
+  countryClaimType?: string;
   taxStatus?: unknown;
   creationSources?: unknown;
 }) {
@@ -498,6 +500,7 @@ export async function createItemRequests(
     gccPrice?: unknown;
     addErp1OgfPrice?: unknown;
     country?: string;
+    countryClaimType?: string;
     taxStatus?: unknown;
     creationSources?: unknown;
   }>
@@ -518,10 +521,12 @@ export async function createItemRequests(
   await assertSkusDoNotExistInErp(company, validated.map((item) => item.sku));
 
   return prisma.$transaction(async (tx) => {
-    const brandAllocations = await tx.itemCreationBrandAllocation.findMany({
-      where: { companyId: company },
-      select: { brand: true, userId: true, userIds: true },
-    });
+    const brandAllocations = isVaultOsDeployment()
+      ? []
+      : await tx.itemCreationBrandAllocation.findMany({
+          where: { companyId: company },
+          select: { brand: true, userId: true, userIds: true },
+        });
     const active = await tx.itemCreationRequest.findMany({
       where: {
         companyId: company,
@@ -538,7 +543,9 @@ export async function createItemRequests(
 
     const created = [];
     for (const item of validated) {
-      const allocation = findBrandAllocation(item.description, brandAllocations);
+      const allocation = isVaultOsDeployment()
+        ? null
+        : findBrandAllocation(item.description, brandAllocations);
       const request = await tx.itemCreationRequest.create({
         data: {
           companyId: company,
@@ -549,6 +556,7 @@ export async function createItemRequests(
           gccPrice: item.gccPrice,
           addErp1OgfPrice: item.addErp1OgfPrice,
           country: item.country,
+          countryClaimType: item.countryClaimType,
           taxStatus: item.taxStatus,
           creationSources: item.creationSources,
           digitalMarketingBrand: allocation?.brand ?? null,
@@ -586,7 +594,7 @@ export async function listItemRequests(context: UserContext, filters: Record<str
     canUseItemCreation(context, ITEM_CREATION_PERMISSIONS.seo) ||
     canUseItemCreation(context, ITEM_CREATION_PERMISSIONS.purchasing) ||
     canUseItemCreation(context, ITEM_CREATION_PERMISSIONS.stores);
-  if (hasDigitalView && !hasDigitalAdminView && !hasAdminView && !hasOtherTeamView) {
+  if (!isVaultOsDeployment() && hasDigitalView && !hasDigitalAdminView && !hasAdminView && !hasOtherTeamView) {
     const completedCutoff = new Date();
     completedCutoff.setDate(
       completedCutoff.getDate() - ITEM_CREATION_COMPLETED_STAGE_RETENTION_DAYS,
@@ -658,6 +666,7 @@ export async function listItemRequests(context: UserContext, filters: Record<str
 }
 
 export async function listItemCreationBrandAllocations(context: UserContext) {
+  if (isVaultOsDeployment()) throw new Error("Brand allocation is unavailable in Vault OS");
   requireDigitalMarketingAdmin(context);
   const company = companyId(context);
   const [allocations, users] = await Promise.all([
@@ -684,6 +693,7 @@ export async function saveItemCreationBrandAllocations(
   context: UserContext,
   input: unknown,
 ) {
+  if (isVaultOsDeployment()) throw new Error("Brand allocation is unavailable in Vault OS");
   requireDigitalMarketingAdmin(context);
   const company = companyId(context);
   if (!Array.isArray(input)) throw new Error("Brand allocations must be an array");
@@ -726,6 +736,7 @@ export async function assignItemCreationDigitalMarketingUser(
   assigneeId: string | null,
   assigneeIds?: string[],
 ) {
+  if (isVaultOsDeployment()) throw new Error("Item assignment is unavailable in Vault OS");
   requireDigitalMarketingAdmin(context);
   const company = companyId(context);
   const normalizedAssigneeIds = [...new Set((assigneeIds?.length ? assigneeIds : assigneeId ? [assigneeId] : []).map((value) => value.trim()).filter(Boolean))];
@@ -780,6 +791,7 @@ export async function updateItemRequestDetails(
     gccPrice?: unknown;
     addErp1OgfPrice?: unknown;
     country: string;
+    countryClaimType?: string;
     taxStatus?: unknown;
     creationSources?: unknown;
   }
@@ -813,6 +825,7 @@ export async function updateItemRequestDetails(
         gccPrice: details.gccPrice,
         addErp1OgfPrice: details.addErp1OgfPrice,
         country: details.country,
+        countryClaimType: details.countryClaimType,
         taxStatus: details.taxStatus,
         creationSources: details.creationSources,
       },

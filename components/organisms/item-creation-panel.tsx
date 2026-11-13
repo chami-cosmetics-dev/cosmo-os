@@ -23,6 +23,7 @@ type ItemCreationItem = {
   gccPrice: string | number | null;
   addErp1OgfPrice: boolean;
   country: string;
+  countryClaimType?: string | null;
   taxStatus: string;
   creationSources: string[];
   overallStatus: string;
@@ -91,6 +92,7 @@ type CreateRow = {
   gccPrice: string;
   addErp1OgfPrice: boolean;
   country: string;
+  countryClaimType: string;
   taxStatus: string;
   creationSources: string[];
 };
@@ -332,6 +334,7 @@ const emptyCreateRow = (key: number): CreateRow => ({
   gccPrice: "",
   addErp1OgfPrice: false,
   country: "",
+  countryClaimType: "",
   taxStatus: "Vat / Non Vat",
   creationSources: ["SHOPIFY"],
 });
@@ -357,6 +360,20 @@ export function ItemCreationPanel({
   const [digitalMarketingAdminPage, setDigitalMarketingAdminPage] =
     useState<DigitalMarketingAdminPage>("requests");
   const [createRows, setCreateRows] = useState<CreateRow[]>([emptyCreateRow(1)]);
+  const [countryClaimOptions, setCountryClaimOptions] = useState<string[]>([]);
+  const [countryClaimError, setCountryClaimError] = useState("");
+  useEffect(() => {
+    if (!vaultOs || !permissions.admin) return;
+    let active = true;
+    void fetch("/api/item-creation/country-claim-options")
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error ?? "Could not load Country Claim Type options");
+        if (active) setCountryClaimOptions(data.options ?? []);
+      })
+      .catch((error) => { if (active) setCountryClaimError(error instanceof Error ? error.message : "Could not load Country Claim Type options"); });
+    return () => { active = false; };
+  }, [vaultOs, permissions.admin]);
   const [selectedCreateRows, setSelectedCreateRows] = useState<Set<number>>(new Set());
   const [now, setNow] = useState<number | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -475,6 +492,7 @@ export function ItemCreationPanel({
             gccPrice: vaultOs ? undefined : row.gccPrice,
             addErp1OgfPrice: vaultOs ? false : row.addErp1OgfPrice,
             country: row.country.trim(),
+            countryClaimType: vaultOs ? row.countryClaimType : undefined,
             taxStatus: row.taxStatus,
             creationSources: row.creationSources,
           }))
@@ -862,7 +880,7 @@ export function ItemCreationPanel({
         </div>
       )}
 
-      {permissions.digitalMarketingAdmin && activeView === "digitalMarketing" && (
+      {!vaultOs && permissions.digitalMarketingAdmin && activeView === "digitalMarketing" && (
         <div className="inline-flex flex-wrap gap-1 rounded-md border bg-card p-1">
           <button
             type="button"
@@ -889,7 +907,7 @@ export function ItemCreationPanel({
         </div>
       )}
 
-      {permissions.digitalMarketingAdmin &&
+      {!vaultOs && permissions.digitalMarketingAdmin &&
         activeView === "digitalMarketing" &&
         digitalMarketingAdminPage === "allocations" && (
           <BrandAllocationPanel items={items} onRefresh={refreshRequests} />
@@ -974,7 +992,7 @@ export function ItemCreationPanel({
                 {createRows.map((row, index) => (
                   <div
                     key={row.key}
-                    className="grid gap-3 rounded-md border bg-background p-3 xl:grid-cols-[auto_150px_minmax(240px,1fr)_minmax(520px,2fr)_auto] xl:items-center"
+                    className={`grid min-w-0 gap-3 rounded-md border bg-background p-3 xl:items-center ${vaultOs ? "xl:grid-cols-[auto_150px_minmax(220px,1fr)_minmax(540px,2fr)_auto]" : "xl:grid-cols-[auto_150px_minmax(240px,1fr)_minmax(520px,2fr)_auto]"}`}
                   >
                     <label className="flex h-10 items-center justify-center self-center rounded-md border bg-muted/20 px-3">
                       <input
@@ -990,17 +1008,17 @@ export function ItemCreationPanel({
                       onChange={(event) => updateCreateRow(row.key, "sku", event.target.value)}
                       required
                       placeholder="SKU"
-                      className={`${inputClass} self-center`}
+                      className={`${inputClass} min-w-0 self-center`}
                     />
                     <textarea
                       value={row.description}
                       onChange={(event) => updateCreateRow(row.key, "description", event.target.value)}
                       required
                       placeholder="Description"
-                      className={`${inputClass} min-h-20 resize-none py-2`}
+                      className={`${inputClass} min-w-0 min-h-20 resize-none py-2`}
                     />
                     <div className="grid min-w-0 gap-3">
-                      <div className={`grid min-w-0 gap-3 sm:grid-cols-2 ${vaultOs ? "" : "xl:grid-cols-4"}`}>
+                      <div className={`grid min-w-0 gap-3 sm:grid-cols-2 ${vaultOs ? "xl:grid-cols-3" : "xl:grid-cols-4"}`}>
                         <input
                           value={row.standardPrice}
                           onChange={(event) => updateCreateRow(row.key, "standardPrice", event.target.value)}
@@ -1008,7 +1026,7 @@ export function ItemCreationPanel({
                           type="number"
                           step="0.01"
                           placeholder="Standard"
-                          className={inputClass}
+                          className={`${inputClass} min-w-0`}
                         />
                         {!vaultOs && <input
                           value={row.ogfPrice}
@@ -1016,7 +1034,7 @@ export function ItemCreationPanel({
                           type="number"
                           step="0.01"
                           placeholder="OGF"
-                          className={inputClass}
+                          className={`${inputClass} min-w-0`}
                         />}
                         {!vaultOs && <input
                           value={row.gccPrice}
@@ -1024,15 +1042,26 @@ export function ItemCreationPanel({
                           type="number"
                           step="0.01"
                           placeholder="GCC"
-                          className={inputClass}
+                          className={`${inputClass} min-w-0`}
                         />}
                         <input
                           value={row.country}
                           onChange={(event) => updateCreateRow(row.key, "country", event.target.value)}
                           placeholder="Country"
-                          className={inputClass}
+                          className={`${inputClass} min-w-0`}
                         />
+                        {vaultOs && <select
+                          value={row.countryClaimType}
+                          onChange={(event) => updateCreateRow(row.key, "countryClaimType", event.target.value)}
+                          aria-label="Country Claim Type"
+                          className={`${inputClass} w-full min-w-0`}
+                          disabled={countryClaimOptions.length === 0}
+                        >
+                          <option value="">Country Claim Type</option>
+                          {countryClaimOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+                        </select>}
                       </div>
+                      {vaultOs && countryClaimError && <p className="text-xs text-destructive">{countryClaimError}</p>}
                       <div className="flex min-w-0 flex-wrap items-center gap-2 xl:flex-nowrap">
                         <>
                           <label className="flex h-9 items-center gap-2 rounded-md border px-3 text-sm font-medium">
@@ -2792,7 +2821,7 @@ function RequestCard({
   const showPrices = team === "purchasing";
   const showStock = team === "stores";
   const showImage = team === "seo" || team === "digitalMarketing";
-  const showDigitalAssignee = team === "digitalMarketing";
+  const showDigitalAssignee = !vaultOs && team === "digitalMarketing";
   const needsErp2 = item.creationSources.includes("ERP2");
   const needsErp1Ogf = item.addErp1OgfPrice || (item.ogfPrice !== null && !needsErp2);
   const ogfTarget = needsErp1Ogf
@@ -2950,6 +2979,7 @@ function AdminTable({
     gccPrice: "",
     addErp1OgfPrice: false,
     country: "",
+    countryClaimType: "",
     taxStatus: "Vat / Non Vat",
     creationSources: ["SHOPIFY"],
   });
@@ -2973,6 +3003,7 @@ function AdminTable({
       gccPrice: item.gccPrice === null ? "" : String(item.gccPrice),
       addErp1OgfPrice: item.addErp1OgfPrice,
       country: item.country,
+      countryClaimType: item.countryClaimType ?? "",
       taxStatus: item.taxStatus,
       creationSources: [...item.creationSources],
     });

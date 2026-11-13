@@ -61,6 +61,15 @@ describe("buildGrnCompanyResolver", () => {
     expect(resolver.resolveSupplierLocation("OUT130 US Products")?.name).toBe("USP Trading Lanka (Pvt) Ltd");
   });
 
+  it("does not collapse an external supplier code with leading zeroes into an intercompany prefix", () => {
+    const leadingZeroResolver = buildGrnCompanyResolver([
+      { id: "mnk", name: "MNK Trading Lanka Pvt Ltd", erpnextCompany: "MNK Trading Lanka (Pvt) Ltd", supplierPrefix: "OUT100" },
+    ]);
+
+    expect(leadingZeroResolver.resolveSupplierLocation("OUT100")?.id).toBe("mnk");
+    expect(leadingZeroResolver.resolveSupplierLocation("OUT00100")).toBeNull();
+  });
+
   it("requires both ends of the intercompany movement to match", () => {
     expect(
       resolver.isMatchingIntercompanyPair({
