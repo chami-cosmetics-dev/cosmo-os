@@ -7,6 +7,7 @@ import {
   APPROVAL_SPLIT_KOKO,
   buildApprovalSplitRequestNote,
   isApprovalSplitPaymentMethod,
+  orderHasSplitPaymentEligibleGateway,
   sortApprovalSplitLines,
   splitIncludesKoko,
   validateApprovalSplitAmounts,
@@ -128,12 +129,17 @@ export async function PATCH(
     );
   }
 
-  const gateways = [order.paymentGatewayPrimary, ...order.paymentGatewayNames]
-    .map((gateway) => gateway?.trim().toLowerCase() ?? "")
-    .filter(Boolean);
-  if (!gateways.some((gateway) => gateway.includes("koko") || gateway.includes("bank"))) {
+  if (
+    !orderHasSplitPaymentEligibleGateway({
+      paymentGatewayPrimary: order.paymentGatewayPrimary,
+      paymentGatewayNames: order.paymentGatewayNames,
+    })
+  ) {
     return NextResponse.json(
-      { error: "Only KOKO or Bank Transfer approval orders can be marked as split payment." },
+      {
+        error:
+          "Only KOKO, Bank Transfer, or Cash/COD orders can be marked as split payment.",
+      },
       { status: 400 },
     );
   }

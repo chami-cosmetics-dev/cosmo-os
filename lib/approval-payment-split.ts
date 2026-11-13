@@ -57,6 +57,25 @@ export function isApprovalSplitPaymentMethod(
   return (APPROVAL_SPLIT_METHODS as string[]).includes(value);
 }
 
+/** Gateway may start a merchant split plan (KOKO, Bank Transfer, or Cash/COD). */
+export function isSplitPaymentEligibleGateway(
+  gateway: string | null | undefined,
+): boolean {
+  const normalized = gateway?.toLowerCase().trim() ?? "";
+  if (!normalized) return false;
+  if (normalized.includes("koko") || normalized.includes("bank")) return true;
+  if (normalized === "cod" || normalized.includes("cash")) return true;
+  return false;
+}
+
+export function orderHasSplitPaymentEligibleGateway(order: {
+  paymentGatewayPrimary?: string | null;
+  paymentGatewayNames?: string[] | null;
+}): boolean {
+  const gateways = [order.paymentGatewayPrimary, ...(order.paymentGatewayNames ?? [])];
+  return gateways.some((gateway) => isSplitPaymentEligibleGateway(gateway));
+}
+
 export function approvalSplitLineLabel(method: string): string {
   if (method === APPROVAL_SPLIT_KOKO) return SPLIT_NOTE_LABELS[APPROVAL_SPLIT_KOKO];
   if (method === APPROVAL_SPLIT_CASH) return SPLIT_NOTE_LABELS[APPROVAL_SPLIT_CASH];
