@@ -151,7 +151,7 @@ export async function GET(request: NextRequest) {
     !canViewHandover &&
     !canViewValued &&
     !hasPermission(context, "purchasing.grn.match_ssr");
-  const requiresVerificationBeforeGrnReceived = !isVaultOsDeployment();
+  const requiresValuationConfirmationBeforeGrnReceived = !isVaultOsDeployment();
   const financeLocationIds = shouldScopeToUserCompany
     ? await resolveViewerFinanceLocationIds(user.id, userCompanyId, roleNames)
     : null;
@@ -164,8 +164,15 @@ export async function GET(request: NextRequest) {
       : {};
   const stageVisibilityScope =
     shouldShowOnlyValuedForReceived
-      ? requiresVerificationBeforeGrnReceived
-        ? { valuedAt: { not: null }, handoverReceivedAt: { not: null } }
+      ? requiresValuationConfirmationBeforeGrnReceived
+        ? {
+            valuedAt: { not: null },
+            handoverReceivedAt: { not: null },
+            OR: [
+              { requiresValuationConfirmation: false },
+              { valuationConfirmedAt: { not: null } },
+            ],
+          }
         : { valuedAt: { not: null } }
       : shouldShowOnlyHandoveredForValued
         ? { handoverAt: { not: null } }
@@ -212,6 +219,8 @@ export async function GET(request: NextRequest) {
         handoverBy: { select: { id: true, name: true, email: true } },
         handoverRevertedBy: { select: { id: true, name: true, email: true } },
         handoverReceivedBy: { select: { id: true, name: true, email: true } },
+        valuationConfirmedBy: { select: { id: true, name: true, email: true } },
+        valuationConfirmRevertedBy: { select: { id: true, name: true, email: true } },
         notReceivedBy: { select: { id: true, name: true, email: true } },
         valuedBy: { select: { id: true, name: true, email: true } },
         valuedRevertedBy: { select: { id: true, name: true, email: true } },
@@ -263,6 +272,8 @@ export async function GET(request: NextRequest) {
         handoverBy: { select: { id: true, name: true, email: true } },
         handoverRevertedBy: { select: { id: true, name: true, email: true } },
         handoverReceivedBy: { select: { id: true, name: true, email: true } },
+        valuationConfirmedBy: { select: { id: true, name: true, email: true } },
+        valuationConfirmRevertedBy: { select: { id: true, name: true, email: true } },
         notReceivedBy: { select: { id: true, name: true, email: true } },
         valuedBy: { select: { id: true, name: true, email: true } },
         valuedRevertedBy: { select: { id: true, name: true, email: true } },
@@ -1170,6 +1181,11 @@ export async function GET(request: NextRequest) {
         handoverRevertedBy: row.handoverRevertedBy,
         handoverReceivedAt: iso(row.handoverReceivedAt),
         handoverReceivedBy: row.handoverReceivedBy,
+        valuationConfirmedAt: iso(row.valuationConfirmedAt),
+        valuationConfirmedBy: row.valuationConfirmedBy,
+        valuationConfirmRevertedAt: iso(row.valuationConfirmRevertedAt),
+        valuationConfirmRevertedBy: row.valuationConfirmRevertedBy,
+        requiresValuationConfirmation: row.requiresValuationConfirmation,
         notReceivedAt: iso(row.notReceivedAt),
         notReceivedBy: row.notReceivedBy,
         valuedAt: iso(row.valuedAt),
@@ -1327,6 +1343,11 @@ export async function GET(request: NextRequest) {
         handoverRevertedBy: row.handoverRevertedBy,
         handoverReceivedAt: iso(row.handoverReceivedAt),
         handoverReceivedBy: row.handoverReceivedBy,
+        valuationConfirmedAt: iso(row.valuationConfirmedAt),
+        valuationConfirmedBy: row.valuationConfirmedBy,
+        valuationConfirmRevertedAt: iso(row.valuationConfirmRevertedAt),
+        valuationConfirmRevertedBy: row.valuationConfirmRevertedBy,
+        requiresValuationConfirmation: row.requiresValuationConfirmation,
         notReceivedAt: iso(row.notReceivedAt),
         notReceivedBy: row.notReceivedBy,
         valuedAt: iso(row.valuedAt),

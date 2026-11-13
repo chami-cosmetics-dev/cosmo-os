@@ -719,6 +719,8 @@ model User {
   grnHandovers                           GrnPurchaseReceipt[]           @relation("GrnPurchaseReceiptHandoverBy")
   grnHandoverReverts                     GrnPurchaseReceipt[]           @relation("GrnPurchaseReceiptHandoverRevertedBy")
   grnHandoverReceipts                    GrnPurchaseReceipt[]           @relation("GrnPurchaseReceiptHandoverReceivedBy")
+  grnValuationConfirmations              GrnPurchaseReceipt[]           @relation("GrnPurchaseReceiptValuationConfirmedBy")
+  grnValuationConfirmationReverts        GrnPurchaseReceipt[]           @relation("GrnPurchaseReceiptValuationConfirmRevertedBy")
   grnNotReceived                         GrnPurchaseReceipt[]           @relation("GrnPurchaseReceiptNotReceivedBy")
   grnValuations                          GrnPurchaseReceipt[]           @relation("GrnPurchaseReceiptValuedBy")
   grnValuationReverts                    GrnPurchaseReceipt[]           @relation("GrnPurchaseReceiptValuedRevertedBy")
@@ -727,6 +729,8 @@ model User {
   grnBackfillHandovers                   GrnBackfillPurchaseReceipt[]   @relation("GrnBackfillPurchaseReceiptHandoverBy")
   grnBackfillHandoverReverts             GrnBackfillPurchaseReceipt[]   @relation("GrnBackfillPurchaseReceiptHandoverRevertedBy")
   grnBackfillHandoverReceipts            GrnBackfillPurchaseReceipt[]   @relation("GrnBackfillPurchaseReceiptHandoverReceivedBy")
+  grnBackfillValuationConfirmations      GrnBackfillPurchaseReceipt[]   @relation("GrnBackfillPurchaseReceiptValuationConfirmedBy")
+  grnBackfillValuationConfirmationReverts GrnBackfillPurchaseReceipt[]  @relation("GrnBackfillPurchaseReceiptValuationConfirmRevertedBy")
   grnBackfillNotReceived                 GrnBackfillPurchaseReceipt[]   @relation("GrnBackfillPurchaseReceiptNotReceivedBy")
   grnBackfillValuations                  GrnBackfillPurchaseReceipt[]   @relation("GrnBackfillPurchaseReceiptValuedBy")
   grnBackfillValuationReverts            GrnBackfillPurchaseReceipt[]   @relation("GrnBackfillPurchaseReceiptValuedRevertedBy")
@@ -2913,6 +2917,11 @@ model GrnPurchaseReceipt {
   handoverRevertedById    String?
   handoverReceivedAt      DateTime?
   handoverReceivedById    String?
+  valuationConfirmedAt    DateTime?
+  valuationConfirmedById  String?
+  valuationConfirmRevertedAt   DateTime?
+  valuationConfirmRevertedById String?
+  requiresValuationConfirmation Boolean @default(false)
   notReceivedAt           DateTime?
   notReceivedById         String?
   valuedAt                DateTime?
@@ -2935,6 +2944,8 @@ model GrnPurchaseReceipt {
   handoverBy              User?                    @relation("GrnPurchaseReceiptHandoverBy", fields: [handoverById], references: [id], onDelete: SetNull)
   handoverRevertedBy      User?                    @relation("GrnPurchaseReceiptHandoverRevertedBy", fields: [handoverRevertedById], references: [id], onDelete: SetNull)
   handoverReceivedBy      User?                    @relation("GrnPurchaseReceiptHandoverReceivedBy", fields: [handoverReceivedById], references: [id], onDelete: SetNull)
+  valuationConfirmedBy    User?                    @relation("GrnPurchaseReceiptValuationConfirmedBy", fields: [valuationConfirmedById], references: [id], onDelete: SetNull)
+  valuationConfirmRevertedBy User?                 @relation("GrnPurchaseReceiptValuationConfirmRevertedBy", fields: [valuationConfirmRevertedById], references: [id], onDelete: SetNull)
   notReceivedBy           User?                    @relation("GrnPurchaseReceiptNotReceivedBy", fields: [notReceivedById], references: [id], onDelete: SetNull)
   items                   GrnPurchaseReceiptItem[]
   purchaseInvoices        GrnPurchaseInvoice[]
@@ -2953,6 +2964,8 @@ model GrnPurchaseReceipt {
   @@index([handoverById])
   @@index([handoverRevertedById])
   @@index([handoverReceivedById])
+  @@index([valuationConfirmedById])
+  @@index([valuationConfirmRevertedById])
   @@index([notReceivedById])
   @@index([valuedById])
   @@index([valuedRevertedById])
@@ -3171,6 +3184,11 @@ model GrnBackfillPurchaseReceipt {
   handoverRevertedById    String?
   handoverReceivedAt      DateTime?
   handoverReceivedById    String?
+  valuationConfirmedAt    DateTime?
+  valuationConfirmedById  String?
+  valuationConfirmRevertedAt   DateTime?
+  valuationConfirmRevertedById String?
+  requiresValuationConfirmation Boolean @default(false)
   notReceivedAt           DateTime?
   notReceivedById         String?
   valuedAt                DateTime?
@@ -3192,6 +3210,8 @@ model GrnBackfillPurchaseReceipt {
   handoverBy              User?                    @relation("GrnBackfillPurchaseReceiptHandoverBy", fields: [handoverById], references: [id], onDelete: SetNull)
   handoverRevertedBy      User?                    @relation("GrnBackfillPurchaseReceiptHandoverRevertedBy", fields: [handoverRevertedById], references: [id], onDelete: SetNull)
   handoverReceivedBy      User?                    @relation("GrnBackfillPurchaseReceiptHandoverReceivedBy", fields: [handoverReceivedById], references: [id], onDelete: SetNull)
+  valuationConfirmedBy    User?                    @relation("GrnBackfillPurchaseReceiptValuationConfirmedBy", fields: [valuationConfirmedById], references: [id], onDelete: SetNull)
+  valuationConfirmRevertedBy User?                 @relation("GrnBackfillPurchaseReceiptValuationConfirmRevertedBy", fields: [valuationConfirmRevertedById], references: [id], onDelete: SetNull)
   notReceivedBy           User?                    @relation("GrnBackfillPurchaseReceiptNotReceivedBy", fields: [notReceivedById], references: [id], onDelete: SetNull)
   valuedBy                User?                    @relation("GrnBackfillPurchaseReceiptValuedBy", fields: [valuedById], references: [id], onDelete: SetNull)
   valuedRevertedBy        User?                    @relation("GrnBackfillPurchaseReceiptValuedRevertedBy", fields: [valuedRevertedById], references: [id], onDelete: SetNull)
@@ -3205,6 +3225,8 @@ model GrnBackfillPurchaseReceipt {
   @@index([handoverById])
   @@index([handoverRevertedById])
   @@index([handoverReceivedById])
+  @@index([valuationConfirmedById])
+  @@index([valuationConfirmRevertedById])
   @@index([notReceivedById])
   @@index([valuedById])
   @@index([valuedRevertedById])
