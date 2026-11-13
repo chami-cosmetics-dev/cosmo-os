@@ -152,6 +152,70 @@ function valueFromReportRow(row: unknown, columns: ErpReportColumn[], names: str
   return null;
 }
 
+type AccountsPayableLedgerRow = {
+  supplierKey: string;
+  postingDate: string | null;
+  sequence: number;
+  balance: number;
+  invoice: SupplierPayableLine | null;
+  remaining: number;
+};
+
+const PAYABLE_TOLERANCE = 0.005;
+
+/**
+ * ERPNext's Accounts Payable report returns supplier invoices and the matching
+ * payment/JV credits as separate ledger rows.  Apply those credits to the
+ * oldest supplier debits before deciding which Purchase Invoices are still
+ * payable.  This prevents a fully paid invoice from appearing outstanding
+ * merely because its payment is represented on another report row.
+ */
+function allocatePayableLedgerRows(rows: AccountsPayableLedgerRow[]): SupplierPayableLine[] {
+  const bySupplier = new Map<string, AccountsPayableLedgerRow[]>();
+  for (const row of rows) {
+    const supplierRows = bySupplier.get(row.supplierKey) ?? [];
+    supplierRows.push(row);
+    bySupplier.set(row.supplierKey, supplierRows);
+  }
+
+  for (const supplierRows of bySupplier.values()) {
+    supplierRows.sort((left, right) => {
+      const dateComparison = (left.postingDate ?? "9999-12-31").localeCompare(right.postingDate ?? "9999-12-31");
+      return dateComparison || left.sequence - right.sequence;
+    });
+
+    const debitQueue: AccountsPayableLedgerRow[] = [];
+    let unappliedCredit = 0;
+    for (const row of supplierRows) {
+      if (row.balance > PAYABLE_TOLERANCE) {
+        row.remaining = row.balance;
+        if (unappliedCredit > PAYABLE_TOLERANCE) {
+          const applied = Math.min(row.remaining, unappliedCredit);
+          row.remaining -= applied;
+          unappliedCredit -= applied;
+        }
+        if (row.remaining > PAYABLE_TOLERANCE) debitQueue.push(row);
+        continue;
+      }
+      if (row.balance >= -PAYABLE_TOLERANCE) continue;
+
+      let credit = Math.abs(row.balance);
+      while (credit > PAYABLE_TOLERANCE && debitQueue.length) {
+        const debit = debitQueue[0]!;
+        const applied = Math.min(debit.remaining, credit);
+        debit.remaining -= applied;
+        credit -= applied;
+        if (debit.remaining <= PAYABLE_TOLERANCE) debitQueue.shift();
+      }
+      unappliedCredit += credit;
+    }
+  }
+
+  return rows
+    .filter((row) => row.invoice && row.remaining > PAYABLE_TOLERANCE)
+    .map((row) => ({ ...row.invoice!, total: row.remaining, outstanding: row.remaining }));
+}
+
 async function fetchAccountsPayable(input: {
   cfg: OsfErpCredentials;
   company: string;
@@ -172,18 +236,21 @@ async function fetchAccountsPayable(input: {
   const json = await erpGetJson<ErpReportResponse>(input.cfg, path);
   const columns = json.message?.columns ?? [];
   const rows = json.message?.result ?? [];
-  const invoiceRows = rows
-    .map((row): SupplierPayableLine | null => {
+  const invoiceRows = allocatePayableLedgerRows(
+    rows.flatMap((row, sequence): AccountsPayableLedgerRow[] => {
       const voucherType = text(valueFromReportRow(row, columns, ["voucher_type"]));
       const voucherNo = text(valueFromReportRow(row, columns, ["voucher_no", "voucher", "purchase_invoice", "name"]));
-      if (
-        isTrue(valueFromReportRow(row, columns, ["is_return", "is_return_invoice"])) ||
-        (voucherType && !/purchase invoice/i.test(voucherType)) ||
-        (!voucherType && (!voucherNo || /^(PAY|PE|JV|JE|Journal)/i.test(voucherNo)))
-      ) return null;
       const supplierId = text(valueFromReportRow(row, columns, ["party", "supplier"]));
-      if (!supplierId) return null;
-      return {
+      const balance = money(valueFromReportRow(row, columns, ["outstanding"]));
+      if (!supplierId || Math.abs(balance) <= PAYABLE_TOLERANCE) return [];
+
+      const isReturn = isTrue(valueFromReportRow(row, columns, ["is_return", "is_return_invoice"]));
+      const isPurchaseInvoice = !isReturn && Boolean(
+        voucherType
+          ? /purchase invoice/i.test(voucherType)
+          : voucherNo && !/^(PAY|PE|JV|JE|Journal)/i.test(voucherNo),
+      );
+      const invoice = isPurchaseInvoice ? {
         supplierId,
         supplierName: text(valueFromReportRow(row, columns, ["party_name", "supplier_name"])),
         company: input.company,
@@ -199,11 +266,20 @@ async function fetchAccountsPayable(input: {
         remark: text(valueFromReportRow(row, columns, ["remarks", "remark", "description"])),
         erpSlot: null,
         erpLabel: null,
-        outstanding: money(valueFromReportRow(row, columns, ["outstanding"])),
+        outstanding: balance,
         currency: text(valueFromReportRow(row, columns, ["currency"])),
-      } satisfies SupplierPayableLine;
+      } satisfies SupplierPayableLine : null;
+
+      return [{
+        supplierKey: supplierId.toLowerCase(),
+        postingDate: text(valueFromReportRow(row, columns, ["posting_date", "bill_date", "date"])),
+        sequence,
+        balance,
+        invoice,
+        remaining: 0,
+      }];
     })
-    .filter((row): row is SupplierPayableLine => row !== null && row.outstanding > 0);
+  );
 
   const receiptByInvoice = new Map<string, string>();
   const receiptDateByInvoice = new Map<string, string>();
