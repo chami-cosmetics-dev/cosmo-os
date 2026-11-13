@@ -127,6 +127,11 @@ type PurchaseReceiptRow = {
   valuedRevertedAt: string | null;
   valuedRevertedBy: UserRef | null;
   valuationRejectedAt: string | null;
+  valuationConfirmedAt: string | null;
+  valuationConfirmedBy: UserRef | null;
+  valuationConfirmRevertedAt: string | null;
+  valuationConfirmRevertedBy: UserRef | null;
+  requiresValuationConfirmation: boolean;
   receivedAt: string | null;
   receivedBy: UserRef | null;
   receivedRevertedAt: string | null;
@@ -259,7 +264,7 @@ type GrnPanelPermissions = {
 const usesVaultValuationFlow = isVaultOsDeployment();
 
 type GrnActionStage = "handover" | "valued" | "received";
-type GrnStageStatusFilter = "all" | "pending" | "completed" | "mismatch" | "verify" | "not_received" | "payment_pending" | "payment_approved";
+type GrnStageStatusFilter = "all" | "pending" | "completed" | "mismatch" | "verify" | "not_received" | "payment_pending" | "payment_approved" | "value" | "receive" | "pricing_review";
 type SsrStatusFilter = "all" | "waiting" | "partial" | "conflict";
 type GrnStageFilter = {
   stage: GrnActionStage;
@@ -833,6 +838,8 @@ function GrnStageTimeline({
   onRevert,
   onHandoverReceived,
   onNotReceived,
+  onValuationConfirmed,
+  onValuationUnconfirmed,
   onApprovePayment,
   onMarkPaymentPaid,
 }: {
@@ -842,6 +849,8 @@ function GrnStageTimeline({
   onRevert: (row: PurchaseReceiptRow, field: "handoverAt" | "valuedAt" | "receivedAt") => void;
   onHandoverReceived: (row: PurchaseReceiptRow) => void;
   onNotReceived: (row: PurchaseReceiptRow) => void;
+  onValuationConfirmed: (row: PurchaseReceiptRow) => void;
+  onValuationUnconfirmed: (row: PurchaseReceiptRow) => void;
   onApprovePayment: (row: PurchaseReceiptRow) => void;
   onMarkPaymentPaid: (row: PurchaseReceiptRow) => void;
 }) {
@@ -855,12 +864,17 @@ function GrnStageTimeline({
       revertedAt: row.handoverRevertedAt,
       revertedBy: row.handoverRevertedBy,
       valuationRejectedAt: null,
+      valuationConfirmedAt: null,
+      valuationConfirmedBy: null,
+      valuationConfirmRevertedAt: null,
+      valuationConfirmRevertedBy: null,
       handoverReceivedAt: row.handoverReceivedAt,
       handoverReceivedBy: row.handoverReceivedBy,
       notReceivedAt: row.notReceivedAt,
       notReceivedBy: row.notReceivedBy,
       canRevert: permissions.canMarkHandover,
-      canMarkNotReceived: permissions.canMarkValued && (usesVaultValuationFlow || Boolean(row.valuedAt)),
+      canMarkNotReceived: permissions.canMarkValued,
+      canConfirm: false,
       canMarkPayment: false,
       canMarkPaid: false,
       paidAt: null,
@@ -874,16 +888,47 @@ function GrnStageTimeline({
       revertedAt: row.valuedRevertedAt,
       revertedBy: row.valuedRevertedBy,
       valuationRejectedAt: row.valuationRejectedAt,
+      valuationConfirmedAt: null,
+      valuationConfirmedBy: null,
+      valuationConfirmRevertedAt: null,
+      valuationConfirmRevertedBy: null,
       handoverReceivedAt: null,
       handoverReceivedBy: null,
       notReceivedAt: null,
       notReceivedBy: null,
       canRevert: permissions.canMarkValued,
       canMarkNotReceived: false,
+      canConfirm: false,
       canMarkPayment: false,
       canMarkPaid: false,
       paidAt: null,
     },
+    ...(!usesVaultValuationFlow && row.requiresValuationConfirmation
+      ? [{
+          label: "Confirm",
+          field: "valuedAt" as const,
+          at: row.valuationConfirmedAt,
+          by: row.valuationConfirmedBy,
+          fallbackBy: null,
+          revertedAt: row.valuationConfirmRevertedAt,
+          revertedBy: row.valuationConfirmRevertedBy,
+          valuationRejectedAt: null,
+          valuationConfirmedAt: null,
+          valuationConfirmedBy: null,
+          valuationConfirmRevertedAt: null,
+          valuationConfirmRevertedBy: null,
+          handoverReceivedAt: null,
+          handoverReceivedBy: null,
+          notReceivedAt: null,
+          notReceivedBy: null,
+          canRevert: false,
+          canMarkNotReceived: false,
+          canConfirm: permissions.canMarkValued,
+          canMarkPayment: false,
+          canMarkPaid: false,
+          paidAt: null,
+        }]
+      : []),
     {
       label: "GRN Received",
       field: "receivedAt" as const,
@@ -893,12 +938,17 @@ function GrnStageTimeline({
       revertedAt: row.receivedRevertedAt,
       revertedBy: row.receivedRevertedBy,
       valuationRejectedAt: null,
+      valuationConfirmedAt: null,
+      valuationConfirmedBy: null,
+      valuationConfirmRevertedAt: null,
+      valuationConfirmRevertedBy: null,
       handoverReceivedAt: null,
       handoverReceivedBy: null,
       notReceivedAt: null,
       notReceivedBy: null,
       canRevert: permissions.canMarkReceived,
       canMarkNotReceived: false,
+      canConfirm: false,
       canMarkPayment: false,
       canMarkPaid: false,
       paidAt: null,
@@ -914,12 +964,17 @@ function GrnStageTimeline({
           revertedAt: null,
           revertedBy: null,
           valuationRejectedAt: null,
+          valuationConfirmedAt: null,
+          valuationConfirmedBy: null,
+          valuationConfirmRevertedAt: null,
+          valuationConfirmRevertedBy: null,
           handoverReceivedAt: null,
           handoverReceivedBy: null,
           notReceivedAt: null,
           notReceivedBy: null,
           canRevert: false,
           canMarkNotReceived: false,
+          canConfirm: false,
           canMarkPayment: false,
           canMarkPaid: false,
           paidAt: null,
@@ -935,12 +990,17 @@ function GrnStageTimeline({
           revertedAt: null,
           revertedBy: null,
           valuationRejectedAt: null,
+          valuationConfirmedAt: null,
+          valuationConfirmedBy: null,
+          valuationConfirmRevertedAt: null,
+          valuationConfirmRevertedBy: null,
           handoverReceivedAt: null,
           handoverReceivedBy: null,
           notReceivedAt: null,
           notReceivedBy: null,
           canRevert: false,
           canMarkNotReceived: false,
+          canConfirm: false,
           canMarkPayment: permissions.canMarkPaymentApproval,
           canMarkPaid: permissions.canMarkPaid,
           paidAt: row.paymentPaidAt,
@@ -989,12 +1049,22 @@ function GrnStageTimeline({
                 )}
                 {stage.handoverReceivedAt && (
                   <div className="text-xs text-emerald-300">
-                    {usesVaultValuationFlow ? "Purchasing received" : "Verified by purchasing"} {userLabel(stage.handoverReceivedBy) ?? "Unknown"} on {formatDate(stage.handoverReceivedAt)}
+                    {usesVaultValuationFlow ? "Purchasing received" : "Received by purchasing"} {userLabel(stage.handoverReceivedBy) ?? "Unknown"} on {formatDate(stage.handoverReceivedAt)}
                   </div>
                 )}
                 {stage.notReceivedAt && (
                   <div className="text-xs text-amber-300">
                     Marked not received by {userLabel(stage.notReceivedBy) ?? "Unknown"} on {formatDate(stage.notReceivedAt)}
+                  </div>
+                )}
+                {stage.valuationConfirmedAt && (
+                  <div className="text-xs text-emerald-300">
+                    Confirmed by {userLabel(stage.valuationConfirmedBy) ?? "Unknown"} on {formatDate(stage.valuationConfirmedAt)}
+                  </div>
+                )}
+                {stage.valuationConfirmRevertedAt && (
+                  <div className="text-xs text-amber-300">
+                    Confirmation reverted by {userLabel(stage.valuationConfirmRevertedBy) ?? "Unknown"} on {formatDate(stage.valuationConfirmRevertedAt)}
                   </div>
                 )}
                 {stage.paidAt && (
@@ -1033,7 +1103,7 @@ function GrnStageTimeline({
                     Mark paid
                   </Button>
                 )}
-                {complete && stage.canRevert && (
+                {((complete && stage.canRevert) || (!complete && stage.canConfirm && row.valuedAt)) && (
                   <div className="flex flex-wrap justify-end gap-2">
                     {stage.canMarkNotReceived && !row.receivedAt && !row.handoverReceivedAt && (
                       <Button
@@ -1046,7 +1116,7 @@ function GrnStageTimeline({
                           onHandoverReceived(row);
                         }}
                       >
-                      {usesVaultValuationFlow ? "Received" : "Verify"}
+                      Received
                       </Button>
                     )}
                     {stage.canMarkNotReceived && !row.receivedAt && row.handoverReceivedAt && (
@@ -1061,6 +1131,34 @@ function GrnStageTimeline({
                         }}
                       >
                         Not received
+                      </Button>
+                    )}
+                    {stage.canConfirm && !row.receivedAt && !stage.valuationConfirmedAt && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={row.isCancelled || busyKey === `${row.companyId}:${row.name}:${stage.field}:valuation_confirmed`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onValuationConfirmed(row);
+                        }}
+                      >
+                        Confirm
+                      </Button>
+                    )}
+                    {stage.canConfirm && !row.receivedAt && stage.valuationConfirmedAt && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={row.isCancelled || busyKey === `${row.companyId}:${row.name}:${stage.field}:valuation_unconfirmed`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onValuationUnconfirmed(row);
+                        }}
+                      >
+                        Revert confirmation
                       </Button>
                     )}
                     <Button
@@ -1779,8 +1877,8 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
   const rowBelongsToStage = useCallback((row: PurchaseReceiptRow, stage: GrnActionStage) => {
     if (row.isCancelled) return false;
     if (stage === "handover") return true;
-    if (stage === "valued") return Boolean(row.valuedAt || (row.handoverAt && (usesVaultValuationFlow ? row.handoverReceivedAt : true)));
-    return Boolean(row.valuedAt);
+    if (stage === "valued") return Boolean(row.valuedAt || (row.handoverAt && row.handoverReceivedAt));
+    return Boolean(row.valuedAt && (usesVaultValuationFlow || !row.requiresValuationConfirmation || row.valuationConfirmedAt));
   }, []);
 
   const rowCompletedForStage = useCallback((row: PurchaseReceiptRow, stage: GrnActionStage) => {
@@ -1790,20 +1888,21 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
   }, []);
 
   const rowNeedsValuingVerification = useCallback((row: PurchaseReceiptRow) => {
-    return !row.isCancelled && Boolean(row.handoverAt) && !row.handoverReceivedAt &&
-      (usesVaultValuationFlow ? !row.valuedAt : Boolean(row.valuedAt));
+    return !row.isCancelled && (usesVaultValuationFlow
+      ? Boolean(row.handoverAt) && !row.handoverReceivedAt && !row.valuedAt
+      : Boolean(row.valuedAt) && row.requiresValuationConfirmation && !row.valuationConfirmedAt);
   }, []);
 
   const rowNeedsVerification = useCallback((row: PurchaseReceiptRow, stage: GrnActionStage) => {
     if (row.isCancelled) return false;
     if (stage === "handover") return Boolean(row.notReceivedAt) && !row.handoverAt;
-    if (stage === "valued") return rowNeedsValuingVerification(row);
+    if (stage === "valued") return usesVaultValuationFlow && rowNeedsValuingVerification(row);
     return false;
   }, [rowNeedsValuingVerification]);
 
   const rowNotReceivedByValuing = useCallback(
-    (row: PurchaseReceiptRow) => usesVaultValuationFlow && rowNeedsValuingVerification(row),
-    [rowNeedsValuingVerification],
+    (row: PurchaseReceiptRow) => !row.isCancelled && Boolean(row.handoverAt) && !row.handoverReceivedAt && !row.valuedAt,
+    [],
   );
 
   const rowMissingIntercompanySsr = useCallback(
@@ -1845,7 +1944,14 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
             {
               all: rows.length,
               pending: rows.length - completed,
-              completed,
+              completed: key === "valued" && !usesVaultValuationFlow
+                ? rows.filter((row) => Boolean(row.valuedAt && (row.receivedAt || !row.requiresValuationConfirmation || row.valuationConfirmedAt))).length
+                : completed,
+              value: key === "valued" ? rows.filter((row) => !row.valuedAt).length : 0,
+              receive: key === "valued" ? data.purchaseReceipts.filter((row) =>
+                (companyFilter === "all" || row.companyName === companyFilter) && rowNotReceivedByValuing(row),
+              ).length : 0,
+              pricing_review: key === "valued" ? rows.filter((row) => Boolean(row.valuedAt && row.handoverReceivedAt && row.requiresValuationConfirmation && !row.valuationConfirmedAt && !row.receivedAt)).length : 0,
               mismatch,
               verify,
               not_received: notReceived,
@@ -1879,10 +1985,16 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
             ? stageFilter.stage === "received" && Boolean(row.receivedAt) && !row.paymentApprovedAt
           : stageFilter.status === "payment_approved"
             ? stageFilter.stage === "received" && Boolean(row.paymentApprovedAt)
+          : stageFilter.stage === "valued" && stageFilter.status === "value"
+            ? rowBelongsToStage(row, "valued") && !row.valuedAt
+          : stageFilter.stage === "valued" && stageFilter.status === "receive"
+            ? rowNotReceivedByValuing(row)
+          : stageFilter.stage === "valued" && stageFilter.status === "pricing_review"
+            ? rowBelongsToStage(row, "valued") && Boolean(row.valuedAt && row.handoverReceivedAt && row.requiresValuationConfirmation && !row.valuationConfirmedAt && !row.receivedAt)
             : rowBelongsToStage(row, stageFilter.stage) &&
         (stageFilter.status === "all" ||
           (stageFilter.status === "pending" && !rowCompletedForStage(row, stageFilter.stage)) ||
-          (stageFilter.status === "completed" && rowCompletedForStage(row, stageFilter.stage)) ||
+          (stageFilter.status === "completed" && rowCompletedForStage(row, stageFilter.stage) && (stageFilter.stage !== "valued" || usesVaultValuationFlow || Boolean(row.receivedAt || !row.requiresValuationConfirmation || row.valuationConfirmedAt))) ||
           (stageFilter.status === "mismatch" && rowMismatchedForStage(row, stageFilter.stage)));
       return matchesStage;
     });
@@ -1894,28 +2006,40 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
     return "receivedAt";
   }, []);
 
-  const isVerificationBulk = stageFilter.stage === "valued" && stageFilter.status === "verify";
+  const isVerificationBulk = usesVaultValuationFlow && stageFilter.stage === "valued" && stageFilter.status === "verify";
+  const isConfirmationBulk = !usesVaultValuationFlow && stageFilter.stage === "valued" && stageFilter.status === "pricing_review";
+  const isPaymentPendingBulk = stageFilter.stage === "received" && stageFilter.status === "payment_pending";
 
   const canBulkMarkRow = useCallback(
     (row: PurchaseReceiptRow) => {
       if (row.isCancelled) return false;
+      if (isPaymentPendingBulk) {
+        return permissions.canMarkPaymentApproval && Boolean(row.receivedAt) && !row.paymentApprovedAt;
+      }
+      if (isConfirmationBulk) {
+        return permissions.canMarkValued && Boolean(row.valuedAt) && row.requiresValuationConfirmation && !row.valuationConfirmedAt;
+      }
       if (isVerificationBulk) {
-        return permissions.canMarkValued && Boolean(row.handoverAt) && !row.handoverReceivedAt &&
-          (usesVaultValuationFlow ? !row.valuedAt : Boolean(row.valuedAt));
+        return permissions.canMarkValued && (usesVaultValuationFlow
+          ? Boolean(row.handoverAt) && !row.handoverReceivedAt && !row.valuedAt
+          : Boolean(row.valuedAt) && row.requiresValuationConfirmation && !row.valuationConfirmedAt);
       }
       if (rowCompletedForStage(row, stageFilter.stage)) return false;
       if (stageFilter.stage === "handover") {
         return permissions.canMarkHandover && row.tallyStatus !== "issue" && !rowMissingIntercompanySsr(row);
       }
       if (stageFilter.stage === "valued") {
-        return permissions.canMarkValued && Boolean(row.handoverAt && (usesVaultValuationFlow ? row.handoverReceivedAt : true)) && !hasPriceMismatchForPr(row);
+        return permissions.canMarkValued && Boolean(row.handoverAt && row.handoverReceivedAt) && !hasPriceMismatchForPr(row);
       }
-      return permissions.canMarkReceived && Boolean(row.handoverAt) && Boolean(row.valuedAt) &&
-        (usesVaultValuationFlow || Boolean(row.handoverReceivedAt));
+      return permissions.canMarkReceived && Boolean(row.handoverAt) && Boolean(row.handoverReceivedAt) &&
+        Boolean(row.valuedAt) && (usesVaultValuationFlow || !row.requiresValuationConfirmation || Boolean(row.valuationConfirmedAt));
     },
     [
       isVerificationBulk,
+      isConfirmationBulk,
+      isPaymentPendingBulk,
       permissions.canMarkHandover,
+      permissions.canMarkPaymentApproval,
       permissions.canMarkReceived,
       permissions.canMarkValued,
       rowCompletedForStage,
@@ -1929,10 +2053,22 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
     () => filteredPrs.filter((row) => canBulkMarkRow(row)),
     [canBulkMarkRow, filteredPrs],
   );
-  const bulkActionLabel = isVerificationBulk ? (usesVaultValuationFlow ? "Mark received" : "Verify selected") : "Mark all";
-  const bulkRowsLabel = isVerificationBulk ? (usesVaultValuationFlow ? "handovered row" : "valued row") : "clean pending row";
-  const bulkBusyKey = isVerificationBulk
-    ? "bulk:handoverAt:handover_received"
+  const bulkActionLabel = isPaymentPendingBulk
+    ? "Approve selected"
+    : isConfirmationBulk
+      ? "Confirm selected"
+    : isVerificationBulk ? (usesVaultValuationFlow ? "Mark received" : "Confirm selected") : "Mark all";
+  const bulkRowsLabel = isPaymentPendingBulk
+    ? "payment-pending row"
+    : isConfirmationBulk
+      ? "confirmation-pending row"
+    : isVerificationBulk ? (usesVaultValuationFlow ? "handovered row" : "valued row") : "clean pending row";
+  const bulkBusyKey = isPaymentPendingBulk
+    ? "bulk:payment:approve"
+    : isConfirmationBulk
+      ? "bulk:valuedAt:valuation_confirmed"
+    : isVerificationBulk
+    ? usesVaultValuationFlow ? "bulk:handoverAt:handover_received" : "bulk:valuedAt:valuation_confirmed"
     : `bulk:${fieldForStage(stageFilter.stage)}:mark`;
 
   const bulkMarkableKeys = useMemo(
@@ -2081,7 +2217,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
   async function mark(
     row: PurchaseReceiptRow,
     field: "handoverAt" | "valuedAt" | "receivedAt",
-    action: "mark" | "revert" | "not_received" | "handover_received" = "mark",
+    action: "mark" | "revert" | "not_received" | "handover_received" | "valuation_confirmed" | "valuation_unconfirmed" = "mark",
   ) {
     const key = `${row.companyId}:${row.name}:${field}:${action}`;
     setBusyKey(key);
@@ -2154,25 +2290,42 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
       notify.error("Select at least one clean pending row first");
       return;
     }
-    const field = isVerificationBulk ? "handoverAt" : fieldForStage(stageFilter.stage);
-    const action = isVerificationBulk ? "handover_received" : "mark";
-    const bulkKey = `bulk:${field}:${action}`;
+    const field = isVerificationBulk || isConfirmationBulk
+      ? usesVaultValuationFlow ? "handoverAt" : "valuedAt"
+      : fieldForStage(stageFilter.stage);
+    const action = isVerificationBulk || isConfirmationBulk
+      ? usesVaultValuationFlow ? "handover_received" : "valuation_confirmed"
+      : "mark";
+    const bulkKey = isPaymentPendingBulk ? "bulk:payment:approve" : `bulk:${field}:${action}`;
     setBusyKey(bulkKey);
     try {
       const results = await Promise.all(
         rows.map((row) =>
-          fetch(`/api/admin/purchasing/grn/purchase-receipts/${encodeURIComponent(row.name)}/mark`, {
+          isPaymentPendingBulk
+            ? fetch("/api/admin/purchasing/grn/payment-approval", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  companyId: row.companyId,
+                  purchaseReceiptName: row.name,
+                  purchaseReceiptIsBackfill: row.isBackfill,
+                  action: "approve",
+                }),
+              })
+            : fetch(`/api/admin/purchasing/grn/purchase-receipts/${encodeURIComponent(row.name)}/mark`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ field, action, companyId: row.companyId, isBackfill: row.isBackfill }),
-          }),
+              }),
         ),
       );
       const failed = results.filter((res) => !res.ok).length;
       if (failed > 0) {
         notify.error(`${failed} row${failed === 1 ? "" : "s"} could not be marked`);
-      } else if (isVerificationBulk) {
-        notify.success(`${rows.length} row${rows.length === 1 ? "" : "s"} ${usesVaultValuationFlow ? "marked received" : "verified"}`);
+      } else if (isPaymentPendingBulk) {
+        notify.success(`${rows.length} payment${rows.length === 1 ? "" : "s"} approved`);
+      } else if (isConfirmationBulk || isVerificationBulk) {
+        notify.success(`${rows.length} row${rows.length === 1 ? "" : "s"} ${usesVaultValuationFlow ? "marked received" : "confirmed"}`);
       }
       setSelectedBulkPrKeys(new Set());
       await loadData();
@@ -2531,12 +2684,14 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                     {(
                       key === "received"
                         ? (["all", "pending", "completed", "payment_pending", "payment_approved"] as const)
+                        : key === "valued" && !usesVaultValuationFlow
+                          ? (["all", "value", "receive", "pricing_review", "completed"] as const)
                       : ([
                           "all",
                           "pending",
                           "completed",
                           "mismatch",
-                          "verify",
+                          ...(key === "valued" && usesVaultValuationFlow ? (["verify"] as const) : []),
                           ...(key === "handover" ? (["not_received"] as const) : []),
                         ] as const)
                     ).map((status) => {
@@ -2556,6 +2711,10 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                           <div className="truncate text-xs font-medium capitalize text-muted-foreground">
                             {status === "not_received"
                               ? "Not received"
+                              : status === "pricing_review"
+                                ? "Pricing Review"
+                              : status === "verify" && key === "valued" && !usesVaultValuationFlow
+                                ? "Confirm"
                               : status === "payment_pending"
                                 ? "Payment pending"
                                 : status === "payment_approved"
@@ -2829,7 +2988,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                           <Button
                             size="sm"
                             variant="outline"
-                            disabled={row.isCancelled || !row.handoverAt || (usesVaultValuationFlow && !row.handoverReceivedAt) || busyKey === `${row.companyId}:${row.name}:valuedAt:mark`}
+                            disabled={row.isCancelled || !row.handoverAt || !row.handoverReceivedAt || busyKey === `${row.companyId}:${row.name}:valuedAt:mark`}
                             onClick={(event) => {
                               event.stopPropagation();
                               mark(row, "valuedAt");
@@ -2853,7 +3012,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                           <Button
                             size="sm"
                             variant="outline"
-                            disabled={row.isCancelled || !row.handoverAt || !row.valuedAt || (!usesVaultValuationFlow && !row.handoverReceivedAt) || busyKey === `${row.companyId}:${row.name}:receivedAt:mark`}
+                            disabled={row.isCancelled || !row.handoverAt || !row.handoverReceivedAt || !row.valuedAt || (!usesVaultValuationFlow && row.requiresValuationConfirmation && !row.valuationConfirmedAt) || busyKey === `${row.companyId}:${row.name}:receivedAt:mark`}
                             onClick={(event) => {
                               event.stopPropagation();
                               mark(row, "receivedAt");
@@ -3934,6 +4093,8 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                 onRevert={(row, field) => mark(row, field, "revert")}
                 onHandoverReceived={(row) => mark(row, "handoverAt", "handover_received")}
                 onNotReceived={(row) => mark(row, "handoverAt", "not_received")}
+                onValuationConfirmed={(row) => mark(row, "valuedAt", "valuation_confirmed")}
+                onValuationUnconfirmed={(row) => mark(row, "valuedAt", "valuation_unconfirmed")}
                 onApprovePayment={(row) => updatePayment(row, "approve")}
                 onMarkPaymentPaid={(row) => updatePayment(row, "paid")}
               />
