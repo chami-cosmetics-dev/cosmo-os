@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 
 const schema = z.object({
   field: z.enum(["handoverAt", "valuedAt", "receivedAt"]),
-  action: z.enum(["mark", "revert", "not_received", "handover_received"]).optional().default("mark"),
+  action: z.enum(["mark", "revert", "not_received", "handover_received", "valuation_confirmed", "valuation_unconfirmed"]).optional().default("mark"),
   companyId: z.string().min(1).optional(),
   isBackfill: z.boolean().optional().default(false),
 });
@@ -52,7 +52,8 @@ export async function POST(
   }
 
   const auth = await requirePermission(
-    parsed.data.action === "not_received" || parsed.data.action === "handover_received"
+    parsed.data.action === "not_received" || parsed.data.action === "handover_received" ||
+    parsed.data.action === "valuation_confirmed" || parsed.data.action === "valuation_unconfirmed"
       ? "purchasing.grn.mark_valued"
       : FIELD_PERMISSIONS[parsed.data.field],
   );
@@ -71,6 +72,7 @@ export async function POST(
   const decodedName = decodeURIComponent(name);
   const targetCompanyId = parsed.data.companyId ?? companyId;
   const requiresVerificationBeforeValuation = isVaultOsDeployment();
+  const requiresValuationConfirmationBeforeGrnReceived = !isVaultOsDeployment();
 
   if (parsed.data.isBackfill) {
     const row = await prisma.grnBackfillPurchaseReceipt.findUnique({
@@ -80,6 +82,8 @@ export async function POST(
         handoverAt: true,
         handoverReceivedAt: true,
         valuedAt: true,
+        valuationConfirmedAt: true,
+        requiresValuationConfirmation: true,
         receivedAt: true,
       },
     });
@@ -87,7 +91,7 @@ export async function POST(
     if (row.docstatus === 2) return NextResponse.json({ error: "Cancelled purchase receipts cannot be marked" }, { status: 409 });
 
     const now = new Date();
-    const update = async (data: Record<string, Date | string | null>) =>
+    const update = async (data: Record<string, Date | string | boolean | null>) =>
       prisma.grnBackfillPurchaseReceipt.update({
         where: { companyId_name: { companyId: targetCompanyId, name: decodedName } },
         data,
@@ -97,17 +101,28 @@ export async function POST(
       if (parsed.data.field !== "handoverAt" || !row.handoverAt || row.receivedAt) {
         return NextResponse.json({ error: "Only an unreceived handover can be marked not received" }, { status: 409 });
       }
-      await update({ handoverAt: null, handoverById: null, handoverReceivedAt: null, handoverReceivedById: null, valuedAt: null, valuedById: null, receivedAt: null, receivedById: null, notReceivedAt: now, notReceivedById: user.id });
+      await update({ handoverAt: null, handoverById: null, handoverReceivedAt: null, handoverReceivedById: null, valuedAt: null, valuedById: null, valuationConfirmedAt: null, valuationConfirmedById: null, receivedAt: null, receivedById: null, notReceivedAt: now, notReceivedById: user.id });
       return NextResponse.json({ ok: true });
     }
     if (parsed.data.action === "handover_received") {
       if (parsed.data.field !== "handoverAt" || !row.handoverAt || row.receivedAt) {
         return NextResponse.json({ error: "Mark handover before marking it received" }, { status: 409 });
       }
-      if (!requiresVerificationBeforeValuation && !row.valuedAt) {
-        return NextResponse.json({ error: "Mark valued before verifying the handover" }, { status: 409 });
-      }
       await update({ handoverReceivedAt: now, handoverReceivedById: user.id, notReceivedAt: null, notReceivedById: null, handoverRevertedAt: null, handoverRevertedById: null });
+      return NextResponse.json({ ok: true });
+    }
+    if (parsed.data.action === "valuation_confirmed") {
+      if (requiresVerificationBeforeValuation || parsed.data.field !== "valuedAt" || !row.valuedAt || row.receivedAt) {
+        return NextResponse.json({ error: "Only an unreceived valued GRN can be confirmed" }, { status: 409 });
+      }
+      await update({ valuationConfirmedAt: now, valuationConfirmedById: user.id, valuationConfirmRevertedAt: null, valuationConfirmRevertedById: null });
+      return NextResponse.json({ ok: true });
+    }
+    if (parsed.data.action === "valuation_unconfirmed") {
+      if (requiresVerificationBeforeValuation || parsed.data.field !== "valuedAt" || !row.valuationConfirmedAt || row.receivedAt) {
+        return NextResponse.json({ error: "Only an unreceived valuation confirmation can be reverted" }, { status: 409 });
+      }
+      await update({ valuationConfirmedAt: null, valuationConfirmedById: null, valuationConfirmRevertedAt: now, valuationConfirmRevertedById: user.id });
       return NextResponse.json({ ok: true });
     }
     if (parsed.data.action === "revert") {
@@ -125,26 +140,27 @@ export async function POST(
         data.handoverReceivedAt = null;
         data.handoverReceivedById = null;
       }
-      if (!requiresVerificationBeforeValuation && parsed.data.field === "valuedAt") {
-        data.handoverReceivedAt = null;
-        data.handoverReceivedById = null;
+      if (!requiresVerificationBeforeValuation && (parsed.data.field === "handoverAt" || parsed.data.field === "valuedAt")) {
+        data.valuationConfirmedAt = null;
+        data.valuationConfirmedById = null;
       }
       await update(data);
       return NextResponse.json({ ok: true });
     }
-    if (parsed.data.field === "valuedAt" && (!row.handoverAt || (requiresVerificationBeforeValuation && !row.handoverReceivedAt))) {
-      return NextResponse.json({ error: requiresVerificationBeforeValuation ? "Mark handover received before marking valued" : "Mark handover before marking valued" }, { status: 409 });
+    if (parsed.data.field === "valuedAt" && (!row.handoverAt || !row.handoverReceivedAt)) {
+      return NextResponse.json({ error: "Mark handover received before marking valued" }, { status: 409 });
     }
-    if (parsed.data.field === "receivedAt" && (!row.handoverAt || !row.valuedAt || (!requiresVerificationBeforeValuation && !row.handoverReceivedAt))) {
-      return NextResponse.json({ error: requiresVerificationBeforeValuation ? "Mark handover and valued before marking GRN received" : "Mark handover, valued, and verified before marking GRN received" }, { status: 409 });
+    if (parsed.data.field === "receivedAt" && (!row.handoverAt || !row.valuedAt || !row.handoverReceivedAt || (requiresValuationConfirmationBeforeGrnReceived && row.requiresValuationConfirmation && !row.valuationConfirmedAt))) {
+      return NextResponse.json({ error: requiresValuationConfirmationBeforeGrnReceived && row.requiresValuationConfirmation ? "Mark handover received, valued, and confirmed before marking GRN received" : "Mark handover received and valued before marking GRN received" }, { status: 409 });
     }
     await update({
       [parsed.data.field]: now,
       [FIELD_ACTOR_COLUMNS[parsed.data.field]]: user.id,
       [FIELD_REVERTED_AT_COLUMNS[parsed.data.field]]: null,
       [FIELD_REVERTED_BY_COLUMNS[parsed.data.field]]: null,
-      ...(parsed.data.field === "valuedAt" && { valuationRejectedAt: null, valuationRejectedById: null }),
-      ...(parsed.data.field === "handoverAt" && { notReceivedAt: null, notReceivedById: null, handoverReceivedAt: null, handoverReceivedById: null }),
+      ...(parsed.data.field === "valuedAt" && { valuationRejectedAt: null, valuationRejectedById: null, valuationConfirmedAt: null, valuationConfirmedById: null }),
+      ...(parsed.data.field === "handoverAt" && { notReceivedAt: null, notReceivedById: null, handoverReceivedAt: null, handoverReceivedById: null, valuationConfirmedAt: null, valuationConfirmedById: null }),
+      ...(parsed.data.field === "handoverAt" && !requiresVerificationBeforeValuation && { requiresValuationConfirmation: true }),
     });
     return NextResponse.json({ ok: true });
   }
@@ -158,6 +174,8 @@ export async function POST(
       handoverAt: true,
       handoverReceivedAt: true,
       valuedAt: true,
+      valuationConfirmedAt: true,
+      requiresValuationConfirmation: true,
       receivedAt: true,
       supplierStockReturnName: true,
       purchaseInvoices: {
@@ -194,6 +212,8 @@ export async function POST(
         handoverReceivedById: null,
         valuedAt: null,
         valuedById: null,
+        valuationConfirmedAt: null,
+        valuationConfirmedById: null,
         receivedAt: null,
         receivedById: null,
         notReceivedAt: new Date(),
@@ -213,10 +233,6 @@ export async function POST(
     if (row.receivedAt) {
       return NextResponse.json({ error: "GRN received rows cannot be marked not received" }, { status: 409 });
     }
-    if (!requiresVerificationBeforeValuation && !row.valuedAt) {
-      return NextResponse.json({ error: "Mark valued before verifying the handover" }, { status: 409 });
-    }
-
     await prisma.$transaction(async (tx) => {
       await tx.grnPurchaseReceipt.update({
         where: { companyId_name: { companyId: targetCompanyId, name: decodedName } },
@@ -281,6 +297,26 @@ export async function POST(
     await autoMatchIntercompanyGrn();
     return NextResponse.json({ ok: true });
   }
+  if (parsed.data.action === "valuation_confirmed") {
+    if (requiresVerificationBeforeValuation || parsed.data.field !== "valuedAt" || !row.valuedAt || row.receivedAt) {
+      return NextResponse.json({ error: "Only an unreceived valued GRN can be confirmed" }, { status: 409 });
+    }
+    await prisma.grnPurchaseReceipt.update({
+      where: { companyId_name: { companyId: targetCompanyId, name: decodedName } },
+      data: { valuationConfirmedAt: new Date(), valuationConfirmedById: user.id, valuationConfirmRevertedAt: null, valuationConfirmRevertedById: null },
+    });
+    return NextResponse.json({ ok: true });
+  }
+  if (parsed.data.action === "valuation_unconfirmed") {
+    if (requiresVerificationBeforeValuation || parsed.data.field !== "valuedAt" || !row.valuationConfirmedAt || row.receivedAt) {
+      return NextResponse.json({ error: "Only an unreceived valuation confirmation can be reverted" }, { status: 409 });
+    }
+    await prisma.grnPurchaseReceipt.update({
+      where: { companyId_name: { companyId: targetCompanyId, name: decodedName } },
+      data: { valuationConfirmedAt: null, valuationConfirmedById: null, valuationConfirmRevertedAt: new Date(), valuationConfirmRevertedById: user.id },
+    });
+    return NextResponse.json({ ok: true });
+  }
   if (parsed.data.action === "revert" && !row[parsed.data.field]) {
     return NextResponse.json({ error: "This stage is not marked yet" }, { status: 409 });
   }
@@ -299,9 +335,9 @@ export async function POST(
       data.handoverReceivedAt = null;
       data.handoverReceivedById = null;
     }
-    if (!requiresVerificationBeforeValuation && parsed.data.field === "valuedAt") {
-      data.handoverReceivedAt = null;
-      data.handoverReceivedById = null;
+    if (!requiresVerificationBeforeValuation && (parsed.data.field === "handoverAt" || parsed.data.field === "valuedAt")) {
+      data.valuationConfirmedAt = null;
+      data.valuationConfirmedById = null;
     }
     await prisma.grnPurchaseReceipt.update({
       where: { companyId_name: { companyId: targetCompanyId, name: decodedName } },
@@ -310,11 +346,11 @@ export async function POST(
     await autoMatchIntercompanyGrn();
     return NextResponse.json({ ok: true });
   }
-  if (parsed.data.field === "valuedAt" && (!row.handoverAt || (requiresVerificationBeforeValuation && !row.handoverReceivedAt))) {
-    return NextResponse.json({ error: requiresVerificationBeforeValuation ? "Mark handover received before marking valued" : "Mark handover before marking valued" }, { status: 409 });
+  if (parsed.data.field === "valuedAt" && (!row.handoverAt || !row.handoverReceivedAt)) {
+    return NextResponse.json({ error: "Mark handover received before marking valued" }, { status: 409 });
   }
-  if (parsed.data.field === "receivedAt" && (!row.handoverAt || !row.valuedAt || (!requiresVerificationBeforeValuation && !row.handoverReceivedAt))) {
-    return NextResponse.json({ error: requiresVerificationBeforeValuation ? "Mark handover and valued before marking GRN received" : "Mark handover, valued, and verified before marking GRN received" }, { status: 409 });
+  if (parsed.data.field === "receivedAt" && (!row.handoverAt || !row.valuedAt || !row.handoverReceivedAt || (requiresValuationConfirmationBeforeGrnReceived && row.requiresValuationConfirmation && !row.valuationConfirmedAt))) {
+    return NextResponse.json({ error: requiresValuationConfirmationBeforeGrnReceived && row.requiresValuationConfirmation ? "Mark handover received, valued, and confirmed before marking GRN received" : "Mark handover received and valued before marking GRN received" }, { status: 409 });
   }
 
   await prisma.$transaction(async (tx) => {
@@ -325,13 +361,16 @@ export async function POST(
         [FIELD_ACTOR_COLUMNS[parsed.data.field]]: user.id,
         [FIELD_REVERTED_AT_COLUMNS[parsed.data.field]]: null,
         [FIELD_REVERTED_BY_COLUMNS[parsed.data.field]]: null,
-        ...(parsed.data.field === "valuedAt" && { valuationRejectedAt: null, valuationRejectedById: null }),
+        ...(parsed.data.field === "valuedAt" && { valuationRejectedAt: null, valuationRejectedById: null, valuationConfirmedAt: null, valuationConfirmedById: null }),
         ...(parsed.data.field === "handoverAt" && {
           notReceivedAt: null,
           notReceivedById: null,
           handoverReceivedAt: null,
           handoverReceivedById: null,
+          valuationConfirmedAt: null,
+          valuationConfirmedById: null,
         }),
+        ...(parsed.data.field === "handoverAt" && !requiresVerificationBeforeValuation && { requiresValuationConfirmation: true }),
       },
     });
   });

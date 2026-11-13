@@ -141,6 +141,7 @@ export function AppSidebar({
   const canViewPurchaseHistory = hasSidebarPermission(
     "purchasing.purchase_history.read",
   );
+  const canViewHighRisk = hasSidebarPermission("purchasing.high_risk.read");
   const canViewItemTrends = hasSidebarPermission("purchasing.item_trends.read");
   const canViewMarketPrices =
     hasSidebarPermission("purchasing.market_prices.read") ||
@@ -153,6 +154,7 @@ export function AppSidebar({
     canViewOsf ||
     canViewPurchasingTools ||
     canViewPurchaseHistory ||
+    canViewHighRisk ||
     canViewItemTrends ||
     canViewMarketPrices ||
     canViewGrn ||
@@ -721,11 +723,11 @@ export function AppSidebar({
               {canViewPurchasingTools && (
                 <NavItem href="/dashboard/purchasing/calculator" icon={Calculator} label="SKU Calculator" isActive={pathname === "/dashboard/purchasing/calculator"} />
               )}
-              {canViewPurchaseHistory && (
+              {(canViewPurchaseHistory || canViewHighRisk) && (
                 <NavItem
                   href="/dashboard/purchasing/purchase-history"
                   icon={History}
-                  label="Purchase History"
+                  label={canViewPurchaseHistory ? "Purchase History" : "High Risk Items"}
                   isActive={pathname === "/dashboard/purchasing/purchase-history"}
                 />
               )}
