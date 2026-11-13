@@ -10,10 +10,45 @@ import {
   formatApprovalSplitAmountBreakdown,
   formatApprovalSplitInvoicePaymentLabel,
   isApprovalSplitRequestNote,
+  isSplitPaymentEligibleGateway,
+  orderHasSplitPaymentEligibleGateway,
   parseApprovalSplitRequestNote,
   validateApprovalSplitAmounts,
 } from "@/lib/approval-payment-split";
 import { parseApprovalRequestNote } from "@/lib/approval-display";
+
+describe("split payment eligible gateway", () => {
+  it("allows KOKO, Bank Transfer, and Cash/COD", () => {
+    expect(isSplitPaymentEligibleGateway("KOKO")).toBe(true);
+    expect(isSplitPaymentEligibleGateway("Bank Transfer")).toBe(true);
+    expect(isSplitPaymentEligibleGateway("Cash")).toBe(true);
+    expect(isSplitPaymentEligibleGateway("Cash On Delivery")).toBe(true);
+    expect(isSplitPaymentEligibleGateway("cod")).toBe(true);
+    expect(isSplitPaymentEligibleGateway("Mintpay")).toBe(false);
+    expect(isSplitPaymentEligibleGateway("Card on Delivery")).toBe(false);
+  });
+
+  it("matches primary or names", () => {
+    expect(
+      orderHasSplitPaymentEligibleGateway({
+        paymentGatewayPrimary: "Cash",
+        paymentGatewayNames: [],
+      }),
+    ).toBe(true);
+    expect(
+      orderHasSplitPaymentEligibleGateway({
+        paymentGatewayPrimary: null,
+        paymentGatewayNames: ["COD"],
+      }),
+    ).toBe(true);
+    expect(
+      orderHasSplitPaymentEligibleGateway({
+        paymentGatewayPrimary: "Card on Delivery",
+        paymentGatewayNames: [],
+      }),
+    ).toBe(false);
+  });
+});
 
 describe("approval split payment plan", () => {
   it("requires two positive amounts that exactly match the invoice total", () => {

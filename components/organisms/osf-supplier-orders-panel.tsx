@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Download, Loader2, X } from "lucide-react";
+import { Download, Loader2, Send, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -61,12 +61,20 @@ export function OsfSupplierOrdersPanel() {
   const [compactSuppliersBySku, setCompactSuppliersBySku] = useState<Record<string, boolean>>({});
   const [loadingSuppliers, setLoadingSuppliers] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [sendResult, setSendResult] = useState<{
+    deepLinkUrl: string;
+    importId: string;
+    replay: boolean;
+  } | null>(null);
   const [bootstrapped, setBootstrapped] = useState(false);
   const searchWrapRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Skip priority→brands refetch on the initial bootstrap load. */
   const skipPriorityBrandRefreshRef = useRef(true);
+  /** Stable key for double-click / retry of the same Send gesture. */
+  const sendIdempotencyRef = useRef<string | null>(null);
 
   useEffect(() => {
     fetch("/api/admin/osf/supplier-orders/page-data")
@@ -412,6 +420,65 @@ export function OsfSupplierOrdersPanel() {
     }
   }
 
+  async function sendToSupplierPortal() {
+    const validation = validateDraftForGenerate(rows);
+    if (!validation.ok) {
+      notify.error(
+        validation.skus?.length
+          ? `${validation.error}: ${validation.skus.join(", ")}`
+          : validation.error,
+      );
+      return;
+    }
+    const overSkus = overAllocatedSkus(rows);
+    if (overSkus.length > 0) {
+      notify.info(
+        `Warning: allocated above reorder qty for ${overSkus.join(", ")} — send will continue`,
+      );
+    }
+    // Stable key for double-click / retry of the same click gesture.
+    if (!sendIdempotencyRef.current) {
+      sendIdempotencyRef.current =
+        typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : `send-${Date.now()}`;
+    }
+    setSending(true);
+    try {
+      const res = await fetch("/api/admin/osf/supplier-orders/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          rows,
+          vendorId: vendorId || undefined,
+          priority: priority || undefined,
+          idempotencyKey: sendIdempotencyRef.current,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(json.error ?? `Send failed (${res.status})`);
+      }
+      setSendResult({
+        deepLinkUrl: String(json.deepLinkUrl ?? ""),
+        importId: String(json.importId ?? ""),
+        replay: Boolean(json.replay),
+      });
+      notify.success(
+        json.replay
+          ? "Already sent — opening existing Supplier Portal import"
+          : "Sent to Supplier Portal (availability request suggestions only)",
+      );
+      // New gesture after success gets a fresh idempotency key.
+      sendIdempotencyRef.current = null;
+    } catch (err) {
+      // Keep draft on failure; keep idempotency key so retry is safe.
+      notify.error(err instanceof Error ? err.message : "Send failed");
+    } finally {
+      setSending(false);
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -419,7 +486,8 @@ export function OsfSupplierOrdersPanel() {
           <h3 className="font-medium">Supplier orders</h3>
           <p className="text-sm text-muted-foreground">
             Filter by priority and brand, search SKUs, allocate quantities across suppliers,
-            then generate a zip of supplier Excel files.
+            then generate a zip of supplier Excel files or send availability-request suggestions
+            to Supplier Portal. Sending does not create purchase orders and does not clear this draft.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -428,16 +496,62 @@ export function OsfSupplierOrdersPanel() {
             variant="outline"
             size="sm"
             onClick={clearAll}
-            disabled={rows.length === 0}
+            disabled={rows.length === 0 || generating || sending}
           >
             Clear table
           </Button>
-          <Button type="button" size="sm" onClick={() => void generate()} disabled={generating}>
-            {generating ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Download className="size-4" aria-hidden />}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => void sendToSupplierPortal()}
+            disabled={rows.length === 0 || generating || sending}
+          >
+            {sending ? (
+              <Loader2 className="size-4 animate-spin" aria-hidden />
+            ) : (
+              <Send className="size-4" aria-hidden />
+            )}
+            {sending ? "Sending…" : "Send to Supplier Portal"}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => void generate()}
+            disabled={generating || sending}
+          >
+            {generating ? (
+              <Loader2 className="size-4 animate-spin" aria-hidden />
+            ) : (
+              <Download className="size-4" aria-hidden />
+            )}
             {generating ? "Generating…" : "Generate zip"}
           </Button>
         </div>
       </div>
+
+      {sendResult ? (
+        <div
+          className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm"
+          role="status"
+        >
+          {sendResult.replay ? "Replay — " : ""}
+          Portal import {sendResult.importId.slice(0, 8)}…
+          {sendResult.deepLinkUrl ? (
+            <>
+              {" · "}
+              <a
+                href={sendResult.deepLinkUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="font-medium underline underline-offset-2"
+              >
+                Open Import Review
+              </a>
+            </>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="flex flex-wrap gap-3">
         <label className="space-y-1 text-sm">

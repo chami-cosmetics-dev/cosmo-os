@@ -185,10 +185,19 @@ export const osfSupplierOrdersGenerateBodySchema = z.object({
   rows: z.array(osfSupplierOrdersRowSchema).min(1).max(500),
 });
 
+/** Phase G: same draft rows as generate, plus optional filters / idempotency. */
+export const osfSupplierOrdersSendBodySchema = z.object({
+  rows: z.array(osfSupplierOrdersRowSchema).min(1).max(500),
+  vendorId: cuidSchema.optional(),
+  priority: trimmedString(0, 80).optional(),
+  idempotencyKey: z.string().trim().min(8).max(128).optional(),
+});
+
 export type OsfSupplierOrdersPageDataQuery = z.infer<typeof osfSupplierOrdersPageDataQuerySchema>;
 export type OsfSupplierOrdersItemsQuery = z.infer<typeof osfSupplierOrdersItemsQuerySchema>;
 export type OsfSupplierOrdersSuppliersQuery = z.infer<typeof osfSupplierOrdersSuppliersQuerySchema>;
 export type OsfSupplierOrdersGenerateBodyInput = z.infer<typeof osfSupplierOrdersGenerateBodySchema>;
+export type OsfSupplierOrdersSendBodyInput = z.infer<typeof osfSupplierOrdersSendBodySchema>;
 
 export const vaultOsfGenerateBodySchema = z.object({
   asOfDate: z

@@ -34,6 +34,7 @@ import {
   APPROVAL_SPLIT_PAIRS,
   approvalSplitLineLabel,
   approvalSplitPairId,
+  orderHasSplitPaymentEligibleGateway,
   sortApprovalSplitLines,
   splitIncludesKoko,
   type ApprovalSplitPairId,
@@ -560,9 +561,9 @@ export function FulfillmentSampleFreeIssuePanel({
     detail?.paymentApproval?.status !== "approved" &&
     !splitPaymentLines.some((line) => line.erpPaymentEntryName) &&
     isSplitPaymentEligibleSource(detail?.sourceName) &&
-    [detail?.paymentGatewayPrimary, ...(detail?.paymentGatewayNames ?? [])].some((gateway) => {
-      const normalized = gateway?.toLowerCase() ?? "";
-      return normalized.includes("koko") || normalized.includes("bank");
+    orderHasSplitPaymentEligibleGateway({
+      paymentGatewayPrimary: detail?.paymentGatewayPrimary,
+      paymentGatewayNames: detail?.paymentGatewayNames,
     });
   const splitPairMethods = APPROVAL_SPLIT_PAIRS[splitPair];
 
