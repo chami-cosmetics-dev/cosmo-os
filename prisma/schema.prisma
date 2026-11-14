@@ -122,6 +122,10 @@ model Company {
   newItemRequestVotes             NewItemRequestVote[]
   loyaltyReasonTemplates          LoyaltyReasonTemplate[]
   salesBudgetSnapshots            SalesBudgetSnapshot[]
+  stockHealthWeeklySnapshots      StockHealthWeeklySnapshot[]
+  stockHealthExcludedSkus         StockHealthExcludedSku[]
+  stockHealthSummaryMails         StockHealthSummaryMail[]
+  stockHealthSkuSnapshots         StockHealthSkuSnapshot[]
   riderFinanceCashReceipts        RiderFinanceCashReceipt[]
   giftVoucherGroups                    GiftVoucherGroup[]
   giftVoucherCodes                     GiftVoucherCode[]
@@ -3563,6 +3567,77 @@ model SalesBudgetSnapshot {
   lastSavedBy   User?    @relation("SalesBudgetSnapshotSavedBy", fields: [lastSavedById], references: [id], onDelete: SetNull)
 
   @@unique([companyId, targetMonth])
+}
+
+/// Stock Health weekly summary, saved every Monday: one row per priority status.
+model StockHealthWeeklySnapshot {
+  id           String   @id @default(cuid())
+  companyId    String
+  /// Monday, YYYY-MM-DD (Asia/Colombo).
+  snapshotDate String
+  /// Top / Low / Newly Added / Discontinue.
+  status       String
+  /// Common SKUs in this status.
+  count        Int
+  /// Current stock of all variants of those common SKUs.
+  stock        Float
+  createdAt    DateTime @default(now())
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, snapshotDate, status])
+  @@index([companyId, snapshotDate])
+}
+
+/// Each counted Common SKU's priority status on a Monday — saved with mail 1, so the next
+/// Monday's mail can show which items moved in / out of Discontinue.
+model StockHealthSkuSnapshot {
+  id           String   @id @default(cuid())
+  companyId    String
+  /// Monday, YYYY-MM-DD (Asia/Colombo).
+  snapshotDate String
+  commonSku    String
+  /// Top / Low / Newly Added / Discontinue / Blank.
+  status       String
+  itemName     String?
+  createdAt    DateTime @default(now())
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, snapshotDate, commonSku])
+  @@index([companyId, snapshotDate])
+}
+
+/// One row per Monday Stock Health summary mail (two mails: weekly + rop) — stops a second send.
+model StockHealthSummaryMail {
+  id         String   @id @default(cuid())
+  companyId  String
+  /// Monday, YYYY-MM-DD (Asia/Colombo).
+  mailDate   String
+  /// weekly (mail 1, Weekly Summary) | rop (mail 2, ROP Status).
+  part       String
+  /// sending | sent | failed (only a failed send is tried again).
+  status     String
+  /// Comma-separated recipients the mail went to.
+  recipients String
+  error      String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, mailDate, part])
+}
+
+/// Common SKUs left out of Stock Health (gift vouchers, ERP test items). Edited on the screen.
+model StockHealthExcludedSku {
+  id          String   @id @default(cuid())
+  companyId   String
+  /// Common SKU (upper-case), or a prefix rule ending in `*` (e.g. `BU0*`).
+  sku         String
+  /// Exception to a prefix rule: matches it but is still counted (e.g. a BU0… SKU that is no bundle).
+  countAnyway Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, sku])
 }
 
 model ShopItemRequestLine {

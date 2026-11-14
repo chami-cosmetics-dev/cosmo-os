@@ -16,6 +16,7 @@ import {
   ShoppingCart,
   Sticker,
   Store,
+  Gauge,
   Tags,
   Users,
   UserCircle,
@@ -41,6 +42,7 @@ import {
   ArrowLeftRight,
   SearchCheck,
   Target,
+  HeartPulse,
   Stethoscope,
 } from "lucide-react";
 import { usePathname, useSearchParams } from "next/navigation";
@@ -149,8 +151,10 @@ export function AppSidebar({
   const canViewGrn = hasSidebarPermission("purchasing.grn.read");
   const canAdminNewItemRequests = hasSidebarPermission("new_item_requests.admin");
   const canViewSalesBudget = hasSidebarPermission("purchasing.sales_budget.read");
+  const canViewStockHealth = hasSidebarPermission("purchasing.stock_health.read");
   const canViewPurchasing =
     canViewSalesBudget ||
+    canViewStockHealth ||
     canViewOsf ||
     canViewPurchasingTools ||
     canViewPurchaseHistory ||
@@ -162,8 +166,13 @@ export function AppSidebar({
   const canViewStoreAllocation = hasSidebarPermission("store.allocation.read");
   const canViewStoreStockCount = hasSidebarPermission("store.stock_count.read");
   const canViewMaterialTransfer = hasSidebarPermission("store.material_transfer.write");
+  const canViewShopStockStatus = hasSidebarPermission("store.shop_stock_status.read");
   const canViewStore =
-    canViewStoreAllocation || canViewStoreStockCount || canViewMaterialTransfer || hasOutlet;
+    canViewStoreAllocation ||
+    canViewStoreStockCount ||
+    canViewMaterialTransfer ||
+    canViewShopStockStatus ||
+    hasOutlet;
   const canViewCompanySettings = hasSidebarPermission("settings.company");
   const canViewSuppliersSettings = hasSidebarPermission("settings.suppliers");
   const canViewEmailTemplates = hasSidebarPermission("settings.email_templates");
@@ -763,6 +772,14 @@ export function AppSidebar({
                   isActive={pathname === "/dashboard/purchasing/sales-budget"}
                 />
               )}
+              {canViewStockHealth && (
+                <NavItem
+                  href="/dashboard/purchasing/stock-health"
+                  icon={HeartPulse}
+                  label="Stock Health"
+                  isActive={pathname === "/dashboard/purchasing/stock-health"}
+                  />
+              )}
               {canAdminNewItemRequests && (
                 <NavItem
                   href="/dashboard/orders/stock-requests?tab=new-items"
@@ -800,6 +817,14 @@ export function AppSidebar({
                   icon={ArrowLeftRight}
                   label="Material transfer"
                   isActive={pathname === "/dashboard/store/material-transfer"}
+                />
+              )}
+              {canViewShopStockStatus && (
+                <NavItem
+                  href="/dashboard/store/shop-stock-status"
+                  icon={Gauge}
+                  label="Shop Stock Status"
+                  isActive={pathname === "/dashboard/store/shop-stock-status"}
                 />
               )}
               {hasOutlet && (

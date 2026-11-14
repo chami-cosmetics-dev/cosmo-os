@@ -201,6 +201,14 @@ const DEFAULT_PERMISSIONS = [
       "View the Sales Budget: budgets per merchant / shop, Export, Save and Saved Budgets",
   },
   {
+    key: "purchasing.stock_health.read",
+    description: "View Stock Health: Summary and Out of Stock tabs",
+  },
+  {
+    key: "purchasing.stock_health.manage",
+    description: "Add / remove the SKUs excluded from Stock Health",
+  },
+  {
     key: "purchasing.market_prices.read",
     description:
       "View Market Price Compare dashboard and competitor price data",
@@ -263,6 +271,10 @@ const DEFAULT_PERMISSIONS = [
     key: "store.stock_count.read",
     description:
       "Use store stock count worksheet (ERP live stock vs scanned count)",
+  },
+  {
+    key: "store.shop_stock_status.read",
+    description: "View Shop Stock Status (stock vs ROP per shop and Online)",
   },
   {
     key: "store.material_transfer.write",
