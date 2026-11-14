@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   creditNoteUpdateOutstandingForSelf,
+  erpSiShopifyTotalMismatch,
   isUsableErpSalesInvoiceId,
   mapDeliveryPaymentMethodToMop,
   resolveOrderPaymentMop,
+  resolveShopifyPrepaidPeAmount,
 } from "@/lib/erpnext-sync";
 import { isCcCheckoutGateway } from "@/lib/delivery-payment-approval";
 import { isMintpayGateway } from "@/lib/payment-gateway-match";
@@ -28,6 +30,35 @@ describe("isUsableErpSalesInvoiceId", () => {
 describe("creditNoteUpdateOutstandingForSelf", () => {
   it("is 0 so paid originals can become Credit Note Issued", () => {
     expect(creditNoteUpdateOutstandingForSelf()).toBe(0);
+  });
+});
+
+describe("erpSiShopifyTotalMismatch / resolveShopifyPrepaidPeAmount", () => {
+  it("accepts matching totals within tolerance", () => {
+    expect(erpSiShopifyTotalMismatch(10795, 10795)).toBeNull();
+    expect(erpSiShopifyTotalMismatch(10795.02, 10795)).toBeNull();
+    expect(resolveShopifyPrepaidPeAmount({ shopifyTotal: 10795, erpGrandTotal: 10795 })).toBe(10795);
+  });
+
+  it("caps PE at outstanding when SI matches Shopify", () => {
+    expect(
+      resolveShopifyPrepaidPeAmount({
+        shopifyTotal: 10795,
+        erpGrandTotal: 10795,
+        outstandingAmount: 500,
+      }),
+    ).toBe(500);
+  });
+
+  it("refuses PE when ERP grand_total lost the Shopify discount", () => {
+    expect(erpSiShopifyTotalMismatch(11312.5, 10795)).toMatch(/11312\.50.*10795\.00/);
+    expect(() =>
+      resolveShopifyPrepaidPeAmount({
+        shopifyTotal: 10795,
+        erpGrandTotal: 11312.5,
+        outstandingAmount: 11312.5,
+      }),
+    ).toThrow(/Refusing PE/);
   });
 });
 

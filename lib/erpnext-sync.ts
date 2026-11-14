@@ -20,6 +20,7 @@ import {
   resolveCouponInvoiceItemRates,
 } from "@/lib/erp-best-discount-erp";
 import {
+  applyOrderDiscountToErpItemRates,
   buildErpItemsFromShopifyLineItems,
   sumErpInvoiceItemsTotal,
   type ErpSalesInvoiceItem,
@@ -258,9 +259,14 @@ async function syncPaidGatewayPeAndMaybeCcInvoiceComplete(input: {
     invoiceName: string;
     customerName: string;
     debitTo: string;
+    /** Shopify charged total (order.totalPrice) — never ERP grand_total alone. */
     amount: number;
+    /** ERP SI grand_total after create; PE refused when this ≠ amount. */
+    erpGrandTotal: number;
     dateStr: string;
   };
+  /** Shopify total for finance PE path when directPe is absent. */
+  shopifyTotal?: number | null;
 }): Promise<void> {
   if (input.order.financialStatus !== "paid") return;
   // Full Koko/bank PE here would pay the SI before finance confirms split amounts.
@@ -295,6 +301,10 @@ async function syncPaidGatewayPeAndMaybeCcInvoiceComplete(input: {
         input.directPe.amount,
         input.directPe.dateStr,
         mopName,
+        {
+          shopifyTotal: input.directPe.amount,
+          erpGrandTotal: input.directPe.erpGrandTotal,
+        },
       );
     } else {
       await syncFinanceApprovedPrepaidPaymentToERPNext(
@@ -305,6 +315,7 @@ async function syncPaidGatewayPeAndMaybeCcInvoiceComplete(input: {
           paymentGatewayPrimary: input.order.paymentGatewayPrimary,
           paymentGatewayNames: input.order.paymentGatewayNames,
           financialStatus: input.order.financialStatus,
+          totalPrice: input.shopifyTotal ?? undefined,
         },
         input.location,
         input.paidAt,
@@ -1068,10 +1079,11 @@ async function createPrepaidPaymentEntry(
   totalAmount: number,
   dateStr: string,
   mopName: string,
+  totalGuard?: { shopifyTotal: number; erpGrandTotal?: number | null | undefined },
 ): Promise<void> {
   const resolvedMopName = resolveBankTransferMopName(mopName, { envValue: null });
   await retryTransientErpOperation(`prepaid PE ${invoiceName}`, async () => {
-    const invoice = await erpnextGet<{ outstanding_amount: number }>(
+    const invoice = await erpnextGet<{ outstanding_amount: number; grand_total?: number }>(
       cfg,
       `/api/resource/Sales Invoice/${encodeURIComponent(invoiceName)}`,
     );
@@ -1090,9 +1102,20 @@ async function createPrepaidPaymentEntry(
       throw new Error(`No account mapped for "${resolvedMopName}" mode of payment under company "${company}"`);
     }
 
-    const amount = invoice?.outstanding_amount && invoice.outstanding_amount > 0
-      ? Math.min(totalAmount, invoice.outstanding_amount)
-      : totalAmount;
+    let amount = totalAmount;
+    if (totalGuard) {
+      const erpGrand =
+        totalGuard.erpGrandTotal != null && Number.isFinite(Number(totalGuard.erpGrandTotal))
+          ? Number(totalGuard.erpGrandTotal)
+          : Number(invoice?.grand_total);
+      amount = resolveShopifyPrepaidPeAmount({
+        shopifyTotal: totalGuard.shopifyTotal,
+        erpGrandTotal: erpGrand,
+        outstandingAmount: invoice?.outstanding_amount,
+      });
+    } else if (invoice?.outstanding_amount && invoice.outstanding_amount > 0) {
+      amount = Math.min(totalAmount, invoice.outstanding_amount);
+    }
 
     const pe = await erpnextPost<{ name: string }>(cfg, "/api/resource/Payment Entry", {
       doctype: "Payment Entry",
@@ -1230,12 +1253,13 @@ export function isUsableErpSalesInvoiceId(value: string | null | undefined): boo
 type SalesInvoicePaymentTarget = {
   name: string;
   outstanding_amount: number;
+  grand_total?: number;
   debit_to: string;
   customer: string;
 };
 
 const SALES_INVOICE_PAYMENT_FIELDS = encodeURIComponent(
-  JSON.stringify(["name", "outstanding_amount", "debit_to", "customer"]),
+  JSON.stringify(["name", "outstanding_amount", "grand_total", "debit_to", "customer"]),
 );
 
 async function fetchSalesInvoicePaymentTarget(
@@ -1788,6 +1812,50 @@ export function creditNoteUpdateOutstandingForSelf(): 0 {
   return 0;
 }
 
+/** LKR cents tolerance when comparing ERP SI grand_total to Shopify order total. */
+export const ERP_SHOPIFY_TOTAL_TOLERANCE_LKR = 0.05;
+
+/**
+ * Null when ERP SI total matches Shopify charged total.
+ * Used to refuse Payment Entries that would book inflated cash after coupon/discount wipe.
+ */
+export function erpSiShopifyTotalMismatch(
+  erpGrandTotal: number,
+  shopifyTotal: number,
+  tolerance = ERP_SHOPIFY_TOTAL_TOLERANCE_LKR,
+): string | null {
+  const erp = Number(erpGrandTotal);
+  const shop = Number(shopifyTotal);
+  if (!Number.isFinite(erp) || !Number.isFinite(shop)) {
+    return `ERP SI grand_total (${String(erpGrandTotal)}) or Shopify total (${String(shopifyTotal)}) is not a number`;
+  }
+  if (Math.abs(erp - shop) <= tolerance) return null;
+  return `ERP SI grand_total ${erp.toFixed(2)} ≠ Shopify total ${shop.toFixed(2)}`;
+}
+
+/**
+ * Prepaid PE amount must follow Shopify charged total when known — never ERP grand_total alone.
+ * Throws when SI total drifted (e.g. Validate Coupon wiped header discount_amount).
+ */
+export function resolveShopifyPrepaidPeAmount(input: {
+  shopifyTotal: number;
+  erpGrandTotal: number;
+  outstandingAmount?: number | null;
+}): number {
+  const mismatch = erpSiShopifyTotalMismatch(input.erpGrandTotal, input.shopifyTotal);
+  if (mismatch) {
+    throw new Error(
+      `[ERPNext] Refusing PE — ${mismatch}. Fix SI discount/coupon before creating Payment Entry.`,
+    );
+  }
+  const shop = Number(input.shopifyTotal) || 0;
+  const outstanding = input.outstandingAmount;
+  if (outstanding != null && Number(outstanding) > 0) {
+    return Math.min(shop, Number(outstanding));
+  }
+  return shop;
+}
+
 export type EnsureErpnextCreditNoteResult = {
   creditNoteName: string;
   originalInvoiceName: string;
@@ -2290,6 +2358,8 @@ export async function syncFinanceApprovedPrepaidPaymentToERPNext(
     paymentGatewayPrimary: string | null;
     paymentGatewayNames: string[];
     financialStatus: string | null;
+    /** Shopify / Cosmo charged total — PE refused when ERP SI grand_total differs. */
+    totalPrice?: { toString(): string } | string | number | null;
   },
   location: LocationWithErpInstance,
   paidAt: Date,
@@ -2334,15 +2404,29 @@ export async function syncFinanceApprovedPrepaidPaymentToERPNext(
     return;
   }
 
+  const shopifyTotalRaw = order.totalPrice;
+  const shopifyTotal =
+    shopifyTotalRaw != null && shopifyTotalRaw !== ""
+      ? parseFloat(String(shopifyTotalRaw))
+      : NaN;
+  const hasShopifyTotal = Number.isFinite(shopifyTotal) && shopifyTotal > 0;
+  const peAmount = hasShopifyTotal ? shopifyTotal : invoice.outstanding_amount;
+
   await createPrepaidPaymentEntry(
     cfg,
     invoice.name,
     location.erpnextCompany,
     invoice.customer,
     invoice.debit_to,
-    invoice.outstanding_amount,
+    peAmount,
     toDateStr(paidAt),
     mopName,
+    hasShopifyTotal
+      ? {
+          shopifyTotal,
+          erpGrandTotal: invoice.grand_total,
+        }
+      : undefined,
   );
 }
 
@@ -2402,6 +2486,7 @@ export async function syncOrderToERPNext(
           },
           location,
           paidAt: order.createdAt,
+          shopifyTotal: parseFloat(order.totalPrice.toString()),
         });
       }
       return;
@@ -2526,10 +2611,31 @@ export async function syncOrderToERPNext(
   }
 
   // siItems already holds the right base rates (best-discount or Shopify nets).
-  const itemsTotal =
-    sumErpInvoiceItemsTotal(siItems) +
-    (useShippingTaxRow || useShippingItem ? shopifyShippingAmt : 0);
-  const discountAmt = parseFloat((itemsTotal - vaultTotal).toFixed(2));
+  // Order-level Shopify discount (e.g. NOV15) must live in line rates — ERP
+  // "Validate Coupon Payment Type" zeros header discount_amount when coupon_code is empty.
+  const shippingExtra =
+    useShippingTaxRow || useShippingItem ? shopifyShippingAmt : 0;
+  let itemsTotal = sumErpInvoiceItemsTotal(siItems) + shippingExtra;
+  let discountAmt = parseFloat((itemsTotal - vaultTotal).toFixed(2));
+  const shippingSkipCodes = cfg.shippingItem ? [cfg.shippingItem] : [];
+  if (discountAmt > 0) {
+    siItems = applyOrderDiscountToErpItemRates(siItems, discountAmt, {
+      skipItemCodes: shippingSkipCodes,
+    });
+    if (useCouponPricing) {
+      const netGap = parseFloat(
+        (sumErpInvoiceItemsTotal(netRateItems) + shippingExtra - vaultTotal).toFixed(2),
+      );
+      if (netGap > 0) {
+        const bakedNet = applyOrderDiscountToErpItemRates(netRateItems, netGap, {
+          skipItemCodes: shippingSkipCodes,
+        });
+        netRateItems.splice(0, netRateItems.length, ...bakedNet);
+      }
+    }
+    itemsTotal = sumErpInvoiceItemsTotal(siItems) + shippingExtra;
+    discountAmt = parseFloat((itemsTotal - vaultTotal).toFixed(2));
+  }
 
   const billingAddressHtml = formatAddressHtml(billingAddr);
   const shippingAddressHtml = formatAddressHtml(shippingAddr);
@@ -2584,8 +2690,7 @@ export async function syncOrderToERPNext(
       : cfg.taxesAndCharges
         ? { taxes_and_charges: cfg.taxesAndCharges }
         : { taxes: [] }),
-    // Apply Shopify-calculated discount as header discount_amount whenever there's a gap between
-    // the Shopify-charged total and the sum of item rates (covers both coupon and non-coupon orders).
+    // Residual header discount only if rate bake could not close the gap (should be rare).
     ...(discountAmt > 0
       ? { discount_amount: discountAmt, apply_discount_on: "Net Total" }
       : {}),
@@ -2623,12 +2728,14 @@ export async function syncOrderToERPNext(
       },
       location,
       paidAt: order.createdAt,
+      shopifyTotal: vaultTotal,
       directPe: {
         invoiceName: si.name,
         // Must be ERP Customer.name (often phone-based), not Shopify display name.
         customerName: erpCustomerName,
         debitTo: si.debit_to,
-        amount: si.grand_total,
+        amount: vaultTotal,
+        erpGrandTotal: si.grand_total,
         dateStr,
       },
     });
@@ -2812,10 +2919,28 @@ export async function syncOrderToERPNextFromOrder(order: OrderWithVaultData): Pr
     netRateItems?.push(shippingRow);
   }
 
-  const itemsTotal =
-    sumErpInvoiceItemsTotal(siItems) +
-    (useShippingTaxRow || useShippingItem ? shippingAmt : 0);
-  const discountAmt = parseFloat((itemsTotal - vaultTotal).toFixed(2));
+  // Bake order-level discount into rates — header discount_amount is wiped when coupon_code empty.
+  const shippingExtra = useShippingTaxRow || useShippingItem ? shippingAmt : 0;
+  let itemsTotal = sumErpInvoiceItemsTotal(siItems) + shippingExtra;
+  let discountAmt = parseFloat((itemsTotal - vaultTotal).toFixed(2));
+  const shippingSkipCodes = cfg.shippingItem ? [cfg.shippingItem] : [];
+  if (discountAmt > 0) {
+    siItems = applyOrderDiscountToErpItemRates(siItems, discountAmt, {
+      skipItemCodes: shippingSkipCodes,
+    });
+    if (netRateItems?.length) {
+      const netGap = parseFloat(
+        (sumErpInvoiceItemsTotal(netRateItems) + shippingExtra - vaultTotal).toFixed(2),
+      );
+      if (netGap > 0) {
+        netRateItems = applyOrderDiscountToErpItemRates(netRateItems, netGap, {
+          skipItemCodes: shippingSkipCodes,
+        });
+      }
+    }
+    itemsTotal = sumErpInvoiceItemsTotal(siItems) + shippingExtra;
+    discountAmt = parseFloat((itemsTotal - vaultTotal).toFixed(2));
+  }
 
   const addrHtml = formatAddressHtml(addr);
 
@@ -2883,11 +3008,13 @@ export async function syncOrderToERPNextFromOrder(order: OrderWithVaultData): Pr
       },
       location,
       paidAt: order.createdAt,
+      shopifyTotal: vaultTotal,
       directPe: {
         invoiceName: si.name,
         customerName: erpCustomerName,
         debitTo: si.debit_to,
-        amount: si.grand_total,
+        amount: vaultTotal,
+        erpGrandTotal: si.grand_total,
         dateStr,
       },
     });

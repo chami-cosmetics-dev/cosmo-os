@@ -216,6 +216,14 @@ export function classifyFailedErpSyncError(message: string) {
     } as const;
   }
 
+  // Shopify total vs ERP SI grand_total drift (coupon/discount wipe) — needs manual SI fix.
+  if (normalized.includes("refusing pe") || normalized.includes("≠ shopify total")) {
+    return {
+      type: "SI total mismatch",
+      retryable: false,
+    } as const;
+  }
+
   if (
     normalized.includes("negativestockerror") ||
     normalized.startsWith("out of stock -")

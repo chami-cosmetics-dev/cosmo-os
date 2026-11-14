@@ -221,11 +221,10 @@ export const FINANCE_PENDING_FULFILLMENT_EXCLUSION = {
 
 /**
  * Sample / Free Issue "Split Payments" list.
- * ERP and Shopify KOKO/Bank orders show here before finance approval, and stay
- * while that approval is still pending so the split can be edited. Cash/COD
- * orders appear only after a split is saved (pending finance approval) so the
- * queue is not every cash order. Finance approval is created when the split is
- * saved (or when KOKO link time is confirmed).
+ * ERP and Shopify KOKO/Bank/Cash/COD orders show here before finance approval,
+ * and stay while that approval is still pending so the split can be edited.
+ * Finance approval is created when the split is saved (or when KOKO link time
+ * is confirmed).
  */
 export const FINANCE_PENDING_SPLIT_PAYMENT_QUEUE = {
   sourceName: { in: ["erpnext", "web"] },
@@ -234,31 +233,8 @@ export const FINANCE_PENDING_SPLIT_PAYMENT_QUEUE = {
       OR: [
         { paymentGatewayPrimary: { contains: "koko", mode: "insensitive" as const } },
         { paymentGatewayPrimary: { contains: "bank", mode: "insensitive" as const } },
-        {
-          AND: [
-            {
-              OR: [
-                {
-                  paymentGatewayPrimary: {
-                    contains: "cash",
-                    mode: "insensitive" as const,
-                  },
-                },
-                {
-                  paymentGatewayPrimary: {
-                    equals: "cod",
-                    mode: "insensitive" as const,
-                  },
-                },
-              ],
-            },
-            {
-              approvalRequests: {
-                some: { type: ORDER_PAYMENT_APPROVAL, status: "pending" },
-              },
-            },
-          ],
-        },
+        { paymentGatewayPrimary: { contains: "cash", mode: "insensitive" as const } },
+        { paymentGatewayPrimary: { equals: "cod", mode: "insensitive" as const } },
       ],
     },
     {
