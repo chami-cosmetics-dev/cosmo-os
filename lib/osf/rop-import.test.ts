@@ -8,6 +8,8 @@ import {
   ERP_01_TOTAL_ROP_HEADER,
   parseRopImportSheet,
   parseRopQtyCell,
+  parseTargetPurchaseRateCell,
+  TARGET_PURCHASE_RATE_HEADER,
 } from "@/lib/osf/rop-import";
 
 function sheetBuffer(aoa: (string | number | null)[][]): Buffer {
@@ -21,6 +23,14 @@ const cols = [
   { key: "lmj", label: "LMJ" },
   { key: "cosmo_shop_gcc", label: "GCC Shop" },
 ];
+
+describe("parseTargetPurchaseRateCell", () => {
+  it("treats blank as no change and accepts decimals", () => {
+    expect(parseTargetPurchaseRateCell("")).toEqual({ ok: true, blank: true });
+    expect(parseTargetPurchaseRateCell("12.5")).toEqual({ ok: true, value: 12.5 });
+    expect(parseTargetPurchaseRateCell(-1).ok).toBe(false);
+  });
+});
 
 describe("parseRopQtyCell", () => {
   it("treats blank as no change", () => {
@@ -74,6 +84,21 @@ describe("parseRopImportSheet", () => {
     const map = buildRopHeaderToKeyMap(cols);
     expect(map.get("lmj")).toBe("lmj");
     expect(map.get("gcc shop")).toBe("cosmo_shop_gcc");
+  });
+
+  it("parses Target Purchase Rate without treating it as a ROP column", () => {
+    const buf = sheetBuffer([
+      ["SKU", "Barcode", TARGET_PURCHASE_RATE_HEADER, "LMJ"],
+      ["AAA_1", "111", 45.5, 10],
+      ["BBB_1", "222", "", 3],
+    ]);
+    const parsed = parseRopImportSheet(buf, "t.xlsx", cols);
+    expect(parsed.unknownHeaders).toEqual([]);
+    expect(parsed.rows[0]!.targetPurchaseRate).toBe(45.5);
+    expect(parsed.rows[0]!.cells).toEqual([
+      { columnKey: "lmj", columnLabel: "LMJ", qty: 10 },
+    ]);
+    expect(parsed.rows[1]!.targetPurchaseRate).toBeUndefined();
   });
 
   it("maps 2026-09-25 Cosmo ROP aliases and skips ERP 01 Total ROP", () => {
@@ -141,20 +166,21 @@ describe("buildRopTemplateAoa", () => {
     expect(aoa[0]).toEqual([
       "SKU",
       "Barcode",
+      TARGET_PURCHASE_RATE_HEADER,
       ERP_01_TOTAL_ROP_HEADER,
       "Cosmetics.lk Main Warehouse",
       "GCC Shop",
       "Chami Main Warehouse -Online",
     ]);
-    expect(aoa[1]).toEqual(["AAA_1", "111", 8, 6, 2, 4]);
+    expect(aoa[1]).toEqual(["AAA_1", "111", "", 8, 6, 2, 4]);
   });
 
   it("omits ERP 01 Total ROP when no ERP1 keys (Vault)", () => {
     const aoa = buildRopTemplateAoa({
       ropColumns: [{ key: "sv", label: "SV" }],
-      rows: [{ sku: "X", barcode: null, rops: { sv: 3 } }],
+      rows: [{ sku: "X", barcode: null, rops: { sv: 3 }, targetPurchaseRate: 12.5 }],
     });
-    expect(aoa[0]).toEqual(["SKU", "Barcode", "SV"]);
-    expect(aoa[1]).toEqual(["X", "", 3]);
+    expect(aoa[0]).toEqual(["SKU", "Barcode", TARGET_PURCHASE_RATE_HEADER, "SV"]);
+    expect(aoa[1]).toEqual(["X", "", 12.5, 3]);
   });
 });

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { cuidSchema } from "@/lib/validation";
+import { STOCK_REQUEST_LIST_PERMISSIONS } from "@/lib/wishlist-buddy/access";
 import { refreshStockLookup } from "@/lib/wishlist-buddy/requests";
 import { requireStockRequestViewer, stockRequestErrorResponse } from "@/lib/wishlist-buddy/route-auth";
 
@@ -9,11 +10,7 @@ export const maxDuration = 60;
 
 /** Re-check ERP stock for one request (no customer email). */
 export async function POST(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireStockRequestViewer([
-    "stock_requests.read",
-    "stock_requests.create",
-    "stock_requests.read_all",
-  ]);
+  const auth = await requireStockRequestViewer([...STOCK_REQUEST_LIST_PERMISSIONS]);
   if (!auth.ok) return auth.response;
 
   const idResult = cuidSchema.safeParse((await params).id);

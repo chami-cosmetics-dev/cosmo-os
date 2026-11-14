@@ -26,9 +26,9 @@ import {
   getOrderInvoiceCsvHeaders,
   getOrderInvoiceItemCsvHeaders,
   joinDumpCouponCodes,
+  resolveDumpMerchantName,
 } from "@/lib/reports/order-dump";
 import {
-  applyMerchantGroup,
   buildCouponToMerchantMap,
   getMerchantGroupUserMap,
 } from "@/lib/merchant-groups";
@@ -124,11 +124,12 @@ async function writeOrderedConcurrentLines<T>(
   items: T[],
   write: (text: string) => void,
   mapper: (item: T, index: number) => Promise<string>,
+  concurrency = 4,
 ) {
   if (items.length === 0) return;
   const pending: Array<string | undefined> = new Array(items.length);
   let next = 0;
-  await mapWithConcurrency(items, 4, async (item, index) => {
+  await mapWithConcurrency(items, concurrency, async (item, index) => {
     pending[index] = await mapper(item, index);
     while (next < pending.length && pending[next] != null) {
       write(pending[next]!);
@@ -271,28 +272,21 @@ function resolveOrderCreatedByEmail(input: {
   return "";
 }
 
-function resolveMerchantName(input: {
-  couponCode: string | null;
+function dumpMerchantName(input: {
+  merchantCouponCode: string | null;
+  discountCouponCode?: string | null;
   couponToMerchant: Map<string, { id: string | null; name: string }>;
   assignedMerchant: { id: string; knownName: string | null; name: string | null; email: string | null } | null;
   userToGroup: Map<string, { id: string; name: string }>;
 }) {
-  const coupons = (input.couponCode ?? "")
-    .split(",")
-    .map((coupon) => coupon.trim().toLowerCase())
-    .filter(Boolean);
-
-  for (const coupon of coupons) {
-    const merchant = input.couponToMerchant.get(coupon);
-    if (merchant) return merchant.name;
-  }
-
-  const assignedName = getUserDisplayName(input.assignedMerchant);
-  if (!assignedName) return "";
-  return applyMerchantGroup(
-    { id: input.assignedMerchant?.id ?? null, name: assignedName },
-    input.userToGroup,
-  ).name;
+  return resolveDumpMerchantName({
+    merchantCouponCode: input.merchantCouponCode,
+    discountCouponCode: input.discountCouponCode,
+    couponToMerchant: input.couponToMerchant,
+    assignedMerchantId: input.assignedMerchant?.id ?? null,
+    assignedMerchantName: getUserDisplayName(input.assignedMerchant),
+    userToGroup: input.userToGroup,
+  });
 }
 
 function getReportLabel(report: ReportKind, range: RangeKind) {
@@ -329,6 +323,11 @@ const ORDER_DUMP_BASE_INCLUDE = {
   lastPrintedBy: { select: { knownName: true, name: true, email: true } },
   deliveryCompleteBy: { select: { knownName: true, name: true, email: true } },
   invoiceCompleteBy: { select: { knownName: true, name: true, email: true } },
+  returns: {
+    orderBy: { returnDate: "desc" as const },
+    take: 1,
+    select: { cancelRemark: true, returnRemark: true },
+  },
 } as const;
 
 const ORDER_DUMP_INVOICE_INCLUDE = {
@@ -448,6 +447,12 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: bounds.error }, { status: 400 });
   }
   const { from, to, label } = bounds;
+  // A full calendar-year export can contain tens of thousands of orders. It
+  // must only use data already stored in Cosmo: per-order ERP lookups turn the
+  // streaming response into a timeout-prone request and used to create a
+  // silently truncated CSV.
+  const useStoredExportData = range === "custom" || range === "historical-year";
+  const exportConcurrency = useStoredExportData ? 16 : 4;
   const orderWhere = {
     companyId,
     createdAt: {
@@ -523,7 +528,7 @@ export async function GET(request: NextRequest) {
         if (report === "invoice-item") {
           let cursorId: string | undefined;
           for (;;) {
-            if (request.signal.aborted) break;
+            if (request.signal.aborted) throw new Error("Historical export was interrupted before it completed");
             const orders = await prisma.order.findMany({
               where: orderWhere,
               orderBy: DUMP_ORDER_ORDER_BY,
@@ -570,7 +575,7 @@ export async function GET(request: NextRequest) {
         discountCodes: order.discountCodes,
         rawPayload: order.rawPayload,
       });
-      if (!couponCode) {
+      if (!couponCode && !useStoredExportData) {
         couponCode = await resolveOrderDiscountCouponForOrder({
           sourceName: order.sourceName,
           discountCodes: order.discountCodes,
@@ -580,8 +585,9 @@ export async function GET(request: NextRequest) {
           erpnextInstance: order.companyLocation.erpnextInstance,
         });
       }
-      const merchantName = resolveMerchantName({
-        couponCode: merchantCouponCode,
+      const merchantName = dumpMerchantName({
+        merchantCouponCode,
+        discountCouponCode: couponCode,
         couponToMerchant,
         assignedMerchant: order.assignedMerchant,
         userToGroup,
@@ -593,6 +599,7 @@ export async function GET(request: NextRequest) {
         name: order.name,
         erpnextInvoiceId: order.erpnextInvoiceId,
         erpnextInstance: order.companyLocation.erpnextInstance,
+        allowLiveErpLookup: !useStoredExportData,
         lineItems: order.lineItems.map((item) => ({
           sku: item.productItem.sku,
           quantity: item.quantity,
@@ -665,6 +672,9 @@ export async function GET(request: NextRequest) {
           lineTotal,
           fulfillmentStage: order.fulfillmentStage,
           financialStatus: order.financialStatus,
+          cancelReason: order.cancelReason,
+          returnCancelRemark: order.returns[0]?.cancelRemark,
+          returnRemark: order.returns[0]?.returnRemark,
           deliveryCompleteAt: order.deliveryCompleteAt,
           deliveryCompleteBy: getUserDisplayName(order.deliveryCompleteBy),
           invoiceCompleteAt: order.invoiceCompleteAt,
@@ -676,14 +686,14 @@ export async function GET(request: NextRequest) {
         });
       });
             return itemRows.map((row) => formatCsvDataLine(csvHeaders, row)).join("");
-            });
+            }, exportConcurrency);
             cursorId = orders[orders.length - 1]!.id;
             if (orders.length < DUMP_ORDER_PAGE_SIZE) break;
           }
         } else {
           let cursorId: string | undefined;
           for (;;) {
-            if (request.signal.aborted) break;
+            if (request.signal.aborted) throw new Error("Historical export was interrupted before it completed");
             const orders = await prisma.order.findMany({
               where: orderWhere,
               orderBy: DUMP_ORDER_ORDER_BY,
@@ -720,6 +730,7 @@ export async function GET(request: NextRequest) {
       rawPayload: order.rawPayload,
     });
     if (
+      !useStoredExportData &&
       !discountCoupon &&
       order.sourceName.startsWith("erpnext") &&
       order.totalDiscounts != null &&
@@ -738,8 +749,9 @@ export async function GET(request: NextRequest) {
       }
     }
     const couponCode = joinDumpCouponCodes(merchantCouponCode, discountCoupon);
-    const merchantName = resolveMerchantName({
-      couponCode: merchantCouponCode,
+    const merchantName = dumpMerchantName({
+      merchantCouponCode,
+      discountCouponCode: discountCoupon,
       couponToMerchant,
       assignedMerchant: order.assignedMerchant,
       userToGroup,
@@ -769,7 +781,7 @@ export async function GET(request: NextRequest) {
       shippingAddress,
     };
     let shippingRule = dumpInvoiceShippingRuleFromStored(shippingLookup);
-    if (!hasStoredDumpShippingResolution(shippingLookup)) {
+    if (!useStoredExportData && !hasStoredDumpShippingResolution(shippingLookup)) {
       const live = await resolveOrderShippingDisplayForOrder(shippingLookup);
       shippingRule = dumpInvoiceShippingRuleFromLive(live, shippingRule);
       await persistDumpShippingFill(order.id, live);
@@ -798,6 +810,9 @@ export async function GET(request: NextRequest) {
       billingAddress: formatAddress(order.billingAddress),
       shippingAddress,
       financialStatus: order.financialStatus,
+      cancelReason: order.cancelReason,
+      returnCancelRemark: order.returns[0]?.cancelRemark,
+      returnRemark: order.returns[0]?.returnRemark,
       fulfillmentStatus: order.fulfillmentStatus,
       paymentGateway,
       subtotalPrice: decimalToString(order.subtotalPrice),
@@ -825,7 +840,7 @@ export async function GET(request: NextRequest) {
       createdBy,
       kokoRefNumber: orderIdToKokoRefNumber.get(order.id) ?? "",
     }));
-            });
+            }, exportConcurrency);
             cursorId = orders[orders.length - 1]!.id;
             if (orders.length < DUMP_ORDER_PAGE_SIZE) break;
           }

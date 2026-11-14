@@ -7,6 +7,10 @@ import type {
 } from "@/lib/abandoned-orders-constants";
 import { ABANDONMENT_REASONS, FOLLOW_UP_STATUSES } from "@/lib/abandoned-orders-constants";
 import { backfillAbandonedCheckoutDedupe } from "@/lib/abandoned-checkout-dedupe";
+import {
+  lastPurchaseAtForCheckoutPhones,
+  lookupLastPurchaseAtByPhones,
+} from "@/lib/abandoned-checkout-last-purchase";
 import { formatAppIsoDate } from "@/lib/format-datetime";
 import { prisma } from "@/lib/prisma";
 import type {
@@ -284,6 +288,11 @@ export async function fetchAbandonedOrdersPageData({
     groupCountRows.map((g) => [g.exactDuplicateGroupId!, g._count._all])
   );
 
+  const lastPurchaseByPhone = await lookupLastPurchaseAtByPhones(
+    companyId,
+    rows.flatMap((r) => [r.phoneNormalized, r.customerPhone])
+  );
+
   const items: AbandonedOrdersListItem[] = rows.map((r) => {
     const rowMeta = meta.get(r.id) ?? {
       exactDuplicateCount: 1,
@@ -301,6 +310,11 @@ export async function fetchAbandonedOrdersPageData({
       customerName: r.customerName,
       customerPhone: r.customerPhone,
       customerEmail: r.customerEmail,
+      lastPurchaseAt:
+        lastPurchaseAtForCheckoutPhones(lastPurchaseByPhone, [
+          r.phoneNormalized,
+          r.customerPhone,
+        ])?.toISOString() ?? null,
       billingAddressText: r.billingAddressText,
       shippingAddressText: r.shippingAddressText,
       lineItemsSummary: r.lineItemsSummary,

@@ -6,7 +6,8 @@ import {
   canFilterAllInsightContacts,
   hasInsightAdminView,
 } from "@/lib/customer-insight/ownership";
-import { requirePermission } from "@/lib/rbac";
+import { CONTACTS_LOYALTY_MANUAL_ASSIGN } from "@/lib/customer-insight/loyalty-manual";
+import { hasPermission, requirePermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
@@ -54,6 +55,10 @@ export default async function CustomerInsightPage({
         permissionKeys.includes("contacts.master.manage") ||
         permissionKeys.includes("dashboard.merchant_admin_view")
       }
+      canManualLoyaltyOverride={hasPermission(
+        auth.context,
+        CONTACTS_LOYALTY_MANUAL_ASSIGN
+      )}
       initialContactId={query.contactId?.trim() || null}
       initialEdit={query.edit === "1"}
     />

@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Pagination } from "@/components/ui/pagination";
 import { TableSkeleton } from "@/components/skeletons/table-skeleton";
 import { notify } from "@/lib/notify";
-import { APP_LOCALE, formatAppDateTime } from "@/lib/format-datetime";
+import { APP_LOCALE, formatAppDate, formatAppDateTime } from "@/lib/format-datetime";
 import type {
   AbandonedOrdersListItem,
   AbandonedOrdersPagination,
@@ -417,6 +417,14 @@ export function AbandonedOrdersPanel({
                           <div className="text-sm font-medium leading-snug">
                             {formatAppDateTime(new Date(item.abandonedAt))}
                           </div>
+                          <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground pt-1">
+                            Last purchase
+                          </div>
+                          <div className="text-sm font-medium leading-snug">
+                            {item.lastPurchaseAt
+                              ? formatAppDate(item.lastPurchaseAt)
+                              : "Never"}
+                          </div>
                           {(item.lastFollowUpBy?.name || item.lastFollowUpAt) && (
                             <div className="text-xs leading-snug text-muted-foreground">
                               Updated
@@ -492,6 +500,16 @@ export function AbandonedOrdersPanel({
                               ) : (
                                 <div className="text-sm">Email: —</div>
                               )}
+                            </div>
+                            <div className="pt-1">
+                              <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                                Last purchase
+                              </div>
+                              <div className="text-sm font-medium">
+                                {item.lastPurchaseAt
+                                  ? formatAppDate(item.lastPurchaseAt)
+                                  : "Never"}
+                              </div>
                             </div>
                           </div>
 
@@ -608,6 +626,12 @@ export function AbandonedOrdersPanel({
                 <div>
                   {selectedItem.customerName ?? "Customer"} • Total: {selectedItem.totalPrice}{" "}
                   {selectedItem.currency}
+                </div>
+                <div>
+                  Last purchase:{" "}
+                  {selectedItem.lastPurchaseAt
+                    ? formatAppDate(selectedItem.lastPurchaseAt)
+                    : "Never"}
                 </div>
                 <div>
                   <span className="font-medium text-foreground">Billing:</span>{" "}

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyOsRegExportGuard,
   hasNoPurchaseInDateRange,
+  noPurchaseDateRangeWhere,
   purchasedAtBounds,
   hasNoPurchaseWithinMonths,
   matchesBirthdayRange,
@@ -77,6 +78,19 @@ describe("purchasedAtBounds", () => {
   it("returns null when both dates are empty", () => {
     expect(purchasedAtBounds()).toBeNull();
     expect(purchasedAtBounds("  ", "")).toBeNull();
+  });
+});
+
+describe("noPurchaseDateRangeWhere", () => {
+  it("includes never-bought and last purchase outside the window", () => {
+    const where = noPurchaseDateRangeWhere("2026-10-23", "2026-10-30");
+    const from = new Date("2026-10-23T00:00:00+05:30");
+    const to = new Date("2026-10-30T23:59:59.999+05:30");
+    expect(where.OR).toEqual([
+      { lastPurchaseAt: null },
+      { lastPurchaseAt: { lt: from } },
+      { lastPurchaseAt: { gt: to } },
+    ]);
   });
 });
 

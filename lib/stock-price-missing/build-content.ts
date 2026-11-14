@@ -197,7 +197,10 @@ export function buildStockPriceMissingEmailContent(input: {
   let html = renderEmailTemplatePlaceholders(input.bodyHtmlTemplate, vars);
   if (!input.bodyHtmlTemplate.includes("{{standardMismatchTableHtml}}")) {
     const block = standardMismatchBlock(mismatches.length, standardMismatchTableHtml);
-    const footerAt = html.lastIndexOf("Cosmo OS automated report");
+    const footerAt = Math.max(
+      html.lastIndexOf("Cosmo OS automated report"),
+      html.lastIndexOf("Vault OS automated report"),
+    );
     if (footerAt >= 0) {
       const pStart = html.lastIndexOf("<p", footerAt);
       html = pStart >= 0 ? html.slice(0, pStart) + block + html.slice(pStart) : html + block;

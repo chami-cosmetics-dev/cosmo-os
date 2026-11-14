@@ -35,7 +35,7 @@ export default function PerformanceScreen() {
           compact
           eyebrow="My pay"
           title="Performance"
-          subtitle={periodLabel ?? "Set payday in Cosmo OS settings to see your pay period."}
+          subtitle={periodLabel ?? "Calendar month pay period"}
         >
           <SyncStatusBanner
             compact
@@ -51,7 +51,7 @@ export default function PerformanceScreen() {
             onPress={() => setPeriod("current")}
           >
             <Text style={[styles.periodChipText, period === "current" && styles.periodChipTextActive]}>
-              Current period
+              This month
             </Text>
           </Pressable>
           <Pressable
@@ -59,62 +59,76 @@ export default function PerformanceScreen() {
             onPress={() => setPeriod("previous")}
           >
             <Text style={[styles.periodChipText, period === "previous" && styles.periodChipTextActive]}>
-              Previous period
+              Last month
             </Text>
           </Pressable>
         </View>
 
-        {!data.paydayConfigured ? (
+        <View style={styles.statsCard}>
+          <View style={styles.stat}>
+            <Text style={styles.statLabel}>Completed</Text>
+            <Text style={styles.statValue}>{data.completedCount}</Text>
+          </View>
+          <View style={styles.stat}>
+            <Text style={styles.statLabel}>Failed</Text>
+            <Text style={styles.statValue}>{data.failedCount}</Text>
+          </View>
+          <View style={[styles.stat, styles.statWide]}>
+            <Text style={styles.statLabel}>Incentive</Text>
+            <Text style={styles.statValue}>{formatMoney(data.incentiveTotal)}</Text>
+          </View>
+        </View>
+
+        <Text style={styles.pendingNote}>
+          Pay pending until finance closes invoice (same rule as Cosmo OS). Delivery done ≠ invoice
+          closed.
+        </Text>
+
+        {data.tenantErrors.length > 0 ? (
+          <Text style={styles.pendingNote}>
+            {data.tenantErrors
+              .map((id) =>
+                id === "vault" ? "Vault failed" : id === "cosmetics" ? "Cosmetics failed" : `${id} failed`
+              )
+              .join(" · ")}
+          </Text>
+        ) : null}
+
+        {pendingCount > 0 ? (
+          <Text style={styles.pendingNote}>
+            {pendingCount} delivery action(s) still syncing — totals may update after sync.
+          </Text>
+        ) : null}
+
+        <Text style={styles.sectionTitle}>
+          {period === "previous" ? "Deliveries last month" : "Deliveries this month"}
+        </Text>
+        {data.lines.length === 0 ? (
           <EmptyState
-            title="Payday not configured"
-            message="Ask ops to set the rider payday day of month in Cosmo OS Settings. Today’s deliveries can still show below once configured."
+            title={period === "previous" ? "No completions last month" : "No completions yet this month"}
+            message="When you complete deliveries, pay appears here after invoice close."
           />
         ) : (
-          <>
-            <View style={styles.statsCard}>
-              <View style={styles.stat}>
-                <Text style={styles.statLabel}>Completed</Text>
-                <Text style={styles.statValue}>{data.completedCount ?? 0}</Text>
-              </View>
-              <View style={styles.stat}>
-                <Text style={styles.statLabel}>Failed</Text>
-                <Text style={styles.statValue}>{data.failedCount ?? 0}</Text>
-              </View>
-              <View style={[styles.stat, styles.statWide]}>
-                <Text style={styles.statLabel}>Incentive</Text>
-                <Text style={styles.statValue}>{formatMoney(data.incentiveTotal)}</Text>
-              </View>
-            </View>
-
-            {pendingCount > 0 ? (
-              <Text style={styles.pendingNote}>
-                {pendingCount} delivery action(s) still syncing — totals may update after sync.
-              </Text>
-            ) : null}
-
-            <Text style={styles.sectionTitle}>Deliveries this period</Text>
-            {data.lines.length === 0 ? (
-              <EmptyState
-                title="No completions yet this pay period"
-                message="When you complete deliveries, shipping amounts will add to your incentive here."
-              />
-            ) : (
-              data.lines.map((line) => (
-                <View key={`${line.tenant ?? "t"}:${line.taskId}`} style={styles.lineCard}>
-                  <View style={styles.lineTop}>
-                    <Text style={styles.lineOrder}>{line.orderLabel}</Text>
-                    <Text style={styles.lineIncentive}>{formatMoney(line.incentiveAmount)}</Text>
-                  </View>
-                  {line.companyLabel ? <Text style={styles.lineMeta}>{line.companyLabel}</Text> : null}
-                  {line.completedAt ? (
-                    <Text style={styles.lineMeta}>
-                      {new Date(line.completedAt).toLocaleString("en-LK")}
-                    </Text>
-                  ) : null}
+          data.lines.map((line) => {
+            const pendingPay = Number(line.incentiveAmount) <= 0;
+            return (
+              <View key={`${line.tenant ?? "t"}:${line.taskId}`} style={styles.lineCard}>
+                <View style={styles.lineTop}>
+                  <Text style={styles.lineOrder}>{line.orderLabel}</Text>
+                  <Text style={styles.lineIncentive}>{formatMoney(line.incentiveAmount)}</Text>
                 </View>
-              ))
-            )}
-          </>
+                {line.companyLabel ? <Text style={styles.lineMeta}>{line.companyLabel}</Text> : null}
+                {pendingPay ? (
+                  <Text style={styles.lineMeta}>Pending finance invoice close</Text>
+                ) : null}
+                {line.completedAt ? (
+                  <Text style={styles.lineMeta}>
+                    {new Date(line.completedAt).toLocaleString("en-LK")}
+                  </Text>
+                ) : null}
+              </View>
+            );
+          })
         )}
       </ScrollView>
     </SafeAreaView>

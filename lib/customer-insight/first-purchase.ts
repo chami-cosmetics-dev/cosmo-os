@@ -11,8 +11,10 @@ import { chunkArray } from "@/lib/customer-insight/purchase-scan";
 import { prisma } from "@/lib/prisma";
 
 const ID_CHUNK = 400;
-/** Above this, one company-wide MIN() beats per-contact order scans. */
+/** Above this, one company-wide MIN()/MAX() beats per-contact order scans. */
 const BULK_ID_THRESHOLD = 800;
+/** IN-list size for scoped purchase-date lookups on one export page. */
+const KEY_CHUNK = 800;
 
 export type FirstPurchaseIndexes = {
   byPhone: Map<string, Date>;
@@ -30,16 +32,39 @@ export type FirstPurchaseContact = {
   aliasEmails?: string[];
 };
 
-type FirstAtRow = { key: string; first_at: Date | string };
+export type PurchaseAtsByContactId = {
+  first: Map<string, Date>;
+  last: Map<string, Date>;
+};
+
+type PurchaseAtRow = {
+  key: string;
+  first_at: Date | string;
+  last_at: Date | string;
+};
 
 function asDate(value: Date | string): Date {
   return value instanceof Date ? value : new Date(value);
+}
+
+function emptyIndexes(): FirstPurchaseIndexes {
+  return {
+    byPhone: new Map(),
+    byEmail: new Map(),
+    byContactId: new Map(),
+  };
 }
 
 function rememberEarlier(map: Map<string, Date>, key: string, at: Date) {
   const trimmed = key.trim();
   if (!trimmed) return;
   map.set(trimmed, earlierDate(map.get(trimmed), at)!);
+}
+
+function rememberLater(map: Map<string, Date>, key: string, at: Date) {
+  const trimmed = key.trim();
+  if (!trimmed) return;
+  map.set(trimmed, laterDate(map.get(trimmed), at)!);
 }
 
 const eligibleOrderSql = Prisma.sql`
@@ -59,17 +84,94 @@ export function earlierDate(
   return a.getTime() <= b.getTime() ? a : b;
 }
 
+export function laterDate(
+  a: Date | null | undefined,
+  b: Date | null | undefined
+): Date | null {
+  if (a == null) return b ?? null;
+  if (b == null) return a;
+  return a.getTime() >= b.getTime() ? a : b;
+}
+
+function contactLookupKeys(contact: FirstPurchaseContact) {
+  return contactOrderLookupKeys({
+    primaryEmail: contact.email,
+    primaryPhone: contact.phoneNumber,
+    aliasEmails:
+      contact.aliasEmails ?? contact.emails?.map((row) => row.email) ?? [],
+    aliasPhones:
+      contact.aliasPhones ?? contact.phones?.map((row) => row.phoneNumber) ?? [],
+  });
+}
+
+function purchaseAtForContact(
+  indexes: FirstPurchaseIndexes,
+  contact: FirstPurchaseContact,
+  pick: typeof earlierDate
+): Date | null {
+  const keys = contactLookupKeys(contact);
+  let at: Date | null = indexes.byContactId.get(contact.id) ?? null;
+  if (keys.phones.length > 0) {
+    for (const phone of keys.phones) {
+      at = pick(at, indexes.byPhone.get(phone));
+    }
+  } else {
+    for (const email of keys.emails) {
+      const key = email.trim().toLowerCase();
+      if (!key) continue;
+      at = pick(at, indexes.byEmail.get(key));
+    }
+  }
+  return at;
+}
+
+/** Phone-keyed contacts match phone only; email-keyed contacts match email. */
+export function firstPurchaseAtForContact(
+  indexes: FirstPurchaseIndexes,
+  contact: FirstPurchaseContact
+): Date | null {
+  return purchaseAtForContact(indexes, contact, earlierDate);
+}
+
+/** Newest completed Cosmo order or Adapt invoice. Same identity rules as first. */
+export function lastPurchaseAtForContact(
+  indexes: FirstPurchaseIndexes,
+  contact: FirstPurchaseContact
+): Date | null {
+  return purchaseAtForContact(indexes, contact, laterDate);
+}
+
+function applyPurchaseAtRows(
+  first: FirstPurchaseIndexes,
+  last: FirstPurchaseIndexes,
+  rows: PurchaseAtRow[],
+  target: "phone" | "email"
+) {
+  for (const row of rows) {
+    if (!row.key) continue;
+    const key = target === "email" ? row.key.toLowerCase() : row.key;
+    const firstMap = target === "email" ? first.byEmail : first.byPhone;
+    const lastMap = target === "email" ? last.byEmail : last.byPhone;
+    rememberEarlier(firstMap, key, asDate(row.first_at));
+    rememberLater(lastMap, key, asDate(row.last_at));
+  }
+}
+
 /**
- * One MIN() per phone, email, and Adapt contact.
+ * One MIN()/MAX() per phone, email, and Adapt contact.
  * Same date rule as `orderPurchaseAt`: delivery, else invoice, else placed.
  */
-export async function loadFirstPurchaseIndexes(
-  companyId: string
-): Promise<FirstPurchaseIndexes> {
+export async function loadPurchaseIndexes(companyId: string): Promise<{
+  first: FirstPurchaseIndexes;
+  last: FirstPurchaseIndexes;
+}> {
+  const first = emptyIndexes();
+  const last = emptyIndexes();
   const [phoneRows, erpRows, emailRows, adapt] = await Promise.all([
-    prisma.$queryRaw<FirstAtRow[]>`
+    prisma.$queryRaw<PurchaseAtRow[]>`
       SELECT btrim("customerPhone") AS key,
-             MIN(COALESCE("deliveryCompleteAt", "invoiceCompleteAt", "createdAt")) AS first_at
+             MIN(COALESCE("deliveryCompleteAt", "invoiceCompleteAt", "createdAt")) AS first_at,
+             MAX(COALESCE("deliveryCompleteAt", "invoiceCompleteAt", "createdAt")) AS last_at
       FROM "Order"
       WHERE "companyId" = ${companyId}
         AND ${eligibleOrderSql}
@@ -77,9 +179,10 @@ export async function loadFirstPurchaseIndexes(
         AND btrim("customerPhone") <> ''
       GROUP BY btrim("customerPhone")
     `,
-    prisma.$queryRaw<FirstAtRow[]>`
+    prisma.$queryRaw<PurchaseAtRow[]>`
       SELECT btrim("erpnextCustomerId") AS key,
-             MIN(COALESCE("deliveryCompleteAt", "invoiceCompleteAt", "createdAt")) AS first_at
+             MIN(COALESCE("deliveryCompleteAt", "invoiceCompleteAt", "createdAt")) AS first_at,
+             MAX(COALESCE("deliveryCompleteAt", "invoiceCompleteAt", "createdAt")) AS last_at
       FROM "Order"
       WHERE "companyId" = ${companyId}
         AND ${eligibleOrderSql}
@@ -87,9 +190,10 @@ export async function loadFirstPurchaseIndexes(
         AND btrim("erpnextCustomerId") <> ''
       GROUP BY btrim("erpnextCustomerId")
     `,
-    prisma.$queryRaw<FirstAtRow[]>`
+    prisma.$queryRaw<PurchaseAtRow[]>`
       SELECT lower(btrim("customerEmail")) AS key,
-             MIN(COALESCE("deliveryCompleteAt", "invoiceCompleteAt", "createdAt")) AS first_at
+             MIN(COALESCE("deliveryCompleteAt", "invoiceCompleteAt", "createdAt")) AS first_at,
+             MAX(COALESCE("deliveryCompleteAt", "invoiceCompleteAt", "createdAt")) AS last_at
       FROM "Order"
       WHERE "companyId" = ${companyId}
         AND ${eligibleOrderSql}
@@ -101,77 +205,220 @@ export async function loadFirstPurchaseIndexes(
       by: ["contactId"],
       where: { companyId, ...adaptSaleTotalWhere() },
       _min: { invoiceDate: true },
+      _max: { invoiceDate: true },
     }),
   ]);
 
-  const byPhone = new Map<string, Date>();
-  for (const row of phoneRows) {
-    if (!row.key) continue;
-    rememberEarlier(byPhone, row.key, asDate(row.first_at));
-  }
-  for (const row of erpRows) {
-    if (!row.key) continue;
-    rememberEarlier(byPhone, row.key, asDate(row.first_at));
-  }
-
-  const byEmail = new Map<string, Date>();
-  for (const row of emailRows) {
-    if (!row.key) continue;
-    rememberEarlier(byEmail, row.key.toLowerCase(), asDate(row.first_at));
-  }
-
-  const byContactId = new Map<string, Date>();
+  applyPurchaseAtRows(first, last, phoneRows, "phone");
+  applyPurchaseAtRows(first, last, erpRows, "phone");
+  applyPurchaseAtRows(first, last, emailRows, "email");
   for (const row of adapt) {
-    if (!row._min.invoiceDate) continue;
-    byContactId.set(row.contactId, row._min.invoiceDate);
+    if (row._min.invoiceDate) {
+      first.byContactId.set(row.contactId, row._min.invoiceDate);
+    }
+    if (row._max.invoiceDate) {
+      last.byContactId.set(row.contactId, row._max.invoiceDate);
+    }
   }
 
-  return { byPhone, byEmail, byContactId };
+  return { first, last };
 }
 
-/** Phone-keyed contacts match phone only; email-keyed contacts match email. */
-export function firstPurchaseAtForContact(
-  indexes: FirstPurchaseIndexes,
-  contact: FirstPurchaseContact
-): Date | null {
-  const keys = contactOrderLookupKeys({
-    primaryEmail: contact.email,
-    primaryPhone: contact.phoneNumber,
-    aliasEmails:
-      contact.aliasEmails ?? contact.emails?.map((row) => row.email) ?? [],
-    aliasPhones:
-      contact.aliasPhones ?? contact.phones?.map((row) => row.phoneNumber) ?? [],
-  });
+/** Earliest completed sale per phone/email/Adapt contact. */
+export async function loadFirstPurchaseIndexes(
+  companyId: string
+): Promise<FirstPurchaseIndexes> {
+  return (await loadPurchaseIndexes(companyId)).first;
+}
 
-  let at: Date | null = indexes.byContactId.get(contact.id) ?? null;
-  if (keys.phones.length > 0) {
-    for (const phone of keys.phones) {
-      at = earlierDate(at, indexes.byPhone.get(phone));
-    }
-  } else {
-    for (const email of keys.emails) {
-      const key = email.trim().toLowerCase();
-      if (!key) continue;
-      at = earlierDate(at, indexes.byEmail.get(key));
-    }
+async function purchaseAtByPhoneKeys(
+  companyId: string,
+  keys: string[]
+): Promise<PurchaseAtRow[]> {
+  if (keys.length === 0) return [];
+  const out: PurchaseAtRow[] = [];
+  for (const slice of chunkArray(keys, KEY_CHUNK)) {
+    const rows = await prisma.$queryRaw<PurchaseAtRow[]>`
+      SELECT btrim("customerPhone") AS key,
+             MIN(COALESCE("deliveryCompleteAt", "invoiceCompleteAt", "createdAt")) AS first_at,
+             MAX(COALESCE("deliveryCompleteAt", "invoiceCompleteAt", "createdAt")) AS last_at
+      FROM "Order"
+      WHERE "companyId" = ${companyId}
+        AND ${eligibleOrderSql}
+        AND btrim("customerPhone") IN (${Prisma.join(slice)})
+      GROUP BY btrim("customerPhone")
+    `;
+    out.push(...rows);
   }
-  return at;
+  return out;
+}
+
+async function purchaseAtByErpKeys(
+  companyId: string,
+  keys: string[]
+): Promise<PurchaseAtRow[]> {
+  if (keys.length === 0) return [];
+  const out: PurchaseAtRow[] = [];
+  for (const slice of chunkArray(keys, KEY_CHUNK)) {
+    const rows = await prisma.$queryRaw<PurchaseAtRow[]>`
+      SELECT btrim("erpnextCustomerId") AS key,
+             MIN(COALESCE("deliveryCompleteAt", "invoiceCompleteAt", "createdAt")) AS first_at,
+             MAX(COALESCE("deliveryCompleteAt", "invoiceCompleteAt", "createdAt")) AS last_at
+      FROM "Order"
+      WHERE "companyId" = ${companyId}
+        AND ${eligibleOrderSql}
+        AND btrim("erpnextCustomerId") IN (${Prisma.join(slice)})
+      GROUP BY btrim("erpnextCustomerId")
+    `;
+    out.push(...rows);
+  }
+  return out;
+}
+
+async function purchaseAtByEmailKeys(
+  companyId: string,
+  keys: string[]
+): Promise<PurchaseAtRow[]> {
+  if (keys.length === 0) return [];
+  const out: PurchaseAtRow[] = [];
+  for (const slice of chunkArray(keys, KEY_CHUNK)) {
+    const rows = await prisma.$queryRaw<PurchaseAtRow[]>`
+      SELECT lower(btrim("customerEmail")) AS key,
+             MIN(COALESCE("deliveryCompleteAt", "invoiceCompleteAt", "createdAt")) AS first_at,
+             MAX(COALESCE("deliveryCompleteAt", "invoiceCompleteAt", "createdAt")) AS last_at
+      FROM "Order"
+      WHERE "companyId" = ${companyId}
+        AND ${eligibleOrderSql}
+        AND lower(btrim("customerEmail")) IN (${Prisma.join(slice)})
+      GROUP BY lower(btrim("customerEmail"))
+    `;
+    out.push(...rows);
+  }
+  return out;
+}
+
+function mapsFromLoadedIndexes(
+  firstIndexes: FirstPurchaseIndexes,
+  lastIndexes: FirstPurchaseIndexes,
+  contacts: FirstPurchaseContact[]
+): PurchaseAtsByContactId {
+  const first = new Map<string, Date>();
+  const last = new Map<string, Date>();
+  for (const contact of contacts) {
+    const firstAt = firstPurchaseAtForContact(firstIndexes, contact);
+    if (firstAt) first.set(contact.id, firstAt);
+    const lastAt = lastPurchaseAtForContact(lastIndexes, contact);
+    if (lastAt) last.set(contact.id, lastAt);
+  }
+  return { first, last };
 }
 
 /**
- * Earliest completed Cosmo order or Adapt invoice per contact.
+ * First and last completed-sale dates for contacts already loaded.
+ * Scoped MIN()/MAX() on those phones/emails — not a company-wide Order scan.
+ */
+export async function purchaseAtsForLoadedContacts(
+  companyId: string,
+  contacts: FirstPurchaseContact[]
+): Promise<PurchaseAtsByContactId> {
+  const first = new Map<string, Date>();
+  const last = new Map<string, Date>();
+  if (contacts.length === 0) return { first, last };
+
+  const phones = new Set<string>();
+  const emails = new Set<string>();
+  const ids: string[] = [];
+  for (const contact of contacts) {
+    ids.push(contact.id);
+    const keys = contactLookupKeys(contact);
+    for (const phone of keys.phones) {
+      if (phone) phones.add(phone);
+    }
+    for (const email of keys.emails) {
+      const key = email.trim().toLowerCase();
+      if (key) emails.add(key);
+    }
+  }
+
+  const phoneList = [...phones];
+  const [phoneRows, erpRows, emailRows, adaptChunks] = await Promise.all([
+    purchaseAtByPhoneKeys(companyId, phoneList),
+    purchaseAtByErpKeys(companyId, phoneList),
+    purchaseAtByEmailKeys(companyId, [...emails]),
+    Promise.all(
+      chunkArray(ids, 2_000).map((slice) =>
+        prisma.adaptPurchaseHistory.groupBy({
+          by: ["contactId"],
+          where: {
+            companyId,
+            contactId: { in: slice },
+            ...adaptSaleTotalWhere(),
+          },
+          _min: { invoiceDate: true },
+          _max: { invoiceDate: true },
+        })
+      )
+    ),
+  ]);
+
+  const firstIndexes = emptyIndexes();
+  const lastIndexes = emptyIndexes();
+  applyPurchaseAtRows(firstIndexes, lastIndexes, phoneRows, "phone");
+  applyPurchaseAtRows(firstIndexes, lastIndexes, erpRows, "phone");
+  applyPurchaseAtRows(firstIndexes, lastIndexes, emailRows, "email");
+  for (const row of adaptChunks.flat()) {
+    if (row._min.invoiceDate) {
+      firstIndexes.byContactId.set(
+        row.contactId,
+        earlierDate(
+          firstIndexes.byContactId.get(row.contactId),
+          row._min.invoiceDate
+        )!
+      );
+    }
+    if (row._max.invoiceDate) {
+      lastIndexes.byContactId.set(
+        row.contactId,
+        laterDate(
+          lastIndexes.byContactId.get(row.contactId),
+          row._max.invoiceDate
+        )!
+      );
+    }
+  }
+
+  return mapsFromLoadedIndexes(firstIndexes, lastIndexes, contacts);
+}
+
+export async function firstPurchaseAtForLoadedContacts(
+  companyId: string,
+  contacts: FirstPurchaseContact[]
+): Promise<Map<string, Date>> {
+  return (await purchaseAtsForLoadedContacts(companyId, contacts)).first;
+}
+
+export async function lastPurchaseAtForLoadedContacts(
+  companyId: string,
+  contacts: FirstPurchaseContact[]
+): Promise<Map<string, Date>> {
+  return (await purchaseAtsForLoadedContacts(companyId, contacts)).last;
+}
+
+/**
+ * Earliest / newest completed Cosmo order or Adapt invoice per contact.
  * Phone-keyed contacts match phone only; email-keyed contacts match email.
  */
-export async function firstPurchaseAtByContactIds(
+export async function purchaseAtsByContactIds(
   companyId: string,
   contactIds: string[]
-): Promise<Map<string, Date>> {
+): Promise<PurchaseAtsByContactId> {
   const ids = [...new Set(contactIds.map((id) => id.trim()).filter(Boolean))];
-  const out = new Map<string, Date>();
-  if (ids.length === 0) return out;
+  const first = new Map<string, Date>();
+  const last = new Map<string, Date>();
+  if (ids.length === 0) return { first, last };
 
   if (ids.length > BULK_ID_THRESHOLD) {
-    const indexes = await loadFirstPurchaseIndexes(companyId);
+    const indexes = await loadPurchaseIndexes(companyId);
     for (const slice of chunkArray(ids, 2_000)) {
       const contacts = await prisma.contactMaster.findMany({
         where: { companyId, id: { in: slice } },
@@ -183,12 +430,11 @@ export async function firstPurchaseAtByContactIds(
           emails: { select: { email: true } },
         },
       });
-      for (const contact of contacts) {
-        const at = firstPurchaseAtForContact(indexes, contact);
-        if (at) out.set(contact.id, at);
-      }
+      const part = mapsFromLoadedIndexes(indexes.first, indexes.last, contacts);
+      for (const [id, at] of part.first) first.set(id, at);
+      for (const [id, at] of part.last) last.set(id, at);
     }
-    return out;
+    return { first, last };
   }
 
   const orderSelect = {
@@ -218,21 +464,27 @@ export async function firstPurchaseAtByContactIds(
         by: ["contactId"],
         where: { companyId, contactId: { in: slice }, ...adaptSaleTotalWhere() },
         _min: { invoiceDate: true },
+        _max: { invoiceDate: true },
       }),
     ]);
 
     for (const row of adapt) {
-      if (!row._min.invoiceDate) continue;
-      out.set(row.contactId, earlierDate(out.get(row.contactId), row._min.invoiceDate)!);
+      if (row._min.invoiceDate) {
+        first.set(
+          row.contactId,
+          earlierDate(first.get(row.contactId), row._min.invoiceDate)!
+        );
+      }
+      if (row._max.invoiceDate) {
+        last.set(
+          row.contactId,
+          laterDate(last.get(row.contactId), row._max.invoiceDate)!
+        );
+      }
     }
 
     for (const contact of contacts) {
-      const keys = contactOrderLookupKeys({
-        primaryEmail: contact.email,
-        primaryPhone: contact.phoneNumber,
-        aliasEmails: contact.emails.map((row) => row.email),
-        aliasPhones: contact.phones.map((row) => row.phoneNumber),
-      });
+      const keys = contactLookupKeys(contact);
       if (keys.phones.length > 0) {
         for (const phone of keys.phones) {
           if (!phone) continue;
@@ -297,10 +549,25 @@ export async function firstPurchaseAtByContactIds(
         for (const id of emailToIds.get(email) ?? []) matched.add(id);
       }
       for (const id of matched) {
-        out.set(id, earlierDate(out.get(id), at)!);
+        first.set(id, earlierDate(first.get(id), at)!);
+        last.set(id, laterDate(last.get(id), at)!);
       }
     }
   }
 
-  return out;
+  return { first, last };
+}
+
+export async function firstPurchaseAtByContactIds(
+  companyId: string,
+  contactIds: string[]
+): Promise<Map<string, Date>> {
+  return (await purchaseAtsByContactIds(companyId, contactIds)).first;
+}
+
+export async function lastPurchaseAtByContactIds(
+  companyId: string,
+  contactIds: string[]
+): Promise<Map<string, Date>> {
+  return (await purchaseAtsByContactIds(companyId, contactIds)).last;
 }

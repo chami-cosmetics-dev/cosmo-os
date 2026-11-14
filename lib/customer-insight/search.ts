@@ -3,6 +3,7 @@ import {
   buildPhoneLookupVariants,
   canonicalPhoneForErpCustomerId,
   isCompletePhoneSearch,
+  parseInsightPhoneSearchInput,
   phoneDigitsOnly,
 } from "@/lib/phone-lookup";
 import { foldAbsorbedAdaptTotals, lifetimeTotalsByContactId } from "@/lib/customer-insight/lifetime-totals-batch";
@@ -77,21 +78,31 @@ export function phoneNumbersMatch(query: string, stored: string | null | undefin
   return qn.length >= 9 && sn.length >= 9 && qn === sn;
 }
 
+function contactMatchesAnyPhoneQuery(
+  row: { phoneNumber: string | null; phones: Array<{ phoneNumber: string }> },
+  queries: string[]
+): boolean {
+  return queries.some((query) => {
+    if (phoneNumbersMatch(query, row.phoneNumber)) return true;
+    return row.phones.some((p) => phoneNumbersMatch(query, p.phoneNumber));
+  });
+}
+
 export async function searchContactsByPhone(
   companyId: string,
   phone: string
 ): Promise<SearchContactsResult> {
-  const variants = buildPhoneLookupVariants(phone);
-  if (variants.length === 0) {
+  const queries = parseInsightPhoneSearchInput(phone);
+  if (queries.length === 0) {
     return { matches: [], truncated: false };
   }
 
-  // Full number → exact variants only (no last-4 endsWith noise).
-  // Partial query → allow existing suffix filters for short lookups.
-  const complete = isCompletePhoneSearch(phone);
-  const orFilters = complete
-    ? buildExactPhoneSearchOrFilters(phone)
-    : buildContactPhoneSearchOrFilters(phone);
+  const orFilters = queries.flatMap((query) => {
+    const complete = isCompletePhoneSearch(query);
+    return complete
+      ? buildExactPhoneSearchOrFilters(query)
+      : buildContactPhoneSearchOrFilters(query);
+  });
   if (orFilters.length === 0) {
     return { matches: [], truncated: false };
   }
@@ -119,11 +130,9 @@ export async function searchContactsByPhone(
     },
   });
 
-  const filtered = complete
-    ? rows.filter((row) => {
-        if (phoneNumbersMatch(phone, row.phoneNumber)) return true;
-        return row.phones.some((p) => phoneNumbersMatch(phone, p.phoneNumber));
-      })
+  const allComplete = queries.every((query) => isCompletePhoneSearch(query));
+  const filtered = allComplete
+    ? rows.filter((row) => contactMatchesAnyPhoneQuery(row, queries))
     : rows;
 
   const collapsed = collapsePhoneSubsetContacts(filtered);

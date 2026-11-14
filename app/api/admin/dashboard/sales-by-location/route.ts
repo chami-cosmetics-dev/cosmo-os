@@ -52,6 +52,7 @@ export async function GET(request: NextRequest) {
     date_type: searchParams.get("date_type") ?? undefined,
     analysis_type: searchParams.get("analysis_type") ?? undefined,
     include_summaries: searchParams.get("include_summaries") ?? undefined,
+    coupon_code: searchParams.getAll("coupon_code"),
   });
 
   if (!parsed.success) {
@@ -73,6 +74,7 @@ export async function GET(request: NextRequest) {
     date_type: dateType,
     analysis_type: analysisType,
     include_summaries: includeSummaries,
+    coupon_code: couponCodes,
   } = parsed.data;
   const dateTypePermission = getDashboardDateTypePermission(dateType);
   if (!hasPermission(auth.context, dateTypePermission)) {
@@ -89,7 +91,7 @@ export async function GET(request: NextRequest) {
   }
 
   const summariesPromise = includeSummaries
-    ? fetchDashboardFilterSummaries(companyId, from, to)
+    ? fetchDashboardFilterSummaries(companyId, from, to, couponCodes)
     : Promise.resolve(null);
 
   if (analysisType === "gateway") {
@@ -98,6 +100,7 @@ export async function GET(request: NextRequest) {
         fromYmd: from,
         toYmd: to,
         dateType,
+        couponCodes,
       }),
       summariesPromise,
     ]);
@@ -120,6 +123,7 @@ export async function GET(request: NextRequest) {
         locations: result.locations,
         analysisType: "gateway" as const,
         activeDateType: dateType,
+        couponCodes: result.couponCodes,
         ...(summaries ? { filterSummaries: summaries.filterSummaries } : {}),
       },
       {
@@ -135,6 +139,7 @@ export async function GET(request: NextRequest) {
       fromYmd: from,
       toYmd: to,
       dateType,
+      couponCodes,
     }),
     summariesPromise,
   ]);
@@ -159,6 +164,7 @@ export async function GET(request: NextRequest) {
       locations: result.locations,
       analysisType: "merchant" as const,
       activeDateType: dateType,
+      couponCodes: result.couponCodes,
       ...(summaries ? { filterSummaries: summaries.filterSummaries } : {}),
     },
     {

@@ -322,7 +322,7 @@ export function FulfillmentOrderSelector({
                 <PopoverContent className="w-130 border-border/70 p-0" align="start">
                   <Command shouldFilter={false}>
                     <CommandInput
-                      placeholder="Search by invoice, order number…"
+                      placeholder="Search by invoice, order number, SKU…"
                       value={search}
                       onValueChange={(value) => {
                         setSearch(value);
@@ -471,7 +471,7 @@ export function FulfillmentOrderSelector({
             <div className="relative">
               <Search className="text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2" />
               <Input
-                placeholder="Search by invoice, order number, phone…"
+                placeholder="Search by invoice, order number, phone, SKU…"
                 value={search}
                 onChange={(e) => {
                   setSearch(e.target.value);

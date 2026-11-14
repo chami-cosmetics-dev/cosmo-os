@@ -17,7 +17,6 @@ import { normalizeSkuKey } from "@/lib/product-items/erp-priority-sync";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserContext, hasPermission } from "@/lib/rbac";
 import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
-import { updateShopifyVariantPriceBySku } from "@/lib/shopify-admin";
 
 type UserContext = NonNullable<Awaited<ReturnType<typeof getCurrentUserContext>>>;
 type Tx = Prisma.TransactionClient;
@@ -430,10 +429,11 @@ async function ensureErpItem(input: {
   brand: string;
   barcodes: string[];
   taxStatus: string;
+  countryClaimType?: string | null;
 }) {
   const existing = await getErpDoc<Record<string, unknown>>(input.cfg, "Item", input.itemCode);
   if (existing) {
-    const body: Record<string, unknown> = isVaultOsDeployment() ? {} : { custom_tax_status: input.taxStatus };
+    const body: Record<string, unknown> = isVaultOsDeployment() ? { ...(input.countryClaimType ? { custom_country_claim_type: input.countryClaimType } : {}) } : { custom_tax_status: input.taxStatus };
     if (input.barcodes.length > 0) {
       body.barcodes = input.barcodes.map((barcode) => ({ barcode }));
     }
@@ -454,6 +454,7 @@ async function ensureErpItem(input: {
     brand: input.brand.trim() || undefined,
     description: `${itemName} in Sri Lanka`,
     ...(isVaultOsDeployment() ? {} : { custom_tax_status: input.taxStatus }),
+    ...(isVaultOsDeployment() && input.countryClaimType ? { custom_country_claim_type: input.countryClaimType } : {}),
     barcodes: input.barcodes.map((barcode) => ({ barcode })),
   });
   await setErpItemProductPriority(input.cfg, input.itemCode);
@@ -478,7 +479,7 @@ export async function handleErp1ItemWebhook(companyIds: string[], payload: ErpIt
       sku: { equals: itemCode, mode: "insensitive" },
       overallStatus: "IN_PROGRESS",
     },
-    select: { id: true, companyId: true, creationSources: true, seoSetupStatus: true, taxStatus: true },
+    select: { id: true, companyId: true, creationSources: true, seoSetupStatus: true, taxStatus: true, countryClaimType: true },
   });
   if (requests.length === 0) return { matched: 0, skipped: "no_active_request" };
 
@@ -536,6 +537,23 @@ export async function handleErp1ItemWebhook(companyIds: string[], payload: ErpIt
           metadata: { itemCode, error: message.slice(0, 700) },
         },
       });
+    }
+
+    if (isVaultOsDeployment() && request.countryClaimType && Array.isArray(request.creationSources) && request.creationSources.includes("SHOPIFY")) {
+      try {
+        const { erp1 } = await resolveErps(request.companyId);
+        if (!erp1) throw new Error("ERP1 instance is not configured");
+        await updateErpDoc(erp1.cfg, "Item", itemCode, { custom_country_claim_type: request.countryClaimType });
+      } catch (error) {
+        await prisma.itemCreationActivity.create({
+          data: {
+            itemRequestId: request.id,
+            type: "ERP1_COUNTRY_CLAIM_TYPE_FAILED",
+            source: "SYSTEM",
+            metadata: { itemCode, error: error instanceof Error ? error.message.slice(0, 700) : "Update failed" },
+          },
+        });
+      }
     }
 
     if (!isVaultOsDeployment() && Array.isArray(request.creationSources) && request.creationSources.includes("SHOPIFY")) {
@@ -598,6 +616,7 @@ export async function handleErp1ItemWebhook(companyIds: string[], payload: ErpIt
         brand,
         barcodes,
         taxStatus: request.taxStatus,
+        countryClaimType: request.countryClaimType,
       });
       await prisma.$transaction(async (tx) => {
         await tx.itemCreationRequest.update({
@@ -797,6 +816,7 @@ export async function syncItemCreationSourceChanges(
       sku: true,
       description: true,
       taxStatus: true,
+      countryClaimType: true,
       creationSources: true,
       seoSetupStatus: true,
       erp1ItemCode: true,
@@ -843,6 +863,7 @@ export async function syncItemCreationSourceChanges(
       brand,
       barcodes,
       taxStatus: request.taxStatus,
+      countryClaimType: request.countryClaimType,
     });
     if (source === "SHOPIFY") {
       Object.assign(patch, {
@@ -1026,59 +1047,24 @@ async function updateItemCreationShopifyPrice(request: {
     return { ok: true, updated: 0, skipped: true as const };
   }
 
-  const shopifyLocationName = isVaultOsDeployment() ? "SupplementVault.lk" : "Cosmetics.lk";
-  const productItems = await prisma.productItem.findMany({
-    where: {
-      companyId: request.companyId,
-      sku: { equals: request.sku, mode: "insensitive" },
-      companyLocation: { name: shopifyLocationName },
-    },
-    select: {
-      id: true,
-      shopifyProductId: true,
-      shopifyVariantId: true,
-      companyLocation: { select: { shopifyAdminStoreHandle: true, shopifyShopName: true } },
-    },
-  });
-  const targets = new Map<string, {
-    productId: string;
-    variantId: string;
-    storeHandle: string;
-    productItemIds: string[];
-  }>();
-  for (const item of productItems) {
-    const storeHandle = (
-      item.companyLocation.shopifyAdminStoreHandle ?? item.companyLocation.shopifyShopName
-    )?.trim();
-    const productId = item.shopifyProductId.trim();
-    const variantId = item.shopifyVariantId.trim();
-    if (!storeHandle || !/\d+$/.test(productId) || !/\d+$/.test(variantId)) continue;
-    const key = `${storeHandle.toLowerCase()}::${productId}::${variantId}`;
-    const current = targets.get(key);
-    if (current) {
-      current.productItemIds.push(item.id);
-    } else {
-      targets.set(key, { productId, variantId, storeHandle, productItemIds: [item.id] });
-    }
-  }
-  if (targets.size === 0) {
-    return { ok: true, updated: 0, skipped: true as const, reason: "variant_not_found" };
-  }
+  const { erp1 } = await resolveErps(request.companyId);
+  if (!erp1) throw new Error("ERP1 instance is not configured for Shopify price updates");
 
-  const updatedIds: string[] = [];
-  for (const target of targets.values()) {
-    const result = await updateShopifyVariantPriceBySku({
-      storeHandle: target.storeHandle,
+  const method = process.env.ERPNEXT_SHOPIFY_PRICE_UPDATE_METHOD?.trim() || "cosmo_update_shopify_price";
+  const response = await erpJson<unknown>(erp1.cfg, `/api/method/${encodeURIComponent(method)}`, {
+    method: "POST",
+    body: JSON.stringify({
+      item_code: request.sku,
       sku: request.sku,
-      price: request.standardPrice.toString(),
-    });
-    if (result.updated) updatedIds.push(...target.productItemIds);
-  }
-  await prisma.productItem.updateMany({
-    where: { id: { in: updatedIds } },
-    data: { price: request.standardPrice },
+      price: request.standardPrice.toFixed(2),
+      shopify_store: "Cosmetics.lk",
+    }),
   });
-  return { ok: true, updated: targets.size, skipped: false as const };
+  const message = methodMessage(response);
+  if (message.ok === false || message.updated === false) {
+    throw new Error(String(message.error ?? message.message ?? "ERP1 Shopify price update failed"));
+  }
+  return { ok: true, updated: 1, skipped: false as const };
 }
 
 export async function updateItemCreationPrices(context: UserContext, id: string) {
@@ -1383,6 +1369,44 @@ async function createPurchaseReceipt(input: {
   return String(submitted.name ?? name);
 }
 
+/** Convert ERPNext's technical response into an action the stores team can understand. */
+function describePurchaseReceiptError(
+  error: unknown,
+  input: { erpLabel: string; itemCodes: string[]; warehouse?: string },
+) {
+  const raw = error instanceof Error ? error.message : "Purchase Receipt creation failed";
+  const text = raw.replace(/\\n/g, " ").replace(/\\"/g, '"').replace(/\s+/g, " ").trim();
+  const itemCodes = [...new Set(input.itemCodes.filter(Boolean))];
+  const mentionedItem = itemCodes.find((itemCode) =>
+    text.toLowerCase().includes(itemCode.toLowerCase()),
+  );
+  const itemLabel = mentionedItem ?? (itemCodes.length === 1 ? itemCodes[0] : null);
+
+  if (/(could not find|not found|does not exist|invalid link).*\bitem\b|\bitem\b.*(could not find|not found|does not exist)/i.test(text)) {
+    return itemLabel
+      ? `Item ${itemLabel} is not available in ${input.erpLabel}. Create or sync it in ${input.erpLabel}, then retry the Purchase Receipt.`
+      : `One or more selected items are not available in ${input.erpLabel}. Create or sync them in ${input.erpLabel}, then retry the Purchase Receipt.`;
+  }
+  if (/(could not find|not found|does not exist|invalid link).*\bsupplier\b|\bsupplier\b.*(could not find|not found|does not exist)/i.test(text)) {
+    return `The selected supplier is not available in ${input.erpLabel}. Select a supplier configured in ${input.erpLabel}, then retry.`;
+  }
+  if (/(could not find|not found|does not exist|invalid link).*\bwarehouse\b|\bwarehouse\b.*(could not find|not found|does not exist)/i.test(text)) {
+    return `The selected warehouse${input.warehouse ? ` (${input.warehouse})` : ""} is not available in ${input.erpLabel}. Refresh the warehouse list and retry.`;
+  }
+  if (/company.*(not found|does not exist)|could not find company/i.test(text)) {
+    return `The company linked to the selected warehouse is not available in ${input.erpLabel}. Check the warehouse company configuration, then retry.`;
+  }
+  if (/insufficient stock|negative stock/i.test(text)) {
+    return `Purchase Receipt could not be created in ${input.erpLabel} because ERPNext reported insufficient stock. Check the selected item and warehouse, then retry.`;
+  }
+
+  const detail = text
+    .replace(/^ERPNext\s+(?:POST|PUT)\s+.*?\[\d+\]:\s*/i, "")
+    .replace(/^\{?\s*"?(?:exc_type|exception)"?\s*:\s*"?[^,]+,?\s*/i, "")
+    .slice(0, 220);
+  return `Purchase Receipt could not be created in ${input.erpLabel}${itemLabel ? ` for item ${itemLabel}` : ""}.${detail ? ` ERPNext reported: ${detail}` : ""}`;
+}
+
 export async function createStoreAllocationPurchaseReceipts(
   context: UserContext,
   input: {
@@ -1403,7 +1427,7 @@ export async function createStoreAllocationPurchaseReceipts(
 
   const instances = await getAllOsfErpInstances(companyId(context));
   const instanceById = new Map(instances.map((instance) => [instance.id, instance]));
-  const groups = new Map<string, { cfg: OsfErpCredentials; company: string; warehouse: string; items: typeof input.items }>();
+  const groups = new Map<string, { cfg: OsfErpCredentials; erpLabel: string; company: string; warehouse: string; items: typeof input.items }>();
 
   for (const item of input.items) {
     const sku = item.sku?.trim();
@@ -1416,26 +1440,40 @@ export async function createStoreAllocationPurchaseReceipts(
     const company = await getWarehouseCompany(instance.cfg, warehouse);
     if (!company) throw new Error(`Company is not configured on warehouse ${warehouse}`);
     const key = `${instance.id}:${company}:${warehouse}`;
-    const group = groups.get(key) ?? { cfg: instance.cfg, company, warehouse, items: [] };
+    const group = groups.get(key) ?? {
+      cfg: instance.cfg,
+      erpLabel: instance.label?.trim() || "the selected ERP",
+      company,
+      warehouse,
+      items: [],
+    };
     group.items.push(item);
     groups.set(key, group);
   }
 
   const receipts: string[] = [];
   for (const group of groups.values()) {
-    receipts.push(await createPurchaseReceipt({
-      cfg: group.cfg,
-      supplier,
-      warehouse: group.warehouse,
-      company: group.company,
-      createdByEmail: context.user?.email?.trim() || undefined,
-      postingDate: new Date().toISOString().slice(0, 10),
-      items: group.items.map((item) => ({
-        itemCode: item.sku,
-        qty: new Prisma.Decimal(item.qty),
-        warehouse: item.warehouse,
-      })),
-    }));
+    try {
+      receipts.push(await createPurchaseReceipt({
+        cfg: group.cfg,
+        supplier,
+        warehouse: group.warehouse,
+        company: group.company,
+        createdByEmail: context.user?.email?.trim() || undefined,
+        postingDate: new Date().toISOString().slice(0, 10),
+        items: group.items.map((item) => ({
+          itemCode: item.sku,
+          qty: new Prisma.Decimal(item.qty),
+          warehouse: item.warehouse,
+        })),
+      }));
+    } catch (error) {
+      throw new Error(describePurchaseReceiptError(error, {
+        erpLabel: group.erpLabel,
+        itemCodes: group.items.map((item) => item.sku),
+        warehouse: group.warehouse,
+      }));
+    }
   }
   return receipts;
 }
@@ -1643,7 +1681,11 @@ export async function createWarehousePurchaseReceipts(
         }
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Purchase Receipt creation failed";
+      const message = describePurchaseReceiptError(error, {
+        erpLabel: erp,
+        itemCodes: receipt.items.map((item) => item.itemCode),
+        warehouse: receiptGroup.warehouse,
+      });
       await prisma.$transaction(async (tx) => {
         await tx.itemCreationStockReceipt.update({
           where: { id: receipt.id },

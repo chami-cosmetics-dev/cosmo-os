@@ -76,6 +76,10 @@ const DEFAULT_PERMISSIONS = [
     description: "View and edit company information",
   },
   {
+    key: "settings.suppliers",
+    description: "Add and manage suppliers on the settings page",
+  },
+  {
     key: "settings.email_templates",
     description: "View and edit email notification templates",
   },
@@ -94,6 +98,16 @@ const DEFAULT_PERMISSIONS = [
   {
     key: "products.vat_status.read",
     description: "Search a SKU and view live VAT tax status from ERP1 and ERP2",
+  },
+  {
+    key: "products.order_availability.read",
+    description:
+      "Check live ERP2 main-warehouse availability for multiple SKUs and see suggested companies within the monthly cap",
+  },
+  {
+    key: "products.order_availability.manage",
+    description:
+      "Mark up to 4 ERP2 main warehouses as priority 1–4 for order availability. Those warehouses skip the monthly cap and rank first in merchant search",
   },
   {
     key: "products.gift_vouchers.read",
@@ -144,7 +158,7 @@ const DEFAULT_PERMISSIONS = [
   {
     key: "purchasing.osf.manage",
     description:
-      "Edit OSF Shop Availability, ROP, OGF Price, and column mappings",
+      "Edit OSF Shop Availability, ROP, OGF Price, Target Purchase Rate, and column mappings",
   },
   {
     key: "purchasing.osf.permission",
@@ -167,6 +181,14 @@ const DEFAULT_PERMISSIONS = [
   {
     key: "purchasing.purchase_history.read",
     description: "View the Purchase History dashboard",
+  },
+  {
+    key: "purchasing.high_risk.read",
+    description: "View High Risk Items in Purchase History",
+  },
+  {
+    key: "purchasing.high_risk.manage",
+    description: "Update High Risk Item order and reason details",
   },
   {
     key: "purchasing.item_trends.read",
@@ -282,6 +304,11 @@ const DEFAULT_PERMISSIONS = [
     key: "products.storage.manage",
     description: "Upload and delete files in product item storage",
   },
+  {
+    key: "products.seo.read",
+    description:
+      "View the SEO content dashboard (photo, video and voice coverage per product, team upload activity)",
+  },
   // Contacts
   {
     key: "contacts.read",
@@ -315,6 +342,11 @@ const DEFAULT_PERMISSIONS = [
     key: "contacts.merge",
     description:
       "Customer Insight: add/link a new phone number (keeps previous numbers for search and purchase history)",
+  },
+  {
+    key: "contacts.loyalty.manual_assign",
+    description:
+      "Customer Insight: mark Gold or Platinum on contacts who do not meet the spend limit, with a required reason",
   },
   {
     key: "contacts.updates.read",
@@ -425,7 +457,8 @@ const DEFAULT_PERMISSIONS = [
   },
   {
     key: "stock_requests.manage",
-    description: "Update stock request status, remarks, and the warehouse the sale came from",
+    description:
+      "Update stock request status, remarks, and the warehouse the sale came from. Export Website requests, My requests, and All staff requests",
   },
   {
     key: "stock_requests.create",
@@ -461,6 +494,14 @@ const DEFAULT_PERMISSIONS = [
   {
     key: "finance.receivable_outstanding.read",
     description: "View Receivable Outstanding report",
+  },
+  {
+    key: "finance.sales_report.read",
+    description: "View Sales Report",
+  },
+  {
+    key: "finance.sales_report.manage",
+    description: "Edit Sales Report template and settings",
   },
   // Reminder bubbles — auto-granted to admin/super_admin; other roles tick in Roles UI
   ...REMINDER_BUBBLE_PERMISSIONS.map((p) => ({
@@ -735,6 +776,15 @@ const DEFAULT_PERMISSIONS = [
     description:
       "Book Notes (Finance) — review every shop's sheets. Finance only; does not open merchant Book Notes.",
   },
+  {
+    key: "new_item_requests.manage",
+    description: "Create new item requests and read own requests",
+  },
+  {
+    key: "new_item_requests.admin",
+    description:
+      "See all new item requests, export, and mark already have, ordered, or closed. Also opens Website requests (view) and My requests",
+  },
 ] as const;
 
 const ALL_DEFAULT_PERMISSION_KEYS = DEFAULT_PERMISSIONS.map((p) => p.key);
@@ -769,6 +819,7 @@ const DEFAULT_ROLES = [
       "riders.performance.manage",
       "roles.read",
       "settings.company",
+      "settings.suppliers",
       "settings.email_templates",
       "settings.sms_portal",
       "settings.fulfillment",
@@ -785,6 +836,8 @@ const DEFAULT_ROLES = [
       "purchasing.tools.read",
       "purchasing.tools.manage",
       "purchasing.purchase_history.read",
+      "purchasing.high_risk.read",
+      "purchasing.high_risk.manage",
       "purchasing.item_trends.read",
       "purchasing.market_prices.read",
       "purchasing.market_prices.manage",
@@ -792,6 +845,7 @@ const DEFAULT_ROLES = [
       "purchasing.grn.mark_handover",
       "purchasing.grn.mark_valued",
       "purchasing.grn.mark_received",
+      "new_item_requests.admin",
       "purchasing.grn.margin_approval",
       "purchasing.grn.payment_approval.manage",
       "academy.learn",
@@ -834,6 +888,8 @@ const DEFAULT_ROLES = [
       "finance.hod.revert_paid_to_unpaid",
       "finance.supplier_payables.read",
       "finance.receivable_outstanding.read",
+      "finance.sales_report.read",
+      "finance.sales_report.manage",
       "dashboard.view",
       "dashboard.merchant_view",
       "dashboard.merchant_admin_view",

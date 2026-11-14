@@ -6,6 +6,7 @@ import {
   getApprovedOrderPaymentReviewerId,
   isOrderPaymentRequiresApproval,
   ORDER_PAYMENT_APPROVAL,
+  PAYMENT_METHOD_CHANGE_APPROVAL,
 } from "@/lib/approval-workflow";
 import { isPosOrderSource } from "@/lib/fulfillment-queue-filters";
 import { markOrderInvoiceComplete } from "@/lib/mark-order-invoice-complete";
@@ -280,11 +281,11 @@ export async function triggerDeliveryPaymentApprovalIfNeeded(input: {
       companyLocationId: true,
       approvalRequests: {
         where: {
-          type: ORDER_PAYMENT_APPROVAL,
+          type: { in: [ORDER_PAYMENT_APPROVAL, PAYMENT_METHOD_CHANGE_APPROVAL] },
           status: { in: ["pending", "approved"] },
         },
-        select: { id: true, status: true },
-        take: 1,
+        select: { id: true, status: true, type: true },
+        take: 10,
       },
     },
   });
@@ -295,6 +296,11 @@ export async function triggerDeliveryPaymentApprovalIfNeeded(input: {
 
   // KOKO / bank / other prepaid: use Order Payment approval, never Delivery Collection.
   if (shouldSkipDeliveryPaymentApproval(order)) return null;
+  if (
+    order.approvalRequests.some((approval) => approval.type === PAYMENT_METHOD_CHANGE_APPROVAL)
+  ) {
+    return null;
+  }
 
   // Prepaid order-payment finance covers the same confirmation. Card on Delivery always needs door collection.
   if (order.approvalRequests.length > 0 && !orderHasCardOnDeliveryGateway(order)) return null;

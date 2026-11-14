@@ -1,7 +1,12 @@
-import { put, del } from "@vercel/blob";
 import type { ErpnextInstance } from "@prisma/client";
 
 import { getErpConfig } from "@/lib/erpnext-sync";
+import {
+  deleteStoredFileQuietly,
+  fetchStoredFileBytes,
+  storageFolder,
+  uploadStoredFile,
+} from "@/lib/file-storage";
 import { postingDateToUtcMidnight } from "@/lib/book-notes/serialize";
 import { serializeBookNoteReceipt } from "@/lib/book-notes/serialize";
 import type { BookNoteReceiptDto } from "@/lib/book-notes/types";
@@ -30,23 +35,6 @@ export function collectBookNoteNamesFromVerifyRows(rows: unknown[]): string[] {
     }
   }
   return [...names];
-}
-
-async function fetchBlobBytes(blobUrl: string): Promise<Buffer> {
-  const blobRes = await fetch(
-    blobUrl,
-    process.env.BLOB_READ_WRITE_TOKEN
-      ? {
-          headers: {
-            Authorization: `Bearer ${process.env.BLOB_READ_WRITE_TOKEN}`,
-          },
-        }
-      : undefined,
-  );
-  if (!blobRes.ok) {
-    throw new Error(`Failed to read receipt blob (HTTP ${blobRes.status})`);
-  }
-  return Buffer.from(await blobRes.arrayBuffer());
 }
 
 /**
@@ -143,7 +131,7 @@ export async function pushDayReceiptsToErp(input: {
 
   for (const receipt of input.receipts) {
     try {
-      const bytes = await fetchBlobBytes(receipt.blobUrl);
+      const bytes = await fetchStoredFileBytes(receipt.blobUrl);
       // Stable Cosmo id in filename helps finance spot resends vs new slips.
       const safeBase = receipt.fileName.replace(/[^\w.\-()+ ]+/g, "_").slice(0, 80);
       prepared.push({
@@ -247,20 +235,18 @@ export async function addBookNoteReceipt(input: {
     );
   }
 
-  const blob = await put(
-    `book-notes/${input.bookNoteDayId}/${Date.now()}-${input.file.name}`,
-    input.file,
-    {
-      access: "private",
-      addRandomSuffix: true,
-    },
-  );
+  const stored = await uploadStoredFile({
+    folder: storageFolder("book-notes", input.bookNoteDayId),
+    fileName: input.file.name,
+    mimeType: mime,
+    bytes: Buffer.from(await input.file.arrayBuffer()),
+  });
 
   const receipt = await prisma.bookNoteReceipt.create({
     data: {
       bookNoteDayId: input.bookNoteDayId,
       fileName: input.file.name.slice(0, 200),
-      blobUrl: blob.url,
+      blobUrl: stored.url,
       fileSize: input.file.size,
       mimeType: mime,
       sortOrder: existingCount,
@@ -288,17 +274,13 @@ export async function deleteBookNoteReceipt(input: {
   if (!receipt) return false;
 
   await prisma.bookNoteReceipt.delete({ where: { id: receipt.id } });
-  try {
-    await del(receipt.blobUrl);
-  } catch {
-    // DB row is source of truth; blob may already be gone.
-  }
+  await deleteStoredFileQuietly(receipt.blobUrl, "book note receipt");
   return true;
 }
 
 /**
- * Delete a whole book note day: rows and receipt records cascade, but the blob
- * files behind the photos must be cleared explicitly or they stay billable.
+ * Delete a whole book note day: rows and receipt records cascade, but the
+ * stored files behind the photos must be cleared explicitly or they stay billable.
  *
  * ERP is deliberately untouched — a day already pushed keeps its Book Note
  * Entry there, so callers must warn the user before removing a sent sheet.
@@ -316,11 +298,7 @@ export async function deleteBookNoteDay(input: {
   await prisma.bookNoteDay.delete({ where: { id: day.id } });
 
   for (const receipt of day.receipts) {
-    try {
-      await del(receipt.blobUrl);
-    } catch {
-      // DB row is source of truth; blob may already be gone.
-    }
+    await deleteStoredFileQuietly(receipt.blobUrl, "book note day");
   }
 
   return { deleted: true, receiptCount: day.receipts.length };

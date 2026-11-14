@@ -57,6 +57,7 @@ export async function GET(
               task.manualIncentiveAmount
             ).toFixed(2)
           : "0.00",
+        incentivePendingInvoiceClose: !isRiderIncentiveUnlocked(task.order),
         collectCashAmount,
       }),
       lineItems: task.order.lineItems.map((item) => ({

@@ -19,12 +19,19 @@ import { notify } from "@/lib/notify";
 import { playScanErrorSound, unlockScanSound } from "@/lib/store-stock-count/scan-sound";
 import { cn } from "@/lib/utils";
 
+const MIN_SCAN_LENGTH = 4;
+const SCAN_IDLE_MS = 100;
+
+function isScannerBarcode(code: string): boolean {
+  return /^\d{8,}$/.test(code.trim());
+}
+
 type Setup = {
   legs: ShopReturnLeg[];
 };
 
 function slotLabel(slot: string | null | undefined) {
-  if (slot === "erp1") return "ERP1 VAT";
+  if (slot === "erp1") return "ERP1 Vat";
   if (slot === "erp2") return "ERP2";
   return "—";
 }
@@ -38,9 +45,16 @@ export function MaterialTransferReturnPanel() {
   const [highlightedItemCode, setHighlightedItemCode] = useState<string | null>(null);
   const scanRef = useRef<HTMLInputElement>(null);
   const scanValueRef = useRef("");
+  const scanTimerRef = useRef<number | null>(null);
   const linesRef = useRef<TransferLine[]>([]);
   linesRef.current = lines;
   const scanLocked = busyKey === "page" || busyKey === "submit";
+
+  useEffect(() => {
+    return () => {
+      if (scanTimerRef.current != null) window.clearTimeout(scanTimerRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -88,7 +102,7 @@ export function MaterialTransferReturnPanel() {
           itemName: existing.itemName,
           barcode: existing.barcode,
           uom: existing.uom,
-          taxStatus: null,
+          taxStatus: existing.taxStatus ?? null,
           availableQty: existing.availableQty,
           slot: existing.slot,
         });
@@ -146,7 +160,8 @@ export function MaterialTransferReturnPanel() {
       <div>
         <h2 className="text-lg font-semibold">Send to main</h2>
         <p className="text-muted-foreground text-sm">
-          Add every item on this list. Stores confirm it once. VAT items post to ERP1 and other items post to ERP2.
+          Add every item on this list. Stores confirm it once. Vat and Vat / Non Vat post to ERP1.
+          Other items post to ERP2.
         </p>
       </div>
       {busyKey === "page" ? (
@@ -169,6 +184,10 @@ export function MaterialTransferReturnPanel() {
             className="flex gap-2"
             onSubmit={(event) => {
               event.preventDefault();
+              if (scanTimerRef.current != null) {
+                window.clearTimeout(scanTimerRef.current);
+                scanTimerRef.current = null;
+              }
               void addCode(scanRef.current?.value || scanValueRef.current || scan);
             }}
           >
@@ -180,8 +199,24 @@ export function MaterialTransferReturnPanel() {
               autoComplete="off"
               onFocus={unlockScanSound}
               onChange={(event) => {
-                scanValueRef.current = event.target.value;
-                setScan(event.target.value);
+                const value = event.target.value;
+                scanValueRef.current = value;
+                setScan(value);
+                if (scanTimerRef.current != null) {
+                  window.clearTimeout(scanTimerRef.current);
+                  scanTimerRef.current = null;
+                }
+                if (scanLocked) return;
+                const code = value.trim();
+                if (code.length >= MIN_SCAN_LENGTH && findTransferLine(linesRef.current, code)) {
+                  void addCode(code);
+                  return;
+                }
+                if (!isScannerBarcode(code)) return;
+                scanTimerRef.current = window.setTimeout(() => {
+                  scanTimerRef.current = null;
+                  void addCode(code);
+                }, SCAN_IDLE_MS);
               }}
             />
             <Button type="submit" disabled={scanLocked || !scan.trim()}>
@@ -201,6 +236,7 @@ export function MaterialTransferReturnPanel() {
                 <tr>
                   <th className="px-3 py-2 font-medium">SKU</th>
                   <th className="px-3 py-2 font-medium">Item</th>
+                  <th className="px-3 py-2 font-medium">Tax status</th>
                   <th className="px-3 py-2 font-medium">Barcode</th>
                   <th className="px-3 py-2 font-medium">Available</th>
                   <th className="px-3 py-2 font-medium">ERP</th>
@@ -211,7 +247,7 @@ export function MaterialTransferReturnPanel() {
               <tbody>
                 {lines.length === 0 ? (
                   <tr>
-                    <td className="text-muted-foreground px-3 py-6" colSpan={7}>
+                    <td className="text-muted-foreground px-3 py-6" colSpan={8}>
                       No items yet.
                     </td>
                   </tr>
@@ -230,6 +266,7 @@ export function MaterialTransferReturnPanel() {
                     >
                       <td className="px-3 py-2 font-medium">{line.itemCode}</td>
                       <td className="px-3 py-2">{line.itemName}</td>
+                      <td className="px-3 py-2">{line.taxStatus || "—"}</td>
                       <td className="px-3 py-2">{line.barcode || "—"}</td>
                       <td className="px-3 py-2">{line.availableQty ?? "—"}</td>
                       <td className="px-3 py-2">{slotLabel(line.slot)}</td>

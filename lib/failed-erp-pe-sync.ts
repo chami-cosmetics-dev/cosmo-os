@@ -14,6 +14,7 @@ import {
   getErpConfig,
   resolveOrderPaymentMop,
 } from "@/lib/erpnext-sync";
+import { resolveBankTransferMopName } from "@/lib/payment-gateway-match";
 import { prisma } from "@/lib/prisma";
 
 const PE_AUTO_RETRY_DELAYS_MS = [
@@ -279,17 +280,20 @@ type OrderForPeRetry = {
   } | null;
 };
 
-/** MOP to use when retrying a failed PE — never re-defaults to a new order payment mode. */
+/**
+ * MOP to use when retrying a failed PE — never re-defaults to a new order payment mode.
+ * Vault OS still rewrites stored "Wire Transfer" to "Bank Transfer" (same bank method, usable ERP MOP).
+ */
 export function resolveFailedErpPeRetryMop(
   order: OrderForPeRetry,
   overrideMop?: string,
 ): string | null {
   const override = overrideMop?.trim();
-  if (override) return override;
+  if (override) return resolveBankTransferMopName(override, { envValue: null });
 
   const stored = order.erpPeSyncMop?.trim();
   if (stored && stored !== ERP_PE_SYNC_MOP_ORDER_AUTO) {
-    return stored;
+    return resolveBankTransferMopName(stored, { envValue: null });
   }
 
   if (!order.companyLocation?.erpnextInstance) return null;

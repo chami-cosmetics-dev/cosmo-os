@@ -8,7 +8,7 @@ import {
   handoverSummaryCashAmount,
   latestHandoverReceipt,
   latestReceiptForCompany,
-  listHandoverClosedInvoices,
+  listHandoverCollectableOrders,
   loadRiderHandoverDeliveries,
 } from "@/lib/rider-handover";
 import { requirePermission } from "@/lib/rbac";
@@ -112,7 +112,7 @@ export async function GET(request: NextRequest) {
       };
     }),
     fullTotal: grouped.fullTotal,
-    closedInvoices: listHandoverClosedInvoices(loaded.deliveries),
+    collectableOrders: listHandoverCollectableOrders(loaded.deliveries),
     latestReceipt: exactVisible,
     coveringReceipts: visibleReceipts,
   });

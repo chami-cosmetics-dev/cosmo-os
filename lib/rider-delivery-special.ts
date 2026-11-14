@@ -13,8 +13,9 @@ export function orderDisplayLabel(order: Pick<OrderRef, "name" | "orderNumber" |
   return formatBusinessOrderNumber(order);
 }
 
-export function requiresOldItemCollection(reason: string) {
-  return reason === "damaged_item" || reason === "wrong_item";
+/** Every exchange delivery needs old-item pickup confirmation on the rider app. */
+export function requiresOldItemCollection(_reason?: string) {
+  return true;
 }
 
 export function calculateExchangePaymentDifference(input: {

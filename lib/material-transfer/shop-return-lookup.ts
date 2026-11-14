@@ -5,7 +5,11 @@ import {
   lookupTransferItem,
   MaterialTransferError,
 } from "@/lib/material-transfer/erp";
-import { shopReturnDestination, type ShopReturnLeg } from "@/lib/material-transfer/shop-return";
+import {
+  shopReturnDestination,
+  shopReturnTaxStatus,
+  type ShopReturnLeg,
+} from "@/lib/material-transfer/shop-return";
 import type { TransferLookupItem, TransferSlot } from "@/lib/material-transfer/types";
 
 export async function lookupShopReturnItem(
@@ -38,20 +42,22 @@ export async function lookupShopReturnItem(
   if (!erp1 && !erp2) {
     throw new MaterialTransferError(`No item found for ${code}`);
   }
-  const taxStatus = erp1?.taxStatus ?? erp2?.taxStatus ?? null;
+  const taxStatus = shopReturnTaxStatus(erp1?.taxStatus, erp2?.taxStatus, Boolean(erp1));
   const slot = shopReturnDestination(taxStatus);
   const item = found.get(slot) ?? null;
   const label = item?.itemCode || erp1?.itemCode || erp2?.itemCode || code;
   if (!legs.some((leg) => leg.slot === slot)) {
     throw new MaterialTransferError(
       slot === "erp1"
-        ? `${label} is VAT. This shop has no ERP1 warehouse for it.`
-        : `${label} is not VAT. This shop has no ERP2 warehouse for it.`,
+        ? `${label} is Vat or Vat / Non Vat. This shop has no ERP1 warehouse for it.`
+        : `${label} is not Vat or Vat / Non Vat. This shop has no ERP2 warehouse for it.`,
     );
   }
   if (!item) {
     throw new MaterialTransferError(
-      slot === "erp1" ? `${label} is VAT. It is not on ERP1.` : `${label} is not VAT. It is not on ERP2.`,
+      slot === "erp1"
+        ? `${label} is Vat or Vat / Non Vat. It is not on ERP1.`
+        : `${label} is not Vat or Vat / Non Vat. It is not on ERP2.`,
     );
   }
   return { ...item, taxStatus, slot };

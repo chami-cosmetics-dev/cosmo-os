@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   canEditRequest,
+  canExportScope,
   canViewRequest,
   canViewScope,
   scopeFilter,
@@ -26,6 +27,11 @@ const lead = viewerFromPermissions({
   roleNames: ["lead"],
   permissionKeys: ["stock_requests.create", "stock_requests.read_all"],
 });
+const purchasing = viewerFromPermissions({
+  userId: "u8",
+  roleNames: ["Purchasing Manager"],
+  permissionKeys: ["new_item_requests.admin"],
+});
 
 const web = { source: "shopify", createdById: null };
 const imported = { source: "import", createdById: null };
@@ -38,12 +44,43 @@ describe("tabs", () => {
     expect([canViewScope(callCentre, "web"), canViewScope(callCentre, "mine")]).toEqual([true, false]);
     expect([canViewScope(both, "web"), canViewScope(both, "mine")]).toEqual([true, true]);
     expect([canViewScope(admin, "web"), canViewScope(admin, "mine")]).toEqual([true, true]);
+    expect([canViewScope(purchasing, "web"), canViewScope(purchasing, "mine")]).toEqual([true, true]);
+    expect(canViewScope(purchasing, "staff")).toBe(false);
   });
 
   it("filters My requests to the creator, except for admins", () => {
     expect(scopeFilter(merchant, "mine")).toEqual({ source: "staff", createdById: "u1" });
     expect(scopeFilter(admin, "mine")).toEqual({ source: "staff" });
     expect(scopeFilter(callCentre, "web")).toEqual({ source: { in: ["shopify", "import"] } });
+  });
+
+  it("lets manage export Website, My requests, and All staff when that tab is visible", () => {
+    const manager = viewerFromPermissions({
+      userId: "u4",
+      roleNames: [],
+      permissionKeys: ["stock_requests.read", "stock_requests.manage"],
+    });
+    const merchantManager = viewerFromPermissions({
+      userId: "u1",
+      roleNames: ["Merchant 01"],
+      permissionKeys: ["stock_requests.create", "stock_requests.manage"],
+    });
+    const staffManager = viewerFromPermissions({
+      userId: "u5",
+      roleNames: ["supervisor"],
+      permissionKeys: ["stock_requests.read_all", "stock_requests.manage"],
+    });
+    expect(canExportScope(callCentre, "web")).toBe(false);
+    expect(canExportScope(merchant, "mine")).toBe(false);
+    expect(canExportScope(manager, "web")).toBe(true);
+    expect(canExportScope(manager, "mine")).toBe(false);
+    expect(canExportScope(merchantManager, "mine")).toBe(true);
+    expect(canExportScope(merchantManager, "web")).toBe(false);
+    expect(canExportScope(supervisor, "staff")).toBe(false);
+    expect(canExportScope(staffManager, "staff")).toBe(true);
+    expect(canExportScope(admin, "web")).toBe(true);
+    expect(canExportScope(admin, "mine")).toBe(true);
+    expect(canExportScope(admin, "staff")).toBe(false);
   });
 
   it("gives read_all its own tab of every staff request, and keeps admins on My requests", () => {
@@ -95,5 +132,15 @@ describe("viewing and editing single requests", () => {
       expect(canViewRequest(admin, row)).toBe(true);
       expect(canEditRequest(admin, row)).toBe(true);
     }
+  });
+
+  it("lets new-item purchasing admins view website and own staff requests, not edit website", () => {
+    const own = { source: "staff", createdById: "u8" };
+    expect(canViewRequest(purchasing, web)).toBe(true);
+    expect(canEditRequest(purchasing, web)).toBe(false);
+    expect(canViewRequest(purchasing, own)).toBe(true);
+    expect(canEditRequest(purchasing, own)).toBe(true);
+    expect(canViewRequest(purchasing, someoneElses)).toBe(false);
+    expect(canExportScope(purchasing, "web")).toBe(false);
   });
 });

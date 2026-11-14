@@ -35,13 +35,16 @@ function isCerave(normalized: string): boolean {
 
 /**
  * Whether this brand must have an OGF price on the given ERP.
+ * - Vault OS: never (Standard Selling only).
  * - ERP1: only Cerave needs OGF; all other brands Standard only.
  * - ERP2: skip list (incl. Cerave) no OGF; all other brands yes.
  */
 export function brandRequiresOgf(
   brand: string | null | undefined,
   erp: "erp1" | "erp2",
+  vaultOs = false,
 ): boolean {
+  if (vaultOs) return false;
   const n = normalizeBrand(brand);
   if (erp === "erp1") {
     return isCerave(n);
@@ -61,8 +64,9 @@ export function classifyPriceGapForBrand(input: {
   hasOgf: boolean;
   brand: string | null | undefined;
   erp: "erp1" | "erp2";
+  vaultOs?: boolean;
 }): "Standard" | "OGF" | "Both" | null {
-  const needsOgf = brandRequiresOgf(input.brand, input.erp);
+  const needsOgf = brandRequiresOgf(input.brand, input.erp, input.vaultOs);
   if (!needsOgf) {
     return input.hasStandard ? null : "Standard";
   }

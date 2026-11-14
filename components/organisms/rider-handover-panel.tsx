@@ -31,10 +31,11 @@ type ReceiptView = {
   fullTotal: string;
 };
 
-type ClosedInvoice = {
+type CollectableOrder = {
   orderNumber: string;
   companyName: string;
-  invoiceCompleteAt: string | null;
+  cashAmount: string;
+  deliveredAt: string | null;
 };
 
 type SummaryResponse = {
@@ -44,7 +45,7 @@ type SummaryResponse = {
   to: string;
   companies: CompanyLine[];
   fullTotal: string;
-  closedInvoices?: ClosedInvoice[];
+  collectableOrders?: CollectableOrder[];
   latestReceipt: ReceiptView | null;
   coveringReceipts?: ReceiptView[];
 };
@@ -69,6 +70,7 @@ type OrderRow = {
   invoiceCompleteAt?: string | null;
   eligible: boolean;
   canEditPaymentType?: boolean;
+  financeApprovalPending?: boolean;
   blockReason: string | null;
   modes: Array<{ key: string; label: string; mopName: string }>;
   selectedMop: string | null;
@@ -146,6 +148,10 @@ export function RiderHandoverPanel({
       const next = data as SummaryResponse;
       setSummary(next);
       setReceipt(next.latestReceipt);
+      if (canHandoverReceive) {
+        setOrdersRequested(true);
+        setOrdersRefresh((value) => value + 1);
+      }
     } finally {
       setBusyKey(null);
     }
@@ -278,7 +284,50 @@ export function RiderHandoverPanel({
     }
   }
 
-  const openOrders = (companies ?? []).flatMap((group) => group.orders.filter((row) => !row.invoiceClosed));
+  async function persistPaymentType(row: OrderRow, modeOfPayment: string) {
+    if (!riderId) {
+      notify.error("Select a rider");
+      return;
+    }
+    setModeByOrder((current) => ({ ...current, [row.orderId]: modeOfPayment }));
+    if (!modeOfPayment.trim()) return;
+    const mopKey = row.modes.find((mode) => mode.mopName === modeOfPayment)?.key;
+    if (mopKey !== "cash" && mopKey !== "cod" && mopKey !== "card_delivery") return;
+
+    setBusyKey(`pay:${row.orderId}`);
+    try {
+      const res = await fetch("/api/admin/riders/handover/payment-method", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          riderId,
+          from,
+          to,
+          orderId: row.orderId,
+          modeOfPayment,
+        }),
+      });
+      const data = await readError(res);
+      if (!res.ok) {
+        notify.error(data.error ?? "Could not update payment method");
+        return;
+      }
+      setOrdersRefresh((value) => value + 1);
+      if (canHandoverSummary) {
+        const params = new URLSearchParams({ riderId, from, to });
+        const summaryRes = await fetch(`/api/admin/riders/handover/summary?${params.toString()}`);
+        if (summaryRes.ok) {
+          setSummary((await summaryRes.json()) as SummaryResponse);
+        }
+      }
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  const openOrders = (companies ?? []).flatMap((group) =>
+    group.orders.filter((row) => !row.invoiceClosed && !row.financeApprovalPending),
+  );
 
   async function markInvoices(onlyOrderId?: string) {
     if (!riderId) {
@@ -510,31 +559,35 @@ export function RiderHandoverPanel({
                 </tr>
               </tfoot>
             </table>
-            {(slip.closedInvoices ?? []).length > 0 ? (
+            {(slip.collectableOrders ?? []).length > 0 ? (
               <div>
-                <h3 className="text-sm font-semibold">Invoice complete</h3>
+                <h3 className="text-sm font-semibold">Collectable orders</h3>
                 <table className="mt-1 w-full text-sm">
                   <thead>
                     <tr className="border-b text-left">
                       <th className="py-1">Order</th>
                       <th className="py-1">Company</th>
-                      <th className="py-1">Marked</th>
+                      <th className="py-1 text-right">Cash</th>
+                      <th className="py-1">Delivered</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {(slip.closedInvoices ?? []).map((line) => (
-                      <tr key={`${line.orderNumber}-${line.invoiceCompleteAt ?? ""}`} className="border-b">
+                    {(slip.collectableOrders ?? []).map((line) => (
+                      <tr key={`${line.orderNumber}-${line.companyName}`} className="border-b">
                         <td className="py-1 whitespace-nowrap">{line.orderNumber}</td>
                         <td className="py-1">{line.companyName}</td>
+                        <td className="py-1 text-right tabular-nums">{line.cashAmount}</td>
                         <td className="py-1 whitespace-nowrap">
-                          {line.invoiceCompleteAt ? formatWhen(line.invoiceCompleteAt) : "Invoice complete"}
+                          {line.deliveredAt ? formatWhen(line.deliveredAt) : "—"}
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-            ) : null}
+            ) : (
+              <p className="text-muted-foreground text-sm print:hidden">No collectable orders in this range.</p>
+            )}
             <div className="grid gap-8 pt-10 sm:grid-cols-2">
               <div>
                 <p>Handover by</p>
@@ -565,7 +618,7 @@ export function RiderHandoverPanel({
               <p className="text-sm">Loading…</p>
             ) : orderTotal === 0 ? (
               <p className="text-sm">
-                {appliedQuery ? "No orders match this search." : "No delivery-complete orders in this range."}
+                {appliedQuery ? "No orders match this search." : "No collectable orders in this range."}
               </p>
             ) : (
               (companies ?? []).map((group) => (
@@ -623,6 +676,10 @@ export function RiderHandoverPanel({
                             <td className="px-2 py-2">
                               {row.invoiceClosed ? (
                                 `Complete${row.invoiceCompleteAt ? ` ${formatWhen(row.invoiceCompleteAt)}` : ""}`
+                              ) : row.financeApprovalPending ? (
+                                <span className="inline-flex rounded border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-800">
+                                  Finance approval pending
+                                </span>
                               ) : (
                                 <div className="space-y-1">
                                   <div>{row.blockReason || "Open"}</div>
@@ -651,10 +708,7 @@ export function RiderHandoverPanel({
                                   value={modeByOrder[row.orderId] ?? row.selectedMop ?? ""}
                                   disabled={isBusy}
                                   onChange={(event) =>
-                                    setModeByOrder((current) => ({
-                                      ...current,
-                                      [row.orderId]: event.target.value,
-                                    }))
+                                    void persistPaymentType(row, event.target.value)
                                   }
                                 >
                                   <option value="">Select type</option>

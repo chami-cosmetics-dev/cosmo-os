@@ -17,4 +17,11 @@ describe("buildMapUrlCandidates", () => {
     expect(urls.some((u) => u.includes("google.com/maps"))).toBe(true);
     expect(urls.every((u) => u.includes(encodeURIComponent("7b, nugegoda")))).toBe(true);
   });
+
+  it("prefers directions from current GPS origin when provided", () => {
+    const urls = buildMapUrlCandidates("7b, nugegoda", { latitude: 6.9, longitude: 79.9 });
+    expect(urls[0]).toContain("google.com/maps/dir/");
+    expect(urls[0]).toContain("origin=6.9%2C79.9");
+    expect(urls[0]).toContain(encodeURIComponent("7b, nugegoda"));
+  });
 });

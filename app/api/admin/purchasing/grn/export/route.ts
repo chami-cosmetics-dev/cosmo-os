@@ -95,12 +95,52 @@ function exportRows(
   });
 }
 
+type HistoryExportRow = {
+  Type: "PR" | "SSR" | "PI";
+  Document: string;
+  Company: string;
+  Supplier: string;
+  "Document Date": string;
+  "Deleted in ERP"?: string;
+  Source: "Webhook" | "Backfill";
+};
+
+function historyExportRow(
+  row: {
+    name: string;
+    supplier: string;
+    supplierName: string | null;
+    postingDate?: Date | null;
+    returnDate?: Date | null;
+    creation: Date | null;
+    deletedAt?: Date | null;
+    rawPayload: unknown;
+  },
+  type: HistoryExportRow["Type"],
+  source: HistoryExportRow["Source"],
+): HistoryExportRow {
+  return {
+    Type: type,
+    Document: row.name,
+    Company: prCompanyName(row.rawPayload, null),
+    Supplier: row.supplierName ?? row.supplier,
+    "Document Date": formatDate(row.postingDate ?? row.returnDate ?? row.creation),
+    ...(row.deletedAt ? { "Deleted in ERP": formatDate(row.deletedAt) } : {}),
+    Source: source,
+  };
+}
+
 async function loadRows(from: Date | null, to: Date | null, companyId?: string) {
   const dateFilter = from || to ? { gte: from ?? undefined, lte: to ?? undefined } : undefined;
   return prisma.grnPurchaseReceipt.findMany({
     where: {
       ...(companyId ? { companyId } : {}),
       deletedAt: null,
+      docstatus: { not: 2 },
+      NOT: [
+        { status: { equals: "cancelled", mode: "insensitive" } },
+        { status: { equals: "canceled", mode: "insensitive" } },
+      ],
       ...(dateFilter
         ? {
             OR: [
@@ -116,7 +156,103 @@ async function loadRows(from: Date | null, to: Date | null, companyId?: string) 
   });
 }
 
-function buildXlsx(rows: ReturnType<typeof exportRows>) {
+async function loadHistoryRows(from: Date | null, to: Date | null, companyId?: string) {
+  const dateFilter = from || to ? { gte: from ?? undefined, lte: to ?? undefined } : undefined;
+  const companyScope = companyId ? { companyId } : {};
+  const cancelledDocumentWhere = {
+    OR: [
+      { docstatus: 2 },
+      { status: { equals: "cancelled", mode: "insensitive" as const } },
+      { status: { equals: "canceled", mode: "insensitive" as const } },
+    ],
+  };
+  const [
+    cancelledPurchaseReceipts,
+    cancelledBackfillPurchaseReceipts,
+    cancelledStockReturns,
+    cancelledBackfillStockReturns,
+    cancelledPurchaseInvoices,
+    cancelledBackfillPurchaseInvoices,
+    deletedPurchaseReceipts,
+    deletedBackfillPurchaseReceipts,
+    deletedStockReturns,
+    deletedBackfillStockReturns,
+    deletedPurchaseInvoices,
+    deletedBackfillPurchaseInvoices,
+  ] = await Promise.all([
+    prisma.grnPurchaseReceipt.findMany({
+      where: {
+        ...companyScope,
+        deletedAt: null,
+        AND: [cancelledDocumentWhere, ...(dateFilter ? [{ OR: [{ creation: dateFilter }, { creation: null, postingDate: dateFilter }] }] : [])],
+      },
+      orderBy: [{ postingDate: "desc" }, { createdAt: "desc" }],
+    }),
+    prisma.grnBackfillPurchaseReceipt.findMany({
+      where: {
+        ...companyScope,
+        deletedAt: null,
+        AND: [cancelledDocumentWhere, ...(dateFilter ? [{ OR: [{ creation: dateFilter }, { creation: null, postingDate: dateFilter }] }] : [])],
+      },
+      orderBy: [{ postingDate: "desc" }, { createdAt: "desc" }],
+    }),
+    prisma.grnSupplierStockReturn.findMany({
+      where: {
+        ...companyScope,
+        deletedAt: null,
+        docstatus: 2,
+        ...(dateFilter ? { OR: [{ returnDate: dateFilter }, { returnDate: null, creation: dateFilter }] } : {}),
+      },
+      orderBy: [{ returnDate: "desc" }, { createdAt: "desc" }],
+    }),
+    prisma.grnBackfillSupplierStockReturn.findMany({
+      where: {
+        ...companyScope,
+        deletedAt: null,
+        docstatus: 2,
+        ...(dateFilter ? { OR: [{ returnDate: dateFilter }, { returnDate: null, creation: dateFilter }] } : {}),
+      },
+      orderBy: [{ returnDate: "desc" }, { createdAt: "desc" }],
+    }),
+    prisma.grnPurchaseInvoice.findMany({
+      where: { ...companyScope, deletedAt: null, AND: [cancelledDocumentWhere, ...(dateFilter ? [{ postingDate: dateFilter }] : [])] },
+      orderBy: [{ postingDate: "desc" }, { createdAt: "desc" }],
+    }),
+    prisma.grnBackfillPurchaseInvoice.findMany({
+      where: { ...companyScope, deletedAt: null, AND: [cancelledDocumentWhere, ...(dateFilter ? [{ postingDate: dateFilter }] : [])] },
+      orderBy: [{ postingDate: "desc" }, { createdAt: "desc" }],
+    }),
+    prisma.grnPurchaseReceipt.findMany({ where: { ...companyScope, deletedAt: { not: null } }, orderBy: { deletedAt: "desc" } }),
+    prisma.grnBackfillPurchaseReceipt.findMany({ where: { ...companyScope, deletedAt: { not: null } }, orderBy: { deletedAt: "desc" } }),
+    prisma.grnSupplierStockReturn.findMany({ where: { ...companyScope, deletedAt: { not: null } }, orderBy: { deletedAt: "desc" } }),
+    prisma.grnBackfillSupplierStockReturn.findMany({ where: { ...companyScope, deletedAt: { not: null } }, orderBy: { deletedAt: "desc" } }),
+    prisma.grnPurchaseInvoice.findMany({ where: { ...companyScope, deletedAt: { not: null } }, orderBy: { deletedAt: "desc" } }),
+    prisma.grnBackfillPurchaseInvoice.findMany({ where: { ...companyScope, deletedAt: { not: null } }, orderBy: { deletedAt: "desc" } }),
+  ]);
+
+  const cancelled = [
+    ...cancelledPurchaseReceipts.map((row) => historyExportRow(row, "PR", "Webhook")),
+    ...cancelledBackfillPurchaseReceipts.map((row) => historyExportRow(row, "PR", "Backfill")),
+    ...cancelledStockReturns.map((row) => historyExportRow(row, "SSR", "Webhook")),
+    ...cancelledBackfillStockReturns.map((row) => historyExportRow(row, "SSR", "Backfill")),
+    ...cancelledPurchaseInvoices.map((row) => historyExportRow(row, "PI", "Webhook")),
+    ...cancelledBackfillPurchaseInvoices.map((row) => historyExportRow(row, "PI", "Backfill")),
+  ];
+  const deleted = [
+    ...deletedPurchaseReceipts.map((row) => historyExportRow(row, "PR", "Webhook")),
+    ...deletedBackfillPurchaseReceipts.map((row) => historyExportRow(row, "PR", "Backfill")),
+    ...deletedStockReturns.map((row) => historyExportRow(row, "SSR", "Webhook")),
+    ...deletedBackfillStockReturns.map((row) => historyExportRow(row, "SSR", "Backfill")),
+    ...deletedPurchaseInvoices.map((row) => historyExportRow(row, "PI", "Webhook")),
+    ...deletedBackfillPurchaseInvoices.map((row) => historyExportRow(row, "PI", "Backfill")),
+  ];
+  return { cancelled, deleted };
+}
+
+function buildXlsx(
+  rows: ReturnType<typeof exportRows>,
+  history: Awaited<ReturnType<typeof loadHistoryRows>>,
+) {
   const workbook = XLSX.utils.book_new();
   const rowsByCompany = new Map<string, Array<Record<string, string>>>();
   for (const { companyName, ...row } of rows) {
@@ -127,7 +263,7 @@ function buildXlsx(rows: ReturnType<typeof exportRows>) {
     rowsByCompany.set(companyName, companyRows);
   }
 
-  const usedSheetNames = new Set<string>();
+  const usedSheetNames = new Set<string>(["Cancelled records", "Deleted records"]);
   const sheetNameForCompany = (companyName: string) => {
     const base = companyName.replace(/[\\/?*\[\]:]/g, " ").trim().slice(0, 31) || "Unassigned";
     let sheetName = base;
@@ -151,6 +287,8 @@ function buildXlsx(rows: ReturnType<typeof exportRows>) {
       );
     }
   }
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(history.cancelled), "Cancelled records");
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(history.deleted), "Deleted records");
   return XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer;
 }
 
@@ -160,21 +298,17 @@ async function buildPdf(rows: ReturnType<typeof exportRows>, title: string) {
     "Adjustment No",
     "GRN Date",
     "GRN By",
-    "Company",
     "Supplier",
     "Handover Date",
     "Valued",
     "GRN Received",
   ];
-  const body = [
-    headers.map((header) => ({ text: header, bold: true, fontSize: 7 })),
-    ...rows.map((row) =>
-      headers.map((header) => ({
-        text: String(row[header as keyof typeof row] || "-"),
-        fontSize: 6,
-      })),
-    ),
-  ];
+  const rowsByCompany = new Map<string, typeof rows>();
+  for (const row of rows) {
+    const companyRows = rowsByCompany.get(row.companyName) ?? [];
+    companyRows.push(row);
+    rowsByCompany.set(row.companyName, companyRows);
+  }
 
   return pdfMake.createPdf({
     pageOrientation: "landscape",
@@ -187,16 +321,28 @@ async function buildPdf(rows: ReturnType<typeof exportRows>, title: string) {
     }),
     content: [
       { text: title, fontSize: 15, bold: true, margin: [0, 0, 0, 10] },
-      rows.length === 0
-        ? { text: "No purchase receipts found.", fontSize: 9, italics: true }
-        : {
-            table: {
-              headerRows: 1,
-              widths: ["auto", "auto", "auto", "auto", "*", "*", "auto", "auto", "auto"],
-              body,
-            },
-            layout: "lightHorizontalLines",
-          },
+      ...(rows.length === 0
+        ? [{ text: "No purchase receipts found.", fontSize: 9, italics: true }]
+        : Array.from(rowsByCompany.entries()).map(([companyName, companyRows], index) => ({
+            pageBreak: index === 0 ? undefined : "before",
+            stack: [
+              { text: companyName, fontSize: 11, bold: true, margin: [0, index === 0 ? 0 : 4, 0, 7] },
+              {
+                table: {
+                  headerRows: 1,
+                  widths: ["auto", "auto", "auto", "auto", "*", "auto", "auto", "auto"],
+                  body: [
+                    headers.map((header) => ({ text: header, bold: true, fontSize: 7 })),
+                    ...companyRows.map((row) => headers.map((header) => ({
+                      text: String(row[header as keyof typeof row] || "-"),
+                      fontSize: 6,
+                    }))),
+                  ],
+                },
+                layout: "lightHorizontalLines",
+              },
+            ],
+          }))),
     ],
   }).getBuffer();
 }
@@ -231,7 +377,12 @@ export async function GET(request: NextRequest) {
   const from = parseDateParam(request.nextUrl.searchParams.get("from"));
   const to = parseDateParam(request.nextUrl.searchParams.get("to"), true);
   const format = request.nextUrl.searchParams.get("format") === "pdf" ? "pdf" : "xlsx";
-  const rows = exportRows(await loadRows(from, to, shouldScopeToUserCompany ? companyId : undefined));
+  const scopedCompanyId = shouldScopeToUserCompany ? companyId : undefined;
+  const [activeRows, history] = await Promise.all([
+    loadRows(from, to, scopedCompanyId),
+    loadHistoryRows(from, to, scopedCompanyId),
+  ]);
+  const rows = exportRows(activeRows);
   const stamp = `${request.nextUrl.searchParams.get("from") ?? filenameDate(new Date())}-to-${
     request.nextUrl.searchParams.get("to") ?? filenameDate(new Date())
   }`;
@@ -248,7 +399,7 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  const buffer = buildXlsx(rows);
+  const buffer = buildXlsx(rows, history);
   return new NextResponse(new Uint8Array(buffer), {
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

@@ -6,9 +6,7 @@ import { CardSkeleton } from "@/components/skeletons/card-skeleton";
 import { CompanySettingsForm } from "@/components/molecules/company-settings-form";
 import { DepartmentsSettingsForm } from "@/components/molecules/departments-settings-form";
 import { DesignationsSettingsForm } from "@/components/molecules/designations-settings-form";
-import { SuppliersSettingsForm } from "@/components/molecules/suppliers-settings-form";
 import { LocationsSettingsForm } from "@/components/molecules/locations-settings-form";
-import { RiderPaydaySettingsForm } from "@/components/molecules/rider-payday-settings-form";
 import { RiderDeliveryChargesForm } from "@/components/molecules/rider-delivery-charges-form";
 import { ShopifyWebhookSecretsForm } from "@/components/molecules/shopify-webhook-secrets-form";
 import type { LocationsSettingsInitialData } from "@/lib/page-data/locations-settings";
@@ -26,9 +24,6 @@ export type SettingsPageData = {
     createdAt: string;
     updatedAt: string;
   } | null;
-  riderPayday?: {
-    paydayDayOfMonth: number | null;
-  };
 };
 
 interface SettingsPageDataProps {
@@ -102,10 +97,6 @@ export function SettingsPageData({
         canEdit={canEdit}
         initialCompany={data.company}
       />
-      <RiderPaydaySettingsForm
-        canEdit={canEdit}
-        initialPaydayDayOfMonth={data.riderPayday?.paydayDayOfMonth ?? null}
-      />
       <RiderDeliveryChargesForm canEdit={canEdit} />
       <div className="space-y-2 rounded-2xl border border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_10%,transparent),color-mix(in_srgb,var(--primary)_8%,transparent))] p-4 shadow-xs">
         <p className="flex items-center gap-2 text-sm font-semibold">
@@ -124,7 +115,6 @@ export function SettingsPageData({
       <ShopifyWebhookSecretsForm canEdit={canEdit} />
       <DepartmentsSettingsForm canEdit={canEdit} />
       <DesignationsSettingsForm canEdit={canEdit} />
-      <SuppliersSettingsForm canEdit={canEdit} />
     </div>
   );
 }

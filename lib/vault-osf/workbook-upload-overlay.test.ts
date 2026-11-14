@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { applyVaultWorkbookUploadToCatalogRow, vaultWorkbookUploadExtras } from "@/lib/vault-osf/workbook-upload-overlay";
 
 describe("vault workbook upload overlay", () => {
-  it("fills missing barcode and priority from uploaded workbook", () => {
+  it("fills missing barcode from uploaded workbook", () => {
     const extra = vaultWorkbookUploadExtras("NW031-1");
     expect(extra?.barcode).toBeTruthy();
     expect(extra?.barcode).not.toMatch(/^'/);
@@ -20,9 +20,7 @@ describe("vault workbook upload overlay", () => {
       priorityStatus: null,
     });
     expect(row.barcode).toBe(extra?.barcode);
-    if (extra?.priorityStatus) {
-      expect(row.priorityStatus).toBe(extra.priorityStatus);
-    }
+    expect(row.priorityStatus).toBeNull();
   });
 
   it("has barcodes for NT025-1 and NW032-2 from ERP upload", () => {
@@ -30,7 +28,7 @@ describe("vault workbook upload overlay", () => {
     expect(vaultWorkbookUploadExtras("NW032-2")?.barcode).toBe("733739000927");
   });
 
-  it("prefers uploaded-file barcode and priority over ERP/OS (until ERP has them)", () => {
+  it("prefers uploaded-file barcode but keeps live Priority Status", () => {
     const extra = vaultWorkbookUploadExtras("NW031-1");
     expect(extra?.barcode).toBeTruthy();
 
@@ -46,10 +44,24 @@ describe("vault workbook upload overlay", () => {
       priorityStatus: "Top Priority",
     });
     expect(row.barcode).toBe(extra?.barcode);
-    if (extra?.priorityStatus) {
-      expect(row.priorityStatus).toBe(extra.priorityStatus);
-    } else {
-      expect(row.priorityStatus).toBe("Top Priority");
-    }
+    expect(row.priorityStatus).toBe("Top Priority");
+  });
+
+  it("does not freeze TE001-1 overlay priority over live ERP status", () => {
+    const extra = vaultWorkbookUploadExtras("TE001-1");
+    expect(extra?.priorityStatus).toBe("Low priority");
+
+    const row = applyVaultWorkbookUploadToCatalogRow({
+      sku: "TE001-1",
+      variantSku: "TE001-1",
+      barcode: extra?.barcode ?? null,
+      itemName: "Test",
+      brand: null,
+      category: null,
+      country: null,
+      countryClaimType: null,
+      priorityStatus: "Top Priority",
+    });
+    expect(row.priorityStatus).toBe("Top Priority");
   });
 });

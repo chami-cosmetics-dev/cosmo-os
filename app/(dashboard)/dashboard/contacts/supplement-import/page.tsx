@@ -12,10 +12,11 @@ export default async function SupplementContactImportPage() {
     if (auth.status === 401) redirect("/login");
     redirect("/dashboard");
   }
+  if (!isVaultOsDeployment()) redirect("/dashboard");
 
   return (
     <div className="space-y-6 p-4 sm:p-6">
-      <SupplementContactImportPanel vaultOs={isVaultOsDeployment()} />
+      <SupplementContactImportPanel />
     </div>
   );
 }

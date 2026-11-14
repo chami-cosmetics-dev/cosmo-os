@@ -10,10 +10,15 @@ import { orderHasCardOnDeliveryGateway, isCardOnDeliveryGateway } from "@/lib/pa
 import { isMintpayGateway } from "@/lib/payment-gateway-match";
 import { needsKokoLinkTimeConfirm } from "@/lib/koko-order";
 import { APPROVAL_SPLIT_KOKO } from "@/lib/approval-payment-split";
+import { KEEP_ORIGINAL_PAYMENT_APPROVAL_CANCEL_NOTE } from "@/lib/return-rearrange-original-payment";
 
 export type ApprovalStatus = "pending" | "approved" | "rejected" | "cancelled";
 export const ORDER_VOIDED_APPROVAL_CANCEL_NOTE =
   "Order voided — approval no longer required";
+export const ERP_RESOLVED_APPROVAL_CANCEL_NOTE =
+  "ERP already cancelled or credit-noted this invoice — approval no longer required";
+/** Keep in sync with ERP_CANCEL_REASON_* in erp-credit-note-order-sync. */
+const ERP_QUEUE_RESOLVED_CANCEL_REASONS = ["ERP cancel", "ERP credit note"] as const;
 export const RETURN_REARRANGE_PAYMENT_APPROVAL = "return_rearrange_payment";
 export const RETURN_CANCEL_APPROVAL = "return_cancel";
 export const ORDER_PAYMENT_APPROVAL = "order_payment_approval";
@@ -254,33 +259,94 @@ const voidedOrderFinancialStatusFilter = {
   mode: "insensitive" as const,
 };
 
-/** Cancel open finance approvals when an order is voided (KOKO, bank transfer, etc.). */
-export async function cancelPendingApprovalsForOrder(orderId: string) {
+/** Return-cancel and order-cancel stay pending until finance approves in OS,
+ * unless ERP already cancelled or credit-noted the invoice. */
+export const FINANCE_OWNED_CANCEL_APPROVAL_TYPES = [
+  RETURN_CANCEL_APPROVAL,
+  ORDER_CANCEL_APPROVAL,
+] as const;
+
+export const ERP_RESOLVED_APPROVAL_CANCEL_OPTIONS = {
+  includeFinanceCancelApprovals: true as const,
+  reviewNote: ERP_RESOLVED_APPROVAL_CANCEL_NOTE,
+};
+
+export function isErpClosedApprovalReviewNote(note: string | null | undefined): boolean {
+  const trimmed = note?.trim() ?? "";
+  return (
+    trimmed === ORDER_VOIDED_APPROVAL_CANCEL_NOTE ||
+    trimmed === ERP_RESOLVED_APPROVAL_CANCEL_NOTE
+  );
+}
+
+/** OS markers that ERP already finished this invoice (cancel or credit note). */
+export function orderLooksErpResolved(order: {
+  financialStatus?: string | null;
+  fulfillmentStage?: string | null;
+  cancelReason?: string | null;
+  erpReturnSalesInvoiceIds?: string[] | null;
+}): boolean {
+  const reason = order.cancelReason?.trim() ?? "";
+  if ((ERP_QUEUE_RESOLVED_CANCEL_REASONS as readonly string[]).includes(reason)) {
+    return true;
+  }
+  if ((order.erpReturnSalesInvoiceIds?.length ?? 0) > 0) return true;
+  return (
+    order.financialStatus?.trim().toLowerCase() === "voided" &&
+    order.fulfillmentStage === "returned"
+  );
+}
+
+function erpResolvedOrderWhere(): Prisma.OrderWhereInput {
+  return {
+    OR: [
+      { cancelReason: { in: [...ERP_QUEUE_RESOLVED_CANCEL_REASONS] } },
+      { erpReturnSalesInvoiceIds: { isEmpty: false } },
+      {
+        AND: [
+          { financialStatus: voidedOrderFinancialStatusFilter },
+          { fulfillmentStage: "returned" },
+        ],
+      },
+    ],
+  };
+}
+
+/** Cancel open finance approvals when an order is voided (KOKO, bank transfer, etc.).
+ * Pending return-cancel and order-cancel stay open so finance can still cancel the ERP invoice,
+ * unless includeFinanceCancelApprovals — ERP already finished that work. */
+export async function cancelPendingApprovalsForOrder(
+  orderId: string,
+  options?: { includeFinanceCancelApprovals?: boolean; reviewNote?: string },
+) {
   const now = new Date();
   const data = {
     status: "cancelled" as const,
-    reviewNote: ORDER_VOIDED_APPROVAL_CANCEL_NOTE,
+    reviewNote: options?.reviewNote ?? ORDER_VOIDED_APPROVAL_CANCEL_NOTE,
     updatedAt: now,
   };
+  const typeFilter = options?.includeFinanceCancelApprovals
+    ? {}
+    : { type: { notIn: [...FINANCE_OWNED_CANCEL_APPROVAL_TYPES] } };
 
   const [direct, viaReturn] = await Promise.all([
     prisma.approvalRequest.updateMany({
-      where: { status: "pending", orderId },
+      where: { status: "pending", orderId, ...typeFilter },
       data,
     }),
     prisma.approvalRequest.updateMany({
       where: {
         status: "pending",
+        ...typeFilter,
         orderReturn: { orderId },
       },
       data,
     }),
   ]);
 
-  // The cancel request is now moot — order is voided. Mark the return as solved
-  // so it no longer shows as "Cancel Pending" in the returns panel.
+  // Voided / ERP-resolved orders cannot stay in the returns pending queue.
   await prisma.orderReturn.updateMany({
-    where: { orderId, actionType: "cancel", actionStatus: "pending" },
+    where: { orderId, actionStatus: "pending" },
     data: { actionStatus: "solved", actionDate: now },
   });
 
@@ -456,10 +522,9 @@ export async function reconcilePendingDeliveryApprovalsForCustomerPickupOrders(c
 }
 
 /** Clear stale payment approvals for orders already voided in Vault.
- * Only cancels ORDER_PAYMENT_APPROVAL and DELIVERY_PAYMENT_APPROVAL — never
- * RETURN_CANCEL_APPROVAL or RETURN_REARRANGE_PAYMENT_APPROVAL, because returned
- * orders always have financialStatus="voided" and those approvals must stay pending
- * until finance explicitly acts on them. */
+ * Leaves return-cancel / order-cancel pending unless ERP already resolved the invoice
+ * (`reconcilePendingApprovalsForErpResolvedOrders`). Returned-to-store orders are not
+ * voided until cancel/credit-note completes. */
 export async function reconcilePendingApprovalsForVoidedOrders(companyId: string) {
   const now = new Date();
   const data = {
@@ -493,6 +558,41 @@ export async function reconcilePendingApprovalsForVoidedOrders(companyId: string
   ]);
 
   return direct.count + viaReturn.count;
+}
+
+/** Drop return-list and finance-queue items when ERP already cancelled or credit-noted. */
+export async function reconcilePendingApprovalsForErpResolvedOrders(companyId: string) {
+  const now = new Date();
+  const data = {
+    status: "cancelled" as const,
+    reviewNote: ERP_RESOLVED_APPROVAL_CANCEL_NOTE,
+    updatedAt: now,
+  };
+  const order = erpResolvedOrderWhere();
+
+  const [direct, viaReturn, returns] = await Promise.all([
+    prisma.approvalRequest.updateMany({
+      where: { companyId, status: "pending", order },
+      data,
+    }),
+    prisma.approvalRequest.updateMany({
+      where: {
+        companyId,
+        status: "pending",
+        orderReturn: { order },
+      },
+      data,
+    }),
+    prisma.orderReturn.updateMany({
+      where: { companyId, actionStatus: "pending", order },
+      data: { actionStatus: "solved", actionDate: now },
+    }),
+  ]);
+
+  return {
+    approvals: direct.count + viaReturn.count,
+    returns: returns.count,
+  };
 }
 
 export const ORPHAN_PENDING_AFTER_APPROVED_CANCEL_NOTE =
@@ -830,6 +930,22 @@ export async function cancelPendingDeliveryPaymentApprovalsForOrder(
 ) {
   return db.approvalRequest.updateMany({
     where: { orderId, type: DELIVERY_PAYMENT_APPROVAL, status: "pending" },
+    data: {
+      status: "cancelled",
+      reviewNote,
+      updatedAt: new Date(),
+    },
+  });
+}
+
+/** Drop a pre-dispatch payment approval spawned after a withdrawn bank-transfer rearrange. */
+export async function cancelPendingOrderPaymentApprovalsForOrder(
+  orderId: string,
+  reviewNote = KEEP_ORIGINAL_PAYMENT_APPROVAL_CANCEL_NOTE,
+  db: Prisma.TransactionClient | typeof prisma = prisma,
+) {
+  return db.approvalRequest.updateMany({
+    where: { orderId, type: ORDER_PAYMENT_APPROVAL, status: "pending" },
     data: {
       status: "cancelled",
       reviewNote,

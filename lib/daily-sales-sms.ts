@@ -1,17 +1,23 @@
 import type { Prisma } from "@prisma/client";
 
-import { aggregateErpDailySalesRange } from "@/lib/daily-sales-sms-erp";
+import {
+  isReplacementCancel,
+  isSmsCreditNoteCancel,
+  isVoidedFinancialStatus,
+  smsCancelMatchesDayPriorPlaced,
+  smsCancelMatchesMtdInRange,
+  smsCancelMatchesMtdPriorMonth,
+} from "@/lib/daily-sales-sms-cancels";
 import {
   normalizeRecipientList,
 } from "@/lib/daily-sales-sms-recipients";
 import { formatAppIsoDate } from "@/lib/format-datetime";
-import { resolveFailureReportAmounts } from "@/lib/erp-sync-failure-email";
 import { sendSms } from "@/lib/hutch-sms";
-import {
-  buildDashboardSalesDateFilter,
-  isDashboardSalesOrderEligible,
-} from "@/lib/page-data/dashboard-sales";
+import { isDashboardSalesOrderEligible } from "@/lib/page-data/dashboard-sales";
 import { prisma } from "@/lib/prisma";
+import { salesAmountExcludingShipping } from "@/lib/sales-amount-excluding-shipping";
+
+export { salesAmountExcludingShipping } from "@/lib/sales-amount-excluding-shipping";
 
 export { normalizeRecipientList } from "@/lib/daily-sales-sms-recipients";
 const REPORT_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -19,6 +25,12 @@ const REPORT_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 export type DailySalesLocationRow = {
   code: string;
   value: number;
+};
+
+export type DailySalesCancelBlock = {
+  total: number;
+  count: number;
+  locations: DailySalesLocationRow[];
 };
 
 export type DailySalesReport = {
@@ -32,6 +44,18 @@ export type DailySalesReport = {
   dayLocations: DailySalesLocationRow[];
   /** Month-to-date sales by location. */
   locations: DailySalesLocationRow[];
+  /** Voided unpaid SI cancel, placed before report date, cancelled on report date. */
+  dayPriorPlacedCancels: DailySalesCancelBlock;
+  /** Paid credit note, placed before report date, cancelled on report date. */
+  dayPriorPlacedCreditNotes: DailySalesCancelBlock;
+  /** Voided unpaid SI cancel, placed before month start, cancelled in MTD. */
+  mtdPriorMonthCancels: DailySalesCancelBlock;
+  /** Paid credit note, placed before month start, cancelled in MTD. Hits ERP Sales this month. */
+  mtdPriorMonthCreditNotes: DailySalesCancelBlock;
+  /** Voided unpaid SI cancel, placed in MTD and cancelled in MTD. */
+  mtdInRangeCancels: DailySalesCancelBlock;
+  /** Paid credit note, placed in MTD and cancelled in MTD. Already out of live MTD. */
+  mtdInRangeCreditNotes: DailySalesCancelBlock;
   messageBody: string;
 };
 
@@ -75,27 +99,52 @@ export function formatSalesAmount(value: number): string {
   return rounded.toLocaleString("en-LK", { maximumFractionDigits: 0 });
 }
 
-/** Order total for SMS — matches ERP (order total excluding shipping fee). */
-export function salesAmountExcludingShipping(input: {
-  totalPrice: unknown;
-  totalShipping?: unknown;
-  shippingLines?: unknown;
-  discountCodes?: unknown;
-}): number | null {
-  const total = Number(input.totalPrice);
-  if (!Number.isFinite(total)) return null;
-  return resolveFailureReportAmounts({
-    totalPrice: total,
-    totalShipping:
-      input.totalShipping == null || input.totalShipping === ""
-        ? null
-        : (input.totalShipping as string | number),
-    shippingLines: input.shippingLines,
-    discountCodes: input.discountCodes,
-  }).amountExcl;
+function emptyCancelBlock(): DailySalesCancelBlock {
+  return { total: 0, count: 0, locations: [] };
+}
+
+function appendCancelBlock(
+  lines: string[],
+  title: string,
+  block: DailySalesCancelBlock | undefined,
+) {
+  const row = block ?? emptyCancelBlock();
+  lines.push(
+    "-----------------------",
+    title,
+    `Total: ${formatSalesAmount(row.total)}`,
+    `Count:        ${row.count}`,
+  );
+  for (const loc of row.locations) {
+    lines.push(`${loc.code}->: ${formatSalesAmount(loc.value)}`);
+  }
+}
+
+export function subtractLocationRows(
+  base: DailySalesLocationRow[],
+  minus: DailySalesLocationRow[],
+): DailySalesLocationRow[] {
+  const map = new Map<string, number>();
+  for (const row of base) {
+    map.set(row.code, (map.get(row.code) ?? 0) + row.value);
+  }
+  for (const row of minus) {
+    map.set(row.code, (map.get(row.code) ?? 0) - row.value);
+  }
+  return [...map.entries()]
+    .filter(([, value]) => value !== 0)
+    .map(([code, value]) => ({ code, value }))
+    .sort((a, b) => b.value - a.value);
 }
 
 export function formatDailySalesSmsBody(report: Omit<DailySalesReport, "messageBody">): string {
+  const month = report.reportDate.slice(0, 7);
+  const priorCreditNotes = report.mtdPriorMonthCreditNotes ?? emptyCancelBlock();
+  const netMtd = report.mtdValue - priorCreditNotes.total;
+  const netLocations = subtractLocationRows(
+    report.locations,
+    priorCreditNotes.locations,
+  );
   const lines = [
     `Day (${report.reportDate})`,
     `Value:  ${formatSalesAmount(report.dayValue)}`,
@@ -113,6 +162,44 @@ export function formatDailySalesSmsBody(report: Omit<DailySalesReport, "messageB
   );
   for (const row of report.locations) {
     lines.push(`${row.code}->: ${formatSalesAmount(row.value)}`);
+  }
+  appendCancelBlock(
+    lines,
+    `CN ${report.reportDate} (placed before)`,
+    report.dayPriorPlacedCreditNotes,
+  );
+  appendCancelBlock(
+    lines,
+    `Cancel ${report.reportDate} (placed before)`,
+    report.dayPriorPlacedCancels,
+  );
+  appendCancelBlock(
+    lines,
+    `CN MTD (placed before ${month})`,
+    report.mtdPriorMonthCreditNotes,
+  );
+  appendCancelBlock(
+    lines,
+    `Cancel MTD (placed before ${month})`,
+    report.mtdPriorMonthCancels,
+  );
+  appendCancelBlock(
+    lines,
+    `CN MTD (placed in ${month})`,
+    report.mtdInRangeCreditNotes,
+  );
+  appendCancelBlock(
+    lines,
+    `Cancel MTD (placed in ${month})`,
+    report.mtdInRangeCancels,
+  );
+  lines.push(
+    "-----------------------",
+    "MTD net (less CN prior)",
+    `Total: ${formatSalesAmount(netMtd)}`,
+  );
+  for (const loc of netLocations) {
+    lines.push(`${loc.code}->: ${formatSalesAmount(loc.value)}`);
   }
   return lines.join("\n");
 }
@@ -160,28 +247,25 @@ async function aggregateRange(
 ): Promise<{ total: number; count: number; byLocation: Map<string, number> }> {
   const fromDate = parseDayStart(fromYmd);
   const toDate = parseDayEnd(toYmd);
-  const dateFilter = buildDashboardSalesDateFilter({
-    fromDate,
-    toDate,
-    dateType: "all_orders",
-  });
 
   const orders = await prisma.order.findMany({
-    where: { companyId, ...dateFilter },
+    where: {
+      companyId,
+      createdAt: { gte: fromDate, lte: toDate },
+    },
     select: {
       totalPrice: true,
+      sourceName: true,
+      financialStatus: true,
+      fulfillmentStatus: true,
+      fulfillmentStage: true,
+      deliveryCompleteAt: true,
+      invoiceCompleteAt: true,
+      cancelledAt: true,
+      companyLocationId: true,
       totalShipping: true,
       shippingLines: true,
       discountCodes: true,
-      financialStatus: true,
-      sourceName: true,
-      fulfillmentStatus: true,
-      fulfillmentStage: true,
-      deliveryOutcome: true,
-      deliveryCompleteAt: true,
-      invoiceCompleteAt: true,
-      rawPayload: true,
-      companyLocationId: true,
     },
   });
 
@@ -191,13 +275,8 @@ async function aggregateRange(
 
   for (const order of orders) {
     if (!isDashboardSalesOrderEligible(order, "all_orders")) continue;
-    const amount = salesAmountExcludingShipping({
-      totalPrice: order.totalPrice,
-      totalShipping: order.totalShipping,
-      shippingLines: order.shippingLines,
-      discountCodes: order.discountCodes,
-    });
-    if (amount == null) continue;
+    const amount = salesAmountExcludingShipping(order) ?? 0;
+    if (!Number.isFinite(amount) || amount === 0) continue;
     total += amount;
     count += 1;
     if (order.companyLocationId) {
@@ -209,6 +288,113 @@ async function aggregateRange(
   }
 
   return { total, count, byLocation };
+}
+
+function addCancelAmount(
+  block: { total: number; count: number; byLocation: Map<string, number> },
+  locationId: string | null,
+  amount: number,
+) {
+  block.total += amount;
+  block.count += 1;
+  if (!locationId) return;
+  block.byLocation.set(locationId, (block.byLocation.get(locationId) ?? 0) + amount);
+}
+
+type CancelAggBucket = {
+  total: number;
+  count: number;
+  byLocation: Map<string, number>;
+};
+
+function emptyCancelAgg(): CancelAggBucket {
+  return { total: 0, count: 0, byLocation: new Map<string, number>() };
+}
+
+async function aggregateCancels(
+  companyId: string,
+  reportDate: string,
+  mtdFromYmd: string,
+): Promise<{
+  dayPriorPlacedCancels: CancelAggBucket;
+  dayPriorPlacedCreditNotes: CancelAggBucket;
+  mtdPriorMonthCancels: CancelAggBucket;
+  mtdPriorMonthCreditNotes: CancelAggBucket;
+  mtdInRangeCancels: CancelAggBucket;
+  mtdInRangeCreditNotes: CancelAggBucket;
+}> {
+  const dayPriorPlacedCancels = emptyCancelAgg();
+  const dayPriorPlacedCreditNotes = emptyCancelAgg();
+  const mtdPriorMonthCancels = emptyCancelAgg();
+  const mtdPriorMonthCreditNotes = emptyCancelAgg();
+  const mtdInRangeCancels = emptyCancelAgg();
+  const mtdInRangeCreditNotes = emptyCancelAgg();
+
+  const orders = await prisma.order.findMany({
+    where: {
+      companyId,
+      financialStatus: "voided",
+      cancelledAt: {
+        gte: parseDayStart(mtdFromYmd),
+        lte: parseDayEnd(reportDate),
+      },
+    },
+    select: {
+      totalPrice: true,
+      createdAt: true,
+      cancelledAt: true,
+      financialStatus: true,
+      replacedByOrderId: true,
+      cancelKind: true,
+      companyLocationId: true,
+      totalShipping: true,
+      shippingLines: true,
+      discountCodes: true,
+      erpReturnSalesInvoiceIds: true,
+    },
+  });
+
+  for (const order of orders) {
+    if (!isVoidedFinancialStatus(order.financialStatus)) continue;
+    if (isReplacementCancel(order)) continue;
+    const cancelYmd = formatAppIsoDate(order.cancelledAt);
+    const placedYmd = formatAppIsoDate(order.createdAt);
+    if (!cancelYmd || !placedYmd) continue;
+    const amount = salesAmountExcludingShipping(order) ?? 0;
+    if (!Number.isFinite(amount) || amount === 0) continue;
+    const creditNote = isSmsCreditNoteCancel(order);
+
+    if (smsCancelMatchesDayPriorPlaced(placedYmd, cancelYmd, reportDate)) {
+      addCancelAmount(
+        creditNote ? dayPriorPlacedCreditNotes : dayPriorPlacedCancels,
+        order.companyLocationId,
+        amount,
+      );
+    }
+    if (smsCancelMatchesMtdPriorMonth(placedYmd, cancelYmd, mtdFromYmd, reportDate)) {
+      addCancelAmount(
+        creditNote ? mtdPriorMonthCreditNotes : mtdPriorMonthCancels,
+        order.companyLocationId,
+        amount,
+      );
+    }
+    if (smsCancelMatchesMtdInRange(placedYmd, cancelYmd, mtdFromYmd, reportDate)) {
+      addCancelAmount(
+        creditNote ? mtdInRangeCreditNotes : mtdInRangeCancels,
+        order.companyLocationId,
+        amount,
+      );
+    }
+  }
+
+  return {
+    dayPriorPlacedCancels,
+    dayPriorPlacedCreditNotes,
+    mtdPriorMonthCancels,
+    mtdPriorMonthCreditNotes,
+    mtdInRangeCancels,
+    mtdInRangeCreditNotes,
+  };
 }
 
 export async function buildDailySalesReport(
@@ -226,29 +412,21 @@ export async function buildDailySalesReport(
   });
   const locationNameById = new Map(locations.map((l) => [l.id, l]));
 
-  // Prefer ERP SI posting_date + net_total (sales − same-day returns) on both
-  // Cosmo and Vault whenever ERP instances are configured — matches ERP day report.
-  const [dayErp, mtdErp] = await Promise.all([
-    aggregateErpDailySalesRange(companyId, reportDate, reportDate),
-    aggregateErpDailySalesRange(companyId, mtdFrom, reportDate),
-  ]);
-  if (dayErp && mtdErp) {
-    const base = {
-      reportDate,
-      dayValue: dayErp.total,
-      dayCount: dayErp.count,
-      mtdValue: mtdErp.total,
-      mtdCount: mtdErp.count,
-      dayLocations: locationRowsFromAgg(dayErp.byLocation, locationNameById),
-      locations: locationRowsFromAgg(mtdErp.byLocation, locationNameById),
-    };
-    return { ...base, messageBody: formatDailySalesSmsBody(base) };
-  }
-
-  const [dayAgg, mtdAgg] = await Promise.all([
+  const [dayAgg, mtdAgg, cancelAgg] = await Promise.all([
     aggregateRange(companyId, reportDate, reportDate),
     aggregateRange(companyId, mtdFrom, reportDate),
+    aggregateCancels(companyId, reportDate, mtdFrom),
   ]);
+
+  const toCancelBlock = (row: {
+    total: number;
+    count: number;
+    byLocation: Map<string, number>;
+  }): DailySalesCancelBlock => ({
+    total: row.total,
+    count: row.count,
+    locations: locationRowsFromAgg(row.byLocation, locationNameById),
+  });
 
   const base = {
     reportDate,
@@ -258,6 +436,12 @@ export async function buildDailySalesReport(
     mtdCount: mtdAgg.count,
     dayLocations: locationRowsFromAgg(dayAgg.byLocation, locationNameById),
     locations: locationRowsFromAgg(mtdAgg.byLocation, locationNameById),
+    dayPriorPlacedCancels: toCancelBlock(cancelAgg.dayPriorPlacedCancels),
+    dayPriorPlacedCreditNotes: toCancelBlock(cancelAgg.dayPriorPlacedCreditNotes),
+    mtdPriorMonthCancels: toCancelBlock(cancelAgg.mtdPriorMonthCancels),
+    mtdPriorMonthCreditNotes: toCancelBlock(cancelAgg.mtdPriorMonthCreditNotes),
+    mtdInRangeCancels: toCancelBlock(cancelAgg.mtdInRangeCancels),
+    mtdInRangeCreditNotes: toCancelBlock(cancelAgg.mtdInRangeCreditNotes),
   };
 
   return { ...base, messageBody: formatDailySalesSmsBody(base) };

@@ -31,7 +31,12 @@ export async function GET() {
     .filter((c) => c.active && c.includeInRop)
     .map((c) => ({ key: c.key, label: c.label }));
 
-  let templateRows: Array<{ sku: string; barcode: string | null; rops: Record<string, number | null> }>;
+  let templateRows: Array<{
+    sku: string;
+    barcode: string | null;
+    rops: Record<string, number | null>;
+    targetPurchaseRate: number | null;
+  }>;
 
   if (isVaultOsDeployment()) {
     await ensureVaultForceIncludedRops(companyId);
@@ -46,30 +51,15 @@ export async function GET() {
         { status: 502 },
       );
     }
-    const [catalog, ropRows] = await Promise.all([
+    const [catalog, ropRows, profiles] = await Promise.all([
       attachOsPriority(companyId, await fetchVaultCatalog(erp1.cfg)),
       prisma.productOsfRop.findMany({
         where: { companyId },
         select: { sku: true, columnKey: true, ropQty: true },
       }),
-    ]);
-    const ropsBySku = new Map<string, Record<string, number | null>>();
-    for (const r of ropRows) {
-      const map = ropsBySku.get(r.sku) ?? {};
-      map[r.columnKey] = r.ropQty;
-      ropsBySku.set(r.sku, map);
-    }
-    templateRows = catalog.map((c) => ({
-      sku: c.sku,
-      barcode: c.barcode,
-      rops: ropsBySku.get(c.sku) ?? {},
-    }));
-  } else {
-    const [catalog, ropRows] = await Promise.all([
-      buildCatalogRows(companyId, {}),
-      prisma.productOsfRop.findMany({
+      prisma.productOsfProfile.findMany({
         where: { companyId },
-        select: { sku: true, columnKey: true, ropQty: true },
+        select: { sku: true, targetPurchaseRate: true },
       }),
     ]);
     const ropsBySku = new Map<string, Record<string, number | null>>();
@@ -78,10 +68,47 @@ export async function GET() {
       map[r.columnKey] = r.ropQty;
       ropsBySku.set(r.sku, map);
     }
+    const rateBySku = new Map(
+      profiles.map((p) => [
+        p.sku,
+        p.targetPurchaseRate != null ? Number(p.targetPurchaseRate) : null,
+      ]),
+    );
     templateRows = catalog.map((c) => ({
       sku: c.sku,
       barcode: c.barcode,
       rops: ropsBySku.get(c.sku) ?? {},
+      targetPurchaseRate: rateBySku.get(c.sku) ?? null,
+    }));
+  } else {
+    const [catalog, ropRows, profiles] = await Promise.all([
+      buildCatalogRows(companyId, {}),
+      prisma.productOsfRop.findMany({
+        where: { companyId },
+        select: { sku: true, columnKey: true, ropQty: true },
+      }),
+      prisma.productOsfProfile.findMany({
+        where: { companyId },
+        select: { sku: true, targetPurchaseRate: true },
+      }),
+    ]);
+    const ropsBySku = new Map<string, Record<string, number | null>>();
+    for (const r of ropRows) {
+      const map = ropsBySku.get(r.sku) ?? {};
+      map[r.columnKey] = r.ropQty;
+      ropsBySku.set(r.sku, map);
+    }
+    const rateBySku = new Map(
+      profiles.map((p) => [
+        p.sku,
+        p.targetPurchaseRate != null ? Number(p.targetPurchaseRate) : null,
+      ]),
+    );
+    templateRows = catalog.map((c) => ({
+      sku: c.sku,
+      barcode: c.barcode,
+      rops: ropsBySku.get(c.sku) ?? {},
+      targetPurchaseRate: rateBySku.get(c.sku) ?? null,
     }));
   }
 

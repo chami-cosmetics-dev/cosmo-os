@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { resolveViewerFinanceLocationIds } from "@/lib/approval-workflow";
 import { buildGrnCompanyResolver } from "@/lib/grn-company-resolver";
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 import { autoMatchBackfillIntercompanyGrn, autoMatchIntercompanyGrn, bestGrnMatchForStockReturn, calculateGrnMatchPercentage, isWithinGrnMatchCreationWindow, tallyLinkedItems } from "@/lib/grn";
 import { isIntercompanyPurchaseSupplier } from "@/lib/osf/erp-purchases";
 import { prisma } from "@/lib/prisma";
@@ -150,6 +151,7 @@ export async function GET(request: NextRequest) {
     !canViewHandover &&
     !canViewValued &&
     !hasPermission(context, "purchasing.grn.match_ssr");
+  const requiresValuationConfirmationBeforeGrnReceived = !isVaultOsDeployment();
   const financeLocationIds = shouldScopeToUserCompany
     ? await resolveViewerFinanceLocationIds(user.id, userCompanyId, roleNames)
     : null;
@@ -162,7 +164,16 @@ export async function GET(request: NextRequest) {
       : {};
   const stageVisibilityScope =
     shouldShowOnlyValuedForReceived
-      ? { valuedAt: { not: null } }
+      ? requiresValuationConfirmationBeforeGrnReceived
+        ? {
+            valuedAt: { not: null },
+            handoverReceivedAt: { not: null },
+            OR: [
+              { requiresValuationConfirmation: false },
+              { valuationConfirmedAt: { not: null } },
+            ],
+          }
+        : { valuedAt: { not: null } }
       : shouldShowOnlyHandoveredForValued
         ? { handoverAt: { not: null } }
         : {};
@@ -208,6 +219,8 @@ export async function GET(request: NextRequest) {
         handoverBy: { select: { id: true, name: true, email: true } },
         handoverRevertedBy: { select: { id: true, name: true, email: true } },
         handoverReceivedBy: { select: { id: true, name: true, email: true } },
+        valuationConfirmedBy: { select: { id: true, name: true, email: true } },
+        valuationConfirmRevertedBy: { select: { id: true, name: true, email: true } },
         notReceivedBy: { select: { id: true, name: true, email: true } },
         valuedBy: { select: { id: true, name: true, email: true } },
         valuedRevertedBy: { select: { id: true, name: true, email: true } },
@@ -259,6 +272,8 @@ export async function GET(request: NextRequest) {
         handoverBy: { select: { id: true, name: true, email: true } },
         handoverRevertedBy: { select: { id: true, name: true, email: true } },
         handoverReceivedBy: { select: { id: true, name: true, email: true } },
+        valuationConfirmedBy: { select: { id: true, name: true, email: true } },
+        valuationConfirmRevertedBy: { select: { id: true, name: true, email: true } },
         notReceivedBy: { select: { id: true, name: true, email: true } },
         valuedBy: { select: { id: true, name: true, email: true } },
         valuedRevertedBy: { select: { id: true, name: true, email: true } },
@@ -506,6 +521,12 @@ export async function GET(request: NextRequest) {
     : null;
 
   const [
+    cancelledPurchaseReceipts,
+    cancelledBackfillPurchaseReceipts,
+    cancelledStockReturns,
+    cancelledBackfillStockReturns,
+    cancelledPurchaseInvoices,
+    cancelledBackfillPurchaseInvoices,
     deletedPurchaseReceipts,
     deletedBackfillPurchaseReceipts,
     deletedStockReturns,
@@ -513,6 +534,112 @@ export async function GET(request: NextRequest) {
     deletedPurchaseInvoices,
     deletedBackfillPurchaseInvoices,
   ] = await Promise.all([
+    prisma.grnPurchaseReceipt.findMany({
+      where: {
+        ...companyScope,
+        ...locationScope,
+        deletedAt: null,
+        AND: [
+          { OR: [{ docstatus: 2 }, { status: { equals: "cancelled", mode: "insensitive" } }, { status: { equals: "canceled", mode: "insensitive" } }] },
+          ...(dateFilter ? [{ OR: [{ creation: dateFilter }, { creation: null, postingDate: dateFilter }] }] : []),
+        ],
+      },
+      orderBy: [{ postingDate: "desc" }, { createdAt: "desc" }],
+      include: {
+        company: {
+          select: {
+            name: true,
+            locations: { select: { erpnextCompany: true, erpnextInstance: { select: { baseUrl: true } } } },
+          },
+        },
+      },
+    }),
+    prisma.grnBackfillPurchaseReceipt.findMany({
+      where: {
+        ...companyScope,
+        ...locationScope,
+        deletedAt: null,
+        AND: [
+          { OR: [{ docstatus: 2 }, { status: { equals: "cancelled", mode: "insensitive" } }, { status: { equals: "canceled", mode: "insensitive" } }] },
+          ...(dateFilter ? [{ OR: [{ creation: dateFilter }, { creation: null, postingDate: dateFilter }] }] : []),
+        ],
+      },
+      orderBy: [{ postingDate: "desc" }, { createdAt: "desc" }],
+      include: {
+        company: {
+          select: {
+            name: true,
+            locations: { select: { erpnextCompany: true, erpnextInstance: { select: { baseUrl: true } } } },
+          },
+        },
+      },
+    }),
+    prisma.grnSupplierStockReturn.findMany({
+      where: {
+        ...companyScope,
+        deletedAt: null,
+        docstatus: 2,
+        ...(dateFilter
+          ? {
+              OR: [
+                { returnDate: dateFilter },
+                { returnDate: null, creation: dateFilter },
+              ],
+            }
+          : {}),
+      },
+      orderBy: [{ returnDate: "desc" }, { createdAt: "desc" }],
+      include: {
+        company: {
+          select: {
+            name: true,
+            locations: { select: { erpnextCompany: true, erpnextInstance: { select: { baseUrl: true } } } },
+          },
+        },
+      },
+    }),
+    prisma.grnBackfillSupplierStockReturn.findMany({
+      where: {
+        ...companyScope,
+        deletedAt: null,
+        docstatus: 2,
+        ...(dateFilter
+          ? {
+              OR: [
+                { returnDate: dateFilter },
+                { returnDate: null, creation: dateFilter },
+              ],
+            }
+          : {}),
+      },
+      orderBy: [{ returnDate: "desc" }, { createdAt: "desc" }],
+      include: {
+        company: {
+          select: {
+            name: true,
+            locations: { select: { erpnextCompany: true, erpnextInstance: { select: { baseUrl: true } } } },
+          },
+        },
+      },
+    }),
+    prisma.grnPurchaseInvoice.findMany({
+      where: {
+        ...companyScope,
+        deletedAt: null,
+        OR: [{ docstatus: 2 }, { status: { equals: "cancelled", mode: "insensitive" } }, { status: { equals: "canceled", mode: "insensitive" } }],
+        ...(dateFilter ? { postingDate: dateFilter } : {}),
+      },
+      orderBy: [{ postingDate: "desc" }, { createdAt: "desc" }],
+    }),
+    prisma.grnBackfillPurchaseInvoice.findMany({
+      where: {
+        ...companyScope,
+        deletedAt: null,
+        OR: [{ docstatus: 2 }, { status: { equals: "cancelled", mode: "insensitive" } }, { status: { equals: "canceled", mode: "insensitive" } }],
+        ...(dateFilter ? { postingDate: dateFilter } : {}),
+      },
+      orderBy: [{ postingDate: "desc" }, { createdAt: "desc" }],
+    }),
     prisma.grnPurchaseReceipt.findMany({
       where: { ...companyScope, ...locationScope, deletedAt: { not: null } },
       orderBy: { deletedAt: "desc" },
@@ -624,6 +751,16 @@ export async function GET(request: NextRequest) {
     ...deletedPurchaseInvoices.map((row) => serializeDeletedRecord(row, "PI", false)),
     ...deletedBackfillPurchaseInvoices.map((row) => serializeDeletedRecord(row, "PI", true)),
   ].sort((a, b) => (b.deletedAt ?? "").localeCompare(a.deletedAt ?? ""));
+  const cancelledRecords = [
+    ...cancelledPurchaseReceipts.map((row) => serializeDeletedRecord(row, "PR", false)),
+    ...cancelledBackfillPurchaseReceipts.map((row) => serializeDeletedRecord(row, "PR", true)),
+    ...cancelledStockReturns.map((row) => serializeDeletedRecord(row, "SSR", false)),
+    ...cancelledBackfillStockReturns.map((row) => serializeDeletedRecord(row, "SSR", true)),
+    ...cancelledPurchaseInvoices.map((row) => serializeDeletedRecord(row, "PI", false)),
+    ...cancelledBackfillPurchaseInvoices.map((row) => serializeDeletedRecord(row, "PI", true)),
+  ]
+    .map(({ deletedAt: _deletedAt, ...record }) => record)
+    .sort((a, b) => (b.documentDate ?? "").localeCompare(a.documentDate ?? ""));
   const supplierPrefixRuleForSupplier = (
     supplier: string | null | undefined,
     supplierName?: string | null,
@@ -1044,12 +1181,18 @@ export async function GET(request: NextRequest) {
         handoverRevertedBy: row.handoverRevertedBy,
         handoverReceivedAt: iso(row.handoverReceivedAt),
         handoverReceivedBy: row.handoverReceivedBy,
+        valuationConfirmedAt: iso(row.valuationConfirmedAt),
+        valuationConfirmedBy: row.valuationConfirmedBy,
+        valuationConfirmRevertedAt: iso(row.valuationConfirmRevertedAt),
+        valuationConfirmRevertedBy: row.valuationConfirmRevertedBy,
+        requiresValuationConfirmation: row.requiresValuationConfirmation,
         notReceivedAt: iso(row.notReceivedAt),
         notReceivedBy: row.notReceivedBy,
         valuedAt: iso(row.valuedAt),
         valuedBy: row.valuedBy,
         valuedRevertedAt: iso(row.valuedRevertedAt),
         valuedRevertedBy: row.valuedRevertedBy,
+        valuationRejectedAt: iso(row.valuationRejectedAt),
         receivedAt: iso(row.receivedAt),
         receivedBy: row.receivedBy,
         receivedRevertedAt: iso(row.receivedRevertedAt),
@@ -1200,12 +1343,18 @@ export async function GET(request: NextRequest) {
         handoverRevertedBy: row.handoverRevertedBy,
         handoverReceivedAt: iso(row.handoverReceivedAt),
         handoverReceivedBy: row.handoverReceivedBy,
+        valuationConfirmedAt: iso(row.valuationConfirmedAt),
+        valuationConfirmedBy: row.valuationConfirmedBy,
+        valuationConfirmRevertedAt: iso(row.valuationConfirmRevertedAt),
+        valuationConfirmRevertedBy: row.valuationConfirmRevertedBy,
+        requiresValuationConfirmation: row.requiresValuationConfirmation,
         notReceivedAt: iso(row.notReceivedAt),
         notReceivedBy: row.notReceivedBy,
         valuedAt: iso(row.valuedAt),
         valuedBy: row.valuedBy,
         valuedRevertedAt: iso(row.valuedRevertedAt),
         valuedRevertedBy: row.valuedRevertedBy,
+        valuationRejectedAt: iso(row.valuationRejectedAt),
         receivedAt: iso(row.receivedAt),
         receivedBy: row.receivedBy,
         receivedRevertedAt: iso(row.receivedRevertedAt),
@@ -1368,6 +1517,7 @@ export async function GET(request: NextRequest) {
       supplierName: row.supplierName,
     })),
     deletedRecords,
+    cancelledRecords,
   });
 }
 

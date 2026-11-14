@@ -35,6 +35,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { appendDashboardCouponQuery } from "@/lib/dashboard-coupon-filter";
 import { cn } from "@/lib/utils";
 import { useDashboardOverview } from "@/components/organisms/dashboard-overview-context";
 
@@ -282,7 +283,8 @@ interface DashboardBrandSalesChartProps {
 }
 
 export function DashboardBrandSalesChart({ canEditDashboard }: DashboardBrandSalesChartProps) {
-  const { fromDate, toDate, dateType, salesLocations, filterInfo } = useDashboardOverview();
+  const { fromDate, toDate, dateType, selectedCouponCodes, salesLocations, filterInfo } =
+    useDashboardOverview();
 
   const [selectedLocationId, setSelectedLocationId] = useState<string>("all");
   const [data, setData] = useState<BrandSalesApiResponse | null>(null);
@@ -305,6 +307,7 @@ export function DashboardBrandSalesChart({ canEditDashboard }: DashboardBrandSal
         to: toDate,
         date_type: dateType,
       });
+      appendDashboardCouponQuery(params, selectedCouponCodes);
       if (selectedLocationId !== "all") {
         params.set("location_id", selectedLocationId);
       }
@@ -319,7 +322,7 @@ export function DashboardBrandSalesChart({ canEditDashboard }: DashboardBrandSal
     } finally {
       if (id === fetchIdRef.current) setLoading(false);
     }
-  }, [fromDate, toDate, dateType, selectedLocationId]);
+  }, [fromDate, toDate, dateType, selectedCouponCodes, selectedLocationId]);
 
   useEffect(() => {
     void fetchData();

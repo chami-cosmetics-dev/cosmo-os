@@ -22,9 +22,10 @@ function lookupOverlayKey(sku: string): string | null {
 }
 
 /**
- * Barcode + Priority Status from the manually updated Vault OSF workbook.
- * Overlay fills gaps when ERP `Item Barcode` list is 403; live GET Item covers
- * SKUs missing from this snapshot (e.g. NT025-1 / NW032-2).
+ * Barcode from the manually updated Vault OSF workbook.
+ * Overlay fills barcode gaps when ERP `Item Barcode` list is 403; live GET Item
+ * covers SKUs missing from this snapshot (e.g. NT025-1 / NW032-2).
+ * Priority Status is live ERP / ProductItem — this snapshot must not freeze it.
  */
 export function vaultWorkbookUploadExtras(sku: string): VaultWorkbookUploadExtras | null {
   const key = lookupOverlayKey(sku);
@@ -34,16 +35,14 @@ export function vaultWorkbookUploadExtras(sku: string): VaultWorkbookUploadExtra
   return row as VaultWorkbookUploadExtras;
 }
 
-/** Prefer uploaded-file barcode/priority when present; ERP fills only gaps. */
+/** Prefer uploaded-file barcode when present. Never overwrite live Priority Status. */
 export function applyVaultWorkbookUploadToCatalogRow(row: VaultCatalogRow): VaultCatalogRow {
   const extra = vaultWorkbookUploadExtras(row.sku);
   if (!extra) return row;
   const fileBarcode = extra.barcode?.trim() || null;
-  const filePriority = extra.priorityStatus?.trim() || null;
   return {
     ...row,
     barcode: fileBarcode || row.barcode?.trim() || null,
-    priorityStatus: filePriority || row.priorityStatus?.trim() || null,
   };
 }
 

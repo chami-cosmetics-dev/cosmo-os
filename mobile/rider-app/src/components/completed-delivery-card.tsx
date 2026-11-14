@@ -19,7 +19,9 @@ export function CompletedDeliveryCard({ delivery }: CompletedDeliveryCardProps) 
   const { colors, radii, shadows, resolvedMode } = useTheme();
   const styles = useMemo(() => createStyles(colors, radii, shadows), [colors, radii, shadows]);
   const isDarkMode = resolvedMode === "dark";
-  const isNotSynced = queuedActions.some((action) => action.endpoint.includes(delivery.id));
+  const isNotSynced = queuedActions.some((action) =>
+    action.steps.some((step) => step.endpoint.includes(delivery.id))
+  );
 
   return (
     <View style={styles.card}>

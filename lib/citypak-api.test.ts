@@ -75,6 +75,18 @@ describe("citypakCodAmount", () => {
     expect(
       citypakCodAmount("pending", "900", { paymentGatewayPrimary: "Card on Delivery" })
     ).toBe(900);
+    expect(
+      citypakCodAmount("pending", "9350", { paymentGatewayPrimary: "Credit Card" })
+    ).toBe(9350);
+    expect(
+      citypakCodAmount("pending", "9350", { paymentGatewayPrimary: "Card Payment" })
+    ).toBe(9350);
+    expect(
+      citypakCodAmount("paid", "9350", { paymentGatewayPrimary: "Credit Card" })
+    ).toBe(0);
+    expect(
+      citypakCodAmount("pending", "2500", { paymentGatewayPrimary: "cc checkout" })
+    ).toBe(0);
   });
 });
 

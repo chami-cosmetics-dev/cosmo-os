@@ -27,6 +27,7 @@ import {
   orderIsWholesale,
   wholesaleMerchantMatchesOrder,
 } from "@/lib/merchant-wholesale";
+import { salesAmountExcludingShipping } from "@/lib/sales-amount-excluding-shipping";
 
 export type CohortMerchantInput = {
   id: string;
@@ -98,7 +99,8 @@ function sharePct(part: number, whole: number): number | null {
 
 /**
  * Single order pass attributing each eligible order to at most one cohort row
- * (personal MER → merchant; DM MER / no MER → synthetic DM-General when present).
+ * (personal MER → merchant; DM-shaped codes → DM-General only when a holder
+ * exists, otherwise omitted; no MER → DM-General only when a holder exists).
  */
 export async function fetchMerchantCohortSales(
   companyId: string,
@@ -173,7 +175,7 @@ export async function fetchMerchantCohortSales(
     prisma.companyLocation.findMany({
       where: { companyId },
       orderBy: { name: "asc" },
-      select: { id: true, name: true },
+      select: { id: true, name: true, defaultMerchantUserId: true },
     }),
     prisma.order.findMany({
       where: {
@@ -184,6 +186,8 @@ export async function fetchMerchantCohortSales(
         companyLocationId: true,
         assignedMerchantId: true,
         totalPrice: true,
+        totalShipping: true,
+        shippingLines: true,
         sourceName: true,
         financialStatus: true,
         fulfillmentStatus: true,
@@ -196,6 +200,7 @@ export async function fetchMerchantCohortSales(
     }),
   ]);
 
+  const locationById = new Map(locations.map((loc) => [loc.id, loc]));
   for (const loc of locations) {
     locationNames.set(loc.id, loc.name);
   }
@@ -211,7 +216,7 @@ export async function fetchMerchantCohortSales(
       joinAllDiscountCodes: true,
     });
     const orderCoupons = parseOrderCouponList(merchantCouponCode);
-    const amount = Number(order.totalPrice ?? 0);
+    const amount = salesAmountExcludingShipping(order) ?? 0;
     if (orderIsWholesale(orderCoupons)) {
       for (const m of merchants) {
         const whSet = wholesaleSetsByMerchant.get(m.id);
@@ -224,12 +229,15 @@ export async function fetchMerchantCohortSales(
       }
       continue;
     }
+    const shopLoc = locationById.get(order.companyLocationId);
     const merchantId = resolveCohortMerchantId({
       orderCoupons,
       couponToMerchantId,
       assignedMerchantId: order.assignedMerchantId,
       cohortIds,
       dmBucketId,
+      locationName: shopLoc?.name,
+      locationDefaultMerchantId: shopLoc?.defaultMerchantUserId,
     });
     if (!merchantId) continue;
 

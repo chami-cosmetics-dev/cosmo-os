@@ -118,15 +118,27 @@ model Company {
   stockRequests                   StockRequest[]
   materialTransfers               MaterialTransfer[]
   shopItemRequests                ShopItemRequest[]
+  newItemRequests                 NewItemRequest[]
+  newItemRequestVotes             NewItemRequestVote[]
+  loyaltyReasonTemplates          LoyaltyReasonTemplate[]
   salesBudgetSnapshots            SalesBudgetSnapshot[]
   stockHealthWeeklySnapshots      StockHealthWeeklySnapshot[]
   stockHealthExcludedSkus         StockHealthExcludedSku[]
   stockHealthSummaryMails         StockHealthSummaryMail[]
   stockHealthSkuSnapshots         StockHealthSkuSnapshot[]
   riderFinanceCashReceipts        RiderFinanceCashReceipt[]
-  giftVoucherGroups               GiftVoucherGroup[]
-  giftVoucherCodes                GiftVoucherCode[]
-  giftVoucherCounter              GiftVoucherCounter?
+  giftVoucherGroups                    GiftVoucherGroup[]
+  giftVoucherCodes                     GiftVoucherCode[]
+  giftVoucherCounter                   GiftVoucherCounter?
+  salesReportConfig                    SalesReportConfig?
+  orderAvailabilityPriorityWarehouses  OrderAvailabilityPriorityWarehouse[]
+}
+
+model SalesReportConfig {
+  companyId String   @id
+  settings  Json
+  updatedAt DateTime @updatedAt
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
 }
 
 model PrintFormat {
@@ -151,7 +163,7 @@ model File {
   blobUrl      String
   fileSize     Int?
   mimeType     String?
-  provider     String   @default("vercel_blob")
+  provider     String   @default("cloudinary")
   uploadedById String
   createdAt    DateTime @default(now())
   company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -401,6 +413,7 @@ model ItemCreationRequest {
   gccPrice                Decimal?                            @db.Decimal(12, 2)
   addErp1OgfPrice         Boolean                             @default(false)
   country                 String
+  countryClaimType         String?
   taxStatus               String                              @default("Vat / Non Vat")
   creationSources         Json                                @default("[\"SHOPIFY\"]")
   overallStatus           ItemCreationOverallStatus           @default(IN_PROGRESS)
@@ -684,6 +697,9 @@ model User {
   materialTransfersCreated               MaterialTransfer[]             @relation("MaterialTransferCreatedBy")
   shopItemRequestsCreated                ShopItemRequest[]              @relation("ShopItemRequestCreatedBy")
   shopItemRequestsDone                   ShopItemRequest[]              @relation("ShopItemRequestDoneBy")
+  newItemRequestsCreated                 NewItemRequest[]               @relation("NewItemRequestCreatedBy")
+  newItemRequestsStatusChanged           NewItemRequest[]               @relation("NewItemRequestStatusChangedBy")
+  newItemRequestVotes                    NewItemRequestVote[]           @relation("NewItemRequestVoteUser")
   salesBudgetSnapshotsSaved              SalesBudgetSnapshot[]          @relation("SalesBudgetSnapshotSavedBy")
   materialTransfersReceived              MaterialTransfer[]             @relation("MaterialTransferReceivedBy")
   materialTransferLinesCounted           MaterialTransferLine[]         @relation("MaterialTransferLineCountedBy")
@@ -705,6 +721,8 @@ model User {
   grnHandovers                           GrnPurchaseReceipt[]           @relation("GrnPurchaseReceiptHandoverBy")
   grnHandoverReverts                     GrnPurchaseReceipt[]           @relation("GrnPurchaseReceiptHandoverRevertedBy")
   grnHandoverReceipts                    GrnPurchaseReceipt[]           @relation("GrnPurchaseReceiptHandoverReceivedBy")
+  grnValuationConfirmations              GrnPurchaseReceipt[]           @relation("GrnPurchaseReceiptValuationConfirmedBy")
+  grnValuationConfirmationReverts        GrnPurchaseReceipt[]           @relation("GrnPurchaseReceiptValuationConfirmRevertedBy")
   grnNotReceived                         GrnPurchaseReceipt[]           @relation("GrnPurchaseReceiptNotReceivedBy")
   grnValuations                          GrnPurchaseReceipt[]           @relation("GrnPurchaseReceiptValuedBy")
   grnValuationReverts                    GrnPurchaseReceipt[]           @relation("GrnPurchaseReceiptValuedRevertedBy")
@@ -713,6 +731,8 @@ model User {
   grnBackfillHandovers                   GrnBackfillPurchaseReceipt[]   @relation("GrnBackfillPurchaseReceiptHandoverBy")
   grnBackfillHandoverReverts             GrnBackfillPurchaseReceipt[]   @relation("GrnBackfillPurchaseReceiptHandoverRevertedBy")
   grnBackfillHandoverReceipts            GrnBackfillPurchaseReceipt[]   @relation("GrnBackfillPurchaseReceiptHandoverReceivedBy")
+  grnBackfillValuationConfirmations      GrnBackfillPurchaseReceipt[]   @relation("GrnBackfillPurchaseReceiptValuationConfirmedBy")
+  grnBackfillValuationConfirmationReverts GrnBackfillPurchaseReceipt[]  @relation("GrnBackfillPurchaseReceiptValuationConfirmRevertedBy")
   grnBackfillNotReceived                 GrnBackfillPurchaseReceipt[]   @relation("GrnBackfillPurchaseReceiptNotReceivedBy")
   grnBackfillValuations                  GrnBackfillPurchaseReceipt[]   @relation("GrnBackfillPurchaseReceiptValuedBy")
   grnBackfillValuationReverts            GrnBackfillPurchaseReceipt[]   @relation("GrnBackfillPurchaseReceiptValuedRevertedBy")
@@ -1018,6 +1038,10 @@ model CompanyLocation {
   erpnextInstanceId           String?
   fulfillmentBlocked          Boolean                      @default(false)
   isMainCompany               Boolean                      @default(false)
+  /// CityPak Falcon account ID for this location. Used first on City Pack dispatch.
+  citypakAccountId            String?
+  /// CityPak Falcon API token for this location. Prefix-mapped CitypakAccount is the fallback.
+  citypakApiToken             String?
   company                     Company                      @relation(fields: [companyId], references: [id], onDelete: Cascade)
   erpnextInstance             ErpnextInstance?             @relation(fields: [erpnextInstanceId], references: [id], onDelete: SetNull)
   defaultOrderPrintFormat     PrintFormat?                 @relation("LocationDefaultOrderPrintFormat", fields: [defaultOrderPrintFormatId], references: [id], onDelete: SetNull)
@@ -1549,6 +1573,11 @@ model RiderDeliveryTask {
   failedAt                  DateTime?
   failureReason             String?
   latestSyncAt              DateTime?
+  /// GPS at door when rider marks delivery done (WGS84).
+  completedLatitude         Float?
+  completedLongitude        Float?
+  completedAccuracyMeters   Float?
+  completedLocationAt       DateTime?
   /// Staff-picked district for rider pay when auto shipping-label match fails.
   manualIncentiveLabelKey   String?
   manualIncentiveLabel      String?
@@ -1588,6 +1617,10 @@ model DeliveryPayment {
   referenceNote      String?
   bankReference      String?
   cardReference      String?
+  /** Last 4 digits of card used for card-on-delivery (also mirrored in cardReference). */
+  cardLast4          String?
+  /** Cloudinary URL of payment-slip photo for card-on-delivery. */
+  cardSlipImageUrl   String?
   collectedAt        DateTime?
   idempotencyKey     String?                  @unique
   createdAt          DateTime                 @default(now())
@@ -1761,7 +1794,10 @@ model EmployeeProfile {
   locationId                String?
   departmentId              String?
   designationId             String?
+  /// Active / "working today" outlet (also used for coupon→shop grouping).
   outletId                  String?
+  /// Calendar day (Asia/Colombo YYYY-MM-DD) when outletId was last chosen.
+  activeOutletDateKey       String?
   appointmentDate           DateTime?
   status                    EmployeeStatus   @default(active)
   resignedAt                DateTime?
@@ -1776,9 +1812,23 @@ model EmployeeProfile {
   designation               Designation?     @relation(fields: [designationId], references: [id])
   location                  CompanyLocation? @relation(fields: [locationId], references: [id])
   outlet                    Outlet?          @relation(fields: [outletId], references: [id], onDelete: SetNull)
+  outletAssignments         EmployeeProfileOutlet[]
   user                      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([companyId, outletId])
+}
+
+/// Many outlets a staff member may work (merchant multi-outlet).
+model EmployeeProfileOutlet {
+  id                String          @id @default(cuid())
+  employeeProfileId String
+  outletId          String
+  createdAt         DateTime        @default(now())
+  employeeProfile   EmployeeProfile @relation(fields: [employeeProfileId], references: [id], onDelete: Cascade)
+  outlet            Outlet          @relation(fields: [outletId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeProfileId, outletId])
+  @@index([outletId])
 }
 
 model StickerBatch {
@@ -2251,6 +2301,8 @@ model ContactMaster {
   loyaltyEligibleAt        DateTime?
   /// Last loyalty outreach / assign status change.
   loyaltyOutreachUpdatedAt DateTime?
+  /// Why Gold/Platinum was set on a manual override. Null for eligible/ERP assign.
+  loyaltyAssignedReason    String?
   // Contact preferences
   contactSaved             Boolean?
   whatsappAllowed          Boolean?
@@ -2294,6 +2346,26 @@ model ContactMaster {
   @@index([companyId, loyaltyAssignedAt])
   @@index([companyId, loyaltyOutreachStatus])
   @@index([companyId, osRegistrationCreated, osRegLocation])
+}
+
+/// Reusable reason wording for manual Gold/Platinum overrides. Custom rows sync Cosmo↔Vault.
+model LoyaltyReasonTemplate {
+  id              String   @id @default(cuid())
+  companyId       String
+  label           String
+  normalizedLabel String
+  /// Shared id across OS for custom rows. Seeded rows use stable keys (seed:...).
+  syncKey         String
+  /// both | cosmo | vault
+  osScope         String
+  seeded          Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, normalizedLabel])
+  @@unique([companyId, syncKey])
+  @@index([companyId, osScope])
 }
 
 /// Staff-created public registration portal token. Stamp is immutable after create.
@@ -2550,10 +2622,12 @@ model ProductItemAsset {
   fileName     String
   blobUrl      String
   fileSize     Int?
-  mimeType     String?
-  provider     String   @default("vercel_blob")
-  uploadedById String
-  createdAt    DateTime @default(now())
+  mimeType        String?
+  provider        String   @default("cloudinary")
+  /// Video/audio length from Cloudinary; videos up to 60s count as short-form.
+  durationSeconds Int?
+  uploadedById    String
+  createdAt       DateTime @default(now())
 
   company    Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
   uploadedBy User    @relation(fields: [uploadedById], references: [id])
@@ -2591,13 +2665,14 @@ model ContactAllocationUpdate {
 // ── Outlet Reviews Feature ──────────────────────────────────────────────────
 
 model Outlet {
-  id               String            @id @default(cuid())
+  id               String                 @id @default(cuid())
   companyId        String
   name             String
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
   reviews          OutletReview[]
   employeeProfiles EmployeeProfile[]
+  profileAssignments EmployeeProfileOutlet[]
 
   @@unique([companyId, name])
   @@index([companyId])
@@ -2658,6 +2733,8 @@ model ProductOsfProfile {
   ogfPrice                Decimal? @db.Decimal(12, 2)
   /// Chami shop selling rate from ERP "GCC PRICE LIST". Online stays on ProductItem.price.
   gccPrice                Decimal? @db.Decimal(12, 2)
+  /// Buyer target unit purchase cost for the SKU (manual; ROP template import or editor).
+  targetPurchaseRate      Decimal? @db.Decimal(12, 2)
   /// Per-SKU reorder alert/filter threshold (1–100). Null ⇒ treat as 70 at runtime.
   reorderThresholdPercent Int?
   highRiskOrderPlaced    Boolean  @default(false)
@@ -2842,12 +2919,19 @@ model GrnPurchaseReceipt {
   handoverRevertedById    String?
   handoverReceivedAt      DateTime?
   handoverReceivedById    String?
+  valuationConfirmedAt    DateTime?
+  valuationConfirmedById  String?
+  valuationConfirmRevertedAt   DateTime?
+  valuationConfirmRevertedById String?
+  requiresValuationConfirmation Boolean @default(false)
   notReceivedAt           DateTime?
   notReceivedById         String?
   valuedAt                DateTime?
   valuedById              String?
   valuedRevertedAt        DateTime?
   valuedRevertedById      String?
+  valuationRejectedAt     DateTime?
+  valuationRejectedById   String?
   receivedAt              DateTime?
   receivedById            String?
   receivedRevertedAt      DateTime?
@@ -2862,6 +2946,8 @@ model GrnPurchaseReceipt {
   handoverBy              User?                    @relation("GrnPurchaseReceiptHandoverBy", fields: [handoverById], references: [id], onDelete: SetNull)
   handoverRevertedBy      User?                    @relation("GrnPurchaseReceiptHandoverRevertedBy", fields: [handoverRevertedById], references: [id], onDelete: SetNull)
   handoverReceivedBy      User?                    @relation("GrnPurchaseReceiptHandoverReceivedBy", fields: [handoverReceivedById], references: [id], onDelete: SetNull)
+  valuationConfirmedBy    User?                    @relation("GrnPurchaseReceiptValuationConfirmedBy", fields: [valuationConfirmedById], references: [id], onDelete: SetNull)
+  valuationConfirmRevertedBy User?                 @relation("GrnPurchaseReceiptValuationConfirmRevertedBy", fields: [valuationConfirmRevertedById], references: [id], onDelete: SetNull)
   notReceivedBy           User?                    @relation("GrnPurchaseReceiptNotReceivedBy", fields: [notReceivedById], references: [id], onDelete: SetNull)
   items                   GrnPurchaseReceiptItem[]
   purchaseInvoices        GrnPurchaseInvoice[]
@@ -2880,6 +2966,8 @@ model GrnPurchaseReceipt {
   @@index([handoverById])
   @@index([handoverRevertedById])
   @@index([handoverReceivedById])
+  @@index([valuationConfirmedById])
+  @@index([valuationConfirmRevertedById])
   @@index([notReceivedById])
   @@index([valuedById])
   @@index([valuedRevertedById])
@@ -3098,12 +3186,19 @@ model GrnBackfillPurchaseReceipt {
   handoverRevertedById    String?
   handoverReceivedAt      DateTime?
   handoverReceivedById    String?
+  valuationConfirmedAt    DateTime?
+  valuationConfirmedById  String?
+  valuationConfirmRevertedAt   DateTime?
+  valuationConfirmRevertedById String?
+  requiresValuationConfirmation Boolean @default(false)
   notReceivedAt           DateTime?
   notReceivedById         String?
   valuedAt                DateTime?
   valuedById              String?
   valuedRevertedAt        DateTime?
   valuedRevertedById      String?
+  valuationRejectedAt     DateTime?
+  valuationRejectedById   String?
   receivedAt              DateTime?
   receivedById            String?
   receivedRevertedAt      DateTime?
@@ -3117,6 +3212,8 @@ model GrnBackfillPurchaseReceipt {
   handoverBy              User?                    @relation("GrnBackfillPurchaseReceiptHandoverBy", fields: [handoverById], references: [id], onDelete: SetNull)
   handoverRevertedBy      User?                    @relation("GrnBackfillPurchaseReceiptHandoverRevertedBy", fields: [handoverRevertedById], references: [id], onDelete: SetNull)
   handoverReceivedBy      User?                    @relation("GrnBackfillPurchaseReceiptHandoverReceivedBy", fields: [handoverReceivedById], references: [id], onDelete: SetNull)
+  valuationConfirmedBy    User?                    @relation("GrnBackfillPurchaseReceiptValuationConfirmedBy", fields: [valuationConfirmedById], references: [id], onDelete: SetNull)
+  valuationConfirmRevertedBy User?                 @relation("GrnBackfillPurchaseReceiptValuationConfirmRevertedBy", fields: [valuationConfirmRevertedById], references: [id], onDelete: SetNull)
   notReceivedBy           User?                    @relation("GrnBackfillPurchaseReceiptNotReceivedBy", fields: [notReceivedById], references: [id], onDelete: SetNull)
   valuedBy                User?                    @relation("GrnBackfillPurchaseReceiptValuedBy", fields: [valuedById], references: [id], onDelete: SetNull)
   valuedRevertedBy        User?                    @relation("GrnBackfillPurchaseReceiptValuedRevertedBy", fields: [valuedRevertedById], references: [id], onDelete: SetNull)
@@ -3130,6 +3227,8 @@ model GrnBackfillPurchaseReceipt {
   @@index([handoverById])
   @@index([handoverRevertedById])
   @@index([handoverReceivedById])
+  @@index([valuationConfirmedById])
+  @@index([valuationConfirmRevertedById])
   @@index([notReceivedById])
   @@index([valuedById])
   @@index([valuedRevertedById])
@@ -3554,6 +3653,61 @@ model ShopItemRequestLine {
   @@index([requestId])
 }
 
+enum NewItemRequestStatus {
+  open
+  already_have
+  ordered
+  closed
+}
+
+model NewItemRequest {
+  id                    String               @id @default(cuid())
+  companyId             String
+  brandName             String
+  brandNameNormalized   String
+  brandIsExisting       Boolean
+  productName           String               @default("")
+  productNameNormalized String               @default("")
+  description           String               @default("")
+  storeUrl              String?
+  imageUrl              String?
+  imagePublicId         String?
+  customerName          String?
+  customerPhone         String?
+  status                NewItemRequestStatus @default(open)
+  createdByUserId       String?
+  statusChangedByUserId String?
+  statusChangedAt       DateTime?
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+  company               Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdBy             User?                @relation("NewItemRequestCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  statusChangedBy       User?                @relation("NewItemRequestStatusChangedBy", fields: [statusChangedByUserId], references: [id], onDelete: SetNull)
+  votes                 NewItemRequestVote[]
+
+  @@index([companyId, status, createdAt(sort: Desc)])
+  @@index([companyId, brandNameNormalized, status, createdAt(sort: Desc)])
+  @@index([companyId, createdByUserId, createdAt(sort: Desc)])
+  @@index([companyId, productNameNormalized, status])
+}
+
+model NewItemRequestVote {
+  id            String         @id @default(cuid())
+  companyId     String
+  requestId     String
+  userId        String
+  customerName  String?
+  customerPhone String?
+  customerEmail String?
+  createdAt     DateTime       @default(now())
+  company       Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  request       NewItemRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  user          User           @relation("NewItemRequestVoteUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([requestId, userId])
+  @@index([companyId, requestId])
+}
+
 model StoreStockCountReport {
   id                String                      @id @default(cuid())
   companyId         String
@@ -3640,7 +3794,7 @@ model StoreStockCountUserSave {
   @@index([companyId])
 }
 
-/// Singleton: one payday day-of-month for all companies in this database.
+/// Legacy singleton (unused). Pay periods are calendar months in app code; keep row for old DBs.
 model RiderPayPeriodConfig {
   id               String   @id @default(cuid())
   singletonKey     String   @unique @default("default")
@@ -3948,4 +4102,20 @@ model GiftVoucherCounter {
   lastGroupNumber Int
   updatedAt       DateTime @updatedAt
   company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+}
+
+/// Up to 4 ERP2 main warehouses that skip the monthly cap and rank first in order availability.
+model OrderAvailabilityPriorityWarehouse {
+  id        String   @id @default(cuid())
+  companyId String
+  warehouse String
+  /// 1 = highest priority … 4 = lowest of the pinned set
+  priority  Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, priority])
+  @@unique([companyId, warehouse])
+  @@index([companyId])
 }
