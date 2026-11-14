@@ -70,7 +70,7 @@ describe("FINANCE_PENDING_FULFILLMENT_EXCLUSION", () => {
 });
 
 describe("FINANCE_PENDING_SPLIT_PAYMENT_QUEUE", () => {
-  it("shows ERP and Shopify KOKO/Bank orders before finance approval and while approval is pending; cash only after split pending", () => {
+  it("shows ERP and Shopify KOKO/Bank/Cash/COD orders before finance approval and while approval is pending", () => {
     expect(FINANCE_PENDING_SPLIT_PAYMENT_QUEUE).toEqual({
       sourceName: { in: ["erpnext", "web"] },
       AND: [
@@ -78,31 +78,8 @@ describe("FINANCE_PENDING_SPLIT_PAYMENT_QUEUE", () => {
           OR: [
             { paymentGatewayPrimary: { contains: "koko", mode: "insensitive" } },
             { paymentGatewayPrimary: { contains: "bank", mode: "insensitive" } },
-            {
-              AND: [
-                {
-                  OR: [
-                    {
-                      paymentGatewayPrimary: {
-                        contains: "cash",
-                        mode: "insensitive",
-                      },
-                    },
-                    {
-                      paymentGatewayPrimary: {
-                        equals: "cod",
-                        mode: "insensitive",
-                      },
-                    },
-                  ],
-                },
-                {
-                  approvalRequests: {
-                    some: { type: "order_payment_approval", status: "pending" },
-                  },
-                },
-              ],
-            },
+            { paymentGatewayPrimary: { contains: "cash", mode: "insensitive" } },
+            { paymentGatewayPrimary: { equals: "cod", mode: "insensitive" } },
           ],
         },
         {

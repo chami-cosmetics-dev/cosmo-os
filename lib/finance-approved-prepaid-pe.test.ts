@@ -32,6 +32,7 @@ const location = {
 const invoice = {
   name: "120-000076",
   outstanding_amount: 2212.5,
+  grand_total: 2212.5,
   debit_to: "Debtors - Udara",
   customer: "0756808240",
 };
@@ -199,6 +200,75 @@ describe("syncFinanceApprovedPrepaidPaymentToERPNext", () => {
         { requirePe: true },
       ),
     ).rejects.toThrow(/No Sales Invoice found/);
+    expect(posts).toHaveLength(0);
+  });
+
+  it("uses Shopify totalPrice for PE when it matches ERP grand_total", async () => {
+    stubFetch({
+      invoiceByName: {
+        "600-007751": {
+          name: "600-007751",
+          outstanding_amount: 10795,
+          grand_total: 10795,
+          debit_to: "Debtors - Udara",
+          customer: "0772989686",
+        },
+      },
+    });
+
+    await syncFinanceApprovedPrepaidPaymentToERPNext(
+      {
+        name: "#60021105",
+        shopifyOrderId: "gid://shopify/Order/1",
+        sourceName: "web",
+        erpnextInvoiceId: "600-007751",
+        paymentGatewayPrimary: "koko",
+        paymentGatewayNames: ["koko"],
+        financialStatus: "paid",
+        totalPrice: 10795,
+      },
+      location,
+      new Date("2026-11-14T10:00:00.000Z"),
+      { requirePe: true },
+    );
+
+    expect(posts[0]?.body).toMatchObject({
+      paid_amount: 10795,
+      received_amount: 10795,
+      references: [{ reference_name: "600-007751", allocated_amount: 10795 }],
+    });
+  });
+
+  it("refuses PE when Shopify totalPrice and ERP grand_total disagree", async () => {
+    stubFetch({
+      invoiceByName: {
+        "600-007751": {
+          name: "600-007751",
+          outstanding_amount: 11312.5,
+          grand_total: 11312.5,
+          debit_to: "Debtors - Udara",
+          customer: "0772989686",
+        },
+      },
+    });
+
+    await expect(
+      syncFinanceApprovedPrepaidPaymentToERPNext(
+        {
+          name: "#60021105",
+          shopifyOrderId: "gid://shopify/Order/1",
+          sourceName: "web",
+          erpnextInvoiceId: "600-007751",
+          paymentGatewayPrimary: "koko",
+          paymentGatewayNames: ["koko"],
+          financialStatus: "paid",
+          totalPrice: 10795,
+        },
+        location,
+        new Date("2026-11-14T10:00:00.000Z"),
+        { requirePe: true },
+      ),
+    ).rejects.toThrow(/Refusing PE/);
     expect(posts).toHaveLength(0);
   });
 });
