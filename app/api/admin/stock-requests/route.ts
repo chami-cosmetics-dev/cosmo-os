@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import {
+  STOCK_REQUEST_CREATE_PERMISSIONS,
+  STOCK_REQUEST_LIST_PERMISSIONS,
+} from "@/lib/wishlist-buddy/access";
 import { createStaffStockRequest, listStockRequests } from "@/lib/wishlist-buddy/requests";
 import { requireStockRequestViewer, stockRequestErrorResponse } from "@/lib/wishlist-buddy/route-auth";
 import {
@@ -13,11 +17,7 @@ export const maxDuration = 60;
 
 /** List a tab: `scope=web` (stock_requests.read), `scope=mine` (stock_requests.create), or `scope=staff` (stock_requests.read_all). */
 export async function GET(request: NextRequest) {
-  const auth = await requireStockRequestViewer([
-    "stock_requests.read",
-    "stock_requests.create",
-    "stock_requests.read_all",
-  ]);
+  const auth = await requireStockRequestViewer([...STOCK_REQUEST_LIST_PERMISSIONS]);
   if (!auth.ok) return auth.response;
 
   const sp = request.nextUrl.searchParams;
@@ -54,7 +54,7 @@ export async function GET(request: NextRequest) {
 
 /** New staff request (My requests tab). */
 export async function POST(request: NextRequest) {
-  const auth = await requireStockRequestViewer(["stock_requests.create"]);
+  const auth = await requireStockRequestViewer([...STOCK_REQUEST_CREATE_PERMISSIONS]);
   if (!auth.ok) return auth.response;
 
   const body = staffStockRequestCreateBodySchema.safeParse(await request.json().catch(() => null));

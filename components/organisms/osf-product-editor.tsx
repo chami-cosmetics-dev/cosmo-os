@@ -3,10 +3,12 @@
 import { useEffect, useRef, useState } from "react";
 import { Loader2, RefreshCw, Search } from "lucide-react";
 
+import { priorityLabelClass } from "@/components/organisms/item-trends/priority-label";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { notify } from "@/lib/notify";
 import { orderQty } from "@/lib/osf/formulas";
+import { cn } from "@/lib/utils";
 
 type ColumnMeta = { key: string; label: string; includeInRop: boolean; active: boolean };
 
@@ -14,8 +16,10 @@ type ProfileItem = {
   sku: string;
   productTitle: string;
   brand: string | null;
+  priorityStatus: string | null;
   shopAvailability: string | null;
   ogfPrice: number | null;
+  targetPurchaseRate: number | null;
   reorderThresholdPercent: number | null;
   rops: Record<string, number>;
   stockPctOfRop?: number;
@@ -40,6 +44,21 @@ function parseRopInput(raw: string): number | null {
   return Number.isFinite(n) ? Math.max(0, n) : null;
 }
 
+function PriorityBadge({ status, className }: { status: string | null; className?: string }) {
+  if (!status) return null;
+  return (
+    <span
+      className={cn(
+        "inline-flex max-w-full truncate rounded-full px-2 py-0.5 font-sans text-[10px] font-semibold ring-1 ring-inset",
+        priorityLabelClass(status),
+        className,
+      )}
+    >
+      {status}
+    </span>
+  );
+}
+
 export function OsfProductEditor({
   canManage,
   canManageThreshold = false,
@@ -52,6 +71,7 @@ export function OsfProductEditor({
   const [selected, setSelected] = useState<ProfileItem | null>(null);
   const [shopAvailability, setShopAvailability] = useState<string>("");
   const [ogfPrice, setOgfPrice] = useState<string>("");
+  const [targetPurchaseRate, setTargetPurchaseRate] = useState<string>("");
   const [thresholdPercent, setThresholdPercent] = useState<string>("");
   const [rops, setRops] = useState<Record<string, string>>({});
   /** Live ERP stock keyed by column — null value = no warehouse / unknown */
@@ -146,6 +166,7 @@ export function OsfProductEditor({
     setSelected(item);
     setShopAvailability(item.shopAvailability ?? "");
     setOgfPrice(item.ogfPrice != null ? String(item.ogfPrice) : "");
+    setTargetPurchaseRate(item.targetPurchaseRate != null ? String(item.targetPurchaseRate) : "");
     setThresholdPercent(
       item.reorderThresholdPercent != null ? String(item.reorderThresholdPercent) : "",
     );
@@ -183,6 +204,8 @@ export function OsfProductEditor({
           else ropsPayload[key] = Math.max(0, Math.floor(Number(trimmed)) || 0);
         }
         payload.rops = ropsPayload;
+        const rateTrimmed = targetPurchaseRate.trim();
+        payload.targetPurchaseRate = rateTrimmed === "" ? null : Number(rateTrimmed);
         if (!hideCosmoFields) {
           const ogfTrimmed = ogfPrice.trim();
           payload.shopAvailability = shopAvailability === "" ? null : shopAvailability;
@@ -205,6 +228,7 @@ export function OsfProductEditor({
         ...selected,
         shopAvailability: json.shopAvailability,
         ogfPrice: json.ogfPrice,
+        targetPurchaseRate: json.targetPurchaseRate ?? null,
         reorderThresholdPercent: json.reorderThresholdPercent ?? null,
         rops: json.rops ?? {},
       });
@@ -221,8 +245,8 @@ export function OsfProductEditor({
         <h3 className="font-medium">Product OSF editor</h3>
         <p className="text-sm text-muted-foreground">
           {hideCosmoFields
-            ? "Per-column ROP for SV, ORI and AE, plus reorder threshold %. Search a SKU to edit, or use the Excel import."
-            : "Shop Availability, per-column ROP, OGF Price, and reorder threshold %. Enter a % to list SKUs that already have ROP and whose stock is below that share of ROP."}
+            ? "Per-column ROP for SV, ORI and AE, Target Purchase Rate, and reorder threshold %. Search a SKU to edit, or use the Excel import."
+            : "Shop Availability, per-column ROP, OGF Price, Target Purchase Rate, and reorder threshold %. Enter a % to list SKUs that already have ROP and whose stock is below that share of ROP."}
         </p>
       </div>
 
@@ -285,7 +309,10 @@ export function OsfProductEditor({
                     onClick={() => selectItem(item)}
                   >
                     <div className="flex items-baseline justify-between gap-2">
-                      <div className="font-mono text-xs">{item.sku}</div>
+                      <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                        <span className="font-mono text-xs">{item.sku}</span>
+                        <PriorityBadge status={item.priorityStatus} />
+                      </div>
                       {item.stockPctOfRop != null ? (
                         <div className="shrink-0 text-[11px] text-muted-foreground">
                           {item.stockPctOfRop}% of ROP
@@ -306,7 +333,10 @@ export function OsfProductEditor({
           ) : (
             <>
               <div>
-                <div className="font-mono text-sm font-medium">{selected.sku}</div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="font-mono text-sm font-medium">{selected.sku}</div>
+                  <PriorityBadge status={selected.priorityStatus} className="text-[11px]" />
+                </div>
                 <div className="text-sm text-muted-foreground">{selected.productTitle}</div>
               </div>
               {hideCosmoFields ? null : (
@@ -341,6 +371,23 @@ export function OsfProductEditor({
                   </label>
                 </>
               )}
+              <label className="block text-xs font-medium">
+                Target Purchase Rate
+                <Input
+                  type="number"
+                  step="0.01"
+                  min={0}
+                  className="mt-1"
+                  disabled={!canManage || isBusy}
+                  value={targetPurchaseRate}
+                  placeholder="Target unit cost"
+                  onChange={(e) => setTargetPurchaseRate(e.target.value)}
+                />
+                <span className="mt-1 block text-[11px] font-normal text-muted-foreground">
+                  Manual target buy price per unit. Bulk-fill via ROP template import; edit here
+                  anytime.
+                </span>
+              </label>
               <label className="block text-xs font-medium">
                 Reorder threshold % (blank = 70)
                 <Input

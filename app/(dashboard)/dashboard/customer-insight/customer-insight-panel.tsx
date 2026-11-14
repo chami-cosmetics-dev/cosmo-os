@@ -55,7 +55,10 @@ import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 import { appendInsightFilterList } from "@/lib/customer-insight/filter-query-params";
 import { isNonProductInsightItem } from "@/lib/customer-insight/item-junk";
 import { formatRemovedEmailLabel } from "@/lib/contacts/removed-email-label";
-import { isCompletePhoneSearch } from "@/lib/phone-lookup";
+import {
+  isCompletePhoneSearch,
+  parseInsightPhoneSearchInput,
+} from "@/lib/phone-lookup";
 import {
   PRODUCT_ITEM_STATUS_CATEGORIES,
   PRODUCT_ITEM_STATUS_META,
@@ -85,8 +88,25 @@ import {
   CALL_CENTER_UNCONTACTED_CATEGORY,
 } from "@/lib/contact-call-center-categories";
 import { formatAppDate, formatAppDateTime } from "@/lib/format-datetime";
+import {
+  contactFirstNameError,
+  splitContactName,
+} from "@/lib/customer-insight/contact-name";
 import { loyaltyProfileIncompleteMessage, getLoyaltyProfileMissingFields } from "@/lib/customer-insight/loyalty-profile-complete";
+import { ManualLoyaltyDialog } from "@/app/(dashboard)/dashboard/customer-insight/manual-loyalty-dialog";
 import { notify } from "@/lib/notify";
+import {
+  DUMP_HAS_MORE_HEADER,
+  DUMP_NEXT_CURSOR_HEADER,
+  DUMP_PAGE_CONTACTS_HEADER,
+  DUMP_TOTAL_HEADER,
+  dumpProgressPercent,
+  parseContentDispositionFilename,
+  parseDumpCountHeader,
+  parseDumpFlagHeader,
+  parseDumpTotalHeader,
+} from "@/lib/reports/dump-download";
+import { priorityLabelClass } from "@/components/organisms/item-trends/priority-label";
 import { cn } from "@/lib/utils";
 
 const CHART_BLUE = "#3b82f6";
@@ -121,6 +141,51 @@ function formatAmount(value: string | number, currency?: string | null) {
     maximumFractionDigits: 2,
   });
   return currency ? `${formatted} ${currency}` : formatted;
+}
+
+function vatStatusBadgeClass(status: string) {
+  const key = status.trim().toLowerCase().replace(/[_-]+/g, " ");
+  if (key === "vat") {
+    return "bg-emerald-500/25 text-emerald-800 ring-emerald-500/60 dark:bg-emerald-400/25 dark:text-emerald-100";
+  }
+  if (key === "non vat" || key === "nonvat") {
+    return "bg-slate-500/20 text-slate-800 ring-slate-500/50 dark:bg-slate-400/20 dark:text-slate-100";
+  }
+  return "bg-amber-500/25 text-amber-800 ring-amber-500/60 dark:bg-amber-400/25 dark:text-amber-100";
+}
+
+function LineCatalogBadges({
+  priority,
+  vatStatus,
+}: {
+  priority?: string | null;
+  vatStatus?: string | null;
+}) {
+  if (!priority && !vatStatus) return null;
+  return (
+    <div className="mt-1.5 flex flex-wrap gap-1">
+      {priority ? (
+        <span
+          className={cn(
+            "inline-flex max-w-full truncate rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ring-inset",
+            priorityLabelClass(priority),
+          )}
+        >
+          {priority}
+        </span>
+      ) : null}
+      {vatStatus ? (
+        <span
+          className={cn(
+            "inline-flex max-w-full truncate rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ring-inset",
+            vatStatusBadgeClass(vatStatus),
+          )}
+        >
+          {vatStatus}
+        </span>
+      ) : null}
+    </div>
+  );
 }
 
 function formatChartAxis(value: number) {
@@ -177,8 +242,8 @@ function formatMemberSince(iso: string | null | undefined) {
 }
 
 /**
- * `contact.lastPurchaseAt` is derived in loadCustomerInsight from the purchase history
- * this page shows, not read from the drifting ContactMaster column.
+ * `contact.lastPurchaseAt` is the newest completed Cosmo order or Adapt invoice
+ * on this page, not the drifting ContactMaster stamp.
  */
 function formatLastPurchased(lastPurchaseAt: string | null, emptyLabel: string) {
   return lastPurchaseAt ? formatAppDate(lastPurchaseAt, "—") : emptyLabel;
@@ -257,7 +322,8 @@ function InsightChartTooltip({
 }
 
 type ProfileForm = {
-  name: string;
+  firstName: string;
+  lastName: string;
   email: string;
   addPhoneNumber: string;
   gender: string;
@@ -466,6 +532,24 @@ function InsightSearchableMultiSelect({
   );
 }
 
+async function fetchAllocationContactsExportPage(url: string): Promise<Response> {
+  let lastError: Error | null = null;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const res = await fetch(url, {
+        credentials: "include",
+        cache: "no-store",
+        signal: AbortSignal.timeout(120_000),
+      });
+      if (res.ok || (res.status < 500 && res.status !== 429)) return res;
+      lastError = new Error(`Export page failed (${res.status})`);
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error("Export page failed");
+    }
+  }
+  throw lastError ?? new Error("Export page failed");
+}
+
 function InsightSearchableSelect({
   value,
   options,
@@ -592,6 +676,7 @@ export function CustomerInsightPanel({
   canAddContactPhone = false,
   canManageLoyalty = false,
   canAssignLoyalty = false,
+  canManualLoyaltyOverride = false,
   initialContactId = null,
   initialEdit = false,
 }: {
@@ -601,12 +686,14 @@ export function CustomerInsightPanel({
   canAddContactPhone?: boolean;
   canManageLoyalty?: boolean;
   canAssignLoyalty?: boolean;
+  canManualLoyaltyOverride?: boolean;
   initialContactId?: string | null;
   initialEdit?: boolean;
 }) {
   const [phone, setPhone] = useState("");
   const [insightTab, setInsightTab] = useState("filters");
   const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [manualLoyaltyOpen, setManualLoyaltyOpen] = useState(false);
   const [matches, setMatches] = useState<SearchMatchDto[] | null>(null);
   const [truncated, setTruncated] = useState(false);
   const [searched, setSearched] = useState(false);
@@ -1128,38 +1215,97 @@ export function CustomerInsightPanel({
   async function exportAllocationContactsCsv() {
     if (!canExportFilteredCsv) return;
     setBusyKey("allocation-contacts-export");
+    const toastId = "allocation-contacts-export";
+    notify.loading("Preparing allocation contacts…", toastId);
     try {
-      const params = new URLSearchParams();
-      params.set("format", "contacts");
-      if (allocationContactsMerchant.trim()) {
-        params.set("assignedMerchant", allocationContactsMerchant.trim());
-      }
-      const res = await fetch(
-        `/api/admin/customer-insight/allocation-summary/export?${params.toString()}`,
-        { credentials: "include" }
-      );
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        notify.error(data.error ?? "Export failed");
-        return;
-      }
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
+      const chunks: BlobPart[] = [];
+      let after = "";
+      let includeHeader = true;
+      let expectedRows = 0;
+      let receivedContacts = 0;
       const slug = allocationContactsMerchant
         .trim()
         .replace(/[^a-zA-Z0-9_-]+/g, "-")
         .replace(/^-+|-+$/g, "")
         .slice(0, 40);
-      a.download = `insight-merchant-allocation-contacts-${
+      let fileName = `insight-merchant-allocation-contacts-${
         allocationContactsMerchant.trim() ? slug || "merchant" : "all"
       }.csv`;
+      let lastNotified = -1;
+      const MAX_PAGES = 500;
+      const merchant = allocationContactsMerchant.trim();
+
+      for (let page = 0; page < MAX_PAGES; page += 1) {
+        const params = new URLSearchParams();
+        params.set("format", "contacts");
+        if (merchant) params.set("assignedMerchant", merchant);
+        params.set("page", String(page));
+        if (after) params.set("after", after);
+        if (!includeHeader) params.set("header", "0");
+
+        const res = await fetchAllocationContactsExportPage(
+          `/api/admin/customer-insight/allocation-summary/export?${params.toString()}`
+        );
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          notify.error(data.error ?? "Export failed", toastId);
+          return;
+        }
+
+        expectedRows =
+          parseDumpTotalHeader(res.headers.get(DUMP_TOTAL_HEADER)) || expectedRows;
+        fileName =
+          parseContentDispositionFilename(res.headers.get("Content-Disposition")) ??
+          fileName;
+        const pageContacts = parseDumpCountHeader(
+          res.headers.get(DUMP_PAGE_CONTACTS_HEADER)
+        );
+        const hasMore = parseDumpFlagHeader(res.headers.get(DUMP_HAS_MORE_HEADER));
+        const nextCursor = res.headers.get(DUMP_NEXT_CURSOR_HEADER)?.trim() ?? "";
+        chunks.push(await res.arrayBuffer());
+        receivedContacts += pageContacts;
+
+        if (expectedRows > 0) {
+          const percent = dumpProgressPercent(receivedContacts, expectedRows);
+          if (percent > 0 && percent !== lastNotified) {
+            lastNotified = percent;
+            notify.loading(`Downloading contacts — ${percent}%`, toastId);
+          }
+        } else {
+          notify.loading(
+            `Downloading contacts — ${receivedContacts.toLocaleString()}`,
+            toastId
+          );
+        }
+
+        if (!hasMore || pageContacts === 0) break;
+        after = nextCursor;
+        includeHeader = false;
+        if (page === MAX_PAGES - 1) {
+          notify.error(
+            `Export stopped after ${receivedContacts.toLocaleString()} contacts. Try again.`,
+            toastId
+          );
+          return;
+        }
+      }
+
+      const url = URL.createObjectURL(
+        new Blob(chunks, { type: "text/csv;charset=utf-8" })
+      );
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = fileName;
       a.click();
       URL.revokeObjectURL(url);
-      notify.success("Allocation contacts downloaded.");
+      notify.success(
+        receivedContacts > 0
+          ? `Allocation contacts downloaded (${receivedContacts.toLocaleString()} contacts)`
+          : "Allocation contacts downloaded.",
+        toastId
+      );
     } catch {
-      notify.error("Export failed");
+      notify.error("Export failed", toastId);
     } finally {
       setBusyKey(null);
     }
@@ -1590,7 +1736,8 @@ export function CustomerInsightPanel({
 
   async function runSearch() {
     const q = phone.trim();
-    if (!q) {
+    const queries = parseInsightPhoneSearchInput(q);
+    if (queries.length === 0) {
       notify.error("Enter a phone number to search.");
       return;
     }
@@ -1600,7 +1747,7 @@ export function CustomerInsightPanel({
     setSearched(false);
     setItemFilter(null);
     setEditing(false);
-    const exactNumber = isCompletePhoneSearch(q);
+    const exactNumber = queries.every((query) => isCompletePhoneSearch(query));
     // Keep filter results until Clear filters; only skip brand/item scope on insight open.
     let autoOpenId: string | null = null;
     try {
@@ -1672,7 +1819,7 @@ export function CustomerInsightPanel({
       setInvoicePage(page);
       if (next.visibility === "owner" && next.contact) {
         setProfileForm({
-          name: next.contact.name,
+          ...splitContactName(next.contact.name),
           email: next.contact.email ?? "",
           addPhoneNumber: "",
           gender: next.contact.gender ?? "",
@@ -1732,12 +1879,20 @@ export function CustomerInsightPanel({
 
   async function saveProfile() {
     if (!selectedContactId || !profileForm) return;
+    const firstName = profileForm.firstName.trim();
+    const lastName = profileForm.lastName.trim();
+    const firstError = contactFirstNameError(firstName);
+    if (firstError) {
+      notify.error(firstError);
+      return;
+    }
     setBusyKey("profile");
     try {
       const dob = formBirthPartsToDb(profileForm);
       const addPhone = profileForm.addPhoneNumber.trim();
       const body: Record<string, unknown> = {
-        name: profileForm.name.trim(),
+        firstName,
+        lastName,
         email: profileForm.email.trim() || null,
         gender: profileForm.gender || null,
         language: profileForm.language || null,
@@ -2276,7 +2431,8 @@ export function CustomerInsightPanel({
               Phone search
             </legend>
             <p className="text-muted-foreground text-xs">
-              Enter a full customer phone number for an exact match.
+              Up to 10 numbers. Spaces ignored. Paste +94, 077, or 77 — same
+              number. Separate with a new line or comma.
             </p>
             <form
               className="flex flex-col gap-3 sm:flex-row"
@@ -2285,13 +2441,20 @@ export function CustomerInsightPanel({
                 void runSearch();
               }}
             >
-              <Input
+              <Textarea
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
-                placeholder="e.g. 0771234567"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    void runSearch();
+                  }
+                }}
+                placeholder={"0771234567\n+94771234567\n77 123 4567"}
                 disabled={isBusy}
                 inputMode="tel"
                 autoComplete="tel"
+                rows={3}
                 className="sm:max-w-sm"
               />
               <Button type="submit" disabled={isBusy}>
@@ -2595,6 +2758,10 @@ export function CustomerInsightPanel({
               <legend className="px-1 text-xs font-medium text-muted-foreground">
                 No purchase
               </legend>
+              <p className="text-muted-foreground text-xs">
+                Last purchase not in this range. Never bought counts. Same day
+                in both fields = that date only.
+              </p>
               <div className="grid grid-cols-2 gap-2">
                 <label className="space-y-1 text-sm">
                   <span className="text-muted-foreground">From</span>
@@ -2826,7 +2993,11 @@ export function CustomerInsightPanel({
                   void loadInsight(
                     m.id,
                     1,
-                    isCompletePhoneSearch(phone) ? { brands: [], items: [] } : undefined
+                    parseInsightPhoneSearchInput(phone).every((query) =>
+                      isCompletePhoneSearch(query)
+                    )
+                      ? { brands: [], items: [] }
+                      : undefined
                   )
                 }
                 className="flex w-full flex-col rounded-md border px-3 py-2 text-left text-sm transition hover:bg-muted/50 disabled:opacity-50 sm:flex-row sm:items-center sm:justify-between"
@@ -3194,11 +3365,30 @@ export function CustomerInsightPanel({
                       {insight.loyaltyAssignment ? (
                         <p className="text-xs text-muted-foreground">
                           Assigned by{" "}
-                          {insight.loyaltyAssignment.assignedByName ?? "unknown"}{" "}
+                          {insight.loyaltyAssignment.assignedByName ?? "unknown"}
                           {insight.loyaltyAssignment.assignedAt
-                            ? `· ${new Date(insight.loyaltyAssignment.assignedAt).toLocaleString()}`
+                            ? ` · ${formatAppDateTime(insight.loyaltyAssignment.assignedAt)}`
                             : ""}
                         </p>
+                      ) : null}
+                      {insight.loyaltyAssignment?.reason ? (
+                        <p className="text-xs text-muted-foreground">
+                          Reason: {insight.loyaltyAssignment.reason}
+                        </p>
+                      ) : null}
+                      {canManualLoyaltyOverride &&
+                      selectedContactId &&
+                      (insight.manualLoyaltyTiers?.length ?? 0) > 0 ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="mt-1"
+                          disabled={isBusy}
+                          onClick={() => setManualLoyaltyOpen(true)}
+                        >
+                          Mark loyalty
+                        </Button>
                       ) : null}
                       {insight.loyaltyEligibility ? (
                         <p className="text-xs font-medium text-amber-700 dark:text-amber-400">
@@ -3331,15 +3521,29 @@ export function CustomerInsightPanel({
                 {editing && profileForm ? (
                   <div className="grid gap-3 border-t border-border/60 pt-4 sm:grid-cols-2">
                     <label className="space-y-1 text-sm">
-                      <span className="text-muted-foreground">Name</span>
+                      <span className="text-muted-foreground">First name</span>
                       <Input
-                        value={profileForm.name}
+                        value={profileForm.firstName}
                         onChange={(e) =>
                           setProfileForm((prev) =>
-                            prev ? { ...prev, name: e.target.value } : prev
+                            prev ? { ...prev, firstName: e.target.value } : prev
                           )
                         }
                         disabled={isBusy}
+                        autoComplete="given-name"
+                      />
+                    </label>
+                    <label className="space-y-1 text-sm">
+                      <span className="text-muted-foreground">Last name</span>
+                      <Input
+                        value={profileForm.lastName}
+                        onChange={(e) =>
+                          setProfileForm((prev) =>
+                            prev ? { ...prev, lastName: e.target.value } : prev
+                          )
+                        }
+                        disabled={isBusy}
+                        autoComplete="family-name"
                       />
                     </label>
                     <label className="space-y-1 text-sm">
@@ -3540,7 +3744,14 @@ export function CustomerInsightPanel({
                         disabled={isBusy}
                         onClick={() => void saveProfile()}
                       >
-                        Save profile
+                        {busyKey === "profile" ? (
+                          <>
+                            <Loader2 className="animate-spin" aria-hidden />
+                            Saving...
+                          </>
+                        ) : (
+                          "Save profile"
+                        )}
                       </Button>
                     </div>
                   </div>
@@ -3720,6 +3931,10 @@ export function CustomerInsightPanel({
                                           .filter(Boolean)
                                           .join(" • ") || "Standard item"}
                                       </p>
+                                      <LineCatalogBadges
+                                        priority={item.priority}
+                                        vatStatus={item.vatStatus}
+                                      />
                                       <p className="mt-1 text-xs">
                                         Qty {item.quantity}
                                         <span className="text-muted-foreground">
@@ -4043,7 +4258,7 @@ export function CustomerInsightPanel({
               Only contacts the allocated merchant marked Responded. Assign Gold or
               Platinum from lifetime spend.
               {canAssignLoyalty
-                ? " Send writes ERP customer group and Shopify tag."
+                ? " Send creates the ERP customer if missing, then writes ERP customer group and Shopify tag."
                 : " Read-only."}
             </CardDescription>
           </CardHeader>
@@ -4120,23 +4335,29 @@ export function CustomerInsightPanel({
                                 typeof data.erpUpdated === "number"
                                   ? data.erpUpdated
                                   : 0;
+                              const erpCreated =
+                                typeof data.erpCreated === "number"
+                                  ? data.erpCreated
+                                  : 0;
                               const shopifyUpdated =
                                 typeof data.shopifyUpdated === "number"
                                   ? data.shopifyUpdated
                                   : 0;
+                              const createdBit =
+                                erpCreated > 0 ? `, created ${erpCreated}` : "";
                               if (pushErrors.length > 0) {
                                 notify.error(
                                   pushErrors[0] ??
-                                    `Assigned ${row.eligibleGroup}, but ERP/Shopify updates failed (ERP ${erpUpdated}, Shopify ${shopifyUpdated})`
+                                    `Assigned ${row.eligibleGroup}, but ERP/Shopify updates failed (ERP ${erpUpdated}${createdBit}, Shopify ${shopifyUpdated})`
                                 );
                               } else {
                                 notify.success(
                                   data.retry
-                                    ? `Retry OK: ERP ${erpUpdated}, Shopify ${shopifyUpdated}`
-                                    : `Sent to ${row.eligibleGroup} (ERP ${row.erpGroup}, Shopify ${row.shopifyTag})`
+                                    ? `Retry OK: ERP ${erpUpdated}${createdBit}, Shopify ${shopifyUpdated}`
+                                    : `Sent to ${row.eligibleGroup} (ERP ${row.erpGroup}${createdBit}, Shopify ${row.shopifyTag})`
                                 );
                               }
-                              if (pushErrors.length === 0 || erpUpdated > 0) {
+                              if (pushErrors.length === 0 || erpUpdated > 0 || erpCreated > 0) {
                                 setLoyaltyQueue((prev) =>
                                   prev.filter((x) => x.contactId !== row.contactId)
                                 );
@@ -5641,6 +5862,18 @@ export function CustomerInsightPanel({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {canManualLoyaltyOverride && selectedContactId ? (
+        <ManualLoyaltyDialog
+          open={manualLoyaltyOpen}
+          onOpenChange={setManualLoyaltyOpen}
+          contactId={selectedContactId}
+          tiers={insight?.manualLoyaltyTiers ?? []}
+          disabled={isBusy}
+          onAssigned={async () => {
+            await loadInsight(selectedContactId, invoicePage);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

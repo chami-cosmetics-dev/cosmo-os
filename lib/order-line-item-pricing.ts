@@ -178,6 +178,7 @@ export async function resolveOrderLineItemsPricing(input: {
   name?: string | null;
   erpnextInvoiceId?: string | null;
   erpnextInstance?: ErpInstanceLike;
+  allowLiveErpLookup?: boolean;
   lineItems: Array<{ sku: string | null; quantity: number; price: string }>;
 }): Promise<OrderLineItemPricing[]> {
   const isErpSource = input.sourceName?.startsWith("erpnext") ?? false;
@@ -211,7 +212,7 @@ export async function resolveOrderLineItemsPricing(input: {
     (erpRows.length === 0 ||
       erpRows.some((row) => row.price_list_rate == null && row.discount_amount == null));
 
-  if (needsLive) {
+  if (needsLive && input.allowLiveErpLookup !== false) {
     const creds = resolveErpApiCreds(input.erpnextInstance ?? null);
     const invoiceRef = resolveErpInvoiceRef(input);
     if (creds && invoiceRef) {

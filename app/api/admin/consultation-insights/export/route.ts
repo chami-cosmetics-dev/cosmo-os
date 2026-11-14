@@ -9,6 +9,7 @@ import {
   summarizeConsultations,
   type ConsultationRow,
 } from "@/lib/consultation-insights/shared";
+import { formatAppDateTimeShort } from "@/lib/format-datetime";
 
 const LOG_HEADERS = [
   "Date",
@@ -79,7 +80,8 @@ export async function GET(request: NextRequest) {
   const monthTotal = totalValue(rows, values);
   const monthLabel = formatConsultationMonth(month);
 
-  const logSheet = XLSX.utils.aoa_to_sheet([
+  const logHead: Array<Array<string | number>> = [
+    ["Exported on", formatAppDateTimeShort(new Date())],
     [`Physical Consultation Log — ${monthLabel}`],
     [],
     ["Month", monthLabel],
@@ -88,6 +90,10 @@ export async function GET(request: NextRequest) {
     ["Invoice value", monthTotal],
     ["Reviews", summary.reviews],
     [],
+  ];
+  const logValueRow = logHead.findIndex((line) => line[0] === "Invoice value");
+  const logSheet = XLSX.utils.aoa_to_sheet([
+    ...logHead,
     LOG_HEADERS,
     ...rows.map((row) => [
       row.consultationDate,
@@ -121,10 +127,12 @@ export async function GET(request: NextRequest) {
   ]);
   summarySheet["!cols"] = [{ wch: 30 }, { wch: 16 }, { wch: 11 }, { wch: 10 }, { wch: 14 }, { wch: 10 }];
 
-  // Consultations: the "Invoice value" summary line (B6) and the Invoice Value column (D) from the data rows.
-  const logSummaryValueCell = logSheet["B6"] as XLSX.CellObject | undefined;
+  // Consultations: the "Invoice value" summary line and the Invoice Value column (D) from the data rows.
+  const logSummaryValueCell = logSheet[XLSX.utils.encode_cell({ r: logValueRow, c: 1 })] as
+    | XLSX.CellObject
+    | undefined;
   if (logSummaryValueCell?.t === "n") logSummaryValueCell.z = MONEY_FORMAT;
-  formatMoneyColumn(logSheet, LOG_HEADERS.indexOf("Invoice Value"), 8);
+  formatMoneyColumn(logSheet, LOG_HEADERS.indexOf("Invoice Value"), logHead.length);
   // Summary: the Invoice Value column (E), merchant rows + total.
   formatMoneyColumn(summarySheet, 4, 3);
 

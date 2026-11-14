@@ -137,7 +137,7 @@ export async function pushBookNoteDayToErp(input: {
     if (bookNoteRowUsesSplitPayload(r.split_lines)) {
       const missing = missingKokoSplitReference(r.split_lines!);
       if (missing != null) {
-        const err = `Row ${r.idx_no || "?"} (${r.sales_invoice || "no invoice"}): KOKO split line ${missing + 1} needs a KOKO order reference. Open the day, fill KOKO order ref, save, then send again.`;
+        const err = `Row ${r.idx_no || "?"} (${r.sales_invoice || "no invoice"}): KOKO split line ${missing + 1} needs a KOKO Order ID. Open the day, fill the KOKO Order ID, save, then send again.`;
         await markBookNoteErpSyncFailed(input.bookNoteDayId, err);
         return {
           ok: false,
@@ -166,7 +166,7 @@ export async function pushBookNoteDayToErp(input: {
       continue;
     }
     if (r.koko > 0 && !normalizeKokoOrderReference(r.koko_reference)) {
-      const err = `Row ${r.idx_no || "?"} (${r.sales_invoice || "no invoice"}): KOKO amount entered but KOKO order reference missing. Open the day, fill KOKO order ref, save, then send again.`;
+      const err = `Row ${r.idx_no || "?"} (${r.sales_invoice || "no invoice"}): KOKO amount entered but KOKO Order ID missing. Open the day, fill the KOKO Order ID, save, then send again.`;
       await markBookNoteErpSyncFailed(input.bookNoteDayId, err);
       return {
         ok: false,

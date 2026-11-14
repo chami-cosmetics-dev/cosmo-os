@@ -2,14 +2,19 @@
  * One-off: scan stock/price gaps and send report email.
  *
  *   node scripts/with-env.mjs cosmo-prod npx tsx --tsconfig tsconfig.scripts.json scripts/send-stock-price-missing-email.ts
- *   node scripts/with-env.mjs cosmo-prod npx tsx --tsconfig tsconfig.scripts.json scripts/send-stock-price-missing-email.ts --to you@example.com
+ *   node scripts/with-env.mjs vault npx tsx --tsconfig tsconfig.scripts.json scripts/send-stock-price-missing-email.ts --to you@example.com
  *   node scripts/with-env.mjs cosmo-prod npx tsx --tsconfig tsconfig.scripts.json scripts/send-stock-price-missing-email.ts --preview
  */
 import { config as loadEnv, parse } from "dotenv";
 import { existsSync, readFileSync } from "fs";
 import { resolve } from "path";
 
-loadEnv({ path: resolve(process.cwd(), ".env.cosmo-prod"), override: true });
+const envAlreadyLoaded = Boolean(
+  process.env.DATABASE_URL && process.env.NEXT_PUBLIC_APP_NAME,
+);
+if (!envAlreadyLoaded) {
+  loadEnv({ path: resolve(process.cwd(), ".env.cosmo-prod"), override: true });
+}
 
 const mailerooPath = resolve(process.cwd(), ".env.maileroo.tmp");
 if (existsSync(mailerooPath)) {
@@ -50,13 +55,24 @@ async function main() {
     process.exit(1);
   }
 
-  const company = await prisma.company.findFirst({
-    where: { name: { contains: "cosmetic", mode: "insensitive" } },
+  const { isVaultOsDeployment } = await import("../lib/falcon-waybill-brand");
+  const { stockPriceMissingCompanyWhere } = await import(
+    "../lib/stock-price-missing/company"
+  );
+  const vaultOs = isVaultOsDeployment();
+  let company = await prisma.company.findFirst({
+    where: stockPriceMissingCompanyWhere(vaultOs),
     select: { id: true, name: true },
     orderBy: { createdAt: "asc" },
   });
+  if (!company && vaultOs) {
+    company = await prisma.company.findFirst({
+      select: { id: true, name: true },
+      orderBy: { createdAt: "asc" },
+    });
+  }
   if (!company) {
-    console.error("No Cosmetics company found");
+    console.error(vaultOs ? "No Vault company found" : "No Cosmetics company found");
     process.exit(1);
   }
 

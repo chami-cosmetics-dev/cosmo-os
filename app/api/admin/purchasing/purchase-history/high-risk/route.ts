@@ -21,10 +21,10 @@ function isoDate(value: string | null | undefined): Date | null {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-async function context() {
+async function context(permission: "purchasing.high_risk.read" | "purchasing.high_risk.manage") {
   const user = await getCurrentUserContext();
   if (!user?.user) return { response: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
-  if (!hasPermission(user, "purchasing.purchase_history.read")) {
+  if (!hasPermission(user, permission)) {
     return { response: NextResponse.json({ error: "Forbidden" }, { status: 403 }) };
   }
   if (!user.user.companyId) return { response: NextResponse.json({ error: "No company associated with your account" }, { status: 404 }) };
@@ -32,7 +32,7 @@ async function context() {
 }
 
 export async function GET() {
-  const auth = await context();
+  const auth = await context("purchasing.high_risk.read");
   if ("response" in auth) return auth.response;
   const reportDate = getCurrentColomboReportDate();
   const cycleStart = currentCycleStart(reportDate);
@@ -43,7 +43,7 @@ export async function GET() {
 
   const report = await loadMarginIssuesReport(auth.companyId, reportDate);
   const candidates = report.details.filter(
-    (row) => row.priority.toLowerCase() === "top" && ropFulfillmentBand(row.stockAvailable, row.totalRop) === "0-10",
+    (row) => ropFulfillmentBand(row.stockAvailable, row.totalRop) === "0-10",
   );
   for (const row of candidates) {
     const existing = await prisma.highRiskReorderRecord.findFirst({
@@ -80,15 +80,17 @@ export async function GET() {
     where: { companyId: auth.companyId, cycleStart, status: "active" },
     orderBy: [{ orderPlaced: "asc" }, { createdAt: "asc" }],
   });
-  return NextResponse.json({ reportDate, cycleStart: cycleStart.toISOString().slice(0, 10), rows });
+  const priorityBySku = new Map(report.details.map((row) => [row.sku, row.priority]));
+  return NextResponse.json({
+    reportDate,
+    cycleStart: cycleStart.toISOString().slice(0, 10),
+    rows: rows.map((row) => ({ ...row, priority: priorityBySku.get(row.sku) ?? "Unspecified" })),
+  });
 }
 
 export async function PATCH(request: Request) {
-  const auth = await context();
+  const auth = await context("purchasing.high_risk.manage");
   if ("response" in auth) return auth.response;
-  if (!hasPermission(await getCurrentUserContext(), "purchasing.osf.manage")) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
   const body = (await request.json()) as {
     id?: string; orderPlaced?: boolean; orderQty?: number | null; orderSupplier?: string | null;
     orderReceiveDate?: string | null; reasonType?: string | null; replacementSku?: string | null;

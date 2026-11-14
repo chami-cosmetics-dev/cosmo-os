@@ -9,6 +9,7 @@ import {
 } from "@/lib/book-notes/access";
 import { isBookNoteWritable, DAY_LOCKED_CODE, bookNoteLockMessage } from "@/lib/book-notes/lock";
 import { deleteBookNoteReceipt } from "@/lib/book-notes/receipts";
+import { storedFileResponse } from "@/lib/file-storage-response";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission, requirePermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
@@ -28,7 +29,7 @@ function postingDateYmd(value: Date): string {
  * merchants only the slips on sheets they created.
  */
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const auth = await requireAnyPermission([
@@ -106,32 +107,12 @@ export async function GET(
     }
   }
 
-  const blobRes = await fetch(
-    receipt.blobUrl,
-    process.env.BLOB_READ_WRITE_TOKEN
-      ? {
-          headers: {
-            Authorization: `Bearer ${process.env.BLOB_READ_WRITE_TOKEN}`,
-          },
-        }
-      : undefined,
-  );
-  if (!blobRes.ok || !blobRes.body) {
-    return NextResponse.json({ error: "Failed to fetch file" }, { status: 502 });
-  }
-
-  return new NextResponse(blobRes.body, {
-    headers: {
-      "Content-Type":
-        receipt.mimeType ??
-        blobRes.headers.get("Content-Type") ??
-        "application/octet-stream",
-      "Cache-Control": "private, max-age=3600",
-      "Content-Disposition": `inline; filename="${receipt.fileName.replace(/"/g, "")}"`,
-      ...(blobRes.headers.get("Content-Length")
-        ? { "Content-Length": blobRes.headers.get("Content-Length")! }
-        : {}),
-    },
+  return storedFileResponse({
+    url: receipt.blobUrl,
+    request,
+    mimeType: receipt.mimeType,
+    fileName: receipt.fileName,
+    cacheControl: "private, max-age=3600",
   });
 }
 

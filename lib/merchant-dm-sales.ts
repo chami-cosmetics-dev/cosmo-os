@@ -14,7 +14,14 @@ export const DM_GENERAL_COHORT_ID = "__dm_general__";
 
 export const DM_GENERAL_DISPLAY_NAME = "DM-General";
 export const STAFF_SALES_DISPLAY_NAME = "Staff Sales";
-export const DIRECTOR_SALES_DISPLAY_NAME = "Director Sales";
+
+/** Staff discount coupons. Orders with these dump as Staff Sales. */
+export const STAFF_SALES_COUPON_KEYS = new Set([
+  "staffdc",
+  "dir100",
+  "staffvat",
+  "staffsale",
+]);
 
 /** Collapse blank / Unknown / Unassigned / "DM General" group label into DM-General. */
 export function normalizeDashboardMerchantLabel(
@@ -44,6 +51,16 @@ export function normalizeCouponKey(code: string): string {
   return code.trim().toLowerCase();
 }
 
+function compactCouponKey(code: string): string {
+  return normalizeCouponKey(code).replace(/[_-]+/g, "");
+}
+
+export function isStaffSalesCouponCode(code: string | null | undefined): boolean {
+  const key = compactCouponKey(String(code ?? ""));
+  if (!key) return false;
+  return STAFF_SALES_COUPON_KEYS.has(key);
+}
+
 /** Merchants who own DM coupon codes (DM-General bucket attributee). */
 export function resolveDmHolderMerchantIds(
   merchants: Array<{ id: string }>,
@@ -66,11 +83,7 @@ export function dmBucketShareForHolder(
 export function resolveFixedSalesCouponBucket(
   couponCodes: string[],
 ): { id: string | null; name: string } | null {
-  const normalized = couponCodes.map((code) => normalizeCouponKey(code)).filter(Boolean);
-  if (normalized.some((code) => code === "dir100")) {
-    return { id: null, name: DIRECTOR_SALES_DISPLAY_NAME };
-  }
-  if (normalized.some((code) => code.includes("staff"))) {
+  if (couponCodes.some((code) => isStaffSalesCouponCode(code))) {
     return { id: null, name: STAFF_SALES_DISPLAY_NAME };
   }
   return null;
@@ -105,6 +118,17 @@ export function parseOrderCouponList(merchantCouponCode: string | null | undefin
     .filter(Boolean);
 }
 
+/**
+ * DM-only tracking (ERP DM_General / MER115, no personal MER).
+ * Those orders stay in the DM-General bucket — do not assign a person.
+ */
+export function isDmOnlyMerchantTracking(
+  codes: string[] | null | undefined,
+): boolean {
+  const tracking = (codes ?? []).filter((code) => isMerchantTrackingCode(code));
+  return tracking.length > 0 && tracking.every((code) => isDmCouponCode(code));
+}
+
 export type MerchantSalesBucket = "mer" | "dm";
 
 /**
@@ -119,6 +143,8 @@ export function classifyMerchantSalesBucket(input: {
   dm: Set<string>;
   hasDm: boolean;
   assignedToViewer: boolean;
+  locationName?: string | null;
+  locationDefaultIsViewer?: boolean;
 }): MerchantSalesBucket | null {
   const tracking = input.orderCoupons.filter((c) => isMerchantTrackingCode(c));
   const merHit = tracking.some((c) => input.personal.has(c));
@@ -137,7 +163,9 @@ export function classifyMerchantSalesBucket(input: {
 /**
  * Cohort attribution for peer graphs.
  * Personal MER → merchant user id.
- * DM MER / no merchant tracking code → synthetic DM-General id (when a DM holder exists).
+ * DM-shaped codes (MER115 / ERP DM_General) → synthetic DM-General when a holder
+ * exists; otherwise omit (never credit assignedMerchantId).
+ * No merchant tracking code → DM-General only when a DM holder exists.
  */
 export function resolveCohortMerchantId(input: {
   orderCoupons: string[];
@@ -146,14 +174,17 @@ export function resolveCohortMerchantId(input: {
   cohortIds: Set<string>;
   /** Synthetic bucket id (e.g. DM_GENERAL_COHORT_ID) when company has a DM holder. */
   dmBucketId: string | null;
+  locationName?: string | null;
+  locationDefaultMerchantId?: string | null;
 }): string | null {
   const tracking = input.orderCoupons.filter((c) => isMerchantTrackingCode(c));
   for (const code of tracking) {
     const hit = input.couponToMerchantId.get(code);
     if (hit) return hit;
   }
-  // ERP DM_General (etc.) may not be on any Vault user couponCodes — still DM bucket.
-  if (input.dmBucketId && tracking.some((c) => isDmCouponCode(c))) {
+  // ERP DM_General (etc.) may not be on any Vault user couponCodes.
+  // Never fall through to assignedMerchantId — DM-General stays unassigned.
+  if (tracking.some((c) => isDmCouponCode(c))) {
     return input.dmBucketId;
   }
   if (tracking.length === 0 && input.dmBucketId) {

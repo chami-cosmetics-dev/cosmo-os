@@ -5,6 +5,7 @@ import {
   resolveBookNoteShopAccess,
 } from "@/lib/book-notes/access";
 import { searchBookNoteOrderSuggestions } from "@/lib/book-notes/order-suggestions";
+import { isCosmeticsBookNoteLocation } from "@/lib/book-notes/shop-outlet-map";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { bookNoteSuggestionsQuerySchema } from "@/lib/validation/book-notes";
@@ -46,17 +47,22 @@ export async function GET(request: NextRequest) {
 
   const location = await prisma.companyLocation.findFirst({
     where: { id: parsed.data.companyLocationId, companyId },
-    select: { id: true },
+    select: { id: true, name: true, shortName: true, erpnextCompany: true },
   });
   if (!location) {
     return NextResponse.json({ error: "Shop not found" }, { status: 404 });
   }
+
+  const cosmeticsPosScope = isCosmeticsBookNoteLocation(location)
+    ? access.cosmeticsPosScope
+    : null;
 
   const suggestions = await searchBookNoteOrderSuggestions({
     companyId,
     companyLocationId: parsed.data.companyLocationId,
     q: parsed.data.q,
     postingDate: parsed.data.postingDate,
+    cosmeticsPosScope,
   });
 
   return NextResponse.json({ suggestions });

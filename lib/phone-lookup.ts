@@ -176,6 +176,104 @@ export function canonicalPhoneForErpCustomerId(raw: string): string | null {
   return null;
 }
 
+/** Customer insight phone search: paste up to this many numbers. */
+export const INSIGHT_PHONE_SEARCH_MAX = 10;
+/** Raw paste size (newlines, +94, spaces). */
+export const INSIGHT_PHONE_SEARCH_INPUT_MAX = 500;
+
+function restLooksLikeAnotherPhone(raw: string): boolean {
+  const rest = raw.trim();
+  if (!rest) return false;
+  if (canonicalPhoneForErpCustomerId(rest)) return true;
+  return phoneDigitsOnly(rest).length >= 9;
+}
+
+/**
+ * Pull complete SL numbers from one chunk. Internal spaces stay part of a
+ * number (`074 202 3010`). A finished number plus more digits starts the next.
+ */
+function extractCompletePhoneTokens(chunk: string): string[] {
+  const tokens: string[] = [];
+  let buf = "";
+  const flush = () => {
+    const trimmed = buf.trim();
+    if (
+      trimmed &&
+      (canonicalPhoneForErpCustomerId(trimmed) || phoneDigitsOnly(trimmed).length >= 7)
+    ) {
+      tokens.push(trimmed);
+    }
+    buf = "";
+  };
+
+  for (let i = 0; i < chunk.length; i += 1) {
+    const ch = chunk[i]!;
+    if (/\d/.test(ch) || ch === "+") {
+      buf += ch;
+      continue;
+    }
+    if (ch === " " || ch === "-" || ch === "(" || ch === ")") {
+      if (canonicalPhoneForErpCustomerId(buf) && restLooksLikeAnotherPhone(chunk.slice(i + 1))) {
+        flush();
+        continue;
+      }
+      buf += ch;
+      continue;
+    }
+    flush();
+  }
+  flush();
+  return tokens;
+}
+
+function pushPhoneQuery(out: string[], seen: Set<string>, token: string) {
+  const trimmed = token.trim();
+  if (!trimmed) return;
+  const canonical = canonicalPhoneForErpCustomerId(trimmed);
+  const digits = phoneDigitsOnly(trimmed);
+  if (digits.length < 7) return;
+  const key = canonical ?? digits;
+  if (seen.has(key)) return;
+  seen.add(key);
+  out.push(canonical ?? trimmed);
+}
+
+/**
+ * Split a phone-search paste into queries (max 10).
+ * Spaces inside one number are ignored. `+94` / `077` / `77` become the same
+ * local 10-digit number. Newline, comma, semicolon, tab, pipe separate a list.
+ */
+export function parseInsightPhoneSearchInput(
+  raw: string,
+  max = INSIGHT_PHONE_SEARCH_MAX
+): string[] {
+  const text = raw.trim();
+  if (!text) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+
+  for (const chunk of text.split(/[\n\r,;|\t]+/)) {
+    const trimmed = chunk.trim();
+    if (!trimmed) continue;
+    if (canonicalPhoneForErpCustomerId(trimmed)) {
+      pushPhoneQuery(out, seen, trimmed);
+      continue;
+    }
+    const extracted = extractCompletePhoneTokens(trimmed);
+    if (extracted.length > 1) {
+      for (const token of extracted) pushPhoneQuery(out, seen, token);
+      continue;
+    }
+    if (extracted.length === 1 && canonicalPhoneForErpCustomerId(extracted[0]!)) {
+      pushPhoneQuery(out, seen, extracted[0]!);
+      continue;
+    }
+    pushPhoneQuery(out, seen, trimmed);
+  }
+
+  return out.slice(0, max);
+}
+
 /** Prefer ERP-safe local format when storing customer phones on Order / contacts. */
 export function normalizeOrderCustomerPhone(raw: string | null | undefined): string | null {
   const trimmed = raw?.trim() ?? "";

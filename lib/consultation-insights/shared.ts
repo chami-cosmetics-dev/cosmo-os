@@ -13,6 +13,8 @@ export type ConsultationMerchantOption = {
   kind: ConsultationMerchantKind;
   /** Showrooms: auto-pick when the order was placed at a location whose name contains this. */
   locationKeyword?: string;
+  /** Auto-pick when the order carries one of these coupon codes (beats the coupon's owner). */
+  couponCodes?: readonly string[];
 };
 
 /** The Merchant dropdown. Edit this list to add / rename / remove merchants. */
@@ -26,7 +28,13 @@ export const CONSULTATION_MERCHANT_OPTIONS: readonly ConsultationMerchantOption[
   { label: "Imandhi", kind: "merchant" },
   { label: "Sandali", kind: "merchant" },
   { label: "Venushka", kind: "merchant" },
-  { label: "Showroom - Pepiliyana", kind: "showroom", locationKeyword: "pepiliyana" },
+  // MER114-CM001 is used on showroom sales, even though it belongs to Venushka.
+  {
+    label: "Showroom - Pepiliyana",
+    kind: "showroom",
+    locationKeyword: "pepiliyana",
+    couponCodes: ["MER114-CM001"],
+  },
 ];
 
 export function findConsultationMerchant(label: string): ConsultationMerchantOption | null {
@@ -38,13 +46,21 @@ function normalizeName(value: string) {
 }
 
 /**
- * Dropdown label for an order: the merchant behind its coupon code (matched on full name or
- * first name, e.g. "Maheshi" → "Maheshi Priyadarshani"), otherwise a showroom by location.
+ * Dropdown label for an order: an option tied to one of its coupon codes, otherwise the
+ * merchant behind its coupon code (matched on full name or first name, e.g. "Maheshi" →
+ * "Maheshi Priyadarshani"), otherwise a showroom by location.
  */
 export function suggestConsultationMerchant(input: {
   merchantName: string | null;
   locationName: string | null;
+  discountCodes?: string[];
 }): string | null {
+  const codes = new Set((input.discountCodes ?? []).map((code) => code.trim().toUpperCase()));
+  const byCoupon = CONSULTATION_MERCHANT_OPTIONS.find((option) =>
+    option.couponCodes?.some((code) => codes.has(code.toUpperCase())),
+  );
+  if (byCoupon) return byCoupon.label;
+
   const merchantName = input.merchantName ? normalizeName(input.merchantName) : "";
   if (merchantName) {
     const firstName = merchantName.split(" ")[0];
@@ -94,6 +110,18 @@ export type ConsultationInvoiceMatch = {
   suggestedMerchant: string | null;
   customerName: string | null;
   locationName: string | null;
+};
+
+/** One line of the change history (add / review change / delete). */
+export type ConsultationHistoryEntry = {
+  id: string;
+  action: string;
+  summary: string;
+  actorName: string;
+  createdAt: string;
+  /** Review updates only: the text before and after the change. */
+  reviewBefore: string | null;
+  reviewAfter: string | null;
 };
 
 export type ConsultationSummary = {
@@ -200,6 +228,44 @@ export function summarizeConsultations(rows: ConsultationRow[]): ConsultationSum
     invoices: rows.length,
     reviews: groups.filter((group) => group.head.physicalReview.trim()).length,
   };
+}
+
+export type ConsultationFilters = {
+  /** YYYY-MM-DD, inclusive; blank = open-ended. */
+  dateFrom: string;
+  dateTo: string;
+  contactNumber: string;
+  invoiceNumber: string;
+};
+
+export const EMPTY_CONSULTATION_FILTERS: ConsultationFilters = {
+  dateFrom: "",
+  dateTo: "",
+  contactNumber: "",
+  invoiceNumber: "",
+};
+
+export function hasConsultationFilters(filters: ConsultationFilters): boolean {
+  return Object.values(filters).some((value) => value.trim() !== "");
+}
+
+/**
+ * Customers matching every filter. Contact number and invoice match on any part
+ * ("0771" / "000567"); a customer matches the invoice filter if any of their invoices does.
+ */
+export function filterConsultationGroups(
+  groups: ConsultationGroup[],
+  filters: ConsultationFilters,
+): ConsultationGroup[] {
+  const phone = filters.contactNumber.replace(/\D/g, "");
+  const invoice = filters.invoiceNumber.replace(/\s/g, "").toUpperCase();
+  return groups.filter(({ head, rows }) => {
+    if (filters.dateFrom && head.consultationDate < filters.dateFrom) return false;
+    if (filters.dateTo && head.consultationDate > filters.dateTo) return false;
+    if (phone && !head.contactNumber.includes(phone)) return false;
+    if (invoice && !rows.some((row) => row.invoiceNumber.toUpperCase().includes(invoice))) return false;
+    return true;
+  });
 }
 
 /** Invoice numbers that appear on more than one row in the list. */

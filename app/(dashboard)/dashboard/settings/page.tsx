@@ -7,9 +7,10 @@ import {
 } from "@/components/organisms/settings-page-data";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { OutletsSettingsClient } from "@/components/organisms/outlets-settings-client";
+import { SuppliersSettingsForm } from "@/components/molecules/suppliers-settings-form";
 import { getLocationsSettingsInitialData } from "@/lib/page-data/locations-settings";
 import { prisma } from "@/lib/prisma";
-import { getCurrentUserContext, hasPermission } from "@/lib/rbac";
+import { getCurrentUserContext, hasAnyPermission, hasPermission } from "@/lib/rbac";
 import { BookUser, Building2, Calculator, ChevronRight, FileArchive, Mail, MessageSquare, Package, Plug, Printer } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -43,30 +44,27 @@ export default async function SettingsPage() {
   const canManageOutlets = context
     ? hasPermission(context, "outlets.manage")
     : false;
+  const canManageSuppliers = context
+    ? hasAnyPermission(context, ["settings.company", "settings.suppliers"])
+    : false;
   const companyId = context?.user?.companyId ?? null;
 
   let initialSettingsData: SettingsPageDataType | null = null;
   let locationsInitial: Awaited<ReturnType<typeof getLocationsSettingsInitialData>> | null = null;
   if (canManageCompany && companyId) {
-    const [company, riderPayday] = await Promise.all([
-      prisma.company.findUnique({
-        where: { id: companyId },
-        select: {
-          id: true,
-          name: true,
-          logoUrl: true,
-          faviconUrl: true,
-          employeeSize: true,
-          address: true,
-          createdAt: true,
-          updatedAt: true,
-        },
-      }),
-      prisma.riderPayPeriodConfig.findUnique({
-        where: { singletonKey: "default" },
-        select: { paydayDayOfMonth: true },
-      }),
-    ]);
+    const company = await prisma.company.findUnique({
+      where: { id: companyId },
+      select: {
+        id: true,
+        name: true,
+        logoUrl: true,
+        faviconUrl: true,
+        employeeSize: true,
+        address: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
 
     initialSettingsData = {
       company: company
@@ -76,9 +74,6 @@ export default async function SettingsPage() {
             updatedAt: company.updatedAt.toISOString(),
           }
         : null,
-      riderPayday: {
-        paydayDayOfMonth: riderPayday?.paydayDayOfMonth ?? null,
-      },
     };
 
     try {
@@ -222,6 +217,8 @@ export default async function SettingsPage() {
         />
       )}
 
+      {canManageSuppliers && <SuppliersSettingsForm canEdit />}
+
       {canManageOutlets && <OutletsSettingsClient embedded />}
 
       {settingLinks.length > 0 && (
@@ -318,7 +315,7 @@ export default async function SettingsPage() {
         </div>
       )}
 
-      {!canManageCompany && settingLinks.length === 0 && (
+      {!canManageCompany && !canManageSuppliers && settingLinks.length === 0 && (
         <Card className="overflow-hidden border-border/70 shadow-xs">
           <CardHeader className="border-b border-border/50 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_12%,transparent))]">
             <CardTitle>Settings</CardTitle>

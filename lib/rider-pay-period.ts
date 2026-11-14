@@ -1,4 +1,8 @@
-import { addDays, endOfDay, startOfDay } from "@/lib/mobile/dates";
+import {
+  formatAppIsoDate,
+  parseAppCalendarDayEnd,
+  parseAppCalendarDayStart,
+} from "@/lib/format-datetime";
 
 export type PayPeriodKind = "current" | "previous";
 
@@ -8,58 +12,44 @@ export type PayPeriodWindow = {
   to: Date;
 };
 
-const MIN_DAY = 1;
-const MAX_DAY = 31;
-
-export function isValidPaydayDayOfMonth(value: number | null | undefined): value is number {
-  return typeof value === "number" && Number.isInteger(value) && value >= MIN_DAY && value <= MAX_DAY;
+function pad2(n: number) {
+  return String(n).padStart(2, "0");
 }
 
-/** Day-of-month clamped to the last day of that calendar month (e.g. 31 in Feb → 28/29). */
-export function clampDayToMonth(year: number, monthIndex: number, dayOfMonth: number): number {
-  const lastDay = new Date(year, monthIndex + 1, 0).getDate();
-  return Math.min(Math.max(dayOfMonth, MIN_DAY), lastDay);
+/** Last calendar day of year/month (month 1–12), Asia/Colombo months. */
+export function lastDayOfCalendarMonth(year: number, month1to12: number): number {
+  return new Date(Date.UTC(year, month1to12, 0)).getUTCDate();
 }
 
-export function dateOnPaydayInMonth(year: number, monthIndex: number, paydayDayOfMonth: number): Date {
-  const day = clampDayToMonth(year, monthIndex, paydayDayOfMonth);
-  return startOfDay(new Date(year, monthIndex, day));
-}
-
-/** Most recent payday on or before `ref` (local), respecting each month’s length. */
-export function mostRecentPaydayOnOrBefore(ref: Date, paydayDayOfMonth: number): Date {
-  const day = startOfDay(ref);
-  const thisMonth = dateOnPaydayInMonth(day.getFullYear(), day.getMonth(), paydayDayOfMonth);
-  if (thisMonth.getTime() <= day.getTime()) {
-    return thisMonth;
+function monthWindow(year: number, month1to12: number): { from: Date; to: Date } {
+  const last = lastDayOfCalendarMonth(year, month1to12);
+  const from = parseAppCalendarDayStart(`${year}-${pad2(month1to12)}-01`);
+  const to = parseAppCalendarDayEnd(`${year}-${pad2(month1to12)}-${pad2(last)}`);
+  if (!from || !to) {
+    throw new Error(`Invalid calendar month ${year}-${month1to12}`);
   }
-  const prev = new Date(day.getFullYear(), day.getMonth() - 1, 1);
-  return dateOnPaydayInMonth(prev.getFullYear(), prev.getMonth(), paydayDayOfMonth);
+  return { from, to };
 }
 
+/**
+ * Rider pay period = Asia/Colombo calendar month (1st → last day of that month).
+ * `current` = month containing referenceDate; `previous` = month before that.
+ */
 export function resolvePayPeriodWindow(
-  paydayDayOfMonth: number | null | undefined,
   kind: PayPeriodKind,
   referenceDate: Date = new Date()
-): PayPeriodWindow | null {
-  if (!isValidPaydayDayOfMonth(paydayDayOfMonth)) {
-    return null;
-  }
-
-  const currentStart = mostRecentPaydayOnOrBefore(referenceDate, paydayDayOfMonth);
-  const nextMonthAnchor = new Date(currentStart.getFullYear(), currentStart.getMonth() + 1, 1);
-  const nextStart = dateOnPaydayInMonth(
-    nextMonthAnchor.getFullYear(),
-    nextMonthAnchor.getMonth(),
-    paydayDayOfMonth
-  );
-  const currentEnd = endOfDay(addDays(startOfDay(nextStart), -1));
+): PayPeriodWindow {
+  const ymd = formatAppIsoDate(referenceDate);
+  const year = Number(ymd.slice(0, 4));
+  const month = Number(ymd.slice(5, 7));
 
   if (kind === "current") {
-    return { kind: "current", from: currentStart, to: currentEnd };
+    const { from, to } = monthWindow(year, month);
+    return { kind: "current", from, to };
   }
 
-  const previousStart = mostRecentPaydayOnOrBefore(addDays(currentStart, -1), paydayDayOfMonth);
-  const previousEnd = endOfDay(addDays(currentStart, -1));
-  return { kind: "previous", from: previousStart, to: previousEnd };
+  const prevMonth = month === 1 ? 12 : month - 1;
+  const prevYear = month === 1 ? year - 1 : year;
+  const { from, to } = monthWindow(prevYear, prevMonth);
+  return { kind: "previous", from, to };
 }

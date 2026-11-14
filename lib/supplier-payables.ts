@@ -27,6 +27,11 @@ type ErpSupplierRow = {
   supplier_name?: string | null;
 };
 
+type ErpSupplierPaymentRow = {
+  party?: string | null;
+  paid_amount?: number | string | null;
+};
+
 export type SupplierPayableLine = {
   supplierId: string;
   supplierName: string | null;
@@ -45,12 +50,14 @@ export type SupplierPayableLine = {
   itemCode?: string | null;
   itemName?: string | null;
   itemLines?: Array<{ itemCode: string | null; itemName: string | null; poNumber: string | null; quantity: number; amount: number; availableStock: number }>;
+  previousDaySettlements?: number;
 };
 
 export type SupplierPayableGroup = {
   supplierId: string;
   supplierName: string | null;
   totalOutstanding: number;
+  previousDaySettlements: number;
   currency: string | null;
   lines: SupplierPayableLine[];
 };
@@ -84,6 +91,12 @@ async function erpGetJson<T>(cfg: OsfErpCredentials, path: string): Promise<T> {
 
 function dateOnly(value: Date): string {
   return value.toISOString().slice(0, 10);
+}
+
+function previousCalendarDate(reportDate: string): string {
+  const date = new Date(`${reportDate}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() - 1);
+  return date.toISOString().slice(0, 10);
 }
 
 export function defaultSupplierPayablesReportDate(): string {
@@ -139,6 +152,70 @@ function valueFromReportRow(row: unknown, columns: ErpReportColumn[], names: str
   return null;
 }
 
+type AccountsPayableLedgerRow = {
+  supplierKey: string;
+  postingDate: string | null;
+  sequence: number;
+  balance: number;
+  invoice: SupplierPayableLine | null;
+  remaining: number;
+};
+
+const PAYABLE_TOLERANCE = 0.005;
+
+/**
+ * ERPNext's Accounts Payable report returns supplier invoices and the matching
+ * payment/JV credits as separate ledger rows.  Apply those credits to the
+ * oldest supplier debits before deciding which Purchase Invoices are still
+ * payable.  This prevents a fully paid invoice from appearing outstanding
+ * merely because its payment is represented on another report row.
+ */
+function allocatePayableLedgerRows(rows: AccountsPayableLedgerRow[]): SupplierPayableLine[] {
+  const bySupplier = new Map<string, AccountsPayableLedgerRow[]>();
+  for (const row of rows) {
+    const supplierRows = bySupplier.get(row.supplierKey) ?? [];
+    supplierRows.push(row);
+    bySupplier.set(row.supplierKey, supplierRows);
+  }
+
+  for (const supplierRows of bySupplier.values()) {
+    supplierRows.sort((left, right) => {
+      const dateComparison = (left.postingDate ?? "9999-12-31").localeCompare(right.postingDate ?? "9999-12-31");
+      return dateComparison || left.sequence - right.sequence;
+    });
+
+    const debitQueue: AccountsPayableLedgerRow[] = [];
+    let unappliedCredit = 0;
+    for (const row of supplierRows) {
+      if (row.balance > PAYABLE_TOLERANCE) {
+        row.remaining = row.balance;
+        if (unappliedCredit > PAYABLE_TOLERANCE) {
+          const applied = Math.min(row.remaining, unappliedCredit);
+          row.remaining -= applied;
+          unappliedCredit -= applied;
+        }
+        if (row.remaining > PAYABLE_TOLERANCE) debitQueue.push(row);
+        continue;
+      }
+      if (row.balance >= -PAYABLE_TOLERANCE) continue;
+
+      let credit = Math.abs(row.balance);
+      while (credit > PAYABLE_TOLERANCE && debitQueue.length) {
+        const debit = debitQueue[0]!;
+        const applied = Math.min(debit.remaining, credit);
+        debit.remaining -= applied;
+        credit -= applied;
+        if (debit.remaining <= PAYABLE_TOLERANCE) debitQueue.shift();
+      }
+      unappliedCredit += credit;
+    }
+  }
+
+  return rows
+    .filter((row) => row.invoice && row.remaining > PAYABLE_TOLERANCE)
+    .map((row) => ({ ...row.invoice!, total: row.remaining, outstanding: row.remaining }));
+}
+
 async function fetchAccountsPayable(input: {
   cfg: OsfErpCredentials;
   company: string;
@@ -159,18 +236,21 @@ async function fetchAccountsPayable(input: {
   const json = await erpGetJson<ErpReportResponse>(input.cfg, path);
   const columns = json.message?.columns ?? [];
   const rows = json.message?.result ?? [];
-  const invoiceRows = rows
-    .map((row): SupplierPayableLine | null => {
+  const invoiceRows = allocatePayableLedgerRows(
+    rows.flatMap((row, sequence): AccountsPayableLedgerRow[] => {
       const voucherType = text(valueFromReportRow(row, columns, ["voucher_type"]));
       const voucherNo = text(valueFromReportRow(row, columns, ["voucher_no", "voucher", "purchase_invoice", "name"]));
-      if (
-        isTrue(valueFromReportRow(row, columns, ["is_return", "is_return_invoice"])) ||
-        (voucherType && !/purchase invoice/i.test(voucherType)) ||
-        (!voucherType && (!voucherNo || /^(PAY|PE|JV|JE|Journal)/i.test(voucherNo)))
-      ) return null;
       const supplierId = text(valueFromReportRow(row, columns, ["party", "supplier"]));
-      if (!supplierId) return null;
-      return {
+      const balance = money(valueFromReportRow(row, columns, ["outstanding"]));
+      if (!supplierId || Math.abs(balance) <= PAYABLE_TOLERANCE) return [];
+
+      const isReturn = isTrue(valueFromReportRow(row, columns, ["is_return", "is_return_invoice"]));
+      const isPurchaseInvoice = !isReturn && Boolean(
+        voucherType
+          ? /purchase invoice/i.test(voucherType)
+          : voucherNo && !/^(PAY|PE|JV|JE|Journal)/i.test(voucherNo),
+      );
+      const invoice = isPurchaseInvoice ? {
         supplierId,
         supplierName: text(valueFromReportRow(row, columns, ["party_name", "supplier_name"])),
         company: input.company,
@@ -186,13 +266,23 @@ async function fetchAccountsPayable(input: {
         remark: text(valueFromReportRow(row, columns, ["remarks", "remark", "description"])),
         erpSlot: null,
         erpLabel: null,
-        outstanding: money(valueFromReportRow(row, columns, ["outstanding"])),
+        outstanding: balance,
         currency: text(valueFromReportRow(row, columns, ["currency"])),
-      } satisfies SupplierPayableLine;
+      } satisfies SupplierPayableLine : null;
+
+      return [{
+        supplierKey: supplierId.toLowerCase(),
+        postingDate: text(valueFromReportRow(row, columns, ["posting_date", "bill_date", "date"])),
+        sequence,
+        balance,
+        invoice,
+        remaining: 0,
+      }];
     })
-    .filter((row): row is SupplierPayableLine => Boolean(row));
+  );
 
   const receiptByInvoice = new Map<string, string>();
+  const receiptDateByInvoice = new Map<string, string>();
   const paymentModeByInvoice = new Map<string, string>();
   const itemsByInvoice = new Map<string, Array<{ itemCode: string | null; itemName: string | null; poNumber: string | null; quantity: number; amount: number; availableStock: number }>>();
   for (let index = 0; index < invoiceRows.length; index += 10) {
@@ -205,6 +295,7 @@ async function fetchAccountsPayable(input: {
     );
     for (const [invoice, details] of resolved) {
       if (invoice && details?.receipt) receiptByInvoice.set(invoice, details.receipt);
+      if (invoice && details?.receiptDate) receiptDateByInvoice.set(invoice, details.receiptDate);
       if (invoice && details?.paymentMode) paymentModeByInvoice.set(invoice, details.paymentMode);
       if (invoice && details) itemsByInvoice.set(invoice, details.items);
     }
@@ -213,6 +304,7 @@ async function fetchAccountsPayable(input: {
     .map((line) => ({
       ...line,
       poNumber: line.poNumber ? receiptByInvoice.get(line.poNumber) ?? null : null,
+      poDate: line.poNumber ? receiptDateByInvoice.get(line.poNumber) ?? line.poDate : line.poDate,
       remark: line.poNumber ? paymentModeByInvoice.get(line.poNumber) ?? null : null,
       itemCode: line.poNumber ? itemsByInvoice.get(line.poNumber)?.[0]?.itemCode ?? null : null,
       itemName: line.poNumber ? itemsByInvoice.get(line.poNumber)?.[0]?.itemName ?? null : null,
@@ -221,26 +313,56 @@ async function fetchAccountsPayable(input: {
     .filter((line) => Boolean(line.poNumber));
 }
 
+async function fetchPreviousDaySupplierSettlements(input: {
+  cfg: OsfErpCredentials;
+  company: string;
+  reportDate: string;
+}): Promise<Map<string, number>> {
+  const filters = JSON.stringify([
+    ["company", "=", input.company],
+    ["party_type", "=", "Supplier"],
+    ["payment_type", "=", "Pay"],
+    ["posting_date", "=", previousCalendarDate(input.reportDate)],
+    ["docstatus", "=", 1],
+  ]);
+  const fields = encodeURIComponent(JSON.stringify(["party", "paid_amount"]));
+  const settlements = new Map<string, number>();
+  for (let page = 0; page < MAX_SUPPLIER_PAGES; page += 1) {
+    const path = `/api/resource/Payment%20Entry?filters=${encodeURIComponent(filters)}&fields=${fields}` +
+      `&limit_start=${page * PAGE_LENGTH}&limit_page_length=${PAGE_LENGTH}`;
+    const json = await erpGetJson<{ data?: ErpSupplierPaymentRow[] }>(input.cfg, path);
+    const rows = json.data ?? [];
+    for (const row of rows) {
+      const supplierId = text(row.party)?.toLowerCase();
+      if (supplierId) settlements.set(supplierId, (settlements.get(supplierId) ?? 0) + money(row.paid_amount));
+    }
+    if (rows.length < PAGE_LENGTH) break;
+  }
+  return settlements;
+}
+
 async function fetchPurchaseReceiptForInvoice(
   cfg: OsfErpCredentials,
   company: string,
   reportDate: string,
   invoiceName: string | null,
-): Promise<{ receipt: string | null; paymentMode: string | null; itemCode: string | null; itemName: string | null; items: Array<{ itemCode: string | null; itemName: string | null; poNumber: string | null; quantity: number; amount: number; availableStock: number }> } | null> {
+): Promise<{ receipt: string | null; receiptDate: string | null; paymentMode: string | null; itemCode: string | null; itemName: string | null; items: Array<{ itemCode: string | null; itemName: string | null; poNumber: string | null; quantity: number; amount: number; availableStock: number }> } | null> {
   if (!invoiceName) return null;
   const path = `/api/resource/Purchase%20Invoice/${encodeURIComponent(invoiceName)}?fields=${encodeURIComponent(JSON.stringify(["mode_of_payment", "payment_schedule", "items"]))}`;
   try {
     const json = await erpGetJson<{ data?: { mode_of_payment?: string | null; payment_schedule?: Array<{ mode_of_payment?: string | null }>; items?: Array<{ purchase_receipt?: string | null; item_code?: string | null; item_name?: string | null; accepted_qty?: number | string; qty?: number | string; rate?: number | string; amount?: number | string }> } }>(cfg, path);
     const invoiceItems = (json.data?.items ?? []).map((entry) => ({ itemCode: text(entry.item_code), itemName: text(entry.item_name), poNumber: text(entry.purchase_receipt), quantity: money(entry.accepted_qty ?? entry.qty), amount: money(entry.amount) || money(entry.accepted_qty ?? entry.qty) * money(entry.rate), availableStock: 0 })).filter((entry) => entry.itemCode || entry.itemName);
     const receiptNames = [...new Set(invoiceItems.map((entry) => entry.poNumber).filter((value): value is string => Boolean(value)))];
-    const receiptItems = (await Promise.all(receiptNames.map(async (receipt) => {
+    const receiptDetails = await Promise.all(receiptNames.map(async (receipt) => {
       try {
-        const receiptJson = await erpGetJson<{ data?: { items?: Array<{ item_code?: string | null; item_name?: string | null; accepted_qty?: number | string; qty?: number | string; rate?: number | string; amount?: number | string }> } }>(cfg, `/api/resource/Purchase%20Receipt/${encodeURIComponent(receipt)}`);
-        return (receiptJson.data?.items ?? []).map((entry) => ({ itemCode: text(entry.item_code), itemName: text(entry.item_name), poNumber: receipt, quantity: money(entry.accepted_qty ?? entry.qty), amount: money(entry.amount) || money(entry.accepted_qty ?? entry.qty) * money(entry.rate), availableStock: 0 })).filter((entry) => entry.itemCode || entry.itemName);
+        const receiptJson = await erpGetJson<{ data?: { posting_date?: string | null; items?: Array<{ item_code?: string | null; item_name?: string | null; accepted_qty?: number | string; qty?: number | string; rate?: number | string; amount?: number | string }> } }>(cfg, `/api/resource/Purchase%20Receipt/${encodeURIComponent(receipt)}?fields=${encodeURIComponent(JSON.stringify(["posting_date", "items"]))}`);
+        return { date: text(receiptJson.data?.posting_date), items: (receiptJson.data?.items ?? []).map((entry) => ({ itemCode: text(entry.item_code), itemName: text(entry.item_name), poNumber: receipt, quantity: money(entry.accepted_qty ?? entry.qty), amount: money(entry.amount) || money(entry.accepted_qty ?? entry.qty) * money(entry.rate), availableStock: 0 })).filter((entry) => entry.itemCode || entry.itemName) };
       } catch {
-        return [];
+        return { date: null, items: [] };
       }
-    }))).flat();
+    }));
+    const receiptItems = receiptDetails.flatMap((detail) => detail.items);
+    const receiptDate = receiptDetails.map((detail) => detail.date).find((value): value is string => Boolean(value)) ?? null;
     const items = receiptItems.length ? receiptItems : invoiceItems;
     const itemCodes = [...new Set(items.map((entry) => entry.itemCode).filter((value): value is string => Boolean(value)))];
     if (itemCodes.length) {
@@ -258,6 +380,7 @@ async function fetchPurchaseReceiptForInvoice(
     const item = items[0];
     return {
       receipt: items.map((entry) => entry.poNumber).find(Boolean) ?? null,
+      receiptDate,
       paymentMode: text(json.data?.mode_of_payment) ?? text(json.data?.payment_schedule?.map((entry) => entry.mode_of_payment).find(Boolean)),
       itemCode: item?.itemCode ?? null,
       itemName: item?.itemName ?? null,
@@ -291,12 +414,14 @@ function decorateReportLines(input: {
   company: string;
   erpSlot: "ERP1" | "ERP2" | null;
   erpLabel: string | null;
+  previousDaySettlements: Map<string, number>;
 }): SupplierPayableLine[] {
   return input.lines.map((line) => ({
     ...line,
     company: input.company,
     erpSlot: input.erpSlot,
     erpLabel: input.erpLabel,
+    previousDaySettlements: input.previousDaySettlements.get(line.supplierId.toLowerCase()) ?? 0,
   }));
 }
 
@@ -336,8 +461,9 @@ function supplierKey(line: Pick<SupplierPayableLine, "supplierId" | "supplierNam
 
 function groupLines(lines: SupplierPayableLine[]): SupplierPayableGroup[] {
   const groups = new Map<string, SupplierPayableGroup>();
+  const settlementSources = new Map<string, Set<string>>();
   for (const line of lines) {
-    if (line.outstanding === 0) continue;
+    if (line.outstanding <= 0) continue;
     const key = supplierKey(line);
     if (!key) continue;
     const group =
@@ -346,10 +472,18 @@ function groupLines(lines: SupplierPayableLine[]): SupplierPayableGroup[] {
         supplierId: line.supplierId,
         supplierName: line.supplierName,
         totalOutstanding: 0,
+        previousDaySettlements: 0,
         currency: line.currency,
         lines: [],
       } satisfies SupplierPayableGroup);
     group.totalOutstanding += line.outstanding;
+    const source = [line.company, line.erpSlot ?? line.erpLabel ?? ""].join("\u0000");
+    const sources = settlementSources.get(key) ?? new Set<string>();
+    if (!sources.has(source)) {
+      group.previousDaySettlements += line.previousDaySettlements ?? 0;
+      sources.add(source);
+      settlementSources.set(key, sources);
+    }
     group.currency = group.currency ?? line.currency;
     group.supplierName = group.supplierName ?? line.supplierName;
     group.lines.push(line);
@@ -431,11 +565,10 @@ export async function refreshSupplierPayables(
     const seenSupplierIds = new Set<string>();
     for (const erpCompany of erpCompanies) {
       try {
-        const reportLines = await fetchAccountsPayable({
-          cfg: instance.cfg,
-          company: erpCompany,
-          reportDate,
-        });
+        const [reportLines, previousDaySettlements] = await Promise.all([
+          fetchAccountsPayable({ cfg: instance.cfg, company: erpCompany, reportDate }),
+          fetchPreviousDaySupplierSettlements({ cfg: instance.cfg, company: erpCompany, reportDate }),
+        ]);
         const supplierPrefixes = locations
           .filter(
             (location) =>
@@ -457,6 +590,7 @@ export async function refreshSupplierPayables(
           company: erpCompany,
           erpSlot,
           erpLabel: instance.label,
+          previousDaySettlements,
         });
         await prisma.supplierPayableSnapshot.upsert({
           where: {

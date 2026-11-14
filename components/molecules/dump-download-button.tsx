@@ -105,6 +105,10 @@ export function DumpDownloadButton({
         }
       }
 
+      if (!isWorkbook && total > 0 && counter.dataRows() < total) {
+        throw new Error(`Download was incomplete: received ${counter.dataRows().toLocaleString()} of ${total.toLocaleString()} rows. Please try again.`);
+      }
+
       setPercent(100);
       triggerBlobDownload(new Blob(chunks, { type: contentType }), fileName);
       notify.success(`${label} downloaded.`, toastId);

@@ -7,21 +7,29 @@ import {
   isOrderPaymentRequiresApproval,
   createOrGetOrderPaymentApproval,
   cancelPendingApprovalsForOrder,
+  ERP_RESOLVED_APPROVAL_CANCEL_OPTIONS,
   ORDER_PAYMENT_APPROVAL,
 } from "@/lib/approval-workflow";
 import { needsKokoLinkTimeConfirm } from "@/lib/koko-order";
-import { eligibleMerchantUserWhere } from "@/lib/merchant-eligibility";
 import { resolveErpWebhookCustomerName } from "@/lib/erpnext-customer-display-name";
 import { findBarcodeForSku } from "@/lib/product-item-barcode.server";
 import { erpInvoiceReferenceLookupValues } from "@/lib/erp-invoice-reference";
 import { shouldVoidOrderForCancelledSalesInvoice } from "@/lib/erp-duplicate-sales-invoice";
 import {
+  ERP_CANCEL_REASON_CANCEL,
+  ERP_CANCEL_REASON_CREDIT_NOTE,
+  erpDrivenCancelFields,
   handleErpSalesInvoiceCreditNoteEvent,
   isErpReturnSalesInvoice,
   isErpSalesInvoiceCreditNoted,
+  orderMatchesErpPoNo,
 } from "@/lib/erp-credit-note-order-sync";
 import { buildErpOrderShippingFields } from "@/lib/order-shipping-display";
 import { buildErpOrderDiscountCodes } from "@/lib/order-discount-coupon";
+import {
+  isDmOnlyMerchantTracking,
+  parseOrderCouponList,
+} from "@/lib/merchant-dm-sales";
 import { orderStageUpdate } from "@/lib/order-stage-timing";
 import { isLegacyAccSinvRef } from "@/lib/legacy-acc-sinv";
 import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
@@ -61,9 +69,7 @@ async function findLinkedVaultOrderForErpInvoice(data: {
   return prisma.order.findFirst({
     where: {
       OR: [
-        ...(poNo
-          ? [{ name: poNo }, { shopifyOrderId: poNo }, { orderNumber: poNo }]
-          : []),
+        ...orderMatchesErpPoNo(poNo),
         { erpnextInvoiceId: invoiceRef },
         ...invoiceRefs.map((ref) => ({ erpnextInvoiceId: ref })),
       ],
@@ -75,6 +81,8 @@ async function findLinkedVaultOrderForErpInvoice(data: {
       orderNumber: true,
       companyId: true,
       financialStatus: true,
+      cancelledAt: true,
+      cancelReason: true,
       erpnextInvoiceId: true,
       assignedMerchant: { select: { name: true } },
     },
@@ -308,14 +316,21 @@ export async function ingestParsedErpSalesInvoice(input: {
     // Return SI without a matching Vault order — void a stray credit-note row if present.
     const existing = await prisma.order.findUnique({
       where: { shopifyOrderId: erpInvoiceId },
-      select: { id: true },
+      select: { id: true, cancelledAt: true, cancelReason: true },
     });
     if (existing) {
       await prisma.order.update({
         where: { id: existing.id },
-        data: { financialStatus: "voided" },
+        data: {
+          financialStatus: "voided",
+          ...erpDrivenCancelFields({
+            cancelledAt: existing.cancelledAt,
+            cancelReason: existing.cancelReason,
+            reason: ERP_CANCEL_REASON_CREDIT_NOTE,
+          }),
+        },
       });
-      await cancelPendingApprovalsForOrder(existing.id);
+      await cancelPendingApprovalsForOrder(existing.id, ERP_RESOLVED_APPROVAL_CANCEL_OPTIONS);
       console.log(
         `[ERPNext webhook] Credit note ${data.name} — voided existing order ${existing.id}`,
       );
@@ -364,9 +379,19 @@ export async function ingestParsedErpSalesInvoice(input: {
 
       await prisma.order.update({
         where: { id: linkedVaultOrder.id },
-        data: { financialStatus: "voided" },
+        data: {
+          financialStatus: "voided",
+          ...erpDrivenCancelFields({
+            cancelledAt: linkedVaultOrder.cancelledAt,
+            cancelReason: linkedVaultOrder.cancelReason,
+            reason: ERP_CANCEL_REASON_CANCEL,
+          }),
+        },
       });
-      await cancelPendingApprovalsForOrder(linkedVaultOrder.id);
+      await cancelPendingApprovalsForOrder(
+        linkedVaultOrder.id,
+        ERP_RESOLVED_APPROVAL_CANCEL_OPTIONS,
+      );
       console.log(
         `[ERPNext webhook] Cancelled invoice ${data.name} — voided Vault order ${linkedVaultOrder.name ?? linkedVaultOrder.orderNumber ?? linkedVaultOrder.id}`,
       );
@@ -451,6 +476,7 @@ export async function ingestParsedErpSalesInvoice(input: {
   // Find location — match by warehouse field, then warehouse list, then company fallback
   const locationSelect = {
     id: true,
+    name: true,
     companyId: true,
     defaultMerchantUserId: true,
     shadowParentLocationId: true,
@@ -533,18 +559,6 @@ export async function ingestParsedErpSalesInvoice(input: {
     parsedAddress;
   const district = storedDistrictFromAddress(shippingAddressObj);
 
-  // Try to match the owner (cashier for POS, merchant for non-POS) to a vault os user
-  // Fall back to location default merchant
-  let assignedMerchantId: string | undefined =
-    location.defaultMerchantUserId ?? undefined;
-  if (data.owner?.trim()) {
-    const erpUser = await prisma.user.findUnique({
-      where: { erpnextUsername: data.owner.trim() },
-      select: { id: true },
-    });
-    if (erpUser) assignedMerchantId = erpUser.id;
-  }
-
   // Read merchant coupon code directly from ERP invoice — stored as-is for display
   const merCouponCode =
     data.custom_merchant_coupon_code?.trim() ||
@@ -556,14 +570,45 @@ export async function ingestParsedErpSalesInvoice(input: {
     custom_merchant_coupon_code: data.custom_merchant_coupon_code,
     merchant_coupon_code: data.merchant_coupon_code,
   });
+  const ingestCouponCodes = [
+    ...parseOrderCouponList(merCouponCode),
+    ...(erpDiscountCodes ?? []).flatMap((row) => parseOrderCouponList(row.code)),
+  ];
+  const leaveDmUnassigned = isDmOnlyMerchantTracking(ingestCouponCodes);
 
-  // For non-POS ERP orders: if a coupon code is present, try to assign the merchant via
-  // coupon code (same logic as Shopify web order assignment in resolveAssignedMerchant).
-  // This makes AE/Origin ERP orders behave the same as SupplementVault.lk web orders.
-  if (!isPOS && merCouponCode) {
+  // Try to match the owner (cashier for POS, merchant for non-POS) to a vault os user
+  // Fall back to location default merchant.
+  // DM_General / MER115 stay unassigned — no person owns that bucket.
+  let assignedMerchantId: string | undefined =
+    location.defaultMerchantUserId ?? undefined;
+  if (leaveDmUnassigned) {
+    assignedMerchantId = undefined;
+  } else if (data.owner?.trim()) {
+    const owner = data.owner.trim();
+    const erpUser = await prisma.user.findFirst({
+      where: {
+        companyId: location.companyId,
+        OR: [
+          { erpnextUsername: owner },
+          { email: { equals: owner, mode: "insensitive" } },
+        ],
+      },
+      select: { id: true },
+    });
+    if (erpUser) assignedMerchantId = erpUser.id;
+  }
+
+  // For non-POS ERP orders: if a coupon code is present, assign the merchant via coupon.
+  // Do not require Digital Marketing / Sales Marketing department — Cosmo ERP merchants
+  // often have a merchant role + MER code with department unset (assignedMerchantId
+  // would otherwise stay null and merchant reminder bubbles would skip the order).
+  if (!leaveDmUnassigned && !isPOS && merCouponCode) {
     const couponLower = merCouponCode.toLowerCase();
     const merchants = await prisma.user.findMany({
-      where: eligibleMerchantUserWhere(location.companyId),
+      where: {
+        companyId: location.companyId,
+        couponCodes: { isEmpty: false },
+      },
       select: { id: true, couponCodes: true },
     });
     const match = merchants.find((m) =>
@@ -571,6 +616,12 @@ export async function ingestParsedErpSalesInvoice(input: {
     );
     if (match) assignedMerchantId = match.id;
   }
+
+  const assignedMerchantWrite = leaveDmUnassigned
+    ? { assignedMerchantId: null }
+    : assignedMerchantId
+      ? { assignedMerchantId }
+      : {};
 
   const posPaymentMethods = isPOS
     ? data.payments.map((p) => p.mode_of_payment).filter(Boolean)
@@ -691,10 +742,26 @@ export async function ingestParsedErpSalesInvoice(input: {
       currency: data.currency ?? "LKR",
       financialStatus: isCreditNoted ? "voided" : financialStatus,
       ...(isCreditNoted
-        ? orderStageUpdate("returned", posCompletedAt ?? new Date())
-        : posCounterSaleCompletion
-          ? posCounterSaleCompletion
-          : orderStageUpdate("order_received", new Date())),
+        ? {
+            ...orderStageUpdate("returned", posCompletedAt ?? new Date()),
+            ...erpDrivenCancelFields({
+              cancelledAt: null,
+              cancelReason: null,
+              reason: ERP_CANCEL_REASON_CREDIT_NOTE,
+            }),
+          }
+        : {
+            ...(posCounterSaleCompletion
+              ? posCounterSaleCompletion
+              : orderStageUpdate("order_received", new Date())),
+            ...(financialStatus === "voided"
+              ? erpDrivenCancelFields({
+                  cancelledAt: null,
+                  cancelReason: null,
+                  reason: ERP_CANCEL_REASON_CANCEL,
+                })
+              : {}),
+          }),
       customerEmail,
       customerPhone,
       district,
@@ -707,7 +774,7 @@ export async function ingestParsedErpSalesInvoice(input: {
             paymentGatewayPrimary: resolvedPaymentMethods[0],
           }
         : {}),
-      ...(assignedMerchantId ? { assignedMerchantId } : {}),
+      ...assignedMerchantWrite,
     },
     update: {
       totalPrice: grandTotal,
@@ -736,7 +803,7 @@ export async function ingestParsedErpSalesInvoice(input: {
             paymentGatewayPrimary: resolvedPaymentMethods[0],
           }
         : {}),
-      ...(assignedMerchantId ? { assignedMerchantId } : {}),
+      ...assignedMerchantWrite,
     },
     select: {
       id: true,
@@ -773,7 +840,7 @@ export async function ingestParsedErpSalesInvoice(input: {
   });
 
   if (financialStatus === "voided" || isCreditNoted) {
-    await cancelPendingApprovalsForOrder(order.id);
+    await cancelPendingApprovalsForOrder(order.id, ERP_RESOLVED_APPROVAL_CANCEL_OPTIONS);
   }
 
   // For non-POS ERP orders: if payment requires approval and is unpaid, create an approval

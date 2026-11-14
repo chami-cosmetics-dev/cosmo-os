@@ -47,10 +47,20 @@ async function completeOrderAndOptionalTask(
       arrivedAt?: Date | null;
       oldItemCollectionStatus?: OldItemCollectionStatus;
       oldItemCollectionRemark?: string | null;
+      completedLatitude?: number | null;
+      completedLongitude?: number | null;
+      completedAccuracyMeters?: number | null;
+      completedLocationAt?: Date | null;
     };
   },
 ) {
   if (input.taskId) {
+    const hasGps =
+      input.taskExtras?.completedLatitude != null &&
+      input.taskExtras?.completedLongitude != null &&
+      Number.isFinite(input.taskExtras.completedLatitude) &&
+      Number.isFinite(input.taskExtras.completedLongitude);
+
     await tx.riderDeliveryTask.update({
       where: { id: input.taskId },
       data: {
@@ -69,6 +79,14 @@ async function completeOrderAndOptionalTask(
           ? {
               oldItemCollectionStatus: input.taskExtras.oldItemCollectionStatus,
               oldItemCollectionRemark: input.taskExtras.oldItemCollectionRemark ?? null,
+            }
+          : {}),
+        ...(hasGps
+          ? {
+              completedLatitude: input.taskExtras!.completedLatitude!,
+              completedLongitude: input.taskExtras!.completedLongitude!,
+              completedAccuracyMeters: input.taskExtras!.completedAccuracyMeters ?? null,
+              completedLocationAt: input.taskExtras!.completedLocationAt ?? input.now,
             }
           : {}),
       },
@@ -163,6 +181,15 @@ export async function completeRiderDeliveryTask(input: {
   arrivedAt?: Date | null;
   oldItemCollectionStatus?: OldItemCollectionStatus;
   oldItemCollectionRemark?: string | null;
+  completedLatitude?: number | null;
+  completedLongitude?: number | null;
+  completedAccuracyMeters?: number | null;
+  completedLocationAt?: Date | null;
+  /**
+   * When true, skip invoice/approval side-effects so the mobile route can
+   * return immediately and run them with next/server `after()`.
+   */
+  skipPostDelivery?: boolean;
 }): Promise<CompleteRiderDeliveryResult> {
   const now = input.now ?? new Date();
   const task = await prisma.riderDeliveryTask.findFirst({
@@ -180,7 +207,7 @@ export async function completeRiderDeliveryTask(input: {
   }
 
   if (isRiderDeliveryAlreadyCompletedStage(task.order.fulfillmentStage)) {
-    if (task.order.fulfillmentStage === "delivery_complete") {
+    if (task.order.fulfillmentStage === "delivery_complete" && !input.skipPostDelivery) {
       await applyPostDeliverySafe({
         companyId: task.order.companyId,
         orderId: task.orderId,
@@ -201,15 +228,21 @@ export async function completeRiderDeliveryTask(input: {
         arrivedAt: input.arrivedAt,
         oldItemCollectionStatus: input.oldItemCollectionStatus,
         oldItemCollectionRemark: input.oldItemCollectionRemark,
+        completedLatitude: input.completedLatitude,
+        completedLongitude: input.completedLongitude,
+        completedAccuracyMeters: input.completedAccuracyMeters,
+        completedLocationAt: input.completedLocationAt,
       },
     }),
   );
 
-  await applyPostDeliverySafe({
-    companyId: task.order.companyId,
-    orderId: task.orderId,
-    requestedById: input.riderId,
-  });
+  if (!input.skipPostDelivery) {
+    await applyPostDeliverySafe({
+      companyId: task.order.companyId,
+      orderId: task.orderId,
+      requestedById: input.riderId,
+    });
+  }
 
   return {
     success: true,
@@ -220,4 +253,13 @@ export async function completeRiderDeliveryTask(input: {
     hadTask: true,
     order: updated,
   };
+}
+
+/** Used by mobile routes after a fast complete response. */
+export async function runPostDeliveryAfterComplete(input: {
+  companyId: string;
+  orderId: string;
+  requestedById: string | null;
+}) {
+  await applyPostDeliverySafe(input);
 }

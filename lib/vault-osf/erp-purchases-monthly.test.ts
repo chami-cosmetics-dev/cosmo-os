@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 
+import { rankedSuppliersFromMins } from "@/lib/osf/erp-purchases";
 import {
   accumulateLatestPurchase,
   accumulateMonthlyPurchases,
+  accumulateVaultSupplierMins,
   purchaseCellForSku,
 } from "@/lib/vault-osf/erp-purchases-monthly";
 
@@ -173,5 +175,49 @@ describe("vault OSF monthly purchases", () => {
       supplier: "Sachintha",
       date: "2026-08-05",
     });
+  });
+
+  it("ranks distinct suppliers and skips Origins Online", () => {
+    const mins = accumulateVaultSupplierMins({
+      allowedSuppliers: [
+        { name: "US Beauty", code: "SV004" },
+        { name: "Maiso Franceise", code: "SV016" },
+        { name: "Origins Online", code: "ONLINE" },
+      ],
+      bounds: { start: "2026-07-01", end: "2026-09-25" },
+      rows: [
+        {
+          item_code: "WM001-1",
+          rate: 50,
+          posting_date: "2026-07-10",
+          supplier: "SV004",
+          supplier_name: "US Beauty",
+          company: "AE (PVT) LTD",
+          docstatus: 1,
+        },
+        {
+          item_code: "WM001-1",
+          rate: 40,
+          posting_date: "2026-08-02",
+          supplier: "SV016",
+          supplier_name: "Maiso Franceise",
+          company: "Origins (PVT) LTD",
+          docstatus: 1,
+        },
+        {
+          item_code: "WM001-1",
+          rate: 10,
+          posting_date: "2026-08-15",
+          supplier: "ONLINE",
+          supplier_name: "Origins Online",
+          company: "Origins Online",
+          docstatus: 1,
+        },
+      ],
+    });
+    expect(rankedSuppliersFromMins(mins).get("WM001-1")).toEqual([
+      { value: 40, supplier: "Maiso Franceise", date: "2026-08-02" },
+      { value: 50, supplier: "US Beauty", date: "2026-07-10" },
+    ]);
   });
 });

@@ -42,10 +42,10 @@ export async function loadLatestOrderSplitPaymentLines(
   return toLines(approval?.paymentLines ?? []);
 }
 
-export async function loadSplitCashCollectByOrderIds(
+export async function loadSplitPaymentLinesByOrderIds(
   orderIds: string[],
-): Promise<Map<string, number>> {
-  const result = new Map<string, number>();
+): Promise<Map<string, OrderSplitPaymentLine[]>> {
+  const result = new Map<string, OrderSplitPaymentLine[]>();
   if (orderIds.length === 0) return result;
 
   const approvals = await prisma.approvalRequest.findMany({
@@ -65,8 +65,20 @@ export async function loadSplitCashCollectByOrderIds(
 
   for (const approval of approvals) {
     if (!approval.orderId || result.has(approval.orderId)) continue;
-    const cash = approvalSplitCashCollectAmount(toLines(approval.paymentLines));
-    if (cash != null) result.set(approval.orderId, cash);
+    const lines = toLines(approval.paymentLines);
+    if (lines.length > 0) result.set(approval.orderId, lines);
+  }
+  return result;
+}
+
+export async function loadSplitCashCollectByOrderIds(
+  orderIds: string[],
+): Promise<Map<string, number>> {
+  const splitByOrder = await loadSplitPaymentLinesByOrderIds(orderIds);
+  const result = new Map<string, number>();
+  for (const [orderId, lines] of splitByOrder) {
+    const cash = approvalSplitCashCollectAmount(lines);
+    if (cash != null) result.set(orderId, cash);
   }
   return result;
 }

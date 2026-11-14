@@ -11,12 +11,20 @@ import { attachOsPriority, fetchVaultCatalog } from "@/lib/vault-osf/catalog";
 import { isVaultOsfConfigured, resolveVaultBusinessUnits, vaultOsfNotConfiguredMessage } from "@/lib/vault-osf/columns";
 import { buildVaultOsfWorkbookBuffer } from "@/lib/vault-osf/build-workbook";
 import { ensureVaultForceIncludedRops } from "@/lib/vault-osf/ensure-force-included-rops";
+import {
+  accumulateSupplierMinsFromRows,
+  mergeSupplierMinMaps,
+  rankedSuppliersFromMins,
+  type OsfSupplierMinMap,
+} from "@/lib/osf/erp-purchases";
+import { osfBestPurchaseBounds } from "@/lib/osf/monthly-sales";
 import { fetchLatestPurchases, fetchMonthlyPurchases, mergePurchaseMaps } from "@/lib/vault-osf/erp-purchases-monthly";
 import { fetchVaultPrices } from "@/lib/vault-osf/erp-pricing";
 import { fetchSalesMonth, salesQtyForSku } from "@/lib/vault-osf/erp-sales";
 import { monthKeysInWindow, monthPostingBounds, reportingAprilStart } from "@/lib/vault-osf/months";
 import {
   aggregateCosmoMonthlyPurchases,
+  cosmoLinesToPurchaseRows,
   lastPurchasesFromCosmoLines,
   mergeCosmoPurchasesIntoOsf,
   mergeLastPurchaseMaps,
@@ -107,9 +115,13 @@ export async function POST(request: NextRequest) {
 
   try {
     await ensureVaultForceIncludedRops(companyId);
-    const [catalogRaw, ropRows, historyRows, allowedSuppliers] = await Promise.all([
+    const [catalogRaw, ropRows, profiles, historyRows, allowedSuppliers] = await Promise.all([
       fetchVaultCatalog(erp1.cfg),
       prisma.productOsfRop.findMany({ where: { companyId } }),
+      prisma.productOsfProfile.findMany({
+        where: { companyId },
+        select: { sku: true, targetPurchaseRate: true },
+      }),
       prisma.osfMonthlySalesHistory.findMany({ where: { companyId } }),
       prisma.supplier.findMany({ where: { companyId }, select: { name: true, code: true } }),
     ]);
@@ -124,8 +136,10 @@ export async function POST(request: NextRequest) {
     }
 
     const months = monthKeysInWindow(asOfDate);
+    const bestPurchaseBounds = osfBestPurchaseBounds(asOfDate);
     const sales = new Map<string, Record<string, Record<string, SalesCell>>>();
     const purchases = new Map<string, Record<string, PurchaseCell>>();
+    const supplierMinChunks: OsfSupplierMinMap[] = [];
 
     const setSale = (sku: string, month: string, key: string, cell: SalesCell) => {
       let byMonth = sales.get(sku);
@@ -146,15 +160,18 @@ export async function POST(request: NextRequest) {
           if (!inst) {
             throw new OsfErpError(`Missing ERP instance for ${u.label}`);
           }
-          const [activity, purchMap] = await Promise.all([
+          const [activity, purchResult] = await Promise.all([
             fetchSalesMonth({ cfg: inst.cfg, erpCompany: u.erpCompany, bounds }),
             fetchMonthlyPurchases({
               cfg: inst.cfg,
               erpCompany: u.erpCompany,
               bounds,
               allowedSuppliers,
+              supplierMinBounds: bestPurchaseBounds,
             }),
           ]);
+          const purchMap = purchResult.monthly;
+          supplierMinChunks.push(purchResult.supplierMins);
           for (const sku of skus) {
             const qty = salesQtyForSku(activity, sku);
             setSale(sku, month, u.key, {
@@ -196,6 +213,12 @@ export async function POST(request: NextRequest) {
         purchases,
         aggregateCosmoMonthlyPurchases(cosmoPurchaseLines),
       );
+      supplierMinChunks.push(
+        accumulateSupplierMinsFromRows({
+          rows: cosmoLinesToPurchaseRows(cosmoPurchaseLines),
+          bounds: bestPurchaseBounds,
+        }),
+      );
     }
 
     const rops = new Map<string, Record<string, number>>();
@@ -203,6 +226,13 @@ export async function POST(request: NextRequest) {
       const entry = rops.get(r.sku) ?? {};
       entry[r.columnKey] = r.ropQty;
       rops.set(r.sku, entry);
+    }
+    const targetPurchaseRates = new Map<string, number | null>();
+    for (const p of profiles) {
+      targetPurchaseRates.set(
+        p.sku,
+        p.targetPurchaseRate != null ? Number(p.targetPurchaseRate) : null,
+      );
     }
 
     const binChunks = await Promise.all(
@@ -265,7 +295,9 @@ export async function POST(request: NextRequest) {
       purchases,
       prices,
       latest,
+      rankedSuppliersBySku: rankedSuppliersFromMins(mergeSupplierMinMaps(supplierMinChunks)),
       rops,
+      targetPurchaseRates,
     });
 
     const filename = `OSF-vault-${asOfDate}.xlsx`;

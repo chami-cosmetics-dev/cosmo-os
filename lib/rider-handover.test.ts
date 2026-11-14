@@ -5,11 +5,13 @@ import {
   groupCashByErpCompany,
   groupDeliveriesByCompany,
   handoverCashAmount,
+  resolveHandoverCollectCash,
   handoverExportCsv,
   handoverOrderNumber,
   handoverReceiptOverlaps,
   handoverSummaryCashAmount,
   isInvoiceClosed,
+  listHandoverCollectableOrders,
   latestReceiptForCompany,
   matchReceiptForDelivery,
   pageHandoverDeliveries,
@@ -180,6 +182,38 @@ describe("handoverCashAmount", () => {
     ).toBe("11200.00");
   });
 
+  it("zeros cash while a rider bank-transfer change is pending finance", () => {
+    expect(
+      resolveHandoverCollectCash({
+        totalPrice: "8000.00",
+        paymentGatewayPrimary: "Cash on Delivery (COD)",
+        pendingPaymentMethodChange: "bank_transfer",
+      }).toFixed(2),
+    ).toBe("0.00");
+  });
+
+  it("counts cash after finance or rider switches card-on-delivery to cash", () => {
+    expect(
+      resolveHandoverCollectCash({
+        totalPrice: "8000.00",
+        paymentGatewayPrimary: "Cash on Delivery (COD)",
+      }).toFixed(2),
+    ).toBe("8000.00");
+  });
+
+  it("collects the cash leg when KOKO is only part of the payment", () => {
+    expect(
+      resolveHandoverCollectCash({
+        totalPrice: "8000.00",
+        paymentGatewayPrimary: "KOKO",
+        splitLines: [
+          { paymentMethod: "koko", amount: 5000 },
+          { paymentMethod: "cash", amount: 3000 },
+        ],
+      }).toFixed(2),
+    ).toBe("3000.00");
+  });
+
   it("leaves prepaid gateways at zero", () => {
     expect(
       handoverCashAmount({
@@ -218,6 +252,40 @@ describe("receiptDuplicateDecision", () => {
     expect(receiptDuplicateDecision({ existing, confirmDuplicate: true })).toEqual({
       action: "create",
     });
+  });
+});
+
+describe("listHandoverCollectableOrders", () => {
+  it("keeps open deliveries and drops invoice-complete ones", () => {
+    expect(
+      listHandoverCollectableOrders([
+        {
+          orderNumber: "900-001548",
+          erpnextCompany: "Pevi Trading Lanka (Pvt) Ltd",
+          locationName: "Pevi",
+          cashAmount: "2500.00",
+          deliveredAt: new Date("2026-10-19T10:05:44.000Z"),
+          invoiceCompleteAt: new Date("2026-10-19T10:05:44.000Z"),
+          fulfillmentStage: "invoice_complete",
+        },
+        {
+          orderNumber: "900-001600",
+          erpnextCompany: "Pevi Trading Lanka (Pvt) Ltd",
+          locationName: "Pevi",
+          cashAmount: "1800.00",
+          deliveredAt: new Date("2026-10-19T08:00:00.000Z"),
+          invoiceCompleteAt: null,
+          fulfillmentStage: "delivery_complete",
+        },
+      ]),
+    ).toEqual([
+      {
+        orderNumber: "900-001600",
+        companyName: "Pevi Trading Lanka (Pvt) Ltd",
+        cashAmount: "1800.00",
+        deliveredAt: "2026-10-19T08:00:00.000Z",
+      },
+    ]);
   });
 });
 

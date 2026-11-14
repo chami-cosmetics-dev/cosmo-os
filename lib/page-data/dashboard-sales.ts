@@ -1,6 +1,10 @@
 import type { Prisma } from "@prisma/client";
 
 import {
+  getDashboardDiscountCoupon,
+  orderMatchesDashboardCoupon,
+} from "@/lib/dashboard-coupon-filter";
+import {
   buildWholesaleOwnerMap,
   dashboardMerchantRowKey,
   dashboardMerchantUserSelect,
@@ -9,6 +13,7 @@ import {
 } from "@/lib/dashboard-order-merchant";
 import {
   buildCouponToMerchantMap,
+  getMerchantDisplayName,
   getMerchantGroupUserMap,
 } from "@/lib/merchant-groups";
 import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
@@ -22,6 +27,8 @@ import {
 } from "@/lib/page-data/dashboard-overview-shared";
 import { getPaymentMethodInfo } from "@/lib/payment-method-label";
 import { prisma } from "@/lib/prisma";
+import { salesAmountExcludingShipping } from "@/lib/sales-amount-excluding-shipping";
+import { isCreditNoteSale, isReversedSale } from "@/lib/sales-net-placed";
 
 export type DashboardLocationMerchantRow = {
   merchantId: string | null;
@@ -51,11 +58,6 @@ function parseDayEndUtc(ymd: string): Date {
   return new Date(`${ymd}T23:59:59.999+05:30`);
 }
 
-const DASHBOARD_INVOICE_DATE_FINANCIAL_STATUSES = new Set([
-  "paid",
-  "pending",
-  "partially_paid",
-]);
 const DASHBOARD_POS_SOURCE_NAMES = new Set(["pos", "erpnext-pos"]);
 
 export type DashboardSalesEligibilityOrder = {
@@ -66,6 +68,11 @@ export type DashboardSalesEligibilityOrder = {
   deliveryOutcome?: string | null;
   deliveryCompleteAt?: Date | null;
   invoiceCompleteAt?: Date | null;
+  cancelledAt?: Date | null;
+  totalPrice?: unknown;
+  totalShipping?: unknown;
+  shippingLines?: unknown;
+  discountCodes?: unknown;
   rawPayload?: Prisma.JsonValue | null;
 };
 
@@ -75,10 +82,6 @@ function normalizeStatus(value: unknown) {
 
 function isPosOrder(sourceName: string | null | undefined) {
   return DASHBOARD_POS_SOURCE_NAMES.has(normalizeStatus(sourceName));
-}
-
-function isPaidOrPending(financialStatus: string | null | undefined) {
-  return DASHBOARD_INVOICE_DATE_FINANCIAL_STATUSES.has(normalizeStatus(financialStatus));
 }
 
 function isPhysicallyDelivered(order: DashboardSalesEligibilityOrder) {
@@ -229,7 +232,7 @@ export function isDashboardSalesOrderEligible(
   ]);
 
   if (statusKeys.has(dateType)) {
-    if (!isPaidOrPending(order.financialStatus)) return false;
+    if (isCreditNoteSale(order) || isReversedSale(order)) return false;
     if (dateType === "all_orders") return true;
     return getPlacedStatusPartition(order) === dateType;
   }
@@ -263,7 +266,6 @@ export function isDashboardSalesOrderEligible(
 
   // bill_done_in_dates / bill_done_old — date filter already scopes invoiceCompleteAt.
   if (normalizeStatus(order.financialStatus) === "voided") return false;
-  if (normalizeStatus(order.fulfillmentStage) === "returned_to_store") return false;
   if (isPosOrder(order.sourceName)) return true;
   return normalizeStatus(order.fulfillmentStatus) === "fulfilled";
 }
@@ -279,8 +281,22 @@ function emptySummary(key: DashboardSalesDateType): DashboardFilterSummary {
   };
 }
 
-function addToSummary(summary: DashboardFilterSummary, totalPrice: unknown) {
-  summary.total += Number(totalPrice ?? 0);
+function dashboardSaleAmount(order: {
+  totalPrice: unknown;
+  totalShipping?: unknown;
+  shippingLines?: unknown;
+  discountCodes?: unknown;
+}): number {
+  return salesAmountExcludingShipping(order) ?? 0;
+}
+
+function addToSummary(summary: DashboardFilterSummary, order: {
+  totalPrice: unknown;
+  totalShipping?: unknown;
+  shippingLines?: unknown;
+  discountCodes?: unknown;
+}) {
+  summary.total += dashboardSaleAmount(order);
   summary.orderCount += 1;
 }
 
@@ -291,6 +307,7 @@ export async function fetchDashboardFilterSummaries(
   companyId: string,
   fromYmd: string,
   toYmd: string,
+  couponCodes?: string | readonly string[] | null,
 ): Promise<{ filterSummaries: DashboardFilterSummary[]; invalidRange: boolean }> {
   const fromDate = parseDayStartUtc(fromYmd);
   const toDate = parseDayEndUtc(toYmd);
@@ -317,13 +334,18 @@ export async function fetchDashboardFilterSummaries(
 
   const eligibilitySelect = {
     totalPrice: true,
+    totalShipping: true,
+    shippingLines: true,
+    discountCodes: true,
     createdAt: true,
     sourceName: true,
     financialStatus: true,
     fulfillmentStatus: true,
     fulfillmentStage: true,
+    fulfillmentStageEnteredAt: true,
     deliveryCompleteAt: true,
     invoiceCompleteAt: true,
+    cancelledAt: true,
   } as const;
 
   const [rangeOrders, backlogBillOpen, backlogNotDelivered] = await Promise.all([
@@ -347,7 +369,18 @@ export async function fetchDashboardFilterSummaries(
           dateType: "still_bill_open",
         }),
       },
-      select: { totalPrice: true, sourceName: true, financialStatus: true, fulfillmentStatus: true, fulfillmentStage: true, deliveryCompleteAt: true, invoiceCompleteAt: true },
+      select: {
+        totalPrice: true,
+        totalShipping: true,
+        shippingLines: true,
+        discountCodes: true,
+        sourceName: true,
+        financialStatus: true,
+        fulfillmentStatus: true,
+        fulfillmentStage: true,
+        deliveryCompleteAt: true,
+        invoiceCompleteAt: true,
+      },
     }),
     prisma.order.findMany({
       where: {
@@ -358,11 +391,23 @@ export async function fetchDashboardFilterSummaries(
           dateType: "still_not_delivered",
         }),
       },
-      select: { totalPrice: true, sourceName: true, financialStatus: true, fulfillmentStatus: true, fulfillmentStage: true, deliveryCompleteAt: true, invoiceCompleteAt: true },
+      select: {
+        totalPrice: true,
+        totalShipping: true,
+        shippingLines: true,
+        discountCodes: true,
+        sourceName: true,
+        financialStatus: true,
+        fulfillmentStatus: true,
+        fulfillmentStage: true,
+        deliveryCompleteAt: true,
+        invoiceCompleteAt: true,
+      },
     }),
   ]);
 
   for (const order of rangeOrders) {
+    if (!orderMatchesDashboardCoupon(order, couponCodes)) continue;
     const createdInRange = order.createdAt >= fromDate && order.createdAt <= toDate;
     const invoiceInRange =
       order.invoiceCompleteAt != null &&
@@ -375,9 +420,9 @@ export async function fetchDashboardFilterSummaries(
     const placedBeforeRange = order.createdAt < fromDate;
 
     if (createdInRange && isDashboardSalesOrderEligible(order, "all_orders")) {
-      addToSummary(summaries.get("all_orders")!, order.totalPrice);
+      addToSummary(summaries.get("all_orders")!, order);
       const partition = getPlacedStatusPartition(order);
-      addToSummary(summaries.get(partition)!, order.totalPrice);
+      addToSummary(summaries.get(partition)!, order);
     }
 
     if (
@@ -385,7 +430,7 @@ export async function fetchDashboardFilterSummaries(
       invoiceInRange &&
       isDashboardSalesOrderEligible(order, "bill_done_in_dates")
     ) {
-      addToSummary(summaries.get("bill_done_in_dates")!, order.totalPrice);
+      addToSummary(summaries.get("bill_done_in_dates")!, order);
     }
 
     if (
@@ -393,7 +438,7 @@ export async function fetchDashboardFilterSummaries(
       deliveryInRange &&
       isDashboardSalesOrderEligible(order, "delivered_in_dates")
     ) {
-      addToSummary(summaries.get("delivered_in_dates")!, order.totalPrice);
+      addToSummary(summaries.get("delivered_in_dates")!, order);
     }
 
     if (
@@ -401,7 +446,7 @@ export async function fetchDashboardFilterSummaries(
       invoiceInRange &&
       isDashboardSalesOrderEligible(order, "bill_done_old")
     ) {
-      addToSummary(summaries.get("bill_done_old")!, order.totalPrice);
+      addToSummary(summaries.get("bill_done_old")!, order);
     }
 
     if (
@@ -409,18 +454,24 @@ export async function fetchDashboardFilterSummaries(
       deliveryInRange &&
       isDashboardSalesOrderEligible(order, "delivered_old")
     ) {
-      addToSummary(summaries.get("delivered_old")!, order.totalPrice);
+      addToSummary(summaries.get("delivered_old")!, order);
     }
   }
 
   for (const order of backlogBillOpen) {
-    if (isDashboardSalesOrderEligible(order, "still_bill_open")) {
-      addToSummary(summaries.get("still_bill_open")!, order.totalPrice);
+    if (
+      orderMatchesDashboardCoupon(order, couponCodes) &&
+      isDashboardSalesOrderEligible(order, "still_bill_open")
+    ) {
+      addToSummary(summaries.get("still_bill_open")!, order);
     }
   }
   for (const order of backlogNotDelivered) {
-    if (isDashboardSalesOrderEligible(order, "still_not_delivered")) {
-      addToSummary(summaries.get("still_not_delivered")!, order.totalPrice);
+    if (
+      orderMatchesDashboardCoupon(order, couponCodes) &&
+      isDashboardSalesOrderEligible(order, "still_not_delivered")
+    ) {
+      addToSummary(summaries.get("still_not_delivered")!, order);
     }
   }
 
@@ -439,24 +490,26 @@ export async function fetchDashboardSalesByLocationMerchant(
     fromYmd: string;
     toYmd: string;
     dateType: DashboardSalesDateType;
+    couponCodes?: string | readonly string[] | null;
   },
-): Promise<{ locations: DashboardLocationSales[]; invalidRange: boolean }> {
+): Promise<{
+  locations: DashboardLocationSales[];
+  invalidRange: boolean;
+  couponCodes: string[];
+}> {
   const fromDate = parseDayStartUtc(params.fromYmd);
   const toDate = parseDayEndUtc(params.toYmd);
   if (fromDate > toDate) {
-    return { locations: [], invalidRange: true };
+    return { locations: [], invalidRange: true, couponCodes: [] };
   }
-
-  // placed_* = createdAt buckets that tally; closed/delivered_* = other clocks.
-  const dateFilter = buildDashboardSalesDateFilter({
-    fromDate,
-    toDate,
-    dateType: params.dateType,
-  });
 
   const where: Prisma.OrderWhereInput = {
     companyId,
-    ...dateFilter,
+    ...buildDashboardSalesDateFilter({
+      fromDate,
+      toDate,
+      dateType: params.dateType,
+    }),
   };
 
   const [locations, usersWithCoupons, orders] = await Promise.all([
@@ -470,7 +523,9 @@ export async function fetchDashboardSalesByLocationMerchant(
         defaultMerchant: {
           select: {
             id: true,
+            knownName: true,
             name: true,
+            email: true,
           },
         },
       },
@@ -485,10 +540,15 @@ export async function fetchDashboardSalesByLocationMerchant(
         companyLocationId: true,
         assignedMerchantId: true,
         totalPrice: true,
+        totalShipping: true,
+        shippingLines: true,
+        createdAt: true,
+        cancelledAt: true,
         sourceName: true,
         financialStatus: true,
         fulfillmentStatus: true,
         fulfillmentStage: true,
+        fulfillmentStageEnteredAt: true,
         deliveryOutcome: true,
         deliveryCompleteAt: true,
         invoiceCompleteAt: true,
@@ -504,9 +564,24 @@ export async function fetchDashboardSalesByLocationMerchant(
   const userToGroup = await getMerchantGroupUserMap(companyId);
   const couponToUser = buildCouponToMerchantMap(usersWithCoupons, userToGroup);
   const wholesaleOwners = buildWholesaleOwnerMap(usersWithCoupons);
+  const locationMeta = new Map(
+    locations.map((loc) => [
+      loc.id,
+      {
+        name: loc.name,
+        defaultMerchant: loc.defaultMerchant
+          ? {
+              id: loc.defaultMerchant.id,
+              name: getMerchantDisplayName(loc.defaultMerchant),
+            }
+          : null,
+      },
+    ]),
+  );
 
   const byLocationMerchant = new Map<string, Map<string, DashboardLocationMerchantRow>>();
   const sourceByLocation = new Map<string, DashboardLocationSales["sources"]>();
+  const couponByKey = new Map<string, string>();
   for (const loc of locations) {
     byLocationMerchant.set(loc.id, new Map());
     sourceByLocation.set(loc.id, []);
@@ -514,6 +589,14 @@ export async function fetchDashboardSalesByLocationMerchant(
 
   for (const order of orders) {
     if (!isDashboardSalesOrderEligible(order, params.dateType)) continue;
+    const discountCoupon = getDashboardDiscountCoupon(order);
+    if (discountCoupon) {
+      const couponKey = discountCoupon.trim().toUpperCase();
+      if (!couponByKey.has(couponKey)) couponByKey.set(couponKey, couponKey);
+    }
+    if (!orderMatchesDashboardCoupon(order, params.couponCodes)) continue;
+    const total = dashboardSaleAmount(order);
+    const countDelta = 1;
 
     const merchantMap = byLocationMerchant.get(order.companyLocationId);
     if (!merchantMap) continue;
@@ -530,6 +613,7 @@ export async function fetchDashboardSalesByLocationMerchant(
       .map((coupon) => coupon.trim().toLowerCase())
       .filter(Boolean);
 
+    const locMeta = locationMeta.get(order.companyLocationId);
     const resolved = resolveDashboardOrderMerchant({
       orderCoupons: merchantCoupons,
       couponToUser,
@@ -537,19 +621,20 @@ export async function fetchDashboardSalesByLocationMerchant(
       assignedMerchantId: order.assignedMerchantId,
       assignedMerchant: order.assignedMerchant,
       userToGroup,
+      locationName: locMeta?.name,
+      locationDefaultMerchant: locMeta?.defaultMerchant,
     });
     const merchantKey = dashboardMerchantRowKey(resolved);
     const existing = merchantMap.get(merchantKey);
-    const total = Number(order.totalPrice ?? 0);
     if (existing) {
       existing.total += total;
-      existing.orderCount += 1;
+      existing.orderCount += countDelta;
     } else {
       merchantMap.set(merchantKey, {
         merchantId: resolved.id,
         merchantName: resolved.name,
         total,
-        orderCount: 1,
+        orderCount: countDelta,
       });
     }
 
@@ -559,9 +644,9 @@ export async function fetchDashboardSalesByLocationMerchant(
       const existingSource = sourceList.find((row) => row.sourceName === sourceName);
       if (existingSource) {
         existingSource.total += total;
-        existingSource.orderCount += 1;
+        existingSource.orderCount += countDelta;
       } else {
-        sourceList.push({ sourceName, total, orderCount: 1 });
+        sourceList.push({ sourceName, total, orderCount: countDelta });
       }
     }
   }
@@ -579,7 +664,11 @@ export async function fetchDashboardSalesByLocationMerchant(
     };
   });
 
-  return { locations: locationsOut, invalidRange: false };
+  return {
+    locations: locationsOut,
+    invalidRange: false,
+    couponCodes: [...couponByKey.values()].sort((a, b) => a.localeCompare(b)),
+  };
 }
 
 /**
@@ -592,24 +681,27 @@ export async function fetchDashboardSalesByLocationGateway(
     fromYmd: string;
     toYmd: string;
     dateType: DashboardSalesDateType;
+    couponCodes?: string | readonly string[] | null;
   },
-): Promise<{ locations: DashboardLocationSales[]; invalidRange: boolean }> {
+): Promise<{
+  locations: DashboardLocationSales[];
+  invalidRange: boolean;
+  couponCodes: string[];
+}> {
   const gatewayColumns = await getOrderPaymentGatewayColumnState();
   const fromDate = parseDayStartUtc(params.fromYmd);
   const toDate = parseDayEndUtc(params.toYmd);
   if (fromDate > toDate) {
-    return { locations: [], invalidRange: true };
+    return { locations: [], invalidRange: true, couponCodes: [] };
   }
-
-  const dateFilter = buildDashboardSalesDateFilter({
-    fromDate,
-    toDate,
-    dateType: params.dateType,
-  });
 
   const where: Prisma.OrderWhereInput = {
     companyId,
-    ...dateFilter,
+    ...buildDashboardSalesDateFilter({
+      fromDate,
+      toDate,
+      dateType: params.dateType,
+    }),
   };
 
   if (!gatewayColumns.hasPaymentGatewayPrimary) {
@@ -639,6 +731,7 @@ export async function fetchDashboardSalesByLocationGateway(
         sources: [],
       })),
       invalidRange: false,
+      couponCodes: [],
     };
   }
 
@@ -663,10 +756,16 @@ export async function fetchDashboardSalesByLocationGateway(
       select: {
         companyLocationId: true,
         totalPrice: true,
+        totalShipping: true,
+        shippingLines: true,
+        discountCodes: true,
+        createdAt: true,
+        cancelledAt: true,
         sourceName: true,
         financialStatus: true,
         fulfillmentStatus: true,
         fulfillmentStage: true,
+        fulfillmentStageEnteredAt: true,
         deliveryOutcome: true,
         deliveryCompleteAt: true,
         invoiceCompleteAt: true,
@@ -678,6 +777,7 @@ export async function fetchDashboardSalesByLocationGateway(
 
   const byLocation = new Map<string, DashboardLocationMerchantRow[]>();
   const sourceByLocation = new Map<string, DashboardLocationSales["sources"]>();
+  const couponByKey = new Map<string, string>();
   for (const loc of locations) {
     byLocation.set(loc.id, []);
     sourceByLocation.set(loc.id, []);
@@ -685,6 +785,14 @@ export async function fetchDashboardSalesByLocationGateway(
 
   for (const order of orders) {
     if (!isDashboardSalesOrderEligible(order, params.dateType)) continue;
+    const discountCoupon = getDashboardDiscountCoupon(order);
+    if (discountCoupon) {
+      const couponKey = discountCoupon.trim().toUpperCase();
+      if (!couponByKey.has(couponKey)) couponByKey.set(couponKey, couponKey);
+    }
+    if (!orderMatchesDashboardCoupon(order, params.couponCodes)) continue;
+    const total = dashboardSaleAmount(order);
+    const countDelta = 1;
 
     const list = byLocation.get(order.companyLocationId);
     if (!list) continue;
@@ -694,17 +802,16 @@ export async function fetchDashboardSalesByLocationGateway(
         paymentGatewayPrimary: order.paymentGatewayPrimary,
         financialStatus: order.financialStatus,
       }).label || "Unspecified";
-    const total = Number(order.totalPrice ?? 0);
     const existingGateway = list.find((row) => row.merchantName === gatewayLabel);
     if (existingGateway) {
       existingGateway.total += total;
-      existingGateway.orderCount += 1;
+      existingGateway.orderCount += countDelta;
     } else {
       list.push({
         merchantId: null,
         merchantName: gatewayLabel,
         total,
-        orderCount: 1,
+        orderCount: countDelta,
       });
     }
 
@@ -714,9 +821,9 @@ export async function fetchDashboardSalesByLocationGateway(
       const existingSource = sourceList.find((row) => row.sourceName === sourceName);
       if (existingSource) {
         existingSource.total += total;
-        existingSource.orderCount += 1;
+        existingSource.orderCount += countDelta;
       } else {
-        sourceList.push({ sourceName, total, orderCount: 1 });
+        sourceList.push({ sourceName, total, orderCount: countDelta });
       }
     }
   }
@@ -734,5 +841,9 @@ export async function fetchDashboardSalesByLocationGateway(
     };
   });
 
-  return { locations: locationsOut, invalidRange: false };
+  return {
+    locations: locationsOut,
+    invalidRange: false,
+    couponCodes: [...couponByKey.values()].sort((a, b) => a.localeCompare(b)),
+  };
 }

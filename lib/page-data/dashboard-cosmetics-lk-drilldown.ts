@@ -16,6 +16,7 @@ import {
   buildCouponToMerchantMap,
   getMerchantGroupUserMap,
 } from "@/lib/merchant-groups";
+import { orderMatchesDashboardCoupon } from "@/lib/dashboard-coupon-filter";
 import { getOrderDiscountCouponCode } from "@/lib/order-discount-coupon";
 import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
 import type { DashboardSalesDateType } from "@/lib/page-data/dashboard-overview-shared";
@@ -148,6 +149,7 @@ export async function fetchCosmeticsLkDrilldown(
     fromYmd: string;
     toYmd: string;
     dateType: DashboardSalesDateType;
+    couponCodes?: string | readonly string[] | null;
   },
 ): Promise<CosmeticsLkDrilldownResult> {
   const fromDate = parseDayStartUtc(params.fromYmd);
@@ -226,6 +228,7 @@ export async function fetchCosmeticsLkDrilldown(
 
   for (const order of orders) {
     if (!isDashboardSalesOrderEligible(order, params.dateType)) continue;
+    if (!orderMatchesDashboardCoupon(order, params.couponCodes)) continue;
 
     const merchantCouponCode = getMerchantCouponCode({
       sourceName: order.sourceName,
@@ -246,6 +249,7 @@ export async function fetchCosmeticsLkDrilldown(
       assignedMerchantId: order.assignedMerchantId,
       assignedMerchant: order.assignedMerchant,
       userToGroup,
+      locationName: cosmeticsLoc.name,
     });
     const merchantId = resolved.id;
     const merchantName = resolved.name;

@@ -7,6 +7,9 @@ export const BOOK_NOTE_ERP_PAYMENT_METHODS = [
   "Bank Transfer",
 ] as const;
 
+/** Reference field label. Same pattern as MintPay Order ID on the book-note row. */
+export const KOKO_ORDER_ID_LABEL = "KOKO Order ID";
+
 /** Reference field label. MintPay's export has a different, small "Order Id" column. */
 export const MINTPAY_ORDER_ID_LABEL =
   "MintPay Order ID (shown in the MintPay app after payment, 7 digits)";

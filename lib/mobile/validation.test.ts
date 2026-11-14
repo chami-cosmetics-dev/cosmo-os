@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  mobileDeliveriesQuerySchema,
   mobileDeliveryStatusFilterSchema,
   mobileLoginSchema,
   riderCashHandoverCreateSchema,
@@ -42,11 +43,32 @@ describe("mobileLoginSchema", () => {
 describe("mobileDeliveryStatusFilterSchema", () => {
   it("accepts known delivery statuses", () => {
     expect(mobileDeliveryStatusFilterSchema.safeParse("assigned").success).toBe(true);
+    expect(mobileDeliveryStatusFilterSchema.safeParse("active").success).toBe(true);
     expect(mobileDeliveryStatusFilterSchema.safeParse(undefined).success).toBe(true);
   });
 
   it("rejects unknown status", () => {
     expect(mobileDeliveryStatusFilterSchema.safeParse("cancelled").success).toBe(false);
+  });
+});
+
+describe("mobileDeliveriesQuerySchema", () => {
+  it("defaults offset and accepts completed paging", () => {
+    const result = mobileDeliveriesQuerySchema.safeParse({
+      status: "completed",
+      limit: "40",
+      on: "2026-11-04",
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.offset).toBe(0);
+      expect(result.data.limit).toBe(40);
+      expect(result.data.on).toBe("2026-11-04");
+    }
+  });
+
+  it("rejects bad on date", () => {
+    expect(mobileDeliveriesQuerySchema.safeParse({ on: "04-11-2026" }).success).toBe(false);
   });
 });
 
@@ -70,22 +92,30 @@ describe("riderPaymentSchema", () => {
     expect(result.success).toBe(false);
   });
 
-  it("requires card reference for card payment", () => {
-    const result = riderPaymentSchema.safeParse({
+  it("requires last 4 digits and slip photo for card payment", () => {
+    const missing = riderPaymentSchema.safeParse({
       paymentMethod: "card",
       collectedAmount: 1500,
     });
+    expect(missing.success).toBe(false);
 
-    expect(result.success).toBe(false);
+    const ok = riderPaymentSchema.safeParse({
+      paymentMethod: "card",
+      collectedAmount: 1500,
+      cardLast4: "4242",
+      cardSlipImageUrl: "https://res.cloudinary.com/demo/image/upload/slip.jpg",
+    });
+    expect(ok.success).toBe(true);
   });
 
-  it("accepts split cash + card lines", () => {
+  it("accepts split cash + card lines with last 4 and slip", () => {
     const result = riderPaymentSchema.safeParse({
       lines: [
         { paymentMethod: "cod", amount: 2000 },
-        { paymentMethod: "card", amount: 3000, cardReference: "POS-123" },
+        { paymentMethod: "card", amount: 3000, cardLast4: "4242" },
       ],
       customerGaveAmount: 2000,
+      cardSlipImageUrl: "https://res.cloudinary.com/demo/image/upload/slip.jpg",
     });
 
     expect(result.success).toBe(true);

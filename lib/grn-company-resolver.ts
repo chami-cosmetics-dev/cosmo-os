@@ -22,7 +22,9 @@ function companyIdentity(value: string | null | undefined) {
 function numericCode(value: string | null | undefined, pattern: RegExp) {
   const match = value?.trim().match(pattern);
   if (!match?.[1]) return null;
-  return String(Number(match[1]));
+  // Supplier account codes use their leading zeroes as part of the identity.
+  // Converting this to a number makes OUT00100 indistinguishable from OUT100.
+  return match[1];
 }
 
 function documentCompanyCode(value: string | null | undefined) {

@@ -15,7 +15,7 @@ export function xlsxAttachment(buffer: Buffer, fileName: string) {
   });
 }
 
-export async function requireSupplementStaff(app: "vault" | "cosmo") {
+export async function requireSupplementStaff() {
   const auth = await requirePermission("contacts.master.manage");
   if (!auth.ok) {
     return {
@@ -30,17 +30,10 @@ export async function requireSupplementStaff(app: "vault" | "cosmo") {
       response: NextResponse.json({ error: "No company associated with your account" }, { status: 404 }),
     };
   }
-  const vault = isVaultOsDeployment();
-  if (app === "vault" && !vault) {
+  if (!isVaultOsDeployment()) {
     return {
       ok: false as const,
       response: NextResponse.json({ error: "This action is only available on Vault OS" }, { status: 409 }),
-    };
-  }
-  if (app === "cosmo" && vault) {
-    return {
-      ok: false as const,
-      response: NextResponse.json({ error: "This action is only available on Cosmo OS" }, { status: 409 }),
     };
   }
   return { ok: true as const, companyId };

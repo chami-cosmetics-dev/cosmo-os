@@ -204,6 +204,7 @@ export async function listMaterialTransfers(input: {
   seeAll: boolean;
   scope: ShopScope;
   status?: TransferStatus;
+  direction?: TransferDirection;
   mismatch?: boolean;
 }) {
   if (!input.seeAll && shopScopeIsEmpty(input.scope)) return [];
@@ -218,6 +219,7 @@ export async function listMaterialTransfers(input: {
   const rows = await prisma.materialTransfer.findMany({
     where: {
       companyId: input.companyId,
+      ...(input.direction ? { direction: input.direction } : {}),
       ...(input.mismatch
         ? { status: { in: input.status ? [input.status] : ["received", "confirmed"] } }
         : input.status

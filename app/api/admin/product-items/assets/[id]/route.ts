@@ -1,14 +1,14 @@
-import { del } from "@vercel/blob";
 import { NextRequest, NextResponse } from "next/server";
 
 import { writeAuditLog } from "@/lib/audit-log";
-import { prisma } from "@/lib/prisma";
+import { storedFileResponse } from "@/lib/file-storage-response";
+import { deleteStorageFileEverywhere, findStorageFile } from "@/lib/product-item-storage";
 import { requirePermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const auth = await requirePermission("products.storage.read");
@@ -21,32 +21,19 @@ export async function GET(
   }
 
   const { id } = await params;
-
-  const asset = await prisma.productItemAsset.findFirst({
-    where: { id, companyId },
-    select: { blobUrl: true, mimeType: true, provider: true },
-  });
-
-  if (!asset) {
+  const file = await findStorageFile(companyId, id);
+  if (!file) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const blobRes = await fetch(asset.blobUrl, {
-    headers: { Authorization: `Bearer ${process.env.BLOB_READ_WRITE_TOKEN}` },
-  });
-
-  if (!blobRes.ok || !blobRes.body) {
-    return NextResponse.json({ error: "Failed to fetch file" }, { status: 502 });
-  }
-
-  return new NextResponse(blobRes.body, {
-    headers: {
-      "Content-Type": asset.mimeType ?? blobRes.headers.get("Content-Type") ?? "application/octet-stream",
-      "Cache-Control": "private, max-age=3600",
-      ...(blobRes.headers.get("Content-Length")
-        ? { "Content-Length": blobRes.headers.get("Content-Length")! }
-        : {}),
-    },
+  // Product media is meant for marketing use; a signed URL lets video and
+  // audio stream with seeking straight from Cloudinary.
+  return storedFileResponse({
+    url: file.url,
+    request,
+    mimeType: file.mimeType,
+    cacheControl: "private, max-age=3600",
+    redirect: true,
   });
 }
 
@@ -65,29 +52,12 @@ export async function DELETE(
   }
 
   const { id } = await params;
-
-  const asset = await prisma.productItemAsset.findFirst({
-    where: { id, companyId },
-    select: { id: true, fileName: true, blobUrl: true, provider: true, sku: true, type: true },
-  });
-
-  if (!asset) {
+  const file = await findStorageFile(companyId, id);
+  if (!file) {
     return NextResponse.json({ error: "Asset not found" }, { status: 404 });
   }
 
-  // Delete all rows sharing the same blob URL (uploaded for all family SKUs at once)
-  await prisma.productItemAsset.deleteMany({
-    where: { companyId, blobUrl: asset.blobUrl },
-  });
-
-  // Delete from Vercel Blob (only once, after all DB rows are gone)
-  if (!asset.provider || asset.provider === "vercel_blob") {
-    try {
-      await del(asset.blobUrl);
-    } catch {
-      // Blob may already be deleted — non-fatal
-    }
-  }
+  const removed = await deleteStorageFileEverywhere(companyId, file.url);
 
   await writeAuditLog({
     companyId,
@@ -95,9 +65,9 @@ export async function DELETE(
     module: "products",
     action: "storage_file_deleted",
     entityType: "ProductItemAsset",
-    entityId: asset.id,
-    summary: `Deleted ${asset.fileName ?? asset.type} (${asset.type}) for SKU ${asset.sku}`,
-    metadata: { fileName: asset.fileName, type: asset.type, sku: asset.sku },
+    entityId: id,
+    summary: `Deleted ${file.fileName} (${file.type})${file.sku ? ` for SKU ${file.sku}` : ""}`,
+    metadata: { fileName: file.fileName, type: file.type, sku: file.sku, ...removed },
   });
 
   return NextResponse.json({ ok: true });

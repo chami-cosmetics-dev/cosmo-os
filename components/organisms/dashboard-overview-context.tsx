@@ -8,9 +8,15 @@ import {
   useMemo,
   useRef,
   useState,
+  type Dispatch,
   type ReactNode,
+  type SetStateAction,
 } from "react";
 
+import {
+  appendDashboardCouponQuery,
+  formatDashboardCouponFilterLabel,
+} from "@/lib/dashboard-coupon-filter";
 import {
   getDefaultDashboardOverviewRange,
   getDashboardSalesDateTypeLabel,
@@ -49,6 +55,9 @@ type DashboardOverviewContextValue = {
   setDateType: (v: DashboardSalesDateType) => void;
   analysisType: "merchant" | "gateway";
   setAnalysisType: (v: "merchant" | "gateway") => void;
+  selectedCouponCodes: string[];
+  setSelectedCouponCodes: Dispatch<SetStateAction<string[]>>;
+  couponCodes: string[];
   initialRange: { fromDate: string; toDate: string };
   salesLocations: DashboardSalesLocation[];
   salesLoading: boolean;
@@ -85,6 +94,8 @@ export function DashboardOverviewProvider({
   const [analysisType, setAnalysisType] = useState<"merchant" | "gateway">(
     initialState?.analysisType ?? "merchant",
   );
+  const [selectedCouponCodes, setSelectedCouponCodes] = useState<string[]>([]);
+  const [couponCodes, setCouponCodes] = useState<string[]>(initialState?.couponCodes ?? []);
 
   const [salesLocations, setSalesLocations] = useState<DashboardSalesLocation[]>(
     initialState?.salesLocations ?? [],
@@ -112,8 +123,12 @@ export function DashboardOverviewProvider({
     });
     const range = `${fmt.format(from)} – ${fmt.format(to)}`;
     const dateSource = getDashboardSalesDateTypeLabel(dateType);
-    return `${range} · ${dateSource}`;
-  }, [fromDate, toDate, dateType]);
+    const couponPart =
+      selectedCouponCodes.length > 0
+        ? ` · ${formatDashboardCouponFilterLabel(selectedCouponCodes)}`
+        : "";
+    return `${range} · ${dateSource}${couponPart}`;
+  }, [fromDate, toDate, dateType, selectedCouponCodes]);
 
   const loadSales = useCallback(async (options?: { silent?: boolean }) => {
     const silent = options?.silent ?? false;
@@ -138,6 +153,7 @@ export function DashboardOverviewProvider({
         analysis_type: analysisType,
         include_summaries: "true",
       });
+      appendDashboardCouponQuery(params, selectedCouponCodes);
       const res = await fetch(`/api/admin/dashboard/sales-by-location?${params.toString()}`);
       const body = (await res.json()) as {
         error?: string;
@@ -159,6 +175,7 @@ export function DashboardOverviewProvider({
           }>;
         }>;
         filterSummaries?: DashboardFilterSummary[];
+        couponCodes?: string[];
       };
       if (id !== fetchIdRef.current) return;
       if (!res.ok) {
@@ -186,6 +203,9 @@ export function DashboardOverviewProvider({
       if (body.filterSummaries) {
         setFilterSummaries(body.filterSummaries);
       }
+      if (body.couponCodes) {
+        setCouponCodes(body.couponCodes);
+      }
       setLastUpdatedAt(Date.now());
     } catch (e) {
       if (id !== fetchIdRef.current) return;
@@ -196,7 +216,7 @@ export function DashboardOverviewProvider({
     } finally {
       if (id === fetchIdRef.current && !silent) setSalesLoading(false);
     }
-  }, [analysisType, dateType, fromDate, hasInvalidRange, toDate]);
+  }, [analysisType, dateType, fromDate, hasInvalidRange, selectedCouponCodes, toDate]);
 
   useEffect(() => {
     if (shouldSkipInitialFetchRef.current) {
@@ -205,6 +225,13 @@ export function DashboardOverviewProvider({
     }
     void loadSales();
   }, [loadSales]);
+
+  useEffect(() => {
+    if (selectedCouponCodes.length === 0) return;
+    const available = new Set(couponCodes.map((code) => code.trim().toUpperCase()));
+    const next = selectedCouponCodes.filter((code) => available.has(code.trim().toUpperCase()));
+    if (next.length !== selectedCouponCodes.length) setSelectedCouponCodes(next);
+  }, [couponCodes, selectedCouponCodes]);
 
   useEffect(() => {
     if (hasInvalidRange) return;
@@ -227,6 +254,9 @@ export function DashboardOverviewProvider({
       setDateType,
       analysisType,
       setAnalysisType,
+      selectedCouponCodes,
+      setSelectedCouponCodes,
+      couponCodes,
       initialRange,
       salesLocations,
       salesLoading,
@@ -239,6 +269,8 @@ export function DashboardOverviewProvider({
     }),
     [
       analysisType,
+      couponCodes,
+      selectedCouponCodes,
       dateType,
       filterInfo,
       filterSummaries,

@@ -10,9 +10,17 @@ export default async function PurchaseHistoryPage() {
   const context = await getCurrentUserContext();
   if (!context?.user) redirect("/login");
 
-  if (!hasPermission(context, "purchasing.purchase_history.read")) {
+  const canReadPurchaseHistory = hasPermission(context, "purchasing.purchase_history.read");
+  const canReadHighRisk = hasPermission(context, "purchasing.high_risk.read");
+  if (!canReadPurchaseHistory && !canReadHighRisk) {
     return <PermissionDeniedCard />;
   }
 
-  return <PurchaseHistoryPanel />;
+  return (
+    <PurchaseHistoryPanel
+      canReadPurchaseHistory={canReadPurchaseHistory}
+      canReadHighRisk={canReadHighRisk}
+      canManageHighRisk={hasPermission(context, "purchasing.high_risk.manage")}
+    />
+  );
 }

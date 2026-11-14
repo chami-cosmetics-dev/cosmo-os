@@ -29,6 +29,7 @@ import {
   setTransferLineQty,
   upsertTransferLine,
 } from "@/lib/material-transfer/lines";
+import { loadSendDraft, saveSendDraft } from "@/lib/material-transfer/send-draft";
 import { linesBelowMainAvailable } from "@/lib/material-transfer/submit-review";
 import type {
   TransferLine,
@@ -40,15 +41,24 @@ import {
   companiesForErp2,
   defaultSourceWarehouse,
   defaultTargetWarehouse,
+  erp1NonVatTransferWarning,
   erp1RequiresVatItems,
   warehouseOptions,
 } from "@/lib/material-transfer/warehouses";
 import { MaterialTransferHistory } from "@/components/organisms/material-transfer-history";
 import { MaterialTransferRequestQueue } from "@/components/organisms/material-transfer-request-queue";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { findReceiptLine } from "@/lib/material-transfer/receive";
 import { notify } from "@/lib/notify";
 import { playScanErrorSound, unlockScanSound } from "@/lib/store-stock-count/scan-sound";
 import { cn } from "@/lib/utils";
+
+const MIN_SEND_SCAN_LENGTH = 4;
+const SEND_SCAN_IDLE_MS = 100;
+
+function isScannerBarcode(code: string): boolean {
+  return /^\d{8,}$/.test(code.trim());
+}
 
 type SlotPayload = {
   configured: boolean;
@@ -66,7 +76,17 @@ function slotLabel(slot: TransferSlot) {
   return slot === "erp1" ? "ERP1" : "ERP2";
 }
 
-export function MaterialTransferPanel() {
+export type MaterialTransferPageTab = "send" | "requests" | "returns";
+
+export function MaterialTransferPanel({
+  companyId,
+  userId,
+  initialTab = "send",
+}: {
+  companyId: string;
+  userId: string;
+  initialTab?: MaterialTransferPageTab;
+}) {
   const [page, setPage] = useState<PageData | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
   const [slot, setSlot] = useState<TransferSlot>("erp1");
@@ -74,12 +94,15 @@ export function MaterialTransferPanel() {
   const [source, setSource] = useState("");
   const [target, setTarget] = useState("");
   const [lines, setLines] = useState<TransferLine[]>([]);
+  const [draftReady, setDraftReady] = useState(false);
   const [scan, setScan] = useState("");
   const [busyKey, setBusyKey] = useState<"page" | "lookup" | "submit" | null>("page");
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [highlightedItemCode, setHighlightedItemCode] = useState<string | null>(null);
+  const [tab, setTab] = useState<MaterialTransferPageTab>(initialTab);
   const scanRef = useRef<HTMLInputElement>(null);
   const scanValueRef = useRef("");
+  const sendScanTimerRef = useRef<number | null>(null);
   const linesRef = useRef<TransferLine[]>([]);
   const queueRef = useRef<
     Array<{ code: string; slot: TransferSlot; source: string; target: string; company: string }>
@@ -101,6 +124,15 @@ export function MaterialTransferPanel() {
 
   useEffect(() => {
     let cancelled = false;
+    const saved = loadSendDraft(companyId, userId);
+    if (saved) {
+      setSlot(saved.slot);
+      setCompany(saved.company);
+      setSource(saved.source);
+      setTarget(saved.target);
+      setLines(saved.lines);
+      notify.success(`Restored ${saved.lines.length} unsaved items`);
+    }
     void (async () => {
       try {
         const res = await fetch("/api/admin/store/material-transfer/page-data");
@@ -108,7 +140,7 @@ export function MaterialTransferPanel() {
         if (!res.ok) throw new Error(json.error || "Could not load warehouses");
         if (cancelled) return;
         setPage(json);
-        setSlot(json.erp1.configured ? "erp1" : "erp2");
+        if (!saved) setSlot(json.erp1.configured ? "erp1" : "erp2");
       } catch (error) {
         if (!cancelled) {
           const message = error instanceof Error ? error.message : "Could not load warehouses";
@@ -116,20 +148,50 @@ export function MaterialTransferPanel() {
           notify.error(message);
         }
       } finally {
-        if (!cancelled) setBusyKey(null);
+        if (!cancelled) {
+          setBusyKey(null);
+          setDraftReady(true);
+        }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [companyId, userId]);
+
+  useEffect(() => {
+    if (!draftReady) return;
+    saveSendDraft({
+      version: 1,
+      companyId,
+      userId,
+      updatedAt: new Date().toISOString(),
+      slot,
+      company,
+      source,
+      target,
+      lines,
+    });
+  }, [draftReady, companyId, userId, slot, company, source, target, lines]);
 
   const focusScan = useCallback(() => {
     scanRef.current?.focus();
   }, []);
 
+  useEffect(() => {
+    return () => {
+      if (sendScanTimerRef.current != null) window.clearTimeout(sendScanTimerRef.current);
+    };
+  }, []);
+
   function switchSlot(next: TransferSlot) {
     if (next === slot || isBusy) return;
+    if (
+      lines.length > 0 &&
+      !window.confirm("Switch ERP and drop the unsaved items? This list is only kept for the current ERP.")
+    ) {
+      return;
+    }
     setSlot(next);
     setCompany("");
     setSource("");
@@ -151,18 +213,27 @@ export function MaterialTransferPanel() {
     setLines((prev) => clearAvailableQty(prev));
   }
 
-  const applyLookup = useCallback((item: TransferLookupItem) => {
-    const result = upsertTransferLine(linesRef.current, item);
-    if (result.rejected) {
+  const applyLookup = useCallback(
+    (item: TransferLookupItem) => {
+      const isNew = !findTransferLine(linesRef.current, item.itemCode);
+      const result = upsertTransferLine(linesRef.current, item);
+      if (result.rejected) {
+        playScanErrorSound();
+        notify.error("Cannot send more than available");
+        return;
+      }
+      const next = promoteTransferLine(result.lines, item.itemCode);
+      linesRef.current = next;
+      setLines(next);
+      setHighlightedItemCode(item.itemCode);
+      if (!isNew) return;
+      const warning = erp1NonVatTransferWarning(slot, source, target, item.taxStatus, item.itemCode);
+      if (!warning) return;
       playScanErrorSound();
-      notify.error("Cannot send more than available");
-      return;
-    }
-    const next = promoteTransferLine(result.lines, item.itemCode);
-    linesRef.current = next;
-    setLines(next);
-    setHighlightedItemCode(item.itemCode);
-  }, []);
+      notify.error(warning, `vat-warn-${item.itemCode}`);
+    },
+    [slot, source, target],
+  );
 
   const drainQueue = useCallback(async () => {
     if (drainingRef.current) return;
@@ -179,7 +250,7 @@ export function MaterialTransferPanel() {
             itemName: existing.itemName,
             barcode: existing.barcode,
             uom: existing.uom,
-            taxStatus: null,
+            taxStatus: existing.taxStatus ?? null,
             availableQty: existing.availableQty,
           });
           continue;
@@ -282,14 +353,26 @@ export function MaterialTransferPanel() {
         <h1 className="text-xl font-semibold">Material transfer</h1>
         <p className="text-muted-foreground text-sm">
           Stock Entry type Material Transfer. Scan a barcode or type a SKU. A repeat scan adds 1
-          to the qty. Sending submits the entry in ERP and moves stock.
+          to the qty. Matching barcodes count up without Add. Sending submits the entry in ERP and
+          moves stock.
         </p>
       </div>
 
-      <Tabs defaultValue="send">
+      <Tabs
+        value={tab}
+        onValueChange={(value) => {
+          const next = value as MaterialTransferPageTab;
+          setTab(next);
+          const url = new URL(window.location.href);
+          if (next === "send") url.searchParams.delete("tab");
+          else url.searchParams.set("tab", next);
+          window.history.replaceState(null, "", url);
+        }}
+      >
         <TabsList className="h-auto w-full justify-start gap-1 sm:w-fit">
           <TabsTrigger value="send">Send</TabsTrigger>
           <TabsTrigger value="requests">Shop requests</TabsTrigger>
+          <TabsTrigger value="returns">Shop returns</TabsTrigger>
         </TabsList>
         <TabsContent value="send" className="flex flex-col gap-4">
       {busyKey === "page" ? (
@@ -307,7 +390,7 @@ export function MaterialTransferPanel() {
           disabled={isBusy || !page?.erp1.configured}
           onClick={() => switchSlot("erp1")}
         >
-          ERP1 VAT items
+          ERP1 Vat items
         </Button>
         <Button
           type="button"
@@ -364,7 +447,7 @@ export function MaterialTransferPanel() {
           <span className="text-muted-foreground text-xs">
             {slot === "erp1"
               ? erp1RequiresVatItems(source, target)
-                ? "Every ERP1 warehouse. VAT items only."
+                ? "Every ERP1 warehouse. Vat and Vat / Non Vat only."
                 : "OGF moves every item. VAT and non-VAT."
               : "Defaults to the main warehouse. Main and shop warehouses are listed."}
           </span>
@@ -404,6 +487,10 @@ export function MaterialTransferPanel() {
         className="flex gap-2"
         onSubmit={(event) => {
           event.preventDefault();
+          if (sendScanTimerRef.current != null) {
+            window.clearTimeout(sendScanTimerRef.current);
+            sendScanTimerRef.current = null;
+          }
           void addCode(scanRef.current?.value || scanValueRef.current || scan);
         }}
       >
@@ -415,8 +502,24 @@ export function MaterialTransferPanel() {
           autoComplete="off"
           onFocus={unlockScanSound}
           onChange={(event) => {
-            scanValueRef.current = event.target.value;
-            setScan(event.target.value);
+            const value = event.target.value;
+            scanValueRef.current = value;
+            setScan(value);
+            if (sendScanTimerRef.current != null) {
+              window.clearTimeout(sendScanTimerRef.current);
+              sendScanTimerRef.current = null;
+            }
+            if (scanLocked) return;
+            const code = value.trim();
+            if (code.length >= MIN_SEND_SCAN_LENGTH && findTransferLine(linesRef.current, code)) {
+              addCode(code);
+              return;
+            }
+            if (!isScannerBarcode(code)) return;
+            sendScanTimerRef.current = window.setTimeout(() => {
+              sendScanTimerRef.current = null;
+              addCode(code);
+            }, SEND_SCAN_IDLE_MS);
           }}
         />
         <Button type="submit" disabled={scanLocked || !scan.trim()}>
@@ -437,6 +540,7 @@ export function MaterialTransferPanel() {
             <tr>
               <th className="px-3 py-2 font-medium">SKU</th>
               <th className="px-3 py-2 font-medium">Item</th>
+              <th className="px-3 py-2 font-medium">Tax status</th>
               <th className="px-3 py-2 font-medium">Barcode</th>
               <th className="px-3 py-2 font-medium">Available</th>
               <th className="px-3 py-2 font-medium">Qty</th>
@@ -446,7 +550,7 @@ export function MaterialTransferPanel() {
           <tbody>
             {lines.length === 0 ? (
               <tr>
-                <td className="text-muted-foreground px-3 py-6" colSpan={6}>
+                <td className="text-muted-foreground px-3 py-6" colSpan={7}>
                   No items yet.
                 </td>
               </tr>
@@ -465,6 +569,7 @@ export function MaterialTransferPanel() {
                 >
                   <td className="px-3 py-2 font-medium">{line.itemCode}</td>
                   <td className="px-3 py-2">{line.itemName}</td>
+                  <td className="px-3 py-2">{line.taxStatus || "—"}</td>
                   <td className="px-3 py-2">{line.barcode || "—"}</td>
                   <td className="px-3 py-2">{line.availableQty ?? "—"}</td>
                   <td className="px-3 py-2">
@@ -500,6 +605,7 @@ export function MaterialTransferPanel() {
       <div className="flex items-center justify-between gap-3">
         <p className="text-muted-foreground text-sm">
           {lines.length} items, {totalQty} units
+          {lines.length > 0 ? ". Kept in this browser until ERP accepts the transfer." : ""}
         </p>
         <Button type="button" disabled={!canSend} onClick={() => setConfirmOpen(true)}>
           Send to ERP
@@ -530,6 +636,9 @@ export function MaterialTransferPanel() {
                 >
                   <span>
                     {line.itemCode}
+                    {line.taxStatus ? (
+                      <span className="text-muted-foreground"> · {line.taxStatus}</span>
+                    ) : null}
                     {line.barcode ? <span className="text-muted-foreground"> · {line.barcode}</span> : null}
                     {low ? <span className="ml-2 font-medium text-amber-800 dark:text-amber-200">Below available</span> : null}
                   </span>
@@ -564,12 +673,14 @@ export function MaterialTransferPanel() {
         </DialogContent>
       </Dialog>
 
-      <ShopReturnQueue />
-
-      <MaterialTransferHistory scope="all" title="History" />
+      <MaterialTransferHistory scope="all" title="History" direction="store_to_shop" />
         </TabsContent>
         <TabsContent value="requests">
           <MaterialTransferRequestQueue />
+        </TabsContent>
+        <TabsContent value="returns" className="flex flex-col gap-4">
+          <ShopReturnQueue />
+          <MaterialTransferHistory scope="all" title="History" direction="shop_to_main" />
         </TabsContent>
       </Tabs>
     </div>
@@ -607,6 +718,13 @@ function ShopReturnQueue() {
   const [busyKey, setBusyKey] = useState<"load" | "count" | "confirm" | null>(null);
   const [scan, setScan] = useState("");
   const scanRef = useRef<HTMLInputElement>(null);
+  const openRef = useRef(open);
+  const busyKeyRef = useRef(busyKey);
+  const scanQueueRef = useRef<string[]>([]);
+  const scanRunningRef = useRef(false);
+  const countPromise = useRef<Promise<void>>(Promise.resolve());
+  openRef.current = open;
+  busyKeyRef.current = busyKey;
 
   const load = useCallback(async () => {
     setBusyKey("load");
@@ -633,7 +751,10 @@ function ShopReturnQueue() {
       const json = (await res.json()) as { transfer?: QueueTransfer; error?: string };
       if (!res.ok || !json.transfer) throw new Error(json.error || "Could not open the request");
       setOpen(json.transfer);
+      openRef.current = json.transfer;
       setHighlightId(null);
+      setScan("");
+      queueMicrotask(() => scanRef.current?.focus());
     } catch (error) {
       notify.error(error instanceof Error ? error.message : "Could not open the request");
     } finally {
@@ -642,31 +763,67 @@ function ShopReturnQueue() {
   }
 
   async function count(body: { code?: string; itemCode?: string; qty?: number }, highlight?: string) {
-    if (!open) return;
+    const current = openRef.current;
+    if (!current) return;
     setBusyKey("count");
-    try {
-      const res = await fetch(`/api/admin/store/material-transfer/${open.id}/count`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const json = (await res.json()) as { transfer?: QueueTransfer; error?: string };
-      if (!res.ok || !json.transfer) throw new Error(json.error || "Could not update the count");
-      const lines = highlight
-        ? [
-            ...json.transfer.lines.filter((line) => line.id === highlight),
-            ...json.transfer.lines.filter((line) => line.id !== highlight),
-          ]
-        : json.transfer.lines;
-      setOpen({ ...json.transfer, lines });
-      if (highlight) setHighlightId(highlight);
-    } catch (error) {
-      playScanErrorSound();
-      notify.error(error instanceof Error ? error.message : "Could not update the count");
-    } finally {
-      setBusyKey(null);
-      scanRef.current?.focus();
-    }
+    const run = (async () => {
+      try {
+        const res = await fetch(`/api/admin/store/material-transfer/${current.id}/count`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const json = (await res.json()) as { transfer?: QueueTransfer; error?: string };
+        if (!res.ok || !json.transfer) throw new Error(json.error || "Could not update the count");
+        const hitId =
+          highlight ??
+          (body.itemCode
+            ? json.transfer.lines.find((line) => line.itemCode === body.itemCode)?.id
+            : undefined);
+        const lines = hitId
+          ? [
+              ...json.transfer.lines.filter((line) => line.id === hitId),
+              ...json.transfer.lines.filter((line) => line.id !== hitId),
+            ]
+          : json.transfer.lines;
+        const next = { ...json.transfer, lines };
+        openRef.current = next;
+        setOpen(next);
+        if (hitId) setHighlightId(hitId);
+      } catch (error) {
+        playScanErrorSound();
+        notify.error(error instanceof Error ? error.message : "Could not update the count");
+      } finally {
+        setBusyKey(null);
+        scanRef.current?.focus();
+      }
+    })();
+    countPromise.current = run;
+    await run;
+  }
+
+  function enqueueCountScan(code: string) {
+    const trimmed = code.trim();
+    if (trimmed) scanQueueRef.current.push(trimmed);
+    if (!openRef.current || busyKeyRef.current === "confirm") return;
+    if (scanRunningRef.current || scanQueueRef.current.length === 0) return;
+    scanRunningRef.current = true;
+    void (async () => {
+      try {
+        while (scanQueueRef.current.length) {
+          const next = scanQueueRef.current.shift();
+          if (!next) continue;
+          await countPromise.current;
+          const current = openRef.current;
+          if (!current) continue;
+          const hit = findReceiptLine(current.lines, next);
+          await count({ code: next }, hit?.id);
+        }
+      } finally {
+        scanRunningRef.current = false;
+        if (scanQueueRef.current.length) enqueueCountScan("");
+      }
+    })();
   }
 
   async function confirm() {
@@ -730,7 +887,8 @@ function ShopReturnQueue() {
       {open ? (
         <div className="flex flex-col gap-3 rounded-md border p-3">
           <p className="text-sm">
-            Count what arrived. One list. Confirm posts VAT items to ERP1
+            Scan a barcode. Matching line count goes up by 1. No Add press. Confirm posts VAT items
+            to ERP1
             {open.targetWarehouse ? ` (${open.targetWarehouse})` : ""} and other items to ERP2
             {open.targetWarehouse2 ? ` (${open.targetWarehouse2})` : ""}.
           </p>
@@ -740,23 +898,29 @@ function ShopReturnQueue() {
               event.preventDefault();
               const code = (scanRef.current?.value || scan).trim();
               if (!code) return;
-              const hit = open.lines.find(
-                (line) => line.itemCode.toLowerCase() === code.toLowerCase() || line.barcode === code,
-              );
               setScan("");
-              if (scanRef.current) scanRef.current.value = "";
-              void count({ code }, hit?.id);
+              enqueueCountScan(code);
             }}
           >
             <Input
               ref={scanRef}
               value={scan}
-              onChange={(event) => setScan(event.target.value)}
+              disabled={busyKey === "confirm"}
+              onChange={(event) => {
+                const value = event.target.value;
+                setScan(value);
+                const code = value.trim();
+                const current = openRef.current;
+                if (!current || code.length < 4) return;
+                if (!findReceiptLine(current.lines, code)) return;
+                setScan("");
+                enqueueCountScan(code);
+              }}
               placeholder="Scan barcode or type SKU"
               autoComplete="off"
               onFocus={unlockScanSound}
             />
-            <Button type="submit" disabled={busyKey !== null || !scan.trim()}>
+            <Button type="submit" disabled={busyKey === "confirm" || !scan.trim()}>
               Add
             </Button>
           </form>
@@ -782,7 +946,7 @@ function ShopReturnQueue() {
                 >
                   <td className="py-1 pr-3">{line.itemCode}</td>
                   <td className="py-1 pr-3">
-                    {line.postSlot === "erp1" ? "ERP1 VAT" : line.postSlot === "erp2" ? "ERP2" : "—"}
+                    {line.postSlot === "erp1" ? "ERP1 Vat" : line.postSlot === "erp2" ? "ERP2" : "—"}
                   </td>
                   <td className="py-1 pr-3">{line.barcode || "—"}</td>
                   <td className="py-1 pr-3">{line.sentQty}</td>

@@ -1,12 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { applyRiderLinkPaymentChange } from "@/lib/apply-collection-payment-method";
 import {
   completeRiderDeliveryByToken,
   isRiderDeliveryAlreadyCompletedStage,
 } from "@/lib/complete-rider-delivery";
+import {
+  classifyCollectionPaymentKind,
+  isRiderLinkPaymentTarget,
+  riderLinkPaymentTargetLabel,
+  riderLinkPaymentTargets,
+} from "@/lib/collection-payment-method";
 import { prisma } from "@/lib/prisma";
 import { sendOrderSms } from "@/lib/order-sms";
 import { resolveCustomerPhone } from "@/lib/order-sms-resolvers";
+import { riderDeliveryTokenAllowsPaymentChange } from "@/lib/rider-delivery-token";
 
 export async function GET(
   _request: NextRequest,
@@ -26,6 +34,8 @@ export async function GET(
       shopifyOrderId: true,
       fulfillmentStage: true,
       deliveryCompleteAt: true,
+      paymentGatewayPrimary: true,
+      paymentGatewayNames: true,
     },
   });
 
@@ -40,8 +50,31 @@ export async function GET(
     });
   }
 
+  const paymentChangeEnabled = riderDeliveryTokenAllowsPaymentChange(token);
+  const currentKind = paymentChangeEnabled
+    ? classifyCollectionPaymentKind({
+        paymentGatewayPrimary: order.paymentGatewayPrimary,
+        paymentGatewayNames: order.paymentGatewayNames,
+      })
+    : null;
+  const paymentChange =
+    paymentChangeEnabled && currentKind
+      ? {
+          enabled: true,
+          current: {
+            key: currentKind,
+            label: riderLinkPaymentTargetLabel(currentKind),
+          },
+          options: riderLinkPaymentTargets(currentKind).map((key) => ({
+            key,
+            label: riderLinkPaymentTargetLabel(key),
+          })),
+        }
+      : null;
+
   return NextResponse.json({
     orderName: order.name ?? order.orderNumber ?? order.shopifyOrderId,
+    paymentChange,
   });
 }
 
@@ -63,7 +96,41 @@ export async function POST(
     return NextResponse.json({ error: "Cancellation reason is required" }, { status: 400 });
   }
 
+  const paymentMethodRaw =
+    typeof body.paymentMethod === "string" ? body.paymentMethod.trim() : "";
+  const paymentMethod =
+    paymentMethodRaw &&
+    riderDeliveryTokenAllowsPaymentChange(token) &&
+    isRiderLinkPaymentTarget(paymentMethodRaw)
+      ? paymentMethodRaw
+      : undefined;
+
   if (confirmed) {
+    if (paymentMethod) {
+      const orderForChange = await prisma.order.findFirst({
+        where: { riderDeliveryToken: token },
+        select: {
+          id: true,
+          companyId: true,
+          fulfillmentStage: true,
+          riderDeliveryTask: { select: { riderId: true } },
+        },
+      });
+      if (!orderForChange) {
+        return NextResponse.json({ error: "Invalid or expired link" }, { status: 404 });
+      }
+      if (!isRiderDeliveryAlreadyCompletedStage(orderForChange.fulfillmentStage)) {
+        const change = await applyRiderLinkPaymentChange({
+          orderId: orderForChange.id,
+          companyId: orderForChange.companyId,
+          target: paymentMethod,
+          requestedById: orderForChange.riderDeliveryTask?.riderId ?? null,
+        });
+        if (!change.ok) {
+          return NextResponse.json({ error: change.error }, { status: change.status });
+        }
+      }
+    }
     const result = await completeRiderDeliveryByToken({ token });
     if (!result.success) {
       return NextResponse.json({ error: result.error }, { status: result.status });

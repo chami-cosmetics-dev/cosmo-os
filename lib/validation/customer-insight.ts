@@ -1,6 +1,12 @@
 import { z } from "zod";
 
 import {
+  CONTACT_FIRST_NAME_TITLE_ERROR,
+  contactFirstNameError,
+  joinContactName,
+  splitContactName,
+} from "@/lib/customer-insight/contact-name";
+import {
   CONTACT_GENDER_OPTIONS,
   CONTACT_LANGUAGE_OPTIONS,
 } from "@/lib/customer-insight/contact-profile-options";
@@ -16,19 +22,23 @@ import {
   LIMITS,
   trimmedString,
 } from "@/lib/validation";
-import { phoneDigitsOnly } from "@/lib/phone-lookup";
+import {
+  INSIGHT_PHONE_SEARCH_INPUT_MAX,
+  parseInsightPhoneSearchInput,
+  phoneDigitsOnly,
+} from "@/lib/phone-lookup";
 
-/** Phone search: trimmed, phone-like, ≥7 digits after normalize. */
+/** Phone search: one number or a paste of up to 10. Spaces / +94 / 077 / 77 ok. */
 export const customerInsightSearchQuerySchema = z
   .object({
-    phone: trimmedString(1, LIMITS.mobile.max),
+    phone: trimmedString(1, INSIGHT_PHONE_SEARCH_INPUT_MAX),
   })
   .superRefine((val, ctx) => {
-    const digits = phoneDigitsOnly(val.phone);
-    if (digits.length < 7) {
+    const queries = parseInsightPhoneSearchInput(val.phone);
+    if (queries.length === 0) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Phone number must have at least 7 digits",
+        message: "Enter at least one phone number (7+ digits)",
         path: ["phone"],
       });
     }
@@ -60,6 +70,8 @@ export const customerInsightInvoicesQuerySchema = z.object({
 
 export const customerInsightProfilePatchSchema = z
   .object({
+    firstName: z.string().trim().max(LIMITS.name.max).optional(),
+    lastName: z.string().trim().max(LIMITS.name.max).optional(),
     name: trimmedString(1, LIMITS.name.max).optional(),
     email: z
       .union([emailSchema, z.literal(""), z.null()])
@@ -110,9 +122,49 @@ export const customerInsightProfilePatchSchema = z
         });
       }
     }
+
+    const hasFirst = data.firstName !== undefined;
+    const hasLast = data.lastName !== undefined;
+    if (hasFirst || hasLast) {
+      if (data.firstName) {
+        const firstError = contactFirstNameError(data.firstName);
+        if (firstError) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: firstError,
+            path: ["firstName"],
+          });
+        }
+      }
+      const joined = joinContactName(data.firstName ?? "", data.lastName ?? "");
+      if (joined.length > LIMITS.name.max) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `Maximum ${LIMITS.name.max} character(s)`,
+          path: ["lastName"],
+        });
+      }
+    } else if (data.name !== undefined) {
+      const parts = splitContactName(data.name);
+      let firstError: string | null = null;
+      if (parts.firstName) {
+        firstError = contactFirstNameError(parts.firstName);
+      } else if (data.name.trim()) {
+        firstError = CONTACT_FIRST_NAME_TITLE_ERROR;
+      }
+      if (firstError) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: firstError,
+          path: ["name"],
+        });
+      }
+    }
   })
   .refine(
     (data) =>
+      data.firstName !== undefined ||
+      data.lastName !== undefined ||
       data.name !== undefined ||
       data.email !== undefined ||
       data.addPhoneNumber !== undefined ||
@@ -124,7 +176,15 @@ export const customerInsightProfilePatchSchema = z
       data.birthMonth !== undefined ||
       data.birthDay !== undefined,
     { message: "At least one profile field is required" }
-  );
+  )
+  .transform((data) => {
+    const { firstName, lastName, name, ...rest } = data;
+    let nextName = name;
+    if (firstName !== undefined || lastName !== undefined) {
+      nextName = joinContactName(firstName ?? "", lastName ?? "");
+    }
+    return { ...rest, name: nextName };
+  });
 
 export const customerInsightContactedBodySchema = z.object({
   category: z.enum(CALL_CENTER_OUTCOME_VALUES),
@@ -287,6 +347,16 @@ export const customerInsightMergeBodySchema = z
 export const customerInsightLoyaltyAssignBodySchema = z.object({
   tier: z.enum(["gold", "platinum"]),
   remark: z.string().trim().max(2000).optional().nullable(),
+});
+
+export const customerInsightLoyaltyOverrideBodySchema = z.object({
+  tier: z.enum(["gold", "platinum"]),
+  reason: trimmedString(LIMITS.loyaltyReason.min, LIMITS.loyaltyReason.max),
+});
+
+export const loyaltyReasonTemplateReplicaBodySchema = z.object({
+  label: trimmedString(LIMITS.loyaltyReason.min, LIMITS.loyaltyReason.max),
+  syncKey: trimmedString(1, 80),
 });
 
 export const merchantLoyaltyOutreachBodySchema = z.object({

@@ -29,6 +29,7 @@ type PayableGroup = {
   supplierId: string;
   supplierName: string | null;
   totalOutstanding: number;
+  previousDaySettlements: number;
   currency: string | null;
   lines: PayableLine[];
 };
@@ -69,11 +70,11 @@ function PayableTable({ label, groups }: { label: string; groups: PayableGroup[]
     <div className="max-h-[60vh] overflow-auto rounded-md border">
       <table className="w-full text-sm">
         <thead className="sticky top-0 z-10 bg-muted/50 text-left"><tr>
-          {['Supplier', 'Company', 'PO Number', 'Amount', 'Total', 'PO Date', 'Due Date', 'Days Past Due', 'Remark'].map((header) => <th key={header} className={`p-2 font-medium ${['Amount', 'Total', 'Days Past Due'].includes(header) ? 'text-right' : ''}`}>{header}</th>)}
+          {['Supplier', 'Company', 'PO Number', 'Amount', 'Total', 'PO Date', 'Due Date', 'Days Past Due', 'Remark', 'Previous day settlements'].map((header) => <th key={header} className={`p-2 font-medium ${['Amount', 'Total', 'Days Past Due', 'Previous day settlements'].includes(header) ? 'text-right' : ''}`}>{header}</th>)}
         </tr></thead>
         <tbody>{groups.flatMap((group) => group.lines.map((line, index) => <tr key={`${group.supplierId}-${line.company}-${line.erpSlot ?? ''}-${index}`} className="border-t">
           <td className="p-2"><div className="font-medium">{group.supplierName ?? group.supplierId}</div><div className="text-xs text-muted-foreground">{group.supplierId}</div></td>
-          <td className="p-2">{line.company || '-'}</td><td className="p-2">{line.poNumber ?? '-'}</td><td className="p-2 text-right tabular-nums">{money(line.amount)}</td><td className="p-2 text-right tabular-nums">{money(line.total)}</td><td className="p-2 whitespace-nowrap">{line.poDate ?? '-'}</td><td className="p-2 whitespace-nowrap">{line.dueDate ?? '-'}</td><td className="p-2 text-right tabular-nums">{line.daysPastDue ?? '-'}</td><td className="p-2">{line.remark ?? '-'}</td>
+          <td className="p-2">{line.company || '-'}</td><td className="p-2">{line.poNumber ?? '-'}</td><td className="p-2 text-right tabular-nums">{money(line.amount)}</td><td className="p-2 text-right tabular-nums">{money(line.total)}</td><td className="p-2 whitespace-nowrap">{line.poDate ?? '-'}</td><td className="p-2 whitespace-nowrap">{line.dueDate ?? '-'}</td><td className="p-2 text-right tabular-nums">{line.daysPastDue ?? '-'}</td><td className="p-2">{line.remark ?? '-'}</td><td className="p-2 text-right tabular-nums">{index === 0 ? money(group.previousDaySettlements) : ''}</td>
         </tr>))}</tbody>
       </table>
     </div>

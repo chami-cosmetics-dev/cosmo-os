@@ -13,6 +13,7 @@ import {
   orderIsWholesale,
 } from "@/lib/merchant-wholesale";
 import { prisma } from "@/lib/prisma";
+import { salesAmountExcludingShipping } from "@/lib/sales-amount-excluding-shipping";
 
 export type MerchantSalesMovementLine = {
   invoiceLabel: string;
@@ -300,10 +301,15 @@ export async function fetchMerchantSalesMovement(
       name: true,
       orderNumber: true,
       totalPrice: true,
+      totalShipping: true,
+      shippingLines: true,
       createdAt: true,
       updatedAt: true,
       cancelledAt: true,
       assignedMerchantId: true,
+      companyLocation: {
+        select: { name: true, defaultMerchantUserId: true },
+      },
       sourceName: true,
       financialStatus: true,
       fulfillmentStatus: true,
@@ -325,12 +331,15 @@ export async function fetchMerchantSalesMovement(
       dm: sets.dm,
       hasDm: sets.hasDm,
       assignedToViewer: order.assignedMerchantId === merchantUserId,
+      locationName: order.companyLocation?.name,
+      locationDefaultIsViewer:
+        order.companyLocation?.defaultMerchantUserId === merchantUserId,
     });
     if (!bucket) continue;
 
     attributed.push({
       invoiceLabel: invoiceLabel(order),
-      amount: Number(order.totalPrice ?? 0),
+      amount: salesAmountExcludingShipping(order) ?? 0,
       createdYmd: formatAppIsoDate(order.createdAt),
       updatedYmd: formatAppIsoDate(order.updatedAt),
       cancelledYmd: order.cancelledAt ? formatAppIsoDate(order.cancelledAt) : null,

@@ -2,6 +2,9 @@ export const PROTECTED_SYSTEMS = ["vault", "cosmo-dev", "cosmo-prod"] as const;
 
 export type ProtectedSystem = (typeof PROTECTED_SYSTEMS)[number];
 
+/** Dumped nightly and checked by backup:status. cosmo-dev is manual-only. */
+export const SCHEDULED_SYSTEMS = ["vault", "cosmo-prod"] as const satisfies readonly ProtectedSystem[];
+
 export type RetentionClass = "daily" | "weekly" | "monthly";
 
 const COLOMBO = "Asia/Colombo";

@@ -13,7 +13,6 @@ on:
         options:
           - all
           - vault
-          - cosmo-dev
           - cosmo-prod
 
 concurrency:
@@ -33,7 +32,6 @@ jobs:
       R2_BUCKET: ${{ secrets.R2_BUCKET }}
       R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
       BACKUP_DIRECT_URL_VAULT: ${{ secrets.BACKUP_DIRECT_URL_VAULT }}
-      BACKUP_DIRECT_URL_COSMO_DEV: ${{ secrets.BACKUP_DIRECT_URL_COSMO_DEV }}
       BACKUP_DIRECT_URL_COSMO_PROD: ${{ secrets.BACKUP_DIRECT_URL_COSMO_PROD }}
       # R2 rejects the default CRC checksums newer AWS CLI v2 sends on upload
       AWS_REQUEST_CHECKSUM_CALCULATION: when_required
@@ -72,12 +70,6 @@ jobs:
         continue-on-error: true
         run: bash scripts/backup/dump.sh --system vault
 
-      - name: Dump cosmo-dev
-        id: cosmo_dev
-        if: github.event_name == 'schedule' || inputs.system == 'all' || inputs.system == 'cosmo-dev'
-        continue-on-error: true
-        run: bash scripts/backup/dump.sh --system cosmo-dev
-
       - name: Dump cosmo-prod
         id: cosmo_prod
         if: github.event_name == 'schedule' || inputs.system == 'all' || inputs.system == 'cosmo-prod'
@@ -100,9 +92,49 @@ jobs:
             fi
           }
           VAULT_REQ="${{ github.event_name == 'schedule' || inputs.system == 'all' || inputs.system == 'vault' }}"
-          DEV_REQ="${{ github.event_name == 'schedule' || inputs.system == 'all' || inputs.system == 'cosmo-dev' }}"
           PROD_REQ="${{ github.event_name == 'schedule' || inputs.system == 'all' || inputs.system == 'cosmo-prod' }}"
           check vault "${{ steps.vault.outcome }}" "$VAULT_REQ"
-          check cosmo-dev "${{ steps.cosmo_dev.outcome }}" "$DEV_REQ"
           check cosmo-prod "${{ steps.cosmo_prod.outcome }}" "$PROD_REQ"
           exit "$fail"
+
+      # GitHub only emails whoever last edited the cron line, so mail the ops list directly.
+      - name: Email failure alert
+        if: failure()
+        env:
+          MAILEROO_API_KEY: ${{ secrets.MAILEROO_API_KEY }}
+          MAILEROO_FROM_EMAIL: ${{ secrets.MAILEROO_FROM_EMAIL }}
+          BACKUP_ALERT_EMAILS: chami@cosmetics.lk,sasindadilhan98@gmail.com
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          VAULT_OUTCOME: ${{ steps.vault.outcome }}
+          PROD_OUTCOME: ${{ steps.cosmo_prod.outcome }}
+          TRIGGER: ${{ github.event_name }}
+        run: |
+          node --input-type=module <<'EOF'
+          const { MAILEROO_API_KEY: key, MAILEROO_FROM_EMAIL: from } = process.env;
+          if (!key || !from) {
+            console.log("::error::MAILEROO_API_KEY / MAILEROO_FROM_EMAIL secrets missing; alert not sent");
+            process.exit(1);
+          }
+          const label = (o) => (o === "success" ? "OK" : o === "failure" ? "FAILED" : "did not run");
+          const lines = [
+            `Vault OS: ${label(process.env.VAULT_OUTCOME)}`,
+            `Cosmo OS production: ${label(process.env.PROD_OUTCOME)}`,
+            `Trigger: ${process.env.TRIGGER}`,
+            `Run log: ${process.env.RUN_URL}`,
+            "",
+            "Fix the same day. Runbook: docs/ops/backup-disaster-recovery.md",
+          ];
+          const res = await fetch("https://smtp.maileroo.com/api/v2/emails", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-Api-Key": key },
+            body: JSON.stringify({
+              from: { address: from, display_name: "Cosmo OS Backups" },
+              to: process.env.BACKUP_ALERT_EMAILS.split(",").map((address) => ({ address: address.trim() })),
+              subject: "Backup FAILED - Cosmo OS / Vault OS",
+              plain: lines.join("\n"),
+              html: `<p>${lines.join("<br>").replace(/(https:\/\/\S+)/, '<a href="$1">$1</a>')}</p>`,
+            }),
+          });
+          console.log(`Maileroo ${res.status}: ${await res.text()}`);
+          if (!res.ok) process.exit(1);
+          EOF

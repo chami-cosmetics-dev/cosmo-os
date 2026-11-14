@@ -11,7 +11,7 @@ import { ITEM_CODE_FILE_NAME } from "@/lib/vault-supplement-import/template-work
 export const maxDuration = 300;
 
 export async function GET() {
-  const access = await requireSupplementStaff("vault");
+  const access = await requireSupplementStaff();
   if (!access.ok) return access.response;
 
   try {

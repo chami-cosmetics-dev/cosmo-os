@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   attributedSalesMonth,
+  isoDateMonthsBefore,
   monthKeyInColombo,
   osfBestPurchaseBounds,
   osfPurchaseGridBounds,
@@ -45,5 +46,11 @@ describe("monthly sales helpers", () => {
       start: "2026-04-01",
       end: "2026-09-25",
     });
+  });
+
+  it("shifts ISO dates back by calendar months", () => {
+    expect(isoDateMonthsBefore("2026-10-26", 24)).toBe("2024-10-26");
+    expect(isoDateMonthsBefore("2026-01-15", 1)).toBe("2025-12-15");
+    expect(isoDateMonthsBefore("bad", 24)).toBe("bad");
   });
 });

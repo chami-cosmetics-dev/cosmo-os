@@ -6,7 +6,7 @@ import {
   getCustomerResponseLabel,
 } from "@/lib/abandoned-orders-constants";
 import { requirePermission } from "@/lib/rbac";
-import { buildCsv, formatIsoDateTime } from "@/lib/reports/csv";
+import { buildCsv, formatIsoDate, formatIsoDateTime } from "@/lib/reports/csv";
 import { fetchAbandonedOrdersPageData } from "@/lib/page-data/abandoned-orders";
 import { abandonedOrdersListQuerySchema } from "@/lib/validation";
 
@@ -78,6 +78,7 @@ export async function GET(request: NextRequest) {
       "Abandoned Date",
       "Customer Name",
       "Phone",
+      "Last Purchase Date",
       "Email",
       "Billing Address",
       "Shipping Address",
@@ -97,6 +98,9 @@ export async function GET(request: NextRequest) {
       "Abandoned Date": formatIsoDateTime(new Date(item.abandonedAt)),
       "Customer Name": item.customerName ?? "",
       Phone: item.customerPhone ?? "",
+      "Last Purchase Date": item.lastPurchaseAt
+        ? formatIsoDate(new Date(item.lastPurchaseAt))
+        : "",
       Email: item.customerEmail ?? "",
       "Billing Address": item.billingAddressText ?? "",
       "Shipping Address": item.shippingAddressText ?? "",
