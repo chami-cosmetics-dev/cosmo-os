@@ -1,4 +1,6 @@
-﻿export type PaymentMethodVariant = "cod" | "bank" | "card" | "cash" | "paid" | "other";
+﻿import { isApprovalSplitRequestNote } from "@/lib/approval-payment-split";
+
+export type PaymentMethodVariant = "cod" | "bank" | "card" | "cash" | "paid" | "other";
 
 export type PaymentMethodInfo = {
   label: string;
@@ -192,6 +194,12 @@ export function orderPaymentFinanceApproveMarksPaid(
   extra?: { requestNote?: string | null },
 ): boolean {
   if (orderHasCardOnDeliveryGateway(order)) return false;
-  if (isCardOnDeliveryGateway(extra?.requestNote)) return false;
+  // Split notes include "Card:" for Cash + Card — not door Card on Delivery.
+  if (
+    !isApprovalSplitRequestNote(extra?.requestNote) &&
+    isCardOnDeliveryGateway(extra?.requestNote)
+  ) {
+    return false;
+  }
   return true;
 }

@@ -95,6 +95,18 @@ describe("orderPaymentFinanceApproveMarksPaid", () => {
       }),
     ).toBe(true);
   });
+
+  it("does not treat Cash + Card split notes as card on delivery", () => {
+    expect(
+      orderPaymentFinanceApproveMarksPaid(
+        { paymentGatewayPrimary: "Cash", paymentGatewayNames: ["Cash"] },
+        {
+          requestNote:
+            "Split Payment — amount: LKR 8075.00\nCard: LKR 975.00\nCash: LKR 7100.00",
+        },
+      ),
+    ).toBe(true);
+  });
 });
 
 describe("isUnpaidCardOnDeliveryFinance", () => {
@@ -132,6 +144,14 @@ describe("isCardOnDeliveryGateway", () => {
     expect(isCardOnDeliveryGateway("cod")).toBe(false);
     expect(isCardOnDeliveryGateway("cc checkout")).toBe(false);
     expect(isCardOnDeliveryGateway("WebXPay")).toBe(false);
+  });
+
+  it("matches Card line inside split notes (reconcile must skip those notes)", () => {
+    expect(
+      isCardOnDeliveryGateway(
+        "Split Payment — amount: LKR 8075.00\nCard: LKR 975.00\nCash: LKR 7100.00",
+      ),
+    ).toBe(true);
   });
 });
 

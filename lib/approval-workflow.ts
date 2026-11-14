@@ -9,7 +9,12 @@ import { prisma } from "@/lib/prisma";
 import { orderHasCardOnDeliveryGateway, isCardOnDeliveryGateway } from "@/lib/payment-method-label";
 import { isMintpayGateway } from "@/lib/payment-gateway-match";
 import { needsKokoLinkTimeConfirm } from "@/lib/koko-order";
-import { APPROVAL_SPLIT_KOKO } from "@/lib/approval-payment-split";
+import {
+  APPROVAL_SPLIT_KOKO,
+  isApprovalSplitRequestNote,
+  isDoorCollectionSplitPair,
+  isPrepaidCashSplitPair,
+} from "@/lib/approval-payment-split";
 import { KEEP_ORIGINAL_PAYMENT_APPROVAL_CANCEL_NOTE } from "@/lib/return-rearrange-original-payment";
 
 export type ApprovalStatus = "pending" | "approved" | "rejected" | "cancelled";
@@ -447,6 +452,9 @@ export async function reconcilePendingOrderPaymentApprovalsForCardOnDelivery(
 
   const ids = pending
     .filter((row) => {
+      // Cash + Card (and other) merchant splits must stay for finance — note
+      // contains "Card:" and must not be treated as Card on Delivery.
+      if (isApprovalSplitRequestNote(row.requestNote)) return false;
       if (row.order && orderHasCardOnDeliveryGateway(row.order)) return true;
       return isCardOnDeliveryGateway(row.requestNote);
     })
@@ -719,7 +727,7 @@ export async function getOrderPaymentApproval(orderId: string): Promise<{
   };
 }
 
-/** Block fulfillment actions until finance approves KOKO/bank payment. */
+/** Block fulfillment actions until finance approves KOKO/bank payment (or a cash split plan). */
 export async function getFinancePaymentApprovalBlockReason(order: {
   id: string;
   sourceName?: string | null;
@@ -731,9 +739,7 @@ export async function getFinancePaymentApprovalBlockReason(order: {
   financialStatus?: string | null;
   createdAt?: Date | string | null;
 }): Promise<string | null> {
-  if (!isOrderPaymentRequiresApproval(order)) return null;
-
-  const [splitLines, orderRow, approval] = await Promise.all([
+  const [splitLines, orderRow, approval, pendingSplit] = await Promise.all([
     prisma.approvalPaymentLine.findMany({
       where: {
         approvalRequest: { orderId: order.id, type: ORDER_PAYMENT_APPROVAL },
@@ -755,7 +761,32 @@ export async function getFinancePaymentApprovalBlockReason(order: {
       },
     }),
     getOrderPaymentApproval(order.id),
+    prisma.approvalRequest.findFirst({
+      where: {
+        orderId: order.id,
+        type: ORDER_PAYMENT_APPROVAL,
+        status: "pending",
+      },
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        status: true,
+        requestNote: true,
+        paymentLines: { select: { paymentMethod: true } },
+      },
+    }),
   ]);
+
+  const pendingSplitMethods = pendingSplit?.paymentLines.map((line) => line.paymentMethod) ?? [];
+  const prepaidCashSplitPending =
+    pendingSplit != null &&
+    (isPrepaidCashSplitPair(pendingSplitMethods) ||
+      (isApprovalSplitRequestNote(pendingSplit.requestNote) &&
+        !isDoorCollectionSplitPair(pendingSplitMethods) &&
+        pendingSplitMethods.length >= 2));
+
+  // Cash + Card is door collection — print without intake finance; money after delivery.
+  if (!isOrderPaymentRequiresApproval(order) && !prepaidCashSplitPending) return null;
 
   if (
     needsKokoLinkTimeConfirm({
@@ -776,7 +807,7 @@ export async function getFinancePaymentApprovalBlockReason(order: {
   ) {
     return "Confirm KOKO link generated time before continuing. Enter the time shown on the KOKO portal, then confirm.";
   }
-  if (!approval || approval.status === "pending" || approval.status === "cancelled") {
+  if (prepaidCashSplitPending || !approval || approval.status === "pending" || approval.status === "cancelled") {
     return "Finance approval is pending for this order. Please wait for the finance team to approve.";
   }
   if (approval.status === "rejected") {

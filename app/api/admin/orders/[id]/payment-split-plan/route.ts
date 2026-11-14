@@ -9,6 +9,7 @@ import {
   APPROVAL_SPLIT_MINTPAY,
   buildApprovalSplitRequestNote,
   isApprovalSplitPaymentMethod,
+  isDoorCollectionSplitPair,
   orderHasSplitPaymentEligibleGateway,
   sortApprovalSplitLines,
   splitIncludesKoko,
@@ -101,13 +102,17 @@ export async function PATCH(
       paymentGatewayPrimary: true,
       paymentGatewayNames: true,
       approvalRequests: {
-        where: { type: ORDER_PAYMENT_APPROVAL, status: "pending" },
+        where: {
+          type: ORDER_PAYMENT_APPROVAL,
+          status: { in: ["pending", "approved"] },
+        },
         orderBy: { createdAt: "desc" },
-        take: 1,
+        take: 5,
         select: {
           id: true,
+          status: true,
           paymentLines: {
-            select: { erpPaymentEntryName: true },
+            select: { paymentMethod: true, erpPaymentEntryName: true },
           },
         },
       },
@@ -148,7 +153,16 @@ export async function PATCH(
     );
   }
 
-  let approval = order.approvalRequests[0];
+  const editableApproval = order.approvalRequests.find((row) => {
+    if (row.paymentLines.some((line) => line.erpPaymentEntryName)) return false;
+    if (row.status === "pending") return true;
+    // Approved Cash + Card door-collection plans stay editable until PEs exist.
+    return isDoorCollectionSplitPair(row.paymentLines.map((line) => line.paymentMethod));
+  });
+
+  let approval = editableApproval
+    ? { id: editableApproval.id, paymentLines: editableApproval.paymentLines }
+    : null;
   if (!approval) {
     const created = await createOrGetOrderPaymentApproval({
       companyId,
@@ -190,6 +204,8 @@ export async function PATCH(
     currency: order.currency,
   });
   const keepMethods = orderedLines.map((line) => line.paymentMethod);
+  const doorCollection = isDoorCollectionSplitPair(keepMethods);
+  const now = new Date();
 
   await prisma.$transaction(async (tx) => {
     await tx.approvalRequest.update({
@@ -200,6 +216,21 @@ export async function PATCH(
         ...(splitIncludesKoko(keepMethods)
           ? {}
           : { kokoReference: null, multipleKokoPayments: false }),
+        // Cash + Card: record plan only — both collected after delivery; finance at invoice complete.
+        ...(doorCollection
+          ? {
+              status: "approved" as const,
+              reviewNote:
+                "Cash + Card door-collection plan. Collect both at delivery; finance confirms at invoice complete.",
+              reviewedAt: now,
+              reviewedById: userId,
+            }
+          : {
+              status: "pending" as const,
+              reviewNote: null,
+              reviewedAt: null,
+              reviewedById: null,
+            }),
       },
     });
     await tx.approvalPaymentLine.deleteMany({
@@ -232,6 +263,7 @@ export async function PATCH(
     ok: true,
     approvalId: approval.id,
     requestNote,
+    doorCollection,
     paymentLines: orderedLines.map((line) => ({
       paymentMethod: line.paymentMethod,
       amount: line.amount.toFixed(2),

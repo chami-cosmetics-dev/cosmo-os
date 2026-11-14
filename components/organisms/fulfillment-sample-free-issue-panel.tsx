@@ -35,6 +35,7 @@ import {
   approvalSplitLineLabel,
   approvalSplitPairId,
   isCashSplitOrderGateway,
+  isDoorCollectionSplitPair,
   orderHasSplitPaymentEligibleGateway,
   sortApprovalSplitLines,
   splitIncludesCash,
@@ -559,9 +560,12 @@ export function FulfillmentSampleFreeIssuePanel({
     }
   }
 
+  const splitPlanIsDoorCollection = isDoorCollectionSplitPair(
+    splitPaymentLines.map((line) => line.paymentMethod),
+  );
   const canConfigureSplitPayment =
     perms.canManageSplitPayment &&
-    detail?.paymentApproval?.status !== "approved" &&
+    (detail?.paymentApproval?.status !== "approved" || splitPlanIsDoorCollection) &&
     !splitPaymentLines.some((line) => line.erpPaymentEntryName) &&
     isSplitPaymentEligibleSource(detail?.sourceName) &&
     orderHasSplitPaymentEligibleGateway({
@@ -640,7 +644,7 @@ export function FulfillmentSampleFreeIssuePanel({
           ],
         }),
       });
-      const data = (await response.json()) as { error?: string };
+      const data = (await response.json()) as { error?: string; doorCollection?: boolean };
       if (!response.ok) {
         notify.error(data.error ?? "Failed to save split payment");
         return;
@@ -648,9 +652,11 @@ export function FulfillmentSampleFreeIssuePanel({
       const needsKokoLink =
         splitIncludesKoko(splitPairMethods) && !detail?.kokoLinkTimeConfirmedAt;
       notify.success(
-        needsKokoLink
-          ? "Split payment saved. Confirm KOKO link generated time before continuing."
-          : "Split payment sent to finance for approval.",
+        data.doorCollection
+          ? "Cash + Card plan saved. Confirm sample to print — collect both at delivery; finance at invoice complete."
+          : needsKokoLink
+            ? "Split payment saved. Confirm KOKO link generated time before continuing."
+            : "Split payment sent to finance for approval.",
       );
       setShowSplitPaymentDialog(false);
       await reloadDetail();
@@ -1489,11 +1495,13 @@ export function FulfillmentSampleFreeIssuePanel({
         <AlertDialogHeader>
           <AlertDialogTitle>Split Payment</AlertDialogTitle>
           <AlertDialogDescription>
-            {splitIncludesKoko(splitPairMethods)
-              ? "Enter both amounts. Finance will verify the KOKO reference and create an ERP Payment Entry for each prepaid method. Cash is collected at delivery."
-              : splitIncludesCash(splitPairMethods)
-                ? "Enter both amounts. Finance approval creates an ERP Payment Entry for the prepaid method (KOKO, Bank, Card, or Mintpay). Cash is collected at delivery."
-                : "Enter both paid amounts. Finance approval will create one ERP Payment Entry for each method."}
+            {isDoorCollectionSplitPair(splitPairMethods)
+              ? "Cash + Card: both collected after delivery. Plan only — confirm sample to print. Finance confirms payment at invoice complete."
+              : splitIncludesKoko(splitPairMethods)
+                ? "Enter both amounts. Finance will verify the KOKO reference and create an ERP Payment Entry for each prepaid method. Cash is collected at delivery."
+                : splitIncludesCash(splitPairMethods)
+                  ? "Enter both amounts. Finance approval creates an ERP Payment Entry for the prepaid method (KOKO, Bank, or Mintpay). Cash is collected at delivery."
+                  : "Enter both paid amounts. Finance approval will create one ERP Payment Entry for each method."}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <div className="space-y-4">

@@ -171,6 +171,22 @@ export function splitIncludesCard(methods: Iterable<string>): boolean {
   return false;
 }
 
+/**
+ * Cash + Card: both collected after delivery (door). No intake finance PE;
+ * finance confirms at invoice complete.
+ */
+export function isDoorCollectionSplitPair(
+  methods: Iterable<string>,
+): boolean {
+  return approvalSplitPairId([...methods]) === "cash_card";
+}
+
+/** Cash + KOKO / Bank / Mintpay — prepaid leg needs intake finance before print. */
+export function isPrepaidCashSplitPair(methods: Iterable<string>): boolean {
+  const pair = approvalSplitPairId([...methods]);
+  return pair === "koko_cash" || pair === "bank_cash" || pair === "cash_mintpay";
+}
+
 export function approvalSplitCashCollectAmount(
   lines: Array<{ paymentMethod: string; amount: number | string | { toString(): string } }>,
 ): number | null {

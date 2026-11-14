@@ -70,6 +70,7 @@ import {
   APPROVAL_SPLIT_CASH,
   APPROVAL_SPLIT_KOKO,
   APPROVAL_SPLIT_MINTPAY,
+  isDoorCollectionSplitPair,
   approvalSplitLineLabel,
   isApprovalSplitPaymentMethod,
   sortApprovalSplitLines,
@@ -1762,9 +1763,12 @@ export async function syncApprovalSplitPaymentEntriesToErp(
   const orderedLines = sortApprovalSplitLines(approval.paymentLines);
   let createdCount = 0;
   let lastPaymentEntryName: string | undefined;
-  const collectCashAtDelivery = splitIncludesCash(
-    approval.paymentLines.map((line) => line.paymentMethod),
-  );
+  const methods = approval.paymentLines.map((line) => line.paymentMethod);
+  const collectCashAtDelivery = splitIncludesCash(methods);
+  // Cash + Card: both collected after delivery — no intake PEs.
+  if (isDoorCollectionSplitPair(methods)) {
+    return { outcome: "skipped" };
+  }
 
   for (const line of orderedLines) {
     if (line.erpPaymentEntryName) continue;
