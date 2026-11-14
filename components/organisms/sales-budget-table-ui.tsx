@@ -63,8 +63,8 @@ export function formatNumber(value: number | null): string {
  * Fetches a file and saves it under the server's Content-Disposition name. Throws the
  * server's error message (e.g. "The saved file could not be found").
  */
-export async function downloadFile(url: string, fallbackName: string) {
-  const res = await fetch(url);
+export async function downloadFile(url: string, fallbackName: string, init?: RequestInit) {
+  const res = await fetch(url, init);
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || "Download failed");

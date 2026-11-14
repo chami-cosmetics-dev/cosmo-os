@@ -54,6 +54,14 @@
       "schedule": "30 3 * * 1"
     },
     {
+      "path": "/api/cron/stock-health-weekly-mail",
+      "schedule": "30 3 * * 2"
+    },
+    {
+      "path": "/api/cron/stock-health-availability-mail",
+      "schedule": "30 3 * * 1"
+    },
+    {
       "path": "/api/cron/abandoned-checkouts-sync",
       "schedule": "*/15 * * * *"
     },

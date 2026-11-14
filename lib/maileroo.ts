@@ -605,6 +605,16 @@ export async function sendCallCenterWeeklyReportEmail(input: {
   return sendErpSyncFailureAlertEmail(input);
 }
 
+export async function sendStockHealthSummaryEmail(input: {
+  toEmails: string[];
+  ccEmails?: string[];
+  subject: string;
+  html: string;
+  plain: string;
+}): Promise<{ success: boolean; message?: string }> {
+  return sendErpSyncFailureAlertEmail(input);
+}
+
 export async function sendErpSyncFailureAlertEmail(input: {
   toEmails: string[];
   subject: string;
