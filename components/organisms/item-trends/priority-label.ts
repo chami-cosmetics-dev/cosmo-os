@@ -24,13 +24,21 @@ const PRIORITY_LABEL_PINNED: { matches: (key: string) => boolean; slot: number }
   { matches: (k) => k.startsWith("new"), slot: 3 },
 ];
 
-export function priorityLabelClass(priority: string): string {
+/**
+ * Palette slot (0–5) of a priority label — pink, cyan, orange, indigo, fuchsia, teal. Also
+ * used by the Stock Health summary mail, so its labels match the screen.
+ */
+export function priorityLabelSlot(priority: string): number {
   const key = priority.trim().toLowerCase();
   const pinned = PRIORITY_LABEL_PINNED.find((p) => p.matches(key));
-  if (pinned) return PRIORITY_LABEL_PALETTE[pinned.slot];
+  if (pinned) return pinned.slot;
   let hash = 0;
   for (const ch of key) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
   // Unknown priorities only use the unpinned slots, so they never look like a known one.
   const firstFree = PRIORITY_LABEL_PINNED.length;
-  return PRIORITY_LABEL_PALETTE[firstFree + (hash % (PRIORITY_LABEL_PALETTE.length - firstFree))];
+  return firstFree + (hash % (PRIORITY_LABEL_PALETTE.length - firstFree));
+}
+
+export function priorityLabelClass(priority: string): string {
+  return PRIORITY_LABEL_PALETTE[priorityLabelSlot(priority)];
 }
