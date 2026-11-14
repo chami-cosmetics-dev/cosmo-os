@@ -3,8 +3,10 @@ import { z } from "zod";
 
 import {
   APPROVAL_SPLIT_BANK_TRANSFER,
+  APPROVAL_SPLIT_CARD,
   APPROVAL_SPLIT_CASH,
   APPROVAL_SPLIT_KOKO,
+  APPROVAL_SPLIT_MINTPAY,
   buildApprovalSplitRequestNote,
   isApprovalSplitPaymentMethod,
   orderHasSplitPaymentEligibleGateway,
@@ -27,6 +29,8 @@ export const dynamic = "force-dynamic";
 const splitMethodSchema = z.enum([
   APPROVAL_SPLIT_KOKO,
   APPROVAL_SPLIT_BANK_TRANSFER,
+  APPROVAL_SPLIT_MINTPAY,
+  APPROVAL_SPLIT_CARD,
   APPROVAL_SPLIT_CASH,
 ]);
 

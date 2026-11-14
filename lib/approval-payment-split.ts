@@ -1,13 +1,22 @@
 export const APPROVAL_SPLIT_KOKO = "koko";
 export const APPROVAL_SPLIT_BANK_TRANSFER = "bank_transfer";
+export const APPROVAL_SPLIT_MINTPAY = "mintpay";
+export const APPROVAL_SPLIT_CARD = "card";
 export const APPROVAL_SPLIT_CASH = "cash";
 
 export type ApprovalSplitPaymentMethod =
   | typeof APPROVAL_SPLIT_KOKO
   | typeof APPROVAL_SPLIT_BANK_TRANSFER
+  | typeof APPROVAL_SPLIT_MINTPAY
+  | typeof APPROVAL_SPLIT_CARD
   | typeof APPROVAL_SPLIT_CASH;
 
-export type ApprovalSplitPairId = "koko_bank" | "koko_cash" | "bank_cash";
+export type ApprovalSplitPairId =
+  | "koko_bank"
+  | "koko_cash"
+  | "bank_cash"
+  | "cash_card"
+  | "cash_mintpay";
 
 export type ApprovalSplitAmountLine = {
   paymentMethod: ApprovalSplitPaymentMethod;
@@ -17,7 +26,17 @@ export type ApprovalSplitAmountLine = {
 export const APPROVAL_SPLIT_METHODS: ApprovalSplitPaymentMethod[] = [
   APPROVAL_SPLIT_KOKO,
   APPROVAL_SPLIT_BANK_TRANSFER,
+  APPROVAL_SPLIT_MINTPAY,
+  APPROVAL_SPLIT_CARD,
   APPROVAL_SPLIT_CASH,
+];
+
+/** Cash-order dialog: Cash + prepaid method only. */
+export const CASH_ORDER_SPLIT_PAIR_IDS: ApprovalSplitPairId[] = [
+  "koko_cash",
+  "bank_cash",
+  "cash_card",
+  "cash_mintpay",
 ];
 
 export const APPROVAL_SPLIT_PAIRS: Record<
@@ -27,12 +46,16 @@ export const APPROVAL_SPLIT_PAIRS: Record<
   koko_bank: [APPROVAL_SPLIT_KOKO, APPROVAL_SPLIT_BANK_TRANSFER],
   koko_cash: [APPROVAL_SPLIT_KOKO, APPROVAL_SPLIT_CASH],
   bank_cash: [APPROVAL_SPLIT_BANK_TRANSFER, APPROVAL_SPLIT_CASH],
+  cash_card: [APPROVAL_SPLIT_CARD, APPROVAL_SPLIT_CASH],
+  cash_mintpay: [APPROVAL_SPLIT_MINTPAY, APPROVAL_SPLIT_CASH],
 };
 
 export const APPROVAL_SPLIT_PAIR_LABELS: Record<ApprovalSplitPairId, string> = {
   koko_bank: "KOKO + Bank Transfer",
-  koko_cash: "KOKO + Cash",
-  bank_cash: "Bank Transfer + Cash",
+  koko_cash: "Cash + KOKO",
+  bank_cash: "Cash + Bank Transfer",
+  cash_card: "Cash + Card",
+  cash_mintpay: "Cash + Mintpay",
 };
 
 const SPLIT_NOTE_PREFIX = "Split Payment";
@@ -40,8 +63,13 @@ const SPLIT_NOTE_PREFIX = "Split Payment";
 const SPLIT_NOTE_LABELS: Record<ApprovalSplitPaymentMethod, string> = {
   [APPROVAL_SPLIT_KOKO]: "KOKO",
   [APPROVAL_SPLIT_BANK_TRANSFER]: "Bank Transfer",
+  [APPROVAL_SPLIT_MINTPAY]: "Mintpay",
+  [APPROVAL_SPLIT_CARD]: "Card",
   [APPROVAL_SPLIT_CASH]: "Cash",
 };
+
+const ALLOWED_SPLIT_PAIR_MESSAGE =
+  "Split payment must be KOKO + Bank Transfer, Cash + KOKO, Cash + Bank Transfer, Cash + Card, or Cash + Mintpay.";
 
 function money(value: number): string {
   return value.toFixed(2);
@@ -76,13 +104,39 @@ export function orderHasSplitPaymentEligibleGateway(order: {
   return gateways.some((gateway) => isSplitPaymentEligibleGateway(gateway));
 }
 
+/** True when primary gateway is Cash/COD (merchant cash-order split defaults). */
+export function isCashSplitOrderGateway(order: {
+  paymentGatewayPrimary?: string | null;
+  paymentGatewayNames?: string[] | null;
+}): boolean {
+  const primary = order.paymentGatewayPrimary?.toLowerCase().trim();
+  if (primary) {
+    return primary === "cod" || primary.includes("cash");
+  }
+  return (order.paymentGatewayNames ?? []).some((gateway) => {
+    const normalized = gateway?.toLowerCase().trim() ?? "";
+    return normalized === "cod" || normalized.includes("cash");
+  });
+}
+
 export function approvalSplitLineLabel(method: string): string {
   if (method === APPROVAL_SPLIT_KOKO) return SPLIT_NOTE_LABELS[APPROVAL_SPLIT_KOKO];
   if (method === APPROVAL_SPLIT_CASH) return SPLIT_NOTE_LABELS[APPROVAL_SPLIT_CASH];
+  if (method === APPROVAL_SPLIT_CARD) return SPLIT_NOTE_LABELS[APPROVAL_SPLIT_CARD];
+  if (method === APPROVAL_SPLIT_MINTPAY) return SPLIT_NOTE_LABELS[APPROVAL_SPLIT_MINTPAY];
   if (method === APPROVAL_SPLIT_BANK_TRANSFER) {
     return SPLIT_NOTE_LABELS[APPROVAL_SPLIT_BANK_TRANSFER];
   }
   return method;
+}
+
+/** Pair choices for the Split Payment dialog. Cash orders get Cash + prepaid only. */
+export function splitPairOptionsForOrder(order: {
+  paymentGatewayPrimary?: string | null;
+  paymentGatewayNames?: string[] | null;
+}): ApprovalSplitPairId[] {
+  if (isCashSplitOrderGateway(order)) return [...CASH_ORDER_SPLIT_PAIR_IDS];
+  return Object.keys(APPROVAL_SPLIT_PAIR_LABELS) as ApprovalSplitPairId[];
 }
 
 export function approvalSplitPairId(methods: string[]): ApprovalSplitPairId | null {
@@ -106,6 +160,13 @@ export function splitIncludesKoko(methods: Iterable<string>): boolean {
 export function splitIncludesCash(methods: Iterable<string>): boolean {
   for (const method of methods) {
     if (method === APPROVAL_SPLIT_CASH) return true;
+  }
+  return false;
+}
+
+export function splitIncludesCard(methods: Iterable<string>): boolean {
+  for (const method of methods) {
+    if (method === APPROVAL_SPLIT_CARD) return true;
   }
   return false;
 }
@@ -174,7 +235,9 @@ export function formatApprovalSplitInvoicePaymentLabel(
 function splitMethodOrder(method: ApprovalSplitPaymentMethod): number {
   if (method === APPROVAL_SPLIT_KOKO) return 0;
   if (method === APPROVAL_SPLIT_BANK_TRANSFER) return 1;
-  return 2;
+  if (method === APPROVAL_SPLIT_MINTPAY) return 2;
+  if (method === APPROVAL_SPLIT_CARD) return 3;
+  return 4;
 }
 
 export function sortApprovalSplitLines<T extends { paymentMethod: string }>(
@@ -207,7 +270,7 @@ export function validateApprovalSplitAmounts(input: {
     return "Split payment methods must be different.";
   }
   if (!approvalSplitPairId(methods)) {
-    return "Split payment must be KOKO + Bank Transfer, KOKO + Cash, or Bank Transfer + Cash.";
+    return ALLOWED_SPLIT_PAIR_MESSAGE;
   }
   if (
     input.lines.some(
