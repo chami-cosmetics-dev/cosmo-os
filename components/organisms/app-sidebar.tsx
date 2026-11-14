@@ -778,6 +778,8 @@ export function AppSidebar({
                   icon={HeartPulse}
                   label="Stock Health"
                   isActive={pathname === "/dashboard/purchasing/stock-health"}
+                  />
+              )}
               {canAdminNewItemRequests && (
                 <NavItem
                   href="/dashboard/orders/stock-requests?tab=new-items"
