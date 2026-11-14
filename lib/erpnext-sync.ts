@@ -65,8 +65,10 @@ import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
 import { isCitypakCourier } from "@/lib/courier";
 import {
   APPROVAL_SPLIT_BANK_TRANSFER,
+  APPROVAL_SPLIT_CARD,
   APPROVAL_SPLIT_CASH,
   APPROVAL_SPLIT_KOKO,
+  APPROVAL_SPLIT_MINTPAY,
   approvalSplitLineLabel,
   isApprovalSplitPaymentMethod,
   sortApprovalSplitLines,
@@ -1674,13 +1676,16 @@ function splitLineMopName(
 ): string {
   if (paymentMethod === APPROVAL_SPLIT_KOKO) return cfg.kokoMop.trim();
   if (paymentMethod === APPROVAL_SPLIT_BANK_TRANSFER) return cfg.bankTransferMop.trim();
+  if (paymentMethod === APPROVAL_SPLIT_MINTPAY) return cfg.mintpayMop.trim();
+  if (paymentMethod === APPROVAL_SPLIT_CARD) return cfg.cardDeliveryMop.trim();
   if (paymentMethod === APPROVAL_SPLIT_CASH) return cfg.cashMop.trim();
   return "";
 }
 
 /**
- * Create one ERP PE per split approval line (KOKO/Bank/Cash pairs).
- * Persisting each PE name makes retries safe when the first leg succeeds and the second fails.
+ * Create one ERP PE per split approval line (KOKO/Bank/Card/Cash pairs).
+ * Cash is deferred when the pair includes cash. Persisting each PE name makes
+ * retries safe when the first leg succeeds and the second fails.
  */
 export async function syncApprovalSplitPaymentEntriesToErp(
   approval: {
@@ -1710,7 +1715,7 @@ export async function syncApprovalSplitPaymentEntriesToErp(
     approval.paymentLines.some((line) => !isApprovalSplitPaymentMethod(line.paymentMethod))
   ) {
     throw new Error(
-      "Split payment approval must contain two lines from KOKO, Bank Transfer, or Cash",
+      "Split payment approval must contain two lines from KOKO, Bank Transfer, Mintpay, Card, or Cash",
     );
   }
   if (

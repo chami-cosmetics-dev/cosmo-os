@@ -34,9 +34,12 @@ import {
   APPROVAL_SPLIT_PAIRS,
   approvalSplitLineLabel,
   approvalSplitPairId,
+  isCashSplitOrderGateway,
   orderHasSplitPaymentEligibleGateway,
   sortApprovalSplitLines,
+  splitIncludesCash,
   splitIncludesKoko,
+  splitPairOptionsForOrder,
   type ApprovalSplitPairId,
 } from "@/lib/approval-payment-split";
 import {
@@ -565,6 +568,10 @@ export function FulfillmentSampleFreeIssuePanel({
       paymentGatewayPrimary: detail?.paymentGatewayPrimary,
       paymentGatewayNames: detail?.paymentGatewayNames,
     });
+  const splitPairOptionIds = splitPairOptionsForOrder({
+    paymentGatewayPrimary: detail?.paymentGatewayPrimary,
+    paymentGatewayNames: detail?.paymentGatewayNames,
+  });
   const splitPairMethods = APPROVAL_SPLIT_PAIRS[splitPair];
 
   function amountForMethod(method: string): string {
@@ -572,8 +579,17 @@ export function FulfillmentSampleFreeIssuePanel({
   }
 
   function openSplitPaymentDialog() {
+    const savedPair = approvalSplitPairId(
+      splitPaymentLines.map((line) => line.paymentMethod),
+    );
     const pair =
-      approvalSplitPairId(splitPaymentLines.map((line) => line.paymentMethod)) ?? "koko_bank";
+      savedPair ??
+      (isCashSplitOrderGateway({
+        paymentGatewayPrimary: detail?.paymentGatewayPrimary,
+        paymentGatewayNames: detail?.paymentGatewayNames,
+      })
+        ? "bank_cash"
+        : "koko_bank");
     const methods = APPROVAL_SPLIT_PAIRS[pair];
     setSplitPair(pair);
     setSplitAmountA(amountForMethod(methods[0]));
@@ -1474,8 +1490,10 @@ export function FulfillmentSampleFreeIssuePanel({
           <AlertDialogTitle>Split Payment</AlertDialogTitle>
           <AlertDialogDescription>
             {splitIncludesKoko(splitPairMethods)
-              ? "Enter both paid amounts. Finance will verify the KOKO reference and approval will create one ERP Payment Entry for each method."
-              : "Enter both paid amounts. Finance approval will create one ERP Payment Entry for each method."}
+              ? "Enter both amounts. Finance will verify the KOKO reference and create an ERP Payment Entry for each prepaid method. Cash is collected at delivery."
+              : splitIncludesCash(splitPairMethods)
+                ? "Enter both amounts. Finance approval creates an ERP Payment Entry for the prepaid method (KOKO, Bank, Card, or Mintpay). Cash is collected at delivery."
+                : "Enter both paid amounts. Finance approval will create one ERP Payment Entry for each method."}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <div className="space-y-4">
@@ -1492,7 +1510,7 @@ export function FulfillmentSampleFreeIssuePanel({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {(Object.keys(APPROVAL_SPLIT_PAIR_LABELS) as ApprovalSplitPairId[]).map((pairId) => (
+                {splitPairOptionIds.map((pairId) => (
                   <SelectItem key={pairId} value={pairId}>
                     {APPROVAL_SPLIT_PAIR_LABELS[pairId]}
                   </SelectItem>
