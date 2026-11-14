@@ -3,6 +3,11 @@
  * Companies can also create custom keys for future mails.
  */
 
+import {
+  STOCK_AVAILABILITY_STATUS_WEEKLY_TEMPLATE,
+  STOCK_HEALTH_WEEKLY_SUMMARY_TEMPLATE,
+} from "@/lib/stock-health/mail-templates";
+
 export const EMAIL_TEMPLATE_KEY_RE = /^[a-z][a-z0-9_]{1,63}$/;
 
 export type EmailTemplateDefinition = {
@@ -194,6 +199,15 @@ export const BUILTIN_EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
     builtin: true,
     automated: true,
   },
+  // Stock Health weekly mails: Monday (Stock Availability Status) and Tuesday (Weekly Summary).
+  // The tables fill the {{…Html}} placeholders; no recipients until someone adds them.
+  ...[STOCK_AVAILABILITY_STATUS_WEEKLY_TEMPLATE, STOCK_HEALTH_WEEKLY_SUMMARY_TEMPLATE].map((t) => ({
+    ...t,
+    recipients: "",
+    ccRecipients: "",
+    builtin: true,
+    automated: true,
+  })),
 ];
 
 export function builtinTemplateByKey(key: string): EmailTemplateDefinition | undefined {

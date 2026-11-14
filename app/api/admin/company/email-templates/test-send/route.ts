@@ -17,9 +17,12 @@ import { MARGIN_ISSUES_DAILY_KEY } from "@/lib/email-templates/catalog";
 import { buildMarginIssuesEmailPreview, buildMarginIssuesWorkbook } from "@/lib/margin-issues-email";
 import { loadMarginIssuesReport } from "@/lib/margin-issues";
 import { requirePermission } from "@/lib/rbac";
+import { loadStockHealthMailTestPlaceholders } from "@/lib/stock-health/summary-mail";
 import { LIMITS, trimmedString } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
+/** Stock Health / receivable tests may rebuild ERP data before sending. */
+export const maxDuration = 300;
 
 const testSendSchema = z.object({
   key: trimmedString(1, 64),
@@ -130,6 +133,10 @@ export async function POST(request: NextRequest) {
     const actual = buildMarginIssuesEmailPreview(report);
     placeholders = { ...SAMPLE_PLACEHOLDERS, reportDate, summaryTableHtml: actual.summaryTableHtml, skuCount: actual.skuCount, stockAvailable: actual.stockAvailable };
     attachments = [{ fileName: `margin-issues-${reportDate}.xlsx`, contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", contentBase64: buildMarginIssuesWorkbook(report).toString("base64") }];
+  } else {
+    // Stock Health weekly mails: today's real tables (Stock Health screen data) in the template.
+    const stockHealth = await loadStockHealthMailTestPlaceholders(user.companyId, parsed.data.key);
+    if (stockHealth) placeholders = { ...SAMPLE_PLACEHOLDERS, ...stockHealth };
   }
   const subject = `[TEST] ${renderEmailTemplatePlaceholders(parsed.data.subject, placeholders)}`;
   const html = `<p style="color:#666;font-size:12px;">Test email for template <strong>${parsed.data.name}</strong> (${parsed.data.key}).</p>${renderEmailTemplatePlaceholders(parsed.data.bodyHtml, placeholders)}`;

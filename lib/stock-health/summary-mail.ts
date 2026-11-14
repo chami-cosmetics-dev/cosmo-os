@@ -2,6 +2,7 @@ import "server-only";
 
 import { Prisma } from "@prisma/client";
 
+import { parseEmailAddressList } from "@/lib/email-templates/render";
 import { formatAppDate, formatAppDateTime, formatAppIsoDate } from "@/lib/format-datetime";
 import { sendStockHealthSummaryEmail } from "@/lib/maileroo";
 import { prisma } from "@/lib/prisma";
@@ -13,6 +14,8 @@ import { buildDiscontinueMovement, type SkuStatus } from "@/lib/stock-health/dis
 import { currentMonthName, loadStockHealthRopData } from "@/lib/stock-health/rop-status";
 import {
   buildStockHealthSummaryMail,
+  STOCK_HEALTH_MAIL_TEMPLATES,
+  stockHealthMailPlaceholders,
   STOCK_HEALTH_MAIL_PARTS,
   type StockHealthMailPart,
   type StockHealthSummaryMailData,
@@ -24,34 +27,38 @@ import {
   stockHealthSnapshotWrites,
 } from "@/lib/stock-health/weekly-summary";
 
-/**
- * Env vars (comma-separated addresses), per mail: To and CC. Mail 1 (Weekly Summary, Tuesday)
- * and mail 2 (Stock Availability Status, Monday) can go to completely different people.
- */
-export const STOCK_HEALTH_MAIL_ENV: Record<StockHealthMailPart, { to: string; cc: string }> = {
-  weekly: { to: "STOCK_HEALTH_WEEKLY_MAIL_TO", cc: "STOCK_HEALTH_WEEKLY_MAIL_CC" },
-  rop: { to: "STOCK_HEALTH_AVAILABILITY_MAIL_TO", cc: "STOCK_HEALTH_AVAILABILITY_MAIL_CC" },
-};
-
 export type MailRecipients = { to: string[]; cc: string[] };
 
-/** One mail's To + CC from its env vars (CC never repeats a To address). */
-export function stockHealthMailRecipientsFor(part: StockHealthMailPart): MailRecipients {
-  const to = parseMailList(process.env[STOCK_HEALTH_MAIL_ENV[part].to]);
-  const cc = parseMailList(process.env[STOCK_HEALTH_MAIL_ENV[part].cc]).filter((e) => !to.includes(e));
-  return { to, cc };
-}
+export type StockHealthMailTemplate = {
+  key: string;
+  name: string;
+  subject: string;
+  bodyHtml: string;
+  recipients: MailRecipients;
+};
 
-/** "a@x.lk, b@y.lk" → unique, lower-case addresses (anything without "@" dropped). */
-export function parseMailList(raw: string | undefined): string[] {
-  return [
-    ...new Set(
-      (raw ?? "")
-        .split(/[,;\s]+/)
-        .map((email) => email.trim().toLowerCase())
-        .filter((email) => email.includes("@")),
-    ),
-  ];
+/**
+ * One mail's Email Template (Settings → Email Templates): To / CC as saved there (none until
+ * someone adds them), Subject / Body as saved or the default.
+ */
+export async function loadStockHealthMailTemplate(
+  companyId: string,
+  part: StockHealthMailPart,
+): Promise<StockHealthMailTemplate> {
+  const defaults = STOCK_HEALTH_MAIL_TEMPLATES[part];
+  const stored = await prisma.emailTemplate.findUnique({
+    where: { companyId_key: { companyId, key: defaults.key } },
+    select: { name: true, subject: true, bodyHtml: true, recipients: true, ccRecipients: true },
+  });
+  const to = parseEmailAddressList(stored?.recipients);
+  const cc = parseEmailAddressList(stored?.ccRecipients).filter((email) => !to.includes(email));
+  return {
+    key: defaults.key,
+    name: stored?.name || (part === "weekly" ? "Stock Health Weekly Summary" : "Stock Availability Status"),
+    subject: stored?.subject?.trim() || defaults.subject,
+    bodyHtml: stored?.bodyHtml?.trim() || defaults.bodyHtml,
+    recipients: { to, cc },
+  };
 }
 
 /** A YYYY-MM-DD Colombo day → display date (same format as the screen). */
@@ -66,18 +73,19 @@ type BuiltMail = { subject: string; html: string; plain: string };
  * `summarizeByStatus`, ROP Status = `summarizeRopStatus`, over one load of the live ERP data,
  * so both mails use the same stock. `refresh` regenerates the ERP stock report.
  */
-async function loadMailData(
+async function loadMailInputs(
   companyId: string,
   mailDate: string,
   options: { refresh: boolean; test: boolean },
 ): Promise<{
   current: ReturnType<typeof summarizeByStatus>;
   skuStatuses: SkuStatus[];
-  mails: Record<StockHealthMailPart, BuiltMail>;
+  mailData: StockHealthSummaryMailData;
 }> {
-  const [data, previous] = await Promise.all([
+  const [data, previous, company] = await Promise.all([
     loadStockHealthRopData(companyId, { refresh: options.refresh }),
     loadPreviousStockHealthSnapshot(companyId, mailDate),
+    prisma.company.findUnique({ where: { id: companyId }, select: { name: true } }),
   ]);
   const current = summarizeByStatus(data.items, data.stockBySku, data.excluded);
   // Each counted Common SKU's priority now (the same rows as the Weekly Summary counts).
@@ -110,6 +118,7 @@ async function loadMailData(
     previous: previous && { dateLabel: dateLabelOf(previous.snapshotDate), rows: previous.rows },
     rop: summarizeRopStatus(data.ropRows),
     test: options.test,
+    companyName: company?.name ?? "",
     locations,
     // null = no item-level snapshot from last week yet → the mail says tracking starts next week.
     discontinue:
@@ -120,14 +129,51 @@ async function loadMailData(
           }
         : null,
   };
+  return { current, skuStatuses, mailData };
+}
+
+/** Both mails built from one data load, each with its Email Template's Subject / Body. */
+async function loadMailData(
+  companyId: string,
+  mailDate: string,
+  options: { refresh: boolean; test: boolean },
+  templates: Record<StockHealthMailPart, StockHealthMailTemplate>,
+): Promise<{
+  current: ReturnType<typeof summarizeByStatus>;
+  skuStatuses: SkuStatus[];
+  mails: Record<StockHealthMailPart, BuiltMail>;
+}> {
+  const { current, skuStatuses, mailData } = await loadMailInputs(companyId, mailDate, options);
   return {
     current,
     skuStatuses,
     mails: {
-      weekly: buildStockHealthSummaryMail(mailData, "weekly"),
-      rop: buildStockHealthSummaryMail(mailData, "rop"),
+      weekly: buildStockHealthSummaryMail(mailData, "weekly", templates.weekly),
+      rop: buildStockHealthSummaryMail(mailData, "rop", templates.rop),
     },
   };
+}
+
+async function loadBothTemplates(companyId: string): Promise<Record<StockHealthMailPart, StockHealthMailTemplate>> {
+  const [weekly, rop] = await Promise.all([
+    loadStockHealthMailTemplate(companyId, "weekly"),
+    loadStockHealthMailTemplate(companyId, "rop"),
+  ]);
+  return { weekly, rop };
+}
+
+/**
+ * Settings → Email Templates "Send test mail" for the two Stock Health keys: the real
+ * placeholder values (today's tables, screen cache), to fill the template being edited.
+ */
+export async function loadStockHealthMailTestPlaceholders(
+  companyId: string,
+  key: string,
+): Promise<Record<string, string> | null> {
+  const part = STOCK_HEALTH_MAIL_PARTS.find((x) => STOCK_HEALTH_MAIL_TEMPLATES[x].key === key);
+  if (!part) return null;
+  const { mailData } = await loadMailInputs(companyId, formatAppIsoDate(new Date()), { refresh: false, test: true });
+  return stockHealthMailPlaceholders(mailData, part);
 }
 
 export type StockHealthSummaryMailResult = {
@@ -205,7 +251,7 @@ async function alreadySent(companyId: string, mailDate: string, part: StockHealt
 /**
  * One scheduled mail for one company, once per day: mail 2 (Stock Availability Status) on Monday,
  * mail 1 (Weekly Summary) on Tuesday, each with fresh ERP stock, to
- * that mail's To / CC env vars (STOCK_HEALTH_MAIL_ENV). When mail 1 goes out, this week's Weekly Summary (totals + each
+ * that mail's Email Template To / CC (Settings → Email Templates). When mail 1 goes out, this week's Weekly Summary (totals + each
  * item's priority) is saved as the snapshot next week's mail 1 compares against.
  */
 export async function sendScheduledStockHealthMail(
@@ -220,10 +266,11 @@ export async function sendScheduledStockHealthMail(
 
   if (weekdayOf(mailDate) !== STOCK_HEALTH_MAIL_DAYS[part].weekday) return result("skipped_wrong_day");
 
-  const recipients = stockHealthMailRecipientsFor(part);
+  const templates = await loadBothTemplates(companyId);
+  const recipients = templates[part].recipients;
   if (recipients.to.length === 0) {
     console.warn(
-      `[stock-health-mail] ${STOCK_HEALTH_MAIL_ENV[part].to} is empty — Stock Health ${part} mail not sent (company ${companyId}, ${mailDate}).`,
+      `[stock-health-mail] Email Template "${templates[part].name}" (${templates[part].key}) has no To recipients — mail not sent (company ${companyId}, ${mailDate}). Add them in Settings → Email Templates.`,
     );
     return result("skipped_no_recipients");
   }
@@ -234,7 +281,7 @@ export async function sendScheduledStockHealthMail(
   }
 
   // The slow ERP load happens before the claim, so the claim → send window is short.
-  const { current, skuStatuses, mails } = await loadMailData(companyId, mailDate, { refresh: true, test: false });
+  const { current, skuStatuses, mails } = await loadMailData(companyId, mailDate, { refresh: true, test: false }, templates);
   const mail = mails[part];
   if (!(await claimSend(companyId, mailDate, part, recipients))) {
     return result("skipped_already_sent", { recipientCount });
@@ -313,12 +360,15 @@ export async function sendScheduledStockHealthMailForAllCompanies(
  */
 export async function sendTestStockHealthSummaryMail(
   companyId: string,
-  /** Who gets each test mail (e.g. you, or that mail's configured To + CC). */
-  recipientsFor: (part: StockHealthMailPart) => MailRecipients,
+  /** Who gets the test mails: these addresses, or "template" = each mail's template To + CC. */
+  recipients: MailRecipients | "template",
   options: { parts?: readonly StockHealthMailPart[]; preview?: StockHealthMailPart } = {},
 ): Promise<StockHealthSummaryMailResult[]> {
   const mailDate = formatAppIsoDate(new Date());
-  const { mails } = await loadMailData(companyId, mailDate, { refresh: false, test: true });
+  const templates = await loadBothTemplates(companyId);
+  const { mails } = await loadMailData(companyId, mailDate, { refresh: false, test: true }, templates);
+  const recipientsFor = (part: StockHealthMailPart) =>
+    recipients === "template" ? templates[part].recipients : recipients;
 
   if (options.preview) {
     const mail = mails[options.preview];

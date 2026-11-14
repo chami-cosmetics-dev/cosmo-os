@@ -83,6 +83,22 @@ describe("buildStockHealthSummaryMail", () => {
     expect(plain).not.toContain("STOCK AVAILABILITY STATUS");
   });
 
+  it("uses the saved Email Template's Subject / Body, filling the table placeholders", () => {
+    const mail = buildStockHealthSummaryMail(data({ companyName: "Cosmo" }), "rop", {
+      subject: "Stock check {{reportDate}} - {{companyName}}",
+      bodyHtml: "<p>Hello all from {{companyName}}</p>{{overallTableHtml}}",
+    });
+    expect(mail.subject).toBe("Stock check 16/11/2026 - Cosmo");
+    expect(mail.html).toContain("<p>Hello all from Cosmo</p>");
+    expect(mail.html).toContain(">Stock Availability Status - Overall<");
+    expect(mail.html).not.toContain("Dear team,");
+    expect(mail.html).not.toContain(">Data sources<"); // left out of this body
+    // Blank Subject / Body fall back to the defaults.
+    const fallback = buildStockHealthSummaryMail(data(), "weekly", { subject: "", bodyHtml: "  " });
+    expect(fallback.subject).toBe("Stock Health Summary - Weekly Summary - 16/11/2026");
+    expect(fallback.html).toContain("Dear team,");
+  });
+
   it("both mails end with a Data sources table; ROP source only in mail 2", () => {
     const weekly = buildStockHealthSummaryMail(data(), "weekly");
     const rop = buildStockHealthSummaryMail(data(), "rop");

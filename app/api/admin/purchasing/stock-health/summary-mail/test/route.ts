@@ -1,13 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { parseEmailAddressList } from "@/lib/email-templates/render";
 import { hasPermission, requireUserContext } from "@/lib/rbac";
-import {
-  parseMailList,
-  sendTestStockHealthSummaryMail,
-  STOCK_HEALTH_MAIL_ENV,
-  stockHealthMailRecipientsFor,
-  type MailRecipients,
-} from "@/lib/stock-health/summary-mail";
+import { sendTestStockHealthSummaryMail } from "@/lib/stock-health/summary-mail";
 import {
   STOCK_HEALTH_MAIL_PARTS,
   type StockHealthMailPart,
@@ -24,12 +19,13 @@ function parsePart(value: string | null): StockHealthMailPart | null {
 }
 
 /**
- * Test Stock Health summary mails (no snapshot saved, not the Monday send). Two mails:
- * part 1 = Weekly Summary, part 2 = Stock Availability Status - Overall. Open in the browser while signed in:
+ * Test Stock Health mails (no snapshot saved, not the scheduled send), using each mail's
+ * Email Template (Settings → Email Templates). Part 1 = Weekly Summary (Tuesday), part 2 =
+ * Stock Availability Status (Monday). Open in the browser while signed in:
  * - `?preview=1` — shows mail 1 here, sends nothing (`?preview=1&part=2` for mail 2).
  * - no `to` — sends both mails to you (the signed-in user); `&part=1` / `&part=2` for one.
  * - `?to=a@x.lk,b@y.lk` — sends to those addresses.
- * - `?to=list` — sends each mail to its configured To + CC (STOCK_HEALTH_MAIL_ENV).
+ * - `?to=list` — sends each mail to its template's To + CC.
  */
 export async function GET(request: NextRequest) {
   const auth = await requireUserContext();
@@ -47,23 +43,22 @@ export async function GET(request: NextRequest) {
   const partParam = params.get("part");
   const part = parsePart(partParam);
   if (partParam && !part) {
-    return NextResponse.json({ error: "part must be 1 (Weekly Summary) or 2 (Stock Availability Status - Overall)" }, { status: 400 });
+    return NextResponse.json(
+      { error: "part must be 1 (Weekly Summary) or 2 (Stock Availability Status)" },
+      { status: 400 },
+    );
   }
   const to = params.get("to")?.trim();
-  const recipientsFor = (p: StockHealthMailPart): MailRecipients =>
-    to === "list"
-      ? stockHealthMailRecipientsFor(p)
-      : { to: parseMailList(to || (auth.user.email ?? "")), cc: [] };
+  const recipients =
+    to === "list" ? ("template" as const) : { to: parseEmailAddressList(to || (auth.user.email ?? "")), cc: [] };
 
   try {
     if (preview) {
-      const [result] = await sendTestStockHealthSummaryMail(companyId, () => ({ to: [], cc: [] }), {
-        preview: part ?? "weekly",
-      });
+      const [result] = await sendTestStockHealthSummaryMail(companyId, { to: [], cc: [] }, { preview: part ?? "weekly" });
       return new NextResponse(result.html ?? "", { headers: { "Content-Type": "text/html; charset=utf-8" } });
     }
 
-    const results = await sendTestStockHealthSummaryMail(companyId, recipientsFor, {
+    const results = await sendTestStockHealthSummaryMail(companyId, recipients, {
       parts: part ? [part] : STOCK_HEALTH_MAIL_PARTS,
     });
     if (results.every((r) => r.status === "skipped_no_recipients")) {
@@ -72,15 +67,14 @@ export async function GET(request: NextRequest) {
           results,
           error:
             to === "list"
-              ? `No To addresses set (${(part ? [part] : STOCK_HEALTH_MAIL_PARTS).map((p) => STOCK_HEALTH_MAIL_ENV[p].to).join(", ")})`
+              ? "No To recipients in the Email Template — add them in Settings → Email Templates"
               : "No valid email address to send to",
         },
         { status: 400 },
       );
     }
     const failed = results.some((r) => r.status === "failed");
-    const sentTo = Object.fromEntries((part ? [part] : STOCK_HEALTH_MAIL_PARTS).map((p) => [p, recipientsFor(p)]));
-    return NextResponse.json({ ok: !failed, recipients: sentTo, results }, { status: failed ? 502 : 200 });
+    return NextResponse.json({ ok: !failed, results }, { status: failed ? 502 : 200 });
   } catch (error) {
     console.error("Stock Health test mail failed:", error);
     return NextResponse.json(

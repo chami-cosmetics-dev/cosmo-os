@@ -4,8 +4,13 @@
  * follow the Stock Health screen. Pure — the data comes from lib/stock-health/summary-mail.ts.
  */
 import { priorityLabelSlot } from "@/components/organisms/item-trends/priority-label";
+import { renderEmailTemplatePlaceholders } from "@/lib/email-templates/render";
 import type { ShopStockLocationCounts } from "@/lib/shop-stock-status/calc";
 import type { DiscontinueMovement, MovementItem } from "@/lib/stock-health/discontinue-movement";
+import {
+  STOCK_AVAILABILITY_STATUS_WEEKLY_TEMPLATE,
+  STOCK_HEALTH_WEEKLY_SUMMARY_TEMPLATE,
+} from "@/lib/stock-health/mail-templates";
 import type {
   StockHealthRopCounts,
   StockHealthStatus,
@@ -29,6 +34,8 @@ export type StockHealthSummaryMailData = {
   rop: { rows: Array<{ status: StockHealthStatus } & StockHealthRopCounts>; grandTotal: StockHealthRopCounts };
   /** Marks a test send ("[TEST]" subject + banner). */
   test?: boolean;
+  /** For the {{companyName}} placeholder. */
+  companyName?: string;
   /** Mail 2, "Stock Availability Status - Company Wise" (from Shop Stock Status): one row per shop, then per online company. */
   locations?: Array<{
     type: "Shop" | "Online";
@@ -307,13 +314,6 @@ export const STOCK_HEALTH_MAIL_PART_TITLES: Record<StockHealthMailPart, string> 
   rop: "Stock Availability Status - Overall",
 };
 
-export function stockHealthSummaryMailSubject(
-  data: Pick<StockHealthSummaryMailData, "dateLabel" | "test">,
-  part: StockHealthMailPart,
-): string {
-  return `${data.test ? "[TEST] " : ""}Stock Health Summary - ${STOCK_HEALTH_MAIL_PART_TITLES[part]} - ${data.dateLabel}`;
-}
-
 /** Company Wise priorities: Top, Low, Newly Added, Discontinue (+ Blank only when it has items). */
 function locationPriorities(locations: NonNullable<StockHealthSummaryMailData["locations"]>): StockHealthStatus[] {
   const base: StockHealthStatus[] = ["Top", "Low", "Newly Added", "Discontinue"];
@@ -551,32 +551,60 @@ ${summary}
 ${note("System Error = Discontinue now, but had no priority last week (a new item, or Blank).")}`;
 }
 
-function partBody(data: StockHealthSummaryMailData, part: StockHealthMailPart): string {
+/**
+ * The {{…}} values a Stock Health mail template is filled with: the generated tables (each
+ * with its heading and notes), the data sources, and plain values (date, stock time, …).
+ */
+export function stockHealthMailPlaceholders(
+  data: StockHealthSummaryMailData,
+  part: StockHealthMailPart,
+): Record<string, string> {
+  const common = {
+    companyName: escapeHtml(data.companyName ?? ""),
+    reportDate: escapeHtml(data.dateLabel),
+    stockAsOf: escapeHtml(data.stockAsOf),
+    generatedAt: escapeHtml(data.sentAt),
+    dataSourcesHtml: sourcesHtml(part),
+  };
   if (part === "weekly") {
     const weeklyNote = data.previous
       ? `Previous week = snapshot saved with the mail on ${escapeHtml(data.previous.dateLabel)}. Change = This week − Previous week.`
       : "The first summary mail — next week's mail will compare against these figures.";
-    return `${heading("Weekly Summary")}
+    return {
+      ...common,
+      weeklySummaryTableHtml: `${heading("Weekly Summary")}
 ${weeklySummaryHtml(data)}
-${note(weeklyNote)}${discontinueHtml(data)}`;
+${note(weeklyNote)}`,
+      discontinueTrackingHtml: discontinueHtml(data),
+    };
   }
-  return `${heading(STOCK_HEALTH_MAIL_PART_TITLES.rop)}
+  const locations = data.locations?.length ? data.locations : null;
+  return {
+    ...common,
+    overallTableHtml: `${heading(STOCK_HEALTH_MAIL_PART_TITLES.rop)}
 ${ropStatusHtml(data)}
 ${note("PASS = stock above 50% of ROP. 0' Stock = out of stock in all companies.")}
-${note("0' Stock overlaps the groups and is not in the Grand Total.")}${
-    data.locations?.length
-      ? `
-${heading("Stock Availability Status - Company Wise")}
-${locationTableHtml(data.locations, LOCATION_GROUPS, { companyTotal: true })}
+${note("0' Stock overlaps the groups and is not in the Grand Total.")}`,
+    companyWiseTableHtml: locations
+      ? `${heading("Stock Availability Status - Company Wise")}
+${locationTableHtml(locations, LOCATION_GROUPS, { companyTotal: true })}
 ${note(PRIORITY_KEY)}
-${note("Per location: Pass = stock at or above 50% of that location's ROP, Fail = below 50%. Items with no ROP and no stock at a location are not counted, except for Top (No ROP - No Stock, included in Top's Grand Total).")}
-${heading("Stock Availability Status - Company Wise - Out of Stock")}
-${locationTableHtml(data.locations, OUT_OF_STOCK_GROUPS)}
+${note("Per location: Pass = stock at or above 50% of that location's ROP, Fail = below 50%. Items with no ROP and no stock at a location are not counted, except for Top (No ROP - No Stock, included in Top's Grand Total).")}`
+      : "",
+    outOfStockTableHtml: locations
+      ? `${heading("Stock Availability Status - Company Wise - Out of Stock")}
+${locationTableHtml(locations, OUT_OF_STOCK_GROUPS)}
 ${note(PRIORITY_KEY)}
 ${note("0' Stock = has a ROP at that location but no stock there (part of Fail); not added to the Grand Total. % = 0' Stock ÷ Grand Total.")}`
-      : ""
-  }`;
+      : "",
+  };
 }
+
+/** Each mail's default Email Template (Settings → Email Templates can override Subject / Body). */
+export const STOCK_HEALTH_MAIL_TEMPLATES: Record<StockHealthMailPart, { key: string; subject: string; bodyHtml: string }> = {
+  weekly: STOCK_HEALTH_WEEKLY_SUMMARY_TEMPLATE,
+  rop: STOCK_AVAILABILITY_STATUS_WEEKLY_TEMPLATE,
+};
 
 /** Where each mail's figures come from (the "Data sources" table at the end of each mail). */
 const SHARED_SOURCES: Array<[string, string]> = [
@@ -627,20 +655,21 @@ ${rows}
 export function buildStockHealthSummaryMail(
   data: StockHealthSummaryMailData,
   part: StockHealthMailPart,
+  /** The saved Email Template; blank Subject / Body fall back to the default. */
+  template?: { subject?: string | null; bodyHtml?: string | null },
 ): { subject: string; html: string; plain: string } {
-  const subject = stockHealthSummaryMailSubject(data, part);
-  const testNote =
-    part === "weekly" ? "Test mail — no snapshot saved." : "Test mail.";
+  const defaults = STOCK_HEALTH_MAIL_TEMPLATES[part];
+  const vars = stockHealthMailPlaceholders(data, part);
+  const plainVars = { ...vars, reportDate: data.dateLabel, stockAsOf: data.stockAsOf, companyName: data.companyName ?? "" };
+  const subject = `${data.test ? "[TEST] " : ""}${renderEmailTemplatePlaceholders(template?.subject?.trim() || defaults.subject, plainVars)}`;
+  const body = renderEmailTemplatePlaceholders(template?.bodyHtml?.trim() || defaults.bodyHtml, vars);
+  const testNote = part === "weekly" ? "Test mail — no snapshot saved." : "Test mail.";
 
   const html = `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><meta name="color-scheme" content="light"><meta name="supported-color-schemes" content="light"></head>
 <body style="margin:0;padding:16px;background-color:#ffffff;color:${TEXT};font-family:${FONT}">
 ${data.test ? `<p style="font-family:${FONT};font-size:13px;color:#9a3412;background-color:#fff7ed;border:1px solid #fdba74;padding:8px 12px;margin:0 0 12px">${testNote}</p>` : ""}
-<p style="font-family:${FONT};font-size:14px;color:${TEXT};margin:0 0 4px">Dear team,</p>
-<p style="font-family:${FONT};font-size:14px;color:${TEXT};margin:0">Here is the ${part === "rop" ? "Stock Availability Status" : `Stock Health ${STOCK_HEALTH_MAIL_PART_TITLES.weekly}`} for ${escapeHtml(data.dateLabel)}.</p>
-${note(`Live ERP stock as of ${escapeHtml(data.stockAsOf)} (excluded SKUs and website drafts with no stock left out).`)}
-${partBody(data, part)}
-${sourcesHtml(part)}
+${body}
 <p style="font-family:${FONT};font-size:12px;color:${MUTED};margin:24px 0 0">Cosmo OS · Purchasing → Stock Health<br>Sent ${escapeHtml(data.sentAt)} (Asia/Colombo)</p>
 </body></html>`;
 
