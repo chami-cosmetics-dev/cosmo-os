@@ -296,8 +296,8 @@ describe("finance-approved split ERP Payment Entries", () => {
     expect(outstanding).toBe(3250);
   });
 
-  it("creates a Card PE and leaves Cash for delivery collection", async () => {
-    await syncApprovalSplitPaymentEntriesToErp(
+  it("skips intake PEs for Cash + Card door-collection splits", async () => {
+    const result = await syncApprovalSplitPaymentEntriesToErp(
       {
         id: "approval-1",
         kokoReference: null,
@@ -321,19 +321,9 @@ describe("finance-approved split ERP Payment Entries", () => {
       new Date("2026-08-24T00:00:00.000Z"),
     );
 
-    expect(paymentEntryBodies).toHaveLength(1);
-    expect(paymentEntryBodies[0]).toEqual(
-      expect.objectContaining({
-        mode_of_payment: "Credit Card",
-        paid_amount: 5000,
-        reference_no: "OS-OPA-line-card",
-      }),
-    );
-    expect(prismaMocks.approvalPaymentLineUpdate).toHaveBeenCalledTimes(1);
-    expect(prismaMocks.approvalPaymentLineUpdate).toHaveBeenCalledWith({
-      where: { id: "line-card" },
-      data: { erpPaymentEntryName: "PE-1" },
-    });
-    expect(outstanding).toBe(2750);
+    expect(result).toEqual({ outcome: "skipped" });
+    expect(paymentEntryBodies).toHaveLength(0);
+    expect(prismaMocks.approvalPaymentLineUpdate).not.toHaveBeenCalled();
+    expect(outstanding).toBe(7750);
   });
 });

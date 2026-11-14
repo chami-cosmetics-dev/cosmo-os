@@ -11,6 +11,8 @@ import {
   formatApprovalSplitInvoicePaymentLabel,
   isApprovalSplitRequestNote,
   isCashSplitOrderGateway,
+  isDoorCollectionSplitPair,
+  isPrepaidCashSplitPair,
   isSplitPaymentEligibleGateway,
   orderHasSplitPaymentEligibleGateway,
   parseApprovalSplitRequestNote,
@@ -153,6 +155,14 @@ describe("approval split payment plan", () => {
       "cash_mintpay",
     ]);
     expect(splitPairOptionsForOrder({ paymentGatewayPrimary: "KOKO" })).toContain("koko_bank");
+  });
+
+  it("treats Cash + Card as door collection, other cash pairs as prepaid", () => {
+    expect(isDoorCollectionSplitPair(["cash", "card"])).toBe(true);
+    expect(isPrepaidCashSplitPair(["cash", "card"])).toBe(false);
+    expect(isPrepaidCashSplitPair(["cash", "koko"])).toBe(true);
+    expect(isPrepaidCashSplitPair(["cash", "bank_transfer"])).toBe(true);
+    expect(isPrepaidCashSplitPair(["cash", "mintpay"])).toBe(true);
   });
 
   it("builds a finance-readable note and preserves approval list labels", () => {
