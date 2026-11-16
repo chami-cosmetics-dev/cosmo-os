@@ -204,16 +204,23 @@ async function loadBothTemplates(companyId: string): Promise<Record<StockHealthM
 
 /**
  * Settings → Email Templates "Send test mail" for the two Stock Health keys: the real
- * placeholder values (today's tables, screen cache), to fill the template being edited.
+ * placeholder values (today's tables, screen cache), to fill the template being edited, plus
+ * the same Excel attachments the scheduled mail carries.
  */
 export async function loadStockHealthMailTestPlaceholders(
   companyId: string,
   key: string,
-): Promise<Record<string, string> | null> {
+): Promise<{ placeholders: Record<string, string>; attachments: MailAttachment[] } | null> {
   const part = STOCK_HEALTH_MAIL_PARTS.find((x) => STOCK_HEALTH_MAIL_TEMPLATES[x].key === key);
   if (!part) return null;
-  const { mailData } = await loadMailInputs(companyId, formatAppIsoDate(new Date()), { refresh: false, test: true });
-  return stockHealthMailPlaceholders(mailData, part);
+  const { mailData, data, shopStock } = await loadMailInputs(companyId, formatAppIsoDate(new Date()), {
+    refresh: false,
+    test: true,
+  });
+  return {
+    placeholders: stockHealthMailPlaceholders(mailData, part),
+    attachments: (await MAIL_WORKBOOKS[part]({ data, shopStock })).map(xlsxAttachment),
+  };
 }
 
 export type StockHealthSummaryMailResult = {
@@ -332,7 +339,7 @@ export async function sendScheduledStockHealthMail(
     return result("skipped_already_sent", { recipientCount });
   }
 
-  const send = await sendStockHealthSummaryEmail({ toEmails: recipients.to, ccEmails: recipients.cc, ...mail });
+  const { send, attachmentsDropped } = await sendWithAttachmentFallback(recipients, mail, part);
   if (!send.success) {
     await prisma.stockHealthSummaryMail.update({
       where: logKey(companyId, mailDate, part),
@@ -367,7 +374,47 @@ export async function sendScheduledStockHealthMail(
     });
   }
   console.log(`[stock-health-mail] ${part} mail sent for ${mailDate} to ${recipientCount} recipient(s) (company ${companyId}).`);
-  return result("sent", { recipientCount, subject: mail.subject });
+  return result("sent", {
+    recipientCount,
+    subject: mail.subject,
+    ...(attachmentsDropped && { error: `Sent without Excel attachments: ${attachmentsDropped}` }),
+  });
+}
+
+/** Where each mail's Excel files can be downloaded instead, for the fallback note. */
+const ATTACHMENT_SOURCES: Record<StockHealthMailPart, string> = {
+  weekly: "Stock Health → Weekly Summary → Download breakdown",
+  rop: "Stock Health → ROP Status → Download breakdown, and Shop Stock Status → Export (SHOP + ONLINE)",
+};
+
+/**
+ * Scheduled sends only: when the mail with its Excel files is rejected (e.g. too large), send it
+ * once more without them and with a note saying where to download them, so the summary still
+ * goes out. `attachmentsDropped` is the first send's error when that happened.
+ */
+async function sendWithAttachmentFallback(
+  recipients: MailRecipients,
+  mail: BuiltMail,
+  part: StockHealthMailPart,
+): Promise<{ send: { success: boolean; message?: string }; attachmentsDropped: string | null }> {
+  const base = { toEmails: recipients.to, ccEmails: recipients.cc };
+  const first = await sendStockHealthSummaryEmail({ ...base, ...mail });
+  if (first.success || mail.attachments.length === 0) return { send: first, attachmentsDropped: null };
+
+  const reason = first.message ?? "Send failed";
+  console.warn(`[stock-health-mail] ${part} mail rejected with attachments (${reason}) — retrying without them.`);
+  const note = `The Excel attachments could not be included in this mail. Please download them from ${ATTACHMENT_SOURCES[part]}.`;
+  const retry = await sendStockHealthSummaryEmail({
+    ...base,
+    subject: mail.subject,
+    html: `<p style="color:#9a3412;font-size:13px;margin:0 0 12px;">${note}</p>${mail.html}`,
+    plain: `${note}\n\n${mail.plain}`,
+    attachments: [],
+  });
+  return {
+    send: retry.success ? retry : { success: false, message: `${reason}; retry without attachments: ${retry.message ?? "failed"}` },
+    attachmentsDropped: retry.success ? reason : null,
+  };
 }
 
 /** Cron: one mail for every company with an ERP. */
