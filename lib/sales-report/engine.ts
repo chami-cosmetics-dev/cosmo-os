@@ -168,7 +168,7 @@ const SaleEngine = (() => {
       const start = typeof allocation.fromDate === 'string' ? isoToSerial(allocation.fromDate) : null;
       const end = typeof allocation.toDate === 'string' ? isoToSerial(allocation.toDate) : null;
       const percent = Math.max(0, Math.min(100, Number(allocation.percent ?? 100))) / 100;
-      if (!from.length || !to || start === null || end === null || date === null || date < start || date > end || !percent) continue;
+      if (!from.length || !to || start === null || end === null || date == null || date < start || date > end || !percent) continue;
       const next = [];
       for (const part of parts) {
         if (!from.includes(low(part.merchant))) { next.push(part); continue; }
@@ -831,7 +831,7 @@ const SaleEngine = (() => {
       const kind = vatKind(status);
       const location = ix.LOCATION_NAME !== undefined ? norm(row[ix.LOCATION_NAME]) : '';
       if (low(location) === 'cosmetics.lk' ? (kind === 'VAT' || kind === 'MIXED') : (location && vatKind(erp2Status) === 'VAT')) finalVat = 'VAT';
-      lines.push({ row, coupon: info ? info.coupon : '', merchant: info ? info.merchant : '', shop: info ? info.shop : '', company: info ? info.company : '', sku, status, erp2Status, finalVat,
+      lines.push({ row, coupon: info ? info.coupon : '', merchant: info ? info.merchant : '', shop: info ? info.shop : '', company: info ? info.company : '', date: info ? info.date : null, sku, status, erp2Status, finalVat,
         amount: num(row[ix.GRAND_TOTAL]), brand: norm(row[ix.BRAND]), location, inCopy: !!info });
     }
     const copy = lines.filter((l) => l.inCopy);
@@ -1020,6 +1020,7 @@ const SaleEngine = (() => {
     };
     const shopMetric = (map, shop, key) => keyNames(key).reduce((sum, name) => sum + (map?.get(low(shop) + '|' + name) || 0), 0);
     const configuredRows = (S.rows || []).map((row, index) => ({ ...row, index, outlet: norm(row.outlet), name: norm(row.name), key: norm(row.key || row.name) }));
+    const pepiliyanaShop = shopForOutlet('Pepiliyana');
     const onlineOwner = (row) => {
       const candidates = configuredRows.filter((candidate) => keyNames(candidate.key).some((name) => keyNames(row.key).includes(name)));
       return candidates.find((candidate) => Number(candidate.onlineTarget) > 0) || candidates.find((candidate) => low(candidate.outlet) === 'online') || candidates[0] || row;
@@ -1033,9 +1034,12 @@ const SaleEngine = (() => {
         const values = res.byShopKey?.get(low(shop) + '|' + name) || [0, 0];
         return [sum[0] + values[0], sum[1] + values[1]];
       }, [0, 0]);
-      const showroom = low(row.outlet) === 'online' ? 0 : shopSales[1];
-      const showroomVat = low(row.outlet) === 'online' ? 0 : shopMetric(res.vat?.byShopKey, shop, row.key);
-      const showroomPalmers = low(row.outlet) === 'online' ? 0 : shopMetric(res.vat?.palmByShopKey, shop, row.key);
+      // Online merchants' Pepiliyana POS transactions belong in their showroom column.
+      const showroom = low(row.outlet) === 'online'
+        ? keyNames(row.key).reduce((sum, name) => sum + (res.byShopKey?.get(low(pepiliyanaShop) + '|' + name)?.[1] || 0), 0)
+        : shopSales[1];
+      const showroomVat = shopMetric(res.vat?.byShopKey, low(row.outlet) === 'online' ? pepiliyanaShop : shop, row.key);
+      const showroomPalmers = shopMetric(res.vat?.palmByShopKey, low(row.outlet) === 'online' ? pepiliyanaShop : shop, row.key);
       const physicalVat = (res.pivot || []).filter((pivot) => low(pivot.shop) !== 'online').reduce((sum, pivot) => sum + shopMetric(res.vat?.byShopKey, pivot.shop, row.key), 0);
       const physicalPalmers = (res.pivot || []).filter((pivot) => low(pivot.shop) !== 'online').reduce((sum, pivot) => sum + shopMetric(res.vat?.palmByShopKey, pivot.shop, row.key), 0);
       const configuredMatch = configuredRows.find((candidate) => keyNames(candidate.key).some((name) => keyNames(row.key).includes(name)));
@@ -1055,7 +1059,7 @@ const SaleEngine = (() => {
       // A configured merchant owns their online sales through the row with an
       // online target. Do not create a second, empty Online row for them.
       const configuredMerchant = configuredRows.some((row) => keyNames(row.key).includes(name));
-      if (!name || representedAtShop.has(shopKey) || generatedByShop.has(shopKey) || (low(pivot.shop) === 'online' && configuredMerchant)) continue;
+      if (!name || representedAtShop.has(shopKey) || generatedByShop.has(shopKey) || (low(pivot.shop) === 'online' && configuredMerchant) || (low(pivot.shop) === low(pepiliyanaShop) && configuredRows.some((row) => low(row.outlet) === 'online' && keyNames(row.key).includes(name)))) continue;
       const outlet = configuredRows.find((row) => low(shopForOutlet(row.outlet)) === low(pivot.shop))?.outlet || (low(pivot.shop) === 'online' ? 'Online' : pivot.shop.replace(/\s+shop.*$/i, ''));
       generatedByShop.set(shopKey, { index: configuredRows.length + generatedByShop.size, outlet, name: merchant.merchant, key: merchant.merchant, showroomTarget: null, onlineTarget: null, generated: true });
     }
