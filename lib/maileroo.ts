@@ -611,6 +611,7 @@ export async function sendStockHealthSummaryEmail(input: {
   subject: string;
   html: string;
   plain: string;
+  attachments?: Array<{ fileName: string; contentType: string; contentBase64: string }>;
 }): Promise<{ success: boolean; message?: string }> {
   return sendErpSyncFailureAlertEmail(input);
 }

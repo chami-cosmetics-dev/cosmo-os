@@ -155,3 +155,22 @@ describe("resolveOrderMerchantKey", () => {
     ).toBeNull();
   });
 });
+
+describe("parseMerchantAllocationDateRange", () => {
+  it("uses Asia/Colombo day bounds like the Call Center Performance chart", async () => {
+    const { parseMerchantAllocationDateRange } = await import("./allocation-summary");
+    const range = parseMerchantAllocationDateRange(
+      new URLSearchParams({ from: "2026-10-01", to: "2026-10-31" })
+    );
+    expect(range?.from.toISOString()).toBe("2026-09-30T18:30:00.000Z");
+    expect(range?.to.toISOString()).toBe("2026-10-31T18:29:59.999Z");
+  });
+
+  it("returns null when either bound is missing or invalid", async () => {
+    const { parseMerchantAllocationDateRange } = await import("./allocation-summary");
+    expect(parseMerchantAllocationDateRange(new URLSearchParams({ from: "2026-10-01" }))).toBeNull();
+    expect(
+      parseMerchantAllocationDateRange(new URLSearchParams({ from: "x", to: "2026-10-31" }))
+    ).toBeNull();
+  });
+});
