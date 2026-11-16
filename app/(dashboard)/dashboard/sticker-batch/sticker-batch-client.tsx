@@ -118,6 +118,7 @@ type BatchDetailsResponse = {
   supplierCode?: string;
   companyName?: string;
   companyAddress?: string;
+  printCosmeticsLogo?: boolean;
   items?: Array<{
     itemCode: string;
     itemName: string;
@@ -295,6 +296,7 @@ export function StickerBatchClient({
   const [batchName, setBatchName] = useState("");
   const [batchDate, setBatchDate] = useState(today);
   const [remark, setRemark] = useState("");
+  const [printCosmeticsLogo, setPrintCosmeticsLogo] = useState(true);
   const [batches, setBatches] = useState<BatchOption[]>(initialBatches);
   const [selectedBatchId, setSelectedBatchId] = useState("");
   const [selectedLocationId, setSelectedLocationId] = useState("");
@@ -773,6 +775,26 @@ export function StickerBatchClient({
     setSelectedBatchId(id);
   }
 
+  async function handlePrintCosmeticsLogoChange(checked: boolean) {
+    setPrintCosmeticsLogo(checked);
+    if (!selectedBatchId.trim()) return;
+    try {
+      const res = await fetch(`/api/admin/sticker-batches/${selectedBatchId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ printCosmeticsLogo: checked }),
+      });
+      if (!res.ok) {
+        const data = (await res.json()) as { error?: string };
+        notify.error(data.error ?? "Failed to update cosmetics logo setting");
+        setPrintCosmeticsLogo(!checked);
+      }
+    } catch {
+      notify.error("Failed to update cosmetics logo setting");
+      setPrintCosmeticsLogo(!checked);
+    }
+  }
+
   async function handleCreateBatch() {
     const trimmed = batchName.trim();
     if (!supplierId) {
@@ -790,6 +812,7 @@ export function StickerBatchClient({
         batchName: trimmed,
         batchDate,
         remark,
+        printCosmeticsLogo,
         items: [],
       };
 
@@ -1362,6 +1385,7 @@ export function StickerBatchClient({
       setIsPreviewLifted(false);
       nextRowIdRef.current = 1;
       setLoadedSnapshot(null);
+      setPrintCosmeticsLogo(true);
       setPreviewMeta({
         supplierName: "",
         supplierCode: "",
@@ -1394,6 +1418,7 @@ export function StickerBatchClient({
         }
 
         if (!active) return;
+        setPrintCosmeticsLogo(data.printCosmeticsLogo !== false);
         const items = Array.isArray(data.items) ? data.items : [];
         if (items.length === 0) {
           const draftRows = readDraftRowsForBatch(selectedBatchId);
@@ -1792,7 +1817,22 @@ export function StickerBatchClient({
             />
           </div>
 
-          <div className="flex justify-end">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            {!isVault ? (
+              <label className="flex items-center gap-2 text-sm font-medium">
+                <input
+                  type="checkbox"
+                  checked={printCosmeticsLogo}
+                  onChange={(e) =>
+                    void handlePrintCosmeticsLogoChange(e.target.checked)
+                  }
+                  disabled={saving}
+                />
+                cosmetics logo
+              </label>
+            ) : (
+              <span />
+            )}
             <Button type="button" onClick={handleCreateBatch} disabled={saving || !canSaveBatch} className="shadow-[0_10px_24px_-18px_var(--primary)]">
               {saving ? "Saving..." : "Save"}
             </Button>
@@ -2125,6 +2165,7 @@ export function StickerBatchClient({
                   companyName={previewMeta.companyName || companyName}
                   locationAddress={previewMeta.locationAddress}
                   companyAddress={companyAddress || previewMeta.companyAddress}
+                  showCompanyName={printCosmeticsLogo}
                   showNmrApproved={isNmrApprovedItemCode(
                     nmrApprovedItemCodeSet,
                     activeRow.itemCode,
@@ -2208,6 +2249,7 @@ export function StickerBatchClient({
                           companyAddress={
                             companyAddress || previewMeta.companyAddress
                           }
+                          showCompanyName={printCosmeticsLogo}
                           showNmrApproved={isNmrApprovedItemCode(
                             nmrApprovedItemCodeSet,
                             row.itemCode,
