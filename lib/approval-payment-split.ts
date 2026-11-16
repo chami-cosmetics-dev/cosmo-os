@@ -375,13 +375,14 @@ export function resolveSplitPaymentDisplay(input: {
   if (input.status && input.status !== "pending" && input.status !== "approved") {
     return null;
   }
-  const fromLines = (input.paymentLines ?? [])
-    .map((line) => ({
-      paymentMethod: line.paymentMethod,
-      amount: Number(line.amount.toString()),
-    }))
-    .filter((line) => Number.isFinite(line.amount) && line.amount > 0);
-  const lines =
+  const fromLines: ApprovalSplitAmountLine[] = [];
+  for (const line of input.paymentLines ?? []) {
+    if (!isApprovalSplitPaymentMethod(line.paymentMethod)) continue;
+    const amount = Number(line.amount.toString());
+    if (!Number.isFinite(amount) || amount <= 0) continue;
+    fromLines.push({ paymentMethod: line.paymentMethod, amount });
+  }
+  const lines: ApprovalSplitAmountLine[] | null =
     (fromLines.length >= 2 && approvalSplitPairId(fromLines.map((line) => line.paymentMethod))
       ? fromLines
       : null) ??
