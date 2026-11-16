@@ -21,6 +21,7 @@ const createStickerBatchSchema = z.object({
     .optional()
     .or(z.literal(""))
     .transform((v) => (v && v.trim() ? v.trim() : null)),
+  printCosmeticsLogo: z.boolean().optional().default(true),
   locationId: z.string().min(1).optional(),
   items: z
     .array(
@@ -253,12 +254,14 @@ export async function POST(request: NextRequest) {
                 batchName: string;
                 batchDate: Date;
                 remark: string | null;
+                printCosmeticsLogo: boolean;
               };
               select: {
                 id: true;
                 batchName: true;
                 batchDate: true;
                 remark: true;
+                printCosmeticsLogo: true;
                 createdAt: true;
               };
             }) => Promise<{
@@ -266,6 +269,7 @@ export async function POST(request: NextRequest) {
               batchName: string;
               batchDate: Date;
               remark: string | null;
+              printCosmeticsLogo: boolean;
               createdAt: Date;
             }>;
           };
@@ -277,12 +281,14 @@ export async function POST(request: NextRequest) {
           batchName: parsed.data.batchName,
           batchDate,
           remark: parsed.data.remark,
+          printCosmeticsLogo: parsed.data.printCosmeticsLogo,
         },
         select: {
           id: true,
           batchName: true,
           batchDate: true,
           remark: true,
+          printCosmeticsLogo: true,
           createdAt: true,
         },
       });

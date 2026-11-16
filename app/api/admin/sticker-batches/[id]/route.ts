@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 
 import { prisma } from "@/lib/prisma";
-import { requireAnyPermission } from "@/lib/rbac";
+import { requireAnyPermission, requirePermission } from "@/lib/rbac";
+import { cuidSchema } from "@/lib/validation";
 
 function isStickerBatchPrismaReady() {
   const client = prisma as unknown as Record<string, unknown>;
@@ -15,6 +17,10 @@ async function getCompanyId(userId: string): Promise<string | null> {
   });
   return user?.companyId ?? null;
 }
+
+const updateStickerBatchSchema = z.object({
+  printCosmeticsLogo: z.boolean(),
+});
 
 export async function GET(
   _request: NextRequest,
@@ -41,6 +47,11 @@ export async function GET(
   }
 
   const { id } = await params;
+  const idParsed = cuidSchema.safeParse(id);
+  if (!idParsed.success) {
+    return NextResponse.json({ error: "Invalid sticker batch id" }, { status: 400 });
+  }
+
   const batch = await (prisma as unknown as {
     stickerBatch: {
       findFirst: (args: {
@@ -50,6 +61,7 @@ export async function GET(
           batchName: true;
           batchDate: true;
           remark: true;
+          printCosmeticsLogo: true;
           supplier: { select: { name: true; code: true } };
         };
       }) => Promise<{
@@ -57,6 +69,7 @@ export async function GET(
         batchName: string;
         batchDate: Date;
         remark: string | null;
+        printCosmeticsLogo: boolean;
         supplier: { name: string; code: string };
       } | null>;
     };
@@ -67,6 +80,7 @@ export async function GET(
       batchName: true,
       batchDate: true,
       remark: true,
+      printCosmeticsLogo: true,
       supplier: { select: { name: true, code: true } },
     },
   });
@@ -148,6 +162,7 @@ export async function GET(
     batchName: batch.batchName,
     batchDate: batch.batchDate,
     remark: batch.remark,
+    printCosmeticsLogo: batch.printCosmeticsLogo,
     supplierName: batch.supplier.name,
     supplierCode: batch.supplier.code,
     companyName: company?.name ?? "",
@@ -167,4 +182,79 @@ export async function GET(
       locationPhone: item.companyLocation.invoicePhone,
     })),
   });
+}
+
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const auth = await requirePermission("stickers.batch.manage");
+  if (!auth.ok) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
+
+  if (!isStickerBatchPrismaReady()) {
+    return NextResponse.json(
+      { error: "Sticker Batch Prisma client is not ready." },
+      { status: 503 }
+    );
+  }
+
+  const companyId = await getCompanyId(auth.context!.user!.id);
+  if (!companyId) {
+    return NextResponse.json(
+      { error: "No company associated with your account" },
+      { status: 404 }
+    );
+  }
+
+  const { id } = await params;
+  const idParsed = cuidSchema.safeParse(id);
+  if (!idParsed.success) {
+    return NextResponse.json({ error: "Invalid sticker batch id" }, { status: 400 });
+  }
+
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  const parsed = updateStickerBatchSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+  }
+
+  try {
+    const updated = await (prisma as unknown as {
+      stickerBatch: {
+        updateMany: (args: {
+          where: { id: string; companyId: string };
+          data: { printCosmeticsLogo: boolean };
+        }) => Promise<{ count: number }>;
+        findFirst: (args: {
+          where: { id: string; companyId: string };
+          select: { id: true; printCosmeticsLogo: true };
+        }) => Promise<{ id: string; printCosmeticsLogo: boolean } | null>;
+      };
+    }).stickerBatch.updateMany({
+      where: { id, companyId },
+      data: { printCosmeticsLogo: parsed.data.printCosmeticsLogo },
+    });
+
+    if (updated.count === 0) {
+      return NextResponse.json({ error: "Sticker batch not found" }, { status: 404 });
+    }
+
+    return NextResponse.json({
+      id,
+      printCosmeticsLogo: parsed.data.printCosmeticsLogo,
+    });
+  } catch {
+    return NextResponse.json(
+      { error: "Failed to update sticker batch" },
+      { status: 500 }
+    );
+  }
 }

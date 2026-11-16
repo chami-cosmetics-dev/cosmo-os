@@ -1825,17 +1825,18 @@ model EmployeeProfileOutlet {
 }
 
 model StickerBatch {
-  id         String             @id @default(cuid())
-  companyId  String
-  supplierId String
-  batchName  String
-  batchDate  DateTime
-  remark     String?
-  createdAt  DateTime           @default(now())
-  updatedAt  DateTime           @updatedAt
-  company    Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  supplier   Supplier           @relation(fields: [supplierId], references: [id], onDelete: Restrict)
-  items      StickerBatchItem[]
+  id                  String             @id @default(cuid())
+  companyId           String
+  supplierId          String
+  batchName           String
+  batchDate           DateTime
+  remark              String?
+  printCosmeticsLogo  Boolean            @default(true)
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+  company             Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  supplier            Supplier           @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  items               StickerBatchItem[]
 
   @@unique([companyId, batchName])
   @@index([companyId, createdAt])
