@@ -3,28 +3,13 @@ import { NextResponse } from "next/server";
 import {
   listMerchantAllocationCounts,
   listMerchantPurchaseCountSummary,
+  parseMerchantAllocationDateRange as parseDateRange,
   type PurchaseCountFilter,
 } from "@/lib/customer-insight/allocation-summary";
 import { hasInsightAdminView } from "@/lib/customer-insight/ownership";
 import { requirePermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
-
-function parseDateRange(
-  searchParams: URLSearchParams
-): { from: Date; to: Date } | null {
-  const fromRaw = searchParams.get("from");
-  const toRaw = searchParams.get("to");
-  if (!fromRaw || !toRaw) return null;
-
-  const from = new Date(fromRaw);
-  const to = new Date(toRaw);
-  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) return null;
-
-  to.setUTCHours(23, 59, 59, 999);
-
-  return { from, to };
-}
 
 function parsePurchaseCountFilter(
   searchParams: URLSearchParams

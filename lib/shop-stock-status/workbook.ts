@@ -1,10 +1,13 @@
 import ExcelJS from "exceljs";
 
+import { formatAppIsoDateTime } from "@/lib/format-datetime";
 import {
+  SHOP_STOCK_TAB_COLUMNS,
   shopStockBandOf,
   type ShopStockBand,
   type ShopStockColumn,
   type ShopStockRow,
+  type ShopStockStatus,
 } from "@/lib/shop-stock-status/config";
 
 const NAVY = "FF17365D";
@@ -129,4 +132,28 @@ export function addLocationSheet(
     }
   }
   ws.getCell(HEADER_ROW, lastCol).border = { right: { style: "medium", color: { argb: NAVY } } };
+}
+
+/**
+ * The "Export (SHOP + ONLINE)" file: SHOP and ONLINE sheets, all Common SKUs. Shared by the
+ * screen's export and the Monday Stock Availability Status mail (attached).
+ */
+export async function buildShopStockStatusWorkbook(
+  status: Pick<ShopStockStatus, "tabs" | "fetchedAt">,
+  downloadedAtDate = new Date(),
+): Promise<{ fileName: string; buffer: Buffer }> {
+  const downloadedAt = formatAppIsoDateTime(downloadedAtDate);
+  // The stock can be up to an hour older than the download (shared ERP cache).
+  const times = { downloadedAt, stockAsOf: formatAppIsoDateTime(new Date(status.fetchedAt)) };
+
+  const wb = new ExcelJS.Workbook();
+  addLocationSheet(wb, "SHOP", status.tabs.shops, SHOP_STOCK_TAB_COLUMNS.shops, times);
+  addLocationSheet(wb, "ONLINE", status.tabs.online, SHOP_STOCK_TAB_COLUMNS.online, times);
+
+  // e.g. shop-stock-status-2026-11-10_11-18.xlsx (no ":" — not allowed in file names).
+  const stamp = downloadedAt.slice(0, 16).replace(" ", "_").replace(":", "-");
+  return {
+    fileName: `shop-stock-status-${stamp}.xlsx`,
+    buffer: Buffer.from(await wb.xlsx.writeBuffer()),
+  };
 }

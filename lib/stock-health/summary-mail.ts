@@ -8,10 +8,22 @@ import { sendStockHealthSummaryEmail } from "@/lib/maileroo";
 import { prisma } from "@/lib/prisma";
 import { summarizeShopStockLocationByPriority } from "@/lib/shop-stock-status/calc";
 import { ONLINE_STOCK_COLUMNS, SHOP_STOCK_COLUMNS } from "@/lib/shop-stock-status/config";
+import type { ShopStockStatus } from "@/lib/shop-stock-status/config";
 import { loadShopStockStatus } from "@/lib/shop-stock-status/load";
+import { buildShopStockStatusWorkbook } from "@/lib/shop-stock-status/workbook";
 import { summarizeByStatus, summarizeRopStatus } from "@/lib/stock-health/calc";
 import { buildDiscontinueMovement, type SkuStatus } from "@/lib/stock-health/discontinue-movement";
-import { currentMonthName, loadStockHealthRopData } from "@/lib/stock-health/rop-status";
+import {
+  buildRopStatusWorkbook,
+  buildWeeklySummaryWorkbook,
+  XLSX_CONTENT_TYPE,
+  type StockHealthWorkbook,
+} from "@/lib/stock-health/export-workbooks";
+import {
+  currentMonthName,
+  loadStockHealthRopData,
+  type StockHealthRopData,
+} from "@/lib/stock-health/rop-status";
 import {
   buildStockHealthSummaryMail,
   STOCK_HEALTH_MAIL_TEMPLATES,
@@ -66,7 +78,32 @@ function dateLabelOf(isoDate: string): string {
   return formatAppDate(`${isoDate}T12:00:00+05:30`);
 }
 
-type BuiltMail = { subject: string; html: string; plain: string };
+type MailAttachment = { fileName: string; contentType: string; contentBase64: string };
+type BuiltMail = { subject: string; html: string; plain: string; attachments: MailAttachment[] };
+
+function xlsxAttachment({ fileName, buffer }: StockHealthWorkbook): MailAttachment {
+  return { fileName, contentType: XLSX_CONTENT_TYPE, contentBase64: buffer.toString("base64") };
+}
+
+type MailWorkbookInputs = { data: StockHealthRopData; shopStock: ShopStockStatus };
+
+/**
+ * Each mail's Excel attachments — the same files as the screens' Export buttons, built from the
+ * mail's own data load:
+ * - Weekly Summary → Stock Health Weekly Summary "Download breakdown"
+ * - Stock Availability Status → ROP Status "Download breakdown" + Shop Stock Status
+ *   "Export (SHOP + ONLINE)"
+ */
+const MAIL_WORKBOOKS: Record<
+  StockHealthMailPart,
+  (inputs: MailWorkbookInputs) => Promise<StockHealthWorkbook[]>
+> = {
+  weekly: async ({ data }) => [buildWeeklySummaryWorkbook(data)],
+  rop: async ({ data, shopStock }) => [
+    buildRopStatusWorkbook(data),
+    await buildShopStockStatusWorkbook(shopStock),
+  ],
+};
 
 /**
  * Both mails' figures, from the same functions as the screen: Weekly Summary =
@@ -81,6 +118,8 @@ async function loadMailInputs(
   current: ReturnType<typeof summarizeByStatus>;
   skuStatuses: SkuStatus[];
   mailData: StockHealthSummaryMailData;
+  data: StockHealthRopData;
+  shopStock: ShopStockStatus;
 }> {
   const [data, previous, company] = await Promise.all([
     loadStockHealthRopData(companyId, { refresh: options.refresh }),
@@ -129,29 +168,30 @@ async function loadMailInputs(
           }
         : null,
   };
-  return { current, skuStatuses, mailData };
+  return { current, skuStatuses, mailData, data, shopStock };
 }
 
 /** Both mails built from one data load, each with its Email Template's Subject / Body. */
 async function loadMailData(
   companyId: string,
   mailDate: string,
-  options: { refresh: boolean; test: boolean },
+  options: { refresh: boolean; test: boolean; attachFor: readonly StockHealthMailPart[] },
   templates: Record<StockHealthMailPart, StockHealthMailTemplate>,
 ): Promise<{
   current: ReturnType<typeof summarizeByStatus>;
   skuStatuses: SkuStatus[];
   mails: Record<StockHealthMailPart, BuiltMail>;
 }> {
-  const { current, skuStatuses, mailData } = await loadMailInputs(companyId, mailDate, options);
-  return {
-    current,
-    skuStatuses,
-    mails: {
-      weekly: buildStockHealthSummaryMail(mailData, "weekly", templates.weekly),
-      rop: buildStockHealthSummaryMail(mailData, "rop", templates.rop),
-    },
-  };
+  const { current, skuStatuses, mailData, data, shopStock } = await loadMailInputs(companyId, mailDate, options);
+  const build = async (part: StockHealthMailPart): Promise<BuiltMail> => ({
+    ...buildStockHealthSummaryMail(mailData, part, templates[part]),
+    // Only the mails actually being sent get their Excel files built.
+    attachments: options.attachFor.includes(part)
+      ? (await MAIL_WORKBOOKS[part]({ data, shopStock })).map(xlsxAttachment)
+      : [],
+  });
+  const [weekly, rop] = await Promise.all([build("weekly"), build("rop")]);
+  return { current, skuStatuses, mails: { weekly, rop } };
 }
 
 async function loadBothTemplates(companyId: string): Promise<Record<StockHealthMailPart, StockHealthMailTemplate>> {
@@ -281,7 +321,12 @@ export async function sendScheduledStockHealthMail(
   }
 
   // The slow ERP load happens before the claim, so the claim → send window is short.
-  const { current, skuStatuses, mails } = await loadMailData(companyId, mailDate, { refresh: true, test: false }, templates);
+  const { current, skuStatuses, mails } = await loadMailData(
+    companyId,
+    mailDate,
+    { refresh: true, test: false, attachFor: [part] },
+    templates,
+  );
   const mail = mails[part];
   if (!(await claimSend(companyId, mailDate, part, recipients))) {
     return result("skipped_already_sent", { recipientCount });
@@ -366,7 +411,14 @@ export async function sendTestStockHealthSummaryMail(
 ): Promise<StockHealthSummaryMailResult[]> {
   const mailDate = formatAppIsoDate(new Date());
   const templates = await loadBothTemplates(companyId);
-  const { mails } = await loadMailData(companyId, mailDate, { refresh: false, test: true }, templates);
+  // Preview shows the HTML only; test sends carry the same attachments as the real mails.
+  const attachFor = options.preview ? [] : (options.parts ?? STOCK_HEALTH_MAIL_PARTS);
+  const { mails } = await loadMailData(
+    companyId,
+    mailDate,
+    { refresh: false, test: true, attachFor },
+    templates,
+  );
   const recipientsFor = (part: StockHealthMailPart) =>
     recipients === "template" ? templates[part].recipients : recipients;
 
