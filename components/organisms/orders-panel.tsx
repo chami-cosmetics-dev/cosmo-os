@@ -58,6 +58,7 @@ type Order = {
   lineItemCount: number;
   paymentGatewayNames: string[];
   paymentGatewayPrimary: string | null;
+  splitPaymentLabel?: string | null;
   pendingPaymentApproval?: boolean;
   pendingDeliveryPaymentApproval?: boolean;
   pendingMethodChangeApproval?: boolean;
@@ -103,11 +104,20 @@ function PaymentBadge({
   paymentGatewayPrimary,
   paymentGatewayNames,
   financialStatus,
+  splitPaymentLabel,
 }: {
   paymentGatewayPrimary?: string | null;
   paymentGatewayNames?: string[] | null;
   financialStatus?: string | null;
+  splitPaymentLabel?: string | null;
 }) {
+  if (splitPaymentLabel?.trim()) {
+    return (
+      <span className={`inline-flex whitespace-nowrap rounded px-2 py-0.5 text-xs font-medium ${PAYMENT_BADGE_CLASSES.other}`}>
+        {splitPaymentLabel}
+      </span>
+    );
+  }
   const info = getPaymentMethodInfo({ paymentGatewayPrimary, paymentGatewayNames, financialStatus });
   if (info.label === "—") return <span className="text-muted-foreground text-xs">—</span>;
   return (
@@ -689,6 +699,7 @@ export function OrdersPanel({
                               paymentGatewayPrimary={order.paymentGatewayPrimary}
                               paymentGatewayNames={order.paymentGatewayNames}
                               financialStatus={order.financialStatus}
+                              splitPaymentLabel={order.splitPaymentLabel}
                             />
                           </div>
                         </td>

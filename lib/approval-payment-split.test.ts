@@ -16,6 +16,7 @@ import {
   isSplitPaymentEligibleGateway,
   orderHasSplitPaymentEligibleGateway,
   parseApprovalSplitRequestNote,
+  resolveSplitPaymentDisplay,
   splitPairOptionsForOrder,
   validateApprovalSplitAmounts,
 } from "@/lib/approval-payment-split";
@@ -165,6 +166,34 @@ describe("approval split payment plan", () => {
     expect(isPrepaidCashSplitPair(["cash", "mintpay"])).toBe(true);
   });
 
+  it("resolves Cash + Card display from lines or request note", () => {
+    expect(
+      resolveSplitPaymentDisplay({
+        status: "approved",
+        paymentLines: [
+          { paymentMethod: "card", amount: "975" },
+          { paymentMethod: "cash", amount: "7100" },
+        ],
+      }),
+    ).toEqual({
+      pairId: "cash_card",
+      pairLabel: "Cash + Card",
+      lines: [
+        { paymentMethod: "card", amount: 975 },
+        { paymentMethod: "cash", amount: 7100 },
+      ],
+      doorCollection: true,
+    });
+    expect(
+      resolveSplitPaymentDisplay({
+        status: "approved",
+        requestNote:
+          "Split Payment — amount: LKR 8075.00\nCard: LKR 975.00\nCash: LKR 7100.00",
+        paymentLines: [],
+      })?.pairLabel,
+    ).toBe("Cash + Card");
+  });
+
   it("builds a finance-readable note and preserves approval list labels", () => {
     const note = buildApprovalSplitRequestNote({
       lines: [
@@ -184,7 +213,7 @@ describe("approval split payment plan", () => {
     );
     expect(isApprovalSplitRequestNote(note)).toBe(true);
     expect(parseApprovalRequestNote(note)).toEqual({
-      paymentType: "Split Payment",
+      paymentType: "KOKO + Bank Transfer",
       amount: "LKR 7750.00",
     });
     expect(parseApprovalSplitRequestNote(note)).toEqual([

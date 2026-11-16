@@ -37,6 +37,7 @@ import {
   isCashSplitOrderGateway,
   isDoorCollectionSplitPair,
   orderHasSplitPaymentEligibleGateway,
+  resolveSplitPaymentDisplay,
   sortApprovalSplitLines,
   splitIncludesCash,
   splitIncludesKoko,
@@ -109,6 +110,7 @@ type SampleOrderDetail = {
     showOnInvoice?: boolean;
     addedBy: { id: string; name: string | null; email: string | null } | null;
   }>;
+  paymentTypeLabel?: string | null;
   paymentApproval?: {
     id: string;
     status: string;
@@ -119,6 +121,16 @@ type SampleOrderDetail = {
       amount: string;
       erpPaymentEntryName: string | null;
     }>;
+    splitPayment?: {
+      pairId: string;
+      pairLabel: string;
+      doorCollection: boolean;
+      lines: Array<{
+        paymentMethod: string;
+        label: string;
+        amount: string;
+      }>;
+    } | null;
   } | null;
 };
 
@@ -797,7 +809,12 @@ export function FulfillmentSampleFreeIssuePanel({
                 <p><span className="font-medium">Order date:</span> {order ? formatAppDateTime(order.createdAt, "-") : "-"}</p>
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-medium">Payment:</span>
-                  <span>{hasSplitPaymentPlan ? "Split Payment" : paymentMethod}</span>
+                  <span>
+                    {detail?.paymentApproval?.splitPayment?.pairLabel ??
+                      resolveSplitPaymentDisplay(detail?.paymentApproval ?? {})?.pairLabel ??
+                      detail?.paymentTypeLabel ??
+                      (hasSplitPaymentPlan ? "Split Payment" : paymentMethod)}
+                  </span>
                   {perms.canChangePaymentMethod && canChangePayment && orderId && (
                     <>
                       <Button
@@ -841,16 +858,42 @@ export function FulfillmentSampleFreeIssuePanel({
                     </Button>
                   ) : null}
                 </div>
-                {hasSplitPaymentPlan ? (
-                  <p className="text-xs text-muted-foreground">
-                    {sortApprovalSplitLines(splitPaymentLines)
-                      .map(
-                        (line) =>
-                          `${approvalSplitLineLabel(line.paymentMethod)} ${formatPrice(line.amount, currency)}`,
-                      )
-                      .join(" + ")}
-                  </p>
-                ) : null}
+                {(() => {
+                  const apiSplit = detail?.paymentApproval?.splitPayment;
+                  if (apiSplit?.lines?.length) {
+                    return (
+                      <p className="text-xs text-muted-foreground">
+                        {apiSplit.lines
+                          .map((line) => `${line.label} ${formatPrice(line.amount, currency)}`)
+                          .join(" + ")}
+                      </p>
+                    );
+                  }
+                  const split = resolveSplitPaymentDisplay(detail?.paymentApproval ?? {});
+                  if (split?.lines?.length) {
+                    return (
+                      <p className="text-xs text-muted-foreground">
+                        {split.lines
+                          .map(
+                            (line) =>
+                              `${approvalSplitLineLabel(line.paymentMethod)} ${formatPrice(String(line.amount), currency)}`,
+                          )
+                          .join(" + ")}
+                      </p>
+                    );
+                  }
+                  if (!hasSplitPaymentPlan) return null;
+                  return (
+                    <p className="text-xs text-muted-foreground">
+                      {sortApprovalSplitLines(splitPaymentLines)
+                        .map(
+                          (line) =>
+                            `${approvalSplitLineLabel(line.paymentMethod)} ${formatPrice(line.amount, currency)}`,
+                        )
+                        .join(" + ")}
+                    </p>
+                  );
+                })()}
                 <p><span className="font-medium">Total:</span> {formatPrice(detail?.totalPrice ?? order?.totalPrice, currency)}</p>
                 <p><span className="font-medium">Address:</span> {formatAddress(detail?.shippingAddress)}</p>
               </div>
@@ -1563,6 +1606,8 @@ export function FulfillmentSampleFreeIssuePanel({
           <Button disabled={splitPaymentBusy} onClick={() => void handleSaveSplitPayment()}>
             {splitPaymentBusy ? (
               <><Loader2 className="mr-2 size-4 animate-spin" />Saving...</>
+            ) : isDoorCollectionSplitPair(splitPairMethods) ? (
+              "Save plan"
             ) : (
               "Send for Approval"
             )}

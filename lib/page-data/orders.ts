@@ -27,6 +27,7 @@ import {
 } from "@/lib/fulfillment-queue-filters";
 import { getLegacyAccSinvFulfillmentWhere } from "@/lib/legacy-acc-sinv";
 import { enrichOrdersWithReplaceLinks } from "@/lib/order-replace-link-enrich";
+import { resolveSplitPaymentDisplay } from "@/lib/approval-payment-split";
 
 function pickOrderListCustomerName(order: {
   customer?: { firstName: string | null; lastName: string | null } | null;
@@ -563,6 +564,28 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
   );
   const replaceByOrderId = new Map(replaceLinks.map((row) => [row.id, row]));
 
+  const splitApprovals = await prisma.approvalRequest.findMany({
+    where: {
+      companyId,
+      orderId: { in: orders.map((o) => o.id) },
+      type: ORDER_PAYMENT_APPROVAL,
+      status: { in: ["pending", "approved"] },
+    },
+    orderBy: { createdAt: "desc" },
+    select: {
+      orderId: true,
+      status: true,
+      requestNote: true,
+      paymentLines: { select: { paymentMethod: true, amount: true } },
+    },
+  });
+  const splitLabelByOrderId = new Map<string, string>();
+  for (const approval of splitApprovals) {
+    if (!approval.orderId || splitLabelByOrderId.has(approval.orderId)) continue;
+    const split = resolveSplitPaymentDisplay(approval);
+    if (split) splitLabelByOrderId.set(approval.orderId, split.pairLabel);
+  }
+
   const ordersData = orders.map((o) => {
     const link = replaceByOrderId.get(o.id);
     return {
@@ -603,6 +626,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     sampleFreeIssueCompleteAt: o.sampleFreeIssueCompleteAt?.toISOString() ?? null,
     paymentGatewayNames: "paymentGatewayNames" in o ? o.paymentGatewayNames : [],
     paymentGatewayPrimary: "paymentGatewayPrimary" in o ? o.paymentGatewayPrimary : null,
+    splitPaymentLabel: splitLabelByOrderId.get(o.id) ?? null,
     pendingPaymentApproval: o.approvalRequests.some((a) => a.type === ORDER_PAYMENT_APPROVAL),
     pendingMethodChangeApproval: o.approvalRequests.some((a) => a.type === PAYMENT_METHOD_CHANGE_APPROVAL),
     pendingDeliveryPaymentApproval:
