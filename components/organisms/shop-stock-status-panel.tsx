@@ -42,6 +42,16 @@ import {
   type ShopStockTab,
 } from "@/lib/shop-stock-status/config";
 import {
+  parseShopStockPercentFilter,
+  SHOP_STOCK_PERCENT_OP_LABELS,
+  SHOP_STOCK_ZERO_LABEL,
+  shopStockColourLabel,
+  shopStockPercentFilterLabel,
+  shopStockRowMatchesCells,
+  type ShopStockColourFilter,
+  type ShopStockPercentOp,
+} from "@/lib/shop-stock-status/filters";
+import {
   STOCK_HEALTH_STATUSES,
   type StockHealthStatus,
 } from "@/lib/stock-health/config";
@@ -53,6 +63,7 @@ const BAND_CLASS: Record<ShopStockBand, string> = {
   full: "bg-emerald-500/20 font-medium text-emerald-700 dark:text-emerald-300",
 };
 const BANDS: ShopStockBand[] = ["fail", "pass", "full"];
+const PERCENT_OPS = Object.keys(SHOP_STOCK_PERCENT_OP_LABELS) as ShopStockPercentOp[];
 const FILTER_SELECT_CLASS = cn(SELECT_CLASS, "min-w-[150px]");
 
 /** What one tab shows: its filtered rows and the filters, for "Export filtered". */
@@ -86,8 +97,9 @@ function PercentCell({ cell }: { cell: ShopStockCell }) {
 }
 
 /**
- * One tab's table + filters. Location alone keeps SKUs with a ROP there; Colour alone keeps
- * SKUs with that colour in any column; both together = that colour in that location.
+ * One tab's table + filters. Location alone keeps SKUs with a ROP there; Colour / Percentage
+ * alone keep SKUs with a matching cell in any column; with a Location = a matching cell in that
+ * location. Colour + Percentage together must hold on the same cell. "-" cells never match.
  */
 function ShopStockTable({
   tab,
@@ -109,12 +121,20 @@ function ShopStockTable({
   const [search, setSearch] = useState("");
   const [priority, setPriority] = useState<StockHealthStatus | "all">("all");
   const [location, setLocation] = useState<string>("all");
-  const [colour, setColour] = useState<ShopStockBand | "all">("all");
+  const [colour, setColour] = useState<ShopStockColourFilter>("all");
+  const [percentOp, setPercentOp] = useState<ShopStockPercentOp>("off");
+  const [percentValue, setPercentValue] = useState("");
+  const percentFilter = useMemo(
+    () => parseShopStockPercentFilter(percentOp, percentValue),
+    [percentOp, percentValue],
+  );
   const filtered =
     search.trim() !== "" ||
     priority !== "all" ||
     location !== "all" ||
-    colour !== "all";
+    colour !== "all" ||
+    percentOp !== "off" ||
+    percentValue.trim() !== "";
 
   const priorities = useMemo(
     () =>
@@ -128,7 +148,7 @@ function ShopStockTable({
 
   const shown = useMemo(() => {
     const q = search.trim().toLowerCase();
-    const inScope = location === "all" ? columns.map((c) => c.key) : [location];
+    const columnKeys = columns.map((c) => c.key);
     return (rows ?? []).filter((row) => {
       if (
         q &&
@@ -138,12 +158,9 @@ function ShopStockTable({
         return false;
       }
       if (priority !== "all" && row.priority !== priority) return false;
-      if (colour !== "all")
-        return inScope.some((key) => bandOf(row.cells[key]) === colour);
-      if (location !== "all") return bandOf(row.cells[location]) !== null;
-      return true;
+      return shopStockRowMatchesCells(row, columnKeys, location, colour, percentFilter);
     });
-  }, [rows, columns, search, priority, location, colour]);
+  }, [rows, columns, search, priority, location, colour, percentFilter]);
 
   const filterText = useMemo(() => {
     const parts: string[] = [];
@@ -154,10 +171,11 @@ function ShopStockTable({
         `Location = ${columns.find((c) => c.key === location)?.label ?? location}`,
       );
     }
-    if (colour !== "all")
-      parts.push(`Colour = ${SHOP_STOCK_BAND_LABELS[colour]}`);
+    if (colour !== "all") parts.push(`Colour = ${shopStockColourLabel(colour)}`);
+    if (percentFilter)
+      parts.push(`Percentage = ${shopStockPercentFilterLabel(percentFilter)}`);
     return parts.join(" · ");
-  }, [search, priority, location, colour, columns]);
+  }, [search, priority, location, colour, percentFilter, columns]);
 
   useEffect(() => {
     onViewChange(tab, { rows: shown, filters: filterText });
@@ -171,6 +189,8 @@ function ShopStockTable({
       setSearch("");
       setPriority("all");
       setColour("all");
+      setPercentOp("off");
+      setPercentValue("");
       setLocation(locationRequest.key);
     }
   }
@@ -180,6 +200,8 @@ function ShopStockTable({
     setPriority("all");
     setLocation("all");
     setColour("all");
+    setPercentOp("off");
+    setPercentValue("");
   };
 
   return (
@@ -231,7 +253,7 @@ function ShopStockTable({
           <select
             className={cn(FILTER_SELECT_CLASS, "font-normal text-foreground")}
             value={colour}
-            onChange={(e) => setColour(e.target.value as ShopStockBand | "all")}
+            onChange={(e) => setColour(e.target.value as ShopStockColourFilter)}
           >
             <option value="all">All</option>
             {BANDS.map((band) => (
@@ -239,8 +261,35 @@ function ShopStockTable({
                 {SHOP_STOCK_BAND_LABELS[band]}
               </option>
             ))}
+            <option value="zero">{SHOP_STOCK_ZERO_LABEL}</option>
           </select>
         </label>
+        <div className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
+          <span id={`shop-stock-percent-${tab}`}>Percentage</span>
+          <div className="flex gap-2">
+            <select
+              aria-labelledby={`shop-stock-percent-${tab}`}
+              className={cn(SELECT_CLASS, "min-w-[110px] font-normal text-foreground")}
+              value={percentOp}
+              onChange={(e) => setPercentOp(e.target.value as ShopStockPercentOp)}
+            >
+              {PERCENT_OPS.map((op) => (
+                <option key={op} value={op}>
+                  {SHOP_STOCK_PERCENT_OP_LABELS[op]}
+                </option>
+              ))}
+            </select>
+            <Input
+              type="number"
+              inputMode="decimal"
+              aria-label="Percentage value"
+              value={percentValue}
+              onChange={(e) => setPercentValue(e.target.value)}
+              placeholder="%"
+              className="h-9 w-20 font-normal text-foreground"
+            />
+          </div>
+        </div>
         {filtered ? (
           <Button variant="ghost" size="sm" onClick={clear}>
             <X className="mr-1 h-4 w-4" />
