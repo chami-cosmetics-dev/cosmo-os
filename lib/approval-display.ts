@@ -1,4 +1,7 @@
-import { isApprovalSplitRequestNote } from "@/lib/approval-payment-split";
+import {
+  isApprovalSplitRequestNote,
+  resolveSplitPaymentDisplay,
+} from "@/lib/approval-payment-split";
 
 export function parseApprovalRequestNote(requestNote: string | null | undefined) {
   const note = requestNote?.trim() ?? "";
@@ -8,8 +11,11 @@ export function parseApprovalRequestNote(requestNote: string | null | undefined)
   if (!match) {
     return { paymentType: note || null, amount: null };
   }
+  const split = isApprovalSplitRequestNote(note)
+    ? resolveSplitPaymentDisplay({ status: "approved", requestNote: note })
+    : null;
   return {
-    paymentType: isApprovalSplitRequestNote(note) ? "Split Payment" : match[1].trim() || null,
+    paymentType: split?.pairLabel ?? (isApprovalSplitRequestNote(note) ? "Split Payment" : match[1].trim() || null),
     amount: match[2].trim() || null,
   };
 }

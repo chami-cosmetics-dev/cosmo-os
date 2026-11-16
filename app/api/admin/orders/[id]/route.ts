@@ -3,11 +3,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 
 import {
+  approvalSplitLineLabel,
+  resolveSplitPaymentDisplay,
+} from "@/lib/approval-payment-split";
+import {
   DELIVERY_PAYMENT_APPROVAL,
   ORDER_CANCEL_APPROVAL,
   ORDER_PAYMENT_APPROVAL,
   PAYMENT_METHOD_CHANGE_APPROVAL,
 } from "@/lib/approval-workflow";
+import { getPaymentMethodInfo } from "@/lib/payment-method-label";
 import { loadOrderKokoRefDetail } from "@/lib/approval-koko-list";
 import { getOrderPaymentGatewayColumnState } from "@/lib/order-payment-gateway-compat";
 import { resolveOrderDiscountCouponForOrder, resolveOrderMerchantCouponForOrder } from "@/lib/order-discount-coupon";
@@ -458,6 +463,78 @@ export async function GET(
 
   const kokoRefDetail = await loadOrderKokoRefDetail(companyId, details.id);
 
+  const paymentRows = details.approvalRequests.filter(
+    (row) => row.type === ORDER_PAYMENT_APPROVAL,
+  );
+  // Prefer a pending/approved split plan with lines (Cash + Card door plan, etc.).
+  const paymentApprovalRow =
+    paymentRows.find(
+      (row) =>
+        (row.status === "pending" || row.status === "approved") &&
+        row.paymentLines.length >= 2,
+    ) ??
+    paymentRows.find(
+      (row) =>
+        (row.status === "pending" || row.status === "approved") &&
+        Boolean(row.requestNote?.trim()),
+    ) ??
+    paymentRows[0] ??
+    null;
+  const paymentApprovalPayload = paymentApprovalRow
+    ? (() => {
+        const paymentLines = paymentApprovalRow.paymentLines.map((line) => ({
+          id: line.id,
+          paymentMethod: line.paymentMethod,
+          amount: line.amount.toString(),
+          erpPaymentEntryName: line.erpPaymentEntryName,
+        }));
+        const split = resolveSplitPaymentDisplay({
+          status: paymentApprovalRow.status,
+          requestNote: paymentApprovalRow.requestNote,
+          paymentLines,
+        });
+        return {
+          id: paymentApprovalRow.id,
+          status: paymentApprovalRow.status,
+          requestNote: paymentApprovalRow.requestNote ?? null,
+          createdAt: paymentApprovalRow.createdAt.toISOString(),
+          reviewedAt: paymentApprovalRow.reviewedAt?.toISOString() ?? null,
+          reviewNote: paymentApprovalRow.reviewNote ?? null,
+          reviewedBy: paymentApprovalRow.reviewedBy
+            ? {
+                id: paymentApprovalRow.reviewedBy.id,
+                name: paymentApprovalRow.reviewedBy.name,
+                email: paymentApprovalRow.reviewedBy.email,
+              }
+            : null,
+          paymentLines,
+          splitPayment: split
+            ? {
+                pairId: split.pairId,
+                pairLabel: split.pairLabel,
+                doorCollection: split.doorCollection,
+                lines: split.lines.map((line) => ({
+                  paymentMethod: line.paymentMethod,
+                  label: approvalSplitLineLabel(line.paymentMethod),
+                  amount: line.amount.toFixed(2),
+                })),
+              }
+            : null,
+        };
+      })()
+    : null;
+  const paymentTypeLabel =
+    paymentApprovalPayload?.splitPayment?.pairLabel ??
+    getPaymentMethodInfo({
+      paymentGatewayPrimary: gatewayColumns.hasPaymentGatewayPrimary
+        ? (details.paymentGatewayPrimary ?? null)
+        : null,
+      paymentGatewayNames: gatewayColumns.hasPaymentGatewayNames
+        ? (details.paymentGatewayNames ?? [])
+        : [],
+      financialStatus: details.financialStatus,
+    }).label;
+
   return NextResponse.json({
     id: details.id,
     shopifyOrderId: details.shopifyOrderId,
@@ -682,25 +759,8 @@ export async function GET(
         replacementErpAdminInvoiceUrl: null,
       })),
     ],
-    paymentApproval: (() => {
-      const ap = details.approvalRequests.find((row) => row.type === ORDER_PAYMENT_APPROVAL);
-      if (!ap) return null;
-      return {
-        id: ap.id,
-        status: ap.status,
-        requestNote: ap.requestNote ?? null,
-        createdAt: ap.createdAt.toISOString(),
-        reviewedAt: ap.reviewedAt?.toISOString() ?? null,
-        reviewNote: ap.reviewNote ?? null,
-        reviewedBy: ap.reviewedBy ? { id: ap.reviewedBy.id, name: ap.reviewedBy.name, email: ap.reviewedBy.email } : null,
-        paymentLines: ap.paymentLines.map((line) => ({
-          id: line.id,
-          paymentMethod: line.paymentMethod,
-          amount: line.amount.toString(),
-          erpPaymentEntryName: line.erpPaymentEntryName,
-        })),
-      };
-    })(),
+    paymentApproval: paymentApprovalPayload,
+    paymentTypeLabel,
     deliveryPaymentApproval: (() => {
       const ap = details.approvalRequests.find((row) => row.type === DELIVERY_PAYMENT_APPROVAL);
       if (!ap) return null;

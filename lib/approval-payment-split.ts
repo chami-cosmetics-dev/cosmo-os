@@ -357,3 +357,42 @@ export function parseApprovalSplitRequestNote(
   if (lines.length < 2) return null;
   return lines;
 }
+
+/** Resolve split pair + amounts from payment lines and/or request note. */
+export function resolveSplitPaymentDisplay(input: {
+  status?: string | null;
+  requestNote?: string | null;
+  paymentLines?: Array<{
+    paymentMethod: string;
+    amount: number | string | { toString(): string };
+  }> | null;
+}): {
+  pairId: ApprovalSplitPairId;
+  pairLabel: string;
+  lines: ApprovalSplitAmountLine[];
+  doorCollection: boolean;
+} | null {
+  if (input.status && input.status !== "pending" && input.status !== "approved") {
+    return null;
+  }
+  const fromLines = (input.paymentLines ?? [])
+    .map((line) => ({
+      paymentMethod: line.paymentMethod,
+      amount: Number(line.amount.toString()),
+    }))
+    .filter((line) => Number.isFinite(line.amount) && line.amount > 0);
+  const lines =
+    (fromLines.length >= 2 && approvalSplitPairId(fromLines.map((line) => line.paymentMethod))
+      ? fromLines
+      : null) ??
+    parseApprovalSplitRequestNote(input.requestNote);
+  if (!lines) return null;
+  const pairId = approvalSplitPairId(lines.map((line) => line.paymentMethod));
+  if (!pairId) return null;
+  return {
+    pairId,
+    pairLabel: APPROVAL_SPLIT_PAIR_LABELS[pairId],
+    lines: sortApprovalSplitLines(lines),
+    doorCollection: isDoorCollectionSplitPair(lines.map((line) => line.paymentMethod)),
+  };
+}
