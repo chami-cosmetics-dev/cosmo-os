@@ -1,0 +1,97 @@
+{
+  "row": {
+    "id": "cmwkmif14005kjj0760n8duj8",
+    "erpName": "MAT-STE-2026-00350",
+    "direction": "store_to_shop",
+    "status": "sent",
+    "companyId": "cmn2xcas1002crl5xtgoq28f5",
+    "sourceWarehouse": "Main Warehouse - Cosmo",
+    "targetWarehouse": "Cool Planet Nugegoda Shop Warehouse - Cosmo",
+    "createdAt": "2026-11-17T11:42:59.224Z",
+    "createdBy": {
+      "name": "Harshana Satharasinghe",
+      "email": "harshanad.cosmetics@outlook.com"
+    },
+    "lineCount": 40,
+    "sampleLines": [
+      {
+        "itemCode": "LOL06_1",
+        "sentQty": 3
+      },
+      {
+        "itemCode": "JOV08_1",
+        "sentQty": 10
+      },
+      {
+        "itemCode": "ACN01_1",
+        "sentQty": 2
+      },
+      {
+        "itemCode": "JOV32_1",
+        "sentQty": 1
+      },
+      {
+        "itemCode": "KEU09_1",
+        "sentQty": 7
+      }
+    ]
+  },
+  "recentStore": [
+    {
+      "erpName": "MAT-STE-2026-00350",
+      "status": "sent",
+      "targetWarehouse": "Cool Planet Nugegoda Shop Warehouse - Cosmo",
+      "createdAt": "2026-11-17T11:42:59.224Z",
+      "direction": "store_to_shop"
+    },
+    {
+      "erpName": "MAT-STE-2026-00349",
+      "status": "sent",
+      "targetWarehouse": "OGF Shop Warehouse - Cosmo",
+      "createdAt": "2026-11-17T09:43:18.768Z",
+      "direction": "store_to_shop"
+    },
+    {
+      "erpName": "MAT-STE-2026-00348",
+      "status": "sent",
+      "targetWarehouse": "Main Warehouse - Cosmo",
+      "createdAt": "2026-11-17T04:30:32.236Z",
+      "direction": "store_to_shop"
+    },
+    {
+      "erpName": "MAT-STE-2026-00345",
+      "status": "received",
+      "targetWarehouse": "Maharagama Shop Warehouse - Cosmo",
+      "createdAt": "2026-11-16T04:49:56.081Z",
+      "direction": "store_to_shop"
+    },
+    {
+      "erpName": "MAT-STE-2026-00339",
+      "status": "received",
+      "targetWarehouse": "OGF Shop Warehouse - Cosmo",
+      "createdAt": "2026-11-12T11:40:14.711Z",
+      "direction": "store_to_shop"
+    },
+    {
+      "erpName": "MAT-STE-2026-00338",
+      "status": "received",
+      "targetWarehouse": "Negombo Shop Warehouse - Cosmo",
+      "createdAt": "2026-11-12T11:36:31.750Z",
+      "direction": "store_to_shop"
+    },
+    {
+      "erpName": "MAT-STE-2026-00337",
+      "status": "received",
+      "targetWarehouse": "Maharagama Shop Warehouse - Cosmo",
+      "createdAt": "2026-11-12T11:16:51.593Z",
+      "direction": "store_to_shop"
+    },
+    {
+      "erpName": "MAT-STE-2026-00334",
+      "status": "received",
+      "targetWarehouse": "OGF Shop Warehouse - Cosmo",
+      "createdAt": "2026-11-12T11:01:30.839Z",
+      "direction": "store_to_shop"
+    }
+  ]
+}

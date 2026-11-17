@@ -41,4 +41,13 @@ describe("materialTransferLineFingerprint", () => {
     ]);
     expect(fingerprintsMatch(expected, actual)).toBe(true);
   });
+
+  it("sums duplicate item codes like ERP merge", () => {
+    expect(
+      materialTransferLineFingerprint([
+        { itemCode: "X_1", qty: 2 },
+        { itemCode: "X_1", qty: 3 },
+      ]),
+    ).toBe(materialTransferLineFingerprint([{ itemCode: "X_1", qty: 5 }]));
+  });
 });

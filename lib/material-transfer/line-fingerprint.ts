@@ -5,19 +5,24 @@ export type FingerprintLine = {
   qty: number;
 };
 
-/** Sorted `ITEM::qty` tokens — order-independent, qty must match. */
+/**
+ * Sorted `ITEM::qty` tokens — order-independent.
+ * Same item on multiple lines is summed (ERP may merge duplicates).
+ */
 export function materialTransferLineFingerprint(
   lines: Array<{ itemCode?: string | null; qty?: number | null }>,
 ): string {
-  const tokens: string[] = [];
+  const byCode = new Map<string, number>();
   for (const line of lines) {
     const itemCode = String(line.itemCode ?? "").trim().toUpperCase();
     const qty = Math.round(Number(line.qty));
     if (!itemCode || !Number.isFinite(qty) || qty < 1) continue;
-    tokens.push(`${itemCode}::${qty}`);
+    byCode.set(itemCode, (byCode.get(itemCode) ?? 0) + qty);
   }
-  tokens.sort();
-  return tokens.join("|");
+  return [...byCode.entries()]
+    .map(([itemCode, qty]) => `${itemCode}::${qty}`)
+    .sort()
+    .join("|");
 }
 
 export function fingerprintsMatch(a: string, b: string): boolean {

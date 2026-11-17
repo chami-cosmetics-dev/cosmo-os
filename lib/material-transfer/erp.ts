@@ -600,35 +600,38 @@ export async function recoverDroppedMaterialTransfer(input: {
   const since = new Date(Date.now() - sinceMinutes * 60_000);
   const sinceSql = since.toISOString().slice(0, 19).replace("T", " ");
 
-  // ERP may still be committing when the socket dies — brief pause then search.
-  await sleep(1200);
+  // ERP may still be committing when the socket dies — search with backoff.
+  const pausesMs = [1500, 3000];
+  for (const pause of pausesMs) {
+    await sleep(pause);
 
-  const headers = await listResource<ErpStockEntryRow>(
-    input.cfg,
-    "Stock Entry",
-    [
-      ["stock_entry_type", "=", "Material Transfer"],
-      ["docstatus", "=", 1],
-      ["company", "=", input.company],
-      ["from_warehouse", "=", input.sourceWarehouse],
-      ["to_warehouse", "=", input.targetWarehouse],
-      ["owner", "=", input.owner],
-      ["creation", ">=", sinceSql],
-    ],
-    ["name", "company", "from_warehouse", "to_warehouse", "owner", "creation"],
-    15,
-    "creation desc",
-  );
+    const headers = await listResource<ErpStockEntryRow>(
+      input.cfg,
+      "Stock Entry",
+      [
+        ["stock_entry_type", "=", "Material Transfer"],
+        ["docstatus", "=", 1],
+        ["company", "=", input.company],
+        ["from_warehouse", "=", input.sourceWarehouse],
+        ["to_warehouse", "=", input.targetWarehouse],
+        ["owner", "=", input.owner],
+        ["creation", ">=", sinceSql],
+      ],
+      ["name", "company", "from_warehouse", "to_warehouse", "owner", "creation"],
+      15,
+      "creation desc",
+    );
 
-  const candidates = headers
-    .map((row) => String(row.name ?? "").trim())
-    .filter((name) => name && !exclude.has(name));
+    const candidates = headers
+      .map((row) => String(row.name ?? "").trim())
+      .filter((name) => name && !exclude.has(name));
 
-  for (const name of candidates) {
-    const doc = await getStockEntry(input.cfg, name);
-    if (!doc) continue;
-    const actual = fingerprintFromErpItems(doc.items ?? []);
-    if (fingerprintsMatch(expected, actual)) return name;
+    for (const name of candidates) {
+      const doc = await getStockEntry(input.cfg, name);
+      if (!doc) continue;
+      const actual = fingerprintFromErpItems(doc.items ?? []);
+      if (fingerprintsMatch(expected, actual)) return name;
+    }
   }
   return null;
 }
