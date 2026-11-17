@@ -123,6 +123,7 @@ export type MerchantDashboardPageData = {
     displayName: string;
     email: string | null;
     knownName: string | null;
+    mobile: string | null;
     couponCodes: string[];
     wholesaleCouponCodes: string[];
   };
@@ -590,6 +591,7 @@ export async function getMerchantDashboardPageData(input: {
       knownName: true,
       name: true,
       email: true,
+      mobile: true,
       couponCodes: true,
       wholesaleCouponCodes: true,
       userRoles: { select: { role: { select: { name: true } } } },
@@ -1077,6 +1079,7 @@ export async function getMerchantDashboardPageData(input: {
       displayName,
       email: profileUser.email,
       knownName: profileUser.knownName,
+      mobile: profileUser.mobile,
       couponCodes: profileUser.couponCodes,
       wholesaleCouponCodes: profileUser.wholesaleCouponCodes,
     },

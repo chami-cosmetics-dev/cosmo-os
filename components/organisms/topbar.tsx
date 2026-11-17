@@ -46,6 +46,7 @@ export function Topbar({ title = "Dashboard", user }: TopbarProps) {
     { prefix: "/dashboard/orders/failed-erp-syncs", label: "Failed ERP Syncs" },
     { prefix: "/dashboard/orders", label: "Orders" },
     { prefix: "/dashboard/settings/email-templates", label: "Email Templates" },
+    { prefix: "/dashboard/settings/sms-templates", label: "SMS Templates" },
     { prefix: "/dashboard/settings/sms-notifications", label: "SMS Notifications" },
     { prefix: "/dashboard/settings/fulfillment", label: "Fulfillment Settings" },
     { prefix: "/dashboard/settings", label: "Settings" },

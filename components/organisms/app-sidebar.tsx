@@ -661,6 +661,9 @@ export function AppSidebar({
                 <NavItem href="/dashboard/settings/email-templates" icon={Mail} label="Email Templates" isActive={pathname === "/dashboard/settings/email-templates"} />
               )}
               {canViewSmsSettings && (
+                <NavItem href="/dashboard/settings/sms-templates" icon={MessageSquare} label="SMS Templates" isActive={pathname === "/dashboard/settings/sms-templates"} />
+              )}
+              {canViewSmsSettings && (
                 <NavItem href="/dashboard/settings/sms-notifications" icon={MessageSquare} label="SMS Notifications" isActive={pathname === "/dashboard/settings/sms-notifications"} />
               )}
               {canViewFulfillmentSettings && (

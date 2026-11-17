@@ -20,6 +20,7 @@ import { listContactEmails, listContactPhones } from "@/lib/contact-identifiers"
 import { buildContactOrderLookupOr } from "@/lib/contact-purchase-lookup";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
+import { maybeSendLoyaltyWishSms } from "@/lib/sms-templates/loyalty-wish-send";
 import {
   customerInsightContactParamsSchema,
   customerInsightLoyaltyOverrideBodySchema,
@@ -228,6 +229,15 @@ export async function POST(request: NextRequest, { params }: Params) {
       pushErrors: push.errors,
     },
   });
+
+  if (parsed.data.tier === "gold" || parsed.data.tier === "platinum") {
+    await maybeSendLoyaltyWishSms({
+      companyId,
+      contactId: contact.id,
+      tier: parsed.data.tier,
+      actorUserId: user.id,
+    });
+  }
 
   return NextResponse.json({
     ok: true,

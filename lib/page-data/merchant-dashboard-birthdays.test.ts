@@ -17,20 +17,28 @@ describe("daysUntilNextBirthday", () => {
 });
 
 describe("buildBirthdayWishMessage", () => {
-  it("includes cosmetics.lk, store link, merchant advisor, discount, and marker", () => {
+  it("includes cosmetics.lk, store link, merchant advisor, and mobile", () => {
     const msg = buildBirthdayWishMessage({
       customerName: "Nimali",
       merchantName: "Ishadi",
-      discountPercent: 10,
-      code: "BD10",
+      merchantMobile: "0771234567",
     });
     expect(msg).toContain("Nimali");
     expect(msg).toContain("cosmetics.lk");
     expect(msg).toContain("https://cosmetics.lk");
     expect(msg).toContain("Ishadi");
-    expect(msg).toContain("10%");
-    expect(msg).toContain("BD10");
-    expect(msg).toContain("[BDWISH]");
+    expect(msg).toContain("Contact me for further details: 0771234567");
+    expect(msg).not.toContain("% off");
+    expect(msg).not.toContain("with code");
+    expect(msg).not.toContain("[BDWISH]");
     expect(msg).not.toContain("Cosmo purchase");
+  });
+
+  it("omits contact line when merchant mobile missing", () => {
+    const msg = buildBirthdayWishMessage({
+      customerName: "Nimali",
+      merchantName: "Ishadi",
+    });
+    expect(msg).not.toContain("Contact me for further details");
   });
 });
