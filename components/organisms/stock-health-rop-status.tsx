@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/table";
 import { formatAppIsoDateTime } from "@/lib/format-datetime";
 import { notify } from "@/lib/notify";
+import type { StockHealthRopGroup } from "@/lib/stock-health/calc";
 import type {
   StockHealthRopCounts,
   StockHealthRopStatus,
@@ -102,12 +103,29 @@ function StatusChip({ status }: { status: StockHealthStatus }) {
   );
 }
 
+/** A count that opens ROP Details filtered to it. */
+function DetailsLink({ count, onClick }: { count: number; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="underline decoration-dotted underline-offset-2 hover:decoration-solid"
+      title="Open in ROP Details"
+    >
+      {formatNumber(count)}
+    </button>
+  );
+}
+
 function CountCells({
   counts,
   onOpenZeroStock,
+  onOpenDetails,
 }: {
   counts: StockHealthRopCounts;
   onOpenZeroStock: () => void;
+  /** A group count (or null = the Grand Total column). */
+  onOpenDetails: (group: StockHealthRopGroup | null) => void;
 }) {
   return (
     <>
@@ -117,10 +135,11 @@ function CountCells({
           band={BANDS[col.key]}
           count={counts[col.key]}
           total={counts.total}
+          onOpen={() => onOpenDetails(col.key)}
         />
       ))}
       <TableCell className={cn(NUM_CELL_CLASS, BANDS.total.cell, BANDS.total.edge)}>
-        {formatNumber(counts.total)}
+        <DetailsLink count={counts.total} onClick={() => onOpenDetails(null)} />
       </TableCell>
       <TableCell className={cn(NUM_CELL_CLASS, BANDS.zeroStock.cell, BANDS.zeroStock.edge)}>
         {/* Opens the Out of Stock tab, which lists these SKUs. */}
@@ -140,10 +159,22 @@ function CountCells({
   );
 }
 
-function GroupCells({ band, count, total }: { band: Band; count: number; total: number }) {
+function GroupCells({
+  band,
+  count,
+  total,
+  onOpen,
+}: {
+  band: Band;
+  count: number;
+  total: number;
+  onOpen: () => void;
+}) {
   return (
     <>
-      <TableCell className={cn(NUM_CELL_CLASS, band.cell, band.edge)}>{formatNumber(count)}</TableCell>
+      <TableCell className={cn(NUM_CELL_CLASS, band.cell, band.edge)}>
+        <DetailsLink count={count} onClick={onOpen} />
+      </TableCell>
       <TableCell className={cn(NUM_CELL_CLASS, band.pct)}>{share(count, total)}</TableCell>
     </>
   );
@@ -157,6 +188,7 @@ export function StockHealthRopStatusCard({
   reloadKey = 0,
   onRefreshed,
   onOpenOutOfStock,
+  onOpenRopDetails,
 }: {
   /** Bump to reload (after an ERP refresh or an excluded-SKU change). */
   reloadKey?: number;
@@ -164,6 +196,11 @@ export function StockHealthRopStatusCard({
   onRefreshed?: () => void;
   /** 0' Stock link — status row, or null for the Grand Total row. */
   onOpenOutOfStock: (status: StockHealthStatus | null) => void;
+  /**
+   * Any other count — status row (null = Grand Total row) and group column (null = Grand Total
+   * column). Opens ROP Details filtered to it.
+   */
+  onOpenRopDetails: (status: StockHealthStatus | null, group: StockHealthRopGroup | null) => void;
 }) {
   const [data, setData] = useState<StockHealthRopStatus | null>(null);
   const [loading, setLoading] = useState(true);
@@ -282,12 +319,20 @@ export function StockHealthRopStatusCard({
                   {data.rows.map((row) => (
                     <TableRow key={row.status}>
                       <TableCell><StatusChip status={row.status} /></TableCell>
-                      <CountCells counts={row} onOpenZeroStock={() => onOpenOutOfStock(row.status)} />
+                      <CountCells
+                        counts={row}
+                        onOpenZeroStock={() => onOpenOutOfStock(row.status)}
+                        onOpenDetails={(group) => onOpenRopDetails(row.status, group)}
+                      />
                     </TableRow>
                   ))}
                   <TableRow className="bg-muted/60 font-semibold hover:bg-muted/60">
                     <TableCell>Grand Total</TableCell>
-                    <CountCells counts={data.grandTotal} onOpenZeroStock={() => onOpenOutOfStock(null)} />
+                    <CountCells
+                      counts={data.grandTotal}
+                      onOpenZeroStock={() => onOpenOutOfStock(null)}
+                      onOpenDetails={(group) => onOpenRopDetails(null, group)}
+                    />
                   </TableRow>
                 </>
               )}

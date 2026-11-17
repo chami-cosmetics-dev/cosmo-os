@@ -8,6 +8,7 @@ import {
   StockHealthOutOfStockCard,
   type StockHealthOutOfStockFilter,
 } from "@/components/organisms/stock-health-out-of-stock";
+import { StockHealthRopDetailsCard } from "@/components/organisms/stock-health-rop-details";
 import { StockHealthRopStatusCard } from "@/components/organisms/stock-health-rop-status";
 import { StockHealthWeeklySummaryCard } from "@/components/organisms/stock-health-weekly-summary";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -16,6 +17,10 @@ import {
   STOCK_HEALTH_TABS,
   type StockHealthTab,
 } from "@/lib/stock-health/config";
+import {
+  DEFAULT_ROP_DETAILS_FILTERS,
+  type RopDetailsFilters,
+} from "@/lib/stock-health/rop-details";
 
 export function StockHealthPanel({ canManageExcludedSkus }: { canManageExcludedSkus: boolean }) {
   const [tab, setTab] = useState<StockHealthTab>("summary");
@@ -25,11 +30,16 @@ export function StockHealthPanel({ canManageExcludedSkus }: { canManageExcludedS
   const [weeklyReloadKey, setWeeklyReloadKey] = useState(0);
   const [ropReloadKey, setRopReloadKey] = useState(0);
   const [outOfStockFilter, setOutOfStockFilter] = useState<StockHealthOutOfStockFilter>("all");
+  const [ropDetailsFilters, setRopDetailsFilters] = useState<RopDetailsFilters>(
+    DEFAULT_ROP_DETAILS_FILTERS,
+  );
 
-  // Opening Out of Stock from its tab shows All; a 0' Stock link sets its own priority.
+  // Opening Out of Stock / ROP Details from its tab shows All; a ROP Status number sets its own
+  // filters.
   const openTab = (next: StockHealthTab) => {
     setTab(next);
     if (next === "out_of_stock") setOutOfStockFilter("all");
+    if (next === "rop_details") setRopDetailsFilters(DEFAULT_ROP_DETAILS_FILTERS);
   };
 
   return (
@@ -66,6 +76,14 @@ export function StockHealthPanel({ canManageExcludedSkus }: { canManageExcludedS
               setOutOfStockFilter(status ?? "all");
               setTab("out_of_stock");
             }}
+            onOpenRopDetails={(status, group) => {
+              setRopDetailsFilters({
+                ...DEFAULT_ROP_DETAILS_FILTERS,
+                priority: status ?? "all",
+                status: group ?? "all",
+              });
+              setTab("rop_details");
+            }}
           />
           <StockHealthExcludedSkusCard
             canManage={canManageExcludedSkus}
@@ -78,6 +96,14 @@ export function StockHealthPanel({ canManageExcludedSkus }: { canManageExcludedS
             reloadKey={reloadKey + weeklyReloadKey + ropReloadKey}
             filter={outOfStockFilter}
             onFilterChange={setOutOfStockFilter}
+          />
+        </TabsContent>
+
+        <TabsContent value="rop_details" forceMount className="mt-4 data-[state=inactive]:hidden">
+          <StockHealthRopDetailsCard
+            reloadKey={reloadKey + weeklyReloadKey + ropReloadKey}
+            filters={ropDetailsFilters}
+            onFiltersChange={setRopDetailsFilters}
           />
         </TabsContent>
       </Tabs>

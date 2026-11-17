@@ -19,11 +19,16 @@ import {
   STOCK_HEALTH_STATUSES,
   type StockHealthRopCounts,
 } from "@/lib/stock-health/config";
+import {
+  ROP_DETAILS_STATUS_LABELS,
+  type StockHealthRopDetailsRow,
+} from "@/lib/stock-health/rop-details";
 import { currentMonthName, type StockHealthRopData } from "@/lib/stock-health/rop-status";
 
 /**
- * The two Stock Health Excel breakdowns, shared by the screen's Export buttons and the
- * Monday / Tuesday summary mails (attached), so both always carry the same file.
+ * The Stock Health Excel files. The two breakdowns are shared by the screen's Export buttons and
+ * the Monday / Tuesday summary mails (attached), so both always carry the same file; the ROP
+ * Details file is the ROP Details tab's filtered export.
  */
 
 export const XLSX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
@@ -261,6 +266,45 @@ export function buildRopStatusWorkbook({
 
   return {
     fileName: `stock-health-rop-status-${formatAppIsoDate(fetchedAt)}.xlsx`,
+    buffer: XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer,
+  };
+}
+
+/**
+ * ROP Details tab, filtered: the rows as listed on the screen (same filters, same order).
+ * Stock % of ROP is a fraction shown as %; "-" (no ROP) is left blank.
+ */
+export function buildRopDetailsWorkbook(
+  rows: StockHealthRopDetailsRow[],
+  filters: string,
+  fetchedAt: Date,
+): StockHealthWorkbook {
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(
+    wb,
+    aoaSheet(
+      [
+        ["Common SKU", "Item name", "Priority Status", "Status", "Stock", "ROP", "Stock % of ROP"],
+        ...rows.map((row) => [
+          row.commonSku,
+          row.itemName ?? "",
+          row.priority,
+          ROP_DETAILS_STATUS_LABELS[row.status],
+          row.stock,
+          row.rop,
+          row.percent == null ? null : row.percent / 100,
+        ]),
+        [],
+        [`${rows.length} Common SKU${rows.length === 1 ? "" : "s"} · ${filters}`],
+        [`Live ERP stock vs OSF ROP as of ${formatAppIsoDateTime(fetchedAt)}`],
+      ],
+      [24, 40, 16, 20, 12, 11, 14],
+      [6],
+    ),
+    "ROP Details",
+  );
+  return {
+    fileName: `stock-health-rop-details-${formatAppIsoDate(fetchedAt)}.xlsx`,
     buffer: XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer,
   };
 }

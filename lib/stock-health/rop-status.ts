@@ -13,6 +13,7 @@ import {
   type StockHealthRopRow,
 } from "@/lib/stock-health/calc";
 import type { StockHealthOutOfStock, StockHealthRopStatus } from "@/lib/stock-health/config";
+import { buildRopDetailsRows, type StockHealthRopDetails } from "@/lib/stock-health/rop-details";
 import {
   getLiveStockHealthData,
   loadExcludedSkus,
@@ -94,4 +95,10 @@ export async function loadStockHealthRopStatus(
 export async function loadStockHealthOutOfStock(companyId: string): Promise<StockHealthOutOfStock> {
   const { ropRows, fetchedAt } = await loadStockHealthRopData(companyId);
   return { rows: buildOutOfStockRows(ropRows), fetchedAt: fetchedAt.toISOString() };
+}
+
+/** ROP Details tab: every Common SKU behind the ROP Status numbers (same data, same rows). */
+export async function loadStockHealthRopDetails(companyId: string): Promise<StockHealthRopDetails> {
+  const { ropRows, fetchedAt } = await loadStockHealthRopData(companyId);
+  return { rows: buildRopDetailsRows(ropRows), fetchedAt: fetchedAt.toISOString() };
 }
