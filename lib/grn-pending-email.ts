@@ -4,6 +4,7 @@ import * as XLSX from "xlsx";
 import { GRN_PENDING_DAILY_KEY, builtinTemplateByKey } from "@/lib/email-templates/catalog";
 import { parseEmailAddressList, renderEmailTemplatePlaceholders } from "@/lib/email-templates/render";
 import { formatAppDateTime, formatAppIsoDate } from "@/lib/format-datetime";
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 import { tallyLinkedItems } from "@/lib/grn";
 import { sendErpSyncFailureAlertEmail } from "@/lib/maileroo";
 import { prisma } from "@/lib/prisma";
@@ -26,6 +27,8 @@ export type PendingGrnReportRow = {
   supplierName: string;
   handoverDate: string;
   valuedDate: string;
+  purchasingReceivedDate: string;
+  pricingReviewedDate: string;
   grnReceivedDate: string;
   status: string;
   tally: string;
@@ -36,6 +39,8 @@ export type GrnPendingStageSummary = {
   pending: number;
   notValued: number;
   notCompleted: number;
+  awaitingReceive: number;
+  pricingReview: number;
 };
 
 export type GrnPendingReportSnapshot = {
@@ -68,13 +73,23 @@ function formatDate(value: Date | null | undefined) {
 
 function workflowStatus(row: {
   handoverAt: Date | null;
+  handoverReceivedAt: Date | null;
   valuedAt: Date | null;
+  valuationConfirmedAt: Date | null;
+  requiresValuationConfirmation: boolean;
   receivedAt: Date | null;
 }) {
   if (row.receivedAt) return "GRN Received";
-  if (row.valuedAt) return "Valued";
-  if (row.handoverAt) return "Handover";
-  return "Pending";
+  if (!row.handoverAt) return "Handover pending";
+  if (isVaultOsDeployment()) {
+    if (!row.handoverReceivedAt) return "Verify pending";
+    if (!row.valuedAt) return "Valuation pending";
+    return "GRN received pending";
+  }
+  if (!row.handoverReceivedAt) return "Receive pending";
+  if (!row.valuedAt) return "Valuation pending";
+  if (row.requiresValuationConfirmation && !row.valuationConfirmedAt) return "Pricing Review pending";
+  return "GRN received pending";
 }
 
 function escapeHtml(value: string) {
@@ -101,7 +116,9 @@ function buildWorkbook(rows: PendingGrnReportRow[]) {
     Supplier: row.supplier,
     "Supplier Name": row.supplierName,
     "Handover Date": row.handoverDate,
+    "Purchasing Received": row.purchasingReceivedDate,
     Valued: row.valuedDate,
+    "Pricing Reviewed": row.pricingReviewedDate,
     "GRN Received": row.grnReceivedDate,
     Status: row.status,
     Tally: row.tally,
@@ -115,13 +132,22 @@ function buildWorkbook(rows: PendingGrnReportRow[]) {
 function summarizePendingRows(rows: PendingGrnReportRow[]): GrnPendingStageSummary {
   return {
     pendingTotal: rows.length,
-    pending: rows.filter((row) => !row.handoverDate).length,
-    notValued: rows.filter((row) => !row.valuedDate).length,
-    notCompleted: rows.filter((row) => !row.grnReceivedDate).length,
+    pending: rows.filter((row) => row.status === "Handover pending").length,
+    notValued: rows.filter((row) => row.status === "Valuation pending").length,
+    notCompleted: rows.filter((row) => row.status === "GRN received pending").length,
+    awaitingReceive: rows.filter((row) => row.status === "Receive pending" || row.status === "Verify pending").length,
+    pricingReview: rows.filter((row) => row.status === "Pricing Review pending").length,
   };
 }
 
-function buildSummaryTableHtml(summary: GrnPendingStageSummary) {
+export function buildSummaryTableHtml(summary: GrnPendingStageSummary) {
+  const stages = [
+    ["Handover pending", summary.pending],
+    [isVaultOsDeployment() ? "Verify pending" : "Receive pending", summary.awaitingReceive],
+    ["Valuation pending", summary.notValued],
+    ...(!isVaultOsDeployment() ? [["Pricing Review pending", summary.pricingReview] as const] : []),
+    ["GRN received pending", summary.notCompleted],
+  ] as const;
   return `<table style="border-collapse:collapse;width:100%;margin:16px 0;">
     <thead>
       <tr style="background:#f9f9f9;">
@@ -130,9 +156,7 @@ function buildSummaryTableHtml(summary: GrnPendingStageSummary) {
       </tr>
     </thead>
     <tbody>
-      <tr><td style="padding:8px;border:1px solid #ddd;">Not handed over</td><td style="padding:8px;border:1px solid #ddd;text-align:right;">${summary.pending}</td></tr>
-      <tr><td style="padding:8px;border:1px solid #ddd;">Not valued</td><td style="padding:8px;border:1px solid #ddd;text-align:right;">${summary.notValued}</td></tr>
-      <tr><td style="padding:8px;border:1px solid #ddd;">GRN Not Recieved</td><td style="padding:8px;border:1px solid #ddd;text-align:right;">${summary.notCompleted}</td></tr>
+      ${stages.map(([label, count]) => `<tr><td style="padding:8px;border:1px solid #ddd;">${label}</td><td style="padding:8px;border:1px solid #ddd;text-align:right;">${count}</td></tr>`).join("")}
       <tr style="font-weight:700;"><td style="padding:8px;border:1px solid #ddd;">Total</td><td style="padding:8px;border:1px solid #ddd;text-align:right;">${summary.pendingTotal}</td></tr>
     </tbody>
   </table>`;
@@ -165,20 +189,7 @@ function buildEmailBodies(input: {
   <h2 style="color:#1a1a1a;">Pending GRN Report</h2>
   <p><strong>${escapeHtml(input.companyName)}</strong> has <strong>${input.summary.pendingTotal}</strong> pending GRN${input.summary.pendingTotal === 1 ? "" : "s"} as at ${escapeHtml(input.reportDate)}.</p>
   <p style="color:#666;font-size:13px;">Generated at ${escapeHtml(formatAppDateTime(input.generatedAt))}. Full GRN details are attached as an Excel report.</p>
-  <table style="border-collapse:collapse;width:100%;margin:16px 0;">
-    <thead>
-      <tr style="background:#f9f9f9;">
-        <th style="padding:8px;border:1px solid #ddd;text-align:left;">Stage</th>
-        <th style="padding:8px;border:1px solid #ddd;text-align:right;">Count</th>
-      </tr>
-    </thead>
-    <tbody>
-      <tr><td style="padding:8px;border:1px solid #ddd;">Not handed over</td><td style="padding:8px;border:1px solid #ddd;text-align:right;">${input.summary.pending}</td></tr>
-      <tr><td style="padding:8px;border:1px solid #ddd;">Not valued</td><td style="padding:8px;border:1px solid #ddd;text-align:right;">${input.summary.notValued}</td></tr>
-      <tr><td style="padding:8px;border:1px solid #ddd;">GRN Not Recieved</td><td style="padding:8px;border:1px solid #ddd;text-align:right;">${input.summary.notCompleted}</td></tr>
-      <tr style="font-weight:700;"><td style="padding:8px;border:1px solid #ddd;">Total</td><td style="padding:8px;border:1px solid #ddd;text-align:right;">${input.summary.pendingTotal}</td></tr>
-    </tbody>
-  </table>
+  ${buildSummaryTableHtml(input.summary)}
 </body>
 </html>`.trim();
 
@@ -188,9 +199,10 @@ ${input.companyName} has ${input.summary.pendingTotal} pending GRN(s) as at ${in
 Generated at ${formatAppDateTime(input.generatedAt)}.
 
 Summary:
-Not handed over: ${input.summary.pending}
-Not valued: ${input.summary.notValued}
-GRN Not Recieved: ${input.summary.notCompleted}
+Handover pending: ${input.summary.pending}
+${isVaultOsDeployment() ? "Verify" : "Receive"} pending: ${input.summary.awaitingReceive}
+Valuation pending: ${input.summary.notValued}
+${isVaultOsDeployment() ? "" : `Pricing Review pending: ${input.summary.pricingReview}\n`}GRN received pending: ${input.summary.notCompleted}
 Total: ${input.summary.pendingTotal}
 
 Full GRN details are attached as an Excel report.`;
@@ -265,6 +277,8 @@ export async function buildGrnPendingReportSnapshot(
       supplierName: row.supplierName ?? "",
       handoverDate: formatDate(row.handoverAt),
       valuedDate: formatDate(row.valuedAt),
+      purchasingReceivedDate: formatDate(row.handoverReceivedAt),
+      pricingReviewedDate: formatDate(row.valuationConfirmedAt),
       grnReceivedDate: formatDate(row.receivedAt),
       status: workflowStatus(row),
       tally: tallyLabel(tallyStatus),
@@ -280,6 +294,8 @@ export async function buildGrnPendingReportSnapshot(
     generatedAt: formatAppDateTime(generatedAt),
     notHandedOver: summary.pending,
     notValued: summary.notValued,
+    awaitingReceive: summary.awaitingReceive,
+    pricingReview: summary.pricingReview,
     grnNotReceived: summary.notCompleted,
     total: summary.pendingTotal,
     summaryTableHtml: buildSummaryTableHtml(summary),
