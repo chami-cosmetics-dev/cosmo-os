@@ -326,4 +326,101 @@ describe("finance-approved split ERP Payment Entries", () => {
     expect(prismaMocks.approvalPaymentLineUpdate).not.toHaveBeenCalled();
     expect(outstanding).toBe(7750);
   });
+
+  it("creates Card and Cash PEs at invoice complete for door-collection splits", async () => {
+    outstanding = 8075;
+    const result = await syncApprovalSplitPaymentEntriesToErp(
+      {
+        id: "approval-1",
+        kokoReference: null,
+        paymentLines: [
+          {
+            id: "line-card",
+            paymentMethod: "card",
+            amount: 975,
+            erpPaymentEntryName: null,
+          },
+          {
+            id: "line-cash",
+            paymentMethod: "cash",
+            amount: 7100,
+            erpPaymentEntryName: null,
+          },
+        ],
+      },
+      {
+        ...order,
+        paymentGatewayPrimary: "Cash",
+        paymentGatewayNames: ["Cash"],
+        totalPrice: 8075,
+      },
+      location,
+      new Date("2026-08-24T00:00:00.000Z"),
+      { phase: "invoice_complete" },
+    );
+
+    expect(result.outcome).toBe("created");
+    expect(paymentEntryBodies).toHaveLength(2);
+    expect(paymentEntryBodies).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          mode_of_payment: "Credit Card",
+          paid_amount: 975,
+          reference_no: "OS-OPA-line-card",
+        }),
+        expect.objectContaining({
+          mode_of_payment: "Cash",
+          paid_amount: 7100,
+          reference_no: "OS-OPA-line-cash",
+        }),
+      ]),
+    );
+    expect(prismaMocks.approvalPaymentLineUpdate).toHaveBeenCalledTimes(2);
+    expect(outstanding).toBe(0);
+  });
+
+  it("creates only missing Cash PE at invoice complete when Card PE already exists", async () => {
+    outstanding = 7100;
+    const result = await syncApprovalSplitPaymentEntriesToErp(
+      {
+        id: "approval-1",
+        kokoReference: null,
+        paymentLines: [
+          {
+            id: "line-card",
+            paymentMethod: "card",
+            amount: 975,
+            erpPaymentEntryName: "PE-CARD-1",
+          },
+          {
+            id: "line-cash",
+            paymentMethod: "cash",
+            amount: 7100,
+            erpPaymentEntryName: null,
+          },
+        ],
+      },
+      {
+        ...order,
+        paymentGatewayPrimary: "Cash",
+        paymentGatewayNames: ["Cash"],
+        totalPrice: 8075,
+      },
+      location,
+      new Date("2026-08-24T00:00:00.000Z"),
+      { phase: "invoice_complete" },
+    );
+
+    expect(result.outcome).toBe("created");
+    expect(paymentEntryBodies).toHaveLength(1);
+    expect(paymentEntryBodies[0]).toEqual(
+      expect.objectContaining({
+        mode_of_payment: "Cash",
+        paid_amount: 7100,
+        reference_no: "OS-OPA-line-cash",
+      }),
+    );
+    expect(prismaMocks.approvalPaymentLineUpdate).toHaveBeenCalledTimes(1);
+    expect(outstanding).toBe(0);
+  });
 });

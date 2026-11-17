@@ -95,6 +95,8 @@ describe("vault OSF workbook", () => {
     expect(row.variantSku).toBe("NW004-2");
     expect(row.sku).toBe("NW004");
     expect(row.stockTotal).toBe(19);
+    // stock 19 / ROP (9.152+19.448+28.6=57.2) → 33.22%
+    expect(row.stockRatio).toBe(33.22);
     expect(row["sales:2026-06:total"]).toBe(46);
     expect(row.maxSale).toBe(46);
     // Only June has sales → AVE = 46/1
@@ -107,6 +109,7 @@ describe("vault OSF workbook", () => {
     expect(blankRop["rop:sv"]).toBeNull();
     expect(blankRop["reorder:sv"]).toBeNull();
     expect(blankRop.ropTotal).toBeNull();
+    expect(blankRop.stockRatio).toBeNull();
   });
 
   it("leaves April sales blank when no ERP/import cell", () => {
@@ -135,7 +138,9 @@ describe("vault OSF workbook", () => {
     const keys = defs.map((d) => d.key);
     const idx = (k: string) => keys.indexOf(k);
     expect(idx("rop:sv")).toBeLessThan(idx("stock:sv"));
-    expect(idx("stockTotal")).toBeLessThan(idx("sales:2026-04:total"));
+    expect(idx("stockTotal")).toBeLessThan(idx("stockRatio"));
+    expect(idx("stockRatio")).toBeLessThan(idx("sales:2026-04:total"));
+    expect(defs[idx("stockRatio")]!.header).toBe("Stock Ratio");
     expect(idx("sales:2026-09:total")).toBeLessThan(idx("purchQty:2026-04"));
     expect(idx("purchValue:2026-09")).toBeLessThan(idx("mrp"));
     expect(idx("discountedPrice")).toBeLessThan(idx("maxSale"));
@@ -162,6 +167,7 @@ describe("vault OSF workbook", () => {
     expect(excelColumnLetter(27)).toBe("AA");
     expect(vaultOsfSubtotalColumn("rop:sv")).toBe(true);
     expect(vaultOsfSubtotalColumn("stockTotal")).toBe(true);
+    expect(vaultOsfSubtotalColumn("stockRatio")).toBe(false);
     expect(vaultOsfSubtotalColumn("sales:2026-06:total")).toBe(true);
     expect(vaultOsfSubtotalColumn("variantSku")).toBe(false);
     expect(vaultOsfSubtotalColumn("latestSupplier")).toBe(false);

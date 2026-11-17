@@ -462,11 +462,30 @@ type CreateErpSalesInvoiceOpts = {
   skipMerchantRetry?: boolean;
   /** Internal guard: prevents the custom_payment_type fallback retry from firing recursively. */
   skipPaymentTypeRetry?: boolean;
+  /**
+   * Internal guard: after MultiplePricingRuleConflict, first retry keeps coupon_code +
+   * ignore_pricing_rule. Second conflict may strip coupon as last resort.
+   */
+  skipPricingConflictRetry?: boolean;
   /** Re-correct flow may post another SI after the previous one was cancelled. */
   allowAnotherForPo?: boolean;
   /** Submitted SI names already on this PO when this create attempt started. */
   poInvoiceNames?: Set<string>;
 };
+
+/**
+ * MultiplePricingRuleConflict: keep coupon_code, force ignore_pricing_rule.
+ * Cosmo rates already encode max(coupon %, item rule %); ERP script reapplies the same.
+ * Do not strip coupon here — that was the hole that left SIs unlabeled.
+ */
+export function bodyAfterMultiplePricingRuleConflict(
+  body: Record<string, unknown>,
+): Record<string, unknown> {
+  return {
+    ...body,
+    ignore_pricing_rule: 1,
+  };
+}
 
 function withCouponDiscountFallback(
   body: Record<string, unknown>,
@@ -717,8 +736,20 @@ async function postErpSalesInvoiceCreate(
       }
     }
     if (msg.includes("417") && /MultiplePricingRuleConflict/i.test(msg)) {
+      if (!opts?.skipPricingConflictRetry) {
+        console.warn(
+          "[ERPNext] SI creation failed — pricing rule conflict, retrying with coupon kept + ignore_pricing_rule:",
+          msg.slice(0, 200),
+        );
+        return postErpSalesInvoiceCreate(
+          cfg,
+          bodyAfterMultiplePricingRuleConflict(body),
+          { ...opts, skipPricingConflictRetry: true },
+        );
+      }
+      // Last resort: strip coupon_code so native rules cannot clash; bake discount into rates/header.
       console.warn(
-        "[ERPNext] SI creation failed — pricing rule conflict, retrying with ignore_pricing_rule:",
+        "[ERPNext] SI creation failed — pricing rule conflict again, retrying without coupon_code:",
         msg.slice(0, 200),
       );
       const { coupon_code: _coupon, ...withoutCoupon } = body;
@@ -730,7 +761,7 @@ async function postErpSalesInvoiceCreate(
       if (opts?.netRateItems?.length) {
         retryBody.items = opts.netRateItems;
       }
-      return postErpSalesInvoiceCreate(cfg, retryBody, opts);
+      return postErpSalesInvoiceCreate(cfg, retryBody, { ...opts, skipPricingConflictRetry: true });
     }
     if (msg.includes("417") && /coupon/i.test(msg) && "coupon_code" in body) {
       const couponLabel =
@@ -824,19 +855,42 @@ async function createErpSalesInvoice(
     } catch (draftErr) {
       const msg = draftErr instanceof Error ? draftErr.message : String(draftErr);
       console.warn(
-        `[ERPNext] Draft+submit coupon SI failed — falling back to direct create with discount:`,
+        `[ERPNext] Draft+submit coupon SI failed — retrying direct create with coupon kept + ignore_pricing_rule:`,
         msg.slice(0, 300),
       );
-      const { coupon_code: _coupon, ...withoutCoupon } = siBody;
-      const fallbackBody = withCouponDiscountFallback(withoutCoupon, opts, couponCode || opts?.couponLabel);
-      if (opts?.netRateItems?.length) {
-        fallbackBody.items = opts.netRateItems;
+      try {
+        return await postErpSalesInvoiceCreate(
+          cfg,
+          bodyAfterMultiplePricingRuleConflict({
+            ...siBody,
+            docstatus: submitNow ? 1 : siBody.docstatus,
+          }),
+          { ...opts, skipPricingConflictRetry: true },
+        );
+      } catch (keepCouponErr) {
+        const keepMsg = keepCouponErr instanceof Error ? keepCouponErr.message : String(keepCouponErr);
+        console.warn(
+          `[ERPNext] Keep-coupon create failed — last resort strip coupon_code + discount bake:`,
+          keepMsg.slice(0, 300),
+        );
+        const { coupon_code: _coupon, ...withoutCoupon } = siBody;
+        const fallbackBody = withCouponDiscountFallback(
+          withoutCoupon,
+          opts,
+          couponCode || opts?.couponLabel,
+        );
+        if (opts?.netRateItems?.length) {
+          fallbackBody.items = opts.netRateItems;
+        }
+        if (opts?.discountFallback && opts.discountFallback > 0) {
+          fallbackBody.discount_amount = opts.discountFallback;
+          fallbackBody.apply_discount_on = "Net Total";
+        }
+        return postErpSalesInvoiceCreate(cfg, fallbackBody, {
+          ...opts,
+          skipPricingConflictRetry: true,
+        });
       }
-      if (opts?.discountFallback && opts.discountFallback > 0) {
-        fallbackBody.discount_amount = opts.discountFallback;
-        fallbackBody.apply_discount_on = "Net Total";
-      }
-      return postErpSalesInvoiceCreate(cfg, fallbackBody, opts);
     }
   }
 
@@ -1707,10 +1761,13 @@ function splitLineMopName(
   return "";
 }
 
+export type SyncApprovalSplitPaymentPhase = "intake" | "invoice_complete";
+
 /**
  * Create one ERP PE per split approval line (KOKO/Bank/Card/Cash pairs).
- * Cash is deferred when the pair includes cash. Persisting each PE name makes
- * retries safe when the first leg succeeds and the second fails.
+ * Intake: prepaid legs only (Cash deferred; Cash + Card skipped entirely).
+ * Invoice complete: remaining legs — Cash + Card posts both Card and Cash PEs.
+ * Persisting each PE name makes retries safe when the first leg succeeds and the second fails.
  */
 export async function syncApprovalSplitPaymentEntriesToErp(
   approval: {
@@ -1734,6 +1791,12 @@ export async function syncApprovalSplitPaymentEntriesToErp(
   },
   location: LocationWithErpInstance,
   approvedAt: Date,
+  options?: {
+    phase?: SyncApprovalSplitPaymentPhase;
+    owner?: string;
+    /** Optional cash MOP override for deferred cash leg at invoice complete. */
+    cashMopOverride?: string;
+  },
 ): Promise<CreateDeliveryPaymentEntryResult> {
   if (
     approval.paymentLines.length !== 2 ||
@@ -1759,24 +1822,34 @@ export async function syncApprovalSplitPaymentEntriesToErp(
   });
   if (validationError) throw new Error(validationError);
 
+  const phase: SyncApprovalSplitPaymentPhase = options?.phase ?? "intake";
   const cfg = getErpConfig(location.erpnextInstance);
   const orderedLines = sortApprovalSplitLines(approval.paymentLines);
   let createdCount = 0;
   let lastPaymentEntryName: string | undefined;
   const methods = approval.paymentLines.map((line) => line.paymentMethod);
   const collectCashAtDelivery = splitIncludesCash(methods);
+  const doorCollection = isDoorCollectionSplitPair(methods);
+
   // Cash + Card: both collected after delivery — no intake PEs.
-  if (isDoorCollectionSplitPair(methods)) {
+  if (doorCollection && phase === "intake") {
     return { outcome: "skipped" };
   }
 
   for (const line of orderedLines) {
     if (line.erpPaymentEntryName) continue;
-    if (line.paymentMethod === APPROVAL_SPLIT_CASH && collectCashAtDelivery) {
+    if (
+      phase === "intake" &&
+      line.paymentMethod === APPROVAL_SPLIT_CASH &&
+      collectCashAtDelivery
+    ) {
       // Cash is collected by rider / CityPak. PE waits for finance invoice complete.
       continue;
     }
-    const mopName = splitLineMopName(cfg, line.paymentMethod);
+    const mopName =
+      line.paymentMethod === APPROVAL_SPLIT_CASH && options?.cashMopOverride?.trim()
+        ? options.cashMopOverride.trim()
+        : splitLineMopName(cfg, line.paymentMethod);
     if (!mopName) {
       throw new Error(
         `${approvalSplitLineLabel(line.paymentMethod)} ERP payment mode is not configured`,
@@ -1792,6 +1865,7 @@ export async function syncApprovalSplitPaymentEntriesToErp(
         line.paymentMethod === APPROVAL_SPLIT_KOKO
           ? approval.kokoReference!.trim()
           : `OS-OPA-${line.id}`,
+      ...(options?.owner ? { owner: options.owner } : {}),
     });
     if (result.outcome !== "created" || !result.paymentEntryName) {
       throw new Error(`ERP Payment Entry was not created for split ${line.paymentMethod} line`);
@@ -2583,7 +2657,8 @@ export async function syncOrderToERPNext(
   const netSiItems = buildErpItemsFromShopifyLineItems(lineItems, location.erpnextWarehouse, "net");
   const listSiItems = buildErpItemsFromShopifyLineItems(lineItems, location.erpnextWarehouse, "list");
   // Coupon invoices: max(coupon %, tabloid %) off Standard Selling per SKU.
-  // Do not send coupon_code / pricing_rules on create — ERP would reprice from the coupon rule.
+  // coupon_code is sent on create; ignore_pricing_rule avoids MultiplePricingRuleConflict
+  // with item rules. ERP Server Script still applies max(coupon, item rule) when coupon set.
   let siItems = useCouponPricing ? [...listSiItems] : [...netSiItems];
   const netRateItems = netSiItems.map((row) => ({ ...row }));
   const vaultTotal = parseFloat(order.totalPrice.toString());

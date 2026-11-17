@@ -87,22 +87,33 @@ export function MaterialTransferHistory({
   const [detailLoading, setDetailLoading] = useState(false);
   const [mismatchOnly, setMismatchOnly] = useState(false);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (opts?: { reconcile?: boolean }) => {
     setLoading(true);
     try {
       const mismatch = mismatchOnly ? "&mismatch=1" : "";
       const directionQuery = direction ? `&direction=${direction}` : "";
+      // Stores History: pull any Main→shop ERP STEs that never landed in Cosmo.
+      const reconcile =
+        opts?.reconcile && scope === "all" ? "&reconcile=1" : "";
       const res = await fetch(
-        `/api/admin/store/material-transfer/history?scope=${scope}${directionQuery}${mismatch}`,
+        `/api/admin/store/material-transfer/history?scope=${scope}${directionQuery}${mismatch}${reconcile}`,
       );
       const json = (await res.json()) as {
         transfers?: HistoryRow[];
         shopUnassigned?: boolean;
+        reconciled?: { created: number; checked: number } | null;
         error?: string;
       };
       if (!res.ok) throw new Error(json.error || "Could not load history");
       setRows(json.transfers ?? []);
       setUnassigned(Boolean(json.shopUnassigned));
+      if (json.reconciled && json.reconciled.created > 0) {
+        notify.success(
+          json.reconciled.created === 1
+            ? "Imported 1 missing transfer from ERP."
+            : `Imported ${json.reconciled.created} missing transfers from ERP.`,
+        );
+      }
     } catch (error) {
       notify.error(error instanceof Error ? error.message : "Could not load history");
     } finally {
@@ -111,16 +122,16 @@ export function MaterialTransferHistory({
   }, [scope, mismatchOnly, direction]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    void load({ reconcile: scope === "all" });
+  }, [load, scope]);
 
   useEffect(() => {
     function onSaved() {
-      void load();
+      void load({ reconcile: scope === "all" });
     }
     window.addEventListener("material-transfer-saved", onSaved);
     return () => window.removeEventListener("material-transfer-saved", onSaved);
-  }, [load]);
+  }, [load, scope]);
 
   const visibleRows = direction ? rows.filter((row) => row.direction === direction) : rows;
 
@@ -159,7 +170,12 @@ export function MaterialTransferHistory({
           >
             {mismatchOnly ? "Showing mismatches" : "Mismatches"}
           </Button>
-          <Button type="button" variant="outline" disabled={loading} onClick={() => void load()}>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={loading}
+            onClick={() => void load({ reconcile: scope === "all" })}
+          >
           {loading ? (
             <>
               <Loader2 className="animate-spin" aria-hidden />

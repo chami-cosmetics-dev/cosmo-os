@@ -66,6 +66,8 @@ describe("buildOsfAccessCatalog", () => {
     expect(ids.has("Supplier 2 Price")).toBe(true);
     expect(ids.has("Max sale")).toBe(true);
     expect(ids.has("AVE")).toBe(true);
+    expect(ids.has("% of ROP")).toBe(true);
+    expect(ids.has("Stock Ratio")).toBe(true);
   });
 
   it("vat catalog omits other-location keys but keeps static columns", () => {
