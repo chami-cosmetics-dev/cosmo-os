@@ -281,12 +281,19 @@ export function buildReceivableEmailPreview(input: { rows: ReceivableRow[]; clea
   const detailTable = `${isFinanceSummary ? tableHeading("Delivery complete-payment pending") : ""}${detailSummaryHtml(selected, key === RECEIVABLE_NOT_DISPATCHED_DAILY_KEY)}`;
   return { summaryTableHtml: `${detailTable}${financeSummary}`, rowCount: selected.length, totalValue: money(selected.reduce((sum, row) => sum + row.outstanding, 0)), attachment: workbook(selected, "Receivables", isFinanceSummary ? clearingAccounts : []) };
 }
-export async function runReceivableOutstandingDailyEmail(companyId: string, reportDate: string) {
+export async function runReceivableOutstandingDailyEmail(
+  companyId: string,
+  reportDate: string,
+  options?: {
+    detailKeys?: readonly (typeof DETAIL_KEYS)[number][];
+    includeOperationsSummary?: boolean;
+  },
+) {
   await refreshReceivables(companyId, reportDate);
   const loaded = await loadCachedReceivables(companyId, reportDate);
   const company = await prisma.company.findUnique({ where: { id: companyId }, select: { name: true } });
   const generatedAt = formatAppDateTime(new Date());
-  for (const key of DETAIL_KEYS) {
+  for (const key of options?.detailKeys ?? DETAIL_KEYS) {
     const config = await template(companyId, key);
     const recipients = parseEmailAddressList(config.recipients);
     if (!recipients.length) continue;
@@ -298,6 +305,7 @@ export async function runReceivableOutstandingDailyEmail(companyId: string, repo
     const sent = await sendErpSyncFailureAlertEmail({ toEmails: recipients, ccEmails: parseEmailAddressList(config.ccRecipients), subject: renderEmailTemplatePlaceholders(config.subject, vars), html: renderEmailTemplatePlaceholders(config.bodyHtml, vars), plain: `${key}: ${rows.length} rows, total ${vars.totalValue}`, attachments: [{ fileName: `${key}-${reportDate}.xlsx`, contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", contentBase64: workbook(rows, "Receivables", isFinanceSummary ? loaded.clearingAccounts : []).toString("base64") }] });
     if (!sent.success) throw new Error(sent.message ?? `Failed to send ${key}`);
   }
+  if (options?.includeOperationsSummary === false) return;
   const summaryConfig = await template(companyId, RECEIVABLE_OPERATIONS_SUMMARY_DAILY_KEY);
   const recipients = parseEmailAddressList(summaryConfig.recipients);
   if (!recipients.length) return;

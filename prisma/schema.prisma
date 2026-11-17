@@ -82,6 +82,7 @@ model Company {
   dailySalesSmsSendLogs           DailySalesSmsSendLog[]
   erpSyncFailureEmailConfig       ErpSyncFailureEmailConfig?
   erpSyncFailureEmailSendLogs     ErpSyncFailureEmailSendLog[]
+  receivableEmailSendLogs         ReceivableEmailSendLog[]
   grnPendingEmailConfig           GrnPendingEmailConfig?
   grnPendingEmailSendLogs         GrnPendingEmailSendLog[]
   productOsfProfiles              ProductOsfProfile[]
@@ -115,6 +116,7 @@ model Company {
   itemCreationRequests            ItemCreationRequest[]
   itemCreationBrandAllocations    ItemCreationBrandAllocation[]
   itemCreationStockReceipts       ItemCreationStockReceipt[]
+  storeAllocationExcessStocks     StoreAllocationExcessStock[]
   stockRequests                   StockRequest[]
   materialTransfers               MaterialTransfer[]
   shopItemRequests                ShopItemRequest[]
@@ -550,6 +552,19 @@ model ItemCreationStockReceipt {
   @@index([companyId, erp])
   @@index([purchaseReceipt])
   @@index([status])
+}
+
+model StoreAllocationExcessStock {
+  id        String   @id @default(cuid())
+  companyId String
+  sku       String
+  qty       Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, sku])
+  @@index([companyId])
 }
 
 model ItemCreationStockReceiptItem {
@@ -2094,6 +2109,19 @@ model ErpSyncFailureEmailSendLog {
 
   @@index([companyId, createdAt(sort: Desc)])
   @@index([companyId, reportDate, status])
+}
+
+model ReceivableEmailSendLog {
+  id           String   @id @default(cuid())
+  companyId    String
+  templateKey  String
+  reportDate   String
+  status       String
+  errorSummary String?
+  createdAt    DateTime @default(now())
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, templateKey, status, reportDate(sort: Desc)])
 }
 
 model GrnPendingEmailConfig {
