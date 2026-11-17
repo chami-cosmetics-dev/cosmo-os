@@ -221,6 +221,8 @@ export const BUILTIN_EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
       "generatedAt",
       "notHandedOver",
       "notValued",
+      "awaitingReceive",
+      "pricingReview",
       "grnNotReceived",
       "total",
       "summaryTableHtml",

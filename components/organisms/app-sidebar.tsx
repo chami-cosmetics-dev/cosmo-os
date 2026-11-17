@@ -207,7 +207,7 @@ export function AppSidebar({
     hasSidebarPermission("finance.supplier_payables.read") ||
     canViewPurchaseHistory;
   const canViewReceivableOutstanding = hasSidebarPermission("finance.receivable_outstanding.read");
-  const canViewSalesReport = !APP_NAME.toLowerCase().includes("vault") && hasSidebarPermission("finance.sales_report.read");
+  const canViewSalesReport = hasSidebarPermission("finance.sales_report.read");
   const canViewAcademy =
     hasSidebarPermission("academy.learn") ||
     hasSidebarPermission("academy.manage");

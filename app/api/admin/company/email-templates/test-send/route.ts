@@ -7,10 +7,10 @@ import {
 } from "@/lib/email-templates/render";
 import { sendErpSyncFailureAlertEmail } from "@/lib/maileroo";
 import { prisma } from "@/lib/prisma";
-import { getCurrentColomboReportDate } from "@/lib/grn-pending-email";
+import { buildGrnPendingReportSnapshot, buildSummaryTableHtml, getCurrentColomboReportDate } from "@/lib/grn-pending-email";
 import { buildReceivableEmailPreview } from "@/lib/receivable-outstanding-email";
 import { loadCachedReceivables, refreshReceivables } from "@/lib/receivable-outstanding";
-import { SUPPLIER_PAYABLE_OUTSTANDING_DAILY_KEY } from "@/lib/email-templates/catalog";
+import { GRN_PENDING_DAILY_KEY, SUPPLIER_PAYABLE_OUTSTANDING_DAILY_KEY } from "@/lib/email-templates/catalog";
 import { buildSupplierPayablesEmailPreview, buildSupplierPayablesEmailWorkbook } from "@/lib/supplier-payables-email";
 import { loadCachedSupplierPayables, refreshSupplierPayables } from "@/lib/supplier-payables";
 import { MARGIN_ISSUES_DAILY_KEY } from "@/lib/email-templates/catalog";
@@ -46,8 +46,6 @@ const SAMPLE_PLACEHOLDERS: Record<string, string | number> = {
   notHandedOver: 4,
   notValued: 5,
   grnNotReceived: 3,
-  summaryTableHtml:
-    "<table border=\"1\" cellpadding=\"6\" cellspacing=\"0\"><tbody><tr><td>Not handed over</td><td>4</td></tr><tr><td>Not valued</td><td>5</td></tr><tr><td>GRN not received</td><td>3</td></tr><tr><td>Total</td><td>12</td></tr></tbody></table>",
   staffName: "Sample Staff",
   resignationDate: new Date().toISOString().slice(0, 10),
   reason: "Test email",
@@ -114,7 +112,24 @@ export async function POST(request: NextRequest) {
 
   let placeholders = SAMPLE_PLACEHOLDERS;
   let attachments: Array<{ fileName: string; contentType: string; contentBase64: string }> | undefined;
-  if (parsed.data.key.startsWith("receivable_")) {
+  if (parsed.data.key === GRN_PENDING_DAILY_KEY) {
+    const reportDate = getCurrentColomboReportDate();
+    const actual = await buildGrnPendingReportSnapshot(user.companyId, reportDate);
+    placeholders = {
+      ...SAMPLE_PLACEHOLDERS,
+      companyName: actual.companyName,
+      reportDate,
+      generatedAt: actual.generatedAt,
+      total: actual.summary.pendingTotal,
+      notHandedOver: actual.summary.pending,
+      notValued: actual.summary.notValued,
+      awaitingReceive: actual.summary.awaitingReceive,
+      pricingReview: actual.summary.pricingReview,
+      grnNotReceived: actual.summary.notCompleted,
+      summaryTableHtml: buildSummaryTableHtml(actual.summary),
+    };
+    attachments = [{ fileName: actual.attachment.filename, contentType: actual.attachment.contentType, contentBase64: actual.attachment.buffer.toString("base64") }];
+  } else if (parsed.data.key.startsWith("receivable_")) {
     const reportDate = getCurrentColomboReportDate();
     await refreshReceivables(user.companyId, reportDate);
     const actual = buildReceivableEmailPreview(await loadCachedReceivables(user.companyId, reportDate), parsed.data.key);

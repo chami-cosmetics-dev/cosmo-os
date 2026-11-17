@@ -49,7 +49,7 @@ const SaleEngine = (() => {
     const d = serialToDate(report);
     return {
       making: makingSerial, report, monthStart: start, eom,
-      dayNo: report - start + 1, daysInMonth: report - start + 1,
+      dayNo: report - start + 1, daysInMonth: eom - start + 1,
       remDays: outlet, pepDays: pep, onlineDays: online, leaveLeft,
       monthName: MONTHS[d.getUTCMonth()], year: d.getUTCFullYear(),
     };
@@ -1018,6 +1018,7 @@ const SaleEngine = (() => {
       const aliases = target === 'negambo' ? ['negambo', 'negombo'] : target === 'galle' ? ['gcc'] : [target];
       return [...(res.pivot || [])].find((p) => aliases.some((alias) => low(p.shop).replace(/\s+/g, '').includes(alias)))?.shop || '';
     };
+    const pepiliyanaShop = shopForOutlet('Pepiliyana');
     const shopMetric = (map, shop, key) => keyNames(key).reduce((sum, name) => sum + (map?.get(low(shop) + '|' + name) || 0), 0);
     const configuredRows = (S.rows || []).map((row, index) => ({ ...row, index, outlet: norm(row.outlet), name: norm(row.name), key: norm(row.key || row.name) }));
     const onlineOwner = (row) => {
@@ -1033,9 +1034,11 @@ const SaleEngine = (() => {
         const values = res.byShopKey?.get(low(shop) + '|' + name) || [0, 0];
         return [sum[0] + values[0], sum[1] + values[1]];
       }, [0, 0]);
-      const showroom = low(row.outlet) === 'online' ? 0 : shopSales[1];
-      const showroomVat = low(row.outlet) === 'online' ? 0 : shopMetric(res.vat?.byShopKey, shop, row.key);
-      const showroomPalmers = low(row.outlet) === 'online' ? 0 : shopMetric(res.vat?.palmByShopKey, shop, row.key);
+      const onlineMerchant = low(row.outlet) === 'online';
+      const pepiliyanaSales = keyNames(row.key).reduce((sum, name) => sum + (res.byShopKey?.get(low(pepiliyanaShop) + '|' + name)?.[1] || 0), 0);
+      const showroom = onlineMerchant ? pepiliyanaSales : shopSales[1];
+      const showroomVat = onlineMerchant ? shopMetric(res.vat?.byShopKey, pepiliyanaShop, row.key) : shopMetric(res.vat?.byShopKey, shop, row.key);
+      const showroomPalmers = onlineMerchant ? shopMetric(res.vat?.palmByShopKey, pepiliyanaShop, row.key) : shopMetric(res.vat?.palmByShopKey, shop, row.key);
       const physicalVat = (res.pivot || []).filter((pivot) => low(pivot.shop) !== 'online').reduce((sum, pivot) => sum + shopMetric(res.vat?.byShopKey, pivot.shop, row.key), 0);
       const physicalPalmers = (res.pivot || []).filter((pivot) => low(pivot.shop) !== 'online').reduce((sum, pivot) => sum + shopMetric(res.vat?.palmByShopKey, pivot.shop, row.key), 0);
       const configuredMatch = configuredRows.find((candidate) => keyNames(candidate.key).some((name) => keyNames(row.key).includes(name)));
@@ -1055,7 +1058,8 @@ const SaleEngine = (() => {
       // A configured merchant owns their online sales through the row with an
       // online target. Do not create a second, empty Online row for them.
       const configuredMerchant = configuredRows.some((row) => keyNames(row.key).includes(name));
-      if (!name || representedAtShop.has(shopKey) || generatedByShop.has(shopKey) || (low(pivot.shop) === 'online' && configuredMerchant)) continue;
+      const onlineMerchant = configuredRows.some((row) => low(row.outlet) === 'online' && keyNames(row.key).includes(name));
+      if (!name || representedAtShop.has(shopKey) || generatedByShop.has(shopKey) || (low(pivot.shop) === 'online' && configuredMerchant) || (low(pivot.shop) === low(pepiliyanaShop) && onlineMerchant)) continue;
       const outlet = configuredRows.find((row) => low(shopForOutlet(row.outlet)) === low(pivot.shop))?.outlet || (low(pivot.shop) === 'online' ? 'Online' : pivot.shop.replace(/\s+shop.*$/i, ''));
       generatedByShop.set(shopKey, { index: configuredRows.length + generatedByShop.size, outlet, name: merchant.merchant, key: merchant.merchant, showroomTarget: null, onlineTarget: null, generated: true });
     }
@@ -1079,6 +1083,12 @@ const SaleEngine = (() => {
     const writeSheet = (name, detailed) => {
       const ws = wb.addWorksheet(name, { views: [{ state: 'frozen', ySplit: 4 }] });
       widths.forEach((width, index) => { ws.getColumn(index + 1).width = width; });
+      // Keep the forecast inputs in hidden cells so the report remains clean while
+      // the displayed Balance and forecast columns remain live Excel formulas.
+      ws.getCell('V1').value = daysElapsed;
+      ws.getCell('W1').value = Math.max(1, Number(d.remDays) || 1);
+      ws.getCell('X1').value = daysInMonth;
+      for (let col = 22; col <= 24; col++) ws.getColumn(col).hidden = true;
       ws.mergeCells('A1:T1');
       const titleCell = ws.getCell('A1'); titleCell.value = title; titleCell.font = { bold: true, size: 14 }; titleCell.alignment = { horizontal: 'center' };
       ws.mergeCells('D3:F3'); ws.mergeCells('G3:K3'); ws.mergeCells('L3:P3');
@@ -1090,6 +1100,18 @@ const SaleEngine = (() => {
       ['No', 'Outlet / Merchant Name', 'Merchant Name', 'Balance', 'Per Day Target', 'Forecast Month End Achievement', 'Forecast Achievement %'].forEach((label, index) => row3.getCell([1, 2, 3, 17, 18, 19, 20][index]).value = label);
       sheetHeaders.slice(3, 16).forEach((label, index) => row4.getCell(index + 4).value = label);
       let groupNo = 0;
+      const applyForecastFormulas = (row) => {
+        const number = row.number;
+        const target = Number(row.getCell(6).value) || 0;
+        const sales = Number(row.getCell(9).value) || 0;
+        const balance = target ? target - sales : null;
+        const perDay = balance == null ? null : balance / Math.max(1, Number(d.remDays) || 1);
+        const forecast = target ? sales / daysElapsed * daysInMonth : null;
+        row.getCell(17).value = { formula: `IFERROR(F${number}-I${number},\"\")`, result: balance };
+        row.getCell(18).value = { formula: `IFERROR(Q${number}/$W$1,\"\")`, result: perDay };
+        row.getCell(19).value = { formula: `IFERROR(I${number}/$V$1*$X$1,\"\")`, result: forecast };
+        row.getCell(20).value = { formula: `IFERROR(S${number}/F${number},\"\")`, result: target ? forecast / target : null };
+      };
       const displayedGroups = detailed ? groups : groups.map((group) => low(group.outlet) === 'online' ? group : { ...group, rows: [{ ...total(group.rows), name: 'Total', key: '', outlet: group.outlet, generated: false }] });
       for (const group of displayedGroups) {
         const rows = group.rows.filter((row) => row.name || row.showroom || row.online);
@@ -1098,6 +1120,7 @@ const SaleEngine = (() => {
         const start = ws.rowCount + 1;
         for (const source of rows) {
           const row = ws.addRow([null, null, source.name, ...metrics(source)]);
+          applyForecastFormulas(row);
           row.height = 22;
           for (let col = 1; col <= 20; col++) {
             const cell = row.getCell(col); cell.border = { top: { style: 'thin', color: { argb: BORDER } }, bottom: { style: 'thin', color: { argb: BORDER } }, left: { style: 'thin', color: { argb: BORDER } }, right: { style: 'thin', color: { argb: BORDER } } }; cell.alignment = { vertical: 'middle', horizontal: col >= 4 ? 'right' : 'left' };
@@ -1114,6 +1137,7 @@ const SaleEngine = (() => {
         const groupTotals = total(rows);
         if (detailed && rows.length > 1) {
           const row = ws.addRow([null, null, 'Total', ...metrics(groupTotals)]);
+          applyForecastFormulas(row);
           row.font = { bold: true };
           row.eachCell((cell, col) => { cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: TOTAL } }; if (col === 10 || col === 11 || col === 15 || col === 16) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: VAT_PERCENT } }; cell.border = { top: { style: 'thin', color: { argb: BORDER } }, bottom: { style: 'thin', color: { argb: BORDER } }, left: { style: 'thin', color: { argb: BORDER } }, right: { style: 'thin', color: { argb: BORDER } } }; if (col >= 4 && col <= 11 || col >= 17 && col <= 19) cell.numFmt = money; if (col >= 12 && col <= 16 || col === 20) cell.numFmt = percent; });
         }
@@ -1124,6 +1148,7 @@ const SaleEngine = (() => {
       }
       const all = total(displayedGroups.flatMap((group) => group.rows));
       const grand = ws.addRow([null, 'Grand Total', '', ...metrics(all)]);
+      applyForecastFormulas(grand);
       grand.font = { bold: true }; grand.eachCell((cell, col) => { cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: ONLINE } }; cell.border = { top: { style: 'medium', color: { argb: BORDER } }, bottom: { style: 'medium', color: { argb: BORDER } }, left: { style: 'thin', color: { argb: BORDER } }, right: { style: 'thin', color: { argb: BORDER } } }; if (col >= 4 && col <= 11 || col >= 17 && col <= 19) cell.numFmt = money; if (col >= 12 && col <= 16 || col === 20) cell.numFmt = percent; });
       ws.autoFilter = { from: { row: 4, column: 1 }, to: { row: 4, column: 20 } };
       return ws;
