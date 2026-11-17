@@ -10,7 +10,10 @@ import {
   resolveTransferSlots,
   submitMaterialTransfer,
 } from "@/lib/material-transfer/erp";
-import { recordSentTransferResilient } from "@/lib/material-transfer/reconcile-sent";
+import {
+  recoverAndRecordSentTransfer,
+  recordSentTransferResilient,
+} from "@/lib/material-transfer/reconcile-sent";
 import { materialTransferSubmitSchema } from "@/lib/validation/material-transfer";
 
 export const dynamic = "force-dynamic";
@@ -95,10 +98,39 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ ...result, receiptId, receiptError });
   } catch (error) {
+    const message =
+      error instanceof MaterialTransferError ? error.message : erpErrorMessage(error);
+    const maybeDropped =
+      /ERP connection closed|Check ERP|did not return a Stock Entry|connection closed before/i.test(
+        message,
+      );
+    if (maybeDropped) {
+      try {
+        const recovered = await recoverAndRecordSentTransfer({
+          companyId: auth.companyId,
+          slot: parsed.data.slot,
+          company: parsed.data.company,
+          sourceWarehouse: parsed.data.sourceWarehouse,
+          targetWarehouse: parsed.data.targetWarehouse,
+          createdByUserId: auth.context.user?.id ?? null,
+          ownerUser: auth.context.user ?? {},
+          lines: parsed.data.lines,
+        });
+        return NextResponse.json({
+          name: recovered.name,
+          company: recovered.company,
+          receiptId: recovered.receiptId,
+          receiptError: null,
+          recovered: true,
+        });
+      } catch (recoverError) {
+        console.error("[material-transfer/submit] recover", recoverError);
+      }
+    }
     if (error instanceof MaterialTransferError) {
       return NextResponse.json({ error: error.message }, { status: error.status });
     }
     console.error("[material-transfer/submit]", error);
-    return NextResponse.json({ error: erpErrorMessage(error) }, { status: 502 });
+    return NextResponse.json({ error: message }, { status: 502 });
   }
 }

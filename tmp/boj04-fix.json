@@ -1,0 +1,85 @@
+{
+  "apply": true,
+  "boj1Count": 12,
+  "boj2Count": 1,
+  "sharedBarcodes": [
+    "8809968130277"
+  ],
+  "boj1": [
+    {
+      "id": "cmrx4tthp0059l804p9r5nwye",
+      "barcode": "8809968130277",
+      "title": "Beauty of Joseon Relief Sun Aqua-Fresh Rice + B5 SPF50+ PA++++ 50ml"
+    },
+    {
+      "id": "cms1fdpy10013la04v155xf3h",
+      "barcode": "8809968130277",
+      "title": "Beauty of Joseon Relief Sun Aqua-Fresh Rice + B5 SPF50+ PA++++ 50ml"
+    },
+    {
+      "id": "cms8k0joz002fi9048f10djvx",
+      "barcode": "8809968130277",
+      "title": "Beauty of Joseon Relief Sun Aqua-Fresh Rice + B5 SPF50+ PA++++ 50ml"
+    },
+    {
+      "id": "cmsiv2flm00a1jp0405as0tux",
+      "barcode": "8809968130277",
+      "title": "Beauty of Joseon Relief Sun Aqua-Fresh Rice + B5 SPF50+ PA++++ 50ml"
+    },
+    {
+      "id": "cmsfuqt9h000bl3044y0ypgf8",
+      "barcode": "8809968130277",
+      "title": "Beauty of Joseon Relief Sun Aqua-Fresh Rice + B5 SPF50+ PA++++ 50ml"
+    },
+    {
+      "id": "cmrlrlwao0007jv04h5mdsle9",
+      "barcode": "8809968130277",
+      "title": "Beauty of Joseon Relief Sun Aqua-Fresh Rice + B5 SPF50+ PA++++ 50ml"
+    },
+    {
+      "id": "cmt8fdntt000fkw04yb6klox0",
+      "barcode": "8809968130277",
+      "title": "Beauty of Joseon Relief Sun Aqua-Fresh Rice + B5 SPF50+ PA++++ 50ml"
+    },
+    {
+      "id": "cmt41jhm40005la04ycqukc1u",
+      "barcode": "8809968130277",
+      "title": "Beauty of Joseon Relief Sun Aqua-Fresh Rice + B5 SPF50+ PA++++ 50ml"
+    },
+    {
+      "id": "cmswrqvc2001vl7042dkafm04",
+      "barcode": "8809968130277",
+      "title": "Beauty of Joseon Relief Sun Aqua-Fresh Rice + B5 SPF50+ PA++++ 50ml"
+    },
+    {
+      "id": "cmw1wh3d4008xl907nmjjoeyo",
+      "barcode": "8809968130277",
+      "title": "Beauty of Joseon Relief Sun Aqua-Fresh Rice + B5 SPF50+ PA++++ 50ml"
+    },
+    {
+      "id": "cmvxlqx2k000ljm08kueyhgc3",
+      "barcode": "8809968130277",
+      "title": "Beauty of Joseon Relief Sun Aqua-Fresh Rice + B5 SPF50+ PA++++ 50ml"
+    },
+    {
+      "id": "cmr1n0hq6005fjj04aqipjkix",
+      "barcode": "8809968130277",
+      "title": "Beauty of Joseon Relief Sun Aqua-Fresh Rice + B5 SPF50+ PA++++ 50ml"
+    }
+  ],
+  "boj2": [
+    {
+      "id": "cmrd3gcm1005hjy04lu89fgca",
+      "barcode": "8809968130277",
+      "title": "Beauty of Joseon Relief Sun Aqua-Fresh Rice + B5 SPF50+ PA++++ 50ml"
+    }
+  ],
+  "toClear": [
+    {
+      "id": "cmrd3gcm1005hjy04lu89fgca",
+      "sku": "BOJ04_2",
+      "barcode": "8809968130277"
+    }
+  ],
+  "sameBarcodeOthers": []
+}
