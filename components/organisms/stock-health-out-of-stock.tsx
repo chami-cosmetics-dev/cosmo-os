@@ -9,6 +9,7 @@ import {
   HEAD_CLASS,
   SELECT_CLASS,
   TABLE_CLASS,
+  TABLE_CONTAINER_CLASS,
 } from "@/components/organisms/sales-budget-table-ui";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -107,53 +108,55 @@ export function StockHealthOutOfStockCard({
         </label>
       </CardHeader>
       <CardContent>
-        <div className={cn("overflow-x-auto rounded-md border", loading && data && "opacity-60")}>
-          <Table className={cn(TABLE_CLASS, "min-w-[800px]")}>
-            <TableHeader>
+        {/* Own scroll box (max 70vh) so the header row stays visible while scrolling. */}
+        <Table
+          containerClassName={cn(TABLE_CONTAINER_CLASS, loading && data && "opacity-60")}
+          className={cn(TABLE_CLASS, "min-w-[800px]")}
+        >
+          <TableHeader className="sticky top-0 z-10">
+            <TableRow>
+              <TableHead className={cn(HEAD_CLASS, "w-[130px]")}>Priority Status</TableHead>
+              <TableHead className={cn(HEAD_CLASS, "w-[170px]")}>Common SKU</TableHead>
+              <TableHead className={HEAD_CLASS}>Item name</TableHead>
+              <TableHead className={HEAD_CLASS}>Available variant SKUs</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {shown.length === 0 ? (
               <TableRow>
-                <TableHead className={cn(HEAD_CLASS, "w-[130px]")}>Priority Status</TableHead>
-                <TableHead className={cn(HEAD_CLASS, "w-[170px]")}>Common SKU</TableHead>
-                <TableHead className={HEAD_CLASS}>Item name</TableHead>
-                <TableHead className={HEAD_CLASS}>Available variant SKUs</TableHead>
+                <TableCell colSpan={4} className="h-32 text-center">
+                  {loading ? (
+                    <Loader2 className="mx-auto h-5 w-5 animate-spin text-muted-foreground" />
+                  ) : (
+                    <span className="text-sm text-muted-foreground">
+                      {data ? "No out-of-stock items." : "No data."}
+                    </span>
+                  )}
+                </TableCell>
               </TableRow>
-            </TableHeader>
-            <TableBody>
-              {shown.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={4} className="h-32 text-center">
-                    {loading ? (
-                      <Loader2 className="mx-auto h-5 w-5 animate-spin text-muted-foreground" />
-                    ) : (
-                      <span className="text-sm text-muted-foreground">
-                        {data ? "No out-of-stock items." : "No data."}
-                      </span>
-                    )}
+            ) : (
+              shown.map((row) => (
+                <TableRow key={row.commonSku}>
+                  <TableCell>
+                    <span
+                      className={cn(
+                        "inline-flex select-none items-center rounded-full px-2 py-0.5 text-xs font-semibold ring-1 ring-inset",
+                        priorityLabelClass(row.status),
+                      )}
+                    >
+                      {row.status}
+                    </span>
+                  </TableCell>
+                  <TableCell className="font-mono text-xs">{row.commonSku}</TableCell>
+                  <TableCell className="whitespace-normal">{row.itemName ?? "-"}</TableCell>
+                  <TableCell className="whitespace-normal font-mono text-xs">
+                    {row.variantSkus.join(", ")}
                   </TableCell>
                 </TableRow>
-              ) : (
-                shown.map((row) => (
-                  <TableRow key={row.commonSku}>
-                    <TableCell>
-                      <span
-                        className={cn(
-                          "inline-flex select-none items-center rounded-full px-2 py-0.5 text-xs font-semibold ring-1 ring-inset",
-                          priorityLabelClass(row.status),
-                        )}
-                      >
-                        {row.status}
-                      </span>
-                    </TableCell>
-                    <TableCell className="font-mono text-xs">{row.commonSku}</TableCell>
-                    <TableCell className="whitespace-normal">{row.itemName ?? "-"}</TableCell>
-                    <TableCell className="whitespace-normal font-mono text-xs">
-                      {row.variantSkus.join(", ")}
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </div>
+              ))
+            )}
+          </TableBody>
+        </Table>
       </CardContent>
     </Card>
   );

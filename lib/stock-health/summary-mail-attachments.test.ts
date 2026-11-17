@@ -2,6 +2,9 @@ import * as XLSX from "xlsx-js-style";
 import ExcelJS from "exceljs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+// Builds real Excel files; can pass 5s when the whole suite runs in parallel.
+vi.setConfig({ testTimeout: 30_000 });
+
 import {
   buildCommonSkuRows,
   buildRopRows,

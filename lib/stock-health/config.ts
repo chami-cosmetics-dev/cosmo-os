@@ -2,12 +2,13 @@
  * Stock Health screen config + API types. Client-safe (no server imports).
  */
 
-export const STOCK_HEALTH_TABS = ["summary", "out_of_stock"] as const;
+export const STOCK_HEALTH_TABS = ["summary", "out_of_stock", "rop_details"] as const;
 export type StockHealthTab = (typeof STOCK_HEALTH_TABS)[number];
 
 export const STOCK_HEALTH_TAB_LABELS: Record<StockHealthTab, string> = {
   summary: "SUMMARY",
   out_of_stock: "OUT OF STOCK",
+  rop_details: "ROP DETAILS",
 };
 
 /**
