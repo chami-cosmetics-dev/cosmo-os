@@ -20,6 +20,7 @@ import {
 } from "@/lib/customer-insight/loyalty-push";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
+import { maybeSendLoyaltyWishSms } from "@/lib/sms-templates/loyalty-wish-send";
 import {
   customerInsightContactParamsSchema,
   customerInsightLoyaltyAssignBodySchema,
@@ -277,6 +278,18 @@ export async function POST(request: NextRequest, { params }: Params) {
       pushErrors: push.errors,
     },
   });
+
+  if (
+    !isRetrySameTier &&
+    (parsed.data.tier === "gold" || parsed.data.tier === "platinum")
+  ) {
+    await maybeSendLoyaltyWishSms({
+      companyId,
+      contactId: contact.id,
+      tier: parsed.data.tier,
+      actorUserId: user.id,
+    });
+  }
 
   return NextResponse.json({
     ok: true,

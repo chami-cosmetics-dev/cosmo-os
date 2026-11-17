@@ -475,8 +475,6 @@ export function MerchantDashboardPanel({ initialData }: Props) {
   const [wishContact, setWishContact] = useState<
     MerchantDashboardPageData["nearestBirthdays"][number] | null
   >(null);
-  const [wishDiscount, setWishDiscount] = useState("10");
-  const [wishCode, setWishCode] = useState("");
   const [wishMessage, setWishMessage] = useState("");
   const [callUpdateRow, setCallUpdateRow] = useState<CallQueueRowDto | null>(null);
   const [callOutcome, setCallOutcome] = useState<string>(
@@ -873,27 +871,18 @@ export function MerchantDashboardPanel({ initialData }: Props) {
   function openWish(
     row: MerchantDashboardPageData["nearestBirthdays"][number],
   ) {
-    const discount = Number(wishDiscount) || 10;
     setWishContact(row);
-    setWishDiscount(String(discount));
-    setWishCode("");
     setWishMessage(
       buildBirthdayWishMessage({
         customerName: row.name,
         merchantName: data.profile.displayName,
-        discountPercent: discount,
-        code: null,
+        merchantMobile: data.profile.mobile,
       }),
     );
   }
 
   async function sendWish() {
     if (!wishContact) return;
-    const discountPercent = Number(wishDiscount);
-    if (!Number.isFinite(discountPercent) || discountPercent < 0 || discountPercent > 50) {
-      notify.error("Discount must be between 0 and 50");
-      return;
-    }
     if (!wishMessage.trim()) {
       notify.error("Message is required");
       return;
@@ -905,8 +894,6 @@ export function MerchantDashboardPanel({ initialData }: Props) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           contactId: wishContact.contactId,
-          discountPercent,
-          discountCode: wishCode.trim() || null,
           phoneNumber: wishContact.phoneNumber || undefined,
           message: wishMessage.trim(),
         }),
@@ -3065,56 +3052,6 @@ export function MerchantDashboardPanel({ initialData }: Props) {
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1">
-                <label className="text-muted-foreground text-xs font-medium">
-                  Discount %
-                </label>
-                <Input
-                  type="number"
-                  min={0}
-                  max={50}
-                  disabled={isBusy}
-                  value={wishDiscount}
-                  onChange={(e) => {
-                    setWishDiscount(e.target.value);
-                    if (!wishContact) return;
-                    const pct = Number(e.target.value) || 0;
-                    setWishMessage(
-                      buildBirthdayWishMessage({
-                        customerName: wishContact.name,
-                        merchantName: data.profile.displayName,
-                        discountPercent: pct,
-                        code: wishCode || null,
-                      }),
-                    );
-                  }}
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-muted-foreground text-xs font-medium">
-                  Discount code (optional)
-                </label>
-                <Input
-                  disabled={isBusy}
-                  value={wishCode}
-                  onChange={(e) => {
-                    setWishCode(e.target.value);
-                    if (!wishContact) return;
-                    const pct = Number(wishDiscount) || 0;
-                    setWishMessage(
-                      buildBirthdayWishMessage({
-                        customerName: wishContact.name,
-                        merchantName: data.profile.displayName,
-                        discountPercent: pct,
-                        code: e.target.value || null,
-                      }),
-                    );
-                  }}
-                  placeholder="e.g. BD10"
-                />
-              </div>
-            </div>
             <div className="space-y-1">
               <label className="text-muted-foreground text-xs font-medium">
                 SMS message
