@@ -15,6 +15,26 @@ export type AllocateLocationResult = {
   qty: number;
 };
 
+/** Bring locations toward the same stock / ROP coverage; send surplus to the highest priority tier. */
+export function allocateByRopCoverage(takeQty: number, locations: Array<{ key: string; rop: number; stock: number; priority?: number }>): AllocateLocationResult[] {
+  const rows = locations.map((row) => ({ ...row, rop: Math.max(0, Math.floor(row.rop || 0)), stock: Math.max(0, Math.floor(row.stock || 0)), priority: row.priority ?? 2, qty: 0 }));
+  let remaining = Number.isFinite(takeQty) ? Math.max(0, Math.floor(takeQty)) : 0;
+  // Give the next unit to the location with the lowest resulting coverage.
+  while (remaining > 0) {
+    const eligible = rows.filter((row) => row.rop > 0 && row.stock + row.qty < row.rop);
+    if (!eligible.length) break;
+    eligible.sort((a, b) => (a.stock + a.qty) / a.rop - (b.stock + b.qty) / b.rop || a.key.localeCompare(b.key));
+    eligible[0].qty++;
+    remaining--;
+  }
+  if (remaining > 0 && rows.length) {
+    const best = Math.min(...rows.map((row) => row.priority));
+    const preferred = rows.filter((row) => row.priority === best).sort((a, b) => a.key.localeCompare(b.key));
+    for (let i = 0; i < remaining; i++) preferred[i % preferred.length].qty++;
+  }
+  return rows.map(({ key, qty }) => ({ key, qty }));
+}
+
 function priorityFactor(priority: number): number {
   if (priority <= 1) return 3;
   if (priority === 2) return 1.5;
