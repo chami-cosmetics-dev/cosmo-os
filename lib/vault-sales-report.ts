@@ -143,7 +143,7 @@ export async function vaultWorkbook(report: Awaited<ReturnType<typeof vaultRepor
   header.height = 34;
   header.eachCell(cell => {
     cell.font = { bold: true, color: { argb: "FF0F172A" } };
-    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF38BDF8" } };
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF86B970" } };
     cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
     cell.border = border;
   });
@@ -167,7 +167,7 @@ export async function vaultWorkbook(report: Awaited<ReturnType<typeof vaultRepor
   detail.addRow(["Order", "Invoice", "Invoice Date", "Company", "Allocated Merchant", "Original Merchant", "Allocation", "Coupon Codes", "Warehouse", "Source", "Sale"]);
   for (const item of report.invoiceRows) detail.addRow([item.order, item.invoice, item.date, item.company, item.merchant, item.originalMerchant, item.allocation, item.coupons, item.warehouse, item.source, item.sale]);
   detail.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
-  detail.getRow(1).eachCell(cell => { cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF8EA9DB" } }; });
+  detail.getRow(1).eachCell(cell => { cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF86B970" } }; });
   detail.columns.forEach((column, index) => { column.width = index === 7 ? 32 : index === 10 ? 18 : 22; });
   detail.getColumn(11).numFmt = "#,##0.00";
   detail.autoFilter = { from: "A1", to: `K${Math.max(1, detail.rowCount)}` };

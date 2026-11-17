@@ -8,7 +8,7 @@ import { prisma } from "@/lib/prisma";
 
 function money(value: number) { return value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 function ageBucket(days: number | null) { if (days == null || days <= 10) return "0-10"; if (days <= 30) return "11-30"; if (days <= 60) return "31-60"; return "61+"; }
-function isConsignment(name: string | null) { return /consign/i.test(name ?? ""); }
+function isConsignment(name: string | null) { return /consignment|consigment/i.test(name ?? ""); }
 function buildConsignmentItemRows(rows: Awaited<ReturnType<typeof loadCachedSupplierPayables>>["groups"]) {
   type ItemRow = { Supplier: string; "Supplier ID": string; Company: string; "Item Code": string; "Item Name": string; "ERP Source": string; "PO Number": string; "Line Count": number; "Available Stock": number };
   const items = new Map<string, ItemRow>();
