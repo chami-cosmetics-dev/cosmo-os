@@ -259,7 +259,7 @@ async function template(companyId: string, key: string) {
 function detailRows(rows: ReceivableRow[], key: string) {
   if (key === RECEIVABLE_DELIVERY_PAYMENT_PENDING_DAILY_KEY) return rows.filter((row) => row.cosmoOrderStatus === "delivery_complete");
   if (key === RECEIVABLE_NOT_DISPATCHED_DAILY_KEY) return rows.filter(isInvoiceCreatedNotDispatched);
-  return rows.filter((row) => Boolean(row.dispatchDate) && !row.isCustomerPickup && row.cosmoOrderStatus !== "delivery_complete");
+  return rows.filter((row) => Boolean(row.dispatchDate) && !row.isCustomerPickup && !row.isDeliveryComplete);
 }
 function detailSummaryHtml(rows: ReceivableRow[], showValueCount = false) {
   const companies = [...new Set(rows.map((row) => row.company))].sort();
