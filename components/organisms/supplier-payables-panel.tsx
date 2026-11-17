@@ -61,7 +61,7 @@ function dateTime(value: string | null): string {
   return date.toLocaleString();
 }
 function isConsignmentSupplier(name: string | null) {
-  return /consign/i.test(name ?? "");
+  return /consignment|consigment/i.test(name ?? "");
 }
 
 function PayableTable({ label, groups }: { label: string; groups: PayableGroup[] }) {

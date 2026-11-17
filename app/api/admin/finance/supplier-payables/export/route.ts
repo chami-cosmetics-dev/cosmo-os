@@ -6,7 +6,7 @@ import { defaultSupplierPayablesReportDate } from "@/lib/supplier-payables";
 import { getCurrentUserContext, hasPermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
-function isConsignmentSupplier(name: string) { return /consign/i.test(name); }
+function isConsignmentSupplier(name: string) { return /consignment|consigment/i.test(name); }
 
 export async function GET(request: NextRequest) {
   const context = await getCurrentUserContext();
