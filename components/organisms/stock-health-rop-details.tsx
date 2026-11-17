@@ -11,6 +11,7 @@ import {
   HEAD_CLASS,
   SELECT_CLASS,
   TABLE_CLASS,
+  TABLE_CONTAINER_CLASS,
 } from "@/components/organisms/sales-budget-table-ui";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -241,61 +242,63 @@ export function StockHealthRopDetailsCard({
         </div>
       </CardHeader>
       <CardContent>
-        <div className={cn("overflow-x-auto rounded-md border", loading && data && "opacity-60")}>
-          <Table className={cn(TABLE_CLASS, "min-w-[900px]")}>
-            <TableHeader>
+        {/* Own scroll box (max 70vh) so the header row stays visible while scrolling. */}
+        <Table
+          containerClassName={cn(TABLE_CONTAINER_CLASS, loading && data && "opacity-60")}
+          className={cn(TABLE_CLASS, "min-w-[900px]")}
+        >
+          <TableHeader className="sticky top-0 z-10">
+            <TableRow>
+              <TableHead className={cn(HEAD_CLASS, "w-[170px]")}>Common SKU</TableHead>
+              <TableHead className={HEAD_CLASS}>Item name</TableHead>
+              <TableHead className={cn(HEAD_CLASS, "w-[130px]")}>Priority Status</TableHead>
+              <TableHead className={cn(HEAD_CLASS, "w-[170px]")}>Status</TableHead>
+              <TableHead className={cn(HEAD_CLASS, "w-[90px]")}>Stock</TableHead>
+              <TableHead className={cn(HEAD_CLASS, "w-[90px]")}>ROP</TableHead>
+              <TableHead className={cn(HEAD_CLASS, "w-[110px]")}>Stock % of ROP</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {shown.length === 0 ? (
               <TableRow>
-                <TableHead className={cn(HEAD_CLASS, "w-[170px]")}>Common SKU</TableHead>
-                <TableHead className={HEAD_CLASS}>Item name</TableHead>
-                <TableHead className={cn(HEAD_CLASS, "w-[130px]")}>Priority Status</TableHead>
-                <TableHead className={cn(HEAD_CLASS, "w-[170px]")}>Status</TableHead>
-                <TableHead className={cn(HEAD_CLASS, "w-[90px]")}>Stock</TableHead>
-                <TableHead className={cn(HEAD_CLASS, "w-[90px]")}>ROP</TableHead>
-                <TableHead className={cn(HEAD_CLASS, "w-[110px]")}>Stock % of ROP</TableHead>
+                <TableCell colSpan={7} className="h-32 text-center">
+                  {loading ? (
+                    <Loader2 className="mx-auto h-5 w-5 animate-spin text-muted-foreground" />
+                  ) : (
+                    <span className="text-sm text-muted-foreground">
+                      {data ? "No items match these filters." : "No data."}
+                    </span>
+                  )}
+                </TableCell>
               </TableRow>
-            </TableHeader>
-            <TableBody>
-              {shown.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={7} className="h-32 text-center">
-                    {loading ? (
-                      <Loader2 className="mx-auto h-5 w-5 animate-spin text-muted-foreground" />
-                    ) : (
-                      <span className="text-sm text-muted-foreground">
-                        {data ? "No items match these filters." : "No data."}
-                      </span>
-                    )}
+            ) : (
+              shown.map((row) => (
+                <TableRow key={row.commonSku}>
+                  <TableCell className="font-mono text-xs">{row.commonSku}</TableCell>
+                  <TableCell className="whitespace-normal">{row.itemName ?? "-"}</TableCell>
+                  <TableCell>
+                    <span
+                      className={cn(
+                        "inline-flex select-none items-center rounded-full px-2 py-0.5 text-xs font-semibold ring-1 ring-inset",
+                        priorityLabelClass(row.priority),
+                      )}
+                    >
+                      {row.priority}
+                    </span>
+                  </TableCell>
+                  <TableCell className={cn("font-medium", STATUS_CLASS[row.status])}>
+                    {ROP_DETAILS_STATUS_LABELS[row.status]}
+                  </TableCell>
+                  <TableCell className={NUM_CELL_CLASS}>{formatNumber(row.stock)}</TableCell>
+                  <TableCell className={NUM_CELL_CLASS}>{formatNumber(row.rop)}</TableCell>
+                  <TableCell className={cn(NUM_CELL_CLASS, row.percent == null && "text-center text-muted-foreground")}>
+                    {formatPercent(row.percent)}
                   </TableCell>
                 </TableRow>
-              ) : (
-                shown.map((row) => (
-                  <TableRow key={row.commonSku}>
-                    <TableCell className="font-mono text-xs">{row.commonSku}</TableCell>
-                    <TableCell className="whitespace-normal">{row.itemName ?? "-"}</TableCell>
-                    <TableCell>
-                      <span
-                        className={cn(
-                          "inline-flex select-none items-center rounded-full px-2 py-0.5 text-xs font-semibold ring-1 ring-inset",
-                          priorityLabelClass(row.priority),
-                        )}
-                      >
-                        {row.priority}
-                      </span>
-                    </TableCell>
-                    <TableCell className={cn("font-medium", STATUS_CLASS[row.status])}>
-                      {ROP_DETAILS_STATUS_LABELS[row.status]}
-                    </TableCell>
-                    <TableCell className={NUM_CELL_CLASS}>{formatNumber(row.stock)}</TableCell>
-                    <TableCell className={NUM_CELL_CLASS}>{formatNumber(row.rop)}</TableCell>
-                    <TableCell className={cn(NUM_CELL_CLASS, row.percent == null && "text-center text-muted-foreground")}>
-                      {formatPercent(row.percent)}
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </div>
+              ))
+            )}
+          </TableBody>
+        </Table>
       </CardContent>
     </Card>
   );
