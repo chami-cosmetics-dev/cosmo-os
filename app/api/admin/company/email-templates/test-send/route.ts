@@ -149,9 +149,13 @@ export async function POST(request: NextRequest) {
     placeholders = { ...SAMPLE_PLACEHOLDERS, reportDate, summaryTableHtml: actual.summaryTableHtml, skuCount: actual.skuCount, stockAvailable: actual.stockAvailable };
     attachments = [{ fileName: `margin-issues-${reportDate}.xlsx`, contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", contentBase64: buildMarginIssuesWorkbook(report).toString("base64") }];
   } else {
-    // Stock Health weekly mails: today's real tables (Stock Health screen data) in the template.
+    // Stock Health weekly mails: today's real tables (Stock Health screen data) in the template,
+    // with the same Excel attachments as the scheduled mail.
     const stockHealth = await loadStockHealthMailTestPlaceholders(user.companyId, parsed.data.key);
-    if (stockHealth) placeholders = { ...SAMPLE_PLACEHOLDERS, ...stockHealth };
+    if (stockHealth) {
+      placeholders = { ...SAMPLE_PLACEHOLDERS, ...stockHealth.placeholders };
+      attachments = stockHealth.attachments;
+    }
   }
   const subject = `[TEST] ${renderEmailTemplatePlaceholders(parsed.data.subject, placeholders)}`;
   const html = `<p style="color:#666;font-size:12px;">Test email for template <strong>${parsed.data.name}</strong> (${parsed.data.key}).</p>${renderEmailTemplatePlaceholders(parsed.data.bodyHtml, placeholders)}`;

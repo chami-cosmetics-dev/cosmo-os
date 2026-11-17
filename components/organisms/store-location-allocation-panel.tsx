@@ -22,7 +22,7 @@ import {
   buildNonEmptyLocationSteps,
   clampWalkthroughIndex,
 } from "@/lib/store-allocation/walkthrough";
-import { allocateTakeQty } from "@/lib/store-allocation/allocate";
+import { allocateByRopCoverage } from "@/lib/store-allocation/allocate";
 
 type LookupItem = {
   sku: string;
@@ -58,7 +58,13 @@ function allocationCompany(location: SessionLocationQty) {
   return location.erpCompany?.trim() || location.label.trim() || "Unassigned";
 }
 
-export function StoreLocationAllocationPanel() {
+export function StoreLocationAllocationPanel({ vaultOs = false }: { vaultOs?: boolean }) {
+  const [page, setPage] = useState<"allocation" | "excess">("allocation");
+  const [excessRows, setExcessRows] = useState<Array<{ sku: string; qty: number }>>([]);
+  const [excessSelection, setExcessSelection] = useState<Record<string, number>>({});
+  const [pendingExcess, setPendingExcess] = useState<{ sku: string; qty: number } | null>(null);
+  const [queuedForPr, setQueuedForPr] = useState<Record<string, number>>({});
+  const [excessDeclined, setExcessDeclined] = useState<Set<string>>(() => new Set());
   const [q, setQ] = useState("");
   const [lookupLoading, setLookupLoading] = useState(false);
   const [matches, setMatches] = useState<LookupItem[]>([]);
@@ -100,6 +106,38 @@ export function StoreLocationAllocationPanel() {
       })
     : [];
   const manualAllocationsValid = manualAllocationIssues.length === 0;
+
+  async function refreshExcess() {
+    if (!vaultOs) return;
+    const response = await fetch("/api/admin/store-allocation/excess-stock", { cache: "no-store" });
+    if (!response.ok) throw new Error("Could not load excess stock");
+    const data = await response.json() as { rows: Array<{ sku: string; qty: number }> };
+    setExcessRows(data.rows);
+  }
+
+  useEffect(() => { if (vaultOs) void refreshExcess().catch(() => notify.error("Could not load excess stock")); }, [vaultOs]);
+
+  async function updateExcess(sku: string, qty: number) {
+    const response = await fetch("/api/admin/store-allocation/excess-stock", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sku, qty }) });
+    if (!response.ok) throw new Error("Could not update excess stock");
+    await refreshExcess();
+  }
+
+  async function bringExcessToAllocation() {
+    const picked = Object.entries(excessSelection).filter(([, qty]) => qty > 0);
+    if (!picked.length) return notify.error("Select excess quantity to allocate");
+    if (picked.some(([sku, qty]) => qty > (excessRows.find((row) => row.sku === sku)?.qty ?? 0))) return notify.error("Selected quantity exceeds excess stock");
+    for (const [sku, qty] of picked) {
+      const response = await fetch(`/api/admin/store-allocation/lookup?q=${encodeURIComponent(sku)}`);
+      if (!response.ok) return notify.error(`Could not load ${sku}`);
+      const data = await response.json() as { item?: LookupItem };
+      if (!data.item) return notify.error(`Could not find ${sku}`);
+      addOrFocusItem(data.item);
+      setQueuedForPr((current) => ({ ...current, [sku]: qty }));
+      setTimeout(() => setTakeQty(sku, String(qty)), 0);
+    }
+    setPage("allocation");
+  }
 
   useEffect(() => {
     setPrSuppliersLoading(true);
@@ -315,6 +353,7 @@ export function StoreLocationAllocationPanel() {
   }
 
   function setTakeQty(sku: string, raw: string) {
+    setExcessDeclined((current) => { const next = new Set(current); next.delete(sku); return next; });
     setAllocationConfirmed(false);
     setManualAllocationSkus((previous) => {
       const next = new Set(previous);
@@ -436,10 +475,17 @@ export function StoreLocationAllocationPanel() {
     setWalkOpen(true);
   }
 
-  function confirmAllocation() {
+  function confirmAllocation(skipExcessSku?: string) {
     if (!allExportValid) {
       notify.error("Each item's location quantities must sum to its take qty");
       return;
+    }
+    if (vaultOs) {
+      const surplus = exportable.find((item) => item.sku !== skipExcessSku && !queuedForPr[item.sku] && !excessDeclined.has(item.sku) && !manualAllocationSkus.has(item.sku) && (item.takeQty ?? 0) - item.locations.reduce((sum, location) => sum + Math.max(0, Math.floor(location.locationRop) - Math.floor(location.stock)), 0) > 5);
+      if (surplus) {
+        setPendingExcess({ sku: surplus.sku, qty: (surplus.takeQty ?? 0) - surplus.locations.reduce((sum, location) => sum + Math.max(0, Math.floor(location.locationRop) - Math.floor(location.stock)), 0) });
+        return;
+      }
     }
     const rows: PrWarehouseRow[] = [];
     for (const item of exportable) {
@@ -499,6 +545,13 @@ export function StoreLocationAllocationPanel() {
           : `${receipts.length} Purchase Receipts created successfully.`,
       );
       notify.success(`${receipts.length} Purchase Receipt(s) created`);
+      if (vaultOs && receipts.length > 0) {
+        for (const [sku, qty] of Object.entries(queuedForPr)) {
+          const current = excessRows.find((row) => row.sku === sku)?.qty;
+          if (current != null) await updateExcess(sku, Math.max(0, current - qty)).catch(() => notify.error(`PR created, but could not deduct ${sku} from Excess stock`));
+        }
+        setQueuedForPr({});
+      }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Purchase Receipt creation failed";
       setPurchaseReceiptMessage(errorMessage);
@@ -560,10 +613,10 @@ export function StoreLocationAllocationPanel() {
         };
       }
       const activeKeys = new Set(nextRows.filter((row) => row.sku === item.sku).map((row) => row.columnKey));
-      const allocations = allocateTakeQty(item.takeQty ?? 0, item.locations.filter((location) => activeKeys.has(location.columnKey)).map((location) => ({
+      const allocations = allocateByRopCoverage(item.takeQty ?? 0, item.locations.filter((location) => activeKeys.has(location.columnKey)).map((location) => ({
         key: location.columnKey,
-        need: location.need,
-        sales: location.sales90d,
+        rop: location.locationRop,
+        stock: location.stock,
         priority: location.allocationPriority ?? 2,
       })));
       const next = new Map(allocations.map((allocation) => [allocation.key, allocation.qty]));
@@ -669,6 +722,9 @@ export function StoreLocationAllocationPanel() {
 
   return (
     <div className="space-y-4">
+      {vaultOs && <div className="inline-flex gap-1 rounded-lg bg-muted p-1 print:hidden"><Button type="button" variant={page === "allocation" ? "default" : "ghost"} onClick={() => setPage("allocation")}>Location allocation</Button><Button type="button" variant={page === "excess" ? "default" : "ghost"} onClick={() => { setPage("excess"); void refreshExcess(); }}>Excess stock</Button></div>}
+      {pendingExcess && <div role="dialog" aria-modal="true" aria-label="Add to excess stock" className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"><div className="w-full max-w-md space-y-4 rounded-xl border bg-background p-5 shadow-xl"><h2 className="text-lg font-semibold">Add to excess stock?</h2><p>{pendingExcess.sku} has {pendingExcess.qty} units above the remaining ROP gap. Save those units in Excess stock for later allocation?</p><div className="flex justify-end gap-2"><Button variant="outline" onClick={() => { const sku = pendingExcess.sku; setExcessDeclined((old) => new Set(old).add(sku)); setPendingExcess(null); confirmAllocation(sku); }}>No, allocate to priority warehouses</Button><Button onClick={async () => { const pending = pendingExcess; try { const response = await fetch("/api/admin/store-allocation/excess-stock", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(pending) }); if (!response.ok) throw new Error("Could not save excess stock"); await refreshExcess(); setPendingExcess(null); setTakeQty(pending.sku, String((items.find((item) => item.sku === pending.sku)?.takeQty ?? 0) - pending.qty)); notify.success(`${pending.qty} units saved in Excess stock`); } catch (error) { notify.error(error instanceof Error ? error.message : "Could not save excess stock"); } }}>Add to excess stock</Button></div></div></div>}
+      {page === "excess" ? <section className="space-y-4 rounded-xl border p-4"><h2 className="text-xl font-semibold">Excess stock</h2><p className="text-sm text-muted-foreground">Select a quantity to allocate later, or discard some or all of an item’s excess quantity.</p>{excessRows.length === 0 ? <p>No excess stock saved.</p> : excessRows.map((row) => <div key={row.sku} className="flex flex-wrap items-center gap-3 border-b py-3"><span className="min-w-36 font-medium">{row.sku}</span><span>Available: {row.qty}</span><label className="flex items-center gap-2">Allocate <Input type="number" min={0} max={row.qty} className="w-24" value={excessSelection[row.sku] ?? 0} onChange={(event) => setExcessSelection((old) => ({ ...old, [row.sku]: Number(event.target.value) || 0 }))} /></label><Button type="button" variant="outline" onClick={() => { const qty = Number(prompt(`Discard how many units of ${row.sku}?`, String(row.qty))); if (!Number.isSafeInteger(qty) || qty < 1 || qty > row.qty) return; void updateExcess(row.sku, row.qty - qty).catch(() => notify.error("Could not discard excess stock")); }}>Discard quantity</Button><Button type="button" variant="destructive" onClick={() => void updateExcess(row.sku, 0).catch(() => notify.error("Could not discard item"))}>Discard item</Button></div>)}<Button type="button" disabled={!excessRows.length} onClick={() => void bringExcessToAllocation()}>Allocate selected</Button></section> : <>
       <div className="max-w-2xl space-y-1">
         <h1 className="text-2xl font-semibold tracking-tight">Store location allocation</h1>
         <p className="text-sm text-muted-foreground">
@@ -744,7 +800,7 @@ export function StoreLocationAllocationPanel() {
               size="sm"
               variant="secondary"
               disabled={!allExportValid}
-              onClick={confirmAllocation}
+              onClick={() => confirmAllocation()}
             >
               Confirm allocation
             </Button>
@@ -1150,12 +1206,13 @@ export function StoreLocationAllocationPanel() {
             )}
           </div>
           <div className="mt-6 flex justify-end gap-2 border-t pt-4">
-            <Button type="button" variant="secondary" onClick={confirmAllocation} disabled={!allExportValid}>
+            <Button type="button" variant="secondary" onClick={() => confirmAllocation()} disabled={!allExportValid}>
               Confirm allocation and review PRs
             </Button>
           </div>
         </SheetContent>
       </Sheet>
+    </>}
     </div>
   );
 }

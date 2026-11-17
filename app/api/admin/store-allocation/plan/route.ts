@@ -4,7 +4,7 @@ import { resolveOsfColumns } from "@/lib/osf/column-config";
 import { OsfErpError } from "@/lib/osf/erp-cost-supplier";
 import { fetchBinActualQty, getAllOsfErpInstances, stockForColumn } from "@/lib/osf/erp-stock";
 import { computeTotalOrderQtyForSkus } from "@/lib/osf/supplier-orders-reorder";
-import { allocateTakeQty } from "@/lib/store-allocation/allocate";
+import { allocateByRopCoverage } from "@/lib/store-allocation/allocate";
 import { requireStoreAllocationAccess } from "@/lib/store-allocation/auth";
 import { filterStoreAllocationColumns } from "@/lib/store-allocation/osf-columns";
 import { salesByOsfColumnLast90d } from "@/lib/store-allocation/location-sales";
@@ -113,12 +113,12 @@ export async function GET(request: NextRequest) {
     };
   });
 
-  const suggestions = allocateTakeQty(
+  const suggestions = allocateByRopCoverage(
     takeQty,
     allocateInputs.map((r) => ({
       key: r.columnKey,
-      need: r.need,
-      sales: r.sales90d,
+      rop: r.locationRop,
+      stock: r.stock,
       priority: r.allocationPriority,
     })),
   );

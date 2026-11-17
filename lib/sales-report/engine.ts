@@ -168,7 +168,7 @@ const SaleEngine = (() => {
       const start = typeof allocation.fromDate === 'string' ? isoToSerial(allocation.fromDate) : null;
       const end = typeof allocation.toDate === 'string' ? isoToSerial(allocation.toDate) : null;
       const percent = Math.max(0, Math.min(100, Number(allocation.percent ?? 100))) / 100;
-      if (!from.length || !to || start === null || end === null || date === null || date < start || date > end || !percent) continue;
+      if (!from.length || !to || start === null || end === null || date == null || date < start || date > end || !percent) continue;
       const next = [];
       for (const part of parts) {
         if (!from.includes(low(part.merchant))) { next.push(part); continue; }
@@ -831,7 +831,7 @@ const SaleEngine = (() => {
       const kind = vatKind(status);
       const location = ix.LOCATION_NAME !== undefined ? norm(row[ix.LOCATION_NAME]) : '';
       if (low(location) === 'cosmetics.lk' ? (kind === 'VAT' || kind === 'MIXED') : (location && vatKind(erp2Status) === 'VAT')) finalVat = 'VAT';
-      lines.push({ row, coupon: info ? info.coupon : '', merchant: info ? info.merchant : '', shop: info ? info.shop : '', company: info ? info.company : '', sku, status, erp2Status, finalVat,
+      lines.push({ row, coupon: info ? info.coupon : '', merchant: info ? info.merchant : '', shop: info ? info.shop : '', company: info ? info.company : '', date: info ? info.date : null, sku, status, erp2Status, finalVat,
         amount: num(row[ix.GRAND_TOTAL]), brand: norm(row[ix.BRAND]), location, inCopy: !!info });
     }
     const copy = lines.filter((l) => l.inCopy);

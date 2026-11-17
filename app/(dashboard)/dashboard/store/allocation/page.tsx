@@ -4,6 +4,7 @@ import { StoreLocationAllocationPanel } from "@/components/organisms/store-locat
 import { PermissionDeniedCard } from "@/components/molecules/permission-denied-card";
 import { getCurrentUserContext, hasPermission } from "@/lib/rbac";
 import { STORE_ALLOCATION_PERMISSION } from "@/lib/store-allocation/auth";
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 
 export const dynamic = "force-dynamic";
 
@@ -24,7 +25,7 @@ export default async function StoreAllocationPage() {
 
   return (
     <div className="p-4 md:p-6">
-      <StoreLocationAllocationPanel />
+      <StoreLocationAllocationPanel vaultOs={isVaultOsDeployment()} />
     </div>
   );
 }

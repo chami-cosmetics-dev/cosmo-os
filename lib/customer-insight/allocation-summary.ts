@@ -7,7 +7,37 @@ import {
   fetchAssignedMerchantAliasMap,
   listInsightMerchantRosterOptions,
 } from "@/lib/customer-insight/merchant-label-aliases";
+import {
+  labelCallCenterPerformanceMerchant,
+  parseCallCenterDayEnd,
+  parseCallCenterDayStart,
+} from "@/lib/page-data/call-center-performance";
 import { prisma } from "@/lib/prisma";
+
+/**
+ * Parse `from` / `to` query params into a Colombo-day window (same bounds as
+ * the Call Center Performance chart). Accepts YYYY-MM-DD; other date strings
+ * fall back to Date parsing with end-of-day UTC.
+ */
+export function parseMerchantAllocationDateRange(
+  searchParams: URLSearchParams
+): MerchantAllocationDateRange | null {
+  const fromRaw = searchParams.get("from")?.trim();
+  const toRaw = searchParams.get("to")?.trim();
+  if (!fromRaw || !toRaw) return null;
+
+  const ymd = /^\d{4}-\d{2}-\d{2}$/;
+  const from = ymd.test(fromRaw) ? parseCallCenterDayStart(fromRaw) : new Date(fromRaw);
+  let to: Date;
+  if (ymd.test(toRaw)) {
+    to = parseCallCenterDayEnd(toRaw);
+  } else {
+    to = new Date(toRaw);
+    to.setUTCHours(23, 59, 59, 999);
+  }
+  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) return null;
+  return { from, to };
+}
 
 export type MerchantAllocationDateRangeStats = {
   callsTaken: number;
@@ -137,10 +167,9 @@ export async function loadAssignedMerchantAliasMap(
  * never scoped to `dateRange`.
  *
  * When `dateRange` is supplied, each row also gets `dateRangeStats`:
- * - callsTaken: distinct contacts contacted in that window via a non-allocation
- *   ContactAllocationUpdate event (allocation-only events are excluded, matching
- *   how "contacted" is counted elsewhere in Insight — see lib/customer-insight/
- *   contacted.ts / call-queue.ts)
+ * - callsTaken: ContactAllocationUpdate events in that window (all categories
+ *   except bulk `allocation`), credited by merchantId — identical to the Call
+ *   Center Performance Analysis chart (lib/page-data/call-center-performance.ts)
  * - birthdayCount / birthdayPercent: birthday fields updated in the window,
  *   divided by calls taken in the window (capped at 100%)
  * - emailCount / emailPercent: email fields updated in the window, divided by
@@ -265,17 +294,17 @@ async function attachDateRangeStats(
 ): Promise<void> {
   const { from, to } = dateRange;
 
-  const [calledPairs, 
-    birthdayGrouped, emailGrouped
-  ] = await Promise.all([
+  const [callGroups, birthdayGrouped, emailGrouped] = await Promise.all([
+    // Same rule as the Call Center Performance Analysis chart
+    // (lib/page-data/call-center-performance.ts): every ContactAllocationUpdate
+    // except bulk `allocation` (NULL category included), counted per event and
+    // credited to the user id that logged it.
     prisma.contactAllocationUpdate.groupBy({
-      by: ["merchantName", "contactId"],
+      by: ["merchantId", "merchantName"],
       where: {
         companyId,
         createdAt: { gte: from, lte: to },
-        // Exclude pure allocation/reassignment events so "calls taken" lines up
-        // with how the rest of Insight counts contact activity.
-        NOT: { category: "allocation" },
+        OR: [{ category: null }, { category: { not: "allocation" } }],
       },
       _count: { _all: true },
     }),
@@ -301,15 +330,36 @@ async function attachDateRangeStats(
     }),
   ]);
 
-  const callsTakenByMerchant = new Map<string, number>();
-  for (const pair of calledPairs) {
-    const merchantName = pair.merchantName?.trim() ?? "";
-    if (!merchantName) continue;
+  const merchantIds = [
+    ...new Set(
+      callGroups
+        .map((g) => g.merchantId)
+        .filter((id): id is string => Boolean(id))
+    ),
+  ];
+  const users =
+    merchantIds.length === 0
+      ? []
+      : await prisma.user.findMany({
+          where: { id: { in: merchantIds } },
+          select: { id: true, knownName: true, name: true, email: true },
+        });
+  const userById = new Map(users.map((u) => [u.id, u]));
 
-    const matched = aliasToRoster.get(norm(merchantName));
-    const merchantValue = matched?.value ?? merchantName;
-    const key = norm(merchantValue);
-    callsTakenByMerchant.set(key, (callsTakenByMerchant.get(key) ?? 0) + 1);
+  const callsTakenByMerchant = new Map<string, number>();
+  for (const g of callGroups) {
+    const label = labelCallCenterPerformanceMerchant({
+      user: g.merchantId ? (userById.get(g.merchantId) ?? null) : null,
+      orphanName: g.merchantId ? null : g.merchantName,
+    });
+    if (!label || label === "Unknown") continue;
+
+    const matched = aliasToRoster.get(norm(label));
+    const key = norm(matched?.value ?? label);
+    callsTakenByMerchant.set(
+      key,
+      (callsTakenByMerchant.get(key) ?? 0) + g._count._all
+    );
   }
 
   const birthdayByMerchant = new Map<string, number>();
