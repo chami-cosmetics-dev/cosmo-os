@@ -12,6 +12,18 @@ export type OrderSplitPaymentLine = {
   amount: number;
 };
 
+export type OrderSplitApprovalForErp = {
+  id: string;
+  status: string;
+  kokoReference: string | null;
+  paymentLines: Array<{
+    id: string;
+    paymentMethod: string;
+    amount: { toString(): string };
+    erpPaymentEntryName: string | null;
+  }>;
+};
+
 function toLines(
   rows: Array<{ paymentMethod: string; amount: { toString(): string } | string | number }>,
 ): OrderSplitPaymentLine[] {
@@ -23,23 +35,75 @@ function toLines(
   return lines;
 }
 
+function pickLatestSplitApproval<T extends {
+  status: string;
+  paymentLines: Array<{ paymentMethod: string; amount: { toString(): string } | string | number }>;
+}>(rows: T[]): T | null {
+  return (
+    rows.find(
+      (row) =>
+        (row.status === "pending" || row.status === "approved") &&
+        approvalSplitPairId(row.paymentLines.map((line) => line.paymentMethod)) != null,
+    ) ??
+    rows[0] ??
+    null
+  );
+}
+
 export async function loadLatestOrderSplitPaymentLines(
   orderId: string,
 ): Promise<OrderSplitPaymentLine[]> {
-  const approval = await prisma.approvalRequest.findFirst({
+  const approvals = await prisma.approvalRequest.findMany({
     where: {
       orderId,
       type: ORDER_PAYMENT_APPROVAL,
       status: { in: ["pending", "approved"] },
     },
     orderBy: { createdAt: "desc" },
+    take: 5,
     select: {
+      status: true,
       paymentLines: {
         select: { paymentMethod: true, amount: true },
       },
     },
   });
+  const approval = pickLatestSplitApproval(approvals);
   return toLines(approval?.paymentLines ?? []);
+}
+
+/** Latest pending/approved split plan with line ids for ERP PE create/retry. */
+export async function loadLatestOrderSplitApprovalForErp(
+  orderId: string,
+): Promise<OrderSplitApprovalForErp | null> {
+  const approvals = await prisma.approvalRequest.findMany({
+    where: {
+      orderId,
+      type: ORDER_PAYMENT_APPROVAL,
+      status: { in: ["pending", "approved"] },
+    },
+    orderBy: { createdAt: "desc" },
+    take: 5,
+    select: {
+      id: true,
+      status: true,
+      kokoReference: true,
+      paymentLines: {
+        select: {
+          id: true,
+          paymentMethod: true,
+          amount: true,
+          erpPaymentEntryName: true,
+        },
+      },
+    },
+  });
+  const approval = pickLatestSplitApproval(approvals);
+  if (!approval) return null;
+  if (approvalSplitPairId(approval.paymentLines.map((line) => line.paymentMethod)) == null) {
+    return null;
+  }
+  return approval;
 }
 
 export async function loadSplitPaymentLinesByOrderIds(

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  bodyAfterMultiplePricingRuleConflict,
   creditNoteUpdateOutstandingForSelf,
   erpSiShopifyTotalMismatch,
   isUsableErpSalesInvoiceId,
@@ -10,6 +11,22 @@ import {
 } from "@/lib/erpnext-sync";
 import { isCcCheckoutGateway } from "@/lib/delivery-payment-approval";
 import { isMintpayGateway } from "@/lib/payment-gateway-match";
+
+describe("bodyAfterMultiplePricingRuleConflict", () => {
+  it("keeps coupon_code and forces ignore_pricing_rule", () => {
+    expect(
+      bodyAfterMultiplePricingRuleConflict({
+        coupon_code: "SV20",
+        ignore_pricing_rule: 0,
+        items: [{ item_code: "A", qty: 1, rate: 8000 }],
+      }),
+    ).toEqual({
+      coupon_code: "SV20",
+      ignore_pricing_rule: 1,
+      items: [{ item_code: "A", qty: 1, rate: 8000 }],
+    });
+  });
+});
 
 describe("isUsableErpSalesInvoiceId", () => {
   it("accepts real SI names", () => {

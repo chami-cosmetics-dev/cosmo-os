@@ -312,7 +312,9 @@ export function buildMainSheetRows(input: BuildWorkbookInput): Record<string, st
     }
     record["Total ROP"] = historical ? null : totalRop;
     const pct = historical ? null : percentOfRop(totalStock, totalRop > 0 ? totalRop : null);
-    record["% of ROP"] = pct == null ? null : Math.round(pct * 10000) / 100;
+    const pctDisplay = pct == null ? null : Math.round(pct * 10000) / 100;
+    record["% of ROP"] = pctDisplay;
+    record["Stock Ratio"] = pctDisplay;
     record["70% OF TOTAL ROP"] = historical
       ? null
       : seventyPercentOfRop(totalRop > 0 ? totalRop : null);
@@ -431,6 +433,7 @@ export function mainColumnDescriptors(input: BuildWorkbookInput): OsfColumnDef[]
   defs.push({ header: "Total ROP", sum: true, accessKey: "Total ROP", band: "rop" });
 
   defs.push({ header: "% of ROP", accessKey: "% of ROP", band: "calc" });
+  defs.push({ header: "Stock Ratio", accessKey: "Stock Ratio", band: "calc" });
   defs.push({ header: "70% OF TOTAL ROP", sum: true, accessKey: "70% OF TOTAL ROP", band: "calc" });
   defs.push({
     header: "70% OF TOTAL ROP AVAILABILITY",

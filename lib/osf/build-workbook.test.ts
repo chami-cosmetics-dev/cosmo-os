@@ -112,11 +112,14 @@ describe("buildMainSheetRows", () => {
     expect(first).not.toHaveProperty("Common SKU Reorder");
     expect(first).toHaveProperty("OGF Price");
     expect(first).toHaveProperty("% of ROP");
+    expect(first).toHaveProperty("Stock Ratio");
     expect(first).not.toHaveProperty("Variant SKU");
     expect(first).not.toHaveProperty("Variant SKU (-)");
     expect(first["Total Stock"]).toBe(2);
     expect(first["LMJ ROP"]).toBe(10);
     expect(first["Total ROP"]).toBe(10);
+    expect(first["% of ROP"]).toBe(20);
+    expect(first["Stock Ratio"]).toBe(20);
     expect(first["OGF Price"]).toBe(90);
     expect(first).toHaveProperty("Target Purchase Rate");
     expect(first["Sales Units (2026-06)"]).toBe(7);
@@ -522,6 +525,7 @@ describe("buildMainSheetRows", () => {
     expect(row["LMJ ROP"]).toBeNull();
     expect(row["Total ROP"]).toBeNull();
     expect(row["% of ROP"]).toBeNull();
+    expect(row["Stock Ratio"]).toBeNull();
     expect(row["LMJ ORDER QTY"]).toBeNull();
     expect(row["TOTAL ORDER QTY"]).toBeNull();
     expect(row["Cosmetics MRP"]).toBeNull();
@@ -594,6 +598,8 @@ describe("buildOsfWorkbookBuffer", () => {
       expect(headers).toContain("LMJ");
       expect(headers).toContain("Total Stock");
       expect(headers).toContain("Total ROP");
+      expect(headers).toContain("% of ROP");
+      expect(headers).toContain("Stock Ratio");
       expect(headers).toContain("April 2026 Sales Total");
       expect(headers).toContain("Best Purchase Value");
       expect(headers).toContain("Best Supplier");
@@ -724,6 +730,7 @@ describe("buildOsfWorkbookBuffer", () => {
           "Total Stock",
           "Total ROP",
           "% of ROP",
+          "Stock Ratio",
           "70% OF TOTAL ROP",
           "70% OF TOTAL ROP AVAILABILITY",
           "TOTAL ORDER QTY",

@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { writeAuditLog } from "@/lib/audit-log";
 import { requireMaterialTransferAccess } from "@/lib/material-transfer/auth";
-import { recordSentTransfer } from "@/lib/material-transfer/receipts";
 import { erpErrorMessage } from "@/lib/material-transfer/erp-error";
 import {
   listTransferWarehouses,
@@ -11,10 +10,11 @@ import {
   resolveTransferSlots,
   submitMaterialTransfer,
 } from "@/lib/material-transfer/erp";
+import { recordSentTransferResilient } from "@/lib/material-transfer/reconcile-sent";
 import { materialTransferSubmitSchema } from "@/lib/validation/material-transfer";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 export async function POST(request: NextRequest) {
   const auth = await requireMaterialTransferAccess();
@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
     let receiptId: string | null = null;
     let receiptError: string | null = null;
     try {
-      const saved = await recordSentTransfer({
+      const saved = await recordSentTransferResilient({
         companyId: auth.companyId,
         slot: parsed.data.slot,
         erpName: result.name,

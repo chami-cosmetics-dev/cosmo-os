@@ -17,6 +17,7 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { approvalSplitLineLabel, resolveSplitPaymentDisplay } from "@/lib/approval-payment-split";
 import { getPaymentMethodInfo } from "@/lib/payment-method-label";
 import {
   formatFulfillmentOrderReferenceText,
@@ -40,6 +41,7 @@ type AwaitingInvoiceOrder = {
   fulfillmentStage: string;
   paymentGatewayPrimary?: string | null;
   paymentGatewayNames?: string[] | null;
+  splitPaymentLabel?: string | null;
   financialStatus: string | null;
   companyLocation: { id: string; name: string } | null;
   createdAt: string;
@@ -74,6 +76,17 @@ type OrderDetail = {
   totalShipping: string | null;
   shippingRuleLabel?: string | null;
   currency?: string | null;
+  paymentTypeLabel?: string | null;
+  paymentApproval?: {
+    status?: string | null;
+    requestNote?: string | null;
+    paymentLines?: Array<{ paymentMethod: string; amount: string }>;
+    splitPayment?: {
+      pairLabel: string;
+      doorCollection: boolean;
+      lines: Array<{ label: string; amount: string }>;
+    } | null;
+  } | null;
   dispatchedAt: string | null;
   deliveryCompleteAt?: string | null;
   dispatchedBy: { name: string | null } | null;
@@ -214,8 +227,13 @@ export function FulfillmentBulkInvoiceComplete({
     let cancelled = false;
     fetch(`/api/admin/orders/${initialOrderId}`)
       .then((r) => (r.ok ? r.json() : null))
-      .then((data: AwaitingInvoiceOrder | null) => {
-        if (!cancelled && data?.id) addOrder(data);
+      .then((data: (AwaitingInvoiceOrder & { paymentTypeLabel?: string | null }) | null) => {
+        if (!cancelled && data?.id) {
+          addOrder({
+            ...data,
+            splitPaymentLabel: data.splitPaymentLabel ?? data.paymentTypeLabel ?? null,
+          });
+        }
       })
       .catch(() => {});
     return () => {
@@ -311,11 +329,38 @@ export function FulfillmentBulkInvoiceComplete({
   const activeOrder = selectedOrders.find((o) => o.id === activeOrderId) ?? null;
   const detail = activeOrderId ? (orderDetails[activeOrderId] ?? null) : null;
   const loading = activeOrderId ? (detailLoading[activeOrderId] ?? false) : false;
-  const payment = getPaymentMethodInfo({
+  const gatewayPayment = getPaymentMethodInfo({
     paymentGatewayPrimary: activeOrder?.paymentGatewayPrimary,
     paymentGatewayNames: activeOrder?.paymentGatewayNames,
     financialStatus: activeOrder?.financialStatus,
   });
+  const splitDisplay =
+    detail?.paymentApproval?.splitPayment ??
+    resolveSplitPaymentDisplay(detail?.paymentApproval ?? {});
+  const paymentLabel =
+    splitDisplay?.pairLabel?.trim() ||
+    detail?.paymentTypeLabel?.trim() ||
+    activeOrder?.splitPaymentLabel?.trim() ||
+    gatewayPayment.label;
+  const splitAmountLine = (() => {
+    const apiLines = detail?.paymentApproval?.splitPayment?.lines;
+    if (apiLines?.length) {
+      return apiLines
+        .map(
+          (line) =>
+            `${line.label} ${Number(line.amount).toLocaleString("en-LK", { minimumFractionDigits: 2 })}`,
+        )
+        .join(" + ");
+    }
+    const resolved = resolveSplitPaymentDisplay(detail?.paymentApproval ?? {});
+    if (!resolved?.lines?.length) return null;
+    return resolved.lines
+      .map(
+        (line) =>
+          `${approvalSplitLineLabel(line.paymentMethod)} ${line.amount.toLocaleString("en-LK", { minimumFractionDigits: 2 })}`,
+      )
+      .join(" + ");
+  })();
   const addr = detail?.shippingAddress;
   const addrLine = [addr?.address1, addr?.address2, addr?.city].filter(Boolean).join(", ");
   const dispatchVia =
@@ -539,9 +584,22 @@ export function FulfillmentBulkInvoiceComplete({
             <p>
               <span className="font-medium">Address:</span> {addrLine || "-"}
             </p>
-            <p>
-              <span className="font-medium">Payment:</span> {payment.label}
-            </p>
+            <div>
+              <p>
+                <span className="font-medium">Payment:</span> {paymentLabel}
+              </p>
+              {splitAmountLine ? (
+                <p className="text-xs text-muted-foreground">
+                  {splitAmountLine}
+                  {activeOrder.currency ? ` ${activeOrder.currency}` : ""}
+                </p>
+              ) : null}
+              {splitDisplay && "doorCollection" in splitDisplay && splitDisplay.doorCollection ? (
+                <p className="text-xs text-muted-foreground">
+                  Door collection — invoice complete posts Card + Cash ERP payment entries.
+                </p>
+              ) : null}
+            </div>
           </div>
           <div className="space-y-1">
             <p>

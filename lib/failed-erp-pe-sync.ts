@@ -10,10 +10,16 @@ import {
 } from "@/lib/failed-erp-sync-classification";
 import { markOrderFinanciallyInvoiceComplete } from "@/lib/financial-invoice-complete";
 import {
+  approvalSplitPairId,
+  isDoorCollectionSplitPair,
+} from "@/lib/approval-payment-split";
+import {
+  syncApprovalSplitPaymentEntriesToErp,
   syncOrderDeliveryPaymentEntriesToErp,
   getErpConfig,
   resolveOrderPaymentMop,
 } from "@/lib/erpnext-sync";
+import { loadLatestOrderSplitApprovalForErp } from "@/lib/order-split-payment";
 import { resolveBankTransferMopName } from "@/lib/payment-gateway-match";
 import { prisma } from "@/lib/prisma";
 
@@ -350,23 +356,58 @@ export async function retryOrderErpPeSync(input: {
     throw new Error("ERP payment mode is required to retry");
   }
 
-  const peResult = await syncOrderDeliveryPaymentEntriesToErp(
-    {
-      id: order.id,
-      name: order.name,
-      shopifyOrderId: order.shopifyOrderId,
-      sourceName: order.sourceName,
-      paymentGatewayPrimary: order.paymentGatewayPrimary,
-      paymentGatewayNames: order.paymentGatewayNames,
-      erpnextInvoiceId: order.erpnextInvoiceId,
-    },
-    order.companyLocation,
-    new Date(),
-    {
-      mopNameOverride: mopName,
-      requireMop: true,
-    },
-  );
+  const splitApproval = await loadLatestOrderSplitApprovalForErp(order.id);
+  const splitMethods = splitApproval?.paymentLines.map((line) => line.paymentMethod) ?? [];
+  const openSplitLines =
+    splitApproval?.paymentLines.filter((line) => !line.erpPaymentEntryName) ?? [];
+  const doorCollection = isDoorCollectionSplitPair(splitMethods);
+  const useSplitRetry =
+    Boolean(splitApproval) &&
+    approvalSplitPairId(splitMethods) != null &&
+    openSplitLines.length > 0;
+
+  const peResult = useSplitRetry && splitApproval
+    ? await syncApprovalSplitPaymentEntriesToErp(
+        {
+          id: splitApproval.id,
+          kokoReference: splitApproval.kokoReference,
+          paymentLines: splitApproval.paymentLines,
+        },
+        {
+          name: order.name,
+          shopifyOrderId: order.shopifyOrderId,
+          sourceName: order.sourceName,
+          paymentGatewayPrimary: order.paymentGatewayPrimary,
+          paymentGatewayNames: order.paymentGatewayNames,
+          erpnextInvoiceId: order.erpnextInvoiceId,
+          totalPrice: order.totalPrice,
+        },
+        order.companyLocation,
+        new Date(),
+        {
+          phase: "invoice_complete",
+          // Door collection posts Card + Cash MOPs from the plan; other splits may
+          // apply the retry MOP to the remaining cash leg only.
+          ...(!doorCollection ? { cashMopOverride: mopName } : {}),
+        },
+      )
+    : await syncOrderDeliveryPaymentEntriesToErp(
+        {
+          id: order.id,
+          name: order.name,
+          shopifyOrderId: order.shopifyOrderId,
+          sourceName: order.sourceName,
+          paymentGatewayPrimary: order.paymentGatewayPrimary,
+          paymentGatewayNames: order.paymentGatewayNames,
+          erpnextInvoiceId: order.erpnextInvoiceId,
+        },
+        order.companyLocation,
+        new Date(),
+        {
+          mopNameOverride: mopName,
+          requireMop: true,
+        },
+      );
   if (peResult.outcome === "skipped") {
     throw new Error("ERP payment entry was skipped unexpectedly");
   }

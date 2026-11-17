@@ -15,11 +15,19 @@ import {
   getErpConfig,
   mapDeliveryPaymentMethodToMop,
   resolveOrderPaymentMop,
+  syncApprovalSplitPaymentEntriesToErp,
   syncOrderDeliveryPaymentEntriesToErp,
 } from "@/lib/erpnext-sync";
 import { orderStageUpdate } from "@/lib/order-stage-timing";
-import { approvalSplitCashCollectAmount } from "@/lib/approval-payment-split";
-import { loadLatestOrderSplitPaymentLines } from "@/lib/order-split-payment";
+import {
+  approvalSplitCashCollectAmount,
+  approvalSplitPairId,
+  isDoorCollectionSplitPair,
+} from "@/lib/approval-payment-split";
+import {
+  loadLatestOrderSplitApprovalForErp,
+  loadLatestOrderSplitPaymentLines,
+} from "@/lib/order-split-payment";
 import { prisma } from "@/lib/prisma";
 import { shouldCommitInvoiceComplete } from "@/lib/rider-handover";
 import { ERP_OWNER_MISSING_MESSAGE, erpDocumentOwner } from "@/lib/erp-payment-entry-owner";
@@ -114,8 +122,20 @@ export async function markOrderInvoiceComplete(input: {
   const erpCfg = order.companyLocation?.erpnextInstance
     ? getErpConfig(order.companyLocation.erpnextInstance)
     : null;
+  const splitApproval = await loadLatestOrderSplitApprovalForErp(order.id);
+  const splitMethods = splitApproval?.paymentLines.map((line) => line.paymentMethod) ?? [];
+  const doorCollectionSplit = isDoorCollectionSplitPair(splitMethods);
+  const openSplitLines =
+    splitApproval?.paymentLines.filter((line) => !line.erpPaymentEntryName) ?? [];
+  const useSplitInvoiceCompletePes =
+    Boolean(splitApproval) &&
+    approvalSplitPairId(splitMethods) != null &&
+    openSplitLines.length > 0 &&
+    // Door collection always posts both legs; prepaid cash splits post remaining cash.
+    // Explicit single-MOP override keeps the legacy one-PE path (except door collection).
+    (doorCollectionSplit || !mopOverride);
   const cashToCollect = approvalSplitCashCollectAmount(
-    await loadLatestOrderSplitPaymentLines(order.id),
+    splitApproval?.paymentLines ?? (await loadLatestOrderSplitPaymentLines(order.id)),
   );
   const cashSplitMop =
     cashToCollect != null && erpCfg
@@ -124,7 +144,7 @@ export async function markOrderInvoiceComplete(input: {
       : null;
   const resolvedMop =
     mopOverride ??
-    cashSplitMop ??
+    (doorCollectionSplit ? null : cashSplitMop) ??
     (erpCfg
       ? resolveOrderPaymentMop(erpCfg, order.paymentGatewayPrimary, order.paymentGatewayNames, {
           courierServiceName,
@@ -197,26 +217,57 @@ export async function markOrderInvoiceComplete(input: {
       return { outcome: "error", erpPeError };
     }
     try {
-      const peResult = await syncOrderDeliveryPaymentEntriesToErp(
-        {
-          id: order.id,
-          name: order.name,
-          shopifyOrderId: order.shopifyOrderId,
-          sourceName: order.sourceName,
-          paymentGatewayPrimary: order.paymentGatewayPrimary,
-          paymentGatewayNames: order.paymentGatewayNames,
-          erpnextInvoiceId: order.erpnextInvoiceId,
-          courierServiceName,
-        },
-        order.companyLocation,
-        now,
-        {
-          mopNameOverride: mopOverride ?? cashSplitMop ?? undefined,
-          requireMop: true,
-          ...(cashToCollect != null ? { paidAmount: cashToCollect } : {}),
-          ...(erpOwner ? { owner: erpOwner } : {}),
-        },
-      );
+      const peResult =
+        useSplitInvoiceCompletePes && splitApproval
+          ? await syncApprovalSplitPaymentEntriesToErp(
+              {
+                id: splitApproval.id,
+                kokoReference: splitApproval.kokoReference,
+                paymentLines: splitApproval.paymentLines,
+              },
+              {
+                name: order.name,
+                shopifyOrderId: order.shopifyOrderId,
+                sourceName: order.sourceName,
+                paymentGatewayPrimary: order.paymentGatewayPrimary,
+                paymentGatewayNames: order.paymentGatewayNames,
+                erpnextInvoiceId: order.erpnextInvoiceId,
+                totalPrice: order.totalPrice,
+              },
+              order.companyLocation,
+              now,
+              {
+                phase: "invoice_complete",
+                ...(erpOwner ? { owner: erpOwner } : {}),
+                ...(!doorCollectionSplit && (mopOverride || cashSplitMop)
+                  ? { cashMopOverride: (mopOverride || cashSplitMop)! }
+                  : {}),
+              },
+            )
+          : splitApproval &&
+              approvalSplitPairId(splitMethods) != null &&
+              openSplitLines.length === 0
+            ? { outcome: "already_paid" as const }
+            : await syncOrderDeliveryPaymentEntriesToErp(
+                {
+                  id: order.id,
+                  name: order.name,
+                  shopifyOrderId: order.shopifyOrderId,
+                  sourceName: order.sourceName,
+                  paymentGatewayPrimary: order.paymentGatewayPrimary,
+                  paymentGatewayNames: order.paymentGatewayNames,
+                  erpnextInvoiceId: order.erpnextInvoiceId,
+                  courierServiceName,
+                },
+                order.companyLocation,
+                now,
+                {
+                  mopNameOverride: mopOverride ?? cashSplitMop ?? undefined,
+                  requireMop: true,
+                  ...(cashToCollect != null ? { paidAmount: cashToCollect } : {}),
+                  ...(erpOwner ? { owner: erpOwner } : {}),
+                },
+              );
       if (peResult.outcome === "skipped") {
         const erpPeError = "ERP payment entry was skipped unexpectedly";
         await markOrderErpPeSyncFailed(order.id, erpPeError, mopForFailure, now);

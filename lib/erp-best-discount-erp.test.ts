@@ -9,12 +9,18 @@ const cfg = {
 };
 
 describe("couponFieldsForInvoiceCreate", () => {
-  it("strips coupon_code so ERP cannot reprice, keeps label on custom_coupon_code", () => {
+  it("keeps coupon_code on create so ERP can apply the Pricing Rule", () => {
     expect(
       couponFieldsForInvoiceCreate({ coupon_code: "SV10", custom_merchant_coupon_code: "SHOPIFY" }, "SV10"),
     ).toEqual({
+      coupon_code: "SV10",
       custom_merchant_coupon_code: "SHOPIFY",
-      custom_coupon_code: "SV10",
+    });
+  });
+
+  it("falls back to custom_coupon_code label when coupon_code was not resolved", () => {
+    expect(couponFieldsForInvoiceCreate({}, "DIR100")).toEqual({
+      custom_coupon_code: "DIR100",
     });
   });
 });
