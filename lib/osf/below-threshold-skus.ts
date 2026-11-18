@@ -1,6 +1,7 @@
 import "server-only";
 
 import { isBundleCatalogItem } from "@/lib/catalog-bundle";
+import { mapGetBySku, skuVariantKeys } from "@/lib/osf/base-sku";
 import { resolveOsfColumns } from "@/lib/osf/column-config";
 import { fetchBinActualQty, getAllOsfErpInstances, stockForColumn } from "@/lib/osf/erp-stock";
 import { isBelowReorderThreshold } from "@/lib/osf/threshold";
@@ -114,7 +115,7 @@ export async function listBelowThresholdSkus(
       const hay = `${sku} ${catalogRow.productTitle} ${catalogRow.barcode ?? ""}`.toLowerCase();
       if (!hay.includes(q)) continue;
     }
-    const rops = ropsBySku.get(sku) ?? {};
+    const rops = mapGetBySku(ropsBySku, sku) ?? {};
     let totalRop = 0;
     for (const col of ropCols) {
       const r = rops[col.key];
@@ -138,7 +139,11 @@ export async function listBelowThresholdSkus(
     erpInstances.map(async (inst) => {
       const whs = [...(warehousesByInstance.get(inst.id) ?? [])];
       if (!whs.length) return;
-      const bins = await fetchBinActualQty({ cfg: inst.cfg, warehouses: whs, itemCodes: skus });
+      const bins = await fetchBinActualQty({
+        cfg: inst.cfg,
+        warehouses: whs,
+        itemCodes: [...new Set(skus.flatMap((sku) => skuVariantKeys(sku)))],
+      });
       for (const [key, qty] of bins) binMap.set(key, qty);
     }),
   );
@@ -150,13 +155,13 @@ export async function listBelowThresholdSkus(
       const qty = stockForColumn(binMap, col.warehouses, sku);
       if (qty != null) totalStock += qty;
     }
-    const rops = ropsBySku.get(sku) ?? {};
+    const rops = mapGetBySku(ropsBySku, sku) ?? {};
     let totalRop = 0;
     for (const col of ropCols) {
       const r = rops[col.key];
       if (r != null && Number.isFinite(r)) totalRop += r;
     }
-    const profile = profileBySku.get(sku);
+    const profile = mapGetBySku(profileBySku, sku);
     const cutoff =
       opts?.maxPercent != null ? opts.maxPercent : (profile?.reorderThresholdPercent ?? null);
     if (!isBelowReorderThreshold(totalStock, totalRop, cutoff)) continue;

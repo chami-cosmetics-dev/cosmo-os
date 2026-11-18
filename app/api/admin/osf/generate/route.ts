@@ -42,6 +42,7 @@ import {
   filterCatalogByOsfVariant,
   type OsfVariant,
 } from "@/lib/osf/vat-membership";
+import { mapGetBySku } from "@/lib/osf/base-sku";
 import { normalizeSkuKey, resolveErpSlots } from "@/lib/product-items/erp-priority-sync";
 import {
   findCosmeticsLkRopColumn,
@@ -368,7 +369,7 @@ export async function POST(request: NextRequest) {
           const qty = stockForColumn(binMap, col.warehouses, row.sku);
           if (qty != null) totalStock += qty;
         }
-        const profile = profileMap.get(row.sku);
+        const profile = mapGetBySku(profileMap, row.sku);
         const totalRop =
           osfVariant === "vat"
             ? totalRopForVat(profile?.rops, cosmeticsLkKey)
@@ -443,6 +444,7 @@ export async function POST(request: NextRequest) {
       bestPurchaseBySku,
       rankedSuppliersBySku,
       belowThresholdOnly,
+      stockPctCutoff: maxStockPctOfRop ?? undefined,
       effectiveColumnKeys,
       osfVariant,
       buyers: buyers

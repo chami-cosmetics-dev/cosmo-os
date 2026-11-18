@@ -1,5 +1,6 @@
 import "server-only";
 
+import { skuVariantKeys } from "@/lib/osf/base-sku";
 import { prisma } from "@/lib/prisma";
 
 export type OsfErpCredentials = {
@@ -250,12 +251,15 @@ export function stockForColumn(
   if (warehouses.length === 0) return null;
   let total = 0;
   let found = false;
-  for (const wh of warehouses) {
-    const key = `${wh}::${itemCode}`;
-    if (binMap.has(key)) {
-      found = true;
-      total += binMap.get(key)!;
+  for (const code of skuVariantKeys(itemCode)) {
+    for (const wh of warehouses) {
+      const key = `${wh}::${code}`;
+      if (binMap.has(key)) {
+        found = true;
+        total += binMap.get(key)!;
+      }
     }
+    if (found) break;
   }
   return found ? total : 0;
 }
