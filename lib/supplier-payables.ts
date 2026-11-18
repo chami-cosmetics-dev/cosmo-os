@@ -3,12 +3,21 @@ import "server-only";
 import { Prisma } from "@prisma/client";
 
 import { getAllOsfErpInstances, OsfErpError, type OsfErpCredentials } from "@/lib/osf/erp-stock";
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 import { isIntercompanyPurchaseSupplier } from "@/lib/osf/erp-purchases";
 import { prisma } from "@/lib/prisma";
 import { resolveErpSlots } from "@/lib/product-items/erp-priority-sync";
 
 const PAGE_LENGTH = 500;
 const MAX_SUPPLIER_PAGES = 80;
+
+function isCosmoIntercompanyPayableSupplier(
+  supplierId: string | null | undefined,
+  supplierName: string | null | undefined,
+) {
+  if (isVaultOsDeployment()) return false;
+  return [supplierId, supplierName].some((value) => value?.trim() === "110");
+}
 
 type ErpReportColumn = {
   fieldname?: string | null;
@@ -580,7 +589,8 @@ export async function refreshSupplierPayables(
         const filteredReportLines = reportLines.filter(
           (line) =>
             !matchesSupplierPrefix(line, supplierPrefixes) &&
-            !isIntercompanyPurchaseSupplier(line.supplierId, line.supplierName),
+            !isIntercompanyPurchaseSupplier(line.supplierId, line.supplierName) &&
+            !isCosmoIntercompanyPayableSupplier(line.supplierId, line.supplierName),
         );
         for (const line of filteredReportLines) {
           seenSupplierIds.add(line.supplierId.toLowerCase());

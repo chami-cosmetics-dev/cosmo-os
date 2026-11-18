@@ -93,3 +93,17 @@ export function injectCashSplitPrepaidInvoiceRows(template: string): string {
 export function renderPrintFormatHtml(template: string, context: RenderScope): string {
   return renderSection(injectCashSplitPrepaidInvoiceRows(template), context);
 }
+
+/** Add component rows to the existing Cosmo item table without changing saved formats. */
+export function injectBundleComponentInvoiceRows(template: string): string {
+  if (template.includes("bundleComponentRowsHtml")) return template;
+  const withRows = template.replace(
+    /({{#each\s+lineItems}})([\s\S]*?)(<\/tr>)([\s\S]*?)({{\/each}})/,
+    (_match, start: string, before: string, rowEnd: string, after: string, end: string) =>
+      `${start}${before}${rowEnd}\n{{{bundleComponentRowsHtml}}}${after}${end}`,
+  );
+  if (withRows === template) return template;
+  return withRows.replace("</style>",
+    `.bundle-component-row td { padding-top: 3px; padding-bottom: 3px; border-bottom: none; font-size: 11px; vertical-align: top; word-wrap: break-word; }\n</style>`,
+  );
+}

@@ -29,6 +29,11 @@ export type EmailTemplateDefinition = {
 export const STOCK_PRICE_MISSING_DAILY_KEY = "stock_price_missing_daily";
 export const RESIGNATION_NOTICE_KEY = "resignation_notice";
 export const GRN_PENDING_DAILY_KEY = "grn_pending_daily";
+export const LEGACY_GRN_PENDING_BODY_HTML = `<p>Here are the pending GRN statuses as of <strong>{{reportDate}}</strong>.</p>
+{{summaryTableHtml}}
+<p style="color:#666;font-size:12px;margin-top:24px;">
+  The full GRN report is attached as an Excel file.
+</p>`;
 export const RECEIVABLE_DELIVERY_PAYMENT_PENDING_DAILY_KEY = "receivable_delivery_payment_pending_daily";
 export const RECEIVABLE_NOT_DISPATCHED_DAILY_KEY = "receivable_not_dispatched_daily";
 export const RECEIVABLE_DELIVERY_INCOMPLETE_DAILY_KEY = "receivable_delivery_incomplete_daily";
@@ -207,12 +212,8 @@ export const BUILTIN_EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
   {
     key: GRN_PENDING_DAILY_KEY,
     name: "GRN pending daily report",
-    subject: "Pending GRN status as of {{reportDate}}",
-    bodyHtml: `<p>Here are the pending GRN statuses as of <strong>{{reportDate}}</strong>.</p>
-{{summaryTableHtml}}
-<p style="color:#666;font-size:12px;margin-top:24px;">
-  The full GRN report is attached as an Excel file.
-</p>`,
+    subject: "GRNs needing action — {{reportDate}} ({{total}})",
+    bodyHtml: "{{reportHtml}}",
     recipients: "",
     ccRecipients: "",
     placeholders: [
@@ -224,8 +225,12 @@ export const BUILTIN_EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
       "awaitingReceive",
       "pricingReview",
       "grnNotReceived",
+      "marginApproval",
+      "paymentApproval",
+      "paymentPending",
       "total",
       "summaryTableHtml",
+      "reportHtml",
     ],
     builtin: true,
     automated: true,

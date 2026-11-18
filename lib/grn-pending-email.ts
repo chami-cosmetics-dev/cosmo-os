@@ -1,12 +1,13 @@
 import type { Prisma } from "@prisma/client";
 import * as XLSX from "xlsx";
 
-import { GRN_PENDING_DAILY_KEY, builtinTemplateByKey } from "@/lib/email-templates/catalog";
+import { GRN_PENDING_DAILY_KEY, LEGACY_GRN_PENDING_BODY_HTML, builtinTemplateByKey } from "@/lib/email-templates/catalog";
 import { parseEmailAddressList, renderEmailTemplatePlaceholders } from "@/lib/email-templates/render";
 import { formatAppDateTime, formatAppIsoDate } from "@/lib/format-datetime";
 import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 import { tallyLinkedItems } from "@/lib/grn";
 import { sendErpSyncFailureAlertEmail } from "@/lib/maileroo";
+import { isIntercompanyPurchaseSupplier } from "@/lib/osf/erp-purchases";
 import { prisma } from "@/lib/prisma";
 
 export type GrnPendingEmailSource = "cron" | "manual" | "preview_test";
@@ -41,6 +42,9 @@ export type GrnPendingStageSummary = {
   notCompleted: number;
   awaitingReceive: number;
   pricingReview: number;
+  marginApproval: number;
+  paymentApproval: number;
+  paymentPending: number;
 };
 
 export type GrnPendingReportSnapshot = {
@@ -52,6 +56,7 @@ export type GrnPendingReportSnapshot = {
   summary: GrnPendingStageSummary;
   subject: string;
   htmlBody: string;
+  reportHtml: string;
   plainBody: string;
   rows: PendingGrnReportRow[];
   attachment: {
@@ -78,8 +83,13 @@ function workflowStatus(row: {
   valuationConfirmedAt: Date | null;
   requiresValuationConfirmation: boolean;
   receivedAt: Date | null;
-}) {
-  if (row.receivedAt) return "GRN Received";
+}, isIntercompanySupplier: boolean, approvals?: { marginComplete: boolean; paymentApproved: boolean; paid: boolean }) {
+  if (row.receivedAt) {
+    if (!isIntercompanySupplier && !approvals?.marginComplete) return "Margin approval pending";
+    if (!approvals?.paymentApproved) return "Payment approval pending";
+    if (!approvals.paid) return "Payment pending";
+    return "Completed";
+  }
   if (!row.handoverAt) return "Handover pending";
   if (isVaultOsDeployment()) {
     if (!row.handoverReceivedAt) return "Verify pending";
@@ -88,7 +98,7 @@ function workflowStatus(row: {
   }
   if (!row.handoverReceivedAt) return "Receive pending";
   if (!row.valuedAt) return "Valuation pending";
-  if (row.requiresValuationConfirmation && !row.valuationConfirmedAt) return "Pricing Review pending";
+  if (row.requiresValuationConfirmation && !isIntercompanySupplier && !row.valuationConfirmedAt) return "Pricing Review pending";
   return "GRN received pending";
 }
 
@@ -137,6 +147,9 @@ function summarizePendingRows(rows: PendingGrnReportRow[]): GrnPendingStageSumma
     notCompleted: rows.filter((row) => row.status === "GRN received pending").length,
     awaitingReceive: rows.filter((row) => row.status === "Receive pending" || row.status === "Verify pending").length,
     pricingReview: rows.filter((row) => row.status === "Pricing Review pending").length,
+    marginApproval: rows.filter((row) => row.status === "Margin approval pending").length,
+    paymentApproval: rows.filter((row) => row.status === "Payment approval pending").length,
+    paymentPending: rows.filter((row) => row.status === "Payment pending").length,
   };
 }
 
@@ -147,6 +160,9 @@ export function buildSummaryTableHtml(summary: GrnPendingStageSummary) {
     ["Valuation pending", summary.notValued],
     ...(!isVaultOsDeployment() ? [["Pricing Review pending", summary.pricingReview] as const] : []),
     ["GRN received pending", summary.notCompleted],
+    ["Margin approval pending", summary.marginApproval],
+    ["Payment approval pending", summary.paymentApproval],
+    ["Payment pending", summary.paymentPending],
   ] as const;
   return `<table style="border-collapse:collapse;width:100%;margin:16px 0;">
     <thead>
@@ -168,30 +184,55 @@ async function resolveGrnPendingEmailTemplate(companyId: string) {
     where: { companyId_key: { companyId, key: GRN_PENDING_DAILY_KEY } },
   });
   return {
-    subject: stored?.subject?.trim() || builtin.subject,
-    bodyHtml: stored?.bodyHtml?.trim() || builtin.bodyHtml,
+    subject: normalizeGrnPendingTemplateSubject(stored?.subject?.trim() || builtin.subject),
+    bodyHtml: normalizeGrnPendingTemplateBody(stored?.bodyHtml || builtin.bodyHtml),
     recipients: stored?.recipients ?? builtin.recipients,
     ccRecipients: stored?.ccRecipients ?? builtin.ccRecipients,
   };
+}
+
+export function normalizeGrnPendingTemplateBody(bodyHtml: string) {
+  return bodyHtml.trim() === LEGACY_GRN_PENDING_BODY_HTML.trim() ? "{{reportHtml}}" : bodyHtml;
+}
+
+export function normalizeGrnPendingTemplateSubject(subject: string) {
+  return subject.trim() === "Pending GRN status as of {{reportDate}}"
+    ? "GRNs needing action — {{reportDate}} ({{total}})"
+    : subject;
 }
 
 function buildEmailBodies(input: {
   companyName: string;
   reportDate: string;
   generatedAt: string;
-  rows: PendingGrnReportRow[];
   summary: GrnPendingStageSummary;
 }) {
-  const htmlBody = `
-<!DOCTYPE html>
-<html>
-<body style="font-family:system-ui,sans-serif;max-width:760px;margin:0 auto;padding:20px;color:#333;">
-  <h2 style="color:#1a1a1a;">Pending GRN Report</h2>
-  <p><strong>${escapeHtml(input.companyName)}</strong> has <strong>${input.summary.pendingTotal}</strong> pending GRN${input.summary.pendingTotal === 1 ? "" : "s"} as at ${escapeHtml(input.reportDate)}.</p>
-  <p style="color:#666;font-size:13px;">Generated at ${escapeHtml(formatAppDateTime(input.generatedAt))}. Full GRN details are attached as an Excel report.</p>
-  ${buildSummaryTableHtml(input.summary)}
-</body>
-</html>`.trim();
+  const stageRows = [
+    ["Handover", input.summary.pending],
+    [isVaultOsDeployment() ? "Verify" : "Receive", input.summary.awaitingReceive],
+    ["Valuation", input.summary.notValued],
+    ...(!isVaultOsDeployment() ? [["Pricing review", input.summary.pricingReview] as const] : []),
+    ["GRN receipt", input.summary.notCompleted],
+    ["Margin approval", input.summary.marginApproval],
+    ["Payment approval", input.summary.paymentApproval],
+    ["Payment", input.summary.paymentPending],
+  ].filter(([, count]) => Number(count) > 0);
+  const htmlBody = `<div style="background:#f3f6fb;padding:24px 12px;font-family:Arial,Helvetica,sans-serif;color:#172438;">
+  <div style="max-width:720px;margin:auto;background:#fff;border:1px solid #dfe6f1;border-radius:12px;overflow:hidden;">
+    <div style="background:#11243f;padding:26px 30px;color:#fff;">
+      <div style="font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:#a8c5ed;">${escapeHtml(input.companyName)} · Daily GRN report</div>
+      <h1 style="font-size:25px;line-height:1.3;margin:12px 0 6px;">GRNs needing action</h1>
+      <div style="color:#d6e2f4;font-size:14px;">As of ${escapeHtml(input.reportDate)}</div>
+    </div>
+    <div style="padding:25px 30px;">
+      <div style="font-size:15px;line-height:1.5;margin-bottom:22px;"><strong style="font-size:28px;">${input.summary.pendingTotal}</strong> active GRN${input.summary.pendingTotal === 1 ? "" : "s"} awaiting a workflow or payment step.</div>
+      <h2 style="font-size:16px;margin:0 0 10px;">Pending by next action</h2>
+      <table role="presentation" style="border-collapse:collapse;width:100%;font-size:14px;">${stageRows.map(([label, count]) => `<tr><td style="padding:10px 12px;border-bottom:1px solid #e9edf4;">${escapeHtml(String(label))}</td><td style="padding:10px 12px;border-bottom:1px solid #e9edf4;text-align:right;font-weight:bold;">${count}</td></tr>`).join("")}</table>
+      <p style="font-size:13px;color:#596b85;line-height:1.5;margin:22px 0 0;">The attached Excel file has all pending records, stage dates, supplier details, and tally results.</p>
+    </div>
+    <div style="background:#f8fafd;border-top:1px solid #e4eaf3;padding:14px 30px;font-size:11px;color:#6b7890;">Generated ${escapeHtml(formatAppDateTime(input.generatedAt))}</div>
+  </div>
+</div>`;
 
   const plainBody = `Pending GRN Report
 
@@ -203,9 +244,12 @@ Handover pending: ${input.summary.pending}
 ${isVaultOsDeployment() ? "Verify" : "Receive"} pending: ${input.summary.awaitingReceive}
 Valuation pending: ${input.summary.notValued}
 ${isVaultOsDeployment() ? "" : `Pricing Review pending: ${input.summary.pricingReview}\n`}GRN received pending: ${input.summary.notCompleted}
+Margin approval pending: ${input.summary.marginApproval}
+Payment approval pending: ${input.summary.paymentApproval}
+Payment pending: ${input.summary.paymentPending}
 Total: ${input.summary.pendingTotal}
 
-Full GRN details are attached as an Excel report.`;
+Full details are attached as an Excel report.`;
 
   return { htmlBody, plainBody };
 }
@@ -221,6 +265,13 @@ export async function buildGrnPendingReportSnapshot(
   });
   if (!company) throw new Error("Company not found");
 
+  const intercompanySupplierPrefixes = (await prisma.companyLocation.findMany({
+    where: { companyId },
+    select: { supplierPrefix: true },
+  }))
+    .map((location) => location.supplierPrefix?.trim())
+    .filter((prefix): prefix is string => Boolean(prefix));
+
   const amendedSourceRows = await prisma.grnPurchaseReceipt.findMany({
     where: {
       companyId,
@@ -231,18 +282,65 @@ export async function buildGrnPendingReportSnapshot(
   const amendedSourceNames = amendedSourceRows
     .map((row) => row.amendedFrom)
     .filter((name): name is string => Boolean(name));
+  const backfillAmendedSourceRows = await prisma.grnBackfillPurchaseReceipt.findMany({
+    where: { companyId, amendedFrom: { not: null } },
+    select: { amendedFrom: true },
+  });
+  const allAmendedSourceNames = [...new Set([
+    ...amendedSourceNames,
+    ...backfillAmendedSourceRows.map((row) => row.amendedFrom).filter((name): name is string => Boolean(name)),
+  ])];
 
   const receipts = await prisma.grnPurchaseReceipt.findMany({
     where: {
       companyId,
-      docstatus: { not: 2 },
-      receivedAt: null,
-      ...(amendedSourceNames.length > 0 ? { name: { notIn: amendedSourceNames } } : {}),
+      docstatus: 1,
+      deletedAt: null,
+      ...(allAmendedSourceNames.length > 0 ? { name: { notIn: allAmendedSourceNames } } : {}),
     },
     include: { items: true },
     orderBy: [{ creation: "asc" }, { createdAt: "asc" }],
-    take: 5000,
   });
+
+  const backfillReceipts = await prisma.grnBackfillPurchaseReceipt.findMany({
+    where: { companyId, docstatus: 1, deletedAt: null,
+      ...(allAmendedSourceNames.length > 0 ? { name: { notIn: allAmendedSourceNames } } : {}),
+    },
+    include: { items: true },
+    orderBy: [{ creation: "asc" }, { createdAt: "asc" }],
+  });
+  type EmailReceipt = {
+    companyId: string; name: string; creation: Date | null; postingDate: Date | null; createdAt: Date;
+    owner: string | null; supplier: string; supplierName: string | null;
+    handoverAt: Date | null; handoverReceivedAt: Date | null; valuedAt: Date | null;
+    valuationConfirmedAt: Date | null; requiresValuationConfirmation: boolean; receivedAt: Date | null;
+    supplierStockReturnName: string | null;
+    items: Array<{ itemCode: string; qty: number | Prisma.Decimal; stockQty: number | Prisma.Decimal | null }>;
+  };
+  const normalizeReceipt = (row: Omit<EmailReceipt, "supplierStockReturnName">, supplierStockReturnName: string | null): EmailReceipt => ({
+    companyId: row.companyId, name: row.name, creation: row.creation, postingDate: row.postingDate,
+    createdAt: row.createdAt, owner: row.owner, supplier: row.supplier, supplierName: row.supplierName,
+    handoverAt: row.handoverAt, handoverReceivedAt: row.handoverReceivedAt, valuedAt: row.valuedAt,
+    valuationConfirmedAt: row.valuationConfirmedAt, requiresValuationConfirmation: row.requiresValuationConfirmation,
+    receivedAt: row.receivedAt, supplierStockReturnName, items: row.items,
+  });
+  const liveKeys = new Set(receipts.map((row) => `${row.companyId}:${row.name}`));
+  const allReceipts: Array<{ row: EmailReceipt; isBackfill: boolean }> = [
+    ...receipts.map((row) => ({ row: normalizeReceipt(row, row.supplierStockReturnName), isBackfill: false })),
+    ...backfillReceipts.filter((row) => !liveKeys.has(`${row.companyId}:${row.name}`))
+      .map((row) => ({ row: normalizeReceipt(row, null), isBackfill: true })),
+  ];
+  allReceipts.sort((a, b) =>
+    (a.row.creation ?? a.row.postingDate ?? a.row.createdAt).getTime()
+    - (b.row.creation ?? b.row.postingDate ?? b.row.createdAt).getTime(),
+  );
+  const receiptNames = [...new Set(allReceipts.map(({ row }) => row.name))];
+  const [marginApprovals, paymentApprovals] = receiptNames.length ? await Promise.all([
+    prisma.grnMarginApproval.findMany({ where: { companyId, purchaseReceiptName: { in: receiptNames } }, select: { purchaseReceiptName: true, purchaseReceiptIsBackfill: true, itemCode: true } }),
+    prisma.grnPaymentApproval.findMany({ where: { companyId, purchaseReceiptName: { in: receiptNames } }, select: { purchaseReceiptName: true, purchaseReceiptIsBackfill: true, approvedAt: true, paidAt: true } }),
+  ]) : [[], []];
+  const approvedItems = new Set(marginApprovals.map((approval) => `${approval.purchaseReceiptIsBackfill}:${approval.purchaseReceiptName}:${approval.itemCode}`));
+  const payments = new Map(paymentApprovals.map((approval) => [`${approval.purchaseReceiptIsBackfill}:${approval.purchaseReceiptName}`, approval]));
 
   const linkedSsrNames = receipts
     .map((row) => row.supplierStockReturnName)
@@ -259,8 +357,8 @@ export async function buildGrnPendingReportSnapshot(
       : [];
   const linkedReturnByName = new Map(linkedReturns.map((row) => [row.name, row]));
 
-  const rows = receipts.map((row) => {
-    const linkedReturn = row.supplierStockReturnName
+  const rows = allReceipts.map(({ row, isBackfill }) => {
+    const linkedReturn = !isBackfill && row.supplierStockReturnName
       ? linkedReturnByName.get(row.supplierStockReturnName)
       : null;
     const tallyStatus =
@@ -280,14 +378,21 @@ export async function buildGrnPendingReportSnapshot(
       purchasingReceivedDate: formatDate(row.handoverReceivedAt),
       pricingReviewedDate: formatDate(row.valuationConfirmedAt),
       grnReceivedDate: formatDate(row.receivedAt),
-      status: workflowStatus(row),
+      status: workflowStatus(row,
+        isIntercompanyPurchaseSupplier(row.supplier, row.supplierName, intercompanySupplierPrefixes),
+        {
+          marginComplete: [...new Set(row.items.map((item) => item.itemCode))].every((code) => approvedItems.has(`${isBackfill}:${row.name}:${code}`)),
+          paymentApproved: Boolean(payments.get(`${isBackfill}:${row.name}`)?.approvedAt),
+          paid: Boolean(payments.get(`${isBackfill}:${row.name}`)?.paidAt),
+        }),
       tally: tallyLabel(tallyStatus),
     };
-  });
+  }).filter((row) => row.status !== "Completed");
 
   const generatedAt = new Date().toISOString();
   const summary = summarizePendingRows(rows);
   const template = await resolveGrnPendingEmailTemplate(company.id);
+  const bodies = buildEmailBodies({ companyName: company.name, reportDate, generatedAt, summary });
   const templateVars = {
     companyName: company.name,
     reportDate,
@@ -297,18 +402,16 @@ export async function buildGrnPendingReportSnapshot(
     awaitingReceive: summary.awaitingReceive,
     pricingReview: summary.pricingReview,
     grnNotReceived: summary.notCompleted,
+    marginApproval: summary.marginApproval,
+    paymentApproval: summary.paymentApproval,
+    paymentPending: summary.paymentPending,
     total: summary.pendingTotal,
     summaryTableHtml: buildSummaryTableHtml(summary),
+    reportHtml: bodies.htmlBody,
   };
   const subject = `${options?.isTest ? "[TEST] " : ""}${renderEmailTemplatePlaceholders(template.subject, templateVars)}`;
   const htmlBody = renderEmailTemplatePlaceholders(template.bodyHtml, templateVars);
-  const { plainBody } = buildEmailBodies({
-    companyName: company.name,
-    reportDate,
-    generatedAt,
-    rows,
-    summary,
-  });
+  const plainBody = bodies.plainBody;
 
   return {
     companyId: company.id,
@@ -319,6 +422,7 @@ export async function buildGrnPendingReportSnapshot(
     summary,
     subject,
     htmlBody,
+    reportHtml: bodies.htmlBody,
     plainBody,
     rows,
     attachment: {
