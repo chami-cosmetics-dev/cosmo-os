@@ -903,7 +903,7 @@ function GrnStageTimeline({
       canMarkPaid: false,
       paidAt: null,
     },
-    ...(!usesVaultValuationFlow && row.requiresValuationConfirmation
+    ...(!usesVaultValuationFlow && !row.isIntercompanySupplier && row.requiresValuationConfirmation
       ? [{
           label: "Confirm",
           field: "valuedAt" as const,
@@ -1874,12 +1874,17 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
     [data.purchaseReceipts],
   );
 
+  const rowRequiresPricingReview = useCallback(
+    (row: PurchaseReceiptRow) => !usesVaultValuationFlow && !row.isIntercompanySupplier && row.requiresValuationConfirmation,
+    [],
+  );
+
   const rowBelongsToStage = useCallback((row: PurchaseReceiptRow, stage: GrnActionStage) => {
     if (row.isCancelled) return false;
     if (stage === "handover") return true;
     if (stage === "valued") return Boolean(row.valuedAt || (row.handoverAt && row.handoverReceivedAt));
-    return Boolean(row.valuedAt && (usesVaultValuationFlow || !row.requiresValuationConfirmation || row.valuationConfirmedAt));
-  }, []);
+    return Boolean(row.valuedAt && (!rowRequiresPricingReview(row) || row.valuationConfirmedAt));
+  }, [rowRequiresPricingReview]);
 
   const rowCompletedForStage = useCallback((row: PurchaseReceiptRow, stage: GrnActionStage) => {
     if (stage === "handover") return Boolean(row.handoverAt);
@@ -1890,8 +1895,8 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
   const rowNeedsValuingVerification = useCallback((row: PurchaseReceiptRow) => {
     return !row.isCancelled && (usesVaultValuationFlow
       ? Boolean(row.handoverAt) && !row.handoverReceivedAt && !row.valuedAt
-      : Boolean(row.valuedAt) && row.requiresValuationConfirmation && !row.valuationConfirmedAt);
-  }, []);
+      : Boolean(row.valuedAt) && rowRequiresPricingReview(row) && !row.valuationConfirmedAt);
+  }, [rowRequiresPricingReview]);
 
   const rowNeedsVerification = useCallback((row: PurchaseReceiptRow, stage: GrnActionStage) => {
     if (row.isCancelled) return false;
@@ -1945,13 +1950,13 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
               all: rows.length,
               pending: rows.length - completed,
               completed: key === "valued" && !usesVaultValuationFlow
-                ? rows.filter((row) => Boolean(row.valuedAt && (row.receivedAt || !row.requiresValuationConfirmation || row.valuationConfirmedAt))).length
+                ? rows.filter((row) => Boolean(row.valuedAt && (row.receivedAt || !rowRequiresPricingReview(row) || row.valuationConfirmedAt))).length
                 : completed,
               value: key === "valued" ? rows.filter((row) => !row.valuedAt).length : 0,
               receive: key === "valued" ? data.purchaseReceipts.filter((row) =>
                 (companyFilter === "all" || row.companyName === companyFilter) && rowNotReceivedByValuing(row),
               ).length : 0,
-              pricing_review: key === "valued" ? rows.filter((row) => Boolean(row.valuedAt && row.handoverReceivedAt && row.requiresValuationConfirmation && !row.valuationConfirmedAt && !row.receivedAt)).length : 0,
+              pricing_review: key === "valued" ? rows.filter((row) => Boolean(row.valuedAt && row.handoverReceivedAt && rowRequiresPricingReview(row) && !row.valuationConfirmedAt && !row.receivedAt)).length : 0,
               mismatch,
               verify,
               not_received: notReceived,
@@ -1961,7 +1966,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
           ];
         }),
       ) as Record<GrnActionStage, Record<GrnStageStatusFilter, number>>,
-    [allowedStageFilters, companyFilter, data.purchaseReceipts, rowBelongsToStage, rowCompletedForStage, rowMismatchedForStage, rowNeedsVerification, rowNotReceivedByValuing],
+    [allowedStageFilters, companyFilter, data.purchaseReceipts, rowBelongsToStage, rowCompletedForStage, rowMismatchedForStage, rowNeedsVerification, rowNotReceivedByValuing, rowRequiresPricingReview],
   );
 
   const filteredPrs = useMemo(() => {
@@ -1990,15 +1995,15 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
           : stageFilter.stage === "valued" && stageFilter.status === "receive"
             ? rowNotReceivedByValuing(row)
           : stageFilter.stage === "valued" && stageFilter.status === "pricing_review"
-            ? rowBelongsToStage(row, "valued") && Boolean(row.valuedAt && row.handoverReceivedAt && row.requiresValuationConfirmation && !row.valuationConfirmedAt && !row.receivedAt)
+            ? rowBelongsToStage(row, "valued") && Boolean(row.valuedAt && row.handoverReceivedAt && rowRequiresPricingReview(row) && !row.valuationConfirmedAt && !row.receivedAt)
             : rowBelongsToStage(row, stageFilter.stage) &&
         (stageFilter.status === "all" ||
           (stageFilter.status === "pending" && !rowCompletedForStage(row, stageFilter.stage)) ||
-          (stageFilter.status === "completed" && rowCompletedForStage(row, stageFilter.stage) && (stageFilter.stage !== "valued" || usesVaultValuationFlow || Boolean(row.receivedAt || !row.requiresValuationConfirmation || row.valuationConfirmedAt))) ||
+          (stageFilter.status === "completed" && rowCompletedForStage(row, stageFilter.stage) && (stageFilter.stage !== "valued" || usesVaultValuationFlow || Boolean(row.receivedAt || !rowRequiresPricingReview(row) || row.valuationConfirmedAt))) ||
           (stageFilter.status === "mismatch" && rowMismatchedForStage(row, stageFilter.stage)));
       return matchesStage;
     });
-  }, [allowedStageFilters.length, companyFilter, data.purchaseReceipts, rowBelongsToStage, rowCompletedForStage, rowMismatchedForStage, rowNeedsVerification, rowNotReceivedByValuing, search, stageFilter.stage, stageFilter.status]);
+  }, [allowedStageFilters.length, companyFilter, data.purchaseReceipts, rowBelongsToStage, rowCompletedForStage, rowMismatchedForStage, rowNeedsVerification, rowNotReceivedByValuing, rowRequiresPricingReview, search, stageFilter.stage, stageFilter.status]);
 
   const fieldForStage = useCallback((stage: GrnActionStage): "handoverAt" | "valuedAt" | "receivedAt" => {
     if (stage === "handover") return "handoverAt";
@@ -2017,12 +2022,12 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
         return permissions.canMarkPaymentApproval && Boolean(row.receivedAt) && !row.paymentApprovedAt;
       }
       if (isConfirmationBulk) {
-        return permissions.canMarkValued && Boolean(row.valuedAt) && row.requiresValuationConfirmation && !row.valuationConfirmedAt;
+        return permissions.canMarkValued && Boolean(row.valuedAt) && rowRequiresPricingReview(row) && !row.valuationConfirmedAt;
       }
       if (isVerificationBulk) {
         return permissions.canMarkValued && (usesVaultValuationFlow
           ? Boolean(row.handoverAt) && !row.handoverReceivedAt && !row.valuedAt
-          : Boolean(row.valuedAt) && row.requiresValuationConfirmation && !row.valuationConfirmedAt);
+          : Boolean(row.valuedAt) && rowRequiresPricingReview(row) && !row.valuationConfirmedAt);
       }
       if (rowCompletedForStage(row, stageFilter.stage)) return false;
       if (stageFilter.stage === "handover") {
@@ -2032,7 +2037,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
         return permissions.canMarkValued && Boolean(row.handoverAt && row.handoverReceivedAt) && !hasPriceMismatchForPr(row);
       }
       return permissions.canMarkReceived && Boolean(row.handoverAt) && Boolean(row.handoverReceivedAt) &&
-        Boolean(row.valuedAt) && (usesVaultValuationFlow || !row.requiresValuationConfirmation || Boolean(row.valuationConfirmedAt));
+        Boolean(row.valuedAt) && (!rowRequiresPricingReview(row) || Boolean(row.valuationConfirmedAt));
     },
     [
       isVerificationBulk,
@@ -2045,6 +2050,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
       rowCompletedForStage,
       hasPriceMismatchForPr,
       rowMissingIntercompanySsr,
+      rowRequiresPricingReview,
       stageFilter.stage,
     ],
   );
@@ -3012,7 +3018,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                           <Button
                             size="sm"
                             variant="outline"
-                            disabled={row.isCancelled || !row.handoverAt || !row.handoverReceivedAt || !row.valuedAt || (!usesVaultValuationFlow && row.requiresValuationConfirmation && !row.valuationConfirmedAt) || busyKey === `${row.companyId}:${row.name}:receivedAt:mark`}
+                            disabled={row.isCancelled || !row.handoverAt || !row.handoverReceivedAt || !row.valuedAt || (rowRequiresPricingReview(row) && !row.valuationConfirmedAt) || busyKey === `${row.companyId}:${row.name}:receivedAt:mark`}
                             onClick={(event) => {
                               event.stopPropagation();
                               mark(row, "receivedAt");

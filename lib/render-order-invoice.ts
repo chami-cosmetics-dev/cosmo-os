@@ -24,7 +24,9 @@ import { loadLatestOrderSplitPaymentLines } from "@/lib/order-split-payment";
 import { buildPhoneLookupVariants } from "@/lib/phone-lookup";
 import { formatPickListBarcode, resolvePickListBarcode } from "@/lib/product-item-barcode";
 import { loadBarcodeLookupBySku } from "@/lib/product-item-barcode.server";
-import { renderPrintFormatHtml } from "@/lib/print-format-renderer";
+import { escapeHtml, injectBundleComponentInvoiceRows, renderPrintFormatHtml } from "@/lib/print-format-renderer";
+import { resolveOrderInvoiceBundleComponents } from "@/lib/order-invoice-bundle-components";
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 import { orderStageUpdate } from "@/lib/order-stage-timing";
 import { prisma } from "@/lib/prisma";
 import { cuidSchema } from "@/lib/validation";
@@ -425,6 +427,20 @@ export async function renderOrderInvoice(input: {
     };
   }
 
+  const bundleComponents = !isVaultOsDeployment()
+    ? await resolveOrderInvoiceBundleComponents({
+        rawPayload: order.rawPayload,
+        invoiceName: order.name,
+        erpnextInvoiceId: order.erpnextInvoiceId,
+        creds: erpConfig,
+        skus: order.lineItems.map((item) => item.productItem.sku),
+      })
+    : [];
+  const componentSkus = [...new Set(bundleComponents.flat().map((component) => component.sku))];
+  const componentBarcodes = componentSkus.length
+    ? await loadBarcodeLookupBySku(companyId, componentSkus, { erpConfig })
+    : new Map<string, string>();
+
   const renderedLineItems = order.lineItems.map((li, index) => {
     const pricing = linePricing[index];
     const regularPrice = pricing?.originalPrice ?? pricing?.salePrice ?? li.price.toString();
@@ -458,6 +474,14 @@ export async function renderOrderInvoice(input: {
       originalPriceFormatted: pricing?.originalPrice ? formatInvoiceMoney(pricing.originalPrice) : "",
       originalTotalFormatted: pricing?.originalTotal ? formatInvoiceMoney(pricing.originalTotal) : "",
       lineDiscountFormatted: pricing?.lineDiscount ? formatInvoiceMoney(pricing.lineDiscount) : "",
+      bundleComponentRowsHtml: (bundleComponents[index] ?? []).map((component) => {
+        const componentBarcode = formatPickListBarcode(
+          resolvePickListBarcode(null, component.sku, componentBarcodes),
+        ) ?? "";
+        return `<tr class="bundle-component-row"><td></td><td>- ${escapeHtml(component.sku)}</td>` +
+          `<td><span class="barcode">${escapeHtml(componentBarcode)}</span></td>` +
+          `<td>${escapeHtml(component.description)}</td><td></td><td></td><td></td><td></td></tr>`;
+      }).join(""),
     };
   });
 
@@ -571,7 +595,10 @@ export async function renderOrderInvoice(input: {
     })),
   };
 
-  const html = renderPrintFormatHtml(printFormat.html, context);
+  const html = renderPrintFormatHtml(
+    isVaultOsDeployment() ? printFormat.html : injectBundleComponentInvoiceRows(printFormat.html),
+    context,
+  );
 
   return { ok: true, html };
 }

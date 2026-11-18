@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { autoMatchIntercompanyGrn, tallyPurchaseInvoicePrices } from "@/lib/grn";
 import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
+import { isIntercompanyPurchaseSupplier } from "@/lib/osf/erp-purchases";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserContext, requirePermission } from "@/lib/rbac";
 
@@ -73,12 +74,30 @@ export async function POST(
   const targetCompanyId = parsed.data.companyId ?? companyId;
   const requiresVerificationBeforeValuation = isVaultOsDeployment();
   const requiresValuationConfirmationBeforeGrnReceived = !isVaultOsDeployment();
+  const intercompanySupplierPrefixes = requiresVerificationBeforeValuation
+    ? []
+    : (await prisma.companyLocation.findMany({
+        where: { companyId },
+        select: { supplierPrefix: true },
+      }))
+        .map((location) => location.supplierPrefix?.trim())
+        .filter((prefix): prefix is string => Boolean(prefix));
+  const requiresPricingReview = (row: {
+    supplier: string;
+    supplierName: string | null;
+    requiresValuationConfirmation: boolean;
+  }) =>
+    requiresValuationConfirmationBeforeGrnReceived &&
+    row.requiresValuationConfirmation &&
+    !isIntercompanyPurchaseSupplier(row.supplier, row.supplierName, intercompanySupplierPrefixes);
 
   if (parsed.data.isBackfill) {
     const row = await prisma.grnBackfillPurchaseReceipt.findUnique({
       where: { companyId_name: { companyId: targetCompanyId, name: decodedName } },
       select: {
         docstatus: true,
+        supplier: true,
+        supplierName: true,
         handoverAt: true,
         handoverReceivedAt: true,
         valuedAt: true,
@@ -150,8 +169,8 @@ export async function POST(
     if (parsed.data.field === "valuedAt" && (!row.handoverAt || !row.handoverReceivedAt)) {
       return NextResponse.json({ error: "Mark handover received before marking valued" }, { status: 409 });
     }
-    if (parsed.data.field === "receivedAt" && (!row.handoverAt || !row.valuedAt || !row.handoverReceivedAt || (requiresValuationConfirmationBeforeGrnReceived && row.requiresValuationConfirmation && !row.valuationConfirmedAt))) {
-      return NextResponse.json({ error: requiresValuationConfirmationBeforeGrnReceived && row.requiresValuationConfirmation ? "Mark handover received, valued, and confirmed before marking GRN received" : "Mark handover received and valued before marking GRN received" }, { status: 409 });
+    if (parsed.data.field === "receivedAt" && (!row.handoverAt || !row.valuedAt || !row.handoverReceivedAt || (requiresPricingReview(row) && !row.valuationConfirmedAt))) {
+      return NextResponse.json({ error: requiresPricingReview(row) ? "Mark handover received, valued, and confirmed before marking GRN received" : "Mark handover received and valued before marking GRN received" }, { status: 409 });
     }
     await update({
       [parsed.data.field]: now,
@@ -160,7 +179,9 @@ export async function POST(
       [FIELD_REVERTED_BY_COLUMNS[parsed.data.field]]: null,
       ...(parsed.data.field === "valuedAt" && { valuationRejectedAt: null, valuationRejectedById: null, valuationConfirmedAt: null, valuationConfirmedById: null }),
       ...(parsed.data.field === "handoverAt" && { notReceivedAt: null, notReceivedById: null, handoverReceivedAt: null, handoverReceivedById: null, valuationConfirmedAt: null, valuationConfirmedById: null }),
-      ...(parsed.data.field === "handoverAt" && !requiresVerificationBeforeValuation && { requiresValuationConfirmation: true }),
+      ...(parsed.data.field === "handoverAt" && !requiresVerificationBeforeValuation && {
+        requiresValuationConfirmation: !isIntercompanyPurchaseSupplier(row.supplier, row.supplierName, intercompanySupplierPrefixes),
+      }),
     });
     return NextResponse.json({ ok: true });
   }
@@ -171,6 +192,8 @@ export async function POST(
       id: true,
       name: true,
       docstatus: true,
+      supplier: true,
+      supplierName: true,
       handoverAt: true,
       handoverReceivedAt: true,
       valuedAt: true,
@@ -349,8 +372,8 @@ export async function POST(
   if (parsed.data.field === "valuedAt" && (!row.handoverAt || !row.handoverReceivedAt)) {
     return NextResponse.json({ error: "Mark handover received before marking valued" }, { status: 409 });
   }
-  if (parsed.data.field === "receivedAt" && (!row.handoverAt || !row.valuedAt || !row.handoverReceivedAt || (requiresValuationConfirmationBeforeGrnReceived && row.requiresValuationConfirmation && !row.valuationConfirmedAt))) {
-    return NextResponse.json({ error: requiresValuationConfirmationBeforeGrnReceived && row.requiresValuationConfirmation ? "Mark handover received, valued, and confirmed before marking GRN received" : "Mark handover received and valued before marking GRN received" }, { status: 409 });
+  if (parsed.data.field === "receivedAt" && (!row.handoverAt || !row.valuedAt || !row.handoverReceivedAt || (requiresPricingReview(row) && !row.valuationConfirmedAt))) {
+    return NextResponse.json({ error: requiresPricingReview(row) ? "Mark handover received, valued, and confirmed before marking GRN received" : "Mark handover received and valued before marking GRN received" }, { status: 409 });
   }
 
   await prisma.$transaction(async (tx) => {
@@ -370,7 +393,9 @@ export async function POST(
           valuationConfirmedAt: null,
           valuationConfirmedById: null,
         }),
-        ...(parsed.data.field === "handoverAt" && !requiresVerificationBeforeValuation && { requiresValuationConfirmation: true }),
+        ...(parsed.data.field === "handoverAt" && !requiresVerificationBeforeValuation && {
+          requiresValuationConfirmation: !isIntercompanyPurchaseSupplier(row.supplier, row.supplierName, intercompanySupplierPrefixes),
+        }),
       },
     });
   });

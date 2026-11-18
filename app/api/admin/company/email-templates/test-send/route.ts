@@ -7,7 +7,7 @@ import {
 } from "@/lib/email-templates/render";
 import { sendErpSyncFailureAlertEmail } from "@/lib/maileroo";
 import { prisma } from "@/lib/prisma";
-import { buildGrnPendingReportSnapshot, buildSummaryTableHtml, getCurrentColomboReportDate } from "@/lib/grn-pending-email";
+import { buildGrnPendingReportSnapshot, buildSummaryTableHtml, getCurrentColomboReportDate, normalizeGrnPendingTemplateBody, normalizeGrnPendingTemplateSubject } from "@/lib/grn-pending-email";
 import { buildReceivableEmailPreview } from "@/lib/receivable-outstanding-email";
 import { loadCachedReceivables, refreshReceivables } from "@/lib/receivable-outstanding";
 import { GRN_PENDING_DAILY_KEY, SUPPLIER_PAYABLE_OUTSTANDING_DAILY_KEY } from "@/lib/email-templates/catalog";
@@ -126,7 +126,11 @@ export async function POST(request: NextRequest) {
       awaitingReceive: actual.summary.awaitingReceive,
       pricingReview: actual.summary.pricingReview,
       grnNotReceived: actual.summary.notCompleted,
+      marginApproval: actual.summary.marginApproval,
+      paymentApproval: actual.summary.paymentApproval,
+      paymentPending: actual.summary.paymentPending,
       summaryTableHtml: buildSummaryTableHtml(actual.summary),
+      reportHtml: actual.reportHtml,
     };
     attachments = [{ fileName: actual.attachment.filename, contentType: actual.attachment.contentType, contentBase64: actual.attachment.buffer.toString("base64") }];
   } else if (parsed.data.key.startsWith("receivable_")) {
@@ -157,8 +161,14 @@ export async function POST(request: NextRequest) {
       attachments = stockHealth.attachments;
     }
   }
-  const subject = `[TEST] ${renderEmailTemplatePlaceholders(parsed.data.subject, placeholders)}`;
-  const html = `<p style="color:#666;font-size:12px;">Test email for template <strong>${parsed.data.name}</strong> (${parsed.data.key}).</p>${renderEmailTemplatePlaceholders(parsed.data.bodyHtml, placeholders)}`;
+  const templateSubject = parsed.data.key === GRN_PENDING_DAILY_KEY
+    ? normalizeGrnPendingTemplateSubject(parsed.data.subject)
+    : parsed.data.subject;
+  const subject = `[TEST] ${renderEmailTemplatePlaceholders(templateSubject, placeholders)}`;
+  const templateBody = parsed.data.key === GRN_PENDING_DAILY_KEY
+    ? normalizeGrnPendingTemplateBody(parsed.data.bodyHtml)
+    : parsed.data.bodyHtml;
+  const html = `<p style="color:#666;font-size:12px;">Test email for template <strong>${parsed.data.name}</strong> (${parsed.data.key}).</p>${renderEmailTemplatePlaceholders(templateBody, placeholders)}`;
   const plain = htmlToPlain(html) || subject;
 
   const result = await sendErpSyncFailureAlertEmail({
