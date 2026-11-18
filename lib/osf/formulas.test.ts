@@ -6,6 +6,8 @@ import {
   orderQty,
   originalSellingPrice,
   percentOfRop,
+  shareOfRopAvailabilityLabel,
+  shareOfTotalRop,
   seventyPercentAvailabilityLabel,
   seventyPercentOfRop,
   sumPositiveOrderQtys,
@@ -65,6 +67,12 @@ describe("percentOfRop / 70%", () => {
     expect(seventyPercentAvailabilityLabel(80, 100)).toBe("Above 70%");
     expect(seventyPercentAvailabilityLabel(60, 100)).toBe("Below 70%");
     expect(seventyPercentAvailabilityLabel(10, null)).toBeNull();
+  });
+
+  it("uses the requested % cutoff", () => {
+    expect(shareOfTotalRop(100, 50)).toBe(50);
+    expect(shareOfRopAvailabilityLabel(60, 100, 50)).toBe("Above 50%");
+    expect(shareOfRopAvailabilityLabel(40, 100, 50)).toBe("Below 50%");
   });
 });
 

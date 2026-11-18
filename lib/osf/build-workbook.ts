@@ -18,12 +18,13 @@ import {
   ogfMargin,
   orderQty,
   originalSellingPrice,
+  DEFAULT_STOCK_PCT_OF_ROP,
   percentOfRop,
-  seventyPercentAvailabilityLabel,
-  seventyPercentOfRop,
+  shareOfRopAvailabilityLabel,
+  shareOfTotalRop,
   sumSignedOrderQtysFlooredAtZero,
 } from "@/lib/osf/formulas";
-import { baseSku } from "@/lib/osf/base-sku";
+import { baseSku, mapGetBySku } from "@/lib/osf/base-sku";
 import { vatStatusLabel, type OsfVariant } from "@/lib/osf/vat-membership";
 import {
   findCosmeticsLkRopColumn,
@@ -94,6 +95,11 @@ export type BuildWorkbookInput = {
   buyers?: OsfBuyerConfig[];
   /** Main / VAT / Non-VAT — VAT restricts ROP columns and Total ROP math. */
   osfVariant?: OsfVariant;
+  /**
+   * Stock-vs-ROP cutoff used for `% of total ROP` columns and labels.
+   * Generate filter `maxStockPctOfRop` when set; otherwise 70.
+   */
+  stockPctCutoff?: number;
 };
 
 function resolveRopColumns(
@@ -241,7 +247,7 @@ export function buildMainSheetRows(input: BuildWorkbookInput): Record<string, st
     stockBySku.set(row.sku, stocks);
     totalStockBySku.set(row.sku, totalStock);
 
-    const profile = input.profiles.get(row.sku);
+    const profile = mapGetBySku(input.profiles, row.sku);
     const rops: Record<string, number | null> = {};
     for (const col of ropCols) {
       const r = profile?.rops[col.key];
@@ -270,7 +276,7 @@ export function buildMainSheetRows(input: BuildWorkbookInput): Record<string, st
 
   for (const row of input.catalog) {
     const forms = skuForms(row.sku);
-    const profile = input.profiles.get(row.sku);
+    const profile = mapGetBySku(input.profiles, row.sku);
     const stocks = stockBySku.get(row.sku) ?? {};
     const rops = ropBySku.get(row.sku) ?? {};
     const totalStock = totalStockBySku.get(row.sku) ?? 0;
@@ -315,12 +321,15 @@ export function buildMainSheetRows(input: BuildWorkbookInput): Record<string, st
     const pctDisplay = pct == null ? null : Math.round(pct * 10000) / 100;
     record["% of ROP"] = pctDisplay;
     record["Stock Ratio"] = pctDisplay;
-    record["70% OF TOTAL ROP"] = historical
+    const cutoff = input.stockPctCutoff ?? DEFAULT_STOCK_PCT_OF_ROP;
+    const shareHeader = `${cutoff}% OF TOTAL ROP`;
+    const availHeader = `${cutoff}% OF TOTAL ROP AVAILABILITY`;
+    record[shareHeader] = historical
       ? null
-      : seventyPercentOfRop(totalRop > 0 ? totalRop : null);
-    record["70% OF TOTAL ROP AVAILABILITY"] = historical
+      : shareOfTotalRop(totalRop > 0 ? totalRop : null, cutoff);
+    record[availHeader] = historical
       ? null
-      : seventyPercentAvailabilityLabel(totalStock, totalRop > 0 ? totalRop : null);
+      : shareOfRopAvailabilityLabel(totalStock, totalRop > 0 ? totalRop : null, cutoff);
 
     const orderVals: Array<number | null> = [];
     for (const col of stockCols) {
@@ -434,9 +443,15 @@ export function mainColumnDescriptors(input: BuildWorkbookInput): OsfColumnDef[]
 
   defs.push({ header: "% of ROP", accessKey: "% of ROP", band: "calc" });
   defs.push({ header: "Stock Ratio", accessKey: "Stock Ratio", band: "calc" });
-  defs.push({ header: "70% OF TOTAL ROP", sum: true, accessKey: "70% OF TOTAL ROP", band: "calc" });
+  const cutoff = input.stockPctCutoff ?? DEFAULT_STOCK_PCT_OF_ROP;
   defs.push({
-    header: "70% OF TOTAL ROP AVAILABILITY",
+    header: `${cutoff}% OF TOTAL ROP`,
+    sum: true,
+    accessKey: "70% OF TOTAL ROP",
+    band: "calc",
+  });
+  defs.push({
+    header: `${cutoff}% OF TOTAL ROP AVAILABILITY`,
     accessKey: "70% OF TOTAL ROP AVAILABILITY",
     band: "calc",
   });
@@ -734,6 +749,7 @@ export async function buildOsfWorkbookBuffer(input: BuildWorkbookInput): Promise
     ["salesMonth", input.salesMonth],
     ["salesGridMonths", monthKeysInWindow(input.asOfDate).join(",")],
     ["osfVariant", input.osfVariant ?? "main"],
+    ["stockPctCutoff", input.stockPctCutoff ?? DEFAULT_STOCK_PCT_OF_ROP],
     ["rows", rows.length],
   ];
   if (input.historicalAsOf) {
@@ -748,6 +764,17 @@ export async function buildOsfWorkbookBuffer(input: BuildWorkbookInput): Promise
       infoLines.push([
         "notice",
         "No SKUs met the filter. A SKU is included only when total ROP > 0 and (total stock / total ROP) × 100 is below its reorder threshold % (default 70). SKUs without warehouse ROP are excluded.",
+      ]);
+    }
+  } else if (
+    input.stockPctCutoff != null &&
+    input.stockPctCutoff !== DEFAULT_STOCK_PCT_OF_ROP
+  ) {
+    infoLines.push(["mode", `stock below ${input.stockPctCutoff}% of ROP`]);
+    if (rows.length === 0) {
+      infoLines.push([
+        "notice",
+        `No SKUs met the filter. A SKU is included only when total ROP > 0 and (total stock / total ROP) × 100 is strictly below ${input.stockPctCutoff}. SKUs without warehouse ROP are excluded.`,
       ]);
     }
   }

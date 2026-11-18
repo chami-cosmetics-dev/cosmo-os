@@ -120,6 +120,8 @@ describe("buildMainSheetRows", () => {
     expect(first["Total ROP"]).toBe(10);
     expect(first["% of ROP"]).toBe(20);
     expect(first["Stock Ratio"]).toBe(20);
+    expect(first["70% OF TOTAL ROP"]).toBe(7);
+    expect(first["70% OF TOTAL ROP AVAILABILITY"]).toBe("Below 70%");
     expect(first["OGF Price"]).toBe(90);
     expect(first).toHaveProperty("Target Purchase Rate");
     expect(first["Sales Units (2026-06)"]).toBe(7);
@@ -158,6 +160,29 @@ describe("buildMainSheetRows", () => {
     expect(second["Last Purchase Qty"]).toBeNull();
     expect(second["Days Since Last Purchase"]).toBeNull();
     expect(second["Purchased (last 30d)"]).toBeNull();
+  });
+
+  it("uses the requested stock % of ROP cutoff in headers and labels", () => {
+    const rows = buildMainSheetRows({
+      catalog: [catalog[0]!],
+      columns,
+      profiles: new Map([
+        ["CAN07_1", { shopAvailability: "allowed", ogfPrice: 90, rops: { lmj: 10 } }],
+      ]),
+      binMap: new Map([["LMJ - WH::CAN07-1", 2]]),
+      costMap: new Map(),
+      purchaseMap: new Map(),
+      monthlySales: new Map(),
+      salesMonth: "2026-06",
+      asOfDate: "2026-07-16",
+      stockPctCutoff: 50,
+    });
+    const first = rows[0]!;
+    expect(first["Total Stock"]).toBe(2);
+    expect(first["% of ROP"]).toBe(20);
+    expect(first["50% OF TOTAL ROP"]).toBe(5);
+    expect(first["50% OF TOTAL ROP AVAILABILITY"]).toBe("Below 50%");
+    expect(first["70% OF TOTAL ROP"]).toBeUndefined();
   });
 
   it("fills April→as-of sales and purchase grid cells", () => {
