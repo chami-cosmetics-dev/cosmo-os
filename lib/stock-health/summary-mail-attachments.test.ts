@@ -109,7 +109,7 @@ async function expectAttachments(attachments: Attachment[] | undefined, part: "w
     expect(files[0].fileName).toBe("stock-health-rop-status-2026-11-16.xlsx");
     expect(files[1].fileName).toMatch(/^shop-stock-status-\d{4}-\d{2}-\d{2}_\d{2}-\d{2}\.xlsx$/);
     expect(await sheetNames(files[0])).toEqual(["Summary", "Common SKUs", "Variants"]);
-    expect(await sheetNames(files[1])).toEqual(["SHOP", "ONLINE"]);
+    expect(await sheetNames(files[1])).toEqual(["SHOP", "ONLINE", "NO ROP - SHOP", "NO ROP - ONLINE"]);
   }
 }
 

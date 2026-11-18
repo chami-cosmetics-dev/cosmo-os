@@ -284,7 +284,7 @@ export function buildRopDetailsWorkbook(
     wb,
     aoaSheet(
       [
-        ["Common SKU", "Item name", "Priority Status", "Status", "Stock", "ROP", "Stock % of ROP"],
+        ["Common SKU", "Item name", "Priority Status", "Status", "Stock", "ROP", "Reorder Qty", "Stock % of ROP"],
         ...rows.map((row) => [
           row.commonSku,
           row.itemName ?? "",
@@ -292,14 +292,15 @@ export function buildRopDetailsWorkbook(
           ROP_DETAILS_STATUS_LABELS[row.status],
           row.stock,
           row.rop,
+          row.reorderQty,
           row.percent == null ? null : row.percent / 100,
         ]),
         [],
         [`${rows.length} Common SKU${rows.length === 1 ? "" : "s"} · ${filters}`],
         [`Live ERP stock vs OSF ROP as of ${formatAppIsoDateTime(fetchedAt)}`],
       ],
-      [24, 40, 16, 20, 12, 11, 14],
-      [6],
+      [24, 40, 16, 20, 12, 11, 13, 14],
+      [7],
     ),
     "ROP Details",
   );
