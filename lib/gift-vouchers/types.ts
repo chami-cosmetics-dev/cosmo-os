@@ -171,6 +171,27 @@ export function couponPrefix(coupon: string): string | null {
   return first ? first.toUpperCase() : null;
 }
 
+/**
+ * A voucher line item: negative price and a SKU that is a group's Coupon Code Prefix followed
+ * only by digits ("NGV1000" with prefix "NGV"). Returns the matched prefix (the longest, if
+ * several fit), else null. `prefixes` are the groups' (uppercase) prefixes.
+ */
+export function voucherLineItemPrefix(
+  sku: string | null | undefined,
+  price: number,
+  prefixes: readonly string[],
+): string | null {
+  if (!(price < 0)) return null;
+  const s = (sku ?? "").trim().toUpperCase();
+  let best: string | null = null;
+  for (const prefix of prefixes) {
+    if (!prefix || !s.startsWith(prefix)) continue;
+    if (!/^\d+$/.test(s.slice(prefix.length))) continue;
+    if (!best || prefix.length > best.length) best = prefix;
+  }
+  return best;
+}
+
 export type OrderGiftVoucherApplied = {
   code: string;
   groupName: string;
@@ -178,7 +199,10 @@ export type OrderGiftVoucherApplied = {
 };
 
 export type OrderGiftVoucherState = {
-  /** Coupons on the order whose first word matches a voucher group prefix. */
+  /**
+   * What makes the order a gift voucher order: coupons whose first word matches a voucher group
+   * prefix, and voucher line item SKUs (prefix + digits, negative price). Empty = no field.
+   */
   matchedCoupons: string[];
   /** Batch codes already applied to the order, oldest first. */
   applied: OrderGiftVoucherApplied[];
