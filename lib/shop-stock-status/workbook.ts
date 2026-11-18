@@ -1,6 +1,7 @@
 import ExcelJS from "exceljs";
 
 import { formatAppIsoDateTime } from "@/lib/format-datetime";
+import { addNoRopSheets } from "@/lib/shop-stock-status/no-rop-workbook";
 import {
   SHOP_STOCK_TAB_COLUMNS,
   shopStockBandOf,
@@ -135,8 +136,9 @@ export function addLocationSheet(
 }
 
 /**
- * The "Export (SHOP + ONLINE)" file: SHOP and ONLINE sheets, all Common SKUs. Shared by the
- * screen's export and the Monday Stock Availability Status mail (attached).
+ * The "Export (SHOP + ONLINE)" file: SHOP and ONLINE sheets (all Common SKUs), then NO ROP - SHOP
+ * and NO ROP - ONLINE (the NO ROP tab's two views, all items). Shared by the screen's export and
+ * the Monday Stock Availability Status mail (attached).
  */
 export async function buildShopStockStatusWorkbook(
   status: Pick<ShopStockStatus, "tabs" | "fetchedAt">,
@@ -149,6 +151,7 @@ export async function buildShopStockStatusWorkbook(
   const wb = new ExcelJS.Workbook();
   addLocationSheet(wb, "SHOP", status.tabs.shops, SHOP_STOCK_TAB_COLUMNS.shops, times);
   addLocationSheet(wb, "ONLINE", status.tabs.online, SHOP_STOCK_TAB_COLUMNS.online, times);
+  addNoRopSheets(wb, status, times);
 
   // e.g. shop-stock-status-2026-11-10_11-18.xlsx (no ":" — not allowed in file names).
   const stamp = downloadedAt.slice(0, 16).replace(" ", "_").replace(":", "-");

@@ -22,6 +22,8 @@ export type StockHealthRopDetailsRow = {
   rop: number;
   /** Stock as % of ROP; null when there is no ROP ("-"). */
   percent: number | null;
+  /** ROP − Stock, for PASS / FAIL only (items with a ROP); null otherwise ("-"). */
+  reorderQty: number | null;
 };
 
 export type StockHealthRopDetails = {
@@ -86,6 +88,7 @@ export function buildRopDetailsRows(ropRows: StockHealthRopRow[]): StockHealthRo
       stock: row.stock,
       rop: row.rop,
       percent: row.rop > 0 ? (row.stock / row.rop) * 100 : null,
+      reorderQty: row.group === "pass" || row.group === "fail" ? row.rop - row.stock : null,
     };
   });
 }

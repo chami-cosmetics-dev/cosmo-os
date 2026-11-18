@@ -79,6 +79,15 @@ describe("ROP Details matches the ROP Status table", () => {
     expect(atHalf.status).toBe("fail");
   });
 
+  it("Reorder Qty = ROP - Stock for PASS / FAIL only", () => {
+    for (const row of details) {
+      if (row.status === "pass" || row.status === "fail") expect(row.reorderQty).toBe(row.rop - row.stock);
+      else expect(row.reorderQty).toBeNull();
+    }
+    expect(details.find((r) => r.percent === 20)!.reorderQty).toBe(80);
+    expect(details.find((r) => r.percent === 80)!.reorderQty).toBe(20);
+  });
+
   it("has no % when there is no ROP", () => {
     for (const row of details.filter((r) => r.status === "noRopWithStock" || r.status === "noRopNoStock")) {
       expect(row.percent).toBeNull();
@@ -95,6 +104,7 @@ describe("applyRopDetailsFilters", () => {
     stock: 0,
     rop: percent == null ? 0 : 100,
     percent,
+    reorderQty: percent == null ? null : 100,
   });
   const rows = [row("A", 80), row("B", null), row("C", 10), row("D", 45.5), row("E", null)];
 
@@ -160,11 +170,13 @@ describe("buildRopDetailsWorkbook", () => {
     const wb = XLSX.read(buffer, { type: "buffer" });
     expect(wb.SheetNames).toEqual(["ROP Details"]);
     const sheet = XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets["ROP Details"], { header: 1, raw: true });
-    expect(sheet[0]).toEqual(["Common SKU", "Item name", "Priority Status", "Status", "Stock", "ROP", "Stock % of ROP"]);
+    expect(sheet[0]).toEqual(["Common SKU", "Item name", "Priority Status", "Status", "Stock", "ROP", "Reorder Qty", "Stock % of ROP"]);
     const body = sheet.slice(1, 1 + shown.length);
     expect(body.map((r) => r[0])).toEqual(shown.map((r) => r.commonSku));
-    expect(body[0][6]).toBe(shown[0].percent! / 100);
+    expect(body[0][6]).toBe(shown[0].reorderQty);
+    expect(body[0][7]).toBe(shown[0].percent! / 100);
     expect(body[body.length - 1][6] ?? null).toBeNull();
+    expect(body[body.length - 1][7] ?? null).toBeNull();
     expect(sheet.some((r) => String(r[0] ?? "").startsWith(`${shown.length} Common SKUs · Priority = Top`))).toBe(true);
   });
 });

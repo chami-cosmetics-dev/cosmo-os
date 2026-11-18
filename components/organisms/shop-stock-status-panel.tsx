@@ -6,6 +6,10 @@ import { Download, Gauge, Loader2, RefreshCw, X } from "lucide-react";
 import { priorityLabelClass } from "@/components/organisms/item-trends/priority-label";
 import { ShopStockStatusDashboard } from "@/components/organisms/shop-stock-status-dashboard";
 import {
+  ShopStockNoRopTable,
+  type NoRopView,
+} from "@/components/organisms/shop-stock-status-no-rop";
+import {
   downloadFile,
   formatNumber,
   formatPercent,
@@ -69,8 +73,8 @@ const FILTER_SELECT_CLASS = cn(SELECT_CLASS, "min-w-[150px]");
 /** What one tab shows: its filtered rows and the filters, for "Export filtered". */
 type ShopStockView = { rows: ShopStockRow[]; filters: string };
 
-/** The page's views: Dashboard (first, default), then the SHOPS and ONLINE tables. */
-type PanelTab = "dashboard" | ShopStockTab;
+/** The page's views: Dashboard (first, default), the SHOPS and ONLINE tables, then NO ROP. */
+type PanelTab = "dashboard" | ShopStockTab | "no_rop";
 
 /** A Dashboard card click: set that table's Location filter (nonce = a new click each time). */
 type LocationRequest = { key: string; nonce: number };
@@ -412,7 +416,9 @@ export function ShopStockStatusPanel() {
   const reportView = useCallback((t: ShopStockTab, view: ShopStockView) => {
     setViews((prev) => ({ ...prev, [t]: view }));
   }, []);
-  const activeView = tab === "dashboard" ? undefined : views[tab];
+  const [noRopView, setNoRopView] = useState<NoRopView | null>(null);
+  const activeView =
+    tab === "dashboard" ? undefined : tab === "no_rop" ? (noRopView ?? undefined) : views[tab];
 
   const load = useCallback(async (refresh: boolean) => {
     setLoading(true);
@@ -458,6 +464,23 @@ export function ShopStockStatusPanel() {
     if (!data || !activeView) return;
     setExportingFiltered(true);
     try {
+      if (tab === "no_rop") {
+        await downloadFile(
+          "/api/admin/store/shop-stock-status/export/no-rop",
+          "shop-stock-status-no-rop-filtered.xlsx",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              channel: noRopView?.channel ?? "shops",
+              rows: activeView.rows,
+              filters: activeView.filters,
+              fetchedAt: data.fetchedAt,
+            }),
+          },
+        );
+        return;
+      }
       await downloadFile(
         "/api/admin/store/shop-stock-status/export/filtered",
         "shop-stock-status-filtered.xlsx",
@@ -515,6 +538,7 @@ export function ShopStockStatusPanel() {
               {SHOP_STOCK_TAB_LABELS[t]}
             </TabsTrigger>
           ))}
+          <TabsTrigger value="no_rop">NO ROP</TabsTrigger>
         </TabsList>
 
         <Card className="mt-4">
@@ -525,20 +549,24 @@ export function ShopStockStatusPanel() {
                   ? "Dashboard"
                   : tab === "shops"
                     ? "Shops + Online"
-                    : "Online by company"}
+                    : tab === "no_rop"
+                      ? "No ROP - With Stock"
+                      : "Online by company"}
               </CardTitle>
               <p className="text-xs text-muted-foreground">
                 {!data
                   ? "Common SKUs by stock against ROP."
                   : tab === "dashboard"
                     ? `Live ERP stock (website drafts with no stock left out) as of ${formatAppIsoDateTime(data.fetchedAt)}. Per location: Total ROP and Total Stock of the Common SKUs with a ROP there; Fulfilment = Total Stock ÷ Total ROP. Click a card to open its table.`
-                    : `Live ERP stock (website drafts with no stock left out) as of ${formatAppIsoDateTime(data.fetchedAt)}. Hover a % for its stock and ROP; - = no ROP (not counted).`}
+                    : tab === "no_rop"
+                      ? `Live ERP stock (website drafts with no stock left out) as of ${formatAppIsoDateTime(data.fetchedAt)}. Items with stock but no ROP in at least one location; cells show the stock there, - = that location has a ROP or no stock. Total = the stock of the shown cells.`
+                      : `Live ERP stock (website drafts with no stock left out) as of ${formatAppIsoDateTime(data.fetchedAt)}. Hover a % for its stock and ROP; - = no ROP (not counted).`}
               </p>
               {/* Colour rules for the % cells (stock ÷ ROP × 100); the Dashboard has its own legend. */}
               <div
                 className={cn(
                   "flex flex-wrap items-center gap-2 pt-1 text-xs",
-                  tab === "dashboard" && "hidden",
+                  (tab === "dashboard" || tab === "no_rop") && "hidden",
                 )}
               >
                 <span className="text-muted-foreground">
@@ -624,6 +652,18 @@ export function ShopStockStatusPanel() {
                 />
               </TabsContent>
             ))}
+            <TabsContent
+              value="no_rop"
+              forceMount
+              className="mt-0 data-[state=inactive]:hidden"
+            >
+              <ShopStockNoRopTable
+                shopsRows={data?.tabs.shops ?? null}
+                onlineRows={data?.tabs.online ?? null}
+                loading={loading}
+                onViewChange={setNoRopView}
+              />
+            </TabsContent>
           </CardContent>
         </Card>
       </Tabs>
