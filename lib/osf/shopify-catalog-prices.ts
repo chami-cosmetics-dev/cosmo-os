@@ -1,4 +1,4 @@
-import type { OsfCatalogRow } from "@/lib/osf/catalog-rows";
+import type { OsfCatalogRow } from "@/lib/osf/catalog-row-build";
 import { normalizeSkuKey } from "@/lib/product-items/erp-priority-sync";
 import { normalizeShopifyStoreHandle } from "@/lib/shopify-admin";
 

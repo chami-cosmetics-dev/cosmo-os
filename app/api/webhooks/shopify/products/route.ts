@@ -168,5 +168,13 @@ export async function POST(request: NextRequest) {
     });
   }
 
+  const siteStatus = data.status?.slice(0, 50) ?? null;
+  if (siteStatus) {
+    await prisma.productItem.updateMany({
+      where: { companyId, shopifyProductId: String(data.id) },
+      data: { status: siteStatus },
+    });
+  }
+
   return NextResponse.json({ ok: true });
 }

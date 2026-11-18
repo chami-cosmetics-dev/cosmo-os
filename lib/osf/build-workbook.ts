@@ -1,6 +1,6 @@
 import { PassThrough } from "node:stream";
 
-import type { OsfCatalogRow } from "@/lib/osf/catalog-rows";
+import type { OsfCatalogRow } from "@/lib/osf/catalog-row-build";
 import {
   OSF_ACCESS_PURCHASES,
   OSF_ACCESS_SALES_UNITS,

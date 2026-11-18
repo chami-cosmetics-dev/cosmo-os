@@ -1,5 +1,6 @@
 import "server-only";
 
+import { isBundleCatalogItem } from "@/lib/catalog-bundle";
 import { resolveOsfColumns } from "@/lib/osf/column-config";
 import { fetchBinActualQty, getAllOsfErpInstances, stockForColumn } from "@/lib/osf/erp-stock";
 import { isBelowReorderThreshold } from "@/lib/osf/threshold";
@@ -56,6 +57,7 @@ export async function listBelowThresholdSkus(
       select: {
         sku: true,
         productTitle: true,
+        productType: true,
         barcode: true,
         erp1ProductPriority: true,
         erp2ProductPriority: true,
@@ -80,6 +82,15 @@ export async function listBelowThresholdSkus(
   for (const row of catalog) {
     const sku = row.sku?.trim();
     if (!sku || bySku.has(sku)) continue;
+    if (
+      isBundleCatalogItem({
+        sku,
+        productTitle: row.productTitle,
+        productType: row.productType,
+      })
+    ) {
+      continue;
+    }
     bySku.set(sku, {
       productTitle: row.productTitle,
       barcode: row.barcode?.trim() || null,
