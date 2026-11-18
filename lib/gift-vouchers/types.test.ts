@@ -8,6 +8,7 @@ import {
   generateRandomVoucherCodes,
   normalizeVoucherCode,
   parseVoucherCodeList,
+  voucherLineItemPrefix,
 } from "@/lib/gift-vouchers/types";
 
 describe("formatVoucherCode", () => {
@@ -151,5 +152,35 @@ describe("couponPrefix", () => {
 
   it("returns null for an empty coupon", () => {
     expect(couponPrefix("   ")).toBeNull();
+  });
+});
+
+describe("voucherLineItemPrefix (voucher as a line item)", () => {
+  const prefixes = ["NGV", "SGV", "NG"];
+
+  it("prefix + digits only, negative price", () => {
+    expect(voucherLineItemPrefix("NGV1000", -1000, prefixes)).toBe("NGV");
+    expect(voucherLineItemPrefix(" ngv500 ", -500, prefixes)).toBe("NGV");
+    expect(voucherLineItemPrefix("SGV1", -0.01, prefixes)).toBe("SGV");
+  });
+
+  it("not when the price is 0 or positive", () => {
+    expect(voucherLineItemPrefix("NGV1000", 0, prefixes)).toBeNull();
+    expect(voucherLineItemPrefix("NGV1000", 1000, prefixes)).toBeNull();
+  });
+
+  it("not when anything but digits follows the prefix", () => {
+    expect(voucherLineItemPrefix("NGV", -1000, prefixes)).toBeNull();
+    expect(voucherLineItemPrefix("NGV1000A", -1000, prefixes)).toBeNull();
+    expect(voucherLineItemPrefix("NGV-1000", -1000, prefixes)).toBeNull();
+    expect(voucherLineItemPrefix("NGV 1000", -1000, prefixes)).toBeNull();
+    expect(voucherLineItemPrefix("XNGV1000", -1000, prefixes)).toBeNull();
+    expect(voucherLineItemPrefix("ABC1000", -1000, prefixes)).toBeNull();
+    expect(voucherLineItemPrefix(null, -1000, prefixes)).toBeNull();
+  });
+
+  it("picks the longest prefix that fits (NGV over NG)", () => {
+    expect(voucherLineItemPrefix("NGV1000", -1, prefixes)).toBe("NGV");
+    expect(voucherLineItemPrefix("NG1000", -1, prefixes)).toBe("NG");
   });
 });

@@ -8,6 +8,7 @@ import {
   couponPrefix,
   deriveGiftVoucherStatus,
   normalizeVoucherCode,
+  voucherLineItemPrefix,
   type OrderGiftVoucherApplied,
   type OrderGiftVoucherState,
 } from "@/lib/gift-vouchers/types";
@@ -34,6 +35,8 @@ const orderSelect = {
     select: { code: true, usedAt: true, group: { select: { name: true } } },
     orderBy: [{ usedAt: "asc" }, { code: "asc" }],
   },
+  // Voucher line items (prefix + digits SKU, negative price) are a trigger too.
+  lineItems: { where: { price: { lt: 0 } }, select: { price: true, productItem: { select: { sku: true } } } },
 } satisfies Prisma.OrderSelect;
 
 type OrderForVoucher = Prisma.OrderGetPayload<{ select: typeof orderSelect }>;
@@ -75,6 +78,45 @@ async function matchVoucherCoupons(companyId: string, coupons: string[]) {
   return { matchedCoupons, matchedPrefixes };
 }
 
+/** Voucher line items (negative price, SKU = a group prefix + digits): their SKUs and prefixes. */
+async function matchVoucherLineItems(companyId: string, order: OrderForVoucher) {
+  const lines = order.lineItems
+    .map((li) => ({ sku: li.productItem.sku?.trim().toUpperCase() ?? "", price: Number(li.price) }))
+    .filter((li) => li.sku && li.price < 0);
+  if (lines.length === 0) return { matchedSkus: [], matchedPrefixes: [] };
+
+  const groups = await prisma.giftVoucherGroup.findMany({
+    where: { companyId },
+    select: { codePrefix: true },
+    distinct: ["codePrefix"],
+  });
+  const prefixes = groups.map((g) => g.codePrefix);
+  const matchedSkus: string[] = [];
+  const matchedPrefixes: string[] = [];
+  for (const line of lines) {
+    const prefix = voucherLineItemPrefix(line.sku, line.price, prefixes);
+    if (!prefix) continue;
+    matchedSkus.push(line.sku);
+    matchedPrefixes.push(prefix);
+  }
+  return { matchedSkus: [...new Set(matchedSkus)], matchedPrefixes: [...new Set(matchedPrefixes)] };
+}
+
+/**
+ * Everything that makes this a gift voucher order — coupons and voucher line items — with the
+ * group prefixes they match (batch codes must come from one of those groups).
+ */
+async function matchVoucherTriggers(companyId: string, order: OrderForVoucher) {
+  const [coupons, lines] = await Promise.all([
+    matchVoucherCoupons(companyId, orderCoupons(order)),
+    matchVoucherLineItems(companyId, order),
+  ]);
+  return {
+    matchedCoupons: [...new Set([...coupons.matchedCoupons, ...lines.matchedSkus])],
+    matchedPrefixes: [...new Set([...coupons.matchedPrefixes, ...lines.matchedPrefixes])],
+  };
+}
+
 export async function getOrderGiftVoucherState(input: {
   companyId: string;
   orderId: string;
@@ -86,7 +128,7 @@ export async function getOrderGiftVoucherState(input: {
   });
   if (!order) return null;
 
-  const { matchedCoupons } = await matchVoucherCoupons(input.companyId, orderCoupons(order));
+  const { matchedCoupons } = await matchVoucherTriggers(input.companyId, order);
   return {
     matchedCoupons,
     applied: toApplied(order),
@@ -124,9 +166,9 @@ export async function applyGiftVouchersToOrder(input: {
   });
   if (!order) return { ok: false, status: 404, error: "Order not found." };
 
-  const { matchedPrefixes } = await matchVoucherCoupons(companyId, orderCoupons(order));
+  const { matchedPrefixes } = await matchVoucherTriggers(companyId, order);
   if (matchedPrefixes.length === 0) {
-    return { ok: false, status: 400, error: "This order has no gift voucher coupon." };
+    return { ok: false, status: 400, error: "This order has no gift voucher coupon or voucher line item." };
   }
 
   const orderNo = resolveOrderNumber(order) || order.id;
@@ -156,7 +198,7 @@ export async function applyGiftVouchersToOrder(input: {
 
         if (!matchedPrefixes.includes(row.group.codePrefix)) {
           throw new ApplyError(
-            `Batch code ${code} belongs to a different group ("${row.group.name}") that does not match this order's coupon.`,
+            `Batch code ${code} belongs to a different group ("${row.group.name}") that does not match this order's coupon or voucher line item.`,
             400,
           );
         }
@@ -217,7 +259,8 @@ const SUGGESTION_LIMIT = 10;
 
 /**
  * Batch codes that could be applied to this order right now and contain the typed text:
- * unused, active today, and in a group whose prefix matches one of the order's coupons.
+ * unused, active today, and in a group whose prefix matches one of the order's coupons or
+ * voucher line items.
  */
 export async function suggestGiftVoucherCodes(input: {
   companyId: string;
@@ -236,7 +279,7 @@ export async function suggestGiftVoucherCodes(input: {
   });
   if (!order) return [];
 
-  const { matchedPrefixes } = await matchVoucherCoupons(companyId, orderCoupons(order));
+  const { matchedPrefixes } = await matchVoucherTriggers(companyId, order);
   if (matchedPrefixes.length === 0) return [];
 
   const today = new Date(`${formatAppIsoDate(new Date())}T00:00:00.000Z`);
