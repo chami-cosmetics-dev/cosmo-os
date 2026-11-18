@@ -58,6 +58,10 @@
       "schedule": "30 3 * * 2"
     },
     {
+      "path": "/api/cron/newly-added-review-mail",
+      "schedule": "30 3 * * 2"
+    },
+    {
       "path": "/api/cron/stock-health-availability-mail",
       "schedule": "30 3 * * 1"
     },

@@ -46,6 +46,9 @@ import {
 import { cn } from "@/lib/utils";
 
 const NUM_CELL_CLASS = "text-right tabular-nums";
+/** Reorder Qty (PASS / FAIL only): stands out from the other numbers. */
+const REORDER_CELL_CLASS =
+  "bg-orange-500/15 font-bold text-orange-700 dark:bg-orange-500/20 dark:text-orange-300";
 const PERCENT_OPS = Object.keys(SHOP_STOCK_PERCENT_OP_LABELS) as ShopStockPercentOp[];
 
 /** Same colours as the ROP Status table's group columns. */
@@ -249,19 +252,18 @@ export function StockHealthRopDetailsCard({
         >
           <TableHeader className="sticky top-0 z-10">
             <TableRow>
-              <TableHead className={cn(HEAD_CLASS, "w-[170px]")}>Common SKU</TableHead>
-              <TableHead className={HEAD_CLASS}>Item name</TableHead>
-              <TableHead className={cn(HEAD_CLASS, "w-[130px]")}>Priority Status</TableHead>
+              <TableHead className={cn(HEAD_CLASS, "text-left")}>Common SKU / Item name</TableHead>
               <TableHead className={cn(HEAD_CLASS, "w-[170px]")}>Status</TableHead>
               <TableHead className={cn(HEAD_CLASS, "w-[90px]")}>Stock</TableHead>
               <TableHead className={cn(HEAD_CLASS, "w-[90px]")}>ROP</TableHead>
+              <TableHead className={cn(HEAD_CLASS, "w-[110px]")}>Reorder Qty</TableHead>
               <TableHead className={cn(HEAD_CLASS, "w-[110px]")}>Stock % of ROP</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {shown.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="h-32 text-center">
+                <TableCell colSpan={6} className="h-32 text-center">
                   {loading ? (
                     <Loader2 className="mx-auto h-5 w-5 animate-spin text-muted-foreground" />
                   ) : (
@@ -274,23 +276,33 @@ export function StockHealthRopDetailsCard({
             ) : (
               shown.map((row) => (
                 <TableRow key={row.commonSku}>
-                  <TableCell className="font-mono text-xs">{row.commonSku}</TableCell>
-                  <TableCell className="whitespace-normal">{row.itemName ?? "-"}</TableCell>
-                  <TableCell>
-                    <span
-                      className={cn(
-                        "inline-flex select-none items-center rounded-full px-2 py-0.5 text-xs font-semibold ring-1 ring-inset",
-                        priorityLabelClass(row.priority),
-                      )}
-                    >
-                      {row.priority}
-                    </span>
+                  {/* As on Item Trends: SKU + priority label, the item name on its own line below. */}
+                  <TableCell className="whitespace-normal">
+                    <div className="font-mono font-bold">
+                      <span className="select-all">{row.commonSku}</span>
+                      <span
+                        className={cn(
+                          "ml-2 inline-flex select-none items-center rounded-full px-2 py-0.5 font-sans text-xs font-semibold ring-1 ring-inset",
+                          priorityLabelClass(row.priority),
+                        )}
+                      >
+                        {row.priority}
+                      </span>
+                    </div>
+                    <div className="mt-0.5 text-xs text-muted-foreground">{row.itemName ?? "-"}</div>
                   </TableCell>
                   <TableCell className={cn("font-medium", STATUS_CLASS[row.status])}>
                     {ROP_DETAILS_STATUS_LABELS[row.status]}
                   </TableCell>
                   <TableCell className={NUM_CELL_CLASS}>{formatNumber(row.stock)}</TableCell>
                   <TableCell className={NUM_CELL_CLASS}>{formatNumber(row.rop)}</TableCell>
+                  {row.reorderQty == null ? (
+                    <TableCell className="text-center text-muted-foreground">-</TableCell>
+                  ) : (
+                    <TableCell className={cn(NUM_CELL_CLASS, REORDER_CELL_CLASS)}>
+                      {formatNumber(row.reorderQty)}
+                    </TableCell>
+                  )}
                   <TableCell className={cn(NUM_CELL_CLASS, row.percent == null && "text-center text-muted-foreground")}>
                     {formatPercent(row.percent)}
                   </TableCell>

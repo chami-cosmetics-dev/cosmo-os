@@ -9,8 +9,9 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 /**
- * Shop Stock Status (live ERP figures, same cache as the screen): SHOP and ONLINE sheets.
- * The same file is attached to the Monday Stock Availability Status mail.
+ * Shop Stock Status (live ERP figures, same cache as the screen): SHOP and ONLINE sheets, then
+ * NO ROP - SHOP and NO ROP - ONLINE (No ROP - With Stock, all items). The Monday Stock
+ * Availability Status mail attaches the same file.
  */
 export async function GET() {
   const auth = await requireUserContext();
