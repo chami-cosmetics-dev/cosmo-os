@@ -9,7 +9,7 @@ import {
   pricingHeaders,
   type BuildWorkbookInput,
 } from "@/lib/osf/build-workbook";
-import type { OsfCatalogRow } from "@/lib/osf/catalog-rows";
+import type { OsfCatalogRow } from "@/lib/osf/catalog-row-build";
 import type { OsfResolvedColumn } from "@/lib/osf/column-config";
 
 const catalog: OsfCatalogRow[] = [

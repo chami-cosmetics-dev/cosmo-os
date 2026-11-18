@@ -2,30 +2,13 @@ import "server-only";
 
 import type { Prisma } from "@prisma/client";
 
+import {
+  buildOsfCatalogRowsFromItems,
+  type OsfCatalogRow,
+} from "@/lib/osf/catalog-row-build";
 import { prisma } from "@/lib/prisma";
 
-export type OsfCatalogRow = {
-  sku: string;
-  productTitle: string;
-  brand: string | null;
-  barcode: string | null;
-  imageUrl: string | null;
-  siteStatus: string | null;
-  productType?: string | null;
-  /** @deprecated Prefer erp1/erp2 — kept for workbook compatibility */
-  itemStatusLabel: string | null;
-  itemStatusCategory: string;
-  erp1ProductPriority: string | null;
-  erp2ProductPriority: string | null;
-  /** ERP Item Manufacturing Tax Status (`Vat` / `Non Vat` / `Vat / Non Vat`). */
-  erp1TaxStatus: string | null;
-  erp2TaxStatus: string | null;
-  /** ERP Item.country_of_origin. */
-  country: string | null;
-  mrp: number | null;
-  discountedPrice: number | null;
-  vendorId: string | null;
-};
+export type { OsfCatalogRow };
 
 export type CatalogFilters = {
   includeInactive?: boolean;
@@ -38,6 +21,7 @@ export type CatalogFilters = {
 
 /**
  * One row per distinct company SKU (prefer most recently updated ProductItem).
+ * Bundle packs are omitted. Site Status prefers Shopify active over draft.
  */
 export async function buildCatalogRows(
   companyId: string,
@@ -96,40 +80,5 @@ export async function buildCatalogRows(
     },
   });
 
-  const bySku = new Map<string, OsfCatalogRow>();
-  for (const item of items) {
-    const sku = item.sku?.trim();
-    if (!sku || bySku.has(sku)) continue;
-    const title =
-      item.variantTitle && item.variantTitle !== "Default Title"
-        ? `${item.productTitle} - ${item.variantTitle}`
-        : item.productTitle;
-    const mrp = item.compareAtPrice != null ? Number(item.compareAtPrice) : null;
-    const discounted = item.price != null ? Number(item.price) : null;
-    const erp1 = item.erp1ProductPriority?.trim() || null;
-    const erp2 = item.erp2ProductPriority?.trim() || null;
-    const combined =
-      erp1 && erp2 && erp1 !== erp2 ? `${erp1} / ${erp2}` : erp1 || erp2 || null;
-    bySku.set(sku, {
-      sku,
-      productTitle: title,
-      brand: item.vendor?.name ?? null,
-      barcode: item.barcode?.trim() || null,
-      imageUrl: item.imageUrl?.trim() || null,
-      siteStatus: item.status?.trim() || null,
-      productType: item.productType?.trim() || null,
-      itemStatusLabel: combined,
-      itemStatusCategory: item.itemStatusCategory,
-      erp1ProductPriority: erp1,
-      erp2ProductPriority: erp2,
-      erp1TaxStatus: item.erp1TaxStatus?.trim() || null,
-      erp2TaxStatus: item.erp2TaxStatus?.trim() || null,
-      country: null,
-      mrp: mrp != null && Number.isFinite(mrp) ? mrp : null,
-      discountedPrice: discounted != null && Number.isFinite(discounted) ? discounted : null,
-      vendorId: item.vendorId,
-    });
-  }
-
-  return [...bySku.values()].sort((a, b) => a.sku.localeCompare(b.sku));
+  return buildOsfCatalogRowsFromItems(items);
 }

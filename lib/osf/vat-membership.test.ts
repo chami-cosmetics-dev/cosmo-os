@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { OsfCatalogRow } from "@/lib/osf/catalog-rows";
+import type { OsfCatalogRow } from "@/lib/osf/catalog-row-build";
 import {
   applyTaxStatusToCatalog,
   filterCatalogByOsfVariant,

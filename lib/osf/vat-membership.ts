@@ -1,4 +1,4 @@
-import type { OsfCatalogRow } from "@/lib/osf/catalog-rows";
+import type { OsfCatalogRow } from "@/lib/osf/catalog-row-build";
 
 export type OsfVariant = "main" | "vat" | "non_vat";
 

@@ -53,6 +53,7 @@ import {
 import { applyShopifyPricesToCatalog } from "@/lib/osf/shopify-catalog-prices";
 import { loadShopifyCatalogPricesForCompany } from "@/lib/osf/shopify-catalog-prices-load";
 import { ensureCosmeticsShopOsfColumns } from "@/lib/osf/shop-column-sync";
+import { syncShopifySiteStatusFromStorefront } from "@/lib/osf/sync-shopify-site-status";
 import { prisma } from "@/lib/prisma";
 import { formatAppIsoDate } from "@/lib/format-datetime";
 import { getCurrentUserContext, hasPermission, requirePermission } from "@/lib/rbac";
@@ -186,6 +187,18 @@ export async function POST(request: NextRequest) {
     const salesGridBounds = osfSalesGridBounds(asOfDate);
     const purchaseGridBounds = osfPurchaseGridBounds(asOfDate);
     const bestPurchaseBounds = osfBestPurchaseBounds(asOfDate);
+
+    if (!historicalAsOf) {
+      try {
+        const siteStatusSync = await syncShopifySiteStatusFromStorefront(companyId);
+        if (siteStatusSync.updated > 0) {
+          console.info("[OSF] shopify site status sync", siteStatusSync);
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "site status sync failed";
+        console.warn("[OSF] shopify site status sync failed:", message.slice(0, 300));
+      }
+    }
 
     const [
       catalogRaw,
