@@ -8,8 +8,8 @@ export async function POST(request: NextRequest) {
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
   try {
     const body = await request.json();
-    const receipts = await createStoreAllocationPurchaseReceipts(auth.context!, body);
-    return NextResponse.json({ receipts });
+    const result = await createStoreAllocationPurchaseReceipts(auth.context!, body);
+    return NextResponse.json(result);
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Purchase Receipt creation failed" },

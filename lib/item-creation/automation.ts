@@ -1376,6 +1376,9 @@ function describePurchaseReceiptError(
 ) {
   const raw = error instanceof Error ? error.message : "Purchase Receipt creation failed";
   const text = raw.replace(/\\n/g, " ").replace(/\\"/g, '"').replace(/\s+/g, " ").trim();
+  if (/^(?:Item request not found|SKU mismatch|Existing ERP item not found|Company is not configured|Warehouse .* belongs|.+? (?:has not been created|was not selected|cannot receive stock|does not match|already has stock added))/i.test(text)) {
+    return text;
+  }
   const itemCodes = [...new Set(input.itemCodes.filter(Boolean))];
   const mentionedItem = itemCodes.find((itemCode) =>
     text.toLowerCase().includes(itemCode.toLowerCase()),
@@ -1399,6 +1402,9 @@ function describePurchaseReceiptError(
   if (/insufficient stock|negative stock/i.test(text)) {
     return `Purchase Receipt could not be created in ${input.erpLabel} because ERPNext reported insufficient stock. Check the selected item and warehouse, then retry.`;
   }
+  if (/fetch failed|econnreset|etimedout|enotfound|socket hang up|other side closed/i.test(text)) {
+    return `Could not confirm whether ${input.erpLabel} created the Purchase Receipt because its connection failed. Check ${input.erpLabel} for this supplier, warehouse, and items before retrying to avoid a duplicate.`;
+  }
 
   const detail = text
     .replace(/^ERPNext\s+(?:POST|PUT)\s+.*?\[\d+\]:\s*/i, "")
@@ -1417,6 +1423,7 @@ export async function createStoreAllocationPurchaseReceipts(
       warehouse: string;
       erpInstanceId: string;
       company?: string | null;
+      excessQty?: number;
     }>;
   },
 ) {
@@ -1427,7 +1434,7 @@ export async function createStoreAllocationPurchaseReceipts(
 
   const instances = await getAllOsfErpInstances(companyId(context));
   const instanceById = new Map(instances.map((instance) => [instance.id, instance]));
-  const groups = new Map<string, { cfg: OsfErpCredentials; erpLabel: string; company: string; warehouse: string; items: typeof input.items }>();
+  const groups = new Map<string, { instanceId: string; cfg: OsfErpCredentials; erpLabel: string; company: string; warehouse: string; items: typeof input.items; preflightError?: string }>();
 
   for (const item of input.items) {
     const sku = item.sku?.trim();
@@ -1437,24 +1444,55 @@ export async function createStoreAllocationPurchaseReceipts(
     if (!Number.isFinite(item.qty) || item.qty <= 0) throw new Error(`Quantity for ${sku} must be greater than zero`);
     // The UI company value is a display label and may include the warehouse name.
     // ERPNext requires the exact Company linked to the selected Warehouse.
-    const company = await getWarehouseCompany(instance.cfg, warehouse);
-    if (!company) throw new Error(`Company is not configured on warehouse ${warehouse}`);
-    const key = `${instance.id}:${company}:${warehouse}`;
+    let company: string | undefined;
+    let preflightError: string | undefined;
+    try {
+      company = await getWarehouseCompany(instance.cfg, warehouse);
+      if (!company) preflightError = `Company is not configured on warehouse ${warehouse} in ${instance.label?.trim() || "the selected ERP"}`;
+    } catch (error) {
+      preflightError = describePurchaseReceiptError(error, {
+        erpLabel: instance.label?.trim() || "the selected ERP", itemCodes: [sku], warehouse,
+      });
+    }
+    const key = `${instance.id}:${company ?? ""}:${warehouse}`;
     const group = groups.get(key) ?? {
+      instanceId: instance.id,
       cfg: instance.cfg,
       erpLabel: instance.label?.trim() || "the selected ERP",
-      company,
+      company: company ?? "",
       warehouse,
       items: [],
+      preflightError,
     };
     group.items.push(item);
     groups.set(key, group);
   }
 
   const receipts: string[] = [];
+  const submitted: Array<{ erpInstanceId: string; warehouse: string; items: Array<{ sku: string; warehouse: string; qty: number; excessQty: number }> }> = [];
+  const failed: Array<{ id: string; error: string }> = [];
   for (const group of groups.values()) {
+    const record = await prisma.storeAllocationPurchaseReceipt.create({
+      data: {
+        companyId: companyId(context),
+        erpInstanceId: group.instanceId,
+        erpLabel: group.erpLabel,
+        erpCompany: group.company,
+        supplier,
+        warehouse: group.warehouse,
+        items: group.items.map((item) => ({ sku: item.sku, qty: item.qty, warehouse: item.warehouse, excessQty: Math.max(0, Math.min(item.qty, item.excessQty ?? 0)) })),
+        createdBy: userId(context),
+        status: group.preflightError ? "FAILED" : "CREATING",
+        error: group.preflightError,
+      },
+    });
+    if (group.preflightError) {
+      failed.push({ id: record.id, error: group.preflightError });
+      continue;
+    }
+    let name: string;
     try {
-      receipts.push(await createPurchaseReceipt({
+      name = await createPurchaseReceipt({
         cfg: group.cfg,
         supplier,
         warehouse: group.warehouse,
@@ -1466,16 +1504,96 @@ export async function createStoreAllocationPurchaseReceipts(
           qty: new Prisma.Decimal(item.qty),
           warehouse: item.warehouse,
         })),
-      }));
+      });
     } catch (error) {
-      throw new Error(describePurchaseReceiptError(error, {
+      const message = describePurchaseReceiptError(error, {
         erpLabel: group.erpLabel,
         itemCodes: group.items.map((item) => item.sku),
         warehouse: group.warehouse,
-      }));
+      });
+      await prisma.storeAllocationPurchaseReceipt.update({
+        where: { id: record.id }, data: { status: "FAILED", error: message.slice(0, 1000) },
+      });
+      failed.push({ id: record.id, error: message });
+      continue;
     }
+    await finalizeStoreAllocationPurchaseReceipt(record.id, companyId(context), group.items, name);
+    receipts.push(name);
+    submitted.push({
+      erpInstanceId: group.instanceId,
+      warehouse: group.warehouse,
+      items: group.items.map((item) => ({ sku: item.sku, warehouse: item.warehouse, qty: item.qty, excessQty: item.excessQty ?? 0 })),
+    });
   }
-  return receipts;
+  return { receipts, failed, submitted };
+}
+
+export async function retryStoreAllocationPurchaseReceipt(context: UserContext, id: string) {
+  requireItemCreationPermission(context, ITEM_CREATION_PERMISSIONS.stores);
+  const company = companyId(context);
+  const record = await prisma.storeAllocationPurchaseReceipt.findFirst({ where: { id, companyId: company } });
+  if (!record || record.status !== "FAILED") throw new Error("Failed Purchase Receipt not found");
+  const locked = await prisma.storeAllocationPurchaseReceipt.updateMany({
+    where: { id, companyId: company, status: "FAILED" },
+    data: { status: "CREATING", error: null },
+  });
+  if (locked.count !== 1) throw new Error("This Purchase Receipt is already being retried");
+  let name: string;
+  try {
+    const instances = await getAllOsfErpInstances(company);
+    const instance = instances.find((entry) => entry.id === record.erpInstanceId);
+    if (!instance) throw new Error("ERP instance is no longer configured");
+    const items = Array.isArray(record.items) ? record.items as Array<{ sku: string; qty: number; warehouse: string; excessQty?: number }> : [];
+    if (!items.length) throw new Error("No items saved for this Purchase Receipt");
+    const warehouseCompany = await getWarehouseCompany(instance.cfg, record.warehouse);
+    if (!warehouseCompany) throw new Error(`Company is not configured on warehouse ${record.warehouse}`);
+    name = await createPurchaseReceipt({
+      cfg: instance.cfg,
+      supplier: record.supplier,
+      warehouse: record.warehouse,
+      company: warehouseCompany,
+      createdByEmail: context.user?.email?.trim() || undefined,
+      postingDate: new Date().toISOString().slice(0, 10),
+      items: items.map((item) => ({ itemCode: item.sku, qty: new Prisma.Decimal(item.qty), warehouse: item.warehouse })),
+    });
+  } catch (error) {
+    const rawItems = Array.isArray(record.items) ? record.items as Array<{ sku: string }> : [];
+    const message = describePurchaseReceiptError(error, {
+      erpLabel: record.erpLabel,
+      itemCodes: rawItems.map((item) => item.sku),
+      warehouse: record.warehouse,
+    });
+    await prisma.storeAllocationPurchaseReceipt.update({
+      where: { id }, data: { status: "FAILED", error: message.slice(0, 1000) },
+    });
+    throw new Error(message);
+  }
+  const savedItems = Array.isArray(record.items) ? record.items as Array<{ sku: string; qty: number; excessQty?: number }> : [];
+  await finalizeStoreAllocationPurchaseReceipt(id, company, savedItems, name);
+  return name;
+}
+
+async function finalizeStoreAllocationPurchaseReceipt(
+  id: string,
+  companyId: string,
+  items: Array<{ sku: string; qty: number; excessQty?: number }>,
+  purchaseReceipt: string,
+) {
+  await prisma.$transaction(async (tx) => {
+    await tx.storeAllocationPurchaseReceipt.update({
+      where: { id }, data: { status: "SUBMITTED", purchaseReceipt, error: null },
+    });
+    const excessBySku = new Map<string, number>();
+    for (const item of items) if (item.excessQty && item.excessQty > 0) {
+      excessBySku.set(item.sku, (excessBySku.get(item.sku) ?? 0) + item.excessQty);
+    }
+    for (const [sku, qty] of excessBySku) {
+      const deducted = await tx.storeAllocationExcessStock.updateMany({
+        where: { companyId, sku, qty: { gte: qty } }, data: { qty: { decrement: qty } },
+      });
+      if (deducted.count) await tx.storeAllocationExcessStock.deleteMany({ where: { companyId, sku, qty: 0 } });
+    }
+  });
 }
 
 function validateStockInput(input: StockInput) {
@@ -1548,7 +1666,9 @@ export async function createWarehousePurchaseReceipts(
 
   type ParsedStockItem = (typeof parsed.warehouses)[number]["items"][number];
   const receiptGroups = new Map<string, { company: string; warehouse: string; items: ParsedStockItem[] }>();
+  const receiptIds: string[] = [];
   for (const warehouseGroup of parsed.warehouses) {
+    try {
     for (const item of warehouseGroup.items) {
       if (item.itemRequestId) {
         const request = requestById.get(item.itemRequestId);
@@ -1604,9 +1724,33 @@ export async function createWarehousePurchaseReceipts(
     };
     receiptGroup.items.push(...warehouseGroup.items);
     receiptGroups.set(warehouseCompany, receiptGroup);
+    } catch (error) {
+      const message = describePurchaseReceiptError(error, {
+        erpLabel: erp,
+        itemCodes: warehouseGroup.items.map((item) => item.itemCode),
+        warehouse: warehouseGroup.warehouse,
+      });
+      const failed = await prisma.itemCreationStockReceipt.create({
+        data: {
+          companyId: company,
+          erp,
+          supplier: parsed.supplier,
+          warehouse: warehouseGroup.warehouse,
+          status: "FAILED",
+          error: message.slice(0, 1000),
+          createdBy: userId(context),
+          items: { create: warehouseGroup.items.map((item) => ({
+            itemRequestId: item.itemRequestId && requestById.has(item.itemRequestId) ? item.itemRequestId : undefined,
+            itemCode: item.itemCode,
+            warehouse: item.warehouse,
+            qty: item.qty,
+          })) },
+        },
+      });
+      receiptIds.push(failed.id);
+    }
   }
 
-  const receiptIds: string[] = [];
   for (const receiptGroup of receiptGroups.values()) {
     const receipt = await prisma.itemCreationStockReceipt.create({
       data: {
@@ -1620,6 +1764,7 @@ export async function createWarehousePurchaseReceipts(
           create: receiptGroup.items.map((item) => ({
             itemRequestId: item.itemRequestId,
             itemCode: item.itemCode,
+            warehouse: item.warehouse,
             qty: item.qty,
           })),
         },
@@ -1831,19 +1976,30 @@ export async function retryPurchaseReceipt(context: UserContext, receiptId: stri
     include: { items: true },
   });
   if (receipt.status === ItemCreationStockReceiptStatus.SUBMITTED) return receipt;
+  if (receipt.status !== ItemCreationStockReceiptStatus.FAILED) {
+    throw new Error("This Purchase Receipt is not ready to retry");
+  }
   const { erp1, erp2 } = await resolveErps(receipt.companyId);
   const cfg = receipt.erp === "ERP1" ? erp1?.cfg : erp2?.cfg;
   if (!cfg) throw new Error(`${receipt.erp} instance is not configured`);
-  await prisma.itemCreationStockReceipt.update({
-    where: { id: receipt.id },
+  const locked = await prisma.itemCreationStockReceipt.updateMany({
+    where: { id: receipt.id, companyId: receipt.companyId, status: "FAILED" },
     data: { status: "CREATING", error: null },
   });
+  if (locked.count !== 1) throw new Error("This Purchase Receipt is already being retried");
+  let prName: string;
   try {
     const warehouseCompany = await getWarehouseCompany(cfg, receipt.warehouse);
     if (!warehouseCompany) {
       throw new Error(`Company is not configured on warehouse ${receipt.warehouse}`);
     }
-    const prName = await createPurchaseReceipt({
+    for (const warehouse of new Set(receipt.items.map((item) => item.warehouse ?? receipt.warehouse))) {
+      const companyForWarehouse = await getWarehouseCompany(cfg, warehouse);
+      if (companyForWarehouse !== warehouseCompany) {
+        throw new Error(`Warehouse ${warehouse} belongs to a different company or has no company configured`);
+      }
+    }
+    prName = await createPurchaseReceipt({
       cfg,
       supplier: receipt.supplier,
       warehouse: receipt.warehouse,
@@ -1853,26 +2009,31 @@ export async function retryPurchaseReceipt(context: UserContext, receiptId: stri
       items: receipt.items.map((item) => ({
         itemCode: item.itemCode,
         qty: item.qty,
+        warehouse: item.warehouse ?? receipt.warehouse,
       })),
     });
-    await prisma.itemCreationStockReceipt.update({
-      where: { id: receipt.id },
-      data: { status: "SUBMITTED", purchaseReceipt: prName, submittedAt: new Date(), error: null },
-    });
-    await updateStockCompletion(
-      receipt.companyId,
-      receipt.erp,
-      receipt.items.map((item) => item.itemRequestId).filter((id): id is string => Boolean(id)),
-      userId(context),
-    );
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Purchase Receipt retry failed";
+    const message = describePurchaseReceiptError(error, {
+      erpLabel: receipt.erp,
+      itemCodes: receipt.items.map((item) => item.itemCode),
+      warehouse: receipt.warehouse,
+    });
     await prisma.itemCreationStockReceipt.update({
       where: { id: receipt.id },
       data: { status: "FAILED", error: message.slice(0, 1000) },
     });
-    throw error;
+    throw new Error(message);
   }
+  await prisma.itemCreationStockReceipt.update({
+    where: { id: receipt.id },
+    data: { status: "SUBMITTED", purchaseReceipt: prName, submittedAt: new Date(), error: null },
+  });
+  await updateStockCompletion(
+    receipt.companyId,
+    receipt.erp,
+    receipt.items.map((item) => item.itemRequestId).filter((id): id is string => Boolean(id)),
+    userId(context),
+  );
   return prisma.itemCreationStockReceipt.findUniqueOrThrow({
     where: { id: receiptId },
     include: { items: true },
