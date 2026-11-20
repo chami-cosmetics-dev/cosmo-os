@@ -9,6 +9,7 @@ import {
   buildRopRows,
   skuKey,
   summarizeRopStatus,
+  summarizeRopTotals,
   type ExcludedSkus,
   type StockHealthRopRow,
 } from "@/lib/stock-health/calc";
@@ -88,7 +89,13 @@ export async function loadStockHealthRopStatus(
 ): Promise<StockHealthRopStatus> {
   const { ropRows, fetchedAt } = await loadStockHealthRopData(companyId, options);
   const { rows, grandTotal } = summarizeRopStatus(ropRows);
-  return { month: currentMonthName(), rows, grandTotal, fetchedAt: fetchedAt.toISOString() };
+  return {
+    month: currentMonthName(),
+    rows,
+    grandTotal,
+    ropTotals: summarizeRopTotals(ropRows),
+    fetchedAt: fetchedAt.toISOString(),
+  };
 }
 
 /** The Common SKUs behind ROP Status's 0' Stock numbers (same data, same rows). */

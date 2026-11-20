@@ -7,6 +7,7 @@ import {
   parseExcludedSkus,
   ropGroupOf,
   summarizeRopStatus,
+  summarizeRopTotals,
   type StockHealthItem,
 } from "@/lib/stock-health/calc";
 
@@ -147,5 +148,28 @@ describe("buildOutOfStockRows", () => {
       expect(list.filter((r) => r.status === row.status)).toHaveLength(row.zeroStock);
     }
     expect(list).toHaveLength(grandTotal.zeroStock);
+  });
+});
+
+describe("summarizeRopTotals (Dashboard)", () => {
+  it("adds ROP and stock of the Common SKUs with a ROP only, per status + Grand Total", () => {
+    const rows = buildCommonSkuRows(
+      [
+        { sku: "ABC_1", brand: null, priority: "Top", siteStatus: "active", itemName: null },
+        { sku: "XYZ_1", brand: null, priority: "Top", siteStatus: "active", itemName: null },
+        { sku: "NOR_1", brand: null, priority: "Top", siteStatus: "active", itemName: null },
+        { sku: "LOW_1", brand: null, priority: "Low", siteStatus: "active", itemName: null },
+      ],
+      new Map(Object.entries({ ABC_1: 6, XYZ_1: 1, NOR_1: 50, LOW_1: 3 })),
+      parseExcludedSkus([]),
+    );
+    const totals = summarizeRopTotals(
+      buildRopRows(rows, new Map([["ABC_1", 10], ["XYZ_1", 10], ["LOW_1", 4]])),
+    );
+    // NOR_1 has no ROP: its stock is left out.
+    expect(totals.byStatus.Top).toEqual({ totalRop: 20, totalStock: 7 });
+    expect(totals.byStatus.Low).toEqual({ totalRop: 4, totalStock: 3 });
+    expect(totals.byStatus.Discontinue).toBeUndefined();
+    expect(totals.grandTotal).toEqual({ totalRop: 24, totalStock: 10 });
   });
 });
