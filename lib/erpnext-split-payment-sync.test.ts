@@ -259,6 +259,86 @@ describe("finance-approved split ERP Payment Entries", () => {
     expect(outstanding).toBe(2750);
   });
 
+  it("adopts a manual bank PE already on the SI instead of failing on outstanding", async () => {
+    outstanding = 2750;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes("/api/resource/Sales%20Invoice/") || url.includes("/api/resource/Sales Invoice/")) {
+          return Response.json({
+            data: {
+              name: "900-000760",
+              outstanding_amount: outstanding,
+              debit_to: "Debtors - C",
+              customer: "CUST-1",
+            },
+          });
+        }
+        if (url.includes("/api/resource/Mode%20of%20Payment/")) {
+          const name = decodeURIComponent(url.split("/").at(-1) ?? "");
+          return Response.json({
+            data: {
+              name,
+              accounts: [{ company: "Cosmo", default_account: `${name} Account - C` }],
+            },
+          });
+        }
+        if (url.includes("/api/resource/Payment%20Entry?") || url.includes("/api/resource/Payment Entry?")) {
+          return Response.json({
+            data: [
+              {
+                name: "REC-MANUAL-BANK",
+                paid_amount: 5000,
+                mode_of_payment: "Bank Transfer",
+              },
+            ],
+          });
+        }
+        if (url.endsWith("/api/resource/Payment Entry") && init?.method === "POST") {
+          const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+          paymentEntryBodies.push(body);
+          return Response.json({ data: { name: `PE-${paymentEntryBodies.length}` } });
+        }
+        return Response.json({}, { status: 404 });
+      }),
+    );
+
+    const result = await syncApprovalSplitPaymentEntriesToErp(
+      {
+        id: "approval-1",
+        kokoReference: null,
+        paymentLines: [
+          {
+            id: "line-bank",
+            paymentMethod: "bank_transfer",
+            amount: 5000,
+            erpPaymentEntryName: null,
+          },
+          {
+            id: "line-cash",
+            paymentMethod: "cash",
+            amount: 2750,
+            erpPaymentEntryName: null,
+          },
+        ],
+      },
+      order,
+      location,
+      new Date("2026-08-24T00:00:00.000Z"),
+    );
+
+    expect(result).toEqual({
+      outcome: "already_paid",
+      paymentEntryName: "REC-MANUAL-BANK",
+    });
+    expect(paymentEntryBodies).toHaveLength(0);
+    expect(prismaMocks.approvalPaymentLineUpdate).toHaveBeenCalledWith({
+      where: { id: "line-bank" },
+      data: { erpPaymentEntryName: "REC-MANUAL-BANK" },
+    });
+  });
+
   it("creates a Mintpay PE and leaves Cash for delivery collection", async () => {
     await syncApprovalSplitPaymentEntriesToErp(
       {
