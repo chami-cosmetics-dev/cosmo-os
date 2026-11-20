@@ -1376,6 +1376,33 @@ async function findSubmittedSalesInvoiceForPayment(
   return list?.[0] ?? null;
 }
 
+async function listReceivePaymentEntriesForInvoice(
+  cfg: ErpConfig,
+  invoiceName: string,
+): Promise<Array<{ name: string; paid_amount?: number; mode_of_payment?: string | null }>> {
+  try {
+    const filters = encodeURIComponent(
+      JSON.stringify([
+        ["docstatus", "=", 1],
+        ["payment_type", "=", "Receive"],
+        ["Payment Entry Reference", "reference_doctype", "=", "Sales Invoice"],
+        ["Payment Entry Reference", "reference_name", "=", invoiceName],
+      ]),
+    );
+    const fields = encodeURIComponent(JSON.stringify(["name", "paid_amount", "mode_of_payment"]));
+    const rows = await erpnextGet<
+      Array<{ name: string; paid_amount?: number; mode_of_payment?: string | null }>
+    >(
+      cfg,
+      `/api/resource/Payment Entry?filters=${filters}&fields=${fields}&limit_page_length=50`,
+    );
+    return rows ?? [];
+  } catch (err) {
+    console.error("[ERPNext] Payment Entry list for invoice failed:", err);
+    return [];
+  }
+}
+
 async function findExistingReceivePaymentEntry(
   cfg: ErpConfig,
   invoiceName: string,
@@ -1390,26 +1417,31 @@ async function findExistingReceivePaymentEntry(
     if (storedName) return storedName;
   }
 
-  try {
-    const filters = encodeURIComponent(
-      JSON.stringify([
-        ["docstatus", "=", 1],
-        ["payment_type", "=", "Receive"],
-        ["Payment Entry Reference", "reference_doctype", "=", "Sales Invoice"],
-        ["Payment Entry Reference", "reference_name", "=", invoiceName],
-      ]),
+  const rows = await listReceivePaymentEntriesForInvoice(cfg, invoiceName);
+  return rows[0]?.name?.trim() || null;
+}
+
+/** Adopt a manual/already-posted PE that matches a split line amount (and MOP when known). */
+async function findExistingReceivePaymentEntryMatchingAmount(
+  cfg: ErpConfig,
+  invoiceName: string,
+  amount: number,
+  mopName?: string | null,
+): Promise<string | null> {
+  if (!(amount > 0) || !Number.isFinite(amount)) return null;
+  const rows = await listReceivePaymentEntriesForInvoice(cfg, invoiceName);
+  const mop = mopName?.trim().toLowerCase() || null;
+  const amountMatch = rows.filter(
+    (row) => Math.abs(Number(row.paid_amount ?? 0) - amount) <= 0.005,
+  );
+  if (amountMatch.length === 0) return null;
+  if (mop) {
+    const mopMatch = amountMatch.find(
+      (row) => (row.mode_of_payment ?? "").trim().toLowerCase() === mop,
     );
-    const fields = encodeURIComponent(JSON.stringify(["name"]));
-    const rows = await erpnextGet<Array<{ name: string }>>(
-      cfg,
-      `/api/resource/Payment Entry?filters=${filters}&fields=${fields}&limit=1`,
-    );
-    const name = rows?.[0]?.name?.trim();
-    return name || null;
-  } catch (err) {
-    console.error("[ERPNext] existing Payment Entry lookup failed:", err);
-    return null;
+    if (mopMatch?.name?.trim()) return mopMatch.name.trim();
   }
+  return amountMatch[0]?.name?.trim() || null;
 }
 
 export async function createDeliveryPaymentEntry(
@@ -1522,6 +1554,23 @@ async function createDeliveryPaymentEntryOnce(
     options?.paidAmount != null && Number.isFinite(options.paidAmount) && options.paidAmount > 0
       ? options.paidAmount
       : invoice.outstanding_amount;
+
+  // Split lines: if finance already posted this leg in ERP (manual PE), adopt it instead of failing.
+  if (options?.paidAmount != null && options.paidAmount > 0) {
+    const matchingPe = await findExistingReceivePaymentEntryMatchingAmount(
+      cfg,
+      invoice.name,
+      options.paidAmount,
+      mopName,
+    );
+    if (matchingPe) {
+      console.log(
+        `[ERPNext] Sales Invoice ${invoice.name} already has matching Payment Entry ${matchingPe} for ${options.paidAmount.toFixed(2)} — adopting`,
+      );
+      return { outcome: "already_paid", paymentEntryName: matchingPe };
+    }
+  }
+
   if (options?.requireExactAmount && requested > invoice.outstanding_amount + 0.005) {
     throw new Error(
       `Split payment amount ${requested.toFixed(2)} exceeds Sales Invoice ${invoice.name} outstanding ${invoice.outstanding_amount.toFixed(2)}`,
@@ -1867,7 +1916,11 @@ export async function syncApprovalSplitPaymentEntriesToErp(
           : `OS-OPA-${line.id}`,
       ...(options?.owner ? { owner: options.owner } : {}),
     });
-    if (result.outcome !== "created" || !result.paymentEntryName) {
+    // created = new PE; already_paid = adopt manual/existing PE that matches this leg.
+    if (
+      (result.outcome !== "created" && result.outcome !== "already_paid") ||
+      !result.paymentEntryName
+    ) {
       throw new Error(`ERP Payment Entry was not created for split ${line.paymentMethod} line`);
     }
 
@@ -1875,7 +1928,7 @@ export async function syncApprovalSplitPaymentEntriesToErp(
       where: { id: line.id },
       data: { erpPaymentEntryName: result.paymentEntryName },
     });
-    createdCount += 1;
+    if (result.outcome === "created") createdCount += 1;
     lastPaymentEntryName = result.paymentEntryName;
   }
 
