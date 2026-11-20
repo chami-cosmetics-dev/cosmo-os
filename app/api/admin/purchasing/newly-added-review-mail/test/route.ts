@@ -2,11 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { hasPermission, requireUserContext } from "@/lib/rbac";
 import { parseReviewRecipients } from "@/lib/newly-added-review/calc";
-import {
-  buildNewlyAddedReviewExcel,
-  NEWLY_ADDED_REVIEW_RECIPIENTS_ENV,
-  sendTestNewlyAddedReviewMail,
-} from "@/lib/newly-added-review/send";
+import { buildNewlyAddedReviewExcel, sendTestNewlyAddedReviewMail } from "@/lib/newly-added-review/send";
 
 export const dynamic = "force-dynamic";
 /** Reads every Newly Added SKU's stock ledger live from the ERPs. */
@@ -19,7 +15,7 @@ export const maxDuration = 300;
  * - `?excel=1` — downloads the attached Excel, sends nothing.
  * - no `to` — sends it (with the Excel) to you, the signed-in user.
  * - `?to=a@x.lk,b@y.lk` — sends to those addresses.
- * - `?to=list` — sends to NEWLY_ADDED_REVIEW_MAIL_RECIPIENTS.
+ * - `?to=list` — sends to the Email Template's To + CC (Settings → Email Templates).
  * - `&month=2026-12` — as the mail for that month would be (default: this month).
  */
 export async function GET(request: NextRequest) {
@@ -40,7 +36,7 @@ export async function GET(request: NextRequest) {
   }
   const preview = params.get("preview") === "1";
   const toParam = params.get("to")?.trim();
-  const to = toParam === "list" ? ("env" as const) : parseReviewRecipients(toParam || auth.user.email || "");
+  const to = toParam === "list" ? ("template" as const) : parseReviewRecipients(toParam || auth.user.email || "");
 
   try {
     if (params.get("excel") === "1") {
@@ -61,8 +57,8 @@ export async function GET(request: NextRequest) {
         {
           result,
           error:
-            to === "env"
-              ? `${NEWLY_ADDED_REVIEW_RECIPIENTS_ENV} is empty — add comma-separated addresses to it`
+            to === "template"
+              ? "No To recipients in the Email Template — add them in Settings → Email Templates"
               : "No valid email address to send to",
         },
         { status: 400 },

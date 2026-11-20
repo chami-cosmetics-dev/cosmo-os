@@ -5,20 +5,37 @@ vi.setConfig({ testTimeout: 30_000 });
 
 /** Send paths without ERP or Maileroo: once per month, empty recipients, test link never logged. */
 
-const { sendStockHealthSummaryEmail, log } = vi.hoisted(() => ({
+const { sendStockHealthSummaryEmail, sendErpSyncFailureAlertEmail, log, saved } = vi.hoisted(() => ({
   sendStockHealthSummaryEmail: vi.fn(async () => ({ success: true }) as { success: boolean; message?: string }),
+  sendErpSyncFailureAlertEmail: vi.fn(async () => ({ success: true })),
   log: new Map<string, { status: string }>(),
+  /** The saved Email Template (Settings → Email Templates); null = never saved. */
+  saved: {
+    template: null as null | { name: string; subject: string; bodyHtml: string; recipients: string; ccRecipients: string },
+  },
 }));
 
 const key = (w: { companyId_mailDate_part: { companyId: string; mailDate: string; part: string } }) =>
   `${w.companyId_mailDate_part.companyId}|${w.companyId_mailDate_part.mailDate}|${w.companyId_mailDate_part.part}`;
 
-vi.mock("@/lib/maileroo", () => ({ sendStockHealthSummaryEmail }));
+vi.mock("@/lib/maileroo", () => ({ sendStockHealthSummaryEmail, sendErpSyncFailureAlertEmail }));
+vi.mock("@/lib/rbac", () => ({
+  requirePermission: vi.fn(async () => ({ ok: true, context: { user: { id: "u1" } } })),
+}));
 vi.mock("@/lib/prisma", async () => {
   const { Prisma } = await import("@prisma/client");
   return {
     prisma: {
-      company: { findMany: vi.fn(async () => [{ id: "co1" }]) },
+      company: {
+        findMany: vi.fn(async () => [{ id: "co1" }]),
+        findUnique: vi.fn(async () => ({ name: "Test Co" })),
+      },
+      user: { findUnique: vi.fn(async () => ({ companyId: "co1" })) },
+      emailTemplate: {
+        findUnique: vi.fn(async ({ where }: { where: { companyId_key: { key: string } } }) =>
+          where.companyId_key.key === "newly_added_priority_review" ? saved.template : null,
+        ),
+      },
       stockHealthSummaryMail: {
         findUnique: vi.fn(async ({ where }) => log.get(key(where)) ?? null),
         create: vi.fn(async ({ data }) => {
@@ -84,26 +101,28 @@ vi.mock("@/lib/item-trends/stock-trends", async (importOriginal) => ({
   ]),
 }));
 
-const ENV = "NEWLY_ADDED_REVIEW_MAIL_RECIPIENTS";
-
 beforeEach(() => {
   log.clear();
   sendStockHealthSummaryEmail.mockClear();
-  process.env[ENV] = "a@x.lk, b@x.lk";
+  sendErpSyncFailureAlertEmail.mockClear();
+  // Saved with To + CC, Subject / Body left as the defaults (blank).
+  saved.template = { name: "Newly Added Priority Review", subject: "", bodyHtml: "", recipients: "a@x.lk, b@x.lk", ccRecipients: "c@x.lk" };
 });
 afterEach(() => {
-  delete process.env[ENV];
+  vi.restoreAllMocks();
 });
 
 describe("scheduled send", () => {
   it("sends once with the Excel, then never again that month", async () => {
     const { sendScheduledNewlyAddedReviewMail } = await import("@/lib/newly-added-review/send");
     const first = await sendScheduledNewlyAddedReviewMail("co1", "2026-11");
-    expect(first).toMatchObject({ status: "sent", needsCheck: 1, allNewlyAdded: 2, recipientCount: 2 });
+    expect(first).toMatchObject({ status: "sent", needsCheck: 1, allNewlyAdded: 2, recipientCount: 3 });
     const [input] = sendStockHealthSummaryEmail.mock.calls[0] as unknown as [
-      { toEmails: string[]; subject: string; html: string; attachments: Array<{ fileName: string }> },
+      { toEmails: string[]; ccEmails: string[]; subject: string; html: string; attachments: Array<{ fileName: string }> },
     ];
+    // To / CC from the Email Template.
     expect(input.toEmails).toEqual(["a@x.lk", "b@x.lk"]);
+    expect(input.ccEmails).toEqual(["c@x.lk"]);
     expect(input.subject).toBe("Newly Added Priority Review - November 2026");
     expect(input.html).not.toContain("TEST MAIL");
     expect(input.attachments.map((a) => a.fileName)).toEqual(["newly-added-priority-review-2026-11.xlsx"]);
@@ -115,14 +134,31 @@ describe("scheduled send", () => {
     expect((await sendScheduledNewlyAddedReviewMail("co1", "2026-12")).status).toBe("sent");
   });
 
-  it("empty recipients: not sent, logged clearly", async () => {
-    process.env[ENV] = " ";
+  it("no To in the Email Template (or never saved): not sent, logged clearly", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const { sendScheduledNewlyAddedReviewMail } = await import("@/lib/newly-added-review/send");
+    saved.template = { ...saved.template!, recipients: " " };
+    expect((await sendScheduledNewlyAddedReviewMail("co1", "2026-11")).status).toBe("skipped_no_recipients");
+    saved.template = null;
     expect((await sendScheduledNewlyAddedReviewMail("co1", "2026-11")).status).toBe("skipped_no_recipients");
     expect(sendStockHealthSummaryEmail).not.toHaveBeenCalled();
-    expect(warn.mock.calls[0][0]).toContain("NEWLY_ADDED_REVIEW_MAIL_RECIPIENTS is empty");
-    warn.mockRestore();
+    expect(warn.mock.calls[0][0]).toContain("has no To recipients");
+    expect(warn.mock.calls[0][0]).toContain("Settings → Email Templates");
+  });
+
+  it("uses the Subject / Body edited in Email Templates", async () => {
+    saved.template = {
+      ...saved.template!,
+      subject: "Review for {{reportMonth}} ({{needsCheckCount}} items)",
+      bodyHtml: "<p>Hello team,</p>{{openingHtml}}{{decisionTableHtml}}",
+    };
+    const { sendScheduledNewlyAddedReviewMail } = await import("@/lib/newly-added-review/send");
+    await sendScheduledNewlyAddedReviewMail("co1", "2026-11");
+    const [input] = sendStockHealthSummaryEmail.mock.calls[0] as unknown as [{ subject: string; html: string }];
+    expect(input.subject).toBe("Review for November 2026 (1 items)");
+    expect(input.html).toContain("<p>Hello team,</p>");
+    expect(input.html).toContain("Items needing a decision");
+    expect(input.html).not.toContain("Sheet 1");
   });
 
   it("a failed send can be retried the same month", async () => {
@@ -199,5 +235,48 @@ describe("cron (every Tuesday): sends only on the month's send day", () => {
     expect((await sendScheduledNewlyAddedReviewMailForAllCompanies("2026-12-08"))[0].status).toBe("skipped_wrong_day");
     expect((await sendScheduledNewlyAddedReviewMailForAllCompanies("2026-12-01"))[0].status).toBe("sent");
     expect(sendStockHealthSummaryEmail).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("Settings → Email Templates → Send test mail", () => {
+  it("sends this month's real review with the Excel attached", async () => {
+    const { POST } = await import("@/app/api/admin/company/email-templates/test-send/route");
+    const { NEWLY_ADDED_PRIORITY_REVIEW_TEMPLATE } = await import("@/lib/newly-added-review/mail-templates");
+    const res = await POST(
+      new Request("http://localhost/api/admin/company/email-templates/test-send", {
+        method: "POST",
+        body: JSON.stringify({
+          key: NEWLY_ADDED_PRIORITY_REVIEW_TEMPLATE.key,
+          name: NEWLY_ADDED_PRIORITY_REVIEW_TEMPLATE.name,
+          subject: NEWLY_ADDED_PRIORITY_REVIEW_TEMPLATE.subject,
+          bodyHtml: NEWLY_ADDED_PRIORITY_REVIEW_TEMPLATE.bodyHtml,
+          recipients: "me@x.lk",
+        }),
+      }) as never,
+    );
+    expect(res.status).toBe(200);
+    expect(sendErpSyncFailureAlertEmail).toHaveBeenCalledTimes(1);
+    const [input] = sendErpSyncFailureAlertEmail.mock.calls[0] as unknown as [
+      { subject: string; html: string; attachments?: Array<{ fileName: string; contentBase64: string }> },
+    ];
+    expect(input.subject).toMatch(/^\[TEST\] Newly Added Priority Review - /);
+    expect(input.html).toContain("Sheet 1");
+    expect(input.html).not.toContain("{{");
+    expect(input.attachments?.map((a) => a.fileName)).toEqual([
+      expect.stringMatching(/^newly-added-priority-review-\d{4}-\d{2}\.xlsx$/),
+    ]);
+    expect(input.attachments![0].contentBase64.length).toBeGreaterThan(0);
+    expect(log.size).toBe(0);
+  });
+
+  it("the template is listed as a built-in (no recipients by default)", async () => {
+    const { builtinTemplateByKey } = await import("@/lib/email-templates/catalog");
+    expect(builtinTemplateByKey("newly_added_priority_review")).toMatchObject({
+      name: "Newly Added Priority Review",
+      recipients: "",
+      ccRecipients: "",
+      builtin: true,
+      automated: true,
+    });
   });
 });
