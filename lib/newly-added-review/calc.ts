@@ -159,7 +159,7 @@ export function buildNewlyAddedReview(
   return { mailMonth, needsCheck, all, byCreatedMonth };
 }
 
-/** NEWLY_ADDED_REVIEW_MAIL_RECIPIENTS: comma / semicolon / space separated; invalid entries dropped. */
+/** The test link's `?to=` list: comma / semicolon / space separated; invalid entries dropped. */
 export function parseReviewRecipients(raw: string | null | undefined): string[] {
   const seen = new Set<string>();
   return (raw ?? "")

@@ -93,6 +93,8 @@ export function buildRopDetailsRows(ropRows: StockHealthRopRow[]): StockHealthRo
   });
 }
 
+
+
 /**
  * Filter + sort. Percentage works like Shop Stock Status (Below / Above strict, Equal to on the
  * shown 1-decimal value, "-" never matches). Rows with no % ("-") always sort last.
