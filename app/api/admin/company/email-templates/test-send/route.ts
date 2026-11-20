@@ -18,6 +18,7 @@ import { buildMarginIssuesEmailPreview, buildMarginIssuesWorkbook } from "@/lib/
 import { loadMarginIssuesReport } from "@/lib/margin-issues";
 import { requirePermission } from "@/lib/rbac";
 import { loadStockHealthMailTestPlaceholders } from "@/lib/stock-health/summary-mail";
+import { loadNewlyAddedReviewTestPlaceholders } from "@/lib/newly-added-review/send";
 import { LIMITS, trimmedString } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
@@ -159,6 +160,12 @@ export async function POST(request: NextRequest) {
     if (stockHealth) {
       placeholders = { ...SAMPLE_PLACEHOLDERS, ...stockHealth.placeholders };
       attachments = stockHealth.attachments;
+    }
+    // Newly Added Priority Review: this month's real review in the template + its Excel.
+    const newlyAdded = await loadNewlyAddedReviewTestPlaceholders(user.companyId, parsed.data.key);
+    if (newlyAdded) {
+      placeholders = { ...SAMPLE_PLACEHOLDERS, ...newlyAdded.placeholders };
+      attachments = newlyAdded.attachments;
     }
   }
   const templateSubject = parsed.data.key === GRN_PENDING_DAILY_KEY
