@@ -25,6 +25,7 @@ export type MerchantReviewQueueItem = {
   assignedMerchant: { id: string; name: string | null; email: string | null } | null;
   reviewMerchant: { id: string; name: string };
   reviewStatus: "pending" | "reviewed" | "follow_up" | "no_response";
+  callbackDate: string | null;
   reviewMarkedAt: string | null;
 };
 
@@ -249,6 +250,7 @@ export async function fetchMerchantReviewSheetData(input: {
       assignedMerchant: order.assignedMerchant,
       reviewMerchant,
       reviewStatus: review?.reviewStatus ?? "pending",
+      callbackDate: review?.callbackDate?.toISOString() ?? null,
       reviewMarkedAt: review?.reviewMarkedAt?.toISOString() ?? null,
     };
   });

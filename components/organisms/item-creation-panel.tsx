@@ -13,6 +13,7 @@ import {
   isItemCreationStageCompletionVisible,
 } from "@/lib/item-creation/helpers";
 import { allocateTakeQty } from "@/lib/store-allocation/allocate";
+import { FailedPurchaseReceipts } from "@/components/molecules/failed-purchase-receipts";
 
 type ItemCreationItem = {
   id: string;
@@ -357,6 +358,7 @@ export function ItemCreationPanel({
   const [message, setMessage] = useState("");
   const [filters, setFilters] = useState<Record<string, string>>(initialFilters);
   const [activeView, setActiveView] = useState<TeamView>(defaultView(permissions));
+  const [storesPage, setStoresPage] = useState<"requests" | "failed">("requests");
   const [digitalMarketingAdminPage, setDigitalMarketingAdminPage] =
     useState<DigitalMarketingAdminPage>("requests");
   const [createRows, setCreateRows] = useState<CreateRow[]>([emptyCreateRow(1)]);
@@ -1209,7 +1211,14 @@ export function ItemCreationPanel({
         />
       ) : null}
 
+      {activeView === "stores" && <div className="inline-flex flex-wrap gap-1 rounded-md border bg-card p-1">
+        <button type="button" onClick={() => setStoresPage("requests")} className={`rounded-md px-4 py-2 text-sm font-medium ${storesPage === "requests" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}>Stores</button>
+        <button type="button" onClick={() => setStoresPage("failed")} className={`rounded-md px-4 py-2 text-sm font-medium ${storesPage === "failed" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}>Failed PRs</button>
+      </div>}
+      {activeView === "stores" && storesPage === "failed" && <FailedPurchaseReceipts source="item-creation" onRetrySuccess={() => void refresh()} />}
+
       {activeView !== "admin" &&
+        !(activeView === "stores" && storesPage === "failed") &&
         !(activeView === "digitalMarketing" &&
           permissions.digitalMarketingAdmin &&
           digitalMarketingAdminPage === "allocations") && (

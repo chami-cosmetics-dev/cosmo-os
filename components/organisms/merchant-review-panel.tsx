@@ -39,6 +39,7 @@ type QueueItem = {
   assignedMerchant: { id: string; name: string | null; email: string | null } | null;
   reviewMerchant: { id: string; name: string };
   reviewStatus: "pending" | "reviewed" | "follow_up" | "no_response";
+  callbackDate: string | null;
   reviewMarkedAt: string | null;
 };
 
@@ -197,6 +198,8 @@ export function MerchantReviewPanel({
   const [merchantFilter, setMerchantFilter] = useState(initialData.defaultMerchantFilter);
   const [dateFrom, setDateFrom] = useState(initialData.defaultDateFrom);
   const [dateTo, setDateTo] = useState(initialData.defaultDateTo);
+  const [callbackDateFrom, setCallbackDateFrom] = useState("");
+  const [callbackDateTo, setCallbackDateTo] = useState("");
   const [selectedOrderId, setSelectedOrderId] = useState(initialData.orders[0]?.orderId ?? "");
   const [detailLoading, setDetailLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -209,10 +212,17 @@ export function MerchantReviewPanel({
     () => queueOrders.filter((order) => isInDateRange(order.deliveryCompleteAt, dateFrom, dateTo)),
     [queueOrders, dateFrom, dateTo]
   );
+  const callbackDateScopedOrders = useMemo(
+    () => dateScopedOrders.filter((order) =>
+      (!callbackDateFrom && !callbackDateTo) ||
+      Boolean(order.callbackDate && isInDateRange(order.callbackDate, callbackDateFrom, callbackDateTo))
+    ),
+    [dateScopedOrders, callbackDateFrom, callbackDateTo]
+  );
 
   const filteredOrders = useMemo(() => {
     const query = search.trim().toLowerCase();
-    return dateScopedOrders.filter((order) => {
+    return callbackDateScopedOrders.filter((order) => {
       if (statusFilter !== "__all" && order.reviewStatus !== statusFilter) return false;
       if (merchantFilter !== "__all" && order.reviewMerchant.id !== merchantFilter) return false;
       if (!query) return true;
@@ -229,7 +239,7 @@ export function MerchantReviewPanel({
         .filter(Boolean)
         .some((value) => value!.toLowerCase().includes(query));
     });
-  }, [dateScopedOrders, search, statusFilter, merchantFilter]);
+  }, [callbackDateScopedOrders, search, statusFilter, merchantFilter]);
 
   const counts = useMemo(
     () =>
@@ -317,6 +327,7 @@ export function MerchantReviewPanel({
             ? {
                 ...item,
                 reviewStatus: data.review?.reviewStatus ?? item.reviewStatus,
+                callbackDate: data.review?.callbackDate ?? item.callbackDate,
                 reviewMarkedAt: data.review?.reviewMarkedAt ?? item.reviewMarkedAt,
               }
             : item
@@ -488,6 +499,12 @@ export function MerchantReviewPanel({
     if (dateTo) {
       params.set("dateTo", dateTo);
     }
+    if (callbackDateFrom) {
+      params.set("callbackDateFrom", callbackDateFrom);
+    }
+    if (callbackDateTo) {
+      params.set("callbackDateTo", callbackDateTo);
+    }
     const query = search.trim();
     if (query) {
       params.set("search", query);
@@ -565,7 +582,7 @@ export function MerchantReviewPanel({
                   <div className="space-y-2">
                     <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
                       <CalendarDays className="size-4 text-primary" />
-                      From
+                      Delivery completed from
                     </label>
                     <Input
                       type="date"
@@ -578,13 +595,41 @@ export function MerchantReviewPanel({
                   <div className="space-y-2">
                     <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
                       <CalendarDays className="size-4 text-primary" />
-                      To
+                      Delivery completed to
                     </label>
                     <Input
                       type="date"
                       value={dateTo}
                       min={dateFrom || undefined}
                       onChange={(event) => setDateTo(event.target.value)}
+                      disabled={isBusy}
+                    />
+                  </div>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+                  <div className="space-y-2">
+                    <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                      <CalendarDays className="size-4 text-primary" />
+                      Callback date from
+                    </label>
+                    <Input
+                      type="date"
+                      value={callbackDateFrom}
+                      max={callbackDateTo || undefined}
+                      onChange={(event) => setCallbackDateFrom(event.target.value)}
+                      disabled={isBusy}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                      <CalendarDays className="size-4 text-primary" />
+                      Callback date to
+                    </label>
+                    <Input
+                      type="date"
+                      value={callbackDateTo}
+                      min={callbackDateFrom || undefined}
+                      onChange={(event) => setCallbackDateTo(event.target.value)}
                       disabled={isBusy}
                     />
                   </div>
