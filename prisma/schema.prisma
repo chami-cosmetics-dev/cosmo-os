@@ -119,6 +119,7 @@ model Company {
   itemCreationRequests            ItemCreationRequest[]
   itemCreationBrandAllocations    ItemCreationBrandAllocation[]
   itemCreationStockReceipts       ItemCreationStockReceipt[]
+  storeAllocationPurchaseReceipts StoreAllocationPurchaseReceipt[]
   storeAllocationExcessStocks     StoreAllocationExcessStock[]
   stockRequests                   StockRequest[]
   materialTransfers               MaterialTransfer[]
@@ -572,11 +573,32 @@ model StoreAllocationExcessStock {
   @@index([companyId])
 }
 
+model StoreAllocationPurchaseReceipt {
+  id            String   @id @default(cuid())
+  companyId     String
+  erpInstanceId String
+  erpLabel      String
+  erpCompany    String
+  supplier      String
+  warehouse     String
+  items         Json
+  status        String   @default("CREATING")
+  purchaseReceipt String?
+  error         String?
+  createdBy     String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, status, createdAt])
+}
+
 model ItemCreationStockReceiptItem {
   id             String                   @id @default(cuid())
   stockReceiptId String
   itemRequestId  String?
   itemCode       String
+  warehouse      String?
   qty            Decimal                  @db.Decimal(12, 3)
   stockReceipt   ItemCreationStockReceipt @relation(fields: [stockReceiptId], references: [id], onDelete: Cascade)
   itemRequest    ItemCreationRequest?     @relation(fields: [itemRequestId], references: [id], onDelete: Cascade)

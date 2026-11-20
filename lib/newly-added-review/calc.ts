@@ -95,9 +95,23 @@ export type NewlyAddedReviewRow = {
   /** null when there is no created date. */
   durationMonths: number | null;
   currentStock: number;
-  /** Sheet 1 only: Max Sale Qty (maxSaleQtyInWindow); null elsewhere. */
+  /**
+   * Max Sale Qty (maxSaleQtyInWindow), on both sheets. null = no completed month to look at:
+   * created in the mail month (MAX_SALE_UNDER_ONE_MONTH) or no created date (MAX_SALE_NO_CREATED_DATE).
+   */
   maxSaleQty: number | null;
 };
+
+/** Max Sale Qty cell when the item has no completed month yet (created in the mail month). */
+export const MAX_SALE_UNDER_ONE_MONTH = "Under 1 month";
+/** Max Sale Qty cell when the item has no created date. */
+export const MAX_SALE_NO_CREATED_DATE = "No created date";
+
+/** What the Max Sale Qty cell shows: the number, or why there is none. */
+export function maxSaleQtyCell(row: NewlyAddedReviewRow): number | string {
+  if (row.maxSaleQty !== null) return row.maxSaleQty;
+  return row.createdDate ? MAX_SALE_UNDER_ONE_MONTH : MAX_SALE_NO_CREATED_DATE;
+}
 
 export type NewlyAddedReview = {
   /** "YYYY-MM": the month the mail goes. */
@@ -121,8 +135,8 @@ function byCreatedDate(a: NewlyAddedReviewRow, b: NewlyAddedReviewRow): number {
 }
 
 /**
- * `unitsByMonth(sku)`: the variant's counted units per "YYYY-MM" (all channels), for Sheet 1's
- * Max Sale Qty; omitted → 0.
+ * `unitsByMonth(sku)`: the variant's counted units per "YYYY-MM" (all channels), for Max Sale
+ * Qty; omitted → 0. Max Sale Qty needs at least one completed month (duration ≥ 1).
  */
 export function buildNewlyAddedReview(
   items: NewlyAddedReviewInput[],
@@ -131,21 +145,27 @@ export function buildNewlyAddedReview(
 ): NewlyAddedReview {
   const all: NewlyAddedReviewRow[] = items
     .filter((item) => stockHealthStatusOf(item.priority) === NEWLY_ADDED_STATUS)
-    .map((item) => ({
-      sku: item.sku,
-      productTitle: item.productTitle,
-      priorityStatus: NEWLY_ADDED_STATUS,
-      createdDate: item.createdDate,
-      durationMonths: item.createdDate ? durationMonths(item.createdDate, mailMonth) : null,
-      currentStock: item.currentStock,
-      maxSaleQty: null as number | null,
-    }))
+    .map((item) => {
+      const duration = item.createdDate ? durationMonths(item.createdDate, mailMonth) : null;
+      return {
+        sku: item.sku,
+        productTitle: item.productTitle,
+        priorityStatus: NEWLY_ADDED_STATUS,
+        createdDate: item.createdDate,
+        durationMonths: duration,
+        currentStock: item.currentStock,
+        maxSaleQty:
+          item.createdDate && duration !== null && duration >= 1
+            ? maxSaleQtyInWindow(unitsByMonth(item.sku), item.createdDate, mailMonth)
+            : null,
+      };
+    })
     .sort(byCreatedDate);
 
   // No created date = unknown age, so not listed as needing a decision (still in Sheet 2).
-  const needsCheck = all
-    .filter((row) => row.durationMonths !== null && row.durationMonths >= NEEDS_CHECK_MIN_MONTHS)
-    .map((row) => ({ ...row, maxSaleQty: maxSaleQtyInWindow(unitsByMonth(row.sku), row.createdDate!, mailMonth) }));
+  const needsCheck = all.filter(
+    (row) => row.durationMonths !== null && row.durationMonths >= NEEDS_CHECK_MIN_MONTHS,
+  );
 
   const counts = new Map<string, number>();
   for (const row of needsCheck) {

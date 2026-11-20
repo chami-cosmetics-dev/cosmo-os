@@ -2,10 +2,11 @@
  * Stock Health screen config + API types. Client-safe (no server imports).
  */
 
-export const STOCK_HEALTH_TABS = ["summary", "out_of_stock", "rop_details"] as const;
+export const STOCK_HEALTH_TABS = ["dashboard", "summary", "out_of_stock", "rop_details"] as const;
 export type StockHealthTab = (typeof STOCK_HEALTH_TABS)[number];
 
 export const STOCK_HEALTH_TAB_LABELS: Record<StockHealthTab, string> = {
+  dashboard: "DASHBOARD",
   summary: "SUMMARY",
   out_of_stock: "OUT OF STOCK",
   rop_details: "ROP DETAILS",
@@ -105,10 +106,24 @@ export type StockHealthRopCounts = {
   zeroStock: number;
 };
 
+/**
+ * Dashboard totals: Total ROP and Total Stock of the Common SKUs with a ROP (as on Shop Stock
+ * Status → Dashboard); Fulfilment = totalStock ÷ totalRop.
+ */
+export type StockHealthRopTotals = {
+  totalRop: number;
+  totalStock: number;
+};
+
 export type StockHealthRopStatus = {
   /** Current month name (Asia/Colombo), e.g. "November". */
   month: string;
   rows: Array<{ status: StockHealthStatus } & StockHealthRopCounts>;
   grandTotal: StockHealthRopCounts;
+  /** Stock Health → Dashboard: per status (same rows as `rows`) + Grand Total. */
+  ropTotals: {
+    byStatus: Partial<Record<StockHealthStatus, StockHealthRopTotals>>;
+    grandTotal: StockHealthRopTotals;
+  };
   fetchedAt: string;
 };

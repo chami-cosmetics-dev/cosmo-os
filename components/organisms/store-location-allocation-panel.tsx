@@ -4,6 +4,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { Download, Loader2, MapPinned, Plus, Printer, Search, Trash2, X } from "lucide-react";
 
 import { StoreAllocationLocationStep } from "@/components/molecules/store-allocation-location-step";
+import { FailedPurchaseReceipts } from "@/components/molecules/failed-purchase-receipts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -59,7 +60,7 @@ function allocationCompany(location: SessionLocationQty) {
 }
 
 export function StoreLocationAllocationPanel({ vaultOs = false }: { vaultOs?: boolean }) {
-  const [page, setPage] = useState<"allocation" | "excess">("allocation");
+  const [page, setPage] = useState<"allocation" | "excess" | "failed">("allocation");
   const [excessRows, setExcessRows] = useState<Array<{ sku: string; qty: number }>>([]);
   const [excessSelection, setExcessSelection] = useState<Record<string, number>>({});
   const [pendingExcess, setPendingExcess] = useState<{ sku: string; qty: number } | null>(null);
@@ -80,8 +81,10 @@ export function StoreLocationAllocationPanel({ vaultOs = false }: { vaultOs?: bo
   const [prRows, setPrRows] = useState<PrWarehouseRow[]>([]);
   const [manualAllocationSkus, setManualAllocationSkus] = useState<Set<string>>(() => new Set());
   const [createdReceipts, setCreatedReceipts] = useState<string[]>([]);
+  const [createdAllocationKeys, setCreatedAllocationKeys] = useState<Set<string>>(() => new Set());
   const [creatingPr, setCreatingPr] = useState(false);
   const [purchaseReceiptMessage, setPurchaseReceiptMessage] = useState<string | null>(null);
+  const [purchaseReceiptHadFailure, setPurchaseReceiptHadFailure] = useState(false);
   const [walkIndex, setWalkIndex] = useState(0);
   const [exporting, setExporting] = useState(false);
   const lastScanAt = useRef(0);
@@ -511,13 +514,19 @@ export function StoreLocationAllocationPanel({ vaultOs = false }: { vaultOs?: bo
       return;
     }
     const supplierId = prSuppliers.find((supplier) => supplier.label === prSupplier || supplier.name === prSupplier)?.name ?? prSupplier;
+    const excessLeft = new Map(Object.entries(queuedForPr));
     const payload = prRows.filter((row) => row.qty > 0).flatMap((row) => {
       const item = exportable.find((candidate) => candidate.sku === row.sku);
       const location = item?.locations.find((candidate) => candidate.columnKey === row.columnKey);
-      return item && location && row.warehouse ? [{ sku: item.sku, qty: row.qty, warehouse: row.warehouse, erpInstanceId: location.erpnextInstanceId, company: allocationCompany(location) }] : [];
+      if (!item || !location || !row.warehouse || createdAllocationKeys.has(`${location.erpnextInstanceId}:${row.warehouse}:${item.sku}`)) return [];
+      const excessQty = vaultOs ? Math.min(row.qty, excessLeft.get(item.sku) ?? 0) : 0;
+      excessLeft.set(item.sku, (excessLeft.get(item.sku) ?? 0) - excessQty);
+      return [{ sku: item.sku, qty: row.qty, warehouse: row.warehouse, erpInstanceId: location.erpnextInstanceId, company: allocationCompany(location), excessQty }];
     });
     if (payload.length === 0) {
-      notify.error("Add a quantity to at least one warehouse");
+      notify.error(createdAllocationKeys.size > 0
+        ? "These warehouse rows were already sent. Open Failed PRs to retry failed receipts individually."
+        : "Add a quantity to at least one warehouse");
       return;
     }
     if (payload.some((row) => !row.warehouse || !row.erpInstanceId)) {
@@ -525,6 +534,7 @@ export function StoreLocationAllocationPanel({ vaultOs = false }: { vaultOs?: bo
       return;
     }
     setCreatedReceipts([]);
+    setPurchaseReceiptHadFailure(false);
     setCreatingPr(true);
     setPurchaseReceiptMessage(
       `Creating Purchase Receipt${payload.length === 1 ? "" : "s"} for ${payload.length} allocated warehouse ${payload.length === 1 ? "row" : "rows"}. Please wait...`,
@@ -538,26 +548,57 @@ export function StoreLocationAllocationPanel({ vaultOs = false }: { vaultOs?: bo
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? "Purchase Receipt creation failed");
       const receipts = Array.isArray(data.receipts) ? data.receipts.map(String) : [];
+      const failed = Array.isArray(data.failed) ? data.failed as Array<{ error: string }> : [];
+      setPurchaseReceiptHadFailure(failed.length > 0);
+      const submitted = Array.isArray(data.submitted) ? data.submitted as Array<{ erpInstanceId: string; items: Array<{ sku: string; warehouse: string; qty: number; excessQty: number }> }> : [];
+      setCreatedAllocationKeys((previous) => {
+        const next = new Set(previous);
+        for (const item of payload) next.add(`${item.erpInstanceId}:${item.warehouse}:${item.sku}`);
+        return next;
+      });
       setCreatedReceipts(receipts);
       setPurchaseReceiptMessage(
-        receipts.length === 1
+        failed.length > 0
+          ? `${receipts.length} Purchase Receipt(s) created; ${failed.length} failed. Open Failed PRs to review and retry individually. ${failed.map((item) => item.error).join(" ")}`
+          : receipts.length === 1
           ? `Purchase Receipt created: ${receipts[0]}`
           : `${receipts.length} Purchase Receipts created successfully.`,
       );
-      notify.success(`${receipts.length} Purchase Receipt(s) created`);
+      if (failed.length > 0) notify.error(`${failed.length} Purchase Receipt(s) failed. Review Failed PRs.`);
+      else notify.success(`${receipts.length} Purchase Receipt(s) created`);
       if (vaultOs && receipts.length > 0) {
-        for (const [sku, qty] of Object.entries(queuedForPr)) {
-          const current = excessRows.find((row) => row.sku === sku)?.qty;
-          if (current != null) await updateExcess(sku, Math.max(0, current - qty)).catch(() => notify.error(`PR created, but could not deduct ${sku} from Excess stock`));
+        const remainingQueue = { ...queuedForPr };
+        for (const group of submitted) for (const item of group.items) if (item.excessQty > 0) {
+          remainingQueue[item.sku] = Math.max(0, (remainingQueue[item.sku] ?? 0) - item.excessQty);
         }
-        setQueuedForPr({});
+        setQueuedForPr(remainingQueue);
+        await refreshExcess().catch(() => notify.error("PR created, but could not refresh Excess stock"));
       }
     } catch (error) {
+      setPurchaseReceiptHadFailure(true);
       const errorMessage = error instanceof Error ? error.message : "Purchase Receipt creation failed";
       setPurchaseReceiptMessage(errorMessage);
       notify.error(errorMessage);
     } finally {
       setCreatingPr(false);
+    }
+  }
+
+  function onFailedReceiptRetry(row: { erpInstanceId?: string; items: unknown }) {
+    if (!Array.isArray(row.items)) return;
+    const keys = row.items.map((item: { sku?: string; warehouse?: string }) =>
+      `${row.erpInstanceId}:${item.warehouse}:${item.sku}`,
+    );
+    setCreatedAllocationKeys((previous) => new Set([...previous, ...keys]));
+    if (vaultOs) {
+      setQueuedForPr((previous) => {
+        const next = { ...previous };
+        for (const item of row.items as Array<{ sku: string; excessQty?: number }>) {
+          next[item.sku] = Math.max(0, (next[item.sku] ?? 0) - (item.excessQty ?? 0));
+        }
+        return next;
+      });
+      void refreshExcess().catch(() => notify.error("Could not refresh Excess stock"));
     }
   }
 
@@ -722,9 +763,9 @@ export function StoreLocationAllocationPanel({ vaultOs = false }: { vaultOs?: bo
 
   return (
     <div className="space-y-4">
-      {vaultOs && <div className="inline-flex gap-1 rounded-lg bg-muted p-1 print:hidden"><Button type="button" variant={page === "allocation" ? "default" : "ghost"} onClick={() => setPage("allocation")}>Location allocation</Button><Button type="button" variant={page === "excess" ? "default" : "ghost"} onClick={() => { setPage("excess"); void refreshExcess(); }}>Excess stock</Button></div>}
+      <div className="inline-flex gap-1 rounded-lg bg-muted p-1 print:hidden"><Button type="button" variant={page === "allocation" ? "default" : "ghost"} onClick={() => setPage("allocation")}>Location allocation</Button>{vaultOs && <Button type="button" variant={page === "excess" ? "default" : "ghost"} onClick={() => { setPage("excess"); void refreshExcess(); }}>Excess stock</Button>}<Button type="button" variant={page === "failed" ? "default" : "ghost"} onClick={() => setPage("failed")}>Failed PRs</Button></div>
       {pendingExcess && <div role="dialog" aria-modal="true" aria-label="Add to excess stock" className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"><div className="w-full max-w-md space-y-4 rounded-xl border bg-background p-5 shadow-xl"><h2 className="text-lg font-semibold">Add to excess stock?</h2><p>{pendingExcess.sku} has {pendingExcess.qty} units above the remaining ROP gap. Save those units in Excess stock for later allocation?</p><div className="flex justify-end gap-2"><Button variant="outline" onClick={() => { const sku = pendingExcess.sku; setExcessDeclined((old) => new Set(old).add(sku)); setPendingExcess(null); confirmAllocation(sku); }}>No, allocate to priority warehouses</Button><Button onClick={async () => { const pending = pendingExcess; try { const response = await fetch("/api/admin/store-allocation/excess-stock", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(pending) }); if (!response.ok) throw new Error("Could not save excess stock"); await refreshExcess(); setPendingExcess(null); setTakeQty(pending.sku, String((items.find((item) => item.sku === pending.sku)?.takeQty ?? 0) - pending.qty)); notify.success(`${pending.qty} units saved in Excess stock`); } catch (error) { notify.error(error instanceof Error ? error.message : "Could not save excess stock"); } }}>Add to excess stock</Button></div></div></div>}
-      {page === "excess" ? <section className="space-y-4 rounded-xl border p-4"><h2 className="text-xl font-semibold">Excess stock</h2><p className="text-sm text-muted-foreground">Select a quantity to allocate later, or discard some or all of an item’s excess quantity.</p>{excessRows.length === 0 ? <p>No excess stock saved.</p> : excessRows.map((row) => <div key={row.sku} className="flex flex-wrap items-center gap-3 border-b py-3"><span className="min-w-36 font-medium">{row.sku}</span><span>Available: {row.qty}</span><label className="flex items-center gap-2">Allocate <Input type="number" min={0} max={row.qty} className="w-24" value={excessSelection[row.sku] ?? 0} onChange={(event) => setExcessSelection((old) => ({ ...old, [row.sku]: Number(event.target.value) || 0 }))} /></label><Button type="button" variant="outline" onClick={() => { const qty = Number(prompt(`Discard how many units of ${row.sku}?`, String(row.qty))); if (!Number.isSafeInteger(qty) || qty < 1 || qty > row.qty) return; void updateExcess(row.sku, row.qty - qty).catch(() => notify.error("Could not discard excess stock")); }}>Discard quantity</Button><Button type="button" variant="destructive" onClick={() => void updateExcess(row.sku, 0).catch(() => notify.error("Could not discard item"))}>Discard item</Button></div>)}<Button type="button" disabled={!excessRows.length} onClick={() => void bringExcessToAllocation()}>Allocate selected</Button></section> : <>
+      {page === "failed" ? <FailedPurchaseReceipts source="store-allocation" onRetrySuccess={onFailedReceiptRetry} /> : page === "excess" ? <section className="space-y-4 rounded-xl border p-4"><h2 className="text-xl font-semibold">Excess stock</h2><p className="text-sm text-muted-foreground">Select a quantity to allocate later, or discard some or all of an item’s excess quantity.</p>{excessRows.length === 0 ? <p>No excess stock saved.</p> : excessRows.map((row) => <div key={row.sku} className="flex flex-wrap items-center gap-3 border-b py-3"><span className="min-w-36 font-medium">{row.sku}</span><span>Available: {row.qty}</span><label className="flex items-center gap-2">Allocate <Input type="number" min={0} max={row.qty} className="w-24" value={excessSelection[row.sku] ?? 0} onChange={(event) => setExcessSelection((old) => ({ ...old, [row.sku]: Number(event.target.value) || 0 }))} /></label><Button type="button" variant="outline" onClick={() => { const qty = Number(prompt(`Discard how many units of ${row.sku}?`, String(row.qty))); if (!Number.isSafeInteger(qty) || qty < 1 || qty > row.qty) return; void updateExcess(row.sku, row.qty - qty).catch(() => notify.error("Could not discard excess stock")); }}>Discard quantity</Button><Button type="button" variant="destructive" onClick={() => void updateExcess(row.sku, 0).catch(() => notify.error("Could not discard item"))}>Discard item</Button></div>)}<Button type="button" disabled={!excessRows.length} onClick={() => void bringExcessToAllocation()}>Allocate selected</Button></section> : <>
       <div className="max-w-2xl space-y-1">
         <h1 className="text-2xl font-semibold tracking-tight">Store location allocation</h1>
         <p className="text-sm text-muted-foreground">
@@ -901,7 +942,7 @@ export function StoreLocationAllocationPanel({ vaultOs = false }: { vaultOs?: bo
                 </div>
               )}
               {purchaseReceiptMessage && (
-                <div className={`mt-3 rounded-md border p-3 text-sm ${creatingPr ? "border-blue-500/40 bg-blue-500/10" : createdReceipts.length > 0 ? "border-emerald-500/40 bg-emerald-500/10" : "border-destructive/50 bg-destructive/10 text-destructive"}`}>
+                <div className={`mt-3 rounded-md border p-3 text-sm ${creatingPr ? "border-blue-500/40 bg-blue-500/10" : purchaseReceiptHadFailure ? "border-destructive/50 bg-destructive/10 text-destructive" : createdReceipts.length > 0 ? "border-emerald-500/40 bg-emerald-500/10" : "border-destructive/50 bg-destructive/10 text-destructive"}`}>
                   <p className="font-medium">
                     {creatingPr ? "Creating Purchase Receipts" : createdReceipts.length > 0 ? "Purchase Receipt result" : "Purchase Receipt could not be created"}
                   </p>

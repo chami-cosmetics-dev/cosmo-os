@@ -148,14 +148,19 @@ describe("Max Sale Qty (Sales Budget's Highest Sale Qty over the item's life)", 
     expect(maxSaleQtyInWindow(new Map(), "2026-06-15", "2026-11")).toBe(0);
   });
 
-  it("set on Sheet 1 rows only", () => {
+  it("on every row with at least one completed month; else the reason", async () => {
+    const { maxSaleQtyCell } = await import("@/lib/newly-added-review/calc");
     const review = buildNewlyAddedReview(
-      [item("OLD_1", "2026-06-15"), item("NOV_1", "2026-11-03")],
+      [item("OLD_1", "2026-06-15"), item("OCT_1", "2026-10-20"), item("NOV_1", "2026-11-03"), item("NOD_1", null)],
       "2026-11",
-      (sku) => (sku === "OLD_1" ? units : new Map([["2026-11", 5]])),
+      (sku) => (sku === "OLD_1" ? units : new Map([["2026-10", 3], ["2026-11", 5]])),
     );
     expect(review.needsCheck.map((r) => [r.sku, r.maxSaleQty])).toEqual([["OLD_1", 9]]);
-    expect(review.all.find((r) => r.sku === "NOV_1")!.maxSaleQty).toBeNull();
+    const cell = (sku: string) => maxSaleQtyCell(review.all.find((r) => r.sku === sku)!);
+    expect(cell("OLD_1")).toBe(9);
+    expect(cell("OCT_1")).toBe(3); // 1 month: October only (November never counted)
+    expect(cell("NOV_1")).toBe("Under 1 month");
+    expect(cell("NOD_1")).toBe("No created date");
   });
 });
 
@@ -189,9 +194,9 @@ describe("buildNewlyAddedReviewWorkbook", () => {
     const base = ["SKU", "Product title", "Priority status", "Created date", "Duration (months)", "Current stock"];
     const s1 = wb.getWorksheet("Needs Priority Check")!;
     const s2 = wb.getWorksheet("All Newly Added")!;
-    // Max Sale Qty on Sheet 1 only.
+    // Max Sale Qty on both sheets.
     expect((s1.getRow(NEWLY_ADDED_HEADER_ROW).values as unknown[]).slice(1)).toEqual([...base, "Max Sale Qty"]);
-    expect((s2.getRow(NEWLY_ADDED_HEADER_ROW).values as unknown[]).slice(1)).toEqual(base);
+    expect((s2.getRow(NEWLY_ADDED_HEADER_ROW).values as unknown[]).slice(1)).toEqual([...base, "Max Sale Qty"]);
     expect((s1.getRow(NEWLY_ADDED_HEADER_ROW + 1).values as unknown[]).slice(1)).toEqual([
       "A_1", "Title A_1", "Newly Added", "2026-02-01", 9, 5, 11,
     ]);
@@ -200,7 +205,8 @@ describe("buildNewlyAddedReviewWorkbook", () => {
     expect(s1.getCell(NEWLY_ADDED_HEADER_ROW + 2, 7).value).toBe(0); // no sales
     expect(s1.getCell(NEWLY_ADDED_HEADER_ROW + 3, 1).value ?? null).toBeNull();
     expect((s2.getRow(NEWLY_ADDED_HEADER_ROW + 3).values as unknown[]).slice(1, 6)).toEqual(["C_1", "Title C_1", "Newly Added", "-", "-"]);
-    expect(s2.getCell(NEWLY_ADDED_HEADER_ROW + 1, 7).value ?? null).toBeNull();
+    expect(s2.getCell(NEWLY_ADDED_HEADER_ROW + 1, 7).value).toBe(11); // A_1
+    expect(s2.getCell(NEWLY_ADDED_HEADER_ROW + 3, 7).value).toBe("No created date"); // C_1
   });
 });
 

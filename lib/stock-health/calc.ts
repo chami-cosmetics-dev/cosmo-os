@@ -5,6 +5,7 @@ import {
   STOCK_HEALTH_UNGROUPED_BRANDS,
   type StockHealthOutOfStockRow,
   type StockHealthRopCounts,
+  type StockHealthRopTotals,
   type StockHealthStatus,
   type StockHealthStatusTotals,
 } from "@/lib/stock-health/config";
@@ -238,6 +239,27 @@ export function summarizeRopStatus(
     ).map((status) => ({ status, ...byStatus.get(status)! })),
     grandTotal,
   };
+}
+
+/**
+ * Dashboard totals per status + Grand Total: Total ROP and Total Stock of the Common SKUs with a
+ * ROP (No ROP items are left out, as on Shop Stock Status → Dashboard).
+ */
+export function summarizeRopTotals(ropRows: StockHealthRopRow[]): {
+  byStatus: Partial<Record<StockHealthStatus, StockHealthRopTotals>>;
+  grandTotal: StockHealthRopTotals;
+} {
+  const byStatus: Partial<Record<StockHealthStatus, StockHealthRopTotals>> = {};
+  const grandTotal: StockHealthRopTotals = { totalRop: 0, totalStock: 0 };
+  for (const row of ropRows) {
+    if (row.rop <= 0) continue;
+    const totals = (byStatus[row.status] ??= { totalRop: 0, totalStock: 0 });
+    for (const t of [totals, grandTotal]) {
+      t.totalRop += row.rop;
+      t.totalStock += row.stock;
+    }
+  }
+  return { byStatus, grandTotal };
 }
 
 /**

@@ -101,6 +101,18 @@ function getOrderDateRange(searchParams: URLSearchParams) {
   };
 }
 
+function getCallbackDateRange(searchParams: URLSearchParams) {
+  let from = parseDateInput(searchParams.get("callbackDateFrom"));
+  let to = parseDateInput(searchParams.get("callbackDateTo"));
+  if (from && to && from > to) [from, to] = [to, from];
+  return {
+    from,
+    to,
+    start: from ? new Date(`${from}T00:00:00.000Z`) : undefined,
+    end: to ? new Date(`${to}T23:59:59.999Z`) : undefined,
+  };
+}
+
 
 function pickCustomerName(order: {
   customer?: { firstName: string | null; lastName: string | null } | null;
@@ -199,6 +211,7 @@ export async function GET(request: NextRequest) {
   const merchantFilter = request.nextUrl.searchParams.get("merchant")?.trim() || "__all";
   const searchQuery = request.nextUrl.searchParams.get("search")?.trim().toLowerCase() ?? "";
   const dateRange = getOrderDateRange(request.nextUrl.searchParams);
+  const callbackDateRange = getCallbackDateRange(request.nextUrl.searchParams);
   const merchantReviewWhere: Prisma.OrderWhereInput =
     status === "all"
       ? {}
@@ -223,6 +236,18 @@ export async function GET(request: NextRequest) {
         AND: [
           { financialStatus: { not: "voided" } },
           { financialStatus: { not: "refunded" } },
+          ...(callbackDateRange.start || callbackDateRange.end
+            ? [{
+                merchantReview: {
+                  is: {
+                    callbackDate: {
+                      ...(callbackDateRange.start ? { gte: callbackDateRange.start } : {}),
+                      ...(callbackDateRange.end ? { lte: callbackDateRange.end } : {}),
+                    },
+                  },
+                },
+              }]
+            : []),
         ],
         ...merchantReviewWhere,
       },
@@ -426,7 +451,7 @@ export async function GET(request: NextRequest) {
     userId: viewerUserId,
     reportKey: `merchant_reviews:${status}`,
     reportLabel: `Merchant Reviews Export (${buildStatusLabel(status)})`,
-    filters: `status=${status};merchant=${merchantLabel};dateFrom=${dateRange.from};dateTo=${dateRange.to};search=${searchQuery}`,
+    filters: `status=${status};merchant=${merchantLabel};dateFrom=${dateRange.from};dateTo=${dateRange.to};callbackDateFrom=${callbackDateRange.from ?? ""};callbackDateTo=${callbackDateRange.to ?? ""};search=${searchQuery}`,
     fileName,
   });
 
