@@ -242,8 +242,8 @@ function formatMemberSince(iso: string | null | undefined) {
 }
 
 /**
- * `contact.lastPurchaseAt` is the newest completed Cosmo order or Adapt invoice
- * on this page, not the drifting ContactMaster stamp.
+ * `contact.lastPurchaseAt` is newest completed Cosmo/Adapt invoice created date
+ * (same as Invoice history Date), not delivery-complete or ContactMaster stamp.
  */
 function formatLastPurchased(lastPurchaseAt: string | null, emptyLabel: string) {
   return lastPurchaseAt ? formatAppDate(lastPurchaseAt, "—") : emptyLabel;
