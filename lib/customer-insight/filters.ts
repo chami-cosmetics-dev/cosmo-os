@@ -663,10 +663,21 @@ export async function filterAllocatedContacts(
   /** Item label and/or live ProductItem status — both contribute to itemSpend. */
   const hasItemScope = hasItems || hasStatus;
 
+  const allocationScoped =
+    !(input.scopeAllContacts ?? input.isAdmin) ||
+    Boolean(input.assignedMerchant?.trim());
+  let brandContactScope: string[] | undefined;
+  if (hasBrands && allocationScoped) {
+    brandContactScope = await findAllMatchingContactIds(where);
+    if (brandContactScope.length === 0) return emptyResult();
+  }
+
   const brandRankLists = hasBrands
     ? await Promise.all(
         brandNeedles.map((brand) =>
-          findContactsByPurchasedBrandRanked(input.companyId, brand)
+          findContactsByPurchasedBrandRanked(input.companyId, brand, {
+            contactIds: brandContactScope,
+          })
         )
       )
     : [];

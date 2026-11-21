@@ -497,7 +497,9 @@ async function listRankedEligibleContacts(input: {
   if (brandNeedles.length > 0) {
     const rankLists = await Promise.all(
       brandNeedles.map((brand) =>
-        findContactsByPurchasedBrandRanked(input.companyId, brand)
+        findContactsByPurchasedBrandRanked(input.companyId, brand, {
+          contactIds: contacts.map((c) => c.id),
+        })
       )
     );
     brandIdSet = new Set<string>();

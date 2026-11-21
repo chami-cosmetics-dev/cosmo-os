@@ -2063,12 +2063,16 @@ export function CustomerInsightPanel({
       const res = await fetch(`/api/admin/customer-insight/filter?${params}`);
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
+        setFilterResults(null);
+        setFilterTotal(0);
         notify.error(data.error ?? "Filter failed.");
         return;
       }
       setFilterResults((data.items ?? []) as AllocatedFilterItemDto[]);
       setFilterTotal(data.pagination?.total ?? 0);
     } catch {
+      setFilterResults(null);
+      setFilterTotal(0);
       notify.error("Filter failed.");
     } finally {
       setBusyKey(null);
