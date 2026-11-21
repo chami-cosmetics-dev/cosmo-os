@@ -1,6 +1,6 @@
 import "server-only";
 
-import { randomUUID } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHmac, randomBytes, randomUUID } from "node:crypto";
 
 import { computeTotalOrderQtyForSkus } from "@/lib/osf/supplier-orders-reorder";
 import type { WorkingOrderRow } from "@/lib/osf/supplier-orders-draft";
@@ -183,17 +183,51 @@ export async function buildOsfPortalPushPayload(args: {
   };
 }
 
-export async function pushOsfDraftToSupplierPortal(args: {
-  companyId: string;
-  actorUserId: string;
-  actorEmail?: string | null;
-  rows: WorkingOrderRow[];
-  brandFilterVendorId?: string | null;
-  priorityFilter?: string | null;
-  idempotencyKey?: string;
-}): Promise<PortalPushSuccess> {
-  const { baseUrl, token } = portalConfig();
+type TransferActor = { companyId: string; actorUserId: string };
+type PreparedPush = Awaited<ReturnType<typeof buildOsfPortalPushPayload>>;
+const retryLifetimeMs = 24 * 60 * 60 * 1000;
+
+function retryContext(config: ReturnType<typeof portalConfig>, actor: TransferActor) {
+  return {
+    key: createHmac("sha256", config.token).update("cosmo-osf-retry.v1").digest(),
+    scope: Buffer.from(JSON.stringify([config.baseUrl, actor.companyId, actor.actorUserId])),
+  };
+}
+
+export async function prepareOsfPortalPush(args: Omit<Parameters<typeof buildOsfPortalPushPayload>[0], "idempotencyKey">) {
+  const { key, scope } = retryContext(portalConfig(), args);
   const built = await buildOsfPortalPushPayload(args);
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", key, iv).setAAD(scope);
+  const encrypted = Buffer.concat([cipher.update(JSON.stringify(built), "utf8"), cipher.final()]);
+  return Buffer.concat([iv, cipher.getAuthTag(), encrypted]).toString("base64url");
+}
+
+function openPreparedPush(ticket: string, config: ReturnType<typeof portalConfig>, actor: TransferActor): PreparedPush {
+  const { key, scope } = retryContext(config, actor);
+  try {
+    const bytes = Buffer.from(ticket, "base64url");
+    const decipher = createDecipheriv("aes-256-gcm", key, bytes.subarray(0, 12))
+      .setAAD(scope).setAuthTag(bytes.subarray(12, 28));
+    const plaintext = Buffer.concat([decipher.update(bytes.subarray(28)), decipher.final()]);
+    const built = JSON.parse(plaintext.toString("utf8")) as PreparedPush;
+    if (built.payload.contractVersion !== COSMO_OSF_CONTRACT_VERSION ||
+        Date.now() - Date.parse(built.payload.source.sentAt) > retryLifetimeMs) {
+      throw new Error("Expired or unsupported transfer");
+    }
+    return built;
+  } catch {
+    throw new SupplierPortalPushError(
+      "This pending transfer cannot be retried. Check Supplier Portal imports before starting a new send.",
+      409,
+    );
+  }
+}
+
+export async function pushPreparedOsfToSupplierPortal(ticket: string, actor: TransferActor): Promise<PortalPushSuccess> {
+  const config = portalConfig();
+  const { baseUrl, token } = config;
+  const built = openPreparedPush(ticket, config, actor);
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 55_000);

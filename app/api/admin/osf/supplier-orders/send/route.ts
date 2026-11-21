@@ -3,11 +3,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { validateDraftForGenerate } from "@/lib/osf/supplier-orders-allocate";
 import type { WorkingOrderRow } from "@/lib/osf/supplier-orders-draft";
 import {
-  pushOsfDraftToSupplierPortal,
+  prepareOsfPortalPush,
+  pushPreparedOsfToSupplierPortal,
   SupplierPortalPushError,
 } from "@/lib/osf/supplier-orders-portal-push";
 import { getCurrentUserContext, hasPermission } from "@/lib/rbac";
-import { osfSupplierOrdersSendBodySchema } from "@/lib/validation/osf";
+import { osfSupplierOrdersRetryBodySchema, osfSupplierOrdersSendBodySchema } from "@/lib/validation/osf";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -43,44 +44,39 @@ export async function POST(request: NextRequest) {
   }
 
   const body = await request.json().catch(() => null);
-  const parsed = osfSupplierOrdersSendBodySchema.safeParse(body);
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: "Validation failed", details: parsed.error.flatten() },
-      { status: 400 },
-    );
-  }
-
-  const rows: WorkingOrderRow[] = parsed.data.rows.map((row) => ({
-    sku: row.sku,
-    description: row.description,
-    reorderQty: row.reorderQty,
-    allocations: row.allocations.map((a) => ({
-      supplierId: a.supplierId,
-      supplierName: a.supplierName,
-      qty: a.qty,
-    })),
-  }));
-
-  const validation = validateDraftForGenerate(rows);
-  if (!validation.ok) {
-    return NextResponse.json(
-      { error: validation.error, skus: validation.skus },
-      { status: 400 },
-    );
-  }
-
+  const actor = { companyId: context.user.companyId, actorUserId: context.user.id };
   try {
-    const result = await pushOsfDraftToSupplierPortal({
-      companyId: context.user.companyId,
-      actorUserId: context.user.id,
+    if (body && typeof body === "object" && "retryTicket" in body) {
+      const retry = osfSupplierOrdersRetryBodySchema.safeParse(body);
+      if (!retry.success) {
+        return NextResponse.json({ error: "Invalid retry record" }, { status: 400 });
+      }
+      const result = await pushPreparedOsfToSupplierPortal(retry.data.retryTicket, actor);
+      return NextResponse.json(result, { status: result.replay ? 200 : 201 });
+    }
+
+    const parsed = osfSupplierOrdersSendBodySchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: "Validation failed", details: parsed.error.flatten() }, { status: 400 },
+      );
+    }
+
+    const rows: WorkingOrderRow[] = parsed.data.rows;
+    const validation = validateDraftForGenerate(rows);
+    if (!validation.ok) {
+      return NextResponse.json(
+        { error: validation.error, skus: validation.skus }, { status: 400 },
+      );
+    }
+    const retryTicket = await prepareOsfPortalPush({
+      ...actor,
       actorEmail: context.user.email,
       rows,
       brandFilterVendorId: parsed.data.vendorId,
       priorityFilter: parsed.data.priority,
-      idempotencyKey: parsed.data.idempotencyKey,
     });
-    return NextResponse.json(result, { status: result.replay ? 200 : 201 });
+    return NextResponse.json({ retryTicket }, { headers: { "Cache-Control": "no-store" } });
   } catch (err) {
     if (err instanceof SupplierPortalPushError) {
       return NextResponse.json(
@@ -88,9 +84,8 @@ export async function POST(request: NextRequest) {
         { status: err.status },
       );
     }
-    console.error("[osf supplier-orders/send]", err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Send failed" },
+      { error: "Supplier Portal transfer failed" },
       { status: 500 },
     );
   }
