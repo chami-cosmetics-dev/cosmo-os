@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { lineMatchesBrand } from "@/lib/page-data/contact-brand-ids";
+import {
+  findContactsByPurchasedBrandRanked,
+  lineMatchesBrand,
+} from "@/lib/page-data/contact-brand-ids";
 
 describe("lineMatchesBrand", () => {
   it("matches vendor name", () => {
@@ -25,6 +28,12 @@ describe("lineMatchesBrand", () => {
     expect(
       lineMatchesBrand("Anua", { vendorName: null, productTitle: "Organic Banana Mask" })
     ).toBe(false);
+  });
+
+  it("returns no ranks when allocated contact scope is empty", async () => {
+    await expect(
+      findContactsByPurchasedBrandRanked("company", "Palmers", { contactIds: [] })
+    ).resolves.toEqual([]);
   });
 
   it("does not match Extraordinary as Ordinary", () => {
