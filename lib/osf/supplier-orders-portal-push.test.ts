@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
@@ -17,6 +17,8 @@ import { prisma } from "@/lib/prisma";
 import { computeTotalOrderQtyForSkus } from "@/lib/osf/supplier-orders-reorder";
 import {
   buildOsfPortalPushPayload,
+  prepareOsfPortalPush,
+  pushPreparedOsfToSupplierPortal,
   COSMO_OSF_CONTRACT_VERSION,
   SupplierPortalPushError,
 } from "@/lib/osf/supplier-orders-portal-push";
@@ -176,5 +178,92 @@ describe("buildOsfPortalPushPayload (Phase G)", () => {
         ],
       }),
     ).rejects.toBeInstanceOf(SupplierPortalPushError);
+  });
+});
+
+describe("prepared OSF transfer", () => {
+  const actor = { companyId: "company-a", actorUserId: "user-a" };
+  const token = "synthetic_portal_secret";
+  const draft = {
+    ...actor,
+    actorEmail: "synthetic@example.test",
+    rows: [{ sku: "SKU-1", description: "Synthetic", reorderQty: 12, allocations: [] }],
+  };
+
+  beforeEach(() => {
+    vi.stubEnv("SUPPLIER_PORTAL_BASE_URL", "https://portal.example.test");
+    vi.stubEnv("SUPPLIER_PORTAL_INTEGRATION_TOKEN", token);
+    vi.setSystemTime(new Date("2026-11-21T00:00:00Z"));
+    vi.mocked(computeTotalOrderQtyForSkus).mockResolvedValue(new Map([["SKU-1", 12]]));
+    vi.mocked(prisma.productItem.findMany).mockResolvedValue([{
+      sku: "SKU-1", productTitle: "Synthetic", barcode: null, vendorId: "brand",
+      erp1ProductPriority: null, erp2ProductPriority: null,
+      vendor: { id: "brand", name: "Synthetic Brand" },
+    }] as never);
+    vi.mocked(prisma.supplier.findMany).mockResolvedValue([]);
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it("replays the original import after the response is lost, then gives a changed payload a new key", async () => {
+    const imports = new Map<string, { body: string; importId: string }>();
+    const transport = vi.fn<typeof fetch>(async (_url, options) => {
+      const headers = new Headers(options?.headers);
+      expect(headers.get("Authorization")).toBe("Bearer " + token);
+      const key = headers.get("Idempotency-Key")!;
+      const body = String(options?.body);
+      const prior = imports.get(key);
+      if (prior) {
+        if (prior.body !== body) return Response.json({ error: "IDEMPOTENCY_CONFLICT" }, { status: 409 });
+        return Response.json({ importId: prior.importId, replay: true });
+      }
+      const importId = "import-" + (imports.size + 1);
+      imports.set(key, { body, importId });
+      if (imports.size === 1) throw new Error("Response lost after commit");
+      return Response.json({ importId, replay: false }, { status: 201 });
+    });
+    vi.stubGlobal("fetch", transport);
+    const ticket = await prepareOsfPortalPush(draft);
+    const serialized = Buffer.from(ticket, "base64url");
+    expect(serialized.includes(token)).toBe(false);
+    expect(serialized.includes(draft.actorEmail)).toBe(false);
+    expect(transport).not.toHaveBeenCalled();
+
+    await expect(pushPreparedOsfToSupplierPortal(ticket, actor)).rejects.toMatchObject({ status: 502 });
+    vi.setSystemTime(new Date("2026-11-21T00:01:00Z"));
+    vi.mocked(computeTotalOrderQtyForSkus).mockResolvedValue(new Map([["SKU-1", 25]]));
+    const restoredTicket = JSON.parse(JSON.stringify(ticket)) as string;
+    await expect(pushPreparedOsfToSupplierPortal(restoredTicket, actor)).resolves.toMatchObject({
+      importId: "import-1", replay: true,
+    });
+    expect(transport.mock.calls[0][1]?.body).toBe(transport.mock.calls[1][1]?.body);
+    expect(imports.size).toBe(1);
+
+    const changedTicket = await prepareOsfPortalPush(draft);
+    await expect(pushPreparedOsfToSupplierPortal(changedTicket, actor)).resolves.toMatchObject({
+      importId: "import-2", replay: false,
+    });
+    expect([...imports.values()].map(({ body }) => JSON.parse(body).items[0].quantity.totalOrderQty)).toEqual([12, 25]);
+  });
+
+  it("rejects a tampered, expired, cross-company or cross-user ticket before calling Portal", async () => {
+    const transport = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", transport);
+    const ticket = await prepareOsfPortalPush(draft);
+    const bytes = Buffer.from(ticket, "base64url");
+    bytes[30] ^= 1;
+    await expect(pushPreparedOsfToSupplierPortal(bytes.toString("base64url"), actor)).rejects.toMatchObject({ status: 409 });
+    await expect(pushPreparedOsfToSupplierPortal(ticket, { ...actor, companyId: "company-b" })).rejects.toMatchObject({ status: 409 });
+    await expect(pushPreparedOsfToSupplierPortal(ticket, { ...actor, actorUserId: "user-b" })).rejects.toMatchObject({ status: 409 });
+    vi.stubEnv("SUPPLIER_PORTAL_BASE_URL", "https://other-portal.example.test");
+    await expect(pushPreparedOsfToSupplierPortal(ticket, actor)).rejects.toMatchObject({ status: 409 });
+    vi.stubEnv("SUPPLIER_PORTAL_BASE_URL", "https://portal.example.test");
+    vi.setSystemTime(new Date("2026-11-22T00:01:00Z"));
+    await expect(pushPreparedOsfToSupplierPortal(ticket, actor)).rejects.toMatchObject({ status: 409 });
+    expect(transport).not.toHaveBeenCalled();
   });
 });

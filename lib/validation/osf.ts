@@ -185,12 +185,15 @@ export const osfSupplierOrdersGenerateBodySchema = z.object({
   rows: z.array(osfSupplierOrdersRowSchema).min(1).max(500),
 });
 
-/** Phase G: same draft rows as generate, plus optional filters / idempotency. */
+/** Phase G: validate the draft before preparing an immutable Portal transfer. */
 export const osfSupplierOrdersSendBodySchema = z.object({
   rows: z.array(osfSupplierOrdersRowSchema).min(1).max(500),
   vendorId: cuidSchema.optional(),
   priority: trimmedString(0, 80).optional(),
-  idempotencyKey: z.string().trim().min(8).max(128).optional(),
+});
+
+export const osfSupplierOrdersRetryBodySchema = z.strictObject({
+  retryTicket: z.string().min(38).max(3_000_000).regex(/^[A-Za-z0-9_-]+$/),
 });
 
 export type OsfSupplierOrdersPageDataQuery = z.infer<typeof osfSupplierOrdersPageDataQuerySchema>;
