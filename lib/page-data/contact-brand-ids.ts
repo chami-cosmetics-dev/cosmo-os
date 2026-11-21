@@ -157,13 +157,14 @@ export async function findContactsByPurchasedBrandRanked(
 
   const spendByContact = new Map<string, number>();
 
-  const applyAdaptPage = (
-    adaptRows: Array<{
-      contactId: string | null;
-      lineItems: unknown;
-      financialStatus: string | null;
-    }>
-  ) => {
+  type AdaptBrandRow = {
+    id: string;
+    contactId: string;
+    lineItems: unknown;
+    financialStatus: string | null;
+  };
+
+  const applyAdaptPage = (adaptRows: AdaptBrandRow[]) => {
     for (const row of adaptRows) {
       if (!row.contactId) continue;
       if (allowedIds && !allowedIds.has(row.contactId)) continue;
@@ -194,7 +195,7 @@ export async function findContactsByPurchasedBrandRanked(
 
   if (scopedIds) {
     for (const chunk of chunkArray(scopedIds, INSIGHT_LOOKUP_CHUNK)) {
-      await forEachIdPage(
+      await forEachIdPage<AdaptBrandRow>(
         ({ take, cursor }) =>
           prisma.adaptPurchaseHistory.findMany({
             where: {
@@ -211,7 +212,7 @@ export async function findContactsByPurchasedBrandRanked(
       );
     }
   } else {
-    await forEachIdPage(
+    await forEachIdPage<AdaptBrandRow>(
       ({ take, cursor }) =>
         prisma.adaptPurchaseHistory.findMany({
           where: { companyId, ...adaptLineItemsBrandWhere(needle) },
