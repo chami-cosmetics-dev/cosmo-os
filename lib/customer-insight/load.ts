@@ -22,7 +22,6 @@ import {
   computeLifetimeTotal,
   isAdaptAmountExcludedFromSaleTotal,
   isOrderIncludedInCustomerLifetimeTotal,
-  orderPurchaseAt,
 } from "@/lib/customer-insight/lifetime-total";
 import { parseLoyaltyOutreachStatus } from "@/lib/customer-insight/loyalty-outreach";
 import { availableManualLoyaltyTiers } from "@/lib/customer-insight/loyalty-manual";
@@ -304,13 +303,13 @@ export async function loadCustomerInsight(input: {
     loyaltyEligibleDates.push(r.invoiceDate);
   }
 
-  // Last purchased = newest completed Cosmo order or Adapt invoice, same docs
-  // as lifetime / first purchase. ContactMaster.lastPurchaseAt is a stamp that
-  // only moves forward and can sit on contacts with no invoice.
+  // Last purchased = newest completed Cosmo/Adapt invoice *created* date
+  // (matches Invoice history Date column). Not delivery/invoice-complete.
+  // ContactMaster.lastPurchaseAt is a separate stamp — unused here.
   const purchaseDates: number[] = [];
   for (const o of orders) {
     if (!isOrderIncludedInCustomerLifetimeTotal(o)) continue;
-    purchaseDates.push(orderPurchaseAt(o).getTime());
+    purchaseDates.push(o.createdAt.getTime());
   }
   for (const r of adaptRows) {
     if (isAdaptAmountExcludedFromSaleTotal(r.financialStatus)) continue;

@@ -15,7 +15,10 @@ describe("vault OSF sku policy (checked 2026-09-14 workbook)", () => {
   it("excludes Remove-marked SKUs", () => {
     expect(isVaultOsfExcludedSku("SW034-1")).toBe(true);
     expect(isVaultOsfExcludedSku("NW004-2")).toBe(false);
-    expect(VAULT_OSF_EXCLUDED_SKUS.size).toBe(55);
+    expect(VAULT_OSF_EXCLUDED_SKUS.size).toBe(52);
+    expect(isVaultOsfExcludedSku("HC001-2")).toBe(false);
+    expect(isVaultOsfExcludedSku("NC044-1")).toBe(false);
+    expect(isVaultOsfExcludedSku("NW067-1")).toBe(false);
   });
 
   it("force-includes blue Newly added NTC03-1", () => {
