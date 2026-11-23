@@ -243,20 +243,23 @@ export function summarizeRopStatus(
 
 /**
  * Dashboard totals per status + Grand Total: Total ROP and Total Stock of the Common SKUs with a
- * ROP (No ROP items are left out, as on Shop Stock Status → Dashboard).
+ * ROP (No ROP items are left out, as on Shop Stock Status → Dashboard). Per Common SKU, stock
+ * counts up to its ROP (negative stock = 0); the stock above ROP goes to Additional Stock.
  */
 export function summarizeRopTotals(ropRows: StockHealthRopRow[]): {
   byStatus: Partial<Record<StockHealthStatus, StockHealthRopTotals>>;
   grandTotal: StockHealthRopTotals;
 } {
   const byStatus: Partial<Record<StockHealthStatus, StockHealthRopTotals>> = {};
-  const grandTotal: StockHealthRopTotals = { totalRop: 0, totalStock: 0 };
+  const grandTotal: StockHealthRopTotals = { totalRop: 0, totalStock: 0, totalAdditionalStock: 0 };
   for (const row of ropRows) {
     if (row.rop <= 0) continue;
-    const totals = (byStatus[row.status] ??= { totalRop: 0, totalStock: 0 });
+    const totals = (byStatus[row.status] ??= { totalRop: 0, totalStock: 0, totalAdditionalStock: 0 });
+    const stock = Math.max(row.stock, 0);
     for (const t of [totals, grandTotal]) {
       t.totalRop += row.rop;
-      t.totalStock += row.stock;
+      t.totalStock += Math.min(stock, row.rop);
+      t.totalAdditionalStock += Math.max(stock - row.rop, 0);
     }
   }
   return { byStatus, grandTotal };

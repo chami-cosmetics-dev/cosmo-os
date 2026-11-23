@@ -147,3 +147,14 @@ export function shopStockBandOf(percent: number): ShopStockBand {
   if (percent < SHOP_STOCK_PASS_PERCENT) return "fail";
   return percent <= SHOP_STOCK_FULL_PERCENT ? "pass" : "full";
 }
+
+/**
+ * Dashboard card Fulfilment colour only. The card's stock is capped at ROP, so Fulfilment is at
+ * most 100%: below 50% red, 50% up to (not including) 100% yellow, 100% green. Table cells and
+ * the doughnut keep `shopStockBandOf`.
+ */
+export function shopStockCardBandOf(fulfilment: number): ShopStockBand {
+  if (fulfilment < SHOP_STOCK_PASS_PERCENT) return "fail";
+  // Small tolerance: decimal ROPs can sum to 99.9999…% when every item is fully stocked.
+  return fulfilment >= SHOP_STOCK_FULL_PERCENT - 1e-9 ? "full" : "pass";
+}

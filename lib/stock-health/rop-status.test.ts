@@ -167,9 +167,26 @@ describe("summarizeRopTotals (Dashboard)", () => {
       buildRopRows(rows, new Map([["ABC_1", 10], ["XYZ_1", 10], ["LOW_1", 4]])),
     );
     // NOR_1 has no ROP: its stock is left out.
-    expect(totals.byStatus.Top).toEqual({ totalRop: 20, totalStock: 7 });
-    expect(totals.byStatus.Low).toEqual({ totalRop: 4, totalStock: 3 });
+    expect(totals.byStatus.Top).toEqual({ totalRop: 20, totalStock: 7, totalAdditionalStock: 0 });
+    expect(totals.byStatus.Low).toEqual({ totalRop: 4, totalStock: 3, totalAdditionalStock: 0 });
     expect(totals.byStatus.Discontinue).toBeUndefined();
-    expect(totals.grandTotal).toEqual({ totalRop: 24, totalStock: 10 });
+    expect(totals.grandTotal).toEqual({ totalRop: 24, totalStock: 10, totalAdditionalStock: 0 });
+  });
+
+  it("caps stock at ROP per Common SKU; excess goes to Additional; negative stock = 0", () => {
+    const rows = buildCommonSkuRows(
+      [
+        { sku: "OVR_1", brand: null, priority: "Top", siteStatus: "active", itemName: null },
+        { sku: "SHT_1", brand: null, priority: "Top", siteStatus: "active", itemName: null },
+        { sku: "NEG_1", brand: null, priority: "Top", siteStatus: "active", itemName: null },
+      ],
+      new Map(Object.entries({ OVR_1: 50, SHT_1: 0, NEG_1: -2 })),
+      parseExcludedSkus([]),
+    );
+    const totals = summarizeRopTotals(
+      buildRopRows(rows, new Map([["OVR_1", 10], ["SHT_1", 10], ["NEG_1", 10]])),
+    );
+    // OVR_1's extra 40 does not cover SHT_1's shortfall; NEG_1 counts as 0.
+    expect(totals.byStatus.Top).toEqual({ totalRop: 30, totalStock: 10, totalAdditionalStock: 40 });
   });
 });

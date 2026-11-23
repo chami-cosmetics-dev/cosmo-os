@@ -10,6 +10,7 @@ import {
   ONLINE_STOCK_COLUMNS,
   SHOP_STOCK_COLUMNS,
   shopStockBandOf,
+  shopStockCardBandOf,
   type ShopStockColumn,
   type ShopStockRow,
 } from "@/lib/shop-stock-status/config";
@@ -152,7 +153,54 @@ describe("summarizeShopStockDashboardCard", () => {
       [r("R", 2, 10), r("Y1", 5, 10), r("Y2", 10, 10), r("G", 30, 10), r("P", 7, 0), r("Z", 0, 0)],
       "a",
     );
-    expect(card).toEqual({ totalRop: 40, totalStock: 47, fulfilment: 117.5, red: 1, yellow: 2, green: 1, purple: 1 });
+    // Counted stock: 2 + 5 + 10 + min(30, 10) = 27; Additional: 30 − 10 = 20. Purple's 7 is in neither.
+    expect(card).toEqual({
+      totalRop: 40,
+      totalStock: 27,
+      totalAdditionalStock: 20,
+      fulfilment: 67.5,
+      red: 1,
+      yellow: 2,
+      green: 1,
+      purple: 1,
+    });
     expect(summarizeShopStockDashboardCard([r("P", 7, 0)], "a").fulfilment).toBeNull();
+  });
+
+  it("never caps across items: one item's excess does not cover another's shortfall", () => {
+    const r = (sku: string, stock: number, rop: number): ShopStockRow => ({
+      commonSku: sku,
+      itemName: null,
+      priority: "Top",
+      cells: { a: { stock, rop, percent: (stock / rop) * 100 } },
+      fail: 0,
+      pass: 0,
+    });
+    const card = summarizeShopStockDashboardCard([r("OVER", 50, 10), r("SHORT", 0, 10)], "a");
+    expect(card.totalStock).toBe(10);
+    expect(card.totalAdditionalStock).toBe(40);
+    expect(card.fulfilment).toBe(50);
+    expect(card.green).toBe(1); // doughnut still uses full stock
+  });
+
+  it("counts negative stock as 0", () => {
+    const card = summarizeShopStockDashboardCard(
+      [{ commonSku: "N", itemName: null, priority: "Top", cells: { a: { stock: -2, rop: 10, percent: -20 } }, fail: 0, pass: 0 }],
+      "a",
+    );
+    expect(card.totalStock).toBe(0);
+    expect(card.totalAdditionalStock).toBe(0);
+    expect(card.fulfilment).toBe(0);
+    expect(card.red).toBe(1);
+  });
+});
+
+describe("shopStockCardBandOf", () => {
+  it("red below 50, yellow 50 to under 100, green at 100", () => {
+    expect(shopStockCardBandOf(49.9)).toBe("fail");
+    expect(shopStockCardBandOf(50)).toBe("pass");
+    expect(shopStockCardBandOf(99.9)).toBe("pass");
+    expect(shopStockCardBandOf(100)).toBe("full");
+    expect(shopStockCardBandOf(99.99999999999)).toBe("full");
   });
 });
