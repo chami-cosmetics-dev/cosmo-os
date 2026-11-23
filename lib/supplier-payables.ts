@@ -102,6 +102,15 @@ function dateOnly(value: Date): string {
   return value.toISOString().slice(0, 10);
 }
 
+function daysSinceDueDate(dueDate: string | null, reportDate: string): number | null {
+  if (!dueDate || !/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) return null;
+  const due = Date.parse(`${dueDate}T00:00:00.000Z`);
+  const asOf = Date.parse(`${reportDate}T00:00:00.000Z`);
+  return Number.isFinite(due) && Number.isFinite(asOf)
+    ? Math.max(0, Math.floor((asOf - due) / 86_400_000))
+    : null;
+}
+
 function previousCalendarDate(reportDate: string): string {
   const date = new Date(`${reportDate}T00:00:00.000Z`);
   date.setUTCDate(date.getUTCDate() - 1);
@@ -268,10 +277,7 @@ async function fetchAccountsPayable(input: {
         total: money(valueFromReportRow(row, columns, ["outstanding"])),
         poDate: text(valueFromReportRow(row, columns, ["posting_date", "po_date"])),
         dueDate: text(valueFromReportRow(row, columns, ["due_date"])),
-        daysPastDue: (() => {
-          const parsed = Number(valueFromReportRow(row, columns, ["days_past_due", "age"]));
-          return Number.isFinite(parsed) ? parsed : null;
-        })(),
+        daysPastDue: daysSinceDueDate(text(valueFromReportRow(row, columns, ["due_date"])), input.reportDate),
         remark: text(valueFromReportRow(row, columns, ["remarks", "remark", "description"])),
         erpSlot: null,
         erpLabel: null,
@@ -526,7 +532,8 @@ export async function loadCachedSupplierPayables(
     where: { companyId, reportDate },
     orderBy: [{ erpCompany: "asc" }, { erpSlot: "asc" }],
   });
-  const lines = snapshots.flatMap((snapshot) => jsonArray<SupplierPayableLine>(snapshot.rows));
+  const lines = snapshots.flatMap((snapshot) => jsonArray<SupplierPayableLine>(snapshot.rows))
+    .map((line) => ({ ...line, daysPastDue: daysSinceDueDate(line.dueDate, reportDate) }));
   const refreshedAt = snapshots
     .map((snapshot) => snapshot.lastSuccessAt?.toISOString() ?? null)
     .filter(Boolean)
