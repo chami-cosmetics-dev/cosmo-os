@@ -32,7 +32,7 @@ export function SampleFreeIssueFulfillmentPage({
       <div className="space-y-4">
         <FulfillmentOrderSelector
         title="Sample / Free Issue"
-        description="Select an order to add samples or free issues. Split Payments lists every KOKO, Bank, and Cash/COD order before it goes to finance approval."
+        description="Select an order to add samples or free issues. Use Split Payment next to payment type for KOKO, Bank, Mintpay, or Cash splits."
         stages="order_received,sample_free_issue"
         selectedOrderId={selectedOrder?.id ?? null}
         onSelectOrder={setSelectedOrder}
@@ -43,7 +43,6 @@ export function SampleFreeIssueFulfillmentPage({
         worksheetMode
         showEmptyWorksheet
         allowFutureSendLater
-        allowSplitPaymentQueue
       >
         <FulfillmentSampleFreeIssuePanel
           orderId={selectedOrder?.id ?? null}

@@ -3,7 +3,7 @@ import "server-only";
 import { isBundleCatalogItem } from "@/lib/catalog-bundle";
 import { mapGetBySku, skuVariantKeys } from "@/lib/osf/base-sku";
 import { resolveOsfColumns } from "@/lib/osf/column-config";
-import { fetchBinActualQty, getAllOsfErpInstances, stockForColumn } from "@/lib/osf/erp-stock";
+import { fetchBinActualQty, getAllOsfErpInstances, observedStockForColumns } from "@/lib/osf/erp-stock";
 import { isBelowReorderThreshold } from "@/lib/osf/threshold";
 import { prisma } from "@/lib/prisma";
 
@@ -134,7 +134,7 @@ export async function listBelowThresholdSkus(
   }
 
   const erpInstances = await getAllOsfErpInstances(companyId);
-  const binMap = new Map<string, number>();
+  const binsByInstance = new Map<string, Map<string, number>>();
   await Promise.all(
     erpInstances.map(async (inst) => {
       const whs = [...(warehousesByInstance.get(inst.id) ?? [])];
@@ -144,17 +144,14 @@ export async function listBelowThresholdSkus(
         warehouses: whs,
         itemCodes: [...new Set(skus.flatMap((sku) => skuVariantKeys(sku)))],
       });
-      for (const [key, qty] of bins) binMap.set(key, qty);
+      binsByInstance.set(inst.id, bins);
     }),
   );
 
   const out: BelowThresholdSku[] = [];
   for (const sku of skus) {
-    let totalStock = 0;
-    for (const col of stockCols) {
-      const qty = stockForColumn(binMap, col.warehouses, sku);
-      if (qty != null) totalStock += qty;
-    }
+    const totalStock = observedStockForColumns(stockCols, binsByInstance, sku);
+    if (totalStock === null) continue;
     const rops = mapGetBySku(ropsBySku, sku) ?? {};
     let totalRop = 0;
     for (const col of ropCols) {

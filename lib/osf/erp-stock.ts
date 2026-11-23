@@ -79,6 +79,12 @@ async function erpGetJson<T>(cfg: OsfErpCredentials, path: string): Promise<T> {
 
 const BIN_BATCH = 80;
 
+function binQuantity(value: number | string | null | undefined): number | null {
+  if (value == null || (typeof value === "string" && !/^-?\d+(?:\.\d+)?(?:e[+-]?\d+)?$/i.test(value.trim()))) return null;
+  const qty = Number(value);
+  return Number.isFinite(qty) ? qty : null;
+}
+
 /**
  * Batch-fetch Bin actual_qty keyed by `${warehouse}::${item_code}`.
  * Throws OsfErpError on unreachable ERP — callers must not invent stock.
@@ -87,6 +93,7 @@ export async function fetchBinActualQty(input: {
   cfg: OsfErpCredentials;
   warehouses: string[];
   itemCodes: string[];
+  observedBins?: Map<string, string>;
 }): Promise<Map<string, number>> {
   const map = new Map<string, number>();
   const warehouses = [...new Set(input.warehouses.map((w) => w.trim()).filter(Boolean))];
@@ -104,7 +111,7 @@ export async function fetchBinActualQty(input: {
       `/api/resource/Bin?filters=${encodeURIComponent(filters)}` +
       `&fields=${encodeURIComponent(fields)}&limit_page_length=${BIN_BATCH * warehouses.length}`;
 
-    const json = await erpGetJson<{ data?: Array<{ item_code?: string; warehouse?: string; actual_qty?: number }> }>(
+    const json = await erpGetJson<{ data?: Array<{ item_code?: string; warehouse?: string; actual_qty?: number | string | null }> }>(
       input.cfg,
       path,
     );
@@ -112,10 +119,12 @@ export async function fetchBinActualQty(input: {
       const item = row.item_code?.trim();
       const wh = row.warehouse?.trim();
       if (!item || !wh) continue;
-      const qty = Number(row.actual_qty);
-      if (!Number.isFinite(qty)) continue;
+      const qty = binQuantity(row.actual_qty);
+      if (qty === null) continue;
       const key = `${wh}::${item}`;
       map.set(key, (map.get(key) ?? 0) + qty);
+      // Capture actual observations separately from the legacy numeric grid.
+      input.observedBins?.set(JSON.stringify([wh, item]), String(row.actual_qty).trim());
     }
   }
 
@@ -153,15 +162,15 @@ export async function fetchWarehouseBins(input: {
       `&fields=${encodeURIComponent(fields)}` +
       `&limit_start=${start}&limit_page_length=${WAREHOUSE_BIN_PAGE}`;
     const json = await erpGetJson<{
-      data?: Array<{ item_code?: string; warehouse?: string; actual_qty?: number }>;
+      data?: Array<{ item_code?: string; warehouse?: string; actual_qty?: number | string | null }>;
     }>(input.cfg, path);
     const rows = json.data ?? [];
     for (const row of rows) {
       const item = row.item_code?.trim();
       const wh = row.warehouse?.trim();
       if (!item || !wh) continue;
-      const qty = Number(row.actual_qty);
-      if (!Number.isFinite(qty)) continue;
+      const qty = binQuantity(row.actual_qty);
+      if (qty === null) continue;
       if (input.positiveOnly && qty <= 0) continue;
       const key = `${wh}::${item}`;
       map.set(key, (map.get(key) ?? 0) + qty);
@@ -262,4 +271,29 @@ export function stockForColumn(
     if (found) break;
   }
   return found ? total : 0;
+}
+
+/** Totals for filtering require an observed Bin at every configured warehouse. */
+export function observedStockForColumns(
+  columns: { erpnextInstanceId: string | null; warehouses: string[] }[],
+  binsByInstance: Map<string, Map<string, number>>,
+  sku: string,
+): number | null {
+  const seen = new Set<string>();
+  let total = 0;
+  for (const { erpnextInstanceId, warehouses } of columns) {
+    const bins = erpnextInstanceId ? binsByInstance.get(erpnextInstanceId) : undefined;
+    if (!bins || warehouses.length === 0) return null;
+    const itemCode = skuVariantKeys(sku).find((code) =>
+      warehouses.every((warehouse) => bins.has(`${warehouse}::${code}`)),
+    );
+    if (!itemCode) return null;
+    for (const warehouse of warehouses) {
+      const scope = JSON.stringify([erpnextInstanceId, warehouse]);
+      if (seen.has(scope)) return null;
+      seen.add(scope);
+      total += bins.get(`${warehouse}::${itemCode}`)!;
+    }
+  }
+  return seen.size ? total : null;
 }

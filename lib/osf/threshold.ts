@@ -1,3 +1,5 @@
+import { Prisma } from "@prisma/client";
+
 /**
  * Reorder threshold % helpers for filtered OSF + purchasing reminders.
  * Null/unset profile threshold ⇒ effective 70 (Excel-style cue).
@@ -16,7 +18,7 @@ export function effectiveReorderThresholdPercent(
   ) {
     return DEFAULT_REORDER_THRESHOLD_PERCENT;
   }
-  return Math.floor(thresholdPercent);
+  return thresholdPercent;
 }
 
 /**
@@ -29,7 +31,8 @@ export function isBelowReorderThreshold(
   thresholdPercent?: number | null,
 ): boolean {
   if (totalRop == null || !Number.isFinite(totalRop) || totalRop <= 0) return false;
-  const stock = totalStock == null || !Number.isFinite(totalStock) ? 0 : totalStock;
+  if (totalStock == null || !Number.isFinite(totalStock)) return false;
+  const stock = totalStock;
   const threshold = effectiveReorderThresholdPercent(thresholdPercent);
-  return (stock / totalRop) * 100 < threshold;
+  return new Prisma.Decimal(stock).times(100).lt(new Prisma.Decimal(totalRop).times(threshold));
 }

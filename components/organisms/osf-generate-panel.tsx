@@ -75,7 +75,7 @@ export function OsfGeneratePanel({ canReorderOnly = false }: { canReorderOnly?: 
       const pctTrim = historicalAsOf ? "" : maxStockPct.trim();
       let maxStockPctOfRop: number | undefined;
       if (pctTrim) {
-        const n = Math.floor(Number(pctTrim));
+        const n = Number(pctTrim);
         if (!Number.isFinite(n) || n < 1 || n > 100) {
           throw new Error("Stock below % of ROP must be 1–100 or blank");
         }
@@ -248,9 +248,11 @@ export function OsfGeneratePanel({ canReorderOnly = false }: { canReorderOnly?: 
             type="number"
             min={1}
             max={100}
+            step="any"
+            inputMode="decimal"
             className="mt-1"
             value={maxStockPct}
-            placeholder="e.g. 70"
+            placeholder="e.g. 27.5"
             onChange={(e) => setMaxStockPct(e.target.value)}
             disabled={busy || historicalAsOf}
           />

@@ -376,6 +376,55 @@ describe("finance-approved split ERP Payment Entries", () => {
     expect(outstanding).toBe(3250);
   });
 
+  it("creates Mintpay and Bank Transfer PEs with their allocated amounts", async () => {
+    await syncApprovalSplitPaymentEntriesToErp(
+      {
+        id: "approval-1",
+        kokoReference: null,
+        paymentLines: [
+          {
+            id: "line-mintpay",
+            paymentMethod: "mintpay",
+            amount: 4000,
+            erpPaymentEntryName: null,
+          },
+          {
+            id: "line-bank",
+            paymentMethod: "bank_transfer",
+            amount: 3750,
+            erpPaymentEntryName: null,
+          },
+        ],
+      },
+      {
+        ...order,
+        paymentGatewayPrimary: "MintPay",
+        paymentGatewayNames: ["MintPay"],
+        totalPrice: 7750,
+      },
+      location,
+      new Date("2026-08-24T00:00:00.000Z"),
+    );
+
+    expect(paymentEntryBodies).toHaveLength(2);
+    expect(paymentEntryBodies[0]).toEqual(
+      expect.objectContaining({
+        mode_of_payment: "Bank Transfer",
+        paid_amount: 3750,
+        reference_no: "OS-OPA-line-bank",
+      }),
+    );
+    expect(paymentEntryBodies[1]).toEqual(
+      expect.objectContaining({
+        mode_of_payment: "MintPay",
+        paid_amount: 4000,
+        reference_no: "OS-OPA-line-mintpay",
+      }),
+    );
+    expect(prismaMocks.approvalPaymentLineUpdate).toHaveBeenCalledTimes(2);
+    expect(outstanding).toBe(0);
+  });
+
   it("skips intake PEs for Cash + Card door-collection splits", async () => {
     const result = await syncApprovalSplitPaymentEntriesToErp(
       {

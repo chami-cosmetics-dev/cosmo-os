@@ -34,7 +34,7 @@ import {
   APPROVAL_SPLIT_PAIRS,
   approvalSplitLineLabel,
   approvalSplitPairId,
-  isCashSplitOrderGateway,
+  defaultSplitPairForOrder,
   isDoorCollectionSplitPair,
   orderHasSplitPaymentEligibleGateway,
   resolveSplitPaymentDisplay,
@@ -600,12 +600,10 @@ export function FulfillmentSampleFreeIssuePanel({
     );
     const pair =
       savedPair ??
-      (isCashSplitOrderGateway({
+      defaultSplitPairForOrder({
         paymentGatewayPrimary: detail?.paymentGatewayPrimary,
         paymentGatewayNames: detail?.paymentGatewayNames,
-      })
-        ? "bank_cash"
-        : "koko_bank");
+      });
     const methods = APPROVAL_SPLIT_PAIRS[pair];
     setSplitPair(pair);
     setSplitAmountA(amountForMethod(methods[0]));

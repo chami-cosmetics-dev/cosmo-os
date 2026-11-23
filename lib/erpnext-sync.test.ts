@@ -28,6 +28,32 @@ describe("bodyAfterMultiplePricingRuleConflict", () => {
   });
 });
 
+describe("Shopify SI total vs ERP pricing rule overwrite", () => {
+  it("refuses PE when ERP applied list-rule rate instead of Shopify net (order 60021496 pattern)", () => {
+    // Shopify: NAN01_1 @ 3725 + shipping 400 = 4125 (sale price, no discount_codes)
+    // ERP without ignore_pricing_rule: PRLE-0011 30% of 7450 = 5215 + 400 = 5615
+    expect(erpSiShopifyTotalMismatch(5615, 4125)).toMatch(/5615\.00.*4125\.00/);
+    expect(() =>
+      resolveShopifyPrepaidPeAmount({
+        shopifyTotal: 4125,
+        erpGrandTotal: 5615,
+        outstandingAmount: 5615,
+      }),
+    ).toThrow(/Refusing PE/);
+  });
+
+  it("accepts PE when SI matches Shopify net sale total", () => {
+    expect(erpSiShopifyTotalMismatch(4125, 4125)).toBeNull();
+    expect(
+      resolveShopifyPrepaidPeAmount({
+        shopifyTotal: 4125,
+        erpGrandTotal: 4125,
+        outstandingAmount: 4125,
+      }),
+    ).toBe(4125);
+  });
+});
+
 describe("isUsableErpSalesInvoiceId", () => {
   it("accepts real SI names", () => {
     expect(isUsableErpSalesInvoiceId("SV100-0695")).toBe(true);

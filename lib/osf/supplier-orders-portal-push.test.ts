@@ -10,11 +10,11 @@ vi.mock("@/lib/prisma", () => ({
 }));
 
 vi.mock("@/lib/osf/supplier-orders-reorder", () => ({
-  computeTotalOrderQtyForSkus: vi.fn(),
+  computeSupplierOrderSnapshot: vi.fn(),
 }));
 
 import { prisma } from "@/lib/prisma";
-import { computeTotalOrderQtyForSkus } from "@/lib/osf/supplier-orders-reorder";
+import { computeSupplierOrderSnapshot } from "@/lib/osf/supplier-orders-reorder";
 import {
   buildOsfPortalPushPayload,
   prepareOsfPortalPush,
@@ -23,16 +23,27 @@ import {
   SupplierPortalPushError,
 } from "@/lib/osf/supplier-orders-portal-push";
 
+const sourceColumns = [{ columnKey: "primary", erpInstanceId: "erp-1", itemCode: "SKU-1", warehouses: ["Main"] }];
+const snapshot = { totalStock: "2.749", totalRop: "10", columns: sourceColumns };
+
+function computed(rows: [string, number][]) {
+  return {
+    asOfDate: "2026-11-23",
+    totalOrderQty: new Map(rows),
+    snapshots: new Map([["SKU-1", snapshot]]),
+  };
+}
+
 describe("buildOsfPortalPushPayload (Phase G)", () => {
   beforeEach(() => {
-    vi.mocked(computeTotalOrderQtyForSkus).mockReset();
+    vi.mocked(computeSupplierOrderSnapshot).mockReset();
     vi.mocked(prisma.productItem.findMany).mockReset();
     vi.mocked(prisma.supplier.findMany).mockReset();
   });
 
   it("builds cosmo-osf-push.v1 with server TOTAL ORDER QTY and requestSuggestions", async () => {
-    vi.mocked(computeTotalOrderQtyForSkus).mockResolvedValue(
-      new Map([
+    vi.mocked(computeSupplierOrderSnapshot).mockResolvedValue(
+      computed([
         ["SKU-1", 12],
         ["SKU-2", 5],
       ]),
@@ -92,7 +103,7 @@ describe("buildOsfPortalPushPayload (Phase G)", () => {
 
     expect(built.idempotencyKey).toBe("idem-key-phase-g-test-001");
     expect(built.payload.contractVersion).toBe(COSMO_OSF_CONTRACT_VERSION);
-    expect(built.payload.source.cosmoCompanyId).toBe("co_1");
+    expect(built.payload.source).toMatchObject({ cosmoCompanyId: "co_1", asOfDate: "2026-11-23", osfVariant: "main" });
     expect(built.payload.selection.mode).toBe("SUPPLIER_ORDERS_SELECTION");
     expect(built.payload.selection.brandFilter).toEqual({
       cosmoVendorId: "vend_a",
@@ -106,6 +117,7 @@ describe("buildOsfPortalPushPayload (Phase G)", () => {
         brand: { cosmoVendorId: "vend_a", name: "Brand A" },
         priorities: { erp1: "A", erp2: null },
         quantity: { totalOrderQty: 12 },
+        snapshot,
       },
       {
         lineKey: "SKU-2",
@@ -145,8 +157,8 @@ describe("buildOsfPortalPushPayload (Phase G)", () => {
   });
 
   it("omits zero-qty allocations and rejects missing brand/vendor", async () => {
-    vi.mocked(computeTotalOrderQtyForSkus).mockResolvedValue(
-      new Map([["SKU-X", 1]]),
+    vi.mocked(computeSupplierOrderSnapshot).mockResolvedValue(
+      computed([["SKU-X", 1]]),
     );
     vi.mocked(prisma.productItem.findMany).mockResolvedValue([
       {
@@ -194,7 +206,7 @@ describe("prepared OSF transfer", () => {
     vi.stubEnv("SUPPLIER_PORTAL_BASE_URL", "https://portal.example.test");
     vi.stubEnv("SUPPLIER_PORTAL_INTEGRATION_TOKEN", token);
     vi.setSystemTime(new Date("2026-11-21T00:00:00Z"));
-    vi.mocked(computeTotalOrderQtyForSkus).mockResolvedValue(new Map([["SKU-1", 12]]));
+    vi.mocked(computeSupplierOrderSnapshot).mockResolvedValue(computed([["SKU-1", 12]]));
     vi.mocked(prisma.productItem.findMany).mockResolvedValue([{
       sku: "SKU-1", productTitle: "Synthetic", barcode: null, vendorId: "brand",
       erp1ProductPriority: null, erp2ProductPriority: null,
@@ -235,7 +247,7 @@ describe("prepared OSF transfer", () => {
 
     await expect(pushPreparedOsfToSupplierPortal(ticket, actor)).rejects.toMatchObject({ status: 502 });
     vi.setSystemTime(new Date("2026-11-21T00:01:00Z"));
-    vi.mocked(computeTotalOrderQtyForSkus).mockResolvedValue(new Map([["SKU-1", 25]]));
+    vi.mocked(computeSupplierOrderSnapshot).mockResolvedValue(computed([["SKU-1", 25]]));
     const restoredTicket = JSON.parse(JSON.stringify(ticket)) as string;
     await expect(pushPreparedOsfToSupplierPortal(restoredTicket, actor)).resolves.toMatchObject({
       importId: "import-1", replay: true,

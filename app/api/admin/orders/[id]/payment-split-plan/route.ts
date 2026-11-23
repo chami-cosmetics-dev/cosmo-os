@@ -147,7 +147,7 @@ export async function PATCH(
     return NextResponse.json(
       {
         error:
-          "Only KOKO, Bank Transfer, or Cash/COD orders can be marked as split payment.",
+          "Only KOKO, Bank Transfer, Mintpay, or Cash/COD orders can be marked as split payment.",
       },
       { status: 400 },
     );

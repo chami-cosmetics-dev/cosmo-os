@@ -378,13 +378,23 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
       where.fulfillmentStage = { in: stages as FulfillmentStage[] };
       where.sourceName = { in: ["web", "manual", "erpnext"] };
       where.financialStatus = { not: "voided" };
-      where.AND = [
-        ...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []),
-        params.includeSplitPaymentQueue
-          ? FINANCE_PENDING_SPLIT_PAYMENT_QUEUE
-          : FINANCE_PENDING_FULFILLMENT_EXCLUSION,
-      ];
-      if (stages.includes("order_received") || stages.includes("sample_free_issue")) {
+      const isSampleQueue =
+        stages.includes("order_received") || stages.includes("sample_free_issue");
+      // Sample queue keeps finance-pending prepaid orders visible so merchants can
+      // open Split Payment next to payment type (no separate Split Payments tab).
+      // Other early stages still hide finance-pending rows.
+      const financeQueueFilter = params.includeSplitPaymentQueue
+        ? FINANCE_PENDING_SPLIT_PAYMENT_QUEUE
+        : isSampleQueue
+          ? null
+          : FINANCE_PENDING_FULFILLMENT_EXCLUSION;
+      if (financeQueueFilter) {
+        where.AND = [
+          ...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []),
+          financeQueueFilter,
+        ];
+      }
+      if (isSampleQueue) {
         where.AND = [
           ...(Array.isArray(where.AND) ? where.AND : []),
           sampleQueueWhere,

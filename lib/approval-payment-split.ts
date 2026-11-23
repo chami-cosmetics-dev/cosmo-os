@@ -13,6 +13,7 @@ export type ApprovalSplitPaymentMethod =
 
 export type ApprovalSplitPairId =
   | "koko_bank"
+  | "mintpay_bank"
   | "koko_cash"
   | "bank_cash"
   | "cash_card"
@@ -39,11 +40,18 @@ export const CASH_ORDER_SPLIT_PAIR_IDS: ApprovalSplitPairId[] = [
   "cash_mintpay",
 ];
 
+/** Dual prepaid pairs — finance creates a PE for each leg at intake. */
+export const PREPAID_SPLIT_PAIR_IDS: ApprovalSplitPairId[] = [
+  "koko_bank",
+  "mintpay_bank",
+];
+
 export const APPROVAL_SPLIT_PAIRS: Record<
   ApprovalSplitPairId,
   [ApprovalSplitPaymentMethod, ApprovalSplitPaymentMethod]
 > = {
   koko_bank: [APPROVAL_SPLIT_KOKO, APPROVAL_SPLIT_BANK_TRANSFER],
+  mintpay_bank: [APPROVAL_SPLIT_MINTPAY, APPROVAL_SPLIT_BANK_TRANSFER],
   koko_cash: [APPROVAL_SPLIT_KOKO, APPROVAL_SPLIT_CASH],
   bank_cash: [APPROVAL_SPLIT_BANK_TRANSFER, APPROVAL_SPLIT_CASH],
   cash_card: [APPROVAL_SPLIT_CARD, APPROVAL_SPLIT_CASH],
@@ -52,6 +60,7 @@ export const APPROVAL_SPLIT_PAIRS: Record<
 
 export const APPROVAL_SPLIT_PAIR_LABELS: Record<ApprovalSplitPairId, string> = {
   koko_bank: "KOKO + Bank Transfer",
+  mintpay_bank: "Mintpay + Bank Transfer",
   koko_cash: "Cash + KOKO",
   bank_cash: "Cash + Bank Transfer",
   cash_card: "Cash + Card",
@@ -69,7 +78,7 @@ const SPLIT_NOTE_LABELS: Record<ApprovalSplitPaymentMethod, string> = {
 };
 
 const ALLOWED_SPLIT_PAIR_MESSAGE =
-  "Split payment must be KOKO + Bank Transfer, Cash + KOKO, Cash + Bank Transfer, Cash + Card, or Cash + Mintpay.";
+  "Split payment must be KOKO + Bank Transfer, Mintpay + Bank Transfer, Cash + KOKO, Cash + Bank Transfer, Cash + Card, or Cash + Mintpay.";
 
 function money(value: number): string {
   return value.toFixed(2);
@@ -85,13 +94,14 @@ export function isApprovalSplitPaymentMethod(
   return (APPROVAL_SPLIT_METHODS as string[]).includes(value);
 }
 
-/** Gateway may start a merchant split plan (KOKO, Bank Transfer, or Cash/COD). */
+/** Gateway may start a merchant split plan (KOKO, Bank, Mintpay, or Cash/COD). */
 export function isSplitPaymentEligibleGateway(
   gateway: string | null | undefined,
 ): boolean {
-  const normalized = gateway?.toLowerCase().trim() ?? "";
+  const normalized = gateway?.toLowerCase().trim().replace(/[\s_-]/g, "") ?? "";
   if (!normalized) return false;
   if (normalized.includes("koko") || normalized.includes("bank")) return true;
+  if (normalized.includes("mintpay")) return true;
   if (normalized === "cod" || normalized.includes("cash")) return true;
   return false;
 }
@@ -130,13 +140,39 @@ export function approvalSplitLineLabel(method: string): string {
   return method;
 }
 
+/** True when primary gateway is Mintpay. */
+export function isMintpaySplitOrderGateway(order: {
+  paymentGatewayPrimary?: string | null;
+  paymentGatewayNames?: string[] | null;
+}): boolean {
+  const primary = order.paymentGatewayPrimary?.toLowerCase().trim().replace(/[\s_-]/g, "") ?? "";
+  if (primary) return primary.includes("mintpay");
+  return (order.paymentGatewayNames ?? []).some((gateway) => {
+    const normalized = gateway?.toLowerCase().trim().replace(/[\s_-]/g, "") ?? "";
+    return normalized.includes("mintpay");
+  });
+}
+
 /** Pair choices for the Split Payment dialog. Cash orders get Cash + prepaid only. */
 export function splitPairOptionsForOrder(order: {
   paymentGatewayPrimary?: string | null;
   paymentGatewayNames?: string[] | null;
 }): ApprovalSplitPairId[] {
   if (isCashSplitOrderGateway(order)) return [...CASH_ORDER_SPLIT_PAIR_IDS];
+  if (isMintpaySplitOrderGateway(order)) {
+    return ["mintpay_bank", "cash_mintpay", ...PREPAID_SPLIT_PAIR_IDS.filter((id) => id !== "mintpay_bank")];
+  }
   return Object.keys(APPROVAL_SPLIT_PAIR_LABELS) as ApprovalSplitPairId[];
+}
+
+/** Default pair when opening the Split Payment dialog. */
+export function defaultSplitPairForOrder(order: {
+  paymentGatewayPrimary?: string | null;
+  paymentGatewayNames?: string[] | null;
+}): ApprovalSplitPairId {
+  if (isCashSplitOrderGateway(order)) return "bank_cash";
+  if (isMintpaySplitOrderGateway(order)) return "mintpay_bank";
+  return "koko_bank";
 }
 
 export function approvalSplitPairId(methods: string[]): ApprovalSplitPairId | null {

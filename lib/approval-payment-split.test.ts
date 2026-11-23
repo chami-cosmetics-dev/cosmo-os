@@ -10,8 +10,10 @@ import {
   formatApprovalSplitAmountBreakdown,
   formatApprovalSplitInvoicePaymentLabel,
   isApprovalSplitRequestNote,
+  defaultSplitPairForOrder,
   isCashSplitOrderGateway,
   isDoorCollectionSplitPair,
+  isMintpaySplitOrderGateway,
   isPrepaidCashSplitPair,
   isSplitPaymentEligibleGateway,
   orderHasSplitPaymentEligibleGateway,
@@ -23,13 +25,14 @@ import {
 import { parseApprovalRequestNote } from "@/lib/approval-display";
 
 describe("split payment eligible gateway", () => {
-  it("allows KOKO, Bank Transfer, and Cash/COD", () => {
+  it("allows KOKO, Bank Transfer, Mintpay, and Cash/COD", () => {
     expect(isSplitPaymentEligibleGateway("KOKO")).toBe(true);
     expect(isSplitPaymentEligibleGateway("Bank Transfer")).toBe(true);
     expect(isSplitPaymentEligibleGateway("Cash")).toBe(true);
     expect(isSplitPaymentEligibleGateway("Cash On Delivery")).toBe(true);
     expect(isSplitPaymentEligibleGateway("cod")).toBe(true);
-    expect(isSplitPaymentEligibleGateway("Mintpay")).toBe(false);
+    expect(isSplitPaymentEligibleGateway("Mintpay")).toBe(true);
+    expect(isSplitPaymentEligibleGateway("MintPay")).toBe(true);
     expect(isSplitPaymentEligibleGateway("Card on Delivery")).toBe(false);
   });
 
@@ -132,12 +135,13 @@ describe("approval split payment plan", () => {
         invoiceTotal: 7750,
       }),
     ).toBe(
-      "Split payment must be KOKO + Bank Transfer, Cash + KOKO, Cash + Bank Transfer, Cash + Card, or Cash + Mintpay.",
+      "Split payment must be KOKO + Bank Transfer, Mintpay + Bank Transfer, Cash + KOKO, Cash + Bank Transfer, Cash + Card, or Cash + Mintpay.",
     );
   });
 
   it("identifies allowed pairs", () => {
     expect(approvalSplitPairId(["koko", "bank_transfer"])).toBe("koko_bank");
+    expect(approvalSplitPairId(["mintpay", "bank_transfer"])).toBe("mintpay_bank");
     expect(approvalSplitPairId(["cash", "koko"])).toBe("koko_cash");
     expect(approvalSplitPairId(["bank_transfer", "cash"])).toBe("bank_cash");
     expect(approvalSplitPairId(["cash", "card"])).toBe("cash_card");
@@ -149,6 +153,7 @@ describe("approval split payment plan", () => {
     expect(isCashSplitOrderGateway({ paymentGatewayPrimary: "Cash" })).toBe(true);
     expect(isCashSplitOrderGateway({ paymentGatewayPrimary: "COD" })).toBe(true);
     expect(isCashSplitOrderGateway({ paymentGatewayPrimary: "KOKO" })).toBe(false);
+    expect(isMintpaySplitOrderGateway({ paymentGatewayPrimary: "MintPay" })).toBe(true);
     expect(splitPairOptionsForOrder({ paymentGatewayPrimary: "Cash" })).toEqual([
       "koko_cash",
       "bank_cash",
@@ -156,6 +161,13 @@ describe("approval split payment plan", () => {
       "cash_mintpay",
     ]);
     expect(splitPairOptionsForOrder({ paymentGatewayPrimary: "KOKO" })).toContain("koko_bank");
+    expect(splitPairOptionsForOrder({ paymentGatewayPrimary: "MintPay" })[0]).toBe(
+      "mintpay_bank",
+    );
+    expect(defaultSplitPairForOrder({ paymentGatewayPrimary: "MintPay" })).toBe(
+      "mintpay_bank",
+    );
+    expect(defaultSplitPairForOrder({ paymentGatewayPrimary: "KOKO" })).toBe("koko_bank");
   });
 
   it("treats Cash + Card as door collection, other cash pairs as prepaid", () => {

@@ -100,7 +100,7 @@ export function OsfProductEditor({
 
     let maxPercent: number | null = null;
     if (pctTrim) {
-      const n = Math.floor(Number(pctTrim));
+      const n = Number(pctTrim);
       if (!Number.isFinite(n) || n < 1 || n > 100) {
         notify.error("Stock below % of ROP must be 1–100 or blank");
         return;
@@ -264,6 +264,8 @@ export function OsfProductEditor({
           type="number"
           min={1}
           max={100}
+          step="any"
+          inputMode="decimal"
           className="w-36"
           placeholder="Below % of ROP"
           value={maxStockPct}
