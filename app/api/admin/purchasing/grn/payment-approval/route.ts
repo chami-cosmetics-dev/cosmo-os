@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 
 import { resolveViewerFinanceLocationIds } from "@/lib/approval-workflow";
 import { prisma } from "@/lib/prisma";
@@ -67,6 +68,20 @@ export async function POST(request: NextRequest) {
   }
 
   if (input.action === "approve") {
+    if (!isVaultOsDeployment()) {
+      const updated = await prisma.grnPaymentApproval.updateMany({
+        where: {
+          companyId: input.companyId,
+          purchaseReceiptName: input.purchaseReceiptName,
+          purchaseReceiptIsBackfill: input.purchaseReceiptIsBackfill,
+          paidAt: { not: null },
+          approvedAt: null,
+        },
+        data: { approvedAt: new Date(), approvedById: user.id },
+      });
+      if (!updated.count) return NextResponse.json({ error: "ERP payment must be complete before approval" }, { status: 409 });
+      return NextResponse.json({ ok: true });
+    }
     await prisma.grnPaymentApproval.createMany({
       data: [{
         companyId: input.companyId,
@@ -77,6 +92,10 @@ export async function POST(request: NextRequest) {
       skipDuplicates: true,
     });
     return NextResponse.json({ ok: true });
+  }
+
+  if (!isVaultOsDeployment()) {
+    return NextResponse.json({ error: "Paid is recorded from ERP Payment Entries" }, { status: 409 });
   }
 
   const updated = await prisma.grnPaymentApproval.updateMany({

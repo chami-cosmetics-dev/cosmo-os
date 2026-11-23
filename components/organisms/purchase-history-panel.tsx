@@ -11,6 +11,7 @@ import { formatAppIsoDate } from "@/lib/format-datetime";
 import { notify } from "@/lib/notify";
 import { formatPercentPoints } from "@/lib/osf/pricing-math";
 import { erpProductPriorityFilterOptions } from "@/lib/product-items/erp-priority-options";
+import { InventoryAgeingPanel } from "@/components/organisms/inventory-ageing-panel";
 
 type Row = {
   postingDate: string;
@@ -104,7 +105,7 @@ export function PurchaseHistoryPanel({
   const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [generatingMarginReport, setGeneratingMarginReport] = useState(false);
-  const [view, setView] = useState<"history" | "high-risk">(
+  const [view, setView] = useState<"history" | "high-risk" | "ageing">(
     canReadPurchaseHistory ? "history" : "high-risk",
   );
   const [highRiskRows, setHighRiskRows] = useState<HighRiskRow[]>([]);
@@ -328,19 +329,20 @@ export function PurchaseHistoryPanel({
   return (
     <div className="space-y-4 p-6">
       <div>
-        <h1 className="text-xl font-semibold">{canReadPurchaseHistory ? "Purchase History" : "High Risk Items"}</h1>
-        {canReadPurchaseHistory ? <p className="text-sm text-muted-foreground">
+        <h1 className="text-xl font-semibold">{view === "ageing" ? "Ageing Summary" : view === "high-risk" ? "High Risk Items" : "Purchase History"}</h1>
+        {view === "history" ? <p className="text-sm text-muted-foreground">
           Live ERP Purchase Invoices from both ERPs (cancelled, returns, and intercompany cash
           suppliers excluded). Click a row to open the invoice in ERP.
-        </p> : <p className="text-sm text-muted-foreground">Items currently in the high-risk reorder range.</p>}
+        </p> : view === "high-risk" ? <p className="text-sm text-muted-foreground">Items currently in the high-risk reorder range.</p> : <p className="text-sm text-muted-foreground">Purchase Receipt stock ageing from both ERP systems.</p>}
       </div>
 
       <div className="flex gap-2 border-b">
         {canReadPurchaseHistory ? <Button variant={view === "history" ? "default" : "ghost"} onClick={() => setView("history")}>Purchase History</Button> : null}
         {canReadHighRisk ? <Button variant={view === "high-risk" ? "default" : "ghost"} onClick={() => { setView("high-risk"); void loadHighRisk(); void loadHighRiskSuppliers(); }}>High Risk Items</Button> : null}
+        {canReadPurchaseHistory ? <Button variant={view === "ageing" ? "default" : "ghost"} onClick={() => setView("ageing")}>Ageing Summary</Button> : null}
       </div>
 
-      {view === "high-risk" ? (
+      {view === "ageing" ? <InventoryAgeingPanel /> : view === "high-risk" ? (
         <div className="space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-1 items-center gap-3">
