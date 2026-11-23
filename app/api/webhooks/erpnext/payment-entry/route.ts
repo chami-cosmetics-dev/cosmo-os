@@ -8,6 +8,7 @@ import {
   summarizeOrderPayments,
 } from "@/lib/order-payment-entries";
 import { prisma } from "@/lib/prisma";
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 import { erpnextPaymentEntryWebhookSchema } from "@/lib/validation/erpnext-payment-entry";
 
 export const dynamic = "force-dynamic";
@@ -71,6 +72,56 @@ async function fetchOutstandingAmount(
     return json.data.outstanding_amount ?? null;
   } catch {
     return null;
+  }
+}
+
+async function fetchPurchaseInvoiceOutstanding(invoiceName: string, creds: { baseUrl: string; apiKey: string; apiSecret: string }): Promise<number | null> {
+  try {
+    const fields = encodeURIComponent(JSON.stringify(["outstanding_amount", "docstatus"]));
+    const res = await fetch(`${creds.baseUrl}/api/resource/Purchase%20Invoice/${encodeURIComponent(invoiceName)}?fields=${fields}`, {
+      headers: { Authorization: `token ${creds.apiKey}:${creds.apiSecret}` },
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    const json = await res.json() as { data?: { outstanding_amount?: number; docstatus?: number } };
+    return json.data?.docstatus === 1 && Number.isFinite(Number(json.data.outstanding_amount))
+      ? Number(json.data.outstanding_amount) : null;
+  } catch { return null; }
+}
+
+async function recordCosmoGrnPayments(data: { name: string; company: string; payment_type?: string | null; party_type?: string | null; references: Array<{ reference_doctype: string; reference_name: string; allocated_amount?: number | null }>; posting_date?: string | null }, creds: { baseUrl: string; apiKey: string; apiSecret: string }) {
+  if (isVaultOsDeployment() || data.payment_type !== "Pay" || data.party_type !== "Supplier") return;
+  const location = await prisma.companyLocation.findFirst({ where: { erpnextCompany: data.company }, select: { companyId: true } });
+  if (!location) return;
+  const invoiceNames = [...new Set(data.references.filter((ref) => ref.reference_doctype === "Purchase Invoice" && Number(ref.allocated_amount) > 0).map((ref) => ref.reference_name))];
+  if (!invoiceNames.length) return;
+  const [live, backfill] = await Promise.all([
+    prisma.grnPurchaseInvoice.findMany({ where: { companyId: location.companyId, name: { in: invoiceNames }, deletedAt: null, docstatus: 1, isReturn: { not: 1 }, purchaseReceiptName: { not: null } }, select: { purchaseReceiptName: true } }),
+    prisma.grnBackfillPurchaseInvoice.findMany({ where: { companyId: location.companyId, name: { in: invoiceNames }, deletedAt: null, docstatus: 1, isReturn: { not: 1 }, purchaseReceiptName: { not: null } }, select: { purchaseReceiptName: true } }),
+  ]);
+  const receiptNames = [...new Set([...live, ...backfill].map((pi) => pi.purchaseReceiptName).filter((name): name is string => Boolean(name)))];
+  for (const receiptName of receiptNames) {
+    for (const isBackfill of [false, true]) {
+      const receipt = isBackfill
+        ? await prisma.grnBackfillPurchaseReceipt.findFirst({ where: { companyId: location.companyId, name: receiptName, deletedAt: null, docstatus: { not: 2 }, receivedAt: { not: null } }, select: { name: true } })
+        : await prisma.grnPurchaseReceipt.findFirst({ where: { companyId: location.companyId, name: receiptName, deletedAt: null, docstatus: { not: 2 }, receivedAt: { not: null } }, select: { name: true } });
+      if (!receipt) continue;
+      const [liveInvoices, backfillInvoices] = await Promise.all([
+        prisma.grnPurchaseInvoice.findMany({ where: { companyId: location.companyId, purchaseReceiptName: receiptName, deletedAt: null, docstatus: 1, isReturn: { not: 1 } }, select: { name: true } }),
+        prisma.grnBackfillPurchaseInvoice.findMany({ where: { companyId: location.companyId, purchaseReceiptName: receiptName, deletedAt: null, docstatus: 1, isReturn: { not: 1 } }, select: { name: true } }),
+      ]);
+      const linked = [...new Set([...liveInvoices, ...backfillInvoices].map((pi) => pi.name))];
+      if (!linked.length) continue;
+      const balances = await Promise.all(linked.map((name) => fetchPurchaseInvoiceOutstanding(name, creds)));
+      if (balances.some((balance) => balance === null || balance > 0.005)) continue;
+      const postedAt = data.posting_date ? new Date(`${data.posting_date}T00:00:00.000Z`) : new Date();
+      const paidAt = Number.isNaN(postedAt.getTime()) ? new Date() : postedAt;
+      await prisma.grnPaymentApproval.upsert({
+        where: { companyId_purchaseReceiptName_purchaseReceiptIsBackfill: { companyId: location.companyId, purchaseReceiptName: receiptName, purchaseReceiptIsBackfill: isBackfill } },
+        create: { companyId: location.companyId, purchaseReceiptName: receiptName, purchaseReceiptIsBackfill: isBackfill, approvedAt: null, paidAt, paymentEntryName: data.name },
+        update: { paidAt, paymentEntryName: data.name },
+      });
+    }
   }
 }
 
@@ -173,6 +224,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true, skipped: true });
   }
 
+  await recordCosmoGrnPayments(data, creds);
   const allocations = groupSalesInvoiceAllocations(data.references);
   if (allocations.length === 0) {
     console.log(`[ERPNext PE webhook] ${data.name} has no Sales Invoice references — skipping`);

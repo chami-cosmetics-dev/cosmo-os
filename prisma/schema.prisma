@@ -3128,10 +3128,11 @@ model GrnPaymentApproval {
   companyId                 String
   purchaseReceiptName       String
   purchaseReceiptIsBackfill Boolean  @default(false)
-  approvedAt                DateTime @default(now())
+  approvedAt                DateTime? @default(now())
   approvedById              String?
   paidAt                    DateTime?
   paidById                  String?
+  paymentEntryName          String?
   createdAt                 DateTime @default(now())
   updatedAt                 DateTime @updatedAt
 
