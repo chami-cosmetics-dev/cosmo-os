@@ -108,11 +108,14 @@ export type StockHealthRopCounts = {
 
 /**
  * Dashboard totals: Total ROP and Total Stock of the Common SKUs with a ROP (as on Shop Stock
- * Status → Dashboard); Fulfilment = totalStock ÷ totalRop.
+ * Status → Dashboard); Fulfilment = totalStock ÷ totalRop (at most 100%).
  */
 export type StockHealthRopTotals = {
   totalRop: number;
+  /** Per Common SKU, the smaller of stock and ROP (negative stock = 0). */
   totalStock: number;
+  /** Per Common SKU, stock above its ROP (0 when stock ≤ ROP). */
+  totalAdditionalStock: number;
 };
 
 export type StockHealthRopStatus = {

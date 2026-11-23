@@ -65,8 +65,12 @@ function DashboardLegend() {
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
         <span className="font-medium text-foreground">Fulfilment colour (Total Stock ÷ Total ROP):</span>
         <span className="font-semibold text-rose-600 dark:text-rose-400">Red · 50% or below</span>
-        <span className="font-semibold text-yellow-600 dark:text-yellow-400">Yellow · above 50% up to 100%</span>
-        <span className="font-semibold text-emerald-600 dark:text-emerald-400">Green · above 100%</span>
+        <span className="font-semibold text-yellow-600 dark:text-yellow-400">Yellow · above 50%, below 100%</span>
+        <span className="font-semibold text-emerald-600 dark:text-emerald-400">Green · 100%</span>
+      </div>
+      <div className="text-muted-foreground">
+        Total Stock counts each Common SKU&apos;s stock up to its ROP; stock above ROP is shown as
+        Additional.
       </div>
     </div>
   );
@@ -77,12 +81,16 @@ const PRIORITY_SLOT_COLORS = ["#f472b6", "#22d3ee", "#fb923c", "#818cf8", "#e879
 
 type Segment = { key: string; label: string; value: number; fill: string };
 
-/** Fulfilment text colour: FAIL (≤ 50%) red, up to 100% yellow, above green. */
+/**
+ * Fulfilment text colour. Stock is capped at ROP per Common SKU, so Fulfilment is at most 100%:
+ * FAIL (≤ 50%) red, above 50% up to (not including) 100% yellow, 100% green. The small tolerance
+ * keeps decimal ROPs that sum to 99.9999…% green.
+ */
 function fulfilmentClass(fulfilment: number): string {
   if (fulfilment <= STOCK_HEALTH_ROP_PASS_PERCENT) return "text-rose-600 dark:text-rose-400";
-  return fulfilment <= 100
-    ? "text-yellow-600 dark:text-yellow-400"
-    : "text-emerald-600 dark:text-emerald-400";
+  return fulfilment >= 100 - 1e-9
+    ? "text-emerald-600 dark:text-emerald-400"
+    : "text-yellow-600 dark:text-yellow-400";
 }
 
 /**
@@ -183,7 +191,7 @@ function DashboardBody({
   onOpenRopDetails: (status: StockHealthStatus | null, group: StockHealthRopGroup | null) => void;
   onOpenOutOfStock: (status: StockHealthStatus | null) => void;
 }) {
-  const empty: StockHealthRopTotals = { totalRop: 0, totalStock: 0 };
+  const empty: StockHealthRopTotals = { totalRop: 0, totalStock: 0, totalAdditionalStock: 0 };
   const zeroSegments: Segment[] = data.rows.map((row) => ({
     key: row.status,
     label: row.status,
@@ -316,11 +324,25 @@ function RopCard({
             <p className="text-base leading-6 font-semibold tracking-tight">Grand Total</p>
           )}
         </div>
-        <div className="grid grid-cols-3 gap-1 text-center">
-          <Stat label="Total ROP" value={formatNumber(totals.totalRop)} />
-          <Stat label="Total Stock" value={formatNumber(totals.totalStock)} />
+        <div className="-mx-5 grid grid-cols-4 gap-1 text-center">
+          <Stat
+            label="Total ROP"
+            title="Sum of ROP of the Common SKUs with a ROP"
+            value={formatNumber(totals.totalRop)}
+          />
+          <Stat
+            label="Total Stock"
+            title="Per Common SKU, stock up to its ROP (stock above ROP is in Additional)"
+            value={formatNumber(totals.totalStock)}
+          />
+          <Stat
+            label="Additional Stock"
+            title="Additional stock: per Common SKU, stock above its ROP"
+            value={formatNumber(totals.totalAdditionalStock)}
+          />
           <Stat
             label="Fulfilment"
+            title="Total Stock / Total ROP × 100"
             value={fulfilment === null ? "-" : formatPercent(fulfilment)}
             className={fulfilment === null ? undefined : fulfilmentClass(fulfilment)}
           />
@@ -411,11 +433,28 @@ function CountTiles({
   );
 }
 
-function Stat({ label, value, className }: { label: string; value: string; className?: string }) {
+function Stat({
+  label,
+  value,
+  title,
+  className,
+}: {
+  label: string;
+  value: string;
+  title?: string;
+  className?: string;
+}) {
   return (
-    <div>
-      <p className="text-muted-foreground text-[10px] font-medium tracking-wide uppercase">{label}</p>
-      <p className={cn("text-lg font-semibold tabular-nums", className)}>{value}</p>
+    <div className="flex min-w-0 flex-col justify-between" title={title}>
+      <p className="text-muted-foreground min-h-[2.5em] text-[10px] leading-tight font-medium tracking-normal uppercase">
+        {/* One word per line, so every label reads in full and the four line up. */}
+        {label.split(" ").map((word) => (
+          <span key={word} className="block whitespace-nowrap">
+            {word}
+          </span>
+        ))}
+      </p>
+      <p className={cn("truncate text-[15px] font-semibold tabular-nums", className)}>{value}</p>
     </div>
   );
 }
