@@ -2,6 +2,15 @@ import { prisma } from "@/lib/prisma";
 import { formatInvoiceOrderReference } from "@/lib/fulfillment-order-reference";
 import { resolveOrderMerchantLabel } from "@/lib/order-merchant-coupon";
 import { reconcilePendingApprovalsForErpResolvedOrders } from "@/lib/approval-workflow";
+import {
+  formatAppIsoDate,
+  parseAppCalendarDayStart,
+} from "@/lib/format-datetime";
+import { getReturnRemarkTemplateLabel } from "@/lib/return-remark-templates";
+import {
+  INVOICE_REVERT_CREDIT_NOTE_TEMPLATE,
+  INVOICE_REVERT_STAGE_ONLY_TEMPLATE,
+} from "@/lib/invoice-revert";
 
 export type ReturnTrackingItem = {
   id: string;
@@ -43,6 +52,51 @@ export type ReturnsTrackingData = {
   returns: ReturnTrackingItem[];
   counts: { all: number; pending: number; solved: number };
 };
+
+export type ReturnsReasonStat = {
+  code: string;
+  label: string;
+  count: number;
+  pending: number;
+  solved: number;
+};
+
+export type ReturnsReasonAnalytics = {
+  yearMonth: string;
+  total: number;
+  byReason: ReturnsReasonStat[];
+};
+
+const YEAR_MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
+
+export function isReturnsYearMonth(value: string): boolean {
+  return YEAR_MONTH_RE.test(value);
+}
+
+export function currentReturnsYearMonth(now = new Date()): string {
+  return formatAppIsoDate(now).slice(0, 7);
+}
+
+export function returnsReasonLabel(code: string): string {
+  if (code === "unknown") return "Unknown";
+  if (code === INVOICE_REVERT_CREDIT_NOTE_TEMPLATE) return "Finance Reverted";
+  if (code === INVOICE_REVERT_STAGE_ONLY_TEMPLATE) return "Revert only";
+  return getReturnRemarkTemplateLabel(code) ?? code;
+}
+
+function monthRangeExclusive(yearMonth: string): { start: Date; end: Date } | null {
+  if (!isReturnsYearMonth(yearMonth)) return null;
+  const [year, month] = yearMonth.split("-").map(Number);
+  const start = parseAppCalendarDayStart(`${yearMonth}-01`);
+  if (!start) return null;
+  const nextYear = month === 12 ? year + 1 : year;
+  const nextMonth = month === 12 ? 1 : month + 1;
+  const end = parseAppCalendarDayStart(
+    `${nextYear}-${String(nextMonth).padStart(2, "0")}-01`
+  );
+  if (!end) return null;
+  return { start, end };
+}
 
 function pickCustomerName(order: {
   customer?: { firstName: string | null; lastName: string | null } | null;
@@ -211,6 +265,56 @@ export async function fetchReturnsTrackingData(input: {
   } catch (error) {
     if (isMissingOrderReturnTableError(error)) {
       return { returns: [], counts: { all: 0, pending: 0, solved: 0 } };
+    }
+    throw error;
+  }
+}
+
+export async function fetchReturnsReasonAnalytics(input: {
+  companyId: string;
+  yearMonth: string;
+}): Promise<ReturnsReasonAnalytics> {
+  const yearMonth = isReturnsYearMonth(input.yearMonth)
+    ? input.yearMonth
+    : currentReturnsYearMonth();
+  const range = monthRangeExclusive(yearMonth);
+  if (!range) {
+    return { yearMonth, total: 0, byReason: [] };
+  }
+
+  try {
+    const groups = await prisma.orderReturn.groupBy({
+      by: ["remarkTemplate", "actionStatus"],
+      where: {
+        companyId: input.companyId,
+        returnDate: { gte: range.start, lt: range.end },
+      },
+      _count: { _all: true },
+    });
+
+    const rolled = new Map<string, ReturnsReasonStat>();
+    for (const group of groups) {
+      const code = group.remarkTemplate?.trim() || "unknown";
+      const existing = rolled.get(code) ?? {
+        code,
+        label: returnsReasonLabel(code),
+        count: 0,
+        pending: 0,
+        solved: 0,
+      };
+      const n = group._count._all;
+      existing.count += n;
+      if (group.actionStatus === "solved") existing.solved += n;
+      else existing.pending += n;
+      rolled.set(code, existing);
+    }
+
+    const byReason = [...rolled.values()].sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+    const total = byReason.reduce((sum, row) => sum + row.count, 0);
+    return { yearMonth, total, byReason };
+  } catch (error) {
+    if (isMissingOrderReturnTableError(error)) {
+      return { yearMonth, total: 0, byReason: [] };
     }
     throw error;
   }
