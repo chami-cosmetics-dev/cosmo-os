@@ -22,7 +22,7 @@ import {
 import {
   ONLINE_STOCK_COLUMNS,
   SHOP_STOCK_COLUMNS,
-  shopStockBandOf,
+  shopStockCardBandOf,
   type ShopStockBand,
   type ShopStockStatus,
   type ShopStockTab,
@@ -172,7 +172,7 @@ function LocationCard({
   onOpen: () => void;
 }) {
   const band =
-    card.fulfilment === null ? null : shopStockBandOf(card.fulfilment);
+    card.fulfilment === null ? null : shopStockCardBandOf(card.fulfilment);
   return (
     <Card
       role="button"
@@ -204,11 +204,25 @@ function LocationCard({
         <p className="text-base leading-6 font-semibold tracking-tight">
           {card.label}
         </p>
-        <div className="grid grid-cols-3 gap-1 text-center">
-          <Stat label="Total ROP" value={formatNumber(card.totalRop)} />
-          <Stat label="Total Stock" value={formatNumber(card.totalStock)} />
+        <div className="-mx-5 grid grid-cols-4 gap-1 text-center">
+          <Stat
+            label="Total ROP"
+            title="Sum of ROP of the Common SKUs with a ROP here"
+            value={formatNumber(card.totalRop)}
+          />
+          <Stat
+            label="Total Stock"
+            title="Per Common SKU, stock up to its ROP (stock above ROP is in Additional)"
+            value={formatNumber(card.totalStock)}
+          />
+          <Stat
+            label="Additional Stock"
+            title="Additional stock: per Common SKU, stock above its ROP"
+            value={formatNumber(card.totalAdditionalStock)}
+          />
           <Stat
             label="Fulfilment"
+            title="Total Stock / Total ROP × 100"
             value={
               card.fulfilment === null ? "-" : formatPercent(card.fulfilment)
             }
@@ -243,18 +257,25 @@ function LocationCard({
 function Stat({
   label,
   value,
+  title,
   className,
 }: {
   label: string;
   value: string;
+  title?: string;
   className?: string;
 }) {
   return (
-    <div>
-      <p className="text-muted-foreground text-[10px] font-medium tracking-wide uppercase">
-        {label}
+    <div className="flex min-w-0 flex-col justify-between" title={title}>
+      <p className="text-muted-foreground min-h-[2.5em] text-[10px] leading-tight font-medium tracking-normal uppercase">
+        {/* One word per line, so every label reads in full and the four line up. */}
+        {label.split(" ").map((word) => (
+          <span key={word} className="block whitespace-nowrap">
+            {word}
+          </span>
+        ))}
       </p>
-      <p className={cn("text-lg font-semibold tabular-nums", className)}>
+      <p className={cn("truncate text-[15px] font-semibold tabular-nums", className)}>
         {value}
       </p>
     </div>

@@ -135,9 +135,14 @@ export function summarizeShopStockLocationByPriority(
 export type ShopStockDashboardCard = {
   /** ROP of every Common SKU with a ROP at the location. */
   totalRop: number;
-  /** Stock of those same Common SKUs (items with no ROP there are left out). */
+  /**
+   * Counted stock of those same Common SKUs: per Common SKU, the smaller of stock and ROP
+   * (negative stock counts as 0). Items with no ROP there are left out.
+   */
   totalStock: number;
-  /** totalStock / totalRop × 100; null when the location has no ROP. */
+  /** Per Common SKU with a ROP: stock above its ROP (0 when stock ≤ ROP). */
+  totalAdditionalStock: number;
+  /** totalStock / totalRop × 100 (so at most 100%); null when the location has no ROP. */
   fulfilment: number | null;
   /** Common SKU counts by the tables' colours: red < 50%, yellow 50–100%, green > 100%. */
   red: number;
@@ -147,11 +152,16 @@ export type ShopStockDashboardCard = {
   purple: number;
 };
 
-/** Sums one column (location) of the Shop Stock Status rows for its dashboard card. */
+/**
+ * Sums one column (location) of the Shop Stock Status rows for its dashboard card. Stock is
+ * capped at ROP per Common SKU at this location (never across locations); the excess goes to
+ * Additional Stock. The colour counts still use each item's full stock as % of ROP.
+ */
 export function summarizeShopStockDashboardCard(rows: ShopStockRow[], columnKey: string): ShopStockDashboardCard {
   const card: ShopStockDashboardCard = {
     totalRop: 0,
     totalStock: 0,
+    totalAdditionalStock: 0,
     fulfilment: null,
     red: 0,
     yellow: 0,
@@ -166,7 +176,9 @@ export function summarizeShopStockDashboardCard(rows: ShopStockRow[], columnKey:
       continue;
     }
     card.totalRop += cell.rop;
-    card.totalStock += cell.stock;
+    const stock = Math.max(cell.stock, 0);
+    card.totalStock += Math.min(stock, cell.rop);
+    card.totalAdditionalStock += Math.max(stock - cell.rop, 0);
     const band = shopStockBandOf(cell.percent);
     if (band === "fail") card.red += 1;
     else if (band === "pass") card.yellow += 1;
