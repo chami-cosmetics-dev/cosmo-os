@@ -339,13 +339,14 @@ export function accumulateSupplierPurchasesFromRows(input: {
   return result;
 }
 
-async function erpGetJson<T>(cfg: OsfErpCredentials, path: string): Promise<T> {
+export async function erpGetJson<T>(cfg: OsfErpCredentials, path: string, options?: Pick<RequestInit, "signal" | "redirect">): Promise<T> {
   const res = await fetch(`${cfg.baseUrl}${path}`, {
     headers: {
       Authorization: `token ${cfg.apiKey}:${cfg.apiSecret}`,
       Accept: "application/json",
     },
     cache: "no-store",
+    ...options,
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");

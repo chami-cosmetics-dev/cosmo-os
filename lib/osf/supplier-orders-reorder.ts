@@ -98,7 +98,8 @@ export async function computeSupplierOrderSnapshot(companyId: string, skus: stri
   }
 
   const erpInstances = await getAllOsfErpInstances(companyId);
-  const binMap = new Map<string, number>();
+  const binsByInstance = new Map<string, Map<string, number>>();
+  const emptyBins = new Map<string, number>();
   const stockByInstance = new Map<string, Map<string, string>>();
   await Promise.all(erpInstances.map(async (inst) => {
     const warehouses = [...(warehousesByInstance.get(inst.id) ?? [])];
@@ -106,14 +107,14 @@ export async function computeSupplierOrderSnapshot(companyId: string, skus: stri
     const observedBins = comparable ? new Map<string, string>() : undefined;
     const bins = await fetchBinActualQty({ cfg: inst.cfg, warehouses, itemCodes: uniqueSkus, observedBins });
     if (observedBins) stockByInstance.set(inst.id, observedBins);
-    for (const [key, qty] of bins) binMap.set(key, qty);
+    binsByInstance.set(inst.id, bins);
   }));
 
   for (const sku of uniqueSkus) {
     const rops = ropsBySku.get(sku) ?? {};
     const orderVals = stockCols.map((col) => orderQty(
       ropKeys.has(col.key) ? (rops[col.key] ?? null) : null,
-      stockForColumn(binMap, col.warehouses, sku),
+      stockForColumn(binsByInstance.get(col.erpnextInstanceId ?? "") ?? emptyBins, col.warehouses, sku),
     ));
     totalOrderQty.set(sku, sumSignedOrderQtysFlooredAtZero(orderVals));
     if (comparable) snapshots.set(sku, snapshotForSku(sku, stockCols, stockByInstance, rops));

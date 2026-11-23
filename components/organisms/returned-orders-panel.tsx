@@ -2,10 +2,9 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Check, ChevronsUpDown, Download, Loader2, Search, X } from "lucide-react";
+import { Check, ChevronsUpDown, Download, Loader2, PackagePlus, Search, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Command,
   CommandEmpty,
@@ -17,6 +16,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import { notify } from "@/lib/notify";
 import { formatAppStoredDateTime } from "@/lib/format-datetime";
@@ -31,6 +37,7 @@ import {
   INVOICE_REVERT_STAGE_ONLY_TEMPLATE,
 } from "@/lib/invoice-revert";
 import { TASK_REMINDER_ORDER_ID_PARAM } from "@/lib/task-reminder-links";
+import { cn } from "@/lib/utils";
 
 type BulkReturnRow = {
   input: string;
@@ -157,7 +164,9 @@ export function ReturnedOrdersPanel({
   const [items, setItems] = useState(initialData.returns);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"__all" | ReturnTrackingItem["actionStatus"]>("pending");
-  const [selectedId, setSelectedId] = useState(initialData.returns[0]?.id ?? "");
+  const [selectedId, setSelectedId] = useState("");
+  const [actionSheetOpen, setActionSheetOpen] = useState(false);
+  const [bulkSheetOpen, setBulkSheetOpen] = useState(false);
   const [remark, setRemark] = useState("");
   const [cancelRemark, setCancelRemark] = useState("");
   const [saving, setSaving] = useState(false);
@@ -179,6 +188,10 @@ export function ReturnedOrdersPanel({
     if (!match) return;
     setStatusFilter("__all");
     setSelectedId(match.id);
+    setRemark(match.returnRemark ?? match.actionRemark ?? "");
+    setCancelRemark(match.cancelRemark ?? "");
+    setActionSheetOpen(true);
+    setBulkSheetOpen(false);
     appliedDeepLinkRef.current = orderId;
   }, [items, searchParams]);
 
@@ -239,9 +252,11 @@ export function ReturnedOrdersPanel({
     });
   }, [items, search, statusFilter]);
 
-  const selected = filtered.find((item) => item.id === selectedId) ?? null;
+  const selected = items.find((item) => item.id === selectedId) ?? null;
 
   useEffect(() => {
+    if (!bulkSheetOpen) return;
+
     let cancelled = false;
     const timeout = window.setTimeout(async () => {
       setBulkOrderLoading(true);
@@ -272,12 +287,31 @@ export function ReturnedOrdersPanel({
       cancelled = true;
       window.clearTimeout(timeout);
     };
-  }, [bulkOrderSearch]);
+  }, [bulkOrderSearch, bulkSheetOpen]);
 
   function selectItem(item: ReturnTrackingItem) {
     setSelectedId(item.id);
     setRemark(item.returnRemark ?? item.actionRemark ?? "");
     setCancelRemark(item.cancelRemark ?? "");
+    setBulkSheetOpen(false);
+    setActionSheetOpen(true);
+  }
+
+  function handleActionSheetOpenChange(open: boolean) {
+    if (saving) return;
+    setActionSheetOpen(open);
+    if (!open) setSelectedId("");
+  }
+
+  function handleBulkSheetOpenChange(open: boolean) {
+    if (bulkBusyKey !== null) return;
+    setBulkSheetOpen(open);
+  }
+
+  function handleOpenBulkSheet() {
+    setActionSheetOpen(false);
+    setSelectedId("");
+    setBulkSheetOpen(true);
   }
 
   function resetBulkPreview() {
@@ -557,24 +591,406 @@ export function ReturnedOrdersPanel({
     return "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300";
   }
 
+  const statusChips: Array<{
+    key: "__all" | ReturnTrackingItem["actionStatus"];
+    label: string;
+    value: number;
+  }> = [
+    { key: "__all", label: "Returned", value: counts.all },
+    { key: "pending", label: "Pending", value: counts.pending },
+    { key: "solved", label: "Solved", value: counts.solved },
+  ];
+
   return (
-    <div className="space-y-5">
-      <div className="grid gap-3 sm:grid-cols-3">
-        <Card><CardContent className="p-4"><p className="text-muted-foreground text-xs uppercase">Returned</p><p className="text-2xl font-semibold">{counts.all}</p></CardContent></Card>
-        <Card><CardContent className="p-4"><p className="text-muted-foreground text-xs uppercase">Pending</p><p className="text-2xl font-semibold">{counts.pending}</p></CardContent></Card>
-        <Card><CardContent className="p-4"><p className="text-muted-foreground text-xs uppercase">Solved</p><p className="text-2xl font-semibold">{counts.solved}</p></CardContent></Card>
+    <div className="space-y-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <p className="text-muted-foreground text-sm">
+            Work the pending queue. Open a row for rearrange, cancel, or finance actions.
+          </p>
+        </div>
+        <Button
+          type="button"
+          onClick={handleOpenBulkSheet}
+          className="gap-2 shrink-0"
+          aria-label="Mark returned invoices"
+        >
+          <PackagePlus className="size-4" aria-hidden />
+          Mark returned
+        </Button>
       </div>
 
-      <Card className="border-border/70">
-        <CardHeader>
-          <CardTitle>Returned Orders</CardTitle>
-          <CardDescription>Track returned rider and courier orders, sales remarks, and pending/solved status.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-3 rounded-md border border-border/70 p-3">
-            <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto_auto] lg:items-end">
+      <div className="flex flex-wrap gap-2" role="group" aria-label="Return status filters">
+        {statusChips.map((chip) => {
+          const active = statusFilter === chip.key;
+          return (
+            <button
+              key={chip.key}
+              type="button"
+              onClick={() => setStatusFilter(chip.key)}
+              aria-pressed={active}
+              className={cn(
+                "inline-flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm transition-colors",
+                active
+                  ? "border-primary/40 bg-primary/10 text-foreground"
+                  : "border-border/70 bg-background text-muted-foreground hover:bg-secondary/20"
+              )}
+            >
+              <span className="font-medium">{chip.label}</span>
+              <span className={cn("tabular-nums font-semibold", active ? "text-foreground" : "text-foreground/80")}>
+                {chip.value}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
+        <div className="relative flex-1">
+          <Search className="text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2" aria-hidden />
+          <Input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search invoice, merchant, customer, phone, remark..."
+            className="pl-9"
+            aria-label="Search returned orders"
+          />
+        </div>
+        <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as typeof statusFilter)}>
+          <SelectTrigger className="w-full lg:w-[160px]" aria-label="Status filter">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all">All statuses</SelectItem>
+            <SelectItem value="pending">Pending</SelectItem>
+            <SelectItem value="solved">Solved</SelectItem>
+          </SelectContent>
+        </Select>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => void downloadCsv()}
+          disabled={exporting}
+          className="gap-2"
+        >
+          {exporting ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Download className="size-4" aria-hidden />}
+          Download CSV
+        </Button>
+      </div>
+
+      <div className="overflow-x-auto rounded-md border border-border/70">
+        <table className="w-full min-w-[980px] text-sm">
+          <thead className="bg-muted/30">
+            <tr className="border-b">
+              <th className="px-3 py-2 text-left font-medium">Invoice No</th>
+              <th className="px-3 py-2 text-left font-medium">Merchant</th>
+              <th className="px-3 py-2 text-left font-medium">Rider / Courier</th>
+              <th className="px-3 py-2 text-left font-medium">Return Date</th>
+              <th className="px-3 py-2 text-left font-medium">Remark</th>
+              <th className="px-3 py-2 text-left font-medium">Type</th>
+              <th className="px-3 py-2 text-left font-medium">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((item) => {
+              const badge = actionTypeBadge(item);
+              const isSelected = selectedId === item.id && actionSheetOpen;
+              return (
+                <tr
+                  key={item.id}
+                  onClick={() => selectItem(item)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      selectItem(item);
+                    }
+                  }}
+                  tabIndex={0}
+                  aria-label={`Open return action for ${item.invoiceNo}`}
+                  className={cn(
+                    "cursor-pointer border-b last:border-0 hover:bg-secondary/10",
+                    isSelected && "bg-primary/8"
+                  )}
+                >
+                  <td className="px-3 py-2 font-medium">
+                    <ReturnInvoiceRefs item={item} />
+                  </td>
+                  <td className="px-3 py-2">{item.merchant ?? "-"}</td>
+                  <td className="px-3 py-2">{item.riderName ?? item.shippingService}</td>
+                  <td className="px-3 py-2">{formatDateOnly(item.returnDate)}</td>
+                  <td className="max-w-[220px] truncate px-3 py-2">{item.returnRemark ?? item.actionRemark ?? "-"}</td>
+                  <td className="px-3 py-2">
+                    {badge ? (
+                      <span className={`inline-flex rounded-md border px-2 py-0.5 text-xs font-semibold ${badge.className}`}>
+                        {badge.label}
+                      </span>
+                    ) : (
+                      "-"
+                    )}
+                  </td>
+                  <td className="px-3 py-2">{item.actionStatus === "solved" ? "Solved" : "Pending"}</td>
+                </tr>
+              );
+            })}
+            {filtered.length === 0 && (
+              <tr>
+                <td colSpan={7} className="px-3 py-10 text-center text-muted-foreground">
+                  No returned orders found.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <Sheet open={actionSheetOpen} onOpenChange={handleActionSheetOpenChange}>
+        <SheetContent className="overflow-y-auto sm:max-w-md">
+          <SheetHeader>
+            <SheetTitle>Return Action</SheetTitle>
+            <SheetDescription>
+              {selected ? "Review status and take rearrange, cancel, or finance actions." : "Select a returned order"}
+            </SheetDescription>
+            {selected && (
+              <div className="text-muted-foreground flex flex-col gap-1 text-sm">
+                <ReturnInvoiceRefs item={selected} />
+                <span>{selected.customerPhone ?? "No phone"}</span>
+              </div>
+            )}
+          </SheetHeader>
+          <div className="space-y-4 px-1 pb-6">
+            {selected ? (
+              <>
+                <div className="rounded-md border border-border/70 px-3 py-2 text-sm">
+                  Status: {selected.actionStatus === "solved" ? "Solved" : "Pending"}
+                  {selected.merchant && (
+                    <div className="mt-1 text-muted-foreground">Merchant: {selected.merchant}</div>
+                  )}
+                  <div className="mt-1 text-muted-foreground">Payment: {paymentLabel(selected)}</div>
+                  <div className="mt-1 text-muted-foreground">Service: {selected.riderName ?? selected.shippingService}</div>
+                  {selected.returnRemark && (
+                    <div className="mt-1 text-muted-foreground">Return remark: {selected.returnRemark}</div>
+                  )}
+                </div>
+                {selected.remarkTemplate === INVOICE_REVERT_STAGE_ONLY_TEMPLATE && (
+                  <div className="space-y-2">
+                    <div className="rounded-md border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-sm text-sky-800 dark:text-sky-300">
+                      <p className="font-medium">Revert only — no credit note</p>
+                      <p className="mt-0.5">
+                        {selected.actionStatus === "solved"
+                          ? "Rearranged. Dispatch this paid order to the rider again."
+                          : "Paid order. Rearrange it, then dispatch to the rider again. No finance void request."}
+                      </p>
+                      {selected.revertedFromInvoiceCompleteAt && (
+                        <p className="mt-1 text-xs opacity-75">
+                          Reverted on {formatDateOnly(selected.revertedFromInvoiceCompleteAt)}
+                        </p>
+                      )}
+                    </div>
+                    {canRearrange && selected.actionStatus === "pending" && !selected.actionType && (
+                      <Button className="w-full" disabled={saving} onClick={() => void saveAction("rearrange")}>
+                        {saving ? (
+                          <>
+                            <Loader2 className="size-4 animate-spin" aria-hidden />
+                            Processing...
+                          </>
+                        ) : (
+                          "Rearrange"
+                        )}
+                      </Button>
+                    )}
+                    {!canRearrange && selected.actionStatus === "pending" && !selected.actionType && (
+                      <p className="text-muted-foreground text-sm">Only a merchant or store user can rearrange this order.</p>
+                    )}
+                  </div>
+                )}
+                {selected.remarkTemplate === INVOICE_REVERT_CREDIT_NOTE_TEMPLATE && (
+                  <div className="space-y-2">
+                    <div className="rounded-md border border-orange-500/30 bg-orange-500/10 px-3 py-2 text-sm text-orange-800 dark:text-orange-300">
+                      <p className="font-medium">Finance Reverted — Partial Void</p>
+                      <p className="mt-0.5">{financeRevertSubStatus(selected)}</p>
+                      {selected.revertedFromInvoiceCompleteAt && (
+                        <p className="mt-1 text-xs opacity-75">
+                          Reverted on {formatDateOnly(selected.revertedFromInvoiceCompleteAt)}
+                        </p>
+                      )}
+                    </div>
+                    {selected.actionStatus === "pending" &&
+                      selected.orderFulfillmentStage !== "returned_to_store" &&
+                      selected.orderFulfillmentStage !== "returned" && (
+                        <Button
+                          variant="destructive"
+                          className="w-full"
+                          disabled={saving}
+                          onClick={() => void markReturnedToStore()}
+                        >
+                          {saving ? (
+                            <>
+                              <Loader2 className="size-4 animate-spin" aria-hidden />
+                              Processing...
+                            </>
+                          ) : (
+                            "Mark Item Returned to Store"
+                          )}
+                        </Button>
+                      )}
+                    {canTakeMerchantActions &&
+                      selected.remarkTemplate === INVOICE_REVERT_CREDIT_NOTE_TEMPLATE &&
+                      selected.orderFulfillmentStage === "returned_to_store" && (
+                        <Button
+                          variant="outline"
+                          className="w-full"
+                          disabled={saving}
+                          onClick={() => void resendVoidApproval()}
+                        >
+                          {saving ? (
+                            <>
+                              <Loader2 className="size-4 animate-spin" aria-hidden />
+                              Processing...
+                            </>
+                          ) : (
+                            "Re-send Void Approval"
+                          )}
+                        </Button>
+                      )}
+                  </div>
+                )}
+                {isBankTransferRearrangePending(selected) && (
+                  <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-300">
+                    {canTakeMerchantActions
+                      ? "This returned courier order is waiting for bank transfer. Request finance approval before dispatch."
+                      : "This returned courier order is waiting for bank transfer and finance approval before dispatch."}
+                  </div>
+                )}
+                {canTakeAction(selected) && canTakeMerchantActions ? (
+                  <>
+                    <Textarea
+                      value={remark}
+                      onChange={(event) => setRemark(event.target.value)}
+                      placeholder="Update return remark if needed..."
+                      className="min-h-24"
+                      disabled={saving}
+                    />
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Cancel remark (required for cancel request)</label>
+                      <Textarea
+                        value={cancelRemark}
+                        onChange={(event) => setCancelRemark(event.target.value)}
+                        placeholder="Why is this return being cancelled?"
+                        className="min-h-24"
+                        disabled={saving}
+                      />
+                    </div>
+                    <div className="grid gap-2">
+                      {!selected.actionType && needsBankTransferChoice(selected) && (
+                        <>
+                          <Button onClick={() => void saveAction("rearrange", { requestBankTransfer: true })} disabled={saving} className="w-full">
+                            {saving ? <><Loader2 className="size-4 animate-spin" aria-hidden />Processing...</> : "Rearrange — Bank Transfer"}
+                          </Button>
+                          <Button onClick={() => void saveAction("rearrange", { requestBankTransfer: false })} disabled={saving} variant="outline" className="w-full">
+                            {saving ? <><Loader2 className="size-4 animate-spin" aria-hidden />Processing...</> : "Rearrange — Keep Original"}
+                          </Button>
+                        </>
+                      )}
+                      {!selected.actionType && !needsBankTransferChoice(selected) && (
+                        <Button onClick={() => void saveAction("rearrange")} disabled={saving} className="w-full">
+                          {saving ? (
+                            <>
+                              <Loader2 className="size-4 animate-spin" aria-hidden />
+                              Processing...
+                            </>
+                          ) : (
+                            "Rearrange"
+                          )}
+                        </Button>
+                      )}
+                      {isBankTransferRearrangePending(selected) && (
+                        <Button type="button" onClick={() => void saveAction("request_finance_approval")} disabled={saving} className="w-full">
+                          Request Finance Approval
+                        </Button>
+                      )}
+                      {!selected.actionType && (
+                        <Button type="button" variant="destructive" onClick={() => void saveAction("request_cancel")} disabled={saving} className="w-full">
+                          Request Cancel
+                        </Button>
+                      )}
+                    </div>
+                  </>
+                ) : canTakeAction(selected) && canRearrange && !selected.actionType ? (
+                  <>
+                    <Textarea
+                      value={remark}
+                      onChange={(event) => setRemark(event.target.value)}
+                      placeholder="Update return remark if needed..."
+                      className="min-h-24"
+                      disabled={saving}
+                    />
+                    <div className="grid gap-2">
+                      {needsBankTransferChoice(selected) ? (
+                        <>
+                          <Button onClick={() => void saveAction("rearrange", { requestBankTransfer: true })} disabled={saving} className="w-full">
+                            {saving ? <><Loader2 className="size-4 animate-spin" aria-hidden />Processing...</> : "Rearrange — Bank Transfer"}
+                          </Button>
+                          <Button onClick={() => void saveAction("rearrange", { requestBankTransfer: false })} disabled={saving} variant="outline" className="w-full">
+                            {saving ? <><Loader2 className="size-4 animate-spin" aria-hidden />Processing...</> : "Rearrange — Keep Original"}
+                          </Button>
+                        </>
+                      ) : (
+                        <Button onClick={() => void saveAction("rearrange")} disabled={saving} className="w-full">
+                          {saving ? (
+                            <>
+                              <Loader2 className="size-4 animate-spin" aria-hidden />
+                              Processing...
+                            </>
+                          ) : (
+                            "Rearrange"
+                          )}
+                        </Button>
+                      )}
+                    </div>
+                  </>
+                ) : canTakeAction(selected) ? (
+                  <p className="text-muted-foreground text-sm">
+                    {isBankTransferRearrangePending(selected)
+                      ? "Rearrange is awaiting finance approval."
+                      : "Only a merchant can request cancel or change payment."}
+                  </p>
+                ) : selected.remarkTemplate === INVOICE_REVERT_STAGE_ONLY_TEMPLATE ? null : (
+                  <p className="text-muted-foreground text-sm">
+                    {selected.remarkTemplate === INVOICE_REVERT_CREDIT_NOTE_TEMPLATE
+                      ? selected.actionStatus === "solved"
+                        ? "Order has been fully voided. Credit note remains in ERP."
+                        : "Finance-reverted order — item has been returned to store, awaiting void approval from finance."
+                      : selected.actionType === "cancel"
+                        ? selected.actionStatus === "pending"
+                          ? "Cancel request is awaiting finance. On approve, paid orders get an ERP credit note; unpaid invoices are cancelled."
+                          : "Cancel request processed."
+                        : selected.actionType === "rearrange"
+                          ? selected.actionStatus === "pending"
+                            ? "Rearrange is awaiting finance approval."
+                            : "This return has been rearranged."
+                          : "This return is already solved."}
+                  </p>
+                )}
+              </>
+            ) : (
+              <p className="text-muted-foreground text-sm">No returned order selected.</p>
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      <Sheet open={bulkSheetOpen} onOpenChange={handleBulkSheetOpenChange}>
+        <SheetContent className="overflow-y-auto sm:max-w-2xl">
+          <SheetHeader>
+            <SheetTitle>Mark returned</SheetTitle>
+            <SheetDescription>
+              Search dispatched orders to mark as returned.
+            </SheetDescription>
+          </SheetHeader>
+          <div className="space-y-4 px-1 pb-6">
+            <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-end">
               <div className="space-y-2">
-                <label className="text-sm font-medium">Bulk returned invoices</label>
+                <label className="text-sm font-medium">Dispatched orders</label>
                 <Popover open={bulkOrderOpen} onOpenChange={setBulkOrderOpen}>
                   <PopoverTrigger asChild>
                     <Button
@@ -669,6 +1085,12 @@ export function ReturnedOrdersPanel({
               </Button>
             </div>
 
+            {selectedBulkOrders.length === 0 && (
+              <p className="text-muted-foreground text-sm">
+                Search dispatched orders to mark as returned.
+              </p>
+            )}
+
             {selectedBulkOrders.length > 0 && (
               <div className="space-y-3">
                 <div className="flex flex-wrap items-center gap-2">
@@ -688,7 +1110,7 @@ export function ReturnedOrdersPanel({
                   </Button>
                 </div>
                 <div className="overflow-x-auto rounded-md border border-border/70">
-                  <table className="w-full min-w-[760px] text-sm">
+                  <table className="w-full min-w-[640px] text-sm">
                     <thead className="bg-muted/40">
                       <tr className="border-b">
                         <th className="px-3 py-2 text-left font-medium">Invoice</th>
@@ -753,7 +1175,7 @@ export function ReturnedOrdersPanel({
 
             {bulkRows.length > 0 && (
               <div className="max-h-[360px] overflow-auto rounded-md border border-border/70">
-                <table className="w-full min-w-[980px] text-sm">
+                <table className="w-full min-w-[720px] text-sm">
                   <thead className="bg-muted/40">
                     <tr className="border-b border-border/70">
                       <th className="px-3 py-2 text-left font-medium">Input</th>
@@ -784,309 +1206,8 @@ export function ReturnedOrdersPanel({
               </div>
             )}
           </div>
-
-          <div className="flex flex-col gap-3 lg:flex-row">
-            <div className="relative flex-1">
-              <Search className="text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2" />
-              <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search invoice, merchant, customer, phone, remark..." className="pl-9" />
-            </div>
-            <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as typeof statusFilter)}>
-              <SelectTrigger className="w-full lg:w-[180px]"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__all">All statuses</SelectItem>
-                <SelectItem value="pending">Pending</SelectItem>
-                <SelectItem value="solved">Solved</SelectItem>
-              </SelectContent>
-            </Select>
-            <Button type="button" variant="outline" onClick={() => void downloadCsv()} disabled={exporting} className="gap-2">
-              {exporting ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Download className="size-4" aria-hidden />}
-              Download CSV
-            </Button>
-          </div>
-
-          <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
-            <div className="overflow-x-auto rounded-md border border-border/70">
-              <table className="w-full min-w-[980px] text-sm">
-                <thead className="bg-muted/30">
-                  <tr className="border-b">
-                    <th className="px-3 py-3 text-left">Invoice No</th>
-                    <th className="px-3 py-3 text-left">Merchant</th>
-                    <th className="px-3 py-3 text-left">Rider / Courier</th>
-                    <th className="px-3 py-3 text-left">Return Date</th>
-                    <th className="px-3 py-3 text-left">Remark</th>
-                    <th className="px-3 py-3 text-left">Type</th>
-                    <th className="px-3 py-3 text-left">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map((item) => {
-                    const badge = actionTypeBadge(item);
-                    return (
-                      <tr key={item.id} onClick={() => selectItem(item)} className={`cursor-pointer border-b last:border-0 hover:bg-secondary/10 ${selectedId === item.id ? "bg-primary/8" : ""}`}>
-                        <td className="px-3 py-3 font-medium">
-                          <ReturnInvoiceRefs item={item} />
-                        </td>
-                        <td className="px-3 py-3">{item.merchant ?? "-"}</td>
-                        <td className="px-3 py-3">{item.riderName ?? item.shippingService}</td>
-                        <td className="px-3 py-3">{formatDateOnly(item.returnDate)}</td>
-                        <td className="max-w-[220px] truncate px-3 py-3">{item.returnRemark ?? item.actionRemark ?? "-"}</td>
-                        <td className="px-3 py-3">
-                          {badge ? (
-                            <span className={`inline-flex rounded-md border px-2 py-1 text-xs font-semibold ${badge.className}`}>
-                              {badge.label}
-                            </span>
-                          ) : (
-                            "-"
-                          )}
-                        </td>
-                        <td className="px-3 py-3">{item.actionStatus === "solved" ? "Solved" : "Pending"}</td>
-                      </tr>
-                    );
-                  })}
-                  {filtered.length === 0 && (
-                    <tr><td colSpan={7} className="px-3 py-10 text-center text-muted-foreground">No returned orders found.</td></tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-
-            <Card className="border-border/70">
-              <CardHeader>
-                <CardTitle>Return Action</CardTitle>
-                <CardDescription>
-                  {selected ? (
-                    <div className="flex flex-col gap-1">
-                      <ReturnInvoiceRefs item={selected} />
-                      <span className="text-muted-foreground">{selected.customerPhone ?? "No phone"}</span>
-                    </div>
-                  ) : (
-                    "Select a returned order"
-                  )}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {selected ? (
-                  <>
-                    <div className="rounded-md border border-border/70 px-3 py-2 text-sm">
-                      Status: {selected.actionStatus === "solved" ? "Solved" : "Pending"}
-                      {selected.merchant && (
-                        <div className="mt-1 text-muted-foreground">Merchant: {selected.merchant}</div>
-                      )}
-                      <div className="mt-1 text-muted-foreground">Payment: {paymentLabel(selected)}</div>
-                      <div className="mt-1 text-muted-foreground">Service: {selected.riderName ?? selected.shippingService}</div>
-                      {selected.returnRemark && (
-                        <div className="mt-1 text-muted-foreground">Return remark: {selected.returnRemark}</div>
-                      )}
-                    </div>
-                    {selected.remarkTemplate === INVOICE_REVERT_STAGE_ONLY_TEMPLATE && (
-                      <div className="space-y-2">
-                        <div className="rounded-md border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-sm text-sky-800 dark:text-sky-300">
-                          <p className="font-medium">Revert only — no credit note</p>
-                          <p className="mt-0.5">
-                            {selected.actionStatus === "solved"
-                              ? "Rearranged. Dispatch this paid order to the rider again."
-                              : "Paid order. Rearrange it, then dispatch to the rider again. No finance void request."}
-                          </p>
-                          {selected.revertedFromInvoiceCompleteAt && (
-                            <p className="mt-1 text-xs opacity-75">
-                              Reverted on {formatDateOnly(selected.revertedFromInvoiceCompleteAt)}
-                            </p>
-                          )}
-                        </div>
-                        {canRearrange && selected.actionStatus === "pending" && !selected.actionType && (
-                          <Button className="w-full" disabled={saving} onClick={() => void saveAction("rearrange")}>
-                            {saving ? (
-                              <>
-                                <Loader2 className="size-4 animate-spin" aria-hidden />
-                                Processing...
-                              </>
-                            ) : (
-                              "Rearrange"
-                            )}
-                          </Button>
-                        )}
-                        {!canRearrange && selected.actionStatus === "pending" && !selected.actionType && (
-                          <p className="text-muted-foreground text-sm">Only a merchant or store user can rearrange this order.</p>
-                        )}
-                      </div>
-                    )}
-                    {selected.remarkTemplate === INVOICE_REVERT_CREDIT_NOTE_TEMPLATE && (
-                      <div className="space-y-2">
-                        <div className="rounded-md border border-orange-500/30 bg-orange-500/10 px-3 py-2 text-sm text-orange-800 dark:text-orange-300">
-                          <p className="font-medium">Finance Reverted — Partial Void</p>
-                          <p className="mt-0.5">{financeRevertSubStatus(selected)}</p>
-                          {selected.revertedFromInvoiceCompleteAt && (
-                            <p className="mt-1 text-xs opacity-75">
-                              Reverted on {formatDateOnly(selected.revertedFromInvoiceCompleteAt)}
-                            </p>
-                          )}
-                        </div>
-                        {selected.actionStatus === "pending" &&
-                          selected.orderFulfillmentStage !== "returned_to_store" &&
-                          selected.orderFulfillmentStage !== "returned" && (
-                            <Button
-                              variant="destructive"
-                              className="w-full"
-                              disabled={saving}
-                              onClick={() => void markReturnedToStore()}
-                            >
-                              {saving ? (
-                                <>
-                                  <Loader2 className="size-4 animate-spin" aria-hidden />
-                                  Processing...
-                                </>
-                              ) : (
-                                "Mark Item Returned to Store"
-                              )}
-                            </Button>
-                          )}
-                        {canTakeMerchantActions &&
-                          selected.remarkTemplate === INVOICE_REVERT_CREDIT_NOTE_TEMPLATE &&
-                          selected.orderFulfillmentStage === "returned_to_store" && (
-                            <Button
-                              variant="outline"
-                              className="w-full"
-                              disabled={saving}
-                              onClick={() => void resendVoidApproval()}
-                            >
-                              {saving ? (
-                                <>
-                                  <Loader2 className="size-4 animate-spin" aria-hidden />
-                                  Processing...
-                                </>
-                              ) : (
-                                "Re-send Void Approval"
-                              )}
-                            </Button>
-                          )}
-                      </div>
-                    )}
-                    {isBankTransferRearrangePending(selected) && (
-                      <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-300">
-                        {canTakeMerchantActions
-                          ? "This returned courier order is waiting for bank transfer. Request finance approval before dispatch."
-                          : "This returned courier order is waiting for bank transfer and finance approval before dispatch."}
-                      </div>
-                    )}
-                    {canTakeAction(selected) && canTakeMerchantActions ? (
-                      <>
-                        <Textarea
-                          value={remark}
-                          onChange={(event) => setRemark(event.target.value)}
-                          placeholder="Update return remark if needed..."
-                          className="min-h-24"
-                          disabled={saving}
-                        />
-                        <div className="space-y-2">
-                          <label className="text-sm font-medium">Cancel remark (required for cancel request)</label>
-                          <Textarea
-                            value={cancelRemark}
-                            onChange={(event) => setCancelRemark(event.target.value)}
-                            placeholder="Why is this return being cancelled?"
-                            className="min-h-24"
-                            disabled={saving}
-                          />
-                        </div>
-                        <div className="grid gap-2">
-                          {!selected.actionType && needsBankTransferChoice(selected) && (
-                            <>
-                              <Button onClick={() => void saveAction("rearrange", { requestBankTransfer: true })} disabled={saving} className="w-full">
-                                {saving ? <><Loader2 className="size-4 animate-spin" aria-hidden />Processing...</> : "Rearrange — Bank Transfer"}
-                              </Button>
-                              <Button onClick={() => void saveAction("rearrange", { requestBankTransfer: false })} disabled={saving} variant="outline" className="w-full">
-                                {saving ? <><Loader2 className="size-4 animate-spin" aria-hidden />Processing...</> : "Rearrange — Keep Original"}
-                              </Button>
-                            </>
-                          )}
-                          {!selected.actionType && !needsBankTransferChoice(selected) && (
-                            <Button onClick={() => void saveAction("rearrange")} disabled={saving} className="w-full">
-                              {saving ? (
-                                <>
-                                  <Loader2 className="size-4 animate-spin" aria-hidden />
-                                  Processing...
-                                </>
-                              ) : (
-                                "Rearrange"
-                              )}
-                            </Button>
-                          )}
-                          {isBankTransferRearrangePending(selected) && (
-                            <Button type="button" onClick={() => void saveAction("request_finance_approval")} disabled={saving} className="w-full">
-                              Request Finance Approval
-                            </Button>
-                          )}
-                          {!selected.actionType && (
-                            <Button type="button" variant="destructive" onClick={() => void saveAction("request_cancel")} disabled={saving} className="w-full">
-                              Request Cancel
-                            </Button>
-                          )}
-                        </div>
-                      </>
-                    ) : canTakeAction(selected) && canRearrange && !selected.actionType ? (
-                      <>
-                        <Textarea
-                          value={remark}
-                          onChange={(event) => setRemark(event.target.value)}
-                          placeholder="Update return remark if needed..."
-                          className="min-h-24"
-                          disabled={saving}
-                        />
-                        <div className="grid gap-2">
-                          {needsBankTransferChoice(selected) ? (
-                            <>
-                              <Button onClick={() => void saveAction("rearrange", { requestBankTransfer: true })} disabled={saving} className="w-full">
-                                {saving ? <><Loader2 className="size-4 animate-spin" aria-hidden />Processing...</> : "Rearrange — Bank Transfer"}
-                              </Button>
-                              <Button onClick={() => void saveAction("rearrange", { requestBankTransfer: false })} disabled={saving} variant="outline" className="w-full">
-                                {saving ? <><Loader2 className="size-4 animate-spin" aria-hidden />Processing...</> : "Rearrange — Keep Original"}
-                              </Button>
-                            </>
-                          ) : (
-                            <Button onClick={() => void saveAction("rearrange")} disabled={saving} className="w-full">
-                              {saving ? (
-                                <>
-                                  <Loader2 className="size-4 animate-spin" aria-hidden />
-                                  Processing...
-                                </>
-                              ) : (
-                                "Rearrange"
-                              )}
-                            </Button>
-                          )}
-                        </div>
-                      </>
-                    ) : canTakeAction(selected) ? (
-                      <p className="text-muted-foreground text-sm">
-                        {isBankTransferRearrangePending(selected)
-                          ? "Rearrange is awaiting finance approval."
-                          : "Only a merchant can request cancel or change payment."}
-                      </p>
-                    ) : selected.remarkTemplate === INVOICE_REVERT_STAGE_ONLY_TEMPLATE ? null : (
-                      <p className="text-muted-foreground text-sm">
-                        {selected.remarkTemplate === INVOICE_REVERT_CREDIT_NOTE_TEMPLATE
-                          ? selected.actionStatus === "solved"
-                            ? "Order has been fully voided. Credit note remains in ERP."
-                            : "Finance-reverted order — item has been returned to store, awaiting void approval from finance."
-                          : selected.actionType === "cancel"
-                            ? selected.actionStatus === "pending"
-                              ? "Cancel request is awaiting finance. On approve, paid orders get an ERP credit note; unpaid invoices are cancelled."
-                              : "Cancel request processed."
-                            : selected.actionType === "rearrange"
-                              ? selected.actionStatus === "pending"
-                                ? "Rearrange is awaiting finance approval."
-                                : "This return has been rearranged."
-                              : "This return is already solved."}
-                      </p>
-                    )}
-                  </>
-                ) : (
-                  <p className="text-muted-foreground text-sm">No returned order selected.</p>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-        </CardContent>
-      </Card>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

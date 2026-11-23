@@ -34,7 +34,8 @@ function fixtures(columns: OsfResolvedColumn[], quantities: Record<string, strin
   vi.mocked(fetchBinActualQty).mockImplementation(async ({cfg, observedBins}) => {
     if (cfg.baseUrl in quantities) observedBins?.set(JSON.stringify(["Main", "A"]), quantities[cfg.baseUrl]);
     observedBins?.set(JSON.stringify(["Main", "ZERO"]), "0");
-    return new Map();
+    const stock = quantities[cfg.baseUrl];
+    return stock === undefined ? new Map() : new Map([["Main::A", Number(stock)]]);
   });
 }
 
@@ -49,6 +50,7 @@ describe("supplier-order coverage snapshot", () => {
         { columnKey: "west", erpInstanceId: "two", itemCode: "A", warehouses: ["Main"] },
       ],
     });
+    expect(result.totalOrderQty.get("A")).toBe(8);
     expect(result.snapshots.get("ZERO")).toMatchObject({totalStock: "0", totalRop: "0"});
     expect(getAllOsfErpInstances).toHaveBeenCalledWith("company");
     expect(prisma.productOsfRop.findMany).toHaveBeenCalledWith({where:{companyId:"company",sku:{in:["A","ZERO"]}}});
