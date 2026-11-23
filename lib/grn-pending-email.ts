@@ -86,6 +86,10 @@ function workflowStatus(row: {
 }, isIntercompanySupplier: boolean, approvals?: { marginComplete: boolean; paymentApproved: boolean; paid: boolean }) {
   if (row.receivedAt) {
     if (!isIntercompanySupplier && !approvals?.marginComplete) return "Margin approval pending";
+    if (!isVaultOsDeployment()) {
+      if (approvals?.paymentApproved) return "Completed";
+      return approvals?.paid ? "Paid awaiting approval" : "Payment pending";
+    }
     if (!approvals?.paymentApproved) return "Payment approval pending";
     if (!approvals.paid) return "Payment pending";
     return "Completed";
@@ -148,7 +152,7 @@ function summarizePendingRows(rows: PendingGrnReportRow[]): GrnPendingStageSumma
     awaitingReceive: rows.filter((row) => row.status === "Receive pending" || row.status === "Verify pending").length,
     pricingReview: rows.filter((row) => row.status === "Pricing Review pending").length,
     marginApproval: rows.filter((row) => row.status === "Margin approval pending").length,
-    paymentApproval: rows.filter((row) => row.status === "Payment approval pending").length,
+    paymentApproval: rows.filter((row) => row.status === "Payment approval pending" || row.status === "Paid awaiting approval").length,
     paymentPending: rows.filter((row) => row.status === "Payment pending").length,
   };
 }
@@ -161,8 +165,9 @@ export function buildSummaryTableHtml(summary: GrnPendingStageSummary) {
     ...(!isVaultOsDeployment() ? [["Pricing Review pending", summary.pricingReview] as const] : []),
     ["GRN received pending", summary.notCompleted],
     ["Margin approval pending", summary.marginApproval],
-    ["Payment approval pending", summary.paymentApproval],
-    ["Payment pending", summary.paymentPending],
+    ...(isVaultOsDeployment()
+      ? [["Payment approval pending", summary.paymentApproval], ["Payment pending", summary.paymentPending]] as const
+      : [["Payment pending", summary.paymentPending], ["Paid awaiting approval", summary.paymentApproval]] as const),
   ] as const;
   return `<table style="border-collapse:collapse;width:100%;margin:16px 0;">
     <thead>
@@ -214,8 +219,9 @@ function buildEmailBodies(input: {
     ...(!isVaultOsDeployment() ? [["Pricing review", input.summary.pricingReview] as const] : []),
     ["GRN receipt", input.summary.notCompleted],
     ["Margin approval", input.summary.marginApproval],
-    ["Payment approval", input.summary.paymentApproval],
-    ["Payment", input.summary.paymentPending],
+    ...(isVaultOsDeployment()
+      ? [["Payment approval", input.summary.paymentApproval], ["Payment", input.summary.paymentPending]] as const
+      : [["Payment", input.summary.paymentPending], ["Paid awaiting approval", input.summary.paymentApproval]] as const),
   ].filter(([, count]) => Number(count) > 0);
   const htmlBody = `<div style="background:#f3f6fb;padding:24px 12px;font-family:Arial,Helvetica,sans-serif;color:#172438;">
   <div style="max-width:720px;margin:auto;background:#fff;border:1px solid #dfe6f1;border-radius:12px;overflow:hidden;">
@@ -245,8 +251,7 @@ ${isVaultOsDeployment() ? "Verify" : "Receive"} pending: ${input.summary.awaitin
 Valuation pending: ${input.summary.notValued}
 ${isVaultOsDeployment() ? "" : `Pricing Review pending: ${input.summary.pricingReview}\n`}GRN received pending: ${input.summary.notCompleted}
 Margin approval pending: ${input.summary.marginApproval}
-Payment approval pending: ${input.summary.paymentApproval}
-Payment pending: ${input.summary.paymentPending}
+${isVaultOsDeployment() ? `Payment approval pending: ${input.summary.paymentApproval}\nPayment pending: ${input.summary.paymentPending}` : `Payment pending: ${input.summary.paymentPending}\nPaid awaiting approval: ${input.summary.paymentApproval}`}
 Total: ${input.summary.pendingTotal}
 
 Full details are attached as an Excel report.`;

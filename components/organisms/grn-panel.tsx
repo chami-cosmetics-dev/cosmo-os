@@ -139,6 +139,7 @@ type PurchaseReceiptRow = {
   marginApprovedAt: string | null;
   paymentApprovedAt: string | null;
   paymentPaidAt: string | null;
+  paymentEntryName: string | null;
   isIntercompanySupplier: boolean;
   canMarkReceived: boolean;
   itemCount: number;
@@ -264,7 +265,7 @@ type GrnPanelPermissions = {
 const usesVaultValuationFlow = isVaultOsDeployment();
 
 type GrnActionStage = "handover" | "valued" | "received";
-type GrnStageStatusFilter = "all" | "pending" | "completed" | "mismatch" | "verify" | "not_received" | "payment_pending" | "payment_approved" | "value" | "receive" | "pricing_review";
+type GrnStageStatusFilter = "all" | "pending" | "completed" | "mismatch" | "verify" | "not_received" | "payment_pending" | "paid" | "payment_approved" | "value" | "receive" | "pricing_review";
 type SsrStatusFilter = "all" | "waiting" | "partial" | "conflict";
 type GrnStageFilter = {
   stage: GrnActionStage;
@@ -980,6 +981,32 @@ function GrnStageTimeline({
           paidAt: null,
         }]
       : []),
+    ...(permissions.canViewPaymentApproval && !usesVaultValuationFlow
+      ? [{
+          label: "Paid",
+          field: "receivedAt" as const,
+          at: row.paymentPaidAt,
+          by: null,
+          fallbackBy: "ERP Payment Entry",
+          revertedAt: null,
+          revertedBy: null,
+          valuationRejectedAt: null,
+          valuationConfirmedAt: null,
+          valuationConfirmedBy: null,
+          valuationConfirmRevertedAt: null,
+          valuationConfirmRevertedBy: null,
+          handoverReceivedAt: null,
+          handoverReceivedBy: null,
+          notReceivedAt: null,
+          notReceivedBy: null,
+          canRevert: false,
+          canMarkNotReceived: false,
+          canConfirm: false,
+          canMarkPayment: false,
+          canMarkPaid: false,
+          paidAt: null,
+        }]
+      : []),
     ...(permissions.canViewPaymentApproval
       ? [{
           label: "Payment approval",
@@ -1001,9 +1028,9 @@ function GrnStageTimeline({
           canRevert: false,
           canMarkNotReceived: false,
           canConfirm: false,
-          canMarkPayment: permissions.canMarkPaymentApproval,
-          canMarkPaid: permissions.canMarkPaid,
-          paidAt: row.paymentPaidAt,
+          canMarkPayment: permissions.canMarkPaymentApproval && (usesVaultValuationFlow || Boolean(row.paymentPaidAt)),
+          canMarkPaid: usesVaultValuationFlow && permissions.canMarkPaid,
+          paidAt: usesVaultValuationFlow ? row.paymentPaidAt : null,
         }]
       : []),
   ];
@@ -1030,6 +1057,9 @@ function GrnStageTimeline({
               </span>
               <div>
                 <div className="font-semibold">{stage.label}</div>
+                {stage.label === "Paid" && row.paymentEntryName && (
+                  <div className="text-xs text-muted-foreground">ERP Payment Entry {row.paymentEntryName}</div>
+                )}
                 <div className="text-sm text-muted-foreground">
                   {userLabel(stage.by)
                     ? `Marked by ${userLabel(stage.by)}`
@@ -1960,7 +1990,8 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
               mismatch,
               verify,
               not_received: notReceived,
-              payment_pending: paymentRows.filter((row) => !row.paymentApprovedAt).length,
+              payment_pending: paymentRows.filter((row) => !row.paymentApprovedAt && (usesVaultValuationFlow || !row.paymentPaidAt)).length,
+              paid: paymentRows.filter((row) => Boolean(row.paymentPaidAt && !row.paymentApprovedAt)).length,
               payment_approved: paymentRows.filter((row) => Boolean(row.paymentApprovedAt)).length,
             },
           ];
@@ -1987,7 +2018,9 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
           : stageFilter.status === "verify"
             ? rowNeedsVerification(row, stageFilter.stage)
           : stageFilter.status === "payment_pending"
-            ? stageFilter.stage === "received" && Boolean(row.receivedAt) && !row.paymentApprovedAt
+            ? stageFilter.stage === "received" && Boolean(row.receivedAt) && !(usesVaultValuationFlow ? row.paymentApprovedAt : row.paymentPaidAt || row.paymentApprovedAt)
+          : stageFilter.status === "paid"
+            ? stageFilter.stage === "received" && Boolean(row.paymentPaidAt) && !row.paymentApprovedAt
           : stageFilter.status === "payment_approved"
             ? stageFilter.stage === "received" && Boolean(row.paymentApprovedAt)
           : stageFilter.stage === "valued" && stageFilter.status === "value"
@@ -2013,13 +2046,13 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
 
   const isVerificationBulk = usesVaultValuationFlow && stageFilter.stage === "valued" && stageFilter.status === "verify";
   const isConfirmationBulk = !usesVaultValuationFlow && stageFilter.stage === "valued" && stageFilter.status === "pricing_review";
-  const isPaymentPendingBulk = stageFilter.stage === "received" && stageFilter.status === "payment_pending";
+  const isPaymentPendingBulk = stageFilter.stage === "received" && (usesVaultValuationFlow ? stageFilter.status === "payment_pending" : stageFilter.status === "paid");
 
   const canBulkMarkRow = useCallback(
     (row: PurchaseReceiptRow) => {
       if (row.isCancelled) return false;
       if (isPaymentPendingBulk) {
-        return permissions.canMarkPaymentApproval && Boolean(row.receivedAt) && !row.paymentApprovedAt;
+        return permissions.canMarkPaymentApproval && Boolean(row.receivedAt) && !row.paymentApprovedAt && (usesVaultValuationFlow || Boolean(row.paymentPaidAt));
       }
       if (isConfirmationBulk) {
         return permissions.canMarkValued && Boolean(row.valuedAt) && rowRequiresPricingReview(row) && !row.valuationConfirmedAt;
@@ -2689,7 +2722,7 @@ export function GrnPanel({ permissions }: { permissions: GrnPanelPermissions }) 
                   >
                     {(
                       key === "received"
-                        ? (["all", "pending", "completed", "payment_pending", "payment_approved"] as const)
+                        ? (["all", "pending", "completed", "payment_pending", ...(!usesVaultValuationFlow ? (["paid"] as const) : []), "payment_approved"] as const)
                         : key === "valued" && !usesVaultValuationFlow
                           ? (["all", "value", "receive", "pricing_review", "completed"] as const)
                       : ([

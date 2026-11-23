@@ -7,7 +7,15 @@ const mocks = vi.hoisted(() => ({
   orderUpdate: vi.fn(),
   paymentUpsert: vi.fn(),
   paymentFindMany: vi.fn(),
+  grnInvoiceFindMany: vi.fn(),
+  grnBackfillInvoiceFindMany: vi.fn(),
+  grnReceiptFindFirst: vi.fn(),
+  grnBackfillReceiptFindFirst: vi.fn(),
+  grnPaymentUpsert: vi.fn(),
+  vaultDeployment: vi.fn(() => false),
 }));
+
+vi.mock("@/lib/falcon-waybill-brand", () => ({ isVaultOsDeployment: mocks.vaultDeployment }));
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
@@ -20,6 +28,11 @@ vi.mock("@/lib/prisma", () => ({
       upsert: mocks.paymentUpsert,
       findMany: mocks.paymentFindMany,
     },
+    grnPurchaseInvoice: { findMany: mocks.grnInvoiceFindMany },
+    grnBackfillPurchaseInvoice: { findMany: mocks.grnBackfillInvoiceFindMany },
+    grnPurchaseReceipt: { findFirst: mocks.grnReceiptFindFirst },
+    grnBackfillPurchaseReceipt: { findFirst: mocks.grnBackfillReceiptFindFirst },
+    grnPaymentApproval: { upsert: mocks.grnPaymentUpsert },
   },
 }));
 
@@ -85,14 +98,18 @@ describe("ERPNext Payment Entry webhook", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.vaultDeployment.mockReturnValue(false);
     stored = new Map();
     fullDocuments = new Map();
     outstandingAmounts = [];
     currentStatus = "pending";
 
     mocks.companyLocationFindFirst.mockResolvedValue({
+      companyId: "company-1",
       erpnextInstance: credentials,
     });
+    mocks.grnBackfillInvoiceFindMany.mockResolvedValue([]);
+    mocks.grnBackfillReceiptFindFirst.mockResolvedValue(null);
     mocks.orderFindFirst.mockResolvedValue({
       id: "order-1",
       name: "Order 1",
@@ -137,6 +154,46 @@ describe("ERPNext Payment Entry webhook", () => {
         return Response.json({}, { status: 404 });
       }),
     );
+  });
+
+  it("marks a Cosmo GRN paid only after all linked purchase invoices settle", async () => {
+    const payment = {
+      ...paymentDocument({ name: "PE-PI", paymentType: "Pay", paidAmount: 5000,
+        references: [{ reference_doctype: "Purchase Invoice", reference_name: "PI-1", allocated_amount: 5000 }],
+      }),
+      party_type: "Supplier",
+    };
+    mocks.grnInvoiceFindMany.mockImplementation(async ({ where }) =>
+      where.name ? [{ purchaseReceiptName: "PR-1" }] : [{ name: "PI-1" }, { name: "PI-2" }],
+    );
+    mocks.grnReceiptFindFirst.mockResolvedValue({ name: "PR-1" });
+    const originalFetch = fetch;
+    const balances = [0, 100, 0, 0];
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
+      if (String(input).includes("/api/resource/Purchase%20Invoice/")) {
+        return Response.json({ data: { docstatus: 1, outstanding_amount: balances.shift() } });
+      }
+      return originalFetch(input);
+    }));
+    expect((await POST(requestFor(payment))).status).toBe(200);
+    expect(mocks.grnPaymentUpsert).not.toHaveBeenCalled();
+    expect((await POST(requestFor(payment))).status).toBe(200);
+    expect(mocks.grnPaymentUpsert).toHaveBeenCalledWith(expect.objectContaining({
+      create: expect.objectContaining({ purchaseReceiptName: "PR-1", approvedAt: null, paymentEntryName: "PE-PI" }),
+    }));
+  });
+
+  it("leaves Vault GRN payments on the existing flow", async () => {
+    mocks.vaultDeployment.mockReturnValue(true);
+    const response = await POST(requestFor({
+      ...paymentDocument({ name: "PE-VAULT-PI", paymentType: "Pay", paidAmount: 100,
+        references: [{ reference_doctype: "Purchase Invoice", reference_name: "PI-1", allocated_amount: 100 }],
+      }),
+      party_type: "Supplier",
+    }));
+    expect(response.status).toBe(200);
+    expect(mocks.grnInvoiceFindMany).not.toHaveBeenCalled();
+    expect(mocks.grnPaymentUpsert).not.toHaveBeenCalled();
   });
 
   it("accumulates out-of-order entries and upserts duplicate deliveries", async () => {

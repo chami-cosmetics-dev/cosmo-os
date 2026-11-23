@@ -471,6 +471,7 @@ export async function GET(request: NextRequest) {
           purchaseReceiptIsBackfill: true,
           approvedAt: true,
           paidAt: true,
+          paymentEntryName: !isVaultOsDeployment(),
         },
       });
   const marginApprovalByItem = new Map(
@@ -507,6 +508,12 @@ export async function GET(request: NextRequest) {
       approval.paidAt,
     ]),
   );
+  const paymentEntryByReceipt = new Map(
+    paymentApprovals.map((approval) => [
+      `${approval.companyId}:${approval.purchaseReceiptName}:${approval.purchaseReceiptIsBackfill}`,
+      approval.paymentEntryName,
+    ]),
+  );
   const paymentApprovedAtForReceipt = (
     row: { companyId: string; name: string; receivedAt: Date | null },
     isBackfill: boolean,
@@ -519,6 +526,8 @@ export async function GET(request: NextRequest) {
   ) => row.receivedAt
     ? paymentPaidByReceipt.get(`${row.companyId}:${row.name}:${isBackfill}`) ?? null
     : null;
+  const paymentEntryForReceipt = (row: { companyId: string; name: string }, isBackfill: boolean) =>
+    paymentEntryByReceipt.get(`${row.companyId}:${row.name}:${isBackfill}`) ?? null;
 
   const [
     cancelledPurchaseReceipts,
@@ -1200,6 +1209,7 @@ export async function GET(request: NextRequest) {
         marginApprovedAt: iso(marginApprovedAtForReceipt(row, false)),
         paymentApprovedAt: iso(paymentApprovedAtForReceipt(row, false)),
         paymentPaidAt: iso(paymentPaidAtForReceipt(row, false)),
+        paymentEntryName: paymentEntryForReceipt(row, false),
         isIntercompanySupplier: isIntercompanyPurchaseReceipt(row),
         canMarkReceived: true,
         status: row.status,
@@ -1362,6 +1372,7 @@ export async function GET(request: NextRequest) {
         marginApprovedAt: iso(marginApprovedAtForReceipt(row, true)),
         paymentApprovedAt: iso(paymentApprovedAtForReceipt(row, true)),
         paymentPaidAt: iso(paymentPaidAtForReceipt(row, true)),
+        paymentEntryName: paymentEntryForReceipt(row, true),
         isIntercompanySupplier: isIntercompanyPurchaseReceipt(row),
         canMarkReceived: true,
         status: row.status,
