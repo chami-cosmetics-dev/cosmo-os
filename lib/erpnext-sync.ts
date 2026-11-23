@@ -894,7 +894,13 @@ async function createErpSalesInvoice(
     }
   }
 
-  return postErpSalesInvoiceCreate(cfg, siBody, opts);
+  // Non-coupon Shopify nets must also ignore ERP pricing rules — otherwise PRLE
+  // (e.g. Final Discount 30%) overwrites sale rates and SI total ≠ Shopify charge.
+  return postErpSalesInvoiceCreate(
+    cfg,
+    { ...siBody, ignore_pricing_rule: 1 },
+    opts,
+  );
 }
 
 async function buildErpSalesInvoiceCouponFields(
@@ -2786,7 +2792,10 @@ export async function syncOrderToERPNext(
     sms_ebill_token: generateSmsEbillToken(),
     items: siItems,
     ...couponFieldsForInvoiceCreate(erpCouponFields, erpCouponResolved.discountCodeLabel),
-    ...(useCouponPricing ? { ignore_pricing_rule: 1 } : {}),
+    // Always ignore ERP pricing rules: Shopify/Cosmo rates already encode sale price + discounts.
+    // Without this, non-coupon orders get ERP rules (e.g. PRLE 30%) that overwrite net rates and
+    // inflate SI grand_total so prepaid PE is refused (Shopify total ≠ SI total).
+    ignore_pricing_rule: 1,
     ...(customerEmail ? { contact_email: customerEmail } : {}),
     ...(contactMobile ? { contact_mobile: contactMobile } : {}),
     // Payment type mapped from Shopify gateway names
@@ -3090,7 +3099,8 @@ export async function syncOrderToERPNextFromOrder(order: OrderWithVaultData): Pr
     sms_ebill_token: generateSmsEbillToken(),
     items: siItems,
     ...couponFieldsForInvoiceCreate(erpCouponFields, erpCouponResolved.discountCodeLabel),
-    ...(useCouponPricing ? { ignore_pricing_rule: 1 } : {}),
+    // Always ignore ERP pricing rules — see Shopify sync path comment above.
+    ignore_pricing_rule: 1,
     ...(customerEmail ? { contact_email: customerEmail } : {}),
     ...(contactMobile ? { contact_mobile: contactMobile } : {}),
     ...(erpPaymentType ? { custom_payment_type: erpPaymentType } : {}),

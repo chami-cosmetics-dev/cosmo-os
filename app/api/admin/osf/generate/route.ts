@@ -24,7 +24,7 @@ import {
   fetchWarehouseBins,
   fetchWarehouseLedgerQtyAfter,
   getAllOsfErpInstances,
-  stockForColumn,
+  observedStockForColumns,
 } from "@/lib/osf/erp-stock";
 import { isOsfHistoricalAsOf, stockAsOfFromLaterMovements } from "@/lib/osf/historical-snapshot";
 import {
@@ -322,7 +322,7 @@ export async function POST(request: NextRequest) {
         const bins = historicalAsOf
           ? stockAsOfFromLaterMovements(currentBins, ledgerAfter)
           : currentBins;
-        return { bins, costs, purchases, monthlyPurchases };
+        return { instanceId: inst.id, bins, costs, purchases, monthlyPurchases };
       }),
     );
 
@@ -363,12 +363,9 @@ export async function POST(request: NextRequest) {
       const mainRopCols = columns.filter((c) => c.active && c.includeInRop);
       const vatRopCols = selectVatRopColumns(columns);
       const cosmeticsLkKey = findCosmeticsLkRopColumn(vatRopCols)?.key ?? null;
+      const binsByInstance = new Map(perInstanceResults.map(({ instanceId, bins }) => [instanceId, bins]));
       catalog = catalog.filter((row) => {
-        let totalStock = 0;
-        for (const col of stockCols) {
-          const qty = stockForColumn(binMap, col.warehouses, row.sku);
-          if (qty != null) totalStock += qty;
-        }
+        const totalStock = observedStockForColumns(stockCols, binsByInstance, row.sku);
         const profile = mapGetBySku(profileMap, row.sku);
         const totalRop =
           osfVariant === "vat"

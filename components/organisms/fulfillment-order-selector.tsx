@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { CalendarClock, Check, ChevronsUpDown, Loader2, Search, WalletCards } from "lucide-react";
+import { CalendarClock, Check, ChevronsUpDown, Loader2, Search } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -70,7 +70,6 @@ interface FulfillmentOrderSelectorProps {
   bulkPrintUnprinted?: boolean;
   showEmptyWorksheet?: boolean;
   allowFutureSendLater?: boolean;
-  allowSplitPaymentQueue?: boolean;
   returnFilter?: "normal" | "rearrange";
   unprintedOnly?: boolean;
   printMode?: boolean;
@@ -93,7 +92,6 @@ export function FulfillmentOrderSelector({
   bulkPrintUnprinted = false,
   showEmptyWorksheet = false,
   allowFutureSendLater = false,
-  allowSplitPaymentQueue = false,
   returnFilter,
   unprintedOnly = false,
   printMode = false,
@@ -131,7 +129,6 @@ export function FulfillmentOrderSelector({
   const [orderOpen, setOrderOpen] = useState(false);
   const [selectionLoading, setSelectionLoading] = useState(false);
   const [showFutureSendLater, setShowFutureSendLater] = useState(false);
-  const [showSplitPaymentQueue, setShowSplitPaymentQueue] = useState(false);
   const [pinnedOrder, setPinnedOrder] = useState<FulfillmentOrder | null>(null);
   const searchParams = useSearchParams();
 
@@ -170,11 +167,8 @@ export function FulfillmentOrderSelector({
     if (allowFutureSendLater) {
       params.set(
         "sample_send_later",
-        showSplitPaymentQueue ? "all" : showFutureSendLater ? "future" : "available",
+        showFutureSendLater ? "future" : "available",
       );
-    }
-    if (allowSplitPaymentQueue && showSplitPaymentQueue) {
-      params.set("include_split_payment_queue", "true");
     }
     if (returnFilter) {
       params.set("return_filter", returnFilter);
@@ -201,7 +195,6 @@ export function FulfillmentOrderSelector({
     setLoading(false);
   }, [
     allowFutureSendLater,
-    allowSplitPaymentQueue,
     effectiveSearch,
     isDispatchOrDeliveryQueue,
     fulfillmentSortBy,
@@ -209,7 +202,6 @@ export function FulfillmentOrderSelector({
     unprintedOnly,
     printMode,
     showFutureSendLater,
-    showSplitPaymentQueue,
     stages,
     page,
     limit,
@@ -386,30 +378,12 @@ export function FulfillmentOrderSelector({
                     onSelectOrder(null);
                     setOrderOpen(false);
                     setPage(1);
-                    setShowSplitPaymentQueue(false);
                     setShowFutureSendLater((current) => !current);
                   }}
                   className="gap-2"
                 >
                   <CalendarClock className="size-4" aria-hidden />
                   {showFutureSendLater ? "Today Queue" : "Future Orders"}
-                </Button>
-              )}
-              {allowSplitPaymentQueue && (
-                <Button
-                  type="button"
-                  variant={showSplitPaymentQueue ? "default" : "outline"}
-                  onClick={() => {
-                    onSelectOrder(null);
-                    setOrderOpen(false);
-                    setPage(1);
-                    setShowFutureSendLater(false);
-                    setShowSplitPaymentQueue((current) => !current);
-                  }}
-                  className="gap-2"
-                >
-                  <WalletCards className="size-4" aria-hidden />
-                  {showSplitPaymentQueue ? "Normal Queue" : "Split Payments"}
                 </Button>
               )}
               {bulkPrintUnprinted && (

@@ -2,7 +2,7 @@ import "server-only";
 
 import { createCipheriv, createDecipheriv, createHmac, randomBytes, randomUUID } from "node:crypto";
 
-import { computeTotalOrderQtyForSkus } from "@/lib/osf/supplier-orders-reorder";
+import { computeSupplierOrderSnapshot } from "@/lib/osf/supplier-orders-reorder";
 import type { WorkingOrderRow } from "@/lib/osf/supplier-orders-draft";
 import { prisma } from "@/lib/prisma";
 
@@ -60,8 +60,8 @@ export async function buildOsfPortalPushPayload(args: {
     throw new SupplierPortalPushError("No SKUs to send.", 400);
   }
 
-  const [qtyMap, productRows, suppliers] = await Promise.all([
-    computeTotalOrderQtyForSkus(args.companyId, skus),
+  const [snapshot, productRows, suppliers] = await Promise.all([
+    computeSupplierOrderSnapshot(args.companyId, skus),
     prisma.productItem.findMany({
       where: {
         companyId: args.companyId,
@@ -99,7 +99,8 @@ export async function buildOsfPortalPushPayload(args: {
     if (!product?.vendor?.id || !product.vendor.name) {
       missingBrand.push(sku);
     }
-    const totalOrderQty = qtyMap.get(sku) ?? 0;
+    const totalOrderQty = snapshot.totalOrderQty.get(sku) ?? 0;
+    const coverage = snapshot.snapshots.get(sku);
     return {
       lineKey: sku,
       sku,
@@ -114,6 +115,7 @@ export async function buildOsfPortalPushPayload(args: {
         erp2: product?.erp2ProductPriority ?? null,
       },
       quantity: { totalOrderQty },
+      ...(coverage ? { snapshot: coverage } : {}),
     };
   });
 
@@ -169,6 +171,8 @@ export async function buildOsfPortalPushPayload(args: {
         system: "cosmo-os" as const,
         cosmoCompanyId: args.companyId,
         sentAt: new Date().toISOString(),
+        asOfDate: snapshot.asOfDate,
+        osfVariant: "main" as const,
         actorUserId: args.actorUserId,
         actorEmail: args.actorEmail ?? undefined,
       },
