@@ -10,7 +10,9 @@ import { prisma } from "@/lib/prisma";
 import { buildGrnPendingReportSnapshot, buildSummaryTableHtml, getCurrentColomboReportDate, normalizeGrnPendingTemplateBody, normalizeGrnPendingTemplateSubject } from "@/lib/grn-pending-email";
 import { buildReceivableEmailPreview } from "@/lib/receivable-outstanding-email";
 import { loadCachedReceivables, refreshReceivables } from "@/lib/receivable-outstanding";
-import { GRN_PENDING_DAILY_KEY, SUPPLIER_PAYABLE_OUTSTANDING_DAILY_KEY } from "@/lib/email-templates/catalog";
+import { GRN_PENDING_DAILY_KEY, INVENTORY_AGEING_SUMMARY_DAILY_KEY, SUPPLIER_PAYABLE_OUTSTANDING_DAILY_KEY } from "@/lib/email-templates/catalog";
+import { buildInventoryAgeingEmailPreview, buildInventoryAgeingWorkbook } from "@/lib/inventory-ageing-email";
+import { loadInventoryAgeing } from "@/lib/inventory-ageing/load";
 import { buildSupplierPayablesEmailPreview, buildSupplierPayablesEmailWorkbook } from "@/lib/supplier-payables-email";
 import { loadCachedSupplierPayables, refreshSupplierPayables } from "@/lib/supplier-payables";
 import { MARGIN_ISSUES_DAILY_KEY } from "@/lib/email-templates/catalog";
@@ -152,6 +154,20 @@ export async function POST(request: NextRequest) {
     const actual = buildMarginIssuesEmailPreview(report);
     placeholders = { ...SAMPLE_PLACEHOLDERS, reportDate, summaryTableHtml: actual.summaryTableHtml, skuCount: actual.skuCount, stockAvailable: actual.stockAvailable };
     attachments = [{ fileName: `margin-issues-${reportDate}.xlsx`, contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", contentBase64: buildMarginIssuesWorkbook(report).toString("base64") }];
+  } else if (parsed.data.key === INVENTORY_AGEING_SUMMARY_DAILY_KEY) {
+    const reportDate = getCurrentColomboReportDate();
+    const report = await loadInventoryAgeing(user.companyId, reportDate);
+    const openingStock = report.items.reduce((sum, item) => sum + item.openingStock, 0);
+    placeholders = {
+      ...SAMPLE_PLACEHOLDERS,
+      reportDate,
+      summaryTableHtml: buildInventoryAgeingEmailPreview(report),
+      itemCount: report.items.length,
+      eligibleStock: report.reconciliation.eligibleStockQty,
+      openingStock,
+      unallocatedStock: report.reconciliation.unallocatedStockQty,
+    };
+    attachments = [{ fileName: `ageing-summary-${reportDate}.xlsx`, contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", contentBase64: buildInventoryAgeingWorkbook(report).toString("base64") }];
   } else {
     // Stock Health weekly mails: today's real tables (Stock Health screen data) in the template,
     // with the same Excel attachments as the scheduled mail.
