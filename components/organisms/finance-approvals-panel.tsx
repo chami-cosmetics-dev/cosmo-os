@@ -1,8 +1,27 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useSearchParams } from "next/navigation";
-import { CheckCircle2, Loader2, Plus, RefreshCw, Search, Trash2, XCircle } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowLeftRight,
+  Ban,
+  CheckCircle2,
+  CreditCard,
+  History,
+  Inbox,
+  Loader2,
+  PackageX,
+  Plus,
+  RefreshCw,
+  RotateCcw,
+  Search,
+  Trash2,
+  Truck,
+  Undo2,
+  XCircle,
+  type LucideIcon,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,6 +31,7 @@ import { notify } from "@/lib/notify";
 import { formatAppDateTime, formatAppStoredDateTime } from "@/lib/format-datetime";
 import { TASK_REMINDER_ORDER_ID_PARAM } from "@/lib/task-reminder-links";
 import { mergeHistorySearchRows } from "@/lib/page-data/finance-approvals-slices";
+import { cn } from "@/lib/utils";
 
 export type FinanceApprovalItem = {
   id: string;
@@ -72,7 +92,7 @@ export type FinanceApprovalItem = {
   riderMobile?: string | null;
 };
 
-/** Filter tabs: All + each finance approval type (more detailed than Payments/Returns groups). */
+/** Queue ids: overview cards + list filters (replaces Pending/History + type tabs). */
 type TypeFilter =
   | "all"
   | "order_payment_approval"
@@ -83,16 +103,28 @@ type TypeFilter =
   | "invoice_revert_void_approval"
   | "order_cancel_approval";
 
-const TYPE_FILTER_TABS: { key: TypeFilter; label: string }[] = [
-  { key: "all", label: "All" },
-  { key: "order_payment_approval", label: "Order Payment" },
-  { key: "delivery_payment_approval", label: "Delivery Payment" },
-  { key: "payment_method_change_approval", label: "Method Change" },
-  { key: "return_rearrange_payment", label: "Return Rearrange" },
-  { key: "return_cancel", label: "Return Cancel" },
-  { key: "invoice_revert_void_approval", label: "Invoice Revert" },
-  { key: "order_cancel_approval", label: "Order Cancel" },
+type QueueId = TypeFilter | "history";
+type Screen = "overview" | "queue";
+
+const REQUEST_CATEGORY_QUEUES: {
+  id: Exclude<TypeFilter, "all">;
+  label: string;
+  icon: LucideIcon;
+}[] = [
+  { id: "delivery_payment_approval", label: "Delivery Payment", icon: Truck },
+  { id: "payment_method_change_approval", label: "Method Change", icon: ArrowLeftRight },
+  { id: "order_payment_approval", label: "Order Payment", icon: CreditCard },
+  { id: "return_rearrange_payment", label: "Return Rearrange", icon: RotateCcw },
+  { id: "return_cancel", label: "Return Cancel", icon: PackageX },
+  { id: "invoice_revert_void_approval", label: "Invoice Revert", icon: Undo2 },
+  { id: "order_cancel_approval", label: "Order Cancel", icon: Ban },
 ];
+
+function queueFromId(queueId: QueueId): { view: "pending" | "history"; typeFilter: TypeFilter } {
+  if (queueId === "history") return { view: "history", typeFilter: "all" };
+  if (queueId === "all") return { view: "pending", typeFilter: "all" };
+  return { view: "pending", typeFilter: queueId };
+}
 
 function typeLabel(type: string) {
   if (type === "order_payment_approval") return "Order Payment";
@@ -103,6 +135,12 @@ function typeLabel(type: string) {
   if (type === "payment_method_change_approval") return "Payment Method Change";
   if (type === "order_cancel_approval") return "Order Cancel";
   return type;
+}
+
+function queueLabel(queueId: QueueId) {
+  if (queueId === "all") return "All Pending";
+  if (queueId === "history") return "History";
+  return REQUEST_CATEGORY_QUEUES.find((queue) => queue.id === queueId)?.label ?? typeLabel(queueId);
 }
 
 const TYPE_BADGE: Record<string, { label: string; cls: string }> = {
@@ -291,18 +329,6 @@ function filterByType(approvals: FinanceApprovalItem[], typeFilter: TypeFilter) 
   return approvals.filter((a) => a.type === typeFilter);
 }
 
-function selectFirstInView(
-  approvals: FinanceApprovalItem[],
-  view: "pending" | "history",
-  typeFilter: TypeFilter,
-  currentId: string
-) {
-  const byView = view === "pending" ? approvals.filter(isPendingApproval) : approvals.filter((item) => !isPendingApproval(item));
-  const visible = filterByType(byView, typeFilter);
-  if (visible.some((item) => item.id === currentId)) return currentId;
-  return visible[0]?.id ?? "";
-}
-
 export function FinanceApprovalsPanel({
   initialApprovals,
   canRevertPaid = false,
@@ -314,12 +340,14 @@ export function FinanceApprovalsPanel({
 }) {
   const searchParams = useSearchParams();
   const appliedDeepLinkRef = useRef<string | null>(null);
+  const listScrollRef = useRef<HTMLDivElement>(null);
+  const savedListScrollRef = useRef(0);
   const [approvals, setApprovals] = useState(initialApprovals);
+  const [screen, setScreen] = useState<Screen>("overview");
+  const [queueId, setQueueId] = useState<QueueId>("all");
   const [view, setView] = useState<"pending" | "history">("pending");
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
-  const [selectedId, setSelectedId] = useState(() =>
-    selectFirstInView(initialApprovals, "pending", "all", "")
-  );
+  const [selectedId, setSelectedId] = useState("");
   const [reviewNote, setReviewNote] = useState("");
   const [kokoReference, setKokoReference] = useState("");
   const [multipleKokoPayments, setMultipleKokoPayments] = useState(false);
@@ -344,7 +372,21 @@ export function FinanceApprovalsPanel({
       (approval) => approval.orderId === orderId && isPendingApproval(approval),
     );
     if (!match) return;
-    setView("pending");
+    const nextQueue: QueueId =
+      match.type === "order_payment_approval" ||
+      match.type === "delivery_payment_approval" ||
+      match.type === "payment_method_change_approval" ||
+      match.type === "return_rearrange_payment" ||
+      match.type === "return_cancel" ||
+      match.type === "invoice_revert_void_approval" ||
+      match.type === "order_cancel_approval"
+        ? match.type
+        : "all";
+    const next = queueFromId(nextQueue);
+    setScreen("queue");
+    setQueueId(nextQueue);
+    setView(next.view);
+    setTypeFilter(next.typeFilter);
     setSelectedId(match.id);
     appliedDeepLinkRef.current = orderId;
   }, [approvals, searchParams]);
@@ -451,14 +493,17 @@ export function FinanceApprovalsPanel({
   }, [pendingApprovals]);
 
   useEffect(() => {
-    if (searchedApprovals.length === 0) {
-      setSelectedId("");
-      return;
-    }
+    if (!selectedId) return;
     if (!searchedApprovals.some((item) => item.id === selectedId)) {
-      setSelectedId(searchedApprovals[0].id);
+      setSelectedId("");
     }
   }, [searchedApprovals, selectedId]);
+
+  const historyCount = recentHistory.length;
+  const activeQueueCount =
+    view === "pending" ? pendingCountByType[typeFilter] : historyCount;
+  const activeQueueName = queueLabel(queueId);
+  const reviewOpenOnMobile = Boolean(selected);
 
   useEffect(() => {
     setKokoReference(selected?.kokoReference ?? "");
@@ -485,16 +530,52 @@ export function FinanceApprovalsPanel({
     selected?.merchantKokoPaymentCount,
   ]);
 
-  function switchView(next: "pending" | "history") {
-    setView(next);
-    setSelectedId(selectFirstInView(approvals, next, typeFilter, selectedId));
+  function openQueue(nextQueue: QueueId) {
+    const next = queueFromId(nextQueue);
+    setQueueId(nextQueue);
+    setView(next.view);
+    setTypeFilter(next.typeFilter);
+    setScreen("queue");
+    setSelectedId("");
+    setReviewNote("");
+    setKokoReference("");
+    setMultipleKokoPayments(false);
+    setKokoReferenceRows(emptyKokoRows());
+    savedListScrollRef.current = 0;
+  }
+
+  function handleBackToQueues() {
+    setScreen("overview");
+    setSelectedId("");
+    setReviewNote("");
+    setSearch("");
+    setDebouncedSearch("");
+    setHistorySearchHits(null);
+    savedListScrollRef.current = 0;
+  }
+
+  function handleSelectRequest(approvalId: string) {
+    if (listScrollRef.current) {
+      savedListScrollRef.current = listScrollRef.current.scrollTop;
+    }
+    setSelectedId(approvalId);
     setReviewNote("");
   }
 
-  function switchTypeFilter(next: TypeFilter) {
-    setTypeFilter(next);
-    setSelectedId(selectFirstInView(approvals, view, next, selectedId));
+  function handleCloseMobileReview() {
+    setSelectedId("");
     setReviewNote("");
+    requestAnimationFrame(() => {
+      if (listScrollRef.current) {
+        listScrollRef.current.scrollTop = savedListScrollRef.current;
+      }
+    });
+  }
+
+  function handleQueueCardKeyDown(event: KeyboardEvent<HTMLButtonElement>, nextQueue: QueueId) {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    openQueue(nextQueue);
   }
 
   async function refresh() {
@@ -506,8 +587,17 @@ export function FinanceApprovalsPanel({
         notify.error(data.error ?? "Failed to load approvals");
         return;
       }
-      setApprovals(data.approvals ?? []);
-      setSelectedId((currentId) => selectFirstInView(data.approvals ?? [], view, typeFilter, currentId));
+      const nextApprovals = data.approvals ?? [];
+      setApprovals(nextApprovals);
+      setSelectedId((currentId) => {
+        if (!currentId) return "";
+        const stillVisible = nextApprovals.some((item) => {
+          if (item.id !== currentId) return false;
+          if (view === "pending") return isPendingApproval(item) && (typeFilter === "all" || item.type === typeFilter);
+          return !isPendingApproval(item) && (typeFilter === "all" || item.type === typeFilter);
+        });
+        return stillVisible ? currentId : "";
+      });
     } catch {
       notify.error("Failed to load approvals");
     } finally {
@@ -726,58 +816,136 @@ export function FinanceApprovalsPanel({
         </Button>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="inline-flex rounded-xl border border-border/70 bg-background/70 p-1 shadow-xs">
-          <Button
-            type="button"
-            size="sm"
-            variant={view === "pending" ? "default" : "ghost"}
-            onClick={() => switchView("pending")}
-            className={view === "pending" ? "shadow-[0_10px_24px_-18px_var(--primary)]" : "hover:bg-secondary/10"}
-          >
-            Pending{pendingCountByType.all > 0 ? ` (${pendingCountByType.all})` : ""}
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant={view === "history" ? "default" : "ghost"}
-            onClick={() => switchView("history")}
-            className={view === "history" ? "shadow-[0_10px_24px_-18px_var(--primary)]" : "hover:bg-secondary/10"}
-          >
-            History
-          </Button>
-        </div>
+      {screen === "overview" ? (
+        <div className="space-y-6">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => openQueue("all")}
+              onKeyDown={(event) => handleQueueCardKeyDown(event, "all")}
+              aria-label={`All Pending, ${pendingCountByType.all} requests`}
+              className={cn(
+                "flex w-full flex-col gap-4 rounded-xl border p-5 text-left transition-colors",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                pendingCountByType.all === 0
+                  ? "border-border/40 bg-muted/20 text-muted-foreground hover:bg-muted/35"
+                  : "border-primary/30 bg-primary/5 hover:border-primary/50 hover:bg-primary/10",
+              )}
+            >
+              <span className="flex items-center gap-3">
+                <span className="flex size-10 items-center justify-center rounded-lg bg-primary/15 text-primary">
+                  <Inbox className="size-5" aria-hidden />
+                </span>
+                <span className="text-base font-semibold text-foreground">All Pending</span>
+              </span>
+              <span className="text-3xl font-semibold tracking-tight tabular-nums text-foreground">
+                {pendingCountByType.all}
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => openQueue("history")}
+              onKeyDown={(event) => handleQueueCardKeyDown(event, "history")}
+              aria-label={`History, ${historyCount} processed requests`}
+              className={cn(
+                "flex w-full flex-col gap-4 rounded-xl border p-5 text-left transition-colors",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                historyCount === 0
+                  ? "border-border/40 bg-muted/20 text-muted-foreground hover:bg-muted/35"
+                  : "border-border/70 bg-card hover:border-primary/40 hover:bg-primary/5",
+              )}
+            >
+              <span className="flex items-center gap-3">
+                <span className="flex size-10 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+                  <History className="size-5" aria-hidden />
+                </span>
+                <span className="text-base font-semibold text-foreground">History</span>
+              </span>
+              <span className="text-3xl font-semibold tracking-tight tabular-nums text-foreground">
+                {historyCount}
+              </span>
+            </button>
+          </div>
 
-        <div className="inline-flex max-w-full flex-wrap gap-1 rounded-lg border border-border/50 bg-muted/30 p-1">
-          {TYPE_FILTER_TABS.map((tab) => {
-            const count = view === "pending" ? pendingCountByType[tab.key] : 0;
-            return (
-              <button
-                key={tab.key}
-                type="button"
-                onClick={() => switchTypeFilter(tab.key)}
-                className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
-                  typeFilter === tab.key
-                    ? "bg-background text-foreground shadow-xs"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {tab.label}
-                {view === "pending" && count > 0 && (
-                  <span className="ml-1.5 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
-                    {count}
-                  </span>
-                )}
-              </button>
-            );
-          })}
+          <div className="space-y-3">
+            <h2 className="text-sm font-semibold tracking-wide text-muted-foreground uppercase">
+              Request categories
+            </h2>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {REQUEST_CATEGORY_QUEUES.map((queue) => {
+                const count = pendingCountByType[queue.id];
+                const Icon = queue.icon;
+                const quiet = count === 0;
+                return (
+                  <button
+                    key={queue.id}
+                    type="button"
+                    onClick={() => openQueue(queue.id)}
+                    onKeyDown={(event) => handleQueueCardKeyDown(event, queue.id)}
+                    aria-label={`${queue.label}, ${count} pending requests`}
+                    className={cn(
+                      "flex w-full flex-col gap-3 rounded-xl border p-4 text-left transition-colors",
+                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                      quiet
+                        ? "border-border/40 bg-muted/15 text-muted-foreground hover:bg-muted/30"
+                        : "border-border/70 bg-card hover:border-primary/40 hover:bg-primary/5",
+                    )}
+                  >
+                    <span className="flex items-center gap-2.5">
+                      <span
+                        className={cn(
+                          "flex size-9 items-center justify-center rounded-lg",
+                          quiet ? "bg-muted/60" : "bg-primary/10 text-primary",
+                        )}
+                      >
+                        <Icon className="size-4" aria-hidden />
+                      </span>
+                      <span className={cn("text-sm font-semibold", quiet ? "text-muted-foreground" : "text-foreground")}>
+                        {queue.label}
+                      </span>
+                    </span>
+                    <span
+                      className={cn(
+                        "text-2xl font-semibold tracking-tight tabular-nums",
+                        quiet ? "text-muted-foreground/80" : "text-foreground",
+                      )}
+                    >
+                      {count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      ) : (
+      <>
+      <div className={cn("space-y-4", reviewOpenOnMobile && "max-xl:hidden")}>
+        <div className="flex flex-wrap items-center gap-3">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={handleBackToQueues}
+            className="gap-2 px-2"
+          >
+            <ArrowLeft className="size-4" aria-hidden />
+            Back to queues
+          </Button>
+          <div className="min-w-0">
+            <h2 className="truncate text-lg font-semibold tracking-tight">{activeQueueName}</h2>
+            <p className="text-sm text-muted-foreground">
+              {activeQueueCount} {activeQueueCount === 1 ? "request" : "requests"}
+              {view === "history" && !effectiveSearch ? " · latest loaded" : ""}
+            </p>
+          </div>
         </div>
       </div>
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
-        <Card className="border-border/70">
+        <Card className={cn("border-border/70", reviewOpenOnMobile && "max-xl:hidden")}>
           <CardHeader>
-            <CardTitle>{view === "pending" ? "Pending Requests" : "History"}</CardTitle>
+            <CardTitle>{activeQueueName}</CardTitle>
             {view === "history" && !effectiveSearch ? (
               <p className="text-muted-foreground text-xs font-normal">Latest 50. Search by order number for older approvals.</p>
             ) : null}
@@ -785,7 +953,7 @@ export function FinanceApprovalsPanel({
           <CardContent className="p-0">
             <div className="border-b border-border/50 px-4 py-3">
               <div className="relative max-w-md">
-                <Search className="text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2" />
+                <Search className="text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2" aria-hidden />
                 <Input
                   placeholder={
                     view === "history"
@@ -797,12 +965,13 @@ export function FinanceApprovalsPanel({
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
                   className="border-border/70 bg-background/90 pl-9"
+                  aria-label="Search approval requests"
                 />
               </div>
             </div>
-            <div className="overflow-x-auto">
+            <div ref={listScrollRef} className="max-h-[min(70vh,52rem)] overflow-auto">
               <table className="w-full text-sm">
-                <thead className="border-b bg-muted/35 text-left text-muted-foreground">
+                <thead className="sticky top-0 z-[1] border-b bg-muted/95 text-left text-muted-foreground backdrop-blur-sm">
                   <tr>
                     <th className="px-3 py-3 font-medium">Invoice</th>
                     <th className="px-3 py-3 font-medium">Purpose</th>
@@ -811,6 +980,7 @@ export function FinanceApprovalsPanel({
                     <th className="px-3 py-3 font-medium">Amount</th>
                     <th className="px-3 py-3 font-medium">Requested by</th>
                     <th className="px-3 py-3 font-medium">Requested</th>
+                    {view === "history" && <th className="px-3 py-3 font-medium">Status</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -818,7 +988,7 @@ export function FinanceApprovalsPanel({
                     ? deliveryRiderGroups.flatMap((group) => [
                         <tr key={`rider-${group.key}`} className="bg-muted/50">
                           <td
-                            colSpan={7}
+                            colSpan={view === "history" ? 8 : 7}
                             className="px-3 py-2 text-xs font-semibold tracking-wide text-foreground uppercase"
                           >
                             {group.label}
@@ -830,10 +1000,15 @@ export function FinanceApprovalsPanel({
                         ...group.items.map((approval) => (
                           <tr
                             key={approval.id}
-                            className={`cursor-pointer border-b last:border-0 hover:bg-muted/35 ${selectedId === approval.id ? "bg-primary/8" : ""}`}
-                            onClick={() => {
-                              setSelectedId(approval.id);
-                              setReviewNote("");
+                            tabIndex={0}
+                            aria-label={`Review invoice ${approval.invoiceNo ?? approval.id}`}
+                            className={`cursor-pointer border-b last:border-0 hover:bg-muted/35 focus-visible:bg-muted/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${selectedId === approval.id ? "bg-primary/8" : ""}`}
+                            onClick={() => handleSelectRequest(approval.id)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter" || event.key === " ") {
+                                event.preventDefault();
+                                handleSelectRequest(approval.id);
+                              }
                             }}
                           >
                             <td className="px-3 py-3 font-medium">
@@ -858,16 +1033,24 @@ export function FinanceApprovalsPanel({
                             <td className="px-3 py-3">{formatAmount(approval.totalPrice)}</td>
                             <td className="px-3 py-3 text-muted-foreground">{requestedByLabel(approval)}</td>
                             <td className="px-3 py-3 text-muted-foreground">{formatDate(approval.createdAt)}</td>
+                            {view === "history" && (
+                              <td className="px-3 py-3 capitalize text-muted-foreground">{approval.status}</td>
+                            )}
                           </tr>
                         )),
                       ])
                     : searchedApprovals.map((approval) => (
                     <tr
                       key={approval.id}
-                      className={`cursor-pointer border-b last:border-0 hover:bg-muted/35 ${selectedId === approval.id ? "bg-primary/8" : ""}`}
-                      onClick={() => {
-                        setSelectedId(approval.id);
-                        setReviewNote("");
+                      tabIndex={0}
+                      aria-label={`Review invoice ${approval.invoiceNo ?? approval.id}`}
+                      className={`cursor-pointer border-b last:border-0 hover:bg-muted/35 focus-visible:bg-muted/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${selectedId === approval.id ? "bg-primary/8" : ""}`}
+                      onClick={() => handleSelectRequest(approval.id)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          handleSelectRequest(approval.id);
+                        }
                       }}
                     >
                       <td className="px-3 py-3 font-medium">
@@ -891,15 +1074,21 @@ export function FinanceApprovalsPanel({
                       <td className="px-3 py-3">{formatAmount(approval.totalPrice)}</td>
                       <td className="px-3 py-3 text-muted-foreground">{requestedByLabel(approval)}</td>
                       <td className="px-3 py-3 text-muted-foreground">{formatDate(approval.createdAt)}</td>
+                      {view === "history" && (
+                        <td className="px-3 py-3 capitalize text-muted-foreground">{approval.status}</td>
+                      )}
                     </tr>
                   ))}
                   {searchedApprovals.length === 0 && (
                     <tr>
-                      <td colSpan={groupByRider ? 7 : 6} className="px-3 py-10 text-center text-muted-foreground">
+                      <td
+                        colSpan={groupByRider ? (view === "history" ? 8 : 7) : view === "history" ? 7 : 6}
+                        className="px-3 py-10 text-center text-muted-foreground"
+                      >
                         {effectiveSearch
                           ? "No approval requests match your search."
                           : view === "pending"
-                            ? "No pending approval requests."
+                            ? "No pending approval requests in this queue."
                             : "No recent approval history."}
                       </td>
                     </tr>
@@ -910,9 +1099,29 @@ export function FinanceApprovalsPanel({
           </CardContent>
         </Card>
 
-        <Card className="border-border/70 self-start sticky top-4">
-          <CardHeader>
-            <CardTitle>Review</CardTitle>
+        <Card
+          className={cn(
+            "border-border/70 self-start sticky top-4",
+            !selected && "max-xl:hidden",
+            reviewOpenOnMobile && "max-xl:static",
+          )}
+        >
+          <CardHeader className="space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <CardTitle>Review</CardTitle>
+              {reviewOpenOnMobile ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="xl:hidden gap-2 px-2"
+                  onClick={handleCloseMobileReview}
+                >
+                  <ArrowLeft className="size-4" aria-hidden />
+                  Back to list
+                </Button>
+              ) : null}
+            </div>
           </CardHeader>
           <CardContent className="space-y-4">
             {selected ? (
@@ -1336,6 +1545,8 @@ export function FinanceApprovalsPanel({
           </CardContent>
         </Card>
       </div>
+      </>
+      )}
     </div>
   );
 }

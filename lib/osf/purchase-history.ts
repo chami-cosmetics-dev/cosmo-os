@@ -7,6 +7,7 @@ import { isNoisePurchaseSupplier, isUsablePurchaseDoc, erpGetJson } from "@/lib/
 import type { OsfErpCredentials } from "@/lib/osf/erp-stock";
 
 export type PurchaseHistoryRecord = {
+  erpCompany?: string;
   reference: string;
   line: string;
   documentType: "Purchase Invoice";
