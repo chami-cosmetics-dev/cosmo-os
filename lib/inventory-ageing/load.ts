@@ -3,7 +3,7 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import { isIntercompanyPurchaseSupplier } from "@/lib/osf/erp-purchases";
 import { getAllOsfErpInstances, type OsfErpCredentials } from "@/lib/osf/erp-stock";
-import { calculateAgeing, type AgeingItem, type AgeingMovement, type AgeingReceipt, type IntercompanySource } from "./calculate";
+import { calculateAgeing, type AgeingItem, type AgeingMovement, type AgeingReceipt, type IntercompanySource, type StockReturnLink } from "./calculate";
 
 type ErpRow = Record<string, unknown>;
 export type InventoryAgeingProgress = { percent: number; status: string };
@@ -58,6 +58,32 @@ async function erpList(
   }
 }
 
+async function erpDocument(cfg: OsfErpCredentials, doctype: string, name: string): Promise<ErpRow> {
+  let errorMessage = "";
+  for (let attempt = 1; attempt <= MAX_PAGE_ATTEMPTS; attempt += 1) {
+    try {
+      const response = await fetch(`${cfg.baseUrl}/api/resource/${encodeURIComponent(doctype)}/${encodeURIComponent(name)}`, {
+        headers: { Authorization: `token ${cfg.apiKey}:${cfg.apiSecret}`, Accept: "application/json" },
+        cache: "no-store",
+        signal: AbortSignal.timeout(30000),
+      });
+      if (!response.ok) {
+        errorMessage = `${doctype} ${name} ERP request failed (${response.status}): ${(await response.text()).slice(0, 180)}`;
+        if (![408, 429, 502, 503, 504].includes(response.status)) break;
+      } else {
+        const result = await response.json() as { data?: ErpRow };
+        if (result.data && typeof result.data === "object") return result.data;
+        errorMessage = `${doctype} ${name} ERP response has no data object`;
+        break;
+      }
+    } catch (error) {
+      errorMessage = error instanceof Error ? error.message : String(error);
+    }
+    if (attempt < MAX_PAGE_ATTEMPTS) await new Promise((resolve) => setTimeout(resolve, 350 * 2 ** (attempt - 1)));
+  }
+  throw new Error(errorMessage || `${doctype} ${name} could not be loaded`);
+}
+
 async function byNames(cfg: OsfErpCredentials, doctype: string, fields: string[], names: string[], field = "name") {
   const rows: ErpRow[] = [];
   for (const batch of chunks([...new Set(names)].filter(Boolean))) rows.push(...await erpList(cfg, doctype, fields, [[field, "in", batch]]));
@@ -86,8 +112,10 @@ export async function loadInventoryAgeing(
   progress({ percent: 6, status: "Preparing ERP company mappings" });
   const allMovements: AgeingMovement[] = [];
   const allReceipts: AgeingReceipt[] = [];
+  const stockReturnLinks: StockReturnLink[] = [];
   const metadata = new Map<string, Pick<AgeingItem, "stockUom" | "barcode" | "description" | "brand" | "sellingRate" | "currency">>();
   const dataWarnings: string[] = [];
+  const legacyStockEntryUnavailable = new Set<string>();
   const catalogueBarcodes = new Map<string, string>();
   for (const row of catalogueRows) {
     const sku = str(row.sku);
@@ -129,7 +157,38 @@ export async function loadInventoryAgeing(
       completedCompanies += 1;
       progress({ percent: 8 + Math.round((completedCompanies / totalCompanies) * 52), status: `Stock ledger loaded for ${company}` });
     }
+    const stockEntryNames = [...new Set(movements.filter((m) => m.voucherType === "Stock Entry").map((m) => m.voucherNo))];
+    const stockEntryTypes = new Map((await byNames(instance.cfg, "Stock Entry", ["name", "stock_entry_type", "docstatus"], stockEntryNames))
+      .filter((row) => num(row.docstatus) === 1)
+      .map((row) => [str(row.name), str(row.stock_entry_type)]));
+    for (const movement of movements) if (movement.voucherType === "Stock Entry") movement.stockEntryType = stockEntryTypes.get(movement.voucherNo) ?? null;
     allMovements.push(...movements);
+    for (const source of [
+      { doctype: "Sales Invoice", voucherType: "Sales Invoice" as const, itemLink: "sales_invoice_item" },
+      { doctype: "Delivery Note", voucherType: "Delivery Note" as const, itemLink: "dn_detail" },
+    ]) {
+      const voucherNames = [...new Set(movements.filter((m) => m.voucherType === source.voucherType).map((m) => m.voucherNo))];
+      try {
+        const parents = await byNames(instance.cfg, source.doctype, ["name", "company", "docstatus", "is_return", "return_against"], voucherNames);
+        const returns = parents.filter((row) => num(row.docstatus) === 1 && num(row.is_return) === 1 && Boolean(str(row.return_against)) && erpCompanies.includes(str(row.company)));
+        // Frappe can reject a parent/child list join. Read each return document
+        // directly so its item-level link to the original outbound document is kept.
+        for (const returnedVoucher of returns) {
+          const document = await erpDocument(instance.cfg, source.doctype, str(returnedVoucher.name));
+          const items = Array.isArray(document.items) ? document.items as ErpRow[] : [];
+          for (const item of items) {
+            const returnVoucher = str(returnedVoucher.name);
+            const returnItem = str(item.name);
+            const originalVoucher = str(returnedVoucher.return_against);
+            const originalItem = str(item[source.itemLink]);
+            if (!returnVoucher || !returnItem || !originalVoucher || !originalItem) continue;
+            stockReturnLinks.push({ erp: instance.id, company: str(returnedVoucher.company), returnVoucherType: source.voucherType, returnVoucher, returnItem, originalVoucherType: source.voucherType, originalVoucher, originalItem });
+          }
+        }
+      } catch (error) {
+        dataWarnings.push(`${instance.label ?? instance.id}: ${source.doctype} return links are unavailable; returned stock may remain unallocated (${error instanceof Error ? error.message.slice(0, 100) : "unknown error"})`);
+      }
+    }
     progress({ percent: 62, status: `Matching Purchase Receipts for ${instance.label ?? "ERP"}` });
     const prNames = [...new Set(movements.filter((m) => m.voucherType === "Purchase Receipt").map((m) => m.voucherNo))];
     const prParents = await byNames(instance.cfg, "Purchase Receipt", ["name", "company", "supplier", "supplier_name", "creation", "docstatus", "is_return"], prNames);
@@ -243,28 +302,34 @@ export async function loadInventoryAgeing(
     // Older SSRs may predate the GRN Material Issue link table. ERP keeps their
     // exact SSR identifier in the Supplier Return Stock Entry remarks.
     const missingLegacy = ssrNames.filter((name) => activeSsrNames.has(name) && !(returnsBySsr.get(name)?.length));
-    for (const instance of instances) for (const names of chunks(missingLegacy)) {
+    // ERP fails when the Stock Entry list query joins its child lines. Find the
+    // exact Supplier Return entry first, then read each document's item lines.
+    for (const instance of instances) for (const ssrName of missingLegacy) {
+      if (legacyStockEntryUnavailable.has(instance.id)) break;
       let entries: ErpRow[] = [];
       try {
         entries = await erpList(instance.cfg, "Stock Entry", [
           "name", "company", "posting_date", "stock_entry_type", "remarks",
-          "`tabStock Entry Detail`.item_code", "`tabStock Entry Detail`.qty",
-          "`tabStock Entry Detail`.basic_rate", "`tabStock Entry Detail`.valuation_rate",
-        ], [["remarks", "in", names.map((name) => `Supplier Return: ${name}`)], ["docstatus", "=", 1], ["stock_entry_type", "=", "Supplier Return"], ["posting_date", "<=", reportDate]]);
+        ], [["remarks", "=", `Supplier Return: ${ssrName}`], ["docstatus", "=", 1], ["stock_entry_type", "=", "Supplier Return"], ["posting_date", "<=", reportDate]]);
       } catch (error) {
+        legacyStockEntryUnavailable.add(instance.id);
         dataWarnings.push(`${instance.label ?? instance.id}: legacy Supplier Return entries unavailable (${error instanceof Error ? error.message.slice(0, 100) : "unknown error"})`);
-        continue;
+        break;
       }
       for (const entry of entries) {
-        const ssrName = str(entry.remarks).replace(/^Supplier Return:\s*/i, "");
-        if (!names.includes(ssrName) || str(entry.company) !== companyBySsr.get(ssrName)) continue;
-        const itemCode = str(entry.item_code);
-        const qty = Math.abs(num(entry.qty));
-        if (!itemCode || qty <= 0) continue;
+        const linkedSsrName = str(entry.remarks).replace(/^Supplier Return:\s*/i, "");
+        if (linkedSsrName !== ssrName || str(entry.company) !== companyBySsr.get(ssrName)) continue;
         const voucher = str(entry.name);
-        const rate = entry.basic_rate == null && entry.valuation_rate == null ? null : Math.abs(num(num(entry.basic_rate) > 0 ? entry.basic_rate : entry.valuation_rate ?? entry.basic_rate));
-        returnsBySsr.set(ssrName, [...(returnsBySsr.get(ssrName) ?? []), { voucher, voucherType: "Stock Entry", itemCode }]);
-        legacyBySsr.set(ssrName, [...(legacyBySsr.get(ssrName) ?? []), { voucher, itemCode, qty, rate, postingDate: dateOnly(entry.posting_date) }]);
+        const document = await erpDocument(instance.cfg, "Stock Entry", voucher);
+        const items = Array.isArray(document.items) ? document.items as ErpRow[] : [];
+        for (const item of items) {
+          const itemCode = str(item.item_code);
+          const qty = Math.abs(num(item.qty));
+          if (!itemCode || qty <= 0) continue;
+          const rate = item.basic_rate == null && item.valuation_rate == null ? null : Math.abs(num(num(item.basic_rate) > 0 ? item.basic_rate : item.valuation_rate ?? item.basic_rate));
+          returnsBySsr.set(ssrName, [...(returnsBySsr.get(ssrName) ?? []), { voucher, voucherType: "Stock Entry", itemCode }]);
+          legacyBySsr.set(ssrName, [...(legacyBySsr.get(ssrName) ?? []), { voucher, itemCode, qty, rate, postingDate: dateOnly(entry.posting_date) }]);
+        }
       }
     }
     for (const r of intercompanyReceipts.filter((r) => batch.includes(r.name))) {
@@ -280,7 +345,7 @@ export async function loadInventoryAgeing(
     }
   }
   progress({ percent: 94, status: "Allocating remaining stock and calculating ageing" });
-  const report = calculateAgeing({ reportDate, movements: allMovements, receipts: allReceipts, metadata, intercompanySources });
+  const report = calculateAgeing({ reportDate, movements: allMovements, receipts: allReceipts, metadata, intercompanySources, stockReturnLinks });
   progress({ percent: 99, status: "Finalising ageing summary" });
   return { ...report, dataWarnings, historicalState: "Reconstructed from current submitted document state; earlier cancellations or amendments may not be recoverable" };
 }
