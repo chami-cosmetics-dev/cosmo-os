@@ -10,6 +10,7 @@ import {
   MessageSquare,
   Package,
   PackageCheck,
+  PackageX,
   Plus,
   Settings,
   ShoppingBag,
@@ -278,6 +279,10 @@ export function AppSidebar({
     canViewNewItemRequests ||
     Boolean(fulfillmentHref);
   const canViewStickers = canStickerBatch || canStickerPrint;
+  const canViewDiscontinuedItems =
+    hasSidebarPermission("discontinued_items.purchasing_approval.read") ||
+    hasSidebarPermission("discontinued_items.shopify_draft.read") ||
+    hasSidebarPermission("discontinued_items.manager");
   const canViewSeoContent = hasSidebarPermission("products.seo.read");
   const canViewProductManagement = canViewProducts || canViewVatStatus || canViewSeoContent;
   const pathname = usePathname();
@@ -722,6 +727,19 @@ export function AppSidebar({
               {canViewProducts && (
                 <NavItem href="/dashboard/products/vendors-categories" icon={Tags} label="Vendors & Categories" isActive={pathname === "/dashboard/products/vendors-categories"} />
               )}
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
+        {canViewDiscontinuedItems && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Discontinued Items</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <NavItem
+                href="/dashboard/discontinued-items/item-drafting"
+                icon={PackageX}
+                label="Item Drafting"
+                isActive={pathname === "/dashboard/discontinued-items/item-drafting"}
+              />
             </SidebarGroupContent>
           </SidebarGroup>
         )}

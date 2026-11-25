@@ -79,7 +79,8 @@ function DashboardLegend() {
 /** Doughnut colours per priority label slot (pink, cyan, orange, indigo, fuchsia, teal). */
 const PRIORITY_SLOT_COLORS = ["#f472b6", "#22d3ee", "#fb923c", "#818cf8", "#e879f9", "#2dd4bf"];
 
-type Segment = { key: string; label: string; value: number; fill: string };
+/** `hint`: extra text after the count in the hover (e.g. a split). */
+export type Segment = { key: string; label: string; value: number; fill: string; hint?: string };
 
 /**
  * Fulfilment text colour. Stock is capped at ROP per Common SKU, so Fulfilment is at most 100%:
@@ -460,7 +461,18 @@ function Stat({
 }
 
 /** Doughnut of Common SKU counts; centre = their total. */
-function Donut({ id, segments, centreLabel }: { id: string; segments: Segment[]; centreLabel: string }) {
+export function Donut({
+  id,
+  segments,
+  centreLabel,
+  onSegmentClick,
+}: {
+  id: string;
+  segments: Segment[];
+  centreLabel: string;
+  /** Optional: a segment click (Item Drafting dashboard opens its tab). */
+  onSegmentClick?: (key: string) => void;
+}) {
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const chartData = segments.filter((s) => s.value > 0);
   const total = segments.reduce((sum, s) => sum + s.value, 0);
@@ -479,11 +491,14 @@ function Donut({ id, segments, centreLabel }: { id: string; segments: Segment[];
               <ChartTooltipContent
                 hideLabel
                 formatter={(value, _name, item) => {
-                  const payload = item.payload as { label: string };
+                  const payload = item.payload as { label: string; hint?: string };
                   return (
                     <div className="flex w-full items-center justify-between gap-3">
                       <span>{payload.label}</span>
-                      <span className="font-medium tabular-nums">{formatNumber(Number(value))}</span>
+                      <span className="font-medium tabular-nums">
+                        {formatNumber(Number(value))}
+                        {payload.hint ? ` (${payload.hint})` : ""}
+                      </span>
                     </div>
                   );
                 }}
@@ -508,6 +523,8 @@ function Donut({ id, segments, centreLabel }: { id: string; segments: Segment[];
             activeShape={renderActiveShape}
             isAnimationActive
             animationDuration={260}
+            onClick={onSegmentClick ? (entry) => onSegmentClick(String((entry as { key?: string }).key ?? "")) : undefined}
+            className={onSegmentClick ? "cursor-pointer" : undefined}
             onMouseEnter={(_, index) => setActiveIndex(index)}
             onMouseLeave={() => setActiveIndex(null)}
           >

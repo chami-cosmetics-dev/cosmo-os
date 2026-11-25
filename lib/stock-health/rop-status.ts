@@ -37,7 +37,7 @@ async function loadOsfRops(companyId: string) {
  * OSF ROP per SKU, added up over every active OSF column with "Include in ROP"
  * (same total ROP as the OSF). Keyed by `skuKey`.
  */
-async function loadRopBySku(companyId: string): Promise<Map<string, number>> {
+export async function loadRopBySku(companyId: string): Promise<Map<string, number>> {
   const ropBySku = new Map<string, number>();
   for (const rop of await loadOsfRops(companyId)) {
     const key = skuKey(rop.sku);

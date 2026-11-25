@@ -208,6 +208,22 @@ const DEFAULT_PERMISSIONS = [
     key: "purchasing.stock_health.manage",
     description: "Add / remove the SKUs excluded from Stock Health",
   },
+  // Discontinued Items → Item Drafting
+  {
+    key: "discontinued_items.purchasing_approval.read",
+    description:
+      "Discontinued Items → Item Drafting: use the Purchasing Approval tab (purchasing team)",
+  },
+  {
+    key: "discontinued_items.shopify_draft.read",
+    description:
+      "Discontinued Items → Item Drafting: use the Shopify Draft tab (SEO team)",
+  },
+  {
+    key: "discontinued_items.manager",
+    description:
+      "Discontinued Items → Item Drafting manager: view every tab and download the data",
+  },
   {
     key: "purchasing.market_prices.read",
     description:

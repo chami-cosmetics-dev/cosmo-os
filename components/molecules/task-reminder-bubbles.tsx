@@ -49,6 +49,8 @@ const CATEGORY_ORDER = [
   "stock_request_restocked",
   "item_creation",
   "shop_to_main",
+  "discontinued_pending",
+  "discontinued_shopify_draft",
 ] as const;
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -67,6 +69,8 @@ const CATEGORY_LABELS: Record<string, string> = {
   stock_request_restocked: "Wishlist items back in stock",
   item_creation: "Item creation workflow",
   shop_to_main: "Shop returns",
+  discontinued_pending: "Discontinued items pending",
+  discontinued_shopify_draft: "Discontinued items to draft on Shopify",
 };
 
 const CATEGORY_NODE_LABELS: Record<string, string> = {
@@ -85,6 +89,8 @@ const CATEGORY_NODE_LABELS: Record<string, string> = {
   stock_request_restocked: "Back in stock",
   item_creation: "Item creation",
   shop_to_main: "Shop returns",
+  discontinued_pending: "Discontinued pending",
+  discontinued_shopify_draft: "Shopify draft",
 };
 
 function groupReminders(reminders: TaskReminder[]) {
@@ -610,9 +616,14 @@ export function TaskReminderBubbles() {
       void loadReminders().finally(() => setLoading(false));
     }, 3000);
     const interval = window.setInterval(() => void loadReminders(), 60_000);
+    // Pages that change a reminder's source (e.g. Discontinued Items buttons) fire this so the
+    // bubbles update at once instead of on the next poll.
+    const refreshNow = () => void loadReminders();
+    window.addEventListener("task-reminders:refresh", refreshNow);
     return () => {
       window.clearTimeout(initial);
       window.clearInterval(interval);
+      window.removeEventListener("task-reminders:refresh", refreshNow);
     };
   }, [loadReminders]);
 

@@ -18,6 +18,7 @@ import {
   monthKeyOf,
   newlyAddedReviewSendDate,
   NEWLY_ADDED_STATUS,
+  unitsByMonth,
   type NewlyAddedReview,
 } from "@/lib/newly-added-review/calc";
 import { buildNewlyAddedReviewMail, newlyAddedReviewPlaceholders } from "@/lib/newly-added-review/mail-html";
@@ -125,13 +126,6 @@ export async function loadNewlyAddedReview(companyId: string, mailMonth: string)
     mailMonth,
     (sku) => unitsByMonth(sales.bySku.get(normalizeSkuKey(sku))),
   );
-}
-
-/** A variant's units per month over every channel (POS + online, every merchant / shop). */
-function unitsByMonth(buckets: Array<{ month: string; qty: number }> | undefined): Map<string, number> {
-  const out = new Map<string, number>();
-  for (const b of buckets ?? []) out.set(b.month, (out.get(b.month) ?? 0) + b.qty);
-  return out;
 }
 
 /** The mail month for today (Asia/Colombo), "YYYY-MM". */

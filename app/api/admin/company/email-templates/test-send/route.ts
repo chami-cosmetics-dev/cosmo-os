@@ -21,6 +21,7 @@ import { loadMarginIssuesReport } from "@/lib/margin-issues";
 import { requirePermission } from "@/lib/rbac";
 import { loadStockHealthMailTestPlaceholders } from "@/lib/stock-health/summary-mail";
 import { loadNewlyAddedReviewTestPlaceholders } from "@/lib/newly-added-review/send";
+import { loadActiveAgainTestPlaceholders } from "@/lib/discontinued-items/active-again.server";
 import { LIMITS, trimmedString } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
@@ -183,6 +184,9 @@ export async function POST(request: NextRequest) {
       placeholders = { ...SAMPLE_PLACEHOLDERS, ...newlyAdded.placeholders };
       attachments = newlyAdded.attachments;
     }
+    // Discontinued Items "active again": real flagged items (or a sample row); nothing marked as mailed.
+    const activeAgain = await loadActiveAgainTestPlaceholders(user.companyId, parsed.data.key);
+    if (activeAgain) placeholders = { ...SAMPLE_PLACEHOLDERS, ...activeAgain };
   }
   const templateSubject = parsed.data.key === GRN_PENDING_DAILY_KEY
     ? normalizeGrnPendingTemplateSubject(parsed.data.subject)
