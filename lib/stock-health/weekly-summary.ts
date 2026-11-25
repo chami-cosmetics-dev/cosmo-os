@@ -34,12 +34,35 @@ type ErpItem = {
   brand: string | null;
   priority: string | null;
   itemName: string | null;
+  /** ERPNext Item "Created On" (`creation`), as YYYY-MM-DD. */
+  createdOn: string | null;
+  /** ERPNext Item "Created By" (`owner`): an ERP user, or "Guest". */
+  createdBy: string | null;
 };
 
-/** Every Item on one ERP: item code, name, brand, Product Priority. */
+/** "2024-05-12 10:22:33.123" → "2024-05-12"; null when not a date. */
+function erpDateOnly(value: unknown): string | null {
+  const m = /^(\d{4}-\d{2}-\d{2})/.exec(String(value ?? ""));
+  return m ? m[1] : null;
+}
+
+/**
+ * In both ERPs: the earlier Created On (when the item first existed), with the Created By of
+ * that same ERP. Either side may be missing a date.
+ */
+function earlierCreation(
+  a: Pick<ErpItem, "createdOn" | "createdBy">,
+  b: Pick<ErpItem, "createdOn" | "createdBy"> | undefined,
+): { createdOn: string | null; createdBy: string | null } {
+  const pickB = b && b.createdOn && (!a.createdOn || b.createdOn < a.createdOn);
+  const from = pickB ? b : a;
+  return { createdOn: from.createdOn, createdBy: from.createdBy };
+}
+
+/** Every Item on one ERP: item code, name, brand, Product Priority, Created On. */
 async function fetchErpItems(cfg: OsfErpCredentials): Promise<ErpItem[]> {
   const priorityField = await resolveProductPriorityFieldName(cfg);
-  const fields = JSON.stringify(["item_code", "item_name", "brand", priorityField].filter(Boolean));
+  const fields = JSON.stringify(["item_code", "item_name", "brand", "creation", "owner", priorityField].filter(Boolean));
   const items: ErpItem[] = [];
   for (let page = 0; page < ITEM_MAX_PAGES; page += 1) {
     const json = await vaultErpGetJson<{ data?: Array<Record<string, unknown>> }>(
@@ -54,7 +77,14 @@ async function fetchErpItems(cfg: OsfErpCredentials): Promise<ErpItem[]> {
       const brand = String(row.brand ?? "").trim();
       const priority = priorityField ? String(row[priorityField] ?? "").trim() : "";
       const itemName = String(row.item_name ?? "").trim();
-      items.push({ sku, brand: brand || null, priority: priority || null, itemName: itemName || null });
+      items.push({
+        sku,
+        brand: brand || null,
+        priority: priority || null,
+        itemName: itemName || null,
+        createdOn: erpDateOnly(row.creation),
+        createdBy: String(row.owner ?? "").trim() || null,
+      });
     }
     if (rows.length < ITEM_PAGE) return items;
   }
@@ -101,11 +131,19 @@ async function loadStockHealthItems(companyId: string): Promise<StockHealthItem[
       priority: resolveProductPriority(item.priority, other?.priority),
       siteStatus: siteStatusBySku.get(skuKey(item.sku)) ?? null,
       itemName: item.itemName ?? other?.itemName ?? null,
+      inErp1: true,
+      inErp2: Boolean(other),
+      ...earlierCreation(item, other),
     });
   }
   for (const item of erp2Items) {
     if (!merged.has(skuKey(item.sku))) {
-      merged.set(skuKey(item.sku), { ...item, siteStatus: siteStatusBySku.get(skuKey(item.sku)) ?? null });
+      merged.set(skuKey(item.sku), {
+        ...item,
+        siteStatus: siteStatusBySku.get(skuKey(item.sku)) ?? null,
+        inErp1: false,
+        inErp2: true,
+      });
     }
   }
   return [...merged.values()];

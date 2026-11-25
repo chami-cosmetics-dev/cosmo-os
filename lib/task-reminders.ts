@@ -51,7 +51,9 @@ export type TaskReminderCategory =
   | "purchasing_rop_threshold"
   | "stock_request_restocked"
   | "item_creation"
-  | "shop_to_main";
+  | "shop_to_main"
+  | "discontinued_pending"
+  | "discontinued_shopify_draft";
 
 export type TaskReminder = {
   id: string;
@@ -1053,6 +1055,74 @@ async function fetchShopToMainReminders(companyId: string, now: Date): Promise<C
   return { reminders, totalCount };
 }
 
+/**
+ * Discontinued Items bubbles, from the saved Purchasing Approval status:
+ * - discontinued_pending: in both ERPs, only one disabled (Inoka);
+ * - discontinued_shopify_draft: approved for Shopify draft, not drafted yet (Nipun). That status
+ *   only exists for ERP 1 only / both, so ERP 2 only items never count.
+ */
+async function fetchDiscontinuedItemReminders(
+  category: "discontinued_pending" | "discontinued_shopify_draft",
+  now: Date,
+): Promise<CappedReminders> {
+  const { discontinuedReminderWhere, ITEM_DRAFTING_HREF } = await import(
+    "@/lib/discontinued-items/notifications"
+  );
+  try {
+    const { clearTestDataIfLive } = await import("@/lib/discontinued-items/purchasing-approval.server");
+    await clearTestDataIfLive();
+    const where = discontinuedReminderWhere(category);
+    const pending = category === "discontinued_pending";
+    const [totalCount, rows] = await Promise.all([
+      prisma.discontinuedItem.count({ where }),
+      prisma.discontinuedItem.findMany({
+        where,
+        orderBy: pending ? { updatedAt: "asc" } : { approvedDate: "asc" },
+        take: REMINDER_LIMIT_PER_CATEGORY,
+        select: {
+          sku: true,
+          productTitle: true,
+          erp1DisabledDate: true,
+          erp2DisabledDate: true,
+          approvedDate: true,
+          updatedAt: true,
+          verification: true,
+          verifiedAt: true,
+        },
+      }),
+    ]);
+    const reminders = rows.map((row) => {
+      const since = pending
+        ? (row.erp1DisabledDate ?? row.erp2DisabledDate ?? row.updatedAt)
+        : (row.approvedDate ?? row.updatedAt);
+      const missing = row.erp1DisabledDate ? "ERP 2" : "ERP 1";
+      // Marked drafted but the Shopify check found it not Draft: pending work again.
+      const mismatch = !pending && row.verification === "FAIL";
+      return {
+        id: `${category}:${row.sku}`,
+        category,
+        title: pending
+          ? `${row.sku} pending in ${missing}`
+          : mismatch
+            ? `${row.sku} still active in Shopify (mismatch)`
+            : `${row.sku} approved for Shopify draft`,
+        body: pending
+          ? `${row.productTitle ?? row.sku}: disabled in one ERP, still to disable in ${missing}.`
+          : mismatch
+            ? `${row.productTitle ?? row.sku} was marked as drafted, but Shopify still shows it as not Draft. Draft it again.`
+            : `${row.productTitle ?? row.sku} is approved and not drafted on Shopify yet.`,
+        href: `${ITEM_DRAFTING_HREF}?tab=${pending ? "purchasing_approval" : "shopify_draft"}`,
+        waitingHours: waitingHoursSince(since, now),
+        invoiceLabel: row.sku,
+      };
+    });
+    return { reminders, totalCount };
+  } catch (err) {
+    console.error(`[reminders] ${category}`, err);
+    return { reminders: [], totalCount: 0 };
+  }
+}
+
 export async function fetchTaskReminders(
   companyId: string,
   context: PermissionContext,
@@ -1154,6 +1224,12 @@ export async function fetchTaskReminders(
     reminders.push(...itemCreation.reminders);
     categoryCounts.item_creation = itemCreation.totalCount;
   }
+  for (const category of ["discontinued_pending", "discontinued_shopify_draft"] as const) {
+    if (!canSeeTaskReminderCategory(context, category)) continue;
+    const discontinued = await fetchDiscontinuedItemReminders(category, now);
+    reminders.push(...discontinued.reminders);
+    categoryCounts[category] = discontinued.totalCount;
+  }
 
   reminders.sort((a, b) => b.waitingHours - a.waitingHours);
 
@@ -1170,6 +1246,8 @@ export async function fetchTaskReminders(
     "stock_request_restocked",
     "shop_to_main",
     "item_creation",
+    "discontinued_pending",
+    "discontinued_shopify_draft",
   ]);
 
   for (const reminder of reminders) {

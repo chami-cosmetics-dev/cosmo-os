@@ -76,6 +76,16 @@ export function maxSaleQtyInWindow(
   return best;
 }
 
+/**
+ * A variant's units per month over every channel (POS + online, every merchant / shop), from
+ * Sales Budget's counted-sales buckets. Also used by Discontinued Items' Max Sale Qty.
+ */
+export function unitsByMonth(buckets: Array<{ month: string; qty: number }> | undefined): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const b of buckets ?? []) out.set(b.month, (out.get(b.month) ?? 0) + b.qty);
+  return out;
+}
+
 /** One catalog variant with its Item Trends created date and live stock. */
 export type NewlyAddedReviewInput = {
   sku: string;
