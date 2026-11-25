@@ -9,6 +9,7 @@ import {
   STOCK_AVAILABILITY_STATUS_WEEKLY_TEMPLATE,
   STOCK_HEALTH_WEEKLY_SUMMARY_TEMPLATE,
 } from "@/lib/stock-health/mail-templates";
+import { ACTIVE_AGAIN_MAIL_TEMPLATE } from "@/lib/discontinued-items/active-again-mail-template";
 import { NEWLY_ADDED_PRIORITY_REVIEW_TEMPLATE } from "@/lib/newly-added-review/mail-templates";
 
 export const EMAIL_TEMPLATE_KEY_RE = /^[a-z][a-z0-9_]{1,63}$/;
@@ -280,7 +281,8 @@ export const BUILTIN_EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
   // Stock Health weekly mails: Monday (Stock Availability Status) and Tuesday (Weekly Summary).
   // The tables fill the {{…Html}} placeholders; no recipients until someone adds them.
   // Newly Added Priority Review: first Tuesday of each month (generated parts fill {{…Html}}).
-  ...[STOCK_AVAILABILITY_STATUS_WEEKLY_TEMPLATE, STOCK_HEALTH_WEEKLY_SUMMARY_TEMPLATE, NEWLY_ADDED_PRIORITY_REVIEW_TEMPLATE].map((t) => ({
+  // Discontinued Items: weekly "active again" mail (day / time set on Item Drafting).
+  ...[STOCK_AVAILABILITY_STATUS_WEEKLY_TEMPLATE, STOCK_HEALTH_WEEKLY_SUMMARY_TEMPLATE, NEWLY_ADDED_PRIORITY_REVIEW_TEMPLATE, ACTIVE_AGAIN_MAIL_TEMPLATE].map((t) => ({
     ...t,
     recipients: "",
     ccRecipients: "",

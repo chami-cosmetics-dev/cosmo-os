@@ -1647,6 +1647,7 @@ const FULFILLMENT_SUBGROUP_LABELS: Record<string, string> = {
 const PERMISSION_GROUP_LABELS: Record<string, string> = {
   failed_webhooks: "Failed Webhooks",
   reminders: "Reminder bubbles",
+  discontinued_items: "Discontinued Items",
 };
 
 type PermissionGroupItem =

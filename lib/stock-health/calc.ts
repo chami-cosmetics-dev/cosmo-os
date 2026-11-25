@@ -20,6 +20,13 @@ export type StockHealthItem = {
   siteStatus: string | null;
   /** ERP Item Name. */
   itemName: string | null;
+  /** The SKU is on ERP 1's / ERP 2's Item list (Discontinued Items' "Present in"). */
+  inErp1?: boolean;
+  inErp2?: boolean;
+  /** ERPNext Item "Created On" (YYYY-MM-DD); the earlier one when in both ERPs. */
+  createdOn?: string | null;
+  /** ERPNext Item "Created By" of that same Created On: an ERP user, or "Guest". */
+  createdBy?: string | null;
 };
 
 const UNGROUPED_BRANDS = new Set(

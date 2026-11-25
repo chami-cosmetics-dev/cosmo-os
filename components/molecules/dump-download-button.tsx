@@ -21,6 +21,8 @@ type DumpDownloadButtonProps = {
   className?: string;
   disabled?: boolean;
   onBusyChange?: (busy: boolean) => void;
+  /** Button style; "default" (filled) unless set. */
+  variant?: "default" | "outline";
 };
 
 function triggerBlobDownload(blob: Blob, fileName: string) {
@@ -40,6 +42,7 @@ export function DumpDownloadButton({
   className,
   disabled,
   onBusyChange,
+  variant = "default",
 }: DumpDownloadButtonProps) {
   const toastId = useId();
   const [percent, setPercent] = useState<number | null>(null);
@@ -134,7 +137,8 @@ export function DumpDownloadButton({
           disabled={disabled && !busy}
           onClick={() => void handleClick()}
           aria-busy={busy}
-          className={cn("text-white", busy && "disabled:opacity-100", className)}
+          variant={variant}
+          className={cn(variant === "default" && "text-white", busy && "disabled:opacity-100", className)}
         >
           {busy ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Download className="size-4" />}
           {statusLabel}
