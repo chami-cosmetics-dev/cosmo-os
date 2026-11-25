@@ -163,6 +163,8 @@ describe("summarizeShopStockDashboardCard", () => {
       yellow: 2,
       green: 1,
       purple: 1,
+      // Full stock per colour: red 2, yellow 5 + 10, green 30 (= 27 + 20), purple 7.
+      stockByColour: { red: 2, yellow: 15, green: 30, purple: 7 },
     });
     expect(summarizeShopStockDashboardCard([r("P", 7, 0)], "a").fulfilment).toBeNull();
   });
@@ -192,6 +194,7 @@ describe("summarizeShopStockDashboardCard", () => {
     expect(card.totalAdditionalStock).toBe(0);
     expect(card.fulfilment).toBe(0);
     expect(card.red).toBe(1);
+    expect(card.stockByColour.red).toBe(0);
   });
 });
 

@@ -128,7 +128,9 @@ export function ShopStockStatusDashboard({
           </span>
         ))}
         <span className="text-muted-foreground">
-          No ROP - No Stock items are not counted.
+          No ROP - No Stock items are not counted. The figures under each doughnut are the{" "}
+          <span className="font-medium text-foreground">stock</span> of each colour&apos;s items;
+          hover the doughnut for the number of Common SKUs.
         </span>
       </div>
       <CardSection title="Shops" cards={shops} onOpen={onOpenLocation} />
@@ -232,11 +234,14 @@ function LocationCard({
       </CardHeader>
       <CardContent className="bg-[linear-gradient(180deg,transparent,color-mix(in_srgb,var(--secondary)_6%,transparent))] pt-3 pb-3">
         <Donut card={card} />
+        <p className="mt-1 text-center text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
+          Stock by colour
+        </p>
         <div className="mt-1 grid grid-cols-4 gap-1 text-center text-[11px]">
           {SEGMENTS.map((s) => (
             <div
               key={s.key}
-              title={s.label}
+              title={`${s.label}: stock ${formatNumber(card.stockByColour[s.key])} (${formatNumber(card[s.key])} Common SKUs)`}
               className="rounded-lg border border-border/60 bg-background/70 px-1 py-1.5"
             >
               <div
@@ -244,7 +249,7 @@ function LocationCard({
                 style={{ backgroundColor: s.color }}
               />
               <p className="font-medium tabular-nums">
-                {formatNumber(card[s.key])}
+                {formatNumber(card.stockByColour[s.key])}
               </p>
             </div>
           ))}

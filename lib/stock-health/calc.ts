@@ -121,6 +121,35 @@ export function stockHealthSkipReason(
   return null;
 }
 
+/**
+ * Why a Common SKU that was counted before is not counted now (Discontinue tracking):
+ * - `excluded`: on the Excluded SKUs list (or matched by a prefix rule).
+ * - `draft_no_stock`: all its variants are website drafts with no stock.
+ * - `regrouped`: its items are still in the ERP but now fall under another Common SKU
+ *   (e.g. the brand changed to / from Golden Rose, whose SKUs are not cut).
+ * - `not_in_erp`: no ERP item has this SKU any more (deleted, or the item code renamed).
+ */
+export type NotCountedReason = "excluded" | "draft_no_stock" | "regrouped" | "not_in_erp";
+
+export function notCountedReasonOf(
+  commonSku: string,
+  items: StockHealthItem[],
+  stockBySku: Map<string, number>,
+  excluded: ExcludedSkus,
+): NotCountedReason {
+  const key = skuKey(commonSku);
+  const variants = items.filter((item) => commonSkuOf(item) === key);
+  if (variants.length === 0) {
+    const stillInErp = items.some((item) => {
+      const sku = skuKey(item.sku);
+      return sku === key || sku.startsWith(`${key}_`);
+    });
+    return stillInErp ? "regrouped" : "not_in_erp";
+  }
+  if (isExcludedSku(key, excluded)) return "excluded";
+  return "draft_no_stock";
+}
+
 export type StockHealthCommonSkuRow = {
   commonSku: string;
   /** Highest status among the variants. */
