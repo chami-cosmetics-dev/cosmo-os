@@ -150,6 +150,11 @@ export type ShopStockDashboardCard = {
   green: number;
   /** No ROP there, stock above 0 there. No ROP + no stock is ignored. */
   purple: number;
+  /**
+   * Stock of the items in each colour: their full stock there (not capped at ROP; negative = 0).
+   * red + yellow + green = totalStock + totalAdditionalStock.
+   */
+  stockByColour: { red: number; yellow: number; green: number; purple: number };
 };
 
 /**
@@ -167,12 +172,16 @@ export function summarizeShopStockDashboardCard(rows: ShopStockRow[], columnKey:
     yellow: 0,
     green: 0,
     purple: 0,
+    stockByColour: { red: 0, yellow: 0, green: 0, purple: 0 },
   };
   for (const row of rows) {
     const cell = row.cells[columnKey];
     if (!cell) continue;
     if (cell.percent === null) {
-      if (cell.stock > 0) card.purple += 1;
+      if (cell.stock > 0) {
+        card.purple += 1;
+        card.stockByColour.purple += cell.stock;
+      }
       continue;
     }
     card.totalRop += cell.rop;
@@ -180,9 +189,9 @@ export function summarizeShopStockDashboardCard(rows: ShopStockRow[], columnKey:
     card.totalStock += Math.min(stock, cell.rop);
     card.totalAdditionalStock += Math.max(stock - cell.rop, 0);
     const band = shopStockBandOf(cell.percent);
-    if (band === "fail") card.red += 1;
-    else if (band === "pass") card.yellow += 1;
-    else card.green += 1;
+    const colour = band === "fail" ? "red" : band === "pass" ? "yellow" : "green";
+    card[colour] += 1;
+    card.stockByColour[colour] += stock;
   }
   card.fulfilment = card.totalRop > 0 ? (card.totalStock / card.totalRop) * 100 : null;
   return card;

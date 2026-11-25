@@ -194,6 +194,21 @@ describe("buildStockHealthSummaryMail", () => {
     expect(html).toContain(">Status<");
     expect(plain).toContain("Discontinue to Top (reduction): 1 — D1");
     expect(buildStockHealthSummaryMail(withTracking, "rop").html).not.toContain("Discontinue Tracking");
+    // No longer counted: one line per reason.
+    const gone = buildDiscontinueMovement(
+      [
+        { commonSku: "X1", status: "Discontinue", itemName: null },
+        { commonSku: "X2", status: "Discontinue", itemName: null },
+        { commonSku: "X3", status: "Discontinue", itemName: null },
+      ],
+      [],
+      (sku) => (sku === "X1" ? "draft_no_stock" : sku === "X2" ? "excluded" : "regrouped"),
+    );
+    const goneMail = buildStockHealthSummaryMail(data({ discontinue: { previousDateLabel: "09/11/2026", movement: gone } }), "weekly");
+    expect(goneMail.plain).toContain("Discontinue, website draft with no stock (reduction): 1 — X1");
+    expect(goneMail.plain).toContain("Discontinue, added to Excluded SKUs (reduction): 1 — X2");
+    expect(goneMail.plain).toContain("Discontinue, now under another Common SKU (reduction): 1 — X3");
+    expect(goneMail.html).not.toContain("no longer counted");
     expect(buildStockHealthSummaryMail(data({ discontinue: null }), "weekly").html).toContain(
       "Starts with next week's mail",
     );
