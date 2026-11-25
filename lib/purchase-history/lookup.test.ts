@@ -99,6 +99,23 @@ describe("ERP purchasing history", () => {
 });
 
 describe("purpose-scoped history endpoint", () => {
+  it("offers every approved ERP2 company and rejects unbound choices before loading", async () => {
+    const load = vi.fn().mockResolvedValue({ status: "OK", instanceLabel: "ERP2", records: [], truncated: false, hasUnusableRows: false });
+    const handler = createPurchaseHistoryHandler({
+      config: () => JSON.stringify({ portal: { ...binding, erpCompanies: {
+        "erp-one": "Company A", "erp-two": ["Company B", "Company C"],
+      } } }), load,
+    });
+    const selection = await (await handler(request({ instanceId: "erp-two" }))).json();
+    expect(selection).toMatchObject({ status: "SELECT_COMPANY", companies: ["Company B", "Company C"] });
+    expect(load).not.toHaveBeenCalled();
+    expect((await handler(request({ instanceId: "erp-two", erpCompany: "Other Company" }))).status).toBe(403);
+    expect(load).not.toHaveBeenCalled();
+    const selected = await (await handler(request({ instanceId: "erp-two", erpCompany: "Company C" }))).json();
+    expect(selected).toMatchObject({ status: "OK", erpCompany: "Company C", companies: ["Company B", "Company C"] });
+    expect(load).toHaveBeenCalledWith(expect.objectContaining({ companyId: "cosmo-company", instanceId: "erp-two", erpCompany: "Company C" }));
+  });
+
   it("checks purpose, expiry, tenant, instance and dates before any ERP work", async () => {
     const load = vi.fn();
     const handler = createPurchaseHistoryHandler({ config, load });
@@ -141,6 +158,25 @@ describe("purpose-scoped history endpoint", () => {
     expect((await (await GET(request())).json()).status).toBe("MAPPING_AMBIGUOUS");
     expect((await (await GET(request({ itemCode: "ALIAS" }))).json()).status).toBe("MAPPING_UNAVAILABLE");
     expect(prisma.erpnextInstance.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "erp-one", companyId: "cosmo-company" } }));
+    expect(prisma.companyLocation.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: { companyId: "cosmo-company", erpnextInstanceId: "erp-one", erpnextCompany: "Company A" },
+    }));
+    expect(transport).not.toHaveBeenCalled();
+  });
+
+  it("requires the selected ERP2 company to belong to a location in the source company", async () => {
+    vi.stubEnv("SUPPLIER_PORTAL_PURCHASE_HISTORY_BINDINGS_JSON", JSON.stringify({ portal: {
+      ...binding, erpCompanies: { "erp-two": ["Company B", "Company C"] },
+    } }));
+    vi.mocked(prisma.productItem.findMany).mockResolvedValue([{ id: "product" }] as never);
+    vi.mocked(prisma.erpnextInstance.findFirst).mockResolvedValue({ label: "ERP2", ...erp.cfg } as never);
+    vi.mocked(prisma.companyLocation.findFirst).mockResolvedValue(null);
+    const transport = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", transport);
+    expect((await (await GET(request({ instanceId: "erp-two", erpCompany: "Company C" }))).json()).status).toBe("MAPPING_UNAVAILABLE");
+    expect(prisma.companyLocation.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: { companyId: "cosmo-company", erpnextInstanceId: "erp-two", erpnextCompany: "Company C" },
+    }));
     expect(transport).not.toHaveBeenCalled();
   });
 

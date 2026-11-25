@@ -12,13 +12,14 @@ const bindingSchema = z.object({
   companyId: text,
   tokenHash: z.string().regex(/^[a-f0-9]{64}$/),
   expiresAt: z.iso.datetime(),
-  erpCompanies: z.record(text, text),
+  erpCompanies: z.record(text, z.union([text, z.array(text).min(1).max(20)])),
 });
 const requestSchema = z.strictObject({
   requestId: z.uuid(),
   sku: text,
   itemCode: text,
   instanceId: text,
+  erpCompany: text.optional(),
   from: z.iso.date(),
   to: z.iso.date(),
   offset: z.coerce.number().int().min(0).max(250).default(0),
@@ -60,8 +61,14 @@ export function createPurchaseHistoryHandler(deps: {
     if (!input.success) return respond({ code: "INVALID_INPUT" }, 422);
     const { requestId, sku, itemCode, instanceId, from, to, offset } = input.data;
     if (!Object.hasOwn(binding.erpCompanies, instanceId)) return respond({ code: "BINDING_MISMATCH" }, 403);
-    const erpCompany = binding.erpCompanies[instanceId];
+    const configured = binding.erpCompanies[instanceId];
+    const companies = [...new Set(Array.isArray(configured) ? configured : [configured])];
+    if (input.data.erpCompany && !companies.includes(input.data.erpCompany)) {
+      return respond({ code: "BINDING_MISMATCH" }, 403);
+    }
     const identity = { contractVersion: version, requestId, companyId: binding.companyId, instanceId, sku, itemCode, from, to };
+    const erpCompany = input.data.erpCompany ?? (companies.length === 1 ? companies[0] : null);
+    if (!erpCompany) return respond({ ...identity, status: "SELECT_COMPANY", companies });
 
     try {
       const result = await deps.load({ companyId: binding.companyId, erpCompany, instanceId, sku, itemCode, from, to });
@@ -70,6 +77,7 @@ export function createPurchaseHistoryHandler(deps: {
       return respond({
         ...identity,
         status: "OK",
+        erpCompany, companies,
         instanceLabel: result.instanceLabel,
         retrievedAt: new Date(deps.now?.() ?? Date.now()).toISOString(),
         records: result.records.slice(offset, end),

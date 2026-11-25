@@ -27,13 +27,12 @@ export const GET = createPurchaseHistoryHandler({
     const cfg = { ...instance, baseUrl: instance.baseUrl.replace(/\/$/, "") };
     const mapping = await verifyExactErpItem(cfg, itemCode);
     if (mapping !== "VERIFIED") return { status: mapping };
+    const history = await fetchPurchaseHistory({ cfg, erpCompany, itemCode, from, to });
     return {
       status: "OK",
       instanceLabel: instance.label,
-      ...await fetchPurchaseHistory({
-        cfg,
-        erpCompany, itemCode, from, to,
-      }),
+      ...history,
+      records: history.records.map((record) => ({ ...record, erpCompany })),
     };
   },
 });
