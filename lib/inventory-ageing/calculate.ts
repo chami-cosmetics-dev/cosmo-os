@@ -7,12 +7,16 @@ export type AgeingLayer = {
   unitCost: number | null; pricedQty: number; costStatus: "Complete" | "Partial PI" | "Pending PI" | "Unallocated";
   originOffset?: number;
   openingStock?: boolean;
+  materialReceipt?: boolean;
+  sourceReference?: string;
+  traceFailure?: string;
 };
 export type IntercompanySource = { receiptErp: string; receiptCompany: string; receiptName: string; ssrName: string; sourceCompany: string; returnItems: { voucher: string; voucherType: "Purchase Invoice" | "Stock Entry"; itemCode: string }[]; legacyItems?: { voucher: string; itemCode: string; qty: number; rate: number | null; postingDate: string }[] };
 export type AgeingMovement = {
   erp: string; company: string; itemCode: string; warehouse: string;
   postingDate: string; postingTime: string; creation: string; name: string;
   qty: number; voucherType: string; voucherNo: string; voucherDetailNo: string | null;
+  stockEntryType?: string | null;
   balance: number | null;
   valuationRate?: number | null;
 };
@@ -20,6 +24,13 @@ export type AgeingReceipt = {
   erp: string; company: string; name: string; itemName: string; itemCode: string;
   supplier: string; creation: string; intercompany: boolean;
   stockQty: number; invoicedQty: number; invoiceAmount: number;
+};
+export type StockReturnLink = {
+  erp: string; company: string;
+  returnVoucherType: "Sales Invoice" | "Delivery Note";
+  returnVoucher: string; returnItem: string;
+  originalVoucherType: "Sales Invoice" | "Delivery Note";
+  originalVoucher: string; originalItem: string;
 };
 export type AgeingItem = {
   erp: string; company: string; itemCode: string; stockUom: string;
@@ -53,6 +64,7 @@ export function bucketForAge(creation: string, reportDate: string): AgeBucket | 
 export function calculateAgeing(input: {
   reportDate: string; movements: AgeingMovement[]; receipts: AgeingReceipt[];
   intercompanySources?: IntercompanySource[];
+  stockReturnLinks?: StockReturnLink[];
   metadata: Map<string, Pick<AgeingItem, "stockUom" | "barcode" | "description" | "brand" | "sellingRate" | "currency">>;
 }) {
   const receipts = new Map(input.receipts.map((r) => [receiptKey(r.erp, r.name, r.itemName), r]));
@@ -62,6 +74,7 @@ export function calculateAgeing(input: {
   const transferPool = new Map<string, AgeingLayer[]>();
   const consumedSales = new Map<string, AgeingLayer[]>();
   const sources = input.intercompanySources ?? [];
+  const stockReturns = new Map((input.stockReturnLinks ?? []).map((link) => [JSON.stringify([link.erp, link.company, link.returnVoucherType, link.returnVoucher, link.returnItem]), link]));
   const sourceByReceipt = new Map(sources.map((s) => [JSON.stringify([s.receiptErp, s.receiptCompany, s.receiptName]), s]));
   const ssrByReturn = new Map(sources.flatMap((s) => s.returnItems.map((item) => [JSON.stringify([s.sourceCompany, item.voucherType, item.voucher, item.itemCode]), s.ssrName] as const)));
   const returnedLayers = new Map<string, AgeingLayer[]>();
@@ -117,6 +130,17 @@ export function calculateAgeing(input: {
     }
     if (m.qty < -EPS) {
       const preferred = m.voucherType === "Purchase Receipt" ? m.voucherNo : null;
+      // Some historical ERP ledgers establish stock with a balance-only entry
+      // (actual_qty = 0). When that stock is later moved or sold, preserve the
+      // known ERP balance as opening stock instead of inventing an unallocated
+      // PR layer. It remains visible separately and never receives a cost/age.
+      const attributedQty = queue.reduce((sum, layer) => sum + layer.qty, 0);
+      const inferredOpeningQty = Math.max(0, previous - attributedQty);
+      if (inferredOpeningQty > EPS) {
+        queue.unshift({ erp: m.erp, company: m.company, itemCode: m.itemCode, warehouse: m.warehouse,
+          prName: null, prItemName: null, supplier: null, prCreation: null, intercompany: false,
+          openingStock: true, qty: inferredOpeningQty, unitCost: null, pricedQty: 0, costStatus: "Unallocated" });
+      }
       const result = take(queue, -m.qty, preferred);
       const ssr = ssrByReturn.get(JSON.stringify([m.company, m.voucherType, m.voucherNo, m.itemCode]));
       if (ssr) {
@@ -133,6 +157,15 @@ export function calculateAgeing(input: {
       continue;
     }
     if (m.qty <= EPS) continue;
+    if (m.voucherType === "Stock Entry" && m.stockEntryType === "Material Receipt") {
+      // Material Receipt stock is outside purchase-receipt ageing and cost, but
+      // remains in FIFO so subsequent stock deductions stay correctly ordered.
+      queue.push({ erp: m.erp, company: m.company, itemCode: m.itemCode, warehouse: m.warehouse,
+        prName: m.voucherNo, prItemName: m.voucherDetailNo, supplier: null,
+        prCreation: null, intercompany: false, materialReceipt: true,
+        qty: m.qty, unitCost: null, pricedQty: 0, costStatus: "Unallocated" });
+      continue;
+    }
     const r = m.voucherType === "Purchase Receipt" ? receipts.get(receiptKey(m.erp, m.voucherNo, m.voucherDetailNo ?? "")) : undefined;
     if (r) {
       const pricedQty = Math.max(0, Math.min(m.qty, r.invoicedQty));
@@ -149,7 +182,13 @@ export function calculateAgeing(input: {
       if (moved.remaining <= EPS) continue;
       m.qty = moved.remaining;
     }
-    const sale = m.voucherType === "Sales Invoice" || m.voucherType === "Delivery Note" ? consumedSales.get(transferKey(m)) : undefined;
+    const returnLink = m.voucherType === "Sales Invoice" || m.voucherType === "Delivery Note"
+      ? stockReturns.get(JSON.stringify([m.erp, m.company, m.voucherType, m.voucherNo, m.voucherDetailNo ?? ""]))
+      : undefined;
+    const saleSource = returnLink
+      ? { ...m, voucherType: returnLink.originalVoucherType, voucherNo: returnLink.originalVoucher, voucherDetailNo: returnLink.originalItem }
+      : m;
+    const sale = m.voucherType === "Sales Invoice" || m.voucherType === "Delivery Note" ? consumedSales.get(transferKey(saleSource)) : undefined;
     if (sale?.length) {
       const restored = take(sale, m.qty);
       queue.push(...restored.taken.map((l) => ({ ...l, warehouse: m.warehouse })));
@@ -158,7 +197,10 @@ export function calculateAgeing(input: {
     }
     queue.push({ erp: m.erp, company: m.company, itemCode: m.itemCode, warehouse: m.warehouse,
       prName: null, prItemName: null, supplier: null, prCreation: null, intercompany: false,
-      qty: m.qty, unitCost: null, pricedQty: 0, costStatus: "Unallocated" });
+      qty: m.qty, unitCost: null, pricedQty: 0, costStatus: "Unallocated",
+      sourceReference: returnLink
+        ? `${returnLink.returnVoucherType} return ${m.voucherNo} against ${returnLink.originalVoucher}`
+        : `${m.voucherType} ${m.voucherNo}` });
     diagnostics.push({ ...m, kind: "unallocated", detail: `${m.voucherType} ${m.voucherNo}: source PR cannot be established` });
   }
   // The source PI return removes stock from its own company. Reattribute only
@@ -183,9 +225,9 @@ export function calculateAgeing(input: {
   const resolve = (layer: AgeingLayer, seen = new Set<string>()): AgeingLayer[] => {
     if (!layer.intercompany) return [layer];
     const source = sourceByReceipt.get(JSON.stringify([layer.erp, layer.company, layer.prName]));
-    if (!source) return [layer];
+    if (!source) return [{ ...layer, traceFailure: "no active submitted SSR link" }];
     const identity = JSON.stringify([layer.erp, layer.company, layer.prName, layer.prItemName]);
-    if (seen.has(identity)) return [layer];
+    if (seen.has(identity)) return [{ ...layer, traceFailure: "intercompany trace loop" }];
     const originKey = JSON.stringify([source.ssrName, layer.itemCode]);
     const traced = returnedLayers.get(originKey) ?? [];
     const legacy = legacyBySsr.get(originKey) ?? [];
@@ -212,6 +254,7 @@ export function calculateAgeing(input: {
       const remainingFallback = fallback.qty - (i === legacyIndex ? legacyOffset : 0);
       if (remainingFallback > EPS) origin.push({ ...fallback, qty: remainingFallback });
     }
+    if (!origin.length) return [{ ...layer, traceFailure: `SSR ${source.ssrName} has no source return movement` }];
     let skip = (receiptStart.get(receiptKey(layer.erp, layer.prName ?? "", layer.prItemName ?? "")) ?? 0) + (layer.originOffset ?? 0);
     let remaining = layer.qty;
     const resolved: AgeingLayer[] = [];
@@ -224,7 +267,7 @@ export function calculateAgeing(input: {
       if (remaining <= EPS) break;
     }
     if (remaining > EPS) {
-      resolved.push({ ...layer, qty: remaining });
+      resolved.push({ ...layer, qty: remaining, traceFailure: `SSR ${source.ssrName} has insufficient source stock after FIFO allocation` });
     }
     return resolved;
   };
@@ -241,7 +284,7 @@ export function calculateAgeing(input: {
     for (const layer of queue) {
       if (layer.intercompany) {
         excludedIntercompanyQty += layer.qty;
-        diagnostics.push({ erp: erp!, company: company!, itemCode: itemCode!, warehouse: warehouse!, kind: "intercompany_source_missing", detail: `PR ${layer.prName}: ${layer.qty} units have no traceable original PR/PI` });
+        diagnostics.push({ erp: erp!, company: company!, itemCode: itemCode!, warehouse: warehouse!, kind: "intercompany_source_missing", detail: `PR ${layer.prName}: ${layer.qty} units — ${layer.traceFailure ?? "original PR/PI could not be traced"}`, difference: layer.qty });
         continue;
       }
       if (layer.openingStock) {
@@ -252,7 +295,20 @@ export function calculateAgeing(input: {
         item.openingStock += layer.qty;
         continue;
       }
-      if (!layer.prCreation) { unallocatedStockQty += layer.qty; continue; }
+      if (layer.materialReceipt) continue;
+      if (!layer.prCreation) {
+        unallocatedStockQty += layer.qty;
+        diagnostics.push({
+          erp: erp!,
+          company: company!,
+          itemCode: itemCode!,
+          warehouse: warehouse!,
+          kind: "unallocated_stock",
+          detail: `${layer.qty} units have no traceable original PR date (${layer.sourceReference ?? layer.prName ?? "unknown source"})`,
+          difference: layer.qty,
+        });
+        continue;
+      }
       const bucket = bucketForAge(layer.prCreation, input.reportDate);
       if (!bucket) { unallocatedStockQty += layer.qty; diagnostics.push({ erp: erp!, company: company!, itemCode: itemCode!, warehouse: warehouse!, kind: "future_pr", detail: `PR ${layer.prName} created after report date` }); continue; }
       const meta = input.metadata.get(JSON.stringify([erp, company, itemCode])) ?? { stockUom: "", barcode: null, description: null, brand: null, sellingRate: null, currency: null };

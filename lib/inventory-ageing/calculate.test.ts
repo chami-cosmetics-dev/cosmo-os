@@ -96,6 +96,27 @@ describe("inventory ageing allocation", () => {
     expect(report.items[0]?.buckets.above_150.qty).toBe(30);
     expect(report.reconciliation.discrepancies).toHaveLength(0);
   });
+  it("returns stock to the original Sales Invoice FIFO layer", () => {
+    const report = calculateAgeing({ reportDate: date, metadata: new Map(), receipts: [receipt("PR1", "I1", false, "2026-05-01 10:00:00", 5)], movements: [
+      movement("1", 5, "Purchase Receipt", "PR1", "I1", "2026-05-01", "Main", 5),
+      movement("2", -5, "Sales Invoice", "SI-ORIGINAL", "SI-ITEM", "2026-06-01", "Main", 0),
+      movement("3", 2, "Sales Invoice", "SI-RETURN", "RETURN-ITEM", "2026-06-02", "Main", 2),
+    ], stockReturnLinks: [{ erp: "ERP1", company: "COS", returnVoucherType: "Sales Invoice", returnVoucher: "SI-RETURN", returnItem: "RETURN-ITEM", originalVoucherType: "Sales Invoice", originalVoucher: "SI-ORIGINAL", originalItem: "SI-ITEM" }] });
+    expect(report.items[0]?.totalStockLeft).toBe(2);
+    expect(report.items[0]?.totalCost).toBe(20);
+    expect(report.items[0]?.buckets.above_150.qty).toBe(2);
+    expect(report.reconciliation.unallocatedStockQty).toBe(0);
+  });
+  it("returns Delivery Note stock to the original FIFO layer", () => {
+    const report = calculateAgeing({ reportDate: date, metadata: new Map(), receipts: [receipt("PR1", "I1", false, "2026-05-01 10:00:00", 5)], movements: [
+      movement("1", 5, "Purchase Receipt", "PR1", "I1", "2026-05-01", "Main", 5),
+      movement("2", -5, "Delivery Note", "DN-ORIGINAL", "DN-ITEM", "2026-06-01", "Main", 0),
+      movement("3", 2, "Delivery Note", "DN-RETURN", "RETURN-ITEM", "2026-06-02", "Main", 2),
+    ], stockReturnLinks: [{ erp: "ERP1", company: "COS", returnVoucherType: "Delivery Note", returnVoucher: "DN-RETURN", returnItem: "RETURN-ITEM", originalVoucherType: "Delivery Note", originalVoucher: "DN-ORIGINAL", originalItem: "DN-ITEM" }] });
+    expect(report.items[0]?.totalStockLeft).toBe(2);
+    expect(report.items[0]?.totalCost).toBe(20);
+    expect(report.reconciliation.unallocatedStockQty).toBe(0);
+  });
   it("shows remaining opening reconciliation stock separately even when actual quantity is zero", () => {
     const report = run([{ ...movement("1", 0, "Stock Reconciliation", "SR1", null, "2026-07-01", "Main", 10), valuationRate: 25 }], []);
     expect(report.items[0]?.openingStock).toBe(10);
@@ -117,6 +138,24 @@ describe("inventory ageing allocation", () => {
     expect(report.items[0]?.openingStock).toBe(6);
     expect(report.items[0]?.totalStockLeft).toBe(5);
     expect(report.items[0]?.totalCost).toBe(50);
+  });
+  it("carries a balance-only historical layer through a material transfer as opening stock", () => {
+    const report = run([
+      movement("1", 0, "Stock Entry", "LEGACY-BALANCE", null, "2026-07-01", "Main", 2),
+      movement("2", -2, "Stock Entry", "TRANSFER", "ROW1", "2026-07-02", "Main", 0),
+      movement("3", 2, "Stock Entry", "TRANSFER", "ROW1", "2026-07-02", "Shop", 2),
+    ], []);
+    expect(report.items[0]?.openingStock).toBe(2);
+    expect(report.items[0]?.totalStockLeft).toBe(0);
+    expect(report.reconciliation.unallocatedStockQty).toBe(0);
+  });
+  it("excludes remaining Material Receipt Stock Entry stock and cost", () => {
+    const report = run([
+      { ...movement("1", 4, "Stock Entry", "STE-MR", "ROW1", "2026-05-01", "Main", 4), stockEntryType: "Material Receipt" },
+    ], []);
+    expect(report.items).toHaveLength(0);
+    expect(report.reconciliation.eligibleStockQty).toBe(0);
+    expect(report.reconciliation.unallocatedStockQty).toBe(0);
   });
   it("combines the same item code across ERP sources", () => {
     const first = movement("1", 10, "Purchase Receipt", "PR1", "I1", "2026-11-01", "Main", 10);
