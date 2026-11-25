@@ -12,8 +12,7 @@ const BIRTHDAY_GREETINGS = [
 export function buildBirthdayWishMessage(input: {
   customerName: string;
   merchantName: string;
-  discountPercent: number;
-  code?: string | null;
+  merchantMobile?: string | null;
   storeUrl?: string | null;
 }): string {
   const greeting =
@@ -22,17 +21,15 @@ export function buildBirthdayWishMessage(input: {
   const name = input.customerName.trim() || "friend";
   const storeUrl = (input.storeUrl ?? BIRTHDAY_WISH_STORE_URL).trim() || BIRTHDAY_WISH_STORE_URL;
   const merchant = input.merchantName.trim();
+  const mobile = input.merchantMobile?.trim() || "";
 
   let message = greeting.replace(/\{\{name\}\}/g, name);
   if (merchant) {
     message += ` — from your cosmetics.lk advisor ${merchant}.`;
   }
-  if (input.discountPercent > 0) {
-    message += ` Enjoy ${input.discountPercent}% off`;
-    if (input.code?.trim()) message += ` with code ${input.code.trim()}`;
-    message += " on your next purchase.";
+  if (mobile) {
+    message += ` Contact me for further details: ${mobile}.`;
   }
   message += ` Shop now: ${storeUrl}`;
-  message += " [BDWISH]";
   return message;
 }

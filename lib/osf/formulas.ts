@@ -35,9 +35,37 @@ export function percentOfRop(stock: number | null | undefined, rop: number | nul
   return s / rop;
 }
 
-export function seventyPercentOfRop(rop: number | null | undefined): number | null {
+export const DEFAULT_STOCK_PCT_OF_ROP = 70;
+
+/** Qty equal to `percent` of total ROP. Blank when ROP missing. */
+export function shareOfTotalRop(
+  rop: number | null | undefined,
+  percent: number = DEFAULT_STOCK_PCT_OF_ROP,
+): number | null {
   if (rop == null || !Number.isFinite(rop)) return null;
-  return rop * 0.7;
+  const pct = Number.isFinite(percent) && percent > 0 ? percent : DEFAULT_STOCK_PCT_OF_ROP;
+  return rop * (pct / 100);
+}
+
+/**
+ * Label comparing stock to `percent` of total ROP (Excel-style availability cue).
+ * Blank when ROP missing.
+ */
+export function shareOfRopAvailabilityLabel(
+  stock: number | null | undefined,
+  rop: number | null | undefined,
+  percent: number = DEFAULT_STOCK_PCT_OF_ROP,
+): string | null {
+  const pct = Number.isFinite(percent) && percent > 0 ? percent : DEFAULT_STOCK_PCT_OF_ROP;
+  const threshold = shareOfTotalRop(rop, pct);
+  if (threshold == null) return null;
+  const s = stock == null || !Number.isFinite(stock) ? 0 : stock;
+  if (s >= threshold) return `Above ${pct}%`;
+  return `Below ${pct}%`;
+}
+
+export function seventyPercentOfRop(rop: number | null | undefined): number | null {
+  return shareOfTotalRop(rop, DEFAULT_STOCK_PCT_OF_ROP);
 }
 
 /**
@@ -48,11 +76,7 @@ export function seventyPercentAvailabilityLabel(
   stock: number | null | undefined,
   rop: number | null | undefined,
 ): string | null {
-  const threshold = seventyPercentOfRop(rop);
-  if (threshold == null) return null;
-  const s = stock == null || !Number.isFinite(stock) ? 0 : stock;
-  if (s >= threshold) return "Above 70%";
-  return "Below 70%";
+  return shareOfRopAvailabilityLabel(stock, rop, DEFAULT_STOCK_PCT_OF_ROP);
 }
 
 /**

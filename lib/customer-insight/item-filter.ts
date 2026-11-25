@@ -15,6 +15,7 @@ import {
 import { emailsForPurchaseLookup } from "@/lib/contact-purchase-lookup";
 import { buildPhoneLookupVariants } from "@/lib/phone-lookup";
 import { prisma } from "@/lib/prisma";
+import type { Prisma } from "@prisma/client";
 
 export type ItemPurchaseRank = {
   contactId: string;
@@ -172,7 +173,7 @@ export async function findContactsByPurchasedItemRanked(
   const allPhones = new Set<string>();
   const allEmails = new Set<string>();
 
-  const orderWhere = {
+  const orderWhere: Prisma.OrderWhereInput = {
     companyId,
     ...customerInsightPurchaseMatchOrderWhere(),
     lineItems: {

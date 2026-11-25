@@ -118,4 +118,15 @@ describe("classifyFailedErpSyncError", () => {
       retryable: false,
     });
   });
+
+  it("marks Shopify vs ERP SI total mismatch as non-retryable", () => {
+    expect(
+      classifyFailedErpSyncError(
+        "[ERPNext] Refusing PE — ERP SI grand_total 11312.50 ≠ Shopify total 10795.00. Fix SI discount/coupon before creating Payment Entry.",
+      ),
+    ).toMatchObject({
+      type: "SI total mismatch",
+      retryable: false,
+    });
+  });
 });

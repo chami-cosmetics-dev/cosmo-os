@@ -1,0 +1,785 @@
+[
+  {
+    "sku": "AVE05_1",
+    "productTitle": "Aveeno Positively Radiant Brightening Scrub 140g",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:28.463Z"
+  },
+  {
+    "sku": "AVE21_1",
+    "productTitle": "Aveeno Daily Moisturizing Body Scrub 227g",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:27.804Z"
+  },
+  {
+    "sku": "AXI06_1",
+    "productTitle": "AXIS-Y Artichoke Intensive Skin Barrier Ampoule 30ml",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:26.872Z"
+  },
+  {
+    "sku": "AXY07_1",
+    "productTitle": "AXIS-Y Daily Purifying Treatment Toner 200ml",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:26.397Z"
+  },
+  {
+    "sku": "CB009_1",
+    "productTitle": "Palmers Cocoa Butter Body Lotion 400ml",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:28.824Z"
+  },
+  {
+    "sku": "CB039_1",
+    "productTitle": "Palmers Exfoliating Facial Scrub 150ml",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:28.467Z"
+  },
+  {
+    "sku": "CBF03_1",
+    "productTitle": "Palmers Cocoa Butter Formula Heals Softens Fragrance Free  Body Lotion with Vitamin E 400ml",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:26.621Z"
+  },
+  {
+    "sku": "CE17_1",
+    "productTitle": "Cetaphil Gentle Exfoliating Cleanser 178ml",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:25.628Z"
+  },
+  {
+    "sku": "CECT01_1",
+    "productTitle": "Centella Probio Cica Enrich Cream 50ml",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:28.283Z"
+  },
+  {
+    "sku": "CEL004_1",
+    "productTitle": "Celimax The Vita A Retinal Shot Tightening Booster 15ml",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": "Newly added",
+    "updatedAt": "2026-11-18T04:42:25.626Z"
+  },
+  {
+    "sku": "CENT001_1",
+    "productTitle": "Centella Tea Trica BHA Foam 125ml",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:27.340Z"
+  },
+  {
+    "sku": "CET20_1",
+    "productTitle": "Cetaphil Gentle Exfoliating SA Lotion 473ml",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:26.398Z"
+  },
+  {
+    "sku": "CET54_1",
+    "productTitle": "Cetaphil Healthy Radiance Brightening Day Protection Cream SPF15 50g",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:25.928Z"
+  },
+  {
+    "sku": "COS010_1",
+    "productTitle": "Cosrx Centella Blemish Cream 30g",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:28.824Z"
+  },
+  {
+    "sku": "COS013_1",
+    "productTitle": "Cosrx The Retinol 0.5 Super Vitamin E + Squalane 20ml",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:26.167Z"
+  },
+  {
+    "sku": "COS10_1",
+    "productTitle": "Cosrx BHA Blackhead Power Liquid 100ml",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:27.582Z"
+  },
+  {
+    "sku": "COS10_2",
+    "productTitle": "Cosrx BHA Blackhead Power Liquid 100ml",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:27.119Z"
+  },
+  {
+    "sku": "DOV07_1",
+    "productTitle": "Dove Shea Butter and Vanilla Scent Shower Gel 500ml",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:27.118Z"
+  },
+  {
+    "sku": "DOV10_1",
+    "productTitle": "Dove Gentle Scrub Exfoliating Minerals Body Wash 500ml",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:28.827Z"
+  },
+  {
+    "sku": "DOV12_1",
+    "productTitle": "Dove Nourishing Silk Body Wash 500ml",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:25.926Z"
+  },
+  {
+    "sku": "DOV13_1",
+    "productTitle": "Dove Fruity Nourish Body Wash 450ml",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:27.109Z"
+  },
+  {
+    "sku": "DOV14_1",
+    "productTitle": "Dove Creamy Indulge Body Wash 450ml",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:27.108Z"
+  },
+  {
+    "sku": "DOV15_1",
+    "productTitle": "Dove Purifying Body Wash 500ml",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:28.823Z"
+  },
+  {
+    "sku": "DOV18_1",
+    "productTitle": "Dove Hydrate Gently Cleanser Body Wash 450ml",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:28.650Z"
+  },
+  {
+    "sku": "DOV20_1",
+    "productTitle": "Dove Velvet Glow Body Wash 450ml",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:28.464Z"
+  },
+  {
+    "sku": "DOW01_1",
+    "productTitle": "Dove Care and Protect Anti-Bacterial Body Wash 1L",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:27.329Z"
+  },
+  {
+    "sku": "DOW02_1",
+    "productTitle": "Dove Go Fresh Energize Body Wash with Grapefruit & Lemongrass Scent 1L",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": "Newly added",
+    "updatedAt": "2026-11-18T04:42:26.168Z"
+  },
+  {
+    "sku": "DOW03_1",
+    "productTitle": "Dove Go Fresh Revive Body Wash with Pomegranate And Lemon Verbena Scent 1L",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:28.283Z"
+  },
+  {
+    "sku": "DOW04_1",
+    "productTitle": "Dove Go Fresh Touch Body Wash with Cucumber & Green Tea Scent 1L",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:27.341Z"
+  },
+  {
+    "sku": "DOW20_1",
+    "productTitle": "Dove Nourishing Secrets Invigorating Ritual Body Wash 750ml",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": "Newly added",
+    "updatedAt": "2026-11-18T04:45:30.397Z"
+  },
+  {
+    "sku": "DOW23_1",
+    "productTitle": "Dove Nourishing Secrets Glowing Ritual Body Wash 750ml",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": "Newly added",
+    "updatedAt": "2026-11-18T04:47:57.257Z"
+  },
+  {
+    "sku": "DRRA03_1",
+    "productTitle": "Dr. Rashel Vitamin C Private Part Whitening Cream 80g",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:28.827Z"
+  },
+  {
+    "sku": "DRRA07_1",
+    "productTitle": "Dr. Rashel Vitamin C Brightening and Anti-Aging Face Night Cream 50g",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:28.648Z"
+  },
+  {
+    "sku": "DRRA08_1",
+    "productTitle": "Dr. Rashel Vitamin C Brightening and Anti-Aging Face Cream 50g",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:26.620Z"
+  },
+  {
+    "sku": "DRRA19_1",
+    "productTitle": "Dr. Rashel  Aloe Vera Soothing and Moisturizing Gel 300ml",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:27.800Z"
+  },
+  {
+    "sku": "DRRA25_1",
+    "productTitle": "Dr Rashel Whitening and Anti-dark Spots Night Cream with Arbutin Niacinamide 50g",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:28.647Z"
+  },
+  {
+    "sku": "DRRA26_1",
+    "productTitle": "Dr. Rashel Whitening Day Cream 50ml",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:27.339Z"
+  },
+  {
+    "sku": "DRRA29_1",
+    "productTitle": "Dr. Rashel Whitening Cream 24k Gold Collagen 30ml",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:28.279Z"
+  },
+  {
+    "sku": "DRRA44_1",
+    "productTitle": "Dr. Rashel Black Whitening Cream For Body and Private Parts 100g",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:28.826Z"
+  },
+  {
+    "sku": "DRRA58_1",
+    "productTitle": "Dr. Rashel Body and Private Parts Whitening Cream 100g",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:27.119Z"
+  },
+  {
+    "sku": "FADE12_1",
+    "productTitle": "Fade Out Advanced Whitening Night Cream 50ml",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:28.282Z"
+  },
+  {
+    "sku": "FADE14_1",
+    "productTitle": "Fade Out Anti-Wrinkle Whitening Night Cream Hyaluronic Acid 50ml",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:27.119Z"
+  },
+  {
+    "sku": "FADE17_1",
+    "productTitle": "Fadeout Advanced Whitening Day Cream 50ml",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:28.282Z"
+  },
+  {
+    "sku": "FADE18_1",
+    "productTitle": "Fade Out Anti-Wrinkle Whitening Day Cream SPF 25 50ml",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:25.926Z"
+  },
+  {
+    "sku": "FDFH01_1",
+    "productTitle": "Flawless Dermaplane Lighted Facial Exfoliator",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:28.280Z"
+  },
+  {
+    "sku": "FOBM07_1",
+    "productTitle": "Fraijour Original Herb Wormwood Peeling Gel 150ml",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:28.467Z"
+  },
+  {
+    "sku": "JOV65_1",
+    "productTitle": "Jovees Sun Defence Cream SPF 50 PA+++ 50g",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:26.403Z"
+  },
+  {
+    "sku": "LAR52_1",
+    "productTitle": "La Roche-Posay Micellar Watear Ultra Reactive Skin 400ml",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": "Newly added",
+    "updatedAt": "2026-11-18T04:42:28.024Z"
+  },
+  {
+    "sku": "LAR68_1",
+    "productTitle": "La Roche Posay Toleriane Dermo Cleanser 200ml",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": "Newly added",
+    "updatedAt": "2026-11-18T04:42:26.621Z"
+  },
+  {
+    "sku": "LER01_1",
+    "productTitle": "Loreal Revitalift 5% Glycolic Acid Peeling Toner 100ml",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:28.826Z"
+  },
+  {
+    "sku": "LMH05_1",
+    "productTitle": "Loreal Men Expert Oil Controller Deep Scrub 100ml",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:26.864Z"
+  },
+  {
+    "sku": "LORCC01_1",
+    "productTitle": "Loreal Revitalift Vitamin C Brightening Cream 50ml",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:26.866Z"
+  },
+  {
+    "sku": "LOT09_1",
+    "productTitle": "Lotus White Glow Whitening Gel Cream 60g",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:28.037Z"
+  },
+  {
+    "sku": "LRBL01_1",
+    "productTitle": "Loreal Revitalift Exfoliating Exfoliant 3.5% Glycolic Acid 150ml",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:26.386Z"
+  },
+  {
+    "sku": "MEDI33_2",
+    "productTitle": "Medicube PDRN Pink Tone Up Sun Cream SPF50+ PA++++ 50ml",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": "Newly added",
+    "updatedAt": "2026-11-18T04:42:25.626Z"
+  },
+  {
+    "sku": "MUST002_1",
+    "productTitle": "Mustela Maternite Stretch Marks Cream 3 In 1 250ml",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:26.867Z"
+  },
+  {
+    "sku": "MUST003_1",
+    "productTitle": "Mustela Baume Allaitement Nursing Comfort Balm 30ml",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:26.167Z"
+  },
+  {
+    "sku": "NB017_1",
+    "productTitle": "Natures Bounty Biotin 10000mcg 45 Softgels",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:27.580Z"
+  },
+  {
+    "sku": "NCR03_1",
+    "productTitle": "Neutrogena Clear and Defend Face Scrub 2% Salicylic Acid 150ml",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:27.342Z"
+  },
+  {
+    "sku": "NCS10_1",
+    "productTitle": "Neutrogena Spot Controlling Facial Scrub Oil Free 150ml",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:27.328Z"
+  },
+  {
+    "sku": "NDC02_1",
+    "productTitle": "Neutrogena Deep Clean Scrub 124ml",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:27.341Z"
+  },
+  {
+    "sku": "NE006_1",
+    "productTitle": "Neutrogena Oil-Free Acne Wash Daily Scrub 125ml",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:26.861Z"
+  },
+  {
+    "sku": "NE006_2",
+    "productTitle": "Neutrogena Oil-Free Acne Wash Daily Scrub 125ml",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:26.619Z"
+  },
+  {
+    "sku": "NEBB02_1",
+    "productTitle": "Neutrogena Bright Boost Polish 75ml",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:27.800Z"
+  },
+  {
+    "sku": "NEBB02_2",
+    "productTitle": "Neutrogena Bright Boost Polish 75ml",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:27.799Z"
+  },
+  {
+    "sku": "NEBE02_1",
+    "productTitle": "Neutrogena Blackhead Eliminating Facial Scrub 150ml",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:27.580Z"
+  },
+  {
+    "sku": "NSN01_1",
+    "productTitle": "Neutrogena Hydro Boost Glycolic Acid Overnight Peel 94ml",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:27.803Z"
+  },
+  {
+    "sku": "NST01_1",
+    "productTitle": "Neutrogena Stubborn Texture Liquid Exfoliating Treatment 127ml",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:25.925Z"
+  },
+  {
+    "sku": "OGX001_1",
+    "productTitle": "OGX Colour Care Colour Retention Conditioner 385ml",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:26.160Z"
+  },
+  {
+    "sku": "ORD11_1",
+    "productTitle": "The Ordinary Lactic Acid 10% + HA 2% 30ml",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:26.868Z"
+  },
+  {
+    "sku": "ORD11_2",
+    "productTitle": "The Ordinary Lactic Acid 10% + HA 2% 30ml",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:26.161Z"
+  },
+  {
+    "sku": "ORD22_1",
+    "productTitle": "The Ordinary Lactic Acid 5% + HA 30ml",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:28.004Z"
+  },
+  {
+    "sku": "ORD22_2",
+    "productTitle": "The Ordinary Lactic Acid 5% + HA 30ml",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:28.468Z"
+  },
+  {
+    "sku": "PAN04_1",
+    "productTitle": "PanOxyl PM Overnight Spot 40 Patches",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:28.647Z"
+  },
+  {
+    "sku": "PIXI01_1",
+    "productTitle": "Pixi Glow Tonic Exfoliating Toner 100ml",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:27.119Z"
+  },
+  {
+    "sku": "POA01_1",
+    "productTitle": "PanOxyl Acne Foaming Wash 156g",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:25.627Z"
+  },
+  {
+    "sku": "POA03_1",
+    "productTitle": "PanOxyl Benzoyl Peroxide Cream 4% Daily Cleaning Wash 85g",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:25.638Z"
+  },
+  {
+    "sku": "REL02_1",
+    "productTitle": "Relumins Advance White Premium Brightening Cream 50ml",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:26.625Z"
+  },
+  {
+    "sku": "REL09_1",
+    "productTitle": "Relumins Advance White Glutathione Body Scrub 400g",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:27.568Z"
+  },
+  {
+    "sku": "SIAC02_1",
+    "productTitle": "St. Ives Acne Control Apricot Scrub 283g",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:25.926Z"
+  },
+  {
+    "sku": "SIFS02_1",
+    "productTitle": "St. Ives Blackhead Clearing Green Tea Scrub 170g",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:26.385Z"
+  },
+  {
+    "sku": "STBE01_1",
+    "productTitle": "St. Ives BHA Face Exfoliant Apricot Facial Exfoliator for Acne Prone Skin 170g",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:28.823Z"
+  },
+  {
+    "sku": "STBG01_1",
+    "productTitle": "St. Ives BHA Exfoliant Green Tea and Bamboo 1% Salicylic Acid 170ml",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:28.284Z"
+  },
+  {
+    "sku": "STEA01_1",
+    "productTitle": "St. Ives Exfoliant Avocado and Honey for Balanced to Dry Skin 170g",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:28.826Z"
+  },
+  {
+    "sku": "STV02_1",
+    "productTitle": "St. Ives Pink Lemon and Mandarin Exfoliant Face Scrub 170g",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:28.005Z"
+  },
+  {
+    "sku": "SWC02_1",
+    "productTitle": "Neutrogena Acne Stress Control Scrub 125ml",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:28.826Z"
+  },
+  {
+    "sku": "THE15_1",
+    "productTitle": "The Body Shop Vitamin C Cleansing Polish 100ml",
+    "status": "draft",
+    "itemStatusCategory": "NEWLY_ADDED",
+    "erp1ProductPriority": "Newly added",
+    "erp2ProductPriority": null,
+    "updatedAt": "2026-11-18T04:42:25.928Z"
+  }
+]

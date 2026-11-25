@@ -463,6 +463,34 @@ describe("buildDetail", () => {
     ]);
   });
 
+  it("lists ERP1 main-warehouse stock as a move source without ranking it", () => {
+    const detail = buildDetail(
+      {
+        ...response,
+        erp1Main: [
+          {
+            company: "Cosmetics.lk",
+            warehouses: ["Main Warehouse - Cosmo"],
+            lines: {
+              S3: {
+                status: "covered",
+                available: 1,
+                byWarehouse: [{ warehouse: "Main Warehouse - Cosmo", available: 1, priority: null }],
+              },
+            },
+          },
+        ],
+      },
+      "C1",
+    );
+    const missing = detail?.toMove.find((row) => row.key === "S3");
+    expect(missing?.sources).toEqual([
+      { company: "Cosmetics.lk", warehouse: "Main Warehouse - Cosmo", available: 1, priority: null },
+    ]);
+    expect(missing?.availableAnywhere).toBe(true);
+    expect(detail?.covered.map((row) => row.sku)).toEqual(["S1"]);
+  });
+
   it("lists shop stock separately and keeps it out of main covered/toMove", () => {
     const detail = buildDetail(response, "C1");
     expect(detail?.shops).toEqual([

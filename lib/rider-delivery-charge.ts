@@ -18,13 +18,42 @@ export function isZoneShippingLabelKey(labelKey: string | null | undefined): boo
   return Boolean(labelKey && /^zone\b/.test(labelKey));
 }
 
+/** Store pickup — completed delivery, not added to rider incentive. */
+export function isPickupShippingLabel(label: string | null | undefined): boolean {
+  const key = normalizeShippingRuleLabelKey(label);
+  return key === "pick up" || key === "pickup";
+}
+
 /** Pick up / staff DC — completed delivery but no rider delivery incentive. */
 export function isExcludedFromRiderIncentiveLabel(label: string | null | undefined): boolean {
   const key = normalizeShippingRuleLabelKey(label);
   if (!key) return false;
-  if (key === "pick up" || key === "pickup") return true;
+  if (isPickupShippingLabel(key)) return true;
   if (key === "staffdc") return true;
   return false;
+}
+
+/** Plain label for the rider-pay report: district, manual, pickup, or unmatched. */
+export function describeRiderPay(input: {
+  shippingRuleLabel: string | null | undefined;
+  labelKey: string | null;
+  matched: boolean;
+  manualOverride?: boolean;
+  districtLabel?: string | null;
+}): string {
+  if (isPickupShippingLabel(input.shippingRuleLabel)) return "Pick up";
+  if (isExcludedFromRiderIncentiveLabel(input.shippingRuleLabel)) return "STAFFDC";
+  if (input.manualOverride && !input.labelKey) return "Manual amount";
+  const district = input.districtLabel?.trim() || input.labelKey || "";
+  if (input.manualOverride && input.labelKey) {
+    const name = district || input.labelKey;
+    return input.matched ? `Manual district · ${name}` : `Manual district · ${name} — no rate`;
+  }
+  if (!input.matched) return "Unmatched";
+  if (isFreeShipIncentiveLabel(input.shippingRuleLabel)) {
+    return district ? `Free ship · ${district}` : "Free ship";
+  }
+  return district || "Charge sheet";
 }
 
 /** Customer free shipping. Rider pay still uses the delivery district. */

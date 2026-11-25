@@ -100,7 +100,7 @@ export function OsfProductEditor({
 
     let maxPercent: number | null = null;
     if (pctTrim) {
-      const n = Math.floor(Number(pctTrim));
+      const n = Number(pctTrim);
       if (!Number.isFinite(n) || n < 1 || n > 100) {
         notify.error("Stock below % of ROP must be 1–100 or blank");
         return;
@@ -253,7 +253,7 @@ export function OsfProductEditor({
       <div className="flex flex-wrap gap-2">
         <Input
           className="min-w-[12rem] flex-1"
-          placeholder="Type at least 3 characters (SKU or title)…"
+          placeholder="Type at least 3 characters (SKU, title, or barcode)…"
           value={q}
           onChange={(e) => setQ(e.target.value)}
           onKeyDown={(e) => {
@@ -264,6 +264,8 @@ export function OsfProductEditor({
           type="number"
           min={1}
           max={100}
+          step="any"
+          inputMode="decimal"
           className="w-36"
           placeholder="Below % of ROP"
           value={maxStockPct}

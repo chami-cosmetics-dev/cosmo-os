@@ -1,5 +1,6 @@
 import { baseSku } from "@/lib/osf/base-sku";
 import { stockForColumn } from "@/lib/osf/erp-stock";
+import { percentOfRop } from "@/lib/osf/formulas";
 import {
   applyOsfWorkbookHeaderBands,
   type OsfWorkbookBandKey,
@@ -95,6 +96,7 @@ export function vaultColumnDefs(units: VaultBusinessUnit[], asOfDate: string): V
     });
   });
   defs.push({ key: "stockTotal", header: "Total", band: "stock" });
+  defs.push({ key: "stockRatio", header: "Stock Ratio", band: "calc" });
 
   // Sales block, then purchase block (qty then value per month).
   for (const [i, month] of months.entries()) {
@@ -218,7 +220,11 @@ export function buildVaultMainRows(input: VaultWorkbookInput): Array<Record<stri
       row[`reorder:${u.key}`] = reorderQty(ropVal, stock);
     }
     row.ropTotal = sumNullable(rops);
-    row.stockTotal = stocks.reduce((a, b) => a + b, 0);
+    const stockTotal = stocks.reduce((a, b) => a + b, 0);
+    row.stockTotal = stockTotal;
+    const ropTotal = row.ropTotal as number | null;
+    const pct = percentOfRop(stockTotal, ropTotal != null && ropTotal > 0 ? ropTotal : null);
+    row.stockRatio = pct == null ? null : Math.round(pct * 10000) / 100;
     row.reorderTotal = sumNullable(units.map((u) => row[`reorder:${u.key}`] as number | null));
 
     const monthTotals: Array<number | null> = [];

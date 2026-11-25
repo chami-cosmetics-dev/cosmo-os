@@ -1,0 +1,29 @@
+[
+  {
+    "sku": "BU029_1",
+    "title": "Medicube TXA Niacinamide & Vita C Brightening Skincare Set",
+    "osfSiteStatus": "draft",
+    "shopifyHandle": "medicube-txa-niacinamide-vita-c-brightening-skincare-set",
+    "shopifyUrl": "https://cosmetics.lk/products/medicube-txa-niacinamide-vita-c-brightening-skincare-set",
+    "erp1": "Low",
+    "erp2": "Low"
+  },
+  {
+    "sku": "JOV65_1",
+    "title": "Jovees Sun Defence Cream SPF 50 PA+++ 50g",
+    "osfSiteStatus": "draft",
+    "shopifyHandle": "jovees-sun-defence-cream-spf-50-pa-50g",
+    "shopifyUrl": "https://cosmetics.lk/products/jovees-sun-defence-cream-spf-50-pa-50g",
+    "erp1": "Newly added",
+    "erp2": null
+  },
+  {
+    "sku": "LAR68_1",
+    "title": "La Roche Posay Toleriane Dermo Cleanser 200ml",
+    "osfSiteStatus": "draft",
+    "shopifyHandle": "la-roche-posay-toleriane-dermo-cleanser-200ml",
+    "shopifyUrl": "https://cosmetics.lk/products/la-roche-posay-toleriane-dermo-cleanser-200ml",
+    "erp1": "Newly added",
+    "erp2": "Newly added"
+  }
+]

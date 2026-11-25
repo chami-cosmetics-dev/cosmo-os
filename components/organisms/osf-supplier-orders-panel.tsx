@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Download, Loader2, X } from "lucide-react";
+import { Download, Loader2, Send, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -35,6 +35,29 @@ type SupplierOption = {
   sortGroup: "sku_recent" | "other";
 };
 
+function pendingSendKey(companyId: string, userId: string) {
+  return `osf-portal-pending:v1:${companyId}:${userId}`;
+}
+
+async function requestPortalSend(body: object, signal?: AbortSignal) {
+  const response = await fetch("/api/admin/osf/supplier-orders/send", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    cache: "no-store",
+    signal,
+  });
+  const result: {
+    error?: string;
+    retryTicket?: string;
+    deepLinkUrl?: string;
+    importId?: string;
+    replay?: boolean;
+  } = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result.error ?? `Send failed (${response.status})`);
+  return result;
+}
+
 export function OsfSupplierOrdersPanel() {
   const [companyId, setCompanyId] = useState("");
   const [userId, setUserId] = useState("");
@@ -61,12 +84,23 @@ export function OsfSupplierOrdersPanel() {
   const [compactSuppliersBySku, setCompactSuppliersBySku] = useState<Record<string, boolean>>({});
   const [loadingSuppliers, setLoadingSuppliers] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [sendResult, setSendResult] = useState<{
+    deepLinkUrl: string;
+    importId: string;
+    replay: boolean;
+  } | null>(null);
   const [bootstrapped, setBootstrapped] = useState(false);
   const searchWrapRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Skip priority→brands refetch on the initial bootstrap load. */
   const skipPriorityBrandRefreshRef = useRef(true);
+  const sendingRef = useRef(false);
+  const prepareAbortRef = useRef<AbortController | null>(null);
+  const [pendingSend, setPendingSend] = useState(false);
+
+  useEffect(() => () => prepareAbortRef.current?.abort(), []);
 
   useEffect(() => {
     fetch("/api/admin/osf/supplier-orders/page-data")
@@ -90,6 +124,11 @@ export function OsfSupplierOrdersPanel() {
           if (cid && uid) {
             const draft = loadDraft(cid, uid);
             if (draft?.rows?.length) setRows(draft.rows);
+            try {
+              setPendingSend(Boolean(sessionStorage.getItem(pendingSendKey(cid, uid))));
+            } catch {
+              // Sending requires readable session storage to support safe retries.
+            }
           }
           setBootstrapped(true);
         },
@@ -412,6 +451,69 @@ export function OsfSupplierOrdersPanel() {
     }
   }
 
+  async function sendToSupplierPortal() {
+    if (sendingRef.current || !companyId || !userId) return;
+    const storageKey = pendingSendKey(companyId, userId);
+    sendingRef.current = true;
+    setSending(true);
+    try {
+      let retryTicket = sessionStorage.getItem(storageKey);
+      if (!retryTicket) {
+        const validation = validateDraftForGenerate(rows);
+        if (!validation.ok) {
+          notify.error(validation.skus?.length
+            ? `${validation.error}: ${validation.skus.join(", ")}` : validation.error);
+          return;
+        }
+        const overSkus = overAllocatedSkus(rows);
+        if (overSkus.length > 0) {
+          notify.info(`Warning: allocated above reorder qty for ${overSkus.join(", ")} — send will continue`);
+        }
+        const controller = new AbortController();
+        prepareAbortRef.current = controller;
+        const prepared = await requestPortalSend({
+          rows,
+          vendorId: vendorId || undefined,
+          priority: priority || undefined,
+        }, controller.signal);
+        if (controller.signal.aborted) return;
+        prepareAbortRef.current = null;
+        if (typeof prepared.retryTicket !== "string" || !prepared.retryTicket) {
+          throw new Error("Could not prepare a retryable transfer.");
+        }
+        retryTicket = prepared.retryTicket;
+        try {
+          sessionStorage.setItem(storageKey, retryTicket);
+        } catch {
+          throw new Error("Allow browser session storage to send safely.");
+        }
+        setPendingSend(true);
+      }
+
+      const json = await requestPortalSend({ retryTicket });
+      sessionStorage.removeItem(storageKey);
+      setPendingSend(false);
+      setSendResult({
+        deepLinkUrl: String(json.deepLinkUrl ?? ""),
+        importId: String(json.importId ?? ""),
+        replay: Boolean(json.replay),
+      });
+      notify.success(
+        json.replay
+          ? "Already sent — opening existing Supplier Portal import"
+          : "Sent to Supplier Portal (availability request suggestions only)",
+      );
+    } catch (err) {
+      if (!prepareAbortRef.current?.signal.aborted) {
+        notify.error(err instanceof Error ? err.message : "Send failed");
+      }
+    } finally {
+      prepareAbortRef.current = null;
+      sendingRef.current = false;
+      setSending(false);
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -419,7 +521,8 @@ export function OsfSupplierOrdersPanel() {
           <h3 className="font-medium">Supplier orders</h3>
           <p className="text-sm text-muted-foreground">
             Filter by priority and brand, search SKUs, allocate quantities across suppliers,
-            then generate a zip of supplier Excel files.
+            then generate a zip of supplier Excel files or send availability-request suggestions
+            to Supplier Portal. Sending does not create purchase orders and does not clear this draft.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -428,16 +531,72 @@ export function OsfSupplierOrdersPanel() {
             variant="outline"
             size="sm"
             onClick={clearAll}
-            disabled={rows.length === 0}
+            disabled={rows.length === 0 || generating || sending}
           >
             Clear table
           </Button>
-          <Button type="button" size="sm" onClick={() => void generate()} disabled={generating}>
-            {generating ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Download className="size-4" aria-hidden />}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => void sendToSupplierPortal()}
+            disabled={!companyId || !userId || (!pendingSend && rows.length === 0) || generating || sending}
+          >
+            {sending ? (
+              <Loader2 className="size-4 animate-spin" aria-hidden />
+            ) : (
+              <Send className="size-4" aria-hidden />
+            )}
+            {sending ? "Sending…" : pendingSend ? "Retry pending send" : "Send to Supplier Portal"}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => void generate()}
+            disabled={generating || sending}
+          >
+            {generating ? (
+              <Loader2 className="size-4 animate-spin" aria-hidden />
+            ) : (
+              <Download className="size-4" aria-hidden />
+            )}
             {generating ? "Generating…" : "Generate zip"}
           </Button>
         </div>
       </div>
+
+      {pendingSend && !sending && (
+        <div className="flex flex-wrap items-center gap-2 text-sm" role="status">
+          <span>Retry sends the original draft. Any later edits stay in your current draft.</span>
+          <Button type="button" variant="link" size="sm" onClick={() => {
+            if (!window.confirm("Check Supplier Portal imports first. Clearing this retry does not cancel an import that already arrived. Clear the retry?")) return;
+            sessionStorage.removeItem(pendingSendKey(companyId, userId));
+            setPendingSend(false);
+          }}>Clear pending retry</Button>
+        </div>
+      )}
+      {sendResult ? (
+        <div
+          className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm"
+          role="status"
+        >
+          {sendResult.replay ? "Replay — " : ""}
+          Portal import {sendResult.importId.slice(0, 8)}…
+          {sendResult.deepLinkUrl ? (
+            <>
+              {" · "}
+              <a
+                href={sendResult.deepLinkUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="font-medium underline underline-offset-2"
+              >
+                Open Import Review
+              </a>
+            </>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="flex flex-wrap gap-3">
         <label className="space-y-1 text-sm">

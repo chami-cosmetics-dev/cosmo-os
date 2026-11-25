@@ -15,6 +15,8 @@ interface StickerPreviewCardProps {
   companyAddress?: string | null;
   locationPhone?: string | null;
   showNmrApproved?: boolean;
+  /** When false, hide company name (e.g. Cosmetics.lk) on the label. */
+  showCompanyName?: boolean;
   className?: string;
 }
 
@@ -89,6 +91,7 @@ export function StickerPreviewCard({
   companyName,
   companyAddress,
   showNmrApproved = false,
+  showCompanyName = true,
   className,
 }: StickerPreviewCardProps) {
   const mfdDisplay = formatDateValue(manufactureDate);
@@ -144,9 +147,11 @@ export function StickerPreviewCard({
         </div>
       ) : null}
 
-      <div className="mt-0 text-center text-[8px] font-semibold uppercase leading-none">
-        {companyName?.trim() || "COMPANY"}
-      </div>
+      {showCompanyName ? (
+        <div className="mt-0 text-center text-[8px] font-semibold uppercase leading-none">
+          {companyName?.trim() || "COMPANY"}
+        </div>
+      ) : null}
 
       <div className="mt-0 text-center text-[7px] font-semibold leading-none uppercase truncate">
         {companyAddress?.trim() || "-"}

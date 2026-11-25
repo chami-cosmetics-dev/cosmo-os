@@ -76,7 +76,7 @@ export const osfGenerateBodySchema = z.object({
   includeInactive: z.boolean().optional().default(false),
   belowThresholdOnly: z.boolean().optional().default(false),
   /** Include only SKUs with assigned ROP and stock/ROP % strictly below this value. */
-  maxStockPctOfRop: z.number().int().min(1).max(100).optional(),
+  maxStockPctOfRop: z.number().min(1).max(100).optional(),
   vendorIds: z.array(cuidSchema).max(100).optional(),
   itemStatusCategories: z.array(trimmedString(1, 80)).max(50).optional(),
   skuPrefix: trimmedString(1, LIMITS.sku.max).optional(),
@@ -88,7 +88,7 @@ export type OsfProfilePatchInput = z.infer<typeof osfProfilePatchSchema>;
 export type OsfGenerateBodyInput = z.infer<typeof osfGenerateBodySchema>;
 
 export const osfBelowThresholdQuerySchema = z.object({
-  percent: z.coerce.number().int().min(1).max(100),
+  percent: z.coerce.number().min(1).max(100),
   q: trimmedString(0, LIMITS.sku.max).optional(),
   limit: z.coerce.number().int().min(1).max(500).optional().default(200),
 });
@@ -185,10 +185,22 @@ export const osfSupplierOrdersGenerateBodySchema = z.object({
   rows: z.array(osfSupplierOrdersRowSchema).min(1).max(500),
 });
 
+/** Phase G: validate the draft before preparing an immutable Portal transfer. */
+export const osfSupplierOrdersSendBodySchema = z.object({
+  rows: z.array(osfSupplierOrdersRowSchema).min(1).max(500),
+  vendorId: cuidSchema.optional(),
+  priority: trimmedString(0, 80).optional(),
+});
+
+export const osfSupplierOrdersRetryBodySchema = z.strictObject({
+  retryTicket: z.string().min(38).max(3_000_000).regex(/^[A-Za-z0-9_-]+$/),
+});
+
 export type OsfSupplierOrdersPageDataQuery = z.infer<typeof osfSupplierOrdersPageDataQuerySchema>;
 export type OsfSupplierOrdersItemsQuery = z.infer<typeof osfSupplierOrdersItemsQuerySchema>;
 export type OsfSupplierOrdersSuppliersQuery = z.infer<typeof osfSupplierOrdersSuppliersQuerySchema>;
 export type OsfSupplierOrdersGenerateBodyInput = z.infer<typeof osfSupplierOrdersGenerateBodySchema>;
+export type OsfSupplierOrdersSendBodyInput = z.infer<typeof osfSupplierOrdersSendBodySchema>;
 
 export const vaultOsfGenerateBodySchema = z.object({
   asOfDate: z

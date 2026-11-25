@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
 
   const dbUser = await prisma.user.findUnique({
     where: { id: context.user.id },
-    select: { couponCodes: true },
+    select: { couponCodes: true, mobile: true },
   });
   const couponCodes = dbUser?.couponCodes ?? null;
 
@@ -102,15 +102,19 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // One birthday wish per contact phone per calendar year (marker in message)
+  // One birthday wish per contact phone per calendar year
   const yearStart = new Date(`${new Date().getUTCFullYear()}-01-01T00:00:00.000Z`);
+  const phoneTail = phone.replace(/\D/g, "").slice(-9);
   const prior = await prisma.smsLog.findFirst({
     where: {
       companyId,
-      phoneNumber: { contains: phone.replace(/\D/g, "").slice(-9) },
-      message: { contains: "[BDWISH]" },
+      phoneNumber: { contains: phoneTail },
       status: "success",
       sentAt: { gte: yearStart },
+      OR: [
+        { message: { contains: "[BDWISH]" } },
+        { message: { contains: "from your cosmetics.lk advisor" } },
+      ],
     },
     select: { id: true, sentAt: true },
   });
@@ -130,14 +134,10 @@ export async function POST(request: NextRequest) {
     buildBirthdayWishMessage({
       customerName: contact.name,
       merchantName,
-      discountPercent: parsed.data.discountPercent,
-      code: parsed.data.discountCode ?? null,
+      merchantMobile: dbUser?.mobile ?? null,
     });
 
-  // Ensure marker for dedupe even if user edited message
-  const finalMessage = message.includes("[BDWISH]")
-    ? message
-    : `${message.trim()} [BDWISH]`;
+  const finalMessage = message.replace(/\s*\[BDWISH\]\s*/g, " ").trim();
 
   const result = await sendSms(companyId, phone, finalMessage, context.user.id);
   if (!result.success) {

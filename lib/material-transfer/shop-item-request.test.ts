@@ -7,6 +7,7 @@ import {
   shopAvailabilityWarn,
   stockCell,
 } from "@/lib/material-transfer/shop-item-request";
+import { shopRequestExportRows } from "@/lib/material-transfer/shop-item-request-export";
 
 const named = [
   { name: "Main Warehouse - Cosmo", company: "Cosmetics.lk", slot: "erp1" as const },
@@ -77,5 +78,51 @@ describe("shop availability and request guards", () => {
   it("allows mark-done only while pending", () => {
     expect(canMarkDone("pending")).toBe(true);
     expect(canMarkDone("done")).toBe(false);
+  });
+});
+
+describe("shopRequestExportRows", () => {
+  it("flattens one Excel row per request line with stock columns", () => {
+    const rows = shopRequestExportRows([
+      {
+        id: "req1",
+        outletName: "OGF",
+        status: "pending",
+        createdAt: "2026-11-12T06:00:00.000Z",
+        createdByName: "Asha",
+        doneAt: null,
+        doneByName: null,
+        lines: [
+          {
+            itemCode: "ACN01_1",
+            itemName: "Serum",
+            barcode: "123",
+            neededQty: 2,
+            shopAvailability: "allowed",
+            stocks: [
+              { key: "cosmetics_main", label: "Cosmetics main", qty: 10, cannotTransfer: false },
+              { key: "pevi", label: "Pevi", qty: 2, cannotTransfer: true },
+              { key: "spk", label: "SPK", qty: null, cannotTransfer: false },
+              { key: "chami", label: "Chami", qty: 5, cannotTransfer: false },
+              { key: "udara", label: "Udara", qty: 0, cannotTransfer: true },
+              { key: "sdp", label: "SDP", qty: 4, cannotTransfer: false },
+            ],
+          },
+        ],
+      },
+    ]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      "Request ID": "req1",
+      Status: "pending",
+      Outlet: "OGF",
+      "Created by": "Asha",
+      "Item code": "ACN01_1",
+      "Needed qty": 2,
+      "Shop availability": "Allowed",
+      "Cosmetics main": "10",
+      Pevi: "2 (cannot transfer)",
+      SPK: "Unknown",
+    });
   });
 });

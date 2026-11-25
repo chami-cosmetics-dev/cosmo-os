@@ -339,13 +339,14 @@ export function accumulateSupplierPurchasesFromRows(input: {
   return result;
 }
 
-async function erpGetJson<T>(cfg: OsfErpCredentials, path: string): Promise<T> {
+export async function erpGetJson<T>(cfg: OsfErpCredentials, path: string, options?: Pick<RequestInit, "signal" | "redirect">): Promise<T> {
   const res = await fetch(`${cfg.baseUrl}${path}`, {
     headers: {
       Authorization: `token ${cfg.apiKey}:${cfg.apiSecret}`,
       Accept: "application/json",
     },
     cache: "no-store",
+    ...options,
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -373,6 +374,8 @@ export async function fetchLastPurchaseByItem(input: {
    * OSF generate passes a lookback so this cannot walk every historical receipt.
    */
   postingDateFrom?: string;
+  /** Inclusive posting_date ceiling. Past OSF as-of dates pass the as-of day. */
+  postingDateTo?: string;
   /** Company Supplier list; empty/omitted = no filter (legacy). */
   allowedSuppliers?: AllowedSupplier[];
   /** Default receipt; SKU calculator / Vault pass invoice. */
@@ -400,6 +403,10 @@ export async function fetchLastPurchaseByItem(input: {
   const postingDateFrom = input.postingDateFrom?.trim();
   if (postingDateFrom) {
     filterRows.push(["posting_date", ">=", postingDateFrom]);
+  }
+  const postingDateTo = input.postingDateTo?.trim();
+  if (postingDateTo) {
+    filterRows.push(["posting_date", "<=", postingDateTo]);
   }
   const filters = JSON.stringify(filterRows);
 

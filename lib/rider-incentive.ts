@@ -10,12 +10,12 @@ export type RiderIncentiveInputRow = {
   matched?: boolean;
   /** Pick up / staff DC — not payable, not unmatched. */
   excludedFromIncentive?: boolean;
-  /** Incentive counts only after invoice close. Delivery count does not use this. */
-  invoiceClosed: boolean;
+  /** Store pickup. Counted as completed, omitted from incentive pay. */
+  pickup?: boolean;
   financialStatus: string | null;
 };
 
-/** Same close rule as handover `isInvoiceClosed`: stamp or stage. */
+/** Invoice-close stamp/stage. Kept for statements/handover display — incentive no longer waits on it. */
 export function isRiderIncentiveUnlocked(order: {
   invoiceCompleteAt?: Date | string | null;
   fulfillmentStage?: string | null;
@@ -56,6 +56,7 @@ export function aggregateRiderIncentives(rows: RiderIncentiveInputRow[]): Array<
   completedCount: number;
   incentiveTotal: string;
   unmatchedCount: number;
+  pickupCount: number;
 }> {
   const map = new Map<
     string,
@@ -66,6 +67,7 @@ export function aggregateRiderIncentives(rows: RiderIncentiveInputRow[]): Array<
       completedCount: number;
       incentiveTotal: Prisma.Decimal;
       unmatchedCount: number;
+      pickupCount: number;
     }
   >();
 
@@ -80,13 +82,13 @@ export function aggregateRiderIncentives(rows: RiderIncentiveInputRow[]): Array<
         completedCount: 0,
         incentiveTotal: new Prisma.Decimal(0),
         unmatchedCount: 0,
+        pickupCount: 0,
       };
     existing.completedCount += 1;
-    if (row.invoiceClosed) {
-      existing.incentiveTotal = existing.incentiveTotal.add(normalizeIncentiveAmount(row.incentiveAmount));
-      if (row.matched === false && !row.excludedFromIncentive) {
-        existing.unmatchedCount += 1;
-      }
+    if (row.pickup) existing.pickupCount += 1;
+    existing.incentiveTotal = existing.incentiveTotal.add(normalizeIncentiveAmount(row.incentiveAmount));
+    if (row.matched === false && !row.excludedFromIncentive) {
+      existing.unmatchedCount += 1;
     }
     map.set(row.riderId, existing);
   }
@@ -99,6 +101,7 @@ export function aggregateRiderIncentives(rows: RiderIncentiveInputRow[]): Array<
       completedCount: row.completedCount,
       incentiveTotal: row.incentiveTotal.toFixed(2),
       unmatchedCount: row.unmatchedCount,
+      pickupCount: row.pickupCount,
     }))
     .sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""));
 }

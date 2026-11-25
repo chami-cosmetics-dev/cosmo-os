@@ -48,6 +48,11 @@ import {
   formatOrderPaymentAmount,
   formatOrderPaymentBreakdown,
 } from "@/lib/order-payment-entries";
+import {
+  approvalSplitLineLabel,
+  isDoorCollectionSplitPair,
+  resolveSplitPaymentDisplay,
+} from "@/lib/approval-payment-split";
 import { getPaymentMethodInfo } from "@/lib/payment-method-label";
 import { isMintpayGateway } from "@/lib/payment-gateway-match";
 import { resolveOrderCancelledByLabel } from "@/lib/order-cancelled-by-label";
@@ -225,6 +230,7 @@ type OrderDetail = {
     erpnextInvoiceId?: string | null;
     cancelledAt?: string | null;
   }>;
+  paymentTypeLabel?: string | null;
   paymentApproval?: {
     id: string;
     status: string;
@@ -233,6 +239,22 @@ type OrderDetail = {
     reviewedAt: string | null;
     reviewNote: string | null;
     reviewedBy: UserRef | null;
+    paymentLines?: Array<{
+      id?: string;
+      paymentMethod: string;
+      amount: string;
+      erpPaymentEntryName?: string | null;
+    }>;
+    splitPayment?: {
+      pairId: string;
+      pairLabel: string;
+      doorCollection: boolean;
+      lines: Array<{
+        paymentMethod: string;
+        label: string;
+        amount: string;
+      }>;
+    } | null;
   } | null;
   deliveryPaymentApproval?: {
     id: string;
@@ -1251,6 +1273,35 @@ export function OrderInvoiceViewModal({
                             </span>
                             <span className="text-xs text-muted-foreground">Awaiting finance (KOKO / bank)</span>
                           </p>
+                        ) : orderDetail.paymentApproval.status === "approved" &&
+                          (orderDetail.paymentApproval.splitPayment?.doorCollection ||
+                            resolveSplitPaymentDisplay(orderDetail.paymentApproval)?.doorCollection ||
+                            isDoorCollectionSplitPair(
+                              (orderDetail.paymentApproval.paymentLines ?? []).map(
+                                (line) => line.paymentMethod,
+                              ),
+                            )) ? (
+                          <div>
+                            <p className="flex items-center gap-1.5">
+                              <span className="inline-flex rounded px-1.5 py-0.5 text-xs font-medium bg-sky-100 text-sky-800 dark:bg-sky-900/30 dark:text-sky-300">
+                                Door collection plan
+                              </span>
+                              {orderDetail.paymentApproval.reviewedBy && (
+                                <span className="text-xs text-muted-foreground">
+                                  saved by{" "}
+                                  {orderDetail.paymentApproval.reviewedBy.name ??
+                                    orderDetail.paymentApproval.reviewedBy.email}
+                                </span>
+                              )}
+                            </p>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {(orderDetail.paymentApproval.splitPayment?.pairLabel ??
+                                resolveSplitPaymentDisplay(orderDetail.paymentApproval)?.pairLabel ??
+                                "Cash + Card")}{" "}
+                              collected after delivery. Finance confirms at invoice complete — not on intake
+                              Order Payment.
+                            </p>
+                          </div>
                         ) : orderDetail.paymentApproval.status === "approved" ? (
                           <p className="flex items-center gap-1.5">
                             <span className="inline-flex rounded px-1.5 py-0.5 text-xs font-medium bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300">
@@ -1382,17 +1433,58 @@ export function OrderInvoiceViewModal({
                     <div>
                       <span className="text-muted-foreground text-xs">Payment Type</span>
                       <p>
-                        {orderDetail.payments?.length
-                          ? formatOrderPaymentBreakdown(
+                        {(() => {
+                          const split =
+                            orderDetail.paymentApproval?.splitPayment ??
+                            resolveSplitPaymentDisplay(orderDetail.paymentApproval ?? {});
+                          if (split?.pairLabel) return split.pairLabel;
+                          if (orderDetail.paymentTypeLabel?.trim()) {
+                            return orderDetail.paymentTypeLabel;
+                          }
+                          if (orderDetail.payments?.length) {
+                            return formatOrderPaymentBreakdown(
                               orderDetail.payments,
                               orderDetail.currency,
-                            )
-                          : getPaymentMethodInfo({
-                              paymentGatewayPrimary: orderDetail.paymentGatewayPrimary,
-                              paymentGatewayNames: orderDetail.paymentGatewayNames,
-                              financialStatus: orderDetail.financialStatus,
-                            }).label}
+                            );
+                          }
+                          return getPaymentMethodInfo({
+                            paymentGatewayPrimary: orderDetail.paymentGatewayPrimary,
+                            paymentGatewayNames: orderDetail.paymentGatewayNames,
+                            financialStatus: orderDetail.financialStatus,
+                          }).label;
+                        })()}
                       </p>
+                      {(() => {
+                        const apiSplit = orderDetail.paymentApproval?.splitPayment;
+                        if (apiSplit?.lines?.length) {
+                          return (
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {apiSplit.lines
+                                .map(
+                                  (line) =>
+                                    `${line.label} ${Number(line.amount).toLocaleString("en-LK", { minimumFractionDigits: 2 })}`,
+                                )
+                                .join(" + ")}
+                              {orderDetail.currency ? ` ${orderDetail.currency}` : ""}
+                            </p>
+                          );
+                        }
+                        const split = resolveSplitPaymentDisplay(
+                          orderDetail.paymentApproval ?? {},
+                        );
+                        if (!split) return null;
+                        return (
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {split.lines
+                              .map(
+                                (line) =>
+                                  `${approvalSplitLineLabel(line.paymentMethod)} ${line.amount.toLocaleString("en-LK", { minimumFractionDigits: 2 })}`,
+                              )
+                              .join(" + ")}
+                            {orderDetail.currency ? ` ${orderDetail.currency}` : ""}
+                          </p>
+                        );
+                      })()}
                       {orderDetail.payments?.length && orderDetail.paymentSummary ? (
                         <div className="mt-1 space-y-0.5 text-sm text-muted-foreground">
                           <p>

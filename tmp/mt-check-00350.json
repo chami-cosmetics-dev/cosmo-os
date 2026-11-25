@@ -1,0 +1,54 @@
+{
+  "rows": [
+    {
+      "id": "cmwkmif14005kjj0760n8duj8",
+      "erpName": "MAT-STE-2026-00350",
+      "slot": "erp1",
+      "status": "sent",
+      "sourceWarehouse": "Main Warehouse - Cosmo",
+      "targetWarehouse": "Cool Planet Nugegoda Shop Warehouse - Cosmo",
+      "createdAt": "2026-11-17T11:42:59.224Z",
+      "_count": {
+        "lines": 40
+      }
+    },
+    {
+      "id": "cmvf13z47004yjy07zacf8y9w",
+      "erpName": "MAT-STE-2026-00350",
+      "slot": "erp2",
+      "status": "confirmed",
+      "sourceWarehouse": "Shop Warehouse - AJS",
+      "targetWarehouse": "Main Warehouse - AJS",
+      "createdAt": "2026-10-19T09:05:20.264Z",
+      "_count": {
+        "lines": 1
+      }
+    },
+    {
+      "id": "cmwki8ik10001wc1s9nnahkku",
+      "erpName": "MAT-STE-2026-00349",
+      "slot": "erp1",
+      "status": "sent",
+      "sourceWarehouse": "Main Warehouse - Cosmo",
+      "targetWarehouse": "OGF Shop Warehouse - Cosmo",
+      "createdAt": "2026-11-17T09:43:18.768Z",
+      "_count": {
+        "lines": 98
+      }
+    }
+  ],
+  "audits": [
+    {
+      "action": "material_transfer_submitted",
+      "entityId": "MAT-STE-2026-00350",
+      "summary": "Reconciled Cosmo receipt for MAT-STE-2026-00350 Main Warehouse - Cosmo → Cool Planet Nugegoda Shop Warehouse - Cosmo",
+      "createdAt": "2026-11-17T11:42:59.246Z"
+    },
+    {
+      "action": "material_transfer_submitted",
+      "entityId": "MAT-STE-2026-00349",
+      "summary": "Backfilled Cosmo receipt for MAT-STE-2026-00349 Main Warehouse - Cosmo → OGF Shop Warehouse - Cosmo",
+      "createdAt": "2026-11-17T09:43:19.213Z"
+    }
+  ]
+}

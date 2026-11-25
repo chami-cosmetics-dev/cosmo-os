@@ -1,13 +1,58 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  bodyAfterMultiplePricingRuleConflict,
   creditNoteUpdateOutstandingForSelf,
+  erpSiShopifyTotalMismatch,
   isUsableErpSalesInvoiceId,
   mapDeliveryPaymentMethodToMop,
   resolveOrderPaymentMop,
+  resolveShopifyPrepaidPeAmount,
 } from "@/lib/erpnext-sync";
 import { isCcCheckoutGateway } from "@/lib/delivery-payment-approval";
 import { isMintpayGateway } from "@/lib/payment-gateway-match";
+
+describe("bodyAfterMultiplePricingRuleConflict", () => {
+  it("keeps coupon_code and forces ignore_pricing_rule", () => {
+    expect(
+      bodyAfterMultiplePricingRuleConflict({
+        coupon_code: "SV20",
+        ignore_pricing_rule: 0,
+        items: [{ item_code: "A", qty: 1, rate: 8000 }],
+      }),
+    ).toEqual({
+      coupon_code: "SV20",
+      ignore_pricing_rule: 1,
+      items: [{ item_code: "A", qty: 1, rate: 8000 }],
+    });
+  });
+});
+
+describe("Shopify SI total vs ERP pricing rule overwrite", () => {
+  it("refuses PE when ERP applied list-rule rate instead of Shopify net (order 60021496 pattern)", () => {
+    // Shopify: NAN01_1 @ 3725 + shipping 400 = 4125 (sale price, no discount_codes)
+    // ERP without ignore_pricing_rule: PRLE-0011 30% of 7450 = 5215 + 400 = 5615
+    expect(erpSiShopifyTotalMismatch(5615, 4125)).toMatch(/5615\.00.*4125\.00/);
+    expect(() =>
+      resolveShopifyPrepaidPeAmount({
+        shopifyTotal: 4125,
+        erpGrandTotal: 5615,
+        outstandingAmount: 5615,
+      }),
+    ).toThrow(/Refusing PE/);
+  });
+
+  it("accepts PE when SI matches Shopify net sale total", () => {
+    expect(erpSiShopifyTotalMismatch(4125, 4125)).toBeNull();
+    expect(
+      resolveShopifyPrepaidPeAmount({
+        shopifyTotal: 4125,
+        erpGrandTotal: 4125,
+        outstandingAmount: 4125,
+      }),
+    ).toBe(4125);
+  });
+});
 
 describe("isUsableErpSalesInvoiceId", () => {
   it("accepts real SI names", () => {
@@ -31,17 +76,53 @@ describe("creditNoteUpdateOutstandingForSelf", () => {
   });
 });
 
+describe("erpSiShopifyTotalMismatch / resolveShopifyPrepaidPeAmount", () => {
+  it("accepts matching totals within tolerance", () => {
+    expect(erpSiShopifyTotalMismatch(10795, 10795)).toBeNull();
+    expect(erpSiShopifyTotalMismatch(10795.02, 10795)).toBeNull();
+    expect(resolveShopifyPrepaidPeAmount({ shopifyTotal: 10795, erpGrandTotal: 10795 })).toBe(10795);
+  });
+
+  it("caps PE at outstanding when SI matches Shopify", () => {
+    expect(
+      resolveShopifyPrepaidPeAmount({
+        shopifyTotal: 10795,
+        erpGrandTotal: 10795,
+        outstandingAmount: 500,
+      }),
+    ).toBe(500);
+  });
+
+  it("refuses PE when ERP grand_total lost the Shopify discount", () => {
+    expect(erpSiShopifyTotalMismatch(11312.5, 10795)).toMatch(/11312\.50.*10795\.00/);
+    expect(() =>
+      resolveShopifyPrepaidPeAmount({
+        shopifyTotal: 10795,
+        erpGrandTotal: 11312.5,
+        outstandingAmount: 11312.5,
+      }),
+    ).toThrow(/Refusing PE/);
+  });
+});
+
 /**
  * Mirrors resolvePrepaidMop mapping used in lib/erpnext-sync.ts
  * (kept local so we don't export private resolvers).
  */
 function resolvePrepaidMopForTest(
-  cfg: { kokoMop: string; mintpayMop: string; webxpayMop: string; bankTransferMop: string },
+  cfg: {
+    kokoMop: string;
+    mintpayMop: string;
+    amexMop?: string;
+    webxpayMop: string;
+    bankTransferMop: string;
+  },
   gateways: string[],
 ): string | null {
   const lower = gateways.map((g) => g.toLowerCase().trim());
   if (lower.some((g) => g.includes("koko"))) return cfg.kokoMop;
   if (gateways.some((g) => isMintpayGateway(g))) return cfg.mintpayMop;
+  if (gateways.some((g) => /amex|american\s*express/i.test(g))) return cfg.amexMop || null;
   if (lower.some((g) => g.includes("webxpay") || isCcCheckoutGateway(g))) {
     return cfg.webxpayMop || null;
   }
@@ -53,6 +134,7 @@ describe("CC Checkout → WebXPay MOP mapping", () => {
   const cfg = {
     kokoMop: "KOKO",
     mintpayMop: "Mintpay",
+    amexMop: "AMEX",
     webxpayMop: "WebXPay",
     bankTransferMop: "Bank Transfer",
   };
@@ -62,6 +144,12 @@ describe("CC Checkout → WebXPay MOP mapping", () => {
     expect(resolvePrepaidMopForTest(cfg, ["cc_checkout"])).toBe("WebXPay");
     expect(resolvePrepaidMopForTest(cfg, ["cc-checkout"])).toBe("WebXPay");
     expect(resolvePrepaidMopForTest(cfg, ["cc"])).toBe("WebXPay");
+  });
+
+  it("maps AMEX to amexMop", () => {
+    expect(resolvePrepaidMopForTest(cfg, ["AMEX"])).toBe("AMEX");
+    expect(resolvePrepaidMopForTest(cfg, ["Amex"])).toBe("AMEX");
+    expect(resolvePrepaidMopForTest(cfg, ["American Express"])).toBe("AMEX");
   });
 
   it("does not change KOKO / Mintpay / bank mappings", () => {
@@ -89,6 +177,7 @@ describe("Citypak courier → City Pak MOP mapping", () => {
     mintpayMop: "Mintpay",
     webxpayMop: "WebXPay",
     citypakMop: "City Pak",
+    amexMop: "AMEX",
     taxesAndCharges: "",
     shippingRule: "",
     shippingItem: "",

@@ -27,6 +27,9 @@ model Company {
   designations                    Designation[]
   suppliers                       Supplier[]
   emailTemplates                  EmailTemplate[]
+  smsTemplates                    SmsTemplate[]
+  loyaltySmsConfig                LoyaltySmsConfig?
+  loyaltyWishSends                LoyaltyWishSend[]
   employeeProfiles                EmployeeProfile[]
   failedOrderWebhooks             FailedOrderWebhook[]
   erpGrnWebhooks                  ErpGrnWebhook[]
@@ -193,6 +196,8 @@ model ErpnextInstance {
   mintpayMop            String?
   /// ERP Mode of Payment for Citypak/City Pack courier collections (e.g. "City Pak").
   citypakMop            String?
+  /// ERP Mode of Payment for AMEX card collections (e.g. "AMEX").
+  amexMop               String?
   taxesAndCharges       String?
   shippingRule          String?
   shippingItem          String?
@@ -1869,17 +1874,18 @@ model EmployeeProfileOutlet {
 }
 
 model StickerBatch {
-  id         String             @id @default(cuid())
-  companyId  String
-  supplierId String
-  batchName  String
-  batchDate  DateTime
-  remark     String?
-  createdAt  DateTime           @default(now())
-  updatedAt  DateTime           @updatedAt
-  company    Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  supplier   Supplier           @relation(fields: [supplierId], references: [id], onDelete: Restrict)
-  items      StickerBatchItem[]
+  id                  String             @id @default(cuid())
+  companyId           String
+  supplierId          String
+  batchName           String
+  batchDate           DateTime
+  remark              String?
+  printCosmeticsLogo  Boolean            @default(true)
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+  company             Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  supplier            Supplier           @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  items               StickerBatchItem[]
 
   @@unique([companyId, batchName])
   @@index([companyId, createdAt])
@@ -2013,6 +2019,57 @@ model EmailTemplate {
   company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
   @@unique([companyId, key])
+}
+
+/// Reusable SMS body (EmailTemplate analogue). Builtin keys merge from catalog.
+model SmsTemplate {
+  id        String   @id @default(cuid())
+  companyId String
+  key       String
+  name      String
+  /// gold_wish | platinum_wish | custom
+  purpose   String
+  body      String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, key])
+  @@index([companyId, purpose, active])
+}
+
+/// Company office phone for loyalty-wish {{officePhone}}.
+model LoyaltySmsConfig {
+  id                 String   @id @default(cuid())
+  companyId          String   @unique
+  officeContactPhone String   @default("")
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  company            Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+}
+
+/// One row per contact+tier wish attempt (dedupe on success).
+model LoyaltyWishSend {
+  id           String        @id @default(cuid())
+  companyId    String
+  contactId    String
+  /// gold | platinum
+  tier         String
+  templateKey  String?
+  phoneNumber  String?
+  messageBody  String?
+  /// success | skipped_no_phone | skipped_no_template | skipped_already_sent | failed
+  status       String
+  errorMessage String?
+  smsLogId     String?
+  sentAt       DateTime      @default(now())
+  createdAt    DateTime      @default(now())
+  company      Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  contact      ContactMaster @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, contactId, tier])
+  @@index([companyId, sentAt(sort: Desc)])
 }
 
 model SmsPortalConfig {
@@ -2382,6 +2439,7 @@ model ContactMaster {
   removedEmails            ContactRemovedEmail[]
   callQueueItems           ContactInsightCallQueue[]
   osRegistrationCaptures   OsRegistrationCapture[]
+  loyaltyWishSends         LoyaltyWishSend[]
 
   @@index([companyId, lastPurchaseAt])
   @@index([companyId, updatedAt(sort: Desc)])

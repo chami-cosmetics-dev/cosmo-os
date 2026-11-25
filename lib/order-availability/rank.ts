@@ -314,7 +314,7 @@ function collectShopSources(shops: ShopCompanyStock[], companyName: string, key:
 
 /** Selected company's own stock for covered SKUs, and where the short/missing ones sit elsewhere. */
 export function buildDetail(
-  response: Pick<OrderAvailabilityResponse, "lines" | "companies" | "shopCompanies">,
+  response: Pick<OrderAvailabilityResponse, "lines" | "companies" | "shopCompanies" | "erp1Main">,
   companyName: string,
 ): OrderDetail | null {
   const selected = response.companies.find((row) => row.company === companyName);
@@ -340,6 +340,18 @@ export function buildDetail(
               warehouse: row.warehouse,
               available: row.available,
               priority: row.priority,
+            });
+          }
+        }
+      }
+      for (const erp1 of response.erp1Main ?? []) {
+        for (const row of erp1.lines[line.key]?.byWarehouse ?? []) {
+          if (row.available > 0) {
+            sources.push({
+              company: erp1.company,
+              warehouse: row.warehouse,
+              available: row.available,
+              priority: null,
             });
           }
         }

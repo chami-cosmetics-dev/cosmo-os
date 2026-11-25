@@ -22,6 +22,7 @@ import {
   NEAR_CAP_RATIO,
   type OrderAvailabilityResponse,
   type RequestLine,
+  type ShopCompanyStock,
   type SkuLine,
 } from "@/lib/order-availability/types";
 import {
@@ -183,6 +184,36 @@ async function fetchBinAvailable(
   return map;
 }
 
+/** ERP1 main warehouses only. Failures stay off the ERP2 suggestion. */
+async function fetchErp1Main(
+  erp1: OsfErpInstance | null,
+  skuLines: SkuLine[],
+  itemCodes: string[],
+): Promise<{ rows: ShopCompanyStock[]; error: string | null }> {
+  if (!erp1 || itemCodes.length === 0) return { rows: [], error: null };
+  try {
+    const warehouseRows = await listTransferWarehouses(erp1.cfg);
+    const warehousesByCompany = new Map<string, string[]>();
+    for (const row of warehouseRows) {
+      if (!isMainWarehouseName(row.name)) continue;
+      const list = warehousesByCompany.get(row.company) ?? [];
+      list.push(row.name);
+      warehousesByCompany.set(row.company, list);
+    }
+    const warehouses = [...warehousesByCompany.values()].flat();
+    const binAvailable = await fetchBinAvailable(erp1.cfg, warehouses, itemCodes);
+    const rows = buildCompanyResults({ skuLines, warehousesByCompany, binAvailable }).map(
+      ({ company, warehouses: names, lines }) => ({ company, warehouses: names, lines }),
+    );
+    return { rows, error: null };
+  } catch (error) {
+    return {
+      rows: [],
+      error: (error instanceof Error ? error.message : "Could not read ERP1 main warehouse").slice(0, 300),
+    };
+  }
+}
+
 /** Submitted Sales Invoice net_total per company for the date range. Returns are negative, so this is net. */
 async function fetchMtdSalesByCompany(
   cfg: OsfErpCredentials,
@@ -330,9 +361,10 @@ export async function checkOrderAvailability(
   const taxCodes = [
     ...new Set(draftLines.flatMap((line) => [line.sku, line.itemCode].filter((code): code is string => Boolean(code)))),
   ];
-  const [binAvailable, erp1Hits] = await Promise.all([
+  const [binAvailable, erp1Hits, erp1Main] = await Promise.all([
     fetchBinAvailable(cfg, warehouses, foundCodes),
     fetchErp1TaxHits(erp1, taxCodes),
+    fetchErp1Main(erp1, draftLines, foundCodes),
   ]);
   const skuLines: SkuLine[] = draftLines.map((line) => {
     const labels = mergeItemTaxLabels(erp1Hits.get(line.key), items.get(line.key));
@@ -376,6 +408,8 @@ export async function checkOrderAvailability(
       .sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0]))
       .map(([warehouse, priority]) => ({ warehouse, priority })),
     companies: picked.companies,
+    erp1Main: erp1Main.rows,
+    erp1MainError: erp1Main.error,
     shopCompanies: buildCompanyResults({
       skuLines,
       warehousesByCompany: shopWarehousesByCompany,

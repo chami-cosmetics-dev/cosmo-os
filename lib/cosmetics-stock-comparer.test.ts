@@ -18,6 +18,7 @@ import {
   isAtOrBelowRopPercent,
   isExcludedFromStockCompare,
   matchesIdentityFilters,
+  resolveStockCompareHomeWarehouse,
   selectWatchedTargets,
   markCriticalTopSellers,
   type CosmeticsStockReportDetail,
@@ -203,6 +204,13 @@ describe("classifyWarehouseKind", () => {
     expect(classifyWarehouseKind("Main Warehouse - SPK")).toBe("online");
     expect(classifyWarehouseKind("Website Inventory - Cosmo")).toBe("online");
     expect(classifyWarehouseKind("Stores - CCON")).toBe("online");
+  });
+
+  it("classifies Supplement Vault main and leaves Origins and AE as other warehouses", () => {
+    expect(classifyWarehouseKind("Main Warehouse - SV-1")).toBe("main");
+    expect(classifyWarehouseKind("Main Warehouse - SV1")).toBe("main");
+    expect(classifyWarehouseKind("Main Warehouse - Origins")).toBe("online");
+    expect(classifyWarehouseKind("Main Warehouse - AE")).toBe("online");
   });
 });
 
@@ -707,6 +715,104 @@ describe("buildFocusedStockReport", () => {
     expect(report[0]?.online.some((item) => item.warehouse === "Main Warehouse - Cosmo")).toBe(false);
     expect(report[0]?.online.some((item) => item.warehouse === "Main Warehouse - Trading A")).toBe(false);
     expect(report[0]?.shops).toEqual([]);
+  });
+});
+
+describe("Supplement Vault home warehouse", () => {
+  const vaultColumns: RopColumnRef[] = [
+    {
+      key: "sv",
+      label: "SV",
+      warehouses: ["Main Warehouse - SV-1"],
+      erpSource: "ERP1",
+      active: true,
+      includeInRop: true,
+    },
+    {
+      key: "ori",
+      label: "ORI",
+      warehouses: ["Main Warehouse - Origins"],
+      erpSource: "ERP2",
+      active: true,
+      includeInRop: true,
+    },
+    {
+      key: "ae",
+      label: "AE",
+      warehouses: ["Main Warehouse - AE"],
+      erpSource: "ERP2",
+      active: true,
+      includeInRop: true,
+    },
+  ];
+
+  it("uses the SV column as the home warehouse", () => {
+    expect(resolveStockCompareHomeWarehouse(vaultColumns, true)).toBe("Main Warehouse - SV-1");
+    expect(
+      resolveStockCompareHomeWarehouse(
+        [{ key: "sv", warehouses: ["Main Warehouse - SV1"] }],
+        true,
+      ),
+    ).toBe("Main Warehouse - SV1");
+    expect(resolveStockCompareHomeWarehouse(vaultColumns, false)).toBe("Main Warehouse - Cosmo");
+  });
+
+  it("flags low SV stock and lists Origins and AE beside it", () => {
+    const details = buildCosmeticsStockReportDetails(
+      [
+        row({
+          Item: "NW004-2",
+          Warehouse: "Main Warehouse - SV-1",
+          "Balance Qty": 0,
+          "__ERP Source": "ERP1",
+        }),
+        row({
+          Item: "NW004-2",
+          Warehouse: "Main Warehouse - Origins",
+          "Balance Qty": 6,
+          "__ERP Source": "ERP2",
+        }),
+        row({
+          Item: "NW004-2",
+          Warehouse: "Main Warehouse - AE",
+          "Balance Qty": 4,
+          "__ERP Source": "ERP2",
+        }),
+        row({
+          Item: "HIGH",
+          Warehouse: "Main Warehouse - SV-1",
+          "Balance Qty": 12,
+          "__ERP Source": "ERP1",
+        }),
+      ],
+      0,
+      "Main Warehouse - SV-1",
+    );
+    expect(details.map((item) => item.SKU)).toEqual(["NW004-2"]);
+    expect(details[0]?.["Main Warehouse Qty"]).toBe(0);
+    expect(details[0]?.online.map((item) => item.name).sort()).toEqual(["AE", "Origins"]);
+    expect(details[0]?.shops).toEqual([]);
+  });
+
+  it("treats SV1 as the same home bin and watches Origins and AE", () => {
+    const columns = vaultColumns.map((column) =>
+      column.key === "sv" ? { ...column, warehouses: ["Main Warehouse - SV1"] } : column,
+    );
+    expect(selectWatchedTargets(columns, "Main Warehouse - SV1").map((target) => target.warehouse)).toEqual([
+      "Main Warehouse - SV1",
+      "Main Warehouse - Origins",
+      "Main Warehouse - AE",
+    ]);
+    const details = buildCosmeticsStockReportDetails(
+      [
+        row({ Item: "LOW", Warehouse: "Main Warehouse - SV1", "Balance Qty": 0 }),
+        row({ Item: "LOW", Warehouse: "Main Warehouse - Origins", "Balance Qty": 2, "__ERP Source": "ERP2" }),
+      ],
+      0,
+      "Main Warehouse - SV-1",
+    );
+    expect(details.map((item) => item.SKU)).toEqual(["LOW"]);
+    expect(details[0]?.online.map((item) => item.warehouse)).toEqual(["Main Warehouse - Origins"]);
   });
 });
 

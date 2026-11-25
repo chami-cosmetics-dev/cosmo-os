@@ -118,6 +118,15 @@ export default async function SettingsPage() {
             href: "/dashboard/settings/sms-notifications",
             icon: MessageSquare,
           },
+          {
+            key: "sms-templates",
+            group: "Communication" as const,
+            title: "SMS Templates",
+            description:
+              "Loyalty wish SMS for Gold/Platinum upgrades — edit templates, office number, and random variants.",
+            href: "/dashboard/settings/sms-templates",
+            icon: MessageSquare,
+          },
         ]
       : []),
     ...(canManageFulfillment

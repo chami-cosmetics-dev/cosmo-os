@@ -1,0 +1,209 @@
+{
+  "rows": [
+    {
+      "id": "cmwk72a7g005qjy07meum8sil",
+      "erpName": "MAT-STE-2026-00348",
+      "erp2Name": null,
+      "direction": "store_to_shop",
+      "status": "sent",
+      "sourceWarehouse": "Pepiliyana Shop Warehouse - Cosmo",
+      "targetWarehouse": "Main Warehouse - Cosmo",
+      "slot": "erp1",
+      "createdAt": "2026-11-17T04:30:32.236Z",
+      "_count": {
+        "lines": 38
+      }
+    },
+    {
+      "id": "cmwdh7mra005jl808hslafyck",
+      "erpName": "MAT-STE-2026-00339",
+      "erp2Name": null,
+      "direction": "store_to_shop",
+      "status": "received",
+      "sourceWarehouse": "Main Warehouse - Cosmo",
+      "targetWarehouse": "OGF Shop Warehouse - Cosmo",
+      "slot": "erp1",
+      "createdAt": "2026-11-12T11:40:14.711Z",
+      "_count": {
+        "lines": 8
+      }
+    },
+    {
+      "id": "cmwdfttne0001wcfgeka0m3n8",
+      "erpName": "MAT-STE-2026-00334",
+      "erp2Name": null,
+      "direction": "store_to_shop",
+      "status": "received",
+      "sourceWarehouse": "Main Warehouse - Cosmo",
+      "targetWarehouse": "OGF Shop Warehouse - Cosmo",
+      "slot": "erp1",
+      "createdAt": "2026-11-12T11:01:30.839Z",
+      "_count": {
+        "lines": 48
+      }
+    },
+    {
+      "id": "cmv9fmqfn006mjs0681ybn3b6",
+      "erpName": "MAT-STE-2026-00339",
+      "erp2Name": null,
+      "direction": "store_to_shop",
+      "status": "received",
+      "sourceWarehouse": "Main Warehouse - AJS",
+      "targetWarehouse": "Shop Warehouse - AJS",
+      "slot": "erp2",
+      "createdAt": "2026-10-15T11:05:13.043Z",
+      "_count": {
+        "lines": 50
+      }
+    },
+    {
+      "id": "cmwisbdkh0060jv08oapoj3yz",
+      "erpName": "MAT-STE-2026-00345",
+      "erp2Name": null,
+      "direction": "store_to_shop",
+      "status": "received",
+      "sourceWarehouse": "Main Warehouse - Cosmo",
+      "targetWarehouse": "Maharagama Shop Warehouse - Cosmo",
+      "slot": "erp1",
+      "createdAt": "2026-11-16T04:49:56.081Z",
+      "_count": {
+        "lines": 1
+      }
+    },
+    {
+      "id": "cmv67y2kv0067i906hy4db7u2",
+      "erpName": "MAT-STE-2026-00334",
+      "erp2Name": null,
+      "direction": "store_to_shop",
+      "status": "received",
+      "sourceWarehouse": "Main Warehouse - MNK",
+      "targetWarehouse": "Shop Warehouse - MNK",
+      "slot": "erp2",
+      "createdAt": "2026-10-13T05:06:46.544Z",
+      "_count": {
+        "lines": 1
+      }
+    }
+  ],
+  "audits": [
+    {
+      "action": "material_transfer_submitted",
+      "entityId": "MAT-STE-2026-00348",
+      "summary": "Submitted MAT-STE-2026-00348 Pepiliyana Shop Warehouse - Cosmo → Main Warehouse - Cosmo",
+      "createdAt": "2026-11-17T04:30:32.294Z"
+    },
+    {
+      "action": "material_transfer_submitted",
+      "entityId": "MAT-STE-2026-00345",
+      "summary": "Submitted MAT-STE-2026-00345 Main Warehouse - Cosmo → Maharagama Shop Warehouse - Cosmo",
+      "createdAt": "2026-11-16T04:49:56.131Z"
+    },
+    {
+      "action": "material_transfer_submitted",
+      "entityId": "MAT-STE-2026-00339",
+      "summary": "Submitted MAT-STE-2026-00339 Main Warehouse - Cosmo → OGF Shop Warehouse - Cosmo",
+      "createdAt": "2026-11-12T11:40:14.729Z"
+    },
+    {
+      "action": "material_transfer_submitted",
+      "entityId": "MAT-STE-2026-00334",
+      "summary": "Backfilled Cosmo receipt for MAT-STE-2026-00334 Main Warehouse - Cosmo → OGF Shop Warehouse - Cosmo",
+      "createdAt": "2026-11-12T11:01:31.316Z"
+    },
+    {
+      "action": "material_transfer_submitted",
+      "entityId": "MAT-STE-2026-00339",
+      "summary": "Submitted MAT-STE-2026-00339 Main Warehouse - AJS → Shop Warehouse - AJS",
+      "createdAt": "2026-10-15T11:05:13.073Z"
+    },
+    {
+      "action": "material_transfer_submitted",
+      "entityId": "MAT-STE-2026-00334",
+      "summary": "Submitted MAT-STE-2026-00334 Main Warehouse - MNK → Shop Warehouse - MNK",
+      "createdAt": "2026-10-13T05:06:46.565Z"
+    }
+  ],
+  "total": 119,
+  "recentOgf": [
+    {
+      "erpName": "MAT-STE-2026-00339",
+      "status": "received",
+      "sourceWarehouse": "Main Warehouse - Cosmo",
+      "targetWarehouse": "OGF Shop Warehouse - Cosmo",
+      "createdAt": "2026-11-12T11:40:14.711Z",
+      "_count": {
+        "lines": 8
+      }
+    },
+    {
+      "erpName": "MAT-STE-2026-00334",
+      "status": "received",
+      "sourceWarehouse": "Main Warehouse - Cosmo",
+      "targetWarehouse": "OGF Shop Warehouse - Cosmo",
+      "createdAt": "2026-11-12T11:01:30.839Z",
+      "_count": {
+        "lines": 48
+      }
+    },
+    {
+      "erpName": "MAT-STE-2026-00331",
+      "status": "received",
+      "sourceWarehouse": "Main Warehouse - Cosmo",
+      "targetWarehouse": "OGF Shop Warehouse - Cosmo",
+      "createdAt": "2026-11-11T04:00:27.872Z",
+      "_count": {
+        "lines": 6
+      }
+    },
+    {
+      "erpName": "MAT-STE-2026-00316",
+      "status": "received",
+      "sourceWarehouse": "Main Warehouse - Cosmo",
+      "targetWarehouse": "OGF Shop Warehouse - Cosmo",
+      "createdAt": "2026-10-31T05:06:11.681Z",
+      "_count": {
+        "lines": 4
+      }
+    },
+    {
+      "erpName": "MAT-STE-2026-00304",
+      "status": "received",
+      "sourceWarehouse": "Main Warehouse - Cosmo",
+      "targetWarehouse": "OGF Shop Warehouse - Cosmo",
+      "createdAt": "2026-10-28T09:13:41.159Z",
+      "_count": {
+        "lines": 2
+      }
+    },
+    {
+      "erpName": "MAT-STE-2026-00303",
+      "status": "received",
+      "sourceWarehouse": "Main Warehouse - Cosmo",
+      "targetWarehouse": "OGF Shop Warehouse - Cosmo",
+      "createdAt": "2026-10-28T08:18:16.969Z",
+      "_count": {
+        "lines": 10
+      }
+    },
+    {
+      "erpName": "MAT-STE-2026-00297",
+      "status": "received",
+      "sourceWarehouse": "Main Warehouse - Cosmo",
+      "targetWarehouse": "OGF Shop Warehouse - Cosmo",
+      "createdAt": "2026-10-27T05:07:49.332Z",
+      "_count": {
+        "lines": 32
+      }
+    },
+    {
+      "erpName": "MAT-STE-2026-00277",
+      "status": "received",
+      "sourceWarehouse": "Main Warehouse - Cosmo",
+      "targetWarehouse": "OGF Shop Warehouse - Cosmo",
+      "createdAt": "2026-10-20T05:50:54.011Z",
+      "_count": {
+        "lines": 13
+      }
+    }
+  ]
+}

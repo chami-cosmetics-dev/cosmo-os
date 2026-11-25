@@ -30,6 +30,7 @@ import {
   type LocationStock,
   type WarehouseOption,
 } from "@/lib/cosmetics-stock-comparer";
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 
 type LiveStockResponse = {
   threshold: number;
@@ -272,7 +273,8 @@ function exportStockReport(rows: CosmeticsStockReportDetail[], ropCutoff: number
 
   XLSX.utils.book_append_sheet(workbook, worksheet, "Stock Compare");
   const today = new Date().toISOString().slice(0, 10);
-  downloadExcelWorkbook(workbook, `cosmetics-stock-compare-${today}.xlsx`);
+  const filePrefix = isVaultOsDeployment() ? "supplement-vault-stock-compare" : "cosmetics-stock-compare";
+  downloadExcelWorkbook(workbook, `${filePrefix}-${today}.xlsx`);
 }
 
 function RopPercent({
@@ -376,6 +378,8 @@ function EmptyState({
 }
 
 export function CosmeticsStockComparer() {
+  const vault = isVaultOsDeployment();
+  const homeLabel = vault ? "Supplement Vault main" : "Cosmetics main";
   const [tab, setTab] = useState("main");
   const [threshold, setThreshold] = useState("0");
   const [ropPercentInput, setRopPercentInput] = useState("");
@@ -520,8 +524,8 @@ export function CosmeticsStockComparer() {
         <CardHeader className="border-b pb-4">
           <CardTitle className="text-base">Live stock run</CardTitle>
           <CardDescription>
-            Out of stock on the chosen warehouse. Cosmetics main, other warehouses, and shop
-            warehouses stay in their own columns.
+            Out of stock on the chosen warehouse. {homeLabel}, other warehouses, and shop warehouses
+            stay in their own columns.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4 pt-0 sm:flex-row sm:items-end sm:justify-between">
@@ -566,7 +570,7 @@ export function CosmeticsStockComparer() {
                 onChange={(event) => setFocusWarehouse(event.target.value)}
                 disabled={isBusy || warehouses.length === 0}
               >
-                <option value="">Cosmetics main</option>
+                <option value="">{homeLabel}</option>
                 {warehouses.map((warehouse) => (
                   <option key={warehouse.name} value={warehouse.name}>
                     {warehouse.name}
@@ -609,7 +613,7 @@ export function CosmeticsStockComparer() {
         </CardContent>
       </Card>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className={vault ? "grid gap-3 sm:grid-cols-3" : "grid gap-3 sm:grid-cols-2 xl:grid-cols-4"}>
         <StatButton
           label="Flagged SKUs"
           value={identityRows.length}
@@ -634,14 +638,16 @@ export function CosmeticsStockComparer() {
           onClick={() => applyMainFilter("critical")}
           disabled={!hasRun}
         />
-        <StatButton
-          label="Brand issues"
-          value={brandViolations.length}
-          hint="Wrong-company stock"
-          active={tab === "brand"}
-          onClick={() => setTab("brand")}
-          disabled={!hasRun}
-        />
+        {vault ? null : (
+          <StatButton
+            label="Brand issues"
+            value={brandViolations.length}
+            hint="Wrong-company stock"
+            active={tab === "brand"}
+            onClick={() => setTab("brand")}
+            disabled={!hasRun}
+          />
+        )}
       </div>
 
       <div className="flex flex-wrap items-end gap-3">
@@ -712,15 +718,17 @@ export function CosmeticsStockComparer() {
         </Button>
       </div>
 
-      <Tabs value={tab} onValueChange={setTab}>
-        <TabsList>
-          <TabsTrigger value="main" disabled={isBusy}>
-            Availability{hasRun ? ` (${identityRows.length})` : ""}
-          </TabsTrigger>
-          <TabsTrigger value="brand" disabled={isBusy}>
-            Brand check{hasRun ? ` (${brandViolations.length})` : ""}
-          </TabsTrigger>
-        </TabsList>
+      <Tabs value={vault ? "main" : tab} onValueChange={setTab}>
+        {vault ? null : (
+          <TabsList>
+            <TabsTrigger value="main" disabled={isBusy}>
+              Availability{hasRun ? ` (${identityRows.length})` : ""}
+            </TabsTrigger>
+            <TabsTrigger value="brand" disabled={isBusy}>
+              Brand check{hasRun ? ` (${brandViolations.length})` : ""}
+            </TabsTrigger>
+          </TabsList>
+        )}
 
         <TabsContent value="main" className="mt-4 space-y-3">
 
@@ -762,7 +770,7 @@ export function CosmeticsStockComparer() {
             <EmptyState
               icon={PackageSearch}
               title="Run the report to see shortages"
-              detail="Items at or below Cosmetics main threshold appear here, with other main warehouses listed before shops."
+              detail={`Items at or below ${homeLabel} threshold appear here, with other warehouses listed before shops.`}
             />
           ) : filteredRows.length === 0 ? (
             <EmptyState

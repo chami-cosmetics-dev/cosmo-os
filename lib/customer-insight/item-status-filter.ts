@@ -20,6 +20,7 @@ import {
   type ProductItemStatusCategory,
 } from "@/lib/product-item-status";
 import { prisma } from "@/lib/prisma";
+import type { Prisma } from "@prisma/client";
 
 const STATUS_SET = new Set<string>(PRODUCT_ITEM_STATUS_CATEGORIES);
 
@@ -176,7 +177,7 @@ export async function findContactsByPurchasedItemStatusRanked(
   const allPhones = new Set<string>();
   const allEmails = new Set<string>();
 
-  const orderWhere = {
+  const orderWhere: Prisma.OrderWhereInput = {
     companyId,
     ...customerInsightPurchaseMatchOrderWhere(),
     lineItems: {

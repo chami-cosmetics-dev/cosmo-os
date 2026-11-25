@@ -1,4 +1,6 @@
-﻿export type PaymentMethodVariant = "cod" | "bank" | "card" | "cash" | "paid" | "other";
+﻿import { isApprovalSplitRequestNote } from "@/lib/approval-payment-split";
+
+export type PaymentMethodVariant = "cod" | "bank" | "card" | "cash" | "paid" | "other";
 
 export type PaymentMethodInfo = {
   label: string;
@@ -67,6 +69,12 @@ export function getPaymentMethodInfo(input?: {
   if (normalized.replace(/[^a-z0-9]+/g, "").includes("mintpay")) {
     return { label: "Mintpay", variant: "paid" };
   }
+  if (
+    normalized.includes("amex") ||
+    normalized.replace(/[^a-z0-9]+/g, "").includes("americanexpress")
+  ) {
+    return { label: "AMEX", variant: "paid" };
+  }
   if (isAlreadyPaidCardCheckoutGateway(primary)) {
     return { label: normalized.includes("webxpay") ? "WebXPay" : "CC Checkout", variant: "card" };
   }
@@ -75,8 +83,7 @@ export function getPaymentMethodInfo(input?: {
     normalized.includes("card") ||
     normalized.includes("shopify payments") ||
     normalized.includes("visa") ||
-    normalized.includes("mastercard") ||
-    normalized.includes("amex")
+    normalized.includes("mastercard")
   ) {
     return { label: "Card", variant: "card" };
   }
@@ -187,6 +194,12 @@ export function orderPaymentFinanceApproveMarksPaid(
   extra?: { requestNote?: string | null },
 ): boolean {
   if (orderHasCardOnDeliveryGateway(order)) return false;
-  if (isCardOnDeliveryGateway(extra?.requestNote)) return false;
+  // Split notes include "Card:" for Cash + Card — not door Card on Delivery.
+  if (
+    !isApprovalSplitRequestNote(extra?.requestNote) &&
+    isCardOnDeliveryGateway(extra?.requestNote)
+  ) {
+    return false;
+  }
   return true;
 }

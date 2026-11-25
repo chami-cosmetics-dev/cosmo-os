@@ -1,5 +1,6 @@
 import "server-only";
 
+import { skuVariantKeys } from "@/lib/osf/base-sku";
 import { prisma } from "@/lib/prisma";
 
 export type OsfErpCredentials = {
@@ -78,6 +79,12 @@ async function erpGetJson<T>(cfg: OsfErpCredentials, path: string): Promise<T> {
 
 const BIN_BATCH = 80;
 
+function binQuantity(value: number | string | null | undefined): number | null {
+  if (value == null || (typeof value === "string" && !/^-?\d+(?:\.\d+)?(?:e[+-]?\d+)?$/i.test(value.trim()))) return null;
+  const qty = Number(value);
+  return Number.isFinite(qty) ? qty : null;
+}
+
 /**
  * Batch-fetch Bin actual_qty keyed by `${warehouse}::${item_code}`.
  * Throws OsfErpError on unreachable ERP — callers must not invent stock.
@@ -86,6 +93,7 @@ export async function fetchBinActualQty(input: {
   cfg: OsfErpCredentials;
   warehouses: string[];
   itemCodes: string[];
+  observedBins?: Map<string, string>;
 }): Promise<Map<string, number>> {
   const map = new Map<string, number>();
   const warehouses = [...new Set(input.warehouses.map((w) => w.trim()).filter(Boolean))];
@@ -103,7 +111,7 @@ export async function fetchBinActualQty(input: {
       `/api/resource/Bin?filters=${encodeURIComponent(filters)}` +
       `&fields=${encodeURIComponent(fields)}&limit_page_length=${BIN_BATCH * warehouses.length}`;
 
-    const json = await erpGetJson<{ data?: Array<{ item_code?: string; warehouse?: string; actual_qty?: number }> }>(
+    const json = await erpGetJson<{ data?: Array<{ item_code?: string; warehouse?: string; actual_qty?: number | string | null }> }>(
       input.cfg,
       path,
     );
@@ -111,10 +119,12 @@ export async function fetchBinActualQty(input: {
       const item = row.item_code?.trim();
       const wh = row.warehouse?.trim();
       if (!item || !wh) continue;
-      const qty = Number(row.actual_qty);
-      if (!Number.isFinite(qty)) continue;
+      const qty = binQuantity(row.actual_qty);
+      if (qty === null) continue;
       const key = `${wh}::${item}`;
       map.set(key, (map.get(key) ?? 0) + qty);
+      // Capture actual observations separately from the legacy numeric grid.
+      input.observedBins?.set(JSON.stringify([wh, item]), String(row.actual_qty).trim());
     }
   }
 
@@ -152,15 +162,15 @@ export async function fetchWarehouseBins(input: {
       `&fields=${encodeURIComponent(fields)}` +
       `&limit_start=${start}&limit_page_length=${WAREHOUSE_BIN_PAGE}`;
     const json = await erpGetJson<{
-      data?: Array<{ item_code?: string; warehouse?: string; actual_qty?: number }>;
+      data?: Array<{ item_code?: string; warehouse?: string; actual_qty?: number | string | null }>;
     }>(input.cfg, path);
     const rows = json.data ?? [];
     for (const row of rows) {
       const item = row.item_code?.trim();
       const wh = row.warehouse?.trim();
       if (!item || !wh) continue;
-      const qty = Number(row.actual_qty);
-      if (!Number.isFinite(qty)) continue;
+      const qty = binQuantity(row.actual_qty);
+      if (qty === null) continue;
       if (input.positiveOnly && qty <= 0) continue;
       const key = `${wh}::${item}`;
       map.set(key, (map.get(key) ?? 0) + qty);
@@ -169,6 +179,69 @@ export async function fetchWarehouseBins(input: {
   }
 
   return map;
+}
+
+const LEDGER_PAGE = 500;
+const LEDGER_MAX_PAGES = 400;
+
+function isCancelledLedgerRow(value: number | string | undefined): boolean {
+  const v = String(value ?? "").trim().toLowerCase();
+  return v === "1" || v === "yes";
+}
+
+/**
+ * Sum of Stock Ledger `actual_qty` posted strictly after `afterDate` (YYYY-MM-DD).
+ * Movements on `afterDate` stay in the end-of-day balance. Cancelled rows are skipped.
+ * Keyed by `${warehouse}::${item_code}`.
+ */
+export async function fetchWarehouseLedgerQtyAfter(input: {
+  cfg: OsfErpCredentials;
+  warehouses: string[];
+  afterDate: string;
+}): Promise<Map<string, number>> {
+  const map = new Map<string, number>();
+  const warehouses = [...new Set(input.warehouses.map((w) => w.trim()).filter(Boolean))];
+  if (warehouses.length === 0) return map;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.afterDate)) {
+    throw new OsfErpError(`Invalid as-of date: ${input.afterDate}`);
+  }
+
+  const filters = JSON.stringify([
+    ["warehouse", "in", warehouses],
+    ["posting_date", ">", input.afterDate],
+  ]);
+  const fields = JSON.stringify(["item_code", "warehouse", "actual_qty", "is_cancelled"]);
+
+  for (let page = 0; page < LEDGER_MAX_PAGES; page += 1) {
+    const path =
+      `/api/resource/Stock Ledger Entry?filters=${encodeURIComponent(filters)}` +
+      `&fields=${encodeURIComponent(fields)}` +
+      `&limit_start=${page * LEDGER_PAGE}&limit_page_length=${LEDGER_PAGE}`;
+    const json = await erpGetJson<{
+      data?: Array<{
+        item_code?: string;
+        warehouse?: string;
+        actual_qty?: number | string;
+        is_cancelled?: number | string;
+      }>;
+    }>(input.cfg, path);
+    const rows = json.data ?? [];
+    for (const row of rows) {
+      if (isCancelledLedgerRow(row.is_cancelled)) continue;
+      const item = row.item_code?.trim();
+      const wh = row.warehouse?.trim();
+      if (!item || !wh) continue;
+      const qty = Number(row.actual_qty);
+      if (!Number.isFinite(qty) || qty === 0) continue;
+      const key = `${wh}::${item}`;
+      map.set(key, (map.get(key) ?? 0) + qty);
+    }
+    if (rows.length < LEDGER_PAGE) return map;
+  }
+
+  throw new OsfErpError(
+    `Stock ledger after ${input.afterDate} exceeded ${LEDGER_MAX_PAGES * LEDGER_PAGE} rows. Pick a later as-of date.`,
+  );
 }
 
 /** All Bin rows with actual_qty > 0 for warehouses (paginated, no SKU list). */
@@ -187,12 +260,40 @@ export function stockForColumn(
   if (warehouses.length === 0) return null;
   let total = 0;
   let found = false;
-  for (const wh of warehouses) {
-    const key = `${wh}::${itemCode}`;
-    if (binMap.has(key)) {
-      found = true;
-      total += binMap.get(key)!;
+  for (const code of skuVariantKeys(itemCode)) {
+    for (const wh of warehouses) {
+      const key = `${wh}::${code}`;
+      if (binMap.has(key)) {
+        found = true;
+        total += binMap.get(key)!;
+      }
     }
+    if (found) break;
   }
   return found ? total : 0;
+}
+
+/** Totals for filtering require an observed Bin at every configured warehouse. */
+export function observedStockForColumns(
+  columns: { erpnextInstanceId: string | null; warehouses: string[] }[],
+  binsByInstance: Map<string, Map<string, number>>,
+  sku: string,
+): number | null {
+  const seen = new Set<string>();
+  let total = 0;
+  for (const { erpnextInstanceId, warehouses } of columns) {
+    const bins = erpnextInstanceId ? binsByInstance.get(erpnextInstanceId) : undefined;
+    if (!bins || warehouses.length === 0) return null;
+    const itemCode = skuVariantKeys(sku).find((code) =>
+      warehouses.every((warehouse) => bins.has(`${warehouse}::${code}`)),
+    );
+    if (!itemCode) return null;
+    for (const warehouse of warehouses) {
+      const scope = JSON.stringify([erpnextInstanceId, warehouse]);
+      if (seen.has(scope)) return null;
+      seen.add(scope);
+      total += bins.get(`${warehouse}::${itemCode}`)!;
+    }
+  }
+  return seen.size ? total : null;
 }

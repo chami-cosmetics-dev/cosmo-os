@@ -1,6 +1,6 @@
 import { PassThrough } from "node:stream";
 
-import type { OsfCatalogRow } from "@/lib/osf/catalog-rows";
+import type { OsfCatalogRow } from "@/lib/osf/catalog-row-build";
 import {
   OSF_ACCESS_PURCHASES,
   OSF_ACCESS_SALES_UNITS,
@@ -18,12 +18,13 @@ import {
   ogfMargin,
   orderQty,
   originalSellingPrice,
+  DEFAULT_STOCK_PCT_OF_ROP,
   percentOfRop,
-  seventyPercentAvailabilityLabel,
-  seventyPercentOfRop,
+  shareOfRopAvailabilityLabel,
+  shareOfTotalRop,
   sumSignedOrderQtysFlooredAtZero,
 } from "@/lib/osf/formulas";
-import { baseSku } from "@/lib/osf/base-sku";
+import { baseSku, mapGetBySku } from "@/lib/osf/base-sku";
 import { vatStatusLabel, type OsfVariant } from "@/lib/osf/vat-membership";
 import {
   findCosmeticsLkRopColumn,
@@ -36,6 +37,7 @@ import {
   applyOsfWorkbookHeaderBands,
   type OsfWorkbookBandKey,
 } from "@/lib/osf/workbook-band-styles";
+import { osfSheetSalesQty } from "@/lib/osf/historical-snapshot";
 import { averageMonthlySale, maxSale } from "@/lib/vault-osf/formulas";
 import {
   monthKeysInWindow,
@@ -69,6 +71,11 @@ export type BuildWorkbookInput = {
   monthlySales: Map<string, number>;
   salesMonth: string;
   asOfDate: string;
+  /**
+   * As-of is before today. Stock and purchases are already replayed to that day.
+   * ROP, order qty, Shopify/OGF/target prices, and margins stay blank.
+   */
+  historicalAsOf?: boolean;
   /** sku → YYYY-MM → sold units (April→as-of grid). */
   salesByMonth?: Map<string, Record<string, number>>;
   /** sku → YYYY-MM → purchase qty + value (April→as-of grid). */
@@ -88,6 +95,11 @@ export type BuildWorkbookInput = {
   buyers?: OsfBuyerConfig[];
   /** Main / VAT / Non-VAT — VAT restricts ROP columns and Total ROP math. */
   osfVariant?: OsfVariant;
+  /**
+   * Stock-vs-ROP cutoff used for `% of total ROP` columns and labels.
+   * Generate filter `maxStockPctOfRop` when set; otherwise 70.
+   */
+  stockPctCutoff?: number;
 };
 
 function resolveRopColumns(
@@ -235,7 +247,7 @@ export function buildMainSheetRows(input: BuildWorkbookInput): Record<string, st
     stockBySku.set(row.sku, stocks);
     totalStockBySku.set(row.sku, totalStock);
 
-    const profile = input.profiles.get(row.sku);
+    const profile = mapGetBySku(input.profiles, row.sku);
     const rops: Record<string, number | null> = {};
     for (const col of ropCols) {
       const r = profile?.rops[col.key];
@@ -264,18 +276,20 @@ export function buildMainSheetRows(input: BuildWorkbookInput): Record<string, st
 
   for (const row of input.catalog) {
     const forms = skuForms(row.sku);
-    const profile = input.profiles.get(row.sku);
+    const profile = mapGetBySku(input.profiles, row.sku);
     const stocks = stockBySku.get(row.sku) ?? {};
     const rops = ropBySku.get(row.sku) ?? {};
     const totalStock = totalStockBySku.get(row.sku) ?? 0;
     const totalRop = totalRopBySku.get(row.sku) ?? 0;
+    const historical = input.historicalAsOf === true;
     const costInfo = input.costMap.get(row.sku);
     const purchase = input.purchaseMap.get(row.sku);
     // Latest Cost: prefer the ERP Item last_purchase_rate, else fall back to the
     // rate on the most recent Purchase Receipt (better populated). Feeds margins.
-    const cost = costInfo?.cost ?? purchase?.rate ?? null;
-    const ogf = profile?.ogfPrice ?? null;
-    const targetRate = profile?.targetPurchaseRate ?? null;
+    // A past as-of date has no item-rate history, so only the purchase on or before that day counts.
+    const cost = historical ? (purchase?.rate ?? null) : (costInfo?.cost ?? purchase?.rate ?? null);
+    const ogf = historical ? null : (profile?.ogfPrice ?? null);
+    const targetRate = historical ? null : (profile?.targetPurchaseRate ?? null);
 
     const record: Record<string, string | number | null> = {
       "Variant SKU (_)": forms.skuUnderscore,
@@ -284,7 +298,7 @@ export function buildMainSheetRows(input: BuildWorkbookInput): Record<string, st
       "ERP2 Priority": row.erp2ProductPriority ?? "",
       "VAT Status": vatStatusLabel(row),
       "Item Status": row.itemStatusLabel ?? "",
-      "Shop Availability": availabilityLabel(profile?.shopAvailability),
+      "Shop Availability": historical ? "" : availabilityLabel(profile?.shopAvailability),
       Description: row.productTitle,
       Brand: row.brand ?? "",
       "Variant Barcode": row.barcode ?? "",
@@ -300,35 +314,44 @@ export function buildMainSheetRows(input: BuildWorkbookInput): Record<string, st
 
     for (const col of ropCols) {
       const label = `${col.label} ROP`;
-      record[label] = rops[col.key];
+      record[label] = historical ? null : rops[col.key];
     }
-    record["Total ROP"] = totalRop;
-    const pct = percentOfRop(totalStock, totalRop > 0 ? totalRop : null);
-    record["% of ROP"] = pct == null ? null : Math.round(pct * 10000) / 100;
-    record["70% OF TOTAL ROP"] = seventyPercentOfRop(totalRop > 0 ? totalRop : null);
-    record["70% OF TOTAL ROP AVAILABILITY"] = seventyPercentAvailabilityLabel(
-      totalStock,
-      totalRop > 0 ? totalRop : null,
-    );
+    record["Total ROP"] = historical ? null : totalRop;
+    const pct = historical ? null : percentOfRop(totalStock, totalRop > 0 ? totalRop : null);
+    const pctDisplay = pct == null ? null : Math.round(pct * 10000) / 100;
+    record["% of ROP"] = pctDisplay;
+    record["Stock Ratio"] = pctDisplay;
+    const cutoff = input.stockPctCutoff ?? DEFAULT_STOCK_PCT_OF_ROP;
+    const shareHeader = `${cutoff}% OF TOTAL ROP`;
+    const availHeader = `${cutoff}% OF TOTAL ROP AVAILABILITY`;
+    record[shareHeader] = historical
+      ? null
+      : shareOfTotalRop(totalRop > 0 ? totalRop : null, cutoff);
+    record[availHeader] = historical
+      ? null
+      : shareOfRopAvailabilityLabel(totalStock, totalRop > 0 ? totalRop : null, cutoff);
 
     const orderVals: Array<number | null> = [];
     for (const col of stockCols) {
       const ropCol = ropCols.find((r) => r.key === col.key);
       const ropVal = ropCol ? rops[col.key] : null;
-      const oq = orderQty(ropVal, stocks[col.key]);
+      const oq = historical ? null : orderQty(ropVal, stocks[col.key]);
       record[`${col.label} ORDER QTY`] = oq;
       orderVals.push(oq);
     }
-    record["TOTAL ORDER QTY"] =
-      buyTotalBySku.get(row.sku) ?? sumSignedOrderQtysFlooredAtZero(orderVals);
+    record["TOTAL ORDER QTY"] = historical
+      ? null
+      : (buyTotalBySku.get(row.sku) ?? sumSignedOrderQtysFlooredAtZero(orderVals));
 
-    const listPrice = originalSellingPrice(row.mrp, row.discountedPrice);
+    const listPrice = historical ? null : originalSellingPrice(row.mrp, row.discountedPrice);
     record["Cosmetics MRP"] = listPrice;
-    record["Discounted Price"] = row.discountedPrice;
+    record["Discounted Price"] = historical ? null : row.discountedPrice;
     record["OGF Price"] = ogf;
     record["Target Purchase Rate"] = targetRate;
     record["Latest Cost"] = cost;
-    record["Latest supplier"] = purchase?.supplier ?? costInfo?.supplier ?? "";
+    record["Latest supplier"] = historical
+      ? (purchase?.supplier ?? "")
+      : (purchase?.supplier ?? costInfo?.supplier ?? "");
     const ranked = input.rankedSuppliersBySku?.get(row.sku) ?? [];
     record["Supplier 1"] = ranked[0]?.supplier ?? "";
     record["Supplier 1 Price"] = ranked[0]?.value ?? null;
@@ -341,8 +364,13 @@ export function buildMainSheetRows(input: BuildWorkbookInput): Record<string, st
     record["Cosmetics Margin %"] = formatMarginPercent(cosmeticsMargin(listPrice, cost));
     record["OGF Margin %"] = formatMarginPercent(ogfMargin(ogf, cost));
     const fromGrid = input.salesByMonth?.get(row.sku)?.[input.salesMonth];
-    record[`Sales Units (${input.salesMonth})`] =
-      fromGrid ?? input.monthlySales.get(row.sku) ?? 0;
+    record[`Sales Units (${input.salesMonth})`] = osfSheetSalesQty({
+      historical,
+      month: input.salesMonth,
+      asOfDate: input.asOfDate,
+      gridQty: fromGrid,
+      fullMonthQty: input.monthlySales.get(row.sku),
+    });
 
     const months = monthKeysInWindow(input.asOfDate);
     const salesMonths = input.salesByMonth?.get(row.sku) ?? {};
@@ -352,10 +380,14 @@ export function buildMainSheetRows(input: BuildWorkbookInput): Record<string, st
 
     const purchMonths = input.purchasesByMonth?.get(row.sku) ?? {};
     const monthTotals: Array<number | null> = [];
+    const asOfMonth = input.asOfDate.slice(0, 7);
     for (const month of months) {
       const sold = salesMonths[month];
+      const monthEndedBeforeAsOf = month < asOfMonth;
       const fallback =
-        month === input.salesMonth ? input.monthlySales.get(row.sku) : undefined;
+        (!historical || monthEndedBeforeAsOf) && month === input.salesMonth
+          ? input.monthlySales.get(row.sku)
+          : undefined;
       const total = sold ?? fallback ?? null;
       record[monthTotalSaleHeader(month)] = total;
       monthTotals.push(total);
@@ -410,9 +442,16 @@ export function mainColumnDescriptors(input: BuildWorkbookInput): OsfColumnDef[]
   defs.push({ header: "Total ROP", sum: true, accessKey: "Total ROP", band: "rop" });
 
   defs.push({ header: "% of ROP", accessKey: "% of ROP", band: "calc" });
-  defs.push({ header: "70% OF TOTAL ROP", sum: true, accessKey: "70% OF TOTAL ROP", band: "calc" });
+  defs.push({ header: "Stock Ratio", accessKey: "Stock Ratio", band: "calc" });
+  const cutoff = input.stockPctCutoff ?? DEFAULT_STOCK_PCT_OF_ROP;
   defs.push({
-    header: "70% OF TOTAL ROP AVAILABILITY",
+    header: `${cutoff}% OF TOTAL ROP`,
+    sum: true,
+    accessKey: "70% OF TOTAL ROP",
+    band: "calc",
+  });
+  defs.push({
+    header: `${cutoff}% OF TOTAL ROP AVAILABILITY`,
     accessKey: "70% OF TOTAL ROP AVAILABILITY",
     band: "calc",
   });
@@ -706,17 +745,36 @@ export async function buildOsfWorkbookBuffer(input: BuildWorkbookInput): Promise
   const info = wb.addWorksheet(sanitizeSheetName("Info", used));
   const infoLines: Array<Array<string | number>> = [
     ["asOfDate", input.asOfDate],
+    ["snapshot", input.historicalAsOf ? "historical" : "live"],
     ["salesMonth", input.salesMonth],
     ["salesGridMonths", monthKeysInWindow(input.asOfDate).join(",")],
     ["osfVariant", input.osfVariant ?? "main"],
+    ["stockPctCutoff", input.stockPctCutoff ?? DEFAULT_STOCK_PCT_OF_ROP],
     ["rows", rows.length],
   ];
+  if (input.historicalAsOf) {
+    infoLines.push([
+      "notice",
+      "Past as-of date. Stock is ERP Stock Ledger replayed through that day. Sales and purchases stop on that day. Latest Cost is the last purchase rate on or before that day. ROP, order qty, Shopify price, OGF, target purchase rate, shop availability, and margins are blank — no history is stored.",
+    ]);
+  }
   if (input.belowThresholdOnly) {
     infoLines.push(["mode", "reorder-only (below threshold %)"]);
     if (rows.length === 0) {
       infoLines.push([
         "notice",
         "No SKUs met the filter. A SKU is included only when total ROP > 0 and (total stock / total ROP) × 100 is below its reorder threshold % (default 70). SKUs without warehouse ROP are excluded.",
+      ]);
+    }
+  } else if (
+    input.stockPctCutoff != null &&
+    input.stockPctCutoff !== DEFAULT_STOCK_PCT_OF_ROP
+  ) {
+    infoLines.push(["mode", `stock below ${input.stockPctCutoff}% of ROP`]);
+    if (rows.length === 0) {
+      infoLines.push([
+        "notice",
+        `No SKUs met the filter. A SKU is included only when total ROP > 0 and (total stock / total ROP) × 100 is strictly below ${input.stockPctCutoff}. SKUs without warehouse ROP are excluded.`,
       ]);
     }
   }

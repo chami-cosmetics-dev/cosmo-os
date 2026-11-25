@@ -7,10 +7,18 @@ import { Download, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { notify } from "@/lib/notify";
 import {
+  DUMP_HAS_MORE_HEADER,
+  DUMP_NEXT_CURSOR_HEADER,
+  DUMP_PAGE_CONTACTS_HEADER,
   DUMP_TOTAL_HEADER,
+  countCsvDataRows,
   createCsvRowCounter,
+  dumpPageIncludesHeader,
   dumpProgressPercent,
+  nextDumpPageHref,
   parseContentDispositionFilename,
+  parseDumpCountHeader,
+  parseDumpFlagHeader,
   parseDumpTotalHeader,
 } from "@/lib/reports/dump-download";
 import { cn } from "@/lib/utils";
@@ -56,57 +64,107 @@ export function DumpDownloadButton({
     onBusyChange?.(true);
     notify.loading(`Preparing ${label}…`, toastId);
     try {
-      const res = await fetch(href, { credentials: "same-origin" });
-      if (!res.ok) {
-        const text = await res.text();
-        let message = `Download failed (${res.status})`;
-        try {
-          const json = JSON.parse(text) as { error?: string };
-          if (json.error) message = json.error;
-        } catch {
-          if (text.trim()) message = text.trim().slice(0, 200);
-        }
-        throw new Error(message);
-      }
-
-      const total = parseDumpTotalHeader(res.headers.get(DUMP_TOTAL_HEADER));
-      const contentLength = Number(res.headers.get("Content-Length"));
-      const contentType = res.headers.get("Content-Type") ?? "text/csv;charset=utf-8";
-      const fileName =
-        parseContentDispositionFilename(res.headers.get("Content-Disposition")) ??
-        (contentType.includes("spreadsheet") ? "dump.xlsx" : "dump.csv");
-      const isWorkbook = contentType.includes("spreadsheet") || fileName.endsWith(".xlsx");
-      const reader = res.body?.getReader();
-      if (!reader) throw new Error("Download stream unavailable");
-
       const chunks: BlobPart[] = [];
-      const decoder = new TextDecoder();
-      const counter = createCsvRowCounter();
-      let received = 0;
+      let pageHref = href;
+      let expectedRows = 0;
+      let receivedRows = 0;
+      let fileName = "dump.csv";
+      let contentType = "text/csv;charset=utf-8";
       let lastNotified = -1;
+      let previousCursor = "";
+      const maxPages = 5000;
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (!value) continue;
-        chunks.push(value);
-        received += value.byteLength;
-        let nextPercent = 0;
-        if (!isWorkbook && total > 0) {
-          counter.consume(decoder.decode(value, { stream: true }));
-          nextPercent = dumpProgressPercent(counter.dataRows(), total);
-        } else if (Number.isFinite(contentLength) && contentLength > 0) {
-          nextPercent = Math.min(99, Math.round((received / contentLength) * 100));
+      for (let page = 0; page < maxPages; page += 1) {
+        const res = await fetch(pageHref, { credentials: "same-origin" });
+        if (!res.ok) {
+          const text = await res.text();
+          let message = `Download failed (${res.status})`;
+          try {
+            const json = JSON.parse(text) as { error?: string };
+            if (json.error) message = json.error;
+          } catch {
+            if (text.trim()) message = text.trim().slice(0, 200);
+          }
+          throw new Error(message);
         }
+
+        contentType = res.headers.get("Content-Type") ?? contentType;
+        fileName =
+          parseContentDispositionFilename(res.headers.get("Content-Disposition")) ?? fileName;
+        const isWorkbook = contentType.includes("spreadsheet") || fileName.endsWith(".xlsx");
+        const paging = res.headers.has(DUMP_HAS_MORE_HEADER);
+
+        if (!paging || isWorkbook) {
+          const total = parseDumpTotalHeader(res.headers.get(DUMP_TOTAL_HEADER));
+          const contentLength = Number(res.headers.get("Content-Length"));
+          const reader = res.body?.getReader();
+          if (!reader) throw new Error("Download stream unavailable");
+          const decoder = new TextDecoder();
+          const counter = createCsvRowCounter();
+          let received = 0;
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            if (!value) continue;
+            chunks.push(value);
+            received += value.byteLength;
+            let nextPercent = 0;
+            if (!isWorkbook && total > 0) {
+              counter.consume(decoder.decode(value, { stream: true }));
+              nextPercent = dumpProgressPercent(counter.dataRows(), total);
+            } else if (Number.isFinite(contentLength) && contentLength > 0) {
+              nextPercent = Math.min(99, Math.round((received / contentLength) * 100));
+            }
+            setPercent(nextPercent);
+            if (nextPercent > 0 && nextPercent !== lastNotified) {
+              lastNotified = nextPercent;
+              notify.loading(`Downloading ${label} — ${nextPercent}%`, toastId);
+            }
+          }
+          if (!isWorkbook && total > 0) {
+            counter.consume(decoder.decode());
+            if (counter.dataRows() < total) {
+              throw new Error(`Download was incomplete: received ${counter.dataRows().toLocaleString()} of ${total.toLocaleString()} rows. Please try again.`);
+            }
+          }
+          break;
+        }
+
+        expectedRows = parseDumpTotalHeader(res.headers.get(DUMP_TOTAL_HEADER)) || expectedRows;
+        const claimed = parseDumpCountHeader(res.headers.get(DUMP_PAGE_CONTACTS_HEADER));
+        const hasMore = parseDumpFlagHeader(res.headers.get(DUMP_HAS_MORE_HEADER));
+        const nextCursor = res.headers.get(DUMP_NEXT_CURSOR_HEADER)?.trim() ?? "";
+        const buffer = await res.arrayBuffer();
+        const counted = countCsvDataRows(
+          new TextDecoder().decode(buffer),
+          dumpPageIncludesHeader(pageHref),
+        );
+        if (counted < claimed) {
+          throw new Error(`Download was incomplete: received ${counted.toLocaleString()} of ${claimed.toLocaleString()} rows. Please try again.`);
+        }
+        chunks.push(buffer);
+        receivedRows += counted;
+
+        const nextPercent = expectedRows > 0 ? dumpProgressPercent(receivedRows, expectedRows) : 0;
         setPercent(nextPercent);
         if (nextPercent > 0 && nextPercent !== lastNotified) {
           lastNotified = nextPercent;
           notify.loading(`Downloading ${label} — ${nextPercent}%`, toastId);
         }
+
+        if (!hasMore) break;
+        if (!nextCursor || nextCursor === previousCursor) {
+          throw new Error("Download stopped early. Please try again.");
+        }
+        if (page === maxPages - 1) {
+          throw new Error(`Download stopped after ${receivedRows.toLocaleString()} of ${expectedRows.toLocaleString()} rows. Please try again.`);
+        }
+        previousCursor = nextCursor;
+        pageHref = nextDumpPageHref(href, nextCursor);
       }
 
-      if (!isWorkbook && total > 0 && counter.dataRows() < total) {
-        throw new Error(`Download was incomplete: received ${counter.dataRows().toLocaleString()} of ${total.toLocaleString()} rows. Please try again.`);
+      if (expectedRows > 0 && receivedRows < expectedRows) {
+        throw new Error(`Download was incomplete: received ${receivedRows.toLocaleString()} of ${expectedRows.toLocaleString()} rows. Please try again.`);
       }
 
       setPercent(100);

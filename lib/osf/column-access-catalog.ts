@@ -17,6 +17,7 @@ export const OSF_STATIC_ASSIGNABLE_COLUMNS: OsfAccessColumnMeta[] = [
   { id: "Total Stock", label: "Total Stock" },
   { id: "Total ROP", label: "Total ROP" },
   { id: "% of ROP", label: "% of ROP" },
+  { id: "Stock Ratio", label: "Stock Ratio" },
   { id: "70% OF TOTAL ROP", label: "70% OF TOTAL ROP" },
   { id: "70% OF TOTAL ROP AVAILABILITY", label: "70% OF TOTAL ROP AVAILABILITY" },
   { id: "TOTAL ORDER QTY", label: "TOTAL ORDER QTY" },
@@ -129,6 +130,7 @@ export function buildOsfAccessCatalog(
   for (const c of OSF_STATIC_ASSIGNABLE_COLUMNS) {
     if (
       c.id === "% of ROP" ||
+      c.id === "Stock Ratio" ||
       c.id === "70% OF TOTAL ROP" ||
       c.id === "70% OF TOTAL ROP AVAILABILITY"
     ) {

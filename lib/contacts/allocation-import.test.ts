@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { parseAllocationCsv, rowPhoneAndMerchant } from "@/lib/contacts/allocation-import";
+import {
+  parseAllocationCsv,
+  resolveAllocationAssignee,
+  rowPhoneAndMerchant,
+} from "@/lib/contacts/allocation-import";
 
 describe("allocation import csv", () => {
   it("reads phone and merchant from common headers", () => {
@@ -20,5 +24,35 @@ describe("allocation import csv", () => {
       phone: "94771234567",
       merchant: "Netmi",
     });
+  });
+});
+
+describe("allocation assignee resolve", () => {
+  const users = new Map<string, string>([
+    ["chami", "Chami"],
+    ["semini", "Semini"],
+  ]);
+
+  it("maps DM-General onto the Contact Master roster name", () => {
+    expect(resolveAllocationAssignee("DM-General", users)).toBe("DM - General");
+    expect(resolveAllocationAssignee("DM_General", users)).toBe("DM - General");
+    expect(resolveAllocationAssignee("MER115", users)).toBe("DM - General");
+  });
+
+  it("keeps a real user name ahead of an alias bucket", () => {
+    expect(resolveAllocationAssignee("Semini", users)).toBe("Semini");
+    expect(resolveAllocationAssignee("Chami", users)).toBe("Chami");
+  });
+
+  it("accepts staff and error-number buckets", () => {
+    expect(resolveAllocationAssignee("STAFF SALES", users)).toBe("STAFF SALES");
+    expect(resolveAllocationAssignee("Staff category", users)).toBe("STAFF SALES");
+    expect(resolveAllocationAssignee("Error number category", users)).toBe(
+      "ERROR NUMBER"
+    );
+  });
+
+  it("rejects an unknown merchant", () => {
+    expect(resolveAllocationAssignee("Not A Merchant", users)).toBeNull();
   });
 });

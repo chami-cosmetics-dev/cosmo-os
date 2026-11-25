@@ -9,18 +9,37 @@ import {
   isOrderReversed,
 } from "@/lib/customer-insight/lifetime-total";
 import {
+  chunkArray,
   forEachIdPage,
   findAllContactsForPurchaseLookup,
+  INSIGHT_LOOKUP_CHUNK,
+  type PurchaseContactRow,
 } from "@/lib/customer-insight/purchase-scan";
 import { emailsForPurchaseLookup } from "@/lib/contact-purchase-lookup";
 import { buildPhoneLookupVariants } from "@/lib/phone-lookup";
 import { prisma } from "@/lib/prisma";
+import type { Prisma } from "@prisma/client";
 
 export type BrandPurchaseRank = {
   contactId: string;
   /** Spend on this brand only (verified via contact purchase lookup). */
   brandSpend: number;
 };
+
+/** Limit Adapt/Cosmo brand scan to these allocated contacts (merchant / view-as). */
+export type BrandPurchaseScanOptions = {
+  contactIds?: string[];
+};
+
+const CONTACT_SCOPE_IN_MAX = 20_000;
+
+function adaptLineItemsBrandWhere(
+  needle: string
+): Prisma.AdaptPurchaseHistoryWhereInput {
+  return {
+    lineItems: { string_contains: needle, mode: "insensitive" },
+  };
+}
 
 function lineSpend(quantity: number, price: string | number): number {
   const q = Number.isFinite(quantity) ? quantity : 0;
@@ -64,50 +83,147 @@ function sumBrandSpendOnOrderLines(
   return { spend, matched };
 }
 
+function indexContactsForBrandOrders(contacts: PurchaseContactRow[]) {
+  const phoneToContacts = new Map<string, Set<string>>();
+  const emailToContacts = new Map<string, Set<string>>();
+  for (const c of contacts) {
+    const phones = [c.phoneNumber, ...c.phones.map((p) => p.phoneNumber)].filter(
+      Boolean
+    ) as string[];
+    for (const phone of phones) {
+      for (const v of buildPhoneLookupVariants(phone)) {
+        const set = phoneToContacts.get(v) ?? new Set<string>();
+        set.add(c.id);
+        phoneToContacts.set(v, set);
+      }
+    }
+    const emails = emailsForPurchaseLookup(
+      [c.email, ...c.emails.map((e) => e.email)].filter(Boolean) as string[]
+    );
+    for (const email of emails) {
+      const key = email.trim().toLowerCase();
+      const set = emailToContacts.get(key) ?? new Set<string>();
+      set.add(c.id);
+      emailToContacts.set(key, set);
+    }
+  }
+  return { phoneToContacts, emailToContacts };
+}
+
+function contactIdForBrandOrder(
+  order: { phoneVariants: string[]; email: string | null },
+  phoneToContacts: Map<string, Set<string>>,
+  emailToContacts: Map<string, Set<string>>
+): string | null {
+  if (order.phoneVariants.length > 0) {
+    const hits = new Set<string>();
+    for (const v of order.phoneVariants) {
+      const set = phoneToContacts.get(v);
+      if (!set) continue;
+      for (const id of set) hits.add(id);
+    }
+    if (hits.size === 1) return [...hits][0]!;
+    return null;
+  }
+  if (order.email) {
+    const set = emailToContacts.get(order.email);
+    if (set && set.size === 1) return [...set][0]!;
+  }
+  return null;
+}
+
 /**
  * Contacts who actually purchased the brand, ranked by brand spend highest first.
  * Full history scan (paged) — no soft take caps that drop older buyers.
+ * Pass `contactIds` to scan only an allocated merchant set (avoids company-wide Adapt).
  */
 export async function findContactsByPurchasedBrandRanked(
   companyId: string,
-  brand: string
+  brand: string,
+  options?: BrandPurchaseScanOptions
 ): Promise<BrandPurchaseRank[]> {
   const needle = brand.trim();
   if (!needle) return [];
 
+  const requestedIds = (options?.contactIds ?? [])
+    .map((id) => id.trim())
+    .filter(Boolean);
+  if (options?.contactIds && requestedIds.length === 0) return [];
+  const scopedIds =
+    requestedIds.length > 0 && requestedIds.length <= CONTACT_SCOPE_IN_MAX
+      ? requestedIds
+      : null;
+  const allowedIds = scopedIds ? new Set(scopedIds) : null;
+
   const spendByContact = new Map<string, number>();
 
-  // --- Adapt: direct contactId link (trusted) — all rows ---
-  await forEachIdPage(
-    ({ take, cursor }) =>
-      prisma.adaptPurchaseHistory.findMany({
-        where: { companyId },
-        select: { id: true, contactId: true, lineItems: true, financialStatus: true },
-        orderBy: { id: "asc" },
-        take,
-        ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
-      }),
-    (adaptRows) => {
-      for (const row of adaptRows) {
-        if (!row.contactId) continue;
-        const items = Array.isArray(row.lineItems) ? row.lineItems : [];
-        let spend = 0;
-        let matched = false;
-        const countSpend = !isAdaptAmountExcludedFromSaleTotal(row.financialStatus);
-        for (const item of items) {
-          if (!adaptItemMatchesBrand(item, needle)) continue;
-          matched = true;
-          if (!countSpend || !item || typeof item !== "object") continue;
-          const obj = item as Record<string, unknown>;
-          spend += lineSpend(
-            Number(obj.quantity ?? 0),
-            String(obj.unitPrice ?? obj.price ?? "0")
-          );
-        }
-        if (matched) addFilterMatchSpend(spendByContact, row.contactId, spend);
+  type AdaptBrandRow = {
+    id: string;
+    contactId: string;
+    lineItems: unknown;
+    financialStatus: string | null;
+  };
+
+  const applyAdaptPage = (adaptRows: AdaptBrandRow[]) => {
+    for (const row of adaptRows) {
+      if (!row.contactId) continue;
+      if (allowedIds && !allowedIds.has(row.contactId)) continue;
+      const items = Array.isArray(row.lineItems) ? row.lineItems : [];
+      let spend = 0;
+      let matched = false;
+      const countSpend = !isAdaptAmountExcludedFromSaleTotal(row.financialStatus);
+      for (const item of items) {
+        if (!adaptItemMatchesBrand(item, needle)) continue;
+        matched = true;
+        if (!countSpend || !item || typeof item !== "object") continue;
+        const obj = item as Record<string, unknown>;
+        spend += lineSpend(
+          Number(obj.quantity ?? 0),
+          String(obj.unitPrice ?? obj.price ?? "0")
+        );
       }
+      if (matched) addFilterMatchSpend(spendByContact, row.contactId, spend);
     }
-  );
+  };
+
+  const adaptSelect = {
+    id: true,
+    contactId: true,
+    lineItems: true,
+    financialStatus: true,
+  } as const;
+
+  if (scopedIds) {
+    for (const chunk of chunkArray(scopedIds, INSIGHT_LOOKUP_CHUNK)) {
+      await forEachIdPage<AdaptBrandRow>(
+        ({ take, cursor }) =>
+          prisma.adaptPurchaseHistory.findMany({
+            where: {
+              companyId,
+              contactId: { in: chunk },
+              ...adaptLineItemsBrandWhere(needle),
+            },
+            select: adaptSelect,
+            orderBy: { id: "asc" },
+            take,
+            ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
+          }),
+        applyAdaptPage
+      );
+    }
+  } else {
+    await forEachIdPage<AdaptBrandRow>(
+      ({ take, cursor }) =>
+        prisma.adaptPurchaseHistory.findMany({
+          where: { companyId, ...adaptLineItemsBrandWhere(needle) },
+          select: adaptSelect,
+          orderBy: { id: "asc" },
+          take,
+          ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
+        }),
+      applyAdaptPage
+    );
+  }
 
   // --- Cosmo: all brand-matching orders, attribute via unique phone/email ---
   type BrandOrder = {
@@ -201,58 +317,41 @@ export async function findContactsByPurchasedBrandRanked(
     return finalize();
   }
 
-  const contacts = await findAllContactsForPurchaseLookup({
-    companyId,
-    phoneVariants: [...allPhoneVariants],
-    emails: [...allEmails],
-  });
+  const contacts: PurchaseContactRow[] = scopedIds
+    ? (
+        await Promise.all(
+          chunkArray(scopedIds, INSIGHT_LOOKUP_CHUNK).map((chunk) =>
+            prisma.contactMaster.findMany({
+              where: { companyId, id: { in: chunk } },
+              select: {
+                id: true,
+                phoneNumber: true,
+                email: true,
+                phones: { select: { phoneNumber: true } },
+                emails: { select: { email: true } },
+              },
+            })
+          )
+        )
+      ).flat()
+    : await findAllContactsForPurchaseLookup({
+        companyId,
+        phoneVariants: [...allPhoneVariants],
+        emails: [...allEmails],
+      });
 
-  const phoneToContacts = new Map<string, Set<string>>();
-  const emailToContacts = new Map<string, Set<string>>();
-
-  for (const c of contacts) {
-    const phones = [c.phoneNumber, ...c.phones.map((p) => p.phoneNumber)].filter(
-      Boolean
-    ) as string[];
-    for (const phone of phones) {
-      for (const v of buildPhoneLookupVariants(phone)) {
-        const set = phoneToContacts.get(v) ?? new Set<string>();
-        set.add(c.id);
-        phoneToContacts.set(v, set);
-      }
-    }
-    const emails = emailsForPurchaseLookup(
-      [c.email, ...c.emails.map((e) => e.email)].filter(Boolean) as string[]
-    );
-    for (const email of emails) {
-      const key = email.trim().toLowerCase();
-      const set = emailToContacts.get(key) ?? new Set<string>();
-      set.add(c.id);
-      emailToContacts.set(key, set);
-    }
-  }
+  const { phoneToContacts, emailToContacts } =
+    indexContactsForBrandOrders(contacts);
 
   for (const order of scoredOrders) {
-    let contactId: string | null = null;
-
-    if (order.phoneVariants.length > 0) {
-      const hits = new Set<string>();
-      for (const v of order.phoneVariants) {
-        const set = phoneToContacts.get(v);
-        if (!set) continue;
-        for (const id of set) hits.add(id);
-      }
-      if (hits.size === 1) {
-        contactId = [...hits][0]!;
-      }
-    } else if (order.email) {
-      const set = emailToContacts.get(order.email);
-      if (set && set.size === 1) {
-        contactId = [...set][0]!;
-      }
-    }
-
-    if (contactId) addFilterMatchSpend(spendByContact, contactId, order.spend);
+    const contactId = contactIdForBrandOrder(
+      order,
+      phoneToContacts,
+      emailToContacts
+    );
+    if (!contactId) continue;
+    if (allowedIds && !allowedIds.has(contactId)) continue;
+    addFilterMatchSpend(spendByContact, contactId, order.spend);
   }
 
   return finalize();
@@ -261,8 +360,13 @@ export async function findContactsByPurchasedBrandRanked(
 /** Contact IDs that purchased the given brand. */
 export async function findContactIdsByPurchasedBrand(
   companyId: string,
-  brand: string
+  brand: string,
+  options?: BrandPurchaseScanOptions
 ): Promise<string[]> {
-  const ranked = await findContactsByPurchasedBrandRanked(companyId, brand);
+  const ranked = await findContactsByPurchasedBrandRanked(
+    companyId,
+    brand,
+    options
+  );
   return ranked.map((r) => r.contactId);
 }

@@ -18,6 +18,11 @@ export type IncentiveStatementLine = {
   shippingCost: string;
   riderPayment: string;
   unmatched: boolean;
+  /** Store pickup. Shown on the statement. Rider payment stays 0. */
+  pickup: boolean;
+  orderShipping: string;
+  /** District, manual amount, pick up, STAFFDC, or unmatched. */
+  payMethod: string;
 };
 
 export type IncentiveStatementCompany = {
@@ -44,6 +49,9 @@ export type IncentiveStatementInput = {
   shippingCost: Prisma.Decimal | number | string;
   riderPayment: Prisma.Decimal | number | string;
   unmatched: boolean;
+  pickup: boolean;
+  orderShipping: string;
+  payMethod: string;
 };
 
 function money(value: Prisma.Decimal | number | string) {
@@ -104,6 +112,9 @@ export function groupIncentiveStatement(rows: IncentiveStatementInput[]): {
           shippingCost: money(order.shippingCost).toFixed(2),
           riderPayment: money(order.riderPayment).toFixed(2),
           unmatched: order.unmatched,
+          pickup: order.pickup,
+          orderShipping: order.orderShipping,
+          payMethod: order.payMethod,
         };
       });
       return {
@@ -136,7 +147,10 @@ const CSV_HEADERS = [
   "Invoice completed",
   "Invoice status",
   "Shipping cost",
-  "Rider payment",
+  "Order shipping",
+  "How we pay",
+  "Amount allocated",
+  "Pick up",
 ] as const;
 
 export function incentiveStatementCsv(input: {
@@ -163,7 +177,10 @@ export function incentiveStatementCsv(input: {
           order.invoiceCompletedAt,
           order.invoiceStatus,
           order.shippingCost,
+          order.orderShipping,
+          order.payMethod,
           order.riderPayment,
+          order.pickup ? "Yes" : "No",
         ]
           .map((cell) => escapeCsvCell(cell))
           .join(","),
@@ -184,14 +201,35 @@ export function incentiveStatementCsv(input: {
         "",
         "Company total",
         company.shippingTotal,
+        "",
+        "",
         company.riderPaymentTotal,
+        "",
       ]
         .map((cell) => escapeCsvCell(cell))
         .join(","),
     );
   }
   lines.push(
-    ["", "", "", "", "", "", "", "", "", "", "", "Full total", input.shippingTotal, input.riderPaymentTotal]
+    [
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "Full total",
+      input.shippingTotal,
+      "",
+      "",
+      input.riderPaymentTotal,
+      "",
+    ]
       .map((cell) => escapeCsvCell(cell))
       .join(","),
   );

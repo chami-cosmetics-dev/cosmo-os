@@ -38,6 +38,8 @@ export const materialTransferHistoryQuerySchema = z.object({
   scope: z.enum(["all", "shop"]),
   direction: z.enum(["store_to_shop", "shop_to_main"]).optional(),
   mismatch: z.literal("1").optional(),
+  /** Stores History Refresh: import recent Main→shop ERP STEs missing from Cosmo. */
+  reconcile: z.literal("1").optional(),
 });
 
 export const materialTransferShopReturnSchema = z.object({

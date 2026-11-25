@@ -9,7 +9,7 @@ import {
   pricingHeaders,
   type BuildWorkbookInput,
 } from "@/lib/osf/build-workbook";
-import type { OsfCatalogRow } from "@/lib/osf/catalog-rows";
+import type { OsfCatalogRow } from "@/lib/osf/catalog-row-build";
 import type { OsfResolvedColumn } from "@/lib/osf/column-config";
 
 const catalog: OsfCatalogRow[] = [
@@ -112,11 +112,16 @@ describe("buildMainSheetRows", () => {
     expect(first).not.toHaveProperty("Common SKU Reorder");
     expect(first).toHaveProperty("OGF Price");
     expect(first).toHaveProperty("% of ROP");
+    expect(first).toHaveProperty("Stock Ratio");
     expect(first).not.toHaveProperty("Variant SKU");
     expect(first).not.toHaveProperty("Variant SKU (-)");
     expect(first["Total Stock"]).toBe(2);
     expect(first["LMJ ROP"]).toBe(10);
     expect(first["Total ROP"]).toBe(10);
+    expect(first["% of ROP"]).toBe(20);
+    expect(first["Stock Ratio"]).toBe(20);
+    expect(first["70% OF TOTAL ROP"]).toBe(7);
+    expect(first["70% OF TOTAL ROP AVAILABILITY"]).toBe("Below 70%");
     expect(first["OGF Price"]).toBe(90);
     expect(first).toHaveProperty("Target Purchase Rate");
     expect(first["Sales Units (2026-06)"]).toBe(7);
@@ -155,6 +160,29 @@ describe("buildMainSheetRows", () => {
     expect(second["Last Purchase Qty"]).toBeNull();
     expect(second["Days Since Last Purchase"]).toBeNull();
     expect(second["Purchased (last 30d)"]).toBeNull();
+  });
+
+  it("uses the requested stock % of ROP cutoff in headers and labels", () => {
+    const rows = buildMainSheetRows({
+      catalog: [catalog[0]!],
+      columns,
+      profiles: new Map([
+        ["CAN07_1", { shopAvailability: "allowed", ogfPrice: 90, rops: { lmj: 10 } }],
+      ]),
+      binMap: new Map([["LMJ - WH::CAN07-1", 2]]),
+      costMap: new Map(),
+      purchaseMap: new Map(),
+      monthlySales: new Map(),
+      salesMonth: "2026-06",
+      asOfDate: "2026-07-16",
+      stockPctCutoff: 50,
+    });
+    const first = rows[0]!;
+    expect(first["Total Stock"]).toBe(2);
+    expect(first["% of ROP"]).toBe(20);
+    expect(first["50% OF TOTAL ROP"]).toBe(5);
+    expect(first["50% OF TOTAL ROP AVAILABILITY"]).toBe("Below 50%");
+    expect(first["70% OF TOTAL ROP"]).toBeUndefined();
   });
 
   it("fills April→as-of sales and purchase grid cells", () => {
@@ -482,6 +510,58 @@ describe("buildMainSheetRows", () => {
     // (100 - 60) / 100 = 40%, not (80 - 60) / 80 = 25%
     expect(first["Cosmetics Margin %"]).toBeCloseTo(40, 1);
   });
+
+  it("past as-of keeps stock, sales, and purchase cost and blanks prices and ROP", () => {
+    const rows = buildMainSheetRows({
+      catalog: [catalog[0]!],
+      columns,
+      profiles: new Map([
+        [
+          "CAN07_1",
+          {
+            shopAvailability: "allowed",
+            ogfPrice: 90,
+            targetPurchaseRate: 50,
+            rops: { lmj: 10 },
+          },
+        ],
+      ]),
+      binMap: new Map([["LMJ - WH::CAN07_1", 4]]),
+      costMap: new Map([["CAN07_1", { cost: 40, supplier: "Live Supplier" }]]),
+      purchaseMap: new Map([
+        [
+          "CAN07_1",
+          { supplier: "Acme", qty: 8, rate: 55, date: "2026-09-02", recentQty: 8 },
+        ],
+      ]),
+      monthlySales: new Map([["CAN07_1", 100]]),
+      salesByMonth: new Map([["CAN07_1", { "2026-09": 40 }]]),
+      salesMonth: "2026-09",
+      asOfDate: "2026-09-10",
+      historicalAsOf: true,
+    });
+    const row = rows[0]!;
+    expect(row["LMJ"]).toBe(4);
+    expect(row["Total Stock"]).toBe(4);
+    expect(row["Latest Cost"]).toBe(55);
+    expect(row["Latest supplier"]).toBe("Acme");
+    expect(row["Last Purchase Date"]).toBe("2026-09-02");
+    expect(row["Sales Units (2026-09)"]).toBe(40);
+    expect(row["LMJ ROP"]).toBeNull();
+    expect(row["Total ROP"]).toBeNull();
+    expect(row["% of ROP"]).toBeNull();
+    expect(row["Stock Ratio"]).toBeNull();
+    expect(row["LMJ ORDER QTY"]).toBeNull();
+    expect(row["TOTAL ORDER QTY"]).toBeNull();
+    expect(row["Cosmetics MRP"]).toBeNull();
+    expect(row["Discounted Price"]).toBeNull();
+    expect(row["OGF Price"]).toBeNull();
+    expect(row["Target Purchase Rate"]).toBeNull();
+    expect(row["Cosmetics Margin %"]).toBeNull();
+    expect(row["OGF Margin %"]).toBeNull();
+    expect(row["Shop Availability"]).toBe("");
+    expect(row["Description"]).toBe("Can Product 1");
+  });
 });
 
 const baseInput: Omit<BuildWorkbookInput, "buyers"> = {
@@ -543,6 +623,8 @@ describe("buildOsfWorkbookBuffer", () => {
       expect(headers).toContain("LMJ");
       expect(headers).toContain("Total Stock");
       expect(headers).toContain("Total ROP");
+      expect(headers).toContain("% of ROP");
+      expect(headers).toContain("Stock Ratio");
       expect(headers).toContain("April 2026 Sales Total");
       expect(headers).toContain("Best Purchase Value");
       expect(headers).toContain("Best Supplier");
@@ -673,6 +755,7 @@ describe("buildOsfWorkbookBuffer", () => {
           "Total Stock",
           "Total ROP",
           "% of ROP",
+          "Stock Ratio",
           "70% OF TOTAL ROP",
           "70% OF TOTAL ROP AVAILABILITY",
           "TOTAL ORDER QTY",

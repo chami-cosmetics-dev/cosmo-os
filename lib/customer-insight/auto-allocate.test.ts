@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   getMerchantDisplayName,
   resolveAutoAllocateMerchant,
+  shopifyUnallocatedMerchantLabel,
 } from "@/lib/customer-insight/auto-allocate";
 
 describe("getMerchantDisplayName", () => {
@@ -48,5 +49,16 @@ describe("resolveAutoAllocateMerchant", () => {
         purchaseMerchantLabel: "  ",
       })
     ).toBeNull();
+  });
+});
+
+describe("shopifyUnallocatedMerchantLabel", () => {
+  it("keeps a real merchant", () => {
+    expect(shopifyUnallocatedMerchantLabel("Dinuli")).toBe("Dinuli");
+  });
+
+  it("defaults a blank Shopify merchant to DM - General", () => {
+    expect(shopifyUnallocatedMerchantLabel(null)).toBe("DM - General");
+    expect(shopifyUnallocatedMerchantLabel("  ")).toBe("DM - General");
   });
 });

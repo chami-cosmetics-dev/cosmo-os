@@ -2,6 +2,7 @@
  * Lifetime placed-order total for loyalty.
  * Pure reducers are unit-tested; loaders live alongside for API use.
  */
+
 import type { FulfillmentStage, Prisma } from "@prisma/client";
 
 /** Fulfillment stages that count toward customer lifetime spend (OSF completed-sale rules). */
@@ -56,22 +57,12 @@ export function customerLifetimeTotalOrderWhere(): Prisma.OrderWhereInput {
 }
 
 /**
- * Brand/item Insight filters: completed sales plus voided/cancelled/returned rows.
- * Reversed rows match the contact but contribute 0 to brand/item spend.
+ * Brand/item Insight filters: no stage/status gate.
+ * In-progress, completed, voided, and cancelled orders all match the contact.
+ * Spend is applied separately (0 for reversed / not yet completed).
  */
 export function customerInsightPurchaseMatchOrderWhere(): Prisma.OrderWhereInput {
-  return {
-    OR: [
-      customerLifetimeTotalOrderWhere(),
-      { cancelledAt: { not: null } },
-      { financialStatus: { in: ["voided", "void"] } },
-      {
-        fulfillmentStage: {
-          in: ["returned", "returned_to_store"] satisfies FulfillmentStage[],
-        },
-      },
-    ],
-  } satisfies Prisma.OrderWhereInput;
+  return {};
 }
 
 /**

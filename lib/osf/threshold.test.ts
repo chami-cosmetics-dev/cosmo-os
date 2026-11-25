@@ -36,6 +36,15 @@ describe("isBelowReorderThreshold", () => {
     expect(isBelowReorderThreshold(10, null, 70)).toBe(false);
   });
 
+  it("uses decimal thresholds and treats absent stock as unknown", () => {
+    expect(effectiveReorderThresholdPercent(27.5)).toBe(27.5);
+    expect(isBelowReorderThreshold(2.749, 10, 27.5)).toBe(true);
+    expect(isBelowReorderThreshold(2.75, 10, 27.5)).toBe(false);
+    expect(isBelowReorderThreshold(2.751, 10, 27.5)).toBe(false);
+    expect(isBelowReorderThreshold(0, 10, 27.5)).toBe(true);
+    expect(isBelowReorderThreshold(null, 10, 27.5)).toBe(false);
+  });
+
   it("uses default 70 when threshold unset", () => {
     expect(isBelowReorderThreshold(60, 100, null)).toBe(true);
     expect(isBelowReorderThreshold(75, 100, null)).toBe(false);

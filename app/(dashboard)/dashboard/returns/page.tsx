@@ -1,7 +1,11 @@
 import { redirect } from "next/navigation";
 
 import { ReturnedOrdersPanel } from "@/components/organisms/returned-orders-panel";
-import { fetchReturnsTrackingData } from "@/lib/page-data/order-returns";
+import {
+  currentReturnsYearMonth,
+  fetchReturnsReasonAnalytics,
+  fetchReturnsTrackingData,
+} from "@/lib/page-data/order-returns";
 import { canRearrangeReturn, canTakeMerchantReturnActions } from "@/lib/return-action-access";
 import { requirePermission } from "@/lib/rbac";
 
@@ -17,11 +21,16 @@ export default async function ReturnedOrdersPage() {
   const companyId = auth.context!.user!.companyId;
   if (!companyId) redirect("/dashboard");
 
-  const initialData = await fetchReturnsTrackingData({ companyId });
+  const yearMonth = currentReturnsYearMonth();
+  const [initialData, initialAnalytics] = await Promise.all([
+    fetchReturnsTrackingData({ companyId }),
+    fetchReturnsReasonAnalytics({ companyId, yearMonth }),
+  ]);
 
   return (
     <ReturnedOrdersPanel
       initialData={initialData}
+      initialAnalytics={initialAnalytics}
       canTakeMerchantActions={canTakeMerchantReturnActions(auth.context!.roleNames)}
       canRearrange={canRearrangeReturn(auth.context!.roleNames)}
     />

@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 
 import { canonicalizeMerchantDisplayName } from "@/lib/customer-insight/merchant-label-aliases";
 import { getMerchantDisplayName } from "@/lib/merchant-groups";
+import { isMerchantRoleName } from "@/lib/merchant-role";
 import { prisma } from "@/lib/prisma";
 
 export type CallCenterAggRow = {
@@ -49,8 +50,34 @@ export function labelCallCenterPerformanceMerchant(input: {
 }
 
 /**
+ * User ids with a merchant-level role (same roster as GM Calls today).
+ * Admins / other staff are excluded from call-center performance.
+ */
+export async function listCallCenterMerchantUserIds(
+  companyId: string,
+): Promise<string[]> {
+  const roles = await prisma.role.findMany({
+    select: { id: true, name: true },
+  });
+  const roleIds = roles
+    .filter((role) => isMerchantRoleName(role.name))
+    .map((role) => role.id);
+  if (roleIds.length === 0) return [];
+
+  const users = await prisma.user.findMany({
+    where: {
+      companyId,
+      userRoles: { some: { roleId: { in: roleIds } } },
+    },
+    select: { id: true },
+  });
+  return users.map((user) => user.id);
+}
+
+/**
  * GM + chart counter: every ContactAllocationUpdate except bulk `allocation`.
  * Loyalty `Contacted` counts. Grouped by merchantId so name drift cannot split totals.
+ * Pass merchantIds (merchant-role users) so admin/staff updates stay out.
  */
 export async function fetchCallCenterAggRows(input: {
   companyId: string;
@@ -120,14 +147,18 @@ export async function fetchCallCenterPerformanceRows(input: {
   toYmd?: string | null;
   merchantUserId?: string | null;
 }): Promise<CallCenterPerformanceRow[]> {
+  const merchantIds = input.merchantUserId
+    ? [input.merchantUserId]
+    : await listCallCenterMerchantUserIds(input.companyId);
+
   const rows = await fetchCallCenterAggRows({
     companyId: input.companyId,
     fromYmd: input.fromYmd,
     toYmd: input.toYmd,
-    merchantIds: input.merchantUserId ? [input.merchantUserId] : undefined,
+    merchantIds,
   });
 
-  const merchantIds = [
+  const labeledIds = [
     ...new Set(
       rows
         .map((row) => row.merchantId)
@@ -135,10 +166,10 @@ export async function fetchCallCenterPerformanceRows(input: {
     ),
   ];
   const users =
-    merchantIds.length === 0
+    labeledIds.length === 0
       ? []
       : await prisma.user.findMany({
-          where: { id: { in: merchantIds } },
+          where: { id: { in: labeledIds } },
           select: {
             id: true,
             knownName: true,

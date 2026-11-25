@@ -13,13 +13,15 @@ import {
   getCustomerName,
   startOfDay,
 } from "@/lib/reports/csv";
-import { DUMP_TOTAL_HEADER } from "@/lib/reports/dump-download";
 import {
-  dumpInvoiceShippingRuleFromLive,
-  dumpInvoiceShippingRuleFromStored,
-  dumpShippingPersistFields,
-  hasStoredDumpShippingResolution,
-} from "@/lib/reports/dump-invoice-shipping";
+  DUMP_HAS_MORE_HEADER,
+  DUMP_NEXT_CURSOR_HEADER,
+  DUMP_PAGE_CONTACTS_HEADER,
+  DUMP_TOTAL_HEADER,
+  countCsvDataRows,
+  dumpExposeHeaders,
+} from "@/lib/reports/dump-download";
+import { dumpInvoiceShippingRuleFromStored } from "@/lib/reports/dump-invoice-shipping";
 import {
   createOrderInvoiceItemRow,
   createOrderInvoiceRow,
@@ -32,18 +34,13 @@ import {
   buildCouponToMerchantMap,
   getMerchantGroupUserMap,
 } from "@/lib/merchant-groups";
-import {
-  getOrderDiscountCouponCode,
-  mergeDiscountCouponIntoCodes,
-  resolveOrderDiscountCouponForOrder,
-} from "@/lib/order-discount-coupon";
+import { getOrderDiscountCouponCode } from "@/lib/order-discount-coupon";
 import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
 import {
   getPaymentMethodInfo,
   orderAlreadyPaidByCardCheckout,
 } from "@/lib/payment-method-label";
 import { resolveOrderLineItemsPricing } from "@/lib/order-line-item-pricing";
-import { resolveOrderShippingDisplayForOrder } from "@/lib/order-shipping-display";
 import { resolveCustomerPhone, resolveShippingPhone } from "@/lib/order-sms-resolvers";
 import { getOrderDumpPermission, getUtilityOrderDumpPermission } from "@/lib/report-permissions";
 import { requirePermission } from "@/lib/rbac";
@@ -301,10 +298,15 @@ function getReportLabel(report: ReportKind, range: RangeKind) {
   return "Web-site Invoice Detail (Invoice Wise) [Last 90 Days]";
 }
 
-const DUMP_ORDER_PAGE_SIZE = 200;
+/**
+ * One HTTP page, sized to stay under the ~4.5MB response cap.
+ * A single 22k-row stream was cut at 18,327. The client concatenates pages.
+ * createdAt + id only so the cursor stays stable.
+ */
+const DUMP_INVOICE_EXPORT_ORDERS = 2000;
+const DUMP_ITEM_EXPORT_ORDERS = 250;
 const DUMP_ORDER_ORDER_BY = [
   { createdAt: "desc" as const },
-  { updatedAt: "desc" as const },
   { id: "desc" as const },
 ];
 
@@ -376,40 +378,6 @@ async function loadManualCreatorEmails(companyId: string, orderIds: string[]) {
   return orderIdToManualCreatorEmail;
 }
 
-async function persistDumpShippingFill(
-  orderId: string,
-  live: Parameters<typeof dumpShippingPersistFields>[0],
-) {
-  const fields = dumpShippingPersistFields(live);
-  if (!fields?.shippingLines) return;
-  try {
-    await prisma.order.update({
-      where: { id: orderId },
-      data: {
-        shippingLines: fields.shippingLines,
-        ...(fields.totalShipping
-          ? { totalShipping: new Prisma.Decimal(fields.totalShipping) }
-          : {}),
-      },
-    });
-  } catch {
-    /* dump still succeeds */
-  }
-}
-
-async function persistDumpDiscountCoupon(orderId: string, existing: unknown, coupon: string) {
-  const next = mergeDiscountCouponIntoCodes(existing, coupon);
-  if (next === existing) return;
-  try {
-    await prisma.order.update({
-      where: { id: orderId },
-      data: { discountCodes: next as Prisma.InputJsonValue },
-    });
-  } catch {
-    /* dump still succeeds */
-  }
-}
-
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
@@ -447,12 +415,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: bounds.error }, { status: 400 });
   }
   const { from, to, label } = bounds;
-  // A full calendar-year export can contain tens of thousands of orders. It
-  // must only use data already stored in Cosmo: per-order ERP lookups turn the
-  // streaming response into a timeout-prone request and used to create a
-  // silently truncated CSV.
-  const useStoredExportData = range === "custom" || range === "historical-year";
-  const exportConcurrency = useStoredExportData ? 16 : 4;
+  // Stored order fields only. A live ERP call per invoice made Dump 2 too slow
+  // and the download was cut off before the last rows.
+  const exportConcurrency = 16;
   const orderWhere = {
     companyId,
     createdAt: {
@@ -518,25 +483,31 @@ export async function GET(request: NextRequest) {
       ? `order-invoice-item-${label}.csv`
       : `order-invoice-${label}.csv`;
 
-  const encoder = new TextEncoder();
-  const stream = new ReadableStream<Uint8Array>({
-    async start(controller) {
-      const write = (text: string) => controller.enqueue(encoder.encode(text));
-      try {
-        write(formatCsvHeaderLine(csvHeaders));
+  const after = request.nextUrl.searchParams.get("after")?.trim() ?? "";
+  const includeHeader = request.nextUrl.searchParams.get("header") !== "0";
+  const parts: string[] = [];
+  const write = (text: string) => {
+    parts.push(text);
+  };
+  let hasMore = false;
+  let nextCursor = "";
+
+  try {
+    if (includeHeader) write(formatCsvHeaderLine(csvHeaders));
 
         if (report === "invoice-item") {
-          let cursorId: string | undefined;
-          for (;;) {
             if (request.signal.aborted) throw new Error("Historical export was interrupted before it completed");
-            const orders = await prisma.order.findMany({
+            const fetchedOrders = await prisma.order.findMany({
               where: orderWhere,
               orderBy: DUMP_ORDER_ORDER_BY,
-              take: DUMP_ORDER_PAGE_SIZE,
-              ...(cursorId ? { skip: 1, cursor: { id: cursorId } } : {}),
+              take: DUMP_ITEM_EXPORT_ORDERS + 1,
+              ...(after ? { skip: 1, cursor: { id: after } } : {}),
               include: ORDER_DUMP_ITEM_INCLUDE,
             });
-            if (orders.length === 0) break;
+            hasMore = fetchedOrders.length > DUMP_ITEM_EXPORT_ORDERS;
+            const orders = hasMore ? fetchedOrders.slice(0, DUMP_ITEM_EXPORT_ORDERS) : fetchedOrders;
+            nextCursor = orders.at(-1)?.id ?? "";
+            if (orders.length > 0) {
             const orderIdToManualCreatorEmail = await loadManualCreatorEmails(
               companyId,
               orders.map((order) => order.id),
@@ -570,21 +541,11 @@ export async function GET(request: NextRequest) {
         rawPayload: order.rawPayload,
         assignedMerchantCouponCodes: order.assignedMerchant?.couponCodes ?? null,
       });
-      let couponCode = getOrderDiscountCouponCode({
+      const couponCode = getOrderDiscountCouponCode({
         sourceName: order.sourceName,
         discountCodes: order.discountCodes,
         rawPayload: order.rawPayload,
       });
-      if (!couponCode && !useStoredExportData) {
-        couponCode = await resolveOrderDiscountCouponForOrder({
-          sourceName: order.sourceName,
-          discountCodes: order.discountCodes,
-          rawPayload: order.rawPayload,
-          name: order.name,
-          erpnextInvoiceId: order.erpnextInvoiceId,
-          erpnextInstance: order.companyLocation.erpnextInstance,
-        });
-      }
       const merchantName = dumpMerchantName({
         merchantCouponCode,
         discountCouponCode: couponCode,
@@ -599,7 +560,7 @@ export async function GET(request: NextRequest) {
         name: order.name,
         erpnextInvoiceId: order.erpnextInvoiceId,
         erpnextInstance: order.companyLocation.erpnextInstance,
-        allowLiveErpLookup: !useStoredExportData,
+        allowLiveErpLookup: false,
         lineItems: order.lineItems.map((item) => ({
           sku: item.productItem.sku,
           quantity: item.quantity,
@@ -687,21 +648,20 @@ export async function GET(request: NextRequest) {
       });
             return itemRows.map((row) => formatCsvDataLine(csvHeaders, row)).join("");
             }, exportConcurrency);
-            cursorId = orders[orders.length - 1]!.id;
-            if (orders.length < DUMP_ORDER_PAGE_SIZE) break;
-          }
+            }
         } else {
-          let cursorId: string | undefined;
-          for (;;) {
             if (request.signal.aborted) throw new Error("Historical export was interrupted before it completed");
-            const orders = await prisma.order.findMany({
+            const fetchedOrders = await prisma.order.findMany({
               where: orderWhere,
               orderBy: DUMP_ORDER_ORDER_BY,
-              take: DUMP_ORDER_PAGE_SIZE,
-              ...(cursorId ? { skip: 1, cursor: { id: cursorId } } : {}),
+              take: DUMP_INVOICE_EXPORT_ORDERS + 1,
+              ...(after ? { skip: 1, cursor: { id: after } } : {}),
               include: ORDER_DUMP_INVOICE_INCLUDE,
             });
-            if (orders.length === 0) break;
+            hasMore = fetchedOrders.length > DUMP_INVOICE_EXPORT_ORDERS;
+            const orders = hasMore ? fetchedOrders.slice(0, DUMP_INVOICE_EXPORT_ORDERS) : fetchedOrders;
+            nextCursor = orders.at(-1)?.id ?? "";
+            if (orders.length > 0) {
             const orderIdToManualCreatorEmail = await loadManualCreatorEmails(
               companyId,
               orders.map((order) => order.id),
@@ -724,30 +684,11 @@ export async function GET(request: NextRequest) {
       assignedMerchantCouponCodes: order.assignedMerchant?.couponCodes ?? null,
       joinAllDiscountCodes: true,
     });
-    let discountCoupon = getOrderDiscountCouponCode({
+    const discountCoupon = getOrderDiscountCouponCode({
       sourceName: order.sourceName,
       discountCodes: order.discountCodes,
       rawPayload: order.rawPayload,
     });
-    if (
-      !useStoredExportData &&
-      !discountCoupon &&
-      order.sourceName.startsWith("erpnext") &&
-      order.totalDiscounts != null &&
-      order.totalDiscounts.gt(0)
-    ) {
-      discountCoupon = await resolveOrderDiscountCouponForOrder({
-        sourceName: order.sourceName,
-        discountCodes: order.discountCodes,
-        rawPayload: order.rawPayload,
-        name: order.name,
-        erpnextInvoiceId: order.erpnextInvoiceId,
-        erpnextInstance: order.companyLocation.erpnextInstance,
-      });
-      if (discountCoupon) {
-        await persistDumpDiscountCoupon(order.id, order.discountCodes, discountCoupon);
-      }
-    }
     const couponCode = joinDumpCouponCodes(merchantCouponCode, discountCoupon);
     const merchantName = dumpMerchantName({
       merchantCouponCode,
@@ -768,24 +709,15 @@ export async function GET(request: NextRequest) {
       erpnextUsernameToEmail,
     });
     const shippingAddress = formatAddress(order.shippingAddress);
-    const shippingLookup = {
+    const shippingRule = dumpInvoiceShippingRuleFromStored({
       totalShipping: decimalToString(order.totalShipping),
       shippingLines: order.shippingLines,
       rawPayload: order.rawPayload,
       sourceName: order.sourceName,
-      name: order.name,
-      erpnextInvoiceId: order.erpnextInvoiceId,
-      erpnextInstance: order.companyLocation.erpnextInstance,
       discountCodes: order.discountCodes,
       dispatchedToCustomer: order.dispatchedToCustomer,
       shippingAddress,
-    };
-    let shippingRule = dumpInvoiceShippingRuleFromStored(shippingLookup);
-    if (!useStoredExportData && !hasStoredDumpShippingResolution(shippingLookup)) {
-      const live = await resolveOrderShippingDisplayForOrder(shippingLookup);
-      shippingRule = dumpInvoiceShippingRuleFromLive(live, shippingRule);
-      await persistDumpShippingFill(order.id, live);
-    }
+    });
 
     return formatCsvDataLine(csvHeaders, createOrderInvoiceRow({
       invoiceNo,
@@ -841,35 +773,37 @@ export async function GET(request: NextRequest) {
       kokoRefNumber: orderIdToKokoRefNumber.get(order.id) ?? "",
     }));
             }, exportConcurrency);
-            cursorId = orders[orders.length - 1]!.id;
-            if (orders.length < DUMP_ORDER_PAGE_SIZE) break;
-          }
+            }
         }
 
-        if (!request.signal.aborted) {
-          await logReportDownload({
-            companyId,
-            userId: auth.context?.user?.id,
-            reportKey: `orders:${report}:${range}`,
-            reportLabel,
-            filters,
-            fileName,
-          });
-        }
-        controller.close();
-      } catch (error) {
-        controller.error(error instanceof Error ? error : new Error("Dump failed"));
-      }
-    },
-  });
+    if (!hasMore && !request.signal.aborted) {
+      await logReportDownload({
+        companyId,
+        userId: auth.context?.user?.id,
+        reportKey: `orders:${report}:${range}`,
+        reportLabel,
+        filters,
+        fileName,
+      });
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Dump failed";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
 
-  return new NextResponse(stream, {
+  const csv = parts.join("");
+  const pageRows = countCsvDataRows(csv, includeHeader);
+
+  return new NextResponse(csv, {
     headers: {
       "Content-Type": "text/csv; charset=utf-8",
       "Content-Disposition": `attachment; filename="${fileName}"`,
       "Cache-Control": "no-store",
       [DUMP_TOTAL_HEADER]: String(totalCsvRows),
-      "Access-Control-Expose-Headers": DUMP_TOTAL_HEADER,
+      [DUMP_HAS_MORE_HEADER]: hasMore ? "1" : "0",
+      [DUMP_NEXT_CURSOR_HEADER]: nextCursor,
+      [DUMP_PAGE_CONTACTS_HEADER]: String(pageRows),
+      "Access-Control-Expose-Headers": dumpExposeHeaders(),
     },
   });
 }

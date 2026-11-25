@@ -13,6 +13,12 @@ export function isKokoGateway(gateway: string | null | undefined): boolean {
   return compactPaymentGateway(gateway).includes("koko");
 }
 
+/** AMEX / American Express prepaid card gateway. */
+export function isAmexGateway(gateway: string | null | undefined): boolean {
+  const compact = compactPaymentGateway(gateway);
+  return compact.includes("amex") || compact.includes("americanexpress");
+}
+
 /**
  * ERP Mode of Payment name.
  * Supplement (Vault OS) uses "Mintpay". Cosmetics.lk (Cosmo OS) uses "MintPay".

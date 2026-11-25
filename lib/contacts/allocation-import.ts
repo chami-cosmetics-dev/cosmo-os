@@ -1,4 +1,12 @@
 import { writeAuditLog } from "@/lib/audit-log";
+import {
+  STAFF_SALES_ASSIGNED_MERCHANT,
+  STAFF_SALES_DISPLAY_LABEL,
+} from "@/lib/contacts/staff-sales-allocation";
+import {
+  ASSIGNED_MERCHANT_ALIAS_GROUPS,
+  findAssignedMerchantAliasGroup,
+} from "@/lib/customer-insight/merchant-label-aliases";
 import { buildPhoneLookupVariants } from "@/lib/phone-lookup";
 import { prisma } from "@/lib/prisma";
 
@@ -88,6 +96,29 @@ function pickValue(row: ParsedRow, keys: string[]) {
     if (row[key]?.trim()) return row[key]!.trim();
   }
   return "";
+}
+
+/**
+ * User display name wins. Otherwise a Contact Master roster bucket
+ * (DM-General, STAFF SALES, ERROR NUMBER, and their aliases).
+ */
+export function resolveAllocationAssignee(
+  merchant: string,
+  userLabels: ReadonlyMap<string, string>
+): string | null {
+  const key = merchant.trim().toLowerCase();
+  if (!key) return null;
+  const fromUser = userLabels.get(key);
+  if (fromUser) return fromUser;
+  const group = findAssignedMerchantAliasGroup(merchant);
+  if (group) return group.value;
+  if (key === STAFF_SALES_DISPLAY_LABEL.toLowerCase()) {
+    return STAFF_SALES_ASSIGNED_MERCHANT;
+  }
+  for (const bucket of ASSIGNED_MERCHANT_ALIAS_GROUPS) {
+    if (bucket.label.trim().toLowerCase() === key) return bucket.value;
+  }
+  return null;
 }
 
 export function rowPhoneAndMerchant(row: ParsedRow) {
@@ -188,7 +219,7 @@ export async function importContactAllocations(input: {
       continue;
     }
 
-    const allocatedTo = merchantByLabel.get(merchant.toLowerCase());
+    const allocatedTo = resolveAllocationAssignee(merchant, merchantByLabel);
     if (!allocatedTo) {
       skipped.push({
         row: rowNum,

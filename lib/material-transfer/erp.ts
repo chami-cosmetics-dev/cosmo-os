@@ -6,6 +6,11 @@ import { ERP_TAX_STATUS_FIELD } from "@/lib/osf/erp-tax-status";
 import { erpErrorMessage, isTransientErpFetchError } from "@/lib/material-transfer/erp-error";
 import { itemCodeFromScanBarcode } from "@/lib/material-transfer/scan-barcode";
 import {
+  fingerprintsMatch,
+  fingerprintFromErpItems,
+  materialTransferLineFingerprint,
+} from "@/lib/material-transfer/line-fingerprint";
+import {
   buildCosmoSaveDocCall,
   buildMaterialTransferBody,
   stockEntryNameFromSaveDoc,
@@ -14,8 +19,10 @@ import type { TransferLookupItem, TransferSlot, TransferWarehouse } from "@/lib/
 import {
   companyForWarehouses,
   erp1RequiresVatItems,
+  isMainWarehouseName,
   warehouseOptions,
 } from "@/lib/material-transfer/warehouses";
+import { isShopWarehouseName } from "@/lib/item-trends/shop-warehouse-name";
 
 export class MaterialTransferError extends Error {
   status: number;
@@ -100,12 +107,14 @@ async function listResource<T>(
   filters: unknown[],
   fields: string[],
   limit = 500,
+  orderBy?: string,
 ): Promise<T[]> {
   const params = new URLSearchParams({
     filters: JSON.stringify(filters),
     fields: JSON.stringify(fields),
     limit_page_length: String(limit),
   });
+  if (orderBy) params.set("order_by", orderBy);
   const rows = await erpJson<T[]>(
     cfg,
     `/api/resource/${encodeURIComponent(doctype)}?${params.toString()}`,
@@ -498,6 +507,21 @@ export async function submitMaterialTransfer(input: {
     });
   } catch (error) {
     if (isTransientErpFetchError(error)) {
+      // POST is not retried — a dropped response may already be a submitted STE.
+      const recovered = await recoverDroppedMaterialTransfer({
+        cfg: input.cfg,
+        owner,
+        company,
+        sourceWarehouse: input.sourceWarehouse,
+        targetWarehouse: input.targetWarehouse,
+        lines: input.lines,
+      });
+      if (recovered) {
+        console.warn(
+          `[material-transfer] recovered dropped POST as ${recovered} (${input.sourceWarehouse} → ${input.targetWarehouse})`,
+        );
+        return { name: recovered, company };
+      }
       throw new MaterialTransferError(
         "ERP connection closed. Check ERP for a new Stock Entry before trying again.",
         502,
@@ -506,9 +530,191 @@ export async function submitMaterialTransfer(input: {
     throw new MaterialTransferError(erpErrorMessage(error), 422);
   }
   const name = stockEntryNameFromSaveDoc(saved);
-  if (!name) throw new MaterialTransferError("ERP did not return a Stock Entry number", 502);
+  if (!name) {
+    const recovered = await recoverDroppedMaterialTransfer({
+      cfg: input.cfg,
+      owner,
+      company,
+      sourceWarehouse: input.sourceWarehouse,
+      targetWarehouse: input.targetWarehouse,
+      lines: input.lines,
+    });
+    if (recovered) return { name: recovered, company };
+    throw new MaterialTransferError("ERP did not return a Stock Entry number", 502);
+  }
 
   return { name, company };
+}
+
+type ErpStockEntryRow = {
+  name?: string;
+  company?: string;
+  from_warehouse?: string;
+  to_warehouse?: string;
+  owner?: string;
+  creation?: string;
+  docstatus?: number;
+  items?: Array<{
+    item_code?: string | null;
+    item_name?: string | null;
+    barcode?: string | null;
+    uom?: string | null;
+    qty?: number | null;
+  }>;
+};
+
+async function getStockEntry(cfg: OsfErpCredentials, name: string): Promise<ErpStockEntryRow | null> {
+  try {
+    return await erpJson<ErpStockEntryRow>(
+      cfg,
+      `/api/resource/Stock Entry/${encodeURIComponent(name)}`,
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    if (message.includes("[404]")) return null;
+    throw error;
+  }
+}
+
+/**
+ * After a dropped cosmo_save_doc response, find the STE ERP already submitted.
+ * Matches owner + warehouses + company + exact line bag within a short window.
+ */
+export async function recoverDroppedMaterialTransfer(input: {
+  cfg: OsfErpCredentials;
+  owner: string;
+  company: string;
+  sourceWarehouse: string;
+  targetWarehouse: string;
+  lines: Array<{ itemCode: string; qty: number }>;
+  excludeNames?: Set<string> | string[];
+  sinceMinutes?: number;
+}): Promise<string | null> {
+  const expected = materialTransferLineFingerprint(input.lines);
+  if (!expected) return null;
+
+  const exclude = new Set(
+    [...(input.excludeNames ?? [])].map((name) => String(name).trim()).filter(Boolean),
+  );
+  const sinceMinutes = input.sinceMinutes ?? 20;
+  const since = new Date(Date.now() - sinceMinutes * 60_000);
+  const sinceSql = since.toISOString().slice(0, 19).replace("T", " ");
+
+  // ERP may still be committing when the socket dies — search with backoff.
+  const pausesMs = [1500, 3000];
+  for (const pause of pausesMs) {
+    await sleep(pause);
+
+    const headers = await listResource<ErpStockEntryRow>(
+      input.cfg,
+      "Stock Entry",
+      [
+        ["stock_entry_type", "=", "Material Transfer"],
+        ["docstatus", "=", 1],
+        ["company", "=", input.company],
+        ["from_warehouse", "=", input.sourceWarehouse],
+        ["to_warehouse", "=", input.targetWarehouse],
+        ["owner", "=", input.owner],
+        ["creation", ">=", sinceSql],
+      ],
+      ["name", "company", "from_warehouse", "to_warehouse", "owner", "creation"],
+      15,
+      "creation desc",
+    );
+
+    const candidates = headers
+      .map((row) => String(row.name ?? "").trim())
+      .filter((name) => name && !exclude.has(name));
+
+    for (const name of candidates) {
+      const doc = await getStockEntry(input.cfg, name);
+      if (!doc) continue;
+      const actual = fingerprintFromErpItems(doc.items ?? []);
+      if (fingerprintsMatch(expected, actual)) return name;
+    }
+  }
+  return null;
+}
+
+export type RecentMainToShopStockEntry = {
+  name: string;
+  company: string;
+  fromWarehouse: string;
+  toWarehouse: string;
+  owner: string;
+  creation: string;
+  items: Array<{
+    itemCode: string;
+    itemName: string;
+    barcode: string;
+    uom: string;
+    qty: number;
+  }>;
+};
+
+/** Recent submitted Main→shop Material Transfers for Cosmo History reconcile. */
+export async function listRecentMainToShopStockEntries(
+  cfg: OsfErpCredentials,
+  input: {
+    sinceHours?: number;
+    limit?: number;
+    /** Skip STE names already saved in Cosmo (avoids full-doc fetch). */
+    skipNames?: Set<string> | string[];
+  } = {},
+): Promise<RecentMainToShopStockEntry[]> {
+  const sinceHours = input.sinceHours ?? 48;
+  const limit = input.limit ?? 80;
+  const skip = new Set(
+    [...(input.skipNames ?? [])].map((name) => String(name).trim()).filter(Boolean),
+  );
+  const since = new Date(Date.now() - sinceHours * 60 * 60_000);
+  const sinceSql = since.toISOString().slice(0, 19).replace("T", " ");
+
+  const headers = await listResource<ErpStockEntryRow>(
+    cfg,
+    "Stock Entry",
+    [
+      ["stock_entry_type", "=", "Material Transfer"],
+      ["docstatus", "=", 1],
+      ["creation", ">=", sinceSql],
+    ],
+    ["name", "company", "from_warehouse", "to_warehouse", "owner", "creation"],
+    limit,
+    "creation desc",
+  );
+
+  const out: RecentMainToShopStockEntry[] = [];
+  for (const header of headers) {
+    const name = String(header.name ?? "").trim();
+    const fromWarehouse = String(header.from_warehouse ?? "").trim();
+    const toWarehouse = String(header.to_warehouse ?? "").trim();
+    if (!name || skip.has(name)) continue;
+    if (!isMainWarehouseName(fromWarehouse) || !isShopWarehouseName(toWarehouse)) continue;
+
+    const doc = await getStockEntry(cfg, name);
+    if (!doc) continue;
+    const items = (doc.items ?? [])
+      .map((item) => ({
+        itemCode: String(item.item_code ?? "").trim(),
+        itemName: String(item.item_name ?? item.item_code ?? "").trim(),
+        barcode: String(item.barcode ?? "").trim(),
+        uom: String(item.uom ?? "Nos").trim() || "Nos",
+        qty: Math.round(Number(item.qty)),
+      }))
+      .filter((item) => item.itemCode && Number.isFinite(item.qty) && item.qty >= 1);
+    if (items.length === 0) continue;
+
+    out.push({
+      name,
+      company: String(doc.company ?? header.company ?? "").trim(),
+      fromWarehouse,
+      toWarehouse,
+      owner: String(doc.owner ?? header.owner ?? "").trim(),
+      creation: String(doc.creation ?? header.creation ?? "").trim(),
+      items,
+    });
+  }
+  return out;
 }
 
 export async function loadTransferSlotWarehouses(companyId: string, slot: TransferSlot) {

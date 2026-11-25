@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { Download, Loader2 } from "lucide-react";
 
 import { ShopRequestLines } from "@/components/organisms/shop-request-lines";
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,7 @@ export function MaterialTransferRequestQueue() {
   const [status, setStatus] = useState<StatusFilter>("pending");
   const [rows, setRows] = useState<ShopRequestView[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
-  const [busyKey, setBusyKey] = useState<"load" | string | null>("load");
+  const [busyKey, setBusyKey] = useState<"load" | "download" | string | null>("load");
   const isBusy = busyKey !== null;
 
   const load = useCallback(async (next: StatusFilter) => {
@@ -52,14 +52,54 @@ export function MaterialTransferRequestQueue() {
     }
   }
 
+  async function downloadExcel() {
+    if (isBusy) return;
+    setBusyKey("download");
+    try {
+      const res = await fetch(
+        `/api/admin/store/material-transfer/shop-requests/export?status=${status}`,
+      );
+      if (!res.ok) {
+        const json = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(json.error || "Could not download shop requests");
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      const match = /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") ?? "");
+      link.href = url;
+      link.download = match?.[1] ?? `shop-requests-${status}.xlsx`;
+      link.click();
+      URL.revokeObjectURL(url);
+      notify.success("Shop requests downloaded");
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : "Could not download shop requests");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <Button type="button" variant={status === "pending" ? "default" : "outline"} disabled={isBusy} onClick={() => setStatus("pending")}>
           Pending
         </Button>
         <Button type="button" variant={status === "done" ? "default" : "outline"} disabled={isBusy} onClick={() => setStatus("done")}>
           Done
+        </Button>
+        <Button type="button" variant="outline" disabled={isBusy} onClick={() => void downloadExcel()}>
+          {busyKey === "download" ? (
+            <>
+              <Loader2 className="animate-spin" aria-hidden />
+              Downloading...
+            </>
+          ) : (
+            <>
+              <Download aria-hidden />
+              Download Excel
+            </>
+          )}
         </Button>
       </div>
       {busyKey === "load" ? (

@@ -15,6 +15,7 @@ import { mergeMerchantCohortWithDmBucket } from "@/lib/merchant-dashboard/channe
 import { dmBucketShareForHolder } from "@/lib/merchant-dm-sales";
 import {
   labelCallCenterPerformanceMerchant,
+  listCallCenterMerchantUserIds,
   parseCallCenterDayEnd,
   parseCallCenterDayStart,
 } from "@/lib/page-data/call-center-performance";
@@ -237,7 +238,9 @@ async function fetchTierRows(input: {
   companyId: string;
   fromYmd: string;
   toYmd: string;
+  merchantIds: string[];
 }): Promise<RawTierRow[]> {
+  if (input.merchantIds.length === 0) return [];
   const fromDate = parseCallCenterDayStart(input.fromYmd);
   const toDate = parseCallCenterDayEnd(input.toYmd);
   const rows = await prisma.$queryRaw<
@@ -265,6 +268,7 @@ async function fetchTierRows(input: {
     WHERE cau."companyId" = ${input.companyId}
       AND cau."createdAt" >= ${fromDate}
       AND cau."createdAt" <= ${toDate}
+      AND cau."merchantId" = ANY(${input.merchantIds})
       AND cau."category" IS DISTINCT FROM 'allocation'
     GROUP BY
       cau."merchantId",
@@ -287,7 +291,9 @@ async function fetchCategoryRows(input: {
   companyId: string;
   fromYmd: string;
   toYmd: string;
+  merchantIds: string[];
 }): Promise<RawCategoryRow[]> {
+  if (input.merchantIds.length === 0) return [];
   const fromDate = parseCallCenterDayStart(input.fromYmd);
   const toDate = parseCallCenterDayEnd(input.toYmd);
   const rows = await prisma.$queryRaw<
@@ -310,6 +316,7 @@ async function fetchCategoryRows(input: {
     WHERE cau."companyId" = ${input.companyId}
       AND cau."createdAt" >= ${fromDate}
       AND cau."createdAt" <= ${toDate}
+      AND cau."merchantId" = ANY(${input.merchantIds})
       AND cau."category" IS DISTINCT FROM 'allocation'
     GROUP BY
       cau."merchantId",
@@ -844,27 +851,33 @@ export async function buildCallCenterPerformanceReport(input: {
       ? formatDisplayDay(asOf)
       : formatDisplayRange(secondaryFromYmd, secondaryToYmd);
 
+  const merchantIds = await listCallCenterMerchantUserIds(company.id);
+
   const [primaryTier, secondaryTier, primaryCat, secondaryCat, channel] =
     await Promise.all([
       fetchTierRows({
         companyId: company.id,
         fromYmd: primaryFromYmd,
         toYmd: primaryToYmd,
+        merchantIds,
       }),
       fetchTierRows({
         companyId: company.id,
         fromYmd: secondaryFromYmd,
         toYmd: secondaryToYmd,
+        merchantIds,
       }),
       fetchCategoryRows({
         companyId: company.id,
         fromYmd: primaryFromYmd,
         toYmd: primaryToYmd,
+        merchantIds,
       }),
       fetchCategoryRows({
         companyId: company.id,
         fromYmd: secondaryFromYmd,
         toYmd: secondaryToYmd,
+        merchantIds,
       }),
       input.mode === "daily"
         ? fetchChannelTargetRows({ companyId: company.id, asOfYmd: asOf })

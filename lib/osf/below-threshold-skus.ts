@@ -1,7 +1,9 @@
 import "server-only";
 
+import { isBundleCatalogItem } from "@/lib/catalog-bundle";
+import { mapGetBySku, skuVariantKeys } from "@/lib/osf/base-sku";
 import { resolveOsfColumns } from "@/lib/osf/column-config";
-import { fetchBinActualQty, getAllOsfErpInstances, stockForColumn } from "@/lib/osf/erp-stock";
+import { fetchBinActualQty, getAllOsfErpInstances, observedStockForColumns } from "@/lib/osf/erp-stock";
 import { isBelowReorderThreshold } from "@/lib/osf/threshold";
 import { prisma } from "@/lib/prisma";
 
@@ -56,6 +58,8 @@ export async function listBelowThresholdSkus(
       select: {
         sku: true,
         productTitle: true,
+        productType: true,
+        barcode: true,
         erp1ProductPriority: true,
         erp2ProductPriority: true,
         vendor: { select: { name: true } },
@@ -69,13 +73,28 @@ export async function listBelowThresholdSkus(
 
   const bySku = new Map<
     string,
-    { productTitle: string; brand: string | null; priorityStatus: string | null }
+    {
+      productTitle: string;
+      barcode: string | null;
+      brand: string | null;
+      priorityStatus: string | null;
+    }
   >();
   for (const row of catalog) {
     const sku = row.sku?.trim();
     if (!sku || bySku.has(sku)) continue;
+    if (
+      isBundleCatalogItem({
+        sku,
+        productTitle: row.productTitle,
+        productType: row.productType,
+      })
+    ) {
+      continue;
+    }
     bySku.set(sku, {
       productTitle: row.productTitle,
+      barcode: row.barcode?.trim() || null,
       brand: row.vendor?.name ?? null,
       priorityStatus: productPriorityStatus(row.erp1ProductPriority, row.erp2ProductPriority),
     });
@@ -93,10 +112,10 @@ export async function listBelowThresholdSkus(
   for (const sku of bySku.keys()) {
     const catalogRow = bySku.get(sku)!;
     if (q) {
-      const hay = `${sku} ${catalogRow.productTitle}`.toLowerCase();
+      const hay = `${sku} ${catalogRow.productTitle} ${catalogRow.barcode ?? ""}`.toLowerCase();
       if (!hay.includes(q)) continue;
     }
-    const rops = ropsBySku.get(sku) ?? {};
+    const rops = mapGetBySku(ropsBySku, sku) ?? {};
     let totalRop = 0;
     for (const col of ropCols) {
       const r = rops[col.key];
@@ -115,30 +134,31 @@ export async function listBelowThresholdSkus(
   }
 
   const erpInstances = await getAllOsfErpInstances(companyId);
-  const binMap = new Map<string, number>();
+  const binsByInstance = new Map<string, Map<string, number>>();
   await Promise.all(
     erpInstances.map(async (inst) => {
       const whs = [...(warehousesByInstance.get(inst.id) ?? [])];
       if (!whs.length) return;
-      const bins = await fetchBinActualQty({ cfg: inst.cfg, warehouses: whs, itemCodes: skus });
-      for (const [key, qty] of bins) binMap.set(key, qty);
+      const bins = await fetchBinActualQty({
+        cfg: inst.cfg,
+        warehouses: whs,
+        itemCodes: [...new Set(skus.flatMap((sku) => skuVariantKeys(sku)))],
+      });
+      binsByInstance.set(inst.id, bins);
     }),
   );
 
   const out: BelowThresholdSku[] = [];
   for (const sku of skus) {
-    let totalStock = 0;
-    for (const col of stockCols) {
-      const qty = stockForColumn(binMap, col.warehouses, sku);
-      if (qty != null) totalStock += qty;
-    }
-    const rops = ropsBySku.get(sku) ?? {};
+    const totalStock = observedStockForColumns(stockCols, binsByInstance, sku);
+    if (totalStock === null) continue;
+    const rops = mapGetBySku(ropsBySku, sku) ?? {};
     let totalRop = 0;
     for (const col of ropCols) {
       const r = rops[col.key];
       if (r != null && Number.isFinite(r)) totalRop += r;
     }
-    const profile = profileBySku.get(sku);
+    const profile = mapGetBySku(profileBySku, sku);
     const cutoff =
       opts?.maxPercent != null ? opts.maxPercent : (profile?.reorderThresholdPercent ?? null);
     if (!isBelowReorderThreshold(totalStock, totalRop, cutoff)) continue;

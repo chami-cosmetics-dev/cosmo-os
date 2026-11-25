@@ -122,6 +122,9 @@
     "app/api/admin/contacts/export/route.ts": {
       "maxDuration": 300
     },
+    "app/api/admin/customer-insight/filter/route.ts": {
+      "maxDuration": 300
+    },
     "app/api/admin/customer-insight/filter/export/route.ts": {
       "maxDuration": 800
     },

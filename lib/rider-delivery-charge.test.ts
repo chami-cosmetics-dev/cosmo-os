@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  describeRiderPay,
   extractOrderShippingCity,
   isExcludedFromRiderIncentiveLabel,
   isZoneShippingLabelKey,
@@ -277,6 +278,51 @@ describe("resolveRiderIncentiveMatch", () => {
         zoneMembersByZone,
       }).toString()
     ).toBe("300");
+  });
+
+  it("names how each order is paid", () => {
+    expect(
+      describeRiderPay({ shippingRuleLabel: "Pick Up", labelKey: "pick up", matched: true }),
+    ).toBe("Pick up");
+    expect(
+      describeRiderPay({ shippingRuleLabel: "STAFFDC", labelKey: "staffdc", matched: true }),
+    ).toBe("STAFFDC");
+    expect(
+      describeRiderPay({
+        shippingRuleLabel: "FREESHIP",
+        labelKey: "nugegoda",
+        matched: true,
+        districtLabel: "Nugegoda",
+      }),
+    ).toBe("Free ship · Nugegoda");
+    expect(
+      describeRiderPay({
+        shippingRuleLabel: "Nugegoda",
+        labelKey: "nugegoda",
+        matched: true,
+        districtLabel: "Nugegoda",
+      }),
+    ).toBe("Nugegoda");
+    expect(
+      describeRiderPay({ shippingRuleLabel: "Zone A", labelKey: null, matched: false }),
+    ).toBe("Unmatched");
+    expect(
+      describeRiderPay({
+        shippingRuleLabel: "Colombo",
+        labelKey: null,
+        matched: true,
+        manualOverride: true,
+      }),
+    ).toBe("Manual amount");
+    expect(
+      describeRiderPay({
+        shippingRuleLabel: "Colombo",
+        labelKey: "kandy",
+        matched: true,
+        manualOverride: true,
+        districtLabel: "Kandy",
+      }),
+    ).toBe("Manual district · Kandy");
   });
 
   it("excludes Pick Up and STAFFDC from incentive (not unmatched)", () => {

@@ -233,15 +233,24 @@ export async function resolveCouponInvoiceItemRates(input: {
   }
 }
 
-/** Coupon code on create retriggers ERP pricing. Keep a label only. */
+/**
+ * Pass coupon fields through to SI create (pre-2026-10-30 behaviour).
+ * Sending `coupon_code` lets ERP Server Script "Validate Coupon Payment Type"
+ * apply the linked Pricing Rule. We stopped doing that on 2026-10-30 to dodge
+ * MultiplePricingRuleConflict with item rules — that left SIs with no coupon.
+ * Keep coupon_code; conflict handling stays in create retry / ERP script.
+ */
 export function couponFieldsForInvoiceCreate(
   fields: Record<string, string>,
   discountCodeLabel: string | null,
 ): Record<string, string> {
-  const { coupon_code: _coupon, ...rest } = fields;
-  const label = discountCodeLabel?.trim() || fields.coupon_code?.trim() || "";
-  if (label && !rest.custom_coupon_code) {
-    rest.custom_coupon_code = label;
+  const out = { ...fields };
+  // Label-only fallback when Coupon Code doc was not resolved in ERP.
+  if (!out.coupon_code) {
+    const label = discountCodeLabel?.trim() || "";
+    if (label && !out.custom_coupon_code) {
+      out.custom_coupon_code = label;
+    }
   }
-  return rest;
+  return out;
 }

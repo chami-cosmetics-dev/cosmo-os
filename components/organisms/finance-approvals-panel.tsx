@@ -1,8 +1,28 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useSearchParams } from "next/navigation";
-import { CheckCircle2, Loader2, Plus, RefreshCw, Search, Trash2, XCircle } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowLeftRight,
+  Ban,
+  CheckCircle2,
+  CreditCard,
+  History,
+  Inbox,
+  Loader2,
+  PackageX,
+  Plus,
+  RefreshCw,
+  RotateCcw,
+  Search,
+  Trash2,
+  Truck,
+  Undo2,
+  X,
+  XCircle,
+  type LucideIcon,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,6 +32,7 @@ import { notify } from "@/lib/notify";
 import { formatAppDateTime, formatAppStoredDateTime } from "@/lib/format-datetime";
 import { TASK_REMINDER_ORDER_ID_PARAM } from "@/lib/task-reminder-links";
 import { mergeHistorySearchRows } from "@/lib/page-data/finance-approvals-slices";
+import { cn } from "@/lib/utils";
 
 export type FinanceApprovalItem = {
   id: string;
@@ -72,7 +93,7 @@ export type FinanceApprovalItem = {
   riderMobile?: string | null;
 };
 
-/** Filter tabs: All + each finance approval type (more detailed than Payments/Returns groups). */
+/** Queue ids: overview cards + list filters (replaces Pending/History + type tabs). */
 type TypeFilter =
   | "all"
   | "order_payment_approval"
@@ -83,16 +104,28 @@ type TypeFilter =
   | "invoice_revert_void_approval"
   | "order_cancel_approval";
 
-const TYPE_FILTER_TABS: { key: TypeFilter; label: string }[] = [
-  { key: "all", label: "All" },
-  { key: "order_payment_approval", label: "Order Payment" },
-  { key: "delivery_payment_approval", label: "Delivery Payment" },
-  { key: "payment_method_change_approval", label: "Method Change" },
-  { key: "return_rearrange_payment", label: "Return Rearrange" },
-  { key: "return_cancel", label: "Return Cancel" },
-  { key: "invoice_revert_void_approval", label: "Invoice Revert" },
-  { key: "order_cancel_approval", label: "Order Cancel" },
+type QueueId = TypeFilter | "history";
+type Screen = "overview" | "queue";
+
+const REQUEST_CATEGORY_QUEUES: {
+  id: Exclude<TypeFilter, "all">;
+  label: string;
+  icon: LucideIcon;
+}[] = [
+  { id: "delivery_payment_approval", label: "Delivery Payment", icon: Truck },
+  { id: "payment_method_change_approval", label: "Method Change", icon: ArrowLeftRight },
+  { id: "order_payment_approval", label: "Order Payment", icon: CreditCard },
+  { id: "return_rearrange_payment", label: "Return Rearrange", icon: RotateCcw },
+  { id: "return_cancel", label: "Return Cancel", icon: PackageX },
+  { id: "invoice_revert_void_approval", label: "Invoice Revert", icon: Undo2 },
+  { id: "order_cancel_approval", label: "Order Cancel", icon: Ban },
 ];
+
+function queueFromId(queueId: QueueId): { view: "pending" | "history"; typeFilter: TypeFilter } {
+  if (queueId === "history") return { view: "history", typeFilter: "all" };
+  if (queueId === "all") return { view: "pending", typeFilter: "all" };
+  return { view: "pending", typeFilter: queueId };
+}
 
 function typeLabel(type: string) {
   if (type === "order_payment_approval") return "Order Payment";
@@ -105,44 +138,79 @@ function typeLabel(type: string) {
   return type;
 }
 
-const TYPE_BADGE: Record<string, { label: string; cls: string }> = {
-  order_payment_approval: {
-    label: "Pre-Dispatch Approval",
-    cls: "bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-700/40",
-  },
-  delivery_payment_approval: {
-    label: "Delivery Collection",
-    cls: "bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-700/40",
-  },
-  payment_method_change_approval: {
-    label: "Method Change",
-    cls: "bg-violet-100 text-violet-800 border-violet-200 dark:bg-violet-900/30 dark:text-violet-300 dark:border-violet-700/40",
-  },
-  return_rearrange_payment: {
-    label: "Return Rearrange",
-    cls: "bg-rose-100 text-rose-800 border-rose-200 dark:bg-rose-900/30 dark:text-rose-300 dark:border-rose-700/40",
-  },
-  return_cancel: {
-    label: "Return Cancel",
-    cls: "bg-rose-100 text-rose-800 border-rose-200 dark:bg-rose-900/30 dark:text-rose-300 dark:border-rose-700/40",
-  },
-  invoice_revert_void_approval: {
-    label: "Invoice Revert",
-    cls: "bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800/50 dark:text-slate-300 dark:border-slate-600/40",
-  },
-  order_cancel_approval: {
-    label: "Order Cancel",
-    cls: "bg-red-100 text-red-800 border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-700/40",
-  },
-};
+function queueLabel(queueId: QueueId) {
+  if (queueId === "all") return "All Pending";
+  if (queueId === "history") return "History";
+  return REQUEST_CATEGORY_QUEUES.find((queue) => queue.id === queueId)?.label ?? typeLabel(queueId);
+}
 
-function TypeBadge({ type }: { type: string }) {
-  const badge = TYPE_BADGE[type];
-  if (!badge) return <span className="text-xs text-muted-foreground">{type}</span>;
+function ApprovalQueueRow({
+  approval,
+  selected,
+  showStatus,
+  onSelect,
+}: {
+  approval: FinanceApprovalItem;
+  selected: boolean;
+  showStatus: boolean;
+  onSelect: (id: string) => void;
+}) {
   return (
-    <span className={`inline-flex whitespace-nowrap rounded border px-1.5 py-0.5 text-[11px] font-semibold ${badge.cls}`}>
-      {badge.label}
-    </span>
+    <button
+      type="button"
+      onClick={() => onSelect(approval.id)}
+      aria-pressed={selected}
+      aria-label={`Review invoice ${approval.invoiceNo ?? approval.id}`}
+      className={cn(
+        "grid w-full grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(6.5rem,auto)] items-center gap-3 border-b border-border/50 px-4 py-3 text-left transition-colors last:border-0",
+        "hover:bg-muted/35 focus-visible:bg-muted/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50",
+        selected && "bg-primary/8",
+      )}
+    >
+      <span className="min-w-0">
+        <span className="flex flex-wrap items-center gap-1.5">
+          <span className="truncate font-medium text-foreground">
+            {approval.invoiceNo ?? "-"}
+          </span>
+          {approval.orderMissing ? (
+            <span className="inline-flex rounded-md border border-rose-500/30 bg-rose-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700">
+              Order removed
+            </span>
+          ) : null}
+          {(approval.duplicateGroupSize ?? 0) > 1 ? (
+            <span className="inline-flex rounded-md border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">
+              Dup ×{approval.duplicateGroupSize}
+            </span>
+          ) : null}
+        </span>
+        <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+          {REQUEST_CATEGORY_QUEUES.find((queue) => queue.id === approval.type)?.label
+            ?? typeLabel(approval.type)}
+        </span>
+      </span>
+      <span className="min-w-0">
+        <span className="block truncate text-sm text-foreground">
+          {requestedByLabel(approval)}
+        </span>
+        <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+          {formatDate(approval.createdAt)}
+        </span>
+      </span>
+      <span className="min-w-0 text-right">
+        <span className="block font-medium tabular-nums text-foreground">
+          {formatAmount(approval.totalPrice)}
+        </span>
+        {showStatus ? (
+          <span className="mt-0.5 block text-xs capitalize text-muted-foreground">
+            {approval.status}
+          </span>
+        ) : (
+          <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+            {paymentLabel(approval)}
+          </span>
+        )}
+      </span>
+    </button>
   );
 }
 
@@ -291,18 +359,6 @@ function filterByType(approvals: FinanceApprovalItem[], typeFilter: TypeFilter) 
   return approvals.filter((a) => a.type === typeFilter);
 }
 
-function selectFirstInView(
-  approvals: FinanceApprovalItem[],
-  view: "pending" | "history",
-  typeFilter: TypeFilter,
-  currentId: string
-) {
-  const byView = view === "pending" ? approvals.filter(isPendingApproval) : approvals.filter((item) => !isPendingApproval(item));
-  const visible = filterByType(byView, typeFilter);
-  if (visible.some((item) => item.id === currentId)) return currentId;
-  return visible[0]?.id ?? "";
-}
-
 export function FinanceApprovalsPanel({
   initialApprovals,
   canRevertPaid = false,
@@ -314,12 +370,14 @@ export function FinanceApprovalsPanel({
 }) {
   const searchParams = useSearchParams();
   const appliedDeepLinkRef = useRef<string | null>(null);
+  const listScrollRef = useRef<HTMLDivElement>(null);
+  const savedListScrollRef = useRef(0);
   const [approvals, setApprovals] = useState(initialApprovals);
+  const [screen, setScreen] = useState<Screen>("overview");
+  const [queueId, setQueueId] = useState<QueueId>("all");
   const [view, setView] = useState<"pending" | "history">("pending");
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
-  const [selectedId, setSelectedId] = useState(() =>
-    selectFirstInView(initialApprovals, "pending", "all", "")
-  );
+  const [selectedId, setSelectedId] = useState("");
   const [reviewNote, setReviewNote] = useState("");
   const [kokoReference, setKokoReference] = useState("");
   const [multipleKokoPayments, setMultipleKokoPayments] = useState(false);
@@ -344,7 +402,21 @@ export function FinanceApprovalsPanel({
       (approval) => approval.orderId === orderId && isPendingApproval(approval),
     );
     if (!match) return;
-    setView("pending");
+    const nextQueue: QueueId =
+      match.type === "order_payment_approval" ||
+      match.type === "delivery_payment_approval" ||
+      match.type === "payment_method_change_approval" ||
+      match.type === "return_rearrange_payment" ||
+      match.type === "return_cancel" ||
+      match.type === "invoice_revert_void_approval" ||
+      match.type === "order_cancel_approval"
+        ? match.type
+        : "all";
+    const next = queueFromId(nextQueue);
+    setScreen("queue");
+    setQueueId(nextQueue);
+    setView(next.view);
+    setTypeFilter(next.typeFilter);
     setSelectedId(match.id);
     appliedDeepLinkRef.current = orderId;
   }, [approvals, searchParams]);
@@ -451,14 +523,16 @@ export function FinanceApprovalsPanel({
   }, [pendingApprovals]);
 
   useEffect(() => {
-    if (searchedApprovals.length === 0) {
-      setSelectedId("");
-      return;
-    }
+    if (!selectedId) return;
     if (!searchedApprovals.some((item) => item.id === selectedId)) {
-      setSelectedId(searchedApprovals[0].id);
+      setSelectedId("");
     }
   }, [searchedApprovals, selectedId]);
+
+  const historyCount = recentHistory.length;
+  const activeQueueName = queueLabel(queueId);
+  const reviewOpen = Boolean(selected);
+  const listRequestCount = searchedApprovals.length;
 
   useEffect(() => {
     setKokoReference(selected?.kokoReference ?? "");
@@ -485,16 +559,52 @@ export function FinanceApprovalsPanel({
     selected?.merchantKokoPaymentCount,
   ]);
 
-  function switchView(next: "pending" | "history") {
-    setView(next);
-    setSelectedId(selectFirstInView(approvals, next, typeFilter, selectedId));
+  function openQueue(nextQueue: QueueId) {
+    const next = queueFromId(nextQueue);
+    setQueueId(nextQueue);
+    setView(next.view);
+    setTypeFilter(next.typeFilter);
+    setScreen("queue");
+    setSelectedId("");
+    setReviewNote("");
+    setKokoReference("");
+    setMultipleKokoPayments(false);
+    setKokoReferenceRows(emptyKokoRows());
+    savedListScrollRef.current = 0;
+  }
+
+  function handleBackToQueues() {
+    setScreen("overview");
+    setSelectedId("");
+    setReviewNote("");
+    setSearch("");
+    setDebouncedSearch("");
+    setHistorySearchHits(null);
+    savedListScrollRef.current = 0;
+  }
+
+  function handleSelectRequest(approvalId: string) {
+    if (listScrollRef.current) {
+      savedListScrollRef.current = listScrollRef.current.scrollTop;
+    }
+    setSelectedId(approvalId);
     setReviewNote("");
   }
 
-  function switchTypeFilter(next: TypeFilter) {
-    setTypeFilter(next);
-    setSelectedId(selectFirstInView(approvals, view, next, selectedId));
+  function handleCloseReview() {
+    setSelectedId("");
     setReviewNote("");
+    requestAnimationFrame(() => {
+      if (listScrollRef.current) {
+        listScrollRef.current.scrollTop = savedListScrollRef.current;
+      }
+    });
+  }
+
+  function handleQueueCardKeyDown(event: KeyboardEvent<HTMLButtonElement>, nextQueue: QueueId) {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    openQueue(nextQueue);
   }
 
   async function refresh() {
@@ -506,8 +616,17 @@ export function FinanceApprovalsPanel({
         notify.error(data.error ?? "Failed to load approvals");
         return;
       }
-      setApprovals(data.approvals ?? []);
-      setSelectedId((currentId) => selectFirstInView(data.approvals ?? [], view, typeFilter, currentId));
+      const nextApprovals = data.approvals ?? [];
+      setApprovals(nextApprovals);
+      setSelectedId((currentId) => {
+        if (!currentId) return "";
+        const stillVisible = nextApprovals.some((item) => {
+          if (item.id !== currentId) return false;
+          if (view === "pending") return isPendingApproval(item) && (typeFilter === "all" || item.type === typeFilter);
+          return !isPendingApproval(item) && (typeFilter === "all" || item.type === typeFilter);
+        });
+        return stillVisible ? currentId : "";
+      });
     } catch {
       notify.error("Failed to load approvals");
     } finally {
@@ -726,196 +845,229 @@ export function FinanceApprovalsPanel({
         </Button>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="inline-flex rounded-xl border border-border/70 bg-background/70 p-1 shadow-xs">
-          <Button
-            type="button"
-            size="sm"
-            variant={view === "pending" ? "default" : "ghost"}
-            onClick={() => switchView("pending")}
-            className={view === "pending" ? "shadow-[0_10px_24px_-18px_var(--primary)]" : "hover:bg-secondary/10"}
-          >
-            Pending{pendingCountByType.all > 0 ? ` (${pendingCountByType.all})` : ""}
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant={view === "history" ? "default" : "ghost"}
-            onClick={() => switchView("history")}
-            className={view === "history" ? "shadow-[0_10px_24px_-18px_var(--primary)]" : "hover:bg-secondary/10"}
-          >
-            History
-          </Button>
-        </div>
+      {screen === "overview" ? (
+        <div className="space-y-6">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => openQueue("all")}
+              onKeyDown={(event) => handleQueueCardKeyDown(event, "all")}
+              aria-label={`All Pending, ${pendingCountByType.all} requests`}
+              className={cn(
+                "flex w-full flex-col gap-4 rounded-xl border p-5 text-left transition-colors",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                pendingCountByType.all === 0
+                  ? "border-border/40 bg-muted/20 text-muted-foreground hover:bg-muted/35"
+                  : "border-primary/30 bg-primary/5 hover:border-primary/50 hover:bg-primary/10",
+              )}
+            >
+              <span className="flex items-center gap-3">
+                <span className="flex size-10 items-center justify-center rounded-lg bg-primary/15 text-primary">
+                  <Inbox className="size-5" aria-hidden />
+                </span>
+                <span className="text-base font-semibold text-foreground">All Pending</span>
+              </span>
+              <span className="text-3xl font-semibold tracking-tight tabular-nums text-foreground">
+                {pendingCountByType.all}
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => openQueue("history")}
+              onKeyDown={(event) => handleQueueCardKeyDown(event, "history")}
+              aria-label={`History, ${historyCount} processed requests`}
+              className={cn(
+                "flex w-full flex-col gap-4 rounded-xl border p-5 text-left transition-colors",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                historyCount === 0
+                  ? "border-border/40 bg-muted/20 text-muted-foreground hover:bg-muted/35"
+                  : "border-border/70 bg-card hover:border-primary/40 hover:bg-primary/5",
+              )}
+            >
+              <span className="flex items-center gap-3">
+                <span className="flex size-10 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+                  <History className="size-5" aria-hidden />
+                </span>
+                <span className="text-base font-semibold text-foreground">History</span>
+              </span>
+              <span className="text-3xl font-semibold tracking-tight tabular-nums text-foreground">
+                {historyCount}
+              </span>
+            </button>
+          </div>
 
-        <div className="inline-flex max-w-full flex-wrap gap-1 rounded-lg border border-border/50 bg-muted/30 p-1">
-          {TYPE_FILTER_TABS.map((tab) => {
-            const count = view === "pending" ? pendingCountByType[tab.key] : 0;
-            return (
-              <button
-                key={tab.key}
-                type="button"
-                onClick={() => switchTypeFilter(tab.key)}
-                className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
-                  typeFilter === tab.key
-                    ? "bg-background text-foreground shadow-xs"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {tab.label}
-                {view === "pending" && count > 0 && (
-                  <span className="ml-1.5 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
-                    {count}
-                  </span>
-                )}
-              </button>
-            );
-          })}
+          <div className="space-y-3">
+            <h2 className="text-sm font-semibold tracking-wide text-muted-foreground uppercase">
+              Request categories
+            </h2>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {REQUEST_CATEGORY_QUEUES.map((queue) => {
+                const count = pendingCountByType[queue.id];
+                const Icon = queue.icon;
+                const quiet = count === 0;
+                return (
+                  <button
+                    key={queue.id}
+                    type="button"
+                    onClick={() => openQueue(queue.id)}
+                    onKeyDown={(event) => handleQueueCardKeyDown(event, queue.id)}
+                    aria-label={`${queue.label}, ${count} pending requests`}
+                    className={cn(
+                      "flex w-full flex-col gap-3 rounded-xl border p-4 text-left transition-colors",
+                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                      quiet
+                        ? "border-border/40 bg-muted/15 text-muted-foreground hover:bg-muted/30"
+                        : "border-border/70 bg-card hover:border-primary/40 hover:bg-primary/5",
+                    )}
+                  >
+                    <span className="flex items-center gap-2.5">
+                      <span
+                        className={cn(
+                          "flex size-9 items-center justify-center rounded-lg",
+                          quiet ? "bg-muted/60" : "bg-primary/10 text-primary",
+                        )}
+                      >
+                        <Icon className="size-4" aria-hidden />
+                      </span>
+                      <span className={cn("text-sm font-semibold", quiet ? "text-muted-foreground" : "text-foreground")}>
+                        {queue.label}
+                      </span>
+                    </span>
+                    <span
+                      className={cn(
+                        "text-2xl font-semibold tracking-tight tabular-nums",
+                        quiet ? "text-muted-foreground/80" : "text-foreground",
+                      )}
+                    >
+                      {count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         </div>
+      ) : (
+      <>
+      <div className={cn("space-y-1", reviewOpen && "max-xl:hidden")}>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={handleBackToQueues}
+          className="mb-1 -ml-2 gap-2 px-2"
+        >
+          <ArrowLeft className="size-4" aria-hidden />
+          Back to queues
+        </Button>
+        <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">{activeQueueName}</h2>
+        <p className="text-sm text-muted-foreground">
+          Select a request to review its details.
+        </p>
       </div>
 
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
-        <Card className="border-border/70">
-          <CardHeader>
-            <CardTitle>{view === "pending" ? "Pending Requests" : "History"}</CardTitle>
+      <div
+        className={cn(
+          "grid gap-5",
+          reviewOpen && "xl:grid-cols-[minmax(0,1fr)_380px]",
+        )}
+      >
+        <Card className={cn("border-border/70", reviewOpen && "max-xl:hidden")}>
+          <CardHeader className="space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <CardTitle>Requests</CardTitle>
+              <p className="text-sm tabular-nums text-muted-foreground">
+                {listRequestCount} {listRequestCount === 1 ? "request" : "requests"}
+              </p>
+            </div>
+            <div className="relative w-full">
+              <Search className="text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2" aria-hidden />
+              <Input
+                placeholder={
+                  view === "history"
+                    ? "Search by order number, invoice, or ERP SI..."
+                    : groupByRider
+                      ? "Search by invoice, customer, rider, ERP SI..."
+                      : "Search by invoice, customer, ERP SI, or payment type..."
+                }
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                className="border-border/70 bg-background/90 w-full pl-9"
+                aria-label="Search approval requests"
+              />
+            </div>
             {view === "history" && !effectiveSearch ? (
-              <p className="text-muted-foreground text-xs font-normal">Latest 50. Search by order number for older approvals.</p>
+              <p className="text-muted-foreground text-xs font-normal">
+                Latest 50. Search by order number for older approvals.
+              </p>
             ) : null}
           </CardHeader>
           <CardContent className="p-0">
-            <div className="border-b border-border/50 px-4 py-3">
-              <div className="relative max-w-md">
-                <Search className="text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2" />
-                <Input
-                  placeholder={
-                    view === "history"
-                      ? "Search by order number, invoice, or ERP SI..."
-                      : groupByRider
-                        ? "Search by invoice, customer, rider, ERP SI..."
-                        : "Search by invoice, customer, ERP SI, or payment type..."
-                  }
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  className="border-border/70 bg-background/90 pl-9"
-                />
-              </div>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="border-b bg-muted/35 text-left text-muted-foreground">
-                  <tr>
-                    <th className="px-3 py-3 font-medium">Invoice</th>
-                    <th className="px-3 py-3 font-medium">Purpose</th>
-                    <th className="px-3 py-3 font-medium">Payment</th>
-                    {groupByRider && <th className="px-3 py-3 font-medium">Rider</th>}
-                    <th className="px-3 py-3 font-medium">Amount</th>
-                    <th className="px-3 py-3 font-medium">Requested by</th>
-                    <th className="px-3 py-3 font-medium">Requested</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {groupByRider
-                    ? deliveryRiderGroups.flatMap((group) => [
-                        <tr key={`rider-${group.key}`} className="bg-muted/50">
-                          <td
-                            colSpan={7}
-                            className="px-3 py-2 text-xs font-semibold tracking-wide text-foreground uppercase"
-                          >
-                            {group.label}
-                            <span className="ml-2 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold text-primary normal-case">
-                              {group.items.length}
-                            </span>
-                          </td>
-                        </tr>,
-                        ...group.items.map((approval) => (
-                          <tr
-                            key={approval.id}
-                            className={`cursor-pointer border-b last:border-0 hover:bg-muted/35 ${selectedId === approval.id ? "bg-primary/8" : ""}`}
-                            onClick={() => {
-                              setSelectedId(approval.id);
-                              setReviewNote("");
-                            }}
-                          >
-                            <td className="px-3 py-3 font-medium">
-                              {approval.invoiceNo ?? "-"}
-                              {approval.orderMissing && (
-                                <span className="ml-2 inline-flex rounded-md border border-rose-500/30 bg-rose-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700">
-                                  Order removed
-                                </span>
-                              )}
-                              {(approval.duplicateGroupSize ?? 0) > 1 && (
-                                <span className="ml-2 inline-flex rounded-md border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">
-                                  Dup ×{approval.duplicateGroupSize}
-                                </span>
-                              )}
-                            </td>
-                            <td className="px-3 py-3"><TypeBadge type={approval.type} /></td>
-                            <td className="px-3 py-3 text-muted-foreground">
-                              {paymentLabel(approval)}
-                              <KokoLinkTimeLine approval={approval} />
-                            </td>
-                            <td className="px-3 py-3 text-muted-foreground">{riderLabel(approval)}</td>
-                            <td className="px-3 py-3">{formatAmount(approval.totalPrice)}</td>
-                            <td className="px-3 py-3 text-muted-foreground">{requestedByLabel(approval)}</td>
-                            <td className="px-3 py-3 text-muted-foreground">{formatDate(approval.createdAt)}</td>
-                          </tr>
-                        )),
-                      ])
-                    : searchedApprovals.map((approval) => (
-                    <tr
+            <div ref={listScrollRef} className="max-h-[min(70vh,52rem)] overflow-auto">
+              {groupByRider
+                ? deliveryRiderGroups.map((group) => (
+                    <div key={group.key}>
+                      <div className="sticky top-0 z-[1] border-b border-border/50 bg-muted/80 px-4 py-2 text-xs font-semibold tracking-wide text-foreground uppercase backdrop-blur-sm">
+                        {group.label}
+                        <span className="ml-2 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold text-primary normal-case">
+                          {group.items.length}
+                        </span>
+                      </div>
+                      {group.items.map((approval) => (
+                        <ApprovalQueueRow
+                          key={approval.id}
+                          approval={approval}
+                          selected={selectedId === approval.id}
+                          showStatus={view === "history"}
+                          onSelect={handleSelectRequest}
+                        />
+                      ))}
+                    </div>
+                  ))
+                : searchedApprovals.map((approval) => (
+                    <ApprovalQueueRow
                       key={approval.id}
-                      className={`cursor-pointer border-b last:border-0 hover:bg-muted/35 ${selectedId === approval.id ? "bg-primary/8" : ""}`}
-                      onClick={() => {
-                        setSelectedId(approval.id);
-                        setReviewNote("");
-                      }}
-                    >
-                      <td className="px-3 py-3 font-medium">
-                        {approval.invoiceNo ?? "-"}
-                        {approval.orderMissing && (
-                          <span className="ml-2 inline-flex rounded-md border border-rose-500/30 bg-rose-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700">
-                            Order removed
-                          </span>
-                        )}
-                        {(approval.duplicateGroupSize ?? 0) > 1 && (
-                          <span className="ml-2 inline-flex rounded-md border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">
-                            Dup ×{approval.duplicateGroupSize}
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-3 py-3"><TypeBadge type={approval.type} /></td>
-                      <td className="px-3 py-3 text-muted-foreground">
-                        {paymentLabel(approval)}
-                        <KokoLinkTimeLine approval={approval} />
-                      </td>
-                      <td className="px-3 py-3">{formatAmount(approval.totalPrice)}</td>
-                      <td className="px-3 py-3 text-muted-foreground">{requestedByLabel(approval)}</td>
-                      <td className="px-3 py-3 text-muted-foreground">{formatDate(approval.createdAt)}</td>
-                    </tr>
+                      approval={approval}
+                      selected={selectedId === approval.id}
+                      showStatus={view === "history"}
+                      onSelect={handleSelectRequest}
+                    />
                   ))}
-                  {searchedApprovals.length === 0 && (
-                    <tr>
-                      <td colSpan={groupByRider ? 7 : 6} className="px-3 py-10 text-center text-muted-foreground">
-                        {effectiveSearch
-                          ? "No approval requests match your search."
-                          : view === "pending"
-                            ? "No pending approval requests."
-                            : "No recent approval history."}
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+              {searchedApprovals.length === 0 ? (
+                <p className="px-4 py-10 text-center text-sm text-muted-foreground">
+                  {effectiveSearch
+                    ? "No approval requests match your search."
+                    : view === "pending"
+                      ? "No pending approval requests in this queue."
+                      : "No recent approval history."}
+                </p>
+              ) : null}
             </div>
           </CardContent>
         </Card>
 
-        <Card className="border-border/70 self-start sticky top-4">
-          <CardHeader>
-            <CardTitle>Review</CardTitle>
+        {selected ? (
+        <Card className="border-border/70 self-start sticky top-4 max-xl:static">
+          <CardHeader className="space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <CardTitle>Review</CardTitle>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="gap-2 px-2"
+                onClick={handleCloseReview}
+                aria-label="Close review"
+              >
+                <span className="xl:hidden inline-flex items-center gap-2">
+                  <ArrowLeft className="size-4" aria-hidden />
+                  Back to list
+                </span>
+                <X className="hidden size-4 xl:inline" aria-hidden />
+              </Button>
+            </div>
           </CardHeader>
           <CardContent className="space-y-4">
-            {selected ? (
               <>
                 <div className="space-y-2 rounded-md border border-border/70 p-3 text-sm">
                   <p><span className="font-medium">Type:</span> {typeLabel(selected.type)}</p>
@@ -1330,12 +1482,12 @@ export function FinanceApprovalsPanel({
                   </div>
                 )}
               </>
-            ) : (
-              <p className="text-sm text-muted-foreground">Select an approval request.</p>
-            )}
           </CardContent>
         </Card>
+        ) : null}
       </div>
+      </>
+      )}
     </div>
   );
 }

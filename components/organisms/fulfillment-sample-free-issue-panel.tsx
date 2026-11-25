@@ -34,8 +34,14 @@ import {
   APPROVAL_SPLIT_PAIRS,
   approvalSplitLineLabel,
   approvalSplitPairId,
+  defaultSplitPairForOrder,
+  isDoorCollectionSplitPair,
+  orderHasSplitPaymentEligibleGateway,
+  resolveSplitPaymentDisplay,
   sortApprovalSplitLines,
+  splitIncludesCash,
   splitIncludesKoko,
+  splitPairOptionsForOrder,
   type ApprovalSplitPairId,
 } from "@/lib/approval-payment-split";
 import {
@@ -104,6 +110,7 @@ type SampleOrderDetail = {
     showOnInvoice?: boolean;
     addedBy: { id: string; name: string | null; email: string | null } | null;
   }>;
+  paymentTypeLabel?: string | null;
   paymentApproval?: {
     id: string;
     status: string;
@@ -114,6 +121,16 @@ type SampleOrderDetail = {
       amount: string;
       erpPaymentEntryName: string | null;
     }>;
+    splitPayment?: {
+      pairId: string;
+      pairLabel: string;
+      doorCollection: boolean;
+      lines: Array<{
+        paymentMethod: string;
+        label: string;
+        amount: string;
+      }>;
+    } | null;
   } | null;
 };
 
@@ -555,15 +572,22 @@ export function FulfillmentSampleFreeIssuePanel({
     }
   }
 
+  const splitPlanIsDoorCollection = isDoorCollectionSplitPair(
+    splitPaymentLines.map((line) => line.paymentMethod),
+  );
   const canConfigureSplitPayment =
     perms.canManageSplitPayment &&
-    detail?.paymentApproval?.status !== "approved" &&
+    (detail?.paymentApproval?.status !== "approved" || splitPlanIsDoorCollection) &&
     !splitPaymentLines.some((line) => line.erpPaymentEntryName) &&
     isSplitPaymentEligibleSource(detail?.sourceName) &&
-    [detail?.paymentGatewayPrimary, ...(detail?.paymentGatewayNames ?? [])].some((gateway) => {
-      const normalized = gateway?.toLowerCase() ?? "";
-      return normalized.includes("koko") || normalized.includes("bank");
+    orderHasSplitPaymentEligibleGateway({
+      paymentGatewayPrimary: detail?.paymentGatewayPrimary,
+      paymentGatewayNames: detail?.paymentGatewayNames,
     });
+  const splitPairOptionIds = splitPairOptionsForOrder({
+    paymentGatewayPrimary: detail?.paymentGatewayPrimary,
+    paymentGatewayNames: detail?.paymentGatewayNames,
+  });
   const splitPairMethods = APPROVAL_SPLIT_PAIRS[splitPair];
 
   function amountForMethod(method: string): string {
@@ -571,8 +595,15 @@ export function FulfillmentSampleFreeIssuePanel({
   }
 
   function openSplitPaymentDialog() {
+    const savedPair = approvalSplitPairId(
+      splitPaymentLines.map((line) => line.paymentMethod),
+    );
     const pair =
-      approvalSplitPairId(splitPaymentLines.map((line) => line.paymentMethod)) ?? "koko_bank";
+      savedPair ??
+      defaultSplitPairForOrder({
+        paymentGatewayPrimary: detail?.paymentGatewayPrimary,
+        paymentGatewayNames: detail?.paymentGatewayNames,
+      });
     const methods = APPROVAL_SPLIT_PAIRS[pair];
     setSplitPair(pair);
     setSplitAmountA(amountForMethod(methods[0]));
@@ -623,7 +654,7 @@ export function FulfillmentSampleFreeIssuePanel({
           ],
         }),
       });
-      const data = (await response.json()) as { error?: string };
+      const data = (await response.json()) as { error?: string; doorCollection?: boolean };
       if (!response.ok) {
         notify.error(data.error ?? "Failed to save split payment");
         return;
@@ -631,9 +662,11 @@ export function FulfillmentSampleFreeIssuePanel({
       const needsKokoLink =
         splitIncludesKoko(splitPairMethods) && !detail?.kokoLinkTimeConfirmedAt;
       notify.success(
-        needsKokoLink
-          ? "Split payment saved. Confirm KOKO link generated time before continuing."
-          : "Split payment sent to finance for approval.",
+        data.doorCollection
+          ? "Cash + Card plan saved. Confirm sample to print — collect both at delivery; finance at invoice complete."
+          : needsKokoLink
+            ? "Split payment saved. Confirm KOKO link generated time before continuing."
+            : "Split payment sent to finance for approval.",
       );
       setShowSplitPaymentDialog(false);
       await reloadDetail();
@@ -774,7 +807,12 @@ export function FulfillmentSampleFreeIssuePanel({
                 <p><span className="font-medium">Order date:</span> {order ? formatAppDateTime(order.createdAt, "-") : "-"}</p>
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-medium">Payment:</span>
-                  <span>{hasSplitPaymentPlan ? "Split Payment" : paymentMethod}</span>
+                  <span>
+                    {detail?.paymentApproval?.splitPayment?.pairLabel ??
+                      resolveSplitPaymentDisplay(detail?.paymentApproval ?? {})?.pairLabel ??
+                      detail?.paymentTypeLabel ??
+                      (hasSplitPaymentPlan ? "Split Payment" : paymentMethod)}
+                  </span>
                   {perms.canChangePaymentMethod && canChangePayment && orderId && (
                     <>
                       <Button
@@ -818,16 +856,42 @@ export function FulfillmentSampleFreeIssuePanel({
                     </Button>
                   ) : null}
                 </div>
-                {hasSplitPaymentPlan ? (
-                  <p className="text-xs text-muted-foreground">
-                    {sortApprovalSplitLines(splitPaymentLines)
-                      .map(
-                        (line) =>
-                          `${approvalSplitLineLabel(line.paymentMethod)} ${formatPrice(line.amount, currency)}`,
-                      )
-                      .join(" + ")}
-                  </p>
-                ) : null}
+                {(() => {
+                  const apiSplit = detail?.paymentApproval?.splitPayment;
+                  if (apiSplit?.lines?.length) {
+                    return (
+                      <p className="text-xs text-muted-foreground">
+                        {apiSplit.lines
+                          .map((line) => `${line.label} ${formatPrice(line.amount, currency)}`)
+                          .join(" + ")}
+                      </p>
+                    );
+                  }
+                  const split = resolveSplitPaymentDisplay(detail?.paymentApproval ?? {});
+                  if (split?.lines?.length) {
+                    return (
+                      <p className="text-xs text-muted-foreground">
+                        {split.lines
+                          .map(
+                            (line) =>
+                              `${approvalSplitLineLabel(line.paymentMethod)} ${formatPrice(String(line.amount), currency)}`,
+                          )
+                          .join(" + ")}
+                      </p>
+                    );
+                  }
+                  if (!hasSplitPaymentPlan) return null;
+                  return (
+                    <p className="text-xs text-muted-foreground">
+                      {sortApprovalSplitLines(splitPaymentLines)
+                        .map(
+                          (line) =>
+                            `${approvalSplitLineLabel(line.paymentMethod)} ${formatPrice(line.amount, currency)}`,
+                        )
+                        .join(" + ")}
+                    </p>
+                  );
+                })()}
                 <p><span className="font-medium">Total:</span> {formatPrice(detail?.totalPrice ?? order?.totalPrice, currency)}</p>
                 <p><span className="font-medium">Address:</span> {formatAddress(detail?.shippingAddress)}</p>
               </div>
@@ -1472,9 +1536,13 @@ export function FulfillmentSampleFreeIssuePanel({
         <AlertDialogHeader>
           <AlertDialogTitle>Split Payment</AlertDialogTitle>
           <AlertDialogDescription>
-            {splitIncludesKoko(splitPairMethods)
-              ? "Enter both paid amounts. Finance will verify the KOKO reference and approval will create one ERP Payment Entry for each method."
-              : "Enter both paid amounts. Finance approval will create one ERP Payment Entry for each method."}
+            {isDoorCollectionSplitPair(splitPairMethods)
+              ? "Cash + Card: both collected after delivery. Plan only — confirm sample to print. Finance confirms payment at invoice complete."
+              : splitIncludesKoko(splitPairMethods)
+                ? "Enter both amounts. Finance will verify the KOKO reference and create an ERP Payment Entry for each prepaid method. Cash is collected at delivery."
+                : splitIncludesCash(splitPairMethods)
+                  ? "Enter both amounts. Finance approval creates an ERP Payment Entry for the prepaid method (KOKO, Bank, or Mintpay). Cash is collected at delivery."
+                  : "Enter both paid amounts. Finance approval will create one ERP Payment Entry for each method."}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <div className="space-y-4">
@@ -1491,7 +1559,7 @@ export function FulfillmentSampleFreeIssuePanel({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {(Object.keys(APPROVAL_SPLIT_PAIR_LABELS) as ApprovalSplitPairId[]).map((pairId) => (
+                {splitPairOptionIds.map((pairId) => (
                   <SelectItem key={pairId} value={pairId}>
                     {APPROVAL_SPLIT_PAIR_LABELS[pairId]}
                   </SelectItem>
@@ -1536,6 +1604,8 @@ export function FulfillmentSampleFreeIssuePanel({
           <Button disabled={splitPaymentBusy} onClick={() => void handleSaveSplitPayment()}>
             {splitPaymentBusy ? (
               <><Loader2 className="mr-2 size-4 animate-spin" />Saving...</>
+            ) : isDoorCollectionSplitPair(splitPairMethods) ? (
+              "Save plan"
             ) : (
               "Send for Approval"
             )}

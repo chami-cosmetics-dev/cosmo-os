@@ -19,21 +19,7 @@ describe("addFilterMatchSpend", () => {
 });
 
 describe("customerInsightPurchaseMatchOrderWhere", () => {
-  it("includes completed sales and voided/cancelled branches", () => {
-    const where = customerInsightPurchaseMatchOrderWhere();
-    expect(where.OR).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          fulfillmentStage: expect.objectContaining({
-            in: expect.arrayContaining([
-              "delivery_complete",
-              "invoice_complete",
-            ]),
-          }),
-        }),
-        { cancelledAt: { not: null } },
-        { financialStatus: { in: ["voided", "void"] } },
-      ])
-    );
+  it("does not gate by fulfillment or financial status", () => {
+    expect(customerInsightPurchaseMatchOrderWhere()).toEqual({});
   });
 });

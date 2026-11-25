@@ -52,6 +52,7 @@ export function OsfGeneratePanel({ canReorderOnly = false }: { canReorderOnly?: 
   const [errorDetail, setErrorDetail] = useState<string | null>(null);
 
   const variantDrivesMembership = osfVariant === "vat" || osfVariant === "non_vat";
+  const historicalAsOf = /^\d{4}-\d{2}-\d{2}$/.test(asOfDate) && asOfDate < todayColombo();
 
   useEffect(() => {
     fetch("/api/admin/vendors")
@@ -71,10 +72,10 @@ export function OsfGeneratePanel({ canReorderOnly = false }: { canReorderOnly?: 
     setBusyMode(belowThresholdOnly ? "reorder" : "full");
     setErrorDetail(null);
     try {
-      const pctTrim = maxStockPct.trim();
+      const pctTrim = historicalAsOf ? "" : maxStockPct.trim();
       let maxStockPctOfRop: number | undefined;
       if (pctTrim) {
-        const n = Math.floor(Number(pctTrim));
+        const n = Number(pctTrim);
         if (!Number.isFinite(n) || n < 1 || n > 100) {
           throw new Error("Stock below % of ROP must be 1–100 or blank");
         }
@@ -94,7 +95,7 @@ export function OsfGeneratePanel({ canReorderOnly = false }: { canReorderOnly?: 
           ...(!variantDrivesMembership && itemStatus
             ? { itemStatusCategories: [itemStatus] }
             : {}),
-          ...(maxStockPctOfRop != null ? { maxStockPctOfRop } : {}),
+          ...(!historicalAsOf && maxStockPctOfRop != null ? { maxStockPctOfRop } : {}),
         }),
       });
 
@@ -102,6 +103,10 @@ export function OsfGeneratePanel({ canReorderOnly = false }: { canReorderOnly?: 
         const json = await res.json().catch(() => ({}));
         const code = json.code as string | undefined;
         let message = json.error ?? `Generate failed (${res.status})`;
+        if (code === "HISTORICAL_ROP_UNAVAILABLE") {
+          message =
+            "Past as-of date has no ROP history, so stock % of ROP and reorder-only stay off.";
+        }
         if (code === "ERP_UNAVAILABLE") {
           message =
             "ERP is unreachable or credentials are missing. Stock and cost were not invented — fix ERP, then retry. ROP/OGF can still be set in the editor independently.";
@@ -111,7 +116,7 @@ export function OsfGeneratePanel({ canReorderOnly = false }: { canReorderOnly?: 
       }
 
       const rowCount = Number(res.headers.get("X-OSF-Row-Count") ?? "0");
-      const pctFilter = maxStockPct.trim();
+      const pctFilter = historicalAsOf ? "" : maxStockPct.trim();
       if (rowCount === 0 && (belowThresholdOnly || pctFilter)) {
         notify.error(
           pctFilter
@@ -153,7 +158,9 @@ export function OsfGeneratePanel({ canReorderOnly = false }: { canReorderOnly?: 
         <p className="text-sm text-muted-foreground">
           Main = full catalog. Discounted Price = live Shopify sell. VAT Items =
           ERP Product Priority Vat only. Others (Non-VAT) excludes Vat. Missing ERP
-          stock/cost stays blank.
+          stock/cost stays blank. A past as-of date replays stock, sales, and
+          purchases through that day. ROP, order qty, Shopify price, OGF, and target
+          rate stay blank.
         </p>
       </div>
 
@@ -241,11 +248,13 @@ export function OsfGeneratePanel({ canReorderOnly = false }: { canReorderOnly?: 
             type="number"
             min={1}
             max={100}
+            step="any"
+            inputMode="decimal"
             className="mt-1"
             value={maxStockPct}
-            placeholder="e.g. 70"
+            placeholder="e.g. 27.5"
             onChange={(e) => setMaxStockPct(e.target.value)}
-            disabled={busy}
+            disabled={busy || historicalAsOf}
           />
         </label>
       </div>
@@ -276,7 +285,7 @@ export function OsfGeneratePanel({ canReorderOnly = false }: { canReorderOnly?: 
             type="button"
             variant="outline"
             onClick={() => void generate(true)}
-            disabled={busy || !salesMonth}
+            disabled={busy || !salesMonth || historicalAsOf}
           >
             {busyMode === "reorder" ? (
               <Loader2 className="size-4 animate-spin" aria-hidden />
@@ -288,7 +297,15 @@ export function OsfGeneratePanel({ canReorderOnly = false }: { canReorderOnly?: 
         )}
       </div>
 
-      {maxStockPct.trim() ? (
+      {historicalAsOf ? (
+        <p className="text-xs text-muted-foreground">
+          Past as-of date. Stock comes from the ERP stock ledger through that day.
+          Latest cost is the last purchase on or before that day. ROP, order qty,
+          Shopify price, OGF, target rate, and margins stay blank. Reorder filter
+          stays off because ROP history is not stored.
+        </p>
+      ) : null}
+      {maxStockPct.trim() && !historicalAsOf ? (
         <p className="text-xs text-muted-foreground">
           Workbook includes only SKUs with warehouse ROP set and total stock ÷ total ROP
           strictly below {maxStockPct.trim()}%. SKUs without ROP are skipped.

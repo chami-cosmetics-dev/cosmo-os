@@ -2,6 +2,8 @@ import "server-only";
 
 import { resolveCosmeticsLkChannel } from "@/lib/cosmetics-lk-channel";
 import { isCosmeticsLkLocationName } from "@/lib/cosmetics-lk-location";
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
+import { isSupplementVaultLocationName } from "@/lib/supplement-vault-location";
 import { formatAppIsoDate, parseAppCalendarDayStart } from "@/lib/format-datetime";
 import { addUtcDays } from "@/lib/osf/assist-window";
 import { osfCompletedSalesOrderWhere } from "@/lib/osf/assist-sales";
@@ -50,10 +52,11 @@ export async function loadWebsiteSalesLast90d(
     where: { companyId },
     select: { id: true, name: true, shortName: true },
   });
+  const matchesWebsite = isVaultOsDeployment()
+    ? isSupplementVaultLocationName
+    : isCosmeticsLkLocationName;
   const cosmeticsLocationIds = locations
-    .filter(
-      (loc) => isCosmeticsLkLocationName(loc.name) || isCosmeticsLkLocationName(loc.shortName),
-    )
+    .filter((loc) => matchesWebsite(loc.name) || matchesWebsite(loc.shortName))
     .map((loc) => loc.id);
 
   const lines = await prisma.orderLineItem.findMany({

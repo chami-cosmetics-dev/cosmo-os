@@ -106,11 +106,10 @@ export default function PerformanceScreen() {
         {data.lines.length === 0 ? (
           <EmptyState
             title={period === "previous" ? "No completions last month" : "No completions yet this month"}
-            message="When you complete deliveries, pay appears here after invoice close."
+            message="When you complete deliveries, rider pay from the charge sheet appears here."
           />
         ) : (
           data.lines.map((line) => {
-            const pendingPay = Number(line.incentiveAmount) <= 0;
             return (
               <View key={`${line.tenant ?? "t"}:${line.taskId}`} style={styles.lineCard}>
                 <View style={styles.lineTop}>
@@ -118,9 +117,6 @@ export default function PerformanceScreen() {
                   <Text style={styles.lineIncentive}>{formatMoney(line.incentiveAmount)}</Text>
                 </View>
                 {line.companyLabel ? <Text style={styles.lineMeta}>{line.companyLabel}</Text> : null}
-                {pendingPay ? (
-                  <Text style={styles.lineMeta}>Pending finance invoice close</Text>
-                ) : null}
                 {line.completedAt ? (
                   <Text style={styles.lineMeta}>
                     {new Date(line.completedAt).toLocaleString("en-LK")}

@@ -53,10 +53,34 @@ export function createCsvRowCounter() {
         }
       }
     },
+    /** Newline-terminated records, including a header row when present. */
+    records() {
+      return rows;
+    },
     dataRows() {
       return Math.max(0, rows - 1);
     },
   };
+}
+
+/** Data rows in one CSV page. Continuation pages omit the header. */
+export function countCsvDataRows(text: string, hasHeader: boolean) {
+  const counter = createCsvRowCounter();
+  counter.consume(text);
+  return hasHeader ? counter.dataRows() : counter.records();
+}
+
+export function dumpPageIncludesHeader(href: string) {
+  const url = new URL(href, "https://dump.local");
+  return url.searchParams.get("header") !== "0";
+}
+
+/** Next dump page. Keeps the original report query and drops the header row. */
+export function nextDumpPageHref(href: string, cursor: string) {
+  const url = new URL(href, "https://dump.local");
+  url.searchParams.set("after", cursor);
+  url.searchParams.set("header", "0");
+  return `${url.pathname}${url.search}`;
 }
 
 export function dumpProgressPercent(dataRows: number, total: number) {

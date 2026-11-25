@@ -304,23 +304,24 @@ export function MaterialTransferPanel({
 
   async function submit() {
     setBusyKey("submit");
+    const payload = {
+      slot,
+      company: slot === "erp2" ? company : undefined,
+      sourceWarehouse: source,
+      targetWarehouse: target,
+      lines: lines.map((line) => ({
+        itemCode: line.itemCode,
+        itemName: line.itemName,
+        barcode: line.barcode,
+        qty: line.qty,
+        uom: line.uom,
+      })),
+    };
     try {
       const res = await fetch("/api/admin/store/material-transfer/submit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          slot,
-          company: slot === "erp2" ? company : undefined,
-          sourceWarehouse: source,
-          targetWarehouse: target,
-          lines: lines.map((line) => ({
-            itemCode: line.itemCode,
-            itemName: line.itemName,
-            barcode: line.barcode,
-            qty: line.qty,
-            uom: line.uom,
-          })),
-        }),
+        body: JSON.stringify(payload),
       });
       const json = (await res.json()) as { name?: string; error?: string; receiptError?: string | null };
       if (!res.ok || !json.name) throw new Error(json.error || "ERP rejected the transfer");
@@ -332,7 +333,42 @@ export function MaterialTransferPanel({
       setConfirmOpen(false);
       focusScan();
     } catch (error) {
-      notify.error(error instanceof Error ? error.message : "ERP rejected the transfer");
+      const message = error instanceof Error ? error.message : "ERP rejected the transfer";
+      // Dropped ERP response / timeout: STE may already exist — attach to Cosmo without re-posting.
+      const maybeDropped =
+        /ERP connection closed|Check ERP|did not return a Stock Entry|Failed to fetch|network|timeout/i.test(
+          message,
+        );
+      if (maybeDropped) {
+        try {
+          const recoverRes = await fetch("/api/admin/store/material-transfer/recover", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          const recovered = (await recoverRes.json()) as {
+            name?: string;
+            alreadyHad?: boolean;
+            error?: string;
+          };
+          if (recoverRes.ok && recovered.name) {
+            notify.success(
+              recovered.alreadyHad
+                ? `${recovered.name} was already in Cosmo History`
+                : `Recovered ${recovered.name} into Cosmo History`,
+            );
+            window.dispatchEvent(new Event("material-transfer-saved"));
+            setLines([]);
+            setScan("");
+            setConfirmOpen(false);
+            focusScan();
+            return;
+          }
+        } catch {
+          // Fall through to original error.
+        }
+      }
+      notify.error(message);
     } finally {
       setBusyKey(null);
     }
