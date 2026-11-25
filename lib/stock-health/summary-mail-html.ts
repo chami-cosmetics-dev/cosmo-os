@@ -6,6 +6,7 @@
 import { priorityLabelSlot } from "@/components/organisms/item-trends/priority-label";
 import { renderEmailTemplatePlaceholders } from "@/lib/email-templates/render";
 import type { ShopStockLocationCounts } from "@/lib/shop-stock-status/calc";
+import type { NotCountedReason } from "@/lib/stock-health/calc";
 import type { DiscontinueMovement, MovementItem } from "@/lib/stock-health/discontinue-movement";
 import {
   STOCK_AVAILABILITY_STATUS_WEEKLY_TEMPLATE,
@@ -492,6 +493,14 @@ ${rows}
 </table>`;
 }
 
+/** Remarks for Discontinue items that are no longer counted, by reason. */
+const NOT_COUNTED_REMARKS: Array<{ reason: NotCountedReason; remark: string }> = [
+  { reason: "excluded", remark: "Discontinue, added to Excluded SKUs" },
+  { reason: "draft_no_stock", remark: "Discontinue, website draft with no stock" },
+  { reason: "regrouped", remark: "Discontinue, now under another Common SKU" },
+  { reason: "not_in_erp", remark: "Discontinue, removed from the ERP" },
+];
+
 /**
  * Mail 1's Discontinue tracking: one line per kind of move that happened (Remark | Status |
  * No. of items | SKUs), lines with no items left out; System Error last. Status = whether the
@@ -504,7 +513,12 @@ function discontinueLines(d: NonNullable<StockHealthSummaryMailData["discontinue
     { remark: "Discontinue to Low", status: "reduction", items: m.movedOut.Low },
     { remark: "Discontinue to Newly Added", status: "reduction", items: m.movedOut["Newly Added"] },
     { remark: "Discontinue to Blank", status: "reduction", items: m.movedOut.Blank },
-    { remark: "Discontinue, no longer counted", status: "reduction", items: m.noLongerCounted },
+    // Left Stock Health altogether: one line per reason.
+    ...NOT_COUNTED_REMARKS.map(({ reason, remark }) => ({
+      remark,
+      status: "reduction" as const,
+      items: m.noLongerCounted.filter((i) => i.reason === reason),
+    })),
     { remark: "Top to Discontinue", status: "addition", items: m.movedIn.Top },
     { remark: "Low to Discontinue", status: "addition", items: m.movedIn.Low },
     { remark: "Newly Added to Discontinue", status: "addition", items: m.movedIn["Newly Added"] },

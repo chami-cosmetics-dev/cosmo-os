@@ -11,7 +11,7 @@ import { ONLINE_STOCK_COLUMNS, SHOP_STOCK_COLUMNS } from "@/lib/shop-stock-statu
 import type { ShopStockStatus } from "@/lib/shop-stock-status/config";
 import { loadShopStockStatus } from "@/lib/shop-stock-status/load";
 import { buildShopStockStatusWorkbook } from "@/lib/shop-stock-status/workbook";
-import { summarizeByStatus, summarizeRopStatus } from "@/lib/stock-health/calc";
+import { notCountedReasonOf, summarizeByStatus, summarizeRopStatus } from "@/lib/stock-health/calc";
 import { buildDiscontinueMovement, type SkuStatus } from "@/lib/stock-health/discontinue-movement";
 import {
   buildRopStatusWorkbook,
@@ -164,7 +164,9 @@ async function loadMailInputs(
       previous && previousSkus.length > 0
         ? {
             previousDateLabel: dateLabelOf(previous.snapshotDate),
-            movement: buildDiscontinueMovement(previousSkus, skuStatuses),
+            movement: buildDiscontinueMovement(previousSkus, skuStatuses, (sku) =>
+              notCountedReasonOf(sku, data.items, data.stockBySku, data.excluded),
+            ),
           }
         : null,
   };

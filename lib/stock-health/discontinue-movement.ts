@@ -3,6 +3,7 @@
  * Discontinue (and to which priority), which joined it, and which joined it with no earlier
  * priority — new or Blank last week — flagged as a system error. Pure (no DB).
  */
+import type { NotCountedReason } from "@/lib/stock-health/calc";
 import type { StockHealthStatus } from "@/lib/stock-health/config";
 
 export type MovementItem = { commonSku: string; itemName: string | null };
@@ -20,8 +21,8 @@ export type DiscontinueMovement = {
   previousCount: number;
   /** Discontinue last week, another priority now. */
   movedOut: Record<MoveStatus, MovementItem[]>;
-  /** Discontinue last week, not counted now (excluded, draft with no stock, gone from ERP). */
-  noLongerCounted: MovementItem[];
+  /** Discontinue last week, not counted now, with why (`notCountedReasonOf`). */
+  noLongerCounted: Array<MovementItem & { reason: NotCountedReason }>;
   /** Discontinue both weeks. */
   stayed: number;
   /** Discontinue now, Top / Low / Newly Added last week. */
@@ -36,7 +37,12 @@ export type SkuStatus = { commonSku: string; status: StockHealthStatus; itemName
 
 const byCommonSku = (a: MovementItem, b: MovementItem) => a.commonSku.localeCompare(b.commonSku);
 
-export function buildDiscontinueMovement(previous: SkuStatus[], current: SkuStatus[]): DiscontinueMovement {
+/** `reasonOf`: why a Common SKU is not counted now (default: gone from the ERP). */
+export function buildDiscontinueMovement(
+  previous: SkuStatus[],
+  current: SkuStatus[],
+  reasonOf: (commonSku: string) => NotCountedReason = () => "not_in_erp",
+): DiscontinueMovement {
   const prevBySku = new Map(previous.map((p) => [p.commonSku, p]));
   const currBySku = new Map(current.map((c) => [c.commonSku, c]));
   const movement: DiscontinueMovement = {
@@ -54,7 +60,7 @@ export function buildDiscontinueMovement(previous: SkuStatus[], current: SkuStat
     movement.previousCount += 1;
     const now = currBySku.get(prev.commonSku);
     if (!now) {
-      movement.noLongerCounted.push({ commonSku: prev.commonSku, itemName: prev.itemName });
+      movement.noLongerCounted.push({ commonSku: prev.commonSku, itemName: prev.itemName, reason: reasonOf(prev.commonSku) });
     } else if (now.status === "Discontinue") {
       movement.stayed += 1;
     } else {

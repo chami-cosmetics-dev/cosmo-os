@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { notCountedReasonOf, parseExcludedSkus } from "@/lib/stock-health/calc";
 import { buildDiscontinueMovement, type SkuStatus } from "@/lib/stock-health/discontinue-movement";
 
 const s = (commonSku: string, status: SkuStatus["status"]): SkuStatus => ({ commonSku, status, itemName: `${commonSku} name` });
@@ -42,9 +43,43 @@ describe("buildDiscontinueMovement", () => {
     );
     expect(m.movedIn.Top.map((i) => i.commonSku)).toEqual(["A"]);
     expect(m.movedIn["Newly Added"].map((i) => i.commonSku)).toEqual(["B"]);
-    expect(m.noLongerCounted.map((i) => i.commonSku)).toEqual(["C"]);
+    expect(m.noLongerCounted).toEqual([{ commonSku: "C", itemName: "C name", reason: "not_in_erp" }]);
     expect(m.systemErrors).toEqual([]);
     // previous − out − no longer counted + in + errors = current
     expect(m.previousCount - 1 + 2).toBe(m.currentCount);
+  });
+});
+
+describe("notCountedReasonOf", () => {
+  const item = (sku: string, siteStatus: string | null = "active", brand: string | null = null) => ({
+    sku, brand, priority: "Discontinue", siteStatus, itemName: null,
+  });
+  const none = parseExcludedSkus([]);
+
+  it("excluded, draft with no stock, regrouped, removed from the ERP", () => {
+    const items = [
+      item("EXC_1"),
+      item("DRF_1", "draft"),
+      item("DRF_2", "draft"),
+      item("GR_WN_86", "active", "Something else"), // was Golden Rose: now Common SKU GR_WN
+    ];
+    const stock = new Map([["DRF_1", 0], ["DRF_2", -1]]);
+    expect(notCountedReasonOf("EXC", items, stock, parseExcludedSkus(["EXC"]))).toBe("excluded");
+    expect(notCountedReasonOf("EXC", items, stock, parseExcludedSkus(["EX*"]))).toBe("excluded");
+    expect(notCountedReasonOf("DRF", items, stock, none)).toBe("draft_no_stock");
+    expect(notCountedReasonOf("GR_WN_86", items, stock, none)).toBe("regrouped");
+    expect(notCountedReasonOf("GONE", items, stock, none)).toBe("not_in_erp");
+  });
+
+  it("feeds the movement's reason", () => {
+    const m = buildDiscontinueMovement(
+      [s("DRF", "Discontinue"), s("GONE", "Discontinue")],
+      [],
+      (sku) => notCountedReasonOf(sku, [item("DRF_1", "draft")], new Map(), none),
+    );
+    expect(m.noLongerCounted.map((i) => [i.commonSku, i.reason])).toEqual([
+      ["DRF", "draft_no_stock"],
+      ["GONE", "not_in_erp"],
+    ]);
   });
 });
