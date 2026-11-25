@@ -41,6 +41,7 @@ export const RECEIVABLE_DELIVERY_INCOMPLETE_DAILY_KEY = "receivable_delivery_inc
 export const RECEIVABLE_OPERATIONS_SUMMARY_DAILY_KEY = "receivable_operations_summary_daily";
 export const SUPPLIER_PAYABLE_OUTSTANDING_DAILY_KEY = "supplier_payable_outstanding_daily";
 export const MARGIN_ISSUES_DAILY_KEY = "margin_issues_daily";
+export const INVENTORY_AGEING_SUMMARY_DAILY_KEY = "inventory_ageing_summary_daily";
 
 const STOCK_PRICE_MISSING_PLACEHOLDERS = [
   "companyName",
@@ -274,6 +275,17 @@ export const BUILTIN_EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
     recipients: "",
     ccRecipients: "",
     placeholders: ["companyName", "reportDate", "generatedAt", "summaryTableHtml", "skuCount", "stockAvailable"],
+    builtin: true,
+    automated: true,
+  },
+  {
+    key: INVENTORY_AGEING_SUMMARY_DAILY_KEY,
+    name: "Inventory ageing summary",
+    subject: "Inventory ageing summary — {{reportDate}}",
+    bodyHtml: `<p>Inventory ageing summary for <strong>{{reportDate}}</strong>.</p>{{summaryTableHtml}}<p style="color:#666;font-size:12px;margin-top:24px;">The full item-level report and reconciliation are attached as an Excel file.</p>`,
+    recipients: "",
+    ccRecipients: "",
+    placeholders: ["companyName", "reportDate", "generatedAt", "summaryTableHtml", "itemCount", "eligibleStock", "openingStock", "unallocatedStock"],
     builtin: true,
     automated: true,
   },

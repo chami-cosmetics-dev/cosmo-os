@@ -19,6 +19,7 @@ import {
   Trash2,
   Truck,
   Undo2,
+  X,
   XCircle,
   type LucideIcon,
 } from "lucide-react";
@@ -143,44 +144,73 @@ function queueLabel(queueId: QueueId) {
   return REQUEST_CATEGORY_QUEUES.find((queue) => queue.id === queueId)?.label ?? typeLabel(queueId);
 }
 
-const TYPE_BADGE: Record<string, { label: string; cls: string }> = {
-  order_payment_approval: {
-    label: "Pre-Dispatch Approval",
-    cls: "bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-700/40",
-  },
-  delivery_payment_approval: {
-    label: "Delivery Collection",
-    cls: "bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-700/40",
-  },
-  payment_method_change_approval: {
-    label: "Method Change",
-    cls: "bg-violet-100 text-violet-800 border-violet-200 dark:bg-violet-900/30 dark:text-violet-300 dark:border-violet-700/40",
-  },
-  return_rearrange_payment: {
-    label: "Return Rearrange",
-    cls: "bg-rose-100 text-rose-800 border-rose-200 dark:bg-rose-900/30 dark:text-rose-300 dark:border-rose-700/40",
-  },
-  return_cancel: {
-    label: "Return Cancel",
-    cls: "bg-rose-100 text-rose-800 border-rose-200 dark:bg-rose-900/30 dark:text-rose-300 dark:border-rose-700/40",
-  },
-  invoice_revert_void_approval: {
-    label: "Invoice Revert",
-    cls: "bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800/50 dark:text-slate-300 dark:border-slate-600/40",
-  },
-  order_cancel_approval: {
-    label: "Order Cancel",
-    cls: "bg-red-100 text-red-800 border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-700/40",
-  },
-};
-
-function TypeBadge({ type }: { type: string }) {
-  const badge = TYPE_BADGE[type];
-  if (!badge) return <span className="text-xs text-muted-foreground">{type}</span>;
+function ApprovalQueueRow({
+  approval,
+  selected,
+  showStatus,
+  onSelect,
+}: {
+  approval: FinanceApprovalItem;
+  selected: boolean;
+  showStatus: boolean;
+  onSelect: (id: string) => void;
+}) {
   return (
-    <span className={`inline-flex whitespace-nowrap rounded border px-1.5 py-0.5 text-[11px] font-semibold ${badge.cls}`}>
-      {badge.label}
-    </span>
+    <button
+      type="button"
+      onClick={() => onSelect(approval.id)}
+      aria-pressed={selected}
+      aria-label={`Review invoice ${approval.invoiceNo ?? approval.id}`}
+      className={cn(
+        "grid w-full grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(6.5rem,auto)] items-center gap-3 border-b border-border/50 px-4 py-3 text-left transition-colors last:border-0",
+        "hover:bg-muted/35 focus-visible:bg-muted/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50",
+        selected && "bg-primary/8",
+      )}
+    >
+      <span className="min-w-0">
+        <span className="flex flex-wrap items-center gap-1.5">
+          <span className="truncate font-medium text-foreground">
+            {approval.invoiceNo ?? "-"}
+          </span>
+          {approval.orderMissing ? (
+            <span className="inline-flex rounded-md border border-rose-500/30 bg-rose-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700">
+              Order removed
+            </span>
+          ) : null}
+          {(approval.duplicateGroupSize ?? 0) > 1 ? (
+            <span className="inline-flex rounded-md border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">
+              Dup ×{approval.duplicateGroupSize}
+            </span>
+          ) : null}
+        </span>
+        <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+          {REQUEST_CATEGORY_QUEUES.find((queue) => queue.id === approval.type)?.label
+            ?? typeLabel(approval.type)}
+        </span>
+      </span>
+      <span className="min-w-0">
+        <span className="block truncate text-sm text-foreground">
+          {requestedByLabel(approval)}
+        </span>
+        <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+          {formatDate(approval.createdAt)}
+        </span>
+      </span>
+      <span className="min-w-0 text-right">
+        <span className="block font-medium tabular-nums text-foreground">
+          {formatAmount(approval.totalPrice)}
+        </span>
+        {showStatus ? (
+          <span className="mt-0.5 block text-xs capitalize text-muted-foreground">
+            {approval.status}
+          </span>
+        ) : (
+          <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+            {paymentLabel(approval)}
+          </span>
+        )}
+      </span>
+    </button>
   );
 }
 
@@ -500,10 +530,9 @@ export function FinanceApprovalsPanel({
   }, [searchedApprovals, selectedId]);
 
   const historyCount = recentHistory.length;
-  const activeQueueCount =
-    view === "pending" ? pendingCountByType[typeFilter] : historyCount;
   const activeQueueName = queueLabel(queueId);
-  const reviewOpenOnMobile = Boolean(selected);
+  const reviewOpen = Boolean(selected);
+  const listRequestCount = searchedApprovals.length;
 
   useEffect(() => {
     setKokoReference(selected?.kokoReference ?? "");
@@ -562,7 +591,7 @@ export function FinanceApprovalsPanel({
     setReviewNote("");
   }
 
-  function handleCloseMobileReview() {
+  function handleCloseReview() {
     setSelectedId("");
     setReviewNote("");
     requestAnimationFrame(() => {
@@ -920,211 +949,125 @@ export function FinanceApprovalsPanel({
         </div>
       ) : (
       <>
-      <div className={cn("space-y-4", reviewOpenOnMobile && "max-xl:hidden")}>
-        <div className="flex flex-wrap items-center gap-3">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={handleBackToQueues}
-            className="gap-2 px-2"
-          >
-            <ArrowLeft className="size-4" aria-hidden />
-            Back to queues
-          </Button>
-          <div className="min-w-0">
-            <h2 className="truncate text-lg font-semibold tracking-tight">{activeQueueName}</h2>
-            <p className="text-sm text-muted-foreground">
-              {activeQueueCount} {activeQueueCount === 1 ? "request" : "requests"}
-              {view === "history" && !effectiveSearch ? " · latest loaded" : ""}
-            </p>
-          </div>
-        </div>
+      <div className={cn("space-y-1", reviewOpen && "max-xl:hidden")}>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={handleBackToQueues}
+          className="mb-1 -ml-2 gap-2 px-2"
+        >
+          <ArrowLeft className="size-4" aria-hidden />
+          Back to queues
+        </Button>
+        <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">{activeQueueName}</h2>
+        <p className="text-sm text-muted-foreground">
+          Select a request to review its details.
+        </p>
       </div>
 
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
-        <Card className={cn("border-border/70", reviewOpenOnMobile && "max-xl:hidden")}>
-          <CardHeader>
-            <CardTitle>{activeQueueName}</CardTitle>
+      <div
+        className={cn(
+          "grid gap-5",
+          reviewOpen && "xl:grid-cols-[minmax(0,1fr)_380px]",
+        )}
+      >
+        <Card className={cn("border-border/70", reviewOpen && "max-xl:hidden")}>
+          <CardHeader className="space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <CardTitle>Requests</CardTitle>
+              <p className="text-sm tabular-nums text-muted-foreground">
+                {listRequestCount} {listRequestCount === 1 ? "request" : "requests"}
+              </p>
+            </div>
+            <div className="relative w-full">
+              <Search className="text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2" aria-hidden />
+              <Input
+                placeholder={
+                  view === "history"
+                    ? "Search by order number, invoice, or ERP SI..."
+                    : groupByRider
+                      ? "Search by invoice, customer, rider, ERP SI..."
+                      : "Search by invoice, customer, ERP SI, or payment type..."
+                }
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                className="border-border/70 bg-background/90 w-full pl-9"
+                aria-label="Search approval requests"
+              />
+            </div>
             {view === "history" && !effectiveSearch ? (
-              <p className="text-muted-foreground text-xs font-normal">Latest 50. Search by order number for older approvals.</p>
+              <p className="text-muted-foreground text-xs font-normal">
+                Latest 50. Search by order number for older approvals.
+              </p>
             ) : null}
           </CardHeader>
           <CardContent className="p-0">
-            <div className="border-b border-border/50 px-4 py-3">
-              <div className="relative max-w-md">
-                <Search className="text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2" aria-hidden />
-                <Input
-                  placeholder={
-                    view === "history"
-                      ? "Search by order number, invoice, or ERP SI..."
-                      : groupByRider
-                        ? "Search by invoice, customer, rider, ERP SI..."
-                        : "Search by invoice, customer, ERP SI, or payment type..."
-                  }
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  className="border-border/70 bg-background/90 pl-9"
-                  aria-label="Search approval requests"
-                />
-              </div>
-            </div>
             <div ref={listScrollRef} className="max-h-[min(70vh,52rem)] overflow-auto">
-              <table className="w-full text-sm">
-                <thead className="sticky top-0 z-[1] border-b bg-muted/95 text-left text-muted-foreground backdrop-blur-sm">
-                  <tr>
-                    <th className="px-3 py-3 font-medium">Invoice</th>
-                    <th className="px-3 py-3 font-medium">Purpose</th>
-                    <th className="px-3 py-3 font-medium">Payment</th>
-                    {groupByRider && <th className="px-3 py-3 font-medium">Rider</th>}
-                    <th className="px-3 py-3 font-medium">Amount</th>
-                    <th className="px-3 py-3 font-medium">Requested by</th>
-                    <th className="px-3 py-3 font-medium">Requested</th>
-                    {view === "history" && <th className="px-3 py-3 font-medium">Status</th>}
-                  </tr>
-                </thead>
-                <tbody>
-                  {groupByRider
-                    ? deliveryRiderGroups.flatMap((group) => [
-                        <tr key={`rider-${group.key}`} className="bg-muted/50">
-                          <td
-                            colSpan={view === "history" ? 8 : 7}
-                            className="px-3 py-2 text-xs font-semibold tracking-wide text-foreground uppercase"
-                          >
-                            {group.label}
-                            <span className="ml-2 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold text-primary normal-case">
-                              {group.items.length}
-                            </span>
-                          </td>
-                        </tr>,
-                        ...group.items.map((approval) => (
-                          <tr
-                            key={approval.id}
-                            tabIndex={0}
-                            aria-label={`Review invoice ${approval.invoiceNo ?? approval.id}`}
-                            className={`cursor-pointer border-b last:border-0 hover:bg-muted/35 focus-visible:bg-muted/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${selectedId === approval.id ? "bg-primary/8" : ""}`}
-                            onClick={() => handleSelectRequest(approval.id)}
-                            onKeyDown={(event) => {
-                              if (event.key === "Enter" || event.key === " ") {
-                                event.preventDefault();
-                                handleSelectRequest(approval.id);
-                              }
-                            }}
-                          >
-                            <td className="px-3 py-3 font-medium">
-                              {approval.invoiceNo ?? "-"}
-                              {approval.orderMissing && (
-                                <span className="ml-2 inline-flex rounded-md border border-rose-500/30 bg-rose-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700">
-                                  Order removed
-                                </span>
-                              )}
-                              {(approval.duplicateGroupSize ?? 0) > 1 && (
-                                <span className="ml-2 inline-flex rounded-md border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">
-                                  Dup ×{approval.duplicateGroupSize}
-                                </span>
-                              )}
-                            </td>
-                            <td className="px-3 py-3"><TypeBadge type={approval.type} /></td>
-                            <td className="px-3 py-3 text-muted-foreground">
-                              {paymentLabel(approval)}
-                              <KokoLinkTimeLine approval={approval} />
-                            </td>
-                            <td className="px-3 py-3 text-muted-foreground">{riderLabel(approval)}</td>
-                            <td className="px-3 py-3">{formatAmount(approval.totalPrice)}</td>
-                            <td className="px-3 py-3 text-muted-foreground">{requestedByLabel(approval)}</td>
-                            <td className="px-3 py-3 text-muted-foreground">{formatDate(approval.createdAt)}</td>
-                            {view === "history" && (
-                              <td className="px-3 py-3 capitalize text-muted-foreground">{approval.status}</td>
-                            )}
-                          </tr>
-                        )),
-                      ])
-                    : searchedApprovals.map((approval) => (
-                    <tr
+              {groupByRider
+                ? deliveryRiderGroups.map((group) => (
+                    <div key={group.key}>
+                      <div className="sticky top-0 z-[1] border-b border-border/50 bg-muted/80 px-4 py-2 text-xs font-semibold tracking-wide text-foreground uppercase backdrop-blur-sm">
+                        {group.label}
+                        <span className="ml-2 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold text-primary normal-case">
+                          {group.items.length}
+                        </span>
+                      </div>
+                      {group.items.map((approval) => (
+                        <ApprovalQueueRow
+                          key={approval.id}
+                          approval={approval}
+                          selected={selectedId === approval.id}
+                          showStatus={view === "history"}
+                          onSelect={handleSelectRequest}
+                        />
+                      ))}
+                    </div>
+                  ))
+                : searchedApprovals.map((approval) => (
+                    <ApprovalQueueRow
                       key={approval.id}
-                      tabIndex={0}
-                      aria-label={`Review invoice ${approval.invoiceNo ?? approval.id}`}
-                      className={`cursor-pointer border-b last:border-0 hover:bg-muted/35 focus-visible:bg-muted/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${selectedId === approval.id ? "bg-primary/8" : ""}`}
-                      onClick={() => handleSelectRequest(approval.id)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          handleSelectRequest(approval.id);
-                        }
-                      }}
-                    >
-                      <td className="px-3 py-3 font-medium">
-                        {approval.invoiceNo ?? "-"}
-                        {approval.orderMissing && (
-                          <span className="ml-2 inline-flex rounded-md border border-rose-500/30 bg-rose-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700">
-                            Order removed
-                          </span>
-                        )}
-                        {(approval.duplicateGroupSize ?? 0) > 1 && (
-                          <span className="ml-2 inline-flex rounded-md border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">
-                            Dup ×{approval.duplicateGroupSize}
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-3 py-3"><TypeBadge type={approval.type} /></td>
-                      <td className="px-3 py-3 text-muted-foreground">
-                        {paymentLabel(approval)}
-                        <KokoLinkTimeLine approval={approval} />
-                      </td>
-                      <td className="px-3 py-3">{formatAmount(approval.totalPrice)}</td>
-                      <td className="px-3 py-3 text-muted-foreground">{requestedByLabel(approval)}</td>
-                      <td className="px-3 py-3 text-muted-foreground">{formatDate(approval.createdAt)}</td>
-                      {view === "history" && (
-                        <td className="px-3 py-3 capitalize text-muted-foreground">{approval.status}</td>
-                      )}
-                    </tr>
+                      approval={approval}
+                      selected={selectedId === approval.id}
+                      showStatus={view === "history"}
+                      onSelect={handleSelectRequest}
+                    />
                   ))}
-                  {searchedApprovals.length === 0 && (
-                    <tr>
-                      <td
-                        colSpan={groupByRider ? (view === "history" ? 8 : 7) : view === "history" ? 7 : 6}
-                        className="px-3 py-10 text-center text-muted-foreground"
-                      >
-                        {effectiveSearch
-                          ? "No approval requests match your search."
-                          : view === "pending"
-                            ? "No pending approval requests in this queue."
-                            : "No recent approval history."}
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+              {searchedApprovals.length === 0 ? (
+                <p className="px-4 py-10 text-center text-sm text-muted-foreground">
+                  {effectiveSearch
+                    ? "No approval requests match your search."
+                    : view === "pending"
+                      ? "No pending approval requests in this queue."
+                      : "No recent approval history."}
+                </p>
+              ) : null}
             </div>
           </CardContent>
         </Card>
 
-        <Card
-          className={cn(
-            "border-border/70 self-start sticky top-4",
-            !selected && "max-xl:hidden",
-            reviewOpenOnMobile && "max-xl:static",
-          )}
-        >
+        {selected ? (
+        <Card className="border-border/70 self-start sticky top-4 max-xl:static">
           <CardHeader className="space-y-3">
             <div className="flex items-start justify-between gap-3">
               <CardTitle>Review</CardTitle>
-              {reviewOpenOnMobile ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="xl:hidden gap-2 px-2"
-                  onClick={handleCloseMobileReview}
-                >
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="gap-2 px-2"
+                onClick={handleCloseReview}
+                aria-label="Close review"
+              >
+                <span className="xl:hidden inline-flex items-center gap-2">
                   <ArrowLeft className="size-4" aria-hidden />
                   Back to list
-                </Button>
-              ) : null}
+                </span>
+                <X className="hidden size-4 xl:inline" aria-hidden />
+              </Button>
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
-            {selected ? (
               <>
                 <div className="space-y-2 rounded-md border border-border/70 p-3 text-sm">
                   <p><span className="font-medium">Type:</span> {typeLabel(selected.type)}</p>
@@ -1539,11 +1482,9 @@ export function FinanceApprovalsPanel({
                   </div>
                 )}
               </>
-            ) : (
-              <p className="text-sm text-muted-foreground">Select an approval request.</p>
-            )}
           </CardContent>
         </Card>
+        ) : null}
       </div>
       </>
       )}
