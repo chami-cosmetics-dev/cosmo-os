@@ -11,6 +11,7 @@ import {
 import type { LocationShareRow } from "@/lib/merchant-dashboard/motivation-types";
 import type { PeerBoardInputRow } from "@/lib/merchant-dashboard/peer-board";
 import { prisma } from "@/lib/prisma";
+import { normalizeMerCodeKey } from "@/lib/merchant-allocation";
 import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
 import {
   DM_GENERAL_COHORT_ID,
@@ -151,9 +152,22 @@ export async function fetchMerchantCohortSales(
     for (const code of m.couponCodes) {
       if (isWholesaleTrackingCode(code)) continue;
       const key = code.trim().toLowerCase();
-      if (!key || couponToMerchantId.has(key)) continue;
+      if (!key) continue;
       // DM codes → synthetic bucket (location share totals / personal DM split; not peer race).
-      couponToMerchantId.set(key, sets.dm.has(key) ? DM_GENERAL_COHORT_ID : m.id);
+      const ownerId = sets.dm.has(key) ? DM_GENERAL_COHORT_ID : m.id;
+      if (!couponToMerchantId.has(key)) {
+        couponToMerchantId.set(key, ownerId);
+      }
+      // ERP "MER116 - Imandi" must hit user who only registered "MER116".
+      const merKey = normalizeMerCodeKey(code)?.toLowerCase();
+      if (merKey && !couponToMerchantId.has(merKey)) {
+        couponToMerchantId.set(
+          merKey,
+          sets.dm.has(key) || sets.dm.has(merKey)
+            ? DM_GENERAL_COHORT_ID
+            : m.id,
+        );
+      }
     }
   }
 

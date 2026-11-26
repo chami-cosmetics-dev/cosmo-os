@@ -13,6 +13,7 @@ import {
   parseDumpTotalHeader,
 } from "@/lib/reports/dump-download";
 import {
+  createOrderInvoiceItemRow,
   createOrderInvoiceRow,
   getOrderInvoiceCsvHeaders,
   getOrderInvoiceItemCsvHeaders,
@@ -309,6 +310,92 @@ describe("dump cancel_reason column", () => {
     const item = getOrderInvoiceItemCsvHeaders();
     expect(invoice.at(-1)).toBe("cancel_reason");
     expect(item.at(-1)).toBe("cancel_reason");
+  });
+});
+
+describe("createOrderInvoiceItemRow completed_date", () => {
+  it("uses delivery date when present (OSF month rule)", () => {
+    const row = createOrderInvoiceItemRow({
+      invoiceNo: "6001",
+      erpInvoiceId: null,
+      sourceName: "web",
+      merchantCouponCode: null,
+      couponCode: null,
+      createdAt: new Date("2026-09-28T10:00:00+05:30"),
+      locationName: "Online",
+      customerName: "Ada",
+      customerEmail: null,
+      customerPhone: null,
+      sku: "ALT02_1",
+      barcode: null,
+      brand: null,
+      productTitle: "Item",
+      quantity: 1,
+      unitPrice: "100",
+      discountedPrice: null,
+      afterDiscountTotal: null,
+      lineTotal: "100",
+      fulfillmentStage: "invoice_complete",
+      financialStatus: "paid",
+      deliveryCompleteAt: new Date("2026-10-02T10:00:00+05:30"),
+      deliveryCompleteBy: "Rider",
+      invoiceCompleteAt: new Date("2026-10-15T10:00:00+05:30"),
+      fulfillmentStatus: "fulfilled",
+      paymentGateway: "cod",
+      merchantName: "",
+      createdBy: "",
+    });
+
+    expect(row.invoice_date).toBe("2026-09-28");
+    expect(row.delivery_completed_date).toBe("2026-10-02");
+    expect(row.invoice_complete_date).toBe("2026-10-15");
+    expect(row.completed_date).toBe("2026-10-02");
+    expect(row.status).toBe("Completed");
+  });
+
+  it("falls back to invoice complete when delivery is blank", () => {
+    const row = createOrderInvoiceItemRow({
+      invoiceNo: "100-000191",
+      erpInvoiceId: null,
+      sourceName: "erpnext-pos",
+      merchantCouponCode: null,
+      couponCode: null,
+      createdAt: new Date("2026-07-14T10:00:00+05:30"),
+      locationName: "POS",
+      customerName: "Ada",
+      customerEmail: null,
+      customerPhone: null,
+      sku: "ALT02_1",
+      barcode: null,
+      brand: null,
+      productTitle: "Item",
+      quantity: 1,
+      unitPrice: "100",
+      discountedPrice: null,
+      afterDiscountTotal: null,
+      lineTotal: "100",
+      fulfillmentStage: "invoice_complete",
+      financialStatus: "paid",
+      deliveryCompleteAt: null,
+      deliveryCompleteBy: "",
+      invoiceCompleteAt: new Date("2026-10-08T10:00:00+05:30"),
+      fulfillmentStatus: "fulfilled",
+      paymentGateway: "cash",
+      merchantName: "",
+      createdBy: "",
+    });
+
+    expect(row.delivery_completed_date).toBe("");
+    expect(row.invoice_complete_date).toBe("2026-10-08");
+    expect(row.completed_date).toBe("2026-10-08");
+    expect(row.status).toBe("Completed");
+  });
+
+  it("exposes completed_date before pos_sale on item dump headers", () => {
+    const item = getOrderInvoiceItemCsvHeaders();
+    expect(item).toContain("invoice_complete_date");
+    expect(item).toContain("completed_date");
+    expect(item.indexOf("completed_date")).toBeLessThan(item.indexOf("pos_sale"));
   });
 });
 

@@ -25,10 +25,7 @@ import { findContactsByPurchasedBrandRanked } from "@/lib/page-data/contact-bran
 import { findContactsByPurchasedItemRanked } from "@/lib/customer-insight/item-filter";
 import { findContactsByPurchasedItemStatusRanked } from "@/lib/customer-insight/item-status-filter";
 import { resolveAssignedMerchantFilterLabels } from "@/lib/customer-insight/merchant-label-aliases";
-import {
-  laterDate,
-  purchaseAtsForLoadedContacts,
-} from "@/lib/customer-insight/first-purchase";
+import { purchaseAtsForLoadedContacts } from "@/lib/customer-insight/first-purchase";
 import { prisma } from "@/lib/prisma";
 
 export type MonthDay = { month: number; day: number };
@@ -313,7 +310,11 @@ function endOfColomboDay(ymd: string): Date {
   return new Date(`${ymd}T23:59:59.999+05:30`);
 }
 
-/** Inclusive Colombo-day bounds for ContactMaster.lastPurchaseAt. Null when unset. */
+/**
+ * Inclusive Colombo-day bounds for completed-sale last purchase
+ * (`ContactMaster.purchaseLastOrderAt` — Cosmo createdAt / Adapt invoiceDate).
+ * Null when unset.
+ */
 export function purchasedAtBounds(
   fromYmd?: string,
   toYmd?: string
@@ -327,15 +328,15 @@ export function purchasedAtBounds(
   return bounds;
 }
 
-/** SQL: last purchase not inside [from, to] (never bought counts). */
+/** SQL: completed last purchase not inside [from, to] (never bought counts). */
 export function noPurchaseDateRangeWhere(fromYmd: string, toYmd: string) {
   const from = startOfColomboDay(fromYmd);
   const to = endOfColomboDay(toYmd);
   return {
     OR: [
-      { lastPurchaseAt: null },
-      { lastPurchaseAt: { lt: from } },
-      { lastPurchaseAt: { gt: to } },
+      { purchaseLastOrderAt: null },
+      { purchaseLastOrderAt: { lt: from } },
+      { purchaseLastOrderAt: { gt: to } },
     ],
   };
 }
@@ -343,8 +344,8 @@ export function noPurchaseDateRangeWhere(fromYmd: string, toYmd: string) {
 export function noPurchaseMonthsWhere(months: 3 | 6, now = new Date()) {
   return {
     OR: [
-      { lastPurchaseAt: null },
-      { lastPurchaseAt: { lt: noPurchaseCutoff(months, now) } },
+      { purchaseLastOrderAt: null },
+      { purchaseLastOrderAt: { lt: noPurchaseCutoff(months, now) } },
     ],
   };
 }
@@ -500,7 +501,7 @@ async function buildAllocationWhere(input: FilterQueryInput): Promise<{
 
   const purchasedBounds = purchasedAtBounds(input.purchasedFrom, input.purchasedTo);
   if (purchasedBounds) {
-    andWhere(where, { lastPurchaseAt: purchasedBounds });
+    andWhere(where, { purchaseLastOrderAt: purchasedBounds });
   }
 
   if (input.noPurchaseFrom && input.noPurchaseTo) {
@@ -840,13 +841,9 @@ export async function filterAllocatedContacts(
       continue;
     }
 
-    // Completed-only dates miss in-progress / recently stamped purchases.
-    // Purchased-from/to uses the later of completed history and ContactMaster stamp.
-    const completedLastPurchaseAt = purchaseAts.last.get(contact.id) ?? null;
-    const lastPurchaseAt = laterDate(
-      completedLastPurchaseAt,
-      contact.lastPurchaseAt
-    );
+    // Same rule as insight detail: newest completed Cosmo createdAt / Adapt invoiceDate.
+    // Do not merge ContactMaster.lastPurchaseAt (place-stamp; can be in-progress / void).
+    const lastPurchaseAt = purchaseAts.last.get(contact.id) ?? null;
 
     if (!sqlPaginate) {
       if (
@@ -987,10 +984,7 @@ export async function filterAllocatedContacts(
       brandSpend,
       itemSpend,
       assignedMerchant: contact.assignedMerchant,
-      lastPurchaseAt: laterDate(
-        purchaseAts.last.get(contact.id) ?? null,
-        contact.lastPurchaseAt
-      ),
+      lastPurchaseAt: purchaseAts.last.get(contact.id) ?? null,
       lastContactedAt: contacted.get(contact.id) ?? null,
       callUpdateStatus: displayCallCenterCategory(contact.category),
       key,

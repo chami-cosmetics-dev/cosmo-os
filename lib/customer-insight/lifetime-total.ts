@@ -279,10 +279,16 @@ export function attributeLastOrderEventByContact(input: {
   return latest;
 }
 
+/**
+ * Cosmo insight / filter / list "purchased" date = invoice created (placed) day.
+ * Matches Invoice history Date and customer-insight detail — not delivery/invoice-complete.
+ */
 export function orderPurchaseAt(order: {
   createdAt: Date;
   deliveryCompleteAt?: Date | null;
   invoiceCompleteAt?: Date | null;
 }): Date {
-  return order.deliveryCompleteAt ?? order.invoiceCompleteAt ?? order.createdAt;
+  void order.deliveryCompleteAt;
+  void order.invoiceCompleteAt;
+  return order.createdAt;
 }

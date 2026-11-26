@@ -208,6 +208,13 @@ export type OrderInvoiceItemCsvRow = {
   created_by: string;
   delivered_by: string;
   delivery_completed_date: string;
+  /** Invoice-complete stamp (Colombo day). */
+  invoice_complete_date: string;
+  /**
+   * OSF month attribution date: deliveryCompleteAt else invoiceCompleteAt.
+   * Use this for month pivots vs OSF Sales Total (not invoice_date).
+   */
+  completed_date: string;
   pos_sale: string;
 };
 
@@ -286,6 +293,8 @@ const ORDER_INVOICE_ITEM_HEADERS = [
   "created_by",
   "delivered_by",
   "delivery_completed_date",
+  "invoice_complete_date",
+  "completed_date",
   "pos_sale",
   "cancel_reason",
 ] as const;
@@ -545,6 +554,9 @@ export function createOrderInvoiceItemRow(input: {
     created_by: input.createdBy,
     delivered_by: input.deliveryCompleteBy,
     delivery_completed_date: formatIsoDate(input.deliveryCompleteAt),
+    invoice_complete_date: formatIsoDate(input.invoiceCompleteAt),
+    // Same date OSF uses for month sales: delivery else invoice complete.
+    completed_date: formatIsoDate(input.deliveryCompleteAt ?? input.invoiceCompleteAt),
     pos_sale: isPosSaleSource(input.sourceName) ? "1" : "0",
   };
 }

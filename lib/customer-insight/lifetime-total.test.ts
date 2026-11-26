@@ -232,16 +232,14 @@ describe("attributeLastOrderEventByContact", () => {
 });
 
 describe("orderPurchaseAt", () => {
-  it("prefers delivery then invoice then created", () => {
+  it("uses Cosmo createdAt (invoice placed day), not delivery/invoice-complete", () => {
     const createdAt = new Date("2026-01-01T00:00:00Z");
     const invoiceCompleteAt = new Date("2026-01-02T00:00:00Z");
     const deliveryCompleteAt = new Date("2026-01-03T00:00:00Z");
     expect(
       orderPurchaseAt({ createdAt, invoiceCompleteAt, deliveryCompleteAt })
-    ).toEqual(deliveryCompleteAt);
-    expect(orderPurchaseAt({ createdAt, invoiceCompleteAt })).toEqual(
-      invoiceCompleteAt
-    );
+    ).toEqual(createdAt);
+    expect(orderPurchaseAt({ createdAt, invoiceCompleteAt })).toEqual(createdAt);
     expect(orderPurchaseAt({ createdAt })).toEqual(createdAt);
   });
 });

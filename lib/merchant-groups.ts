@@ -1,3 +1,4 @@
+import { normalizeMerCodeKey } from "@/lib/merchant-allocation";
 import {
   DM_GENERAL_DISPLAY_NAME,
   isDmCouponCode,
@@ -75,15 +76,22 @@ export function buildCouponToMerchantMap(
       if (isWholesaleTrackingCode(coupon)) continue;
       const normalized = coupon.trim().toLowerCase();
       if (!normalized) continue;
+      const merKey = normalizeMerCodeKey(coupon)?.toLowerCase() ?? null;
       if (isDmCouponCode(coupon)) {
-        couponToMerchant.set(normalized, {
-          id: null,
-          name: DM_GENERAL_DISPLAY_NAME,
-        });
+        const dmHit = { id: null, name: DM_GENERAL_DISPLAY_NAME };
+        couponToMerchant.set(normalized, dmHit);
+        // Also index MER## so "MER115 - DMG" and "MER115" share the DM bucket.
+        if (merKey && !couponToMerchant.has(merKey)) {
+          couponToMerchant.set(merKey, dmHit);
+        }
         continue;
       }
       if (!couponToMerchant.has(normalized)) {
         couponToMerchant.set(normalized, merchant);
+      }
+      // ERP often sends "MER116 - Imandi"; user may only store "MER116".
+      if (merKey && !couponToMerchant.has(merKey)) {
+        couponToMerchant.set(merKey, merchant);
       }
     }
   }
@@ -100,7 +108,11 @@ export function matchMerchantFromCouponMap(
   let dmMatch: { id: string | null; name: string } | null = null;
   for (const code of merchantCoupons) {
     const trimmed = code.trim();
-    const hit = couponToMerchant.get(trimmed.toLowerCase());
+    const exactKey = trimmed.toLowerCase();
+    const merKey = normalizeMerCodeKey(trimmed)?.toLowerCase() ?? null;
+    const hit =
+      couponToMerchant.get(exactKey) ??
+      (merKey ? couponToMerchant.get(merKey) : undefined);
     if (!hit) {
       // Vault ERP Sales Person DM_General may not be on any user couponCodes.
       if (isDmCouponCode(trimmed)) {
@@ -133,7 +145,11 @@ export function resolveAssignedMerchantDashboardFallback(input: {
   const tracking = input.orderCoupons
     .map((c) => c.trim().toLowerCase())
     .filter((c) => isMerchantTrackingCode(c));
-  const personalHit = tracking.some((c) => sets.personal.has(c));
+  const personalHit = tracking.some((c) => {
+    if (sets.personal.has(c)) return true;
+    const merKey = normalizeMerCodeKey(c)?.toLowerCase();
+    return Boolean(merKey && sets.personal.has(merKey));
+  });
   if (!personalHit && tracking.some((c) => isDmCouponCode(c))) {
     return { id: null, name: DM_GENERAL_DISPLAY_NAME };
   }
