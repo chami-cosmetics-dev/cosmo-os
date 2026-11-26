@@ -159,7 +159,7 @@ function applyPurchaseAtRows(
 
 /**
  * One MIN()/MAX() per phone, email, and Adapt contact.
- * Same date rule as `orderPurchaseAt`: delivery, else invoice, else placed.
+ * Same date rule as `orderPurchaseAt`: Cosmo `createdAt` (invoice placed day).
  */
 export async function loadPurchaseIndexes(companyId: string): Promise<{
   first: FirstPurchaseIndexes;
@@ -170,8 +170,8 @@ export async function loadPurchaseIndexes(companyId: string): Promise<{
   const [phoneRows, erpRows, emailRows, adapt] = await Promise.all([
     prisma.$queryRaw<PurchaseAtRow[]>`
       SELECT btrim("customerPhone") AS key,
-             MIN(COALESCE("deliveryCompleteAt", "invoiceCompleteAt", "createdAt")) AS first_at,
-             MAX(COALESCE("deliveryCompleteAt", "invoiceCompleteAt", "createdAt")) AS last_at
+             MIN("createdAt") AS first_at,
+             MAX("createdAt") AS last_at
       FROM "Order"
       WHERE "companyId" = ${companyId}
         AND ${eligibleOrderSql}
@@ -181,8 +181,8 @@ export async function loadPurchaseIndexes(companyId: string): Promise<{
     `,
     prisma.$queryRaw<PurchaseAtRow[]>`
       SELECT btrim("erpnextCustomerId") AS key,
-             MIN(COALESCE("deliveryCompleteAt", "invoiceCompleteAt", "createdAt")) AS first_at,
-             MAX(COALESCE("deliveryCompleteAt", "invoiceCompleteAt", "createdAt")) AS last_at
+             MIN("createdAt") AS first_at,
+             MAX("createdAt") AS last_at
       FROM "Order"
       WHERE "companyId" = ${companyId}
         AND ${eligibleOrderSql}
@@ -192,8 +192,8 @@ export async function loadPurchaseIndexes(companyId: string): Promise<{
     `,
     prisma.$queryRaw<PurchaseAtRow[]>`
       SELECT lower(btrim("customerEmail")) AS key,
-             MIN(COALESCE("deliveryCompleteAt", "invoiceCompleteAt", "createdAt")) AS first_at,
-             MAX(COALESCE("deliveryCompleteAt", "invoiceCompleteAt", "createdAt")) AS last_at
+             MIN("createdAt") AS first_at,
+             MAX("createdAt") AS last_at
       FROM "Order"
       WHERE "companyId" = ${companyId}
         AND ${eligibleOrderSql}
@@ -240,8 +240,8 @@ async function purchaseAtByPhoneKeys(
   for (const slice of chunkArray(keys, KEY_CHUNK)) {
     const rows = await prisma.$queryRaw<PurchaseAtRow[]>`
       SELECT btrim("customerPhone") AS key,
-             MIN(COALESCE("deliveryCompleteAt", "invoiceCompleteAt", "createdAt")) AS first_at,
-             MAX(COALESCE("deliveryCompleteAt", "invoiceCompleteAt", "createdAt")) AS last_at
+             MIN("createdAt") AS first_at,
+             MAX("createdAt") AS last_at
       FROM "Order"
       WHERE "companyId" = ${companyId}
         AND ${eligibleOrderSql}
@@ -262,8 +262,8 @@ async function purchaseAtByErpKeys(
   for (const slice of chunkArray(keys, KEY_CHUNK)) {
     const rows = await prisma.$queryRaw<PurchaseAtRow[]>`
       SELECT btrim("erpnextCustomerId") AS key,
-             MIN(COALESCE("deliveryCompleteAt", "invoiceCompleteAt", "createdAt")) AS first_at,
-             MAX(COALESCE("deliveryCompleteAt", "invoiceCompleteAt", "createdAt")) AS last_at
+             MIN("createdAt") AS first_at,
+             MAX("createdAt") AS last_at
       FROM "Order"
       WHERE "companyId" = ${companyId}
         AND ${eligibleOrderSql}
@@ -284,8 +284,8 @@ async function purchaseAtByEmailKeys(
   for (const slice of chunkArray(keys, KEY_CHUNK)) {
     const rows = await prisma.$queryRaw<PurchaseAtRow[]>`
       SELECT lower(btrim("customerEmail")) AS key,
-             MIN(COALESCE("deliveryCompleteAt", "invoiceCompleteAt", "createdAt")) AS first_at,
-             MAX(COALESCE("deliveryCompleteAt", "invoiceCompleteAt", "createdAt")) AS last_at
+             MIN("createdAt") AS first_at,
+             MAX("createdAt") AS last_at
       FROM "Order"
       WHERE "companyId" = ${companyId}
         AND ${eligibleOrderSql}

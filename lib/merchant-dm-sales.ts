@@ -99,8 +99,15 @@ export function splitMerchantCouponSets(couponCodes: string[] | null | undefined
   for (const code of couponCodes ?? []) {
     const key = normalizeCouponKey(code);
     if (!key) continue;
-    if (isDmCouponCode(code)) dm.add(key);
-    else personal.add(key);
+    const merKey = normalizeMerCodeKey(code)?.toLowerCase() ?? null;
+    if (isDmCouponCode(code)) {
+      dm.add(key);
+      if (merKey) dm.add(merKey);
+    } else {
+      personal.add(key);
+      // "MER116-Imandi" also owns normalized "mer116" for ERP "MER116 - Imandi".
+      if (merKey) personal.add(merKey);
+    }
   }
   return { personal, dm, hasDm: dm.size > 0 };
 }
@@ -147,11 +154,17 @@ export function classifyMerchantSalesBucket(input: {
   locationDefaultIsViewer?: boolean;
 }): MerchantSalesBucket | null {
   const tracking = input.orderCoupons.filter((c) => isMerchantTrackingCode(c));
-  const merHit = tracking.some((c) => input.personal.has(c));
+  const merHit = tracking.some((c) => {
+    if (input.personal.has(c)) return true;
+    const merKey = normalizeMerCodeKey(c)?.toLowerCase();
+    return Boolean(merKey && input.personal.has(merKey));
+  });
   // Known DM set OR any DM-shaped code (e.g. ERP DM_General not on user couponCodes).
-  const dmHit = tracking.some(
-    (c) => input.dm.has(c) || (input.hasDm && isDmCouponCode(c)),
-  );
+  const dmHit = tracking.some((c) => {
+    if (input.dm.has(c) || (input.hasDm && isDmCouponCode(c))) return true;
+    const merKey = normalizeMerCodeKey(c)?.toLowerCase();
+    return Boolean(merKey && input.dm.has(merKey));
+  });
   if (merHit) return "mer";
   if (dmHit) return "dm";
   if (tracking.length > 0) return null;
@@ -179,7 +192,10 @@ export function resolveCohortMerchantId(input: {
 }): string | null {
   const tracking = input.orderCoupons.filter((c) => isMerchantTrackingCode(c));
   for (const code of tracking) {
-    const hit = input.couponToMerchantId.get(code);
+    const merKey = normalizeMerCodeKey(code)?.toLowerCase();
+    const hit =
+      input.couponToMerchantId.get(code) ??
+      (merKey ? input.couponToMerchantId.get(merKey) : undefined);
     if (hit) return hit;
   }
   // ERP DM_General (etc.) may not be on any Vault user couponCodes.

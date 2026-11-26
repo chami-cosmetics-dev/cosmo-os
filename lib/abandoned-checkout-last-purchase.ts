@@ -120,7 +120,7 @@ async function lastOrderAtByPhoneKeys(
   for (const slice of chunkArray(keys, ORDER_KEY_CHUNK)) {
     const rows = await prisma.$queryRaw<OrderLastPurchaseRow[]>`
       SELECT btrim("customerPhone") AS key,
-             MAX(COALESCE("deliveryCompleteAt", "invoiceCompleteAt", "createdAt")) AS last_at
+             MAX("createdAt") AS last_at
       FROM "Order"
       WHERE "companyId" = ${companyId}
         AND ${eligibleOrderSql}
@@ -141,7 +141,7 @@ async function lastOrderAtByErpKeys(
   for (const slice of chunkArray(keys, ORDER_KEY_CHUNK)) {
     const rows = await prisma.$queryRaw<OrderLastPurchaseRow[]>`
       SELECT btrim("erpnextCustomerId") AS key,
-             MAX(COALESCE("deliveryCompleteAt", "invoiceCompleteAt", "createdAt")) AS last_at
+             MAX("createdAt") AS last_at
       FROM "Order"
       WHERE "companyId" = ${companyId}
         AND ${eligibleOrderSql}

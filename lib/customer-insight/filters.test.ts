@@ -87,9 +87,9 @@ describe("noPurchaseDateRangeWhere", () => {
     const from = new Date("2026-10-23T00:00:00+05:30");
     const to = new Date("2026-10-30T23:59:59.999+05:30");
     expect(where.OR).toEqual([
-      { lastPurchaseAt: null },
-      { lastPurchaseAt: { lt: from } },
-      { lastPurchaseAt: { gt: to } },
+      { purchaseLastOrderAt: null },
+      { purchaseLastOrderAt: { lt: from } },
+      { purchaseLastOrderAt: { gt: to } },
     ]);
   });
 });
