@@ -21,11 +21,17 @@ import { isZeroStock, skuKey, stockHealthStatusOf } from "@/lib/stock-health/cal
 import { getLiveStockHealthData } from "@/lib/stock-health/weekly-summary";
 
 /**
- * Test mode (dry run) is ON unless DISCONTINUED_ITEMS_ERP_LIVE is exactly "true". In test mode a
+ * Live (real ERP disabling) on the production deployment; test mode (dry run) everywhere else —
+ * local dev and Vercel previews — so nobody disables real items while developing. In test mode a
  * button click is saved (marked as a dry run) but no ERP is called.
+ * DISCONTINUED_ITEMS_ERP_LIVE overrides it if set: "true" = live, "false" = test (e.g. to switch
+ * production back to test mode without a code change).
  */
 export function isDiscontinueTestMode(): boolean {
-  return process.env.DISCONTINUED_ITEMS_ERP_LIVE?.trim().toLowerCase() !== "true";
+  const override = process.env.DISCONTINUED_ITEMS_ERP_LIVE?.trim().toLowerCase();
+  if (override === "true") return false;
+  if (override === "false") return true;
+  return process.env.VERCEL_ENV !== "production";
 }
 
 export class PurchasingApprovalError extends Error {
