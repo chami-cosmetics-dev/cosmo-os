@@ -1,8 +1,11 @@
 import type { Prisma } from "@prisma/client"
 
+import { saleBusinessLabel } from "@/lib/customer-insight/invoices"
+import type { AllocatedMerchantRosterMatch } from "@/lib/reports/allocated-merchant-format"
 import {
   createOrderInvoiceItemRow,
   createOrderInvoiceRow,
+  formatDumpContactCsvFields,
   getOrderInvoiceCsvHeaders,
   getOrderInvoiceItemCsvHeaders,
   resolveDumpPaymentGateway,
@@ -11,7 +14,24 @@ import {
 } from "@/lib/reports/order-dump"
 
 export const ADAPT_HISTORY_DATA_SOURCE = "Adapt history"
+export const FILE_IMPORT_DATA_SOURCE = "File import"
+export const COSMETICS_IMPORT_DATA_SOURCE = "Cosmetics"
 export const COSMO_OS_DATA_SOURCE = "Cosmo OS"
+
+/** Dump source_name + data_source from AdaptPurchaseHistory.origin. */
+export function adaptDumpSourceLabels(
+  origin?: string | null,
+  importBatchId?: string | null,
+): { sourceName: string; dataSource: string } {
+  const business = saleBusinessLabel(origin, importBatchId)
+  if (business === "File import") {
+    return { sourceName: "File import", dataSource: FILE_IMPORT_DATA_SOURCE }
+  }
+  if (business === "Cosmetics") {
+    return { sourceName: "Cosmetics", dataSource: COSMETICS_IMPORT_DATA_SOURCE }
+  }
+  return { sourceName: "adapt", dataSource: ADAPT_HISTORY_DATA_SOURCE }
+}
 
 export const ADAPT_DUMP_PAGE_SIZE = 400
 
@@ -38,11 +58,16 @@ export type AdaptDumpInvoiceInput = {
   merchantKnownName: string | null
   financialStatus: string | null
   lineItems: Prisma.JsonValue | null
+  /** adapt | vault_supplement_import | vault_file_import */
+  origin?: string | null
+  importBatchId?: string | null
   contact: {
     name: string | null
     phoneNumber?: string | null
     email?: string | null
     address?: string | null
+    lastPurchaseAt?: Date | null
+    assignedMerchant?: string | null
   } | null
 }
 
@@ -232,8 +257,11 @@ export function mapAdaptInvoiceToDumpInvoiceRow(
   input: AdaptDumpInvoiceInput,
   catalog: Map<string, AdaptCatalogHit> = new Map(),
   vendorNames: string[] = [],
+  aliasToRoster?: Map<string, AllocatedMerchantRosterMatch> | null,
 ): HistoricalInvoiceCsvRow {
   const { products, merchantCoupon, posSale, shippingTotal } = splitAdaptLines(input.lineItems)
+  const { sourceName, dataSource } = adaptDumpSourceLabels(input.origin, input.importBatchId)
+  const contactFields = formatDumpContactCsvFields(input.contact, aliasToRoster)
   const invoiceNo = input.salesInvoiceNo?.trim() || ""
   const invoiceTotal = amountToNumber(input.ttlAmount)
   let lineTotal = 0
@@ -256,7 +284,7 @@ export function mapAdaptInvoiceToDumpInvoiceRow(
   const row = createOrderInvoiceRow({
     invoiceNo,
     erpInvoiceId: input.salesInvoiceMasterId?.trim() || null,
-    sourceName: "adapt",
+    sourceName,
     merchantCouponCode: merchantCoupon || null,
     couponCode: merchantCoupon || null,
     merchantName: input.merchantKnownName?.trim() ?? "",
@@ -294,23 +322,28 @@ export function mapAdaptInvoiceToDumpInvoiceRow(
     shippingRule: null,
     createdBy: "",
     kokoRefNumber: "",
+    lastPurchaseDate: contactFields.lastPurchaseDate,
+    allocatedMerchant: contactFields.allocatedMerchant,
   })
 
   row.status = "Completed"
   row.payment_status = financialStatus
   row.fulfillment_status = ""
   row.pos_sale = posSale ? "1" : "0"
-  row.source_name = "adapt"
+  row.source_name = sourceName
 
-  return { ...row, data_source: ADAPT_HISTORY_DATA_SOURCE }
+  return { ...row, data_source: dataSource }
 }
 
 export function mapAdaptInvoiceToDumpItemRows(
   input: AdaptDumpInvoiceInput,
   catalog: Map<string, AdaptCatalogHit> = new Map(),
   vendorNames: string[] = [],
+  aliasToRoster?: Map<string, AllocatedMerchantRosterMatch> | null,
 ): HistoricalInvoiceItemCsvRow[] {
   const { products, merchantCoupon, posSale } = splitAdaptLines(input.lineItems)
+  const { sourceName, dataSource } = adaptDumpSourceLabels(input.origin, input.importBatchId)
+  const contactFields = formatDumpContactCsvFields(input.contact, aliasToRoster)
   const invoiceNo = input.salesInvoiceNo?.trim() || ""
   const invoiceTotal = amountToNumber(input.ttlAmount)
   const customerName = input.contact?.name?.trim() ?? ""
@@ -339,7 +372,7 @@ export function mapAdaptInvoiceToDumpItemRows(
     const row = createOrderInvoiceItemRow({
       invoiceNo,
       erpInvoiceId,
-      sourceName: "adapt",
+      sourceName,
       merchantCouponCode: merchantCoupon || null,
       couponCode: null,
       createdAt: input.invoiceDate,
@@ -366,16 +399,18 @@ export function mapAdaptInvoiceToDumpItemRows(
       merchantName,
       createdBy: "",
       kokoRefNumber: "",
+      lastPurchaseDate: contactFields.lastPurchaseDate,
+      allocatedMerchant: contactFields.allocatedMerchant,
     })
 
     row.status = "Completed"
     row.payment_status = financialStatus
     row.fulfillment_status = ""
     row.pos_sale = posSale ? "1" : "0"
-    row.source_name = "adapt"
+    row.source_name = sourceName
     row.grand_total = money(invoiceTotal)
 
-    return { ...row, data_source: ADAPT_HISTORY_DATA_SOURCE }
+    return { ...row, data_source: dataSource }
   })
 }
 

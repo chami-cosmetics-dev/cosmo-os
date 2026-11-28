@@ -8,6 +8,8 @@ import { resolveStoredCancelReason } from "@/lib/order-cancel-reason";
 import { isMintpayGateway } from "@/lib/payment-gateway-match";
 import { formatAppIsoTime } from "@/lib/format-datetime";
 import { formatReportPhone } from "@/lib/phone-lookup";
+import { formatStoredAllocatedMerchant } from "@/lib/reports/allocated-merchant-format";
+import type { AllocatedMerchantRosterMatch } from "@/lib/reports/allocated-merchant-format";
 import { buildCsv, escapeCsvCell, formatCsvHeader, formatIsoDate } from "@/lib/reports/csv";
 
 function formatSourceName(sourceName: string): string {
@@ -133,6 +135,7 @@ export function resolveDumpPaymentGateway(input: {
   paymentEntryModes?: Array<string | null | undefined> | null;
   rawPayload?: unknown;
   rawPaymentContext?: unknown;
+  financialStatus?: string | null;
 }) {
   const candidates = [
     input.paymentGatewayPrimary,
@@ -148,6 +151,9 @@ export function resolveDumpPaymentGateway(input: {
     if (isBlankPaymentLabel(candidate)) continue;
     return candidate.trim();
   }
+
+  // Last resort so paid rows are not blank when ERP/Shopify never stored a mode.
+  if (input.financialStatus?.trim().toLowerCase() === "paid") return "Paid";
 
   return "";
 }
@@ -222,6 +228,34 @@ export function resolveInvoiceStatus(input: {
   })[0]?.label ?? "";
 }
 
+export type DumpContactCsvFields = {
+  lastPurchaseDate: string;
+  allocatedMerchant: string;
+};
+
+export const EMPTY_DUMP_CONTACT_CSV_FIELDS: DumpContactCsvFields = {
+  lastPurchaseDate: "",
+  allocatedMerchant: "",
+};
+
+/** Contact Master last purchase + allocated merchant for invoice dumps. */
+export function formatDumpContactCsvFields(
+  contact: {
+    lastPurchaseAt?: Date | null;
+    assignedMerchant?: string | null;
+  } | null | undefined,
+  aliasToRoster?: Map<string, AllocatedMerchantRosterMatch> | null,
+): DumpContactCsvFields {
+  if (!contact) return { ...EMPTY_DUMP_CONTACT_CSV_FIELDS };
+  return {
+    lastPurchaseDate: formatIsoDate(contact.lastPurchaseAt ?? null),
+    allocatedMerchant: formatStoredAllocatedMerchant(
+      contact.assignedMerchant,
+      aliasToRoster,
+    ),
+  };
+}
+
 export type OrderInvoiceCsvRow = {
   invoice_no: string;
   erp_invoice_id: string;
@@ -230,6 +264,8 @@ export type OrderInvoiceCsvRow = {
   customer_phone: string;
   shipping_phone: string;
   customer_email: string;
+  last_purchase_date: string;
+  allocated_merchant: string;
   billing_address: string;
   shipping_address: string;
   fulfillment_status: string;
@@ -278,6 +314,8 @@ export type OrderInvoiceItemCsvRow = {
   customer_name: string;
   customer_email: string;
   customer_phone: string;
+  last_purchase_date: string;
+  allocated_merchant: string;
   sku: string;
   barcode: string;
   brand: string;
@@ -321,6 +359,8 @@ const ORDER_INVOICE_HEADERS = [
   "grand_total",
   "item_count",
   "customer_email",
+  "last_purchase_date",
+  "allocated_merchant",
   "invoice_date",
   "month",
   "merchant",
@@ -364,6 +404,8 @@ const ORDER_INVOICE_ITEM_HEADERS = [
   "customer_name",
   "customer_email",
   "customer_phone",
+  "last_purchase_date",
+  "allocated_merchant",
   "sku",
   "barcode",
   "brand",
@@ -526,6 +568,8 @@ export function createOrderInvoiceRow(input: {
   cancelReason?: string | null;
   returnCancelRemark?: string | null;
   returnRemark?: string | null;
+  lastPurchaseDate?: string | null;
+  allocatedMerchant?: string | null;
 }): OrderInvoiceCsvRow {
   const sourceName = formatSourceName(input.sourceName);
   const completedAt = resolveDumpCompletedAt(input);
@@ -541,6 +585,8 @@ export function createOrderInvoiceRow(input: {
     customer_phone: formatReportPhone(input.customerPhone),
     shipping_phone: formatReportPhone(input.shippingPhone),
     customer_email: input.customerEmail ?? "",
+    last_purchase_date: input.lastPurchaseDate?.trim() ?? "",
+    allocated_merchant: input.allocatedMerchant?.trim() ?? "",
     billing_address: input.billingAddress,
     shipping_address: input.shippingAddress,
     fulfillment_status: resolveExportFulfillmentStatus(input),
@@ -612,6 +658,8 @@ export function createOrderInvoiceItemRow(input: {
   cancelReason?: string | null;
   returnCancelRemark?: string | null;
   returnRemark?: string | null;
+  lastPurchaseDate?: string | null;
+  allocatedMerchant?: string | null;
 }): OrderInvoiceItemCsvRow {
   return {
     invoice_no: input.invoiceNo,
@@ -624,6 +672,8 @@ export function createOrderInvoiceItemRow(input: {
     customer_name: input.customerName,
     customer_email: input.customerEmail ?? "",
     customer_phone: formatReportPhone(input.customerPhone),
+    last_purchase_date: input.lastPurchaseDate?.trim() ?? "",
+    allocated_merchant: input.allocatedMerchant?.trim() ?? "",
     sku: input.sku ?? "",
     barcode: input.barcode ?? "",
     brand: input.brand ?? "",

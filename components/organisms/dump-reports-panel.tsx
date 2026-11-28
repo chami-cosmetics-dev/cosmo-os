@@ -6,6 +6,13 @@ import { Database, History, Sparkles } from "lucide-react";
 import { DumpDownloadButton } from "@/components/molecules/dump-download-button";
 import type { ReportDownloadLogRecord } from "@/lib/report-download-log";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { REPORT_DUMP_PERMISSIONS } from "@/lib/report-permissions";
 import { formatAppDateTime } from "@/lib/format-datetime";
 
@@ -73,11 +80,48 @@ function ReportRow({ title, subtitle, actions }: { title: string; subtitle: stri
 
 export function DumpReportsPanel({ historicalYears, permissionKeys, recentLogs = [] }: DumpReportsPanelProps) {
   const [busyHref, setBusyHref] = useState<string | null>(null);
+  const sortedYears = [...historicalYears].sort((a, b) => a - b);
+  const defaultFromYear = sortedYears[0] ?? new Date().getFullYear();
+  const defaultToYear = sortedYears[sortedYears.length - 1] ?? defaultFromYear;
+  const [rangeFromYear, setRangeFromYear] = useState(String(defaultFromYear));
+  const [rangeToYear, setRangeToYear] = useState(String(defaultToYear));
   const onBusyChange = (href: string, busy: boolean) => setBusyHref(busy ? href : null);
   const can = (permission: string) => permissionKeys.includes(permission);
   const allowedActions = (actions: ReportAction[]) => actions.filter((action) => can(action.permission));
   const canHistoricalInvoiceItem = can(REPORT_DUMP_PERMISSIONS.historicalInvoiceItem);
   const canHistoricalInvoice = can(REPORT_DUMP_PERMISSIONS.historicalInvoice);
+
+  const fromYearNum = Number(rangeFromYear);
+  const toYearNum = Number(rangeToYear);
+  const rangeValid =
+    Number.isFinite(fromYearNum) &&
+    Number.isFinite(toYearNum) &&
+    fromYearNum <= toYearNum;
+  const rangeQuery = rangeValid
+    ? `range=custom&from=${yearStart(fromYearNum)}&to=${yearEnd(toYearNum)}`
+    : null;
+  const rangeInvoiceItemHref = rangeQuery
+    ? `/api/admin/reports/orders?report=invoice-item&${rangeQuery}`
+    : "";
+  const rangeInvoiceHref = rangeQuery
+    ? `/api/admin/reports/orders?report=invoice&${rangeQuery}`
+    : "";
+
+  const handleRangeFromChange = (value: string) => {
+    setRangeFromYear(value);
+    const nextFrom = Number(value);
+    if (Number.isFinite(nextFrom) && nextFrom > Number(rangeToYear)) {
+      setRangeToYear(value);
+    }
+  };
+
+  const handleRangeToChange = (value: string) => {
+    setRangeToYear(value);
+    const nextTo = Number(value);
+    if (Number.isFinite(nextTo) && nextTo < Number(rangeFromYear)) {
+      setRangeFromYear(value);
+    }
+  };
 
   return (
     <DumpBusyContext.Provider value={{ busyHref, onBusyChange }}>
@@ -206,6 +250,82 @@ export function DumpReportsPanel({ historicalYears, permissionKeys, recentLogs =
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 p-5">
+              {(canHistoricalInvoiceItem || canHistoricalInvoice) && sortedYears.length > 0 ? (
+                <div className="flex flex-col gap-3 rounded-2xl border border-border/70 bg-background/80 p-4">
+                  <div className="space-y-1">
+                    <p className="font-medium text-foreground">Date range download</p>
+                    <p className="text-sm text-muted-foreground">
+                      Pick From / To years (example 2019–{defaultToYear}) and download one combined file.
+                    </p>
+                  </div>
+                  <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-end lg:justify-between">
+                    <div className="flex flex-wrap gap-3">
+                      <div className="space-y-1.5">
+                        <label htmlFor="historical-from-year" className="text-xs font-medium text-muted-foreground">
+                          From year
+                        </label>
+                        <Select value={rangeFromYear} onValueChange={handleRangeFromChange}>
+                          <SelectTrigger
+                            id="historical-from-year"
+                            className="w-[8.5rem]"
+                            aria-label="From year"
+                          >
+                            <SelectValue placeholder="From" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {sortedYears.map((year) => (
+                              <SelectItem key={`from-${year}`} value={String(year)}>
+                                {year}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1.5">
+                        <label htmlFor="historical-to-year" className="text-xs font-medium text-muted-foreground">
+                          To year
+                        </label>
+                        <Select value={rangeToYear} onValueChange={handleRangeToChange}>
+                          <SelectTrigger
+                            id="historical-to-year"
+                            className="w-[8.5rem]"
+                            aria-label="To year"
+                          >
+                            <SelectValue placeholder="To" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {sortedYears.map((year) => (
+                              <SelectItem key={`to-${year}`} value={String(year)}>
+                                {year}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {canHistoricalInvoiceItem && rangeInvoiceItemHref ? (
+                        <DumpDownloadButton
+                          href={rangeInvoiceItemHref}
+                          label={`Invoice Item Details (${fromYearNum}–${toYearNum})`}
+                          className="bg-sky-500 hover:bg-sky-600"
+                          disabled={busyHref !== null && busyHref !== rangeInvoiceItemHref}
+                          onBusyChange={(busy) => onBusyChange(rangeInvoiceItemHref, busy)}
+                        />
+                      ) : null}
+                      {canHistoricalInvoice && rangeInvoiceHref ? (
+                        <DumpDownloadButton
+                          href={rangeInvoiceHref}
+                          label={`Invoice Details (${fromYearNum}–${toYearNum})`}
+                          className="bg-amber-500 hover:bg-amber-600"
+                          disabled={busyHref !== null && busyHref !== rangeInvoiceHref}
+                          onBusyChange={(busy) => onBusyChange(rangeInvoiceHref, busy)}
+                        />
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+              ) : null}
               {historicalYears.map((year) => {
                 const historicalQuery = `range=custom&from=${yearStart(year)}&to=${yearEnd(year)}`;
                 const historicalInvoiceItemHref = `/api/admin/reports/orders?report=invoice-item&${historicalQuery}`;
@@ -238,6 +358,7 @@ export function DumpReportsPanel({ historicalYears, permissionKeys, recentLogs =
               })}
               <div className="rounded-2xl border border-border/70 bg-background/70 p-4 text-sm text-muted-foreground">
                 Year-by-year files use calendar-year ranges and include Adapt history plus live Cosmo orders.
+                Range download uses the same API with From–To spanning every selected year in one file.
                 Overlapping 2026 rows can appear in both sources — use the data_source column to tell them apart.
               </div>
             </CardContent>

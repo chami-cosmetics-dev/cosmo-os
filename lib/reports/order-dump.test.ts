@@ -154,6 +154,16 @@ describe("resolveDumpPaymentGateway", () => {
       }),
     ).toBe("Cash");
   });
+
+  it("falls back to Paid when financialStatus is paid and no mode exists", () => {
+    expect(
+      resolveDumpPaymentGateway({
+        paymentGatewayPrimary: null,
+        paymentGatewayNames: [],
+        financialStatus: "paid",
+      }),
+    ).toBe("Paid");
+  });
 });
 
 describe("resolveDumpCompletedAt", () => {
@@ -342,6 +352,10 @@ describe("dump cancel_reason column", () => {
     const item = getOrderInvoiceItemCsvHeaders();
     expect(invoice.at(-1)).toBe("cancel_reason");
     expect(item.at(-1)).toBe("cancel_reason");
+    expect(invoice).toContain("last_purchase_date");
+    expect(invoice).toContain("allocated_merchant");
+    expect(item).toContain("last_purchase_date");
+    expect(item).toContain("allocated_merchant");
   });
 });
 
