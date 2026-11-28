@@ -15,6 +15,7 @@ const db = vi.hoisted(() => ({
   orderLineItem: { count: vi.fn() },
   adaptPurchaseHistory: { count: vi.fn(), findMany: vi.fn() },
   productItem: { findMany: vi.fn() },
+  vendor: { findMany: vi.fn() },
   user: { findMany: vi.fn() },
   auditLog: { findMany: vi.fn() },
 }));
@@ -48,7 +49,13 @@ const imported = {
   locationName: "Legacy Location",
   companyLocation: null,
   company: { name: "Company A" },
-  contact: { companyId, name: "Legacy Customer", phoneNumber: "0770000000", email: "legacy@example.com" },
+  contact: {
+    companyId,
+    name: "Legacy Customer",
+    phoneNumber: "0770000000",
+    email: "legacy@example.com",
+    address: null,
+  },
   lineItems: [{ id: "line-1", itemCode: "SKU-1", itemName: "Legacy Item", quantity: 2, unitPrice: "447.75" }],
 };
 
@@ -74,6 +81,7 @@ describe("year-by-year invoice dumps", () => {
     db.order.findMany.mockResolvedValue([]);
     db.adaptPurchaseHistory.findMany.mockResolvedValue([imported]);
     db.productItem.findMany.mockResolvedValue([]);
+    db.vendor.findMany.mockResolvedValue([{ name: "OGX" }, { name: "The Ordinary" }]);
     db.user.findMany.mockResolvedValue([]);
     db.auditLog.findMany.mockResolvedValue([]);
   });

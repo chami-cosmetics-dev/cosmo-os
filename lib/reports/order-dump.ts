@@ -62,6 +62,95 @@ export function summarizePaymentGateway(value: string) {
   return trimmed;
 }
 
+const BLANK_PAYMENT_LABELS = new Set([
+  "",
+  "n/a",
+  "na",
+  "none",
+  "null",
+  "-",
+  "unknown",
+]);
+
+/** ERP / Adapt placeholders that mean “no payment type recorded”. */
+export function isBlankPaymentLabel(value: string | null | undefined) {
+  return BLANK_PAYMENT_LABELS.has(value?.trim().toLowerCase() ?? "");
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function paymentModesFromRawPayload(rawPayload: unknown): string[] {
+  const top = asRecord(rawPayload);
+  if (!top) return [];
+  const data = asRecord(top.data) ?? top;
+  const modes: string[] = [];
+
+  const payments = data.payments;
+  if (Array.isArray(payments)) {
+    for (const row of payments) {
+      const payment = asRecord(row);
+      if (!payment) continue;
+      for (const key of ["mode_of_payment", "type", "mode", "payment_method"] as const) {
+        const raw = payment[key];
+        if (typeof raw === "string" && !isBlankPaymentLabel(raw)) {
+          modes.push(raw.trim());
+          break;
+        }
+      }
+    }
+  }
+
+  for (const key of ["custom_payment_type", "payment_type", "mode_of_payment"] as const) {
+    const raw = data[key];
+    if (typeof raw === "string" && !isBlankPaymentLabel(raw)) modes.push(raw.trim());
+  }
+
+  return modes;
+}
+
+function paymentModesFromAdaptContext(rawPaymentContext: unknown): string[] {
+  const row = asRecord(rawPaymentContext);
+  if (!row) return [];
+  const parts: string[] = [];
+  if (row.cash) parts.push("Cash");
+  if (row.card) parts.push("Card");
+  return parts;
+}
+
+/**
+ * Dump payment_gateway source order:
+ * stored gateway → Adapt paymentMethod → OrderPaymentEntry → rawPayload → Adapt cash/card context.
+ * Skips None / N/A placeholders so paid orders can still pick up a real mode.
+ */
+export function resolveDumpPaymentGateway(input: {
+  paymentGatewayPrimary?: string | null;
+  paymentGatewayNames?: string[] | null;
+  paymentMethod?: string | null;
+  paymentEntryModes?: Array<string | null | undefined> | null;
+  rawPayload?: unknown;
+  rawPaymentContext?: unknown;
+}) {
+  const candidates = [
+    input.paymentGatewayPrimary,
+    ...(input.paymentGatewayNames ?? []),
+    input.paymentMethod,
+    ...(input.paymentEntryModes ?? []),
+    ...paymentModesFromRawPayload(input.rawPayload),
+    ...paymentModesFromAdaptContext(input.rawPaymentContext),
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate !== "string") continue;
+    if (isBlankPaymentLabel(candidate)) continue;
+    return candidate.trim();
+  }
+
+  return "";
+}
+
 /**
  * Dump 2 completed_date / completed_time.
  * Prepaid orders stamp invoice complete before delivery. Once delivery is done,

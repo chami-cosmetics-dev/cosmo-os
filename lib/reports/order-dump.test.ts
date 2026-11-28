@@ -20,6 +20,7 @@ import {
   joinDumpCouponCodes,
   resolveDumpCompletedAt,
   resolveDumpMerchantName,
+  resolveDumpPaymentGateway,
 } from "@/lib/reports/order-dump";
 import { getOrderDiscountCouponCode } from "@/lib/order-discount-coupon";
 import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
@@ -121,6 +122,37 @@ describe("resolveDumpMerchantName", () => {
         userToGroup,
       }),
     ).toBe("sandali");
+  });
+});
+
+describe("resolveDumpPaymentGateway", () => {
+  it("falls back to OrderPaymentEntry mode when gateway columns are empty", () => {
+    expect(
+      resolveDumpPaymentGateway({
+        paymentGatewayPrimary: null,
+        paymentGatewayNames: [],
+        paymentEntryModes: ["Credit Card", "Credit Card"],
+      }),
+    ).toBe("Credit Card");
+  });
+
+  it("skips None / N/A placeholders before payment entry modes", () => {
+    expect(
+      resolveDumpPaymentGateway({
+        paymentGatewayPrimary: "None",
+        paymentGatewayNames: ["N/A"],
+        paymentEntryModes: ["Cash"],
+      }),
+    ).toBe("Cash");
+  });
+
+  it("reads Adapt cash/card context when paymentMethod is blank", () => {
+    expect(
+      resolveDumpPaymentGateway({
+        paymentMethod: "N/A",
+        rawPaymentContext: { cash: 1000, card: 0 },
+      }),
+    ).toBe("Cash");
   });
 });
 
