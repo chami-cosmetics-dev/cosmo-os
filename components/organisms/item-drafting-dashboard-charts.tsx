@@ -3,13 +3,13 @@
 import { Donut, type Segment } from "@/components/organisms/stock-health-dashboard";
 import { formatNumber } from "@/components/organisms/sales-budget-table-ui";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import type { ItemDraftingSummary } from "@/lib/discontinued-items/dashboard-summary";
+import type { ItemDraftingSummary, ShopifyDraftGroup } from "@/lib/discontinued-items/dashboard-summary";
 import { cn } from "@/lib/utils";
 
 /** Where a click goes: Purchasing Approval (status filter) or Shopify Draft (Draft column filter). */
 export type DashboardTarget =
   | { tab: "purchasing_approval"; filter: "waiting" | "pending" }
-  | { tab: "shopify_draft"; group: "awaitingDraft" | "awaitingCheck" | "mismatch" };
+  | { tab: "shopify_draft"; group: ShopifyDraftGroup };
 
 const COLORS = {
   yellow: "#f6d98b",
@@ -20,6 +20,7 @@ const COLORS = {
   green: "#9fdcbf",
   grey: "#cbd5e1",
   red: "#f4a3b1",
+  violet: "#c4b5fd",
 };
 
 type LegendSegment = Segment & { explanation: string; target?: DashboardTarget };
@@ -196,6 +197,13 @@ export function ItemDraftingDashboardCharts({
       fill: COLORS.green,
       explanation: "Verified as drafted",
     },
+    {
+      key: "alreadyDraft",
+      label: "Already drafted in Shopify",
+      value: summary.shopify.alreadyDraft,
+      fill: COLORS.violet,
+      explanation: "Already Draft in Shopify when approved, completed by the system",
+    },
   ];
   const after: LegendSegment[] = [
     {
@@ -203,14 +211,14 @@ export function ItemDraftingDashboardCharts({
       label: "Still Drafted",
       value: summary.after.stillDrafted,
       fill: COLORS.green,
-      explanation: "Completed items that are still drafted",
+      explanation: "Drafted items that are still drafted",
     },
     {
       key: "activeAgain",
       label: "Active Again",
       value: summary.after.activeAgain,
       fill: COLORS.red,
-      explanation: "Completed items that became active again",
+      explanation: "Drafted items that became active again",
     },
   ];
 
@@ -220,12 +228,13 @@ export function ItemDraftingDashboardCharts({
     { label: "Awaiting Draft", value: summary.shopify.awaitingDraft, fill: COLORS.yellowDeep, target: shopify[0].target },
     { label: "Mismatch", value: summary.shopify.mismatch, fill: COLORS.red, target: shopify[2].target },
     { label: "Completed", value: summary.shopify.completed, fill: COLORS.green },
+    { label: "Already drafted in Shopify", value: summary.shopify.alreadyDraft, fill: COLORS.violet },
     { label: "Active Again", value: summary.after.activeAgain, fill: COLORS.red },
   ];
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
         {countCards.map((c) => {
           const inner = (
             <>
@@ -274,8 +283,8 @@ export function ItemDraftingDashboardCharts({
         <DoughnutCard
           id="item-drafting-donut-after"
           title="After Drafting"
-          subtitle="Completed items, checked weekly."
-          centreLabel="Completed"
+          subtitle="Completed + already drafted items, checked weekly."
+          centreLabel="Drafted"
           segments={after}
           onOpen={onOpen}
         />

@@ -10,6 +10,7 @@ import type { DashboardTarget } from "@/components/organisms/item-drafting-dashb
 import { ItemDraftingPurchasingApproval } from "@/components/organisms/item-drafting-purchasing-approval";
 import { ItemDraftingShopifyDraft } from "@/components/organisms/item-drafting-shopify-draft";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import type { ShopifyDraftGroup } from "@/lib/discontinued-items/dashboard-summary";
 import {
   ITEM_DRAFTING_TAB_LABELS,
   visibleItemDraftingTabs,
@@ -63,7 +64,7 @@ export function ItemDraftingPanel({
     { filter: "waiting" | "pending"; nonce: number } | undefined
   >();
   const [draftRequest, setDraftRequest] = useState<
-    { group: "awaitingDraft" | "awaitingCheck" | "mismatch"; nonce: number } | undefined
+    { group: ShopifyDraftGroup; nonce: number } | undefined
   >();
   const openTarget = (target: DashboardTarget) => {
     if (!tabs.includes(target.tab)) return; // no access to that tab

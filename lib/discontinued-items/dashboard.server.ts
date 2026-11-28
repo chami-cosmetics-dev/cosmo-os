@@ -1,5 +1,7 @@
 import "server-only";
 
+import { completeAlreadyDraftedItemsSafely } from "@/lib/discontinued-items/already-drafted.server";
+import { ALREADY_DRAFTED_BY } from "@/lib/discontinued-items/already-drafted";
 import type { ItemDraftingDashboardData } from "@/lib/discontinued-items/dashboard";
 import { summarize } from "@/lib/discontinued-items/dashboard-summary";
 import { prisma } from "@/lib/prisma";
@@ -19,6 +21,8 @@ export async function loadItemDraftingDashboard(
 ): Promise<ItemDraftingDashboardData> {
   // Also creates any new rows, so the dashboard and Purchasing Approval list the same items.
   const approval = await loadPurchasingApproval(companyId, { refresh: Boolean(options.refresh) });
+  // Approved items already Draft in Shopify are completed before counting.
+  await completeAlreadyDraftedItemsSafely();
   const [live, ropBySku, saved] = await Promise.all([
     getLiveStockHealthData(companyId),
     loadRopBySku(companyId),
@@ -32,6 +36,7 @@ export async function loadItemDraftingDashboard(
         erp1DisabledDate: true,
         erp2DisabledDate: true,
         draftClickedDate: true,
+        draftClickedBy: true,
         verification: true,
         madeActiveAgain: true,
         draftAttempts: { orderBy: { clickedAt: "desc" }, take: 1, select: { result: true } },
@@ -51,6 +56,7 @@ export async function loadItemDraftingDashboard(
       verification: s.verification,
       madeActiveAgain: s.madeActiveAgain,
       checkFailed: Boolean(s.draftClickedDate) && s.draftAttempts[0]?.result === "CHECK_FAILED",
+      alreadyDrafted: s.draftClickedBy === ALREADY_DRAFTED_BY,
     })),
   );
 

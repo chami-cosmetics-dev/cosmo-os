@@ -3,6 +3,7 @@ import "server-only";
 import type { DiscontinuedSearchConsoleReport, Prisma } from "@prisma/client";
 import * as XLSX from "xlsx-js-style";
 
+import { completeAlreadyDraftedItemsSafely } from "@/lib/discontinued-items/already-drafted.server";
 import {
   clearTestDataIfLive,
   PurchasingApprovalError,
@@ -93,6 +94,8 @@ const round = (value: number, places: number) => Math.round(value * 10 ** places
  */
 export async function loadShopifyDraft(companyId: string): Promise<ShopifyDraftData> {
   await clearTestDataIfLive();
+  // Approved items not checked yet (or whose check failed): already Draft in Shopify → completed.
+  await completeAlreadyDraftedItemsSafely();
   const [items, report] = await Promise.all([
     prisma.discontinuedItem.findMany({
       where: SHOPIFY_DRAFT_WHERE,

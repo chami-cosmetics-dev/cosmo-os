@@ -104,6 +104,8 @@ export async function clearDryRunClicks(): Promise<number> {
         doneDate: stage === "DONE" ? row.doneDate : null,
         // Re-approving later notifies SEO again; a Draft click on a test approval goes too.
         seoNotifiedAt: stage === "SHOPIFY_DRAFT" ? row.seoNotifiedAt : null,
+        // Re-approving later checks Shopify for "already drafted" again.
+        ...(stage === "SHOPIFY_DRAFT" || stage === "DONE" ? {} : { alreadyDraftCheckedAt: null }),
         ...(stage === "SHOPIFY_DRAFT" ? {} : { draftClickedDate: null, draftClickedBy: null }),
         // A row with no clicks left takes fresh values again on the next load.
         ...(erp1 || erp2 ? {} : { disableReason: null }),
@@ -376,5 +378,13 @@ export async function disableDiscontinuedItem(input: {
     });
   });
 
+  if (updated.stage === "SHOPIFY_DRAFT") {
+    // Just approved: if Shopify already shows Draft, the system completes it (never fails the click;
+    // a Shopify error leaves it unchecked and it is retried on the next load / cron).
+    const { completeAlreadyDraftedItemsSafely } = await import("@/lib/discontinued-items/already-drafted.server");
+    await completeAlreadyDraftedItemsSafely({ skus: [updated.sku] });
+    const fresh = await prisma.discontinuedItem.findUnique({ where: { id: updated.id } });
+    if (fresh) return { row: toRow(fresh), testMode };
+  }
   return { row: toRow(updated), testMode };
 }
